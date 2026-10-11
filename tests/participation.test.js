@@ -224,7 +224,7 @@ test('episodeHeadlines: newest first, skipping the current channel and refused a
   const now = T0 + 200 * MIN;
   const heads = episodeHeadlines(state, { excludeChannelId: 'c3', audience: (id) => id !== 'c2', now }, S);
   assert.deepEqual(heads.map((h) => h.id), ['p4', 'p1']);
-  assert.deepEqual(heads[1], { id: 'p1', channelId: 'c1', lastOwnAt: T0, ageMs: 200 * MIN, memberLine: 'πρώτη ερώτηση', selfLine: 'απάντηση o1' });
+  assert.deepEqual(heads[1], { id: 'p1', channelId: 'c1', lastOwnAt: T0, ageMs: 200 * MIN, memberLine: 'πρώτη ερώτηση', selfLine: 'απάντηση o1', memberLines: 'πρώτη ερώτηση', selfLines: 'απάντηση o1' });
   assert.deepEqual(episodeHeadlines(state, { audience: () => true, now }, S).map((h) => h.memberLine), ['γραμμή m4', 'γραμμή m3', null, 'πρώτη ερώτηση']);
   assert.deepEqual(episodeHeadlines(state, { now }, S), [], 'no audience, nothing offered');
 });
@@ -235,6 +235,29 @@ test('episodeHeadlines: lines are cut to 120 characters at a word boundary', () 
   const [head] = episodeHeadlines(state, { audience: () => true, now: T0 }, S);
   assert.ok([...head.selfLine].length <= 120);
   assert.ok(head.selfLine.endsWith('λέξη'));
+});
+
+test('episodeHeadlines: selfLines and memberLines carry every line in order, cut per line and overall', () => {
+  const word = 'λέξη';
+  const long = Array(40).fill(word).join(' ');
+  let state = recordOwnLine(emptyParticipation(), { channelId: 'c1', own: own('o1', 1, { text: 'πρώτη' }), before: [msg('m1', 0, { text: 'ερώτηση' })] }, S, T0);
+  state = recordOwnLine(state, { channelId: 'c1', own: own('o2', 2, { text: long }), before: [msg('m2', 1, { text: long })] }, S, T0);
+  for (let i = 3; i < 12; i += 1) state = recordOwnLine(state, { channelId: 'c1', own: own(`o${i}`, i, { text: long }), before: [msg(`m${i}`, i - 1, { text: long })] }, S, T0);
+  const [head] = episodeHeadlines(state, { audience: () => true, now: T0 + 20 * MIN }, S);
+  assert.ok(head.selfLines.startsWith(`πρώτη / ${word}`), 'own lines in order, joined with a slash');
+  assert.ok([...head.selfLines].length <= 320 && [...head.selfLines].length > 200);
+  assert.ok(head.selfLines.endsWith(word), 'cut at a word boundary');
+  assert.ok(head.memberLines.startsWith(`ερώτηση / ${word}`));
+  assert.ok([...head.memberLines].length <= 200);
+  assert.ok(head.memberLines.endsWith(word));
+  assert.ok(head.selfLines.split(' / ').every((part) => [...part].length <= 90));
+});
+
+test('episodeHeadlines: no member lines gives an empty memberLines', () => {
+  const state = recordOwnLine(emptyParticipation(), { channelId: 'c1', own: own('o1', 1) }, S, T0);
+  const [head] = episodeHeadlines(state, { audience: () => true, now: T0 }, S);
+  assert.equal(head.memberLines, '');
+  assert.equal(head.selfLines, 'απάντηση o1');
 });
 
 // --- selectEpisodes --------------------------------------------------------------

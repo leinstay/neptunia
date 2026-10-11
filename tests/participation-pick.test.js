@@ -98,9 +98,9 @@ test('participationPickAllowed: server reply and spontaneous turns ask; a privat
 
 test('participationEpisodeList: one numbered line per headline with channel, age, the member and the persona', () => {
   const headlines = [
-    { id: 'p2', channelId: 'c3', lastOwnAt: NOW - 30 * MINUTE, ageMs: 30 * MINUTE, memberLine: null, selfLine: 'ωραία λουλούδια' },
-    { id: 'p1', channelId: 'c2', lastOwnAt: NOW - 2 * HOUR, ageMs: 2 * HOUR, memberLine: 'πού είναι το βιβλίο;', selfLine: 'στο ράφι' },
-    { id: 'p9', channelId: 'c9', lastOwnAt: NOW - HOUR, ageMs: HOUR, memberLine: null, selfLine: 'χωρίς όνομα' },
+    { id: 'p2', channelId: 'c3', lastOwnAt: NOW - 30 * MINUTE, ageMs: 30 * MINUTE, memberLine: null, selfLine: 'ωραία λουλούδια', memberLines: '', selfLines: 'ωραία λουλούδια / δεύτερη γραμμή' },
+    { id: 'p1', channelId: 'c2', lastOwnAt: NOW - 2 * HOUR, ageMs: 2 * HOUR, memberLine: 'πού είναι το βιβλίο;', selfLine: 'στο ράφι', memberLines: 'πού είναι το βιβλίο; / ευχαριστώ | πολύ', selfLines: 'στο ράφι' },
+    { id: 'p9', channelId: 'c9', lastOwnAt: NOW - HOUR, ageMs: HOUR, memberLine: null, selfLine: 'χωρίς όνομα', memberLines: '', selfLines: 'χωρίς όνομα' },
   ];
   const { lines, ids } = participationEpisodeList(headlines, {
     state: participationState(),
@@ -108,7 +108,7 @@ test('participationEpisodeList: one numbered line per headline with channel, age
     units: labels.units,
     selfName: 'Zoë',
   });
-  assert.deepEqual(lines, ['1 | #jardin | 30 min |  | Zoë: ωραία λουλούδια', '2 | #journal | 2 h | Ana: πού είναι το βιβλίο; | Zoë: στο ράφι']);
+  assert.deepEqual(lines, ['1 | #jardin | 30 min |  | Zoë: ωραία λουλούδια / δεύτερη γραμμή', '2 | #journal | 2 h | Ana: πού είναι το βιβλίο; / ευχαριστώ / πολύ | Zoë: στο ράφι']);
   assert.deepEqual(ids, ['p2', 'p1'], 'a headline whose channel has no name is left out');
 });
 

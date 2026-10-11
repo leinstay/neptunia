@@ -66,13 +66,16 @@ export function participationPickAllowed({ mode = 'reply', triggerKind = null, p
   return triggerKind !== 'drawFailed';
 }
 
+const noPipes = (text) => String(text ?? '').replaceAll('|', '/');
+
 /**
  * The `<episodes>` lines: one per headline (src/memory/participation.js#episodeHeadlines,
  * newest first), numbered from 1 -- `n | #channel | when | member: line |
  * persona: line`. `when` is the episode's age (formatDuration with `units`);
  * the member part is the first other member's name (from the episode in
- * `state`) and line, empty when the episode has none; the persona part is
- * `selfName` and her first line. A headline whose channel has no name
+ * `state`) and all the members' lines (`memberLines`), empty when the episode
+ * has none; the persona part is `selfName` and all her lines (`selfLines`).
+ * A `|` inside a text becomes `/` so the columns stay readable. A headline whose channel has no name
  * (`channelNameOf`) is left out. Structural fields only: no words of ours.
  * `ids[n - 1]` is the episode of line `n`.
  * @param {object[]} headlines
@@ -88,9 +91,9 @@ export function participationEpisodeList(headlines, { state, channelNameOf, unit
     const name = oneLine(channelNameOf(headline.channelId) ?? '');
     if (!name) continue;
     const member = episodes.get(headline.id)?.messages?.find((m) => !m.self) ?? null;
-    const memberPart = headline.memberLine && member ? `${oneLine(member.name)}: ${headline.memberLine}` : '';
+    const memberPart = headline.memberLines && member ? `${oneLine(member.name)}: ${noPipes(headline.memberLines)}` : '';
     const when = formatDuration(headline.ageMs, units);
-    lines.push(`${ids.length + 1} | #${name} | ${when} | ${memberPart} | ${selfName}: ${headline.selfLine}`);
+    lines.push(`${ids.length + 1} | #${name} | ${when} | ${memberPart} | ${selfName}: ${noPipes(headline.selfLines)}`);
     ids.push(headline.id);
   }
   return { lines, ids };
