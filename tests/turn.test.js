@@ -7634,7 +7634,7 @@ test('runTurn: with image.refine on, the refined picture is posted and turn: dre
   assert.equal(second.reference, `data:image/png;base64,${images.firstPicture.buffer.toString('base64')}`, 'the first picture is the only reference');
   assert.equal(second.userId, null);
   assert.deepEqual(second.overrides, { model: 'openai/refiner', provider: null, timeoutMs: 9000, role: 'refine', counted: false });
-  assert.equal(second.prompt, 'Refine for Bot.\n\nBot wears a green scarf.\n\nme waving', 'refine.md filled like draw.md, appearance for a self picture');
+  assert.equal(second.prompt, 'Refine for Bot.\n\nme waving', 'refine.md filled without the appearance, even for a self picture');
 
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].files.length, 1);
