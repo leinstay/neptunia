@@ -11,25 +11,28 @@ Composition: strong foreground subject, clean silhouette, enough negative space 
 Faces and eyes: expressive, slightly stylised — anime-adjacent proportions (larger eyes, simplified nose and mouth), consistent across pictures of the same character.
 Background: present and grounded — a setting, not a void — but softer in detail than the subject.
 
-## Defects to avoid
+## Structural clarity
 
-Extra or missing fingers, extra limbs, fused or split limbs, hands with the wrong number of joints. Warped or asymmetric faces. Eyes at different sizes or angles unless intended. Garbled or unreadable text (do not render text unless the scene specifically asks for it). Watermarks, signatures, artist credits, borders, frames. Duplicated subjects. Photo-realistic rendering of real people's faces. Repeated identical objects: a prop appears once unless the request asks for multiples, and then every instance differs in detail. No tiled or cloned background elements — signs, screens, cans, plants, posters must not repeat. No wallpaper-like repetition of shapes. Vary the form, size and placement of background details. Separate objects must not merge, fuse, overlap into one shape or grow out of each other (two cans becoming one, a plant sprouting from a pencil cup); each object keeps its own outline and volume. The same rule applies to patterns, textures and motifs: a decorative pattern, print or material belongs to one object — do not reuse the mug's pattern on the books, the bowl and the pencil cup. Different objects get different materials, colours and ornament, or plain surfaces.
+Anatomy is coherent: faces, hands, fingers, limbs and joints form plausible shapes and poses.
+Accessories read at a glance: each is one complete object, worn the ordinary way, with the strap, band or clip that holds it in place easy to follow.
+A held object stays distinct from the hand holding it and from the clothing around it.
+Objects may overlap and hide parts of each other; the visible parts of each still add up to one separate object.
+Secondary props stay simple and subordinate to the action.
+Nothing is duplicated by accident: the main subject and each prop the request names appear once unless it asks for more. Repetition that belongs to the setting, such as windows or floor tiles, is fine.
+Clothing is built the way it could be sewn and fits the pose and the activity: one layer of each kind, never a hood inside a hood.
+No text unless the request asks for it. No watermarks, signatures or borders.
 
 ## Content restrictions
 
-No real person's likeness. No text in the image unless the request explicitly asks for it. Nothing sexual. Nothing hateful.
+No real person's likeness. Nothing sexual. Nothing hateful.
 
 ## Character appearance
 
 If a character description follows, it is the exact look of {{name}} — follow it over the request's wording when they conflict.
 
-The appearance text and any reference image define identity only: face shape, hair, eye colour, build, and signature clothing. Expression, mood, pose, camera angle, framing and background come from the request, not from the reference — never copy, trace or restage the reference image. When the request implies a different outfit or state (sleeping, soaked, in armour, in pyjamas), keep the identity and dress for the scene; carry signature items only when they naturally fit.
+The character description and any reference image give identity: the structure of the face, hair, eye colour, build. Expression, gaze, head angle, pose, framing, outfit and setting come from the request; the reference is one posed moment, so none of these is inherited from it by default. When the request describes the face, draw it as described; when it does not, give it the expression that fits the action and the mood.
 
-When the request does not specify an expression, choose one that fits the action and mood of the scene — reading calls for calm absorption, losing a game for anger, falling asleep for closed eyes. Never default to the expression in the reference image; that is a posed snapshot, not a universal face.
-
-The reference image's facial expression, mouth shape, gaze direction and head angle are a snapshot of one moment — never reproduce them. The face in the picture is built from the brief's description alone: when the brief says the mouth is closed, render it closed; when it describes a smirk, show a smirk. The reference supplies the face's structure, colouring and hair — nothing about how the face is set.
-
-When the request does not specify clothing, dress the character for the setting, season and activity: a beach in heat calls for summer clothes, snow and cold for winter layers, water for swimwear. At home — own room, bed, sofa, kitchen, bathroom — the character wears home clothes: no outdoor shoes, no jacket, no bag; feet bare, in socks or slippers; sleepwear at night. The usual outfit is the default for going out: streets, shops, cafés, school or work, other people's places, at mild temperature. Signature small items — a hair clip, a pendant — may stay whenever they plausibly fit the scene.
+When the request does not specify clothing, dress the character for the setting, season and activity: a beach in heat calls for summer clothes, snow and cold for winter layers, water for swimwear. At home — own room, bed, sofa, kitchen, bathroom — the character wears home clothes: no outdoor shoes, no jacket, no bag; feet bare, in socks or slippers; sleepwear at night. The usual outfit is the default for going out: streets, shops, cafés, school or work, other people's places, at mild temperature. Only the items the character description marks as carrying over may stay with other clothes, and only where they plausibly fit the scene; everything else that belongs to the usual outfit stays with that outfit.
 
 {{appearance}}
 
