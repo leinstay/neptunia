@@ -28,6 +28,9 @@
 // items go to the summary as `<memory>`: they alone are enough to ask it,
 // but they are notes, not chat, so they are never returned verbatim.
 // Logs carry counts, ids and codes only: never a form, a name or a message.
+// What a run found and chose is diagnosed from the trace file instead
+// (`features.recallTrace`, data/guilds/<id>/recall-trace.jsonl, see traceLine):
+// it is memory about real people, kept under data/ only.
 
 import { log } from '../log.js';
 import { audienceOf } from '../discord/collect.js';
@@ -43,13 +46,17 @@ import { pullPictures } from './pull.js';
 import {
   buildRecallRequest,
   clusterHits,
+  clusterScore,
   cutStretch,
+  dropChatHits,
   fallbackWindow,
   matchMemory,
   mergeWindows,
   parseRecallAnswer,
   queryKey,
+  rankClusters,
   rareFormKeys,
+  recallContext,
   recallSettings,
   renderRecallWindows,
   sampleOffsets,
@@ -93,7 +100,63 @@ function hitFrom(raw) {
 
 /** A fresh stats record of one run. */
 function emptyStats() {
-  return { memory: 0, planned: 0, queries: 0, failed: 0, hits: 0, kept: 0, clusters: 0, windows: 0, summary: null, ms: 0 };
+  return { memory: 0, planned: 0, queries: 0, failed: 0, hits: 0, inChatDropped: 0, kept: 0, clusters: 0, selfClusters: 0, windows: 0, summary: null, ms: 0 };
+}
+
+/** An epoch-ms time as an ISO string, or null. */
+function isoOf(ms) {
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+/**
+ * A fresh trace record of one run (`features.recallTrace`), filled as the
+ * run goes (clusters, summary) and completed by traceLine.
+ */
+function newTrace({ started, channelId, candidate, server }) {
+  const from = Number.isFinite(server?.from) ? server.from : null;
+  const to = Number.isFinite(server?.to) ? server.to : null;
+  return {
+    at: isoOf(started),
+    channelId,
+    triggerId: typeof candidate?.id === 'string' ? candidate.id : null,
+    forms: Array.isArray(server?.forms) ? [...server.forms] : [],
+    who: Array.isArray(server?.who) ? [...server.who] : [],
+    when: from !== null || to !== null ? { from: isoOf(from), to: isoOf(to) } : null,
+    clusters: [],
+    summary: { answer: null, stretch: null, text: null },
+  };
+}
+
+/**
+ * The trace line of a finished run: `{ at, channelId, triggerId, forms, who,
+ * when, hits, inChatDropped, clusters, summary, lookupChars }`. `summary`
+ * `{ answer, stretch, text }`: `answer` `text` | `nothing` | `fallback` (null
+ * when no summary was asked or reached), `stretch` null or `{ n, channelId,
+ * channelName, lines }` (the `<found>` section number and the very lines the
+ * persona gets), `text` the summary's text. `lookupChars`: the characters
+ * the run hands to the turn (the text and the stretch lines; the turn's own
+ * labels around them not counted).
+ */
+function traceLine(trace, out) {
+  const text = typeof out?.text === 'string' ? out.text : null;
+  const stretch = out?.stretch ?? null;
+  return {
+    at: trace.at,
+    channelId: trace.channelId,
+    triggerId: trace.triggerId,
+    forms: trace.forms,
+    who: trace.who,
+    when: trace.when,
+    hits: out?.stats?.hits ?? 0,
+    inChatDropped: out?.stats?.inChatDropped ?? 0,
+    clusters: trace.clusters,
+    summary: {
+      answer: trace.summary.answer,
+      stretch: stretch ? { n: trace.summary.stretch, channelId: stretch.channelId, channelName: stretch.channelName ?? null, lines: stretch.lines } : null,
+      text,
+    },
+    lookupChars: [...(text ?? '')].length + [...(stretch?.lines ?? '')].length,
+  };
 }
 
 /** The kind of a failed summary request: `timeout` for a request cut at its limit, else `failed`. */
@@ -261,6 +324,21 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
     }
   }
 
+  /**
+   * The run's trace line appended to data/guilds/<guildId>/recall-trace.jsonl
+   * (store.appendRecallTrace, capped at `maxLines`); nothing without that
+   * store call. A write that throws logs `recall: trace failed` and costs the
+   * run nothing.
+   */
+  function writeTrace({ guildId, channelId, trace, out, maxLines }) {
+    if (typeof store.appendRecallTrace !== 'function' || !guildId) return;
+    try {
+      store.appendRecallTrace(guildId, traceLine(trace, out), { maxLines });
+    } catch (err) {
+      log.warn('recall: trace failed', { channel: channelId, name: err?.name ?? null });
+    }
+  }
+
   /** The cached captions of the windows' pictures and custom emoji, or undefined (cache only, never a request). */
   function cachedCaptions(config, guildId, windows) {
     if (config.features?.mediaDescriptions !== true || typeof describer?.cachedDescriptions !== 'function') return undefined;
@@ -279,9 +357,11 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
    * (the run was abandoned). The Discord searches carry `searchSignal`
    * (aborted with `signal`, or at the PREPARE_SHARE mark: a search cut there
    * counts as failed and ends the searching). Once the windows are read,
-   * `progress.fallback(kind)` gives the answer without a summary.
+   * `progress.fallback(kind)` gives the answer without a summary. `trace`
+   * (the run's trace record, or null with `features.recallTrace` off) gets
+   * the clusters and the summary's answer as they are known.
    */
-  async function recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, candidate, server, signal, searchSignal, progress, started, stats }) {
+  async function recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, context, contextDescriptions, candidate, server, signal, searchSignal, progress, started, stats, trace }) {
     const channelId = channel.id;
     const searchUntil = started + settings.timeoutMs * SEARCH_SHARE;
     let counted = false;
@@ -372,9 +452,10 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
       }
       return judged.get(id);
     };
-    const kept = [...hits.values()].filter(
-      (hit) => Number.isFinite(hit.ts) && !(hit.bot && hit.authorId !== selfId) && !ownIds.has(hit.id) && sourceOf(hit.channelId) !== null,
-    );
+    // The turn's own chat first, before clustering: those lines are in `<chat>` already.
+    const unseen = dropChatHits([...hits.values()], ownIds);
+    stats.inChatDropped = unseen.dropped;
+    const kept = unseen.hits.filter((hit) => Number.isFinite(hit.ts) && !(hit.bot && hit.authorId !== selfId) && sourceOf(hit.channelId) !== null);
     stats.kept = kept.length;
     for (const person of people) {
       const theirs = kept.filter((hit) => hit.authorId === person.id);
@@ -383,31 +464,57 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
       person.username ||= theirs.find((hit) => hit.username)?.username ?? '';
     }
 
-    // 5. Clusters (a form whose search totals at most `recall.rareHits` is rare), 6. a window
-    // around each (other bots and the turn's own chat left out).
-    const clusters = clusterHits(kept, {
+    // 5. Clusters (a form whose search totals at most `recall.rareHits` is rare): `recall.selfExtra`
+    // more than will be kept, 6. a window around each (other bots and the turn's own chat left
+    // out; a window that reached into the chat is marked `overlapsChat`, one holding the persona's
+    // own line `self`), 7. the final `recall.maxClusters` re-ranked with `recall.selfBonus` for `self`.
+    const candidates = clusterHits(kept, {
       gapMinutes: settings.clusterGapMinutes,
-      maxClusters: settings.maxClusters,
+      maxClusters: settings.maxClusters + settings.selfExtra,
       keepOldest: settings.keepOldest,
       rareForms: rareFormKeys(totals, settings.rareHits),
     });
-    stats.clusters = clusters.length;
     const normalizeOptions = { selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites };
     const fetched = await Promise.all(
-      clusters.map(async (cluster) => {
+      candidates.map(async (cluster) => {
         const source = judged.get(cluster.channelId);
         const messages = await fetchAround(source, cluster.middleId, settings.windowMessages, normalizeOptions);
         if (!messages) return null;
+        const shown = messages.filter((m) => !m.bot && !ownIds.has(m.id));
+        const marked = { ...cluster, self: shown.some((m) => m.self === true), overlapsChat: messages.some((m) => ownIds.has(m.id)) };
         return {
-          channelId: cluster.channelId,
-          channelName: source.name ?? null,
-          messages: messages.filter((m) => !m.bot && !ownIds.has(m.id)),
-          hitIds: cluster.ids,
+          cluster: marked,
+          window: { channelId: cluster.channelId, channelName: source.name ?? null, messages: shown, hitIds: cluster.ids, overlapsChat: marked.overlapsChat },
         };
       }),
     );
     if (signal.aborted) return null;
-    const windows = mergeWindows(fetched.filter(Boolean));
+    const ready = fetched.filter(Boolean);
+    const chosen = rankClusters(
+      ready.map((entry) => entry.cluster),
+      { maxClusters: settings.maxClusters, keepOldest: settings.keepOldest, selfBonus: settings.selfBonus },
+    );
+    const windowOf = new Map(ready.map((entry) => [entry.cluster, entry.window]));
+    stats.clusters = chosen.length;
+    stats.selfClusters = chosen.filter((cluster) => cluster.self).length;
+    if (trace) {
+      const chosenSet = new Set(chosen);
+      const markedOf = new Map(ready.map((entry) => [entry.cluster.middleId, entry.cluster]));
+      trace.clusters = candidates.map((cluster) => {
+        const marked = markedOf.get(cluster.middleId) ?? null;
+        return {
+          channelId: cluster.channelId,
+          from: isoOf(cluster.startTs),
+          to: isoOf(cluster.endTs),
+          score: clusterScore(marked ?? cluster, settings.selfBonus),
+          queries: cluster.queries,
+          self: marked?.self === true,
+          overlapsChat: marked?.overlapsChat === true,
+          kept: marked !== null && chosenSet.has(marked),
+        };
+      });
+    }
+    const windows = mergeWindows(chosen.map((cluster) => windowOf.get(cluster)));
     stats.windows = windows.length;
     const descriptions = cachedCaptions(config, guildId, windows);
     for (const window of windows) window.descriptions = descriptions;
@@ -418,8 +525,10 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
       queries: stats.queries,
       failed: stats.failed,
       hits: stats.hits,
+      inChatDropped: stats.inChatDropped,
       kept: stats.kept,
       clusters: stats.clusters,
+      selfClusters: stats.selfClusters,
       windows: stats.windows,
       people: people.length,
       ms: now() - started,
@@ -446,7 +555,22 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
     // Stored memory alone is enough to ask the summary.
     const messages =
       windows.length > 0 || memory.items.length > 0
-        ? buildRecallRequest({ prompt, selfName, question: candidate ?? {}, people, windows, memory: memory.items, nameOf: memory.nameOf, answerChars: settings.answerChars, now: now(), ...render })
+        ? buildRecallRequest({
+            prompt,
+            selfName,
+            question: candidate ?? {},
+            people,
+            windows,
+            memory: memory.items,
+            // The chat lines before the question: what the question refers to.
+            context: recallContext(Array.isArray(context) ? context : history, candidate, settings.contextMessages),
+            contextDescriptions,
+            replyQuoteChars: config.context?.replyQuoteChars,
+            nameOf: memory.nameOf,
+            answerChars: settings.answerChars,
+            now: now(),
+            ...render,
+          })
         : null;
     if (!messages) {
       log.info('recall: skipped', { channel: channelId, reason: 'no-hits' });
@@ -457,7 +581,9 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
     let asked = null;
     const fallback = (kind) => {
       stats.summary = kind;
-      const stretch = stretchOf(fallbackWindow(windows));
+      const chosenWindow = fallbackWindow(windows);
+      const stretch = stretchOf(chosenWindow);
+      if (trace) trace.summary = { answer: 'fallback', stretch: stretch ? windows.indexOf(chosenWindow) + 1 : null, text: null };
       log.info('recall: summary', { channel: channelId, ms: asked === null ? 0 : now() - asked, answer: 'fallback', stretch: stretch !== null, summary: kind });
       return result({ stretch, people: peopleOut() });
     };
@@ -488,6 +614,7 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
     stats.summary = 'answered';
     const answer = parseRecallAnswer(completion?.text, { answerChars: settings.answerChars, count: windows.length });
     const stretch = answer.stretch !== null ? stretchOf(windows[answer.stretch - 1]) : null;
+    if (trace) trace.summary = { answer: answer.text ? 'text' : 'nothing', stretch: stretch ? answer.stretch : null, text: answer.text };
     log.info('recall: summary', { channel: channelId, ms: now() - asked, answer: answer.text ? 'text' : 'nothing', stretch: stretch !== null });
     return result({ text: answer.text, stretch, people: peopleOut() });
   }
@@ -521,8 +648,16 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
    * on stored memory alone gives no answer); `stretch` is the window the
    * helper named, else null; `people` the members the name forms found,
    * with how many of their messages were kept and the newest one's time.
+   * `history` is the turn's own chat (the window and the reply parents it
+   * fetched): its ids are left out of the hits (`stats.inChatDropped`) and
+   * mark a window that reaches into it. `context` (default `history`) is
+   * where the summary's `<context>` lines come from: the last
+   * `recall.contextMessages` before `candidate`, with `contextDescriptions`
+   * as their captions. With `features.recallTrace` true every run past the
+   * gates above appends its trace record (store.appendRecallTrace; see
+   * traceLine).
    */
-  async function run({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], candidate = null, server = null } = {}) {
+  async function run({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], context = null, contextDescriptions, candidate = null, server = null } = {}) {
     const started = now();
     const channelId = channel?.id ?? null;
     const stats = emptyStats();
@@ -534,6 +669,12 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
     let controller = null;
     let timer = null;
     let cut = null;
+    let trace = null;
+    let traceMaxLines = null;
+    const finish = (out) => {
+      if (trace) writeTrace({ guildId, channelId, trace, out, maxLines: traceMaxLines });
+      return out;
+    };
     try {
       const config = hot.config;
       const settings = recallSettings(config);
@@ -544,6 +685,10 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
       if (!prompt) return skip('no-prompt');
       if (capSpent()) return skip('daily-cap');
       if (dailySpent(settings)) return skip('daily');
+      if (config.features?.recallTrace === true) {
+        trace = newTrace({ started, channelId, candidate, server });
+        traceMaxLines = settings.traceMaxLines;
+      }
 
       controller = new AbortController();
       const searching = new AbortController();
@@ -555,19 +700,40 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
       cut = timers.set(() => searching.abort(), Math.floor(settings.timeoutMs * PREPARE_SHARE));
       cut?.unref?.();
       const progress = { fallback: null };
-      const work = recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, candidate, server, signal: controller.signal, searchSignal: searching.signal, progress, started, stats });
+      const work = recallWith({
+        config,
+        settings,
+        prompt,
+        guild,
+        guildId,
+        channel,
+        partner,
+        selfId,
+        selfName,
+        history,
+        context,
+        contextDescriptions,
+        candidate,
+        server,
+        signal: controller.signal,
+        searchSignal: searching.signal,
+        progress,
+        started,
+        stats,
+        trace,
+      });
       work.catch(() => {});
       const outcome = await Promise.race([work, deadline]);
       if (outcome === TIMEOUT) {
         controller.abort();
         log.warn('recall: failed', { channel: channelId, reason: 'timeout', status: null, name: null });
-        return progress.fallback ? progress.fallback('timeout') : empty();
+        return finish(progress.fallback ? progress.fallback('timeout') : empty());
       }
-      return outcome ?? empty();
+      return finish(outcome ?? empty());
     } catch (err) {
       controller?.abort();
       log.warn('recall: failed', { channel: channelId, reason: 'error', status: null, name: err?.name ?? null });
-      return empty();
+      return finish(empty());
     } finally {
       if (timer !== null) timers.clear(timer);
       if (cut !== null) timers.clear(cut);

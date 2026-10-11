@@ -2430,6 +2430,7 @@ test('createTurnRunner: recall -- a server: answer runs recall with the trigger,
   assert.equal(args.selfName, 'Bot');
   assert.equal(args.candidate.id, trigger.id);
   assert.deepEqual(args.history.map((m) => m.id), ['m1', 'm2']);
+  assert.deepEqual(args.context.map((m) => m.id), ['m1', 'm2'], 'the summary\'s context: the lines the classifier read');
   assert.deepEqual(args.server, { forms: ['κουνέλι', 'κουνελιού'], who: [], from: null, to: null });
   assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT].join('\n'));
 });

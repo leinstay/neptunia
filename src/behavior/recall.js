@@ -14,13 +14,18 @@
 // persona's own stored memory (matchMemory: members' moments, lore, learned
 // items, recent lines), with no request, so a moment she already remembers
 // reaches the summary even when it sits under another member or a lore key
-// the question does not name. This module holds those decisions with no I/O;
+// the question does not name. Hits the turn already shows in its chat are
+// dropped before clustering (dropChatHits); once the windows are fetched, a
+// window holding the persona's own line ranks higher (rankClusters), and the
+// summary reads the chat lines before the question as `<context>`, with each
+// stretch flagged when it holds the persona's lines or overlaps the current
+// chat. This module holds those decisions with no I/O;
 // the Discord side is src/discord/search.js and the runner
 // src/behavior/recall-run.js. No wording of ours goes into the request: tags
 // and structural marks only.
 
 import { block, fillPromptTemplate } from './prompt.js';
-import { formatTranscript } from '../discord/format.js';
+import { formatTranscript, renderTranscript } from '../discord/format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { episodeDate } from '../memory/episodes.js';
 import { TEACHER_TOKEN_RE, fromTokens, occursAsWholeWord, tokenIds } from '../memory/mentions.js';
@@ -44,6 +49,10 @@ export const RECALL_DEFAULTS = Object.freeze({
   minSummaryMs: 2500,
   maxOutputTokens: 500,
   memoryItems: 6,
+  selfBonus: 1,
+  selfExtra: 2,
+  contextMessages: 6,
+  traceMaxLines: 500,
 });
 
 /** How many of the newest windows the fallback stretch is chosen among (fallbackWindow). */
@@ -106,12 +115,15 @@ function numberAtLeast(value, fallback, min) {
  * `memoryItems`, `keepOldest` and `rareHits` may be 0 (no content query, no
  * member lookup, no recall today, no stretch, the summary asked whatever time
  * is left, no stored memory searched, no slot reserved for old clusters, no
- * form counted rare);
- * `windowMessages` is at most 100.
+ * form counted rare); so may `selfBonus` (a number, not floored: no bonus
+ * for the persona's own stretches), `selfExtra` (no window beyond
+ * `maxClusters`) and `contextMessages` (no `<context>` block);
+ * `traceMaxLines` is at least 1; `windowMessages` is at most 100.
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
  *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, answerChars: number, stretchChars: number, maxPerDay: number,
- *   timeoutMs: number, minSummaryMs: number, maxOutputTokens: number, memoryItems: number }|null}
+ *   timeoutMs: number, minSummaryMs: number, maxOutputTokens: number, memoryItems: number, selfBonus: number, selfExtra: number,
+ *   contextMessages: number, traceMaxLines: number }|null}
  */
 export function recallSettings(config) {
   if (config?.features?.recall === false) return null;
@@ -133,6 +145,10 @@ export function recallSettings(config) {
     minSummaryMs: intAtLeast(r.minSummaryMs, d.minSummaryMs, 0),
     maxOutputTokens: intAtLeast(r.maxOutputTokens, d.maxOutputTokens, 1),
     memoryItems: intAtLeast(r.memoryItems, d.memoryItems, 0),
+    selfBonus: numberAtLeast(r.selfBonus, d.selfBonus, 0),
+    selfExtra: intAtLeast(r.selfExtra, d.selfExtra, 0),
+    contextMessages: intAtLeast(r.contextMessages, d.contextMessages, 0),
+    traceMaxLines: intAtLeast(r.traceMaxLines, d.traceMaxLines, 1),
   };
 }
 
@@ -473,13 +489,33 @@ export function clusterHits(hits, { gapMinutes, maxClusters, keepOldest, rareFor
       clusters.push(current);
     }
   }
-  for (const cluster of clusters) {
-    const topical = [...cluster.keys].filter((key) => key.startsWith(FORM_KEY));
-    cluster.forms = topical.length;
-    cluster.topic = topical.reduce((sum, key) => sum + (rare.has(key) ? RARE_WEIGHT : 1), 0);
-  }
-  const newestFirst = (x, y) => y.endTs - x.endTs || (x.channelId < y.channelId ? -1 : 1);
-  const ranked = clusters.sort((x, y) => y.topic - x.topic || y.keys.size - x.keys.size || newestFirst(x, y));
+  const shaped = clusters.map(({ keys, ...cluster }) => {
+    const topical = [...keys].filter((key) => key.startsWith(FORM_KEY));
+    return {
+      ...cluster,
+      middleId: cluster.ids[Math.floor(cluster.ids.length / 2)],
+      queries: keys.size,
+      forms: topical.length,
+      topic: topical.reduce((sum, key) => sum + (rare.has(key) ? RARE_WEIGHT : 1), 0),
+    };
+  });
+  return selectClusters(shaped, keep, oldest, (cluster) => cluster.topic);
+}
+
+/** Newest first by `endTs`, channel id on a tie: the order kept clusters are returned in. */
+function newestFirst(x, y) {
+  return y.endTs - x.endTs || (x.channelId < y.channelId ? -1 : 1);
+}
+
+/**
+ * The selection of clusterHits and rankClusters: ranked by `scoreOf` (more
+ * first), then `queries` (more first), then newestFirst; with more than
+ * `keep`, the top `keep - oldest` plus the `oldest` reserved slots (the
+ * oldest of the rest whose `topic` is at least OLDEST_MIN_TOPIC, a slot no
+ * such cluster takes going on by rank). Returned newest first.
+ */
+function selectClusters(clusters, keep, oldest, scoreOf) {
+  const ranked = [...clusters].sort((x, y) => scoreOf(y) - scoreOf(x) || y.queries - x.queries || newestFirst(x, y));
   let kept = ranked;
   if (ranked.length > keep) {
     kept = ranked.slice(0, keep - oldest);
@@ -491,17 +527,82 @@ export function clusterHits(hits, { gapMinutes, maxClusters, keepOldest, rareFor
     const taken = new Set(reserved);
     kept.push(...reserved, ...rest.filter((cluster) => !taken.has(cluster)).slice(0, oldest - reserved.length));
   }
-  return [...kept]
-    .sort(newestFirst)
-    .map(({ keys, forms, topic, ...cluster }) => ({ ...cluster, middleId: cluster.ids[Math.floor(cluster.ids.length / 2)], queries: keys.size, forms, topic }));
+  return [...kept].sort(newestFirst);
+}
+
+/**
+ * The hits not already shown in the turn's chat: those whose id is in
+ * `chatIds` (a Set or an array: the chat window and the reply parents the
+ * turn fetched) are left out before clustering, and counted.
+ * @param {object[]} hits
+ * @param {Set<string>|string[]|null|undefined} chatIds
+ * @returns {{ hits: object[], dropped: number }}
+ */
+export function dropChatHits(hits, chatIds) {
+  const list = Array.isArray(hits) ? hits : [];
+  const ids = chatIds instanceof Set ? chatIds : new Set(Array.isArray(chatIds) ? chatIds : []);
+  if (ids.size === 0) return { hits: list, dropped: 0 };
+  const kept = list.filter((hit) => !ids.has(hit?.id));
+  return { hits: kept, dropped: list.length - kept.length };
+}
+
+/**
+ * The score a fetched cluster ranks by in rankClusters: its `topic`
+ * (clusterHits) plus `selfBonus` when its window holds a line of the
+ * persona (`self` true).
+ * @param {{ topic: number, self?: boolean }} cluster
+ * @param {number} selfBonus
+ * @returns {number}
+ */
+export function clusterScore(cluster, selfBonus) {
+  const bonus = Number.isFinite(selfBonus) && selfBonus > 0 ? selfBonus : 0;
+  return (Number.isFinite(cluster?.topic) ? cluster.topic : 0) + (cluster?.self === true ? bonus : 0);
+}
+
+/**
+ * The final choice among the clusters whose windows were fetched
+ * (clusterHits kept `maxClusters + selfExtra` of them, each then marked
+ * `self` when its window holds a line of the persona): the clusterHits
+ * selection again, ranked by clusterScore (topic + `selfBonus` for a window
+ * with the persona's line) instead of `topic`, then `queries`, then the
+ * newer `endTs`; `keepOldest` reserves as in clusterHits (by `topic`, the
+ * bonus aside). At most `maxClusters`, returned newest first (the same
+ * objects).
+ * @param {{ channelId: string, endTs: number, topic: number, queries: number, self?: boolean }[]} clusters
+ * @param {{ maxClusters?: number, keepOldest?: number, selfBonus?: number }} [options]
+ * @returns {object[]}
+ */
+export function rankClusters(clusters, { maxClusters, keepOldest, selfBonus } = {}) {
+  const keep = intAtLeast(maxClusters, RECALL_DEFAULTS.maxClusters, 1);
+  const oldest = Math.min(keep, intAtLeast(keepOldest, RECALL_DEFAULTS.keepOldest, 0));
+  const bonus = numberAtLeast(selfBonus, RECALL_DEFAULTS.selfBonus, 0);
+  const list = (Array.isArray(clusters) ? clusters : []).filter((cluster) => cluster && Number.isFinite(cluster.endTs));
+  return selectClusters(list, keep, oldest, (cluster) => clusterScore(cluster, bonus));
+}
+
+/**
+ * The chat lines the recall summary reads before the question (`<context>`):
+ * the last `count` messages of `history` other than `question` itself, in
+ * order (as the search classifier's transcript takes them). None for a
+ * `count` of 0 or no history.
+ * @param {object[]|null|undefined} history
+ * @param {{ id?: string }|null|undefined} question
+ * @param {number} count
+ * @returns {object[]}
+ */
+export function recallContext(history, question, count) {
+  const n = intAtLeast(count, RECALL_DEFAULTS.contextMessages, 0);
+  if (n === 0 || !Array.isArray(history)) return [];
+  return history.filter((m) => m && (!question?.id || m.id !== question.id)).slice(-n);
 }
 
 /**
  * Windows of one channel that share a message merged into the first of
- * them (messages united by id, oldest first; hit ids united); the order of
- * first appearance is kept and a window without messages is dropped.
- * @param {{ channelId: string, channelName?: string|null, messages: object[], hitIds: Iterable<string> }[]} windows
- * @returns {{ channelId: string, channelName: string|null, messages: object[], hitIds: Set<string> }[]}
+ * them (messages united by id, oldest first; hit ids united; `overlapsChat`
+ * true when any of them overlaps the turn's chat); the order of first
+ * appearance is kept and a window without messages is dropped.
+ * @param {{ channelId: string, channelName?: string|null, messages: object[], hitIds: Iterable<string>, overlapsChat?: boolean }[]} windows
+ * @returns {{ channelId: string, channelName: string|null, messages: object[], hitIds: Set<string>, overlapsChat: boolean }[]}
  */
 export function mergeWindows(windows) {
   const out = [];
@@ -511,9 +612,16 @@ export function mergeWindows(windows) {
     const ids = new Set(messages.map((m) => m.id));
     const into = out.find((w) => w.channelId === window.channelId && w.messages.some((m) => ids.has(m.id)));
     if (!into) {
-      out.push({ channelId: window.channelId, channelName: window.channelName ?? null, messages: [...messages], hitIds: new Set(window.hitIds ?? []) });
+      out.push({
+        channelId: window.channelId,
+        channelName: window.channelName ?? null,
+        messages: [...messages],
+        hitIds: new Set(window.hitIds ?? []),
+        overlapsChat: window.overlapsChat === true,
+      });
       continue;
     }
+    if (window.overlapsChat === true) into.overlapsChat = true;
     const known = new Set(into.messages.map((m) => m.id));
     for (const message of messages) if (!known.has(message.id)) into.messages.push(message);
     into.messages.sort((x, y) => x.ts - y.ts);
@@ -768,12 +876,24 @@ function personLine(person, timezone) {
  * when none), `<found>` (one section per window, numbered from 1 in the
  * order given: a header `## n | YYYY-MM-DD | #channel` with the local date
  * of its first line, then its lines, renderRecallWindows with indices; left
- * out when no window has a line) and `<question>` (the candidate's author
- * and text cut to `maxChars`). Null when the prompt is blank, or when no
- * window has a line and there is no memory item.
+ * out when no window has a line), `<context>` (the chat lines before the
+ * question, recallContext's choice made by the caller, rendered as the
+ * classifier transcripts are -- src/discord/format.js formatTranscript and
+ * renderTranscript, the persona's own lines under `labels.self`, the
+ * `contextDescriptions` captions -- with their `#n` indices continuing after
+ * the last `<found>` line; left out when there is no line) and `<question>`
+ * (the candidate's author and text cut to `maxChars`). Every block is
+ * per-call content after the system message, in that order (stable first,
+ * per-turn last; nothing is marked for the prompt cache). A section header
+ * gets ` ` + `labels.lookup.stretchSelf` (trimmed) when its window holds a
+ * line of the persona (`self`), then ` ` + `labels.lookup.stretchCurrent`
+ * (trimmed) when the window overlaps the turn's chat (`overlapsChat`); a
+ * missing or blank label adds nothing. Null when the prompt is blank, or when no window has a line and
+ * there is no memory item.
  * @param {{ prompt: string|null|undefined, selfName: string, question: { authorName?: string, content?: string },
  *   people?: { name: string, username?: string, count?: number, newestTs?: number|null }[], windows: object[],
- *   memory?: { kind: string, text: string, date: string|null, memberId: string|null }[],
+ *   memory?: { kind: string, text: string, date: string|null, memberId: string|null }[], context?: object[],
+ *   contextDescriptions?: Map<string, string>, replyQuoteChars?: number,
  *   nameOf?: (id: string) => (string|null|undefined), labels: object, timezone?: string, answerChars: number,
  *   now?: number, maxChars?: number, gapMinutes?: number, seeReactions?: boolean, reactionsPerMessage?: number }} params
  * @returns {{ role: string, content: string }[]|null}
@@ -785,6 +905,9 @@ export function buildRecallRequest({
   people = [],
   windows,
   memory = [],
+  context = [],
+  contextDescriptions,
+  replyQuoteChars,
   nameOf,
   labels,
   timezone = 'UTC',
@@ -799,14 +922,42 @@ export function buildRecallRequest({
   const rendered = renderRecallWindows(windows, { labels, timezone, selfName, gapMinutes, maxChars, seeReactions, reactionsPerMessage, indexed: true });
   const notes = (Array.isArray(memory) ? memory : []).filter((item) => item && typeof item.text === 'string' && item.text.trim());
   if (rendered.length === 0 && notes.length === 0) return null;
-  const sections = rendered.map((window, i) =>
-    [`## ${i + 1} | ${zonedDay(window.startTs, timezone)} | #${oneLine(window.channelName)}`, ...window.lines.map((line) => line.text)].join('\n'),
-  );
+  // The windows renderRecallWindows rendered, in its order (it skips the ones without a message).
+  const sources = (Array.isArray(windows) ? windows : []).filter((window) => (window?.messages ?? []).filter(Boolean).length > 0);
+  const flag = (key) => {
+    const label = labels?.lookup?.[key];
+    // Trimmed: a label written with its own leading space never doubles the separator.
+    return typeof label === 'string' && label.trim() ? ` ${label.trim()}` : '';
+  };
+  const sections = rendered.map((window, i) => {
+    const source = sources[i];
+    const self = (source?.messages ?? []).some((m) => m?.self === true) ? flag('stretchSelf') : '';
+    const current = source?.overlapsChat === true ? flag('stretchCurrent') : '';
+    return [`## ${i + 1} | ${zonedDay(window.startTs, timezone)} | #${oneLine(window.channelName)}${self}${current}`, ...window.lines.map((line) => line.text)].join('\n');
+  });
+  const chat = (Array.isArray(context) ? context : []).filter(Boolean);
+  let contextText = '';
+  if (chat.length > 0) {
+    const items = formatTranscript(chat, {
+      timezone,
+      gapMinutes,
+      maxChars,
+      selfName,
+      labels,
+      seeReactions,
+      reactionsPerMessage,
+      replyQuoteChars,
+      descriptions: contextDescriptions,
+      indexOffset: sources.reduce((sum, window) => sum + window.messages.filter(Boolean).length, 0),
+    });
+    contextText = renderTranscript(items, timezone, labels);
+  }
   const text = [...String(question?.content ?? '')].slice(0, maxChars).join('');
   const user = [
     block('people', (Array.isArray(people) ? people : []).map((p) => personLine(p, timezone)).join('\n')),
     block('memory', notes.map((item) => memoryLine(item, nameOf)).join('\n')),
     block('found', sections.join('\n\n')),
+    block('context', contextText),
     block('question', `${oneLine(question?.authorName)}: ${text}`),
   ]
     .filter(Boolean)

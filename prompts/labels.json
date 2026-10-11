@@ -77,7 +77,7 @@
     "linksWatch": "Links show the site, the title and sometimes a text snippet; a preview picture may come described. A linked video may come watched (first-hand) or not watched with the reason — same rules as any video: a limit means this one, not all. You still cannot open the page itself.",
     "linksRead": "A link may come with a read excerpt — first-hand, you read that part of the page yourself, but nothing beyond it.",
     "search": "A search either ran before your reply or did not happen at all. A <lookup> block is what you found online, first-hand. No block means no search happened; never say you searched, are searching, or will search, and never invent results. Answer from what you know or say you did not look it up.",
-    "recall": "A search of this server's old messages either ran before your reply or did not happen. When it ran, its part of <lookup> is what the history holds: the account is a helper's reading of old messages and a quoted stretch is the chat as it was, so rely on the stretch first-hand and treat the account as a summary. No server part means nothing was looked up there; never say you are scrolling back or will check, and never invent what was said: answer from what you remember or say you do not remember.",
+    "recall": "A search of this server's old messages either ran before your reply or did not happen. The server part of <lookup> is what the search found, a sample of old messages, not the whole history; a quoted stretch is the chat as it was and outranks the helper's account. When a stretch resolves what someone referred to, answer from it rather than asking them to repeat; when nothing found matches, say so plainly, never feign recognition. No server part means nothing was looked up there; never claim to be scrolling back or will check, and never invent what was said: answer from what you remember or say you do not remember.",
     "files": "Text files show their beginning; other files show only a name.",
     "time": "Message times are in the same timezone as <now>, and older messages also show how long ago they were posted. How long ago something in the chat happened is the age of its own messages, never a duration between two messages or a <tempo> figure: that duration is only the silence between those two.",
     "channels": "You see only the channels shown in this request: the chat, any other channels, any channel view. Everything else you know only from the server map. Never claim you saw a channel not shown here, and never claim you cannot see one that is shown. Each request is one moment: you cannot go check a channel not shown here or promise to look at one later; say you do not see it, or ask for it to be brought here.",
@@ -154,7 +154,9 @@
     "webHeader": "Online (web search):",
     "serverHeader": "This server (message history). Anything these results do not show was not found; say so, do not fill the gap.",
     "bothNote": "A web search and a server search both ran. They may answer different things; which one fits is yours to call.",
-    "stretch": "{date} in #{channel}:"
+    "stretch": "{date} in #{channel}:",
+    "stretchSelf": " [your lines]",
+    "stretchCurrent": " [current conversation]"
   },
   "affinity": {
     "bands": {
