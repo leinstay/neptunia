@@ -70,6 +70,8 @@ import { gifPostsToday } from '../memory/gif-watch.js';
 import { linkChannels } from '../memory/mentions.js';
 import { rankGifs } from '../memory/gifs.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
+import { participationSettings, recordOwnLine } from '../memory/participation.js';
+import { createParticipationPicker } from './participation-pick.js';
 import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
@@ -199,7 +201,7 @@ export function paceSettings(config) {
 }
 
 /** The stages of a turn's preparation, in the order `turn: timings` names them. */
-const PREPARE_STAGES = Object.freeze(['history', 'previews', 'captions', 'videos', 'rewatch', 'links', 'lookup', 'neighbors', 'pulled']);
+const PREPARE_STAGES = Object.freeze(['history', 'previews', 'captions', 'videos', 'rewatch', 'links', 'lookup', 'neighbors', 'pulled', 'participation']);
 
 /**
  * The trigger kinds that are a direct call (a private chat message included): the typing
@@ -919,6 +921,15 @@ function taskInput({ part, queued, added, labels, channelId }) {
  * channel's lines, not this chat. A throw or an answer that is not an array
  * counts as no id (a throw logs `pull: route failed`).
  *
+ * Participation (src/memory/participation.js; features.participation and features.memory,
+ * a missing key counts as on; never in a private chat or the diary channel): every message a
+ * turn sends for real in a server channel is recorded in the guild's participation store with
+ * the history lines before it and the line it replies to (recordOwnParticipation; a dry run
+ * records nothing). A server turn that builds a reply request (not a diary post) hands the
+ * store to buildRequest as `<participation>`; beside its preparation the pick classifier
+ * (src/behavior/participation-pick.js, not on a drawFailed turn) chooses which stored episodes
+ * of other channels come first, under the same deadline -- late, the newest are shown.
+ *
  * Everything a turn prepares before its reply request (the file previews, the
  * captions, the videos and their re-watch, the link reads, the search
  * classifier with its searches, the neighbours, the pulled channels) starts as soon as its inputs exist and runs alongside the
@@ -973,6 +984,9 @@ export function createTurnRunner({
   // Whether the last turn that wanted prompts['follow-up'] found it missing or blank: `turn:
   // prompt missing` is warned once each time this turns true (the turn falls back to reply.md).
   let followUpPromptMissing = false;
+  // The participation pick classifier (src/behavior/participation-pick.js): which stored
+  // exchanges of other channels a turn's `<participation>` block shows first.
+  const pickParticipation = createParticipationPicker({ hot, store, llm, now: clock });
 
   /**
    * `text` with every `#name` of one of the guild's text channels turned into its `<#id>` link
@@ -1547,12 +1561,14 @@ export function createTurnRunner({
    *   `sourceId`: the channel the turn is about (its `source`), logged on every message sent;
    *   with it a refused drawing's limit notice quotes nothing (the trigger of a routed turn
    *   lives in that channel); `gifPick`: false keeps the GIF picker from replacing the first
-   *   message (a diary post).
+   *   message (a diary post); `participation` (`{ descriptions }`: the captions the turn had, or
+   *   null): each message sent in a server channel is recorded in the participation store
+   *   (recordOwnParticipation) with the lines of `history` before it.
    * Resolves `delivered`, `answered`, `messageIds` (the ids of the messages and the picture
    * posted, in order), `texts` (the messages posted, as the persona wrote them), `drew` (the
    * picture was posted) and `drawFailed` when the picture failed.
    */
-  async function act({ channel, guildId, privateChat, parsed, idByIndex, history, startedAt, mode, triggerKind, plain, trigger, selfName, pulledIds, lines, knownNames, linkFor, sourceId, gifPick = true }) {
+  async function act({ channel, guildId, privateChat, parsed, idByIndex, history, startedAt, mode, triggerKind, plain, trigger, selfName, pulledIds, lines, knownNames, linkFor, sourceId, gifPick = true, participation = null }) {
     const cfg = hot.config.typing;
     const typingOn = hot.config.features?.typingSimulation !== false;
     // The typing imitation of one message: the indicator, then the time its text takes to type.
@@ -1669,14 +1685,20 @@ export function createTurnRunner({
       lastPostAt.set(channel.id, clock());
       record(posted);
       postedTexts.push(message.text);
-      ownPosted.push({
+      const ownLine = {
         id: posted?.id ?? null,
         ts: Number.isFinite(posted?.createdTimestamp) ? posted.createdTimestamp : clock(),
         channelId: channel.id,
         self: true,
+        authorId: client.user?.id ?? '',
         content: message.text,
         replyToId: replyId,
-      });
+      };
+      // The persona's own exchange on this channel, kept for her turns elsewhere (a server channel only).
+      if (participation && !privateChat) {
+        recordOwnParticipation({ channel, guildId, history, earlier: ownPosted, own: ownLine, replyId, selfName, descriptions: participation.descriptions });
+      }
+      ownPosted.push(ownLine);
       log.info('turn: sent', {
         channel: channel.id,
         chars: text.length,
@@ -2166,6 +2188,111 @@ export function createTurnRunner({
     } catch (err) {
       log.warn('pull: route failed', { channel: args.channel.id, error: err });
       return [];
+    }
+  }
+
+  /**
+   * Whether a server turn in `channel` has the persona's participation store: features.memory
+   * and features.participation on (`config`, the turn's live config; a missing key counts as on),
+   * a server channel that is not the diary channel (`diary.channelId`), and a store that keeps
+   * one. Recording, the pick classifier and the `<participation>` block all ask this.
+   */
+  function participationOn(channel, config) {
+    const features = config.features ?? {};
+    if (features.memory === false || features.participation === false) return false;
+    if (!channel?.guild || typeof store.getParticipation !== 'function') return false;
+    const diaryId = config.diary?.channelId;
+    return !(diaryId && channel.id === diaryId);
+  }
+
+  /**
+   * Which channels a turn in `channel` may show participation episodes from: a channel of its
+   * guild whose audience passes the rail the neighbours and the pulls pass
+   * (src/discord/pull-fetch.js#audienceAllows, `context.pull.sameAudience`: everyone who can
+   * read this channel can read that one). A channel the guild does not hold, or a check that
+   * throws, is refused.
+   * @returns {(channelId: string) => boolean}
+   */
+  function participationAudience(channel, config) {
+    const cache = channel.guild?.channels?.cache;
+    return (channelId) => {
+      try {
+        const other = cache?.get?.(channelId) ?? null;
+        return Boolean(other) && audienceAllows(channel, other, config);
+      } catch {
+        return false;
+      }
+    };
+  }
+
+  /** A channel's live name in `channel`'s guild, for a participation episode whose channel has no stored note. */
+  function liveChannelName(channel) {
+    return (channelId) => {
+      const name = channel.guild?.channels?.cache?.get?.(channelId)?.name;
+      return typeof name === 'string' && name ? name : null;
+    };
+  }
+
+  /**
+   * One message of a turn's history in the participation store's shape
+   * (src/memory/participation.js): the persona's own lines named `selfName`, a picture's
+   * caption the turn already had (`descriptions`, the first captioned picture of the line).
+   */
+  function participationMessage(message, { selfName, descriptions }) {
+    let caption = null;
+    if (descriptions instanceof Map && descriptions.size > 0) {
+      for (const item of collectPictures(message)) {
+        const text = descriptions.get(item.itemId);
+        if (typeof text === 'string' && text) {
+          caption = text;
+          break;
+        }
+      }
+    }
+    return {
+      id: message.id,
+      ts: message.ts,
+      authorId: message.authorId ?? '',
+      name: message.self ? selfName : (message.authorName ?? ''),
+      self: message.self === true,
+      text: typeof message.content === 'string' ? message.content : '',
+      replyTo: message.replyToId ?? null,
+      caption,
+    };
+  }
+
+  /**
+   * Record one message the persona just sent in `channel` in the guild's participation store
+   * (src/memory/participation.js#recordOwnLine, settings read now): `own` her message, `before`
+   * the last `participation.linesBefore` lines of the turn's `history` followed by what she
+   * already sent this turn (`earlier`), `parent` the line it replies to when the history holds
+   * it (the reply parents the turn fetched included; nothing is fetched here). Written only when
+   * something changed, then logged `participation: recorded` (`channel`, `episodes`: how many
+   * the store holds). Never throws: a failure logs `participation: failed` (`reason:
+   * 'record-error'`).
+   */
+  function recordOwnParticipation({ channel, guildId, history, earlier, own, replyId, selfName, descriptions }) {
+    try {
+      const config = hot.config;
+      if (!participationOn(channel, config)) return;
+      const settings = participationSettings(config);
+      const at = clock();
+      const shape = (message) => participationMessage(message, { selfName, descriptions });
+      const take = Math.max(0, Math.floor(settings.linesBefore));
+      const before = take > 0 ? [...history, ...earlier].slice(-take).map(shape) : [];
+      const parentLine = replyId ? (history.find((message) => message.id === replyId) ?? null) : null;
+      const state = store.getParticipation(guildId);
+      const next = recordOwnLine(
+        state,
+        { channelId: channel.id, own: shape(own), before, parent: parentLine ? shape(parentLine) : null },
+        settings,
+        at,
+      );
+      if (next === state) return;
+      store.setParticipation(guildId, next, { settings, now: at });
+      log.info('participation: recorded', { channel: channel.id, episodes: next.episodes.length });
+    } catch (err) {
+      log.warn('participation: failed', { channel: channel?.id ?? null, reason: 'record-error', name: err?.name ?? null });
     }
   }
 
@@ -3337,6 +3464,17 @@ export function createTurnRunner({
           });
       // The pulled channels started earlier: timed from their own start.
       const pulledStage = isPrivate && !likeServer ? null : track('pulled', () => pulledPending, pullStartedAt);
+      // `<participation>`: the persona's own exchanges on other channels this turn may show, and
+      // the pick classifier's choice among them (src/behavior/participation-pick.js; it asks
+      // nothing when there is no episode to offer). Late or failed, the newest are shown.
+      const participationShown = participationOn(channel, config) && finalMode !== 'diary';
+      const participationAudienceOf = participationShown ? participationAudience(channel, config) : null;
+      const participationStage =
+        participationShown && !answersDrawFailure
+          ? track('participation', () =>
+              pickParticipation({ guildId, channel, history: rawHistory, trigger: candidate, triggerKind, mode: finalMode, selfName, audience: participationAudienceOf }),
+            )
+          : null;
 
       // Parts in time end the wait at once: the whole message's preparation is set aside.
       const partsReady = splitStage ? splitStage.settled.then(() => (hasParts() ? undefined : new Promise(() => {}))) : null;
@@ -3351,6 +3489,7 @@ export function createTurnRunner({
             lookupChain,
             neighborsStage?.settled,
             pulledStage?.settled,
+            participationStage?.settled,
             splitStage?.settled,
           ]),
           deadline.reached,
@@ -3500,6 +3639,15 @@ export function createTurnRunner({
           // `<recent>`: the last hours, its live lines and the members' moments (no block without the store).
           recentLines: recent.lines ?? null,
           recentAudience: recent.audience ?? null,
+          // `<participation>`: the store read now, the classifier's picks when they came in time.
+          participation: participationShown
+            ? {
+                state: store.getParticipation(guildId),
+                pickedIds: participationStage?.done && Array.isArray(participationStage.value) ? participationStage.value : [],
+                audience: participationAudienceOf,
+                channelName: liveChannelName(channel),
+              }
+            : null,
           // `<senses>`: where the persona keeps its diary, when one is set.
           diaryChannel: diaryChannelName(guildId, config),
           // A diary post: its past posts, its plan and what its search found.
@@ -3714,6 +3862,7 @@ export function createTurnRunner({
         ...routing,
         sourceId: isPrivate ? null : (source?.channelId ?? null),
         gifPick: !diaryPrep,
+        participation: isPrivate ? null : { descriptions: descriptions ?? null },
       });
       noteSpokeSaw(channel, history, serverShown, pulled, notAnswered);
       stampShownCalls({ shown: serverShown, pulled, answered: acted.answered ?? new Set(), exceptId: ownCallId });

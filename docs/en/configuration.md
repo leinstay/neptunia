@@ -43,6 +43,7 @@ Every key in `config.json` with its default, grouped by section.
 | `promptCache` | `false` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
 | `recent` | `true` | Show a `<recent>` block of what happened on the server in the last few days. A missing key counts as on. See `memory.recentHours` and `context.caps.recent` |
+| `participation` | `true` | The persona remembers its own exchanges on other channels over the last few days and, on a server turn, sees a few of them in a `<participation>` block. A missing key counts as on. See [`participation`](#participation) and `context.caps.participation` |
 | `channelRoute` | `true` | A classifier picks a channel the conversation is about before a turn, so the channel can be pulled into the request. A missing key counts as on. See `route.*` |
 | `channelLinks` | `true` | When the persona writes `#channel-name` of a server channel in a message, the sent message carries a real channel link instead of the literal text. Names are matched longest first; an existing link stays. Off: text goes as written. A missing key counts as on |
 | `pauseNotice` | `true` | Post a short notice when the persona is called while paused. A missing key counts as on. See `mention.pauseNoticeMinutes` and `labels.limits.paused` |
@@ -153,6 +154,7 @@ The three helper model roles, grouped under one key. Each is set independently, 
 | `caps.emoji` | `800` | Token cap: custom emoji |
 | `caps.gifs` | `900` | Token cap: GIF library |
 | `caps.pulled` | `4000` | Token cap: pulled channel block (`<channel_view>`) |
+| `caps.participation` | `6000` | Token cap: the persona's exchanges on other channels (`<participation>`); whole episodes are dropped, the picked ones last |
 | `channelActivity.liveMessagesPerDay` | `20` | Daily messages = "active" channel |
 | `channelActivity.deadAfterDays` | `7` | Days without messages = "dead" channel |
 | `vision.maxImages` | `4` | Max images per request |
@@ -236,6 +238,26 @@ Settings for the channel route classifier (`features.channelRoute`). When the co
 | `maxChannels` | `40` | Channels listed for the classifier to choose from |
 | `purposeChars` | `80` | Characters of each channel's stored purpose shown in the list |
 | `maxOutputTokens` | `120` | Max output tokens for the classifier |
+
+## `participation`
+
+The persona's own exchanges on other channels (`features.participation`). Every message the persona sends in a server channel (not a private chat, not the diary channel, not a dry run) is saved with a few lines before it, the message it answered, and the lines that follow it, in `data/guilds/<id>/participation.json`. On a server turn the persona sees up to `shown` of these episodes from other channels in a `<participation>` block: the ones a classifier (`prompts/participation-pick.md` on the `classifier.text` role) picks as the ones the message refers to, then the newest. Only channels everyone in the current channel can also read are offered (the `context.pull.sameAudience` rule). Logged as `participation: recorded`, `participation: classified`, `participation: skipped` or `participation: failed`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `hours` | `72` | How long an episode is kept after the persona's newest line in it (h) |
+| `linesBefore` | `3` | Channel lines saved before each of the persona's messages |
+| `linesAfter` | `1` | Lines by others saved after the persona's last message in an episode |
+| `followMinutes` | `10` | How soon after the persona's message a line by someone else must come to be saved with it (min) |
+| `mergeGapMinutes` | `10` | A new message of the persona's joins the channel's last episode when that episode's last line is at most this old (min); otherwise it starts a new one |
+| `maxMessages` | `32` | Messages per episode; a longer exchange continues in a new episode |
+| `maxStored` | `120` | Episodes kept on disk; the oldest go first |
+| `maxTextChars` | `400` | Characters kept per saved message, cut at a word boundary |
+| `shown` | `4` | Episodes shown per turn |
+| `perChannel` | `2` | Episodes shown per channel |
+| `episodeChars` | `1800` | Characters of text shown per episode; a longer one keeps the persona's lines, the lines they answer, the lines that share a word with the new message and the ends, and marks the cut lines |
+| `contextMessages` | `6` | Recent channel lines rendered for the pick classifier alongside the new message |
+| `maxOutputTokens` | `60` | Max output tokens for the pick classifier |
 
 ## `split`
 

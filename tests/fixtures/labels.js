@@ -96,6 +96,7 @@ export const labels = {
     customEmoji: 'this server has its own emoji, listed in <emoji>; write one as :name:',
     gifs: 'you can post one gif per turn from <gifs> by its handle',
     channels: 'you see only the channels shown here',
+    participation: 'a <participation> block holds slices of your own exchanges on other channels',
     elsewhere: 'read-only channels: read and react only; a call there is answered in #{destination}',
     diary: 'You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it.',
   },
@@ -269,6 +270,13 @@ export const labels = {
     line: '{date} {time}: {text}',
     lineIn: '{date} {time} in #{channel}: {text}',
     episode: '{date}, with {name}: {what}',
+  },
+  participation: {
+    header: 'your exchanges on other channels, last {hours} hours:',
+    channel: '#{channel} ({purpose}):',
+    channelNoPurpose: '#{channel}:',
+    episode: '{when} ago:',
+    skipped: '[{count} messages skipped]',
   },
   diary: {
     intro: 'Your latest diary posts, oldest first:',

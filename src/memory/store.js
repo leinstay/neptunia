@@ -24,6 +24,9 @@
 //   data/guilds/<guildId>/recent.json         the recent store: short dated lines about the last
 //                                            `memory.recentHours` hours, each with its source channel
 //                                            (src/memory/recent.js)
+//   data/guilds/<guildId>/participation.json  the persona's participation episodes: slices of channels
+//                                            around her own lines over the last `participation.hours`
+//                                            (src/memory/participation.js)
 //   data/guilds/<guildId>/diary.json          the persona's diary posts, newest last, one-line gists
 //                                            (src/behavior/diary.js); never deleted by code
 //   data/guilds/<guildId>/versions/<kind>/<id>.json  the previous texts of the prose fields (see
@@ -58,6 +61,11 @@
 // only a forget (every line naming the member, written at once) and a wipe (the
 // file) remove lines. On load, lines a hand edit broke are left out and logged
 // as a count, like the voice queue's items.
+//
+// The participation store follows the same rules: every `setParticipation`
+// runs src/memory/participation.js#expireEpisodes (`participation.hours`, then
+// `participation.maxStored`), never a read; a forget takes the member's
+// messages out (written at once), a wipe deletes the file.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -77,6 +85,7 @@ import { mergeEmojiUsage, normalizeEmojiUsage } from './emoji-usage.js';
 import { emptyGifs, findGif, markOwnGif, mergeGifs, normalizeBackfillStamp, normalizeGifs, resetGifCounts } from './gifs.js';
 import { FEELING_CHARS, REASON_CHARS, SELF_CHARS, forgetMember, normalizeQueue } from './voice.js';
 import { emptyRecent, mergeRecent, normalizeRecent, purgeRecentFor } from './recent.js';
+import { emptyParticipation, expireEpisodes, normalizeParticipation, purgeParticipationFor } from './participation.js';
 
 const DIARY_HISTORY_POSTS = 150; // diary.historyPosts
 
@@ -678,6 +687,7 @@ export function createStore({ dataDir }) {
   const privateFile = (guildId, userId) => path.join(privateDir(guildId), `${userId}.json`);
   const voiceFile = (guildId) => path.join(guildDir(guildId), 'voice.json');
   const recentFile = (guildId) => path.join(guildDir(guildId), 'recent.json');
+  const participationFile = (guildId) => path.join(guildDir(guildId), 'participation.json');
   const diaryFile = (guildId) => path.join(guildDir(guildId), 'diary.json');
   const versionsDir = (guildId) => path.join(guildDir(guildId), 'versions');
   /** A lore id is the entry's title, turned into a safe file name (src/memory/lore.js#loreVersionKey). */
@@ -859,6 +869,43 @@ export function createStore({ dataDir }) {
       log.warn('store: recent lines dropped', { guildId, dropped: raw.lines.length - item.value.lines.length });
     }
     return item;
+  }
+
+  /** The cache entry of a guild's participation store, the empty store when there is no file,
+   * normalised in place of the cached value (src/memory/participation.js#normalizeParticipation);
+   * never marked dirty by reading. On the read that loads the file, episodes normalising leaves out
+   * are logged as a count, `store: participation episodes dropped`, and a value that is not a store
+   * (not an object, or `episodes` not a list) as `store: participation store replaced`. An
+   * unparsable file reads as empty with `readJson`'s warning. */
+  function participationEntry(guildId) {
+    const file = participationFile(guildId);
+    const loading = !entries.has(file);
+    const item = entry(file, emptyParticipation);
+    const raw = item.value;
+    item.value = normalizeParticipation(raw);
+    if (loading && (!isPlainObject(raw) || !Array.isArray(raw.episodes))) {
+      log.warn('store: participation store replaced', { guildId, reason: 'malformed' });
+    } else if (loading && raw.episodes.length > item.value.episodes.length) {
+      log.warn('store: participation episodes dropped', { guildId, dropped: raw.episodes.length - item.value.episodes.length });
+    }
+    return item;
+  }
+
+  /** Take one member's messages out of the guild's participation store
+   * (src/memory/participation.js#purgeParticipationFor; an episode left without a line of the
+   * persona goes too) and write the file at once, like the files a forget deletes. No store ->
+   * nothing, no file created. Returns how many messages were removed. */
+  function forgetParticipation(guildId, userId) {
+    const file = participationFile(guildId);
+    if (!entries.has(file) && !fs.existsSync(file)) return 0;
+    const item = participationEntry(guildId);
+    const before = item.value.episodes.length;
+    const { value, removed } = purgeParticipationFor(item.value, userId);
+    if (removed === 0 && value.episodes.length === before) return 0;
+    item.value = value;
+    item.dirty = true;
+    flushEntry(file, item);
+    return removed;
   }
 
   /** The cache entry of a guild's diary, the empty diary when there is no file; a value that is not
@@ -1123,6 +1170,8 @@ export function createStore({ dataDir }) {
      * queue file rewritten at once -- and every recent line that names them (their
      * token, or one of their stored names or aliases as a whole word, read from
      * the profile before it goes; src/memory/recent.js#purgeRecentFor), the recent
+     * file rewritten at once -- and their messages in the participation store (an episode left
+     * without a line of the persona goes; src/memory/participation.js#purgeParticipationFor), that
      * file rewritten at once -- and the version history of their profile's prose
      * (versions/users/<userId>.json). See also `wipeGuild` below.
      * @param {string} guildId
@@ -1133,6 +1182,7 @@ export function createStore({ dataDir }) {
       const profile = store.getUser(guildId, userId);
       const names = [...(Array.isArray(profile?.names) ? profile.names : []), ...(profile?.aliases ?? []).map((alias) => alias?.name)];
       const recentRemoved = forgetRecent(guildId, userId, names);
+      forgetParticipation(guildId, userId);
       const file = userFile(guildId, userId);
       entries.delete(file);
       fs.rmSync(file, { force: true });
@@ -2294,6 +2344,38 @@ export function createStore({ dataDir }) {
       return counts;
     },
 
+    // ---- the participation store: the persona's exchanges on the channels (src/memory/participation.js) ----
+
+    /**
+     * A copy of the guild's participation store (data/guilds/<id>/participation.json):
+     * `{ episodes, nextId }`, the empty store when there is no file. Normalised on read
+     * (src/memory/participation.js#normalizeParticipation), persisted only by the next change;
+     * reading never creates the file and never expires an episode. Changing the copy changes
+     * nothing stored: a change goes through `setParticipation`.
+     * @param {string} guildId
+     * @returns {{ episodes: object[], nextId: number }}
+     */
+    getParticipation(guildId) {
+      return structuredClone(participationEntry(guildId).value);
+    },
+
+    /**
+     * Store `state` (the result of src/memory/participation.js#recordOwnLine / #recordFollowing
+     * on a `getParticipation` copy) as the guild's participation store, after expiry
+     * (src/memory/participation.js#expireEpisodes: past `hours`, then over `maxStored`), and mark
+     * it dirty. The settings are the caller's, read at the moment of use
+     * (src/memory/participation.js#participationSettings); missing ones read as the defaults, a
+     * missing `now` as the wall clock.
+     * @param {string} guildId
+     * @param {unknown} state
+     * @param {{ settings?: object, now?: number }} [opts]
+     */
+    setParticipation(guildId, state, { settings, now } = {}) {
+      const item = participationEntry(guildId);
+      item.value = structuredClone(expireEpisodes(state, settings, Number.isFinite(now) ? now : Date.now()));
+      item.dirty = true;
+    },
+
     /**
      * A deliberate, owner-only clean start for one guild's memory (see
      * src/admin.js `/nep memory wipe`). Together with `forgetUser`,
@@ -2305,7 +2387,8 @@ export function createStore({ dataDir }) {
      * patterns, starters, in-jokes, self facts, `learned`, `emojiUsage`, the
      * `emojiBackfill` stamp, `pingsOff` and the notes stamps -- every channel entry (its writers
      * tally included), the live observation buffer, the
-     * voice queue (`voice.json`), the recent store (`recent.json`), and
+     * voice queue (`voice.json`), the recent store (`recent.json`), the participation store
+     * (`participation.json`), and
      * lorebook entries whose `source` is `'analyzer'` (every entry, owner
      * included, when `keepOwnerLore` is false). Keeps, by default, owner lore
      * (`source: 'owner'`) and the media description cache, and always the GIF
@@ -2375,6 +2458,12 @@ export function createStore({ dataDir }) {
       const recentLines = recentEntry(guildId).value.lines.length;
       entries.delete(recentFileName);
       fs.rmSync(recentFileName, { force: true });
+
+      {
+        const file = participationFile(guildId);
+        entries.delete(file);
+        fs.rmSync(file, { force: true });
+      }
 
       const loreItem = entry(loreFile(guildId), () => []);
       const storedLore = loreItem.value;

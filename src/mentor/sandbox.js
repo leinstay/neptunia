@@ -69,6 +69,7 @@ export const SANDBOX_OMITS = Object.freeze({
   focus: 'no room question: a live turn has no caller for it either',
   tasks: 'no part of a split message, no queued or folded call: a stored moment records none',
   recentAudience: 'no guild to compare audiences in: <recent> shows the lines of the turn\'s own channel only',
+  participation: 'no guild to compare audiences in: no <participation> block of the persona\'s exchanges elsewhere',
   diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
   diary: 'never a diary post: no <world>, <diary>, <plan> or <found> block',
 });
@@ -393,6 +394,7 @@ export function sandboxRequestInput({
     focus: null,
     tasks: null,
     recentAudience: null,
+    participation: null,
     diaryChannel: null,
     diary: null,
   };

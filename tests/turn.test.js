@@ -6405,11 +6405,11 @@ test('runTurn: turn: timings carries every stage, null for one that did not run'
   const { logs } = await running;
 
   const timings = logs.find((l) => l.msg === 'turn: timings');
-  assert.deepEqual(Object.keys(timings.stages), ['history', 'previews', 'captions', 'videos', 'rewatch', 'links', 'lookup', 'neighbors', 'pulled']);
+  assert.deepEqual(Object.keys(timings.stages), ['history', 'previews', 'captions', 'videos', 'rewatch', 'links', 'lookup', 'neighbors', 'pulled', 'participation']);
   assert.equal(timings.stages.history, 100);
   assert.equal(timings.stages.captions, 1000);
   for (const name of ['previews', 'links', 'neighbors', 'pulled']) assert.equal(typeof timings.stages[name], 'number', name);
-  for (const name of ['videos', 'rewatch', 'lookup']) assert.equal(timings.stages[name], null, name);
+  for (const name of ['videos', 'rewatch', 'lookup', 'participation']) assert.equal(timings.stages[name], null, name);
   assert.deepEqual(
     [timings.channel, timings.mode, timings.triggerKind, timings.prepareMs, timings.replyMs, timings.totalMs, timings.late],
     ['c1', 'reply', 'mention', 1100, 2000, 3100, []],
@@ -7423,6 +7423,143 @@ test('createTurnRunner: context.fetchReplyParents off -- no parent is fetched, t
 
   assert.deepEqual(channel.fetchedIds, []);
   assert.ok(userMessage.includes(labels.transcript.replyToOld));
+});
+
+// ---------------------------------------------------------------------------
+// Participation: recording the persona's sent lines, the pick classifier, the block.
+
+/** A fake store with the participation store: get returns a copy, set records each write. */
+function participationStore(initial = { episodes: [], nextId: 1 }, base = fakeStore({ channels: [{ id: 'c2', name: 'journal', purpose: 'a reading log' }] })) {
+  let value = structuredClone(initial);
+  const writes = [];
+  return Object.assign(base, {
+    writes,
+    current: () => value,
+    getParticipation: () => structuredClone(value),
+    setParticipation: (guildId, state, opts) => {
+      writes.push({ guildId, state, opts });
+      value = structuredClone(state);
+    },
+  });
+}
+
+/** One stored episode of channel `channelId`, the persona's line `ageMinutes` old. */
+function storedEpisode(id, channelId, ageMinutes, ownText, memberText = 'μια ερώτηση') {
+  const at = NOW - ageMinutes * 60_000;
+  return {
+    id,
+    channelId,
+    continues: null,
+    messages: [
+      { id: `${id}-q`, ts: at - 60_000, authorId: 'u9', name: 'Ana', self: false, text: memberText, replyTo: null, caption: null },
+      { id: `${id}-a`, ts: at, authorId: 'self-id', name: 'Bot', self: true, text: ownText, replyTo: null, caption: null },
+    ],
+  };
+}
+
+/** The turn's channel c1 with #journal (c2) and #jardin (c3) in its guild, everyone seeing all three. */
+function participationChannel(historyMessages) {
+  const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages });
+  for (const [id, name] of [['c2', 'journal'], ['c3', 'jardin']]) {
+    channel.guild.channels.cache.set(id, { id, name, guild: channel.guild, viewable: true, permissionsFor: () => ({ has: () => true }) });
+  }
+  channel.guild.channels.cache.set('c1', channel);
+  return channel;
+}
+
+async function runParticipationTurn({ answers, store = participationStore(), hot = fakeHot({ typingSimulation: false }), history } = {}) {
+  const raws = history ?? [
+    rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Bob', ts: NOW - 5000, content: 'πρώτη γραμμή' }),
+    rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000, content: 'θυμάσαι το βιβλίο;' }),
+  ];
+  const channel = participationChannel(raws);
+  const llm = sequenceLlm(answers);
+  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const params = { channel, mode: 'reply', trigger: normalizedTrigger(raws.at(-1)), triggerKind: 'mention' };
+  const { result, logs } = await withCapturedLogs(() => turns.runTurn(params));
+  return { result, logs, channel, llm, store };
+}
+
+test('runTurn: each message sent is recorded as participation with the history lines before it', async () => {
+  const { result, store, logs } = await runParticipationTurn({ answers: ['<msg reply="#2">στο ράφι</msg><msg>το είδα χθες</msg>'] });
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(store.writes.length, 2, 'one write per message sent');
+  const [episode] = store.current().episodes;
+  assert.equal(episode.channelId, 'c1');
+  assert.deepEqual(episode.messages.map((m) => m.id), ['m0', 'm1', 'sent-1', 'sent-2']);
+  const own = episode.messages.find((m) => m.id === 'sent-1');
+  assert.equal(own.self, true);
+  assert.equal(own.authorId, 'self-id');
+  assert.equal(own.name, 'Bot');
+  assert.equal(own.text, 'στο ράφι');
+  assert.equal(own.replyTo, 'm1');
+  assert.equal(episode.messages.find((m) => m.id === 'm1').name, 'Alice');
+  assert.equal(store.writes[0].opts.now, NOW);
+  assert.equal(store.writes[0].opts.settings.hours, 72);
+  const recorded = logs.filter((l) => l.msg === 'participation: recorded');
+  assert.equal(recorded.length, 2);
+  assert.equal(recorded[0].channel, 'c1');
+  assert.equal(recorded[1].episodes, 1);
+  assert.ok(!JSON.stringify(recorded).includes('ράφι'), 'no text in the log');
+});
+
+test('runTurn: a reply to a line older than the lines before it records that line as the parent', async () => {
+  const hot = fakeHot({ typingSimulation: false }, {}, { participation: { linesBefore: 1 } });
+  const raws = [
+    rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Bob', ts: NOW - 9000, content: 'η αρχή' }),
+    rawMessage({ id: 'mx', authorId: 'u3', authorName: 'Cleo', ts: NOW - 5000, content: 'κάτι άλλο' }),
+    rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000, content: 'θυμάσαι;' }),
+  ];
+  const { store } = await runParticipationTurn({ hot, history: raws, answers: ['<msg reply="#1">ναι, αυτό</msg>'] });
+  const [episode] = store.current().episodes;
+  assert.deepEqual(episode.messages.map((m) => m.id), ['m0', 'm1', 'sent-1'], 'm1 is the one line before, m0 the parent; mx is left out');
+  assert.equal(episode.messages.find((m) => m.id === 'sent-1').replyTo, 'm0');
+});
+
+test('runTurn: a dry run, the switch off and a private chat record nothing', async () => {
+  const dry = await runParticipationTurn({ hot: fakeHot({ typingSimulation: false, dryRun: true }), answers: ['<msg>ναι</msg>'] });
+  assert.equal(dry.result.outcome, 'spoke');
+  assert.equal(dry.store.writes.length, 0);
+  const off = await runParticipationTurn({ hot: fakeHot({ typingSimulation: false, participation: false }), answers: ['<msg>ναι</msg>'] });
+  assert.equal(off.channel.sent.length, 1);
+  assert.equal(off.store.writes.length, 0);
+  const store = participationStore({ episodes: [], nextId: 1 }, privateStore());
+  const dm = await runPrivateTurn({ store });
+  assert.equal(dm.channel.sent.length, 1);
+  assert.equal(store.writes.length, 0);
+  assert.ok(!textOf(dm.llm.calls.at(-1)[1].content).includes('<participation>'), 'no block in a private chat');
+});
+
+test('runTurn: the pick classifier runs beside the turn and its pick reaches the <participation> block', async () => {
+  const store = participationStore({ episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')], nextId: 3 });
+  const hot = fakeHot({ typingSimulation: false }, {}, { participation: { shown: 1 } });
+  hot.prompts['participation-pick'] = 'Pick for {{name}}.';
+  const { llm, logs, result } = await runParticipationTurn({ hot, store, answers: ['2', '<msg>ναι</msg>'] });
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(llm.calls.length, 2);
+  assert.equal(llm.calls[0][0].content, 'Pick for Bot.');
+  assert.ok(
+    llm.calls[0][1].content.includes('<episodes>\n1 | #jardin | 30 min | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n2 | #journal | 2 h | Ana: μια ερώτηση | Bot: στο ράφι είναι\n</episodes>'),
+    llm.calls[0][1].content,
+  );
+  const user = textOf(llm.calls[1][1].content);
+  assert.ok(user.includes('<participation>') && user.includes('#journal (a reading log):') && user.includes('στο ράφι είναι'), 'the picked older episode is shown');
+  assert.ok(!user.includes('ωραία λουλούδια'), 'shown: 1 leaves the newest out for the pick');
+  assert.ok(user.includes(labels.senses.participation));
+  const answered = logs.find((l) => l.msg === 'turn: model answered');
+  assert.equal(answered.budget.participation.shown, 1);
+  const timings = logs.find((l) => l.msg === 'turn: timings');
+  assert.equal(typeof timings.stages.participation, 'number');
+});
+
+test('runTurn: without the pick prompt the newest episodes are shown and the classifier is skipped', async () => {
+  const store = participationStore({ episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')], nextId: 3 });
+  const hot = fakeHot({ typingSimulation: false }, {}, { participation: { shown: 1 } });
+  const { llm, logs } = await runParticipationTurn({ hot, store, answers: ['<msg>ναι</msg>'] });
+  assert.equal(llm.calls.length, 1, 'only the reply request');
+  const user = textOf(llm.calls[0][1].content);
+  assert.ok(user.includes('ωραία λουλούδια') && !user.includes('στο ράφι είναι'));
+  assert.equal(logs.find((l) => l.msg === 'participation: skipped')?.reason, 'no-prompt');
 });
 
 test('runTurn: the model answered log line carries the user message segments, hashes only', async () => {

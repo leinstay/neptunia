@@ -52,6 +52,9 @@ When `bot.guildId` is empty and the bot is in exactly one server, it locks to th
 
 ## Features and changes
 
+**11.10.2026**  
+Neptunia keeps a few lines around what they said on other channels for three days. Before answering a new message, a helper picks which of those past exchanges the message points at, even by meaning. They answer from the conversation they actually had instead of guessing. They do not mention those exchanges on their own. Only channels that everyone in the current channel can also read appear. `features.participation` (default on); sizes in `participation.*` in the configuration doc.
+
 **06.10.2026**  
 Neptunia keeps a diary: one channel where they post on their own, without anyone asking. The posts come at random times across the day, in configurable windows, with quiet days mixed in. Posts vary: a drawing of a scene, a meme, a thought, a retold news item, a curious fact, a one-line mood update. Before each post the persona reviews its own recent history and picks something it has not done yet. Some post kinds trigger a web search so the persona can retell what it found in its own words. The owner points the diary at a channel with `/nep diary set` and tunes the schedule, post kinds and weights through config.
 
@@ -309,6 +312,7 @@ src/
     recall-run.js          recall runner: Discord search, windows, summary
     route.js               pure: channel route decisions
     route-channel.js       channel route classifier: picks a channel for the turn
+    participation-pick.js  picks which past exchanges from other channels a turn shows
     elsewhere.js           pure: noticed comments from read-only channels
   memory/
     store.js               JSON file persistence, atomic writes
@@ -324,6 +328,7 @@ src/
     ranking.js             shared ranking for interests and details: frequency, recency, decay
     lore.js                lorebook logic: key matching, entry selection
     recent.js              recent notes: the last few days of short events
+    participation.js       pure: the persona's own exchanges on other channels, kept a few days
     describe.js            media describer: one picture in, one cached caption out
     portrait.js            periodic portrait refresh scheduler
     youtube-check.js       YouTube duration probes and the API key check
@@ -338,6 +343,7 @@ data/                      persistent state (gitignored, created at runtime)
   guilds/<id>/media.json   media description cache
   guilds/<id>/gifs.json    GIF library: handles, URLs, use counts
   guilds/<id>/recent.json  recent notes from the analyzer
+  guilds/<id>/participation.json  the persona's own exchanges on other channels
   guilds/<id>/users/       per-member profiles and relationships
   guilds/<id>/private/     per-member private DM memory
   guilds/<id>/channels/    channel observations from the analyzer

@@ -49,6 +49,7 @@ import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
 import { slimMessage } from '../memory/update.js';
 import { gifOpts } from '../memory/gifs.js';
+import { participationSettings, recordFollowing } from '../memory/participation.js';
 
 /** @typedef {import('../behavior/turn.js').TurnOutcome} TurnOutcome */
 /** @typedef {import('../behavior/turn.js').TriggerKind} TriggerKind */
@@ -2284,6 +2285,47 @@ export function createMessageHandler({
     await postPauseNotice({ ...call, asReply: true, labels, config, client });
   }
 
+  /**
+   * A member's line in a server channel right after the persona spoke there: it joins the
+   * channel's newest participation episode (src/memory/participation.js#recordFollowing,
+   * settings read now) and the store is written only when it changed (`participation:
+   * recorded`, `following: true`). Cheap: nothing is fetched and no profile read, and the store
+   * is not even read unless the persona's last post here (turns.lastPostAt) is within
+   * `participation.followMinutes`. Off with features.memory or features.participation false (a
+   * missing key counts as on), in the diary channel, or for a store without the participation
+   * store. Never throws: a failure logs `participation: failed` (`reason: 'following-error'`).
+   */
+  function noteFollowingLine(guildId, normalized, config) {
+    try {
+      const features = config.features ?? {};
+      if (features.memory === false || features.participation === false) return;
+      const diaryId = config.diary?.channelId;
+      if (diaryId && normalized.channelId === diaryId) return;
+      const settings = participationSettings(config);
+      const lastOwn = typeof turns.lastPostAt === 'function' ? turns.lastPostAt(normalized.channelId) : 0;
+      if (!(lastOwn > 0) || normalized.ts - lastOwn > settings.followMinutes * MINUTE_MS) return;
+      if (typeof store?.getParticipation !== 'function' || typeof store.setParticipation !== 'function') return;
+      const message = {
+        id: normalized.id,
+        ts: normalized.ts,
+        authorId: normalized.authorId,
+        name: normalized.authorName ?? '',
+        self: false,
+        text: normalized.content ?? '',
+        replyTo: normalized.replyToId ?? null,
+        caption: null,
+      };
+      const at = now();
+      const state = store.getParticipation(guildId);
+      const next = recordFollowing(state, { channelId: normalized.channelId, message }, settings, at);
+      if (next === state) return;
+      store.setParticipation(guildId, next, { settings, now: at });
+      log.info('participation: recorded', { channel: normalized.channelId, episodes: next.episodes.length, following: true });
+    } catch (err) {
+      log.warn('participation: failed', { channel: normalized?.channelId ?? null, reason: 'following-error', name: err?.name ?? null });
+    }
+  }
+
   async function onMessage(message) {
     try {
       // 1. System / webhook messages are not conversation.
@@ -2348,6 +2390,9 @@ export function createMessageHandler({
 
       // 6. Other bots are never answered, never memorised.
       if (message.author.bot) return;
+
+      // 6b. A line soon after the persona's own one here joins her participation episode.
+      noteFollowingLine(guildId, normalized, config);
 
       // 7. A memory warmup run is in flight: the persona stays mute (no
       // trigger, no turn, no eavesdrop), but the message still feeds the
