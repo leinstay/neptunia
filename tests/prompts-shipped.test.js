@@ -127,7 +127,7 @@ const LOADS = {
   routed: [...SYSTEM, 'reply'],
   noticed: [...SYSTEM, 'elsewhere'],
   draw: ['draw', 'appearance'],
-  refine: ['refine', 'appearance'],
+  refine: ['refine'],
   diary: [...SYSTEM, 'diary', 'world'],
   diaryPlan: ['diary-plan', 'world'],
   memory: ['memory', ...CHARACTER],
@@ -683,9 +683,16 @@ test('buildDrawPrompt: draw.md and appearance.md are filled for a picture the pe
   assert.ok(text.includes(fill(LABELS.draw.when, { when: 'Mon 5 Oct, 23:10' })), 'draw.when fills {{when}}');
 });
 
-test('buildRefinePrompt: refine.md and appearance.md are filled for a picture the persona is in', () => {
+test('buildRefinePrompt: refine.md is filled and the appearance is never sent, even for a picture the persona is in', () => {
   const prompt = buildRefinePrompt({ prompts: SHIPPED.prompts, selfName: SELF_NAME, request: 'the persona waters frozen tomatoes on a balcony', self: true });
   assertFilled([{ role: 'user', content: prompt }], { files: LOADS.refine }, 'refine');
+  const look = 'UNIQUE-LOOK-MARKER';
+  const withLook = buildRefinePrompt({
+    prompts: { ...SHIPPED.prompts, refine: 'Redraw {{name}}: {{request}} {{appearance}}', appearance: look },
+    selfName: SELF_NAME, request: 'a balcony', self: true,
+  });
+  assert.ok(!withLook.includes(look), 'the appearance text never reaches the refiner');
+  assert.ok(!SHIPPED.prompts.appearance || !prompt.includes(SHIPPED.prompts.appearance.trim()), 'the shipped appearance is absent');
   const timed = buildRefinePrompt({ prompts: SHIPPED.prompts, selfName: SELF_NAME, request: 'a frozen balcony', self: false, when: 'Mon 5 Oct, 23:10' });
   const text = assertFilled([{ role: 'user', content: timed }], { files: ['refine'] }, 'refine with the local time');
   assert.ok(text.includes(fill(LABELS.draw.when, { when: 'Mon 5 Oct, 23:10' })), 'draw.when fills {{when}}');

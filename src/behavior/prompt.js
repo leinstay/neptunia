@@ -1111,18 +1111,20 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
 }
 
 /**
- * The refine pass's prompt (prompts/refine.md, `image.refine`): filled exactly
- * as buildDrawPrompt fills draw.md -- the same four placeholders, the
- * appearance only for a picture the persona is in, the same `when` the first
- * pass used. '' when refine.md is missing or blank (the caller then posts the
- * first picture, reason `no-prompt`).
- * @param {{ prompts: object, selfName: string, request: string, self: boolean, when?: string }} args
+ * The refine pass's prompt (prompts/refine.md, `image.refine`): `{{name}}`,
+ * `{{request}}` and `{{when}}` filled as buildDrawPrompt fills them (the same
+ * `when` the first pass used). The appearance is never sent -- the first
+ * picture, the refiner's only reference, carries the look -- so `self` is
+ * accepted for the callers' shared arguments and ignored here, and
+ * `{{appearance}}` in a template reads as blank. '' when refine.md is missing
+ * or blank (the caller then posts the first picture, reason `no-prompt`).
+ * @param {{ prompts: object, selfName: string, request: string, self?: boolean, when?: string }} args
  * @returns {string}
  */
-export function buildRefinePrompt({ prompts, selfName, request, self, when = '' }) {
+export function buildRefinePrompt({ prompts, selfName, request, when = '' }) {
   const template = prompts?.refine;
   if (typeof template !== 'string' || !template.trim()) return '';
-  return fillDrawTemplate(template, { prompts, selfName, request, self, when });
+  return fillDrawTemplate(template, { prompts, selfName, request, self: false, when });
 }
 
 /** One drawing template filled (buildDrawPrompt, buildRefinePrompt): blank-line runs collapsed, trimmed. */
