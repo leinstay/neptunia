@@ -318,7 +318,8 @@
     "retries": 1,
     "provider": null,
     "openai": { "quality": "medium", "background": "auto", "moderation": "low" },
-    "google": { "resolution": "1K" }
+    "google": { "resolution": "1K" },
+    "refine": { "enabled": false, "model": "openai/gpt-image-2.5-flare", "provider": null, "timeoutMs": 120000, "scope": "all", "maxAspectError": 0.01 }
   },
   "diary": {
     "channelId": "",
