@@ -4142,3 +4142,18 @@ test('buildRequest: the code fallbacks for missing settings equal the values in 
     assert.deepEqual(bare.stats, explicit.stats, name);
   }
 });
+
+test('buildRequest: segments lists each text part with its length and a short hash, never content', () => {
+  const first = buildRequest(segmentScene({ now: NOW, messageCount: 41 }));
+  const parts = first.messages[1].content;
+  assert.deepEqual(first.segments.map((s) => s.segment), ['stable', 'profiles', 'tail']);
+  assert.deepEqual(first.segments.map((s) => s.chars), parts.map((p) => p.text.length));
+  for (const s of first.segments) assert.match(s.hash, /^[0-9a-f]{8}$/);
+  const later = buildRequest(segmentScene({ now: NOW + MIN, messageCount: 44 }));
+  assert.equal(later.segments[0].hash, first.segments[0].hash);
+  assert.equal(later.segments[1].hash, first.segments[1].hash);
+  const otherChat = buildRequest(segmentScene({ now: NOW, messageCount: 41, triggerFields: { content: 'something else entirely' } }));
+  assert.equal(otherChat.segments[0].hash, first.segments[0].hash);
+  assert.notEqual(otherChat.segments[2].hash, first.segments[2].hash, 'the chat lives in the tail');
+  assert.ok(!JSON.stringify(first.segments).includes('Alice'));
+});
