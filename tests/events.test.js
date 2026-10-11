@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createMessageHandler } from '../src/discord/events.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
+import { userText } from '../src/behavior/prompt.js';
 import { fill } from '../src/discord/format.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { pingStatus } from '../src/behavior/elsewhere.js';
@@ -6932,7 +6933,7 @@ function heldFirst() {
 
 /** The `<task>` block of a talk request. */
 function liveTask(call) {
-  return /<task>\n([\s\S]*?)\n<\/task>/.exec(call.messages[1].content)?.[1] ?? '';
+  return /<task>\n([\s\S]*?)\n<\/task>/.exec(userText(call.messages[1].content))?.[1] ?? '';
 }
 
 /** Who each talk request answered: the author its task names. */
