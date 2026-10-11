@@ -3635,6 +3635,8 @@ export function createTurnRunner({
         usage: completion.usage,
         calibration: Number(calibrator.ratio.toFixed(3)),
         budget: request.stats,
+        // Per user-message part: length and a short hash, to see which part changes between turns (no content).
+        segments: request.segments,
         think: parsed.think,
         skip: parsed.skip || nothingToDo,
         messages: parsed.messages.length,

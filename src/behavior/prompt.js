@@ -38,6 +38,7 @@
 // (src/behavior/private.js). Pictures of another channel are shown as
 // captions only: nothing outside the turn's own channel is ever attached.
 
+import { createHash } from 'node:crypto';
 import { fitSections, requestTokenLimit, sectionCost } from '../llm/budget.js';
 import {
   computeTempo,
@@ -1948,7 +1949,8 @@ export function usesFollowUpTask({ mode, triggerKind, taggedCall = null, routed 
  *   `brief`, `picture` and, with an owner's topic, `topic`; never cut) and `<found>` (`labels.diary.found`, then what the search
  *   found; one piece, fitted right after `<lookup>`). They render after `<channel_view>` and before
  *   `<chat>`. `<world>` never renders outside a diary post.
- * @returns {{ messages: object[], stats: object, idByIndex: Map<number, string>, tempo: object,
+ * @returns {{ messages: object[], stats: object, segments: { segment: 'stable'|'profiles'|'tail', chars: number, hash: string }[],
+ *   idByIndex: Map<number, string>, tempo: object,
  *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
  *   pulledKept: { channelId: string, ids: string[], newestId: string, newestTs: number }[],
  *   peopleShown: { id: string, names: string[] }[],
@@ -2699,6 +2701,11 @@ export function buildRequest(input) {
       { role: 'user', content },
     ],
     stats: { ...stats, used, limit, images: pictures.length },
+    segments: user.map((part) => ({
+      segment: part.cacheSegment ?? 'tail',
+      chars: part.text.length,
+      hash: createHash('sha1').update(part.text).digest('hex').slice(0, 8),
+    })),
     idByIndex,
     tempo,
     pictures,

@@ -7424,3 +7424,15 @@ test('createTurnRunner: context.fetchReplyParents off -- no parent is fetched, t
   assert.deepEqual(channel.fetchedIds, []);
   assert.ok(userMessage.includes(labels.transcript.replyToOld));
 });
+
+test('runTurn: the model answered log line carries the user message segments, hashes only', async () => {
+  const { logs } = await runDrawTurn({ answers: ['<draw>a cat</draw>'] });
+  const answered = logs.find((l) => l.msg === 'turn: model answered');
+  assert.ok(Array.isArray(answered.segments) && answered.segments.length >= 1);
+  assert.equal(answered.segments.at(-1).segment, 'tail');
+  for (const s of answered.segments) {
+    assert.deepEqual(Object.keys(s).sort(), ['chars', 'hash', 'segment']);
+    assert.match(s.hash, /^[0-9a-f]{8}$/);
+    assert.ok(s.chars > 0);
+  }
+});
