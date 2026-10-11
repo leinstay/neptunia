@@ -15,6 +15,7 @@ import { createMemoryUpdater } from '../src/memory/update.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { parseOutput } from '../src/llm/parse.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
+import { userText } from '../src/behavior/prompt.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
@@ -684,8 +685,7 @@ test('turn request: the library reaches the prompt as <gifs> with cached caption
       const client = { user: { id: 'self-id', username: 'Bot' }, channels: { fetch: async () => { throw new Error('Unknown Channel'); } } };
       const turns = createTurnRunner({ hot: fakeHot(features), store, llm, calibrator: calibrator(), client, now: () => NOW });
       await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind: 'mention' }));
-      const content = seen[0][1].content;
-      return Array.isArray(content) ? content.find((part) => part.type === 'text').text : content;
+      return userText(seen[0][1].content);
     });
   }
 
