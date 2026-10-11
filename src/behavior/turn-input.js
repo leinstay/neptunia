@@ -55,6 +55,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'readOnlyIds',
   'recentLines',
   'recentAudience',
+  'participation',
   'diaryChannel',
   'diary',
 ]);

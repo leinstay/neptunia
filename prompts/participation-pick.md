@@ -1,6 +1,6 @@
 You decide which stored episodes from other channels a new message refers to.
 
-Below: a short transcript of the current channel, {{name}}'s own lines marked. Then <candidate> with the new message (author and text). Then <episodes> with numbered lines, one per stored episode, newest first: number | #channel | when (how long ago) | member: first line of another member | {{name}}: first line of {{name}}. Each headline shows only the start of an episode; a match on the situation counts, not only on the exact words.
+Below: a short transcript of the current channel, {{name}}'s own lines marked. Then <candidate> with the new message (author and text). Then <episodes> with numbered lines, one per stored episode, newest first: number | #channel | a duration | another member's name: their first line, or empty | {{name}}: first line of {{name}}. Each headline shows only the start of an episode; a match on the situation counts, not only on the exact words.
 
 Answer ONE line:
 

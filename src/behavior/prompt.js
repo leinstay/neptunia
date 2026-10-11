@@ -17,6 +17,9 @@
 //       channel's audience may read, then members' moments of those hours that
 //       `<people>` does not show, capped by `context.caps.recent`, ranked by who
 //       the turn is about
+//   5d. the persona's own exchanges on other channels (`<participation>`): the
+//       episodes the pick classifier chose, then the newest, capped by
+//       `context.caps.participation`; never in a private chat
 //   6. memory about other people present in the transcript
 //   6b. the members the persona feels most strongly about that the request
 //       does not describe (`<attitudes>`, one piece: names and bands)
@@ -51,15 +54,16 @@ import {
   renderTempo,
   renderTranscript,
 } from '../discord/format.js';
-import { HOUR_MS, zonedDay } from '../time.js';
+import { HOUR_MS, MINUTE_MS, zonedDay } from '../time.js';
 import { affinityBand, roundScore, strongestMoves } from '../memory/affinity.js';
 import { isConfirmed, isStale } from '../memory/interests.js';
 import { topByRank } from '../memory/ranking.js';
 import { rankEmojiUsage } from '../memory/emoji-usage.js';
 import { gifHandleMap, normalizeGifs, rankGifs } from '../memory/gifs.js';
-import { clampWithEllipsis } from '../memory/clamp.js';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { sortEpisodesForDisplay, topEpisodes } from '../memory/episodes.js';
-import { RECENT_EPISODES_PER_MEMBER, episodeKey, memberIdOf, recentSettings, recentView } from '../memory/recent.js';
+import { RECENT_EPISODES_PER_MEMBER, episodeKey, foldText, memberIdOf, recentSettings, recentView } from '../memory/recent.js';
+import { cutEpisode, participationSettings, selectEpisodes } from '../memory/participation.js';
 import { matchLore } from '../memory/lore.js';
 import { channelActivity, renderChannel } from '../memory/channels.js';
 import { selectPictures, mediaProxyUrl, fitBox } from '../discord/media.js';
@@ -961,6 +965,8 @@ function assembleUser({ now, timezone, labels, sensesText, kept, tempoText, task
     block('lore', kept.lore.join('\n\n')),
     // The last hours: one item, the header with the kept lines and moments, oldest first.
     block('recent', (kept.recent ?? []).join('\n')),
+    // The persona's own exchanges on other channels: one item, the header and the episodes kept.
+    block('participation', (kept.participation ?? []).join('\n')),
     // The members the persona feels most strongly about that `<people>` does not describe.
     block('attitudes', (kept.attitudes ?? []).join('\n')),
     block('other_channels', kept.neighbors.join('\n\n')),
@@ -1252,7 +1258,8 @@ function lookupCandidates(lookup, labels, timezone) {
  * Right after the files line, `senses.time` (how to read clock times, line
  * ages and gap markers), private chats included, when the label is a non-empty string.
  * Outside a private chat, after it: `senses.channels` (the
- * persona sees only the channels this request shows), then, with an
+ * persona sees only the channels this request shows), then, with
+ * `participation` (the request shows `<participation>`), `senses.participation`, then, with an
  * `elsewhereDestination` (`{ name }`, where a call from a read-only channel is
  * answered), `senses.elsewhere` with `{destination}`. With a `diaryChannel`
  * (the bare name of the diary channel; the label carries the `#`),
@@ -1271,6 +1278,7 @@ function renderSenses(
     gifWatching = false,
     elsewhereDestination = null,
     diaryChannel = null,
+    participation = false,
   } = {},
 ) {
   const senses = labels.senses;
@@ -1336,6 +1344,8 @@ function renderSenses(
   // Which channels the persona sees, and where it answers a call from one it
   // cannot write in: a server turn only.
   if (!privateChat && senses.channels) lines.push(senses.channels);
+  // The persona's own exchanges on other channels (`<participation>`), only while the block is there.
+  if (!privateChat && participation === true && senses.participation) lines.push(senses.participation);
   if (!privateChat && senses.elsewhere && typeof elsewhereDestination?.name === 'string' && elsewhereDestination.name) {
     lines.push(fill(senses.elsewhere, { destination: elsewhereDestination.name }));
   }
@@ -1548,6 +1558,129 @@ function recentEntries(items, { labels, timezone, currentChannelId, channels, na
     entries.push({ kind: 'episode', at: item.at, text: fill(r.episode, { date, name, what: resolveChatText(item.episode.what, nameOf) }) });
   }
   return { entries, unnamed };
+}
+
+/** The words of `text` a `<participation>` line is matched by: its folded words (foldText) of 4+ letters. */
+function matchWords(text) {
+  return new Set(
+    foldText(text)
+      .split(/\P{L}+/u)
+      .filter((word) => [...word].length >= 4),
+  );
+}
+
+/**
+ * The `<participation>` block's pieces before the budget: the slices of other
+ * channels around the persona's own lines (src/memory/participation.js), or
+ * null when there is no block to build -- a private chat, `features.participation`
+ * off (a missing key counts as on), no `labels.participation.header` or
+ * `labels.participation.episode`, or no `participation.state`. The episodes are
+ * src/memory/participation.js#selectEpisodes's (`pickedIds` first, then the
+ * newest; `participation.shown`, `participation.perChannel`, never the current
+ * channel, only channels `audience` accepts). A line whose message id is in
+ * `shownIds` (already in `<chat>`, `<other_channels>` or `<channel_view>`) is
+ * dropped (counted in `deduped`); an episode left without a line of the
+ * persona is dropped, and so is every episode of a channel with no name (the
+ * stored note's, else `channelName(id)`). Each episode is cut to
+ * `participation.episodeChars` (cutEpisode) keeping the lines that share a
+ * word of 4+ letters with `candidateText`; a run of cut lines renders
+ * `labels.participation.skipped` (`{count}`), nothing without the label. An
+ * episode renders `labels.participation.episode` (`{when}`: the age of its
+ * newest own line, formatDuration), then its lines in the transcript's form
+ * without a `#n` index or a reply quote: the clock time, as
+ * `transcript.timeAged` once the line is `ageMinutes` old, the author
+ * (`labels.self` for the persona), the text, and a stored caption as
+ * `transcript.imageDescribed`. A channel's line is `labels.participation.channel`
+ * (`{channel}` `{purpose}`: the stored note's purpose) or, with no purpose,
+ * `labels.participation.channelNoPurpose`. `episodes` come in budget priority
+ * (the picks in their order, then the newest), each with `budgetText` (its
+ * channel line and its own text: what the budget pays for) and `rank` (its
+ * place in the selection's display order).
+ * @returns {{ header: string, episodes: { id: string, channelId: string, channelLine: string, text: string,
+ *   budgetText: string, rank: number, lastOwnAt: number }[], offered: number, deduped: number }|null}
+ */
+function participationView(participation, { config, labels, privateChat, currentChannelId, channels, shownIds, candidateText, now, timezone, selfName, nameOf, ageMinutes }) {
+  const p = labels.participation;
+  if (privateChat || config.features?.participation === false) return null;
+  if (!p?.header || !p.episode) return null;
+  if (!participation || typeof participation !== 'object' || !participation.state) return null;
+  const settings = participationSettings(config);
+  const pickedIds = Array.isArray(participation.pickedIds) ? participation.pickedIds : [];
+  const groups = selectEpisodes(
+    participation.state,
+    { pickedIds, excludeChannelId: currentChannelId, audience: participation.audience, now },
+    settings,
+  );
+  const stored = new Map((Array.isArray(channels) ? channels : []).filter((channel) => channel?.id).map((channel) => [channel.id, channel]));
+  const liveName = typeof participation.channelName === 'function' ? participation.channelName : () => null;
+  const words = matchWords(candidateText);
+  const selfLabel = fill(labels.self, { name: selfName });
+  const agedTemplate = labels.transcript?.timeAged;
+  const renderLine = (message) => {
+    const clock = formatClock(message.ts, timezone, labels.locale);
+    const age = now - message.ts;
+    const time = agedTemplate && age >= ageMinutes * MINUTE_MS ? fill(agedTemplate, { clock, age: formatDuration(age, labels.units) }) : `[${clock}]`;
+    const caption = message.caption && labels.transcript?.imageDescribed ? fill(labels.transcript.imageDescribed, { text: message.caption }) : '';
+    const body = [resolveChatText(message.text, nameOf), caption].filter(Boolean).join(' ');
+    return `${time} ${message.self ? selfLabel : message.name}: ${body}`.trimEnd();
+  };
+  const episodes = [];
+  let offered = 0;
+  let deduped = 0;
+  let rank = 0;
+  for (const group of groups) {
+    offered += group.episodes.length;
+    const note = stored.get(group.channelId);
+    const name = oneLine(note?.name ?? '') || oneLine(liveName(group.channelId) ?? '');
+    if (!name) continue;
+    const purpose = oneLine(note?.purpose ?? '');
+    const channelLine = purpose && p.channel ? fill(p.channel, { channel: name, purpose }) : p.channelNoPurpose ? fill(p.channelNoPurpose, { channel: name }) : '';
+    for (const episode of group.episodes) {
+      const messages = episode.messages.filter((message) => !shownIds.has(message.id));
+      deduped += episode.messages.length - messages.length;
+      if (!messages.some((message) => message.self)) continue;
+      const keepIds =
+        words.size > 0 ? messages.filter((message) => [...matchWords(message.text)].some((word) => words.has(word))).map((message) => message.id) : [];
+      const lines = cutEpisode({ messages }, { maxChars: settings.episodeChars, keepIds }).map((item) =>
+        'skipped' in item ? (p.skipped ? fill(p.skipped, { count: item.skipped }) : '') : renderLine(item.message),
+      );
+      const text = [fill(p.episode, { when: formatDuration(Math.max(0, now - episode.lastOwnAt), labels.units) }), ...lines.filter(Boolean)].join('\n');
+      episodes.push({
+        id: episode.id,
+        channelId: group.channelId,
+        channelLine,
+        text,
+        budgetText: [channelLine, text].filter(Boolean).join('\n'),
+        rank,
+        lastOwnAt: episode.lastOwnAt,
+      });
+      rank += 1;
+    }
+  }
+  // Budget priority: the picks in their order, then the newest; the display order stays the selection's.
+  const pickIndex = (id) => {
+    const at = pickedIds.indexOf(id);
+    return at === -1 ? Infinity : at;
+  };
+  episodes.sort((a, b) => pickIndex(a.id) - pickIndex(b.id) || b.lastOwnAt - a.lastOwnAt);
+  return { header: fill(p.header, { hours: settings.hours }), episodes, offered, deduped };
+}
+
+/**
+ * The `<participation>` block's text from the episodes the budget kept: the
+ * header, then per channel (in the selection's order) its channel line once
+ * and its episodes. '' when none was kept.
+ */
+function participationText(view, keptEpisodes) {
+  if (keptEpisodes.length === 0) return '';
+  const lines = [view.header];
+  let channelId = null;
+  for (const episode of [...keptEpisodes].sort((a, b) => a.rank - b.rank)) {
+    if (episode.channelId !== channelId && episode.channelLine) lines.push(episode.channelLine);
+    channelId = episode.channelId;
+    lines.push(episode.text);
+  }
+  return lines.join('\n');
 }
 
 /** A stored `YYYY-MM-DD` in the transcript's date form (`formatDate`), read as that calendar day:
@@ -1935,6 +2068,20 @@ export function usesFollowUpTask({ mode, triggerKind, taggedCall = null, routed 
  * @param {(channelId: string|null) => boolean} [input.recentAudience]  Whether a recent line from
  *   that channel may be shown in this turn (src/behavior/turn.js decides it from the channels'
  *   audiences). Omitted -> only the lines of `currentChannelId`.
+ * @param {{ state: object, pickedIds?: string[], audience?: (channelId: string) => boolean,
+ *   channelName?: (channelId: string) => (string|null) }|null} [input.participation]  The
+ *   persona's own exchanges on other channels, rendered as `<participation>` right after
+ *   `<recent>` (see `participationView`): `state` is the guild's participation store
+ *   (store.getParticipation), `pickedIds` the pick classifier's episode ids
+ *   (src/behavior/participation-pick.js; [] or omitted: the newest are shown), `audience` the
+ *   channels this turn may show them from (the `<recent>` and neighbour rule:
+ *   context.pull.sameAudience), and `channelName` a channel's live name when its stored note has
+ *   none. The selection happens here (src/memory/participation.js#selectEpisodes), so the
+ *   block's dedup against the chat, the neighbours and the pulled channels is this builder's.
+ *   Budget section `participation`, capped by `context.caps.participation` (6000 when unset),
+ *   right after `recent`; one item per episode, the header first. Never in a private chat;
+ *   none with `features.participation` false or without `labels.participation.header` and
+ *   `labels.participation.episode`. While it is shown, `<senses>` carries `senses.participation`.
  * @param {string|null} [input.diaryChannel]  The bare name of the diary channel (the persona's
  *   own, src/behavior/diary.js) when one is set: `<senses>` gains `senses.diary` with
  *   `{channel}`. Omitted or null -> no line.
@@ -1973,7 +2120,10 @@ export function usesFollowUpTask({ mode, triggerKind, taggedCall = null, routed 
  *   shown, `cut` (items offered and not shown), `hidden` (lines `recentAudience` refused),
  *   `repeated` (moments in the window left out as shown in `<people>`) and `unnamed` (moments
  *   left out because their member has no name); `stats.recent` (only when an item was offered)
- *   counts the items, not the header.
+ *   counts the items, not the header. `stats.participation` (only when the block was built)
+ *   adds to the budget line `offered` (episodes selected), `shown`, `cut` (offered and not
+ *   shown: a channel without a name, an episode left without an own line by the dedup, the
+ *   budget's cut) and `deduped` (lines left out as already shown elsewhere in the request).
  */
 export function buildRequest(input) {
   const { config, prompts, calibrator, mode, forced = false, now, selfName, history, neighbors, trigger, triggerKind, channels = [], currentChannelId = null, descriptions, videos, imageAnswers, reads, lookup = null } = input;
@@ -2060,6 +2210,30 @@ export function buildRequest(input) {
     }
   }
 
+  // `<participation>`: the persona's own exchanges on other channels (never in a private chat).
+  // A line already shown in the chat, a neighbour or a pulled channel is not shown again.
+  const shownIds = new Set([
+    ...history.map((message) => message.id),
+    ...pulledChannels.flatMap((channel) => channel.messages.map((message) => message.id)),
+    ...(privateChat ? [] : neighbors ?? []).flatMap((neighbor) => (neighbor.messages ?? []).map((message) => message.id)),
+  ]);
+  const participationCandidate = trigger ?? [...history].reverse().find((message) => !message.self && !message.bot) ?? null;
+  const participationBuilt = participationView(input.participation, {
+    config,
+    labels,
+    privateChat,
+    currentChannelId,
+    channels,
+    shownIds,
+    candidateText: participationCandidate?.content ?? '',
+    now,
+    timezone,
+    selfName,
+    nameOf,
+    ageMinutes: config.context.ageAfterMinutes ?? 60,
+  });
+  const participationOffered = Boolean(participationBuilt && participationBuilt.episodes.length > 0);
+
   // On a routed turn the call is not in this chat: its silence is measured to now, and its
   // last line being the persona's own is no sign that nobody answered the persona.
   const tempo = computeTempo(history, now, routed ? null : trigger);
@@ -2141,7 +2315,7 @@ export function buildRequest(input) {
   // room for it (see fitPulledChannel); checked once the budget is spent.
   const fittedTask = composeTask(true);
 
-  const sensesText = renderSenses(config, labels, {
+  const sensesOptions = {
     searchAvailable: input.searchAvailable === true,
     recallAvailable: input.recallAvailable === true,
     drawQuota: input.drawQuota,
@@ -2152,7 +2326,10 @@ export function buildRequest(input) {
     gifWatching: gifWatchBlocker(config, prompts) === null,
     elsewhereDestination: input.elsewhereDestination ?? null,
     diaryChannel: typeof input.diaryChannel === 'string' ? input.diaryChannel : null,
-  });
+    // Fitted as if `<participation>` is shown; checked once the budget is spent.
+    participation: participationOffered,
+  };
+  let sensesText = renderSenses(config, labels, sensesOptions);
 
   // A diary post (mode `diary`): the persona's world (under `diary.world`), its past posts, the
   // post's plan and what its search found. None of it in any other mode.
@@ -2398,13 +2575,24 @@ export function buildRequest(input) {
     built && built.entries.length > 0 ? { name: 'recent', cap, keep: 'first', items: [built.header, ...built.entries.map((entry) => entry.text)] } : null;
   let recentBuilt = recentOn ? buildRecent(askedIntended) : null;
   let recentSection = recentSectionOf(recentBuilt, recentCap);
+  // `<participation>`: the header, then one item per episode in budget priority, each paying for
+  // its channel line (the block renders a channel line once per channel, so never more).
+  const participationSection = participationOffered
+    ? {
+        name: 'participation',
+        cap: caps.participation ?? 6000,
+        keep: 'first',
+        items: [participationBuilt.header, ...participationBuilt.episodes.map((episode) => episode.budgetText)],
+      }
+    : null;
 
   // The sections fitted ahead of `<people>`, in priority order: the one list both the main
   // pass and the room of the asked-about members' episodes (below) are measured on. The
   // pulled block right after the chat; ahead of it on a routed turn, whose call lives there;
-  // then the last hours.
+  // then the last hours, then the persona's exchanges elsewhere.
   const aheadOfRecent = [...head, ...(routed ? [pulledSection, chatSection] : [chatSection, pulledSection])];
-  let aheadOfPeople = recentSection ? [...aheadOfRecent, recentSection] : aheadOfRecent;
+  const aheadOfPeopleWith = (recentSec) => [...aheadOfRecent, ...(recentSec ? [recentSec] : []), ...(participationSection ? [participationSection] : [])];
+  let aheadOfPeople = aheadOfPeopleWith(recentSection);
   // Episodes only fill what `<people>` has left once every member asked about is placed
   // without them, as the budget takes them in order, so no member asked about is ever cut
   // for anyone's episodes; the earlier members take theirs first, each losing their lightest
@@ -2470,7 +2658,7 @@ export function buildRequest(input) {
       // `<people>`'s room -- so `<people>` keeps at least the room its members were placed in.
       recentBuilt = buildRecent(askedShown);
       recentSection = recentSectionOf(recentBuilt, Math.min(recentCap, (measured.stats.recent?.used ?? 0) + (free - room)));
-      aheadOfPeople = recentSection ? [...aheadOfRecent, recentSection] : aheadOfRecent;
+      aheadOfPeople = aheadOfPeopleWith(recentSection);
       // The room `<people>` has now (never less than `room`): the members placed above keep their
       // rendering, and one that was not is tried bare (their moments are in `<recent>` now) in
       // what is left, never at the cost of a member placed after it. One that the budget would
@@ -2620,6 +2808,40 @@ export function buildRequest(input) {
         unnamed,
       };
     }
+  }
+  // `<participation>` as one piece: the header, then the episodes kept (a subsequence of the
+  // offered items, in their order) regrouped by channel in display order. The header alone, or
+  // episodes without it, make no block.
+  if (participationBuilt) {
+    const keptItems = kept.participation ?? [];
+    const shown = [];
+    if (keptItems.length >= 2 && keptItems[0] === participationBuilt.header) {
+      let next = 1;
+      for (const episode of participationBuilt.episodes) {
+        if (next < keptItems.length && keptItems[next] === episode.budgetText) {
+          shown.push(episode);
+          next += 1;
+        }
+      }
+    }
+    const text = participationText(participationBuilt, shown);
+    kept.participation = text ? [text] : [];
+    stats.participation = {
+      ...(stats.participation ?? { used: 0, kept: 0, dropped: 0 }),
+      offered: participationBuilt.offered,
+      shown: shown.length,
+      cut: participationBuilt.offered - shown.length,
+      deduped: participationBuilt.deduped,
+    };
+  }
+  // The senses line names `<participation>` only when the block is there. The request only gets
+  // shorter, so the fit holds.
+  if (participationOffered && (kept.participation ?? []).length === 0) {
+    const fitted = sensesText;
+    sensesText = renderSenses(config, labels, { ...sensesOptions, participation: false });
+    const saved = cost(fitted) - cost(sensesText);
+    stats.fixed.used -= saved;
+    used -= saved;
   }
   // The members whose profile the request shows: the interlocutor when its block was kept, then
   // the ones `<people>` kept (a subsequence of the offered items, in their order).

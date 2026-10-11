@@ -24,6 +24,7 @@ import { fill, formatDate } from '../src/discord/format.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createRecall } from '../src/behavior/recall-run.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';
+import { createParticipationPicker } from '../src/behavior/participation-pick.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMessageHandler } from '../src/discord/events.js';
 import { normalizeMessage, withTextPreviews } from '../src/discord/collect.js';
@@ -146,6 +147,7 @@ const LOADS = {
   searchSummary: ['search-summary'],
   recallSummary: ['recall-summary'],
   routeChannel: ['route-channel'],
+  participationPick: ['participation-pick'],
   room: ['room'],
   split: ['split'],
   merge: ['merge'],
@@ -1047,6 +1049,46 @@ test('createChannelRouter: the route classifier fills route-channel.md', async (
   assert.deepEqual(result, []);
   assert.equal(llm.calls.length, 1, 'one route request');
   assertFilled(llm.calls[0].messages, { files: LOADS.routeChannel, blocks: ['transcript', 'channels', 'candidate'] }, 'route-channel');
+});
+
+/** The persona's stored exchanges: one in #jardin and one in #journal, both inside the window. */
+function participationState() {
+  const own = (id, ts, text) => ({ id, ts, authorId: SELF_ID, name: SELF_NAME, self: true, text, replyTo: null, caption: null });
+  const member = (id, ts, text) => ({ id, ts, authorId: NIKOS, name: 'Nikos', self: false, text, replyTo: null, caption: 'a tomato plant' });
+  return {
+    nextId: 3,
+    episodes: [
+      { id: 'p1', channelId: GARDEN, continues: null, messages: [member('pa1', NOW - 3 * 60 * MINUTE_MS, 'les tomates ont poussé'), own('pa2', NOW - 3 * 60 * MINUTE_MS + MINUTE_MS, 'enfin !')] },
+      { id: 'p2', channelId: DIARY, continues: null, messages: [own('pb1', NOW - 40 * MINUTE_MS, 'je relis mes notes')] },
+    ],
+  };
+}
+
+test('createParticipationPicker: the pick classifier fills participation-pick.md', async () => {
+  const hot = shippedHot();
+  const guild = discordGuild([
+    [GENERAL_INFO, generalRaws()],
+    [GARDEN_INFO, []],
+    [DIARY_INFO, []],
+  ]);
+  const store = { getParticipation: () => participationState(), listChannels: () => CHANNELS };
+  const llm = recordingLlm(() => 'none');
+  const picker = createParticipationPicker({ hot, store, llm, now: () => NOW });
+  const history = await generalHistory();
+  const channel = guild.channels.cache.get(GENERAL);
+  const { result } = await withCapturedLogs(() =>
+    picker({ guildId: GUILD, channel, history, trigger: history.at(-1), triggerKind: 'mention', mode: 'reply', selfName: SELF_NAME, audience: () => true }),
+  );
+  assert.deepEqual(result, []);
+  assert.equal(llm.calls.length, 1, 'one pick request');
+  assertFilled(llm.calls[0].messages, { files: LOADS.participationPick, blocks: ['transcript', 'candidate', 'episodes'] }, 'participation-pick');
+});
+
+test('buildRequest: the <participation> block fills its labels and the senses line', async () => {
+  const request = buildRequest(await turnInput({ participation: { state: participationState(), pickedIds: [], audience: () => true, channelName: () => null } }));
+  const text = assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'participation'] }, 'participation');
+  assert.ok(text.includes(LABELS.senses.participation), 'senses.participation rides with the block');
+  assert.ok(text.indexOf('<participation>') < text.indexOf('<other_channels>'));
 });
 
 test('createMessageHandler: the room classifier fills room.md', async () => {

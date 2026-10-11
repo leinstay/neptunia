@@ -29,7 +29,8 @@ import { clampText, oneLine } from './clamp.js';
 
 /**
  * config.json's own values for the `participation` section, the code fallbacks
- * when a deployment's config lacks a key.
+ * when a deployment's config lacks a key. `contextMessages` and
+ * `maxOutputTokens` belong to the pick classifier (src/behavior/participation-pick.js).
  */
 export const PARTICIPATION_DEFAULTS = Object.freeze({
   hours: 72,
@@ -43,6 +44,8 @@ export const PARTICIPATION_DEFAULTS = Object.freeze({
   shown: 4,
   perChannel: 2,
   episodeChars: 1800,
+  contextMessages: 6,
+  maxOutputTokens: 60,
 });
 
 /** How long a headline's member line and self line may be (a hard cut at a word boundary). */
@@ -58,7 +61,7 @@ const CUT_EDGE = 2;
  * @param {object} config
  * @returns {{ hours: number, linesBefore: number, linesAfter: number, followMinutes: number,
  *   mergeGapMinutes: number, maxMessages: number, maxStored: number, maxTextChars: number,
- *   shown: number, perChannel: number, episodeChars: number }}
+ *   shown: number, perChannel: number, episodeChars: number, contextMessages: number, maxOutputTokens: number }}
  */
 export function participationSettings(config) {
   const section = isPlainObject(config?.participation) ? config.participation : {};
