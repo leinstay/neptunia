@@ -12,7 +12,7 @@
 // into the request: the prompt file says everything, the list lines carry
 // structural fields only.
 
-import { block, classifierTranscript, fillPromptTemplate } from './prompt.js';
+import { block, classifierTranscript, fillPromptTemplate, stableThenTail } from './prompt.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { topByRank } from '../memory/ranking.js';
 
@@ -222,18 +222,19 @@ export function routeContext({ history, candidate, contextMessages, config, labe
 
 /**
  * The route classifier's request: the system message is `prompt` with
- * `{{name}}` filled with the persona's display name; the user message is the
- * `<channels>` block (the lines, one per line: the stable bulk first), the
- * `transcriptBlock` (may be ''), then the `candidateBlock`. Null when the prompt is blank or there is
+ * `{{name}}` filled with the persona's display name; the user message is two
+ * text parts: the `<channels>` block (the lines, one per line: the stable
+ * bulk, tagged `cacheSegment: 'stable'`, with its separator), then the
+ * `transcriptBlock` (may be '') and the `candidateBlock`. Null when the prompt is blank or there is
  * no line.
  * @param {{ prompt: string|null|undefined, selfName: string, transcriptBlock?: string,
  *   candidateBlock?: string, lines: string[] }} params
- * @returns {{ role: string, content: string }[]|null}
+ * @returns {{ role: string, content: string|object[] }[]|null}
  */
 export function buildRouteRequest({ prompt, selfName, transcriptBlock = '', candidateBlock = '', lines }) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   if (!Array.isArray(lines) || lines.length === 0) return null;
-  const user = [block('channels', lines.join('\n')), transcriptBlock, candidateBlock].filter(Boolean).join('\n');
+  const user = stableThenTail(block('channels', lines.join('\n')), [transcriptBlock, candidateBlock], '\n');
   return [
     { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '' }) },
     { role: 'user', content: user },

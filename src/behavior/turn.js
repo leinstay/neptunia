@@ -24,7 +24,7 @@ import {
   withTextPreviews,
 } from '../discord/collect.js';
 import { audienceAllows, captionPulled, checkPull, fetchPull } from '../discord/pull-fetch.js';
-import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, fillPromptTemplate, gifFieldChars, usesFollowUpTask } from './prompt.js';
+import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, fillPromptTemplate, gifFieldChars, stableThenTail, usesFollowUpTask } from './prompt.js';
 import {
   DIARY_DAILY,
   DIARY_PICTURES_DAILY,
@@ -1485,10 +1485,7 @@ export function createTurnRunner({
       completion = await llm.complete(
         [
           { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '' }) },
-          {
-            role: 'user',
-            content: [block('gifs', library.join('\n')), block('context', contextBody), block('reply', replyBody)].filter(Boolean).join('\n\n'),
-          },
+          { role: 'user', content: stableThenTail(block('gifs', library.join('\n')), [block('context', contextBody), block('reply', replyBody)], '\n\n') },
         ],
         {
           model: classifierTextModel(config),

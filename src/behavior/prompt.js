@@ -1002,6 +1002,29 @@ function assembleUser({ now, timezone, labels, sensesText, kept, tempoText, task
 }
 
 /**
+ * A helper request's user content in two cache parts: the `stable` block (the
+ * bulk that repeats between calls) tagged `cacheSegment: 'stable'` and
+ * followed by `separator`, then the per-turn blocks joined with `separator`
+ * and untagged. Empty blocks are left out; with no per-turn block the stable
+ * part has no trailing separator. The parts' texts joined with nothing
+ * (userText) are the old single string. A blank `stable` gives the plain
+ * joined string. Pure.
+ * @param {string} stable
+ * @param {string[]} tail
+ * @param {string} separator
+ * @returns {string|{ type: 'text', text: string, cacheSegment?: 'stable' }[]}
+ */
+export function stableThenTail(stable, tail, separator) {
+  const rest = tail.filter(Boolean).join(separator);
+  if (!stable) return rest;
+  if (!rest) return [{ type: 'text', text: stable, cacheSegment: 'stable' }];
+  return [
+    { type: 'text', text: stable + separator, cacheSegment: 'stable' },
+    { type: 'text', text: rest },
+  ];
+}
+
+/**
  * The whole text of a user message's content: a string as it is; an array of
  * parts as its text parts' texts joined with nothing (assembleUser's parts
  * carry their own separators, so this is exactly the user text the model

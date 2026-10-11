@@ -15,6 +15,7 @@ import {
   routeSettings,
   routeWriter,
 } from '../src/behavior/route.js';
+import { userText } from '../src/behavior/prompt.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
@@ -142,10 +143,23 @@ test('buildRouteRequest: the system prompt with the name, then channels, transcr
   });
   assert.deepEqual(messages, [
     { role: 'system', content: 'You are Zoë. Pick one.' },
-    { role: 'user', content: '<channels>\n1 | #a |  |\n2 | #b |  |\n</channels>\n<transcript>\nT\n</transcript>\n<candidate>\nAna: ποιο κανάλι;\n</candidate>' },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '<channels>\n1 | #a |  |\n2 | #b |  |\n</channels>\n', cacheSegment: 'stable' },
+        { type: 'text', text: '<transcript>\nT\n</transcript>\n<candidate>\nAna: ποιο κανάλι;\n</candidate>' },
+      ],
+    },
   ]);
+  assert.equal(
+    userText(messages[1].content),
+    '<channels>\n1 | #a |  |\n2 | #b |  |\n</channels>\n<transcript>\nT\n</transcript>\n<candidate>\nAna: ποιο κανάλι;\n</candidate>',
+    'the parts joined are the old single string',
+  );
   const noTranscript = buildRouteRequest({ prompt: 'p', selfName: 'Zoë', candidateBlock: '<candidate>\nx\n</candidate>', lines: ['1 | #a |  |'] });
-  assert.ok(noTranscript[1].content.startsWith('<channels>\n'));
+  assert.ok(userText(noTranscript[1].content).startsWith('<channels>\n'));
+  const bare = buildRouteRequest({ prompt: 'p', selfName: 'Zoë', lines: ['1 | #a |  |'] });
+  assert.deepEqual(bare[1].content, [{ type: 'text', text: '<channels>\n1 | #a |  |\n</channels>', cacheSegment: 'stable' }], 'no per-turn part: no trailing separator');
 });
 
 test('buildRouteRequest: null for a blank prompt or no line', () => {
@@ -269,10 +283,10 @@ test('createChannelRouter: a pick returns its channel id; the request lists only
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
   assert.equal(system.content, 'You are Zoë.');
-  assert.ok(user.content.includes('<channels>\n1 | #journal | Éloïse (Élo) | a diary\n2 | #jardin |  | garden photos\n</channels>'), user.content);
-  assert.ok(!user.content.includes('#secret') && !user.content.includes('#general'), 'the denied and the current channel are not listed');
-  assert.ok(user.content.startsWith('<channels>\n'), 'the stable channel list leads the request');
-  assert.ok(user.content.indexOf('<channels>') < user.content.indexOf('<transcript>') && user.content.endsWith('<candidate>\nNikos: στο ημερολόγιο\n</candidate>'));
+  assert.ok(userText(user.content).includes('<channels>\n1 | #journal | Éloïse (Élo) | a diary\n2 | #jardin |  | garden photos\n</channels>'), userText(user.content));
+  assert.ok(!userText(user.content).includes('#secret') && !userText(user.content).includes('#general'), 'the denied and the current channel are not listed');
+  assert.ok(userText(user.content).startsWith('<channels>\n'), 'the stable channel list leads the request');
+  assert.ok(userText(user.content).indexOf('<channels>') < userText(user.content).indexOf('<transcript>') && userText(user.content).endsWith('<candidate>\nNikos: στο ημερολόγιο\n</candidate>'));
   const classified = logs.find((l) => l.msg === 'route: classified');
   assert.equal(classified.channel, 'c1');
   assert.equal(classified.kind, 'mention');
@@ -295,7 +309,7 @@ test('createChannelRouter: the list is ordered by channel id, not by activity, a
   });
   const second = await withCapturedLogs(() => swapped.router(swapped.args));
   assert.deepEqual(second.result, ['c2'], 'number 1 is the lower id');
-  assert.equal(listed(llm.calls[0].messages[1].content), listed(swapped.llm.calls[0].messages[1].content), 'the list text does not move with activity');
+  assert.equal(listed(userText(llm.calls[0].messages[1].content)), listed(userText(swapped.llm.calls[0].messages[1].content)), 'the list text does not move with activity');
 });
 
 test('createChannelRouter: the request options carry the classifier model, the purpose and the helper timeout', async () => {
@@ -344,7 +358,7 @@ test('createChannelRouter: a private chat with its partner lists the server chan
   const turn = { ...args, channel: dm, partner, history, trigger: history[1], triggerKind: 'private' };
   const { result, logs } = await withCapturedLogs(() => router(turn));
   assert.deepEqual(result, ['c2']);
-  const user = llm.calls[0].messages[1].content;
+  const user = userText(llm.calls[0].messages[1].content);
   assert.ok(user.includes('<channels>\n1 | #general |  |\n2 | #journal | Éloïse (Élo) | a diary\n</channels>'), user);
   assert.equal(logs.find((l) => l.msg === 'route: classified').kind, 'private');
 
@@ -359,7 +373,7 @@ test('createChannelRouter: a spontaneous turn judges the newest member line; no 
   const { router, llm, args } = routerScene();
   const own = line('m3', { self: true, authorName: 'Zoë', content: 'εγώ' });
   await withCapturedLogs(() => router({ ...args, trigger: null, triggerKind: null, history: [...args.history, own] }));
-  assert.ok(llm.calls[0].messages[1].content.endsWith('<candidate>\nNikos: στο ημερολόγιο\n</candidate>'));
+  assert.ok(userText(llm.calls[0].messages[1].content).endsWith('<candidate>\nNikos: στο ημερολόγιο\n</candidate>'));
 
   const lonely = routerScene();
   const { result, logs } = await withCapturedLogs(() => lonely.router({ ...lonely.args, trigger: null, triggerKind: null, history: [own] }));
@@ -406,7 +420,7 @@ test('createChannelRouter: a channel whose pull check throws is dropped from the
   };
   const { result } = await withCapturedLogs(() => router(args));
   assert.deepEqual(result, ['c2']);
-  assert.ok(llm.calls[0].messages[1].content.includes('<channels>\n1 | #journal | Éloïse (Élo) | a diary\n</channels>'));
+  assert.ok(userText(llm.calls[0].messages[1].content).includes('<channels>\n1 | #journal | Éloïse (Élo) | a diary\n</channels>'));
 });
 
 test('createChannelRouter: a store that throws resolves no id instead of rejecting', async () => {

@@ -19,7 +19,7 @@ import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { oneLine } from '../memory/clamp.js';
 import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/participation.js';
 import { classifierTextModel } from './mention.js';
-import { block, fillPromptTemplate } from './prompt.js';
+import { block, fillPromptTemplate, stableThenTail } from './prompt.js';
 import { routeCandidate, routeContext } from './route.js';
 
 /** The pick classifier's keys of the `participation` config group (config.json carries the same values). */
@@ -101,18 +101,20 @@ export function participationEpisodeList(headlines, { state, channelNameOf, unit
 
 /**
  * The pick classifier's request: the system message is `prompt` with
- * `{{name}}` filled with the persona's display name; the user message is the
- * `transcriptBlock` (may be ''), the `candidateBlock`, then the `<episodes>`
- * block (the lines, one per line), as the prompt describes them. Null when
+ * `{{name}}` filled with the persona's display name; the user message is two
+ * text parts: the `<episodes>` block (the lines, one per line; they change
+ * only when an episode is added or expires, so this part is tagged
+ * `cacheSegment: 'stable'`), then the `transcriptBlock` (may be '') and the
+ * `candidateBlock`. Null when
  * the prompt is blank or there is no line.
  * @param {{ prompt: string|null|undefined, selfName: string, transcriptBlock?: string,
  *   candidateBlock?: string, lines: string[] }} params
- * @returns {{ role: string, content: string }[]|null}
+ * @returns {{ role: string, content: string|object[] }[]|null}
  */
 export function buildParticipationPickRequest({ prompt, selfName, transcriptBlock = '', candidateBlock = '', lines }) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   if (!Array.isArray(lines) || lines.length === 0) return null;
-  const user = [transcriptBlock, candidateBlock, block('episodes', lines.join('\n'))].filter(Boolean).join('\n');
+  const user = stableThenTail(block('episodes', lines.join('\n')), [transcriptBlock, candidateBlock], '\n');
   return [
     { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '' }) },
     { role: 'user', content: user },
