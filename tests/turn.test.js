@@ -7560,4 +7560,15 @@ test('runTurn: without the pick prompt the newest episodes are shown and the cla
   const user = textOf(llm.calls[0][1].content);
   assert.ok(user.includes('ωραία λουλούδια') && !user.includes('στο ράφι είναι'));
   assert.equal(logs.find((l) => l.msg === 'participation: skipped')?.reason, 'no-prompt');
+
+test('runTurn: the model answered log line carries the user message segments, hashes only', async () => {
+  const { logs } = await runDrawTurn({ answers: ['<draw>a cat</draw>'] });
+  const answered = logs.find((l) => l.msg === 'turn: model answered');
+  assert.ok(Array.isArray(answered.segments) && answered.segments.length >= 1);
+  assert.equal(answered.segments.at(-1).segment, 'tail');
+  for (const s of answered.segments) {
+    assert.deepEqual(Object.keys(s).sort(), ['chars', 'hash', 'segment']);
+    assert.match(s.hash, /^[0-9a-f]{8}$/);
+    assert.ok(s.chars > 0);
+  }
 });
