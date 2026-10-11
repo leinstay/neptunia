@@ -342,9 +342,11 @@
     "historyPosts": 150,
     "gistChars": 200,
     "seedSets": 2,
-    "kinds": { "selfPicture": 3, "picture": 2, "meme": 1, "thought": 2, "people": 2, "news": 2, "facts": 1, "status": 3 },
+    "kinds": { "selfPicture": 3, "picture": 2, "meme": 1, "thought": 2, "people": 2, "news": 2, "facts": 1, "status": 3, "photoset": 1, "randomSet": 1 },
     "searchKinds": ["news", "facts"],
-    "pictureKinds": ["selfPicture", "picture", "meme"],
+    "pictureKinds": ["selfPicture", "picture", "meme", "photoset", "randomSet"],
+    "setKinds": ["photoset", "randomSet"],
+    "set": { "pictures": [4, 6], "minPosted": 2, "seedSets": 6, "maxMessageBytes": 8000000 },
     "planMaxOutputTokens": 300,
     "planTimeoutMs": 20000
   },

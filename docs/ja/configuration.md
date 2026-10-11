@@ -656,9 +656,14 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `historyPosts` | `150` | `diary.json` に保持され、プランナーと作成者に `<diary>` ブロックで表示される過去の投稿数。超過時は最も古いものが削除 |
 | `gistChars` | `200` | 日記履歴の投稿要約と画像シーンあたりの文字数 |
 | `seedSets` | `2` | `prompts/diary-seeds.md` から引かれ、プランナーに `<seeds>` ブロックで表示されるランダムシード組み合わせ数。`0` でブロック省略 |
-| `kinds` | `{ "selfPicture": 3, "picture": 2, "meme": 1, "thought": 2, "people": 2, "news": 2, "facts": 1, "status": 3 }` | 投稿種類と重み。重み 0 の種類は選ばれない。プランナーは重みと最近の投稿で各種類が何回使われたかを見る。ホットリロードなのでオーナーはいつでもバランスを変えられる |
+| `kinds` | `{ "selfPicture": 3, "picture": 2, "meme": 1, "thought": 2, "people": 2, "news": 2, "facts": 1, "status": 3, "photoset": 1, "randomSet": 1 }` | 投稿種類と重み。重み 0 の種類は選ばれない。プランナーは重みと最近の投稿で各種類が何回使われたかを見る。ホットリロードなのでオーナーはいつでもバランスを変えられる |
 | `searchKinds` | `["news", "facts"]` | ウェブ検索をトリガーできる種類。プランナーはこれらの種類のみクエリを書く |
-| `pictureKinds` | `["selfPicture", "picture", "meme"]` | 日次の画像上限が許す限り、プランナーの回答に関わらず常に画像付きになる種類。その他の種類はプランナーが求めた場合のみ描画 |
+| `pictureKinds` | `["selfPicture", "picture", "meme", "photoset", "randomSet"]` | 日次の画像上限が許す限り、プランナーの回答に関わらず常に画像付きになる種類。その他の種類はプランナーが求めた場合のみ描画 |
+| `setKinds` | `["photoset", "randomSet"]` | Kinds whose post is a set of pictures instead of one. Keep them in `pictureKinds` too, so they are dropped with the other picture kinds when the post cannot carry a picture |
+| `set.pictures` | `[4, 6]` | How many pictures a set has: the prompt asks for between the two numbers, the bot generates at most the second (the first `<draw>` tags of the answer, the rest ignored) |
+| `set.minPosted` | `2` | A set with fewer pictures generated than this is not posted at all, its messages included. Generation stops early once the pictures left cannot reach it. The pictures already generated still count against the day's picture caps |
+| `set.seedSets` | `6` | Random seed combinations shown in a `<seeds>` block of the compose request of a set post (the plan request keeps `seedSets`). `0` omits the block |
+| `set.maxMessageBytes` | `8000000` | The most picture bytes one Discord message carries. A set larger than this, or of more than 10 pictures, is split over several messages |
 | `planMaxOutputTokens` | `300` | 計画リクエストの最大出力トークン数 |
 | `planTimeoutMs` | `20000` | 計画リクエストのタイムアウト（ms） |
 

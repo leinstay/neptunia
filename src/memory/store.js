@@ -2286,7 +2286,7 @@ export function createStore({ dataDir }) {
      * null. Reading never creates the file.
      * @param {string} guildId
      * @returns {{ posts: Array<{ at: number, kind: string|null, gist: string, picture: string|boolean|null,
-     *   messageIds: string[], search: string }>, updatedAt: number }}
+     *   pictures?: number, messageIds: string[], search: string }>, updatedAt: number }}
      */
     getDiary(guildId) {
       return structuredClone(diaryEntry(guildId).value);
@@ -2297,7 +2297,8 @@ export function createStore({ dataDir }) {
      * `updatedAt` with `now` (epoch ms, the clock when omitted).
      * @param {string} guildId
      * @param {{ at: number, kind: string|null, gist: string, picture: string|boolean|null,
-     *   messageIds: string[], search: string }} post
+     *   pictures?: number, messageIds: string[], search: string }} post  `pictures`: a set post's count
+     *   (`picture` is then its first scene).
      * @param {{ max?: number, now?: number }} [opts]
      */
     appendDiaryPost(guildId, post, opts = {}) {

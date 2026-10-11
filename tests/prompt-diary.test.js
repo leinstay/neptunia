@@ -160,6 +160,34 @@ test('buildRequest: diary mode renders diary, plan and found blocks before the c
   assert.ok(text.includes('<task>\nDIARY_TASK for Nept\n</task>'));
 });
 
+test('buildRequest: a diary post with seeds renders them right after the plan, never cut; none without', () => {
+  const plan = { kind: 'tour', brief: 'a harbour walk', picture: true };
+  const seeds = `${labels.diary.seeds}
+- a pier; fog
+- a market; rain`;
+  const posts = Array.from({ length: 40 }, (_, i) => post(NOW - (40 - i) * DAY, 'thought', `σκέψη ${i} ${'λόγος '.repeat(30)}`));
+  const full = buildRequest(baseInput({ mode: 'diary', diary: { posts, plan, found: null, seeds } }));
+  const text = userText(full);
+  assert.ok(text.includes(`<plan>
+${labels.diary.plan}
+${JSON.stringify(plan)}
+</plan>
+
+<seeds>
+${seeds}
+</seeds>`));
+  const base = full.stats.used - full.stats.diary.used;
+  const tight = buildRequest(
+    baseInput({ mode: 'diary', diary: { posts, plan, found: null, seeds }, config: fakeConfig({ llm: { maxRequestTokens: Math.ceil((base + 60) / 0.9) } }) }),
+  );
+  assert.ok(tight.stats.diary.dropped > 0, 'the history is cut');
+  assert.ok(userText(tight).includes(`<seeds>
+${seeds}
+</seeds>`), 'the seeds are not');
+  assert.ok(!userText(buildRequest(baseInput({ mode: 'diary', diary: { posts, plan, found: null } }))).includes('<seeds>'));
+  assert.ok(!userText(buildRequest(baseInput({ mode: 'reply', diary: { posts, plan, found: null, seeds } }))).includes('<seeds>'));
+});
+
 test('buildRequest: no diary blocks outside diary mode, none without posts or a find', () => {
   const diary = { posts: [post(NOW - DAY, 'status', 'bonjour')], plan: { kind: 'status', brief: 'x', picture: false }, found: 'y' };
   const reply = userText(buildRequest(baseInput({ mode: 'reply', diary })));

@@ -7,9 +7,11 @@
 // while the bot was down is dropped, never fired late in a burst), which kind
 // of post a plan names (validated against the weighted `diary.kinds`, with a
 // weighted random fallback; while a post may not carry a picture the picture
-// kinds are dropped before the planner sees them), and how the post history, the kinds and the
-// random seeds are rendered for the plan and compose requests. All wording
-// comes from `labels.diary.*`; kind keys are config keys.
+// kinds are dropped before the planner sees them), which kinds post a set of
+// pictures rather than one (`diary.setKinds`, sized by `diary.set`), and how
+// the post history, the kinds and the random seeds are rendered for the plan
+// and compose requests. All wording comes from `labels.diary.*`; kind keys
+// are config keys.
 //
 // The decisions are pure: randomness and the clock are injected (`rng`,
 // `nowMs`), and none of them touches discord.js, the disk or the model. The
@@ -38,7 +40,13 @@ const DEFAULT_HISTORY_POSTS = 150; // diary.historyPosts
 const DEFAULT_GIST_CHARS = 200; // diary.gistChars
 const DEFAULT_SEARCH_KINDS = ['news', 'facts']; // diary.searchKinds
 /** The kinds that mean a picture when `diary.pictureKinds` is not a list. */
-export const DEFAULT_PICTURE_KINDS = ['selfPicture', 'picture', 'meme']; // diary.pictureKinds
+export const DEFAULT_PICTURE_KINDS = ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet']; // diary.pictureKinds
+/** The kinds whose post is a set of pictures when `diary.setKinds` is not a list. */
+export const DEFAULT_SET_KINDS = ['photoset', 'randomSet']; // diary.setKinds
+const DEFAULT_SET_PICTURES = [4, 6]; // diary.set.pictures
+const DEFAULT_SET_MIN_POSTED = 2; // diary.set.minPosted
+const DEFAULT_SET_SEED_SETS = 6; // diary.set.seedSets
+const DEFAULT_SET_MAX_MESSAGE_BYTES = 8000000; // diary.set.maxMessageBytes
 const DEFAULT_FAMILY = 'seed';
 const URL_RE = /https?:///iu;
 
@@ -280,6 +288,43 @@ export function isPictureKind(kind, pictureKinds) {
 }
 
 /**
+ * Whether `kind` posts a set of pictures: listed in `setKinds`
+ * (`diary.setKinds`), DEFAULT_SET_KINDS when that is not a list.
+ * @param {string|null} kind
+ * @param {string[]|null|undefined} setKinds
+ * @returns {boolean}
+ */
+export function isSetKind(kind, setKinds) {
+  const sets = Array.isArray(setKinds) ? setKinds : DEFAULT_SET_KINDS;
+  return typeof kind === 'string' && sets.includes(kind);
+}
+
+/**
+ * The settings of a set post (`diary.set`), each one replaced by its default
+ * when missing or invalid: `pictures` `[min, max]` whole counts (max never
+ * below min; the engine renders at most `max` <draw> tags, `min` is for the
+ * prompt), `minPosted` (fewer pictures generated and nothing is posted; at
+ * least 1), `seedSets` (the compose request's seed combinations, 0 allowed)
+ * and `maxMessageBytes` (the attachment bytes of one message, positive).
+ * @param {object|null|undefined} diaryCfg  config.diary
+ * @returns {{ pictures: [number, number], minPosted: number, seedSets: number, maxMessageBytes: number }}
+ */
+export function setSettings(diaryCfg) {
+  const set = diaryCfg?.set && typeof diaryCfg.set === 'object' ? diaryCfg.set : {};
+  const whole = (value, min) => (Number.isFinite(value) && value >= min ? Math.floor(value) : null);
+  const range = Array.isArray(set.pictures) ? set.pictures : [];
+  const low = whole(range[0], 1);
+  const high = whole(range[1], 1);
+  const pictures = low !== null && high !== null ? [low, Math.max(low, high)] : [...DEFAULT_SET_PICTURES];
+  return {
+    pictures,
+    minPosted: whole(set.minPosted, 1) ?? DEFAULT_SET_MIN_POSTED,
+    seedSets: whole(set.seedSets, 0) ?? DEFAULT_SET_SEED_SETS,
+    maxMessageBytes: whole(set.maxMessageBytes, 1) ?? DEFAULT_SET_MAX_MESSAGE_BYTES,
+  };
+}
+
+/**
  * `kinds` (`diary.kinds`) without its picture kinds (isPictureKind), the other
  * weights kept; a new object, the input untouched. What the planner and the
  * random fallback get while a post may not carry a picture.
@@ -325,9 +370,14 @@ export function validatePlan(parsed, kinds, { pictureAllowed = false, searchKind
 }
 
 /** The picture suffix of one post: the scene, `pictureUnknown` for a picture with no recorded
- * scene (`true` or ''), nothing for no picture. */
-function pictureSuffix(picture, labels) {
-  if (typeof picture === 'string' && picture.trim()) return fill(labels.diary?.picture, { scene: oneLine(picture) });
+ * scene (`true` or ''), nothing for no picture. A set (`pictures` above 1) shows its first
+ * scene with the count (`labels.diary.pictureSet`; `picture` when that label is missing). */
+function pictureSuffix(picture, labels, pictures) {
+  const count = countOf(pictures);
+  if (typeof picture === 'string' && picture.trim()) {
+    if (count > 1 && labels.diary?.pictureSet) return fill(labels.diary.pictureSet, { count, scene: oneLine(picture) });
+    return fill(labels.diary?.picture, { scene: oneLine(picture) });
+  }
   if (picture === true || picture === '') return fill(labels.diary?.picture, { scene: labels.diary?.pictureUnknown ?? '' });
   return '';
 }
@@ -336,9 +386,10 @@ function pictureSuffix(picture, labels) {
  * The body of the `<diary>` block: `labels.diary.intro`, then one
  * `labels.diary.line` per post (`{date}` the post's local date in
  * `timezone`, `{kind}` its kind key or `labels.diary.kindUnknown`, `{gist}`)
- * with `labels.diary.picture` appended when the post had a picture. The
+ * with `labels.diary.picture` appended when the post had a picture
+ * (`labels.diary.pictureSet` with the count for a set: `pictures` above 1). The
  * newest `max` posts, oldest first. '' when there is no post.
- * @param {Array<{ at: number, kind: string|null, gist: string, picture?: string|boolean|null }>} posts  Oldest first.
+ * @param {Array<{ at: number, kind: string|null, gist: string, picture?: string|boolean|null, pictures?: number }>} posts  Oldest first.
  * @param {object} labels
  * @param {{ timezone?: string, max?: number }} [opts]  max: diary.historyPosts
  * @returns {string}
@@ -352,7 +403,7 @@ export function renderDiaryBlock(posts, labels, { timezone, max } = {}) {
     const date = Number.isFinite(post?.at) ? localDayKey(post.at, timezone) : '';
     const kind = typeof post?.kind === 'string' && post.kind ? post.kind : labels.diary?.kindUnknown ?? '';
     const line = fill(labels.diary?.line, { date, kind, gist: oneLine(post?.gist) });
-    return line + pictureSuffix(post?.picture, labels);
+    return line + pictureSuffix(post?.picture, labels, post?.pictures);
   });
   return [labels.diary?.intro, ...lines].filter(Boolean).join('\n');
 }
@@ -549,7 +600,8 @@ function writable(channel) {
  * `diary.maxPerDay` (`cap`); then, with an empty history, `backfill` once per
  * channel and process (`diary: backfill` with `count`), and
  * `turns.runTurn({ channel, mode: 'diary', diary: { kind, forced } })`
- * (`diary: due`, then `diary: post` with the outcome). A `busy` outcome
+ * (`diary: due`, then `diary: post` with the outcome, its `reason` when it has one, and the
+ * pictures posted). A `busy` outcome
  * un-marks the slot, so the next tick retries it within the grace; a `spoke`
  * one appends it to the plan's `posted` (what feeds a window). One post
  * at a time. `force({ kind, topic })` runs one post now, outside the plan and
@@ -670,8 +722,10 @@ export function createDiary({ hot, store, client, turns, getGuildId, isWarmingUp
       kind: result?.diary?.kind ?? kind ?? null,
       messages: result?.diary?.messages ?? 0,
       picture: result?.diary?.picture ?? false,
+      pictures: result?.diary?.pictures ?? 0,
       search: result?.diary?.search ?? false,
       outcome: result?.outcome ?? null,
+      ...(result?.reason ? { reason: result.reason } : {}),
       forced,
       ...(result?.dryRun ? { dryRun: true } : {}),
     });

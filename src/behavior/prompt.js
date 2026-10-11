@@ -25,7 +25,7 @@
 //       does not describe (`<attitudes>`, one piece: names and bands)
 //   6c. a diary post only (mode `diary`): the persona's world (`<world>`, one piece, under
 //       `diary.world`), then its past diary posts (`<diary>`, the oldest lines cut first);
-//       the post's `<plan>` is never cut, and what its search found (`<found>`) ranks
+//       the post's `<plan>` and a set post's `<seeds>` are never cut, and what its search found (`<found>`) ranks
 //       right after `<lookup>`
 //   7. neighbouring channels
 //   8. the server's custom emoji (`<emoji>`)
@@ -945,7 +945,8 @@ function ownPostAge(entry, { ownMarkHours, now }) {
  * turns it into the provider's marker under the cache policy and never sends it.
  * Factored out so a fallback rendering (see `textFallback` below) can reuse
  * every block untouched except `<chat>`. `diary` (a diary post only): the
- * `<diary>` block's intro, shown above its kept lines, and the `<plan>` body.
+ * `<diary>` block's intro, shown above its kept lines, the `<plan>` body and
+ * the `<seeds>` body (a set post's seed combinations, right after the plan).
  * A pulled channel's lines never carry
  * an `imageAttached`/`frameAttached` tag (nothing of another channel is
  * attached); `<other_channels>` lines can, when they hold an item attached for
@@ -977,6 +978,7 @@ function assembleUser({ now, timezone, labels, sensesText, kept, tempoText, task
     block('world', (kept.world ?? []).join('\n')),
     block('diary', (kept.diary ?? []).length > 0 ? [diary?.intro, ...kept.diary].filter(Boolean).join('\n') : ''),
     block('plan', diary?.plan ?? ''),
+    block('seeds', diary?.seeds ?? ''),
     block('found', (kept.found ?? []).join('\n')),
     // Right before the chat it answers a question from.
     block('lookup', (kept.lookup ?? []).join('\n')),
@@ -2130,13 +2132,15 @@ export function usesFollowUpTask({ mode, triggerKind, taggedCall = null, routed 
  *   own, src/behavior/diary.js) when one is set: `<senses>` gains `senses.diary` with
  *   `{channel}`. Omitted or null -> no line.
  * @param {{ posts?: object[], plan?: { kind: string|null, brief: string, picture: boolean, topic?: string }|null,
- *   found?: string|null }|null} [input.diary]  A diary post's own input, read only with `mode:
+ *   found?: string|null, seeds?: string }|null} [input.diary]  A diary post's own input, read only with `mode:
  *   'diary'` (whose task text is `prompts.diary`): `<world>` (prompts/world.md, `{{name}}` filled,
  *   only with `diary.world === true`, see `worldText`; one piece, fitted right after `<attitudes>`),
  *   `<diary>` (the past posts through src/behavior/diary.js#renderDiaryBlock, the newest
  *   `diary.historyPosts` (150 when unset) oldest first, fitted after `<world>` and losing its
  *   oldest lines first), `<plan>` (`labels.diary.plan`, then the plan as one JSON line with `kind`,
- *   `brief`, `picture` and, with an owner's topic, `topic`; never cut) and `<found>` (`labels.diary.found`, then what the search
+ *   `brief`, `picture` and, with an owner's topic, `topic`; never cut), `<seeds>` (`seeds`, a set
+ *   post's seed combinations already rendered; right after `<plan>`, never cut; absent when
+ *   empty) and `<found>` (`labels.diary.found`, then what the search
  *   found; one piece, fitted right after `<lookup>`). They render after `<channel_view>` and before
  *   `<chat>`. `<world>` never renders outside a diary post.
  * @returns {{ messages: object[], stats: object, segments: { segment: 'stable'|'profiles'|'tail', chars: number, hash: string }[],
@@ -2388,7 +2392,9 @@ export function buildRequest(input) {
     diaryInput && typeof diaryInput.found === 'string' && diaryInput.found.trim()
       ? [labels.diary?.found, diaryInput.found.trim()].filter(Boolean).join('\n')
       : '';
-  const diaryParts = diaryMode ? { intro: diaryIntro, plan: planText } : null;
+  // A set post's seed combinations (already rendered by src/behavior/diary.js#renderSeedsBlock).
+  const seedsText = diaryInput && typeof diaryInput.seeds === 'string' ? diaryInput.seeds.trim() : '';
+  const diaryParts = diaryMode ? { intro: diaryIntro, plan: planText, seeds: seedsText } : null;
 
   // A private chat has no neighbouring channels (and no server map, below).
   const offeredNeighbors = privateChat ? [] : neighbors;
@@ -2427,8 +2433,8 @@ export function buildRequest(input) {
   const fixedSection = {
     name: 'fixed',
     required: true,
-    // A diary post's plan and its `<diary>` intro are never cut.
-    items: [system, fittedTask, formatNow(now, timezone, labels.locale), sensesText, tempoText, ...[planText, diaryIntro].filter(Boolean)],
+    // A diary post's plan, its seeds and its `<diary>` intro are never cut.
+    items: [system, fittedTask, formatNow(now, timezone, labels.locale), sensesText, tempoText, ...[planText, seedsText, diaryIntro].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the

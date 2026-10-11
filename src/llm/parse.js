@@ -2,7 +2,9 @@
 //   <think>…</think>          hidden planning, discarded
 //   <msg reply="#87">…</msg>   a chat message, optionally a reply to message #87
 //   <react to="#87">💀</react> a reaction on message #87 (a custom emoji as :name: too)
-//   <draw self="yes" reply="#87">…</draw>  a scene for the drawing sub-process (first one only)
+//   <draw self="yes" reply="#87">…</draw>  a scene for the drawing sub-process: `draw` is the
+//                              first one, `draws` every one in order (at most 10; a diary
+//                              set post draws several, every other turn only the first)
 //   <gif reply="#87">g12</gif> a GIF from the library by its handle (first valid one only)
 //   <skip/>                    stay silent
 // The parser is forgiving: a missing tag wrapper falls back to a single plain
@@ -12,6 +14,8 @@ const MAX_MESSAGES = 3;
 const MAX_MESSAGE_CHARS = 1900;
 const MAX_FALLBACK_CHARS = 600;
 const MAX_DRAW_CHARS = 800;
+// The most <draw> tags read into `draws` (a diary set renders the first diary.set.pictures[1] of them).
+const MAX_DRAWS = 10;
 const SELF_YES = new Set(['yes', 'true', '1']);
 // A reaction body: a short unicode emoji, or a custom one as `:name:` / `<a:name:id>` (src/discord/emoji.js).
 const MAX_REACTION_CHARS = 16;
@@ -25,13 +29,18 @@ function parseIndex(value) {
 }
 
 /**
+ * The model's tagged output as actions. `draw` is the first non-empty
+ * `<draw>`, `draws` every non-empty one in order, at most 10 (`draw` is
+ * `draws[0]`, or null when there is none).
+ * @param {unknown} raw
  * @returns {{ skip: boolean, messages: {text: string, replyTo: number|null}[],
  *             reactions: {to: number, emoji: string}[], think: string,
  *             draw: {text: string, self: boolean, replyTo: number|null}|null,
+ *             draws: {text: string, self: boolean, replyTo: number|null}[],
  *             gif: {id: string, replyTo: number|null}|null }}
  */
 export function parseOutput(raw) {
-  const result = { skip: false, messages: [], reactions: [], think: '', draw: null, gif: null };
+  const result = { skip: false, messages: [], reactions: [], think: '', draw: null, draws: [], gif: null };
   let text = String(raw ?? '');
 
   text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (all, inner) => {
@@ -66,13 +75,14 @@ export function parseOutput(raw) {
     const attrs = match[1] ?? '';
     const self = /self\s*=\s*"([^"]*)"/i.exec(attrs);
     const reply = /reply\s*=\s*"([^"]*)"/i.exec(attrs);
-    result.draw = {
+    result.draws.push({
       text: body.slice(0, MAX_DRAW_CHARS),
       self: self ? SELF_YES.has(self[1].trim().toLowerCase()) : false,
       replyTo: reply ? parseIndex(reply[1]) : null,
-    };
-    break;
+    });
+    if (result.draws.length >= MAX_DRAWS) break;
   }
+  result.draw = result.draws[0] ?? null;
 
   for (const match of text.matchAll(/<gif(\s[^>]*)?>([\s\S]*?)<\/gif>/gi)) {
     const handle = GIF_HANDLE_RE.exec(match[2].trim());

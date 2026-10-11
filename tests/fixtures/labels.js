@@ -283,6 +283,7 @@ export const labels = {
     line: '- {date} {kind}: {gist}',
     picture: ' [picture: {scene}]',
     pictureUnknown: 'not recorded',
+    pictureSet: ' [{count} pictures: {scene}]',
     kindUnknown: 'post',
     kinds: 'Post kinds and their recent use:',
     kindLine: '{key} weight {weight}, used {count} of the last {window}',
