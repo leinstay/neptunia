@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { SnowflakeUtil } from 'discord.js';
 import { deepMerge, isPlainObject } from '../src/config.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedDay } from '../src/time.js';
-import { buildDiaryPlanRequest, buildDrawPrompt, buildRequest, hasRequiredLabels } from '../src/behavior/prompt.js';
+import { buildDiaryPlanRequest, buildDrawPrompt, buildRefinePrompt, buildRequest, hasRequiredLabels } from '../src/behavior/prompt.js';
 import { parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.js';
 import { fill, formatDate } from '../src/discord/format.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
@@ -127,6 +127,7 @@ const LOADS = {
   routed: [...SYSTEM, 'reply'],
   noticed: [...SYSTEM, 'elsewhere'],
   draw: ['draw', 'appearance'],
+  refine: ['refine', 'appearance'],
   diary: [...SYSTEM, 'diary', 'world'],
   diaryPlan: ['diary-plan', 'world'],
   memory: ['memory', ...CHARACTER],
@@ -679,6 +680,14 @@ test('buildDrawPrompt: draw.md and appearance.md are filled for a picture the pe
   assertFilled([{ role: 'user', content: without }], { files: ['draw'] }, 'draw without the persona');
   const timed = buildDrawPrompt({ prompts: SHIPPED.prompts, selfName: SELF_NAME, request: 'a frozen balcony', self: false, when: 'Mon 5 Oct, 23:10' });
   const text = assertFilled([{ role: 'user', content: timed }], { files: ['draw'] }, 'draw with the local time');
+  assert.ok(text.includes(fill(LABELS.draw.when, { when: 'Mon 5 Oct, 23:10' })), 'draw.when fills {{when}}');
+});
+
+test('buildRefinePrompt: refine.md and appearance.md are filled for a picture the persona is in', () => {
+  const prompt = buildRefinePrompt({ prompts: SHIPPED.prompts, selfName: SELF_NAME, request: 'the persona waters frozen tomatoes on a balcony', self: true });
+  assertFilled([{ role: 'user', content: prompt }], { files: LOADS.refine }, 'refine');
+  const timed = buildRefinePrompt({ prompts: SHIPPED.prompts, selfName: SELF_NAME, request: 'a frozen balcony', self: false, when: 'Mon 5 Oct, 23:10' });
+  const text = assertFilled([{ role: 'user', content: timed }], { files: ['refine'] }, 'refine with the local time');
   assert.ok(text.includes(fill(LABELS.draw.when, { when: 'Mon 5 Oct, 23:10' })), 'draw.when fills {{when}}');
 });
 
