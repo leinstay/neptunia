@@ -249,7 +249,8 @@ The persona's own exchanges on other channels (`features.participation`). Every 
 | `linesBefore` | `3` | Channel lines saved before each of the persona's messages |
 | `linesAfter` | `1` | Lines by others saved after the persona's last message in an episode |
 | `followMinutes` | `10` | How soon after the persona's message a line by someone else must come to be saved with it (min) |
-| `mergeGapMinutes` | `10` | A new message of the persona's joins the channel's last episode when that episode's last line is at most this old (min); otherwise it starts a new one |
+| `mergeGapMinutes` | `10` | A new message of the persona's joins the channel's last episode when that episode's last line is at most this many minutes before it; otherwise it starts a new one |
+| `contextMinutes` | `30` | Channel lines saved before a message of the persona's are kept only when at most this many minutes older than it (min); the message she replied to is kept whatever its age |
 | `maxMessages` | `32` | Messages per episode; a longer exchange continues in a new episode |
 | `maxStored` | `120` | Episodes kept on disk; the oldest go first |
 | `maxTextChars` | `400` | Characters kept per saved message, cut at a word boundary |
