@@ -915,7 +915,7 @@ The persona's own messages in the diary channel count toward the channel's `days
 
 ### Logs
 
-`diary: plan` (day, slots count, quiet), `diary: planned` (kind, brief, search, picture, fallback, pictureAllowed),
+`diary: plan` (day, slots count, quiet, carried, hunger, quietStreak), `diary: planned` (kind, brief, search, picture, fallback, pictureAllowed),
 `diary: due` (slot), `diary: post` (kind, messages, picture, search, outcome, forced),
 `diary: skip` (reason: `no-channel`, `off`, `paused`, `warmup`, `not-writable`, `cap`, `grace`, `busy`),
 `diary: backfill` (count), `diary: plan failed` (reason, status), `diary: search failed` (reason),

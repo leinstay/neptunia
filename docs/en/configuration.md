@@ -648,6 +648,8 @@ Settings for the diary channel (`features.diary`). The persona posts in one owne
 | `world` | `false` | Include `prompts/world.md` as a `<world>` block in the diary's plan and compose requests. Must be exactly `true`; a missing key counts as off. `/nep set diary.world true` turns it on. The file describes the persona's virtual world, used only by the diary, never in an ordinary turn |
 | `windows` | see below | Posting windows in `bot.timezone`. Each window has `from` and `to` (hours 0–24, wrapping past midnight) and `posts: [min, max]` (how many posts the window draws). The default four windows are described in [Diary: windows](diary.md#windows) |
 | `quietDayChance` | `0.3` | Chance that the whole day gets no posts. Rolled once when the day plan is created |
+| `hungerBoost` | `0.5` | How strongly an empty window pushes later posts. A window that drew no posts gets one extra roll per hunger point, and each roll redraws its count with chance 1 minus this value. `1` turns hunger off |
+| `quietCarry` | `0.25` | After quiet days in a row the quiet chance is `quietDayChance` times this value per quiet day, so a long silence gets less likely. `1` keeps the chance flat |
 | `minGapMinutes` | `90` | Minimum minutes between two planned slots. A slot closer than this to the previous one is dropped |
 | `maxPerDay` | `3` | Maximum posts per day. When the planner draws more slots than this, extras are dropped at random. The daily count also gates `/nep diary post` |
 | `maxPicturesPerDay` | `2` | Maximum diary pictures per day. Shared with `image.maxPerDay`: whichever cap runs out first wins. When spent, the plan's `picture` is forced false and the senses say no drawing |

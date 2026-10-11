@@ -173,6 +173,13 @@ test('diary show: prints the channel, today\'s slots in local time, counts and t
   assert.match(reply, /history: 1/);
 });
 
+test('diary show: prints the hunger of each window and the quiet streak', async () => {
+  const diary = { status: () => ({ channelId: 'd1', day: '2026-09-20', slots: [], done: [], hunger: [0, 1, 2], quietStreak: 1, posts: 0, pictures: 0, history: 0 }) };
+  const { admin } = makeAdmin({ diary, hotDiary: { channelId: 'd1' } });
+  const reply = await admin.run('diary.show', {}, owner);
+  assert.match(reply, /hunger: 0\/1\/2 \(quiet streak 1\)/);
+});
+
 test('diary show: without a running diary prints the channel and the history size only', async () => {
   const { admin } = makeAdmin({ hotDiary: { channelId: 'd1' } });
   const reply = await admin.run('diary.show', {}, owner);

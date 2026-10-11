@@ -2287,7 +2287,10 @@ export function createAdmin({
     return lines.join('\n');
   }
 
-  /** `/nep diary show`: the channel, today's slots, posts and pictures used today, the history size. */
+  /**
+   * `/nep diary show`: the channel, today's slots, posts and pictures used today, each window's
+   * hunger with the quiet streak, the history size.
+   */
   function cmdDiaryShow(args, context) {
     freshenIfPaused();
     const status = diary?.status?.() ?? null;
@@ -2297,6 +2300,8 @@ export function createAdmin({
     const lines = [`diary channel: ${channelId || 'off'}`, ...diaryPlanLines(status)];
     if (status) {
       lines.push(`posts today: ${status.posts ?? 0}`, `pictures today: ${status.pictures ?? 0}`);
+      const hunger = Array.isArray(status.hunger) && status.hunger.length > 0 ? status.hunger.join('/') : '-';
+      lines.push(`hunger: ${hunger} (quiet streak ${status.quietStreak ?? 0})`);
     }
     lines.push(`history: ${history}`);
     return lines.join('\n');

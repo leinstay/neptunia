@@ -327,6 +327,8 @@
       { "from": 1, "to": 5, "posts": [0, 1] }
     ],
     "quietDayChance": 0.3,
+    "hungerBoost": 0.5,
+    "quietCarry": 0.25,
     "minGapMinutes": 90,
     "maxPerDay": 3,
     "maxPicturesPerDay": 2,
