@@ -50,6 +50,11 @@ export const PARTICIPATION_DEFAULTS = Object.freeze({
 
 /** How long a headline's member line and self line may be (a hard cut at a word boundary). */
 const HEADLINE_CHARS = 120;
+// The whole-episode columns: each line cut to HEADLINE_LINE_CHARS, the joined column to the SELF / MEMBER cap.
+const HEADLINE_LINE_CHARS = 90;
+const HEADLINE_SELF_CHARS = 320;
+const HEADLINE_MEMBER_CHARS = 200;
+const HEADLINE_JOIN = ' / ';
 
 /** How many messages at each end of an episode a priority cut keeps when the budget allows. */
 const CUT_EDGE = 2;
@@ -379,6 +384,14 @@ function headlineText(message) {
   return clampText(message.text || message.caption || '', HEADLINE_CHARS, { tolerance: 1 });
 }
 
+/** All of an episode's lines of one side, in order, each cut per line and the whole cut to `cap`. '' when none. */
+function headlineColumn(messages, cap) {
+  const parts = messages
+    .map((m) => clampText(m.text || m.caption || '', HEADLINE_LINE_CHARS, { tolerance: 1 }))
+    .filter(Boolean);
+  return clampText(parts.join(HEADLINE_JOIN), cap, { tolerance: 1 });
+}
+
 /**
  * One headline per live episode, for the classifier that picks which ones a turn
  * shows, newest `lastOwnAt` first. The current channel (`excludeChannelId`) and
@@ -386,12 +399,15 @@ function headlineText(message) {
  * predicate nothing is offered. `memberLine`: the first line not the persona's
  * (null when there is none), `selfLine`: her first line; each its text (or the
  * caption when the text is empty) cut to 120 characters at a word boundary.
+ * `selfLines` / `memberLines`: ALL her lines / all other members' lines of the
+ * episode in order, each cut to 90 characters, joined with ' / ' and the whole
+ * cut to 320 / 200 characters (all at word boundaries); '' when there are none.
  * No labels, no rendering. Pure.
  * @param {unknown} state
  * @param {{ excludeChannelId?: string|null, audience?: (channelId: string) => boolean, now: number }} view
  * @param {object} [settings]
  * @returns {Array<{ id: string, channelId: string, lastOwnAt: number, ageMs: number,
- *   memberLine: string|null, selfLine: string }>}
+ *   memberLine: string|null, selfLine: string, memberLines: string, selfLines: string }>}
  */
 export function episodeHeadlines(state, { excludeChannelId, audience, now } = {}, settings) {
   const s = settingsOf(settings);
@@ -408,6 +424,8 @@ export function episodeHeadlines(state, { excludeChannelId, audience, now } = {}
         ageMs: clock - ep.lastOwnAt,
         memberLine: member ? headlineText(member) : null,
         selfLine: headlineText(self),
+        memberLines: headlineColumn(ep.messages.filter((m) => !m.self), HEADLINE_MEMBER_CHARS),
+        selfLines: headlineColumn(ep.messages.filter((m) => m.self), HEADLINE_SELF_CHARS),
       };
     });
 }
