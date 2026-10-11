@@ -12,6 +12,7 @@ import { mergeEpisodes } from '../src/memory/episodes.js';
 import { applyMemoryUpdate, MEMORY_LIMIT_DEFAULTS } from '../src/memory/update.js';
 import { FEELING_CHARS, REASON_CHARS, SELF_CHARS, applyVoiceItems, mergeIntoQueue, removeItems, splitDecision } from '../src/memory/voice.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { PARTICIPATION_DEFAULTS, emptyParticipation, recordOwnLine } from '../src/memory/participation.js';
 
 function tmpDataDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'nep-store-'));
@@ -2936,3 +2937,85 @@ test('store: version files are not mistaken for channel or user ids', () => with
   store.flush();
   check(createStore({ dataDir: dir }));
 }));
+
+// ---- the participation store (src/memory/participation.js) ---------------------
+
+const PART_AT = Date.UTC(2026, 9, 10, 12, 0, 0);
+const PART_MIN = 60_000;
+
+/** A store state with one episode in `channelId`: a line of `authorId`, then the persona's. */
+function partState(state, { channelId, minute, authorId = 'u1' }) {
+  const before = [{ id: `m${channelId}${minute}`, ts: PART_AT + (minute - 1) * PART_MIN, authorId, name: 'Zoé', self: false, text: 'καλημέρα', replyTo: null, caption: null }];
+  const own = { id: `o${channelId}${minute}`, ts: PART_AT + minute * PART_MIN, authorId: 'bot', name: 'persona', self: true, text: 'γεια σου', replyTo: null, caption: null };
+  return recordOwnLine(state, { channelId, own, before }, PARTICIPATION_DEFAULTS, PART_AT + minute * PART_MIN);
+}
+
+test('store: participation round trip, a copy on read, nothing created by reading', () => {
+  const dir = tmpDataDir();
+  const store = createStore({ dataDir: dir });
+  const file = path.join(dir, 'guilds', 'g1', 'participation.json');
+  assert.deepEqual(store.getParticipation('g1'), { episodes: [], nextId: 1 });
+  store.flush();
+  assert.equal(fs.existsSync(file), false);
+
+  const state = partState(emptyParticipation(), { channelId: 'c1', minute: 0 });
+  store.setParticipation('g1', state, { settings: PARTICIPATION_DEFAULTS, now: PART_AT });
+  const copy = store.getParticipation('g1');
+  assert.deepEqual(copy, state);
+  copy.episodes.length = 0;
+  assert.equal(store.getParticipation('g1').episodes.length, 1);
+  store.flush();
+  assert.deepEqual(createStore({ dataDir: dir }).getParticipation('g1'), state);
+});
+
+test('store: participation expires on every write', () => {
+  const store = createStore({ dataDir: tmpDataDir() });
+  let state = partState(emptyParticipation(), { channelId: 'c1', minute: 0 });
+  state = partState(state, { channelId: 'c2', minute: 120 });
+  state = partState(state, { channelId: 'c3', minute: 240 });
+  store.setParticipation('g1', state, { settings: { ...PARTICIPATION_DEFAULTS, hours: 3 }, now: PART_AT + 5 * 60 * PART_MIN });
+  assert.deepEqual(store.getParticipation('g1').episodes.map((ep) => ep.channelId), ['c2', 'c3']);
+  store.setParticipation('g1', state, { settings: { ...PARTICIPATION_DEFAULTS, maxStored: 1 }, now: PART_AT + 5 * 60 * PART_MIN });
+  assert.deepEqual(store.getParticipation('g1').episodes.map((ep) => ep.channelId), ['c3']);
+});
+
+test('store: a broken participation file reads as a store and is logged once', async () => {
+  const dir = tmpDataDir();
+  const guildDir = (id) => path.join(dir, 'guilds', id);
+  const good = partState(emptyParticipation(), { channelId: 'c1', minute: 0 });
+  fs.mkdirSync(guildDir('g1'), { recursive: true });
+  fs.writeFileSync(path.join(guildDir('g1'), 'participation.json'), JSON.stringify({ nextId: 2, episodes: [...good.episodes, { id: 'p9' }, 'όχι'] }));
+  fs.mkdirSync(guildDir('g2'), { recursive: true });
+  fs.writeFileSync(path.join(guildDir('g2'), 'participation.json'), JSON.stringify({ episodes: 'κανένα' }));
+  const store = createStore({ dataDir: dir });
+  const { result, logs } = await withCapturedLogs(() => [store.getParticipation('g1'), store.getParticipation('g1'), store.getParticipation('g2'), store.getParticipation('g3')]);
+  assert.deepEqual(result[0], good);
+  assert.deepEqual(result[2], { episodes: [], nextId: 1 });
+  assert.deepEqual(result[3], { episodes: [], nextId: 1 });
+  assert.deepEqual(
+    logs.filter((entry) => entry.msg.startsWith('store: participation')).map((entry) => [entry.msg, entry.guildId, entry.reason ?? entry.dropped]),
+    [
+      ['store: participation episodes dropped', 'g1', 2],
+      ['store: participation store replaced', 'g2', 'malformed'],
+    ],
+  );
+});
+
+test('store: forgetUser takes the member out of the participation store at once, wipeGuild deletes it', () => {
+  const dir = tmpDataDir();
+  const store = createStore({ dataDir: dir });
+  let state = partState(emptyParticipation(), { channelId: 'c1', minute: 0, authorId: 'u1' });
+  state = partState(state, { channelId: 'c2', minute: 60, authorId: 'u2' });
+  store.setParticipation('g1', state, { settings: PARTICIPATION_DEFAULTS, now: PART_AT + 60 * PART_MIN });
+  store.forgetUser('g1', 'u1');
+  const fresh = createStore({ dataDir: dir }).getParticipation('g1');
+  assert.deepEqual(fresh.episodes.map((ep) => ep.messages.map((m) => m.authorId)), [['bot'], ['u2', 'bot']], 'written at once');
+
+  store.wipeGuild('g1');
+  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'participation.json')), false);
+  assert.deepEqual(store.getParticipation('g1'), { episodes: [], nextId: 1 });
+
+  const other = createStore({ dataDir: tmpDataDir() });
+  other.forgetUser('g1', 'u1');
+  assert.deepEqual(other.getParticipation('g1'), { episodes: [], nextId: 1 }, 'no store, no file');
+});
