@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, renderProfile, fillPromptTemplate, userText as contentText, usesFollowUpTask } from '../src/behavior/prompt.js';
+import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, renderProfile, stableThenTail, fillPromptTemplate, userText as contentText, usesFollowUpTask } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
 import { fill, formatClock, formatDate, formatDuration } from '../src/discord/format.js';
 import { zonedDay } from '../src/time.js';
@@ -4156,4 +4156,15 @@ test('buildRequest: segments lists each text part with its length and a short ha
   assert.equal(otherChat.segments[0].hash, first.segments[0].hash);
   assert.notEqual(otherChat.segments[2].hash, first.segments[2].hash, 'the chat lives in the tail');
   assert.ok(!JSON.stringify(first.segments).includes('Alice'));
+});
+
+test('stableThenTail: the stable block is a tagged first part, the tail an untagged second; the parts join to the plain string', () => {
+  const parts = stableThenTail('<a>\nx\n</a>', ['<b>\ny\n</b>', '', '<c>\nz\n</c>'], '\n\n');
+  assert.deepEqual(parts, [
+    { type: 'text', text: '<a>\nx\n</a>\n\n', cacheSegment: 'stable' },
+    { type: 'text', text: '<b>\ny\n</b>\n\n<c>\nz\n</c>' },
+  ]);
+  assert.equal(contentText(parts), '<a>\nx\n</a>\n\n<b>\ny\n</b>\n\n<c>\nz\n</c>');
+  assert.deepEqual(stableThenTail('<a/>', ['', ''], '\n'), [{ type: 'text', text: '<a/>', cacheSegment: 'stable' }]);
+  assert.equal(stableThenTail('', ['p', 'q'], '\n'), 'p\nq');
 });

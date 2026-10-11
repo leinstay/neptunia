@@ -15,6 +15,7 @@ import {
   participationPickSettings,
   parseParticipationPick,
 } from '../src/behavior/participation-pick.js';
+import { userText } from '../src/behavior/prompt.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -112,7 +113,7 @@ test('participationEpisodeList: one numbered line per headline with channel, age
   assert.deepEqual(ids, ['p2', 'p1'], 'a headline whose channel has no name is left out');
 });
 
-test('buildParticipationPickRequest: the prompt with {{name}}, then transcript, candidate and episodes in that order', () => {
+test('buildParticipationPickRequest: the prompt with {{name}}, then the tagged episodes part, then transcript and candidate', () => {
   const messages = buildParticipationPickRequest({
     prompt: 'Pick for {{name}}.',
     selfName: 'Zoë',
@@ -121,7 +122,12 @@ test('buildParticipationPickRequest: the prompt with {{name}}, then transcript, 
     lines: ['1 | #a | 1 h |  | Zoë: x'],
   });
   assert.equal(messages[0].content, 'Pick for Zoë.');
-  assert.equal(messages[1].content, '<transcript>\nT\n</transcript>\n<candidate>\nAna: C\n</candidate>\n<episodes>\n1 | #a | 1 h |  | Zoë: x\n</episodes>');
+  assert.deepEqual(messages[1].content, [
+    { type: 'text', text: '<episodes>\n1 | #a | 1 h |  | Zoë: x\n</episodes>\n', cacheSegment: 'stable' },
+    { type: 'text', text: '<transcript>\nT\n</transcript>\n<candidate>\nAna: C\n</candidate>' },
+  ]);
+  const bare = buildParticipationPickRequest({ prompt: 'p', selfName: 'Zoë', lines: ['x'] });
+  assert.deepEqual(bare[1].content, [{ type: 'text', text: '<episodes>\nx\n</episodes>', cacheSegment: 'stable' }], 'no per-turn part: no trailing separator');
   assert.equal(buildParticipationPickRequest({ prompt: '  ', selfName: 'Zoë', lines: ['x'] }), null);
   assert.equal(buildParticipationPickRequest({ prompt: 'p', selfName: 'Zoë', lines: [] }), null);
 });
@@ -175,10 +181,12 @@ test('createParticipationPicker: a pick maps back through the headline order; th
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
   assert.equal(system.content, 'You are Zoë.');
-  assert.ok(user.content.startsWith('<transcript>\n'), user.content);
-  assert.ok(user.content.includes('Zoë (you)'), 'the persona\'s own transcript lines carry labels.self');
-  assert.ok(user.content.includes('<candidate>\nNikos: θυμάσαι το βιβλίο;\n</candidate>'));
-  assert.ok(user.content.endsWith('<episodes>\n1 | #jardin | 30 min |  | Zoë: ωραία λουλούδια\n2 | #journal | 2 h | Ana: πού είναι το βιβλίο; | Zoë: στο ράφι\n</episodes>'), user.content);
+  assert.ok(userText(user.content).startsWith('<episodes>\n'), userText(user.content));
+  assert.equal(user.content[0].cacheSegment, 'stable', 'the episodes part is tagged');
+  assert.equal(user.content[1].cacheSegment, undefined);
+  assert.ok(userText(user.content).includes('Zoë (you)'), 'the persona\'s own transcript lines carry labels.self');
+  assert.ok(userText(user.content).includes('<candidate>\nNikos: θυμάσαι το βιβλίο;\n</candidate>'));
+  assert.ok(userText(user.content).includes('<episodes>\n1 | #jardin | 30 min |  | Zoë: ωραία λουλούδια\n2 | #journal | 2 h | Ana: πού είναι το βιβλίο; | Zoë: στο ράφι\n</episodes>'), userText(user.content));
   const classified = logs.find((l) => l.msg === 'participation: classified');
   assert.equal(classified.channel, 'c1');
   assert.equal(classified.offered, 2);
@@ -204,7 +212,7 @@ test('createParticipationPicker: the transcript holds the last contextMessages l
   const hot = { config: config({ participation: { contextMessages: 1 } }), prompts: { 'participation-pick': 'p', labels } };
   const narrow = createParticipationPicker({ hot, store: { getParticipation: () => participationState(), listChannels: () => [{ id: 'c2', name: 'journal' }] }, llm, now: () => NOW });
   await withCapturedLogs(() => narrow(args));
-  const user = llm.calls.at(-1).messages[1].content;
+  const user = userText(llm.calls.at(-1).messages[1].content);
   assert.ok(user.includes('δεύτερο') && !user.includes('πρώτο') && !user.includes('παλιό'));
 });
 

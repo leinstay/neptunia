@@ -7133,7 +7133,12 @@ test('runTurn: a short reply is shown with the whole captioned library; a picked
   assert.equal(picks.length, 1, 'one pick request');
   const [system, user] = picks[0].messages;
   assert.deepEqual(system, { role: 'system', content: 'Pick a GIF for what Bot wrote.' });
-  const blocks = user.content.split('\n\n');
+  assert.equal(user.content.length, 2, 'two text parts');
+  assert.equal(user.content[0].cacheSegment, 'stable', 'the library part is the cache segment');
+  assert.equal(user.content[1].cacheSegment, undefined, 'the per-turn part is untagged');
+  assert.ok(user.content[0].text.startsWith('<gifs>\n') && user.content[0].text.endsWith('</gifs>\n\n'), 'part 1 is the library block and its separator');
+  assert.ok(user.content[1].text.startsWith('<context>\n'), 'part 2 starts at the context');
+  const blocks = textOf(user.content).split('\n\n');
   assert.equal(blocks.length, 3);
   assert.match(blocks[1], /^<context>\n[\s\S]*καλημέρα[\s\S]*θα έρθεις απόψε;\n<\/context>$/, 'the last contextMessages lines as the transcript renders them');
   const marker = fill(labels.transcript.replyTo, { index: 2, author: 'Alice', quote: 'θα έρθεις απόψε;' });
@@ -7158,7 +7163,7 @@ test('runTurn: the picker leaves out uncaptioned GIFs and acts only on a listed 
   const library = pickLibrary();
   delete library.mediaCache['item-7'];
   const { picks, sent, logs } = await runPickTurn({ store: pickStore({ library }), pick: 'g7' });
-  assert.equal(picks[0].messages[1].content.includes('g7 --'), false, 'g7 has no caption');
+  assert.equal(textOf(picks[0].messages[1].content).includes('g7 --'), false, 'g7 has no caption');
   assert.deepEqual(sent(), ['ναι, φυσικά, έλα'], 'an unlisted handle posts the text');
   const picked = logs.find((entry) => entry.msg === 'gifs: picked');
   assert.deepEqual([picked.handle, picked.library], [false, PICK_LIBRARY_SIZE - 1]);
@@ -7236,7 +7241,7 @@ test('runTurn: the picker\'s context brings in an older answered trigger, first,
   const raws = laterLinesHistory();
   const { picks } = await runPickTurn({ raws, triggerRaw: raws[1], reply: '<msg>ναι, φυσικά</msg>' });
   assert.equal(picks.length, 1);
-  const [, context, reply] = picks[0].messages[1].content.split('\n\n');
+  const [, context, reply] = textOf(picks[0].messages[1].content).split('\n\n');
   assert.match(context, /^<context>\n[^#\n]*\n#1 [^\n]*Alice: θα έρθεις απόψε;\n#2 [^\n]*κι εγώ ρωτάω\n#3 [^\n]*λοιπόν;\n<\/context>$/, 'the answered line with its author, then the last two lines');
   const marker = fill(labels.transcript.replyTo, { index: 1, author: 'Alice', quote: 'θα έρθεις απόψε;' });
   assert.equal(reply, `<reply>\n${marker} ναι, φυσικά\n</reply>`);
@@ -7245,7 +7250,7 @@ test('runTurn: the picker\'s context brings in an older answered trigger, first,
 test('runTurn: the picker names the line the first message replies to, when it is not the last', async () => {
   const raws = laterLinesHistory();
   const { picks } = await runPickTurn({ raws, reply: '<msg reply="#3">χα, ναι</msg>' });
-  const [, context, reply] = picks[0].messages[1].content.split('\n\n');
+  const [, context, reply] = textOf(picks[0].messages[1].content).split('\n\n');
   assert.match(context, /^<context>\n[^#\n]*\n#1 [^\n]*κι εγώ ρωτάω\n#2 [^\n]*λοιπόν;\n<\/context>$/);
   const marker = fill(labels.transcript.replyTo, { index: 1, author: 'Zoé', quote: 'κι εγώ ρωτάω' });
   assert.equal(reply, `<reply>\n${marker} χα, ναι\n</reply>`);
@@ -7255,7 +7260,7 @@ test('runTurn: with several messages a picked GIF replaces the first one only; t
   const reply = '<msg reply="#2">χα</msg><msg>και κάτι ακόμα πιο μακρύ από είκοσι</msg><msg>τέλος</msg>';
   const { picks, sent, channel, store } = await runPickTurn({ reply, pick: 'g50' });
   assert.equal(picks.length, 1, 'only the first message counts toward gifs.pick.maxChars');
-  assert.equal(picks[0].messages[1].content.split('\n\n')[2].endsWith(' χα\n</reply>'), true, 'the picker sees the message it would replace');
+  assert.equal(textOf(picks[0].messages[1].content).split('\n\n')[2].endsWith(' χα\n</reply>'), true, 'the picker sees the message it would replace');
   assert.deepEqual(sent(), ['https://tenor.com/view/gif-50', 'και κάτι ακόμα πιο μακρύ από είκοσι', 'τέλος']);
   assert.equal(channel.sent[0].reply.messageReference, 'm1', 'the GIF replies where the first message would have');
   assert.deepEqual(store.ownGifs.map((own) => own.key), ['k50']);
@@ -7539,8 +7544,8 @@ test('runTurn: the pick classifier runs beside the turn and its pick reaches the
   assert.equal(llm.calls.length, 2);
   assert.equal(llm.calls[0][0].content, 'Pick for Bot.');
   assert.ok(
-    llm.calls[0][1].content.includes('<episodes>\n1 | #jardin | 30 min | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n2 | #journal | 2 h | Ana: μια ερώτηση | Bot: στο ράφι είναι\n</episodes>'),
-    llm.calls[0][1].content,
+    textOf(llm.calls[0][1].content).includes('<episodes>\n1 | #jardin | 30 min | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n2 | #journal | 2 h | Ana: μια ερώτηση | Bot: στο ράφι είναι\n</episodes>'),
+    textOf(llm.calls[0][1].content),
   );
   const user = textOf(llm.calls[1][1].content);
   assert.ok(user.includes('<participation>') && user.includes('#journal (a reading log):') && user.includes('στο ράφι είναι'), 'the picked older episode is shown');
