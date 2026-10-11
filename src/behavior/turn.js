@@ -2009,8 +2009,9 @@ export function createTurnRunner({
    * with the web side's reason, or `no-prompt` without prompts.lookup). Then
    * what the answer asks for runs in parallel: a `web` query goes to
    * lookup.search (at most one per turn), a `server` part to `recall.run`
-   * (`history` = `chatHistory`, the turn's own chat; `candidate` = the
-   * trigger); a part the answer asks for whose side cannot run is not run,
+   * (`history` = `chatHistory`, the turn's own chat with its reply parents:
+   * what `<chat>` shows; `context` = `history`, the lines this classifier
+   * read, with their `descriptions`; `candidate` = the trigger); a part the answer asks for whose side cannot run is not run,
    * and a failing part logs `lookup: failed` and counts as nothing. Resolves
    * the `lookup` input of the request (see createTurnRunner) or null. The
    * query, the forms and the transcript are data: never logged (`lookup:
@@ -2095,7 +2096,20 @@ export function createTurnRunner({
       runWeb ? settleLookupPart(() => lookup.search(guildId, parsed.web), channelId, 'web') : null,
       runServer
         ? settleLookupPart(
-            () => recall.run({ guild, guildId, channel, partner, selfId, selfName, history: chatHistory, candidate: trigger, server }),
+            () =>
+              recall.run({
+                guild,
+                guildId,
+                channel,
+                partner,
+                selfId,
+                selfName,
+                history: chatHistory,
+                context: history,
+                contextDescriptions: descriptions,
+                candidate: trigger,
+                server,
+              }),
             channelId,
             'server',
           )

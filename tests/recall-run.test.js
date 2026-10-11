@@ -4,9 +4,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRecall } from '../src/behavior/recall-run.js';
+import { createStore } from '../src/memory/store.js';
 import { HIT_MARK, snowflakeAt } from '../src/behavior/recall.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
@@ -23,7 +25,7 @@ const GUILD = 'g1';
 const PROMPT = 'You are {{name}}; {{answerChars}}.';
 
 // The recall settings the runner tests rely on, pinned here instead of read from the shipped defaults.
-const RECALL_PIN = { maxForms: 8, maxPeople: 2, dateSamples: 4, clusterGapMinutes: 30, maxClusters: 8, rareHits: 0, windowMessages: 16, answerChars: 1200, stretchChars: 1500, maxPerDay: 100, timeoutMs: 30000, minSummaryMs: 2500, maxOutputTokens: 500, memoryItems: 6 };
+const RECALL_PIN = { maxForms: 8, maxPeople: 2, dateSamples: 4, clusterGapMinutes: 30, maxClusters: 8, rareHits: 0, windowMessages: 16, answerChars: 1200, stretchChars: 1500, maxPerDay: 100, timeoutMs: 30000, minSummaryMs: 2500, maxOutputTokens: 500, memoryItems: 6, selfBonus: 1, selfExtra: 0, contextMessages: 0, traceMaxLines: 500 };
 
 /** The shipped config.json with the recall settings pinned and the given groups merged over a fresh copy (one level deep). */
 function config(overrides = {}) {
@@ -837,4 +839,172 @@ test('recall: the memory switches gate each store; recall.memoryItems caps the i
   assert.ok(one.user.includes(`<memory>\n${FUNERAL_LINE}\n</memory>`));
   const none = await run({ recall: { memoryItems: 0 } });
   assert.equal(none.user, '');
+});
+
+// ---- the current conversation, the persona's own stretches, the context, the trace ------------
+
+/** #general holds the turn's chat (h1, h2) and, just before it, an older hit x1; #garden a stretch with the persona's line. */
+const CHAT_LINES = {
+  c1: [
+    line('x1', NOW - 40 * MINUTE, { content: 'το κουνέλι ξανά' }),
+    line('h1', NOW - 30 * MINUTE, { name: 'Nikos', author: 'u9', content: 'τι έγινε με το κουνέλι;' }),
+    line('h2', NOW - MINUTE, { name: 'Nikos', author: 'u9', content: 'ποιος σκότωσε το κουνέλι;' }),
+  ],
+  c2: [GARDEN_LINES[0], line('g3', GARDEN_LINES[0].ts + 2 * MINUTE, { name: 'Zoë', author: 'self', content: 'το είδα κι εγώ' })],
+};
+
+/** `κουνέλι` finds x1, the chat's own h2 and the garden line. */
+function chatAnswers(route, query) {
+  if (route.endsWith('/members/search')) return [];
+  if (query.content === 'κουνέλι') {
+    return { total_results: 3, messages: [[rawHit('c1', CHAT_LINES.c1[2])], [rawHit('c1', CHAT_LINES.c1[0])], [rawHit('c2', CHAT_LINES.c2[0])]] };
+  }
+  return { total_results: 0, messages: [] };
+}
+
+/** The fixture labels with the two stretch flags (the shipped wording is the writer's). */
+const FLAGGED = { ...labels, lookup: { ...labels.lookup, stretchSelf: '[SELF]', stretchCurrent: '[CURRENT]' } };
+
+test('recall: hits shown in the chat are dropped and counted; a window reaching into the chat and one with the persona\'s line are flagged', async () => {
+  const s = scene({ lines: CHAT_LINES, answers: chatAnswers, recall: { maxClusters: 2, selfExtra: 0 } });
+  s.hot.prompts.labels = FLAGGED;
+  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(result.stats.inChatDropped, 1);
+  assert.equal(result.stats.selfClusters, 1);
+  assert.deepEqual(s.fetches.map((f) => f.around).sort(), ['g1', 'x1'], 'no window is centred on a chat line');
+  const user = s.llmCalls[0].messages[1].content;
+  const headers = user.split('\n').filter((l) => l.startsWith('## '));
+  assert.deepEqual(headers, ['## 1 | 2026-10-05 | #general [CURRENT]', '## 2 | 2026-09-30 | #garden [SELF]']);
+  assert.ok(!user.slice(user.indexOf('<found>'), user.indexOf('</found>')).includes('ποιος σκότωσε'), 'the chat lines stay out of the windows');
+  const searched = logs.find((l) => l.msg === 'recall: searched');
+  assert.deepEqual([searched.inChatDropped, searched.selfClusters], [1, 1]);
+});
+
+test('recall: recall.selfExtra more windows are fetched and the persona\'s stretch wins with recall.selfBonus', async () => {
+  const bonus = scene({ lines: CHAT_LINES, answers: chatAnswers, recall: { maxClusters: 1, selfExtra: 1, selfBonus: 1 } });
+  const first = await withCapturedLogs(() => bonus.recaller.run({ ...bonus.args, server: RABBIT_SERVER }));
+  assert.equal(bonus.fetches.length, 2, 'maxClusters + selfExtra windows');
+  assert.equal(first.result.stats.clusters, 1);
+  assert.equal(first.result.stretch.channelId, 'c2', 'one form each: the older stretch with the persona\'s line outranks the newer one');
+
+  const flat = scene({ lines: CHAT_LINES, answers: chatAnswers, recall: { maxClusters: 1, selfExtra: 1, selfBonus: 0 } });
+  const second = await withCapturedLogs(() => flat.recaller.run({ ...flat.args, server: RABBIT_SERVER }));
+  assert.equal(second.result.stretch.channelId, 'c1', 'no bonus: the newer cluster wins the tie');
+
+  const narrow = scene({ lines: CHAT_LINES, answers: chatAnswers, recall: { maxClusters: 1, selfExtra: 0, selfBonus: 1 } });
+  await withCapturedLogs(() => narrow.recaller.run({ ...narrow.args, server: RABBIT_SERVER }));
+  assert.deepEqual(narrow.fetches.map((f) => f.around), ['x1'], 'no extra window: the bonus has nothing to re-rank');
+});
+
+test('recall: the summary reads the last recall.contextMessages chat lines as <context> right before <question>', async () => {
+  const s = scene({ lines: CHAT_LINES, answers: chatAnswers, recall: { contextMessages: 6 } });
+  const routed = [{ id: 'o1', channelId: 'c2', ts: NOW - 2 * MINUTE, self: true, bot: false, authorName: 'Zoë', content: 'σε άλλο κανάλι' }, s.args.history[1]];
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  const user = s.llmCalls[0].messages[1].content;
+  assert.match(user, /<\/found>\n<context>\n=== .+ ===\n#\d+ \[11:30\] Nikos: τι έγινε με το κουνέλι;\n<\/context>\n<question>\nNikos: ποιος σκότωσε το κουνέλι;\n<\/question>$/);
+
+  const other = scene({ lines: CHAT_LINES, answers: chatAnswers, recall: { contextMessages: 6 } });
+  await withCapturedLogs(() => other.recaller.run({ ...other.args, context: routed, server: RABBIT_SERVER }));
+  const withRouted = other.llmCalls[0].messages[1].content;
+  assert.match(withRouted, /<context>\n=== .+ ===\n#\d+ \[11:58\] Zoë \(you\): σε άλλο κανάλι\n<\/context>/, 'the lines the question was read in; own lines under labels.self');
+
+  const off = scene({ lines: CHAT_LINES, answers: chatAnswers, recall: { contextMessages: 0 } });
+  await withCapturedLogs(() => off.recaller.run({ ...off.args, server: RABBIT_SERVER }));
+  assert.ok(!off.llmCalls[0].messages[1].content.includes('<context>'));
+});
+
+/** A real store in a fresh temporary directory (never data/), and its trace file of guild g1. */
+function tempStore() {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-trace-'));
+  const store = createStore({ dataDir });
+  const file = path.join(dataDir, 'guilds', GUILD, 'recall-trace.jsonl');
+  const lines = () => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+  return { store, file, lines, cleanup: () => fs.rmSync(dataDir, { recursive: true, force: true }) };
+}
+
+test('recall: with features.recallTrace on every run appends one trace line with the clusters, the summary and its stretch', async () => {
+  const t = tempStore();
+  try {
+    const s = scene({
+      lines: CHAT_LINES,
+      answers: chatAnswers,
+      features: { recallTrace: true },
+      recall: { maxClusters: 1, selfExtra: 1 },
+      memory: { appendRecallTrace: (...args) => t.store.appendRecallTrace(...args) },
+    });
+    const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+    const [record, ...rest] = t.lines();
+    assert.equal(rest.length, 0);
+    assert.deepEqual(Object.keys(record), ['at', 'channelId', 'triggerId', 'forms', 'who', 'when', 'hits', 'inChatDropped', 'clusters', 'summary', 'lookupChars']);
+    assert.equal(record.at, new Date(NOW).toISOString());
+    assert.deepEqual([record.channelId, record.triggerId, record.forms, record.who, record.when], ['c1', 'h2', RABBIT_SERVER.forms, [], null]);
+    assert.deepEqual([record.hits, record.inChatDropped], [3, 1]);
+    assert.deepEqual(record.clusters, [
+      { channelId: 'c1', from: new Date(CHAT_LINES.c1[0].ts).toISOString(), to: new Date(CHAT_LINES.c1[0].ts).toISOString(), score: 1, queries: 1, self: false, overlapsChat: true, kept: false },
+      { channelId: 'c2', from: new Date(GARDEN_LINES[0].ts).toISOString(), to: new Date(GARDEN_LINES[0].ts).toISOString(), score: 2, queries: 1, self: true, overlapsChat: false, kept: true },
+    ]);
+    assert.deepEqual(record.summary, {
+      answer: 'text',
+      stretch: { n: 1, channelId: 'c2', channelName: 'garden', lines: result.stretch.lines },
+      text: 'Ana did it on October 1.',
+    });
+    assert.ok(record.summary.stretch.lines.includes('το είδα κι εγώ'), 'the stretch lines themselves');
+    assert.equal(record.lookupChars, [...result.text].length + [...result.stretch.lines].length);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('recall: with features.recallTrace off or missing no trace is written', async () => {
+  for (const features of [{ recallTrace: false }, {}]) {
+    const t = tempStore();
+    try {
+      const s = scene({ lines: CHAT_LINES, answers: chatAnswers, features, memory: { appendRecallTrace: (...args) => t.store.appendRecallTrace(...args) } });
+      if (!('recallTrace' in features)) delete s.hot.config.features.recallTrace;
+      await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+      assert.equal(s.llmCalls.length, 1, 'the run itself went on');
+      assert.equal(fs.existsSync(t.file), false, JSON.stringify(features));
+    } finally {
+      t.cleanup();
+    }
+  }
+});
+
+test('recall: the trace keeps the newest recall.traceMaxLines lines', async () => {
+  const t = tempStore();
+  try {
+    let clock = NOW;
+    const s = scene({
+      lines: CHAT_LINES,
+      answers: chatAnswers,
+      features: { recallTrace: true },
+      recall: { traceMaxLines: 2 },
+      now: () => clock,
+      memory: { appendRecallTrace: (...args) => t.store.appendRecallTrace(...args) },
+    });
+    for (let i = 0; i < 4; i += 1) {
+      clock = NOW + i * MINUTE;
+      await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+    }
+    assert.deepEqual(t.lines().map((r) => r.at), [new Date(NOW + 2 * MINUTE).toISOString(), new Date(NOW + 3 * MINUTE).toISOString()]);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('recall: the searched log line carries counts only, never a text, with the trace on', async () => {
+  const t = tempStore();
+  try {
+    const s = scene({ lines: CHAT_LINES, answers: chatAnswers, features: { recallTrace: true }, memory: { appendRecallTrace: (...args) => t.store.appendRecallTrace(...args) } });
+    const { logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+    const searched = logs.find((l) => l.msg === 'recall: searched');
+    const { msg, level, time, channel, ...fields } = searched;
+    assert.equal(channel, 'c1');
+    for (const [key, value] of Object.entries(fields)) assert.equal(typeof value, 'number', key);
+    assert.ok('inChatDropped' in fields && 'selfClusters' in fields);
+    const all = JSON.stringify(logs);
+    for (const text of ['κουνέλι', 'Ana did it', 'το είδα']) assert.ok(!all.includes(text), text);
+  } finally {
+    t.cleanup();
+  }
 });

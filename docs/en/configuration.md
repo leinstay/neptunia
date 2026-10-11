@@ -42,6 +42,7 @@ Every key in `config.json` with its default, grouped by section.
 | `mentor` | `false` | Manual testing sub-process with its own model. Must be exactly `true` to enable; a missing key counts as off. See [Mentor](#mentor) |
 | `promptCache` | `false` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
+| `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
 | `recent` | `true` | Show a `<recent>` block of what happened on the server in the last few days. A missing key counts as on. See `memory.recentHours` and `context.caps.recent` |
 | `participation` | `true` | The persona remembers its own exchanges on other channels over the last few days and, on a server turn, sees a few of them in a `<participation>` block. A missing key counts as on. See [`participation`](#participation) and `context.caps.participation` |
 | `channelRoute` | `true` | A classifier picks a channel the conversation is about before a turn, so the channel can be pulled into the request. A missing key counts as on. See `route.*` |
@@ -282,10 +283,14 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `maxPeople` | `2` | People the `who:` line may name |
 | `dateSamples` | `4` | Date-only queries sampled across a `when:` range when no content forms are given |
 | `clusterGapMinutes` | `30` | Gap between hits that separates them into clusters |
-| `maxClusters` | `5` | Clusters kept, ranked by topic score (each distinct `server:` form with hits in the cluster adds 2 when rare, 1 otherwise), then by all distinct queries, then newest first. A cluster with only name or author hits ranks below any cluster with a topic hit |
+| `maxClusters` | `5` | Clusters kept, ranked by topic score (each distinct `server:` form with hits in the cluster adds 2 when rare, 1 otherwise) plus `selfBonus` when the fetched window holds a line of the persona, then by all distinct queries, then newest first. A cluster with only name or author hits ranks below any cluster with a topic hit. Hits already shown in the turn's chat never form a cluster |
 | `keepOldest` | `0` | Of the `maxClusters` kept, this many slots go to the oldest clusters with a topic score of at least 2. A cluster scoring below 2 never gets a reserved slot. `0` = ranked order only |
 | `rareHits` | `5` | A `server:` form whose search returned at most this many hits on the whole server counts double in a cluster's topic score. `0` = no rarity bonus |
 | `windowMessages` | `16` | Messages fetched around each cluster centre |
+| `selfExtra` | `2` | Extra clusters whose windows are fetched beyond `maxClusters`, so a window with the persona's own line can still win a slot once `selfBonus` applies. `0` = only `maxClusters` windows (the bonus then only reorders them) |
+| `selfBonus` | `1` | Added to the topic score of a cluster whose window holds at least one line of the persona. `0` = no bonus |
+| `contextMessages` | `6` | Chat lines before the question that the summary reads as `<context>` (the lines the search classifier read). `0` = no `<context>` block |
+| `traceMaxLines` | `500` | Lines kept in the trace file (`features.recallTrace`); the oldest go first. At least 1 |
 | `answerChars` | `1200` | Max characters for the summary note; fills `{{answerChars}}` in `recall-summary.md` |
 | `stretchChars` | `1500` | Max characters of the verbatim stretch shown to the persona |
 | `maxPerDay` | `100` | Daily recall runs (stored in `state.json` as `recallDay` / `recallCount`) |

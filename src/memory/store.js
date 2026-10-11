@@ -29,6 +29,9 @@
 //                                            (src/memory/participation.js)
 //   data/guilds/<guildId>/diary.json          the persona's diary posts, newest last, one-line gists
 //                                            (src/behavior/diary.js); never deleted by code
+//   data/guilds/<guildId>/recall-trace.jsonl  one JSON line per recall run when `features.recallTrace` is on
+//                                            (appendRecallTrace): the newest `recall.traceMaxLines`, written
+//                                            at once, not cached; a wipe deletes it
 //   data/guilds/<guildId>/versions/<kind>/<id>.json  the previous texts of the prose fields (see
 //                                            `recordVersion`): users/<userId>, channels/<channelId>,
 //                                            guild/guild, lore/<key> (src/memory/lore.js#loreVersionKey);
@@ -160,19 +163,27 @@ function findInvalidJsonFiles(dataDir) {
  * @param {unknown} value
  */
 export function writeJsonAtomic(file, value) {
+  writeTextAtomic(file, JSON.stringify(value, null, 2));
+}
+
+/** `text` written to `file` the way writeJsonAtomic writes (temp file + rename, in place with a warning). */
+function writeTextAtomic(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
+  fs.writeFileSync(tmp, text);
   try {
     fs.renameSync(tmp, file);
   } catch (err) {
     // Windows can refuse to rename over a file an antivirus holds open. The in-place write is
     // not atomic, so it is never silent.
     log.warn('store: rename failed, writing in place', { file, error: err });
-    fs.writeFileSync(file, JSON.stringify(value, null, 2));
+    fs.writeFileSync(file, text);
     fs.rmSync(tmp, { force: true });
   }
 }
+
+/** The fallback cap of the recall trace file (config.json `recall.traceMaxLines`). */
+const RECALL_TRACE_MAX_LINES = 500;
 
 /**
  * A member profile nobody has written to yet: what every write starts from (`touchUser`,
@@ -689,6 +700,7 @@ export function createStore({ dataDir }) {
   const recentFile = (guildId) => path.join(guildDir(guildId), 'recent.json');
   const participationFile = (guildId) => path.join(guildDir(guildId), 'participation.json');
   const diaryFile = (guildId) => path.join(guildDir(guildId), 'diary.json');
+  const recallTraceFile = (guildId) => path.join(guildDir(guildId), 'recall-trace.jsonl');
   const versionsDir = (guildId) => path.join(guildDir(guildId), 'versions');
   /** A lore id is the entry's title, turned into a safe file name (src/memory/lore.js#loreVersionKey). */
   const versionsFile = (guildId, kind, id) =>
@@ -2481,6 +2493,9 @@ export function createStore({ dataDir }) {
         fs.rmSync(file, { force: true });
       }
 
+      // The recall trace quotes members' messages: it goes with the rest.
+      fs.rmSync(recallTraceFile(guildId), { force: true });
+
       for (const key of ['warmup']) {
         if (stateEntry.value[key] !== undefined) {
           delete stateEntry.value[key];
@@ -2491,6 +2506,37 @@ export function createStore({ dataDir }) {
       flushAll();
 
       return { users: userIds.length, channels: channelIds.length, loreRemoved, loreKept, bufferMessages, recentLines };
+    },
+
+    /**
+     * Append one recall run's record (src/behavior/recall-run.js, `features.recallTrace`)
+     * as one JSON line to data/guilds/<guildId>/recall-trace.jsonl, written at once (not
+     * through the cache). The file keeps the newest `maxLines` lines (a missing or unusable
+     * value: 500): while there is room the line is appended, past the cap the file is
+     * rewritten atomically without the oldest. Lines a hand edit left blank are dropped on
+     * that rewrite. Throws on an I/O failure (the caller logs it).
+     * @param {string} guildId
+     * @param {object} record
+     * @param {{ maxLines?: number }} [opts]
+     */
+    appendRecallTrace(guildId, record, { maxLines } = {}) {
+      const cap = Number.isFinite(maxLines) && maxLines >= 1 ? Math.floor(maxLines) : RECALL_TRACE_MAX_LINES;
+      const file = recallTraceFile(guildId);
+      const line = JSON.stringify(record);
+      let text = '';
+      try {
+        text = fs.readFileSync(file, 'utf8');
+      } catch {
+        // no trace yet
+      }
+      const lines = text.split('\n').filter((l) => l.trim());
+      if (lines.length + 1 <= cap) {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        // A hand edit may have left the last line without its line break.
+        fs.appendFileSync(file, `${text && !text.endsWith('\n') ? '\n' : ''}${line}\n`);
+        return;
+      }
+      writeTextAtomic(file, `${[...lines, line].slice(-cap).join('\n')}\n`);
     },
 
     flush() {

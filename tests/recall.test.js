@@ -8,14 +8,18 @@ import {
   RECALL_DEFAULTS,
   buildRecallRequest,
   clusterHits,
+  clusterScore,
   cutStretch,
+  dropChatHits,
   fallbackWindow,
   matchMemory,
   mergeWindows,
   parseLookupAnswer,
   parseRecallAnswer,
   queryKey,
+  rankClusters,
   rareFormKeys,
+  recallContext,
   recallSettings,
   renderRecallWindows,
   sampleOffsets,
@@ -684,4 +688,142 @@ test('cutStretch: whole lines go from the far ends, matched lines stay', () => {
   assert.deepEqual(cutStretch(lines, 9).map((l) => l.text), ['HHHH', 'dddd']);
   assert.deepEqual(cutStretch(lines, 1).map((l) => l.text), ['HHHH'], 'a matched line is never dropped');
   assert.deepEqual(cutStretch(lines, 1000).map((l) => l.text), lines.map((l) => l.text));
+});
+
+// ---- the current conversation, the persona's own stretches, the summary's context --------------
+
+test('dropChatHits: hits already shown in the chat go before clustering and are counted', () => {
+  const t = Date.UTC(2026, 9, 10, 20);
+  const hits = [found('old', t - 5 * HOUR, ['form:a']), found('c1', t, ['form:a']), found('c2', t + MINUTE, ['form:a'])];
+  const { hits: kept, dropped } = dropChatHits(hits, new Set(['c1', 'c2', 'zz']));
+  assert.equal(dropped, 2);
+  assert.deepEqual(kept.map((h) => h.id), ['old']);
+  assert.deepEqual(clusterHits(kept, { gapMinutes: 30 }).map((c) => c.ids), [['old']], 'the chat lines never form a cluster');
+  assert.deepEqual(dropChatHits(hits, null), { hits, dropped: 0 }, 'no ids drops nothing');
+  assert.equal(dropChatHits(hits, ['c1']).dropped, 1, 'an array of ids works too');
+});
+
+test('rankClusters: a window with the persona\'s line gets selfBonus on its topic; recency stays the last tiebreak', () => {
+  const t = Date.UTC(2026, 9, 10, 8);
+  const clusters = [
+    { channelId: 'c1', middleId: 'a', endTs: t + 3 * HOUR, topic: 2, queries: 2, self: false },
+    { channelId: 'c2', middleId: 'b', endTs: t + 2 * HOUR, topic: 1, queries: 1, self: true },
+    { channelId: 'c1', middleId: 'c', endTs: t + HOUR, topic: 2, queries: 2, self: true },
+    { channelId: 'c2', middleId: 'd', endTs: t, topic: 1, queries: 1, self: false },
+  ];
+  const ids = (list) => list.map((c) => c.middleId);
+  assert.deepEqual(ids(rankClusters(clusters, { maxClusters: 2, keepOldest: 0, selfBonus: 1 })), ['a', 'c'], 'c scores 3, a beats b (both 2) on queries; kept newest first');
+  assert.deepEqual(ids(rankClusters(clusters, { maxClusters: 1, keepOldest: 0, selfBonus: 1 })), ['c']);
+  assert.deepEqual(ids(rankClusters(clusters, { maxClusters: 1, keepOldest: 0, selfBonus: 0 })), ['a'], 'no bonus: a and c tie, the newer wins');
+  assert.deepEqual(ids(rankClusters(clusters, { maxClusters: 3, keepOldest: 0, selfBonus: 2 })), ['a', 'b', 'c'], 'b (3) passes a (2)');
+  assert.equal(clusterScore(clusters[2], 1), 3);
+  assert.equal(clusterScore(clusters[0], 1), 2);
+});
+
+test('rankClusters: without a persona line it keeps what clusterHits keeps', () => {
+  const t = Date.UTC(2026, 9, 1, 8);
+  const hits = [
+    found('n1', t + 10 * HOUR, ['form:a']),
+    found('n2', t + 12 * HOUR, ['form:a']),
+    found('d1', t - 400 * HOUR, ['form:a', 'form:b']),
+    found('d2', t - 400 * HOUR + 5 * MINUTE, ['form:c']),
+    found('w1', t, ['form:a', 'author:u2'], 'c2'),
+    found('o1', t - 900 * HOUR, ['form:a', 'form:b']),
+  ];
+  for (const [maxClusters, keepOldest] of [[2, 0], [3, 1], [1, 0]]) {
+    const wide = clusterHits(hits, { gapMinutes: 30, maxClusters: 9, keepOldest: 0 });
+    assert.deepEqual(
+      rankClusters(wide, { maxClusters, keepOldest, selfBonus: 1 }).map((c) => c.middleId),
+      clusterHits(hits, { gapMinutes: 30, maxClusters, keepOldest }).map((c) => c.middleId),
+      `${maxClusters}/${keepOldest}`,
+    );
+  }
+});
+
+test('recallSettings: the trace cap, the self bonus, the extra windows and the context lines', () => {
+  const s = recallSettings({});
+  for (const key of ['traceMaxLines', 'selfBonus', 'selfExtra', 'contextMessages']) assert.equal(s[key], SHIPPED_CONFIG.recall[key], key);
+  const zero = recallSettings({ recall: { traceMaxLines: 0, selfBonus: 0, selfExtra: 0, contextMessages: 0 } });
+  assert.equal(zero.traceMaxLines, SHIPPED_CONFIG.recall.traceMaxLines, 'the trace keeps at least one line');
+  assert.equal(zero.selfBonus, 0);
+  assert.equal(zero.selfExtra, 0);
+  assert.equal(zero.contextMessages, 0);
+  const set = recallSettings({ recall: { traceMaxLines: 7.5, selfBonus: 1.5, selfExtra: 2.9, contextMessages: -1 } });
+  assert.deepEqual([set.traceMaxLines, set.selfBonus, set.selfExtra, set.contextMessages], [7, 1.5, 2, SHIPPED_CONFIG.recall.contextMessages]);
+});
+
+test('recallContext: the last lines before the question, the question itself left out', () => {
+  const t = Date.UTC(2026, 9, 10, 20);
+  const history = Array.from({ length: 5 }, (_, i) => msg(`h${i}`, t + i * MINUTE));
+  assert.deepEqual(recallContext(history, history[4], 3).map((m) => m.id), ['h1', 'h2', 'h3']);
+  assert.deepEqual(recallContext(history, { id: 'elsewhere' }, 2).map((m) => m.id), ['h3', 'h4']);
+  assert.deepEqual(recallContext(history, history[4], 0), []);
+  assert.deepEqual(recallContext(null, history[4], 3), []);
+});
+
+/** The fixture labels with the two stretch flags (the shipped wording is the writer's). */
+const flagged = { ...labels, lookup: { ...labels.lookup, stretchSelf: '[SELF]', stretchCurrent: '[CURRENT]' } };
+
+test('buildRecallRequest: the context block sits right before the question, own lines marked with labels.self', () => {
+  const t = Date.UTC(2026, 9, 10, 20, 0);
+  const windows = [{ channelId: 'c2', channelName: 'garden', messages: [msg('w1', t - 5 * HOUR, { channelId: 'c2' })], hitIds: ['w1'] }];
+  const context = [msg('h1', t, { authorName: 'Nikos', content: 'θυμάσαι τι είπες για το κουνέλι;' }), msg('h2', t + MINUTE, { self: true, authorId: 'self', content: 'ποιο κουνέλι;' })];
+  const user = buildRecallRequest({
+    prompt: 'p',
+    selfName: 'Zoë',
+    question: { authorName: 'Nikos', content: 'αυτό που είπες πριν' },
+    windows,
+    context,
+    labels,
+    timezone: 'UTC',
+    answerChars: 100,
+  })[1].content;
+  const lines = user.split('\n');
+  assert.deepEqual(lines.slice(0, 4), ['<found>', '## 1 | 2026-10-10 | #garden', `${HIT_MARK}#1 [15:00] Ana: line w1`, '</found>']);
+  assert.equal(lines[4], '<context>');
+  assert.match(lines[5], /^=== .+ ===$/, 'the transcript header, as the classifier transcripts have it');
+  assert.deepEqual(lines.slice(6), [
+    '#2 [20:00] Nikos: θυμάσαι τι είπες για το κουνέλι;',
+    '#3 [20:01] Zoë (you): ποιο κουνέλι;',
+    '</context>',
+    '<question>',
+    'Nikos: αυτό που είπες πριν',
+    '</question>',
+  ]);
+  const none = buildRecallRequest({ prompt: 'p', selfName: 'Zoë', question: { authorName: 'A', content: 'q' }, windows, context: [], labels, answerChars: 100 })[1].content;
+  assert.ok(!none.includes('<context>'), 'no line, no block');
+});
+
+test('buildRecallRequest: a stretch header carries the self flag, then the current-chat flag; a missing label omits its suffix', () => {
+  const t = Date.UTC(2026, 9, 10, 15);
+  const windows = [
+    { channelId: 'c1', channelName: 'general', messages: [msg('a1', t), msg('a2', t + MINUTE, { self: true, authorId: 'self' })], hitIds: ['a1'], overlapsChat: true },
+    { channelId: 'c2', channelName: 'garden', messages: [msg('b1', t - HOUR, { channelId: 'c2', self: true, authorId: 'self' })], hitIds: ['b1'] },
+    { channelId: 'c3', channelName: 'news', messages: [msg('c1', t - 2 * HOUR, { channelId: 'c3' })], hitIds: ['c1'], overlapsChat: true },
+    { channelId: 'c4', channelName: 'misc', messages: [msg('d1', t - 3 * HOUR, { channelId: 'c4' })], hitIds: ['d1'] },
+  ];
+  const base = { prompt: 'p', selfName: 'Zoë', question: { authorName: 'A', content: 'q' }, windows, timezone: 'UTC', answerChars: 100 };
+  const headers = (l) => buildRecallRequest({ ...base, labels: l })[1].content.split('\n').filter((line) => line.startsWith('## '));
+  assert.deepEqual(headers(flagged), [
+    '## 1 | 2026-10-10 | #general [SELF] [CURRENT]',
+    '## 2 | 2026-10-10 | #garden [SELF]',
+    '## 3 | 2026-10-10 | #news [CURRENT]',
+    '## 4 | 2026-10-10 | #misc',
+  ]);
+  const onlyCurrent = { ...labels, lookup: { ...labels.lookup, stretchSelf: undefined, stretchCurrent: '[CURRENT]' } };
+  assert.deepEqual(headers(onlyCurrent).slice(0, 2), ['## 1 | 2026-10-10 | #general [CURRENT]', '## 2 | 2026-10-10 | #garden']);
+  const bare = { ...labels, lookup: { ...labels.lookup, stretchSelf: undefined, stretchCurrent: undefined } };
+  assert.equal(headers(bare)[0], '## 1 | 2026-10-10 | #general');
+  const spaced = { ...labels, lookup: { ...labels.lookup, stretchSelf: ' [SELF]', stretchCurrent: '   ' } };
+  assert.equal(headers(spaced)[0], '## 1 | 2026-10-10 | #general [SELF]', 'one space, whatever the label carries; a blank label adds nothing');
+});
+
+test('mergeWindows: a merged window overlaps the chat when any of its parts does', () => {
+  const t = Date.UTC(2026, 9, 1, 15);
+  const merged = mergeWindows([
+    { channelId: 'c1', channelName: 'general', messages: [msg('m1', t), msg('m2', t + 1)], hitIds: ['m1'] },
+    { channelId: 'c1', channelName: 'general', messages: [msg('m2', t + 1), msg('m3', t + 2)], hitIds: ['m3'], overlapsChat: true },
+    { channelId: 'c2', channelName: 'garden', messages: [msg('n1', t)], hitIds: ['n1'] },
+  ]);
+  assert.deepEqual(merged.map((w) => w.overlapsChat), [true, false]);
 });
