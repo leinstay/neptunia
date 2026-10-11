@@ -149,6 +149,24 @@ test('parseOutput: a second <draw> is ignored', () => {
   assert.deepEqual(result.draw, { text: 'first scene', self: false, replyTo: null });
 });
 
+test('parseOutput: every <draw> is collected into draws, in order; draw stays the first', () => {
+  const result = parseOutput('<msg>εδώ</msg><draw self="yes">first scene</draw><draw>   </draw><draw reply="#3">second scene</draw>');
+  assert.deepEqual(result.draws, [
+    { text: 'first scene', self: true, replyTo: null },
+    { text: 'second scene', self: false, replyTo: 3 },
+  ]);
+  assert.deepEqual(result.draw, result.draws[0]);
+});
+
+test('parseOutput: draws holds at most 10 tags, and an answer without <draw> has none', () => {
+  const many = Array.from({ length: 12 }, (_, i) => `<draw>scene ${i + 1}</draw>`).join('');
+  const result = parseOutput(many);
+  assert.equal(result.draws.length, 10);
+  assert.equal(result.draws[9].text, 'scene 10');
+  assert.deepEqual(parseOutput('<msg>ναι</msg>').draws, []);
+  assert.equal(parseOutput('<msg>ναι</msg>').draw, null);
+});
+
 test('parseOutput: an empty <draw> is skipped in favour of a later non-empty one', () => {
   const result = parseOutput('<draw>   </draw><draw>a forest</draw>');
   assert.equal(result.draw.text, 'a forest');

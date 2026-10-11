@@ -656,9 +656,14 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 | `historyPosts` | `150` | `diary.json` 中保留并在 `<diary>` 块中展示给计划器和生成器的历史帖子数。超出上限时最旧的被删除 |
 | `gistChars` | `200` | 日记历史中每篇帖子摘要和图片场景的字符数 |
 | `seedSets` | `2` | 从 `prompts/diary-seeds.md` 抽取并在 `<seeds>` 块中展示给计划器的随机种子组合数。`0` 省略该块 |
-| `kinds` | `{ "selfPicture": 3, "picture": 2, "meme": 1, "thought": 2, "people": 2, "news": 2, "facts": 1, "status": 3 }` | 帖子种类与权重。权重为 0 的种类永不被选择。计划器看到权重和最近帖子中每种类型的使用次数。热重载，拥有者可随时调整 |
+| `kinds` | `{ "selfPicture": 3, "picture": 2, "meme": 1, "thought": 2, "people": 2, "news": 2, "facts": 1, "status": 3, "photoset": 1, "randomSet": 1 }` | 帖子种类与权重。权重为 0 的种类永不被选择。计划器看到权重和最近帖子中每种类型的使用次数。热重载，拥有者可随时调整 |
 | `searchKinds` | `["news", "facts"]` | 可触发网络搜索的种类。计划器仅为这些种类编写搜索查询 |
-| `pictureKinds` | `["selfPicture", "picture", "meme"]` | 日次图片上限允许时始终带图的种类，无论计划器如何回答。其余种类仅在计划器要求时绘制 |
+| `pictureKinds` | `["selfPicture", "picture", "meme", "photoset", "randomSet"]` | 日次图片上限允许时始终带图的种类，无论计划器如何回答。其余种类仅在计划器要求时绘制 |
+| `setKinds` | `["photoset", "randomSet"]` | Kinds whose post is a set of pictures instead of one. Keep them in `pictureKinds` too, so they are dropped with the other picture kinds when the post cannot carry a picture |
+| `set.pictures` | `[4, 6]` | How many pictures a set has: the prompt asks for between the two numbers, the bot generates at most the second (the first `<draw>` tags of the answer, the rest ignored) |
+| `set.minPosted` | `2` | A set with fewer pictures generated than this is not posted at all, its messages included. Generation stops early once the pictures left cannot reach it. The pictures already generated still count against the day's picture caps |
+| `set.seedSets` | `6` | Random seed combinations shown in a `<seeds>` block of the compose request of a set post (the plan request keeps `seedSets`). `0` omits the block |
+| `set.maxMessageBytes` | `8000000` | The most picture bytes one Discord message carries. A set larger than this, or of more than 10 pictures, is split over several messages |
 | `planMaxOutputTokens` | `300` | 计划请求的最大输出 token 数 |
 | `planTimeoutMs` | `20000` | 计划请求的超时（毫秒） |
 

@@ -15,6 +15,8 @@ import {
   pickKind,
   withoutPictureKinds,
   isPictureKind,
+  isSetKind,
+  setSettings,
   DEFAULT_PICTURE_KINDS,
   validatePlan,
   renderDiaryBlock,
@@ -28,7 +30,7 @@ import {
 } from '../src/behavior/diary.js';
 import { PermissionFlagsBits } from 'discord.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { localHour } from '../src/discord/format.js';
+import { fill, localHour } from '../src/discord/format.js';
 import { MINUTE_MS, HOUR_MS } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
 import { createStore } from '../src/memory/store.js';
@@ -328,7 +330,7 @@ test('withoutPictureKinds: drops the picture kinds, keeps the others with their 
 test('withoutPictureKinds: the default picture kinds when diary.pictureKinds is not a list', () => {
   const kinds = { selfPicture: 1, picture: 1, meme: 1, status: 2 };
   assert.deepEqual(withoutPictureKinds(kinds, undefined), { status: 2 });
-  assert.deepEqual(DEFAULT_PICTURE_KINDS, ['selfPicture', 'picture', 'meme']);
+  assert.deepEqual(DEFAULT_PICTURE_KINDS, ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet']);
   assert.deepEqual(withoutPictureKinds(null, ['meme']), {});
 });
 
@@ -428,6 +430,39 @@ test('renderDiaryBlock: oldest first, at most max lines, picture suffix when pre
     '- 2026-03-04 thought: café thoughts',
   ].join('\n'));
   assert.equal(renderDiaryBlock([], labels, { timezone: 'UTC', max: 3 }), '');
+});
+
+test('renderDiaryBlock: a set renders its first scene with the picture count', () => {
+  const posts = [
+    { at: Date.parse('2026-03-01T10:00:00Z'), kind: 'tour', gist: 'a walk', picture: 'a harbour at noon', pictures: 5 },
+    { at: Date.parse('2026-03-02T10:00:00Z'), kind: 'selfPicture', gist: 'alone', picture: 'a pier', pictures: 1 },
+  ];
+  const text = renderDiaryBlock(posts, labels, { timezone: 'UTC', max: 5 });
+  const lines = text.split('\n');
+  assert.ok(labels.diary.pictureSet, 'the fixture carries the label');
+  assert.equal(lines[1], `- 2026-03-01 tour: a walk${fill(labels.diary.pictureSet, { count: 5, scene: 'a harbour at noon' })}`);
+  assert.equal(lines[2], '- 2026-03-02 selfPicture: alone [picture: a pier]', 'one picture keeps the plain suffix');
+});
+
+test('isSetKind: listed kinds, the default list when none is given', () => {
+  assert.equal(isSetKind('tour', ['tour']), true);
+  assert.equal(isSetKind('photoset', ['tour']), false);
+  assert.equal(isSetKind('photoset', undefined), true);
+  assert.equal(isSetKind('randomSet', null), true);
+  assert.equal(isSetKind('selfPicture', undefined), false);
+  assert.equal(isSetKind(null, ['tour']), false);
+});
+
+test('setSettings: the configured values, whole and ordered; the defaults for missing or broken ones', () => {
+  assert.deepEqual(setSettings({ set: { pictures: [2, 3], minPosted: 1, seedSets: 4, maxMessageBytes: 1000 } }), {
+    pictures: [2, 3],
+    minPosted: 1,
+    seedSets: 4,
+    maxMessageBytes: 1000,
+  });
+  const fallback = setSettings({});
+  assert.deepEqual(setSettings({ set: { pictures: 'x', minPosted: -1, seedSets: null, maxMessageBytes: 0 } }), fallback);
+  assert.deepEqual(setSettings({ set: { pictures: [5, 2] } }).pictures, [5, 5], 'max never below min');
 });
 
 test('renderKindsBlock: counts uses among the last window posts', () => {
@@ -681,6 +716,25 @@ test('tick: fires the due slot through runTurn with mode diary and marks it done
   assert.equal(line.kind, 'status');
   await h.diary.tick();
   assert.equal(h.turnCalls.length, 1, 'a done slot never fires again');
+});
+
+test('tick: a set posted logs its picture count; a short set logs its refusal and is not posted', async () => {
+  const posted = diaryHarness({ outcomes: [{ outcome: 'spoke', diary: { kind: 'tour', picture: true, search: false, messages: 1, pictures: 4 } }] });
+  posted.setNow(SLOT + MINUTE_MS);
+  const first = await withCapturedLogs(() => posted.diary.tick());
+  const line = first.logs.find((l) => l.msg === 'diary: post');
+  assert.equal(line.pictures, 4);
+  assert.equal(line.outcome, 'spoke');
+
+  const short = diaryHarness({ outcomes: [{ outcome: 'refused', reason: 'set-short' }] });
+  short.setNow(SLOT + MINUTE_MS);
+  const second = await withCapturedLogs(() => short.diary.tick());
+  const refused = second.logs.find((l) => l.msg === 'diary: post');
+  assert.equal(refused.outcome, 'refused');
+  assert.equal(refused.reason, 'set-short');
+  assert.equal(refused.pictures, 0);
+  assert.deepEqual(short.store.state.data.diary.g1.posted, [], 'a short set feeds no window');
+  assert.deepEqual(short.store.state.data.diary.g1.done, [SLOT], 'its slot is spent');
 });
 
 test('tick: a busy outcome un-marks the slot so the next tick retries it within the grace', async () => {

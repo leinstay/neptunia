@@ -7,9 +7,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PermissionFlagsBits } from 'discord.js';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { chunkPictures, createTurnRunner } from '../src/behavior/turn.js';
 import { DIARY_DAILY, DIARY_PICTURES_DAILY } from '../src/behavior/diary.js';
-import { ImageGenError } from '../src/llm/images.js';
+import { ImageCapError, ImageGenError } from '../src/llm/images.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { fill, formatNow } from '../src/discord/format.js';
 import { countToday, utcDay } from '../src/time.js';
@@ -470,7 +470,7 @@ test('diary turn: records the post with gists and message ids', async () => {
   const store = fakeStore();
   const result = await runner({ llm, store }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
   assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(result.diary, { kind: 'selfPicture', picture: true, search: false, messages: 1 });
+  assert.deepEqual(result.diary, { kind: 'selfPicture', picture: true, search: false, messages: 1, pictures: 1 });
   assert.equal(store.appended.length, 1);
   const { guildId, post, opts } = store.appended[0];
   assert.equal(guildId, 'g1');
@@ -554,4 +554,224 @@ test('diary turn: a post of a picture alone is a spoken turn', async () => {
   assert.deepEqual(store.appended[0].post.messageIds, ['sent-1']);
   assert.equal(countToday(store.state.data, DIARY_DAILY, NOW), 1);
   assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 1);
+});
+
+// ---- set posts (diary.setKinds): several pictures, generated before anything is sent ----------
+
+/** An image client that answers each generate call by the next step: a byte count, or an error to throw. */
+function fakeSetImages(steps, events = []) {
+  const prompts = [];
+  let call = 0;
+  return {
+    prompts,
+    events,
+    quota: () => ({ used: 0, cap: 50, userUsed: 0, userCap: 5, spent: false, userSpent: false }),
+    generate: async ({ prompt, userId }) => {
+      prompts.push({ prompt, userId });
+      const step = steps[call] ?? 10;
+      call += 1;
+      events.push(`generate ${call}`);
+      if (step instanceof Error) throw step;
+      return { buffer: Buffer.alloc(step, 1), mediaType: 'image/png', seconds: 1, cost: 0 };
+    },
+  };
+}
+
+/** A hot config where `tour` is the one set kind, with its own set settings. */
+function setHot({ set = {}, features = {}, diary = {} } = {}) {
+  return fakeHot({
+    features,
+    diary: {
+      kinds: { tour: 1, status: 1 },
+      pictureKinds: ['tour'],
+      setKinds: ['tour'],
+      maxPicturesPerDay: 30,
+      seedSets: 1,
+      set: { pictures: [3, 5], minPosted: 2, seedSets: 3, maxMessageBytes: 1000, ...set },
+      ...diary,
+    },
+  });
+}
+
+/** A diary channel whose sends are logged into `events` too. */
+function eventChannel(events) {
+  const channel = diaryChannel();
+  const send = channel.send;
+  channel.send = async (payload) => {
+    events.push(payload.files ? `files ${payload.files.length}` : 'msg');
+    return send(payload);
+  };
+  return channel;
+}
+
+const TOUR_PLAN = { kind: 'tour', brief: 'a harbour walk', search: '', picture: true };
+const draws = (n, self = false) => Array.from({ length: n }, (_, i) => `<draw${self && i === 0 ? ' self="yes"' : ''}>scene ${i + 1}</draw>`).join('');
+
+test('diary set: every picture is generated before anything is sent, then the messages, then one files message', async () => {
+  const events = [];
+  const images = fakeSetImages([10, 10, 10, 10], events);
+  const store = fakeStore();
+  const channel = eventChannel(events);
+  const llm = fakeLlm(TOUR_PLAN, `<msg>une promenade</msg><msg>au port</msg>${draws(4, true)}`);
+  const { result, logs } = await withCapturedLogs(() => runner({ hot: setHot(), llm, store, images }).runTurn({ channel, mode: 'diary', diary: {} }));
+  assert.equal(result.outcome, 'spoke');
+  assert.deepEqual(events, ['generate 1', 'generate 2', 'generate 3', 'generate 4', 'msg', 'msg', 'files 4']);
+  assert.ok(images.prompts.every(({ userId }) => userId === null), 'nobody is charged');
+  const filesMessage = channel.sent[2];
+  assert.deepEqual(filesMessage.files.map((file) => file.name), ['image.png', 'image.png', 'image.png', 'image.png']);
+  assert.deepEqual(filesMessage.allowedMentions, { parse: [] });
+  assert.equal(filesMessage.reply, undefined);
+  assert.equal(filesMessage.content, undefined);
+  const drew = logs.filter((l) => l.msg === 'turn: drew');
+  assert.equal(drew.length, 4);
+  assert.ok(drew.every((l) => l.set === true));
+  assert.equal(drew[0].self, true);
+  const posted = logs.find((l) => l.msg === 'turn: set posted');
+  assert.equal(posted.pictures, 4);
+  assert.equal(posted.messages, 1);
+
+  assert.deepEqual(result.diary, { kind: 'tour', picture: true, search: false, messages: 2, pictures: 4 });
+  const { post } = store.appended[0];
+  assert.equal(post.picture, 'scene 1');
+  assert.equal(post.pictures, 4);
+  assert.deepEqual(post.messageIds, ['sent-1', 'sent-2', 'sent-3']);
+  assert.equal(countToday(store.state.data, DIARY_DAILY, NOW), 1);
+  assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 4);
+});
+
+test('diary set: only the first diary.set.pictures[1] draws are rendered', async () => {
+  const images = fakeSetImages([]);
+  const channel = diaryChannel();
+  const llm = fakeLlm(TOUR_PLAN, `<msg>x</msg>${draws(8)}`);
+  await runner({ hot: setHot({ set: { pictures: [2, 3] } }), llm, images }).runTurn({ channel, mode: 'diary', diary: {} });
+  assert.equal(images.prompts.length, 3);
+  assert.ok(images.prompts[2].prompt.includes('scene 3'));
+  assert.equal(channel.sent.at(-1).files.length, 3);
+});
+
+test('diary set: the pictures are split over diary.set.maxMessageBytes', async () => {
+  const bytes = fakeSetImages([400, 400, 400, 900, 100]);
+  const channel = diaryChannel();
+  const llm = fakeLlm(TOUR_PLAN, `<msg>x</msg>${draws(5)}`);
+  const { logs } = await withCapturedLogs(() =>
+    runner({ hot: setHot({ set: { maxMessageBytes: 1000 } }), llm, images: bytes }).runTurn({ channel, mode: 'diary', diary: {} }),
+  );
+  assert.deepEqual(
+    channel.sent.slice(1).map((payload) => payload.files.map((file) => file.attachment.length)),
+    [[400, 400], [400], [900, 100]],
+  );
+  assert.equal(logs.find((l) => l.msg === 'turn: set posted').messages, 3);
+});
+
+test('chunkPictures: a new message past the byte limit or at 10 files; a picture over the limit goes alone', () => {
+  const sized = (list) => list.map((n) => ({ buffer: { length: n } }));
+  const lengths = (chunks) => chunks.map((chunk) => chunk.map((p) => p.buffer.length));
+  assert.deepEqual(lengths(chunkPictures(sized([400, 400, 400, 900, 100]), 1000)), [[400, 400], [400], [900, 100]]);
+  assert.deepEqual(lengths(chunkPictures(sized([50, 2000, 50]), 1000)), [[50], [2000], [50]]);
+  assert.deepEqual(chunkPictures(sized(Array(23).fill(1)), 1_000_000).map((chunk) => chunk.length), [10, 10, 3]);
+  assert.deepEqual(chunkPictures([], 1000), []);
+});
+
+test('diary set: an image cap mid-set stops the generation and posts what came out', async () => {
+  const capped = Object.assign(new ImageCapError('daily', 'cap'), { key: 'image.maxPerDay', used: 50, cap: 50 });
+  const images = fakeSetImages([10, new ImageGenError('error'), 10, capped, 10]);
+  const store = fakeStore();
+  const channel = diaryChannel();
+  const llm = fakeLlm(TOUR_PLAN, `<msg>x</msg>${draws(5)}`);
+  const { result, logs } = await withCapturedLogs(() => runner({ hot: setHot(), llm, store, images }).runTurn({ channel, mode: 'diary', diary: {} }));
+  assert.equal(images.prompts.length, 4, 'nothing generated after the cap');
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(channel.sent.at(-1).files.length, 2);
+  assert.ok(logs.some((l) => l.msg === 'turn: draw refused by a limit' && l.key === 'image.maxPerDay'));
+  assert.ok(logs.some((l) => l.msg === 'turn: draw error' && l.reason === 'error'));
+  assert.equal(result.drawFailed, undefined, 'no drawFailed hand-off for a set');
+  assert.equal(store.appended[0].post.picture, 'scene 1');
+  assert.equal(store.appended[0].post.pictures, 2);
+  assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 2);
+});
+
+test('diary set: fewer than diary.set.minPosted pictures posts nothing and is refused', async () => {
+  const images = fakeSetImages([10, new ImageGenError('error'), new ImageGenError('error')]);
+  const store = fakeStore();
+  const channel = diaryChannel();
+  const llm = fakeLlm(TOUR_PLAN, `<msg>une promenade</msg>${draws(3)}`);
+  const { result, logs } = await withCapturedLogs(() =>
+    runner({ hot: setHot({ set: { minPosted: 2 } }), llm, store, images }).runTurn({ channel, mode: 'diary', diary: {} }),
+  );
+  assert.equal(result.outcome, 'refused');
+  assert.equal(result.reason, 'set-short');
+  assert.equal(channel.sent.length, 0, 'not even the message');
+  assert.equal(store.appended.length, 0);
+  const short = logs.find((l) => l.msg === 'turn: set short');
+  assert.equal(short.pictures, 1);
+  assert.equal(short.wanted, 2);
+  assert.equal(countToday(store.state.data, DIARY_DAILY, NOW), 0, 'no post counted');
+  assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 1, 'the picture paid for is counted');
+
+  const bare = await runner({ hot: setHot(), llm: fakeLlm(TOUR_PLAN, '<msg>sans image</msg>'), store: fakeStore(), images: fakeSetImages([]) }).runTurn({
+    channel: diaryChannel(),
+    mode: 'diary',
+    diary: {},
+  });
+  assert.deepEqual([bare.outcome, bare.reason], ['refused', 'set-short'], 'a set answered without <draw> is short too');
+});
+
+test('diary set: dry-run generates nothing, posts nothing and logs each picture', async () => {
+  const images = fakeSetImages([]);
+  const store = fakeStore();
+  const channel = diaryChannel();
+  const llm = fakeLlm(TOUR_PLAN, `<msg>x</msg>${draws(4)}`);
+  const hot = setHot({ features: { dryRun: true } });
+  const { result, logs } = await withCapturedLogs(() => runner({ hot, llm, store, images }).runTurn({ channel, mode: 'diary', diary: {} }));
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(result.dryRun, true);
+  assert.equal(images.prompts.length, 0);
+  assert.equal(channel.sent.length, 0);
+  assert.equal(store.appended.length, 0);
+  assert.equal(logs.filter((l) => l.msg === 'dry-run: would draw').length, 4);
+  assert.equal(result.diary.pictures, 4);
+  assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 0);
+});
+
+test('diary set: the compose request carries diary.set.seedSets seeds for a set kind, none for another kind', async () => {
+  const seedLines = (text) => (/<seeds>\n([\s\S]*?)\n<\/seeds>/.exec(text)?.[1] ?? '').split('\n').filter((line) => line.startsWith('- '));
+  const llm = fakeLlm(TOUR_PLAN, `<msg>x</msg>${draws(3)}`);
+  await runner({ hot: setHot({ set: { seedSets: 3 } }), llm, images: fakeSetImages([]) }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
+  assert.equal(seedLines(userOf(llm.calls[0])).length, 1, 'the plan request keeps diary.seedSets');
+  assert.equal(seedLines(userOf(llm.calls[1])).length, 3, 'the compose request takes diary.set.seedSets');
+
+  const text = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, '<msg>x</msg>');
+  await runner({ hot: setHot(), llm: text }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
+  assert.ok(!userOf(text.calls[1]).includes('<seeds>'));
+});
+
+test('diary set: a single-picture kind still posts its first <draw> only', async () => {
+  const images = fakeSetImages([]);
+  const channel = diaryChannel();
+  const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, `<msg>x</msg>${draws(3)}`);
+  const hot = setHot({ diary: { kinds: { selfPicture: 1 }, pictureKinds: ['selfPicture', 'tour'] } });
+  const result = await runner({ hot, llm, images }).runTurn({ channel, mode: 'diary', diary: {} });
+  assert.equal(images.prompts.length, 1);
+  assert.equal(channel.sent.at(-1).files.length, 1);
+  assert.equal(result.diary.pictures, 1);
+});
+
+test('diary set: the generation stops once the pictures left cannot reach diary.set.minPosted', async () => {
+  const images = fakeSetImages([new ImageGenError('error'), 10, 10]);
+  const store = fakeStore();
+  const llm = fakeLlm(TOUR_PLAN, `<msg>x</msg>${draws(3)}`);
+  const result = await runner({ hot: setHot({ set: { minPosted: 3 } }), llm, store, images }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
+  assert.deepEqual([result.outcome, result.reason], ['refused', 'set-short']);
+  assert.equal(images.prompts.length, 1, 'nothing paid for after the set became short');
+  assert.equal(countToday(store.state.data, DIARY_PICTURES_DAILY, NOW), 0);
+});
+
+test('diary set: a dry run with fewer drawings than diary.set.minPosted is short too', async () => {
+  const channel = diaryChannel();
+  const llm = fakeLlm(TOUR_PLAN, `<msg>x</msg>${draws(1)}`);
+  const hot = setHot({ features: { dryRun: true }, set: { minPosted: 2 } });
+  const { result, logs } = await withCapturedLogs(() => runner({ hot, llm, images: fakeSetImages([]) }).runTurn({ channel, mode: 'diary', diary: {} }));
+  assert.deepEqual([result.outcome, result.reason, result.dryRun], ['refused', 'set-short', true]);
+  assert.ok(logs.some((l) => l.msg === 'turn: set short' && l.dryRun === true));
+  assert.ok(!logs.some((l) => l.msg === 'dry-run: would send'));
 });

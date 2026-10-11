@@ -14,8 +14,10 @@ people: a post about one person on the server: something they did or said lately
 news: something the persona found on the internet that the people here or the channels care about.
 facts: a curious fact, an iceberg entry, a conspiracy theory presented as one.
 status: one short line. A mood, a plan for the day, boredom, what the persona is doing right now.
+photoset: the persona's own outing in pictures. One place or occasion, the same outfit and hour in every frame.
+randomSet: a gallery dump of unrelated pictures. Anything the persona likes: places, animals, things, food. The persona may be in one or none.
 
-For picture-led posts, the scene itself is a sufficient subject. Do not add an explanation of image production, the persona's nature or a capability limitation unless that is specifically the chosen subject. A related server event may inspire the scene without becoming its framing story.
+For picture-led posts, the scene itself is a sufficient subject. Do not add an explanation of image production, the persona's nature or a capability limitation unless that is specifically the chosen subject. A related server event may inspire the scene without becoming its framing story. For a set kind, the brief names the occasion or the mood of the set, not individual scenes.
 
 Only `news` and `facts` may use `search`. For every other kind, `search` is an empty string.
 

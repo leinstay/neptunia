@@ -49,12 +49,13 @@ All instructions are English in both layers; a character's speech samples may be
 | `read-link.md` | no | Out-of-character prompt for the link reader (`features.webLookup`, `web.links.enabled`): condense a fetched page into one paragraph. Receives the page title and body. No character card | `{{today}}` `{{maxChars}}` |
 | `search-summary.md` | no | Out-of-character prompt for the search condenser (`features.webLookup`, `web.search.enabled`): condense numbered search results into one note with inline sources. No character card | `{{today}}` `{{query}}` `{{maxChars}}` |
 | `private.md` | no | Appended after the mode prompt (`reply.md`), before `forced.md`, only in a DM (`features.privateMessages`). This is a private conversation: what is said here stays here; the persona keeps their public knowledge. A missing file adds nothing | `{{name}}` `{{author}}` |
-| `diary.md` | yes | Task: write a diary post. The persona's own channel, nobody asked. The plan's kind and brief, past posts, the optional world and search result are in the user message blocks. Output: `<msg>` (1 to `diary.maxMessages`), `<draw>`, or `<skip/>`; `<react>` and `<gif>` are dropped. No reply attributes, no links | `{{name}}` |
+| `diary.md` | yes | Task: write a diary post. The persona's own channel, nobody asked. The plan's kind and brief, past posts, the optional world and search result are in the user message blocks. Output: `<msg>` (1 to `diary.maxMessages`), `<draw>` (several for a set kind, `diary.setKinds`), or `<skip/>`; `<react>` and `<gif>` are dropped. No reply attributes, no links | `{{name}}` |
 | `diary-plan.md` | yes | The planner: pick the kind, a brief and whether to search and draw. Runs on `classifier.text`, no character card. Receives `<now>`, `<server>`, `<about_chat>`, `<recent>`, `<lore>`, `<world>`, `<diary>`, `<kinds>`, `<seeds>`, and `<topic>` when the owner gave one. Answers one JSON object | `{{name}}` |
 | `world.md` | no | The persona's virtual world: the places and routines it lives in outside the chat. Rendered as a `<world>` block only in the diary plan and compose requests, and only when `diary.world === true`. Never in an ordinary turn. A missing file or switch adds no block | `{{name}}` |
-| `diary-seeds.md` | no | Random seed families for the diary planner. `# name` headers start a family (place, setting, detail, activity, subject, twist); code draws one line per family and composes `diary.seedSets` combinations as a `<seeds>` block. Omitted when missing or `seedSets` is 0 | none |
+| `diary-seeds.md` | no | Random seed families for the diary planner. `# name` headers start a family (place, setting, detail, activity, subject, twist); code draws one line per family and composes `diary.seedSets` combinations as a `<seeds>` block (and `diary.set.seedSets` for the compose request of a set post). Omitted when missing or the count is 0 | none |
 | `draw.md` | yes | Out-of-character prompt of the drawing sub-process (`features.imageGeneration`): produces one picture from a scene description. Receives only the appearance and the request — never the character card | `{{name}}` `{{appearance}}` `{{request}}` `{{when}}` |
 | `appearance.md` | no | The persona's visual look, inserted into `draw.md` when `self="yes"`. One paragraph, no personality, no backstory | `{{name}}` |
+| `refine.md` | no | Out-of-character prompt of the second drawing pass (`image.refine.enabled`): the image model redraws the first picture, sent as its only reference. Filled like `draw.md`; the appearance only when `self="yes"`. Missing or blank: the first picture is posted | `{{name}}` `{{appearance}}` `{{when}}` `{{request}}` |
 | `mentor-situations.md` | no | Mentor: invent test chat situations for a case (`features.mentor`). Returns JSON only | `{{name}}` `{{count}}` `{{minLines}}` `{{maxLines}}` |
 | `mentor-score.md` | no | Mentor: score the persona's answers to a situation (`features.mentor`). Receives the character card. Returns JSON only | `{{name}}` |
 | `mentor-signs.md` | no | Mentor: known habits of model-written text, sent as the `<signs>` block in every mentor request (`features.mentor`). Omitted when missing or empty | `{{name}}` |
@@ -72,7 +73,7 @@ On a forced turn (`/nep interject`, `/nep initiate`), `forced.md` is appended af
 On an `overheard` turn, `overheard.md` REPLACES the mode prompt (it is the task text, not an append). When `overheard.md` is missing or blank, the mode prompt is used instead (degraded: the mode prompt frames the line as said to the persona, which is not what happened).
 In a private chat, `private.md` is appended after the mode prompt (before `forced.md`) with the same `{{name}}` and `{{author}}` placeholders.
 The analyzer and the warmup's `profile.md` and `server.md` receive the character card and `rules.md` as a
-`<character>` block in the user message. `channel.md`, `describe.md`, `describe-video.md`, `describe-gif.md`, `draw.md`, `rewatch.md`, `rewatch-answer.md`, `address.md`, `lookup.md`, `read-link.md`, `search-summary.md`, `recall-summary.md`, `room.md`, `route-channel.md`, `participation-pick.md` and `elsewhere.md` do not receive the card.
+`<character>` block in the user message. `channel.md`, `describe.md`, `describe-video.md`, `describe-gif.md`, `draw.md`, `refine.md`, `rewatch.md`, `rewatch-answer.md`, `address.md`, `lookup.md`, `read-link.md`, `search-summary.md`, `recall-summary.md`, `room.md`, `route-channel.md`, `participation-pick.md` and `elsewhere.md` do not receive the card.
 
 `{{guildFieldChars}}` is `fieldChars * 2`, the limit code clamps guild-level patterns and starters to.
 `{{maxEpisodes}}` is the total episodes kept per person. Both are filled from config but not used by the default
@@ -80,7 +81,7 @@ prompts; a custom `memory.md` may reference them.
 
 ## Blocks
 
-The blocks of the user message. Empty ones are omitted; the order below is the order in the reply request: the stable part (`<self_facts>`, `<about_chat>`, `<gifs>`), the profiles (`<people>`), then the tail from `<server>` to `<chat>`, with `<now>`, `<senses>`, `<tempo>` and `<task>` last. `<kinds>`, `<seeds>` and `<topic>` belong to the diary's plan request, which keeps its own order (see [Diary](#diary)).
+The blocks of the user message. Empty ones are omitted; the order below is the order in the reply request: the stable part (`<self_facts>`, `<about_chat>`, `<gifs>`), the profiles (`<people>`), then the tail from `<server>` to `<chat>`, with `<now>`, `<senses>`, `<tempo>` and `<task>` last. `<kinds>`, `<seeds>` and `<topic>` belong to the diary's plan request, which keeps its own order (see [Diary](#diary)); a set post's compose request also carries `<seeds>`, right after `<plan>`.
 
 | Block | Content |
 |---|---|
@@ -101,7 +102,7 @@ The blocks of the user message. Empty ones are omitted; the order below is the o
 | `<plan>` | The plan for this diary post: `labels.diary.plan`, then one JSON line `{"kind","brief","picture"}`, plus `"topic"` when the owner gave one with `/nep diary post`. Never cut |
 | `<found>` | What the diary's search turned up: `labels.diary.found`, then the search result text. Present only when the plan asked for a search and it returned something. Ranked right after `<lookup>` in the budget |
 | `<kinds>` | Post kinds with weights and usage counts: `labels.diary.kinds`, then one `labels.diary.kindLine` per kind with a positive weight; when the post cannot carry a picture, kinds in `diary.pictureKinds` are omitted. Never cut |
-| `<seeds>` | Random seed combinations: `labels.diary.seeds`, then one `- a; b; c` line per set. Present only in the plan request. Omitted when the file is missing or `diary.seedSets` is 0. Never cut |
+| `<seeds>` | Random seed combinations: `labels.diary.seeds`, then one `- a; b; c` line per set. In the plan request, `diary.seedSets` of them. In the compose request only for a set post (the planned kind in `diary.setKinds`), `diary.set.seedSets` of them, right after `<plan>`. Omitted when the file is missing or the count is 0. Never cut |
 | `<topic>` | The owner's topic for a forced post (`/nep diary post [kind] [topic]`): `labels.diary.topic`, then the topic as one line, at most 300 characters. Present only in the plan request, right after `<seeds>`, and only when a topic was given. Never cut |
 | `<lookup>` | What the persona looked up this turn. A web search (`features.webLookup`) carries `labels.lookup.webHeader`, the condensed answer, `labels.lookup.sources` and, when nothing was found, `labels.lookup.none`. A server search (`features.recall`) carries `labels.lookup.serverHeader`, the summary note and, when the summary names a stretch, the verbatim lines of that stretch. When both ran, `labels.lookup.bothNote` sits between them. A `labels.lookup.stretch` line introduces a verbatim stretch (`{date}` `{channel}`). Appears only when a search classifier fired and at least one search completed |
 | `<chat>` | Up to `context.channelMessages` latest messages of the current channel. A line at least `context.ageAfterMinutes` (default 60) minutes old also shows how long ago it was posted (`transcript.timeAged`). When `context.fetchReplyParents` is on, the trigger message and the last `context.replyParentsFor` window lines that are replies to older messages have their parents fetched and placed before the window as ordinary transcript lines; the trigger's parent can also bring its own parent. At most `context.replyParentsMax` parents per turn. A gap marker and date header cover the time jump; the reply line quotes the parent through `transcript.replyTo`; media in a parent is handled like any other line, and a cached description is served for free. A deleted or inaccessible parent is skipped and logged as `collect: parent missing` |
@@ -316,6 +317,7 @@ diary.intro                              first line of the `<diary>` block
 diary.line                               {date} {kind} {gist}: one past post
 diary.picture                            {scene}: appended to a diary line when the post had a picture
 diary.pictureUnknown                     placeholder scene when a backfilled post had a picture but the scene was not recorded
+diary.pictureSet                         {count} {scene}: appended in place of `diary.picture` when the post was a set of more than one picture (`scene` is the first picture's)
 diary.kindUnknown                        placeholder kind for a backfilled post with no recorded kind
 diary.kinds                              first line of the `<kinds>` block
 diary.kindLine                           {key} {weight} {count} {window}: one kind with its weight and use count
@@ -359,7 +361,7 @@ Only these tags are acted on:
 - `<msg>text</msg>` one chat message, up to 3 in a row; `reply="#87"` makes it a Discord reply.
 - `<react to="#87">💀</react>` one unicode emoji or one server custom emoji as `:name:`; alone or with `<msg>`.
 - `<gif reply="#87">g12</gif>` posts a GIF from the library by handle (body = the handle from the `<gifs>` list or from the transcript, never a URL). One per turn; `reply` optional as on `<msg>`. May stand alone or alongside `<msg>`, `<react>`, `<draw>`. Unknown handle = nothing posted.
-- `<draw self="yes" reply="#87">scene</draw>` a picture for the drawing sub-process. One per turn, first non-empty wins, clamped to 800 chars. `self="yes"` adds the persona's appearance; `reply="#87"` works like on `<msg>`. May appear alongside `<msg>` and `<react>`.
+- `<draw self="yes" reply="#87">scene</draw>` a picture for the drawing sub-process. One per turn, first non-empty wins, clamped to 800 chars. A diary set post (the planned kind in `diary.setKinds`) is the one exception: every non-empty `<draw>` is read in order (the parser keeps at most 10) and the first `diary.set.pictures[1]` are generated, one picture each. `self="yes"` adds the persona's appearance; `reply="#87"` works like on `<msg>`. May appear alongside `<msg>` and `<react>`.
 - `<skip/>` stay silent.
 - `@nick` exactly as in the transcript becomes a real mention.
 - `#channel-name` of a server channel in `<msg>` text becomes a real channel link (`<#id>`) when `features.channelLinks` is on (default true, missing = on). Names are matched longest first; an existing link is left alone.
@@ -834,6 +836,22 @@ When the persona is in the picture (`self="yes"`) and `image.reference` is `'ava
 Discord avatar is downloaded and sent as an `input_references` entry so the image model can see what the persona looks
 like. If the avatar cannot be fetched, the generation proceeds without a reference.
 
+### Refine pass
+
+With `image.refine.enabled` true (default false) and `image.refine.scope` allowing it (`all`, or `self` for pictures
+the persona is in only), every picture gets a second generation after the first one succeeds. It runs on
+`image.refine.model` (routed as the role `refine`, fallback routing `image.refine.provider`, timeout
+`image.refine.timeoutMs`; the family options `image.openai` / `image.google` follow the refiner model). What is sent:
+`refine.md` filled by `buildRefinePrompt` with the same four values as `draw.md` (the same `{{when}}`), and the first
+picture as the only `input_references` entry; the avatar is never sent. What is posted: the second picture. On any
+failure of the second pass the first picture is posted instead and logged as `turn: refine fallback` with a `reason`:
+`no-prompt` (`refine.md` missing or blank, nothing sent), `unsupported`, `moderation`, `timeout`, `error`, `empty`, or
+`aspect` (its aspect ratio differs from the first picture's by more than `image.refine.maxAspectError`, read from the
+PNG, JPEG or WebP header; an unknown format is not checked). A failed second pass never starts the failure turn. The
+second pass is not counted against `image.maxPerDay` or `image.maxPerUserPerDay`. Logs: `images: refined` (`model`,
+`seconds`, `cost`, `bytes`, `accepted`, `reason`) and `refined: true|false` on `turn: drew`, never the prompt.
+`/nep draw` runs both passes and returns both pictures, the first one first.
+
 ### Senses
 
 The `<senses>` block includes one drawing line when an image client is wired and `features.imageGeneration` is not
@@ -905,15 +923,17 @@ unknown or has weight 0, the whole answer is replaced by a weighted random kind 
 Brave path (cached, `web.maxPerDay`). The result text becomes a `<found>` block in the compose request. A failed or
 capped search turns the post into the same kind without the find.
 
-**Compose** (`prompts/diary.md` as the task, the main model with the character card and all memory blocks). The compose request receives `<world>` (under `diary.world`), `<diary>`, `<plan>`, and `<found>`
+**Compose** (`prompts/diary.md` as the task, the main model with the character card and all memory blocks). The compose request receives `<world>` (under `diary.world`), `<diary>`, `<plan>`, `<seeds>` (a set post only, `diary.set.seedSets` combinations) and `<found>`
 (when the search produced one). The `<diary>` block is fitted by `fitSections`: the oldest lines are cut first, then
-the whole block. `<plan>` and `<kinds>` are never cut.
+the whole block. `<plan>`, `<seeds>` and `<kinds>` are never cut.
 
 ### Output rules
 
 Only `<msg>` tags are acted on. Reply attributes are dropped. URLs in the message text are removed mechanically. At most `diary.maxMessages` (3) messages; excess messages are trimmed. `<react>` and `<gif>` are dropped in this mode. `<skip/>` means no post. A post may be a picture alone.
 
 A failed drawing on a diary post is logged; no `drawFailed` follow-up turn fires (nobody asked for the post).
+
+**Set posts.** When the planned kind is in `diary.setKinds` (default `photoset`, `randomSet`), the single-drawing path is not used. The first `diary.set.pictures[1]` (6) `<draw>` tags are generated one after another, before anything is sent, charged to no member: the avatar reference for `self="yes"` as for one drawing; an image cap ends the generation (`turn: draw refused by a limit`, no notice); any other failure skips that picture (`turn: draw error`). The generation stops early once the pictures left cannot reach `diary.set.minPosted` (2). Every picture generated counts against `diary.maxPicturesPerDay`. With fewer than `diary.set.minPosted` pictures nothing is posted, not even the messages, and the turn ends `refused` with `reason: 'set-short'` (the post is not recorded and the day's post count is not bumped). Otherwise the messages are posted as usual, then the pictures as file messages with no text and no reply: one message, split when the pictures exceed `diary.set.maxMessageBytes` (8000000) or 10 files. `diary.set.pictures[0]` (4) is for the prompt; the engine does not enforce it. In dry-run nothing is generated; each picture logs `dry-run: would draw` with `set: true`, and a set with fewer `<draw>` tags than `diary.set.minPosted` ends `refused` / `set-short` too.
 
 ### The drawing prompt and `{{when}}`
 
@@ -922,13 +942,13 @@ Every drawing request (diary or not) now carries a local time: `draw.md`'s `{{wh
 
 ### Recording
 
-After posting, the post is recorded in `diary.json` (`store.appendDiaryPost`, newest `diary.historyPosts` kept): `{ at, kind, gist, picture, messageIds, search }`. `gist` is the post's text collapsed to one line and cut at `diary.gistChars`. `picture` is the scene text (cut the same way) or null. The day's diary post count is bumped; the picture count is bumped only when a picture was posted.
+After posting, the post is recorded in `diary.json` (`store.appendDiaryPost`, newest `diary.historyPosts` kept): `{ at, kind, gist, picture, messageIds, search }`. `gist` is the post's text collapsed to one line and cut at `diary.gistChars`. `picture` is the scene text (cut the same way) or null. A set post stores the first posted picture's scene as `picture` and adds `pictures` (the count posted); `<diary>` renders it with `labels.diary.pictureSet` when the count is above 1. The day's diary post count is bumped; the picture count is bumped only when a picture was posted (for a set, by every picture generated, at generation time). The turn's outcome carries `diary: { kind, picture, search, messages, pictures }`.
 
 In dry-run the post is logged and mirrored. Nothing is recorded and no daily counter is bumped.
 
 ### Data file
 
-`data/guilds/<id>/diary.json`: `{ posts: [...], updatedAt }`. Posts are newest last, capped at `diary.historyPosts` (150). Each post: `{ at, kind, gist, picture, messageIds, search }`. The file is never deleted by code; `/nep diary off` keeps it.
+`data/guilds/<id>/diary.json`: `{ posts: [...], updatedAt }`. Posts are newest last, capped at `diary.historyPosts` (150). Each post: `{ at, kind, gist, picture, messageIds, search }`, plus `pictures` on a set post. The file is never deleted by code; `/nep diary off` keeps it.
 
 ### Backfill
 
@@ -941,7 +961,9 @@ The persona's own messages in the diary channel count toward the channel's `days
 ### Logs
 
 `diary: plan` (day, slots count, quiet, carried, hunger, quietStreak), `diary: planned` (kind, brief, search, picture, fallback, pictureAllowed),
-`diary: due` (slot), `diary: post` (kind, messages, picture, search, outcome, forced),
+`diary: due` (slot), `diary: post` (kind, messages, picture, pictures, search, outcome, reason when the outcome has one, forced),
+`turn: set short` (channel, pictures, wanted, dryRun in dry-run), `turn: set posted` (channel, pictures, messages: the file messages sent),
+`turn: drew` once per set picture with `set: true`, `turn: draw error` (reason, set) and `turn: draw refused by a limit` (set) for a set picture,
 `diary: skip` (reason: `no-channel`, `off`, `paused`, `warmup`, `not-writable`, `cap`, `grace`, `busy`),
 `diary: backfill` (count), `diary: plan failed` (reason, status), `diary: search failed` (reason),
 `diary: backfill failed` (error).
