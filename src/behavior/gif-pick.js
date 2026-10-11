@@ -91,7 +91,8 @@ export function captionedEntries(entries, mediaCache, actionChars) {
  * turn's `<gifs>` block renders an entry (src/behavior/prompt.js#gifLine: the
  * three fields through `labels.gifs.entryFields`, an older caption through
  * `labels.gifs.entry`, the persona's own-post mark within `ownMarkHours`);
- * no header, no top slice. Entries without a caption are left out; `[]` when
+ * no header, no top slice. Entries carrying the own-mark come after all the
+ * unmarked ones (each group keeps the given order). Entries without a caption are left out; `[]` when
  * the labels carry no `gifs.entry`. Pure.
  * @param {object[]} entries  The library's entries (src/memory/gifs.js#rankGifs).
  * @param {object|null} mediaCache  The describer cache (store.getMediaCache), read only.
@@ -103,9 +104,16 @@ export function captionedEntries(entries, mediaCache, actionChars) {
  */
 export function renderGifLibrary(entries, mediaCache, labels, { now, ownMarkHours, reactionChars, actionChars }) {
   if (!labels?.gifs?.entry) return [];
-  return captionedEntries(entries, mediaCache, actionChars).map((entry) =>
-    gifLine(entry, mediaCache, labels, { reactionChars, actionChars, ownMarkHours, now }),
-  );
+  // The own-marked entries (the mark changes with the clock) go after the unmarked ones, each group in the given
+  // order, so the long stable head of the list stays identical between requests (the provider's prompt cache).
+  const plain = [];
+  const marked = [];
+  for (const entry of captionedEntries(entries, mediaCache, actionChars)) {
+    const line = gifLine(entry, mediaCache, labels, { reactionChars, actionChars, ownMarkHours, now });
+    const bare = gifLine(entry, mediaCache, labels, { reactionChars, actionChars, ownMarkHours: 0, now });
+    (line === bare ? plain : marked).push(line);
+  }
+  return [...plain, ...marked];
 }
 
 /**

@@ -148,6 +148,7 @@ export const labels = {
     entryFields: '{id} -- {reaction}; {action}; "{text}"',
     entryNoText: '{id}',
     ownMark: '(you, {ago})',
+    ownMarkRecent: '(you, lately)',
   },
   lookup: {
     header: 'searched for: {query}',

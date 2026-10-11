@@ -6,7 +6,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest } from '../src/behavior/prompt.js';
+import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
 import { estimateMessages, estimateTokens } from '../src/llm/tokens.js';
 import { fill, formatClock, formatDate, formatDuration } from '../src/discord/format.js';
 import { labels } from './fixtures/labels.js';
@@ -135,7 +135,7 @@ function pulledScene({ caps = {}, maxRequestTokens = 50000, routed = false, line
 
 /** The `<channel_view>` body of a request, or null without one. */
 function viewOf(request) {
-  const match = /<channel_view>\n([\s\S]*?)\n<\/channel_view>/.exec(request.messages[1].content);
+  const match = /<channel_view>\n([\s\S]*?)\n<\/channel_view>/.exec(contentText(request.messages[1].content));
   return match ? match[1] : null;
 }
 
@@ -156,7 +156,7 @@ function moment(ts) {
 
 /** The `<task>` body of a request. */
 function taskOf(request) {
-  return /<task>\n([\s\S]*?)\n<\/task>/.exec(request.messages[1].content)[1];
+  return /<task>\n([\s\S]*?)\n<\/task>/.exec(contentText(request.messages[1].content))[1];
 }
 
 /** What a request's item costs in these scenes (the identity calibrator, plus the 2 per item). */
@@ -217,7 +217,7 @@ test('buildRequest: a header that keeps no line is dropped', () => {
   const request = buildRequest(pulledScene({ words: 400, caps: { pulled: 60 } }));
   assert.equal(viewOf(request), null);
   assert.deepEqual(request.stats.pulled, { used: 0, kept: 0, dropped: 1, lines: 8, linesCut: 8 });
-  assert.ok(!request.messages[1].content.includes('channel #journal'));
+  assert.ok(!contentText(request.messages[1].content).includes('channel #journal'));
 });
 
 test('buildRequest: a routed trigger line is kept even when newer lines fill the block', () => {
@@ -229,7 +229,7 @@ test('buildRequest: a routed trigger line is kept even when newer lines fill the
   assert.ok(view.includes('#6 [') && view.includes('page 1 '), 'the trigger, numbered after the chat');
   assert.ok(view.includes('page 8 '));
   assert.ok(!view.includes('page 2 '));
-  assert.ok(tight.messages[1].content.includes('<task>\nREPLY_TASK #6'), 'the task points at it');
+  assert.ok(contentText(tight.messages[1].content).includes('<task>\nREPLY_TASK #6'), 'the task points at it');
 
   // The header spans the channel up to its newest line, and the lines cut after the trigger
   // are marked where they are, not announced as older ones.
@@ -277,7 +277,7 @@ test('buildRequest: a routed call with no room for its line leaves the task with
   const request = buildRequest(pulledScene({ routed: true, maxRequestTokens: aheadOfRouted(roomy.stats) + TAG_OVERHEAD + 5 }));
   assert.equal(viewOf(request), null);
   assert.equal(taskOf(request), 'REPLY_TASK ');
-  assert.ok(!request.messages[1].content.includes('the call came from'));
+  assert.ok(!contentText(request.messages[1].content).includes('the call came from'));
   assert.deepEqual(request.stats.pulled, { used: 0, kept: 0, dropped: 1, lines: 8, linesCut: 8 });
   // The shorter task is what the budget line counts.
   assert.ok(request.stats.fixed.used < roomy.stats.fixed.used);
@@ -315,7 +315,7 @@ test('buildRequest: two pulled channels share the block\'s room evenly, each kee
 
 test('buildRequest: a pulled channel cut by the budget stays among the neighbours', () => {
   const neighbors = [{ channelId: 'src', channelName: 'journal', messages: [line('n1', NOW - 31 * MIN, 'une ligne courte', { channelId: 'src' })] }];
-  const others = (request) => /<other_channels>\n([\s\S]*?)\n<\/other_channels>/.exec(request.messages[1].content)?.[1] ?? null;
+  const others = (request) => /<other_channels>\n([\s\S]*?)\n<\/other_channels>/.exec(contentText(request.messages[1].content))?.[1] ?? null;
 
   const cut = buildRequest(pulledScene({ words: 400, caps: { pulled: 60 }, extra: { neighbors } }));
   assert.equal(viewOf(cut), null);

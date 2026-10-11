@@ -3,7 +3,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest } from '../src/behavior/prompt.js';
+import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
+import { estimateTokens } from '../src/llm/tokens.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
@@ -75,8 +76,7 @@ function library(entries, nextId = 100) {
 }
 
 function userText(request) {
-  const content = request.messages[1].content;
-  return Array.isArray(content) ? content.find((part) => part.type === 'text').text : content;
+  return contentText(request.messages[1].content);
 }
 
 function gifsBlock(request) {
@@ -229,17 +229,21 @@ test('buildRequest: with gifs.actionChars the same context.caps.gifs holds more 
   assert.ok(clamped > full, `clamped ${clamped} vs full ${full}`);
 });
 
-test('buildRequest: <gifs> sits right after <emoji> and before <server>', () => {
+test('buildRequest: <gifs> closes the stable part, right after <about_chat>; <server> and <emoji> follow in the tail', () => {
   const guildMemory = { patterns: 'short lines' };
   const history = [{ ...baseInput().history[0], channelId: 'c1', channelName: 'general' }];
   const customEmoji = [{ id: '1', name: 'alpha' }];
-  const text = userText(buildRequest(baseInput({ gifs: THREE, customEmoji, guildMemory, history, currentChannelId: 'c1' })));
-  const emojiIdx = text.indexOf('<emoji>\n');
+  const request = buildRequest(baseInput({ gifs: THREE, customEmoji, guildMemory, history, currentChannelId: 'c1' }));
+  const text = userText(request);
+  const aboutIdx = text.indexOf('<about_chat>');
   const gifsIdx = text.indexOf('<gifs>\n');
   const serverIdx = text.indexOf('<server>');
-  assert.ok(emojiIdx !== -1 && gifsIdx !== -1 && serverIdx !== -1);
-  assert.ok(emojiIdx < gifsIdx && gifsIdx < serverIdx);
-  assert.ok(text.indexOf('</emoji>') < gifsIdx);
+  const emojiIdx = text.indexOf('<emoji>\n');
+  assert.ok(aboutIdx !== -1 && emojiIdx !== -1 && gifsIdx !== -1 && serverIdx !== -1);
+  assert.ok(aboutIdx < gifsIdx && gifsIdx < serverIdx && serverIdx < emojiIdx);
+  const stable = request.messages[1].content[0];
+  assert.equal(stable.cacheSegment, 'stable');
+  assert.ok(stable.text.endsWith('</gifs>\n\n'), stable.text);
 });
 
 test('buildRequest: a library gif in the chat carries its handle; a reposted link is matched by its url', () => {
@@ -299,14 +303,35 @@ function withOwnPosts(agoMs) {
   ]);
 }
 
-test('buildRequest: <gifs> marks a gif the persona posted within gifs.ownMarkHours with labels.gifs.ownMark', () => {
+test('buildRequest: <gifs> marks a gif the persona posted within gifs.ownMarkHours with labels.gifs.ownMarkRecent, no age', () => {
   const config = fakeConfig({ gifs: { ownMarkHours: 24 } });
   const lines = gifsBlock(buildRequest(baseInput({ config, gifs: withOwnPosts(2 * HOUR) })));
-  assert.deepEqual(lines, [labels.gifs.header, 'g2 (you, 2 h)', 'g3', 'g1']);
+  assert.deepEqual(lines, [labels.gifs.header, 'g3', 'g1', 'g2 (you, lately)'], 'the marked entry after the unmarked ones');
 
   const mediaCache = { k2: { text: 'a cat', ts: NOW } };
   const captioned = gifsBlock(buildRequest(baseInput({ config, gifs: withOwnPosts(5 * 60_000), mediaCache })));
-  assert.equal(captioned[1], 'g2 -- a cat (you, 5 min)');
+  assert.equal(captioned[3], 'g2 -- a cat (you, lately)');
+  // The same mark however long ago within the window: the line does not age.
+  const later = gifsBlock(buildRequest(baseInput({ config, gifs: withOwnPosts(23 * HOUR), mediaCache })));
+  assert.equal(later[3], captioned[3]);
+});
+
+test('buildRequest: own-marked gifs render after every unmarked one, each group in rank order; the budget still picks by rank', () => {
+  const config = fakeConfig({ gifs: { ownMarkHours: 24 } });
+  const gifs = library([
+    { ...linkEntry(1, 9), ownLast: NOW - HOUR },
+    linkEntry(2, 7),
+    { ...linkEntry(3, 5), ownLast: NOW - 3 * HOUR },
+    linkEntry(4, 3),
+  ]);
+  const lines = gifsBlock(buildRequest(baseInput({ config, gifs })));
+  assert.deepEqual(lines, [labels.gifs.header, 'g2', 'g4', 'g1 (you, lately)', 'g3 (you, lately)']);
+
+  // A cap that keeps the header and the top two by rank: g1 (marked) and g2 stay, shown unmarked first.
+  const cost = (text) => estimateTokens(text) + 2;
+  const gifsCap = cost(labels.gifs.header) + cost('g1 (you, lately)') + cost('g2');
+  const capped = gifsBlock(buildRequest(baseInput({ config: fakeConfig({ gifs: { ownMarkHours: 24 }, caps: { gifs: gifsCap } }), gifs })));
+  assert.deepEqual(capped, [labels.gifs.header, 'g2', 'g1 (you, lately)']);
 });
 
 test('buildRequest: gifs.ownMarkHours 0 marks nothing', () => {
@@ -315,8 +340,9 @@ test('buildRequest: gifs.ownMarkHours 0 marks nothing', () => {
   assert.deepEqual(lines, [labels.gifs.header, 'g2', 'g3', 'g1']);
 });
 
-test('buildRequest: a labels.json without gifs.ownMark marks nothing', () => {
-  const { ownMark, ...gifsLabels } = labels.gifs;
+test('buildRequest: a labels.json without gifs.ownMarkRecent marks nothing in <gifs>, gifs.ownMark or not', () => {
+  const { ownMarkRecent, ...gifsLabels } = labels.gifs;
+  assert.ok(gifsLabels.ownMark, 'the aged mark is there and still unused here');
   const older = { ...labels, gifs: gifsLabels };
   const config = fakeConfig({ gifs: { ownMarkHours: 24 } });
   const lines = gifsBlock(buildRequest(baseInput({ config, gifs: withOwnPosts(2 * HOUR), prompts: { ...baseInput().prompts, labels: older } })));

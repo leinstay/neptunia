@@ -76,7 +76,7 @@ test('renderGifLibrary: every captioned entry, in the given order, through label
 test('renderGifLibrary: the persona\'s recent post carries the own mark within ownMarkHours, not past it', () => {
   const entries = [entry('g1', { ownLast: NOW - 2 * HOUR }), entry('g2', { ownLast: NOW - 30 * HOUR })];
   const mediaCache = { 'item-g1': { text: 'χαμόγελο' }, 'item-g2': { text: 'νεύμα' } };
-  assert.deepEqual(renderGifLibrary(entries, mediaCache, labels, { now: NOW, ownMarkHours: 24, ...WHOLE }), ['g1 -- χαμόγελο (you, 2 h)', 'g2 -- νεύμα']);
+  assert.deepEqual(renderGifLibrary(entries, mediaCache, labels, { now: NOW, ownMarkHours: 24, ...WHOLE }), ['g2 -- νεύμα', 'g1 -- χαμόγελο (you, 2 h)'], 'the marked one after the unmarked');
   assert.deepEqual(renderGifLibrary(entries, mediaCache, labels, { now: NOW, ownMarkHours: 0, ...WHOLE }), ['g1 -- χαμόγελο', 'g2 -- νεύμα'], '0 = never');
 });
 
@@ -93,9 +93,16 @@ test('renderGifLibrary: a three-field caption renders as the main request does, 
     'item-g2': { text: 'a caracal stares ahead', reaction: 'waiting', action: 'a caracal stares ahead', screen: '', watched: true, gif: true },
   };
   assert.deepEqual(renderGifLibrary(entries, mediaCache, labels, { now: NOW, ownMarkHours: 24, reactionChars: 40, actionChars: 70 }), [
-    'g1 -- firm agreement; a cat lifts its chin; "yes." (you, 2 h)',
     'g2 -- waiting; a caracal stares ahead',
+    'g1 -- firm agreement; a cat lifts its chin; "yes." (you, 2 h)',
   ]);
+});
+
+test('renderGifLibrary: own-marked entries come after all unmarked ones, each group in the given order', () => {
+  const entries = [entry('g1', { ownLast: NOW - 1 * HOUR }), entry('g2'), entry('g3', { ownLast: NOW - 3 * HOUR }), entry('g4'), entry('g5', { ownLast: NOW - 30 * HOUR })];
+  const mediaCache = Object.fromEntries(entries.map((e) => [e.itemId, { text: 'κάτι ' + e.id }]));
+  const lines = renderGifLibrary(entries, mediaCache, labels, { now: NOW, ownMarkHours: 24, ...WHOLE });
+  assert.deepEqual(lines, ['g2 -- κάτι g2', 'g4 -- κάτι g4', 'g5 -- κάτι g5', 'g1 -- κάτι g1 (you, 1 h)', 'g3 -- κάτι g3 (you, 3 h)']);
 });
 
 test('renderGifLibrary: no entries, no cache or labels without gifs.entry list nothing', () => {

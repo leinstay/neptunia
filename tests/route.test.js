@@ -124,15 +124,15 @@ test('routeEntries: newest first, the excluded and refused channels left out, ma
   const asked = [];
   const check = (id) => (asked.push(id), id === 'c4' ? null : { name: id === 'c5' ? 'live-name' : 'x' });
   const entries = routeEntries({ channels, exclude: ['c1'], check, max: 3 });
-  assert.deepEqual(entries.map((e) => [e.id, e.name]), [['c3', 'new'], ['c5', 'live-name'], ['c2', 'old']]);
-  assert.equal(entries[0].purpose, 'news');
+  assert.deepEqual(entries.map((e) => [e.id, e.name]), [['c2', 'old'], ['c3', 'new'], ['c5', 'live-name']], 'the newest three, listed by id');
+  assert.equal(entries[1].purpose, 'news');
   assert.deepEqual(asked, ['c3', 'c4', 'c5', 'c2']);
   assert.deepEqual(routeEntries({ channels, check, max: 0 }), []);
 });
 
 // ---- the request and the answer ----------------------------------------------------------
 
-test('buildRouteRequest: the system prompt with the name, then transcript, channels and candidate', () => {
+test('buildRouteRequest: the system prompt with the name, then channels, transcript and candidate', () => {
   const messages = buildRouteRequest({
     prompt: 'You are {{name}}. Pick one.',
     selfName: 'Zoë',
@@ -142,7 +142,7 @@ test('buildRouteRequest: the system prompt with the name, then transcript, chann
   });
   assert.deepEqual(messages, [
     { role: 'system', content: 'You are Zoë. Pick one.' },
-    { role: 'user', content: '<transcript>\nT\n</transcript>\n<channels>\n1 | #a |  |\n2 | #b |  |\n</channels>\n<candidate>\nAna: ποιο κανάλι;\n</candidate>' },
+    { role: 'user', content: '<channels>\n1 | #a |  |\n2 | #b |  |\n</channels>\n<transcript>\nT\n</transcript>\n<candidate>\nAna: ποιο κανάλι;\n</candidate>' },
   ]);
   const noTranscript = buildRouteRequest({ prompt: 'p', selfName: 'Zoë', candidateBlock: '<candidate>\nx\n</candidate>', lines: ['1 | #a |  |'] });
   assert.ok(noTranscript[1].content.startsWith('<channels>\n'));
@@ -271,7 +271,8 @@ test('createChannelRouter: a pick returns its channel id; the request lists only
   assert.equal(system.content, 'You are Zoë.');
   assert.ok(user.content.includes('<channels>\n1 | #journal | Éloïse (Élo) | a diary\n2 | #jardin |  | garden photos\n</channels>'), user.content);
   assert.ok(!user.content.includes('#secret') && !user.content.includes('#general'), 'the denied and the current channel are not listed');
-  assert.ok(user.content.includes('<transcript>\n') && user.content.endsWith('<candidate>\nNikos: στο ημερολόγιο\n</candidate>'));
+  assert.ok(user.content.startsWith('<channels>\n'), 'the stable channel list leads the request');
+  assert.ok(user.content.indexOf('<channels>') < user.content.indexOf('<transcript>') && user.content.endsWith('<candidate>\nNikos: στο ημερολόγιο\n</candidate>'));
   const classified = logs.find((l) => l.msg === 'route: classified');
   assert.equal(classified.channel, 'c1');
   assert.equal(classified.kind, 'mention');
@@ -280,6 +281,21 @@ test('createChannelRouter: a pick returns its channel id; the request lists only
   assert.equal(classified.parse, 'pick');
   assert.equal(typeof classified.ms, 'number');
   assert.ok(!JSON.stringify(logs).includes('journal') && !JSON.stringify(logs).includes('ημερολόγιο'), 'no channel name, no message text in the logs');
+});
+
+test('createChannelRouter: the list is ordered by channel id, not by activity, and the answered number maps back to its channel', async () => {
+  // The second scene makes c2 the less recent channel; it is still listed first, and the list text is unchanged.
+  const { router, llm, args } = routerScene({ answer: '2' });
+  const first = await withCapturedLogs(() => router(args));
+  assert.deepEqual(first.result, ['c3'], 'number 2 is the second line of the id-ordered list');
+  const listed = (content) => content.slice(0, content.indexOf('</channels>'));
+  const swapped = routerScene({
+    answer: '1',
+    channels: STORED_CHANNELS.map((c) => (c.id === 'c2' ? { ...c, lastMessageAt: NOW - 90 * MINUTE } : c)),
+  });
+  const second = await withCapturedLogs(() => swapped.router(swapped.args));
+  assert.deepEqual(second.result, ['c2'], 'number 1 is the lower id');
+  assert.equal(listed(llm.calls[0].messages[1].content), listed(swapped.llm.calls[0].messages[1].content), 'the list text does not move with activity');
 });
 
 test('createChannelRouter: the request options carry the classifier model, the purpose and the helper timeout', async () => {

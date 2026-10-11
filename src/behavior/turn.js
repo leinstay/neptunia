@@ -1420,14 +1420,14 @@ export function createTurnRunner({
    * captioned entry), ONE helper request on the classifier model
    * (role `classifier.text`, purpose `gif-pick`, its answer capped at
    * `gifs.pick.maxOutputTokens`): system = the prompt with `{{name}}`, user =
-   * `<context>` (pickContext: the last `gifs.pick.contextMessages` lines of
+   * `<gifs>` (renderGifLibrary over the WHOLE library in rank order, own-marked entries last,
+   * `gifs.reactionChars`, `gifs.actionChars` and `gifs.ownMarkHours` read now: the stable bulk first,
+   * for the provider's prompt cache), `<context>` (pickContext: the last `gifs.pick.contextMessages` lines of
    * `history`, preceded by the line the first message answers when that one is
    * older -- its `reply` target, else the trigger --, as classifierTranscript
    * renders them; no block for 0), `<reply>` (the first message, preceded by
    * `transcript.replyTo` naming the `#n` of the line it answers when that line
-   * is in `<context>`) and `<gifs>` (renderGifLibrary over the WHOLE library in
-   * rank order, `gifs.reactionChars`, `gifs.actionChars` and `gifs.ownMarkHours`
-   * read now). A handle it lists (parseGifPick) resolves through resolveGif,
+   * is in `<context>`). A handle it lists (parseGifPick) resolves through resolveGif,
    * replying where the first message would have; `none` or anything else
    * resolves null. Logs `gifs: picked` (`handle`: whether one was named,
    * `library`: how many entries were listed) or `gifs: pick failed` with the
@@ -1473,7 +1473,7 @@ export function createTurnRunner({
           { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '' }) },
           {
             role: 'user',
-            content: [block('context', contextBody), block('reply', replyBody), block('gifs', library.join('\n'))].filter(Boolean).join('\n\n'),
+            content: [block('gifs', library.join('\n')), block('context', contextBody), block('reply', replyBody)].filter(Boolean).join('\n\n'),
           },
         ],
         {
@@ -3560,7 +3560,7 @@ export function createTurnRunner({
         // resend would only double a doomed request while the persona's one
         // attention waits, so it propagates like any error without pictures.
         const aboutThePictures = err.statusCode >= 400 && err.statusCode < 500 && !RETRY_STATUS.has(err.statusCode);
-        if (Array.isArray(messages[1]?.content) && aboutThePictures) {
+        if (Array.isArray(request.textFallback) && aboutThePictures) {
           const textOnly = messages.map((m) => (Array.isArray(m.content) ? { ...m, content: request.textFallback } : m));
           completion = await beforeBar(llm.complete(textOnly, replyOptions()));
         } else {

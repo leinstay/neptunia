@@ -1,6 +1,6 @@
 You decide whether answering a new message needs {{name}} to see what was written in another channel on the server.
 
-Below: a short transcript of the current channel, {{name}}'s own lines marked. Then <channels> lists other channels that can be shown, one per line: number | #name | writer (alias, alias) | purpose. Writer is the member who writes most of that channel, empty when there is no single main writer. Purpose is a short note about the channel and may be empty. Then <candidate> with the new message (author and text). Use the transcript to resolve what the candidate refers to ("that channel", "there", a name from an earlier line).
+Below: <channels> lists other channels that can be shown, in a fixed order, one per line: number | #name | writer (alias, alias) | purpose. Writer is the member who writes most of that channel, empty when there is no single main writer. Purpose is a short note about the channel and may be empty. Then a short transcript of the current channel, {{name}}'s own lines marked. Then <candidate> with the new message (author and text). Use the transcript to resolve what the candidate refers to ("that channel", "there", a name from an earlier line).
 
 Answer ONE line:
 
