@@ -38,6 +38,7 @@ export const PARTICIPATION_DEFAULTS = Object.freeze({
   linesAfter: 1,
   followMinutes: 10,
   mergeGapMinutes: 10,
+  contextMinutes: 30,
   maxMessages: 32,
   maxStored: 120,
   maxTextChars: 400,
@@ -65,7 +66,7 @@ const CUT_EDGE = 2;
  * The `features.participation` switch is not read here (the caller's).
  * @param {object} config
  * @returns {{ hours: number, linesBefore: number, linesAfter: number, followMinutes: number,
- *   mergeGapMinutes: number, maxMessages: number, maxStored: number, maxTextChars: number,
+ *   mergeGapMinutes: number, contextMinutes: number, maxMessages: number, maxStored: number, maxTextChars: number,
  *   shown: number, perChannel: number, episodeChars: number, contextMessages: number, maxOutputTokens: number }}
  */
 export function participationSettings(config) {
@@ -222,9 +223,10 @@ function chainIds(episodes, episode) {
  * Record one line of the persona and its surroundings. `own` is her message (the
  * normalised shape, `self` forced true), `before` up to `linesBefore` channel
  * messages before it (chronological; the last `linesBefore` are taken), `parent`
- * the message she replied to when it is older than `before` (may be null). The
- * target is the newest episode of the channel whose `lastAt` lies within
- * `mergeGapMinutes` of the earliest message added, else a new episode. A message
+ * the message she replied to when it is older than `before` (may be null; kept
+ * whatever its age). A `before` line older than `contextMinutes` before her line
+ * is dropped. The target is the newest episode of the channel whose `lastAt` lies
+ * within `mergeGapMinutes` before HER line, else a new episode. A message
  * the target (or an episode it continues) already holds is not added again;
  * messages stay sorted by `ts`. When the target would exceed `maxMessages`, the
  * new messages that do not fit (the newest ones) start a new episode whose
@@ -248,7 +250,10 @@ export function recordOwnLine(state, { channelId, own, before = [], parent = nul
 
   const base = normalizeParticipation(state);
   const take = Math.floor(s.linesBefore);
-  const context = take > 0 && Array.isArray(before) ? before.slice(-take) : [];
+  const contextFrom = ownLine.ts - s.contextMinutes * MINUTE_MS;
+  const context = take > 0 && Array.isArray(before)
+    ? before.slice(-take).filter((m) => isPlainObject(m) && Number.isFinite(m.ts) && m.ts >= contextFrom)
+    : [];
   const incoming = [];
   const incomingIds = new Set();
   for (const raw of [parent, ...context, own]) {
@@ -259,10 +264,9 @@ export function recordOwnLine(state, { channelId, own, before = [], parent = nul
   }
   incoming.sort((a, b) => a.ts - b.ts);
 
-  const earliest = incoming[0].ts;
   const gapMs = s.mergeGapMinutes * MINUTE_MS;
   const newest = newestOfChannel(base.episodes, channel);
-  const targetIndex = newest !== -1 && earliest - base.episodes[newest].lastAt <= gapMs ? newest : -1;
+  const targetIndex = newest !== -1 && ownLine.ts - base.episodes[newest].lastAt <= gapMs ? newest : -1;
   const target = targetIndex === -1 ? null : base.episodes[targetIndex];
   const held = target ? chainIds(base.episodes, target) : new Set();
   let fresh = incoming.filter((m) => !held.has(m.id));

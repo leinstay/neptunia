@@ -104,6 +104,22 @@ test('recordOwnLine: a line within mergeGapMinutes joins the episode, a later on
   assert.equal(other.episodes.length, 3, 'another channel never joins');
 });
 
+test('recordOwnLine: after a long gap a new episode opens even when the before-lines overlap the previous one', () => {
+  let state = recordOwnLine(emptyParticipation(), { channelId: 'c1', own: own('o1', 3), before: [msg('m1', 1), msg('m2', 2)] }, S, T0 + 3 * MIN);
+  const late = 22 * 60;
+  state = recordOwnLine(state, { channelId: 'c1', own: own('o2', late), before: [msg('m1', 1), msg('m2', 2), own('o1', 3)] }, S, T0 + late * MIN);
+  assert.equal(state.episodes.length, 2);
+  assert.deepEqual(ids(state.episodes[0]), ['m1', 'm2', 'o1']);
+  assert.deepEqual(ids(state.episodes[1]), ['o2']);
+});
+
+test('recordOwnLine: before-lines older than contextMinutes are dropped, recent ones kept, the parent stays', () => {
+  const parent = msg('m0', -120, { author: 'u2' });
+  const before = [msg('m1', 10), msg('m2', 50), msg('m3', 55)];
+  const state = recordOwnLine(emptyParticipation(), { channelId: 'c1', own: own('o', 60, { replyTo: 'm0' }), before, parent }, S, T0 + 60 * MIN);
+  assert.deepEqual(ids(state.episodes[0]), ['m0', 'm2', 'm3', 'o']);
+});
+
 test('recordOwnLine: messages already held merge by id, never twice', () => {
   let state = recordOwnLine(emptyParticipation(), { channelId: 'c1', own: own('o1', 3), before: [msg('m1', 1), msg('m2', 2)] }, S, T0);
   state = recordOwnLine(state, { channelId: 'c1', own: own('o2', 5), before: [msg('m2', 2), own('o1', 3), msg('m4', 4)] }, S, T0);
