@@ -53,11 +53,11 @@ import {
 } from './discord/access.js';
 import { avatarReference } from './discord/fetch-image.js';
 import { classifierTextModel, classifierMediaModel, classifierVideoModel } from './behavior/mention.js';
-import { buildDrawPrompt } from './behavior/prompt.js';
+import { buildDrawPrompt, buildRefinePrompt } from './behavior/prompt.js';
 import { imageFileName } from './behavior/turn.js';
 import { initiateCooldownUntil } from './behavior/spontaneous.js';
 import { effectiveAffinity, privateRepliesToday } from './behavior/private.js';
-import { ImageCapError, ImageGenError, UnsupportedImageModelError, familyOf as imageFamilyOf, IMAGE_ROLE } from './llm/images.js';
+import { ImageCapError, ImageGenError, UnsupportedImageModelError, familyOf as imageFamilyOf, IMAGE_REFINE_ROLE, IMAGE_ROLE, refineApplies, refinePicture } from './llm/images.js';
 import { matchRoute, resolveProvider, llmCountToday } from './llm/openrouter.js';
 import { PAGE, canAttach, canRead, canSend } from './discord/collect.js';
 import { backfillDiary } from './behavior/diary.js';
@@ -575,8 +575,11 @@ const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
 /** `/nep ping classifier` pings the three classifier roles together. */
 const PING_GROUPS = { classifier: MODEL_ROLES.filter((role) => role.startsWith('classifier.')) };
 
-/** Every role a route may name: the `/nep model` roles, then the drawing model's. */
-const ROUTE_ROLES = [...MODEL_ROLES, IMAGE_ROLE];
+/** Every role a route may name: the `/nep model` roles, then the drawing model's, then the refine pass's. */
+const ROUTE_ROLES = [...MODEL_ROLES, IMAGE_ROLE, IMAGE_REFINE_ROLE];
+
+/** The roles `/nep ping` checks by the provider's listing (never with a request), in display order. */
+const IMAGE_PING_ROLES = [IMAGE_ROLE, IMAGE_REFINE_ROLE];
 
 /** A provider slug as OpenRouter writes it: lowercase letters, digits and `-`. */
 const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
@@ -585,13 +588,13 @@ const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
  * model first, then the subprocessors); the image line follows them, the API checks come last. */
 const PING_DISPLAY_ORDER = ['voice', 'analyzer', 'classifier.text', 'classifier.media', 'classifier.video', 'mentor'];
 
-/** The roles one `/nep ping` argument stands for: one role, a group, the image check, or (anything else)
- * all of them, the image check last. */
-function pingRolesFor(role) {
+/** The roles one `/nep ping` argument stands for: one role, a group, an image check, or (anything else)
+ * all of them, the image check last, then the refine check while `image.refine.enabled` is on (`cfg`, read now). */
+function pingRolesFor(role, cfg) {
   if (MODEL_ROLES.includes(role)) return [role];
   if (PING_GROUPS[role]) return PING_GROUPS[role];
-  if (role === IMAGE_ROLE) return [IMAGE_ROLE];
-  return [...MODEL_ROLES, IMAGE_ROLE];
+  if (IMAGE_PING_ROLES.includes(role)) return [role];
+  return cfg?.image?.refine?.enabled === true ? [...MODEL_ROLES, IMAGE_ROLE, IMAGE_REFINE_ROLE] : [...MODEL_ROLES, IMAGE_ROLE];
 }
 
 /** The model id one role resolves to right now — used by model show and ping alike. */
@@ -607,9 +610,11 @@ function modelForRole(role, cfg) {
   return undefined;
 }
 
-/** The model one route role uses now: the `/nep model` roles as `modelForRole`, `image` as `image.model`. */
+/** The model one route role uses now: the `/nep model` roles as `modelForRole`, `image` as `image.model`,
+ * `refine` as `image.refine.model`. */
 function modelForRouteRole(role, cfg) {
   if (role === IMAGE_ROLE) return cfg?.image?.model || undefined;
+  if (role === IMAGE_REFINE_ROLE) return cfg?.image?.refine?.model || undefined;
   return modelForRole(role, cfg);
 }
 
@@ -699,10 +704,10 @@ function withYoutubeLine(lines, youtubeLine) {
   return [...lines, youtubeLine];
 }
 
-/** `lines` with the image line appended, after the other model lines and before the API checks. */
-function withImageLine(lines, imageLine) {
-  if (imageLine == null) return lines;
-  return [...lines, imageLine];
+/** `lines` with the image lines (image, then refine) appended, after the other model lines and before the API checks. */
+function withImageLines(lines, imageLines) {
+  if (imageLines == null) return lines;
+  return [...lines, ...imageLines];
 }
 
 /** The providers part of a routing object: its `only`/`order`/`ignore` lists, or the object as
@@ -1387,7 +1392,10 @@ export function createAdmin({
    * against `image.maxPerDay` only (no member). Answers `{ text, files }`:
    * one line with the model, seconds and cost, plus the picture. A rail or
    * generation failure throws with its reason and HTTP status; the prompt is
-   * never logged.
+   * never logged. With `image.refine` on for the picture (refineApplies) the
+   * refine pass runs as on a turn and both pictures come back, the first one
+   * first, so refiners can be compared; a failed refine pass returns the first
+   * picture alone and names its reason in the line.
    */
   async function cmdDraw(args, context) {
     if (!images) return 'image generation is not available';
@@ -1403,12 +1411,8 @@ export function createAdmin({
     const self = args?.self === true;
     const guildId = resolvedGuildId(context);
     const selfName = client?.guilds?.cache?.get(guildId)?.members?.me?.displayName ?? client?.user?.username ?? '';
-    const prompt = buildDrawPrompt({
-      prompts: hot.prompts,
-      selfName,
-      request: clampChars(request, imageCfg.maxPromptChars),
-      self,
-    });
+    const clamped = clampChars(request, imageCfg.maxPromptChars);
+    const prompt = buildDrawPrompt({ prompts: hot.prompts, selfName, request: clamped, self });
 
     let reference = null;
     let referenceMissing = false;
@@ -1430,15 +1434,25 @@ export function createAdmin({
       throw err;
     }
 
-    log.info('admin: drew', { model: picture.model, seconds: picture.seconds, cost: picture.cost, self, bytes: picture.buffer?.length ?? 0 });
+    let second = null;
+    let refineReason = null;
+    if (refineApplies(hot.config, { self })) {
+      const refinePrompt = buildRefinePrompt({ prompts: hot.prompts, selfName, request: clamped, self });
+      const outcome = await refinePicture({ images, config: hot.config, prompt: refinePrompt, picture });
+      second = outcome.picture;
+      refineReason = outcome.picture ? null : outcome.reason;
+    }
 
-    const cost = picture.cost == null ? 'cost unknown' : `cost ${picture.cost}`;
-    const parts = [picture.model, `${picture.seconds}s`, cost];
+    log.info('admin: drew', { model: picture.model, seconds: picture.seconds, cost: picture.cost, self, bytes: picture.buffer?.length ?? 0, refined: Boolean(second) });
+
+    const costOf = (pic) => (pic.cost == null ? 'cost unknown' : `cost ${pic.cost}`);
+    const parts = [picture.model, `${picture.seconds}s`, costOf(picture)];
     if (referenceMissing) parts.push('no avatar reference');
-    return {
-      text: parts.join(' · '),
-      files: [{ attachment: picture.buffer, name: imageFileName(picture.mediaType) }],
-    };
+    if (second) parts.push(`refined: ${second.model}`, `${second.seconds}s`, costOf(second));
+    if (refineReason) parts.push(`refine fell back: ${refineReason}`);
+    const files = [{ attachment: picture.buffer, name: imageFileName(picture.mediaType) }];
+    if (second) files.push({ attachment: second.buffer, name: `refined-${imageFileName(second.mediaType)}` });
+    return { text: parts.join(' · '), files };
   }
 
   // ---------------------------------------------------------------------
@@ -2368,14 +2382,15 @@ export function createAdmin({
     return [...lines, line];
   }
 
-  /** The image line before the drawing switch note: one free GET of the provider's public
-   * listing through the llm client, or none at all when no model is set or its family is
-   * refused. Never rejects; never generates, never counts against a cap, never writes state. */
-  async function checkImageListing(cfg) {
-    const model = cfg?.image?.model;
-    if (!model) return `${IMAGE_ROLE}: (no model configured)`;
-    if (!(images?.familyOf ?? imageFamilyOf)(model)) return `${IMAGE_ROLE}: ${model} — unsupported family`;
-    if (typeof llm?.modelEndpoints !== 'function') return `${IMAGE_ROLE}: ${model} — not checked (the llm client has no listing)`;
+  /** The line of one image role (`image`: `image.model`, `refine`: `image.refine.model`) before the
+   * switch notes: one free GET of the provider's public listing through the llm client, or none
+   * at all when no model is set or its family is refused. Never rejects; never generates, never
+   * counts against a cap, never writes state. */
+  async function checkImageListing(cfg, role = IMAGE_ROLE) {
+    const model = modelForRouteRole(role, cfg);
+    if (!model) return `${role}: (no model configured)`;
+    if (!(images?.familyOf ?? imageFamilyOf)(model)) return `${role}: ${model} — unsupported family`;
+    if (typeof llm?.modelEndpoints !== 'function') return `${role}: ${model} — not checked (the llm client has no listing)`;
 
     const start = Date.now();
     let listing;
@@ -2383,40 +2398,51 @@ export function createAdmin({
       listing = await llm.modelEndpoints(model, { timeoutMs: cfg?.llm?.pingTimeoutMs ?? 30000 });
     } catch (err) {
       const reason = err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'network';
-      return `${IMAGE_ROLE}: ${model} — failed: ${reason}`;
+      return `${role}: ${model} — failed: ${reason}`;
     }
-    if (listing.status === 404) return `${IMAGE_ROLE}: ${model} — not listed (HTTP 404)`;
-    if (!listing.ok) return `${IMAGE_ROLE}: ${model} — failed: HTTP ${listing.status}`;
+    if (listing.status === 404) return `${role}: ${model} — not listed (HTTP 404)`;
+    if (!listing.ok) return `${role}: ${model} — failed: HTTP ${listing.status}`;
 
     const modalities = listing.json?.data?.architecture?.output_modalities;
     if (!Array.isArray(modalities) || !modalities.includes('image')) {
-      return `${IMAGE_ROLE}: ${model} — listed, but no image output`;
+      return `${role}: ${model} — listed, but no image output`;
     }
     const endpoints = Array.isArray(listing.json.data.endpoints) ? listing.json.data.endpoints.length : 0;
-    return `${IMAGE_ROLE}: ${model} — listed, image output, ${endpoints} endpoint(s), ${Date.now() - start} ms`;
+    return `${role}: ${model} — listed, image output, ${endpoints} endpoint(s), ${Date.now() - start} ms`;
   }
 
-  /** Start the image check when the image role is requested; never rejects. The line notes when
-   * drawing is switched off (features.imageGeneration false; a missing key counts as on). */
+  /** Start the checks of the image roles requested (image, then refine); never rejects. A line notes
+   * when drawing is switched off (features.imageGeneration false; a missing key counts as on), the
+   * refine line also when the refine pass is (image.refine.enabled not true). */
   function startPingImage(requested, cfg) {
-    if (!requested.includes(IMAGE_ROLE)) return null;
+    const roles = IMAGE_PING_ROLES.filter((role) => requested.includes(role));
+    if (roles.length === 0) return null;
     const off = cfg?.features?.imageGeneration === false;
-    return checkImageListing(cfg).then((line) => (off ? `${line} (features.imageGeneration is off)` : line));
+    return Promise.all(
+      roles.map((role) =>
+        checkImageListing(cfg, role).then((line) => {
+          const notes = [];
+          if (off) notes.push('(features.imageGeneration is off)');
+          if (role === IMAGE_REFINE_ROLE && cfg?.image?.refine?.enabled !== true) notes.push('(image.refine.enabled is off)');
+          return [line, ...notes].join(' ');
+        }),
+      ),
+    );
   }
 
   async function cmdPing(args) {
     if (!llm) return 'ping is not available (no llm client configured)';
 
-    const requested = pingRolesFor(args?.role);
-    const modelRoles = PING_DISPLAY_ORDER.filter((role) => requested.includes(role));
     const cfg = hot.config;
+    const requested = pingRolesFor(args?.role, cfg);
+    const modelRoles = PING_DISPLAY_ORDER.filter((role) => requested.includes(role));
     const roleModel = new Map(modelRoles.map((role) => [role, modelForRole(role, cfg)]));
 
     const youtube = startPingYoutube(modelRoles);
     const image = startPingImage(requested, cfg);
 
-    // The model lines come first (the image line among them), the API checks after.
-    const assemble = async (lines) => withWebLine(withYoutubeLine(withImageLine(lines, await image), await youtube), modelRoles);
+    // The model lines come first (the image lines among them), the API checks after.
+    const assemble = async (lines) => withWebLine(withYoutubeLine(withImageLines(lines, await image), await youtube), modelRoles);
 
     // One request per distinct (model, route): roles sharing a model share a ping unless a
     // role-specific `llm.providerByModel` key routes one of them elsewhere. Each request is
@@ -2503,8 +2529,8 @@ export function createAdmin({
     const model = modelForRouteRole(role, cfg);
     if (!model) return `  ${role}: (no model configured)`;
     const match = matchRoute(model, byModel, role);
-    const fallbackName = role === IMAGE_ROLE ? 'image.provider' : 'llm.provider';
-    const fallback = role === IMAGE_ROLE ? cfg?.image?.provider : cfg?.llm?.provider;
+    const fallbackName = role === IMAGE_ROLE ? 'image.provider' : role === IMAGE_REFINE_ROLE ? 'image.refine.provider' : 'llm.provider';
+    const fallback = role === IMAGE_ROLE ? cfg?.image?.provider : role === IMAGE_REFINE_ROLE ? cfg?.image?.refine?.provider : cfg?.llm?.provider;
     let applied = 'none';
     if (match) applied = `${match.key} ${routingSummary(match.value)}`;
     else if (isPlainObject(fallback)) applied = `${fallbackName} ${routingSummary(fallback)}`;

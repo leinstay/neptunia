@@ -55,6 +55,7 @@ All instructions are English in both layers; a character's speech samples may be
 | `diary-seeds.md` | no | Random seed families for the diary planner. `# name` headers start a family (place, setting, detail, activity, subject, twist); code draws one line per family and composes `diary.seedSets` combinations as a `<seeds>` block. Omitted when missing or `seedSets` is 0 | none |
 | `draw.md` | yes | Out-of-character prompt of the drawing sub-process (`features.imageGeneration`): produces one picture from a scene description. Receives only the appearance and the request — never the character card | `{{name}}` `{{appearance}}` `{{request}}` `{{when}}` |
 | `appearance.md` | no | The persona's visual look, inserted into `draw.md` when `self="yes"`. One paragraph, no personality, no backstory | `{{name}}` |
+| `refine.md` | no | Out-of-character prompt of the second drawing pass (`image.refine.enabled`): the image model redraws the first picture, sent as its only reference. Filled like `draw.md`; the appearance only when `self="yes"`. Missing or blank: the first picture is posted | `{{name}}` `{{appearance}}` `{{when}}` `{{request}}` |
 | `mentor-situations.md` | no | Mentor: invent test chat situations for a case (`features.mentor`). Returns JSON only | `{{name}}` `{{count}}` `{{minLines}}` `{{maxLines}}` |
 | `mentor-score.md` | no | Mentor: score the persona's answers to a situation (`features.mentor`). Receives the character card. Returns JSON only | `{{name}}` |
 | `mentor-signs.md` | no | Mentor: known habits of model-written text, sent as the `<signs>` block in every mentor request (`features.mentor`). Omitted when missing or empty | `{{name}}` |
@@ -72,7 +73,7 @@ On a forced turn (`/nep interject`, `/nep initiate`), `forced.md` is appended af
 On an `overheard` turn, `overheard.md` REPLACES the mode prompt (it is the task text, not an append). When `overheard.md` is missing or blank, the mode prompt is used instead (degraded: the mode prompt frames the line as said to the persona, which is not what happened).
 In a private chat, `private.md` is appended after the mode prompt (before `forced.md`) with the same `{{name}}` and `{{author}}` placeholders.
 The analyzer and the warmup's `profile.md` and `server.md` receive the character card and `rules.md` as a
-`<character>` block in the user message. `channel.md`, `describe.md`, `describe-video.md`, `describe-gif.md`, `draw.md`, `rewatch.md`, `rewatch-answer.md`, `address.md`, `lookup.md`, `read-link.md`, `search-summary.md`, `recall-summary.md`, `room.md`, `route-channel.md`, `participation-pick.md` and `elsewhere.md` do not receive the card.
+`<character>` block in the user message. `channel.md`, `describe.md`, `describe-video.md`, `describe-gif.md`, `draw.md`, `refine.md`, `rewatch.md`, `rewatch-answer.md`, `address.md`, `lookup.md`, `read-link.md`, `search-summary.md`, `recall-summary.md`, `room.md`, `route-channel.md`, `participation-pick.md` and `elsewhere.md` do not receive the card.
 
 `{{guildFieldChars}}` is `fieldChars * 2`, the limit code clamps guild-level patterns and starters to.
 `{{maxEpisodes}}` is the total episodes kept per person. Both are filled from config but not used by the default
@@ -833,6 +834,22 @@ section inside `draw.md`.
 When the persona is in the picture (`self="yes"`) and `image.reference` is `'avatar'` (the default), the bot's
 Discord avatar is downloaded and sent as an `input_references` entry so the image model can see what the persona looks
 like. If the avatar cannot be fetched, the generation proceeds without a reference.
+
+### Refine pass
+
+With `image.refine.enabled` true (default false) and `image.refine.scope` allowing it (`all`, or `self` for pictures
+the persona is in only), every picture gets a second generation after the first one succeeds. It runs on
+`image.refine.model` (routed as the role `refine`, fallback routing `image.refine.provider`, timeout
+`image.refine.timeoutMs`; the family options `image.openai` / `image.google` follow the refiner model). What is sent:
+`refine.md` filled by `buildRefinePrompt` with the same four values as `draw.md` (the same `{{when}}`), and the first
+picture as the only `input_references` entry; the avatar is never sent. What is posted: the second picture. On any
+failure of the second pass the first picture is posted instead and logged as `turn: refine fallback` with a `reason`:
+`no-prompt` (`refine.md` missing or blank, nothing sent), `unsupported`, `moderation`, `timeout`, `error`, `empty`, or
+`aspect` (its aspect ratio differs from the first picture's by more than `image.refine.maxAspectError`, read from the
+PNG, JPEG or WebP header; an unknown format is not checked). A failed second pass never starts the failure turn. The
+second pass is not counted against `image.maxPerDay` or `image.maxPerUserPerDay`. Logs: `images: refined` (`model`,
+`seconds`, `cost`, `bytes`, `accepted`, `reason`) and `refined: true|false` on `turn: drew`, never the prompt.
+`/nep draw` runs both passes and returns both pictures, the first one first.
 
 ### Senses
 

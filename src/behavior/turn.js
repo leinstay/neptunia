@@ -24,7 +24,7 @@ import {
   withTextPreviews,
 } from '../discord/collect.js';
 import { audienceAllows, captionPulled, checkPull, fetchPull } from '../discord/pull-fetch.js';
-import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, fillPromptTemplate, gifFieldChars, stableThenTail, usesFollowUpTask } from './prompt.js';
+import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRefinePrompt, buildRequest, classifierTranscript, fillPromptTemplate, gifFieldChars, stableThenTail, usesFollowUpTask } from './prompt.js';
 import {
   DIARY_DAILY,
   DIARY_PICTURES_DAILY,
@@ -48,7 +48,7 @@ import { captionedEntries, gifPickSettings, parseGifPick, pickCandidates, pickCo
 import { turnRequestInput } from './turn-input.js';
 import { parseJsonObject, parseOutput } from '../llm/parse.js';
 import { DailyCapError, REPLY_REQUEST, TokenLimitError, RETRY_STATUS, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
-import { ImageCapError, ImageGenError } from '../llm/images.js';
+import { ImageCapError, ImageGenError, refineApplies, refinePicture } from '../llm/images.js';
 import { limitOf, mirrorChannelLabel, mirrorDryRun, postLimitNotice } from './limits.js';
 import { between, typingMs } from './random.js';
 import { settleWait } from './activity.js';
@@ -1205,14 +1205,19 @@ export function createTurnRunner({
    * `{{when}}` -- every picture, so its light and season follow the clock.
    */
   function drawPromptFor(selfName, draw) {
+    return buildDrawPrompt(drawPromptArgs(selfName, draw));
+  }
+
+  /** What drawPromptFor fills draw.md with, read now; the refine pass fills refine.md with the same values. */
+  function drawPromptArgs(selfName, draw) {
     const timezone = hot.config.bot?.timezone;
-    return buildDrawPrompt({
+    return {
       prompts: hot.prompts,
       selfName,
       request: clampChars(draw.text, hot.config.image?.maxPromptChars),
       self: draw.self === true,
       when: timezone ? formatNow(clock(), timezone, hot.prompts?.labels?.locale) : '',
-    });
+    };
   }
 
   /**
@@ -1252,11 +1257,16 @@ export function createTurnRunner({
    * turn about another channel (`sourceId`) the trigger, if any, is a call
    * written there: the limit notice is posted here as a plain message, never as
    * a Discord reply across channels. `plain`: the turn quotes no chat line (postsPlain).
+   * With `image.refine` on for this picture (src/llm/images.js#refineApplies, read now) a
+   * second pass redraws the first picture from prompts/refine.md (filled with the same
+   * values, `when` included) and its result is posted instead; any failure of that pass
+   * posts the first picture (`turn: refine fallback`) and never starts a drawFailed turn.
    */
   async function draw({ channel, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId = null }) {
     const config = hot.config;
     const self = parsed.draw.self === true;
-    const prompt = drawPromptFor(selfName, parsed.draw);
+    const promptArgs = drawPromptArgs(selfName, parsed.draw);
+    const prompt = buildDrawPrompt(promptArgs);
     const asked = askedFor(trigger, triggerKind);
     try {
       let reference = null;
@@ -1265,7 +1275,8 @@ export function createTurnRunner({
         if (!reference) log.warn('turn: avatar reference unavailable', { channel: channel.id });
       }
 
-      const picture = await images.generate({ prompt, reference, userId: asked ? (trigger.authorId ?? null) : null });
+      const first = await images.generate({ prompt, reference, userId: asked ? (trigger.authorId ?? null) : null });
+      const picture = await refined(channel, first, promptArgs);
       const { replyId, pulledId } = replyTarget(parsed.draw.replyTo, { plain, idByIndex, pulledIds });
       const link = linkFor(pulledId);
       const message = await channel.send({
@@ -1281,6 +1292,7 @@ export function createTurnRunner({
         cost: picture.cost,
         self,
         bytes: picture.buffer?.length ?? 0,
+        refined: picture !== first,
         ...(link ? { link: true } : {}),
       });
       return { posted: true, pulledId, message };
@@ -1306,6 +1318,20 @@ export function createTurnRunner({
       log.warn('turn: draw error', { channel: channel.id, error: err });
       return { drawFailed: 'error' };
     }
+  }
+
+  /**
+   * The picture draw() posts: `first` itself, or the refine pass's redraw of it when
+   * `image.refine` applies (config and prompts read now). Never throws: a failed pass
+   * logs `turn: refine fallback` (`reason`) and gives back `first`.
+   */
+  async function refined(channel, first, promptArgs) {
+    const config = hot.config;
+    if (!refineApplies(config, { self: promptArgs.self })) return first;
+    const outcome = await refinePicture({ images, config, prompt: buildRefinePrompt({ ...promptArgs, prompts: hot.prompts }), picture: first });
+    if (outcome.picture) return outcome.picture;
+    log.info('turn: refine fallback', { channel: channel.id, reason: outcome.reason });
+    return first;
   }
 
   /** Today's UTC date `YYYY-MM-DD` on the injected clock (the daily GIF counter). */

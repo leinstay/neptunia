@@ -118,7 +118,9 @@ function choicesOf(values) {
   return values.map((value) => ({ name: value, value }));
 }
 
-const ROUTE_ROLES = MODEL_SET_ROLES;
+// The refine pass (src/llm/images.js#IMAGE_REFINE_ROLE) has a route and a listing check, but its
+// model is set with `/nep set image.refine.model`, not `/nep model set`.
+const ROUTE_ROLES = Object.freeze([...MODEL_SET_ROLES, 'refine']);
 const PING_ROLES = Object.freeze([...ROUTE_ROLES, 'classifier']);
 
 /** `/nep pings`'s `mode` choices (src/admin.js#cmdPings reads the same list). */
