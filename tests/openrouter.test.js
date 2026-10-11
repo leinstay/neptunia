@@ -21,6 +21,7 @@ import {
   providerLimitOf,
   cacheTtlFor,
   withCacheMarker,
+  profilesTtlFor,
   fullPromptTokens,
   currentRoleName,
   REPLY_REQUEST,
@@ -1691,6 +1692,128 @@ test('withCacheMarker: no more than four markers are sent', () => {
   assert.deepEqual(sent[1].content.map((p) => p.text), letters, 'the text is kept on every part');
   // without a system message the first four builder markers survive
   assert.deepEqual(withCacheMarker([messages[1]], '1h')[0].content.map((p) => 'cache_control' in p), [true, true, true, true, false]);
+});
+
+// --- cache segments: the reply's stable user prefix and its profiles --------------------
+
+/** A reply whose user message is three text parts (stable, profiles, tail) and a picture, as buildRequest sends it. */
+function segmentedMessages() {
+  return [
+    { role: 'system', content: SYSTEM_TEXT },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '<self_facts>\n- aime le thé\n</self_facts>\n\n', cacheSegment: 'stable' },
+        { type: 'text', text: '<people>\n## Zoé\n</people>\n\n', cacheSegment: 'profiles' },
+        { type: 'text', text: USER_TEXT },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+      ],
+    },
+  ];
+}
+
+/** Whether any part of `messages` still carries a `cacheSegment`. */
+function anySegment(messages) {
+  return messages.some((m) => Array.isArray(m.content) && m.content.some((p) => 'cacheSegment' in p));
+}
+
+test('profilesTtlFor: 1h as it is, null or false for no marker, anything else 5m', () => {
+  assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: '1h' } } }), '1h');
+  for (const off of [null, false]) assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: off } } }), null, String(off));
+  for (const value of ['5m', undefined, '2h', 5, true, '']) {
+    assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: value } } }), '5m', String(value));
+  }
+  for (const config of [undefined, null, {}, { llm: {} }]) assert.equal(profilesTtlFor(config), '5m', JSON.stringify(config));
+});
+
+test('withCacheMarker: cacheSegment stable takes the request ttl, profiles its own, and the tag is never sent', () => {
+  const messages = segmentedMessages();
+  const before = structuredClone(messages);
+  const sent = withCacheMarker(messages, '1h', '5m');
+  assert.deepEqual(sent[0].content, [{ type: 'text', text: SYSTEM_TEXT, cache_control: MARK_1H }]);
+  assert.deepEqual(sent[1].content, [
+    { type: 'text', text: '<self_facts>\n- aime le thé\n</self_facts>\n\n', cache_control: MARK_1H },
+    { type: 'text', text: '<people>\n## Zoé\n</people>\n\n', cache_control: MARK_5M },
+    { type: 'text', text: USER_TEXT },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+  ]);
+  assert.equal(sent[1].content[2], messages[1].content[2], 'an untagged part is passed on as it is');
+  assert.equal(anySegment(sent), false);
+  assert.deepEqual(messages, before, 'the caller keeps its tags');
+  const hourly = withCacheMarker(segmentedMessages(), '1h', '1h');
+  assert.deepEqual(markedParts(hourly).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_1H]);
+});
+
+test('withCacheMarker: a profiles ttl never outlasts a 5m request ttl; null leaves the profiles unmarked', () => {
+  const short = withCacheMarker(segmentedMessages(), '5m', '1h');
+  assert.deepEqual(markedParts(short).map((p) => p.cache_control), [MARK_5M, MARK_5M, MARK_5M]);
+  for (const profilesTtl of [null, undefined]) {
+    const sent = withCacheMarker(segmentedMessages(), '1h', profilesTtl);
+    assert.deepEqual(markedParts(sent).map((p) => p.text), [SYSTEM_TEXT, '<self_facts>\n- aime le thé\n</self_facts>\n\n'], String(profilesTtl));
+    assert.equal(anySegment(sent), false);
+  }
+});
+
+test('withCacheMarker: without a ttl, or with an unknown segment, the tag is stripped and no marker placed', () => {
+  for (const ttl of [null, undefined, '2h']) {
+    const sent = withCacheMarker(segmentedMessages(), ttl, '5m');
+    assert.deepEqual(markedParts(sent), [], String(ttl));
+    assert.equal(anySegment(sent), false, String(ttl));
+    assert.equal(sent[0].content, SYSTEM_TEXT, 'the system message stays a string');
+    assert.deepEqual(sent[1].content.map((p) => p.text ?? null), segmentedMessages()[1].content.map((p) => p.text ?? null));
+  }
+  const odd = [{ role: 'user', content: [{ type: 'text', text: 'α', cacheSegment: 'tail' }, { type: 'text', text: 'β', cacheSegment: '__proto__' }] }];
+  assert.deepEqual(withCacheMarker(odd, '1h', '5m'), [{ role: 'user', content: [{ type: 'text', text: 'α' }, { type: 'text', text: 'β' }] }]);
+});
+
+test('withCacheMarker: system, stable and profiles are three of the four markers; a fifth is dropped', () => {
+  const messages = segmentedMessages();
+  messages[1].content.push({ type: 'text', text: 'γ', cache_control: { type: 'ephemeral' } }, { type: 'text', text: 'δ', cache_control: { type: 'ephemeral' } });
+  const sent = withCacheMarker(messages, '1h', '5m');
+  assert.equal(markedParts(sent).length, 4);
+  assert.deepEqual(sent[1].content.map((p) => 'cache_control' in p), [true, true, false, false, true, false]);
+});
+
+test('complete: a segmented reply is sent with the system, stable and profiles markers, never the tag; off or unlisted, with neither', async () => {
+  let config = cachingConfig({ cache: { ...CACHE, profilesTtl: '5m' } });
+  const { llm, sent, bodies } = cachingLlm(() => config);
+  await llm.complete(segmentedMessages(), { role: 'voice' });
+  config = cachingConfig({ cache: { ...CACHE, profilesTtl: null } });
+  await llm.complete(segmentedMessages(), { role: 'voice' });
+  config = cachingConfig({ promptCache: false });
+  await llm.complete(segmentedMessages(), { role: 'voice' });
+  config = cachingConfig({ model: UNLISTED_MODEL });
+  await llm.complete(segmentedMessages(), { role: 'voice' });
+  config = cachingConfig();
+  await llm.complete(segmentedMessages(), { role: 'analyzer' });
+  await llm.complete(segmentedMessages(), { role: 'voice' });
+  const [on, noProfiles, off, unlisted, otherRole, defaulted] = bodies();
+  assert.deepEqual(markedParts(on.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_5M]);
+  assert.deepEqual(markedParts(noProfiles.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H]);
+  for (const body of [off, unlisted, otherRole]) assert.deepEqual(markedParts(body.messages), []);
+  for (const raw of sent) assert.equal(raw.includes('cacheSegment'), false);
+  assert.deepEqual(markedParts(defaulted.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_5M], 'a missing llm.cache.profilesTtl reads as 5m');
+});
+
+test('complete: the estimate and the token cap count every text part of the user message', async () => {
+  const part = 'α'.repeat(800);
+  const messages = [
+    { role: 'system', content: SYSTEM_TEXT },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: part, cacheSegment: 'stable' },
+        { type: 'text', text: part, cacheSegment: 'profiles' },
+        { type: 'text', text: part },
+      ],
+    },
+  ];
+  const { llm } = cachingLlm(() => cachingConfig({ maxRequestTokens: 1000 }));
+  await assert.rejects(llm.complete(messages, { role: 'voice' }), (err) => err instanceof TokenLimitError && err.used > 1000);
+  const { llm: roomy } = cachingLlm(() => cachingConfig({ maxRequestTokens: 5000 }));
+  const answered = await roomy.complete(messages, { role: 'voice' });
+  const joined = await roomy.complete([messages[0], { role: 'user', content: part.repeat(3) }], { role: 'voice' });
+  assert.equal(answered.estimated, joined.estimated);
 });
 
 test('complete: with promptCache on, a reply request carries the marker on the system part and the user message is sent unchanged', async () => {

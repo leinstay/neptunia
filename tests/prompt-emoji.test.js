@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest } from '../src/behavior/prompt.js';
+import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
@@ -60,8 +60,7 @@ const INDEX = [
 ];
 
 function userText(request) {
-  const content = request.messages[1].content;
-  return Array.isArray(content) ? content.find((part) => part.type === 'text').text : content;
+  return contentText(request.messages[1].content);
 }
 
 function emojiBlock(request) {
@@ -157,7 +156,7 @@ test('buildRequest: context.caps.emoji trims entries from the bottom, a cap belo
   assert.equal(emojiBlock(none), null);
 });
 
-test('buildRequest: <emoji> sits after <about_chat> and before <server>', () => {
+test('buildRequest: <emoji> sits in the tail, right after <server>', () => {
   const guildMemory = { patterns: 'short lines' };
   const history = [{ ...baseInput().history[0], channelId: 'c1', channelName: 'general' }];
   const text = userText(buildRequest(baseInput({ customEmoji: INDEX, guildMemory, history, currentChannelId: 'c1' })));
@@ -165,7 +164,8 @@ test('buildRequest: <emoji> sits after <about_chat> and before <server>', () => 
   const emojiIdx = text.indexOf('<emoji>\n'); // the senses line names the block too
   const serverIdx = text.indexOf('<server>');
   assert.ok(aboutIdx !== -1 && emojiIdx !== -1 && serverIdx !== -1);
-  assert.ok(aboutIdx < emojiIdx && emojiIdx < serverIdx);
+  assert.ok(aboutIdx < serverIdx && serverIdx < emojiIdx);
+  assert.ok(text.indexOf('</server>\n\n<emoji>\n') !== -1);
 });
 
 // ---- a custom emoji of the chat is described once, in <emoji> ----------------

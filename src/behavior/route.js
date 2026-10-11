@@ -107,12 +107,18 @@ export function routeWriter(channel, profileOf, aliasHalfLifeDays) {
   return { name, aliases };
 }
 
+/** Snowflake ids ascending: shorter first, then by digits; any other string by plain comparison. */
+function compareIds(a, b) {
+  return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+}
+
 /**
  * The channels the classifier may pick from: the stored `channels` except
  * the `exclude` ids, newest `lastMessageAt` first, each judged by `check`
  * (null = the pull would refuse it, so a pick is never wasted on it; else the
  * live channel, whose name stands in for an empty stored one) until `max`
  * are kept. `check` is asked in that order and not after the list is full.
+ * The kept ones are returned in channel id order (ascending).
  * @param {{ channels: object[], exclude?: Iterable<string>, check: (id: string) => ({ name?: string }|null),
  *   profileOf?: (userId: string) => object|null, max: number, aliasHalfLifeDays?: number }} params
  * @returns {{ id: string, name: string, writer: { name: string, aliases: string[] }|null, purpose: string }[]}
@@ -140,7 +146,8 @@ export function routeEntries({ channels, exclude = [], check, profileOf, max, al
       purpose: typeof channel.purpose === 'string' ? channel.purpose : '',
     });
   }
-  return out;
+  // Chosen by recency, listed by id: the text stays the same between turns (the provider's prompt cache).
+  return out.sort((a, b) => compareIds(a.id, b.id));
 }
 
 /**
@@ -216,8 +223,8 @@ export function routeContext({ history, candidate, contextMessages, config, labe
 /**
  * The route classifier's request: the system message is `prompt` with
  * `{{name}}` filled with the persona's display name; the user message is the
- * `transcriptBlock` (may be ''), the `<channels>` block (the lines, one per
- * line), then the `candidateBlock`. Null when the prompt is blank or there is
+ * `<channels>` block (the lines, one per line: the stable bulk first), the
+ * `transcriptBlock` (may be ''), then the `candidateBlock`. Null when the prompt is blank or there is
  * no line.
  * @param {{ prompt: string|null|undefined, selfName: string, transcriptBlock?: string,
  *   candidateBlock?: string, lines: string[] }} params
@@ -226,7 +233,7 @@ export function routeContext({ history, candidate, contextMessages, config, labe
 export function buildRouteRequest({ prompt, selfName, transcriptBlock = '', candidateBlock = '', lines }) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   if (!Array.isArray(lines) || lines.length === 0) return null;
-  const user = [transcriptBlock, block('channels', lines.join('\n')), candidateBlock].filter(Boolean).join('\n');
+  const user = [block('channels', lines.join('\n')), transcriptBlock, candidateBlock].filter(Boolean).join('\n');
   return [
     { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '' }) },
     { role: 'user', content: user },

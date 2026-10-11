@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, renderProfile, fillPromptTemplate, usesFollowUpTask } from '../src/behavior/prompt.js';
+import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, renderProfile, fillPromptTemplate, userText as contentText, usesFollowUpTask } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
 import { fill, formatClock, formatDate, formatDuration } from '../src/discord/format.js';
 import { zonedDay } from '../src/time.js';
@@ -112,8 +112,7 @@ test('buildRequest: a reply in <chat> quotes its parent cut to context.replyQuot
     makeMessage('2', NOW - MIN, { replyToId: '1', content: 'ah bon' }),
   ];
   const request = buildRequest(baseInput({ history, config: fakeConfig({ context: { replyQuoteChars: 14 } }) }));
-  const content = request.messages[1].content;
-  const text = Array.isArray(content) ? content.find((part) => part.type === 'text').text : content;
+  const text = contentText(request.messages[1].content);
   assert.ok(text.includes(`User2: ah bon ${fill(labels.transcript.replyTo, { index: 1, author: 'Nept (you)', quote: 'je préfère…' })}`), text);
 });
 
@@ -128,7 +127,7 @@ test('buildRequest: {{name}} is filled with selfName in every system part', () =
 test('buildRequest: fills {{author}}, {{trigger}}, {{target}} and {{name}} in the task template', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
   const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention' }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes(`Called by Alice, they ${labels.triggers.mention}. Answer #1 as Nept. Target: #1.`));
 });
 
@@ -137,7 +136,7 @@ test('buildRequest: target is the #index of the trigger message in the transcrip
   const m2 = makeMessage(2, NOW - 2 * MIN);
   const trigger = makeMessage(3, NOW - MIN, { authorName: 'Bob' });
   const request = buildRequest(baseInput({ history: [m1, m2, trigger], trigger, triggerKind: 'reply' }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('Answer #3 as Nept. Target: #3.'));
 });
 
@@ -147,7 +146,7 @@ test('buildRequest: triggerKind "followUp" falls back to labels.triggers.reply w
   const request = buildRequest(
     baseInput({ prompts: fakePrompts({ labels: olderLabels }), history: [trigger], trigger, triggerKind: 'followUp' }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes(labels.triggers.reply));
 });
 
@@ -161,7 +160,7 @@ test('buildRequest: triggerKind "followUp" takes prompts["follow-up"] as its tas
   const request = buildRequest(
     baseInput({ prompts: fakePrompts({ 'follow-up': FOLLOW_UP_TASK }), history: [m1, trigger], trigger, triggerKind: 'followUp' }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes(`FOLLOW_UP_TASK: Élodie ${labels.triggers.followUp} at #2; you are Nept.`), user);
   assert.ok(!user.includes('Called by'), 'reply.md is not used on a follow-up');
 });
@@ -171,7 +170,7 @@ test('buildRequest: an untagged reply (taggedCall false) takes prompts["follow-u
   const request = buildRequest(
     baseInput({ prompts: fakePrompts({ 'follow-up': FOLLOW_UP_TASK }), history: [trigger], trigger, triggerKind: 'reply', taggedCall: false }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes(`FOLLOW_UP_TASK: Élodie ${labels.triggers.reply} at #1; you are Nept.`), user);
   assert.ok(!user.includes('Called by'));
 });
@@ -187,7 +186,7 @@ test('buildRequest: a tagged reply, a reply without taggedCall, a mention and a 
   ];
   for (const extra of cases) {
     const request = buildRequest(baseInput({ prompts: fakePrompts({ 'follow-up': FOLLOW_UP_TASK }), history: [trigger], trigger, ...extra }));
-    const user = request.messages[1].content;
+    const user = contentText(request.messages[1].content);
     assert.ok(user.includes(`Called by Élodie, they ${labels.triggers[extra.triggerKind] ?? ''}. Answer #1 as Nept.`), JSON.stringify(extra));
     assert.ok(!user.includes('FOLLOW_UP_TASK'), JSON.stringify(extra));
   }
@@ -204,7 +203,7 @@ test('buildRequest: a follow-up in a private chat keeps reply.md', () => {
       privateChat: { userId: 'author-1' },
     }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('Called by Élodie'));
   assert.ok(!user.includes('FOLLOW_UP_TASK'));
 });
@@ -214,7 +213,7 @@ test('buildRequest: without prompts["follow-up"] (missing or blank) a follow-up 
   for (const followUp of [undefined, '', '   ']) {
     for (const extra of [{ triggerKind: 'followUp' }, { triggerKind: 'reply', taggedCall: false }]) {
       const request = buildRequest(baseInput({ prompts: fakePrompts({ 'follow-up': followUp }), history: [trigger], trigger, ...extra }));
-      const user = request.messages[1].content;
+      const user = contentText(request.messages[1].content);
       assert.ok(user.includes(`Called by Élodie, they ${labels.triggers[extra.triggerKind]}. Answer #1 as Nept.`), JSON.stringify({ followUp, ...extra }));
     }
   }
@@ -241,7 +240,7 @@ test('buildRequest: triggerKind "overheard" takes prompts.overheard as its task,
   const request = buildRequest(
     baseInput({ prompts: fakePrompts({ overheard: OVERHEARD_TASK }), history: [m1, trigger], trigger, triggerKind: 'overheard' }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes(`OVERHEARD_TASK: Élodie ${labels.triggers.overheard} at #2; you are Nept.`));
   assert.ok(!user.includes('Called by'), 'reply.md is not used on an overheard turn');
 });
@@ -252,7 +251,7 @@ test('buildRequest: triggerKind "overheard" without prompts.overheard (missing o
     const request = buildRequest(
       baseInput({ prompts: fakePrompts({ overheard }), history: [trigger], trigger, triggerKind: 'overheard' }),
     );
-    const user = request.messages[1].content;
+    const user = contentText(request.messages[1].content);
     assert.ok(user.includes(`Called by Élodie, they ${labels.triggers.overheard}. Answer #1 as Nept.`), JSON.stringify(overheard));
   }
 });
@@ -260,9 +259,9 @@ test('buildRequest: triggerKind "overheard" without prompts.overheard (missing o
 test('buildRequest: the overheard trigger label falls back to labels.triggers.followUp, then labels.triggers.reply', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Élodie' });
   const run = (triggers) =>
-    buildRequest(
+    contentText(buildRequest(
       baseInput({ prompts: fakePrompts({ overheard: OVERHEARD_TASK, labels: { ...labels, triggers } }), history: [trigger], trigger, triggerKind: 'overheard' }),
-    ).messages[1].content;
+    ).messages[1].content);
   const { overheard, ...withoutOverheard } = labels.triggers;
   assert.ok(overheard);
   assert.ok(run(withoutOverheard).includes(`Élodie ${labels.triggers.followUp} at #1`));
@@ -277,9 +276,9 @@ test('buildRequest: the author heads <people> without the interlocutor mark on a
   const interlocutor = { id: 'author-1', names: ['Élodie'], character: 'curious' };
   const other = { id: 'p2', names: ['Carl'], character: 'calm' };
   const run = (triggerKind) =>
-    buildRequest(
+    contentText(buildRequest(
       baseInput({ prompts: fakePrompts({ overheard: OVERHEARD_TASK }), history: [trigger], trigger, triggerKind, interlocutor, otherProfiles: [other] }),
-    ).messages[1].content;
+    ).messages[1].content);
 
   const overheard = run('overheard');
   assert.ok(!overheard.includes(labels.profile.interlocutorMark.trim()), 'no "talking to you" mark');
@@ -308,7 +307,7 @@ test('buildRequest: forced=true appends the filled prompts.forced to the task te
       prompts: fakePrompts({ forced: 'FORCED_TASK for {{name}}, target {{target}}' }),
     }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('INTERJECT_TASK for Nept'));
   assert.ok(user.includes('FORCED_TASK for Nept, target #1'));
   assert.ok(user.indexOf('INTERJECT_TASK for Nept') < user.indexOf('FORCED_TASK for Nept, target #1'));
@@ -316,16 +315,16 @@ test('buildRequest: forced=true appends the filled prompts.forced to the task te
 
 test('buildRequest: forced=true with no prompts.forced leaves the task text unchanged', () => {
   const request = buildRequest(baseInput({ mode: 'interject', forced: true }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('INTERJECT_TASK for Nept'));
-  assert.equal(request.messages[1].content, buildRequest(baseInput({ mode: 'interject', forced: false })).messages[1].content);
+  assert.equal(contentText(request.messages[1].content), contentText(buildRequest(baseInput({ mode: 'interject', forced: false })).messages[1].content));
 });
 
 test('buildRequest: forced=false never appends prompts.forced even when it is set', () => {
   const request = buildRequest(
     baseInput({ mode: 'interject', forced: false, prompts: fakePrompts({ forced: 'FORCED_TASK' }) }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(!user.includes('FORCED_TASK'));
 });
 
@@ -343,8 +342,8 @@ test('buildRequest: blocks appear in the documented order', () => {
       currentChannelId: 'c1',
     }),
   );
-  const user = request.messages[1].content;
-  const order = ['<now>', '<about_chat>', '<server>', '<self_facts>', '<people>', '<other_channels>', '<chat>', '<tempo>', '<task>'];
+  const user = contentText(request.messages[1].content);
+  const order = ['<self_facts>', '<about_chat>', '<people>', '<server>', '<other_channels>', '<chat>', '<now>', '<senses>', '<tempo>', '<task>'];
   const positions = order.map((tag) => user.indexOf(tag));
   assert.ok(positions.every((p) => p !== -1), `expected all tags present: ${JSON.stringify(positions)}`);
   for (let i = 1; i < positions.length; i += 1) {
@@ -352,9 +351,135 @@ test('buildRequest: blocks appear in the documented order', () => {
   }
 });
 
+// --- cache segments: the stable part, the profiles, the tail ----------------------------
+
+/** A scene with something in every segment: guild memory, a GIF library, a caller with history, a neighbour. */
+function segmentScene({ messageCount = 40, ...overrides } = {}) {
+  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice', ...overrides.triggerFields });
+  const interlocutor = {
+    id: 'author-1',
+    names: ['Alice'],
+    character: 'talkative',
+    interests: [
+      { topic: 'chess', note: 'blitz', weight: 3, firstSeen: '2026-01-02T10:00:00.000Z', lastSeen: '2026-03-01T10:00:00.000Z' },
+      { topic: 'tea', note: '', weight: 1, firstSeen: '2026-09-19T10:00:00.000Z', lastSeen: '2026-09-19T10:00:00.000Z' },
+    ],
+    details: [{ id: 1, text: 'lives by the sea', weight: 2, firstSeen: '2026-02-01T10:00:00.000Z', lastSeen: '2026-09-20T09:30:00.000Z' }],
+    affinity: { score: 12, reason: 'kind words', history: [{ ts: '2026-09-19T08:00:00.000Z', delta: 3, reason: 'a gift' }] },
+    episodes: [{ date: '2026-09-18', what: 'a long talk', quote: 'ναι', feeling: 'warm', weight: 2 }],
+    messageCount,
+  };
+  const gifs = {
+    nextId: 10,
+    entries: {
+      k1: { id: 'g1', kind: 'link', url: 'https://tenor.com/view/a-1', site: 'Tenor', name: 'A', itemId: 'k1', messageId: 'm1', channelId: 'c1', count: 4, last: NOW - 2 * 86_400_000, firstSeen: NOW - 9 * 86_400_000 },
+      // Posted by the persona two hours ago: the own-post mark, with no age in it.
+      k2: { id: 'g2', kind: 'link', url: 'https://tenor.com/view/b-2', site: 'Tenor', name: 'B', itemId: 'k2', messageId: 'm2', channelId: 'c1', count: 6, last: NOW - 2 * HOUR, firstSeen: NOW - 9 * 86_400_000, ownLast: NOW - 2 * HOUR, ownUses: 1 },
+    },
+    backfill: null,
+  };
+  return baseInput({
+    // Unsure and stale marks on, so the profile carries every date-driven mark.
+    config: fakeConfig({ memory: { interestStaleDays: 30, confirmAfter: 2 } }),
+    history: [trigger],
+    trigger,
+    triggerKind: 'mention',
+    interlocutor,
+    guildMemory: { patterns: 'talks fast', self: ['likes games'], learned: [{ id: 1, text: 'say hi first', weight: 2, firstSeen: '2026-09-01T10:00:00.000Z', lastSeen: '2026-09-10T10:00:00.000Z' }] },
+    gifs,
+    channels: [{ id: 'c1', name: 'general', lastMessageAt: NOW - MIN, days: {} }],
+    currentChannelId: 'c1',
+    neighbors: [{ channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] }],
+    ...overrides,
+  });
+}
+
+/** The opening tags of the top-level blocks of `text`, in order. */
+function blockTags(text) {
+  return [...text.matchAll(/^<([a-z_]+)>$/gm)].map((match) => match[1]);
+}
+
+test('buildRequest: the user content is the stable part, the profiles, the tail, then the pictures', () => {
+  const config = fakeConfig({ context: { vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } } });
+  const request = buildRequest(segmentScene({ config, triggerFields: { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] } }));
+  const content = request.messages[1].content;
+  assert.ok(Array.isArray(content));
+  assert.deepEqual(
+    content.map((part) => [part.type, part.cacheSegment ?? null]),
+    [['text', 'stable'], ['text', 'profiles'], ['text', null], ['image_url', null]],
+  );
+  assert.deepEqual(blockTags(content[0].text), ['self_facts', 'about_chat', 'gifs']);
+  assert.deepEqual(blockTags(content[1].text), ['people']);
+  assert.ok(!('cacheSegment' in content[2]), 'the tail carries no segment');
+  assert.ok(content[0].text.endsWith('</gifs>\n\n') && content[1].text.endsWith('</people>\n\n'), 'each part but the last ends with the block separator');
+  assert.ok(content[2].text.endsWith('</task>'));
+  assert.equal(contentText(content), content.slice(0, 3).map((part) => part.text).join(''));
+});
+
+test('buildRequest: the tail ends with <now>, <senses>, <tempo> and <task>, after the chat', () => {
+  const request = buildRequest(segmentScene({ lookup: { query: 'q', text: 'found it', sources: [] }, config: fakeConfig({ features: { webLookup: true } }) }));
+  const tags = blockTags(contentText(request.messages[1].content));
+  assert.deepEqual(tags.slice(-6), ['lookup', 'chat', 'now', 'senses', 'tempo', 'task']);
+  assert.equal(tags.at(-4), 'now');
+  assert.equal(tags.at(-1), 'task');
+  const tail = blockTags(request.messages[1].content[2].text);
+  assert.deepEqual(tail.slice(0, 2), ['server', 'other_channels'], 'the tail opens with the server map');
+});
+
+test('buildRequest: without pictures the user content is still an array of text parts', () => {
+  const request = buildRequest(segmentScene());
+  const content = request.messages[1].content;
+  assert.ok(Array.isArray(content));
+  assert.deepEqual(content.map((part) => part.cacheSegment ?? null), ['stable', 'profiles', null]);
+  assert.ok(content.every((part) => part.type === 'text' && part.text));
+  assert.equal(request.textFallback, null);
+});
+
+test('buildRequest: an empty segment is left out, never sent as an empty text part', () => {
+  const request = buildRequest(baseInput());
+  const content = request.messages[1].content;
+  assert.deepEqual(content.map((part) => part.cacheSegment ?? null), [null], 'no memory, no GIFs, no caller: the tail alone');
+  assert.ok(content[0].text.startsWith('<chat>'));
+  assert.ok(!content[0].text.endsWith('\n'));
+  const callerOnly = buildRequest(segmentScene({ guildMemory: {}, gifs: null })).messages[1].content;
+  assert.deepEqual(callerOnly.map((part) => part.cacheSegment ?? null), ['profiles', null]);
+});
+
+test('buildRequest: two builds a minute apart keep the stable and profiles parts byte-identical', () => {
+  // The caller wrote three more messages in between; the persona's own GIF has aged a minute.
+  const first = buildRequest(segmentScene({ now: NOW, messageCount: 41 })).messages[1].content;
+  const later = buildRequest(segmentScene({ now: NOW + MIN, messageCount: 44 })).messages[1].content;
+  assert.equal(later[0].text, first[0].text);
+  assert.equal(later[1].text, first[1].text);
+  assert.ok(first[0].text.includes(`g2 ${labels.gifs.ownMarkRecent}
+</gifs>`), 'the own-marked GIF is in it, last');
+  for (const shown of ['## Alice', 'a gift', 'a long talk', labels.profile.staleMark, labels.profile.unsureMark, fill(labels.profile.messageCount, { count: 40 })]) {
+    assert.ok(first[1].text.includes(shown), `the profile shows ${shown}`);
+  }
+  assert.notEqual(later[2].text, first[2].text, 'the clock lives in the tail');
+  const nextHour = buildRequest(segmentScene({ now: NOW + 59 * MIN, messageCount: 49 })).messages[1].content;
+  assert.equal(nextHour[0].text, first[0].text);
+  assert.equal(nextHour[1].text, first[1].text);
+});
+
+test('renderProfile: the message count is rounded down, to tens below 100 and to hundreds from 100; below 10 no line', () => {
+  const shown = (messageCount) => {
+    const text = renderProfile({ id: 'p1', names: ['Zoé'], character: 'calme', messageCount }, labels, { interlocutor: true });
+    return text.split('\n').find((line) => line.startsWith(fill(labels.profile.messageCount, { count: '' }))) ?? null;
+  };
+  const line = (count) => fill(labels.profile.messageCount, { count });
+  assert.equal(shown(10), line(10));
+  assert.equal(shown(47), line(40));
+  assert.equal(shown(99), line(90));
+  assert.equal(shown(100), line(100));
+  assert.equal(shown(1_234), line(1_200));
+  assert.equal(shown(12_999), line(12_900));
+  for (const none of [0, 1, 9, undefined, null, -5, Number.NaN, '50']) assert.equal(shown(none), null, String(none));
+});
+
 test('buildRequest: empty blocks (about_chat, server, self_facts, people, other_channels) are omitted', () => {
   const request = buildRequest(baseInput({ guildMemory: {}, otherProfiles: [], neighbors: [], trigger: null, channels: [] }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(!user.includes('<about_chat>'));
   assert.ok(!user.includes('<server>'));
   assert.ok(!user.includes('<self_facts>'));
@@ -373,7 +498,7 @@ test('buildRequest: the interlocutor is marked with labels.profile.interlocutorM
   const request = buildRequest(
     baseInput({ history: [trigger], trigger, triggerKind: 'mention', interlocutor, otherProfiles: [other] }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes(labels.profile.interlocutorMark.trim()));
   const peopleBlockStart = user.indexOf('<people>');
   const aliceIdx = user.indexOf('## Alice', peopleBlockStart);
@@ -396,14 +521,14 @@ test('buildRequest: a neighbour message is cut at context.neighborMessageChars',
   const long = 'λ'.repeat(400);
   const neighbors = [{ channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN, { content: long })] }];
   const config = fakeConfig({ context: { neighborMessageChars: 20 } });
-  const user = buildRequest(baseInput({ config, neighbors })).messages[1].content;
+  const user = contentText(buildRequest(baseInput({ config, neighbors })).messages[1].content);
   const cut = user.split('<other_channels>\n')[1].split('\n</other_channels>')[0];
   assert.ok(cut.includes('λ'.repeat(20)) && !cut.includes('λ'.repeat(21)), cut);
 });
 
 /** The `<other_channels>` body of a request built from `overrides`. */
 function otherChannelsOf(overrides) {
-  const user = buildRequest(baseInput(overrides)).messages[1].content;
+  const user = contentText(buildRequest(baseInput(overrides)).messages[1].content);
   return user.split('<other_channels>\n')[1].split('\n</other_channels>')[0];
 }
 
@@ -433,7 +558,7 @@ test('buildRequest: neighborDescriptions never reach the chat lines; the chat ca
     descriptions: new Map([['np1', 'a red fox']]),
     neighborDescriptions: new Map([['cp1', 'a sleeping cat']]),
   });
-  const user = buildRequest(input).messages[1].content;
+  const user = contentText(buildRequest(input).messages[1].content);
   const chat = user.split('<chat>\n')[1].split('\n</chat>')[0];
   assert.ok(!chat.includes('a sleeping cat'), chat);
   assert.ok(chat.includes(labels.transcript.image));
@@ -467,7 +592,7 @@ test('buildRequest: under a tiny token budget, neighbours and other profiles are
   assert.deepEqual(request.stats.people.kept, 0);
   assert.deepEqual(request.stats.neighbors.kept, 0);
   assert.ok(request.stats.chat.kept > 0, 'expected at least some chat lines to survive');
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('message number 10'));
 });
 
@@ -501,16 +626,18 @@ test('buildRequest: images are attached only when features.vision is enabled, ca
   const imageParts = content.filter((part) => part.type === 'image_url');
   assert.equal(imageParts.length, 2);
   assert.equal(content[0].type, 'text');
+  assert.deepEqual(content.slice(-2), imageParts, 'the pictures follow every text part');
 });
 
-test('buildRequest: vision disabled means plain string content, even with image attachments', () => {
+test('buildRequest: vision disabled means text parts only, even with image attachments', () => {
   const trigger = makeMessage(1, NOW - MIN, { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] });
   const config = fakeConfig({
     features: { vision: false },
     context: { vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } },
   });
   const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', config }));
-  assert.equal(typeof request.messages[1].content, 'string');
+  assert.ok(request.messages[1].content.every((part) => part.type === 'text'));
+  assert.equal(request.textFallback, null);
 });
 
 test('buildRequest: an image attached to the request renders transcript.imageAttached numbered in transcript order', () => {
@@ -520,7 +647,7 @@ test('buildRequest: an image attached to the request renders transcript.imageAtt
     context: { vision: { maxImages: 4, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 } },
   });
   const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', config }));
-  const user = request.messages[1].content.find((part) => part.type === 'text').text;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes(labels.transcript.imageAttached.replace('{n}', '1')));
 });
 
@@ -534,14 +661,19 @@ test('buildRequest: textFallback re-renders the same chat with attachedIndex dro
   });
   const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', config }));
 
-  const primaryText = request.messages[1].content.find((part) => part.type === 'text').text;
+  const primaryText = contentText(request.messages[1].content);
   assert.ok(primaryText.includes(labels.transcript.frameAttached.replace('{n}', '1')));
   assert.ok(primaryText.includes('[video: clip.mp4, 0:34]'));
 
-  assert.equal(typeof request.textFallback, 'string');
-  assert.ok(request.textFallback.includes('[video: clip.mp4, 0:34]'));
-  assert.ok(!request.textFallback.includes('still frame'), 'frameAttached must be dropped in the fallback');
-  assert.ok(!request.textFallback.includes(labels.transcript.imageAttached.replace('{n}', '1')));
+  assert.ok(Array.isArray(request.textFallback));
+  assert.ok(request.textFallback.every((part) => part.type === 'text'), 'no image part in the fallback');
+  const fallback = contentText(request.textFallback);
+  assert.ok(fallback.includes('[video: clip.mp4, 0:34]'));
+  assert.ok(!fallback.includes('still frame'), 'frameAttached must be dropped in the fallback');
+  assert.ok(!fallback.includes(labels.transcript.imageAttached.replace('{n}', '1')));
+  // Only the chat differs: the cached parts ahead of the tail are the very same text.
+  const textParts = request.messages[1].content.filter((part) => part.type === 'text');
+  assert.deepEqual(request.textFallback.slice(0, -1), textParts.slice(0, -1));
 });
 
 test('buildRequest: videos reach the transcript, and the textFallback keeps them', () => {
@@ -552,9 +684,9 @@ test('buildRequest: videos reach the transcript, and the textFallback keeps them
   const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'mention', videos }));
 
   const watched = fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:34', text: 'κάποιος χορεύει' });
-  const primaryText = request.messages[1].content.find((part) => part.type === 'text').text;
+  const primaryText = contentText(request.messages[1].content);
   assert.ok(primaryText.includes(watched));
-  assert.ok(request.textFallback.includes(watched));
+  assert.ok(contentText(request.textFallback).includes(watched));
 });
 
 test('buildRequest: textFallback is null when nothing is attached (no pictures selected)', () => {
@@ -610,7 +742,7 @@ test('buildRequest: the trigger\'s picture-format sticker is attached, rendered 
   // proxy must never touch it, unlike a plain attachment/embed picture.
   assert.equal(imagePart.image_url.url, 'https://media.discordapp.net/stickers/s1.png?size=160');
 
-  const user = content.find((part) => part.type === 'text').text;
+  const user = contentText(content);
   assert.ok(user.includes('[sticker: pepe] [its still frame is attached image 1]'));
 });
 
@@ -646,13 +778,13 @@ test('buildRequest: config.context.tempo reaches the tempo verdict rendered in <
   const history = [makeMessage(1, NOW - 5 * MIN)];
 
   const baseRequest = buildRequest(baseInput({ history, trigger: null }));
-  const baseUser = baseRequest.messages[1].content;
+  const baseUser = contentText(baseRequest.messages[1].content);
   assert.ok(baseUser.includes(labels.tempo.verdictSlow));
   assert.ok(!baseUser.includes(labels.tempo.verdictLive));
 
   const config = fakeConfig({ context: { tempo: { liveMessages10min: 1, deadSilenceMinutes: 45 } } });
   const tunedRequest = buildRequest(baseInput({ history, trigger: null, config }));
-  const tunedUser = tunedRequest.messages[1].content;
+  const tunedUser = contentText(tunedRequest.messages[1].content);
   assert.ok(tunedUser.includes(labels.tempo.verdictLive));
 });
 
@@ -669,7 +801,7 @@ test('buildRequest: the current channel is first and carries labels.server.curre
   ];
   const neighbors = [{ channelId: 'c2', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] }];
   const request = buildRequest(baseInput({ channels, currentChannelId: 'c1', neighbors }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   const serverStart = user.indexOf('<server>');
   const generalIdx = user.indexOf('# general', serverStart);
   const randomIdx = user.indexOf('# random', serverStart);
@@ -687,7 +819,7 @@ test('buildRequest: <server> shows only the current channel and the neighbours t
     { channelId: 'c2', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] },
   ];
   const request = buildRequest(baseInput({ channels, currentChannelId: 'c1', neighbors }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('# general'));
   assert.ok(user.includes('# random'));
   assert.ok(!user.includes('# off-topic'));
@@ -704,7 +836,7 @@ test('buildRequest: several contributing neighbours render in the order given by
     { channelId: 'c3', channelName: 'aaa-first-by-name', messages: [makeMessage(10, NOW - 4 * MIN)] },
   ];
   const request = buildRequest(baseInput({ channels, currentChannelId: 'c1', neighbors }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   const serverStart = user.indexOf('<server>');
   const c2Idx = user.indexOf('# zzz-last-by-name', serverStart);
   const c3Idx = user.indexOf('# aaa-first-by-name', serverStart);
@@ -715,7 +847,7 @@ test('buildRequest: a neighbour with no stored channel note is skipped, not synt
   const channels = [fakeChannel('c1', { name: 'general' })];
   const neighbors = [{ channelId: 'never-touched', channelName: 'never-touched', messages: [makeMessage(9, NOW - 5 * MIN)] }];
   const request = buildRequest(baseInput({ channels, currentChannelId: 'c1', neighbors }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   const serverBlock = user.slice(user.indexOf('<server>'), user.indexOf('</server>'));
   assert.ok(serverBlock.includes('# general'));
   assert.ok(!serverBlock.includes('# never-touched'), 'a neighbour with no note must not appear in <server>');
@@ -733,7 +865,7 @@ test('buildRequest: with no stored note for the current channel, its Discord fac
     }),
   ];
   const request = buildRequest(baseInput({ history, channels: [], currentChannelId: 'c1' }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes(`# brand-new-channel${labels.server.currentMark}`));
   assert.ok(user.includes(fill(labels.server.category, { text: 'General' })));
   assert.ok(user.includes(fill(labels.server.topic, { text: 'say hi' })));
@@ -743,13 +875,13 @@ test('buildRequest: with no stored note for the current channel, its Discord fac
 test('buildRequest: with no stored note and no channel facts anywhere in history, <server> stays empty', () => {
   const history = [makeMessage(1, NOW - MIN)];
   const request = buildRequest(baseInput({ history, channels: [], currentChannelId: 'c1' }));
-  assert.ok(!request.messages[1].content.includes('<server>'));
+  assert.ok(!contentText(request.messages[1].content).includes('<server>'));
 });
 
 test('buildRequest: every channel is listed even with no purpose/topics/tone, name and activity survive', () => {
   const channels = [fakeChannel('c1', { name: 'quiet-room', lastMessageAt: null })];
   const request = buildRequest(baseInput({ channels, currentChannelId: 'c1' }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('# quiet-room'));
   assert.ok(user.includes(`activity: ${labels.server.activityDead}`));
 });
@@ -772,7 +904,7 @@ test('buildRequest: under a tiny server cap, the map is trimmed but <chat> still
 
   assert.equal(request.stats.server.kept, 0);
   assert.ok(request.stats.chat.kept > 0, 'expected at least some chat lines to survive');
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('message number 10'));
 });
 
@@ -908,10 +1040,10 @@ test('buildRequest: relationships.shownMoves and bot.timezone reach the moves of
   const history = [attitudeMove(1, 2, 'α', 22), attitudeMove(2, 3, 'β'), attitudeMove(3, 4, 'γ')];
   const interlocutor = { ...movedProfile(history), id: 'author-1', names: ['Alice'] };
   const config = { ...fakeConfig(), relationships: { shownMoves: 2 } };
-  const user = buildRequest(baseInput({ config, interlocutor })).messages[1].content;
+  const user = contentText(buildRequest(baseInput({ config, interlocutor })).messages[1].content);
   // Europe/Moscow: 22:00 UTC on 03-01 is 03-02.
   assert.deepEqual(moveLinesOf(user), ['move +3 on 2026-03-02: β', 'move +4 on 2026-03-03: γ']);
-  const off = buildRequest(baseInput({ config: { ...fakeConfig(), relationships: { shownMoves: 0 } }, interlocutor })).messages[1].content;
+  const off = contentText(buildRequest(baseInput({ config: { ...fakeConfig(), relationships: { shownMoves: 0 } }, interlocutor })).messages[1].content);
   assert.deepEqual(moveLinesOf(off), []);
 });
 
@@ -1130,7 +1262,7 @@ test('buildRequest: config.memory.maxInterests caps how many interests render', 
   const request = buildRequest(
     baseInput({ config, history: [trigger], trigger, triggerKind: 'mention', interlocutor, otherProfiles: [] }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('interests: B'));
   assert.ok(!user.includes('interests: B; A'));
 });
@@ -1246,14 +1378,14 @@ test('buildRequest: features.relationships=false hides the attitude line entirel
   const request = buildRequest(
     baseInput({ config, history: [trigger], trigger, triggerKind: 'mention', interlocutor }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(!user.includes('attitude:'));
 });
 
 // --- <senses> ------------------------------------------------------------
 
 function sensesOf(request) {
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   const text = Array.isArray(user) ? user.find((part) => part.type === 'text').text : user;
   const match = /<senses>\n([\s\S]*?)\n<\/senses>/.exec(text);
   return match ? match[1] : null;
@@ -1261,7 +1393,7 @@ function sensesOf(request) {
 
 test('buildRequest: <senses> sits right after <now>', () => {
   const request = buildRequest(baseInput());
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   const nowIdx = user.indexOf('<now>');
   const sensesIdx = user.indexOf('<senses>');
   assert.ok(sensesIdx !== -1 && sensesIdx > nowIdx);
@@ -1392,7 +1524,7 @@ test('buildRequest: an older labels set without videoWatch/linksWatch falls back
 test('buildRequest: <senses> is omitted entirely when labels has no senses section', () => {
   const brokenLabels = { ...labels, senses: undefined };
   const request = buildRequest(baseInput({ prompts: fakePrompts({ labels: brokenLabels }) }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(!user.includes('<senses>'));
 });
 
@@ -1440,7 +1572,7 @@ function loreEntry(overrides = {}) {
   return { id: 'l1', title: 'The Great Flood', keys: ['flood'], text: 'It flooded once.', always: false, source: 'analyzer', weight: 3, ...overrides };
 }
 
-test('buildRequest: <lore> sits after <server> and before <self_facts>', () => {
+test('buildRequest: <lore> sits after <server>, in the tail after <self_facts>', () => {
   const history = [makeMessage(1, NOW - MIN, { content: 'remember the flood?' })];
   const request = buildRequest(
     baseInput({
@@ -1451,32 +1583,32 @@ test('buildRequest: <lore> sits after <server> and before <self_facts>', () => {
       loreEntries: [loreEntry()],
     }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   const serverIdx = user.indexOf('<server>');
   const loreIdx = user.indexOf('<lore>');
   const selfIdx = user.indexOf('<self_facts>');
   assert.ok(serverIdx !== -1 && loreIdx !== -1 && selfIdx !== -1);
-  assert.ok(serverIdx < loreIdx && loreIdx < selfIdx);
+  assert.ok(selfIdx < serverIdx && serverIdx < loreIdx);
   assert.ok(user.includes(labels.lore.entry.replace('{title}', 'The Great Flood').replace('{text}', 'It flooded once.')));
 });
 
 test('buildRequest: no <lore> block when nothing matches the recent chat', () => {
   const history = [makeMessage(1, NOW - MIN, { content: 'completely unrelated chatter' })];
   const request = buildRequest(baseInput({ history, loreEntries: [loreEntry()] }));
-  assert.ok(!request.messages[1].content.includes('<lore>'));
+  assert.ok(!contentText(request.messages[1].content).includes('<lore>'));
 });
 
 test('buildRequest: an "always" lore entry appears even without a textual match', () => {
   const history = [makeMessage(1, NOW - MIN, { content: 'nothing relevant here' })];
   const request = buildRequest(baseInput({ history, loreEntries: [loreEntry({ always: true, keys: ['never-said'] })] }));
-  assert.ok(request.messages[1].content.includes('<lore>'));
+  assert.ok(contentText(request.messages[1].content).includes('<lore>'));
 });
 
 test('buildRequest: features.lore=false never renders <lore>, even with a match', () => {
   const history = [makeMessage(1, NOW - MIN, { content: 'the flood happened' })];
   const config = fakeConfig({ features: { lore: false } });
   const request = buildRequest(baseInput({ history, config, loreEntries: [loreEntry()] }));
-  assert.ok(!request.messages[1].content.includes('<lore>'));
+  assert.ok(!contentText(request.messages[1].content).includes('<lore>'));
 });
 
 test('buildRequest: <lore> is omitted when labels.lore.entry is missing (older labels.json)', () => {
@@ -1485,14 +1617,14 @@ test('buildRequest: <lore> is omitted when labels.lore.entry is missing (older l
   const request = buildRequest(
     baseInput({ history, prompts: fakePrompts({ labels: brokenLabels }), loreEntries: [loreEntry()] }),
   );
-  assert.ok(!request.messages[1].content.includes('<lore>'));
+  assert.ok(!contentText(request.messages[1].content).includes('<lore>'));
 });
 
 test('buildRequest: the trigger message also counts toward the lore scan window', () => {
   const trigger = makeMessage(2, NOW - MIN, { authorName: 'Alice', content: 'the flood story again' });
   const history = [makeMessage(1, NOW - 2 * MIN, { content: 'unrelated' }), trigger];
   const request = buildRequest(baseInput({ history, trigger, triggerKind: 'mention', loreEntries: [loreEntry()] }));
-  assert.ok(request.messages[1].content.includes('<lore>'));
+  assert.ok(contentText(request.messages[1].content).includes('<lore>'));
 });
 
 test('buildRequest: under a tiny lore cap, only the entries that fit survive', () => {
@@ -1611,7 +1743,7 @@ test('buildRequest: about_chat/self_facts/lore/server resolve <@id> tokens via i
       nameOf: (id) => (id === '223456789012345678' ? 'Dana' : null),
     }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('people quote Dana'));
   assert.ok(user.includes('Dana starts it'));
   assert.ok(user.includes('Dana did it'));
@@ -1626,7 +1758,7 @@ test('buildRequest: a silent member whose current name occurs in the transcript 
   const history = [makeMessage(1, NOW - MIN, { content: 'Dana would love this joke' })];
   const candidateProfiles = [{ id: 'p9', names: ['Dana'], character: 'sarcastic' }];
   const request = buildRequest(baseInput({ history, candidateProfiles }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('## Dana'));
   assert.ok(user.includes('character: sarcastic'));
 });
@@ -1637,7 +1769,7 @@ test('buildRequest: a silent member is pulled in by a shown alias, not just thei
     { id: 'p9', names: ['LongOfficialName'], character: 'helpful', aliases: [aliasFixture({ name: 'Vertex', weight: 5 })] },
   ];
   const request = buildRequest(baseInput({ history, candidateProfiles }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('## LongOfficialName'));
   assert.ok(user.includes('character: helpful'));
 });
@@ -1646,14 +1778,14 @@ test('buildRequest: names/aliases shorter than 3 characters never trigger a pull
   const history = [makeMessage(1, NOW - MIN, { content: 'oh no, an ox ran off' })];
   const candidateProfiles = [{ id: 'p9', names: ['Ox'], character: 'stubborn' }];
   const request = buildRequest(baseInput({ history, candidateProfiles }));
-  assert.ok(!request.messages[1].content.includes('character: stubborn'));
+  assert.ok(!contentText(request.messages[1].content).includes('character: stubborn'));
 });
 
 test('buildRequest: a candidate never mentioned in the transcript is not pulled in', () => {
   const history = [makeMessage(1, NOW - MIN, { content: 'nothing about anyone else here' })];
   const candidateProfiles = [{ id: 'p9', names: ['Dana'], character: 'sarcastic' }];
   const request = buildRequest(baseInput({ history, candidateProfiles }));
-  assert.ok(!request.messages[1].content.includes('## Dana'));
+  assert.ok(!contentText(request.messages[1].content).includes('## Dana'));
 });
 
 test('buildRequest: a candidate already covered as the interlocutor or an active participant is not duplicated', () => {
@@ -1662,7 +1794,7 @@ test('buildRequest: a candidate already covered as the interlocutor or an active
   const interlocutor = { id: 'p9', names: ['Dana'], character: 'sarcastic' };
   const candidateProfiles = [interlocutor];
   const request = buildRequest(baseInput({ history, trigger, triggerKind: 'mention', interlocutor, candidateProfiles }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.equal((user.match(/## Dana/g) ?? []).length, 1, 'Dana appears once, as the interlocutor, not twice');
 });
 
@@ -1671,7 +1803,7 @@ test('buildRequest: a silent member named in the trigger/recent messages (asked-
   const otherProfiles = [{ id: 'p2', names: ['Carl'], character: 'talkative' }];
   const candidateProfiles = [{ id: 'p9', names: ['Dana'], character: 'sarcastic' }];
   const request = buildRequest(baseInput({ history, otherProfiles, candidateProfiles }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   const carlIdx = user.indexOf('## Carl');
   const danaIdx = user.indexOf('## Dana');
   // Dana is named in the trigger/recent-messages window -- priority (b), rendered FULL and first.
@@ -1762,7 +1894,7 @@ test('buildRequest: a name of 4+ characters also matches as the START of a longe
   const history = [makeMessage(1, NOW - MIN, { content: 'ask Vertexia about it' })];
   const candidateProfiles = [{ id: 'p9', names: ['Vertex'], character: 'helpful' }];
   const request = buildRequest(baseInput({ history, candidateProfiles }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('## Vertex'));
 });
 
@@ -1770,7 +1902,7 @@ test('buildRequest: a name of exactly 3 characters must match a WHOLE word, neve
   const history = [makeMessage(1, NOW - MIN, { content: 'the maximum output is high' })];
   const candidateProfiles = [{ id: 'p9', names: ['Max'], character: 'brief' }];
   const request = buildRequest(baseInput({ history, candidateProfiles }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(!user.includes('## Max'), '"maximum" must not match the 3-character name "Max" as a prefix');
 });
 
@@ -1778,7 +1910,7 @@ test('buildRequest: a name of exactly 3 characters still matches a whole word', 
   const history = [makeMessage(1, NOW - MIN, { content: 'ask Max about it' })];
   const candidateProfiles = [{ id: 'p9', names: ['Max'], character: 'brief' }];
   const request = buildRequest(baseInput({ history, candidateProfiles }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('## Max'));
 });
 
@@ -1786,7 +1918,7 @@ test('buildRequest: a real @mention (mentionedUserIds) pulls a silent member in 
   const history = [makeMessage(1, NOW - MIN, { content: 'hey what do you think of them', mentionedUserIds: ['p9'] })];
   const candidateProfiles = [{ id: 'p9', names: ['Quinn'], character: 'quiet' }];
   const request = buildRequest(baseInput({ history, candidateProfiles }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('## Quinn'));
 });
 
@@ -1798,7 +1930,7 @@ test('buildRequest: an active participant explicitly @mentioned in the trigger i
     { id: 'p2', names: ['Carl'], character: 'talkative', style: 'blunt', relationship: 'ally' },
   ];
   const request = buildRequest(baseInput({ history, trigger, triggerKind: 'mention', otherProfiles }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   const carlIdx = user.indexOf('## Carl');
   const danaIdx = user.indexOf('## Dana');
   assert.ok(carlIdx !== -1 && danaIdx !== -1 && carlIdx < danaIdx, 'Carl (asked-about) is rendered before Dana (plain participant)');
@@ -1814,7 +1946,7 @@ test('context.askedAboutProfiles caps how many members priority (b) may hold; th
   ];
   const config = fakeConfig({ context: { caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500 }, askedAboutProfiles: 2 } });
   const request = buildRequest(baseInput({ config, history: [trigger], trigger, triggerKind: 'mention', otherProfiles }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   // Ann and Bob (the first two participants checked, in order) are promoted to priority (b);
   // Cid, matched too but past the cap, stays a plain compact participant (priority (c)).
   const annIdx = user.indexOf('## Ann');
@@ -1838,7 +1970,7 @@ test('buildRequest: under a tight caps.people, the member asked about survives w
   const request = buildRequest(
     baseInput({ config, history: [trigger], trigger, triggerKind: 'mention', otherProfiles, candidateProfiles }),
   );
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes('## Wanda'), 'the member asked about must survive the tight cap');
   assert.ok(request.stats.people.dropped > 0, 'at least one active participant is trimmed under the tight cap');
 });
@@ -2191,7 +2323,7 @@ function webConfig(features = {}, web = {}) {
 }
 
 function lookupOf(request) {
-  const text = typeof request.messages[1].content === 'string' ? request.messages[1].content : request.messages[1].content[0].text;
+  const text = contentText(request.messages[1].content);
   const match = /<lookup>\n([\s\S]*?)\n<\/lookup>/.exec(text);
   return match ? match[1] : null;
 }
@@ -2219,11 +2351,11 @@ test('buildRequest: a lookup renders <lookup> -- the header with the query, the 
 });
 
 test('buildRequest: <lookup> sits right before <chat>, after the reference blocks', () => {
-  const request = buildRequest(baseInput({ config: webConfig(), lookup: LOOKUP }));
-  const user = request.messages[1].content;
+  const request = buildRequest(baseInput({ config: webConfig(), lookup: LOOKUP, guildMemory: { self: ['likes tea'] } }));
+  const user = contentText(request.messages[1].content);
   const at = user.indexOf('\n<lookup>\n');
-  assert.ok(at > user.indexOf('</senses>'));
-  assert.ok(at < user.indexOf('<chat>'));
+  assert.ok(at > user.indexOf('</self_facts>') && user.indexOf('</self_facts>') !== -1);
+  assert.ok(at < user.indexOf('<chat>') && user.indexOf('<chat>') < user.indexOf('<senses>'));
   assert.ok(user.indexOf('</lookup>\n\n<chat>') !== -1);
 });
 
@@ -2323,7 +2455,7 @@ test('buildRequest: reads reach the <chat> transcript as linkRead', () => {
     makeMessage(1, NOW - MIN, { links: [{ id: '1#e0', kind: 'link', site: 'example.org', title: 'Crêpes', url: 'https://example.org/c' }] }),
   ];
   const request = buildRequest(baseInput({ config: webConfig(), history, reads: new Map([['1#e0', 'trois œufs']]) }));
-  assert.ok(request.messages[1].content.includes('[link: example.org — Crêpes] [page read: trois œufs]'));
+  assert.ok(contentText(request.messages[1].content).includes('[link: example.org — Crêpes] [page read: trois œufs]'));
 });
 
 test('buildRequest: webLookup on with links -> the links line stays and linksRead follows it; a search key -> the search line after that', () => {
@@ -2430,7 +2562,7 @@ function learnedItem(id, text, weight, lastSeen, from) {
 }
 
 function aboutChatOf(request) {
-  const match = request.messages[1].content.match(/<about_chat>\n([\s\S]*?)\n<\/about_chat>/);
+  const match = contentText(request.messages[1].content).match(/<about_chat>\n([\s\S]*?)\n<\/about_chat>/);
   return match ? match[1] : null;
 }
 
@@ -2597,7 +2729,7 @@ test('renderSenses: an older labels set without senses.draw shows no draw line',
 test('buildRequest: a drawFailed turn fills triggers.drawFailed with the reason label', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
   const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'drawFailed', drawReason: 'moderation' }));
-  const user = request.messages[1].content;
+  const user = contentText(request.messages[1].content);
   assert.ok(user.includes(`they ${fill(labels.triggers.drawFailed, { reason: labels.draw.reasons.moderation })}.`));
   assert.ok(!user.includes('{reason}'));
 });
@@ -2605,7 +2737,7 @@ test('buildRequest: a drawFailed turn fills triggers.drawFailed with the reason 
 test('buildRequest: a drawFailed reason without a label is passed through as is', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
   const request = buildRequest(baseInput({ history: [trigger], trigger, triggerKind: 'drawFailed', drawReason: 'quux' }));
-  assert.ok(request.messages[1].content.includes(fill(labels.triggers.drawFailed, { reason: 'quux' })));
+  assert.ok(contentText(request.messages[1].content).includes(fill(labels.triggers.drawFailed, { reason: 'quux' })));
 });
 
 // --- private chat (privateChat) ------------------------------------------------
@@ -2638,17 +2770,17 @@ function privateScene(overrides = {}) {
 }
 
 test('buildRequest: privateChat omits <server> and <other_channels>, even with channels and neighbours given', () => {
-  const user = buildRequest(privateScene()).messages[1].content;
+  const user = contentText(buildRequest(privateScene()).messages[1].content);
   assert.ok(!user.includes('<server>'));
   assert.ok(!user.includes('<other_channels>'));
   // The same input without privateChat renders both.
-  const publicUser = buildRequest(privateScene({ privateChat: null })).messages[1].content;
+  const publicUser = contentText(buildRequest(privateScene({ privateChat: null })).messages[1].content);
   assert.ok(publicUser.includes('<server>'));
   assert.ok(publicUser.includes('<other_channels>'));
 });
 
 test('buildRequest: privateChat appends the filled prompts.private after the mode prompt', () => {
-  const user = buildRequest(privateScene()).messages[1].content;
+  const user = contentText(buildRequest(privateScene()).messages[1].content);
   const task = user.slice(user.indexOf('<task>'));
   assert.ok(task.includes(`Called by Alice, they ${labels.triggers.private}.`), '{{trigger}} comes from labels.triggers.private');
   assert.ok(task.includes('PRIVATE_TASK for Nept with Alice'));
@@ -2656,19 +2788,19 @@ test('buildRequest: privateChat appends the filled prompts.private after the mod
 });
 
 test('buildRequest: without privateChat prompts.private is never appended', () => {
-  const user = buildRequest(privateScene({ privateChat: null })).messages[1].content;
+  const user = contentText(buildRequest(privateScene({ privateChat: null })).messages[1].content);
   assert.ok(!user.includes('PRIVATE_TASK'));
 });
 
 test('buildRequest: privateChat with no prompts.private leaves the task as the mode prompt alone', () => {
   const prompts = fakePrompts();
-  const user = buildRequest(privateScene({ prompts })).messages[1].content;
+  const user = contentText(buildRequest(privateScene({ prompts })).messages[1].content);
   const task = /<task>\n([\s\S]*?)\n<\/task>/.exec(user)[1];
   assert.equal(task, `Called by Alice, they ${labels.triggers.private}. Answer #1 as Nept. Target: #1.`);
 });
 
 test('buildRequest: privateChat renders the interlocutor as the public and private profiles merged', () => {
-  const user = buildRequest(privateScene()).messages[1].content;
+  const user = contentText(buildRequest(privateScene()).messages[1].content);
   const people = user.slice(user.indexOf('<people>'), user.indexOf('</people>'));
   assert.ok(people.includes('PUBLIC_REL'));
   assert.ok(people.includes('PRIVATE_REL'));
@@ -2679,7 +2811,7 @@ test('buildRequest: privateChat renders the interlocutor as the public and priva
 });
 
 test('buildRequest: without privateChat a passed privateProfile is ignored -- the interlocutor stays public', () => {
-  const user = buildRequest(privateScene({ privateChat: null })).messages[1].content;
+  const user = contentText(buildRequest(privateScene({ privateChat: null })).messages[1].content);
   assert.ok(user.includes('PUBLIC_REL'));
   assert.ok(!user.includes('PRIVATE_REL'));
   assert.ok(!user.includes('PRIVATE_DETAIL'));
@@ -2699,9 +2831,9 @@ test('buildRequest: privateChat keeps other profiles public-only', () => {
     details: [{ id: 1, text: 'PRIVATE_MARKER_DETAIL', weight: 1 }],
     affinity: { score: 5, reason: 'PRIVATE_MARKER_REASON', history: [] },
   };
-  const user = buildRequest(
+  const user = contentText(buildRequest(
     privateScene({ history, trigger: history[1], otherProfiles: [bob], candidateProfiles: [bob, carl], privateProfile }),
-  ).messages[1].content;
+  ).messages[1].content);
   const people = /<people>\n([\s\S]*?)\n<\/people>/.exec(user)[1];
   // The merged relationship holds a blank line itself: split on the headings only.
   const sections = people.split(/\n\n(?=## )/);
@@ -2789,10 +2921,9 @@ function pulledChannel(overrides = {}) {
   };
 }
 
-/** The text part of a request's user message. */
+/** The whole text of a request's user message. */
 function userText(request) {
-  const content = request.messages[1].content;
-  return Array.isArray(content) ? content.find((part) => part.type === 'text').text : content;
+  return contentText(request.messages[1].content);
 }
 
 /** The body of `<tag>` in `text`, or null when the block is absent. */
@@ -3169,8 +3300,8 @@ test('buildRequest: textFallback re-renders pulled lines without attachment mark
   assert.ok(view.includes(fill(labels.transcript.imageDescribed, { text: 'un chat endormi' })), view);
   assert.ok(view.split('\n').at(-1).endsWith(`Zoé: content of message p2 ${labels.transcript.image} ${stickerTag}`), view);
   assert.ok(!view.includes('attached'), view);
-  assert.equal(bodyOf(request.textFallback, 'channel_view'), view);
-  assert.ok(!bodyOf(request.textFallback, 'chat').includes('attached'));
+  assert.equal(bodyOf(contentText(request.textFallback), 'channel_view'), view);
+  assert.ok(!bodyOf(contentText(request.textFallback), 'chat').includes('attached'));
 });
 
 test('buildRequest: a routed trigger\'s pictures are not attached, nor any pulled picture', () => {
@@ -3180,7 +3311,7 @@ test('buildRequest: a routed trigger\'s pictures are not attached, nor any pulle
   const trigger = { ...base.trigger, attachments: [picture] };
   const pulled = { ...base.pulled[0], messages: [...base.pulled[0].messages.slice(0, -1), trigger], descriptions: new Map([['tp1', 'une affiche']]) };
   const request = buildRequest({ ...base, config, trigger, pulled: [pulled] });
-  assert.equal(typeof request.messages[1].content, 'string', 'no image part at all');
+  assert.ok(request.messages[1].content.every((part) => part.type === 'text'), 'no image part at all');
   assert.deepEqual(request.pictures, []);
   assert.equal(request.stats.images, 0);
   assert.ok(bodyOf(userText(request), 'channel_view').includes(fill(labels.transcript.imageDescribed, { text: 'une affiche' })));
@@ -3351,7 +3482,7 @@ test('prompt: a line from another channel names its channel', () => {
   );
   assert.deepEqual(request.recent, { lines: 3, episodes: 0, cut: 0, hidden: 0, repeated: 0, unnamed: 0 });
   const user = userText(request);
-  assert.ok(user.indexOf('</self_facts>') < user.indexOf('<recent>') && user.indexOf('</recent>') < user.indexOf('<people>'), 'after self_facts, before people');
+  assert.ok(user.indexOf('</people>') < user.indexOf('<recent>') && user.indexOf('</recent>') < user.indexOf('<chat>'), 'in the tail, after people, before the chat');
   assert.equal(request.stats.recent.kept, 3);
 
   // Without the lineIn label a line of another channel takes the plain form.
@@ -3837,7 +3968,7 @@ function attitudesScene({ attitudes, caps, features, llm, prompts, ...overrides 
 
 /** The `<attitudes>` body of a request, or null when the block is absent. */
 function attitudesOf(request) {
-  const match = /<attitudes>\n([\s\S]*?)\n<\/attitudes>/.exec(request.messages[1].content);
+  const match = /<attitudes>\n([\s\S]*?)\n<\/attitudes>/.exec(contentText(request.messages[1].content));
   return match ? match[1] : null;
 }
 
@@ -3882,13 +4013,13 @@ test('attitudes: a member <people> was offered but the budget cut is listed', ()
   const history = [makeMessage(1, NOW - 2 * MIN, { authorId: 'm2', authorName: 'Björn' }), trigger];
   const bjorn = { ...scored('m2', 'Björn', -80), character: 'ß'.repeat(4000) };
   const shown = buildRequest(attitudesScene({ attitudes: 2, history, trigger, otherProfiles: [bjorn] }));
-  assert.ok(shown.messages[1].content.includes('## Björn'));
+  assert.ok(contentText(shown.messages[1].content).includes('## Björn'));
   assert.equal(attitudesOf(shown), [labels.attitudes.header, attitudeLine('Ágata', 'devoted'), attitudeLine('Δήμος', 'dislike')].join('\n'));
 
   const zoeOnly = buildRequest(attitudesScene({ attitudes: 2, history, trigger })).stats.people.used;
   const cut = buildRequest(attitudesScene({ attitudes: 2, history, trigger, otherProfiles: [bjorn], caps: { people: zoeOnly + 50 } }));
   assert.deepEqual([cut.stats.people.kept, cut.stats.people.dropped], [1, 1]);
-  assert.ok(!cut.messages[1].content.includes('## Björn'));
+  assert.ok(!contentText(cut.messages[1].content).includes('## Björn'));
   assert.equal(attitudesOf(cut), [labels.attitudes.header, attitudeLine('Ágata', 'devoted'), attitudeLine('Björn', 'hostile')].join('\n'));
 });
 
@@ -3910,7 +4041,7 @@ test('attitudes: an unset context.attitudes lists six members', () => {
 });
 
 test('attitudes: the block renders right after <people>, ahead of the chat', () => {
-  const user = buildRequest(attitudesScene({ attitudes: 4 })).messages[1].content;
+  const user = contentText(buildRequest(attitudesScene({ attitudes: 4 })).messages[1].content);
   assert.ok(user.indexOf('</people>') < user.indexOf('<attitudes>'));
   assert.ok(user.indexOf('</attitudes>') < user.indexOf('<chat>'));
 });

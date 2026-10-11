@@ -18,7 +18,7 @@ import {
   paceSettings,
 } from '../src/behavior/turn.js';
 import { between, typingMs } from '../src/behavior/random.js';
-import { fillPromptTemplate } from '../src/behavior/prompt.js';
+import { fillPromptTemplate, userText as textOf } from '../src/behavior/prompt.js';
 import { fill, formatClock, formatDate } from '../src/discord/format.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -375,7 +375,7 @@ test('runTurn: forced=true appends prompts.forced to the task text sent to the L
   await turns.runTurn({ channel, mode: 'interject', forced: true });
 
   assert.equal(llm.calls.length, 1);
-  const userText = llm.calls[0][1].content;
+  const userText = textOf(llm.calls[0][1].content);
   assert.ok(userText.includes('FORCED_TASK_TEXT'));
 });
 
@@ -391,7 +391,7 @@ test('runTurn: forced defaults to false -- prompts.forced is never appended for 
   await turns.runTurn({ channel, mode: 'interject' });
 
   assert.equal(llm.calls.length, 1);
-  const userText = llm.calls[0][1].content;
+  const userText = textOf(llm.calls[0][1].content);
   assert.ok(!userText.includes('FORCED_TASK_TEXT'));
 });
 
@@ -492,7 +492,7 @@ test('createTurnRunner: features.memory=true renders <people> and <about_chat>',
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(userMessage.includes('<people>'));
   assert.ok(userMessage.includes('<about_chat>'));
 });
@@ -511,7 +511,7 @@ test('createTurnRunner: features.memory=false sends no <people> or <about_chat> 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
   assert.equal(result.outcome, 'spoke');
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.equal(typeof userMessage, 'string');
   assert.ok(!userMessage.includes('<people>'));
   assert.ok(!userMessage.includes('<about_chat>'));
@@ -529,7 +529,7 @@ test('createTurnRunner: features.memory=true renders the <server> channel map', 
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(userMessage.includes('<server>'));
   assert.ok(userMessage.includes(`# general${labels.server.currentMark}`));
 });
@@ -546,7 +546,7 @@ test('createTurnRunner: features.memory=false sends no <server> block, even with
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(!userMessage.includes('<server>'));
 });
 
@@ -561,7 +561,7 @@ test('createTurnRunner: features.memory=true renders <lore> from the guild loreb
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(userMessage.includes('<lore>'));
   assert.ok(userMessage.includes('The Great Flood'));
 });
@@ -577,7 +577,7 @@ test('createTurnRunner: features.memory=false sends no <lore> block, even with l
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(!userMessage.includes('<lore>'));
 });
 
@@ -652,7 +652,7 @@ test('createTurnRunner: features.videoDescriptions on -- videos newest first, ca
   );
   assert.equal(items[1].itemId, 'va');
   assert.deepEqual(options, { maxNew: 1 }, 'every describer request counts: no daily-cap option is passed');
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   const watched = labels.transcript.videoWatched
     .replace('{name}', 'older.mp4')
     .replace('{duration}', '0:20')
@@ -711,7 +711,7 @@ test('createTurnRunner: features.mediaDescriptions on describes an un-attached p
   assert.equal(describer.calls.length, 1);
   assert.equal(describer.calls[0].items[0].itemId, 'img1');
   assert.equal(describer.calls[0].options.maxNew, 6);
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(userMessage.includes(labels.transcript.imageDescribed.replace('{text}', 'a grey cat')));
 });
 
@@ -760,8 +760,7 @@ function attachedPictureTurn({ features, media, newer = false }) {
 }
 
 function userText(llm) {
-  const content = llm.calls[0][1].content;
-  return Array.isArray(content) ? content.filter((p) => p.type === 'text').map((p) => p.text).join('\n') : content;
+  return textOf(llm.calls[0][1].content);
 }
 
 test('createTurnRunner: features.attachedDescriptions on -- an attached picture is described and its caption sits with the marker', async () => {
@@ -771,7 +770,7 @@ test('createTurnRunner: features.attachedDescriptions on -- an attached picture 
 
   assert.equal(describer.calls.length, 1);
   assert.deepEqual(describer.calls[0].items.map((item) => item.itemId), ['i1']);
-  assert.ok(Array.isArray(llm.calls[0][1].content), 'the picture is still attached as an image_url part');
+  assert.ok(llm.calls[0][1].content.some((p) => p.type === 'image_url'), 'the picture is still attached as an image_url part');
   const text = userText(llm);
   assert.ok(text.includes(labels.transcript.imageAttachedDescribed.replace('{n}', '1').replace('{text}', 'a grey cat')));
 });
@@ -821,7 +820,7 @@ test('createTurnRunner: features.mediaDescriptions on describes a picture-format
 
   assert.equal(describer.calls.length, 1);
   assert.equal(describer.calls[0].items[0].itemId, 'sticker:s1');
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(
     userMessage.includes(labels.transcript.stickerDescribed.replace('{name}', 'pepe').replace('{text}', 'a frog gives a thumbs up')),
   );
@@ -840,7 +839,7 @@ test('createTurnRunner: features.mediaDescriptions on describes a custom emoji i
 
   assert.equal(describer.calls.length, 1);
   assert.equal(describer.calls[0].items[0].itemId, 'emoji:111');
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(userMessage.includes('nice :pog: job'));
   assert.ok(userMessage.includes(labels.transcript.emojiDescribed.replace('{name}', 'pog').replace('{text}', 'a surprised cat face')));
 });
@@ -962,7 +961,7 @@ test('createTurnRunner: a text attachment is fetched lazily and rendered via fil
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
   assert.equal(fetchedUrl, 'https://cdn/notes.txt');
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(userMessage.includes(labels.transcript.filePreview.replace('{name}', 'notes.txt').replace('{text}', 'the file says hello')));
 });
 
@@ -982,7 +981,7 @@ test('createTurnRunner: a text-attachment fetch failure falls back to the plain 
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
-  const userMessage = llm.calls[0][1].content;
+  const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(userMessage.includes(labels.transcript.file.replace('{name}', 'notes.txt')));
 });
 
@@ -1042,14 +1041,15 @@ test('createTurnRunner: a 4xx image error (download succeeded, the provider itse
   assert.equal(llm.calls.length, 2, 'the first (image) attempt and the text-only retry');
 
   const firstUser = llm.calls[0][1].content;
-  assert.ok(Array.isArray(firstUser), 'the first attempt carries image_url parts');
+  assert.ok(firstUser.some((p) => p.type === 'image_url'), 'the first attempt carries image_url parts');
   const firstText = firstUser.find((p) => p.type === 'text').text;
   assert.ok(firstText.includes(labels.transcript.frameAttached.replace('{n}', '1')));
   const firstImage = firstUser.find((p) => p.type === 'image_url');
   assert.ok(firstImage.image_url.url.startsWith('data:'), 'the downloaded picture is sent as a data: URL, never the bare CDN URL');
 
-  const secondUser = llm.calls[1][1].content;
-  assert.equal(typeof secondUser, 'string', 'the retry sends plain text, no image_url parts');
+  const secondParts = llm.calls[1][1].content;
+  assert.ok(Array.isArray(secondParts) && secondParts.every((p) => p.type === 'text'), 'the retry sends text parts only, no image_url parts');
+  const secondUser = textOf(secondParts);
   assert.ok(secondUser.includes('[video: clip.mp4, 0:34]'), 'the video still renders in its blind form');
   assert.ok(!secondUser.includes('still frame'), 'frameAttached must not survive into the text-only retry');
 });
@@ -1076,7 +1076,30 @@ test('createTurnRunner: a 429 with pictures attached -- no text-only resend, the
 
   assert.equal(result.outcome, 'error');
   assert.equal(llm.calls.length, 1, 'the model is called once, never resent text-only');
-  assert.ok(Array.isArray(llm.calls[0][1].content), 'the one call carried the pictures');
+  assert.ok(llm.calls[0][1].content.some((p) => p.type === 'image_url'), 'the one call carried the pictures');
+  assert.equal(channel.sent.length, 0);
+});
+
+test('createTurnRunner: a 4xx with no pictures in the request -- nothing to strip, so no resend, the turn ends in error', async () => {
+  const raw = rawMessage({ id: 'm1', content: 'hello there' });
+  const channel = fakeTurnChannel({ historyMessages: [raw] });
+  const llm = fakeLlmRejectingImagesOnce(400, '<msg>never posted</msg>');
+  const turns = createTurnRunner({
+    hot: fakeHot({}),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    imageFetcher: fakeImageFetcher(),
+  });
+
+  const { result } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }),
+  );
+
+  assert.ok(llm.calls[0][1].content.every((p) => p.type === 'text'), 'the request carried no picture');
+  assert.equal(result.outcome, 'error');
+  assert.equal(llm.calls.length, 1, 'the model is called once, never resent');
   assert.equal(channel.sent.length, 0);
 });
 
@@ -1128,8 +1151,9 @@ test('createTurnRunner: a failed download drops EVERY picture of the turn -- sen
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' });
 
   assert.equal(result.outcome, 'spoke');
-  const userContent = llm.calls[0][1].content;
-  assert.equal(typeof userContent, 'string', 'no image_url parts must be sent once any download failed');
+  const parts = llm.calls[0][1].content;
+  assert.ok(parts.every((p) => p.type === 'text'), 'no image_url parts must be sent once any download failed');
+  const userContent = textOf(parts);
   assert.ok(userContent.includes('[video: clip.mp4, 0:34]'), 'the video renders in its blind form');
   assert.ok(!userContent.includes('still frame'), 'frameAttached must not survive a dropped picture');
 });
@@ -1163,8 +1187,9 @@ test('createTurnRunner: with two pictures, one failed download drops BOTH -- nev
   const result = await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
 
   assert.equal(result.outcome, 'spoke');
-  const userContent = llm.calls[0][1].content;
-  assert.equal(typeof userContent, 'string', 'both pictures must be dropped, not just the failed one');
+  const parts = llm.calls[0][1].content;
+  assert.ok(parts.every((p) => p.type === 'text'), 'both pictures must be dropped, not just the failed one');
+  const userContent = textOf(parts);
   assert.ok(
     !userContent.includes(labels.transcript.imageAttached.replace('{n}', '1')) &&
       !userContent.includes(labels.transcript.imageAttached.replace('{n}', '2')),
@@ -1526,7 +1551,7 @@ test('createTurnRunner: rewatch -- the classifier gets the watched videos and th
   assert.equal(llm.classifierCalls.length, 1);
   const { messages, options } = llm.classifierCalls[0];
   assert.equal(messages[0].content, 'Pick the video the message to Bot asks about; Bot saw them.', '{{name}} is the persona\'s display name');
-  const [transcriptPart, videosPart] = messages[1].content.split('\n<media>\n');
+  const [transcriptPart, videosPart] = textOf(messages[1].content).split('\n<media>\n');
   assert.ok(transcriptPart.startsWith('<transcript>\n') && transcriptPart.endsWith('\n</transcript>'), 'the transcript comes first');
   assert.equal(
     `<media>\n${videosPart}`,
@@ -1542,7 +1567,7 @@ test('createTurnRunner: rewatch -- the classifier gets the watched videos and th
   assert.equal(describer.rewatchCalls.length, 1);
   assert.equal(describer.rewatchCalls[0].item.itemId, 'va');
   assert.equal(describer.rewatchCalls[0].question, 'τι χρώμα;');
-  const userMessage = llm.turnCalls[0].messages[1].content;
+  const userMessage = textOf(llm.turnCalls[0].messages[1].content);
   const watched = fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:20', text: 'ένα αυτοκίνητο περνά' });
   const answered = fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' });
   assert.ok(userMessage.includes(`${watched} ${answered}`), 'the answer follows the watched tag');
@@ -1574,7 +1599,7 @@ test('createTurnRunner: rewatch -- none, garbage, an unknown id or a classifier 
     assert.equal(llm.classifierCalls.length, 1);
     assert.equal(describer.rewatchCalls.length, 0, String(reply));
     assert.equal(llm.turnCalls.length, 1, 'the turn itself still runs');
-    assert.ok(!llm.turnCalls[0].messages[1].content.includes('looked again'));
+    assert.ok(!textOf(llm.turnCalls[0].messages[1].content).includes('looked again'));
   }
 });
 
@@ -1608,7 +1633,7 @@ test('createTurnRunner: rewatch -- a second look that returns null leaves the vi
   const describer = fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } }, null);
   const { llm } = await runRewatch({ describer });
   assert.equal(describer.rewatchCalls.length, 1);
-  const userMessage = llm.turnCalls[0].messages[1].content;
+  const userMessage = textOf(llm.turnCalls[0].messages[1].content);
   assert.ok(userMessage.includes(fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:20', text: 'ένα αυτοκίνητο περνά' })));
   assert.ok(!userMessage.includes('looked again'));
 });
@@ -1707,7 +1732,7 @@ test('createTurnRunner: rewatch -- <id> | retry on a video that did not load tri
   assert.equal(describer.retryCalls[0].item.itemId, 'va');
   assert.equal(describer.retryCalls[0].options.force, true);
   assert.equal(describer.rewatchCalls.length, 0, 'the retry is the one re-watch of this turn');
-  const userMessage = result.llm.turnCalls[0].messages[1].content;
+  const userMessage = textOf(result.llm.turnCalls[0].messages[1].content);
   assert.ok(userMessage.includes(fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:20', text: 'τώρα φορτώνει' })));
   assert.ok(!userMessage.includes('not watched'));
   const line = logs.find((entry) => entry.msg === 'rewatch: classified');
@@ -1719,7 +1744,7 @@ test('createTurnRunner: rewatch -- a retry that fails again replaces the state w
   const describer = fakeRetryDescriber({ va: { state: 'error' } }, { state: 'limit', reason: 'size' });
   const { llm } = await runRewatch({ describer, llm: rewatchLlm('1 | retry') });
   assert.equal(describer.retryCalls.length, 1);
-  const userMessage = llm.turnCalls[0].messages[1].content;
+  const userMessage = textOf(llm.turnCalls[0].messages[1].content);
   const reason = labels.transcript.videoReason.size;
   assert.ok(userMessage.includes(fill(labels.transcript.videoNotWatched, { name: 'clip.mp4', duration: '0:20', reason })));
 });
@@ -1890,7 +1915,7 @@ test('createTurnRunner: relook -- a claimed detail of a recent picture picks it;
   assert.equal(describer.relookCalls[0].item.itemId, 'pa');
   assert.equal(describer.relookCalls[0].question, 'y a-t-il un chargeur dans la pupille ?');
   assert.equal(describer.rewatchCalls.length, 0);
-  const userMessage = llm.turnCalls[0].messages[1].content;
+  const userMessage = textOf(llm.turnCalls[0].messages[1].content);
   const tag = fill(labels.transcript.imageAnswered, { question: 'y a-t-il un chargeur dans la pupille ?', text: 'pas de chargeur, un reflet de la fenêtre' });
   assert.ok(userMessage.includes(`${fill(labels.transcript.imageDescribed, { text: 'deux singes sur une branche' })} ${tag}`), 'the answer sits right after the picture tag');
 });
@@ -1934,7 +1959,7 @@ test('createTurnRunner: relook -- imageRelook or vision off removes the pictures
     assert.equal(describer.rewatchCalls.length, 1);
     assert.equal(describer.rewatchCalls[0].item.itemId, 'va');
     assert.equal(describer.relookCalls.length, 0);
-    assert.ok(llm.turnCalls[0].messages[1].content.includes(fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' })));
+    assert.ok(textOf(llm.turnCalls[0].messages[1].content).includes(fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' })));
   }
 });
 
@@ -2047,7 +2072,7 @@ test('createTurnRunner: rewatch -- a watched GIF is offered as a watched video a
   assert.equal(line.picked, true);
   assert.ok(!JSON.stringify(logs).includes('miroir'), 'never the question or the caption');
   const tag = fill(labels.transcript.videoAnswered, { question: 'qui est dans le miroir à la fin ?', text: 'une autre femme dans le miroir' });
-  assert.ok(llm.turnCalls[0].messages[1].content.includes(tag), 'the answer sits in the transcript as a video answer');
+  assert.ok(textOf(llm.turnCalls[0].messages[1].content).includes(tag), 'the answer sits in the transcript as a video answer');
 });
 
 test('createTurnRunner: rewatch -- a GIF that was not watched, GIF watching off or videoRewatch off offers no GIF', async () => {
@@ -2094,7 +2119,7 @@ test('createTurnRunner: rewatch -- a watched video and a watched GIF: the video 
   assert.equal(describer.rewatchCalls.length, 1);
   assert.equal(describer.rewatchCalls[0].item.itemId, 'va');
   assert.equal(describer.gifRewatchCalls.length, 0);
-  assert.ok(llm.turnCalls[0].messages[1].content.includes(fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' })));
+  assert.ok(textOf(llm.turnCalls[0].messages[1].content).includes(fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' })));
 });
 
 // ---------------------------------------------------------------------------
@@ -2198,7 +2223,7 @@ test('createTurnRunner: lookup -- readable links (no video site, no gif) go to r
   assert.deepEqual(links.map((l) => l.id), ['m1#e0']);
   assert.equal(links[0].url, 'https://example.org/a');
   assert.equal(options.maxNew, 2);
-  const userMessage = llm.turnCalls[0].messages[1].content;
+  const userMessage = textOf(llm.turnCalls[0].messages[1].content);
   assert.ok(userMessage.includes('[link: example.org — Crêpes] [page read: une recette, trois œufs]'), userMessage);
 });
 
@@ -2221,7 +2246,7 @@ test('createTurnRunner: lookup -- the classifier gets the transcript and the can
   assert.equal(llm.classifierCalls.length, 1);
   const { messages, options } = llm.classifierCalls[0];
   assert.equal(messages[0].content, 'Decide whether Bot needs to look something up.');
-  const user = messages[1].content;
+  const user = textOf(messages[1].content);
   assert.ok(user.startsWith('<transcript>\n'));
   assert.ok(user.includes('[page read: une recette]'), 'the classifier transcript carries the reads');
   assert.ok(user.endsWith('</transcript>\n<candidate>\nZoë: ποιος κέρδισε τον τελικό;\n</candidate>'), user);
@@ -2233,7 +2258,7 @@ test('createTurnRunner: lookup -- the classifier gets the transcript and the can
   assert.equal(options.purpose, 'lookup');
 
   assert.deepEqual(lookup.searchCalls, [{ guildId: 'g1', query: 'champions final winner 2026' }]);
-  const turnUser = llm.turnCalls[0].messages[1].content;
+  const turnUser = textOf(llm.turnCalls[0].messages[1].content);
   const block = [
     fill(labels.lookup.header, { query: 'champions final winner 2026' }),
     'ευρήματα',
@@ -2278,7 +2303,7 @@ test('createTurnRunner: lookup -- none, an empty answer or a classifier error ->
     const { llm, result } = await runLookupTurn({ llm: lookupLlm(answer), lookup });
     assert.equal(result.outcome, 'spoke');
     assert.equal(lookup.searchCalls.length, 0);
-    assert.ok(!llm.turnCalls[0].messages[1].content.includes('\n<lookup>\n'));
+    assert.ok(!textOf(llm.turnCalls[0].messages[1].content).includes('\n<lookup>\n'));
   }
 });
 
@@ -2286,7 +2311,7 @@ test('createTurnRunner: lookup -- a search returning null leaves no <lookup> blo
   const lookup = fakeLookup({ searchResult: null });
   const { llm } = await runLookupTurn({ llm: lookupLlm('x y'), lookup });
   assert.equal(lookup.searchCalls.length, 1);
-  assert.ok(!llm.turnCalls[0].messages[1].content.includes('\n<lookup>\n'));
+  assert.ok(!textOf(llm.turnCalls[0].messages[1].content).includes('\n<lookup>\n'));
 });
 
 test('createTurnRunner: lookup -- only on a direct address: a spontaneous turn reads links but never classifies', async () => {
@@ -2339,7 +2364,7 @@ test('createTurnRunner: lookup -- features.webLookup off -> zero lookup calls an
 test('createTurnRunner: lookup -- senses.search reaches the request only when lookup.hasSearch() is true', async () => {
   for (const hasKey of [true, false]) {
     const { llm } = await runLookupTurn({ lookup: fakeLookup({ hasKey }) });
-    const user = llm.turnCalls[0].messages[1].content;
+    const user = textOf(llm.turnCalls[0].messages[1].content);
     assert.equal(user.includes(labels.senses.search), hasKey);
     assert.ok(user.includes(labels.senses.linksRead), 'reading links needs no search key');
   }
@@ -2383,7 +2408,7 @@ async function runRecallTurn({ hot = lookupHot(), llm, lookup = fakeLookup(), re
 
 /** The `<lookup>` block of the turn's request, or null. */
 function turnLookupOf(llm) {
-  const match = /<lookup>\n([\s\S]*?)\n<\/lookup>/.exec(llm.turnCalls[0].messages[1].content);
+  const match = /<lookup>\n([\s\S]*?)\n<\/lookup>/.exec(textOf(llm.turnCalls[0].messages[1].content));
   return match ? match[1] : null;
 }
 
@@ -2534,7 +2559,7 @@ test('createTurnRunner: recall -- a recall that found nothing leaves no server p
 });
 
 test('createTurnRunner: recall -- senses.recall reaches the request only on a server turn where the runner is available', async () => {
-  const sensesHas = ({ llm }) => llm.turnCalls[0].messages[1].content.includes(labels.senses.recall);
+  const sensesHas = ({ llm }) => textOf(llm.turnCalls[0].messages[1].content).includes(labels.senses.recall);
   const throwing = { ...fakeRecall(), available: () => { throw new Error('boom'); } };
   const noRun = { available: () => true };
   const cases = [
@@ -2636,7 +2661,7 @@ async function runDrawTurn({ answers, hot = drawHot(), images = fakeImages(), cl
 }
 
 function userTextOf(messages) {
-  const content = messages[1].content;
+  const content = textOf(messages[1].content);
   return Array.isArray(content) ? content.find((part) => part.type === 'text').text : content;
 }
 
@@ -3170,7 +3195,7 @@ test('runTurn: a guild turn never carries the private prompt or the private sens
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
-  const user = llm.calls[0][1].content;
+  const user = textOf(llm.calls[0][1].content);
   assert.ok(!user.includes('PRIVATE_TASK'));
   assert.ok(!user.includes(labels.senses.privateChat));
   assert.ok(user.includes(labels.senses.privateAware));
@@ -3366,7 +3391,7 @@ test('createTurnRunner: the request carries <emoji> ranked by guild.emojiUsage, 
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
-  const user = llm.calls[0][1].content;
+  const user = textOf(llm.calls[0][1].content);
   const text = Array.isArray(user) ? user.find((part) => part.type === 'text').text : user;
   const block = /<emoji>\n([\s\S]*?)\n<\/emoji>/.exec(text);
   assert.ok(block, 'an <emoji> block is sent');
@@ -4310,7 +4335,7 @@ test("runTurn: a routed call's pictures are captioned through the pull, never as
   await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
   assert.deepEqual(callsFor(describer, 'cp1').map((call) => call.options), [{ maxNew: 1 }]);
-  assert.equal(Array.isArray(scene.llm.calls[0][1].content), false, 'nothing is attached for vision');
+  assert.equal(scene.llm.calls[0][1].content.some((p) => p.type === 'image_url'), false, 'nothing is attached for vision');
   assert.ok(channelViewOf(scene.llm).includes('caption of cp1'));
 });
 
@@ -5625,7 +5650,7 @@ test('runTurn: the re-watch classifier is not asked when no video slot is left; 
   scene.channel = fakeTurnChannel({ historyMessages: [broken, scene.video, scene.trigger] });
   const offered = await withCapturedLogs(() => runRewatch({ describer: retry, scene, llm: rewatchLlm('none') }));
   const [call] = offered.result.llm.classifierCalls;
-  const videos = call.messages[1].content.split('<media>\n')[1].split('\n</media>')[0];
+  const videos = textOf(call.messages[1].content).split('<media>\n')[1].split('\n</media>')[0];
   assert.deepEqual(videos.split('\n').map((line) => line.split(' | ')[2]), ['broken.mp4'], 'only the video that did not load');
 });
 
@@ -6066,7 +6091,7 @@ test('runTurn: a search the classifier asks for moves the deadline to pace.prepa
   search.resolve();
   const { logs } = await running;
 
-  assert.ok(base.turnCalls[0].messages[1].content.includes('<lookup>'), 'the search arrived in time');
+  assert.ok(textOf(base.turnCalls[0].messages[1].content).includes('<lookup>'), 'the search arrived in time');
   const timings = logs.find((l) => l.msg === 'turn: timings');
   assert.deepEqual(timings.late, []);
   assert.equal(timings.stages.lookup, 500);
@@ -6122,7 +6147,7 @@ test('runTurn: a search classifier slower than pace.prepareMs holds the deadline
   const { result, logs } = await running;
 
   assert.equal(result.outcome, 'spoke');
-  assert.ok(scene.base.turnCalls[0].messages[1].content.includes('ευρήματα'), 'the search arrived in time');
+  assert.ok(textOf(scene.base.turnCalls[0].messages[1].content).includes('ευρήματα'), 'the search arrived in time');
   assert.deepEqual(logs.find((l) => l.msg === 'turn: timings').late, []);
   assert.ok(!logs.some((l) => l.msg === 'turn: stage late' && l.stage === 'lookup'));
   assert.ok(scene.timers.timers.every((timer) => !timer.fired || timer === first), 'only the base deadline fired');
@@ -6142,7 +6167,7 @@ test('runTurn: a slow search classifier answering no search lets the request go 
   const timings = logs.find((l) => l.msg === 'turn: timings');
   assert.equal(timings.prepareMs, 1500, 'the request is built when the verdict arrives');
   assert.deepEqual(timings.late, []);
-  assert.ok(!scene.base.turnCalls[0].messages[1].content.includes('ευρήματα'));
+  assert.ok(!textOf(scene.base.turnCalls[0].messages[1].content).includes('ευρήματα'));
 });
 
 test('runTurn: a search classifier slower than pace.prepareSearchMs is left out at pace.prepareSearchMs', async () => {
@@ -6155,7 +6180,7 @@ test('runTurn: a search classifier slower than pace.prepareSearchMs is left out 
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(scene.base.turnCalls.length, 1);
-  assert.ok(!scene.base.turnCalls[0].messages[1].content.includes('ευρήματα'), 'went out without the search');
+  assert.ok(!textOf(scene.base.turnCalls[0].messages[1].content).includes('ευρήματα'), 'went out without the search');
   const timings = logs.find((l) => l.msg === 'turn: timings');
   assert.equal(timings.prepareMs, TEST_PACE.prepareSearchMs);
   assert.deepEqual(timings.late, ['lookup']);
@@ -6701,7 +6726,7 @@ async function runSplitTurn({ hot = splitHot(), llm = splitLlm(), content = SPLI
 
 /** The `<candidate>` text a classifier request carried. */
 function candidateOf(call) {
-  return /<candidate>\n[^:]*: ([\s\S]*?)\n<\/candidate>/.exec(call.messages[1].content)?.[1] ?? null;
+  return /<candidate>\n[^:]*: ([\s\S]*?)\n<\/candidate>/.exec(textOf(call.messages[1].content))?.[1] ?? null;
 }
 
 /** The `<task>` block of a talk request. */
@@ -6745,7 +6770,7 @@ test('runTurn: the splitter request fills split.md and carries the transcript an
   const { llm } = await runSplitTurn({ llm: splitLlm({ split: 'one' }) });
   const [call] = llm.calls.split;
   assert.equal(call.messages[0].content, fillPromptTemplate(SPLIT_SYSTEM, { name: 'Bot', maxTasks: 4 }));
-  assert.ok(call.messages[1].content.startsWith('<transcript>\n'));
+  assert.ok(textOf(call.messages[1].content).startsWith('<transcript>\n'));
   assert.equal(candidateOf(call), SPLIT_TEXT);
   assert.deepEqual([call.options.role, call.options.purpose, call.options.maxOutputTokens, call.options.helper], ['classifier.text', 'split', 50, true]);
 });
@@ -7110,10 +7135,11 @@ test('runTurn: a short reply is shown with the whole captioned library; a picked
   assert.deepEqual(system, { role: 'system', content: 'Pick a GIF for what Bot wrote.' });
   const blocks = user.content.split('\n\n');
   assert.equal(blocks.length, 3);
-  assert.match(blocks[0], /^<context>\n[\s\S]*καλημέρα[\s\S]*θα έρθεις απόψε;\n<\/context>$/, 'the last contextMessages lines as the transcript renders them');
+  assert.match(blocks[1], /^<context>\n[\s\S]*καλημέρα[\s\S]*θα έρθεις απόψε;\n<\/context>$/, 'the last contextMessages lines as the transcript renders them');
   const marker = fill(labels.transcript.replyTo, { index: 2, author: 'Alice', quote: 'θα έρθεις απόψε;' });
-  assert.equal(blocks[1], `<reply>\n${marker} ναι, φυσικά, έλα\n</reply>`, 'the reply names the line it answers');
-  const gifLines = blocks[2].replace(/^<gifs>\n/, '').replace(/\n<\/gifs>$/, '').split('\n');
+  assert.equal(blocks[2], `<reply>\n${marker} ναι, φυσικά, έλα\n</reply>`, 'the reply names the line it answers');
+  assert.ok(blocks[0].startsWith('<gifs>\n') && blocks[2].endsWith('</reply>'), 'the library leads the request, the reply ends it');
+  const gifLines = blocks[0].replace(/^<gifs>\n/, '').replace(/\n<\/gifs>$/, '').split('\n');
   assert.equal(gifLines.length, PICK_LIBRARY_SIZE, 'the whole library, not a top slice');
   assert.deepEqual([gifLines[0], gifLines.at(-1)], ['g1 -- λεζάντα 1', 'g50 -- λεζάντα 50'], 'in rank order');
   const { options } = picks[0];
@@ -7210,7 +7236,7 @@ test('runTurn: the picker\'s context brings in an older answered trigger, first,
   const raws = laterLinesHistory();
   const { picks } = await runPickTurn({ raws, triggerRaw: raws[1], reply: '<msg>ναι, φυσικά</msg>' });
   assert.equal(picks.length, 1);
-  const [context, reply] = picks[0].messages[1].content.split('\n\n');
+  const [, context, reply] = picks[0].messages[1].content.split('\n\n');
   assert.match(context, /^<context>\n[^#\n]*\n#1 [^\n]*Alice: θα έρθεις απόψε;\n#2 [^\n]*κι εγώ ρωτάω\n#3 [^\n]*λοιπόν;\n<\/context>$/, 'the answered line with its author, then the last two lines');
   const marker = fill(labels.transcript.replyTo, { index: 1, author: 'Alice', quote: 'θα έρθεις απόψε;' });
   assert.equal(reply, `<reply>\n${marker} ναι, φυσικά\n</reply>`);
@@ -7219,7 +7245,7 @@ test('runTurn: the picker\'s context brings in an older answered trigger, first,
 test('runTurn: the picker names the line the first message replies to, when it is not the last', async () => {
   const raws = laterLinesHistory();
   const { picks } = await runPickTurn({ raws, reply: '<msg reply="#3">χα, ναι</msg>' });
-  const [context, reply] = picks[0].messages[1].content.split('\n\n');
+  const [, context, reply] = picks[0].messages[1].content.split('\n\n');
   assert.match(context, /^<context>\n[^#\n]*\n#1 [^\n]*κι εγώ ρωτάω\n#2 [^\n]*λοιπόν;\n<\/context>$/);
   const marker = fill(labels.transcript.replyTo, { index: 1, author: 'Zoé', quote: 'κι εγώ ρωτάω' });
   assert.equal(reply, `<reply>\n${marker} χα, ναι\n</reply>`);
@@ -7229,7 +7255,7 @@ test('runTurn: with several messages a picked GIF replaces the first one only; t
   const reply = '<msg reply="#2">χα</msg><msg>και κάτι ακόμα πιο μακρύ από είκοσι</msg><msg>τέλος</msg>';
   const { picks, sent, channel, store } = await runPickTurn({ reply, pick: 'g50' });
   assert.equal(picks.length, 1, 'only the first message counts toward gifs.pick.maxChars');
-  assert.equal(picks[0].messages[1].content.split('\n\n')[1].endsWith(' χα\n</reply>'), true, 'the picker sees the message it would replace');
+  assert.equal(picks[0].messages[1].content.split('\n\n')[2].endsWith(' χα\n</reply>'), true, 'the picker sees the message it would replace');
   assert.deepEqual(sent(), ['https://tenor.com/view/gif-50', 'και κάτι ακόμα πιο μακρύ από είκοσι', 'τέλος']);
   assert.equal(channel.sent[0].reply.messageReference, 'm1', 'the GIF replies where the first message would have');
   assert.deepEqual(store.ownGifs.map((own) => own.key), ['k50']);
@@ -7308,7 +7334,7 @@ async function runReplyParentTurn({ hot = replyParentHot(), historyMessages, sto
   const describer = fakeVideoDescriber({});
   const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' }));
-  return { result, logs, channel, describer, userMessage: llm.calls[0]?.[1].content };
+  return { result, logs, channel, describer, userMessage: textOf(llm.calls[0]?.[1].content) };
 }
 
 test('createTurnRunner: a trigger replying outside the window -- its parent is fetched, prepended, rendered as the reply target, and its link reaches the video stage', async () => {

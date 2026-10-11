@@ -371,6 +371,8 @@ const countOrZero = (value) => (typeof value === 'number' && Number.isFinite(val
 // Every reply re-sends the same system message, and tokens read from a provider's prompt cache
 // cost a fraction of fresh input (and, on some providers, nothing against the account's quota of
 // the day). `complete()` is the one policy point: it puts a cache marker on the system message
+// (and on the user text parts a builder tagged with a neutral `cacheSegment`: the reply's stable
+// prefix and its profiles, see `withCacheMarker`)
 // for the roles `llm.cache.roles` lists, on the model families `llm.cache.models` lists, while
 // `features.promptCache` is on, AFTER the token estimate was taken, so the 50k rail and the
 // calibration see exactly what they saw without it. The model gate exists because the engine is
@@ -379,6 +381,8 @@ const countOrZero = (value) => (typeof value === 'number' && Number.isFinite(val
 
 /** The part field OpenRouter reads a cache breakpoint from. */
 const CACHE_CONTROL = 'cache_control';
+/** The neutral part field a request builder tags a cacheable text part with (src/behavior/prompt.js); never sent. */
+const CACHE_SEGMENT = 'cacheSegment';
 /** Breakpoints a provider accepts per request; markers past the first four are dropped. */
 const MAX_CACHE_MARKERS = 4;
 /** `llm.cache.roles` when it is not an array: config.json's value. */
@@ -415,6 +419,20 @@ export function cacheTtlFor(config, role, model, force) {
   return listed ? ttl : null;
 }
 
+/**
+ * The TTL of the profiles segment's marker (`cacheSegment: 'profiles'`, see `withCacheMarker`):
+ * `config.llm.cache.profilesTtl` -- `'1h'` as it is, `null` or `false` -> null (no marker on that
+ * part), anything else (missing included) `'5m'`, config.json's value. Pure; the caller passes
+ * the live config read at the moment of use.
+ * @param {unknown} config  The whole live config.
+ * @returns {'1h'|'5m'|null}
+ */
+export function profilesTtlFor(config) {
+  const value = config?.llm?.cache?.profilesTtl;
+  if (value === null || value === false) return null;
+  return value === '1h' ? '1h' : '5m';
+}
+
 // The marker of one TTL, a fresh object per call: `5m` is the provider's default (no `ttl` key),
 // `1h` names itself. Anything else is no marker.
 function cacheMarkerFor(ttl) {
@@ -436,29 +454,42 @@ function lastTextPart(content) {
  * non-empty string content becomes one text part `{ type: 'text', text, cache_control }`, an
  * array content gets it on its last non-empty text part -- and every `cache_control` a builder
  * already placed on any part takes the same marker; only the first four markers in message order
- * survive, the rest are removed. Without a system message (or with an empty one) no marker is
- * added. With anything else (null): every `cache_control` on any part is removed and nothing else
- * changes (a string system content stays a string).
+ * survive, the rest are removed. A part a builder tagged with `cacheSegment` (the reply's user
+ * message, src/behavior/prompt.js#buildRequest) gets a marker too: `'stable'` the request's
+ * `ttl`, `'profiles'` `profilesTtl` (from `profilesTtlFor`; null -> none), never longer than a
+ * `'5m'` `ttl` (a longer TTL must not follow a shorter one); any other value none. The
+ * `cacheSegment` field itself is removed from every part in every case, so it never reaches the
+ * provider. Without a system message (or with an empty one) no marker is added to it. With
+ * anything else (null): every `cache_control` and every `cacheSegment` on any part is removed and
+ * nothing else changes (a string system content stays a string).
  * @param {object[]} messages  The caller's chat-completions messages.
  * @param {'1h'|'5m'|null} ttl From `cacheTtlFor`.
+ * @param {'1h'|'5m'|null} [profilesTtl] From `profilesTtlFor`; omitted -> no profiles marker.
  * @returns {object[]}
  */
-export function withCacheMarker(messages, ttl) {
+export function withCacheMarker(messages, ttl, profilesTtl = null) {
   if (!Array.isArray(messages)) return messages;
   const marker = cacheMarkerFor(ttl);
+  const segmentMarkers = {
+    stable: marker,
+    profiles: marker ? cacheMarkerFor(ttl === '5m' && profilesTtl ? '5m' : profilesTtl) : null,
+  };
   const systemAt = marker ? messages.findIndex((message) => isPlainObject(message) && message.role === 'system') : -1;
   let kept = 0;
-  // One part on its way out: the marker when it is the system breakpoint or already carried
-  // one, while fewer than four are placed; otherwise without any `cache_control`.
+  // One part on its way out: the request's marker when it is the system breakpoint or already
+  // carried one, its segment's marker when it is tagged with one, while fewer than four are
+  // placed; otherwise without any `cache_control`. Never with a `cacheSegment`.
   const settle = (part, breakpoint) => {
     const placed = Object.hasOwn(part, CACHE_CONTROL);
-    if (marker && (placed || breakpoint) && kept < MAX_CACHE_MARKERS) {
+    const tagged = Object.hasOwn(part, CACHE_SEGMENT);
+    const segmentMarker = tagged && Object.hasOwn(segmentMarkers, part[CACHE_SEGMENT]) ? segmentMarkers[part[CACHE_SEGMENT]] : null;
+    const wanted = marker && (placed || breakpoint) ? marker : segmentMarker;
+    const { [CACHE_CONTROL]: _removed, [CACHE_SEGMENT]: _segment, ...rest } = part;
+    if (wanted && kept < MAX_CACHE_MARKERS) {
       kept += 1;
-      return { ...part, [CACHE_CONTROL]: { ...marker } };
+      return { ...rest, [CACHE_CONTROL]: { ...wanted } };
     }
-    if (!placed) return part;
-    const { [CACHE_CONTROL]: _removed, ...rest } = part;
-    return rest;
+    return placed || tagged ? rest : part;
   };
   const sent = messages.map((message, index) => {
     if (!isPlainObject(message)) return message;
@@ -956,7 +987,9 @@ export function createLlm({
    * system text, so only the reply is marked. The marker (TTL
    * `llm.cache.ttl`) is placed on the system message by `withCacheMarker` after
    * the estimate and the token cap check, which always see the caller's
-   * `messages` as given.
+   * `messages` as given; so are the markers of the user parts tagged with a
+   * `cacheSegment` (`'stable'`: `llm.cache.ttl`, `'profiles'`:
+   * `llm.cache.profilesTtl`, see `profilesTtlFor`), and the tag is never sent.
    * `options.timeoutMs` overrides `llm.timeoutMs` for the request's abort
    * signal — the analyzer (a large batch, a long JSON answer) and the media
    * describer need more room than a chat reply's default.
@@ -1036,7 +1069,7 @@ export function createLlm({
       model,
       // The cache marker goes on only now: `raw` above was estimated from the caller's own
       // messages, and a marker is a JSON field, not prompt text.
-      messages: withCacheMarker(messages, cacheTtlFor(getConfig(), options.role, model, options.cache)),
+      messages: withCacheMarker(messages, cacheTtlFor(getConfig(), options.role, model, options.cache), profilesTtlFor(getConfig())),
       temperature: options.temperature ?? cfg.temperature,
       max_tokens: options.maxOutputTokens ?? cfg.maxOutputTokens,
     };

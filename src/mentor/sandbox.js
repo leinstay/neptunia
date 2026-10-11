@@ -24,7 +24,7 @@
 // The private layer is out of bounds: a view has no accessor for it and no
 // private chat is ever built.
 
-import { buildRequest } from '../behavior/prompt.js';
+import { buildRequest, userText as userTextOf } from '../behavior/prompt.js';
 import { isTaggedCall } from '../behavior/mention.js';
 import { MINUTE_MS } from '../time.js';
 import { pickOtherProfiles } from '../behavior/turn.js';
@@ -485,9 +485,9 @@ export async function answerReply({
     sandboxRequestInput({ view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable }),
   );
 
-  // No pictures: a user message with image parts is sent as its text-only re-render.
+  // No pictures: the whole user text as one string (the text-only re-render when any was attached).
   const [systemMessage, userMessage] = request.messages;
-  const userText = Array.isArray(userMessage.content) ? request.textFallback : userMessage.content;
+  const userText = userTextOf(request.textFallback ?? userMessage.content);
   // Samples 2..N repeat sample 1 exactly: the user part carries a cache breakpoint when the client caches the request.
   const cached = sampleCount(samples) > 1 && cacheTtlFor(config, REPLY_REQUEST.role, config.llm?.model) !== null;
   const userContent = cached ? [{ type: 'text', text: userText, cache_control: { ...USER_CACHE_MARKER } }] : userText;

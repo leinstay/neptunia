@@ -71,7 +71,7 @@
     "maxRequestsPerDay": 300,
     "provider": null,
     "providerByModel": {},
-    "cache": { "ttl": "1h", "roles": ["voice"], "models": ["anthropic/"], "promptIncludesCached": true },
+    "cache": { "ttl": "1h", "profilesTtl": "5m", "roles": ["voice"], "models": ["anthropic/"], "promptIncludesCached": true },
     "hedge": { "roles": ["classifier.text"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
   },
   "classifier": {

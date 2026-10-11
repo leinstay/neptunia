@@ -27,8 +27,12 @@
 //   7. neighbouring channels
 //   8. the server's custom emoji (`<emoji>`)
 //   9. the GIF library (`<gifs>`)
-// The rendered order is different: reference material first, the chat and the
-// task last, where the model attends best. A private chat (`privateChat`)
+// The rendered order is different, and laid out for the provider's prompt
+// cache: what changes least first, in three text parts -- the stable part
+// (`<self_facts>`, `<about_chat>`, `<gifs>`), the profiles (`<people>`), then
+// the tail that changes every turn, with the chat, the clock, the senses, the
+// tempo and the task last, where the model attends best (see assembleUser and
+// docs/prompt-contract.md, "Cache segments"). A private chat (`privateChat`)
 // drops the server map, the neighbouring channels and any pulled channel and
 // sees its partner through the public and private profiles merged
 // (src/behavior/private.js). Pictures of another channel are shown as
@@ -368,6 +372,22 @@ function renderAttitudes(profiles, labels, { max, skipIds }) {
 }
 
 /**
+ * A member's message count as a profile shows it (`labels.profile.messageCount`):
+ * rounded down to a multiple of 10 below 100 and of 100 from 100 up, so the
+ * line does not change with every message the member writes and the cached
+ * profiles of a request stay the same from turn to turn (docs/prompt-contract.md,
+ * "Cache segments"). 0 for anything that is not a positive number, and for a
+ * count below 10 -- no line then, as with no count at all. Pure.
+ * @param {unknown} count  `profile.messageCount`.
+ * @returns {number}
+ */
+function roundedMessageCount(count) {
+  if (!Number.isFinite(count) || count <= 0) return 0;
+  const step = count < 100 ? 10 : 100;
+  return Math.floor(count / step) * step;
+}
+
+/**
  * `renderProfile`'s text (`text`) and how many of the member's episodes it
  * shows (`episodes`): always the first that many in display order
  * (src/memory/episodes.js#topEpisodes), since a cap only ever drops the
@@ -438,7 +458,8 @@ function renderProfileShown(
     ? episodeLines(interlocutor ? profile.episodes : topEpisodes(profile.episodes, episodes.max), labels, nameOf)
     : [];
   if (!hasContent && interlocutor) restLines.push(p.unknown);
-  if (!compact && profile.messageCount) restLines.push(fill(p.messageCount, { count: profile.messageCount }));
+  const messagesShown = compact ? 0 : roundedMessageCount(profile.messageCount);
+  if (messagesShown) restLines.push(fill(p.messageCount, { count: messagesShown }));
 
   const mark = interlocutor && markInterlocutor ? p.interlocutorMark : '';
   const heading = `## ${name}${mark}`;
@@ -741,25 +762,54 @@ function seenEmoji(messageSets) {
  * `labels.gifs.entryFields`, an older one-line caption through
  * `labels.gifs.entry`, cut per field by `gifsCfg.reactionChars` /
  * `gifsCfg.actionChars` -- only here: the cached caption stays as stored --,
- * else `labels.gifs.entryNoText`, plus the own-post mark within
- * `gifsCfg.ownMarkHours`, default 24). `[]` when the library is empty or the
- * labels lack `header`/`entryNoText` (an older labels.json).
+ * else `labels.gifs.entryNoText`). A GIF the persona posted within
+ * `gifsCfg.ownMarkHours` (default 24; 0 = never) gets ` ` +
+ * `labels.gifs.ownMarkRecent` appended: no relative time, so the line changes
+ * only when the GIF enters or leaves that window (the GIF picker's list keeps
+ * `labels.gifs.ownMark` with the age, see gifLine); no mark without that label.
+ * `items` is `[]` when the library is empty or the labels lack
+ * `header`/`entryNoText` (an older labels.json). `marked` holds the marked
+ * lines: the budget keeps the list in rank order, and the request then renders
+ * those lines after the unmarked ones (ownMarkedLast).
  * @param {unknown} gifs            The library (store.getGifs).
  * @param {object|null} mediaCache  The describer cache (store.getMediaCache), read only.
  * @param {object} labels
  * @param {{ max?: number, halfLifeDays?: number, reactionChars?: number, actionChars?: number,
  *   ownMarkHours?: number }} [gifsCfg]  `config.gifs`.
  * @param {number} now
- * @returns {string[]}
+ * @returns {{ items: string[], marked: Set<string> }}
  */
 function gifItems(gifs, mediaCache, labels, gifsCfg, now) {
+  const marked = new Set();
   const g = labels.gifs;
-  if (!g?.header || !g.entryNoText) return [];
+  if (!g?.header || !g.entryNoText) return { items: [], marked };
   const max = Number.isInteger(gifsCfg?.max) && gifsCfg.max >= 0 ? gifsCfg.max : 40;
   const options = { ...gifFieldChars(gifsCfg), ownMarkHours: gifsCfg?.ownMarkHours ?? 24, now };
   const chosen = rankGifs(gifs, gifsCfg?.halfLifeDays ?? 30).slice(0, max);
-  if (chosen.length === 0) return [];
-  return [g.header, ...chosen.map((entry) => gifLine(entry, mediaCache, labels, options))];
+  if (chosen.length === 0) return { items: [], marked };
+  const lines = chosen.map((entry) => {
+    // The bare line, then the ageless own-post mark: no relative time in the cached stable part.
+    const line = gifLine(entry, mediaCache, labels, { ...options, ownMarkHours: 0 });
+    if (!g.ownMarkRecent || ownPostAge(entry, options) === null) return line;
+    const recent = `${line} ${g.ownMarkRecent}`;
+    marked.add(recent);
+    return recent;
+  });
+  return { items: [g.header, ...lines], marked };
+}
+
+/**
+ * `items` (a kept `<gifs>` list: the header, then entry lines in rank order)
+ * with the lines in `marked` moved after all the others, each group keeping
+ * its order. The header stays first. Pure.
+ * @param {string[]} items
+ * @param {Set<string>} marked
+ * @returns {string[]}
+ */
+function ownMarkedLast(items, marked) {
+  if (items.length < 2 || marked.size === 0) return items;
+  const [header, ...lines] = items;
+  return [header, ...lines.filter((line) => !marked.has(line)), ...lines.filter((line) => marked.has(line))];
 }
 
 /**
@@ -837,8 +887,9 @@ export function gifFieldsMap(mediaCache, chars) {
 }
 
 /**
- * One line of a GIF library entry, as the `<gifs>` section shows it (gifItems)
- * and the GIF picker lists it (src/behavior/gif-pick.js#renderGifLibrary): an
+ * One line of a GIF library entry, as the `<gifs>` section shows it (gifItems,
+ * with `ownMarkHours` 0: it adds its own ageless mark) and the GIF picker lists
+ * it (src/behavior/gif-pick.js#renderGifLibrary): an
  * entry described in three fields (gifFields) through `labels.gifs.entryFields`
  * (`{id}`, `{reaction}`, `{action}`, `{text}` = the on-screen text; empty
  * fields left out, see src/discord/format.js#fillGifFields); an older one-line caption (gifCaption,
@@ -864,14 +915,29 @@ export function gifLine(entry, mediaCache, labels, { reactionChars, actionChars,
     : text && g.entry
       ? fill(g.entry, { id: entry.id, text })
       : fill(g.entryNoText, { id: entry.id });
-  const markOn = Boolean(g.ownMark && labels.units) && Number.isFinite(ownMarkHours) && ownMarkHours > 0;
-  const age = Math.max(0, now - entry.ownLast);
-  if (!markOn || !(entry.ownLast > 0) || age > ownMarkHours * HOUR_MS) return line;
+  const age = g.ownMark && labels.units ? ownPostAge(entry, { ownMarkHours, now }) : null;
+  if (age === null) return line;
   return `${line} ${fill(g.ownMark, { ago: formatDuration(age, labels.units) })}`;
 }
 
+/** How long ago the persona posted `entry` when that is within `ownMarkHours` (0 = never) of `now`, else null. */
+function ownPostAge(entry, { ownMarkHours, now }) {
+  const age = Math.max(0, now - entry.ownLast);
+  if (!Number.isFinite(ownMarkHours) || ownMarkHours <= 0 || !(entry.ownLast > 0) || age > ownMarkHours * HOUR_MS) return null;
+  return age;
+}
+
 /**
- * Assemble the `<now>…<task>` user-message text from already-rendered parts.
+ * The user message's text parts from already-rendered blocks, in three cache
+ * segments (see docs/prompt-contract.md, "Cache segments"): the stable part
+ * (`cacheSegment: 'stable'`: `<self_facts>`, `<about_chat>`, `<gifs>`), the
+ * profiles (`cacheSegment: 'profiles'`: `<people>`), then the tail (no
+ * segment) with everything that changes from turn to turn, `<now>`,
+ * `<senses>`, `<tempo>` and `<task>` last. A segment with no block is left
+ * out; every part but the last ends with the blank line that separates
+ * blocks, so the parts' texts joined with nothing (userText) are the whole
+ * user text. `cacheSegment` is a neutral tag: src/llm/openrouter.js#withCacheMarker
+ * turns it into the provider's marker under the cache policy and never sends it.
  * Factored out so a fallback rendering (see `textFallback` below) can reuse
  * every block untouched except `<chat>`. `diary` (a diary post only): the
  * `<diary>` block's intro, shown above its kept lines, and the `<plan>` body.
@@ -879,20 +945,22 @@ export function gifLine(entry, mediaCache, labels, { reactionChars, actionChars,
  * an `imageAttached`/`frameAttached` tag (nothing of another channel is
  * attached); `<other_channels>` lines can, when they hold an item attached for
  * the chat (see `textFallback`).
+ * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
 function assembleUser({ now, timezone, labels, sensesText, kept, tempoText, task, chatItems, diary = null }) {
-  return [
-    block('now', formatNow(now, timezone, labels.locale)),
-    block('senses', sensesText),
-    block('about_chat', kept.aboutChat.join('\n')),
-    block('emoji', (kept.emoji ?? []).join('\n')),
-    block('gifs', (kept.gifs ?? []).join('\n')),
-    block('server', kept.server.join('\n\n')),
-    block('lore', kept.lore.join('\n\n')),
+  const stable = [
     block('self_facts', kept.self.join('\n')),
+    block('about_chat', kept.aboutChat.join('\n')),
+    // Own-marked entries last (ownMarkedLast).
+    block('gifs', (kept.gifs ?? []).join('\n')),
+  ];
+  const profiles = [block('people', [...kept.interlocutor, ...kept.people].join('\n\n'))];
+  const tail = [
+    block('server', kept.server.join('\n\n')),
+    block('emoji', (kept.emoji ?? []).join('\n')),
+    block('lore', kept.lore.join('\n\n')),
     // The last hours: one item, the header with the kept lines and moments, oldest first.
     block('recent', (kept.recent ?? []).join('\n')),
-    block('people', [...kept.interlocutor, ...kept.people].join('\n\n')),
     // The members the persona feels most strongly about that `<people>` does not describe.
     block('attitudes', (kept.attitudes ?? []).join('\n')),
     block('other_channels', kept.neighbors.join('\n\n')),
@@ -906,11 +974,41 @@ function assembleUser({ now, timezone, labels, sensesText, kept, tempoText, task
     // Right before the chat it answers a question from.
     block('lookup', (kept.lookup ?? []).join('\n')),
     block('chat', renderTranscript(chatItems, timezone, labels)),
+    // The present moment after the history it dates.
+    block('now', formatNow(now, timezone, labels.locale)),
+    block('senses', sensesText),
     block('tempo', tempoText),
     block('task', task),
+  ];
+  const segments = [
+    { blocks: stable, cacheSegment: 'stable' },
+    { blocks: profiles, cacheSegment: 'profiles' },
+    { blocks: tail, cacheSegment: null },
   ]
-    .filter(Boolean)
-    .join('\n\n');
+    .map(({ blocks, cacheSegment }) => ({ text: blocks.filter(Boolean).join('\n\n'), cacheSegment }))
+    .filter((segment) => segment.text);
+  return segments.map(({ text, cacheSegment }, i) => ({
+    type: 'text',
+    text: i < segments.length - 1 ? `${text}\n\n` : text,
+    ...(cacheSegment ? { cacheSegment } : {}),
+  }));
+}
+
+/**
+ * The whole text of a user message's content: a string as it is; an array of
+ * parts as its text parts' texts joined with nothing (assembleUser's parts
+ * carry their own separators, so this is exactly the user text the model
+ * reads); anything else ''. Pure.
+ * @param {unknown} content
+ * @returns {string}
+ */
+export function userText(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text)
+    .join('');
 }
 
 /**
@@ -1851,14 +1949,17 @@ export function usesFollowUpTask({ mode, triggerKind, taggedCall = null, routed 
  *   found; one piece, fitted right after `<lookup>`). They render after `<channel_view>` and before
  *   `<chat>`. `<world>` never renders outside a diary post.
  * @returns {{ messages: object[], stats: object, idByIndex: Map<number, string>, tempo: object,
- *   pictures: object[], textFallback: string|null, pulledIds: Map<string, string>,
+ *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
  *   pulledKept: { channelId: string, ids: string[], newestId: string, newestTs: number }[],
  *   peopleShown: { id: string, names: string[] }[],
  *   recent: { lines: number, episodes: number, cut: number, hidden: number, repeated: number,
  *     unnamed: number }|null }}
- *   `pictures` are the ones attached as image_url parts; `textFallback` is the same user message
- *   with every attached picture rendered blind or described (null when nothing is attached), for
- *   a provider that rejects them. `idByIndex` maps chat AND pulled indices; `pulledIds` maps
+ *   The user message's content is always an array: its text parts (assembleUser: the stable
+ *   part, the profiles and the tail, each tagged with its `cacheSegment` but the tail; an empty
+ *   one left out), then one image_url part per attached picture; userText reads its whole text.
+ *   `pictures` are the ones attached as image_url parts; `textFallback` is the same text parts
+ *   with every attached picture rendered blind or described and no image part (null when nothing
+ *   is attached), for a provider that rejects them. `idByIndex` maps chat AND pulled indices; `pulledIds` maps
  *   every pulled line's message id to its channel id (the output side reacts there, never
  *   replies across channels); `pulledKept` lists the channels whose block survived the budget,
  *   with the ids of the lines shown and the newest window line shown. `peopleShown` lists the
@@ -2447,6 +2548,7 @@ export function buildRequest(input) {
     const skipIds = new Set([interlocutorId, ...peopleKept.map((profile) => memberIdOf(profile?.id))].filter((id) => id !== null));
     attitudesText = renderAttitudes(input.candidateProfiles, labels, { max: attitudesMax, skipIds });
   }
+  const gifList = gifsOn ? gifItems(gifLibrary, input.mediaCache ?? null, labels, config.gifs, now) : { items: [], marked: new Set() };
   const budgetFit = fitSections(
     [
       ...aheadOfPeople,
@@ -2472,7 +2574,7 @@ export function buildRequest(input) {
         name: 'gifs',
         cap: caps.gifs ?? 900,
         keep: 'first',
-        items: gifsOn ? gifItems(gifLibrary, input.mediaCache ?? null, labels, config.gifs, now) : [],
+        items: gifList.items,
       },
     ],
     limit,
@@ -2485,6 +2587,8 @@ export function buildRequest(input) {
   // The header alone, or entries without their header, make no block.
   if (kept.emoji.length < 2 || kept.emoji[0] !== labels.emoji?.header) kept.emoji = [];
   if (kept.gifs.length < 2 || kept.gifs[0] !== labels.gifs?.header) kept.gifs = [];
+  // The budget kept the GIFs in rank order; the ones carrying the own-post mark render last.
+  kept.gifs = ownMarkedLast(kept.gifs, gifList.marked);
   if (askedLeftOut > 0) stats.people = { ...stats.people, dropped: stats.people.dropped + askedLeftOut };
   // `<recent>` as one piece: the header, then the entries kept (a subsequence of the offered
   // ones, in their order) oldest first. The header alone, or entries without it, make no block.
@@ -2580,15 +2684,14 @@ export function buildRequest(input) {
       ? picture.url
       : mediaProxyUrl(picture.url, { ...(fitBox(picture.width, picture.height, visionCfg.imageSize) ?? {}), format: 'webp' });
 
-  const content = pictures.length
-    ? [
-        { type: 'text', text: user },
-        ...pictures.map((picture) => ({
-          type: 'image_url',
-          image_url: { url: pictureUrl(picture) },
-        })),
-      ]
-    : user;
+  // The text parts (assembleUser's cache segments), then the pictures: an array with or without them.
+  const content = [
+    ...user,
+    ...pictures.map((picture) => ({
+      type: 'image_url',
+      image_url: { url: pictureUrl(picture) },
+    })),
+  ];
 
   return {
     messages: [

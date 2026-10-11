@@ -143,7 +143,8 @@
     "entry": "{id}: {text}",
     "entryFields": "{id}: {reaction}; {action}; \"{text}\"",
     "entryNoText": "{id}",
-    "ownMark": "(you, {ago})"
+    "ownMark": "(you, {ago})",
+    "ownMarkRecent": "(you, recent)"
   },
   "lookup": {
     "header": "Looked up: {query}",
