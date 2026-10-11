@@ -645,6 +645,8 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `world` | `false` | 日記の計画・作成リクエストに `prompts/world.md` を `<world>` ブロックとして含める。`true` でのみ有効。キー欠落 = オフ。`/nep set diary.world true` でオンにする。ファイルはペルソナの仮想世界を記述し、日記のみで使用、通常のターンでは使用されない |
 | `windows` | 下記参照 | `bot.timezone` での投稿ウィンドウ。各ウィンドウは `from` と `to`（0–24 時、午前 0 時をまたぐ）と `posts: [min, max]`（ウィンドウが引く投稿数）。デフォルトの 4 ウィンドウは[日記: ウィンドウ](diary.md#ウィンドウ)を参照 |
 | `quietDayChance` | `0.3` | 一日中投稿なしになる確率。日のプラン作成時に 1 回判定 |
+| `hungerBoost` | `0.5` | How strongly an empty window pushes later posts. A window that drew no posts gets one extra roll per hunger point, and each roll redraws its count with chance 1 minus this value. `1` turns hunger off |
+| `quietCarry` | `0.25` | After quiet days in a row the quiet chance is `quietDayChance` times this value per quiet day, so a long silence gets less likely. `1` keeps the chance flat |
 | `minGapMinutes` | `90` | 計画スロット間の最小間隔（分）。これより近いスロットは削除 |
 | `maxPerDay` | `3` | 一日の最大投稿数。プランナーがこれを超えるスロットを引いた場合、ランダムに削除。日次カウントは `/nep diary post` にも適用 |
 | `maxPicturesPerDay` | `2` | 一日の日記画像最大数。`image.maxPerDay` と共有: 先に尽きた方が制限。使い切ると計画の `picture` は強制 false になり、センスは描画不可と伝える |

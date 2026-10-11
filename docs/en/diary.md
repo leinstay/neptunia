@@ -29,6 +29,8 @@ The four default windows, with all times in `bot.timezone`:
 
 With `diary.quietDayChance` (0.3) the whole day gets no slots at all. A plan is created once per local day (the date in `bot.timezone`) and stored in `data/state.json`. A new local day replans; a restart keeps the existing plan.
 
+Days are not independent: the diary gets hungry. Each window keeps a hunger count that `/nep diary show` prints as `hunger: 0/1/2 (quiet streak 1)`, one number per window in config order, and the journal logs with every `diary: plan`. A quiet day makes every window one point hungrier, and each quiet day in a row multiplies the next day's quiet chance by `diary.quietCarry` (0.25): with the defaults a second quiet day in a row has a 7.5% chance instead of 30%. A window whose planned post went out resets to 0; a window that posted nothing (no slot, a slot missed while the bot was down, or a refused one) gains a point. When a hungry window draws zero posts, it rolls again once per hunger point, and each extra roll redraws the count with chance 1 minus `diary.hungerBoost` (0.5). Within one day, every window that came up empty also adds a point to the windows after it, so a silent afternoon makes the evening more likely to post. A window set to `[0, 0]` never posts and never gets hungry. A manual `/nep diary post` does not count: only planned posts feed a window.
+
 A slot missed by more than `diary.slotGraceMinutes` (30) while the bot was down is dropped, not fired late in a burst. A slot blocked by a busy attention is retried on the next tick within the grace.
 
 ## What a post costs

@@ -645,6 +645,8 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 | `world` | `false` | 在日记的计划和生成请求中将 `prompts/world.md` 作为 `<world>` 块包含。必须为 `true` 才生效；缺失的键视为关闭。`/nep set diary.world true` 开启。文件描述角色的虚拟世界，仅日记使用，普通回合不用 |
 | `windows` | 见下文 | `bot.timezone` 中的发帖窗口。每个窗口有 `from` 和 `to`（0–24 小时，可跨午夜）和 `posts: [min, max]`（窗口抽取的帖子数）。默认四个窗口见[日记: 窗口](diary.md#窗口) |
 | `quietDayChance` | `0.3` | 一整天没有帖子的概率。创建日计划时抽取一次 |
+| `hungerBoost` | `0.5` | How strongly an empty window pushes later posts. A window that drew no posts gets one extra roll per hunger point, and each roll redraws its count with chance 1 minus this value. `1` turns hunger off |
+| `quietCarry` | `0.25` | After quiet days in a row the quiet chance is `quietDayChance` times this value per quiet day, so a long silence gets less likely. `1` keeps the chance flat |
 | `minGapMinutes` | `90` | 两个计划时间槽之间的最小间隔（分钟）。距离上一个太近的时间槽被丢弃 |
 | `maxPerDay` | `3` | 每天最大帖子数。计划器抽出超过此数的时间槽时，随机丢弃多余的。日次计数也限制 `/nep diary post` |
 | `maxPicturesPerDay` | `2` | 每天日记图片最大数。与 `image.maxPerDay` 共享: 先用完的那个生效。用完后计划的 `picture` 强制为 false，感知提示不可绘画 |

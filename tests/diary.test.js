@@ -10,6 +10,7 @@ import path from 'node:path';
 import {
   localDayKey,
   planDay,
+  nextHunger,
   dueSlot,
   pickKind,
   withoutPictureKinds,
@@ -140,6 +141,150 @@ test('planDay: a slot already past at planning time is kept', () => {
   const nowMs = Date.parse('2026-03-10T15:00:00Z');
   const plan = planDay(cfg, nowMs, 'UTC', seq([0.5, 0.5, 0.5]));
   assert.deepEqual(plan.slots, [Date.parse('2026-03-10T08:00:00Z')]);
+});
+
+// Hunger: skipped windows and quiet days raise the chance of later posts.
+
+const counted = (values) => {
+  const rng = seq(values);
+  const wrapped = () => {
+    wrapped.calls += 1;
+    return rng();
+  };
+  wrapped.calls = 0;
+  return wrapped;
+};
+
+const H_NOW = Date.parse('2026-03-10T05:00:00Z');
+
+test('planDay: the quiet chance shrinks by quietCarry per quiet day in a row', () => {
+  const cfg = { ...base, quietDayChance: 0.4, quietCarry: 0.5, hungerBoost: 0.5, windows: [{ from: 12, to: 16, posts: [1, 1] }] };
+  const first = planDay(cfg, H_NOW, 'UTC', seq([0.3, 0.5, 0.5]), { hunger: [2], quietStreak: 0 });
+  assert.equal(first.quiet, true, '0.3 < 0.4');
+  assert.deepEqual(first.hunger, [2]);
+  assert.equal(first.quietStreak, 0);
+  assert.deepEqual(first.posted, []);
+  const second = planDay(cfg, H_NOW, 'UTC', seq([0.3, 0.5, 0.5]), { hunger: [2], quietStreak: 1 });
+  assert.equal(second.quiet, false, '0.3 >= 0.4 * 0.5');
+  assert.equal(second.quietStreak, 1);
+  assert.deepEqual(second.posted, []);
+  assert.equal(planDay(cfg, H_NOW, 'UTC', seq([0.15, 0.5, 0.5]), { quietStreak: 1 }).quiet, true, '0.15 < 0.2');
+  assert.equal(planDay(cfg, H_NOW, 'UTC', seq([0.15, 0.5, 0.5]), { quietStreak: 2 }).quiet, false, '0.15 >= 0.1');
+  const flat = { ...cfg, quietCarry: 1 };
+  assert.equal(planDay(flat, H_NOW, 'UTC', seq([0.3, 0.5, 0.5]), { quietStreak: 3 }).quiet, true, 'quietCarry 1 keeps the chance');
+});
+
+test('planDay: a hungry window redraws an empty count, at most once per hunger point', () => {
+  const cfg = { ...base, hungerBoost: 0.5, quietCarry: 0.5, windows: [{ from: 12, to: 16, posts: [0, 1] }] };
+  // quiet roll, count 0, then (boost roll, redraw) pairs: 0.7 >= 0.5 redraws to 0, then to 1; placement mid-window
+  const values = [0.9, 0.1, 0.7, 0.2, 0.7, 0.8, 0.5];
+  assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [2] }).slots, [Date.parse('2026-03-10T14:00:00Z')]);
+  assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [1] }).slots, [], 'one hunger point, one redraw');
+  assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [0] }).slots, [], 'no hunger, no redraw');
+  // a boost roll under hungerBoost keeps the zero
+  assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq([0.9, 0.1, 0.3, 0.3, 0.3]), { hunger: [3] }).slots, []);
+});
+
+test('planDay: hungerBoost 1 makes hunger change nothing', () => {
+  const cfg = { ...base, hungerBoost: 1, quietCarry: 0.5, windows: [{ from: 12, to: 16, posts: [0, 1] }] };
+  const values = [0.9, 0.1, 0.7, 0.8, 0.5];
+  assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [5] }).slots, []);
+  assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [0] }).slots, []);
+});
+
+test('planDay: a [0, 0] window never redraws and adds no deficit', () => {
+  const cfg = {
+    ...base,
+    hungerBoost: 0.5,
+    quietCarry: 0.5,
+    windows: [{ from: 7, to: 11, posts: [0, 0] }, { from: 12, to: 16, posts: [0, 1] }],
+  };
+  // quiet roll, the off window's count, the day window's count 0; a deficit would redraw it with 0.7, 0.8
+  const rng = counted([0.9, 0.5, 0.1, 0.7, 0.8, 0.5]);
+  const plan = planDay(cfg, H_NOW, 'UTC', rng, { hunger: [3, 0] });
+  assert.deepEqual(plan.slots, []);
+  assert.equal(rng.calls, 3);
+  assert.deepEqual(plan.hunger, [3, 0]);
+});
+
+test('planDay: an empty window of the day raises the hunger of the later windows', () => {
+  const cfg = {
+    ...base,
+    hungerBoost: 0.5,
+    quietCarry: 0.5,
+    windows: [{ from: 7, to: 11, posts: [0, 1] }, { from: 12, to: 16, posts: [0, 1] }],
+  };
+  // quiet roll, morning count 0 (deficit 1), day count 0, boost roll 0.7 redraws to 1, placement mid-window
+  const plan = planDay(cfg, H_NOW, 'UTC', seq([0.9, 0.1, 0.1, 0.7, 0.8, 0.5]), { hunger: [0, 0] });
+  assert.deepEqual(plan.slots, [Date.parse('2026-03-10T14:00:00Z')]);
+  const alone = { ...cfg, windows: [cfg.windows[1]] };
+  assert.deepEqual(planDay(alone, H_NOW, 'UTC', seq([0.9, 0.1, 0.7, 0.8, 0.5]), { hunger: [0] }).slots, [], 'without the empty morning, no redraw');
+});
+
+const H_WINDOWS = [
+  { from: 7, to: 11, posts: [0, 1] },
+  { from: 12, to: 16, posts: [0, 1] },
+  { from: 18, to: 1, posts: [0, 2] },
+];
+
+test('nextHunger: no previous plan starts at zero', () => {
+  assert.deepEqual(nextHunger(null, H_WINDOWS, 'UTC', H_NOW, 30), { hunger: [0, 0, 0], quietStreak: 0 });
+  assert.deepEqual(nextHunger(undefined, H_WINDOWS, 'UTC', H_NOW, 30), { hunger: [0, 0, 0], quietStreak: 0 });
+});
+
+test('nextHunger: a quiet day feeds no window and lengthens the streak', () => {
+  const previous = { day: '2026-03-10', slots: [], quiet: true, done: [], posted: [], hunger: [1, 0, 2], quietStreak: 1 };
+  const nowMs = Date.parse('2026-03-11T00:05:00Z');
+  assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', nowMs, 30), { hunger: [2, 1, 3], quietStreak: 2 });
+});
+
+test('nextHunger: a window with a posted slot resets, an empty one grows, a pending wrap slot counts as fed', () => {
+  const posted = Date.parse('2026-03-10T08:00:00Z');
+  const droppedSlot = Date.parse('2026-03-10T13:00:00Z');
+  const wrap = Date.parse('2026-03-11T00:30:00Z');
+  const previous = {
+    day: '2026-03-10',
+    slots: [posted, droppedSlot, wrap],
+    done: [posted, droppedSlot],
+    posted: [posted],
+    quiet: false,
+    hunger: [3, 1, 4],
+    quietStreak: 2,
+  };
+  const nowMs = Date.parse('2026-03-11T00:05:00Z');
+  assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', nowMs, 30), { hunger: [0, 2, 0], quietStreak: 0 });
+  const missed = { ...previous, done: [posted, droppedSlot, wrap] };
+  assert.deepEqual(nextHunger(missed, H_WINDOWS, 'UTC', nowMs, 30).hunger, [0, 2, 5], 'a wrap slot dropped unfired does not feed');
+  const late = Date.parse('2026-03-11T01:30:00Z');
+  assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', late, 30).hunger, [0, 2, 5], 'a wrap slot past the grace does not feed');
+});
+
+test('nextHunger: a slot outside every window feeds none', () => {
+  const stray = Date.parse('2026-03-10T17:00:00Z');
+  const previous = { day: '2026-03-10', slots: [stray], done: [stray], posted: [stray], quiet: false, hunger: [0, 0, 0], quietStreak: 0 };
+  assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', Date.parse('2026-03-11T02:00:00Z'), 30).hunger, [1, 1, 1]);
+});
+
+test('nextHunger: a [0, 0] window or a malformed one stays at zero', () => {
+  const windows = [{ from: 7, to: 11, posts: [0, 0] }, { from: 30, to: 2, posts: [0, 1] }, { from: 12, to: 16, posts: [0, 1] }];
+  const previous = { day: '2026-03-10', slots: [], done: [], posted: [], quiet: false, hunger: [4, 4, 4], quietStreak: 0 };
+  const nowMs = Date.parse('2026-03-11T02:00:00Z');
+  assert.deepEqual(nextHunger(previous, windows, 'UTC', nowMs, 30).hunger, [0, 0, 5]);
+  assert.deepEqual(nextHunger({ ...previous, quiet: true }, windows, 'UTC', nowMs, 30).hunger, [0, 0, 5]);
+});
+
+test('nextHunger: a changed windows list pads with zero or trims', () => {
+  const previous = { day: '2026-03-10', slots: [], quiet: true, done: [], posted: [], hunger: [3, 1, 4], quietStreak: 0 };
+  const nowMs = Date.parse('2026-03-11T02:00:00Z');
+  assert.deepEqual(nextHunger(previous, H_WINDOWS.slice(0, 2), 'UTC', nowMs, 30).hunger, [4, 2]);
+  const more = [...H_WINDOWS, { from: 1, to: 5, posts: [0, 1] }];
+  assert.deepEqual(nextHunger(previous, more, 'UTC', nowMs, 30).hunger, [4, 2, 5, 1]);
+});
+
+test('nextHunger: a stored plan from before hunger starts at zero', () => {
+  const slot = Date.parse('2026-03-10T13:00:00Z');
+  const previous = { day: '2026-03-10', slots: [slot], done: [slot], quiet: false };
+  assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', Date.parse('2026-03-11T02:00:00Z'), 30), { hunger: [0, 0, 0], quietStreak: 0 });
 });
 
 test('dueSlot: returns the first not-done slot within the grace', () => {
@@ -485,7 +630,7 @@ test('tick: plans the day once and stores it in state.data.diary[guildId]', asyn
   const h = diaryHarness();
   await h.diary.tick();
   const plan = h.store.state.data.diary.g1;
-  assert.deepEqual(plan, { day: '2026-10-06', slots: [SLOT], quiet: false, done: [] });
+  assert.deepEqual(plan, { day: '2026-10-06', slots: [SLOT], quiet: false, done: [], posted: [], hunger: [0], quietStreak: 0 });
   await h.diary.tick();
   assert.equal(h.store.state.data.diary.g1, plan, 'the same plan, not planned again');
   h.setNow(D_NOW + 24 * HOUR_MS);
@@ -546,6 +691,46 @@ test('tick: a busy outcome un-marks the slot so the next tick retries it within 
   await h.diary.tick();
   assert.equal(h.turnCalls.length, 2);
   assert.deepEqual(h.store.state.data.diary.g1.done, [SLOT]);
+});
+
+test('tick: a scheduled post that spoke is recorded as posted, a busy one is not', async () => {
+  const h = diaryHarness({ outcomes: [{ outcome: 'busy' }] });
+  h.setNow(SLOT + MINUTE_MS);
+  await h.diary.tick();
+  assert.deepEqual(h.store.state.data.diary.g1.posted, []);
+  await h.diary.tick();
+  assert.deepEqual(h.store.state.data.diary.g1.posted, [SLOT]);
+});
+
+test('force: a manual post never feeds the hunger', async () => {
+  const h = diaryHarness();
+  await h.diary.tick();
+  const result = await h.diary.force({ kind: 'meme' });
+  assert.equal(result.outcome, 'spoke');
+  assert.deepEqual(h.store.state.data.diary.g1.posted, []);
+});
+
+test('tick: a new day takes its hunger from the last plan and logs it', async () => {
+  const fired = Date.UTC(2026, 9, 5, 20, 0, 0);
+  const h = diaryHarness({
+    diary: { quietCarry: 0.5, hungerBoost: 0.5 },
+    data: { diary: { g1: { day: '2026-10-05', slots: [fired], done: [fired], posted: [], quiet: false, hunger: [1], quietStreak: 0 } } },
+  });
+  const { logs } = await withCapturedLogs(() => h.diary.tick());
+  const plan = h.store.state.data.diary.g1;
+  assert.deepEqual(plan.hunger, [2], 'the evening window went unfed');
+  assert.equal(plan.quietStreak, 0);
+  const line = logs.find((l) => l.msg === 'diary: plan');
+  assert.deepEqual(line.hunger, [2]);
+  assert.equal(line.quietStreak, 0);
+
+  const quiet = diaryHarness({
+    diary: { quietCarry: 0.5, hungerBoost: 0.5 },
+    data: { diary: { g1: { day: '2026-10-05', slots: [], done: [], posted: [], quiet: true, hunger: [1], quietStreak: 1 } } },
+  });
+  await quiet.diary.tick();
+  assert.deepEqual(quiet.store.state.data.diary.g1.hunger, [2]);
+  assert.equal(quiet.store.state.data.diary.g1.quietStreak, 2);
 });
 
 test('tick: dropped slots are marked done without firing', async () => {
@@ -657,7 +842,7 @@ test('stop: no tick after stop', async () => {
 test('status: the channel, the day plan, the counts of today and the history size', async () => {
   const h = diaryHarness({ posts: [{}, {}], data: { diaryDay: '2026-10-06', diaryPosts: 1, diaryPicturesDay: '2026-10-06', diaryPictures: 1 } });
   await h.diary.tick();
-  assert.deepEqual(h.diary.status(), { channelId: 'd1', day: '2026-10-06', slots: [SLOT], done: [], quiet: false, posts: 1, pictures: 1, history: 2 });
+  assert.deepEqual(h.diary.status(), { channelId: 'd1', day: '2026-10-06', slots: [SLOT], done: [], quiet: false, hunger: [0], quietStreak: 0, posts: 1, pictures: 1, history: 2 });
 });
 
 /** A turn runner that is busy until `release()`: `waitIdle` resolves then, `isAnyBusy` follows it. */

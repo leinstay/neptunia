@@ -831,7 +831,7 @@ Discord загружается и отправляется как элемент
 
 ### Логи
 
-`diary: plan` (day, slots count, quiet), `diary: planned` (kind, brief, search, picture, fallback, pictureAllowed), `diary: due` (slot), `diary: post` (kind, messages, picture, search, outcome, forced), `diary: skip` (reason: `no-channel`, `off`, `paused`, `warmup`, `not-writable`, `cap`, `grace`, `busy`), `diary: backfill` (count), `diary: plan failed` (reason, status), `diary: search failed` (reason), `diary: backfill failed` (error).
+`diary: plan` (day, slots count, quiet, carried, hunger, quietStreak), `diary: planned` (kind, brief, search, picture, fallback, pictureAllowed), `diary: due` (slot), `diary: post` (kind, messages, picture, search, outcome, forced), `diary: skip` (reason: `no-channel`, `off`, `paused`, `warmup`, `not-writable`, `cap`, `grace`, `busy`), `diary: backfill` (count), `diary: plan failed` (reason, status), `diary: search failed` (reason), `diary: backfill failed` (error).
 
 ## Приватный чат
 
