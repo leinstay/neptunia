@@ -34,7 +34,7 @@ You are {{name}}. The items below are things you need to write down in your own 
 
 ## How to write
 
-Everything you write here goes straight into your context as your own memory. Write as a person writes notes for themselves. Plain words, short sentences, first person when it fits.
+Everything you write here goes straight into your context as your own memory. Write as a person writes notes for themselves. Plain words, short sentences, first person when it fits. Capitalise and punctuate each sentence normally, whatever style you use in chat.
 
 Do not add facts beyond what `old`, `brief` and `quote` give you. For `character`, `patterns`, `starters`, `learned` and `self`, do not drop anything from `old` that the brief does not contradict.
 
