@@ -67,7 +67,7 @@ import { avatarReference, createImageFetcher } from '../discord/fetch-image.js';
 import { renderCustomEmoji, resolveReactionEmoji } from '../discord/emoji.js';
 import { fill, formatNow, replyMarker } from '../discord/format.js';
 import { log } from '../log.js';
-import { clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
+import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { gifPostsToday } from '../memory/gif-watch.js';
 import { linkChannels } from '../memory/mentions.js';
 import { rankGifs } from '../memory/gifs.js';
@@ -1252,7 +1252,7 @@ export function createTurnRunner({
     return {
       prompts: hot.prompts,
       selfName,
-      request: clampChars(draw.text, hot.config.image?.maxPromptChars),
+      request: clampAtBoundary(draw.text, hot.config.image?.maxPromptChars),
       self: draw.self === true,
       when: timezone ? formatNow(clock(), timezone, hot.prompts?.labels?.locale) : '',
     };
@@ -3917,7 +3917,7 @@ export function createTurnRunner({
       bar.close();
       stopTyping();
 
-      const parsed = parseOutput(completion.text);
+      const parsed = parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars });
       // Feature switches drop parts of the model's output before it is acted on.
       if (features.reactions === false) parsed.reactions = [];
       // A custom emoji reaction resolves through the index; an unknown one (or the switch off) is dropped.

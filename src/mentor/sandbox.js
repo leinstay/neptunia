@@ -503,7 +503,7 @@ export async function answerReply({
     signal,
     onUsage,
     read: (text) => {
-      const parsed = parseOutput(text);
+      const parsed = parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars });
       const features = view.config.features ?? {};
       const reactions = features.reactions === false ? [] : parsed.reactions;
       const replies = features.multiMessage === false ? parsed.messages.slice(0, 1) : parsed.messages;

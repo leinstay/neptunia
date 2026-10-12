@@ -2,7 +2,7 @@
 // token-safe replacement for a blind `.slice(0, limit)`. Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clampChars, clampText, clampWithEllipsis, countDashes, oneLine, stripDashes } from '../src/memory/clamp.js';
+import { clampAtBoundary, clampChars, clampText, clampWithEllipsis, countDashes, oneLine, stripDashes } from '../src/memory/clamp.js';
 
 // ---- non-string / empty --------------------------------------------------
 
@@ -263,4 +263,33 @@ test('countDashes: em and en dashes counted, hyphens not', () => {
 
 test('clampWithEllipsis: a limit of 1 is a hard cut with no room for the ellipsis', () => {
   assert.equal(clampWithEllipsis('café crème', 1), 'c');
+});
+
+test('clampAtBoundary: text within the limit is returned unchanged', () => {
+  assert.equal(clampAtBoundary('One. Two.', 9), 'One. Two.');
+  assert.equal(clampAtBoundary('  spaced  ', 50), '  spaced  ');
+});
+
+test('clampAtBoundary: cuts at the last sentence end past 60% of the limit', () => {
+  assert.equal(clampAtBoundary('Aaaa bbbb. Cccc dddd eeee', 16), 'Aaaa bbbb.');
+});
+
+test('clampAtBoundary: cuts at a word boundary when no sentence end is late enough', () => {
+  assert.equal(clampAtBoundary('Hi. alpha beta gamma delta', 16), 'Hi. alpha beta');
+});
+
+test('clampAtBoundary: never cuts inside a mention token', () => {
+  const out = clampAtBoundary('say hi<@123456789> and more words', 12);
+  assert.ok(!out.includes('<@'));
+  assert.equal(out, 'say');
+});
+
+test('clampAtBoundary: handles Greek and accented text by code points', () => {
+  assert.equal(clampAtBoundary('άλφα βήτα γάμμα δέλτα', 12), 'άλφα βήτα');
+  assert.equal(clampAtBoundary('café crème brûlée', 11), 'café crème');
+});
+
+test('clampAtBoundary: a max that is not a finite non-negative number leaves the text whole', () => {
+  assert.equal(clampAtBoundary('abc def', undefined), 'abc def');
+  assert.equal(clampAtBoundary('abc', 0), '');
 });

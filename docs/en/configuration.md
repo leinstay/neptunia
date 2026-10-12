@@ -639,7 +639,7 @@ Settings for the drawing sub-process (`features.imageGeneration`). The persona e
 | `model` | `"openai/gpt-image-2.5-flare"` | Image model ID. Only `openai/*` and `google/*` families are supported; anything else is refused before any request |
 | `maxPerDay` | `50` | Daily generation cap for the whole instance |
 | `maxPerUserPerDay` | `50` | Daily generation cap per member; spontaneous turns and `/nep draw` do not count against a member |
-| `maxPromptChars` | `800` | Scene text from the `<draw>` tag is clamped to this length |
+| `maxPromptChars` | `1600` | Scene text from the `<draw>` tag is clamped to this length, cut at the last sentence or word boundary |
 | `reference` | `"avatar"` | What to send as a visual reference when the persona is in the picture (`self="yes"`). `"avatar"` downloads the bot's Discord avatar; any other value or `null` sends nothing |
 | `referenceMaxBytes` | `4000000` | Max avatar file size (bytes); a larger avatar is skipped |
 | `outputFormat` | `"png"` | Requested output format (`png`, `jpeg`, `webp`) |

@@ -64,7 +64,7 @@ import { backfillDiary } from './behavior/diary.js';
 import { anchorMax, checkCaseText } from './mentor/cases.js';
 import { renderCard, renderFile, renderLastRun } from './mentor/report.js';
 import { log } from './log.js';
-import { clampChars } from './memory/clamp.js';
+import { clampAtBoundary } from './memory/clamp.js';
 import { countToday, utcDay, zonedDay } from './time.js';
 import { formatClock } from './discord/format.js';
 import { liveRecent, recentSettings } from './memory/recent.js';
@@ -1411,7 +1411,7 @@ export function createAdmin({
     const self = args?.self === true;
     const guildId = resolvedGuildId(context);
     const selfName = client?.guilds?.cache?.get(guildId)?.members?.me?.displayName ?? client?.user?.username ?? '';
-    const clamped = clampChars(request, imageCfg.maxPromptChars);
+    const clamped = clampAtBoundary(request, imageCfg.maxPromptChars);
     const prompt = buildDrawPrompt({ prompts: hot.prompts, selfName, request: clamped, self });
 
     let reference = null;

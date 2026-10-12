@@ -106,6 +106,15 @@ test('buildRequest: system message is system-prompt + character-card + rules + f
   assert.equal(request.messages[0].content, 'SYSTEM_TEXT for Nept\n\nCARD_TEXT\n\nRULES_TEXT\n\nFORMAT_TEXT');
 });
 
+test('buildRequest: format.md gets the live image.maxPromptChars as {{drawChars}}', () => {
+  const prompts = fakePrompts({ format: 'Brief up to {{drawChars}} chars.' });
+  const set = buildRequest(baseInput({ prompts, config: { ...fakeConfig(), image: { maxPromptChars: 1234 } } }));
+  assert.equal(set.messages[0].content.endsWith('Brief up to 1234 chars.'), true);
+  const unset = buildRequest(baseInput({ prompts }));
+  assert.equal(unset.messages[0].content.endsWith('Brief up to 1600 chars.'), true);
+  assert.ok(!unset.messages[0].content.includes('{{drawChars}}'));
+});
+
 test('buildRequest: a reply in <chat> quotes its parent cut to context.replyQuoteChars', () => {
   const history = [
     makeMessage('1', NOW - 2 * MIN, { self: true, content: 'je préfère les penalties' }),

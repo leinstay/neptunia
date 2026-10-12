@@ -172,9 +172,9 @@ test('parseOutput: an empty <draw> is skipped in favour of a later non-empty one
   assert.equal(result.draw.text, 'a forest');
 });
 
-test('parseOutput: <draw> text is clamped to 800 chars', () => {
-  const result = parseOutput(`<draw>${'a'.repeat(900)}</draw>`);
-  assert.equal(result.draw.text.length, 800);
+test('parseOutput: <draw> text is clamped to 1600 chars', () => {
+  const result = parseOutput(`<draw>${'a'.repeat(1700)}</draw>`);
+  assert.equal(result.draw.text.length, 1600);
 });
 
 test('parseOutput: <draw> alone is not a skip and adds no fallback message', () => {
@@ -205,4 +205,18 @@ test('parseJsonObject: extracts the object, bare, inside a code fence or surroun
 
 test('parseJsonObject: throws when there is no JSON object at all', () => {
   assert.throws(() => parseJsonObject('no json here'), /no JSON object in the model reply/);
+});
+
+test('parseOutput: a <draw> body is capped at 1600 by default, cut at a word boundary', () => {
+  const body = 'word '.repeat(400).trim();
+  const text = parseOutput(`<draw>${body}</draw>`).draw.text;
+  assert.ok(text.length <= 1600 && text.length > 1590);
+  assert.ok(text.endsWith('word'));
+});
+
+test('parseOutput: maxDrawChars sets the cap and cuts at the last sentence end', () => {
+  const result = parseOutput('<draw>Aaaa bbbb. Cccc dddd eeee</draw>', { maxDrawChars: 16 });
+  assert.equal(result.draw.text, 'Aaaa bbbb.');
+  assert.equal(parseOutput('<draw>άλφα βήτα γάμμα</draw>', { maxDrawChars: 12 }).draw.text, 'άλφα βήτα');
+  assert.equal(parseOutput('<draw>abcdefghij</draw>', { maxDrawChars: undefined }).draw.text, 'abcdefghij');
 });
