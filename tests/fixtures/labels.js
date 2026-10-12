@@ -19,6 +19,7 @@ export const labels = {
     header: '=== {date} ===',
     empty: '(empty)',
     replyTo: '(replying to #{index}, {author}: "{quote}")',
+    replyToMemory: '(reply to {author}: {quote})',
     replyToOld: '(replying to an older message)',
     image: '[image]',
     imageAttached: '[picture #{n}, attached]',

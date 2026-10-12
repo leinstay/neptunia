@@ -15,6 +15,7 @@
     "timeAged": "[{clock} · {age} ago]",
     "empty": "(empty)",
     "replyTo": "(reply to {author}'s #{index}: {quote})",
+    "replyToMemory": "(reply to {author}: {quote})",
     "replyToOld": "(replying to an older message)",
     "image": "[image]",
     "imageAttached": "[attached image {n}]",

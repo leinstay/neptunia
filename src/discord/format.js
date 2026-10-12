@@ -347,17 +347,21 @@ function replyQuote(parent, labels, context, maxChars) {
  * `labels.transcript.replyTo` with `{index}`, `{author}` (the parent's name,
  * `labels.self` filled with `selfName` for the persona's own line) and
  * `{quote}` (replyQuote under `replyQuoteChars`, 80 when omitted; 0 = whole;
- * `context` as mediaTags reads it, every map optional). The one copy for the
- * transcript and the GIF picker's `<reply>` (src/behavior/turn.js). Pure.
+ * `context` as mediaTags reads it, every map optional). With `mode: 'memory'`
+ * (the analyzer's transcript, which shows no `#index`) it renders
+ * `labels.transcript.replyToMemory` instead, same `{author}` and `{quote}`,
+ * `index` unused. The one copy for both transcript modes and the GIF picker's
+ * `<reply>` (src/behavior/turn.js). Pure.
  * @param {object} parent  A normalized message.
  * @param {number} index
- * @param {{ labels: object, selfName: string, replyQuoteChars?: number, context?: object }} options
+ * @param {{ labels: object, selfName: string, replyQuoteChars?: number, context?: object, mode?: 'chat'|'memory' }} options
  * @returns {string}
  */
-export function replyMarker(parent, index, { labels, selfName, replyQuoteChars, context = {} }) {
+export function replyMarker(parent, index, { labels, selfName, replyQuoteChars, context = {}, mode = 'chat' }) {
   const author = parent.self ? fill(labels.self, { name: selfName }) : parent.authorName;
   const quote = replyQuote(parent, labels, context, replyQuoteChars ?? DEFAULT_REPLY_QUOTE_CHARS);
-  return fill(labels.transcript.replyTo, { index, author, quote });
+  const template = mode === 'memory' ? labels.transcript.replyToMemory : labels.transcript.replyTo;
+  return fill(template, { index, author, quote });
 }
 
 /**
@@ -391,7 +395,8 @@ function renderForwarded(snapshot, labels, context, maxChars, channelName) {
  * @param {string} options.selfName     The persona's display name, used to fill `labels.self`.
  * @param {object} options.labels       Live `prompts.labels` (locale, self, units, transcript.*).
  * @param {'chat'|'memory'} [options.mode]  'memory' drops #indexes and adds user ids;
- *   it also groups by channel (see below).
+ *   a reply renders `transcript.replyToMemory` (`{author}`, `{quote}`, no `{index}`) in place
+ *   of `transcript.replyTo`; it also groups by channel (see below).
  * @param {Map<string, number>} [options.attachedIndex]  Item id -> its 1-based
  *   position among this request's `image_url` parts (see
  *   src/behavior/prompt.js#selectPictures); renders `transcript.imageAttached`, or
@@ -422,7 +427,9 @@ function renderForwarded(snapshot, labels, context, maxChars, channelName) {
  * @param {number} [options.reactionsPerMessage]  Default 6: at most this many reactions per message.
  * @param {number} [options.replyQuoteChars]  `context.replyQuoteChars` (80 when omitted; 0 = whole):
  *   a reply to a message of the list renders `transcript.replyTo` with `{index}`, `{author}` (the
- *   parent's name, the persona's self label for its own line) and `{quote}` (replyQuote).
+ *   parent's name, the persona's self label for its own line) and `{quote}` (replyQuote); in
+ *   memory mode `transcript.replyToMemory`. A reply to a message outside the list renders
+ *   `transcript.replyToOld` in both modes.
  * @param {boolean} [options.emojiInline]  Default true; false leaves out the `emojiDescribed` tag of a
  *   custom emoji (the request lists the emoji with their descriptions in `<emoji>` instead).
  * @param {number} [options.indexOffset]  Default 0 (when undefined or null): the first message
@@ -503,10 +510,10 @@ export function formatTranscript(messages, options) {
 
     const body = [];
     if (message.content) body.push(clipWithEllipsis(message.content, maxChars));
-    if (message.replyToId && mode === 'chat') {
+    if (message.replyToId) {
       const target = indexById.get(message.replyToId);
       if (target) {
-        body.push(replyMarker(byId.get(message.replyToId), target, { labels, selfName, replyQuoteChars, context: mediaContext }));
+        body.push(replyMarker(byId.get(message.replyToId), target, { labels, selfName, replyQuoteChars, context: mediaContext, mode }));
       } else {
         body.push(labels.transcript.replyToOld);
       }
