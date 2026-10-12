@@ -131,12 +131,13 @@ Return a user when this batch gave something new or an opinion shift. Every key 
 
 **Sanity check.** Before attaching one named thing to another (region to game, character to franchise), check they belong together. When the chat conflicts with what you know or you do not recognise the thing, record it on its own with `"sure": false`. Never "correct" the chat.
 
-**`relationship`** (brief) — return a brief only when the profile carries `relationshipStale` or when the standing state itself changed this batch. The brief says what happened between them, in neutral terms: what the current standing is, what moved it, and a quote when one matters. When stored `relationship` is empty, write the brief when at least one of these is true: this batch shows {{name}} and the person dealing with each other; the stored affinity score is non-zero or has a reason; the profile already has episodes. ≤ {{relationshipChars}} chars once worded. `cause` in `relationshipStale` says why:
+**`relationship`** (brief) — `relationship` holds three things: who this person is to {{name}}, what {{name}} feels toward them, and what they said about {{name}} and whether {{name}} liked it. Who this person is to {{name}} includes how they treat {{name}}, what they do for {{name}} or with {{name}}, what they promised {{name}}, what they are to each other. Return a brief only when the profile carries `relationshipStale` or when one of those three shifted this batch. The brief says what moved, in neutral terms, with a quote when one matters. Specific events, game outcomes and facts about the person's own life go to `episodes`, `details` or `interests`. When stored `relationship` is empty, write the brief when at least one of these is true: this batch shows {{name}} and the person dealing with each other; the stored affinity score is non-zero or has a reason; the profile already has episodes. ≤ {{relationshipChars}} chars once worded. `cause` in `relationshipStale` says why:
 
 - `first`: no text yet.
 - `band`: the attitude changed band.
 - `drift`: the score moved within the same band.
 - `moves`: several attitude changes since the text was written.
+- `rewrite`: the stored text is to be rewritten to the field's scope and full-sentence style. No change in standing is implied. Apply relationship changes only when the batch independently supports them. The brief may be empty.
 
 **`interests`** — what this person is into. `topic` (≤ {{interestTopicChars}} chars, case-insensitive): the plain name — a title, franchise, hobby or broad area. No qualifiers/parentheses; nuance goes in the note. One broad area is one topic unless they keep returning to a specific title. `note` (≤ {{interestNoteChars}} chars, may be empty): a relation verb (plays, watches, reads, listens to, makes, follows, wants to try, dropped, dislikes); may add ONE stable specific (class, genre, timeframe). No daily news, no second subject, no list. Something dropped long ago is at most a detail.
 

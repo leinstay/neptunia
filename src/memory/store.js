@@ -208,6 +208,8 @@ export function emptyProfile(id) {
     affinity: emptyAffinity(),
     episodes: [],
     updatedAt: null,
+    // `relationshipRewrite`: absent (= false) until the owner flags the relationship text for a
+    // forced rewrite (`markRelationshipRewrite`); writing a relationship text removes it.
   };
 }
 
@@ -284,6 +286,8 @@ function normalizeProfile(profile) {
   profile.detailsSeq = nextId;
 
   if (!Array.isArray(profile.aliases)) profile.aliases = [];
+  // Only `true` is the flag; anything else a hand edit left is no flag.
+  if ('relationshipRewrite' in profile && profile.relationshipRewrite !== true) delete profile.relationshipRewrite;
 }
 
 /**
@@ -398,7 +402,8 @@ function relationshipScoreOf(opts, affinity) {
  * `opts.now` (else the wall clock) -- the clock the batch's attitude moves are stamped with
  * (src/memory/affinity.js#applyDelta), so src/memory/affinity.js#relationshipStaleOf counts the
  * moves since the text like with like. A profile written before the stamp existed keeps none
- * until its next text.
+ * until its next text. A written text removes the forced-rewrite flag (`relationshipRewrite`,
+ * see `markRelationshipRewrite`): the rewrite it asked for has happened.
  * @param {object} target  A normalised profile or private layer.
  * @param {unknown} text
  * @param {object} opts    As for `applyProfileOps`.
@@ -412,6 +417,7 @@ function writeRelationship(target, text, opts, onWrite) {
   target.relationship = next;
   target.relationshipScore = relationshipScoreOf(opts, target.affinity);
   target.relationshipWrittenAt = new Date(Number.isFinite(opts.now) ? opts.now : Date.now()).toISOString();
+  delete target.relationshipRewrite;
 }
 
 /**
@@ -1114,6 +1120,27 @@ export function createStore({ dataDir }) {
       profile.updatedAt = new Date(opts.now ?? Date.now()).toISOString();
       item.dirty = true;
       return profile;
+    },
+
+    /**
+     * Flag (or unflag) a member's relationship text for a forced rewrite: the next analyzer batch
+     * that sends their whole profile marks it `relationshipStale` with cause `rewrite`
+     * (src/memory/affinity.js#relationshipStaleOf), and the flag stays until a relationship text is
+     * written (`writeRelationship`). Only an existing profile with a non-empty text can carry it;
+     * nothing else on the profile changes. Set by the owner from a one-off script.
+     * @param {string} guildId
+     * @param {string} userId
+     * @param {boolean} [on=true]  false removes the flag.
+     * @returns {boolean}  false when there is no profile or it has no relationship text.
+     */
+    markRelationshipRewrite(guildId, userId, on = true) {
+      const profile = store.getUser(guildId, userId);
+      if (!profile || typeof profile.relationship !== 'string' || !profile.relationship.trim()) return false;
+      const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
+      if (on) profile.relationshipRewrite = true;
+      else delete profile.relationshipRewrite;
+      item.dirty = true;
+      return true;
     },
 
     /**
