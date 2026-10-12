@@ -1107,32 +1107,10 @@ export function classifierTranscript(messages, { config, selfName, labels, descr
  * @returns {string}
  */
 export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }) {
-  return fillDrawTemplate(prompts?.draw ?? '', { prompts, selfName, request, self, when });
-}
-
-/**
- * The refine pass's prompt (prompts/refine.md, `image.refine`): `{{name}}`,
- * `{{request}}` and `{{when}}` filled as buildDrawPrompt fills them (the same
- * `when` the first pass used). The appearance is never sent -- the first
- * picture, the refiner's only reference, carries the look -- so `self` is
- * accepted for the callers' shared arguments and ignored here, and
- * `{{appearance}}` in a template reads as blank. '' when refine.md is missing
- * or blank (the caller then posts the first picture, reason `no-prompt`).
- * @param {{ prompts: object, selfName: string, request: string, self?: boolean, when?: string }} args
- * @returns {string}
- */
-export function buildRefinePrompt({ prompts, selfName, request, when = '' }) {
-  const template = prompts?.refine;
-  if (typeof template !== 'string' || !template.trim()) return '';
-  return fillDrawTemplate(template, { prompts, selfName, request, self: false, when });
-}
-
-/** One drawing template filled (buildDrawPrompt, buildRefinePrompt): blank-line runs collapsed, trimmed. */
-function fillDrawTemplate(template, { prompts, selfName, request, self, when }) {
   const appearance = self ? fillPromptTemplate(prompts?.appearance ?? '', { name: selfName }).trim() : '';
   const whenLabel = prompts?.labels?.draw?.when;
   const whenText = when && whenLabel ? fill(whenLabel, { when }) : '';
-  return fillPromptTemplate(template, { name: selfName, appearance, request: request ?? '', when: whenText })
+  return fillPromptTemplate(prompts?.draw ?? '', { name: selfName, appearance, request: request ?? '', when: whenText })
     .replace(/(?:\r?\n){3,}/g, '\n\n')
     .trim();
 }
