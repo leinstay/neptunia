@@ -462,11 +462,14 @@ of what is already stored, so facts are not degraded by being rewritten batch af
   are written in the persona's voice from the card (first person allowed, no clinical vocabulary). `style`:
   HOW the person writes (length, rhythm, vocabulary, emoji habits), not what they do or talk about. `relationship`:
   three things and nothing else: who this person is to the persona, what the persona feels toward them, and what they
-  said about the persona and whether the persona liked it. Only explicitly supported meaning about the three things is
-  kept; episodic circumstances and unrelated facts are stripped while preserving in-scope meaning; a new role or feeling
-  is never inferred from behaviour alone; a mixed sentence is rewritten to keep its in-scope meaning, not deleted whole.
-  Events, shared activities, promises about things and facts
-  about the person belong to `episodes`, `details` or `interests`. When the limit presses, an item is dropped whole,
+  said about the persona and whether the persona liked it. Who this person is to the persona includes how they treat
+  the persona, what they do for or with the persona, what they promised the persona, what they are to each other.
+  Only explicitly supported meaning about the three things is kept. What is not about the two of them is stripped:
+  dates and time markers, things said to or about third persons, topics and media merely discussed or shared, outcomes
+  of games and contests, facts about the person's own life. A new role or feeling is never inferred from behaviour
+  alone, and a single moment is never generalised into a standing habit. A mixed sentence is rewritten to keep its
+  part about the two of them, not deleted whole. Specific events, game outcomes and facts about the person's own life
+  belong to `episodes`, `details` or `interests`. When the limit presses, an item is dropped whole,
   least important first. A sentence is never shortened into a fragment. Written first when the stored text is empty
   and a batch shows them dealing with each other (or affinity/episodes already exist), afterwards only when one of the
   three things shifts or the profile carries `relationshipStale`. When the profile carries `relationshipStale`, the
