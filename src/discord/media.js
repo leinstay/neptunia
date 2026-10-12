@@ -47,6 +47,7 @@ const EXT_KIND = {
   log: 'text',
   csv: 'text',
   json: 'text',
+  js: 'text',
 };
 
 // Media "picture" kinds: the ones that can be attached to a request as an
