@@ -1118,3 +1118,64 @@ test('degradedApply: a kind switched off is counted off, never written; a privat
   const on = degradedApply(queue, { config: makeConfig() });
   assert.deepEqual(on.writes[1], { id: queue[1].id, kind: 'feeling', userId: ELENI, layer: 'private', at: NOW_ISO, date: TODAY, what: 'μυστικό', text: 'εμπιστοσύνη' });
 });
+
+// ---- the forced relationship rewrite (`relationshipRewrite`) -----------------
+test('splitDecision: a rewrite member gets a relationship item flagged rewrite, with an empty, missing or given brief', () => {
+  const decision = {
+    users: {
+      [ELENI]: { relationship: '' },
+      [NIKOS]: { relationship: 'Ο Νίκος (id:222222222222222222) πλησιάζει.' },
+    },
+  };
+  const rewriteIds = new Set([ELENI, NIKOS, ZOE]);
+  const { items } = splitDecision(decision, { config: makeConfig(), nowMs: NOW, tokenize, isKnownId, rewriteIds });
+  assert.deepEqual(
+    items.map(({ kind, userId, brief, rewrite }) => ({ kind, userId, brief, rewrite })),
+    [
+      { kind: 'relationship', userId: ELENI, brief: [], rewrite: true },
+      { kind: 'relationship', userId: NIKOS, brief: [`Ο <@${NIKOS}> πλησιάζει.`], rewrite: true },
+      { kind: 'relationship', userId: ZOE, brief: [], rewrite: true },
+    ],
+    'Zoë has no entry in the answer at all and is still queued',
+  );
+  for (const queued of items) assert.equal(queued.createdAt, NOW);
+
+  const plain = splitDecision(decision, { config: makeConfig(), nowMs: NOW, tokenize, isKnownId });
+  assert.deepEqual(plain.items.map((queued) => [queued.userId, 'rewrite' in queued]), [[NIKOS, false]], 'without rewriteIds nothing changes');
+});
+
+test('splitDecision: a rewrite member outside knownUserIds, or with relationships off, gets no item', () => {
+  const rewriteIds = new Set([ELENI]);
+  const foreign = splitDecision({ users: {} }, { config: makeConfig(), nowMs: NOW, knownUserIds: new Set([NIKOS]), rewriteIds });
+  assert.deepEqual(foreign.items, []);
+  const off = splitDecision({ users: {} }, { config: makeConfig({ features: { relationships: false } }), nowMs: NOW, rewriteIds });
+  assert.deepEqual(off.items, []);
+});
+
+test('mergeIntoQueue: a rewrite item keeps its empty brief and its flag, and a merge carries the flag over', () => {
+  const config = makeConfig();
+  let queue = queueOf([item('relationship', { userId: ELENI, brief: [], rewrite: true })]);
+  assert.equal(queue.length, 1);
+  assert.deepEqual(queue[0].brief, []);
+  assert.equal(queue[0].rewrite, true);
+  assert.deepEqual(normalizeQueue(JSON.parse(JSON.stringify(queue))), queue, 'the stored item survives a reload');
+  assert.deepEqual(queueOf([item('relationship', { userId: ELENI, brief: [] })]), [], 'an empty brief without the flag is still unusable');
+
+  queue = queueOf([item('relationship', { userId: NIKOS, brief: ['α'] })]);
+  const firstId = queue[0].id;
+  const merged = mergeIntoQueue(queue, [item('relationship', { userId: NIKOS, brief: [], rewrite: true })], NOW + 1000, config);
+  assert.equal(merged.merged, 1);
+  assert.equal(merged.queue.length, 1);
+  assert.deepEqual(merged.queue[0].brief, ['α']);
+  assert.equal(merged.queue[0].rewrite, true);
+  assert.notEqual(merged.queue[0].id, firstId, 'the changed item gets a fresh id');
+});
+
+test('buildVoiceRequest: a rewrite relationship item says rewrite true beside its old text and brief', () => {
+  const queue = queueOf([item('relationship', { userId: ELENI, brief: [], rewrite: true }), item('relationship', { userId: NIKOS, brief: ['β'] })]);
+  const { messages } = request(queue, { oldTextOf: () => 'Παλιοί φίλοι.' });
+  assert.deepEqual(itemsBlock(messages), [
+    { id: '1', kind: 'relationship', member: `Ελένη (id:${ELENI})`, old: 'Παλιοί φίλοι.', rewrite: true, brief: [], limit: 600 },
+    { id: '2', kind: 'relationship', member: `Νίκος (id:${NIKOS})`, old: 'Παλιοί φίλοι.', brief: ['β'], limit: 600 },
+  ]);
+});

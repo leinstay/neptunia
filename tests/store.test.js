@@ -3019,3 +3019,37 @@ test('store: forgetUser takes the member out of the participation store at once,
   other.forgetUser('g1', 'u1');
   assert.deepEqual(other.getParticipation('g1'), { episodes: [], nextId: 1 }, 'no store, no file');
 });
+
+test('markRelationshipRewrite: sets and clears the flag on a profile with a text, false without one', () => {
+  const dir = tmpDataDir();
+  const store = createStore({ dataDir: dir });
+  assert.equal(store.markRelationshipRewrite('g1', 'u1'), false, 'no profile');
+  assert.equal(store.getUser('g1', 'u1'), null, 'no profile is created');
+
+  store.touchUser('g1', 'u1', 'Zoé', 1000);
+  assert.equal(store.markRelationshipRewrite('g1', 'u1'), false, 'a profile without a relationship text');
+  assert.equal(store.getUser('g1', 'u1').relationshipRewrite, undefined);
+
+  store.applyProfileOps('g1', 'u1', { relationship: 'Παλιοί φίλοι.' }, { fieldChars: 400, now: WRITTEN_NOW });
+  assert.equal(store.markRelationshipRewrite('g1', 'u1'), true);
+  assert.equal(store.getUser('g1', 'u1').relationshipRewrite, true);
+  store.flush();
+  assert.equal(createStore({ dataDir: dir }).getUser('g1', 'u1').relationshipRewrite, true, 'the flag survives a restart');
+
+  assert.equal(store.markRelationshipRewrite('g1', 'u1', false), true);
+  assert.equal(store.getUser('g1', 'u1').relationshipRewrite, undefined, 'cleared');
+});
+
+test('applyProfileOps: writing a relationship text clears the rewrite flag, any other write keeps it', () => {
+  const dir = tmpDataDir();
+  const store = createStore({ dataDir: dir });
+  store.touchUser('g1', 'u1', 'Zoé', 1000);
+  store.applyProfileOps('g1', 'u1', { relationship: 'Παλιοί φίλοι.' }, { fieldChars: 400, now: WRITTEN_NOW });
+  store.markRelationshipRewrite('g1', 'u1');
+
+  store.applyProfileOps('g1', 'u1', { details: { add: ['owns a cat'] }, relationship: '  ' }, { fieldChars: 400, now: WRITTEN_NOW + 1000 });
+  assert.equal(store.getUser('g1', 'u1').relationshipRewrite, true, 'no text written -> the flag stays');
+
+  store.applyProfileOps('g1', 'u1', { relationship: 'Φίλοι που μιλούν κάθε μέρα.' }, { fieldChars: 400, now: WRITTEN_NOW + 2000 });
+  assert.equal(store.getUser('g1', 'u1').relationshipRewrite, undefined);
+});

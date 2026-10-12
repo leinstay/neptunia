@@ -192,8 +192,12 @@ export function voiceLimits(config) {
  *   feeling): its text belongs to the member's private layer. Absent = the public profile or the
  *   server's memory.
  * @property {string[]|object} brief  Stage A's neutral notes, oldest first, at most 3, `<@id>`
- *   tokens for members. Empty only for a feeling whose episode came without a tone. A `character`
+ *   tokens for members. Empty only for a feeling whose episode came without a tone, or a
+ *   relationship item with `rewrite`. A `character`
  *   item's brief is whatever the portrait refresh queued (an object of lists), passed on as is.
+ * @property {true} [rewrite]  Only on a relationship item: the member's stored text is flagged
+ *   for a forced rewrite (the profile's `relationshipRewrite`), so the item is worded even with
+ *   an empty brief. A merge keeps it.
  * @property {object} [payload]  reason: `{ delta, at }`; feeling: `{ at, date, what, quote }`;
  *   learned: `{ seenAt?, from?, sure? }`. `at` is the ISO stamp stage A stored the attitude move
  *   (its history entry's `ts`) or the episode (its `addedAt`) under: the address of the write,
@@ -272,9 +276,11 @@ function normalizeItem(raw, defaultCreatedAt) {
     if (raw.layer !== 'private' || !PRIVATE_KINDS.has(kind)) return null;
     item.layer = 'private';
   }
-  const brief = cleanBrief(kind, raw.brief);
+  const rewrite = kind === 'relationship' && raw.rewrite === true;
+  const brief = cleanBrief(kind, raw.brief) ?? (rewrite ? [] : null);
   if (brief === null) return null;
   item.brief = brief;
+  if (rewrite) item.rewrite = true;
   const payload = cleanPayload(kind, raw.payload);
   if (payload === null) return null;
   if (payload !== undefined) item.payload = payload;
@@ -289,7 +295,8 @@ function normalizeItem(raw, defaultCreatedAt) {
 
 /**
  * The stored queue validated on read (src/memory/store.js): not an array -> `[]`; an item with an
- * unknown kind, no id, no usable brief, no member for a member kind, a reason or feeling without
+ * unknown kind, no id, no usable brief (an empty one is usable only on a feeling and on a
+ * relationship item with `rewrite`), no member for a member kind, a reason or feeling without
  * its address, no `createdAt`, an unknown layer or a private item of a kind the private layer
  * lacks is dropped, and so is a second item with an id already seen. `layer: 'private'` is kept.
  * Counters and `nextAt` are repaired. Never throws.
@@ -348,6 +355,11 @@ function present(value) {
  * entry passes on for applyMemoryUpdate to judge. With `features.relationships` off,
  * `relationship` and `affinity` are dropped; with `features.episodes` off, `episodes`.
  *
+ * `rewriteIds`: the members whose profile went to stage A with `relationshipStale` cause
+ * `rewrite`. Each of them (when `knownUserIds` allows and relationships are on) gets a
+ * relationship item flagged `rewrite: true`, with the brief the answer gave, or an empty one
+ * when the answer gave none or left the member out: the forced rewrite never waits for a shift.
+ *
  * @param {unknown} decision  The parsed stage A answer.
  * @param {object} opts
  * @param {object} opts.config  The live config (`features.relationships`, `features.episodes`,
@@ -360,6 +372,7 @@ function present(value) {
  *   omitted = none is (the teacher is left out).
  * @param {number} [opts.seenAt]  When the batch's lessons were seen (its newest message); omitted = `nowMs`.
  * @param {'private'} [opts.layer]  `private` for a private batch; omitted = a guild batch.
+ * @param {Set<string>} [opts.rewriteIds]  Members whose relationship text is due a forced rewrite.
  * @returns {{ neutral: object, selfRemove: string[], items: object[],
  *   dropped: { portrait: number, off: number, foreign: number, shape: number } }}
  *   `items` carry no id yet (mergeIntoQueue gives them one). `dropped.portrait`: non-empty
@@ -371,7 +384,7 @@ function present(value) {
  *   not a list; an entry of those lists it cannot read; a `__proto__` key).
  * @throws {TypeError} `nowMs` is missing, or `layer` is neither omitted nor `private`.
  */
-export function splitDecision(decision, { config, nowMs, knownUserIds, tokenize = identity, isKnownId = () => false, seenAt, layer } = {}) {
+export function splitDecision(decision, { config, nowMs, knownUserIds, tokenize = identity, isKnownId = () => false, seenAt, layer, rewriteIds } = {}) {
   if (layer !== undefined && layer !== 'private') throw new TypeError('splitDecision: layer must be omitted or private');
   const dropped = { portrait: 0, off: 0, foreign: 0, shape: 0 };
   const result = { neutral: {}, selfRemove: [], items: [], dropped };
@@ -394,6 +407,13 @@ export function splitDecision(decision, { config, nowMs, knownUserIds, tokenize 
     if (given(value) && !fits(value)) dropped.shape += 1;
   };
   const isString = (value) => typeof value === 'string';
+  const rewrites = rewriteIds instanceof Set && relationshipsOn ? new Set([...rewriteIds].map(String).filter(mayGet)) : new Set();
+  /** Queue a relationship item, flagged when its member is due a forced rewrite (that one once). */
+  const queueRelationship = (id, brief) => {
+    if (!rewrites.has(id)) return queue({ kind: 'relationship', userId: id, brief });
+    rewrites.delete(id);
+    return queue({ kind: 'relationship', userId: id, brief, rewrite: true });
+  };
 
   const { users, guild, self, ...rest } = decision;
 
@@ -418,7 +438,9 @@ export function splitDecision(decision, { config, nowMs, knownUserIds, tokenize 
     if (relationshipBrief) {
       if (!relationshipsOn) dropped.off += 1;
       else if (!member) dropped.foreign += 1;
-      else queue({ kind: 'relationship', userId: id, brief: [relationshipBrief] });
+      else queueRelationship(id, [relationshipBrief]);
+    } else if (rewrites.has(id)) {
+      queueRelationship(id, []);
     }
 
     expect(affinity, isPlainObject);
@@ -469,6 +491,8 @@ export function splitDecision(decision, { config, nowMs, knownUserIds, tokenize 
 
     result.neutral.users[userId] = entry;
   }
+  // A forced rewrite the answer left out (no entry, or one that is not an object) is queued anyway.
+  for (const id of [...rewrites]) queueRelationship(id, []);
 
   if (isPrivate) {
     if (guild !== undefined) result.neutral.guild = guild;
@@ -566,8 +590,9 @@ function alreadyQueued(queued, item) {
 /**
  * Queue `items` (splitDecision's, or a portrait refresh's `{ kind: 'character', userId, brief }`).
  * A relationship item of a member already queued (in the same layer), and a patterns or starters
- * item, is merged into the queued one: its new briefs appended (the newest MAX_BRIEFS kept), its
- * age and counters kept, a fresh id when anything changed. A character item replaces the member's
+ * item, is merged into the queued one: its new briefs appended (the newest MAX_BRIEFS kept), a
+ * relationship's `rewrite` flag carried over, its age and counters kept, a fresh id when anything
+ * changed. A character item replaces the member's
  * queued one. A lesson (same brief and teacher) or a self fact (same brief) already queued is not
  * queued again: the queued one is kept untouched. Every other item is appended with a fresh id.
  * Then, past `memory.voice.queueMax`, the oldest items that are not `character` leave as
@@ -600,7 +625,11 @@ export function mergeIntoQueue(queue, items, nowMs, config) {
       const queued = next[slot];
       const briefs = Array.isArray(queued.brief) ? queued.brief : [];
       const fresh = item.brief.filter((brief) => !briefs.includes(brief));
-      if (fresh.length > 0) next[slot] = { ...queued, id: freshId(nowMs, taken), brief: [...briefs, ...fresh].slice(-MAX_BRIEFS) };
+      const flagged = item.rewrite === true && queued.rewrite !== true;
+      if (fresh.length > 0 || flagged) {
+        next[slot] = { ...queued, id: freshId(nowMs, taken), brief: [...briefs, ...fresh].slice(-MAX_BRIEFS) };
+        if (flagged) next[slot].rewrite = true;
+      }
       merged += 1;
       continue;
     }
@@ -764,6 +793,7 @@ function itemView(item, { limits, nameOf, oldTextOf }) {
     const old = oldTextOf(item);
     if (typeof old === 'string' && old.trim()) view.old = fromTokens(old.trim(), nameOf, 'analyzer');
   }
+  if (item.kind === 'relationship' && item.rewrite === true) view.rewrite = true;
   if (item.kind === 'reason') view.delta = item.payload.delta;
   if (item.kind === 'feeling') {
     view.what = fromTokens(item.payload.what, nameOf, 'analyzer');
@@ -795,7 +825,8 @@ function answerPrices(limits, tolerance, calibrator) {
  * the `<character>` block, then `<items>`: a JSON array, one object per item, `id` = its position
  * in the request ("1", "2", ...), `kind`, then the fields of that kind (`member` for the member
  * kinds, `layer: "private"` for a private item, `from` for a taught lesson, `old` for
- * relationship / patterns / starters / character when a text is stored, `delta` for a reason,
+ * relationship / patterns / starters / character when a text is stored, `rewrite: true` for a
+ * relationship item due a forced rewrite (its brief may be empty), `delta` for a reason,
  * `what` and `quote` for a feeling), `brief`, `limit`; every `<@id>` token resolved to
  * `name (id:...)` except in a quote.
  *

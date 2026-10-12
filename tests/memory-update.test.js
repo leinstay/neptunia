@@ -8739,3 +8739,115 @@ test('applyMemoryUpdate: an identical relationship text renews its stamps and re
     assert.deepEqual(store.listVersions(guildId, 'users', '1'), {});
   });
 });
+
+// ---- the forced relationship rewrite (`relationshipRewrite`) -----------------
+
+const REWRITE_TEXT = 'Φίλοι από παλιά, μιλούν για βιβλία.';
+
+test('buildMemoryRequest: a flagged profile with a text goes with relationshipStale cause rewrite, the flag itself is never shown', () => {
+  const profile = { relationship: REWRITE_TEXT, relationshipScore: 30, relationshipRewrite: true, affinity: { score: 30, reason: 'φίλοι', history: [] } };
+  const view = profilesViewOf(profile);
+  assert.deepEqual(view.relationshipStale, { writtenAt: 'fond', now: 'fond', cause: 'rewrite' });
+  assert.equal('relationshipRewrite' in view, false);
+
+  const config = makeConfig({ features: { relationships: true }, relationships: RELATIONSHIP_STALE_PIN });
+  const request = buildMemoryRequest({
+    prompts: { memory: 'sys', labels },
+    config,
+    calibrator: createCalibrator(),
+    profiles: { 1: { names: ['nick'], ...profile }, 2: { names: ['zoé'], relationship: REWRITE_TEXT, relationshipScore: 30, affinity: { score: 30, reason: '', history: [] } } },
+    guildMemory: {},
+    messages: [slimMessage({ id: 'm1', authorId: '1' }), slimMessage({ id: 'm2', authorId: '2' })],
+    selfName: 'Nept',
+  });
+  assert.equal(request.relationshipRewrites, 1);
+  assert.deepEqual(request.rewriteIds, ['1']);
+  assert.equal(request.staleRelationships, 1);
+});
+
+test('buildMemoryRequest: a private batch never sends cause rewrite', () => {
+  const profile = { relationship: REWRITE_TEXT, relationshipScore: 30, relationshipRewrite: true, affinity: { score: 30, reason: '', history: [] } };
+  const view = profilesViewOf(profile, {}, { publicProfile: { id: '1', names: ['nick'], interests: [], details: [], aliases: [] }, now: Date.UTC(2026, 0, 1, 12) });
+  assert.equal(view.relationshipStale, undefined);
+});
+
+/** A guild with member '1' whose relationship text is flagged for a rewrite, and one buffered line of theirs. */
+function seedRewrite(store, guildId, at) {
+  store.touchUser(guildId, '1', 'Aria', at - 60_000);
+  store.applyProfileOps(guildId, '1', { relationship: REWRITE_TEXT }, { fieldChars: 400, relationshipScore: 0, now: at - DAY_MS });
+  assert.equal(store.markRelationshipRewrite(guildId, '1'), true);
+  store.pushBuffer(guildId, slimMessage({ id: 'm1', authorId: '1', authorName: 'Aria', ts: at - 1000 }), 100);
+}
+
+test('run (two-stage): a rewrite member with an empty brief still gets a voice item with rewrite and old; unanswered, the flag stays', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    seedRewrite(store, guildId, VOICE_AT);
+    const hot = voiceHot({ batchMessages: 1, minBatchMessages: 1 });
+    const llm = voiceLlm({ decision: { users: { 1: { relationship: '' } } } });
+
+    const { logs } = await withCapturedLogs(() => voiceUpdater(store, hot, llm).run(guildId));
+
+    const stageA = JSON.parse(blockBody(llm.calls[0].messages[1].content, 'existing_profiles'));
+    assert.equal(stageA['1'].relationshipStale.cause, 'rewrite');
+    assert.equal(llm.voiceCalls().length, 1);
+    const [sent] = voiceItemsOf(llm.voiceCalls()[0].messages);
+    assert.deepEqual(
+      { kind: sent.kind, old: sent.old, rewrite: sent.rewrite, brief: sent.brief },
+      { kind: 'relationship', old: REWRITE_TEXT, rewrite: true, brief: [] },
+    );
+    const [queued, ...rest] = store.getVoiceQueue(guildId);
+    assert.deepEqual(rest, []);
+    assert.deepEqual({ kind: queued.kind, userId: queued.userId, rewrite: queued.rewrite, brief: queued.brief }, { kind: 'relationship', userId: '1', rewrite: true, brief: [] });
+    assert.equal(store.getUser(guildId, '1').relationship, REWRITE_TEXT);
+    assert.equal(store.getUser(guildId, '1').relationshipRewrite, true, 'nothing written: the flag stays');
+    assert.equal(logs.find((entry) => entry.msg === 'memory: update applied').relationshipRewrites, 1);
+  });
+});
+
+test('run (two-stage): the voice apply writes the rewritten text and clears the flag', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    seedRewrite(store, guildId, VOICE_AT);
+    const hot = voiceHot({ batchMessages: 1, minBatchMessages: 1 });
+    const llm = voiceLlm({ decision: { users: {} }, word: (item) => (item.kind === 'relationship' && item.rewrite === true ? 'Παλιοί φίλοι που μιλούν για βιβλία.' : null) });
+
+    await withCapturedLogs(() => voiceUpdater(store, hot, llm).run(guildId));
+
+    const profile = store.getUser(guildId, '1');
+    assert.equal(profile.relationship, 'Παλιοί φίλοι που μιλούν για βιβλία.');
+    assert.equal(profile.relationshipRewrite, undefined);
+    assert.equal(profile.relationshipWrittenAt, new Date(VOICE_AT).toISOString());
+    assert.deepEqual(store.getVoiceQueue(guildId), []);
+  });
+});
+
+test('run (single-stage): a rewrite member answered with no text keeps the flag; a written text clears it', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    const at = Date.UTC(2026, 0, 9, 12);
+    seedRewrite(store, guildId, at);
+    let answer = { users: { 1: { relationship: '' } } };
+    const memory = { ...makeConfig().memory, batchMessages: 1, minBatchMessages: 1 };
+    const hot = { config: makeConfig({ memory, features: { relationships: true }, relationships: { ...RELATIONSHIP_STALE_PIN, textChars: 600 } }), prompts: { memory: 'sys', labels } };
+    const llm = recordingLlm({});
+    llm.complete = async (messages, options) => {
+      llm.calls.push({ messages, options });
+      return { text: JSON.stringify(answer) };
+    };
+    const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => at });
+
+    const first = await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(JSON.parse(blockBody(llm.calls[0].messages[1].content, 'existing_profiles'))['1'].relationshipStale.cause, 'rewrite');
+    assert.equal(first.logs.find((entry) => entry.msg === 'memory: update applied').relationshipRewrites, 1);
+    assert.equal(store.getUser(guildId, '1').relationship, REWRITE_TEXT);
+    assert.equal(store.getUser(guildId, '1').relationshipRewrite, true, 'the next batch flags it again');
+
+    answer = { users: { 1: { relationship: 'Παλιοί φίλοι που μιλούν για βιβλία.' } } };
+    store.pushBuffer(guildId, slimMessage({ id: 'm2', authorId: '1', authorName: 'Aria', ts: at - 500 }), 100);
+    await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(JSON.parse(blockBody(llm.calls[1].messages[1].content, 'existing_profiles'))['1'].relationshipStale.cause, 'rewrite');
+    assert.equal(store.getUser(guildId, '1').relationship, 'Παλιοί φίλοι που μιλούν για βιβλία.');
+    assert.equal(store.getUser(guildId, '1').relationshipRewrite, undefined);
+  });
+});

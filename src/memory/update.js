@@ -786,7 +786,8 @@ function recentNoteItems(lines, { config, now, timezone, locale, nameOf }) {
  * marker. A JSON field only: the wording that asks for a re-check is the prompt's.
  * @returns {{ messages: object[], consumed: number, shown: number, deferred: number, rosterIds: string[],
  *   rosterCandidates: number, rosterTokens: number, profilesWhole: number, profilesCompact: number,
- *   profilesTokens: number, staleRelationships: number, recentShown: number,
+ *   profilesTokens: number, staleRelationships: number, relationshipRewrites: number,
+ *   rewriteIds: string[], recentShown: number,
  *   recentIds: number[], staleNotes: { channels: string[], guild: boolean } }}
  *   `shown`: the oldest lines of the batch, contiguous, that fit the token cap -- what
  *   `<new_messages>` carries and the only lines this request consumes (`consumed === shown`); the
@@ -803,6 +804,8 @@ function recentNoteItems(lines, { config, now, timezone, locale, nameOf }) {
  *   `staleRelationships`: the whole profiles sent with a `relationshipStale` marker (a compact one carries none)
  *   (src/memory/affinity.js#relationshipStaleOf, settings `relationships.rewriteOnBandChange`,
  *   `bandHysteresis`, `rewriteOnDrift`, `rewriteAfterMoves`); 0 with relationships off.
+ *   `relationshipRewrites`: how many of those markers carry cause `rewrite` (a forced rewrite);
+ *   `rewriteIds`: their member ids, for stage A to queue their voice items (applyDecision).
  *   `recentShown`: the recent lines `<recent_notes>` actually carries; `recentIds`: their ids, in
  *   the order sent -- the only lines an answer may remove (applyMemoryUpdate's `recent.shownIds`).
  */
@@ -852,8 +855,9 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
       const band = affinityBand(score);
       fields.affinity = { score: roundScore(score), band, reason: resolveText(affinity.reason, resolveName) };
       // The stored relationship text no longer matches the score -- a slow drift never looks like
-      // a shift from inside one batch: flag it with its cause (`first`, `band`, `drift`, `moves`,
-      // see relationshipStaleOf) so the analyzer rewrites it. Measured from the score and the
+      // a shift from inside one batch: flag it with its cause (`rewrite`, `first`, `band`, `drift`,
+      // `moves`, see relationshipStaleOf) so the analyzer rewrites it. `rewrite` is the owner's
+      // forced rewrite (the public profile's `relationshipRewrite`; a private layer has none). Measured from the score and the
       // moment the text was written (`relationshipScore`, missing = 0; `relationshipWrittenAt`).
       // An EMPTY text is flagged `first` once the profile has something a first version could be
       // written from: a non-zero score, a non-empty reason, or stored episodes (the "dealing with
@@ -869,6 +873,7 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
           history: affinity.history,
           hasReason: typeof affinity.reason === 'string' && affinity.reason.trim() !== '',
           hasEpisodes: Array.isArray(profile?.episodes) && profile.episodes.length > 0,
+          rewrite: !privateChat && profile?.relationshipRewrite === true,
         },
         config.relationships,
       );
@@ -1070,6 +1075,7 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
   const wholeIds = new Set(upgrades.filter((view) => keptProfileTexts.has(view.text)).map((view) => view.id));
   const profilesBlock = profilesBlockOf(wholeIds);
   const staleRelationships = profileViews.filter((view) => wholeIds.has(view.id) && view.whole.relationshipStale).length;
+  const rewriteIds = profileViews.filter((view) => wholeIds.has(view.id) && view.whole.relationshipStale?.cause === 'rewrite').map((view) => view.id);
   const shownNotes = notesBlocks(messages.slice(0, shown));
 
   const keptRosterTexts = new Set(kept.roster);
@@ -1104,6 +1110,8 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
     profilesCompact: profileViews.length - wholeIds.size,
     profilesTokens: cost(profilesBlock),
     staleRelationships,
+    relationshipRewrites: rewriteIds.length,
+    rewriteIds,
     recentShown: keptRecent.length,
     recentIds: keptRecent.map((item) => item.id),
     staleNotes: shownNotes.staleNotes,
@@ -2473,7 +2481,8 @@ function queueStageA(store, guildId, split, config, nowMs) {
  * @param {unknown} decision  The parsed stage A answer; untrusted.
  * @param {object} config     The live config.
  * @param {Set<string>} knownUserIds  The batch's authors.
- * @param {object} options    `applyMemoryUpdate`'s options.
+ * @param {object} options    `applyMemoryUpdate`'s options, plus `rewriteIds` (a Set: the members
+ *   sent with a forced-rewrite marker, splitDecision's `rewriteIds`).
  * @param {number} nowMs
  * @returns {object}  `applyMemoryUpdate`'s result (its `portraitDropped` also counting the
  *   `character` / `style` / `portrait` keys the split dropped, `self` true when a stored self fact
@@ -2484,7 +2493,7 @@ function queueStageA(store, guildId, split, config, nowMs) {
 function applyDecision(store, guildId, decision, config, knownUserIds, options, nowMs) {
   const cfg = config.memory ?? {};
   const { tokenize, isKnownId } = makeTokenizers(store, guildId, knownUserIds, options.batchAuthorNames);
-  const decided = splitDecision(decision, { config, nowMs, knownUserIds, tokenize, isKnownId, seenAt: options.timing?.seenAt });
+  const decided = splitDecision(decision, { config, nowMs, knownUserIds, tokenize, isKnownId, seenAt: options.timing?.seenAt, rewriteIds: options.rewriteIds });
   // A self claim about a member is never queued (memberClaimTest); `self.remove` is not filtered.
   const aboutMember = memberClaimTest(store, guildId, knownUserIds, options.batchAuthorNames);
   const split = { ...decided, items: decided.items.filter((item) => !(item.kind === 'self' && aboutMember(item.brief?.[0]))) };
@@ -2830,7 +2839,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * only those sent may get anything from the answer: an alias.
    * `profilesWhole` / `profilesCompact` / `profilesTokens`: how many profiles went whole and
    * compact, and the tokens of `<existing_profiles>` (see `buildMemoryRequest`).
-   * `staleRelationships`: how many profiles went with a `relationshipStale` marker.
+   * `staleRelationships`: how many profiles went with a `relationshipStale` marker;
+   * `relationshipRewrites`: how many of them with cause `rewrite`.
    * `staleNotes`: the channel ids and whether the server notes went with a stale marker.
    * `recentShown`: how many live recent lines the request's `<recent_notes>` carried (read from
    * the store only while `features.recent` is on); the answer's `recent` field may remove only
@@ -2847,7 +2857,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * @param {object[]} messages  Slim messages (oldest first) to summarize; NOT read from or removed off any buffer.
    * @returns {Promise<{ ok: boolean, usage: object|null, estimated: number, result: object|null, consumed?: number,
    *   shown?: number, deferred?: number, roster?: number, rosterCandidates?: number, rosterTokens?: number,
-   *   profilesWhole?: number, profilesCompact?: number, profilesTokens?: number, staleRelationships?: number, recentShown?: number, staleNotes?: { channels: string[], guild: boolean },
+   *   profilesWhole?: number, profilesCompact?: number, profilesTokens?: number, staleRelationships?: number, relationshipRewrites?: number, recentShown?: number, staleNotes?: { channels: string[], guild: boolean },
    *   error?: Error, stage?: 'single'|'two' }>}
    */
   async function analyze(guildId, messages) {
@@ -2884,7 +2894,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         }
         return { profiles: context.profiles, channels: context.channels, guildChannels, rosterProfiles, recentLines, now: now() };
       },
-      (update, { relationships, episodes, lore, recent }, { rosterIds, recentIds, stage, nowMs, consumed }) => {
+      (update, { relationships, episodes, lore, recent }, { rosterIds, recentIds, rewriteIds, stage, nowMs, consumed }) => {
         const cfg = hot.config.memory;
         // Only the lines the model saw (`consumed`, the batch's oldest): an author or a channel
         // whose lines were all deferred is written by the batch that shows them.
@@ -2912,7 +2922,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
           versions: { enabled: hot.config.features?.versions !== false, kept: hot.config.memory?.versionsKept ?? 20 },
         };
         // Stage A drops every portrait key, the `portrait` cue included: nothing to report.
-        if (stage === 'two') return applyDecision(store, guildId, update, hot.config, knownUserIds, options, nowMs);
+        // A forced rewrite is queued for the voice run even when stage A gave no brief for it.
+        if (stage === 'two') return applyDecision(store, guildId, update, hot.config, knownUserIds, { ...options, rewriteIds: new Set(rewriteIds) }, nowMs);
         const result = applyMemoryUpdate(store, guildId, update, cfg, knownUserIds, options);
 
         if (typeof onPortraitRequest === 'function') {
@@ -3072,9 +3083,10 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * Build, send, parse, apply: the body shared by `analyze()` and
    * `analyzePrivate()`. `requestInput()` (called only once a memory prompt is
    * configured) returns the mode-specific `buildMemoryRequest` fields;
-   * `applyUpdate(update, switches, { rosterIds, recentIds, stage, nowMs, consumed })` stores the parsed answer and
+   * `applyUpdate(update, switches, { rosterIds, recentIds, rewriteIds, stage, nowMs, consumed })` stores the parsed answer and
    * returns the result to report (`rosterIds` / `recentIds`: the roster members and the recent
-   * lines the request carried, see `buildMemoryRequest`; `stage`: `analyzerMode`'s; `nowMs`: in the
+   * lines the request carried, see `buildMemoryRequest`; `rewriteIds`: in the `two` stage only, the
+   * members sent with a forced-rewrite marker; `stage`: `analyzerMode`'s; `nowMs`: in the
    * `two` stage only, the one clock value the switches carry as `now`, for the split
    * and the neutral write alike; `consumed`: the batch's oldest messages the request showed, the
    * only ones the answer is applied against). A failure's `reason`: 'no-prompt', 'token-limit',
@@ -3104,9 +3116,10 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     const { descriptions, videos, reads } = cachedMedia(guildId, messages);
 
     let completion;
-    let fit; // the request's { consumed, shown, deferred, roster, rosterCandidates, rosterTokens, profilesWhole, profilesCompact, profilesTokens, staleRelationships, recentShown, staleNotes }, reported with a success
+    let fit; // the request's { consumed, shown, deferred, roster, rosterCandidates, rosterTokens, profilesWhole, profilesCompact, profilesTokens, staleRelationships, relationshipRewrites, recentShown, staleNotes }, reported with a success
     let rosterIds = []; // the roster members the request carried: the only non-authors an answer may give an alias
     let recentIds = []; // the recent lines the request carried: the only ones an answer may remove
+    let rewriteIds = []; // the members sent with a forced-rewrite marker: stage A queues their voice items
     let consumedMessages = []; // the oldest messages the request showed: the only ones the answer is applied against
     let voiceDay = null; // the UTC day a memory-wording request counts for (the single-stage fallback)
     try {
@@ -3122,6 +3135,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         profilesCompact,
         profilesTokens,
         staleRelationships,
+        relationshipRewrites,
+        rewriteIds: sentRewrites,
         recentShown,
         recentIds: sentRecent,
         staleNotes,
@@ -3140,8 +3155,9 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         ...input,
         stage: stage === 'two' ? 'decide' : 'single',
       });
-      fit = { consumed, shown, deferred, roster: sentRoster.length, rosterCandidates, rosterTokens, profilesWhole, profilesCompact, profilesTokens, staleRelationships, recentShown, staleNotes };
+      fit = { consumed, shown, deferred, roster: sentRoster.length, rosterCandidates, rosterTokens, profilesWhole, profilesCompact, profilesTokens, staleRelationships, relationshipRewrites, recentShown, staleNotes };
       rosterIds = sentRoster;
+      rewriteIds = sentRewrites ?? [];
       recentIds = sentRecent;
       consumedMessages = messages.slice(0, consumed);
 
@@ -3191,7 +3207,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         // One clock read for the whole stage A apply: the split addresses the attitude move and
         // the episodes it stores by this instant, so the switches stamp them with it too.
         const nowMs = now();
-        result = applyUpdate(update, memorySwitches(hot.config, () => nowMs), { rosterIds, recentIds, stage, nowMs, consumed: consumedMessages });
+        result = applyUpdate(update, memorySwitches(hot.config, () => nowMs), { rosterIds, recentIds, rewriteIds, stage, nowMs, consumed: consumedMessages });
       } else {
         result = applyUpdate(update, applySwitches(), { rosterIds, recentIds, stage, consumed: consumedMessages });
       }
@@ -3342,6 +3358,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
           profilesTokens: outcome.profilesTokens,
           // Relationship markers sent; `relationships` (in counts) = texts actually rewritten.
           staleRelationships: outcome.staleRelationships,
+          // Of those, the forced rewrites (cause `rewrite`).
+          relationshipRewrites: outcome.relationshipRewrites,
           // Notes markers sent (channels plus the server notes); `channels` / `guild` (in counts)
           // say whether a text really changed. With markers sent, how the answer reviewed them:
           // a stamp went to the updated (really changed) and confirmed ones only.

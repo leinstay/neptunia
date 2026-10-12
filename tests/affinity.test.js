@@ -660,3 +660,21 @@ test('strongestMoves: a cap of 0, a bad cap or no history chooses nothing', () =
   assert.deepEqual(strongestMoves(undefined, { max: 3 }), []);
   assert.deepEqual(strongestMoves([null, 'x'], { max: 3 }), []);
 });
+
+test('relationshipStaleOf: a flagged non-empty text is cause rewrite before band, drift and moves', () => {
+  assert.deepEqual(relationshipStaleOf(writtenView({ rewrite: true }), STALE_CFG), { writtenAt: 'fond', now: 'fond', cause: 'rewrite' });
+  // A band change, a drift and enough moves would each fire too: the flag still wins, bands as computed.
+  assert.deepEqual(relationshipStaleOf(writtenView({ rewrite: true, writtenScore: 9, score: 70, history: movesAround(8) }), STALE_CFG), {
+    writtenAt: 'warm',
+    now: 'devoted',
+    cause: 'rewrite',
+  });
+  // Only `true` counts as the flag.
+  assert.equal(relationshipStaleOf(writtenView({ rewrite: 'yes' }), STALE_CFG), null);
+  assert.equal(relationshipStaleOf(writtenView({ rewrite: false }), STALE_CFG), null);
+});
+
+test('relationshipStaleOf: the rewrite flag on an empty text is ignored, the empty-text rules apply', () => {
+  assert.deepEqual(relationshipStaleOf(writtenView({ text: '  ', rewrite: true }), STALE_CFG), { writtenAt: 'none', now: 'fond', cause: 'first' });
+  assert.equal(relationshipStaleOf({ text: '', score: 0, rewrite: true }, STALE_CFG), null);
+});
