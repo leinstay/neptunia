@@ -52,14 +52,17 @@ When `bot.guildId` is empty and the bot is in exactly one server, it locks to th
 
 ## Features and changes
 
+**12.10.2026**  
+The diary no longer falls silent for days: after an empty window, posts come later the same day. Two new kinds of diary post carry four to six pictures at once: a photo set from one outing, in the same outfit at the same hour, or a gallery of anything Neptunia likes, not only self-portraits. A member who asked not to be pinged is answered without a notification.
+
 **11.10.2026**  
-Neptunia keeps a few lines around what they said on other channels for three days. Before answering a new message, a helper picks which of those past exchanges the message points at, even by meaning. They answer from the conversation they actually had instead of guessing. They do not mention those exchanges on their own. Only channels that everyone in the current channel can also read appear. `features.participation` (default on); sizes in `participation.*` in the configuration doc.
+Neptunia keeps a few lines around what they said on other channels for three days. When a new message refers to one of those exchanges, even only by meaning, they answer from the conversation they actually had instead of guessing, and they do not bring those exchanges up on their own.
 
 **06.10.2026**  
-Neptunia keeps a diary: one channel where they post on their own, without anyone asking. The posts come at random times across the day, in configurable windows, with quiet days mixed in. Posts vary: a drawing of a scene, a meme, a thought, a retold news item, a curious fact, a one-line mood update. Before each post the persona reviews its own recent history and picks something it has not done yet. Some post kinds trigger a web search so the persona can retell what it found in its own words. The owner points the diary at a channel with `/nep diary set` and tunes the schedule, post kinds and weights through config.
+Neptunia keeps a diary: one channel where they post on their own, without anyone asking. The posts come at random times across the day, with quiet days mixed in. A post can be a drawing of a scene, a meme, a thought, a retold news item, a curious fact or a one-line mood update. Before posting, they look over their recent posts and pick something they have not done yet. For news and facts they search the web first and retell what they found in their own words.
 
 **05.10.2026**  
-Neptunia distinguishes between someone talking to them and people talking about them in the third person. When a conversation mentions another channel, they open that channel and read the latest messages with pictures, even when the channel was named in words without a link. If someone calls them in a channel where they cannot write, they answer in the main channel with a link to that message. On their own they can comment in the main channel on something they read in a channel where they cannot write. They are more likely to respond to a question asked to everyone than to someone specific. They remember what mattered over the last few days: what someone gave them or asked them to do, what they promised, what happened between members. When someone asks about a person, they recall moments connected to that person. They search old server messages the same way they search the web: for questions like "what did we do on New Year's" or "who is ..." they find the right conversation and answer from it.
+Neptunia distinguishes between someone talking to them and people talking about them in the third person. When a conversation mentions another channel, they open that channel and read the latest messages with pictures, even when the channel was named in words without a link. If someone calls them in a channel where they cannot write, they answer in the main channel with a link to that message, and on their own they can comment there on something they read in such a channel. A question asked to everyone is more likely to get their answer than one aimed at a specific person. Neptunia remembers what mattered over the last few days: what someone gave them or asked them to do, what they promised, what happened between members, and when someone asks about a person, the moments connected to that person come back. Old server messages they search the same way as the web: for questions like "what did we do on New Year's" or "who is ..." they find the right conversation and answer from it.
 
 **04.10.2026**  
 Neptunia knows what is in the pictures that were recently posted in other channels.
@@ -68,10 +71,10 @@ Neptunia knows what is in the pictures that were recently posted in other channe
 When Neptunia has not talked to someone in a while, their attitude toward that person gradually returns to neutral.
 
 **30.09.2026**  
-Neptunia uses the server's custom emoji in their messages on their own. They also post GIFs from the ones people share on the server. They see what is happening in a GIF. They know today's date.
+Neptunia uses the server's custom emoji in their messages on their own and posts GIFs from the ones people share on the server, seeing what happens in them. They know today's date.
 
 **29.09.2026**  
-Neptunia replies in direct messages. What someone tells them in a DM does not appear in the server channels. They see which reactions people put on messages.
+Neptunia replies in direct messages, and what someone tells them there does not appear in the server channels. They see which reactions people put on messages.
 
 **28.09.2026**  
 Neptunia draws pictures on request or on their own. They can draw themselves: they have a consistent appearance.
@@ -83,16 +86,16 @@ Neptunia sees pictures and videos inside forwarded messages. They also watch lon
 Neptunia remembers what people teach them in the chat: facts, rules, "that's how we do things here."
 
 **23.09.2026**  
-Neptunia watches videos: both attached files and links from YouTube, TikTok, VK, X (Twitter), Reddit, Twitch. When asked about a detail in a video they already watched, they re-watch the video with that question. They open links from messages and read what is on the page. They search the web when a question needs fresh facts or when someone directly asks them to look something up.
+Neptunia watches videos: both attached files and links from YouTube, TikTok, VK, X (Twitter), Reddit, Twitch. When asked about a detail in a video they already watched, they re-watch it with that question. Links from messages they open and read, and they search the web when a question needs fresh facts or when someone directly asks them to look something up.
 
 **22.09.2026**  
 Neptunia understands when someone is talking to them without a mention or a tag, from the context of the conversation.
 
 **21.09.2026**  
-Neptunia sees pictures posted in the chat. They also see stickers, the server's custom emoji, and link previews with the site title and description. If a message has an attachment they cannot open, such as a file or a voice message, they know the attachment is there and do not pretend they looked. They understand forwarded messages: who sent the original and what it says. They remember individual moments with people: who said or did what, and what they thought about it. They keep track of local jokes and server stories. They remember a person's hobbies and facts about them, but only what has come up more than once. They also remember nicknames: what members call each other.
+Neptunia sees pictures posted in the chat, along with stickers, the server's custom emoji and link previews with the site title and description. If a message has an attachment they cannot open, such as a file or a voice message, they know it is there and do not pretend they looked. Forwarded messages they understand too: who sent the original and what it says. Neptunia remembers individual moments with people, who said or did what and what they thought about it, keeps track of local jokes and server stories, and remembers a person's hobbies and facts about them, but only what has come up more than once. Nicknames too: what members call each other.
 
 **20.09.2026**  
-Neptunia answers when called: by a mention, a reply to their message, or just their name in the text. They can write in a channel on their own when nobody called them. They can join someone else's conversation when they have something to say on the topic. They can also ignore a message, like someone who reads it and stays quiet. Replies are not instant: a typing indicator shows, the answer may come as several short messages, and sometimes instead of words they place a reaction. They remember every member: who each one is and how each one talks. Their attitude toward each person is different and changes depending on how that person talks to them. They can tell whether a channel has a live conversation or is quiet. They know which channels the server has and what each one is about. On the first launch they read older messages from the server and build a first picture of the people and channels, so they do not start from zero.
+Neptunia answers when called: by a mention, a reply to their message, or just their name in the text. They can also write in a channel on their own when nobody called them, join someone else's conversation when they have something to say on the topic, or ignore a message, like someone who reads it and stays quiet. Replies are not instant: a typing indicator shows, the answer may come as several short messages, and sometimes instead of words they place a reaction. Neptunia remembers every member, who each one is and how each one talks, and their attitude toward each person is different and changes depending on how that person talks to them. They can tell whether a channel has a live conversation or is quiet, and they know which channels the server has and what each one is about. On the first launch they read older messages from the server and build a first picture of the people and channels, so they do not start from zero.
 
 ## Prompt layers
 
