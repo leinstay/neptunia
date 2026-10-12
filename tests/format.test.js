@@ -399,7 +399,7 @@ test('formatTranscript: content longer than maxChars is truncated with an ellips
   assert.ok(!items[0].text.includes('aaaaaa'));
 });
 
-test('formatTranscript: mode "memory" drops the #index and adds the user id, omits reply markers', () => {
+test('formatTranscript: mode "memory" drops the #index and adds the user id, a reply outside the list renders replyToOld', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0, { authorName: 'Nick', authorId: '42', content: 'hello', replyToId: 'ghost' })];
   const items = formatTranscript(messages, {
@@ -410,9 +410,40 @@ test('formatTranscript: mode "memory" drops the #index and adds the user id, omi
     labels,
     mode: 'memory',
   });
-  assert.ok(items[0].text.includes('Nick (id:42): hello'));
+  assert.equal(items[0].text.split('\n').at(-1), '[13:00] Nick (id:42): hello (replying to an older message)');
   assert.ok(!items[0].text.includes('#1'));
-  assert.ok(!items[0].text.includes('replying'));
+});
+
+test('formatTranscript: mode "memory" marks a reply to a member\'s line with replyToMemory, no #index', () => {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const messages = [
+    msg('a', t0, { authorName: 'Éloïse', authorId: '7', content: 'je préfère\nles penalties à la dernière minute, toujours' }),
+    msg('b', t0 + MIN, { authorName: 'Nick', authorId: '42', content: 'ok', replyToId: 'a', attachments: [{ id: 'p1', kind: 'image' }] }),
+  ];
+  const items = formatTranscript(messages, { ...offsetOptions, mode: 'memory', replyQuoteChars: 24 });
+  assert.equal(items[1].text, '[13:01] Nick (id:42): ok (reply to Éloïse: je préfère les…) [image]');
+});
+
+test('formatTranscript: mode "memory" names the persona\'s self label in a reply to its own line', () => {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const messages = [
+    msg('a', t0, { self: true, authorName: 'Nept', content: 'πάμε για καφέ' }),
+    msg('b', t0 + MIN, { authorName: 'Nick', authorId: '42', content: 'ναι!', replyToId: 'a' }),
+  ];
+  const items = formatTranscript(messages, { ...offsetOptions, mode: 'memory', replyQuoteChars: 40 });
+  assert.equal(items[1].text, '[13:01] Nick (id:42): ναι! (reply to Nept (you): πάμε για καφέ)');
+});
+
+test('formatTranscript: the memory reply marker leaves chat mode output unchanged', () => {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const messages = [
+    msg('a', t0, { authorName: 'Éloïse', content: 'πάμε' }),
+    msg('b', t0 + MIN, { content: 'ναι!', replyToId: 'a', attachments: [{ id: 'p1', kind: 'image' }] }),
+    msg('c', t0 + 2 * MIN, { content: 'τι;', replyToId: 'ghost' }),
+  ];
+  const items = formatTranscript(messages, { ...offsetOptions, replyQuoteChars: 40 });
+  assert.equal(items[1].text, '#2 [13:01] Nick: ναι! (replying to #1, Éloïse: "πάμε") [image]');
+  assert.equal(items[2].text, '#3 [13:02] Nick: τι; (replying to an older message)');
 });
 
 test('formatTranscript: mode "memory" marks a message addressed to the persona with a leading arrow', () => {
