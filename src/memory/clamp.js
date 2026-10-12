@@ -24,7 +24,8 @@
 //
 // Two blunt helpers live here too, for text that is not analyzer prose:
 // `oneLine` (whitespace collapsed, so a value stays on its one line) and
-// `clampChars` (a plain code-point cut, no boundary search). `stripDashes` /
+// `clampChars` (a plain code-point cut, no boundary search); `clampAtBoundary`
+// is the same limit with a sentence/word-boundary cut for free text sent on. `stripDashes` /
 // `countDashes` clean em and en dashes out of the persona's outgoing text.
 
 const SENTENCE_ENDERS = new Set(['.', '!', '?', '…']);
@@ -239,6 +240,26 @@ export function oneLine(text) {
   return String(text ?? '')
     .replace(/\s+/gu, ' ')
     .trim();
+}
+
+/**
+ * `text` cut to at most `max` code points at a clean boundary: the end of the
+ * last sentence when it keeps at least 60% of `max`, else the last word
+ * boundary, never inside a `<@id>` token or a surrogate pair. Text within the
+ * limit is returned unchanged (untrimmed). A `max` that is not a finite
+ * non-negative number leaves it whole; `0` gives ''. Non-string reads as ''.
+ * For free text sent on (a drawing request) where a mid-word end would be read.
+ * @param {unknown} text
+ * @param {number} max
+ * @returns {string}
+ */
+export function clampAtBoundary(text, max) {
+  const value = String(text ?? '');
+  if (!Number.isFinite(max) || max < 0) return value;
+  const limit = Math.floor(max);
+  if (limit === 0) return '';
+  if (Array.from(value).length <= limit) return value;
+  return clampText(value, limit, { tolerance: 1 });
 }
 
 /**

@@ -10,10 +10,13 @@
 // The parser is forgiving: a missing tag wrapper falls back to a single plain
 // message, an unterminated <think> (output cut by max_tokens) means silence.
 
+import { clampAtBoundary } from '../memory/clamp.js';
+
 const MAX_MESSAGES = 3;
 const MAX_MESSAGE_CHARS = 1900;
 const MAX_FALLBACK_CHARS = 600;
-const MAX_DRAW_CHARS = 800;
+// The default <draw> body cap: image.maxPromptChars in config.json (callers pass the live value).
+const DEFAULT_MAX_DRAW_CHARS = 1600;
 // The most <draw> tags read into `draws` (a diary set renders the first diary.set.pictures[1] of them).
 const MAX_DRAWS = 10;
 const SELF_YES = new Set(['yes', 'true', '1']);
@@ -33,13 +36,15 @@ function parseIndex(value) {
  * `<draw>`, `draws` every non-empty one in order, at most 10 (`draw` is
  * `draws[0]`, or null when there is none).
  * @param {unknown} raw
+ * @param {{ maxDrawChars?: number }} [options] `maxDrawChars`: the cap of one <draw> body, cut at a
+ *   sentence or word boundary (clampAtBoundary); the live `image.maxPromptChars`, default 1600.
  * @returns {{ skip: boolean, messages: {text: string, replyTo: number|null}[],
  *             reactions: {to: number, emoji: string}[], think: string,
  *             draw: {text: string, self: boolean, replyTo: number|null}|null,
  *             draws: {text: string, self: boolean, replyTo: number|null}[],
  *             gif: {id: string, replyTo: number|null}|null }}
  */
-export function parseOutput(raw) {
+export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS } = {}) {
   const result = { skip: false, messages: [], reactions: [], think: '', draw: null, draws: [], gif: null };
   let text = String(raw ?? '');
 
@@ -76,7 +81,7 @@ export function parseOutput(raw) {
     const self = /self\s*=\s*"([^"]*)"/i.exec(attrs);
     const reply = /reply\s*=\s*"([^"]*)"/i.exec(attrs);
     result.draws.push({
-      text: body.slice(0, MAX_DRAW_CHARS),
+      text: clampAtBoundary(body, maxDrawChars),
       self: self ? SELF_YES.has(self[1].trim().toLowerCase()) : false,
       replyTo: reply ? parseIndex(reply[1]) : null,
     });

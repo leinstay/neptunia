@@ -74,7 +74,7 @@ Settings for the web side live under `web`, for the server side under `recall`. 
 
 ### Caps
 
-At most `image.maxPerDay` (default 50) pictures per day for the instance and `image.maxPerUserPerDay` (default 50) per member. Both are checked before the request and counted only when it is sent. One picture per turn. The scene text from the `<draw>` tag is clamped to `image.maxPromptChars` (default 800). When the persona is in the picture (`self="yes"`) and `image.reference` is `'avatar'`, the bot's Discord avatar is sent as a visual reference.
+At most `image.maxPerDay` (default 50) pictures per day for the instance and `image.maxPerUserPerDay` (default 50) per member. Both are checked before the request and counted only when it is sent. One picture per turn. The scene text from the `<draw>` tag is clamped to `image.maxPromptChars` (default 1600), cut at the last sentence or word boundary. When the persona is in the picture (`self="yes"`) and `image.reference` is `'avatar'`, the bot's Discord avatar is sent as a visual reference.
 
 ### Cost
 

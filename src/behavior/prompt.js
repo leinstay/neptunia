@@ -2236,8 +2236,14 @@ export function buildRequest(input) {
   };
 
   const nameFill = (text) => fillPromptTemplate(text, { name: selfName });
-  const system = [prompts['system-prompt'], prompts['character-card'], prompts.rules, prompts.format]
-    .map(nameFill)
+  // format.md also names the brief limit: `{{drawChars}}` is the live image.maxPromptChars (1600 = config.json).
+  const formatFill = (text) => nameFill(fillPromptTemplate(text, { drawChars: config.image?.maxPromptChars ?? 1600 }));
+  const system = [
+    nameFill(prompts['system-prompt']),
+    nameFill(prompts['character-card']),
+    nameFill(prompts.rules),
+    formatFill(prompts.format),
+  ]
     .filter(Boolean)
     .join('\n\n');
   const chatItems = formatTranscript(history, formatOptions);

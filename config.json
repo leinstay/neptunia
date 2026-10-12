@@ -309,7 +309,7 @@
     "model": "openai/gpt-image-2.5-flare",
     "maxPerDay": 50,
     "maxPerUserPerDay": 50,
-    "maxPromptChars": 800,
+    "maxPromptChars": 1600,
     "reference": "avatar",
     "referenceMaxBytes": 4000000,
     "outputFormat": "png",

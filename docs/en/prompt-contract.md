@@ -21,7 +21,7 @@ All instructions are English in both layers; a character's speech samples may be
 | `system-prompt.md` | yes | Character-agnostic rules for acting like a chat member: length, anti-AI rules, use of context, attitude toward people, boundaries. Says the card wins on voice | `{{name}}` |
 | `character-card.md` | yes | The personality: who, character, voice and language, meta layer, **what earns and loses their good opinion** (read by the analyzer), reference lines. The one file a deployer rewrites | `{{name}}` |
 | `rules.md` | no | Owner's live corrections, override the two above. **Must end with the bullet list under its last `## ` heading.** Code appends `- …` lines | `{{name}}` |
-| `format.md` | yes | The output protocol | none |
+| `format.md` | yes | The output protocol | `{{drawChars}}` (live `image.maxPromptChars`) |
 | `reply.md` | yes | Task: somebody called the persona | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
 | `follow-up.md` | no | Task: a line that carries on an exchange with the persona. The persona first decides whether it calls for another turn; `<skip/>` is the default for a line that asks nothing of them. Replaces `reply.md` as the task text when the trigger kind is `followUp` (the address classifier's `yes`) or `reply` without an explicit @mention of the persona (Discord's reply ping does not count). A mention, a tagged reply and a name call keep `reply.md`. A missing or blank file falls back to `reply.md` | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
 | `interject.md` / `initiate.md` | yes | Tasks: cut into a live conversation / start a topic in a silent chat. Code rolls `spontaneous.initiateChance` after `deadAfterMinutes` of silence, so the initiate prompt speaks by default and `<skip/>` is for a channel where a new topic is plainly out of place. An initiate turn may also follow the persona's own last line once the channel is dead | `{{name}}` |
@@ -361,7 +361,7 @@ Only these tags are acted on:
 - `<msg>text</msg>` one chat message, up to 3 in a row; `reply="#87"` makes it a Discord reply.
 - `<react to="#87">💀</react>` one unicode emoji or one server custom emoji as `:name:`; alone or with `<msg>`.
 - `<gif reply="#87">g12</gif>` posts a GIF from the library by handle (body = the handle from the `<gifs>` list or from the transcript, never a URL). One per turn; `reply` optional as on `<msg>`. May stand alone or alongside `<msg>`, `<react>`, `<draw>`. Unknown handle = nothing posted.
-- `<draw self="yes" reply="#87">scene</draw>` a picture for the drawing sub-process. One per turn, first non-empty wins, clamped to 800 chars. A diary set post (the planned kind in `diary.setKinds`) is the one exception: every non-empty `<draw>` is read in order (the parser keeps at most 10) and the first `diary.set.pictures[1]` are generated, one picture each. `self="yes"` adds the persona's appearance; `reply="#87"` works like on `<msg>`. May appear alongside `<msg>` and `<react>`.
+- `<draw self="yes" reply="#87">scene</draw>` a picture for the drawing sub-process. One per turn, first non-empty wins, clamped to `image.maxPromptChars` (default 1600) at the last sentence or word boundary. A diary set post (the planned kind in `diary.setKinds`) is the one exception: every non-empty `<draw>` is read in order (the parser keeps at most 10) and the first `diary.set.pictures[1]` are generated, one picture each. `self="yes"` adds the persona's appearance; `reply="#87"` works like on `<msg>`. May appear alongside `<msg>` and `<react>`.
 - `<skip/>` stay silent.
 - `@nick` exactly as in the transcript becomes a real mention.
 - `#channel-name` of a server channel in `<msg>` text becomes a real channel link (`<#id>`) when `features.channelLinks` is on (default true, missing = on). Names are matched longest first; an existing link is left alone.
@@ -824,7 +824,7 @@ text messages, never inlined.
 
 - `{{name}}` — the bot's display name.
 - `{{appearance}}` — `appearance.md` with `{{name}}` filled, included only when `self="yes"`. Empty otherwise.
-- `{{request}}` — the scene text from the `<draw>` tag, clamped to `image.maxPromptChars` (default 800).
+- `{{request}}` — the scene text from the `<draw>` tag, clamped to `image.maxPromptChars` (default 1600) at the last sentence or word boundary. `format.md` tells the persona this limit through `{{drawChars}}`.
 - `{{when}}` — the local date and time through `labels.draw.when`, so the image model draws the right light and season. Empty when the time is unknown.
 
 The drawing sub-process never receives the character card, `rules.md` or the system prompt. It follows its own style
@@ -884,7 +884,7 @@ reserved in `labels.json` but no longer reached by `triggers.drawFailed`.
 
 ### Rails
 
-- One `<draw>` per turn; first non-empty wins, clamped to `image.maxPromptChars` (default 800).
+- One `<draw>` per turn; first non-empty wins, clamped to `image.maxPromptChars` (default 1600) at the last sentence or word boundary.
 - `image.maxPerDay` (default 50) and `image.maxPerUserPerDay` (default 50) are checked and counted before the
   request; a cap error throws `ImageCapError` with reason `daily` or `userDaily`.
 - An unsupported model family (not `openai/*` or `google/*`) is refused with `UnsupportedImageModelError`.
