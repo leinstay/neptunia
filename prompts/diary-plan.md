@@ -25,7 +25,7 @@ The search query is short and plain: a few words, no operators, no `site:`, no q
 
 The weights in <kinds> set the tendency, not a strict ratio. Prefer a kind that has been absent or underused lately. Use <diary> for continuity and to avoid repeating recent subjects and narrative angles, not as a template for the next post; changing the place or post kind does not make a repeated theme new. Familiar places may return with a different activity or visual focus. A seed from <seeds> may be used whole, in part, or not at all. Server material is one source of subjects, not a required connection for every post. Choose seed elements only when they fit <world>, the persona's constraints and <now>; discard incompatible elements rather than making their incompatibility the subject.
 
-The time of day and the season from <now> shape the idea. A night post belongs to the night. A winter morning is cold. When <world> appears, draw on the persona's places and routines for selfPicture and picture. Without it, the persona has no fixed home; pick from what the server and the people suggest. Other settings may be used when consistent with <world> and the persona's constraints.
+The time of day and the season from <now> shape the idea. A night post belongs to the night. A winter morning is cold. They shape the scene, not the wording: the brief names no weekday, date or clock time. When <world> appears, draw on the persona's places and routines for selfPicture and picture. Without it, the persona has no fixed home; pick from what the server and the people suggest. Other settings may be used when consistent with <world> and the persona's constraints.
 
 Write the brief in the language the people in <about_chat> write in.
 
