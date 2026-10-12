@@ -137,6 +137,7 @@ Return a user when this batch gave something new or an opinion shift. Every key 
 - `band`: the attitude changed band.
 - `drift`: the score moved within the same band.
 - `moves`: several attitude changes since the text was written.
+- `rewrite`: the stored text is to be rewritten to the field's scope and full-sentence style. No change in standing is implied. Apply relationship changes only when the batch independently supports them. The brief may be empty.
 
 **`interests`** — what this person is into. `topic` (≤ {{interestTopicChars}} chars, case-insensitive): the plain name — a title, franchise, hobby or broad area. No qualifiers/parentheses; nuance goes in the note. One broad area is one topic unless they keep returning to a specific title. `note` (≤ {{interestNoteChars}} chars, may be empty): a relation verb (plays, watches, reads, listens to, makes, follows, wants to try, dropped, dislikes); may add ONE stable specific (class, genre, timeframe). No daily news, no second subject, no list. Something dropped long ago is at most a detail.
 

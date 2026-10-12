@@ -414,14 +414,20 @@ task.added                               {added}: later messages from the author
   行为不是性格。已存储的形容词/评价文本从该批次中重写，而非修补。`character`、`relationship`、态度
   `reason` 和回忆的 `feeling` 以角色卡中的角色声音撰写（可用第一人称，不用生硬术语）。`style`：该成员
   怎么写（长度、节奏、词汇、表情使用习惯），而非他们做什么或谈什么。`relationship`：三件事，仅此而已：这个人对角色而言是谁，角色对他们有何感受，他们说过什么关于角色的话以及
-  角色是否喜欢。事件、共同活动、关于事物的承诺、关于此人的事实属于 `episodes`、`details` 或 `interests`。
-  当限制紧迫时，删除整个条目，从最不重要的开始。句子永远不缩短为片段。当已存储文本为空且批次显示双方有
-  实际互动（或已有 affinity/episodes）时首次写入，之后仅在三件事之一发生变化时返回。当档案携带
-  `relationshipStale` 时，文本需要重写：
-  `writtenAt` 是文本写入时所处的区间（未写入时为 `none`），`now` 是当前区间（`affinity.band`）。代码在每次
-  写入 `relationship` 时在档案上标记 `relationshipScore`，并比较区间以检测漂移。开关
-  `relationships.rewriteOnBandChange`（默认 true，缺失键 = 开）。每个字段 ≤ `memory.fieldChars`；缺失的字段保持
-  已存储的文本不变。`character` 和 `style` 仅由 `profile.md`（预热和画像刷新）撰写，流
+  角色是否喜欢。仅保留关于这三件事的明确支持的含义；去除附带的情节性细节和无关事实，同时保留范围内的含义；
+  不从行为单独推断新的角色或感受；混合句子改写以保留范围内的含义，而非整句删除。事件、共同活动、关于事物的
+  承诺、关于此人的事实属于 `episodes`、`details` 或 `interests`。当限制紧迫时，删除整个条目，从最不重要的
+  开始。句子永远不缩短为片段。当已存储文本为空且批次显示双方有实际互动（或已有 affinity/episodes）时首次写入，
+  之后仅在三件事之一发生变化或档案携带 `relationshipStale` 时返回。当档案携带 `relationshipStale` 时，文本需要
+  重写：`writtenAt` 是文本写入时所处的区间（未写入时为 `none`），`now` 是当前区间（`affinity.band`），`cause`
+  是以下之一：`first`（无文本，有非零分数、原因或回忆），`band`（区间越过 `relationships.bandHysteresis` 发生
+  变化），`drift`（分数在同一区间内移动了 `relationships.rewriteOnDrift` 点），`moves`（自文本写入后至少有
+  `relationships.rewriteAfterMoves` 条态度历史记录），或 `rewrite`（所有者设置的一次性标志；将已存储文本改写为
+  该字段的范围和完整句子风格，不暗示立场变化；阶段 A 可返回空简报，语音模型仍会改写）。代码在每次写入
+  `relationship` 时在档案上标记 `relationshipScore` 和 `relationshipWrittenAt`，并比较区间和漂移以检测过期。
+  开关：`relationships.rewriteOnBandChange`（默认 true，缺失键 = 开），`rewriteOnDrift`（默认 8，`0` = 关），
+  `rewriteAfterMoves`（默认 6，`0` = 关）。relationship 文本 ≤ `relationships.textChars`（默认 600，占位符
+  `{{relationshipChars}}`）；其他文本字段 ≤ `memory.fieldChars`；缺失的字段保持已存储的文本不变。`character` 和 `style` 仅由 `profile.md`（预热和画像刷新）撰写，流
   分析器不直接编辑。分析器在批次有必要时返回 `portrait`（一行提示，指出已存储文本遗漏了什么），代码会
   排队进行刷新。
 - **成员通过 id 引用，而非昵称。**昵称随时变化，因此分析器撰写的每个自由文本字段（档案文本、兴趣笔记、

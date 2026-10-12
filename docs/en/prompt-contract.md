@@ -462,18 +462,24 @@ of what is already stored, so facts are not degraded by being rewritten batch af
   are written in the persona's voice from the card (first person allowed, no clinical vocabulary). `style`:
   HOW the person writes (length, rhythm, vocabulary, emoji habits), not what they do or talk about. `relationship`:
   three things and nothing else: who this person is to the persona, what the persona feels toward them, and what they
-  said about the persona and whether the persona liked it. Events, shared activities, promises about things and facts
+  said about the persona and whether the persona liked it. Only explicitly supported meaning about the three things is
+  kept; episodic circumstances and unrelated facts are stripped while preserving in-scope meaning; a new role or feeling
+  is never inferred from behaviour alone; a mixed sentence is rewritten to keep its in-scope meaning, not deleted whole.
+  Events, shared activities, promises about things and facts
   about the person belong to `episodes`, `details` or `interests`. When the limit presses, an item is dropped whole,
   least important first. A sentence is never shortened into a fragment. Written first when the stored text is empty
   and a batch shows them dealing with each other (or affinity/episodes already exist), afterwards only when one of the
-  three things shifts. When the profile carries `relationshipStale`, the text is due for a rewrite: `writtenAt` is the
-  band the text was written at (or `none` when unwritten), `now` is the current band (`affinity.band`), `cause` is one
-  of `first` (empty text with a non-zero score, a reason or episodes), `band` (the band changed, past
-  `relationships.bandHysteresis`), `drift` (the score moved `relationships.rewriteOnDrift` points since the text was
-  written, within the same band), or `moves` (at least `relationships.rewriteAfterMoves` attitude history entries since
-  the text was written). Code stamps `relationshipScore` and `relationshipWrittenAt` each time `relationship` is
-  written and compares bands and drift to detect staleness. Switches: `relationships.rewriteOnBandChange` (default
-  true, missing = on), `rewriteOnDrift` (default 8, `0` = off), `rewriteAfterMoves` (default 6, `0` = off).
+  three things shifts or the profile carries `relationshipStale`. When the profile carries `relationshipStale`, the
+  text is due for a rewrite: `writtenAt` is the band the text was written at (or `none` when unwritten), `now` is the
+  current band (`affinity.band`), `cause` is one of `first` (empty text with a non-zero score, a reason or episodes),
+  `band` (the band changed, past `relationships.bandHysteresis`), `drift` (the score moved
+  `relationships.rewriteOnDrift` points since the text was written, within the same band), `moves` (at least
+  `relationships.rewriteAfterMoves` attitude history entries since the text was written), or `rewrite` (a per-profile
+  flag the owner sets once; the stored text is rewritten to the field's scope and full-sentence style with no change in
+  standing implied; stage A may return an empty brief for it and the voice model still rewrites). Code stamps
+  `relationshipScore` and `relationshipWrittenAt` each time `relationship` is written and compares bands and drift to
+  detect staleness. Switches: `relationships.rewriteOnBandChange` (default true, missing = on), `rewriteOnDrift`
+  (default 8, `0` = off), `rewriteAfterMoves` (default 6, `0` = off).
   Relationship text ≤ `relationships.textChars` (default 600, placeholder `{{relationshipChars}}`); other prose fields
   ≤ `memory.fieldChars`; an absent field leaves the stored text untouched.
   `character` and `style` are written ONLY by `profile.md` (the warmup and a portrait refresh), never edited by the
@@ -561,7 +567,7 @@ roster members are stored by stage A alone.
 
 The stage A answer shape for voice fields:
 
-- `relationship`: a brief (only when `relationshipStale` or one of the three relationship things shifted).
+- `relationship`: a brief (only when `relationshipStale` or one of the three relationship things shifted; for `rewrite` cause the brief may be empty).
 - `affinity.delta`: an integer; `affinity.event`: a neutral one-line reason (the key is `event`, not `reason`).
 - `episodes[].tone`: how it landed, neutral (becomes the feeling's brief for stage B).
 - `guild.learned.add[].brief`: the lesson as a neutral claim (the key is `brief`, not `text`).
