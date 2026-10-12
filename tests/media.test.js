@@ -86,6 +86,7 @@ test('classifyAttachment: falls back to the file extension when contentType is m
   assert.equal(classifyAttachment({ name: 'photo.PNG' }), 'image');
   assert.equal(classifyAttachment({ name: 'movie.webm' }), 'video');
   assert.equal(classifyAttachment({ name: 'notes.md' }), 'text');
+  assert.equal(classifyAttachment({ contentType: 'application/javascript', name: 'logic.js' }), 'text');
   assert.equal(classifyAttachment({ name: 'archive.zip' }), 'file');
   assert.equal(classifyAttachment({ name: null }), 'file');
 });
