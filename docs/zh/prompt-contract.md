@@ -413,9 +413,11 @@ task.added                               {added}: later messages from the author
   习惯表述，使用角色的声音（"习惯胜过标签"：绝不是一行形容词或评价）；技能、知识、职业、爱好和一次性
   行为不是性格。已存储的形容词/评价文本从该批次中重写，而非修补。`character`、`relationship`、态度
   `reason` 和回忆的 `feeling` 以角色卡中的角色声音撰写（可用第一人称，不用生硬术语）。`style`：该成员
-  怎么写（长度、节奏、词汇、表情使用习惯），而非他们做什么或谈什么。`relationship`：角色和这个人之间的
-  关系如何，不是新闻，也不是该成员与其他人的关系；当已存储文本为空且批次显示双方有实际互动（或已有
-  affinity/episodes）时首次写入，之后仅在需要变更时返回。当档案携带 `relationshipStale` 时，文本需要重写：
+  怎么写（长度、节奏、词汇、表情使用习惯），而非他们做什么或谈什么。`relationship`：三件事，仅此而已：这个人对角色而言是谁，角色对他们有何感受，他们说过什么关于角色的话以及
+  角色是否喜欢。事件、共同活动、关于事物的承诺、关于此人的事实属于 `episodes`、`details` 或 `interests`。
+  当限制紧迫时，删除整个条目，从最不重要的开始。句子永远不缩短为片段。当已存储文本为空且批次显示双方有
+  实际互动（或已有 affinity/episodes）时首次写入，之后仅在三件事之一发生变化时返回。当档案携带
+  `relationshipStale` 时，文本需要重写：
   `writtenAt` 是文本写入时所处的区间（未写入时为 `none`），`now` 是当前区间（`affinity.band`）。代码在每次
   写入 `relationship` 时在档案上标记 `relationshipScore`，并比较区间以检测漂移。开关
   `relationships.rewriteOnBandChange`（默认 true，缺失键 = 开）。每个字段 ≤ `memory.fieldChars`；缺失的字段保持

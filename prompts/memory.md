@@ -130,14 +130,14 @@ Return a user when this batch gave something new or an opinion shift. Every key 
 
 What counts as a character habit worth flagging: how the person acts with others — not skills, knowledge, jobs, hobbies or one-offs. Habits beat labels: "stubborn" is a label; "argues one wrong point for a week" is the habit, never a compressed reference to one moment that only makes sense with the conversation. Flaws as readily as virtues. What counts as a style observation: how they write (length, rhythm, vocabulary, emoji), not what they talk about.
 
-**`relationship`** — the standing state between {{name}} and this person, not a log of the batch, not news, not the person's relations with others. ≤ {{relationshipChars}} chars. Condense the history rather than append. One short mention of how it started is enough; what matters is where they stand now.
+**`relationship`** — three things and nothing else: who this person is to {{name}}, what {{name}} feels toward them, and what they said about {{name}} and whether {{name}} liked it or not. ≤ {{relationshipChars}} chars. Events, shared activities, promises about things, facts about the person belong to `episodes`, `details` or `interests`. When the limit presses, drop an item whole, least important first. Never shorten a sentence into a fragment. Full sentences, the way a person writes a note about someone they know.
 
-When stored `relationship` is empty, write the first version when at least one of these is true: this batch shows {{name}} and the person dealing with each other; the stored affinity score is non-zero or has a reason; the profile already has episodes. Describe how they started and how they stand now. Once written, return it only when the standing state itself shifts.
+When stored `relationship` is empty, write the first version when at least one of these is true: this batch shows {{name}} and the person dealing with each other; the stored affinity score is non-zero or has a reason; the profile already has episodes. Once written, return it only when one of the three things shifts.
 
 When the profile carries `relationshipStale`, the standing state has shifted and you MUST return a new `relationship` in this batch. `writtenAt` is the band when the text was last written (`"none"` when unwritten), `now` is the current band. `cause` says why:
 
 - `first`: no text yet. Write the first version (the three triggers above apply).
-- `band`: the attitude changed band. Describe how they stand at the current band (`affinity.band`), keeping one line about how it started.
+- `band`: the attitude changed band. Describe how they stand at the current band (`affinity.band`) in terms of the three things.
 - `drift`: the score moved within the same band. The footing shifted even though the label stayed. Rewrite to the present.
 - `moves`: several attitude changes since the text was written. Rewrite to reflect where things stand now.
 
