@@ -17,6 +17,7 @@ Anatomy is coherent: faces, hands, fingers, limbs and joints form plausible shap
 Accessories read at a glance: each is one complete object, worn the ordinary way, with the strap, band or clip that holds it in place easy to follow.
 A held object stays distinct from the hand holding it and from the clothing around it.
 Objects may overlap and hide parts of each other; the visible parts of each still add up to one separate object.
+Recognisable equipment has the working geometry of the real thing, which matters more than decorative detail: controls and panels in their standard places; every support attached to what it holds up; seats, working surfaces and displays arranged so a person could use them.
 Secondary props stay simple and subordinate to the action.
 Nothing is duplicated by accident: the main subject and each prop the request names appear once unless it asks for more. Repetition that belongs to the setting, such as windows or floor tiles, is fine.
 Clothing is built the way it could be sewn and fits the pose and the activity: one layer of each kind, never a hood inside a hood.
@@ -40,5 +41,6 @@ When the request does not specify clothing, dress the character for the setting,
 
 {{when}}
 When a local time appears above, the light and the season in the picture follow it.
+The camera position, facing direction, gaze target and points of contact in the request below form one arrangement: follow all of it, even when that leaves a face in profile or partly hidden, and never turn anyone toward the viewer at the expense of the activity.
 
 {{request}}
