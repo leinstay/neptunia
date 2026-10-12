@@ -98,7 +98,7 @@ Every key in `config.json` with its default, grouped by section.
 
 `llm.provider` sets a default OpenRouter provider routing on chat requests, for example `{ "ignore": ["some-provider"] }` or `{ "order": ["anthropic"], "allow_fallbacks": true }`. `llm.providerByModel` adds per-model overrides: each key is a model id prefix (matching any role) or `<prefix>@<role>` (matching one role only), and each value is an OpenRouter routing object sent verbatim.
 
-For one request the provider is resolved in order: a per-call pin (the video describer uses `media.video.provider` for the direct-URL path), then the longest matching prefix among `providerByModel` keys for the request's role, then the longest matching prefix among role-less keys, then `llm.provider` (for image requests `image.provider`), then nothing. A role-specific key always beats a role-less key for the same model. Role names: `voice`, `analyzer`, `classifier.text`, `classifier.media`, `classifier.video`, `mentor`, `image`, `refine`. For compatibility, a route key or a roles list that still says `talk` is read as `voice` with one log line (`config: role talk is now voice`).
+For one request the provider is resolved in order: a per-call pin (the video describer uses `media.video.provider` for the direct-URL path), then the longest matching prefix among `providerByModel` keys for the request's role, then the longest matching prefix among role-less keys, then `llm.provider` (for image requests `image.provider`), then nothing. A role-specific key always beats a role-less key for the same model. Role names: `voice`, `analyzer`, `classifier.text`, `classifier.media`, `classifier.video`, `mentor`, `image`. For compatibility, a route key or a roles list that still says `talk` is read as `voice` with one log line (`config: role talk is now voice`).
 
 Example: `"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` routes all Google models through Vertex, while `"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` sends the video classifier through AI Studio. Route keys that contain dots (e.g. `google/@classifier.video`) cannot be edited through `/nep set` because it splits on dots; use `/nep route set` and `/nep route remove`.
 
@@ -665,19 +665,6 @@ Provider-specific options for `google/*` image models.
 | Key | Default | Meaning |
 |---|---|---|
 | `resolution` | `"1K"` | Output resolution (`512`, `1K`, `2K`, `4K`; support varies by model). `gemini-2.5-flash-image` has no resolution knob |
-
-### `image.refine`
-
-The refine pass: a second generation that redraws each finished picture from `prompts/refine.md`, with the first picture as its only reference. The second picture is posted; on any failure of the second pass the first one is. Not counted against `image.maxPerDay` or `image.maxPerUserPerDay`. See [the prompt contract](prompt-contract.md#refine-pass).
-
-| Key | Default | Meaning |
-|---|---|---|
-| `enabled` | `false` | Run the refine pass. Only `true` turns it on |
-| `model` | `"openai/gpt-image-2.5-flare"` | Refiner model ID; `openai/*` or `google/*`. Its family's options (`image.openai` / `image.google`) apply. Routed as the role `refine` (`llm.providerByModel` keys `"<prefix>@refine"`) |
-| `provider` | `null` | OpenRouter `provider` routing for the refine pass when no `llm.providerByModel` entry matches; `null` sends nothing (`image.provider` is not used) |
-| `timeoutMs` | `120000` | Refine request timeout (ms) |
-| `scope` | `"all"` | Which pictures get the pass: `all`, or `self` for pictures the persona is in only |
-| `maxAspectError` | `0.01` | Largest relative difference between the two pictures' aspect ratios (read from the PNG, JPEG or WebP header); a larger one posts the first picture. An unknown format is not checked |
 
 ## `diary`
 

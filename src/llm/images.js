@@ -5,11 +5,6 @@
 // checked before the request and counted only when it is actually sent. An
 // unsupported model family is refused before anything is counted or sent.
 //
-// The refine pass (`image.refine`, off by default) is a second generation on
-// its own model with the first picture as its only reference; it is never
-// counted against the caps, and any failure of it leaves the first picture to
-// be posted (refinePicture).
-//
 // Logs carry the model, counts, cost and failure reasons -- never the prompt
 // (it may quote members).
 
@@ -23,11 +18,6 @@ const MODERATION_MARKERS = /moderation|content_policy|safety/i;
 
 /** The role a generation routes as: `"<prefix>@image"` keys of `llm.providerByModel` apply to it. */
 export const IMAGE_ROLE = 'image';
-/** The role the refine pass routes as: `"<prefix>@refine"` keys of `llm.providerByModel` apply to it. */
-export const IMAGE_REFINE_ROLE = 'refine';
-/** `image.refine.timeoutMs` / `image.refine.maxAspectError` when missing: config.json's values. */
-const REFINE_TIMEOUT_MS = 120000;
-const REFINE_MAX_ASPECT_ERROR = 0.01;
 /** The state.json fields of the instance-wide daily picture counter. */
 const IMAGE_DAILY = { dayKey: 'imageDay', countKey: 'imageCount' };
 /** One member's slot of `state.data.imageUsers` (`{ day, counts }`) laid out as a counter pair, for a read. */
@@ -92,16 +82,16 @@ export function familyOf(model) {
  * The request body for one generation; `null`/undefined config values omit their fields.
  * `byModel` is `llm.providerByModel`, read by the caller at the moment of use.
  */
-function buildBody({ cfg, model, fallback, role, byModel, family, prompt, reference }) {
-  const body = { model, prompt };
+function buildBody({ cfg, byModel, family, prompt, reference }) {
+  const body = { model: cfg.model, prompt };
   if (cfg.outputFormat != null) body.output_format = cfg.outputFormat;
   if (cfg.aspectRatio != null && !(family === 'google' && cfg.aspectRatio === 'auto')) {
     body.aspect_ratio = cfg.aspectRatio;
   }
-  // Routing first (the `llm.providerByModel` entry for the model and the role, see
-  // `matchRoute`, else the fallback: `image.provider`, or the refine pass's own; copied,
-  // never mutated), then the family's own provider options over it.
-  const routing = resolveProvider(model, { byModel, fallback, role });
+  // Routing first (the `llm.providerByModel` entry for the model and the `image` role, see
+  // `matchRoute`, else `image.provider`; copied, never mutated), then the family's own
+  // provider options over it.
+  const routing = resolveProvider(cfg.model, { byModel, fallback: cfg.provider, role: IMAGE_ROLE });
   const provider = routing ? { ...routing } : {};
   if (family === 'openai') {
     const openai = cfg.openai ?? {};
@@ -178,44 +168,35 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
    * input reference; `userId` (null for spontaneous turns and owner commands)
    * selects the per-member rail. Throws `UnsupportedImageModelError` or
    * `ImageCapError` before any request, `ImageGenError` after one.
-   * `overrides` (the refine pass, see refinePicture) replaces `image.model`,
-   * the fallback routing (`image.provider`; `null` sends none), `image.timeoutMs`
-   * and the routing role (`image`); `counted: false` skips both daily rails.
-   * The family options (`image.openai` / `image.google`) follow the model used.
    * @param {{ prompt: string, reference?: string|null, userId?: string|null }} args
-   * @param {{ model?: string, provider?: object|null, timeoutMs?: number, role?: string, counted?: boolean }} [overrides]
    * @returns {Promise<{ buffer: Buffer, mediaType: string, cost: number|null, usage: object|null, model: string, seconds: number }>}
    */
-  async function generate({ prompt, reference = null, userId = null }, overrides = {}) {
+  async function generate({ prompt, reference = null, userId = null }) {
     const cfg = getConfig().image ?? {};
     const baseUrl = getConfig().llm.baseUrl;
-    const model = overrides.model !== undefined ? overrides.model : cfg.model;
-    const role = overrides.role ?? IMAGE_ROLE;
-    const fallback = overrides.provider !== undefined ? overrides.provider : cfg.provider;
+    const model = cfg.model;
     const family = familyOf(model);
     if (!family) {
-      log.warn('images: unsupported model', { model, role });
+      log.warn('images: unsupported model', { model });
       throw new UnsupportedImageModelError(model);
     }
-    if (overrides.counted !== false) {
-      try {
-        countRequest(cfg, userId);
-      } catch (err) {
-        log.info('images: refused', { model, reason: err.reason });
-        throw err;
-      }
+    try {
+      countRequest(cfg, userId);
+    } catch (err) {
+      log.info('images: refused', { model, reason: err.reason });
+      throw err;
     }
 
     const byModel = getConfig().llm?.providerByModel;
-    const body = JSON.stringify(buildBody({ cfg, model, fallback, role, byModel, family, prompt, reference }));
+    const body = JSON.stringify(buildBody({ cfg, byModel, family, prompt, reference }));
     // Normalised so a negative, NaN or non-numeric value still sends one request.
     const retries = Math.max(0, Math.floor(Number(cfg.retries ?? 1)) || 0);
-    const timeoutMs = overrides.timeoutMs ?? cfg.timeoutMs ?? 120000;
+    const timeoutMs = cfg.timeoutMs ?? 120000;
     const started = now();
 
     // `attempt` is the loop index; the log counts attempts from 1.
     const fail = (error, attempt) => {
-      log.warn('images: failed', { model, role, reason: error.reason, status: error.statusCode, attempt: attempt + 1 });
+      log.warn('images: failed', { model, reason: error.reason, status: error.statusCode, attempt: attempt + 1 });
       return error;
     };
 
@@ -275,7 +256,7 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
       const cost = json.usage?.cost ?? null;
       const usage = json.usage ?? null;
       const seconds = Math.round((now() - started) / 100) / 10;
-      log.info('images: generated', { model, family, role, seconds, cost, bytes: buffer.length, reference: Boolean(reference) });
+      log.info('images: generated', { model, family, seconds, cost, bytes: buffer.length, reference: Boolean(reference) });
       return { buffer, mediaType, cost, usage, model, seconds };
     }
     throw fail(lastError, attempt - 1);
@@ -302,152 +283,4 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
   }
 
   return { generate, quota, familyOf };
-}
-
-// ---- the refine pass ---------------------------------------------------------
-
-/** A JPEG start-of-frame marker (SOF0..SOF15 without DHT, JPG and DAC): it carries the size. */
-function isJpegFrame(marker) {
-  return marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
-}
-
-/** Width and height in a JPEG's first start-of-frame segment, or null. */
-function jpegDimensions(buf) {
-  let i = 2;
-  while (i + 3 < buf.length) {
-    if (buf[i] !== 0xff) return null;
-    const marker = buf[i + 1];
-    if (marker === 0xff) {
-      i += 1; // fill byte
-      continue;
-    }
-    // Standalone markers carry no length.
-    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) {
-      i += 2;
-      continue;
-    }
-    if (isJpegFrame(marker)) {
-      if (i + 8 >= buf.length) return null;
-      return { width: buf.readUInt16BE(i + 7), height: buf.readUInt16BE(i + 5) };
-    }
-    const length = buf.readUInt16BE(i + 2);
-    if (length < 2) return null;
-    i += 2 + length;
-  }
-  return null;
-}
-
-/** Width and height of a WebP (`VP8 `, `VP8L` or `VP8X` first chunk), or null. */
-function webpDimensions(buf) {
-  const chunk = buf.toString('latin1', 12, 16);
-  if (chunk === 'VP8X' && buf.length >= 30) {
-    return { width: buf.readUIntLE(24, 3) + 1, height: buf.readUIntLE(27, 3) + 1 };
-  }
-  if (chunk === 'VP8L' && buf.length >= 25 && buf[20] === 0x2f) {
-    const bits = buf.readUInt32LE(21);
-    return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
-  }
-  if (chunk === 'VP8 ' && buf.length >= 30 && buf[23] === 0x9d && buf[24] === 0x01 && buf[25] === 0x2a) {
-    return { width: buf.readUInt16LE(26) & 0x3fff, height: buf.readUInt16LE(28) & 0x3fff };
-  }
-  return null;
-}
-
-/**
- * The pixel size a PNG, JPEG or WebP header declares, or null for anything
- * else (an unknown format, a cut header, a zero side). Pure; reads the header only.
- * @param {unknown} buffer
- * @returns {{ width: number, height: number }|null}
- */
-export function imageDimensions(buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return null;
-  let dims = null;
-  if (buffer.length >= 24 && buffer.readUInt32BE(0) === 0x89504e47 && buffer.readUInt32BE(4) === 0x0d0a1a0a && buffer.toString('latin1', 12, 16) === 'IHDR') {
-    dims = { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
-  } else if (buffer[0] === 0xff && buffer[1] === 0xd8) {
-    dims = jpegDimensions(buffer);
-  } else if (buffer.toString('latin1', 0, 4) === 'RIFF' && buffer.toString('latin1', 8, 12) === 'WEBP') {
-    dims = webpDimensions(buffer);
-  }
-  return dims && dims.width > 0 && dims.height > 0 ? dims : null;
-}
-
-/**
- * Whether two pictures have the same aspect ratio within `maxError` (a relative
- * difference: 0.01 is one percent). True when either size is unknown (null):
- * a format the header reader does not know is not checked. A `maxError` that is
- * not a finite number >= 0 reads as 0.01, config.json's `image.refine.maxAspectError`. Pure.
- * @param {{ width: number, height: number }|null} a
- * @param {{ width: number, height: number }|null} b
- * @param {number} [maxError]
- * @returns {boolean}
- */
-export function aspectWithin(a, b, maxError) {
-  if (!a || !b) return true;
-  const limit = typeof maxError === 'number' && Number.isFinite(maxError) && maxError >= 0 ? maxError : REFINE_MAX_ASPECT_ERROR;
-  const ratioA = a.width / a.height;
-  const ratioB = b.width / b.height;
-  return Math.abs(ratioB / ratioA - 1) <= limit;
-}
-
-/**
- * Whether a picture gets the refine pass under `config` (the live config, read
- * by the caller now): `image.refine.enabled` is exactly true and the scope
- * allows it -- `all` (also any value other than `self`), or `self` only for a
- * picture the persona is in. Pure.
- * @param {object} config
- * @param {{ self: boolean }} picture
- * @returns {boolean}
- */
-export function refineApplies(config, { self }) {
-  const refine = config?.image?.refine;
-  if (!isPlainObject(refine) || refine.enabled !== true) return false;
-  return refine.scope === 'self' ? self === true : true;
-}
-
-/**
- * The refine pass over a finished first picture: one generation on
- * `image.refine.model` (`image.refine.provider` as the fallback routing,
- * `image.refine.timeoutMs`, role `refine`), with the first picture as its ONLY
- * reference and `prompt` (prompts/refine.md, filled by the caller) as the
- * prompt, never counted against the daily caps. The result is accepted when it
- * carries a picture whose aspect ratio matches the first one's within
- * `image.refine.maxAspectError`. Never throws: resolves `{ picture }` when
- * accepted, else `{ picture: null, reason }` -- `no-prompt` (an empty prompt,
- * nothing sent), `unsupported`, `moderation`, `timeout`, `error`, `empty`,
- * `aspect` -- and the caller posts the first picture. Logs `images: refined`
- * with counts and the outcome, never the prompt.
- * @param {{ images: { generate: Function }, config: object, prompt: string,
- *   picture: { buffer: Buffer, mediaType: string } }} args
- * @returns {Promise<{ picture: object|null, reason?: string }>}
- */
-export async function refinePicture({ images, config, prompt, picture }) {
-  const refine = isPlainObject(config?.image?.refine) ? config.image.refine : {};
-  const model = refine.model;
-  const family = familyOf(model);
-  const declined = (reason, extra = {}) => {
-    log.info('images: refined', { model: model ?? null, family, accepted: false, reason, ...extra });
-    return { picture: null, reason };
-  };
-  if (typeof prompt !== 'string' || !prompt.trim()) return declined('no-prompt');
-
-  const reference = `data:${picture.mediaType};base64,${picture.buffer.toString('base64')}`;
-  let refined;
-  try {
-    refined = await images.generate(
-      { prompt, reference, userId: null },
-      { model, provider: refine.provider ?? null, timeoutMs: refine.timeoutMs ?? REFINE_TIMEOUT_MS, role: IMAGE_REFINE_ROLE, counted: false },
-    );
-  } catch (err) {
-    if (err instanceof UnsupportedImageModelError) return declined('unsupported');
-    if (err instanceof ImageGenError) return declined(err.reason);
-    return declined('error');
-  }
-  const counts = { seconds: refined?.seconds ?? null, cost: refined?.cost ?? null, bytes: refined?.buffer?.length ?? 0 };
-  if (!Buffer.isBuffer(refined?.buffer) || refined.buffer.length === 0) return declined('empty', counts);
-  if (!aspectWithin(imageDimensions(picture.buffer), imageDimensions(refined.buffer), refine.maxAspectError)) {
-    return declined('aspect', counts);
-  }
-  log.info('images: refined', { model: refined.model ?? model, family, ...counts, accepted: true });
-  return { picture: refined };
 }

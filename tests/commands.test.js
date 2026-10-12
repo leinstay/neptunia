@@ -63,11 +63,11 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   const route = findOption(command.options, 'route');
   for (const sub of ['set', 'remove']) {
     const role = findOption(findOption(route.options, sub).options, 'role');
-    assert.deepEqual(values(role), [...MODEL_ROLES, 'image', 'refine'], sub);
+    assert.deepEqual(values(role), [...MODEL_ROLES, 'image'], sub);
     assert.deepEqual(names(role), values(role), sub);
   }
   const pingRole = findOption(findOption(command.options, 'ping').options, 'role');
-  assert.deepEqual(values(pingRole), [...MODEL_ROLES, 'image', 'refine', 'classifier']);
+  assert.deepEqual(values(pingRole), [...MODEL_ROLES, 'image', 'classifier']);
   assert.deepEqual(names(pingRole), values(pingRole));
 });
 
