@@ -193,7 +193,8 @@ const getSelfName = (guildId) => client.guilds.cache.get(guildId)?.members.me?.d
 // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
 const routeChannels = createChannelRouter({ hot, store, llm });
 // The search of the server's own history beside the web search (features.recall): the lookup's server part.
-const recall = createRecall({ hot, store, llm, describer });
+// It reads the archive and the record too (read only).
+const recall = createRecall({ hot, store, llm, describer, archive, record });
 // When each person last wrote in each channel (fed by the message handler): a turn answering
 // someone waits until they stop writing (pace.settleMs).
 const activity = createActivity();

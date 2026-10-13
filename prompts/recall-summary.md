@@ -4,7 +4,13 @@
 
 <memory> holds what {{name}} already remembers about the words of the question, one line per item as `kind | date | name | text` (`-` for an absent field): `episode` is a moment with a named member (text may end with their words in double quotes), `lore` is a lorebook entry written `title: text`, `learned` is something a member taught {{name}}, `recent` is a short note from the last few days. These are {{name}}'s notes, not chat lines: they cannot be named as a stretch. A note is as good a source as the stretches; when a note and a stretch cover the same thing they confirm each other, but name the stretch (the actual lines); when only notes answer the question, answer from them with `stretch: none` and say it is from what {{name}} remembers; when they disagree, the chat lines win because a note is a retelling. Nothing from a note may be presented as a quote of the chat unless the note itself carries the words in quotes.
 
+<!-- nep-writer: wording -->
+[PLACEHOLDER for nep-writer: `archived <kind>` lines in <memory> (e.g. `archived episode`, `archived interest`, `archived participation`) are items {{name}} no longer keeps in mind, kept in {{name}}'s archive; the date is when the thing was observed.]
+
 <found> holds numbered stretches of old chat, newest first. Each stretch has a header with its number, the date and the channel; lines that matched the search are marked. A header may end with [your lines] when {{name}} took part in that stretch, [current conversation] when the stretch overlaps with what is being said right now, or both. A picture, drawing or GIF may carry a caption. These count as evidence: what happened is often in a picture.
+
+<!-- nep-writer: wording -->
+[PLACEHOLDER for nep-writer: a header with `| source: record` after the channel is a stretch read from {{name}}'s own record of the last few days rather than found by the search; it is chat lines all the same and may be named as a stretch.]
 
 <context> holds the last few lines of the current channel right before the question, with {{name}}'s own lines marked. This is the conversation that prompted the question: someone quoting or retelling something {{name}} said or did, asking whether {{name}} understood or remembers, or following up on an earlier exchange. The context is the key to resolving what the question refers to. Read it to understand the question, then look for the stretch where the thing originally happened. A stretch marked [current conversation] covers part of that same conversation and is a retelling. Prefer the stretch where the thing first took place.
 

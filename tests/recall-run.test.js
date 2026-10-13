@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createRecall } from '../src/behavior/recall-run.js';
 import { createStore } from '../src/memory/store.js';
 import { HIT_MARK, snowflakeAt } from '../src/behavior/recall.js';
+import { toRecordLine } from '../src/memory/record.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -70,7 +71,7 @@ function rawHit(channelId, l) {
  * A scene: a guild with #general (c1, the turn's channel), #garden (c2) and #private (c4, which @everyone cannot
  * view, so the audience rail refuses it here); `lines` per channel id; `answers(route, query)` gives the REST body.
  */
-function scene({ lines = {}, answers = () => ({ total_results: 0, messages: [] }), answer = 'stretch: 1\nAna did it on October 1.', features = {}, recall = {}, state = {}, capLeft = 100, describer = null, profiles = [], memory = {}, timers, now = () => NOW } = {}) {
+function scene({ lines = {}, answers = () => ({ total_results: 0, messages: [] }), answer = 'stretch: 1\nAna did it on October 1.', features = {}, recall = {}, state = {}, capLeft = 100, describer = null, profiles = [], memory = {}, timers, now = () => NOW, archive = null, record = null } = {}) {
   const calls = [];
   let inFlight = 0;
   let maxInFlight = 0;
@@ -150,7 +151,7 @@ function scene({ lines = {}, answers = () => ({ total_results: 0, messages: [] }
     config: config({ features, recall: { ...recall }, llm: { helperTimeoutMs: 30000 } }),
     prompts: { 'recall-summary': PROMPT, labels },
   };
-  const recaller = createRecall({ hot, store, llm, describer, now, ...(timers ? { timers } : {}) });
+  const recaller = createRecall({ hot, store, llm, describer, now, archive, record, ...(timers ? { timers } : {}) });
   const history = [
     { id: 'h1', channelId: 'c1', ts: NOW - 30 * MINUTE, self: false, bot: false, authorName: 'Nikos', content: 'τι έγινε με το κουνέλι;' },
     { id: 'h2', channelId: 'c1', ts: NOW - MINUTE, self: false, bot: false, authorName: 'Nikos', content: 'ποιος σκότωσε το κουνέλι;' },
@@ -1007,4 +1008,77 @@ test('recall: the searched log line carries counts only, never a text, with the 
   } finally {
     t.cleanup();
   }
+});
+
+// ---- the archive and the recent record ---------------------------------------------------------
+
+/** A record line of a channel near NOW (src/memory/record.js#toRecordLine), private ones scoped to their owner. */
+function recLine(id, ts, text, { channelId = 'c2', by = ANA_ID, owner = null } = {}) {
+  const line = toRecordLine({ id, channelId, authorId: by, content: text, ts }, { now: () => NOW, uuid: () => `x-${id}` });
+  return owner ? { ...line, scope: { user: owner, private: true, channel: channelId } } : line;
+}
+
+/** An archive entry of `itemKind` (the fields recall reads). */
+function archEntry(itemId, itemKind, text, scope) {
+  return { v: 1, id: `a-${itemId}`, kind: 'archive', event: 'evicted', itemKind, itemId, revisionId: 'rv-1', scope, participants: [], observedAt: { date: '2026-10-04', precision: 'day' }, neutral: null, text, stored: {}, recordedAt: '2026-10-05T00:00:00.000Z', guildId: GUILD };
+}
+
+/** A fake archive or record: `iterate` streams the list of the base it is asked for (the guild's, or a private owner's). */
+function fakeSource(byBase) {
+  const queries = [];
+  return {
+    queries,
+    async *iterate(guildId, query = {}) {
+      queries.push(query);
+      yield* byBase[query.privateUserId ?? 'guild'] ?? [];
+    },
+  };
+}
+
+const RECENT_SERVER = { forms: ['κουνέλι'], who: [], from: null, to: null, recent: true };
+
+test('recall-run: a channel the member cannot read is skipped before matching', async () => {
+  const record = fakeSource({
+    guild: [recLine('r-c2', NOW - 2 * HOUR, 'κουνέλι στον κήπο σήμερα'), recLine('r-c4', NOW - HOUR, 'μυστικό κουνέλι', { channelId: 'c4' })],
+  });
+  const archive = fakeSource({
+    guild: [archEntry('rc-2', 'recent', { text: 'κουνέλι archived in the garden' }, { channel: 'c2' }), archEntry('rc-4', 'recent', { text: 'μυστικό κουνέλι archived' }, { channel: 'c4' })],
+  });
+  const s = scene({ profiles: MEMORY_PROFILES, record, archive });
+  const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RECENT_SERVER }));
+  const user = s.llmCalls[0].messages[1].content;
+  assert.ok(user.includes('archived recent | 2026-10-04 | - | κουνέλι archived in the garden'), user);
+  assert.ok(user.includes('κουνέλι στον κήπο σήμερα') && user.includes('#garden | source: record'), user);
+  assert.ok(!user.includes('μυστικό'), 'neither a record line nor an archived item of the channel @everyone cannot view');
+  assert.equal(result.stats.record, 1);
+  assert.ok(Date.parse(record.queries[0].from) >= NOW - 3 * 24 * HOUR, 'the last recordDays');
+});
+
+test('recall-run: private entries match only for their owner', async () => {
+  const sources = () => ({
+    archive: fakeSource({
+      guild: [archEntry('ep-g', 'episode', { what: 'κουνέλι in the open' }, { user: ANA_ID }), archEntry('ep-stray', 'episode', { what: 'κουνέλι stray secret' }, { user: 'u5', private: true })],
+      u5: [archEntry('ep-p', 'episode', { what: 'κουνέλι whispered' }, { user: 'u5', private: true })],
+      u6: [archEntry('ep-q', 'episode', { what: 'κουνέλι of another' }, { user: 'u6', private: true })],
+    }),
+    record: fakeSource({ u5: [recLine('d1', NOW - HOUR, 'κουνέλι in the dm', { channelId: 'dm1', by: 'u5', owner: 'u5' })] }),
+  });
+  const ask = async (who) => {
+    const s = scene({ profiles: MEMORY_PROFILES, ...sources() });
+    const dm = { id: 'dm1', guild: null };
+    const history = [{ id: 'p1', channelId: 'dm1', ts: NOW - MINUTE, self: false, bot: false, authorName: 'Nikos', content: 'κουνέλι;' }];
+    const args = who === null ? { ...s.args, server: RECENT_SERVER } : { ...s.args, channel: dm, partner: { id: who, guild: s.args.guild }, history, candidate: history[0], server: RECENT_SERVER };
+    await withCapturedLogs(() => s.recaller.run(args));
+    return s.llmCalls[0]?.messages[1].content ?? '';
+  };
+  const owner = await ask('u5');
+  assert.ok(owner.includes('κουνέλι whispered') && owner.includes('κουνέλι stray secret') && owner.includes('κουνέλι in the dm'), owner);
+  assert.ok(owner.includes('κουνέλι in the open'));
+  assert.ok(!owner.includes('another'), 'another member\'s private layer is never read');
+  const other = await ask('u6');
+  assert.ok(other.includes('κουνέλι of another') && other.includes('κουνέλι in the open'), other);
+  assert.ok(!other.includes('whispered') && !other.includes('stray') && !other.includes('in the dm'), other);
+  const server = await ask(null);
+  assert.ok(server.includes('κουνέλι in the open'), server);
+  assert.ok(!server.includes('whispered') && !server.includes('stray') && !server.includes('another') && !server.includes('in the dm'), 'a server turn reads no private entry');
 });
