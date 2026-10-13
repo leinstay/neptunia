@@ -384,5 +384,9 @@
     "maxTokens": 6000000,
     "rateLimitWaitMinutes": 10,
     "rateLimitMaxWaits": 36
+  },
+  "appendStore": {
+    "fsyncMs": 500,
+    "retryMax": 1000
   }
 }

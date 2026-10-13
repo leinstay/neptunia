@@ -778,6 +778,13 @@ Settings for the manual testing sub-process (`features.mentor`). The mentor inve
 | `rateLimitWaitMinutes` | `10` | Minutes to wait on a rate limit |
 | `rateLimitMaxWaits` | `36` | Consecutive waits before the run aborts |
 
+## `appendStore`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `fsyncMs` | `500` | Append-only files under `data/` are flushed to disk (fsync) at most this long (ms) after a write; writes that must survive a crash flush at once |
+| `retryMax` | `1000` | Lines kept in memory while the disk refuses writes, retried every second in order. When the queue is full, further writes are refused until the disk answers again |
+
 ## Models
 
 The engine uses seven model roles. Each is set independently, so the voice can use a premium model while the helpers stay cheap.
