@@ -42,6 +42,16 @@ const DEFAULT_MAX_REQUEST_TOKENS = 50000;
 export class SectionsTooLargeError extends Error {}
 
 /**
+ * `llm.safetyMargin` of `config`: a number in (0, 1], else 0.9 (config.json's value).
+ * @param {object} config  The live config; `config.llm` may be missing.
+ * @returns {number}
+ */
+export function safetyMarginOf(config) {
+  const given = config?.llm?.safetyMargin;
+  return Number.isFinite(given) && given > 0 && given <= 1 ? given : DEFAULT_SAFETY_MARGIN;
+}
+
+/**
  * The input budget of one request: `floor(maxRequestTokens * llm.safetyMargin)`. A margin that
  * is not a number in (0, 1] counts as 0.9 and a token cap that is not a positive finite number
  * as 50000 (config.json's values), so a partial or broken config still gives a limit
@@ -52,8 +62,7 @@ export class SectionsTooLargeError extends Error {}
  * @returns {number}  A finite integer >= 0.
  */
 export function requestTokenLimit(config, maxRequestTokens = config?.llm?.maxRequestTokens) {
-  const given = config?.llm?.safetyMargin;
-  const margin = Number.isFinite(given) && given > 0 && given <= 1 ? given : DEFAULT_SAFETY_MARGIN;
+  const margin = safetyMarginOf(config);
   const cap = Number.isFinite(maxRequestTokens) && maxRequestTokens > 0 ? maxRequestTokens : DEFAULT_MAX_REQUEST_TOKENS;
   return Math.floor(cap * margin);
 }
@@ -72,16 +81,18 @@ export function sectionCost(calibrator) {
 /**
  * Fit `sections` into `limit` tokens. `cost(text)` returns the token price of
  * one item. Returns `{ kept, stats, used }` where `kept[name]` is the surviving
- * items in their original order.
+ * items in their original order. With `options.limits` (src/llm/limits.js#createLimits),
+ * every section that lost items is reported there as a `budget-drop` (`budgetDrops`).
  * @param {Section[]} sections  In priority order.
  * @param {number} limit  A finite number >= 0.
  * @param {(text: string) => number} cost
+ * @param {{ limits?: { add: Function } }} [options]
  * @returns {{ kept: Record<string, string[]>, stats: Record<string, { used: number, kept: number, dropped: number }>, used: number }}
  * @throws {TypeError} `limit` is not a finite number >= 0. A NaN limit would otherwise trim
  *   nothing and never report required sections as too large: every comparison with NaN is false.
  * @throws {SectionsTooLargeError} The required sections alone exceed `limit`.
  */
-export function fitSections(sections, limit, cost) {
+export function fitSections(sections, limit, cost, { limits = null } = {}) {
   // Number.isFinite is false for anything that is not a number, a numeric string included.
   if (!Number.isFinite(limit) || limit < 0) {
     throw new TypeError(`the token limit must be a finite number >= 0, got ${String(limit)}`);
@@ -124,5 +135,20 @@ export function fitSections(sections, limit, cost) {
     stats[section.name] = { used, kept: taken.length, dropped: section.items.length - taken.length };
   }
 
+  if (limits) budgetDrops(stats, limits);
   return { kept, stats, used: limit - remaining };
+}
+
+/**
+ * One `budget-drop` limit per section of a `fitSections` stats line that lost items (`where`:
+ * the section, `lost`: the items dropped), in the stats' order, added to `limits`
+ * (src/llm/limits.js#createLimits). The one place a dropped section becomes a limit entry.
+ * @param {Record<string, { dropped?: number }>|null|undefined} stats
+ * @param {{ add: Function }} limits
+ */
+export function budgetDrops(stats, limits) {
+  for (const [name, entry] of Object.entries(stats ?? {})) {
+    const dropped = entry && typeof entry === 'object' ? entry.dropped : null;
+    if (Number.isFinite(dropped) && dropped > 0) limits.add({ kind: 'budget-drop', where: name, lost: dropped });
+  }
 }

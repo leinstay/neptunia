@@ -3,7 +3,8 @@
 // price of one item).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../src/llm/budget.js';
+import { budgetDrops, fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../src/llm/budget.js';
+import { createLimits } from '../src/llm/limits.js';
 
 // Every item costs its own string length in "tokens" -- makes the arithmetic
 // in assertions trivial and readable.
@@ -194,4 +195,24 @@ test('sectionCost: reads the calibrator at the moment of pricing, not when the f
   assert.equal(price('καφές'), 5);
   ratio = 1.5;
   assert.equal(price('καφές'), 7); // ceil(3 * 1.5) + 2
+});
+
+test('fitSections: a collector gets one budget-drop per section that lost items, with the items lost', () => {
+  const sections = [
+    { name: 'fixed', required: true, items: ['aaaa'] },
+    { name: 'chat', keep: 'newest', items: ['bbb', 'ccc', 'ddd'] },
+    { name: 'emoji', items: ['e'] },
+  ];
+  const limits = createLimits();
+  const { stats } = fitSections(sections, 7, cost, { limits });
+  assert.equal(stats.chat.dropped, 2);
+  assert.equal(stats.emoji.dropped, 1);
+  assert.deepEqual(limits.list(), [
+    { kind: 'budget-drop', where: 'chat', lost: 2 },
+    { kind: 'budget-drop', where: 'emoji', lost: 1 },
+  ]);
+  // Without a collector nothing changes; budgetDrops reads the same entries off a stats line.
+  const again = createLimits();
+  budgetDrops(fitSections(sections, 7, cost).stats, again);
+  assert.deepEqual(again.list(), limits.list());
 });

@@ -41,7 +41,7 @@ import { rankEmojiUsage } from './memory/emoji-usage.js';
 import { rankGifs } from './memory/gifs.js';
 import { gifCaptionCounts, gifFormatCounts } from './memory/gif-recache.js';
 import { gifPostsToday, gifWatchesToday } from './memory/gif-watch.js';
-import { commandKeys, leafPaths, MEMORY_SHOW_SECTIONS, MODEL_ROLES, MODEL_SET_PATHS, MODEL_SET_ROLES, PINGS_MODES } from './discord/commands.js';
+import { commandKeys, JOURNAL_KINDS, leafPaths, MEMORY_SHOW_SECTIONS, MODEL_ROLES, MODEL_SET_PATHS, MODEL_SET_ROLES, PINGS_MODES } from './discord/commands.js';
 import {
   isAllowed as accessIsAllowed,
   isOwnerId,
@@ -70,6 +70,7 @@ import { formatClock } from './discord/format.js';
 import { liveRecent, recentSettings } from './memory/recent.js';
 import { VOICE_DAILY } from './memory/update.js';
 import { PORTRAIT_SLOTS, portraitSettings } from './memory/portrait.js';
+import { journalLine } from './memory/journal.js';
 
 /** `/nep access grant/revoke`'s command keys that ONLY read — everything else (including every
  * group and `*`) is treated as opening a write command, and gets the "changes memory or config"
@@ -102,7 +103,40 @@ const READ_ONLY_ACCESS_KEYS = new Set([
 const SPENDS_BALANCE_KEYS = new Set(['ping']);
 
 /** How `/nep access grant` names each owner-only group (src/discord/access.js#OWNER_ONLY_GROUPS) when it refuses it. */
-const OWNER_ONLY_NAMES = { private: 'private memory', mentor: 'the mentor', access: 'access management', diary: 'the diary' };
+const OWNER_ONLY_NAMES = { private: 'private memory', mentor: 'the mentor', access: 'access management', diary: 'the diary', 'memory.journal': 'the journal', 'memory.snapshot': 'the memory snapshot' };
+
+/** `/nep memory journal`'s `n`: default and bounds. */
+const JOURNAL_N_DEFAULT = 20;
+const JOURNAL_N_MAX = 50;
+const JOURNAL_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The directory under `data/` that `/nep memory snapshot` writes to and never copies. */
+const SNAPSHOTS_DIR = 'snapshots';
+
+/** Files and bytes under `dir`, walked recursively. */
+async function treeSize(dir) {
+  let bytes = 0;
+  let files = 0;
+  for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const inner = await treeSize(full);
+      bytes += inner.bytes;
+      files += inner.files;
+    } else if (entry.isFile()) {
+      bytes += (await fs.promises.stat(full)).size;
+      files += 1;
+    }
+  }
+  return { bytes, files };
+}
+
+/** What the owner's pause/resume reply adds when the persona's announcement did not go out, by reason. */
+const NOT_TOLD = {
+  'no-channel': '(she was not told: no announce channel)',
+  'no-label': '(she was not told: no announce wording)',
+  'send-failed': '(she was not told: the announce post failed)',
+};
 
 const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -899,6 +933,13 @@ const GIFS_RECACHE_SKIPS = {
  * `diary` — from createDiary() (src/behavior/diary.js), optional: `force({ kind })` (`/nep diary post`)
  *   and `status()` (`/nep diary show`, the plan in the `set` reply). Absent -> `show` prints the
  *   channel and the history size only, and `post` reports the diary is not running.
+ * `journal` — from createJournal() (src/memory/journal.js), optional: `system` records of pause,
+ *   resume, forget and wipe (written while `features.journal` is exactly true), `read` for
+ *   `/nep memory journal`, `forgetUser` and `removeGuild` for `/nep memory forget|wipe` (run
+ *   whatever the switch says: what was journalled goes with the member). Absent -> no records,
+ *   and `/nep memory journal` reports it is not available. `withWriterLock` holds the journal's
+ *   writes while `/nep memory snapshot` copies `data/`; absent, the copy runs without it.
+ * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing
  * message) on bad input; it never touches discord.js.
@@ -927,6 +968,8 @@ export function createAdmin({
   mentorCases,
   mentorBudget,
   diary,
+  journal,
+  dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
 }) {
   /** Owner, or `bot.access` granted the command by exact key, group, or `*`, or a member
    * command while `features.memberCommands` is on (read now) — see
@@ -1014,6 +1057,36 @@ export function createAdmin({
     const nameOf = (id) => store.getUser(guildId, id)?.names?.[0] ?? null;
     const resolve = (text) => fromTokens(typeof text === 'string' ? text : '', nameOf, 'analyzer');
     return { nameOf, resolve };
+  }
+
+  /** A `system` journal record of `guildId` (features.journal exactly true, read now); never throws. */
+  async function journalSystem(guildId, record) {
+    if (!journal || !guildId || hot.config?.features?.journal !== true) return;
+    try {
+      await journal.system(guildId, record);
+    } catch (err) {
+      log.warn('admin: journal record failed', { code: err?.code ?? null, guildId });
+    }
+  }
+
+  /**
+   * `/nep pause|resume`'s one line to the chat: `labels.journal.<key>` (read now) posted in
+   * `journal.announceChannelId`, no mention allowed. `{ announced, note }`: `note` is what the
+   * owner's reply adds when it did not go out (no channel, no wording, the post failed).
+   */
+  async function announce(key) {
+    const channelId = hot.config?.journal?.announceChannelId;
+    if (typeof channelId !== 'string' || !channelId) return { announced: false, note: NOT_TOLD['no-channel'] };
+    const text = hot.prompts?.labels?.journal?.[key];
+    if (typeof text !== 'string' || !text.trim()) return { announced: false, note: NOT_TOLD['no-label'] };
+    try {
+      const channel = await client.channels.fetch(channelId);
+      await channel.send({ content: text, allowedMentions: { parse: [] } });
+      return { announced: true, note: null };
+    } catch (err) {
+      log.warn('admin: announce failed', { channelId, code: err?.code ?? null });
+      return { announced: false, note: NOT_TOLD['send-failed'] };
+    }
   }
 
   /** Waits out a live-analyzer run already in flight -- its answer lands after its model call and
@@ -1179,9 +1252,9 @@ export function createAdmin({
    * queue, flush everything and drop every cache except state.json itself, so
    * nothing stale (or a late in-flight write) can land in data/ after the
    * owner starts editing it. Idempotent: a second call just reports the
-   * state.
+   * state. Then the one line to the chat (`announce`) and the journal's `pause` record.
    */
-  async function cmdPause() {
+  async function cmdPause(context) {
     const state = store.state.data;
     if (state.paused) {
       return [
@@ -1239,10 +1312,18 @@ export function createAdmin({
 
     log.info('admin: paused', { dropped, mentorStopped });
 
+    const told = await announce('paused');
+    await journalSystem(resolvedGuildId(context), {
+      event: 'pause',
+      by: 'owner',
+      ...(mentorStopped ? { note: 'mentor-stopped' } : {}),
+      announced: told.announced,
+    });
+
     return [
       'Paused. Memory is flushed to disk -- files under data/ can be edited safely now.',
       ...(mentorStopped ? ['A mentor run in flight was stopped.'] : []),
-      `Run ${slash('resume')} when done.`,
+      `Run ${slash('resume')} when done.${told.note ? ` ${told.note}` : ''}`,
     ].join('\n');
   }
 
@@ -1252,8 +1333,9 @@ export function createAdmin({
    * data/ fails to parse, naming the offending paths; else re-reads
    * state.json (the owner may have hand-edited data/ while paused) and clears
    * the pause flags, letting every other cache lazily re-populate from disk.
+   * Then the one line to the chat (`announce`) and the journal's `resume` record.
    */
-  function cmdResume() {
+  async function cmdResume(context) {
     if (!store.state.data.paused) return 'Not paused.';
 
     const badFiles = typeof store.validate === 'function' ? store.validate() : [];
@@ -1277,7 +1359,10 @@ export function createAdmin({
 
     log.info('admin: resumed', {});
 
-    return 'Resumed.';
+    const told = await announce('resumed');
+    await journalSystem(resolvedGuildId(context), { event: 'resume', by: 'owner', announced: told.announced });
+
+    return told.note ? `Resumed. ${told.note}` : 'Resumed.';
   }
 
   /** The next spontaneous turn of `guildId` as an ISO time: src/behavior/spontaneous.js#status
@@ -1767,7 +1852,9 @@ export function createAdmin({
   }
 
   /** `/nep memory forget`: one member's profile and private layer (store.forgetUser), once a
-   * live-analyzer run in flight has landed. Refused while paused. */
+   * live-analyzer run in flight has landed, and their journal records (journal.forgetUser, first:
+   * it closes the private journal's files before the store deletes the directory). A journal
+   * that fails keeps its marker and finishes at the next start. Refused while paused. */
   async function cmdMemoryForget(args, context) {
     assertNotPaused();
     const userId = args?.userId;
@@ -1775,8 +1862,63 @@ export function createAdmin({
     const guildId = requireGuildId(context);
 
     await waitForAnalyzer();
+    let journalNote = '';
+    if (journal) {
+      try {
+        const counts = await journal.forgetUser(guildId, userId);
+        journalNote = ` Journal records removed: ${counts?.dropped ?? 0}.`;
+      } catch (err) {
+        log.warn('admin: journal forget failed', { code: err?.code ?? null, guildId });
+        journalNote = ' The journal is not cleared yet: it finishes at the next start.';
+      }
+    }
     store.forgetUser(guildId, userId); // cascades to the member's private layer
-    return `Forgot ${userId} (public profile and private memory).`;
+    await journalSystem(guildId, { event: 'forget', by: 'owner', participants: [String(userId)] });
+    return `Forgot ${userId} (public profile and private memory).${journalNote}`;
+  }
+
+  /**
+   * `/nep memory journal [day] [kind] [n]`: the last `n` (1..50, default 20) journal records of
+   * one UTC day (default today), of one kind or all, as short lines (src/memory/journal.js#journalLine).
+   * Owner-only (src/discord/access.js); read only, so it works while paused.
+   */
+  async function cmdMemoryJournal(args, context) {
+    if (!journal) return 'the journal is not available';
+    const guildId = requireGuildId(context);
+    const day = args?.day ?? utcDay(Date.now());
+    if (typeof day !== 'string' || !JOURNAL_DAY_RE.test(day)) throw new Error('day must be YYYY-MM-DD');
+    const kind = args?.kind ?? 'all';
+    if (!JOURNAL_KINDS.includes(kind)) throw new Error(`kind must be one of: ${JOURNAL_KINDS.join(', ')}`);
+    const n = args?.n ?? JOURNAL_N_DEFAULT;
+    if (!Number.isInteger(n) || n < 1 || n > JOURNAL_N_MAX) throw new Error(`n must be 1..${JOURNAL_N_MAX}`);
+
+    const records = await journal.read(guildId, { day, kind: kind === 'all' ? null : kind, n });
+    if (records.length === 0) return `no journal records on ${day}${kind === 'all' ? '' : ` (${kind})`}`;
+    return [`journal ${day}${kind === 'all' ? '' : ` (${kind})`}: last ${records.length}`, ...records.map(journalLine)].join('\n');
+  }
+
+  /**
+   * `/nep memory snapshot`: a consistent copy of `data/` for the tools (tools/memory-sim.mjs,
+   * tools/replay.mjs): the store flushed, then every entry of `data/` but `snapshots/` copied to
+   * `data/snapshots/<UTC time>/` while the journal holds its writes (journal.withWriterLock).
+   * Owner-only (src/discord/access.js). Nothing under `data/` is changed but the new directory.
+   */
+  async function cmdMemorySnapshot() {
+    if (!dataDir) return 'the memory snapshot is not available';
+    store.flush();
+    const root = path.join(dataDir, SNAPSHOTS_DIR);
+    const dest = path.join(root, new Date().toISOString().replace(/[:.]/g, '-'));
+    const copy = async () => {
+      await fs.promises.mkdir(dest, { recursive: true });
+      for (const name of await fs.promises.readdir(dataDir)) {
+        if (name === SNAPSHOTS_DIR) continue;
+        await fs.promises.cp(path.join(dataDir, name), path.join(dest, name), { recursive: true, errorOnExist: true, force: false });
+      }
+      return treeSize(dest);
+    };
+    const { bytes, files } = typeof journal?.withWriterLock === 'function' ? await journal.withWriterLock(copy) : await copy();
+    log.info('admin: memory snapshot', { files, bytes });
+    return `Snapshot written: ${dest} (${files} files, ${bytes} bytes).`;
   }
 
   // ---------------------------------------------------------------------
@@ -1973,15 +2115,27 @@ export function createAdmin({
     if (confirm !== guildName) {
       return (
         'This deletes everything remembered about this server: every member profile and private memory, the server habits, ' +
-        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore and the warmup progress. ' +
+        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore, the journal and the warmup progress. ' +
         `To confirm, run again with confirm: ${guildName}`
       );
     }
 
     await waitForAnalyzer();
     if (isWarmingUp()) throw new Error(warmupBusyText());
+    // The journal first: its files are closed before the store deletes the private directories.
+    let journalLines = [];
+    if (journal) {
+      try {
+        const removed = await journal.removeGuild(guildId);
+        journalLines = [`journal files removed: ${removed?.files ?? 0}`];
+      } catch (err) {
+        log.warn('admin: journal wipe failed', { code: err?.code ?? null, guildId });
+        journalLines = ['journal: not removed (a disk error, see the log)'];
+      }
+    }
     const counts = store.wipeGuild(guildId);
     log.info('admin: memory wiped', counts);
+    await journalSystem(guildId, { event: 'wipe', by: 'owner' });
 
     return [
       `Memory wiped for ${guildName}.`,
@@ -1989,6 +2143,7 @@ export function createAdmin({
       `channels removed: ${counts.channels}`,
       `lore removed: ${counts.loreRemoved} (kept: ${counts.loreKept})`,
       `buffer messages cleared: ${counts.bufferMessages}`,
+      ...journalLines,
       'Also removed: the server habits, the learned list, the emoji ranking, the voice queue, the recent lines and the warmup progress.',
       'Kept: owner lore, the GIF library, the media description cache, token calibration, the daily request counts and the spontaneous schedule.',
     ].join('\n');
@@ -3031,7 +3186,7 @@ export function createAdmin({
     if (!isKnownAccessKey(key)) throw new Error(`unknown command key: ${key}`);
     if (isOwnerOnly(key)) {
       const group = key.split('.')[0];
-      throw new Error(`${OWNER_ONLY_NAMES[group] ?? group} is owner-only and cannot be granted: ${key}`);
+      throw new Error(`${OWNER_ONLY_NAMES[key] ?? OWNER_ONLY_NAMES[group] ?? group} is owner-only and cannot be granted: ${key}`);
     }
 
     const target = accessTargetArgs(args);
@@ -3211,8 +3366,8 @@ export function createAdmin({
     ping: (args) => cmdPing(args),
     pings: (args, context) => cmdPings(args, context),
     reload: () => cmdReload(),
-    pause: () => cmdPause(),
-    resume: () => cmdResume(),
+    pause: (args, context) => cmdPause(context),
+    resume: (args, context) => cmdResume(context),
     interject: (args, context) => cmdForce('interject', args, context),
     initiate: (args, context) => cmdForce('initiate', args, context),
     draw: (args, context) => cmdDraw(args, context),
@@ -3225,6 +3380,8 @@ export function createAdmin({
     'memory.channel': (args, context) => cmdMemoryChannel(args, context),
     'memory.server': (args, context) => cmdMemoryServer(args, context),
     'memory.recent': (args, context) => cmdMemoryRecent(args, context),
+    'memory.journal': (args, context) => cmdMemoryJournal(args, context),
+    'memory.snapshot': () => cmdMemorySnapshot(),
     'memory.forget': (args, context) => cmdMemoryForget(args, context),
     'memory.wipe': (args, context) => cmdMemoryWipe(args, context),
     'memory.affinity': (args, context) => cmdMemoryAffinity(args, context),

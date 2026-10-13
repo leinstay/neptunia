@@ -763,6 +763,31 @@ test('buildRequest: idByIndex maps every transcript index to its message id', ()
   assert.equal(request.idByIndex.get(3), 'c');
 });
 
+test('prompt: returns the ids of the kept window, the parents and the attached parts', () => {
+  const parent = makeMessage('p1', NOW - 30 * MIN, { content: 'ο παλιός λόγος', replyParent: true });
+  const withFile = makeMessage('m2', NOW - 2 * MIN, {
+    authorId: 'author-x',
+    attachments: [{ id: 'f1', kind: 'text', url: 'https://cdn/notes.txt', name: 'notes.txt', previewText: 'café crème' }],
+  });
+  const trigger = makeMessage('m3', NOW - MIN, { replyToId: 'p1', attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] });
+  const request = buildRequest(baseInput({ history: [parent, withFile, trigger], trigger, triggerKind: 'reply' }));
+  assert.deepEqual(request.seen, {
+    messageIds: ['p1', 'm2', 'm3'],
+    parents: ['p1'],
+    parts: { images: ['m3'], filePreviews: ['m2'] },
+  });
+
+  // Under a tight budget only the kept tail of the window counts as seen; a dropped parent is not listed.
+  const history = [makeMessage('p0', NOW - 40 * MIN, { replyParent: true, content: 'word '.repeat(20) })];
+  for (let i = 1; i <= 10; i += 1) history.push(makeMessage(`n${i}`, NOW - (11 - i) * MIN, { content: 'word '.repeat(20) }));
+  const tight = buildRequest(baseInput({ history, config: fakeConfig({ llm: { maxRequestTokens: 400, safetyMargin: 1 } }) }));
+  assert.ok(tight.stats.chat.dropped > 0, 'the chat is trimmed');
+  assert.equal(tight.seen.messageIds.length, tight.stats.chat.kept);
+  assert.deepEqual(tight.seen.messageIds, history.slice(history.length - tight.stats.chat.kept).map((message) => message.id));
+  assert.deepEqual(tight.seen.parents, []);
+  assert.deepEqual(tight.seen.parts, { images: [], filePreviews: [] });
+});
+
 test('buildRequest: idByIndex still covers messages later trimmed out of the rendered chat', () => {
   const history = [];
   for (let i = 1; i <= 10; i += 1) {

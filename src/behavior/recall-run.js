@@ -655,9 +655,14 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
    * `recall.contextMessages` before `candidate`, with `contextDescriptions`
    * as their captions. With `features.recallTrace` true every run past the
    * gates above appends its trace record (store.appendRecallTrace; see
-   * traceLine).
+   * traceLine). `op` (optional, a journal operation: src/memory/journal.js#op,
+   * as the turn hands it) is started once the gates above passed, before the
+   * first request, and closed with the run: `succeeded` with `status` (`ok`,
+   * or `timeout` when the run ran out yet left its fallback stretch), `hits`
+   * (the search hits), `kept`, `summaryChars` and `stretch` (whether a
+   * stretch is returned); `failed` with `timeout` (nothing left) or `error`.
    */
-  async function run({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], context = null, contextDescriptions, candidate = null, server = null } = {}) {
+  async function run({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], context = null, contextDescriptions, candidate = null, server = null, op = null } = {}) {
     const started = now();
     const channelId = channel?.id ?? null;
     const stats = emptyStats();
@@ -675,6 +680,14 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
       if (trace) writeTrace({ guildId, channelId, trace, out, maxLines: traceMaxLines });
       return out;
     };
+    // The journal's closing line of a run that started (`op`): what it found, never the text.
+    const opResult = (out, status) => ({
+      status,
+      hits: out?.stats?.hits ?? stats.hits,
+      kept: out?.stats?.kept ?? stats.kept,
+      summaryChars: typeof out?.text === 'string' ? out.text.length : 0,
+      stretch: Boolean(out?.stretch),
+    });
     try {
       const config = hot.config;
       const settings = recallSettings(config);
@@ -689,6 +702,7 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
         trace = newTrace({ started, channelId, candidate, server });
         traceMaxLines = settings.traceMaxLines;
       }
+      if (op) await op.started();
 
       controller = new AbortController();
       const searching = new AbortController();
@@ -727,12 +741,17 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
       if (outcome === TIMEOUT) {
         controller.abort();
         log.warn('recall: failed', { channel: channelId, reason: 'timeout', status: null, name: null });
-        return finish(progress.fallback ? progress.fallback('timeout') : empty());
+        const fallen = progress.fallback ? progress.fallback('timeout') : null;
+        if (op) await (fallen ? op.succeeded(opResult(fallen, 'timeout')) : op.failed('timeout'));
+        return finish(fallen ?? empty());
       }
-      return finish(outcome ?? empty());
+      const out = outcome ?? empty();
+      if (op) await op.succeeded(opResult(out, 'ok'));
+      return finish(out);
     } catch (err) {
       controller?.abort();
       log.warn('recall: failed', { channel: channelId, reason: 'error', status: null, name: err?.name ?? null });
+      if (op) await op.failed('error');
       return finish(empty());
     } finally {
       if (timer !== null) timers.clear(timer);

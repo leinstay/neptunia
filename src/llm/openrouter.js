@@ -28,6 +28,7 @@
 // `withCacheMarker`): after the estimate, so the rails never see it.
 
 import { estimateMessages } from './tokens.js';
+import { safetyMarginOf } from './budget.js';
 import { isPlainObject } from '../config.js';
 import { bumpDaily, countToday, dailyCounter } from '../time.js';
 import { log } from '../log.js';
@@ -1041,7 +1042,27 @@ export function createLlm({
    * the video describer's public-URL requests in agentic processing, where the
    * provider does not count the video as prompt tokens and the per-second cost
    * is far lower (`media.video.directUrlTokensPerSecond`).
+   * `options.limits` — a collector (src/llm/limits.js#createLimits; never sent) told the limits
+   * this answered request hit: `estimate-off` (`where`: the purpose, else the role, else
+   * `request`; `lost`: the tokens over the estimate; `detail`: `estimate->actual`) when the
+   * provider counted the whole prompt above the estimate by more than `1 - llm.safetyMargin` of
+   * it (the room the margin leaves), and `output-cap` (`where: 'completion'`) when the
+   * completion reached the request's `max_tokens`.
    */
+  /**
+   * The limits one answered request hit, told to `limits` (`options.limits`, see `complete`).
+   * The margin is read now (src/llm/budget.js#safetyMarginOf).
+   */
+  function reportLimits(limits, { where, estimated, promptTokens, completion, maxTokens }) {
+    const margin = safetyMarginOf(getConfig());
+    if (Number.isFinite(promptTokens) && Number.isFinite(estimated) && estimated > 0 && promptTokens - estimated > estimated * (1 - margin)) {
+      limits.add({ kind: 'estimate-off', where, lost: promptTokens - estimated, detail: `${estimated}->${promptTokens}` });
+    }
+    if (Number.isFinite(completion) && Number.isFinite(maxTokens) && maxTokens > 0 && completion >= maxTokens) {
+      limits.add({ kind: 'output-cap', where: 'completion', lost: null });
+    }
+  }
+
   async function complete(messages, options = {}) {
     const cfg = getConfig().llm;
     const tokensPerImage = getConfig().context?.vision?.tokensPerImage;
@@ -1127,6 +1148,7 @@ export function createLlm({
         log.warn('llm: provider counted more prompt tokens than the cap', { usage, estimated });
       }
       log.info('llm: usage', { ...usageLogFields(json, usage, body.model, options, marked, now() - startedAt), ...extra });
+      if (options.limits) reportLimits(options.limits, { where: options.purpose ?? options.role ?? 'request', estimated, promptTokens, completion: usage.completion_tokens, maxTokens: body.max_tokens });
       // `json.provider` is OpenRouter's own name for whichever upstream provider
       // actually served the request (undefined when the response omits it) --
       // surfaced so `/nep ping` can report it without a second request shape.

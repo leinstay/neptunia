@@ -296,5 +296,9 @@
     "queued": "This person has other messages waiting ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "queuedOthers": "Other people have messages waiting for you too ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "added": "While this was waiting, the person came back to it ({added}); answer once with that in view."
+  },
+  "journal": {
+    "paused": "The persona is paused by the owner.",
+    "resumed": "The persona is back."
   }
 }

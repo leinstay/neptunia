@@ -54,6 +54,7 @@ const SLOW_COMMANDS = new Set([
   'memory.refresh',
   'memory.forget',
   'memory.wipe',
+  'memory.snapshot',
   'emoji.rescan',
   'gifs.rescan',
   'private.forget',
@@ -120,6 +121,9 @@ function choicesOf(values) {
 
 const ROUTE_ROLES = MODEL_SET_ROLES;
 const PING_ROLES = Object.freeze([...ROUTE_ROLES, 'classifier']);
+
+/** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */
+export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'all']);
 
 /** `/nep pings`'s `mode` choices (src/admin.js#cmdPings reads the same list). */
 export const PINGS_MODES = Object.freeze(['on', 'off']);
@@ -344,6 +348,21 @@ export function buildCommandTree(commandName) {
               type: SUBCOMMAND,
               name: 'recent',
               description: 'Show the live recent lines, newest first.',
+            },
+            {
+              type: SUBCOMMAND,
+              name: 'journal',
+              description: 'Read the journal: one line per record.',
+              options: [
+                { type: STRING, name: 'day', description: 'UTC day YYYY-MM-DD (default: today).', required: false },
+                { type: STRING, name: 'kind', description: 'Record kind (default: all).', required: false, choices: choicesOf(JOURNAL_KINDS) },
+                { type: INTEGER, name: 'n', description: 'How many, newest last (default 20).', required: false, min_value: 1, max_value: 50 },
+              ],
+            },
+            {
+              type: SUBCOMMAND,
+              name: 'snapshot',
+              description: 'Copy all of data/ to data/snapshots/<time>/ for the tools.',
             },
             {
               type: SUBCOMMAND,
@@ -865,6 +884,12 @@ const OPTION_MAPPERS = {
   'memory.channel': (options) => ({ channelId: options.getChannel('channel')?.id }),
   'memory.server': () => ({}),
   'memory.recent': () => ({}),
+  'memory.journal': (options) => ({
+    day: options.getString('day') ?? undefined,
+    kind: options.getString('kind') ?? undefined,
+    n: options.getInteger('n') ?? undefined,
+  }),
+  'memory.snapshot': () => ({}),
   'memory.forget': (options) => ({ userId: options.getUser('user', true).id }),
   'memory.wipe': (options) => ({ confirm: options.getString('confirm', true) }),
   'memory.refresh': (options) => ({ userId: options.getUser('user', true).id }),

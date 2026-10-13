@@ -11,6 +11,9 @@ import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { createHot } from './hot.js';
 import { log } from './log.js';
 import { createStore } from './memory/store.js';
+import { createAppendStore } from './memory/append-store.js';
+import { createJournal } from './memory/journal.js';
+import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm } from './llm/openrouter.js';
 import { createImageGen } from './llm/images.js';
@@ -98,6 +101,14 @@ for (const { key, use } of deprecatedModelKeys(hot.config)) log.warn('index: dep
 
 const dataDir = path.join(ROOT_DIR, 'data');
 const store = createStore({ dataDir });
+// The append-only files under data/ (the journal): one serialized writer per file. Its settings
+// are read once here; the journal reads its own section (journal.*) at each write.
+const appendStore = createAppendStore({
+  fsyncMs: hot.config.appendStore?.fsyncMs ?? 500,
+  retryMax: hot.config.appendStore?.retryMax ?? 1000,
+  log,
+});
+const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {} });
 
 const calibrator = createCalibrator(store.state.data.calibration);
 const llm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: store.state });
@@ -177,6 +188,7 @@ const turns = createTurnRunner({
   routeChannels,
   isWarmingUp: () => warmup.isWarmingUp(),
   activity,
+  journal,
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
@@ -193,6 +205,7 @@ const memory = createMemoryUpdater({
   llm,
   calibrator,
   getSelfName,
+  journal,
   onPortraitRequest: (guildId, userId, reason) => {
     warmup.refreshPortrait(guildId, userId, reason).catch((err) => log.error('index: portrait refresh failed', { error: err }));
   },
@@ -290,6 +303,8 @@ const admin = createAdmin({
   mentor,
   mentorCases,
   mentorBudget,
+  // /nep pause|resume, memory forget|wipe: system records; /nep memory journal reads it.
+  journal,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 
@@ -343,6 +358,62 @@ async function startupStep(step, fn, { wait = false } = {}) {
   }
 }
 
+/**
+ * The persona's last `n` messages of `channelId` (the bot's own among the channel's last `n`),
+ * as the journal's reconciliation reads them: id, raw content, the message replied to, the time.
+ */
+async function fetchOwnMessages(channelId, n) {
+  const channel = await client.channels.fetch(channelId);
+  const messages = await channel.messages.fetch({ limit: n });
+  return [...messages.values()]
+    .filter((message) => message.author?.id === client.user.id)
+    .map((message) => ({ id: message.id, content: message.content, replyToId: message.reference?.messageId ?? null, createdAt: message.createdTimestamp }));
+}
+
+/**
+ * The journal's operations left open by the last run (features.journal, read now), yesterday's
+ * and today's: a post is looked for among the persona's own messages, everything else is marked
+ * unknown; nothing is sent again. Only operations started before this start are touched.
+ */
+async function reconcileJournal(guildId) {
+  if (hot.config.features?.journal !== true) return;
+  const startedAt = Date.now();
+  const days = [utcDay(startedAt - DAY_MS), utcDay(startedAt)];
+  const counts = await journal.reconcile(guildId, { days, before: startedAt, fetchOwnMessages });
+  log.info('journal: reconciled', { guildId, succeeded: counts.succeeded, unknown: counts.unknown });
+}
+
+/** Whether the journal is written now (features.journal exactly true, read now). */
+const journalOn = () => hot.config.features?.journal === true;
+
+/** Delete the request dumps older than journal.keepRequests days (features.journal, read now). */
+async function pruneJournalRequests(guildId) {
+  if (!journalOn()) return;
+  const { removed } = await journal.pruneRequests(guildId);
+  log.info('journal: pruned', { guildId, removed });
+}
+
+/**
+ * The journal at start: forgets a crash left half done are finished first (whatever the
+ * switch: what was journalled about a forgotten member goes); then, with the journal on, a
+ * `.running` marker left by a run that never stopped cleanly becomes an `unclean-stop` record,
+ * this run's marker is written and the `start` record follows.
+ */
+async function startJournal(guildId) {
+  const { finished } = await journal.resumeForgets(guildId);
+  if (finished > 0) log.info('journal: forgets finished', { guildId, finished });
+  if (!journalOn()) return;
+  const { unclean } = await journal.markRunning(guildId);
+  if (unclean) log.warn('journal: unclean stop noted', { guildId });
+  await journal.system(guildId, { event: 'start', by: 'service' });
+}
+
+// A reload that took (config or prompts) is a system record of the served guild.
+hot.onReload((what) => {
+  if (!instance.guildId || !journalOn()) return;
+  journal.system(instance.guildId, { event: 'reload', note: what });
+});
+
 let lastCommandName = hot.config.bot.commandName;
 let lastAdminCommandsOn = hot.config.features?.adminCommands !== false;
 
@@ -386,6 +457,18 @@ client.once(Events.ClientReady, async () => {
       pausedAt: store.state.data.pausedAt ?? null,
     });
   }
+
+  // The journal's start: unfinished forgets, an unclean stop, the start record. Awaited, so the
+  // reconciliation below reads a journal that hides every member being forgotten.
+  await startupStep('journal.start', () => startJournal(instance.guildId), { wait: true });
+
+  // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
+  // starting meanwhile is never touched (only earlier operations are), and it never sends.
+  await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId));
+
+  // The request dumps older than journal.keepRequests days: once now, then daily.
+  await startupStep('journal.prune', () => pruneJournalRequests(instance.guildId));
+  every(DAY_MS, () => pruneJournalRequests(instance.guildId), 'journal.prune');
 
   const guild = client.guilds.cache.get(instance.guildId);
   await startupStep('registerCommands', () => registerCommands(guild, hot.config), { wait: true });
@@ -461,6 +544,12 @@ async function shutdown(signal) {
   onMessage.stop();
   hot.close();
   store.flush();
+  // The journal's `stop` record (journal on), then the run marker goes: this stop was clean.
+  if (instance.guildId) {
+    if (journalOn()) await journal.system(instance.guildId, { event: 'stop', by: 'service', note: signal });
+    await journal.clearRunning(instance.guildId).catch((err) => log.warn('index: journal marker not removed', { error: err }));
+  }
+  await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await client.destroy();
   process.exit(0);
 }

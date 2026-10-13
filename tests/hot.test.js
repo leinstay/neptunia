@@ -434,3 +434,59 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('hot: exposes promptsHash and configHash that change when a prompt or the config changes', () => {
+  const dir = makeRoot({ config: { a: 1, b: { c: 2 } }, prompts: { persona: 'Είσαι η Ζωή.' } });
+  const hot = createHot({ rootDir: dir });
+  try {
+    const first = hot.hashes;
+    assert.match(first.promptsHash, /^[0-9a-f]{16}$/);
+    assert.match(first.configHash, /^[0-9a-f]{16}$/);
+
+    // A reload of unchanged files keeps both; the key order of the config does not count.
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ b: { c: 2 }, a: 1 }));
+    hot.reloadConfig();
+    hot.reloadPrompts();
+    assert.deepEqual(hot.hashes, first);
+
+    fs.writeFileSync(path.join(dir, 'prompts', 'persona.md'), 'Είσαι η Ελένη.');
+    hot.reloadPrompts();
+    assert.notEqual(hot.hashes.promptsHash, first.promptsHash);
+    assert.equal(hot.hashes.configHash, first.configHash);
+
+    const promptsHash = hot.hashes.promptsHash;
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ a: 2, b: { c: 2 } }));
+    hot.reloadConfig();
+    assert.notEqual(hot.hashes.configHash, first.configHash);
+    assert.equal(hot.hashes.promptsHash, promptsHash);
+
+    // A reload that fails keeps the hash of what stays live.
+    const configHash = hot.hashes.configHash;
+    fs.writeFileSync(path.join(dir, 'config.json'), '{ not valid json');
+    hot.reloadConfig();
+    assert.equal(hot.hashes.configHash, configHash);
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+test('hot: onReload fires with the layer name', async () => {
+  const dir = makeRoot({ config: { a: 1 }, prompts: { persona: 'a' } });
+  const hot = createHot({ rootDir: dir });
+  try {
+    const seen = [];
+    const off = hot.onReload((what) => seen.push(what));
+    hot.reloadConfig();
+    hot.reloadPrompts();
+    fs.writeFileSync(path.join(dir, 'config.json'), '{ broken');
+    await withCapturedLogs(() => hot.reloadConfig());
+    assert.deepEqual(seen, ['config', 'prompts']);
+    off();
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ a: 2 }));
+    hot.reloadConfig();
+    assert.deepEqual(seen, ['config', 'prompts']);
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

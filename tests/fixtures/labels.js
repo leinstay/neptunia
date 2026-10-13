@@ -293,4 +293,8 @@ export const labels = {
     seeds: 'Random seeds (place; setting; detail; activity; subject; twist):',
     topic: 'Topic the owner asked for:',
   },
+  journal: {
+    paused: 'Paused by the owner.',
+    resumed: 'Back.',
+  },
 };

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { createStore } from '../src/memory/store.js';
 import { MEMORY_LIMIT_DEFAULTS, isDue, buildMemoryRequest, applyMemoryUpdate, applyPrivateUpdate, createMemoryUpdater, touchMemory, computeSeenAt, batchAuthorNamesMap, characterText, analyzerTemperature, analyzerMode, feedsCalibration, memorySwitches, resolveMoment, notesStale, reconcileNoteReviews } from '../src/memory/update.js';
@@ -8849,5 +8850,234 @@ test('run (single-stage): a rewrite member answered with no text keeps the flag;
     assert.equal(JSON.parse(blockBody(llm.calls[1].messages[1].content, 'existing_profiles'))['1'].relationshipStale.cause, 'rewrite');
     assert.equal(store.getUser(guildId, '1').relationship, 'Παλιοί φίλοι που μιλούν για βιβλία.');
     assert.equal(store.getUser(guildId, '1').relationshipRewrite, undefined);
+  });
+});
+
+// ---- the journal: memory records, limits, a stalled append store ------------
+// With features.journal on, every applied batch writes one `memory` record (src/memory/journal.js)
+// built from what the store holds after the apply; a stalled append store pauses the batches.
+
+/** A journal stand-in: the memory records it was given, and a stalled switch. */
+function fakeJournal() {
+  const records = [];
+  return {
+    records,
+    stalledNow: false,
+    memory: async (guildId, record) => {
+      records.push({ guildId, record });
+    },
+    stalled() {
+      return this.stalledNow;
+    },
+  };
+}
+
+const sha12 = (text) => createHash('sha256').update(text).digest('hex').slice(0, 12);
+
+/** A journalled hot view: features.journal on, attitude and episodes kept, fixed hashes. */
+function journalHot(memoryOverrides = {}) {
+  return {
+    config: makeConfig({
+      features: { journal: true },
+      relationships: { maxDelta: 10, historySize: 10, textChars: 600 },
+      memory: { ...makeConfig().memory, batchMessages: 3, minBatchMessages: 1, maxEpisodes: 10, maxNewEpisodes: 3, clampTolerance: 1, ...memoryOverrides },
+    }),
+    prompts: { memory: 'sys', labels },
+    hashes: { promptsHash: 'a'.repeat(16), configHash: 'b'.repeat(16) },
+  };
+}
+
+test('memory update: writes a journal memory record with batch ids, changed users, episode keys and attitude moves from the applied result', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    for (const message of notesLines('c1', 3)) {
+      touchMemory(store, guildId, message);
+      store.pushBuffer(guildId, message, 100);
+    }
+    const answer = {
+      users: {
+        1: {
+          relationship: 'Φίλοι από παλιά.',
+          affinity: { delta: 4, reason: 'βοήθησε με το ταξίδι' },
+          episodes: [{ date: '2026-01-20', what: 'Μίλησε για το ταξίδι στη Λισαβόνα.', weight: 3 }],
+        },
+      },
+      guild: { learned: { add: ['Το τσάι του βουνού θέλει πέντε λεπτά.'] } },
+    };
+    const journal = fakeJournal();
+    let n = 0;
+    const hot = journalHot();
+    const updater = createMemoryUpdater({
+      hot,
+      store,
+      llm: { complete: async () => ({ text: JSON.stringify(answer) }) },
+      calibrator: createCalibrator(),
+      getSelfName: () => 'Nept',
+      now: () => NOTES_NOW,
+      journal,
+      uuid: () => `u${(n += 1)}`,
+    });
+
+    await withCapturedLogs(() => updater.run(guildId));
+
+    assert.equal(journal.records.length, 1);
+    const [{ guildId: written, record }] = journal.records;
+    assert.equal(written, guildId);
+    assert.equal(record.batchId, 'b-u1', 'allotted when the batch was taken');
+    assert.equal(record.appliedRevision, 'r-u2');
+    assert.equal(record.stage, 'single');
+    assert.deepEqual(record.batch, { messageIds: ['c1-0', 'c1-1', 'c1-2'], consumed: 3 });
+    assert.deepEqual(record.sourceMessageIds, ['c1-0', 'c1-1', 'c1-2']);
+    assert.deepEqual(record.changed, { users: ['1'], guild: true, channels: [], lore: 0 });
+    const what = 'Μίλησε για το ταξίδι στη Λισαβόνα.';
+    assert.deepEqual(record.episodes, [{ userId: '1', itemId: null, key: sha12(`2026-01-20|${what}`), what, weight: 3 }]);
+    assert.deepEqual(record.attitude, [{ userId: '1', delta: 4, applied: 4, reason: 'βοήθησε με το ταξίδι' }]);
+    const [learned] = store.getGuild(guildId).learned;
+    assert.deepEqual(record.learned, [{ id: learned.id, text: 'Το τσάι του βουνού θέλει πέντε λεπτά.' }]);
+    assert.deepEqual(record.self, []);
+    assert.deepEqual([record.consolidation, record.archived, record.limits], [[], [], []]);
+    assert.deepEqual([record.promptsHash, record.configHash], ['a'.repeat(16), 'b'.repeat(16)]);
+    assert.deepEqual(record.participants, ['1']);
+    assert.equal(record.privateUserId ?? null, null);
+
+    // The switch off (read at the moment of use): nothing is written.
+    hot.config.features.journal = false;
+    for (const message of notesLines('c2', 3)) store.pushBuffer(guildId, message, 100);
+    await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(journal.records.length, 1);
+  });
+});
+
+test('memory update: a private batch writes its memory record to the private journal of the partner', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    const journal = fakeJournal();
+    const hot = journalHot();
+    const answer = { users: { u1: { episodes: [{ date: '2026-01-20', what: 'Είπε ένα μυστικό.', weight: 2 }] } } };
+    const updater = createMemoryUpdater({ hot, store, llm: { complete: async () => ({ text: JSON.stringify(answer) }) }, calibrator: createCalibrator(), getSelfName: () => 'Nept', journal });
+    for (let i = 0; i < 2; i += 1) updater.observe(guildId, dmMessage({ id: `d${i}`, ts: Date.now() - 60_000 + i * 1000 }), { private: 'u1' });
+
+    await withCapturedLogs(() => updater.runPrivate(guildId, 'u1'));
+
+    assert.equal(journal.records.length, 1);
+    const { record } = journal.records[0];
+    assert.equal(record.privateUserId, 'u1', 'src/memory/journal.js writes it to the private day file');
+    assert.deepEqual(record.batch.messageIds, ['d0', 'd1']);
+    assert.deepEqual(record.changed.users, ['u1']);
+    assert.deepEqual(record.episodes.map((ep) => [ep.userId, ep.what]), [['u1', 'Είπε ένα μυστικό.']]);
+    assert.equal(store.getUser(guildId, 'u1'), null, 'nothing reached the public profile');
+  });
+});
+
+test('memory update: over-limit refusals and clamps appear in limits', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    for (const message of notesLines('c1', 3)) {
+      touchMemory(store, guildId, message);
+      store.pushBuffer(guildId, message, 100);
+    }
+    store.updateChannel(guildId, 'c1', { topics: 'Ένα.' });
+    const answer = { users: { 1: { relationship: PROSE_OVER } }, channels: { c1: { topics: PROSE_OVER } } };
+    const journal = fakeJournal();
+    const updater = createMemoryUpdater({
+      hot: journalHot({ fieldChars: 1000 }),
+      store,
+      llm: { complete: async () => ({ text: JSON.stringify(answer) }) },
+      calibrator: createCalibrator(),
+      getSelfName: () => 'Nept',
+      now: () => NOTES_NOW,
+      journal,
+    });
+
+    await withCapturedLogs(() => updater.run(guildId));
+
+    const { record } = journal.records[0];
+    const stored = store.getUser(guildId, '1').relationship;
+    assert.ok([...stored].length <= 600, 'the first relationship write was clamped');
+    assert.deepEqual(record.limits, [
+      { kind: 'clamp', where: 'users.relationship', lost: [...PROSE_OVER].length - [...stored].length },
+      { kind: 'over-limit', where: 'channels.topics', lost: [...PROSE_OVER].length - 1000 },
+    ]);
+    assert.equal(store.getChannel(guildId, 'c1').topics, 'Ένα.');
+  });
+});
+
+test('memory update: a stalled append store pauses application and keeps the batch', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    for (const message of notesLines('c1', 3)) {
+      touchMemory(store, guildId, message);
+      store.pushBuffer(guildId, message, 100);
+    }
+    const journal = fakeJournal();
+    journal.stalledNow = true;
+    let calls = 0;
+    const updater = createMemoryUpdater({
+      hot: journalHot(),
+      store,
+      llm: {
+        complete: async () => {
+          calls += 1;
+          return { text: '{}' };
+        },
+      },
+      calibrator: createCalibrator(),
+      getSelfName: () => 'Nept',
+      now: () => NOTES_NOW,
+      journal,
+    });
+
+    const { logs } = await withCapturedLogs(async () => {
+      await updater.run(guildId);
+      await updater.run(guildId);
+    });
+    assert.equal(calls, 0, 'nothing sent');
+    assert.deepEqual(store.getBuffer(guildId).map((m) => m.id), ['c1-0', 'c1-1', 'c1-2'], 'the batch stays in the buffer');
+    const paused = logs.filter((entry) => entry.msg === 'memory: paused');
+    assert.equal(paused.length, 1, 'once per streak');
+    assert.deepEqual([paused[0].level, paused[0].reason, paused[0].guildId], ['warn', 'append-stalled', guildId]);
+    assert.equal(journal.records.length, 0);
+
+    // The disk answers again: the batch is applied, and the next streak is logged again.
+    journal.stalledNow = false;
+    await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(calls, 1);
+    assert.deepEqual(store.getBuffer(guildId), []);
+    assert.equal(journal.records.length, 1);
+    journal.stalledNow = true;
+    for (const message of notesLines('c2', 3)) store.pushBuffer(guildId, message, 100);
+    const again = await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(again.logs.filter((entry) => entry.msg === 'memory: paused').length, 1);
+  });
+});
+
+test('memory update: a two-stage batch writes its stage two record, then the voice writes their own record', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    store.touchUser(guildId, '1', 'Aria', Date.now() - 60_000);
+    store.pushBuffer(guildId, slimMessage({ id: 'm1', authorId: '1', authorName: 'Aria', ts: Date.now() - 1000 }), 100);
+    const hot = voiceHot({ batchMessages: 1, minBatchMessages: 1 }, { relationships: { damping: false, maxDelta: 10, historySize: 10 } });
+    hot.config.features.journal = true;
+    const texts = { relationship: 'φίλοι από το παζλ', reason: 'με βοήθησε στο δύσκολο σημείο', feeling: 'χάρηκα πολύ' };
+    const llm = voiceLlm({
+      decision: { users: { 1: { relationship: 'έγιναν φίλοι', affinity: { delta: 4, event: 'τη βοήθησε' }, episodes: [{ what: 'έλυσαν ένα παζλ', tone: 'χαρά' }] } } },
+      word: (item) => texts[item.kind],
+    });
+    const journal = fakeJournal();
+    const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', journal });
+
+    await withCapturedLogs(() => updater.run(guildId));
+
+    assert.deepEqual(journal.records.map(({ record }) => record.stage), ['two', 'voice']);
+    const [batch, voice] = journal.records.map(({ record }) => record);
+    assert.deepEqual(batch.batch.messageIds, ['m1']);
+    assert.deepEqual(batch.changed.users, ['1']);
+    assert.deepEqual(batch.attitude.map((move) => [move.userId, move.applied]), [['1', 4]]);
+    assert.deepEqual(batch.episodes.map((ep) => [ep.userId, ep.what, ep.itemId]), [['1', 'έλυσαν ένα παζλ', null]]);
+    assert.notEqual(voice.batchId, batch.batchId);
+    assert.deepEqual(voice.batch, { messageIds: [], consumed: 0 });
+    assert.deepEqual(voice.changed.users, ['1'], 'the worded relationship, reason and feeling');
+    assert.equal(store.getUser(guildId, '1').relationship, 'φίλοι από το παζλ');
+    assert.deepEqual(voice.participants, ['1']);
   });
 });
