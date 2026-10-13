@@ -189,3 +189,16 @@ test('archive: forgetUser drops the user\'s entries under the marker', async () 
   assert.deepEqual(ids, [`ep-2:${other.revisionId}`], 'the index forgets the dropped entries');
   await appendStore.close();
 });
+
+test('archive: a DM memory file under private/ is not a private archive layer', async () => {
+  const { dataDir, archive } = scene();
+  // The private directory holds the DM memory files (`<userId>.json`) next to the layers' directories.
+  const privateDir = path.join(dataDir, 'guilds', 'g1', 'private');
+  fs.mkdirSync(privateDir, { recursive: true });
+  fs.writeFileSync(path.join(privateDir, '283916930761621514.json'), '{}');
+  const entry = archiveEntry(episode({ itemId: 'ep-p', what: 'ιδιωτική στιγμή' }), { itemKind: 'episode', event: 'evicted', scope: { user: 'u1', private: true }, ...at(OCT) });
+  await archive.queuePending('g1', [entry], { privateUserId: 'u1' });
+
+  const drained = await archive.drainPending('g1');
+  assert.deepEqual([drained.archived, drained.left], [1, 0], 'the file is skipped, the layer directory is drained');
+});
