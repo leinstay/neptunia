@@ -27,6 +27,8 @@ Every claim in `what`, `text`, `brief` and `quote` must rest on the lines cited 
 
 Adjacency of two lines does not prove the authors interacted. The persona's own lines prove what the persona said. They never prove what it felt, knew or how it is built.
 
+`what`, `text` and `brief` carry nothing the cited lines do not state: a property of a thing (a length, a count, a cause, a result) that no line gives is left out. A claim, a guess or a promise is written as one ("said he would check", "assumed", "claimed"), never as a fact or as something that happened.
+
 Whoever acts in `what` must be the `member`. `what` ends with a full sentence.
 
 A `quote` is a verbatim, unbroken stretch from exactly one cited message. Name that message's id in `quoteSourceId`. When no line is worth quoting, leave both empty.
