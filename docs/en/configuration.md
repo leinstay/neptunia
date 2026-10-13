@@ -34,6 +34,7 @@ Every key in `config.json` with its default, grouped by section.
 | `privateMessages` | `false` | Answer direct messages from guild members. Needs a stored public profile and `affinity.score >= private.minAffinity`. See [Messages and memory: Private layer](messages-and-memory.md#private-layer) |
 | `privateLikeServer` | `true` | A private chat works like a server channel: the route classifier, channel pull, server search (recall) and asked-about episodes all run in a DM. A pulled channel enters a DM only when the partner has View Channel permission on it. A missing key counts as on. `false` restores the old DM behaviour (no pull, no route, no recall, no asked-about episodes) |
 | `channelPull` | `true` | Pull another channel into a turn's request when the recent messages or the trigger contain a real channel mention. A missing key counts as on. See `context.pull.*` |
+| `pullSeenMarker` | `true` | Show a line under a pulled channel view's header saying how many of its messages are new since the persona was last shown that channel in this destination, how many of those are older than what it saw then, or that they are the same and no older ones were loaded. Messages are compared by id and content; an edited message counts as new. The comparison is remembered in process memory only, not across a restart. A missing key counts as on. See `context.pull.seenTtlMinutes` |
 | `elsewhere` | `true` | Answer a call (@mention, reply, name) from a channel where the bot can read but not send. The answer goes to the first usable channel in `memory.mainChannelIds`. A missing key counts as on |
 | `portraitRefresh` | `true` | Refresh a member's portrait by message counters on a periodic schedule. A missing key counts as on |
 | `notesRefresh` | `true` | Periodically re-examine channel and server notes from a spread sample of recent messages. A missing key counts as on. See `memory.notesRefreshDays*` and [Warmup: Keeping the notes current](warmup.md#keeping-the-notes-current) |
@@ -196,6 +197,7 @@ Settings for pulling another channel into a turn's request (`features.channelPul
 | `maxChannels` | `1` | Channels that can be pulled per turn |
 | `maxAgeDays` | `0` | Refuse a pull when the channel's newest message is older than this many days. `0` = no limit |
 | `sameAudience` | `true` | Check that every role allowed to view the destination channel can also view the source. Also governs which neighbour channels appear in `<other_channels>` and which server-search windows the recall run keeps. When false, content from a restricted channel can reach a wider audience |
+| `seenTtlMinutes` | `120` | Minutes before a previous view of the same channel in the same destination expires. A view older than this is ignored when comparing which messages are new. `0` = every view is treated as the first |
 
 ## `elsewhere`
 
