@@ -1012,6 +1012,34 @@ function ownPostAge(entry, { ownMarkHours, now }) {
 }
 
 /**
+ * The body of `<now>`: the present moment (formatNow), then, when `periods` holds any (the
+ * journal's off periods, src/memory/journal.js#offPeriods, newest first), `labels.journal.offLead`
+ * and one line per period: `offPaused` or `offStopped` with `{from}` / `{to}` (the date and
+ * the clock in `timezone`, as a pulled channel's header writes them) and `{length}`
+ * (formatDuration). A period whose label is missing is left out; without the lead, or with no
+ * line left, the clock stands alone. Per-turn: it sits in the tail, never in a cached part.
+ * @returns {string}
+ */
+function nowBlock(now, timezone, labels, periods) {
+  const clock = formatNow(now, timezone, labels.locale);
+  const l = labels.journal ?? {};
+  if (!Array.isArray(periods) || periods.length === 0 || typeof l.offLead !== 'string' || !l.offLead.trim()) return clock;
+  const lines = [];
+  for (const period of periods) {
+    const template = period?.kind === 'paused' ? l.offPaused : period?.kind === 'stopped' ? l.offStopped : null;
+    if (typeof template !== 'string' || !template.trim() || !Number.isFinite(period.from) || !Number.isFinite(period.to)) continue;
+    lines.push(
+      fill(template, {
+        from: pulledMoment(period.from, timezone, labels.locale),
+        to: pulledMoment(period.to, timezone, labels.locale),
+        length: formatDuration(Math.max(0, period.to - period.from), labels.units),
+      }),
+    );
+  }
+  return lines.length > 0 ? [clock, l.offLead, ...lines].join('\n') : clock;
+}
+
+/**
  * The user message's text parts from already-rendered blocks, in three cache
  * segments (see docs/prompt-contract.md, "Cache segments"): the stable part
  * (`cacheSegment: 'stable'`: `<self_facts>`, `<about_chat>`, `<gifs>`), the
@@ -1032,7 +1060,7 @@ function ownPostAge(entry, { ownMarkHours, now }) {
  * the chat (see `textFallback`).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ now, timezone, labels, sensesText, kept, tempoText, task, chatItems, diary = null }) {
+function assembleUser({ nowText, timezone, labels, sensesText, kept, tempoText, task, chatItems, diary = null }) {
   const stable = [
     block('self_facts', kept.self.join('\n')),
     block('about_chat', kept.aboutChat.join('\n')),
@@ -1062,8 +1090,8 @@ function assembleUser({ now, timezone, labels, sensesText, kept, tempoText, task
     // Right before the chat it answers a question from.
     block('lookup', (kept.lookup ?? []).join('\n')),
     block('chat', renderTranscript(chatItems, timezone, labels)),
-    // The present moment after the history it dates.
-    block('now', formatNow(now, timezone, labels.locale)),
+    // The present moment after the history it dates, with the persona's recent time away (nowBlock).
+    block('now', nowText),
     block('senses', sensesText),
     block('tempo', tempoText),
     block('task', task),
@@ -2290,6 +2318,10 @@ function seenOf({ history, keptChat, pictures }) {
  *   empty) and `<found>` (`labels.diary.found`, then what the search
  *   found; one piece, fitted right after `<lookup>`). They render after `<channel_view>` and before
  *   `<chat>`. `<world>` never renders outside a diary post.
+ * @param {{ kind: 'paused'|'stopped', from: number, to: number }[]|null} [input.offPeriods]  The
+ *   persona's recent time away (src/memory/journal.js#offPeriods, newest first): with
+ *   `features.offPeriods` on (a missing key counts as on), `<now>` gains `labels.journal.offLead`
+ *   and one `offPaused` / `offStopped` line per period (nowBlock). Omitted, null or empty -> none.
  * @returns {{ messages: object[], stats: object, segments: { segment: 'stable'|'profiles'|'tail', chars: number, hash: string }[],
  *   idByIndex: Map<number, string>, tempo: object,
  *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
@@ -2337,6 +2369,8 @@ export function buildRequest(input) {
   const interlocutor = privateChat ? mergeProfiles(input.interlocutor, input.privateProfile) : input.interlocutor;
   const nameOf = typeof input.nameOf === 'function' ? input.nameOf : () => null;
   const { timezone } = config.bot;
+  // `<now>`: the clock, then the persona's recent time away (features.offPeriods, read now).
+  const nowText = nowBlock(now, timezone, labels, config.features?.offPeriods !== false ? input.offPeriods : null);
   const relationships = config.features?.relationships !== false;
   // How many attitude moves show under the attitude line (renderProfile).
   const shownMoves = config.relationships?.shownMoves ?? 4;
@@ -2597,7 +2631,7 @@ export function buildRequest(input) {
     name: 'fixed',
     required: true,
     // A diary post's plan, its seeds and its `<diary>` intro are never cut.
-    items: [system, fittedTask, formatNow(now, timezone, labels.locale), sensesText, tempoText, ...[planText, seedsText, diaryIntro].filter(Boolean)],
+    items: [system, fittedTask, nowText, sensesText, tempoText, ...[planText, seedsText, diaryIntro].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -3102,7 +3136,7 @@ export function buildRequest(input) {
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
   const seen = seenOf({ history, keptChat, pictures });
-  const user = assembleUser({ now, timezone, labels, sensesText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
+  const user = assembleUser({ nowText, timezone, labels, sensesText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
 
   // A provider that rejects the images (see src/behavior/turn.js's 4xx
   // retry) must never resend a <chat> claiming a picture is attached with
@@ -3119,7 +3153,7 @@ export function buildRequest(input) {
   if (pictures.length) {
     const chatItemsBlind = formatTranscript(history, { ...formatOptions, attachedIndex: undefined });
     const keptChatBlind = chatItemsBlind.slice(chatItemsBlind.length - kept.chat.length);
-    textFallback = assembleUser({ now, timezone, labels, sensesText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
+    textFallback = assembleUser({ nowText, timezone, labels, sensesText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
   }
 
   // A sticker's URL is already fully sized (see src/discord/media.js

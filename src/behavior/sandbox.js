@@ -102,6 +102,7 @@ export const SANDBOX_OMITS = Object.freeze({
   participation: 'no guild to compare audiences in: no <participation> block of the persona\'s exchanges elsewhere',
   diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
   diary: 'never a diary post: no <world>, <diary>, <plan> or <found> block',
+  offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
 });
 
 /** A non-empty string id. */
@@ -637,6 +638,7 @@ export function sandboxRequestInput({
     participation: null,
     diaryChannel: null,
     diary: null,
+    offPeriods: null,
   };
 }
 

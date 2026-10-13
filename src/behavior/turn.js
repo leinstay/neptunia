@@ -78,6 +78,7 @@ import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
 import { toRecordLine } from '../memory/record.js';
+import { createOffPeriodsReader } from '../memory/journal.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 
@@ -1245,6 +1246,19 @@ export function createTurnRunner({
   /** Whether the journal is written now: one injected and features.journal exactly true (read now). */
   function journalOn() {
     return Boolean(journal) && hot.config.features?.journal === true;
+  }
+
+  // The persona's recent time away from the journal's system records, reused for a minute.
+  const readOffPeriods = createOffPeriodsReader({ journal, now: clock });
+
+  /**
+   * The off periods `<now>` shows (src/memory/journal.js#offPeriods): read only with the journal
+   * on and features.offPeriods on (a missing key counts as on), over the last
+   * `journal.offWindowHours` hours (24 when unset), all read now; null otherwise. Never throws.
+   */
+  async function offPeriodsFor(guildId, config) {
+    if (!journalOn() || config.features?.offPeriods === false) return null;
+    return readOffPeriods(guildId, { windowHours: config.journal?.offWindowHours ?? 24 });
   }
 
   /** The turn records of runTurn's attempts, in order; a failed append is the journal's to log. */
@@ -4235,6 +4249,8 @@ export function createTurnRunner({
         if (missing && !followUpPromptMissing) log.warn('turn: prompt missing', { name: 'follow-up', reason: 'no-prompt', channel: channel.id });
         followUpPromptMissing = missing;
       }
+      // `<now>`: the persona's recent time away (the journal's pauses and stops).
+      const offPeriods = await offPeriodsFor(guildId, config);
       // Every input named (turnRequestInput throws on one left undefined); null marks an absent one.
       const request = buildRequest(
         turnRequestInput({
@@ -4306,6 +4322,7 @@ export function createTurnRunner({
           diaryChannel: diaryChannelName(guildId, config),
           // A diary post: its past posts, its plan and what its search found.
           diary: diaryPrep ? { posts: diaryPrep.posts, plan: diaryPrep.plan, found: diaryPrep.found, seeds: diaryPrep.seeds ?? '' } : null,
+          offPeriods,
         }),
       );
       // What `<recent>` showed, held back or cut: counts only.

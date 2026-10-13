@@ -58,6 +58,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'participation',
   'diaryChannel',
   'diary',
+  'offPeriods',
 ]);
 
 const KNOWN = new Set(TURN_INPUT_KEYS);

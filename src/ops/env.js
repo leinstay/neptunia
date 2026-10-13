@@ -1,8 +1,8 @@
 // The environment every operation runs against: the dependencies src/admin.js#createAdmin is
 // given (see its JSDoc for each one) and the helpers several operations share -- the slash
 // wording of a pointer to another command, the paused / no-guild / warmup refusals, the token
-// resolver of analyzer text, the journal's system records, the pause announcement and the
-// config.local.json writers. Built once per admin; an operation reads it as `ctx.env`. Hot
+// resolver of analyzer text, the journal's system records and the config.local.json
+// writers. Built once per admin; an operation reads it as `ctx.env`. Hot
 // values are read at the moment of use, through `hot`, never copied.
 
 import path from 'node:path';
@@ -10,7 +10,7 @@ import { fromTokens } from '../memory/mentions.js';
 import { familyOf as imageFamilyOf } from '../llm/images.js';
 import { log } from '../log.js';
 import { invalid } from './registry.js';
-import { NOT_TOLD, NO_GUILD, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.js';
+import { NO_GUILD, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.js';
 
 /**
  * The operations' environment over `deps` (src/admin.js#createAdmin's dependencies, the same
@@ -139,26 +139,6 @@ export function createOpsEnv({
     }
   }
 
-  /**
-   * `/nep pause|resume`'s one line to the chat: `labels.journal.<key>` (read now) posted in
-   * `journal.announceChannelId`, no mention allowed. `{ announced, note }`: `note` is what the
-   * owner's reply adds when it did not go out (no channel, no wording, the post failed).
-   */
-  async function announce(key) {
-    const channelId = hot.config?.journal?.announceChannelId;
-    if (typeof channelId !== 'string' || !channelId) return { announced: false, note: NOT_TOLD['no-channel'] };
-    const text = hot.prompts?.labels?.journal?.[key];
-    if (typeof text !== 'string' || !text.trim()) return { announced: false, note: NOT_TOLD['no-label'] };
-    try {
-      const channel = await client.channels.fetch(channelId);
-      await channel.send({ content: text, allowedMentions: { parse: [] } });
-      return { announced: true, note: null };
-    } catch (err) {
-      log.warn('admin: announce failed', { channelId, code: err?.code ?? null });
-      return { announced: false, note: NOT_TOLD['send-failed'] };
-    }
-  }
-
   /** Waits out a live-analyzer run already in flight -- its answer lands after its model call and
    * would re-create what a delete just removed -- then refuses if a pause landed meanwhile. */
   async function waitForAnalyzer() {
@@ -242,7 +222,6 @@ export function createOpsEnv({
     requireGuildId,
     tokenResolver,
     journalSystem,
-    announce,
     waitForAnalyzer,
     localConfigFile,
     editLocalConfig,

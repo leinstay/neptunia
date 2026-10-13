@@ -292,7 +292,8 @@
     "added": "While this was waiting, the person came back to it ({added}); answer once with that in view."
   },
   "journal": {
-    "paused": "The persona is paused by the owner.",
-    "resumed": "The persona is back."
+    "offLead": "You were away:",
+    "offPaused": "Paused by the owner, {from} to {to} ({length})",
+    "offStopped": "Off, {from} to {to} ({length})"
   }
 }
