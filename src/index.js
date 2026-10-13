@@ -303,6 +303,8 @@ const admin = createAdmin({
   mentor,
   mentorCases,
   mentorBudget,
+  // /nep pause|resume, memory forget|wipe: system records; /nep memory journal reads it.
+  journal,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 
@@ -381,6 +383,30 @@ async function reconcileJournal(guildId) {
   log.info('journal: reconciled', { guildId, succeeded: counts.succeeded, unknown: counts.unknown });
 }
 
+/** Whether the journal is written now (features.journal exactly true, read now). */
+const journalOn = () => hot.config.features?.journal === true;
+
+/**
+ * The journal at start: forgets a crash left half done are finished first (whatever the
+ * switch: what was journalled about a forgotten member goes); then, with the journal on, a
+ * `.running` marker left by a run that never stopped cleanly becomes an `unclean-stop` record,
+ * this run's marker is written and the `start` record follows.
+ */
+async function startJournal(guildId) {
+  const { finished } = await journal.resumeForgets(guildId);
+  if (finished > 0) log.info('journal: forgets finished', { guildId, finished });
+  if (!journalOn()) return;
+  const { unclean } = await journal.markRunning(guildId);
+  if (unclean) log.warn('journal: unclean stop noted', { guildId });
+  await journal.system(guildId, { event: 'start', by: 'service' });
+}
+
+// A reload that took (config or prompts) is a system record of the served guild.
+hot.onReload((what) => {
+  if (!instance.guildId || !journalOn()) return;
+  journal.system(instance.guildId, { event: 'reload', note: what });
+});
+
 let lastCommandName = hot.config.bot.commandName;
 let lastAdminCommandsOn = hot.config.features?.adminCommands !== false;
 
@@ -424,6 +450,10 @@ client.once(Events.ClientReady, async () => {
       pausedAt: store.state.data.pausedAt ?? null,
     });
   }
+
+  // The journal's start: unfinished forgets, an unclean stop, the start record. Awaited, so the
+  // reconciliation below reads a journal that hides every member being forgotten.
+  await startupStep('journal.start', () => startJournal(instance.guildId), { wait: true });
 
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
   // starting meanwhile is never touched (only earlier operations are), and it never sends.
@@ -503,6 +533,11 @@ async function shutdown(signal) {
   onMessage.stop();
   hot.close();
   store.flush();
+  // The journal's `stop` record (journal on), then the run marker goes: this stop was clean.
+  if (instance.guildId) {
+    if (journalOn()) await journal.system(instance.guildId, { event: 'stop', by: 'service', note: signal });
+    await journal.clearRunning(instance.guildId).catch((err) => log.warn('index: journal marker not removed', { error: err }));
+  }
   await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await client.destroy();
   process.exit(0);

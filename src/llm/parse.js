@@ -36,15 +36,18 @@ function parseIndex(value) {
  * `<draw>`, `draws` every non-empty one in order, at most 10 (`draw` is
  * `draws[0]`, or null when there is none).
  * @param {unknown} raw
- * @param {{ maxDrawChars?: number }} [options] `maxDrawChars`: the cap of one <draw> body, cut at a
- *   sentence or word boundary (clampAtBoundary); the live `image.maxPromptChars`, default 1600.
+ * @param {{ maxDrawChars?: number, limits?: { add: Function }|null }} [options] `maxDrawChars`: the
+ *   cap of one <draw> body, cut at a sentence or word boundary (clampAtBoundary); the live
+ *   `image.maxPromptChars`, default 1600. `limits` (src/llm/limits.js#createLimits, optional) is
+ *   told of every `<msg>` cut at 1900 characters as a `message-cut` (`where: 'parse'`) with the
+ *   characters lost.
  * @returns {{ skip: boolean, messages: {text: string, replyTo: number|null}[],
  *             reactions: {to: number, emoji: string}[], think: string,
  *             draw: {text: string, self: boolean, replyTo: number|null}|null,
  *             draws: {text: string, self: boolean, replyTo: number|null}[],
  *             gif: {id: string, replyTo: number|null}|null }}
  */
-export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS } = {}) {
+export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits = null } = {}) {
   const result = { skip: false, messages: [], reactions: [], think: '', draw: null, draws: [], gif: null };
   let text = String(raw ?? '');
 
@@ -61,6 +64,9 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS } = {})
     const body = match[2].trim();
     if (!body) continue;
     const reply = /reply\s*=\s*"([^"]*)"/i.exec(match[1] ?? '');
+    if (body.length > MAX_MESSAGE_CHARS && result.messages.length < MAX_MESSAGES) {
+      limits?.add({ kind: 'message-cut', where: 'parse', lost: Array.from(body.slice(MAX_MESSAGE_CHARS)).length });
+    }
     result.messages.push({
       text: body.slice(0, MAX_MESSAGE_CHARS),
       replyTo: reply ? parseIndex(reply[1]) : null,

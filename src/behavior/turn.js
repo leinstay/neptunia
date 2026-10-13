@@ -4305,7 +4305,7 @@ export function createTurnRunner({
       bar.close();
       stopTyping();
 
-      const parsed = parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars });
+      const parsed = parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft.limits });
       // Feature switches drop parts of the model's output before it is acted on.
       if (features.reactions === false) parsed.reactions = [];
       // A custom emoji reaction resolves through the index; an unknown one (or the switch off) is dropped.

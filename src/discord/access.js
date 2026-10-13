@@ -18,6 +18,10 @@
 /** Command groups only an owner may ever run: no `bot.access` grant opens them. */
 export const OWNER_ONLY_GROUPS = Object.freeze(['private', 'mentor', 'access', 'diary']);
 
+/** Single commands only an owner may ever run, inside an otherwise grantable group: the
+ * journal (`memory.journal`) holds the persona's hidden reasoning and every member's turns. */
+export const OWNER_ONLY_COMMANDS = Object.freeze(['memory.journal']);
+
 /** Bare command keys every member may run with no grant (a member's own settings), while
  * `features.memberCommands` is on. Never offered by `/nep access grant`. */
 export const MEMBER_COMMANDS = Object.freeze(['pings']);
@@ -41,6 +45,7 @@ function groupOf(key) {
  */
 export function isOwnerOnly(key) {
   if (typeof key !== 'string' || !key) return false;
+  if (OWNER_ONLY_COMMANDS.includes(key)) return true;
   return OWNER_ONLY_GROUPS.includes(groupOf(key) ?? key);
 }
 
