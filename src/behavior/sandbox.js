@@ -638,6 +638,7 @@ export function sandboxRequestInput({
     participation: null,
     diaryChannel: null,
     diary: null,
+    offPeriods: null,
   };
 }
 
