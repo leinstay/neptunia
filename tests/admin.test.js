@@ -336,6 +336,7 @@ function makeAdmin(rootDir, extra = {}) {
     mentorCases: extra.mentorCases,
     mentorBudget: extra.mentorBudget,
     archive: extra.archive,
+    journal: extra.journal,
   });
   return { admin, hot, store };
 }
@@ -2669,7 +2670,8 @@ test('run: resume clears the flags and reports plain confirmation', async () => 
   assert.equal(store.state.data.paused, undefined);
   assert.equal(store.state.data.pausedAt, undefined);
   assert.equal(store.reloadStateCalls, 1);
-  assert.equal(result, 'Resumed.');
+  // No announce channel configured: the reply says the chat was not told.
+  assert.equal(result, 'Resumed. (she was not told: no announce channel)');
 });
 
 test('run: every command that writes data/ is refused while paused, with a hint to resume', async () => {
@@ -4111,4 +4113,258 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
   } finally {
     await appendStore.close();
   }
+});
+
+// ---------------------------------------------------------------------------
+// the journal: system records, the pause announcement, /nep journal, forget and wipe
+// ---------------------------------------------------------------------------
+
+/** A journal fake: records every write and call; `read` serves `days[day]` filtered like the real one. */
+function fakeJournal(days = {}) {
+  const calls = [];
+  return {
+    calls,
+    system: async (guildId, record) => {
+      calls.push(['system', guildId, record]);
+    },
+    read: async (guildId, { day, kind = null, n = 50 }) => {
+      calls.push(['read', guildId, { day, kind, n }]);
+      return (days[day] ?? []).filter((record) => !kind || record.kind === kind).slice(-n);
+    },
+    forgetUser: async (guildId, userId) => {
+      calls.push(['forgetUser', guildId, userId]);
+      return { files: 2, dropped: 5 };
+    },
+    removeGuild: async (guildId) => {
+      calls.push(['removeGuild', guildId]);
+      return { files: 3 };
+    },
+  };
+}
+
+/** A client whose channels collect what is sent to them. */
+function announceClient({ fail = false } = {}) {
+  const sent = [];
+  return {
+    sent,
+    channels: {
+      fetch: async (id) => ({
+        id,
+        send: async (message) => {
+          if (fail) throw Object.assign(new Error('Missing Access'), { code: 50001 });
+          sent.push([id, message]);
+        },
+      }),
+    },
+  };
+}
+
+test('admin: pause writes a system record and announces in announceChannelId', async () => {
+  const rootDir = makeRoot();
+  const journal = fakeJournal();
+  const client = announceClient();
+  const hot = makeHot(rootDir);
+  hot.config.features = { journal: true };
+  hot.config.journal = { announceChannelId: 'c-announce' };
+  hot.prompts.labels = { ...hot.prompts.labels, journal: { paused: 'Ζωή is away.', resumed: 'Ζωή is back.' } };
+  const { admin } = makeAdmin(rootDir, { hot, client, journal });
+
+  const paused = await admin.run('pause', {}, { guildId: 'g1' });
+  assert.doesNotMatch(paused, /not told/);
+  assert.equal(client.sent.length, 1);
+  assert.equal(client.sent[0][0], 'c-announce');
+  assert.equal(client.sent[0][1].content, 'Ζωή is away.');
+  assert.deepEqual(client.sent[0][1].allowedMentions, { parse: [] });
+  const pauseRecord = journal.calls.find(([name]) => name === 'system');
+  assert.deepEqual(pauseRecord.slice(0, 2), ['system', 'g1']);
+  assert.equal(pauseRecord[2].event, 'pause');
+  assert.equal(pauseRecord[2].by, 'owner');
+  assert.equal(pauseRecord[2].announced, true);
+
+  const resumed = await admin.run('resume', {}, { guildId: 'g1' });
+  assert.match(resumed, /^Resumed\./);
+  assert.equal(client.sent[1][1].content, 'Ζωή is back.');
+  const records = journal.calls.filter(([name]) => name === 'system').map(([, , record]) => [record.event, record.announced]);
+  assert.deepEqual(records, [['pause', true], ['resume', true]]);
+
+  // A repeat pause or resume that changes nothing posts and records nothing.
+  await admin.run('resume', {}, { guildId: 'g1' });
+  assert.equal(client.sent.length, 2);
+  assert.equal(journal.calls.filter(([name]) => name === 'system').length, 2);
+
+  // With the journal off the announcement still goes out, but nothing is recorded.
+  hot.config.features.journal = false;
+  await admin.run('pause', {}, { guildId: 'g1' });
+  assert.equal(client.sent.length, 3);
+  assert.equal(journal.calls.filter(([name]) => name === 'system').length, 2);
+});
+
+test('admin: pause without an announce channel replies that the persona was not told', async () => {
+  const rootDir = makeRoot();
+  const journal = fakeJournal();
+  const client = announceClient();
+  const hot = makeHot(rootDir);
+  hot.config.features = { journal: true };
+  hot.config.journal = { announceChannelId: '' };
+  hot.prompts.labels = { ...hot.prompts.labels, journal: { paused: 'away', resumed: 'back' } };
+  const { admin, store } = makeAdmin(rootDir, { hot, client, journal });
+
+  const paused = await admin.run('pause', {}, { guildId: 'g1' });
+  assert.match(paused, /\(she was not told: no announce channel\)/);
+  assert.equal(client.sent.length, 0);
+  assert.equal(journal.calls.find(([name]) => name === 'system')[2].announced, false);
+
+  // A channel the post fails in: the command still works and says so.
+  const failing = announceClient({ fail: true });
+  const second = makeAdmin(rootDir, { hot, store, client: failing, journal });
+  hot.config.journal.announceChannelId = 'c-locked';
+  const resumed = await second.admin.run('resume', {}, { guildId: 'g1' });
+  assert.match(resumed, /^Resumed\./);
+  assert.match(resumed, /she was not told/);
+  const resume = journal.calls.filter(([name]) => name === 'system').at(-1)[2];
+  assert.deepEqual([resume.event, resume.announced], ['resume', false]);
+});
+
+test('admin: journal lists the last n records of a day as short lines', async () => {
+  const rootDir = makeRoot();
+  const day = '2026-10-12';
+  const journal = fakeJournal({
+    [day]: [
+      { kind: 'turn.start', occurredAt: `${day}T10:00:00.000Z`, mode: 'reply', trigger: { kind: 'mention' } },
+      { kind: 'action', occurredAt: `${day}T10:00:05.000Z`, name: 'post', phase: 'started' },
+      { kind: 'action', occurredAt: `${day}T10:00:06.000Z`, name: 'post', phase: 'succeeded' },
+      { kind: 'turn', occurredAt: `${day}T10:00:07.000Z`, mode: 'reply', outcome: 'spoke', seen: { messageIds: ['m1', 'm2'] }, think: 'Η Ελένη ρωτά.' },
+      { kind: 'memory', occurredAt: `${day}T10:05:00.000Z`, batch: { messageIds: ['m1'], consumed: 6 }, changed: { users: ['u1'] }, episodes: [] },
+      { kind: 'system', occurredAt: `${day}T11:00:00.000Z`, event: 'pause', by: 'owner' },
+    ],
+  });
+  const { admin } = makeAdmin(rootDir, { journal });
+
+  const all = await admin.run('memory.journal', { day, n: 3 }, { guildId: 'g1' });
+  const lines = all.split('\n');
+  assert.deepEqual(lines.slice(1), [
+    '10:00:07 turn reply spoke 2 msgs, think: Η Ελένη ρωτά.',
+    '10:05:00 memory batch 6 lines, users 1, episodes 0',
+    '11:00:00 system pause owner',
+  ]);
+  assert.match(lines[0], /2026-10-12/);
+  assert.deepEqual(journal.calls.at(-1), ['read', 'g1', { day, kind: null, n: 3 }]);
+
+  const actions = await admin.run('memory.journal', { day, kind: 'action' }, { guildId: 'g1' });
+  assert.deepEqual(actions.split('\n').slice(1), ['10:00:05 action post started', '10:00:06 action post succeeded']);
+  assert.deepEqual(journal.calls.at(-1)[2], { day, kind: 'action', n: 20 });
+
+  // Today (UTC) by default; nothing there is said plainly.
+  const today = await admin.run('memory.journal', {}, { guildId: 'g1' });
+  assert.equal(journal.calls.at(-1)[2].day, new Date(Date.now()).toISOString().slice(0, 10));
+  assert.match(today, /no journal records/);
+
+  await assert.rejects(admin.run('memory.journal', { day: '12.10.2026' }, { guildId: 'g1' }), /YYYY-MM-DD/);
+  await assert.rejects(admin.run('memory.journal', { day, n: 51 }, { guildId: 'g1' }), /1\.\.50/);
+  await assert.rejects(admin.run('memory.journal', { day, kind: 'lore' }, { guildId: 'g1' }), /kind/);
+  // Owner-only: no grant opens it.
+  assert.equal(admin.isAllowed('memory.journal', { userId: '42' }), true);
+  const openHot = makeHot(rootDir);
+  openHot.config.bot.access = { '*': { everyone: true, roles: [], users: [] } };
+  const { admin: granted } = makeAdmin(rootDir, { hot: openHot, journal });
+  assert.equal(granted.isAllowed('memory.show', { userId: '7' }), true);
+  assert.equal(granted.isAllowed('memory.journal', { userId: '7' }), false);
+});
+
+test('admin: memory forget rewrites the journal and writes a forget record', async () => {
+  const rootDir = makeRoot();
+  const journal = fakeJournal();
+  const hot = makeHot(rootDir);
+  hot.config.features = { journal: true };
+  const client = clientWithGuild('g1', 'The Server');
+  const { admin, store } = makeAdmin(rootDir, { hot, journal, client });
+  store.profiles.set('g1:123', { id: '123' });
+
+  const result = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
+  assert.ok(result.includes('Forgot 123'));
+  assert.deepEqual(store.forgotten, [['g1', '123']]);
+  assert.deepEqual(journal.calls[0], ['forgetUser', 'g1', '123']);
+  const forget = journal.calls.find(([name]) => name === 'system');
+  assert.deepEqual([forget[1], forget[2].event, forget[2].by, forget[2].participants], ['g1', 'forget', 'owner', ['123']]);
+  assert.match(result, /journal records removed: 5/i);
+
+  // The wipe empties the journal, then records itself.
+  const wiped = await admin.run('memory.wipe', { confirm: 'The Server' }, { guildId: 'g1' });
+  assert.ok(journal.calls.some(([name, guildId]) => name === 'removeGuild' && guildId === 'g1'));
+  const wipe = journal.calls.filter(([name]) => name === 'system').at(-1)[2];
+  assert.deepEqual([wipe.event, wipe.by], ['wipe', 'owner']);
+  assert.match(wiped, /journal files removed: 3/);
+});
+
+// ---------------------------------------------------------------------------
+// memory.snapshot
+// ---------------------------------------------------------------------------
+
+test('admin: memory snapshot flushes and copies data under the writer lock', async () => {
+  const rootDir = makeRoot();
+  const dataDir = path.join(rootDir, 'data');
+  fs.mkdirSync(path.join(dataDir, 'guilds', 'g1', 'journal'), { recursive: true });
+  fs.writeFileSync(path.join(dataDir, 'state.json'), '{"paused":false}');
+  fs.writeFileSync(path.join(dataDir, 'guilds', 'g1', 'guild.json'), '{"self":["Ζωή"]}');
+  fs.writeFileSync(path.join(dataDir, 'guilds', 'g1', 'journal', '2026-10-13.jsonl'), '{"kind":"turn"}\n');
+  fs.mkdirSync(path.join(dataDir, 'snapshots', 'older'), { recursive: true });
+  fs.writeFileSync(path.join(dataDir, 'snapshots', 'older', 'state.json'), '{}');
+
+  const order = [];
+  let locked = false;
+  const journal = {
+    ...fakeJournal(),
+    async withWriterLock(fn) {
+      order.push('lock');
+      locked = true;
+      try {
+        return await fn();
+      } finally {
+        locked = false;
+        order.push('unlock');
+      }
+    },
+  };
+  const store = makeStore();
+  store.flush = () => {
+    order.push(`flush:${locked}`);
+  };
+  const { admin } = makeAdmin(rootDir, { journal, store });
+  const realCp = fs.promises.cp;
+  fs.promises.cp = async (...args) => {
+    order.push(`copy:${locked}`);
+    return realCp(...args);
+  };
+  let reply;
+  try {
+    reply = await admin.run('memory.snapshot', {}, { guildId: 'g1', userId: '42' });
+  } finally {
+    fs.promises.cp = realCp;
+  }
+
+  assert.equal(order[0], 'flush:false');
+  assert.equal(order[1], 'lock');
+  assert.ok(order.slice(2, -1).every((step) => step === 'copy:true'));
+  assert.ok(order.includes('copy:true'));
+  assert.equal(order.at(-1), 'unlock');
+
+  const made = fs.readdirSync(path.join(dataDir, 'snapshots')).filter((name) => name !== 'older');
+  assert.equal(made.length, 1);
+  const dest = path.join(dataDir, 'snapshots', made[0]);
+  assert.equal(fs.readFileSync(path.join(dest, 'guilds', 'g1', 'guild.json'), 'utf8'), '{"self":["Ζωή"]}');
+  assert.equal(fs.readFileSync(path.join(dest, 'guilds', 'g1', 'journal', '2026-10-13.jsonl'), 'utf8'), '{"kind":"turn"}\n');
+  assert.ok(fs.existsSync(path.join(dest, 'state.json')));
+  // Earlier snapshots are never copied into a new one.
+  assert.ok(!fs.existsSync(path.join(dest, 'snapshots')));
+  assert.ok(reply.includes(dest));
+  const bytes = Buffer.byteLength('{"paused":false}') + Buffer.byteLength('{"self":["Ζωή"]}') + Buffer.byteLength('{"kind":"turn"}\n');
+  assert.ok(reply.includes(`${bytes} bytes`));
+});
+
+test('admin: memory snapshot is owner-only and cannot be granted', async () => {
+  const rootDir = makeRoot();
+  const { admin, hot } = makeAdmin(rootDir);
+  hot.config.bot.access = { memory: { everyone: true } };
+  assert.equal(admin.isAllowed('memory.snapshot', { userId: '7' }), false);
+  assert.equal(admin.isAllowed('memory.snapshot', { userId: '42' }), true);
 });

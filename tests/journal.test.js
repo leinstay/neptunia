@@ -367,3 +367,279 @@ test('journal: stalled follows the append store and a private memory record goes
   assert.deepEqual(record.scope, { user: 'u7', private: true });
   assert.equal(record.kind, 'memory');
 });
+
+// ---- forget and the run marker: a real append store on a temp dir --------------------------
+
+async function realJournal(clock) {
+  const fsp = await import('node:fs/promises');
+  const os = await import('node:os');
+  const { createAppendStore } = await import('../src/memory/append-store.js');
+  const dataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'nep-journal-'));
+  const quiet = { info() {}, warn() {} };
+  const appendStore = createAppendStore({ fsyncMs: 0, log: quiet, now: () => clock.ms });
+  const make = (store = appendStore) => createJournal({ appendStore: store, dataDir, config: () => ({}), now: () => clock.ms, uuid: counter('r-'), log: quiet });
+  return { fsp, dataDir, appendStore, make, journal: make() };
+}
+
+test('journal: forgetUser rewrites day files dropping records whose participants include the user, with a marker that survives a crash', async () => {
+  const clock = { ms: DAY_D };
+  const { fsp, dataDir, appendStore, make, journal } = await realJournal(clock);
+  try {
+    await journal.turn('g1', { turnId: 't-1', attemptId: 1, channelId: 'c1', outcome: 'spoke', think: 'Ζωή', participants: ['u1', 'u2'] });
+    await journal.system('g1', { event: 'pause', by: 'owner' });
+    await journal.turn('g1', { turnId: 't-p', attemptId: 1, channelId: 'dm1', privateUserId: 'u1', outcome: 'spoke', participants: ['u1'] });
+    clock.ms = DAY_D1;
+    await journal.action('g1', { opId: 'op-1', phase: 'started', name: 'post', channelId: 'c1', participants: ['u1'] });
+    await journal.action('g1', { opId: 'op-2', phase: 'started', name: 'react', channelId: 'c1', participants: ['u3'] });
+    await appendStore.flush();
+
+    // A crash mid-forget: the second day file's rewrite never happens.
+    let calls = 0;
+    const crashing = {
+      ...appendStore,
+      rewrite: async (file, keep) => {
+        calls += 1;
+        if (calls === 2) throw Object.assign(new Error('killed'), { code: 'EKILLED' });
+        return appendStore.rewrite(file, keep);
+      },
+    };
+    await assert.rejects(make(crashing).forgetUser('g1', 'u1'), /killed/);
+    const marker = path.join(dataDir, 'guilds', 'g1', 'forgetting', 'u1.json');
+    await fsp.stat(marker); // the marker survived the crash
+
+    // While the marker exists, the reader hides the user everywhere.
+    assert.deepEqual((await journal.read('g1', { day: '2026-10-14' })).map((r) => r.opId), ['op-2']);
+    assert.deepEqual((await journal.read('g1', { day: '2026-10-13' })).map((r) => r.kind), ['system']);
+    assert.deepEqual(await journal.read('g1', { day: '2026-10-13', privateUserId: 'u1' }), []);
+
+    // The next start finishes the job and removes the marker.
+    const finished = await journal.resumeForgets('g1');
+    assert.equal(finished.finished, 1);
+    await assert.rejects(fsp.stat(marker), { code: 'ENOENT' });
+    const raw = async (day) => (await fsp.readFile(journal.dayFile('g1', day), 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+    assert.deepEqual((await raw('2026-10-13')).map((r) => r.kind), ['system']);
+    assert.deepEqual((await raw('2026-10-14')).map((r) => r.opId), ['op-2']);
+    await assert.rejects(fsp.stat(path.join(dataDir, 'guilds', 'g1', 'private', 'u1', 'journal')), { code: 'ENOENT' });
+
+    // A marker someone else owns stays where it is; the journal part is still done.
+    await fsp.writeFile(path.join(dataDir, 'guilds', 'g1', 'forgetting', 'u3.json'), '{"userId":"u3"}\n');
+    const result = await journal.forgetUser('g1', 'u3');
+    assert.equal(result.dropped, 1);
+    await fsp.stat(path.join(dataDir, 'guilds', 'g1', 'forgetting', 'u3.json'));
+    // And the store keeps appending after a rewrite.
+    await journal.system('g1', { event: 'resume', by: 'owner' });
+    await appendStore.flush();
+    assert.deepEqual((await raw('2026-10-14')).map((r) => r.kind), ['system']);
+  } finally {
+    await appendStore.close();
+    await fsp.rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('journal: a .running marker left over at start writes an unclean-stop record', async () => {
+  const clock = { ms: DAY_D };
+  const { fsp, dataDir, appendStore, journal } = await realJournal(clock);
+  try {
+    const running = path.join(dataDir, 'guilds', 'g1', 'journal', '.running');
+    // A clean first start: no leftover marker, no unclean-stop; the marker is written.
+    assert.deepEqual(await journal.markRunning('g1'), { unclean: false });
+    await fsp.stat(running);
+    // A clean shutdown removes it.
+    await journal.clearRunning('g1');
+    await assert.rejects(fsp.stat(running), { code: 'ENOENT' });
+    assert.deepEqual(await journal.read('g1', { day: '2026-10-13' }), []);
+
+    // A killed process leaves it behind: the next start says so first.
+    await journal.markRunning('g1');
+    assert.deepEqual(await journal.markRunning('g1'), { unclean: true });
+    await appendStore.flush();
+    const written = await journal.read('g1', { day: '2026-10-13' });
+    assert.deepEqual(written.map((r) => [r.kind, r.event]), [['system', 'unclean-stop']]);
+    await fsp.stat(running);
+  } finally {
+    await appendStore.close();
+    await fsp.rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('journal: removeGuild deletes the guild journal day files and every private journal, the run marker stays', async () => {
+  const clock = { ms: DAY_D };
+  const { fsp, dataDir, appendStore, journal } = await realJournal(clock);
+  try {
+    await journal.markRunning('g1');
+    await journal.system('g1', { event: 'pause', by: 'owner' });
+    await journal.turn('g1', { turnId: 't-p', attemptId: 1, channelId: 'dm1', privateUserId: 'u1', outcome: 'spoke' });
+    const counts = await journal.removeGuild('g1');
+    assert.equal(counts.files, 2);
+    assert.deepEqual(await journal.read('g1', { day: '2026-10-13' }), []);
+    assert.deepEqual(await journal.read('g1', { day: '2026-10-13', privateUserId: 'u1' }), []);
+    await fsp.stat(path.join(dataDir, 'guilds', 'g1', 'journal', '.running'));
+    await journal.system('g1', { event: 'wipe', by: 'owner' });
+    assert.deepEqual((await journal.read('g1', { day: '2026-10-13' })).map((r) => r.event), ['wipe']);
+  } finally {
+    await appendStore.close();
+    await fsp.rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('journalLine: one short line per kind', async () => {
+  const { journalLine } = await import('../src/memory/journal.js');
+  const at = '2026-10-13T08:09:10.000Z';
+  assert.equal(
+    journalLine({ kind: 'turn', occurredAt: at, mode: 'reply', outcome: 'spoke', seen: { messageIds: ['a', 'b', 'c'] }, think: `Ζωή\n${'x'.repeat(100)}` }),
+    `08:09:10 turn reply spoke 3 msgs, think: Ζωή ${'x'.repeat(76)}`,
+  );
+  assert.equal(journalLine({ kind: 'turn', occurredAt: at, mode: 'interject', outcome: 'skip', think: null }), '08:09:10 turn interject skip 0 msgs, think: -');
+  assert.equal(journalLine({ kind: 'action', occurredAt: at, name: 'post', phase: 'started' }), '08:09:10 action post started');
+  assert.equal(
+    journalLine({ kind: 'memory', occurredAt: at, batch: { messageIds: ['a'], consumed: 4 }, changed: { users: ['u1', 'u2'] }, episodes: [{}] }),
+    '08:09:10 memory batch 4 lines, users 2, episodes 1',
+  );
+  assert.equal(journalLine({ kind: 'system', occurredAt: at, event: 'pause', by: 'owner' }), '08:09:10 system pause owner');
+  assert.equal(journalLine({ kind: 'system', occurredAt: at, event: 'unclean-stop' }), '08:09:10 system unclean-stop');
+  assert.equal(journalLine({ kind: 'system', occurredAt: at, event: 'reload', note: 'prompts' }), '08:09:10 system reload prompts');
+});
+
+/** An in-memory `fs/promises` stand-in: files by path, directories derived from them. */
+function memoryFs() {
+  const files = new Map();
+  const dirNames = (dir) => {
+    const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
+    const names = new Set();
+    for (const file of files.keys()) if (file.startsWith(prefix)) names.add(file.slice(prefix.length).split(path.sep)[0]);
+    return [...names];
+  };
+  return {
+    files,
+    mkdir: async () => {},
+    writeFile: async (file, text) => {
+      files.set(file, String(text));
+    },
+    rename: async (from, to) => {
+      files.set(to, files.get(from));
+      files.delete(from);
+    },
+    readdir: async (dir) => {
+      const names = dirNames(dir);
+      if (names.length === 0) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return names;
+    },
+    rm: async (target) => {
+      for (const file of [...files.keys()]) if (file === target || file.startsWith(target + path.sep)) files.delete(file);
+    },
+  };
+}
+
+function dumpJournal({ keepRequests = 3 } = {}, ms = DAY_D) {
+  const fs = memoryFs();
+  const journal = createJournal({
+    appendStore: fakeAppendStore(),
+    dataDir: DATA,
+    config: () => ({ thinkChars: 4000, keepRequests }),
+    now: () => ms,
+    uuid: counter('u-'),
+    fs,
+  });
+  return { journal, fs };
+}
+
+const REQUESTS = path.join(DATA, 'guilds', 'g1', 'journal', 'requests');
+
+test('journal: dumpRequest writes <day>/<turnId>-<attempt>.json with the request parts and the raw answer', async () => {
+  const { journal, fs } = dumpJournal();
+  const dataUrl = `data:image/png;base64,${'QUJD'.repeat(10)}`;
+  await journal.dumpRequest('g1', {
+    turnId: 't-1',
+    attemptId: 2,
+    request: {
+      messages: [
+        { role: 'system', content: 'sys text' },
+        { role: 'user', content: [{ type: 'text', text: 'chat' }, { type: 'image_url', image_url: { url: dataUrl } }, { type: 'text', text: 'task' }] },
+      ],
+    },
+    raw: '<msg>γεια</msg>',
+    usage: { prompt: 10, cached: 4, completion: 2 },
+  });
+  const file = path.join(REQUESTS, '2026-10-13', 't-1-2.json');
+  assert.deepEqual([...fs.files.keys()], [file]);
+  const dump = JSON.parse(fs.files.get(file));
+  assert.equal(dump.v, 1);
+  assert.equal(dump.turnId, 't-1');
+  assert.equal(dump.attemptId, 2);
+  assert.equal(dump.recordedAt, new Date(DAY_D).toISOString());
+  assert.equal(dump.system, 'sys text');
+  assert.equal(dump.raw, '<msg>γεια</msg>');
+  assert.deepEqual(dump.usage, { prompt: 10, cached: 4, completion: 2 });
+  assert.deepEqual(dump.parts, [{ type: 'text', text: 'chat' }, { image: 'attachment', bytes: 30 }, { type: 'text', text: 'task' }]);
+  assert.ok(!fs.files.get(file).includes('data:'));
+
+  // A private turn lands under the partner's private journal directory.
+  await journal.dumpRequest('g1', { turnId: 't-2', attemptId: 1, request: { system: 's', parts: [{ type: 'text', text: 'x' }] }, raw: '', usage: null, privateUserId: 'u9' });
+  assert.ok(fs.files.has(path.join(DATA, 'guilds', 'g1', 'private', 'u9', 'journal', 'requests', '2026-10-13', 't-2-1.json')));
+});
+
+test('journal: pruneRequests deletes days older than keepRequests and keeps the rest', async () => {
+  const { journal, fs } = dumpJournal({ keepRequests: 3 });
+  for (const day of ['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-12', '2026-10-13']) fs.files.set(path.join(REQUESTS, day, 't-1.json'), '{}');
+  fs.files.set(path.join(DATA, 'guilds', 'g1', 'private', 'u9', 'journal', 'requests', '2026-10-01', 't-1.json'), '{}');
+  fs.files.set(path.join(REQUESTS, 'notes'), 'not a day');
+  const result = await journal.pruneRequests('g1');
+  assert.deepEqual(result, { removed: 3 });
+  const left = [...fs.files.keys()].map((file) => path.relative(DATA, file)).sort();
+  assert.deepEqual(left, [
+    path.join('guilds', 'g1', 'journal', 'requests', '2026-10-10', 't-1.json'),
+    path.join('guilds', 'g1', 'journal', 'requests', '2026-10-12', 't-1.json'),
+    path.join('guilds', 'g1', 'journal', 'requests', '2026-10-13', 't-1.json'),
+    path.join('guilds', 'g1', 'journal', 'requests', 'notes'),
+  ]);
+});
+
+test('journal: keepRequests 0 writes nothing', async () => {
+  const { journal, fs } = dumpJournal({ keepRequests: 0 });
+  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, request: { system: 's', parts: [] }, raw: 'x', usage: null });
+  assert.equal(fs.files.size, 0);
+  fs.files.set(path.join(REQUESTS, '2000-01-01', 't.json'), '{}');
+  assert.deepEqual(await journal.pruneRequests('g1'), { removed: 0 });
+  assert.equal(fs.files.size, 1);
+});
+
+test('journal: withWriterLock flushes the store first and holds appends until fn resolves', async () => {
+  const clock = { ms: DAY_D };
+  const { journal, appendStore } = journalAt(clock);
+  const order = [];
+  appendStore.flush = async () => {
+    order.push('flush');
+  };
+  let finish;
+  const held = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const locked = journal.withWriterLock(async () => {
+    order.push('fn');
+    await held;
+    return 'copied';
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const writing = journal.system('g1', { event: 'pause', by: 'owner' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, ['flush', 'fn']);
+  assert.equal(appendStore.lines.length, 0);
+  finish();
+  assert.equal(await locked, 'copied');
+  await writing;
+  assert.equal(appendStore.lines.length, 1);
+  assert.equal(JSON.parse(appendStore.lines[0].line).event, 'pause');
+});
+
+test('journal: withWriterLock releases the lock when fn throws', async () => {
+  const clock = { ms: DAY_D };
+  const { journal, appendStore } = journalAt(clock);
+  await assert.rejects(
+    journal.withWriterLock(async () => {
+      throw new Error('disk full');
+    }),
+    /disk full/,
+  );
+  await journal.system('g1', { event: 'resume', by: 'owner' });
+  assert.equal(appendStore.lines.length, 1);
+});

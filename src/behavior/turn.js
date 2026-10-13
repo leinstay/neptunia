@@ -4301,6 +4301,8 @@ export function createTurnRunner({
       }
 
       let completion;
+      // What the client was last given, for the journal's request dump.
+      let sentMessages = messages;
       const replyStartedAt = clock();
       try {
         completion = await beforeBar(llm.complete(messages, replyOptions()));
@@ -4322,6 +4324,7 @@ export function createTurnRunner({
         if (Array.isArray(request.textFallback) && aboutThePictures) {
           const textOnly = messages.map((m) => (Array.isArray(m.content) ? { ...m, content: request.textFallback } : m));
           if (draft.seen) draft.seen = { ...draft.seen, parts: { ...draft.seen.parts, images: [] } };
+          sentMessages = textOnly;
           completion = await beforeBar(llm.complete(textOnly, replyOptions()));
         } else {
           throw err;
@@ -4345,7 +4348,24 @@ export function createTurnRunner({
       bar.close();
       stopTyping();
 
-      const parsed = parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars });
+      // The journal's request dump (journal.keepRequests): the request as sent and the raw answer,
+      // fire-and-forget; a failure is logged with a count of one, never the contents.
+      if (draft.started && journalOn() && typeof journal.dumpRequest === 'function') {
+        Promise.resolve()
+          .then(() =>
+            journal.dumpRequest(guildId, {
+              turnId: draft.started.turnId,
+              attemptId: draft.started.attemptId,
+              request: { messages: sentMessages },
+              raw: completion.text,
+              usage: journalUsage(completion),
+              privateUserId: draft.privateUserId ?? null,
+            }),
+          )
+          .catch((error) => log.warn('journal: dump failed', { code: error?.code ?? null, failed: 1 }));
+      }
+
+      const parsed = parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft.limits });
       // Feature switches drop parts of the model's output before it is acted on.
       if (features.reactions === false) parsed.reactions = [];
       // A custom emoji reaction resolves through the index; an unknown one (or the switch off) is dropped.

@@ -470,3 +470,23 @@ test('hot: exposes promptsHash and configHash that change when a prompt or the c
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+test('hot: onReload fires with the layer name', async () => {
+  const dir = makeRoot({ config: { a: 1 }, prompts: { persona: 'a' } });
+  const hot = createHot({ rootDir: dir });
+  try {
+    const seen = [];
+    const off = hot.onReload((what) => seen.push(what));
+    hot.reloadConfig();
+    hot.reloadPrompts();
+    fs.writeFileSync(path.join(dir, 'config.json'), '{ broken');
+    await withCapturedLogs(() => hot.reloadConfig());
+    assert.deepEqual(seen, ['config', 'prompts']);
+    off();
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ a: 2 }));
+    hot.reloadConfig();
+    assert.deepEqual(seen, ['config', 'prompts']);
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

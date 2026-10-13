@@ -354,6 +354,7 @@ task.part                                {index} {total} {part} {others}: this t
 task.queued                              {others}: the trigger author has other calls waiting, listed as numbered items joined by `; `. Shown only when there is no `task.part` for this turn. Without this key the waiting calls are not named and the seen-in-history drop rule applies to them
 task.queuedOthers                        {others}: other members have calls waiting in this channel, listed as `<n>. <author>: <text>` items joined by `; `. Without this key those calls are not named
 task.added                               {added}: later messages from the author were folded into this call while it waited, joined by `; `. Without this key the folded messages are not named
+journal.paused | resumed                 the one line `/nep pause` / `/nep resume` post in `journal.announceChannelId` (no placeholders, no mentions); a missing key posts nothing and the owner's reply says the persona was not told
 ```
 
 ## Output

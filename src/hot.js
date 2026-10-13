@@ -138,7 +138,8 @@ function loadPromptLayers(promptsDir, localPromptsDir, prevPrompts, prevSources)
 
 /**
  * Create a live view over the config and the two prompt layers under `rootDir`.
- * Emits 'change' with `{ what: 'config' | 'prompts' }` after every successful reload.
+ * Emits 'change' with `{ what: 'config' | 'prompts' }` after every successful reload;
+ * `hot.onReload(listener)` subscribes to the same with the layer name alone.
  * `hot.hashes` is `{ promptsHash, configHash }`: the first 16 hex characters of the sha256 of
  * the live prompts (every layer merged, labels included) and of the live config (both files
  * merged), each recomputed when its reload takes; a reload that fails keeps the previous one.
@@ -176,6 +177,19 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
   hot.localPromptsDir = localPromptsDir;
   hot.rootDir = rootDir;
   hot.hashes = { promptsHash: shortHash(hot.prompts), configHash: shortHash(hot.config) };
+
+  /**
+   * Subscribe to every reload that took: `listener` gets the layer name (`'config'` or
+   * `'prompts'`); a failed reload calls nothing. Returns the unsubscribe function. The hook the
+   * journal's `reload` records hang on (src/index.js), as this module knows no guild.
+   * @param {(what: 'config'|'prompts') => void} listener
+   * @returns {() => void}
+   */
+  hot.onReload = (listener) => {
+    const handler = ({ what }) => listener(what);
+    hot.on('change', handler);
+    return () => hot.off('change', handler);
+  };
 
   hot.reloadConfig = () => {
     try {

@@ -56,6 +56,7 @@ const SLOW_COMMANDS = new Set([
   'memory.wipe',
   'memory.archive',
   'memory.restore',
+  'memory.snapshot',
   'emoji.rescan',
   'gifs.rescan',
   'private.forget',
@@ -122,6 +123,9 @@ function choicesOf(values) {
 
 const ROUTE_ROLES = MODEL_SET_ROLES;
 const PING_ROLES = Object.freeze([...ROUTE_ROLES, 'classifier']);
+
+/** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */
+export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'all']);
 
 /** `/nep pings`'s `mode` choices (src/admin.js#cmdPings reads the same list). */
 export const PINGS_MODES = Object.freeze(['on', 'off']);
@@ -350,13 +354,13 @@ export function buildCommandTree(commandName) {
             {
               type: SUBCOMMAND,
               name: 'archive',
-              description: 'Newest archived memory items.',
+              description: 'Archived items.',
               options: [
-                { type: USER, name: 'user', description: 'Member (omit: server).', required: false },
+                { type: USER, name: 'user', description: 'Member; omit for the server.', required: false },
                 {
                   type: STRING,
                   name: 'kind',
-                  description: 'Item kind, e.g. episode.',
+                  description: 'Kind.',
                   required: false,
                 },
                 {
@@ -371,9 +375,24 @@ export function buildCommandTree(commandName) {
             },
             {
               type: SUBCOMMAND,
+              name: 'journal',
+              description: 'Journal records.',
+              options: [
+                { type: STRING, name: 'day', description: 'UTC day (default: today).', required: false },
+                { type: STRING, name: 'kind', description: 'Kind (default: all).', required: false, choices: choicesOf(JOURNAL_KINDS) },
+                { type: INTEGER, name: 'n', description: 'How many (default 20).', required: false, min_value: 1, max_value: 50 },
+              ],
+            },
+            {
+              type: SUBCOMMAND,
               name: 'restore',
-              description: 'Put an archived item back.',
+              description: 'Restore an archived item.',
               options: [{ type: STRING, name: 'item', description: 'Item id.', required: true }],
+            },
+            {
+              type: SUBCOMMAND,
+              name: 'snapshot',
+              description: 'Snapshot data/ for the tools.',
             },
             {
               type: SUBCOMMAND,
@@ -691,7 +710,7 @@ export function buildCommandTree(commandName) {
             {
               type: SUBCOMMAND,
               name: 'add',
-              description: 'Add a case: a persona message you disliked, with your comment.',
+              description: 'Add a case: a message you disliked, with a comment.',
               options: [
                 { type: STRING, name: 'message', description: 'Message link (or id, in this channel).', required: true },
                 { type: STRING, name: 'text', description: 'Your comment, one sentence (10-1000 chars).', required: true },
@@ -700,7 +719,7 @@ export function buildCommandTree(commandName) {
             {
               type: SUBCOMMAND,
               name: 'anchor',
-              description: 'Add another persona message to a case, with the chat before it.',
+              description: 'Add another message to a case.',
               options: [
                 { type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 },
                 { type: STRING, name: 'message', description: 'Message link (or id, in this channel).', required: true },
@@ -716,11 +735,11 @@ export function buildCommandTree(commandName) {
             {
               type: SUBCOMMAND,
               name: 'run',
-              description: 'Measure one case now; report to the admin channel. Spends balance.',
+              description: 'Measure one case now. Spends balance.',
               options: [{ type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 }],
             },
-            { type: SUBCOMMAND, name: 'check', description: 'Replay stored situations of every case with a run. Spends balance.' },
-            { type: SUBCOMMAND, name: 'stop', description: 'Stop the mentor run in flight, the current model call included.' },
+            { type: SUBCOMMAND, name: 'check', description: 'Replay every case. Spends balance.' },
+            { type: SUBCOMMAND, name: 'stop', description: 'Stop the run in flight.' },
             {
               type: SUBCOMMAND,
               name: 'show',
@@ -730,13 +749,13 @@ export function buildCommandTree(commandName) {
             {
               type: SUBCOMMAND,
               name: 'wrong',
-              description: 'Tell the mentor it misjudged a case; later runs read it as feedback.',
+              description: 'Mark a case as misjudged.',
               options: [
                 { type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 },
                 { type: STRING, name: 'reason', description: 'Why the verdict was wrong (3-500 chars).', required: true },
               ],
             },
-            { type: SUBCOMMAND, name: 'status', description: 'Switch, model, tokens today, cases by state and the run in flight.' },
+            { type: SUBCOMMAND, name: 'status', description: 'Mentor status.' },
           ],
         },
         {
@@ -901,6 +920,12 @@ const OPTION_MAPPERS = {
     n: options.getInteger('n') ?? undefined,
   }),
   'memory.restore': (options) => ({ itemId: options.getString('item', true) }),
+  'memory.journal': (options) => ({
+    day: options.getString('day') ?? undefined,
+    kind: options.getString('kind') ?? undefined,
+    n: options.getInteger('n') ?? undefined,
+  }),
+  'memory.snapshot': () => ({}),
   'memory.forget': (options) => ({ userId: options.getUser('user', true).id }),
   'memory.wipe': (options) => ({ confirm: options.getString('confirm', true) }),
   'memory.refresh': (options) => ({ userId: options.getUser('user', true).id }),

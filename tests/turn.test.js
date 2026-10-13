@@ -7926,3 +7926,38 @@ test('turn: limits lists a preview cut', async () => {
   assert.equal(hot.config.media.filePreviewChars, 500);
   assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'preview-cut'), [{ kind: 'preview-cut', where: 'm1', lost: 300, detail: 't1' }]);
 });
+
+test('turn: a journalled turn dumps its request and raw answer', async () => {
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
+  const answer = '<think>σκέψη</think><msg reply="#1">γεια</msg>';
+  const run = async (features, failing = false) => {
+    const dumps = [];
+    const { journal } = journalOverMemory();
+    journal.dumpRequest = async (guildId, dump) => {
+      dumps.push({ guildId, dump });
+      if (failing) throw Object.assign(new Error('disk'), { code: 'EIO' });
+    };
+    const llm = usageLlm(answer);
+    const turns = createTurnRunner({ hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
+    const result = await turns.runTurn({ channel: fakeTurnChannel({ historyMessages: [raw] }), mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+    await new Promise((resolve) => setImmediate(resolve));
+    return { dumps, llm, result };
+  };
+
+  const on = await run({ journal: true });
+  assert.equal(on.result.outcome, 'spoke');
+  assert.equal(on.dumps.length, 1);
+  const { dump } = on.dumps[0];
+  assert.equal(dump.turnId, on.result.turnId);
+  assert.equal(dump.attemptId, 1);
+  assert.equal(dump.raw, answer);
+  assert.deepEqual(dump.usage, { prompt: 1500, cached: 300, completion: 700 });
+  assert.equal(dump.request.messages, on.llm.calls[0], 'the exact message list the client was given');
+
+  // A failing write is logged and never breaks the turn.
+  const failing = await run({ journal: true }, true);
+  assert.equal(failing.result.outcome, 'spoke');
+
+  // The journal switched off: no dump.
+  assert.equal((await run({ journal: false })).dumps.length, 0);
+});

@@ -220,3 +220,15 @@ test('parseOutput: maxDrawChars sets the cap and cuts at the last sentence end',
   assert.equal(parseOutput('<draw>άλφα βήτα γάμμα</draw>', { maxDrawChars: 12 }).draw.text, 'άλφα βήτα');
   assert.equal(parseOutput('<draw>abcdefghij</draw>', { maxDrawChars: undefined }).draw.text, 'abcdefghij');
 });
+
+test('parse: a message cut at 1900 reports message-cut with the lost length', async () => {
+  const { createLimits } = await import('../src/llm/limits.js');
+  const limits = createLimits();
+  const long = 'α'.repeat(1950);
+  const result = parseOutput(`<msg>${long}</msg><msg>short</msg>`, { limits });
+  assert.equal(result.messages[0].text.length, 1900);
+  assert.equal(result.messages[1].text, 'short');
+  assert.deepEqual(limits.list(), [{ kind: 'message-cut', where: 'parse', lost: 50 }]);
+  // Without a collector the cut stays as it was.
+  assert.equal(parseOutput(`<msg>${long}</msg>`).messages[0].text.length, 1900);
+});

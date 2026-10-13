@@ -796,8 +796,8 @@ Settings for the manual testing sub-process (`features.mentor`). The mentor inve
 |---|---|---|
 | `thinkChars` | `4000` | The persona's hidden reasoning is stored in the journal cut to this many characters at a word boundary; a cut record carries `thinkTruncated: true`. `0` stores it whole |
 | `retentionDays` | `0` | Days a journal file is kept; `0` keeps it forever. Not yet applied |
-| `keepRequests` | `3` | Days the full request and model output of each turn are kept beside the journal; `0` keeps none. Not yet applied |
-| `announceChannelId` | `""` | The channel where the persona says it was paused or resumed. Not yet applied |
+| `keepRequests` | `3` | Days the request dumps are kept. Each model answer to a turn writes `requests/<day>/<turnId>-<attempt>.json` in the journal directory (a private chat's under its partner's private journal): the system prompt, the message parts as sent (pictures reduced to their size) and the raw answer with its token usage. Day directories older than this many days are deleted at start and then daily. `0` writes no dump and deletes none. Needs `features.journal` |
+| `announceChannelId` | `""` | The channel where `/nep pause` and `/nep resume` post one line (`labels.journal.paused` / `resumed`), so the chat knows the persona is away. Empty: nothing is posted and the owner's reply says so |
 
 ## `record`
 
