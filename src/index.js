@@ -11,6 +11,8 @@ import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { createHot } from './hot.js';
 import { log } from './log.js';
 import { createStore } from './memory/store.js';
+import { createAppendStore } from './memory/append-store.js';
+import { createJournal } from './memory/journal.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm } from './llm/openrouter.js';
 import { createImageGen } from './llm/images.js';
@@ -98,6 +100,14 @@ for (const { key, use } of deprecatedModelKeys(hot.config)) log.warn('index: dep
 
 const dataDir = path.join(ROOT_DIR, 'data');
 const store = createStore({ dataDir });
+// The append-only files under data/ (the journal): one serialized writer per file. Its settings
+// are read once here; the journal reads its own section (journal.*) at each write.
+const appendStore = createAppendStore({
+  fsyncMs: hot.config.appendStore?.fsyncMs ?? 500,
+  retryMax: hot.config.appendStore?.retryMax ?? 1000,
+  log,
+});
+const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {} });
 
 const calibrator = createCalibrator(store.state.data.calibration);
 const llm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: store.state });
@@ -177,6 +187,7 @@ const turns = createTurnRunner({
   routeChannels,
   isWarmingUp: () => warmup.isWarmingUp(),
   activity,
+  journal,
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
@@ -461,6 +472,7 @@ async function shutdown(signal) {
   onMessage.stop();
   hot.close();
   store.flush();
+  await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await client.destroy();
   process.exit(0);
 }

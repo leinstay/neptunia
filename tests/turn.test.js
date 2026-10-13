@@ -26,6 +26,7 @@ import { ImageCapError, ImageGenError } from '../src/llm/images.js';
 import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.js';
 import { pingStatus } from '../src/behavior/elsewhere.js';
 import { findGif } from '../src/memory/gifs.js';
+import { createJournal } from '../src/memory/journal.js';
 
 function rngReturning(value) {
   return () => value;
@@ -7578,4 +7579,114 @@ test('runTurn: the model answered log line carries the user message segments, ha
     assert.match(s.hash, /^[0-9a-f]{8}$/);
     assert.ok(s.chars > 0);
   }
+});
+
+/** A real journal over a fake append store that keeps every line in memory. */
+function journalOverMemory() {
+  const lines = [];
+  const appendStore = {
+    append: async (file, line) => {
+      lines.push({ file, record: JSON.parse(line) });
+    },
+    async *iterate() {},
+  };
+  let n = 0;
+  const journal = createJournal({ appendStore, dataDir: 'fake-data', config: () => ({ thinkChars: 4000 }), now: () => NOW, uuid: () => `u${(n += 1)}` });
+  return { journal, lines };
+}
+
+/** An LLM whose one answer reports provider usage: 700 completion tokens, 300 of the prompt cached. */
+function usageLlm(text) {
+  const calls = [];
+  return {
+    calls,
+    complete: async (messages) => {
+      calls.push(messages);
+      return {
+        text,
+        usage: { prompt_tokens: 1500, completion_tokens: 700, prompt_tokens_details: { cached_tokens: 300 } },
+        promptTokens: 1500,
+        estimated: 1400,
+      };
+    },
+  };
+}
+
+test('turn: writes turn.start and turn records when the journal is on', async () => {
+  const earlier = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Zoé', ts: NOW - 5000, content: 'καλημέρα' });
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
+  const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
+  const llm = usageLlm('<think>Η Αλίκη με φωνάζει.</think><msg reply="#2">γεια</msg><react to="#1">\u{1F389}</react>');
+  const hot = fakeHot({ journal: true, typingSimulation: false }, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
+  const { journal, lines } = journalOverMemory();
+  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
+
+  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+
+  assert.equal(result.outcome, 'spoke');
+  assert.deepEqual(lines.map(({ record }) => record.kind), ['turn.start', 'turn']);
+  const [start, turn] = lines.map(({ record }) => record);
+  assert.equal(lines[0].file, lines[1].file);
+  assert.ok(lines[0].file.endsWith('2026-09-20.jsonl'));
+  assert.equal(result.turnId, start.turnId);
+  assert.equal(result.attemptId, 1);
+  assert.equal(start.mode, 'reply');
+  assert.deepEqual(start.trigger, { kind: 'mention', messageId: 'm1', authorId: 'u1' });
+  assert.deepEqual(start.scope, { channel: 'c1' });
+  assert.equal(turn.turnId, start.turnId);
+  assert.equal(turn.attemptId, 1);
+  assert.equal(turn.outcome, 'spoke');
+  assert.equal(turn.reason, null);
+  assert.deepEqual(turn.seen, { messageIds: ['m0', 'm1'], parents: [], parts: { images: [], filePreviews: [] } });
+  assert.deepEqual(turn.sourceMessageIds, ['m0', 'm1']);
+  assert.deepEqual([...turn.participants].sort(), ['u1', 'u2']);
+  assert.equal(turn.think, 'Η Αλίκη με φωνάζει.');
+  assert.deepEqual(turn.posted, [{ messageId: 'sent-1', replyTo: 'm1' }]);
+  assert.deepEqual(turn.reactions, [{ to: 'm0', emoji: '\u{1F389}' }]);
+  assert.deepEqual(turn.actions, []);
+  assert.deepEqual(turn.usage, { prompt: 1500, cached: 300, completion: 700 });
+  assert.equal(typeof turn.budget.dropped, 'object');
+  assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'output-cap'), [{ kind: 'output-cap', where: 'completion', lost: null }]);
+  for (const limit of turn.limits.filter((entry) => entry.kind === 'budget-drop')) {
+    assert.equal(turn.budget.dropped[limit.where], limit.lost);
+  }
+
+  // The switch off (read at the moment of use): nothing more is written.
+  hot.config.features.journal = false;
+  const off = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  assert.equal(off.outcome, 'spoke');
+  assert.equal(lines.length, 2);
+  assert.equal('turnId' in off, false);
+
+  // A budget that drops chat lines: the drop is named in budget.dropped and in limits.
+  hot.config.features.journal = true;
+  hot.config.llm = { maxRequestTokens: 500, safetyMargin: 1, maxOutputTokens: 4000 };
+  const crowded = [];
+  for (let i = 0; i < 12; i += 1) crowded.push(rawMessage({ id: `k${i}`, authorId: 'u2', ts: NOW - 60_000 + i * 1000, content: 'λέξη '.repeat(30) }));
+  const last = crowded.at(-1);
+  await turns.runTurn({ channel: fakeTurnChannel({ historyMessages: crowded }), mode: 'reply', trigger: normalizedTrigger(last), triggerKind: 'mention' });
+  const tight = lines.at(-1).record;
+  assert.equal(tight.kind, 'turn');
+  assert.ok(tight.budget.dropped.chat > 0, JSON.stringify(tight.budget));
+  assert.deepEqual(tight.limits, [{ kind: 'budget-drop', where: 'chat', lost: tight.budget.dropped.chat }]);
+  assert.equal(tight.seen.messageIds.length, 12 - tight.budget.dropped.chat);
+});
+
+test('turn: logs thinkChars not think when the journal is on', async () => {
+  const raw = rawMessage({ id: 'm1' });
+  const answer = '<think>Ζωή μιλά</think><msg>γεια</msg>';
+  const run = async (features, journal) => {
+    const channel = fakeTurnChannel({ historyMessages: [raw] });
+    const turns = createTurnRunner({ hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
+    const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+    return logs.find((l) => l.msg === 'turn: model answered');
+  };
+
+  const on = await run({ journal: true }, journalOverMemory().journal);
+  assert.equal(on.thinkChars, 8);
+  assert.equal('think' in on, false);
+
+  const off = await run({ journal: false }, journalOverMemory().journal);
+  assert.equal(off.think, 'Ζωή μιλά');
+  assert.equal('thinkChars' in off, false);
 });

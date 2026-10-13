@@ -633,7 +633,8 @@ function readableLinkCandidates(history, sites) {
  * `history` with the messages its replies answer from outside it prepended as its oldest lines
  * (src/discord/collect.js#fetchReplyParents): the parent of `trigger` when it lives in this
  * channel, one level of that parent's own parent, and the parents of the last
- * `context.replyParentsFor` lines, at most `context.replyParentsMax` in all. Off with
+ * `context.replyParentsFor` lines, at most `context.replyParentsMax` in all, each marked
+ * `replyParent: true`. Off with
  * `context.fetchReplyParents` false (a missing key counts as on); `history` as it is then.
  * @param {object} channel
  * @param {object[]} history
@@ -652,7 +653,8 @@ async function withReplyParents(channel, history, { trigger, selfId, config }) {
     embedTextChars: config.media?.embedTextChars,
     videoSites: config.media?.video?.sites,
   });
-  return parents.length > 0 ? [...parents, ...history] : history;
+  // Marked, so the request can say which of its lines came from outside the window (the journal's `seen.parents`).
+  return parents.length > 0 ? [...parents.map((parent) => ({ ...parent, replyParent: true })), ...history] : history;
 }
 
 /**
@@ -833,6 +835,71 @@ export function routeFor(source, config) {
   return { destination, reason: null };
 }
 
+/** The mode a journal's `turn.start` names: a follow-up or an overheard line by its kind, else the turn's mode. */
+function journalMode(mode, triggerKind) {
+  return triggerKind === 'followUp' || triggerKind === 'overheard' ? triggerKind : (mode ?? null);
+}
+
+/** The budget sections of a request's stats line that lost items: `{ section: dropped }`. */
+function droppedSections(stats) {
+  const out = {};
+  for (const [name, entry] of Object.entries(stats ?? {})) {
+    if (isPlainObject(entry) && Number.isFinite(entry.dropped) && entry.dropped > 0) out[name] = entry.dropped;
+  }
+  return out;
+}
+
+/** The journal's usage of the reply request: the whole prompt, its cached part, the completion (null when unreported). */
+function journalUsage(completion) {
+  const usage = completion?.usage ?? {};
+  const count = (value) => (Number.isFinite(value) ? value : null);
+  return {
+    prompt: count(completion?.promptTokens) ?? count(usage.prompt_tokens),
+    cached: count(usage.prompt_tokens_details?.cached_tokens),
+    completion: count(usage.completion_tokens),
+  };
+}
+
+/**
+ * The limits that bit during the reply request: a `budget-drop` per section that lost items
+ * (`lost`: the items), and `output-cap` when the completion reached `maxOutputTokens`.
+ */
+function replyLimits(dropped, usage, maxOutputTokens) {
+  const limits = Object.entries(dropped).map(([where, lost]) => ({ kind: 'budget-drop', where, lost }));
+  if (Number.isFinite(maxOutputTokens) && maxOutputTokens > 0 && usage.completion !== null && usage.completion >= maxOutputTokens) {
+    limits.push({ kind: 'output-cap', where: 'completion', lost: null });
+  }
+  return limits;
+}
+
+/**
+ * One attempt's `turn` record (src/memory/journal.js) from what the attempt noted in its
+ * draft and the result it returned: `reason` is the attempt's skip or refusal code, else null.
+ */
+function journalTurnRecord(draft, result) {
+  const seen = draft.seen ?? { messageIds: [], parents: [], parts: { images: [], filePreviews: [] } };
+  return {
+    turnId: draft.started.turnId,
+    attemptId: draft.started.attemptId,
+    startedAt: draft.started.startedAt,
+    channelId: draft.channelId,
+    privateUserId: draft.privateUserId,
+    mode: result?.mode ?? draft.mode ?? null,
+    outcome: result?.outcome ?? 'error',
+    reason: typeof result?.reason === 'string' ? result.reason : (draft.reason ?? null),
+    seen,
+    participants: draft.participants ?? [],
+    sourceMessageIds: seen.messageIds,
+    think: typeof draft.think === 'string' ? draft.think : null,
+    posted: draft.posted ?? [],
+    reactions: draft.reactions ?? [],
+    actions: [],
+    usage: draft.usage ?? null,
+    budget: { dropped: draft.dropped ?? {} },
+    limits: draft.limits ?? [],
+  };
+}
+
 /**
  * The `tasks` input of a turn's request (src/behavior/prompt.js#buildRequest)
  * and the calls it names as left to their own turns. `part`: the part of a
@@ -980,6 +1047,10 @@ function taskInput({ part, queued, added, labels, channelId }) {
  * `activity` (src/behavior/activity.js#createActivity, fed by src/discord/events.js; optional)
  * tells when each person last wrote in each channel: a turn answering a person waits on it
  * (pace.settleMs, settleAuthor below); absent, no turn waits.
+ * `journal` (src/memory/journal.js#createJournal; optional): with features.journal exactly
+ * true (read at the moment of use), every attempt that passes the pause and attention rails
+ * writes a `turn.start` line, and runTurn writes each attempt's `turn` record once it returns
+ * (journalTurnRecord); `turn: model answered` then logs `thinkChars` instead of `think`.
  */
 export function createTurnRunner({
   hot,
@@ -1001,6 +1072,7 @@ export function createTurnRunner({
   schedule = scheduleTimer,
   isWarmingUp = () => false,
   activity = null,
+  journal = null,
 }) {
   const busy = new Set();
   // channelId -> the chain of parts running there (runChain): its author, its parts, the part
@@ -1020,6 +1092,18 @@ export function createTurnRunner({
   // The participation pick classifier (src/behavior/participation-pick.js): which stored
   // exchanges of other channels a turn's `<participation>` block shows first.
   const pickParticipation = createParticipationPicker({ hot, store, llm, now: clock });
+
+  /** Whether the journal is written now: one injected and features.journal exactly true (read now). */
+  function journalOn() {
+    return Boolean(journal) && hot.config.features?.journal === true;
+  }
+
+  /** The turn records of runTurn's attempts, in order; a failed append is the journal's to log. */
+  async function writeTurnRecords(attempts) {
+    for (const { draft, result } of attempts) {
+      await journal.turn(draft.guildId, journalTurnRecord(draft, result));
+    }
+  }
 
   /**
    * `text` with every `#name` of one of the guild's text channels turned into its `<#id>` link
@@ -1326,7 +1410,7 @@ export function createTurnRunner({
         bytes: picture.buffer?.length ?? 0,
         ...(link ? { link: true } : {}),
       });
-      return { posted: true, pulledId, message };
+      return { posted: true, pulledId, replyId, message };
     } catch (err) {
       if (err instanceof ImageCapError) {
         const limit = limitOf(err);
@@ -1692,6 +1776,13 @@ export function createTurnRunner({
     const record = (sent) => {
       if (ledgerPost) recordPost(sent, ledgerPost);
     };
+    // For the journal: every post that reached the chat with the message it answers, every
+    // reaction put with its target.
+    const posts = [];
+    const reacted = [];
+    const notePost = (sent, replyTo = null) => {
+      if (typeof sent?.id === 'string' && sent.id) posts.push({ messageId: sent.id, replyTo: replyTo ?? null });
+    };
 
     for (const reaction of parsed.reactions) {
       const targetId = idByIndex.get(reaction.to);
@@ -1706,6 +1797,7 @@ export function createTurnRunner({
         const target = await route.target.messages.fetch(targetId);
         await target.react(reaction.emoji);
         delivered = true;
+        reacted.push({ to: targetId, emoji: reaction.emoji });
         if (route.source) answered.add(targetId);
       } catch (err) {
         log.warn('turn: reaction failed', { channel: channel.id, ...(route.source ? { source: route.source } : {}), emoji: reaction.emoji, error: err });
@@ -1735,6 +1827,7 @@ export function createTurnRunner({
         delivered = true;
         if (pulledId) answered.add(pulledId);
         record(sent);
+        notePost(sent, replyId);
       }
       return sent;
     };
@@ -1781,6 +1874,7 @@ export function createTurnRunner({
       if (pulledId) answered.add(pulledId);
       lastPostAt.set(channel.id, clock());
       record(posted);
+      notePost(posted, replyId);
       postedTexts.push(message.text);
       const ownLine = {
         id: posted?.id ?? null,
@@ -1807,7 +1901,7 @@ export function createTurnRunner({
       });
     }
     const messageIds = ownPosted.map((line) => line.id).filter((id) => typeof id === 'string' && id);
-    const posted = { messageIds, texts: postedTexts, drew: false };
+    const posted = { messageIds, texts: postedTexts, drew: false, posts, reacted };
     if (sendFailed) return { delivered, answered, ...posted };
 
     // The turn's own GIF right after the messages.
@@ -1836,6 +1930,7 @@ export function createTurnRunner({
         delivered = true;
         lastPostAt.set(channel.id, clock());
         record(message);
+        notePost(message);
         if (typeof message?.id === 'string' && message.id) messageIds.push(message.id);
         if (setPictures === 0) posted.setScene = chunk[0].text;
         setMessages += 1;
@@ -1856,6 +1951,7 @@ export function createTurnRunner({
     if (drawn.posted === true) {
       if (drawn.pulledId) answered.add(drawn.pulledId);
       record(drawn.message);
+      notePost(drawn.message, drawn.replyId);
       if (typeof drawn.message?.id === 'string' && drawn.message.id) messageIds.push(drawn.message.id);
       posted.drew = true;
     }
@@ -2951,14 +3047,23 @@ export function createTurnRunner({
    *   posting and the turn still ends `spoke` with what reached the chat); `limit` on `outcome:
    *   'refused'` (a request or token cap; a diary picture gate with `reason: 'pictures'`; a diary
    *   set short of `diary.set.minPosted` pictures has `reason: 'set-short'` and no `limit`), for
-   *   the caller's limit notice. A `skip`, or a `spoke`
+   *   the caller's limit notice. With the journal on (createTurnRunner's `journal`), a turn that
+   *   started there carries its `turnId` and `attemptId` (not a message answered part by part,
+   *   whose parts are journalled each as its own turn). A `skip`, or a `spoke`
    *   turn posted for real, stamps the calls of the ring it showed (stampShownCalls) -- every
    *   one but a routed turn's own call, which the caller stamps by this outcome.
    */
   async function runTurn(params) {
-    const first = await runTurnOnce({ ...params, maySplit: true });
-    if (first.outcome === 'split') return runChain(params, first);
-    return answerDrawFailure(params, first);
+    // Every attempt that started in the journal (runTurnOnce), closed here, at the one exit.
+    const attempts = [];
+    const tracked = { ...params, journalAttempts: attempts };
+    try {
+      const first = await runTurnOnce({ ...tracked, maySplit: true });
+      if (first.outcome === 'split') return await runChain(tracked, first);
+      return await answerDrawFailure(tracked, first);
+    } finally {
+      if (attempts.length > 0) await writeTurnRecords(attempts);
+    }
   }
 
   /**
@@ -2995,6 +3100,9 @@ export function createTurnRunner({
           holdIdle: true,
           owned,
           plainPosts,
+          // The journal: the same turn, its next attempt.
+          journalAttempts: params.journalAttempts,
+          journalTurn: first.turnId ? { turnId: first.turnId, attemptId: (first.attemptId ?? 1) + 1 } : null,
         });
         log.info('turn: draw failure answered', { channel: channel.id, reason: first.drawFailed, outcome: second.outcome });
         if (second.outcome === 'spoke' && second.delivered === true) return { ...first, delivered: true };
@@ -3136,7 +3244,21 @@ export function createTurnRunner({
    * first part's history, already fetched) and `plainPosts` (a later part
    * posts plain).
    */
-  async function runTurnOnce({
+  async function runTurnOnce(args) {
+    const draft = {};
+    let result;
+    try {
+      result = await runTurnAttempt(args, draft);
+    } finally {
+      // An attempt whose turn.start was written closes with its turn record at runTurn's exit,
+      // whatever it returned (a throw counts as `error`).
+      if (draft.started) args.journalAttempts?.push({ draft, result: result ?? { outcome: 'error' } });
+    }
+    return draft.started ? { ...result, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : result;
+  }
+
+  /** runTurnOnce's body; `draft` collects what the journal's turn record needs (journalTurnRecord). */
+  async function runTurnAttempt({
     channel,
     guildId: guildIdParam = null,
     mode,
@@ -3157,7 +3279,8 @@ export function createTurnRunner({
     reuseHistory = null,
     plainPosts = false,
     diary: diaryParams = null,
-  }) {
+    journalTurn = null,
+  }, draft = {}) {
     // A server channel carries its guild; a private chat is served on behalf of the pinned one.
     const guildId = channel.guild?.id ?? guildIdParam;
     if (!guildId) throw new Error('runTurn: a channel without a guild needs a guildId');
@@ -3183,6 +3306,24 @@ export function createTurnRunner({
       const oneAtATime = hot.config.mention?.oneAtATime !== false;
       if (oneAtATime && busy.size > 0) return { outcome: 'busy' };
       busy.add(channel.id);
+    }
+    // The journal (features.journal, read now): the turn starts here, past the pause and
+    // attention rails; a later attempt of the same turn (journalTurn) keeps its id.
+    if (journalOn()) {
+      draft.guildId = guildId;
+      draft.channelId = channel.id;
+      draft.privateUserId = isPrivate ? (trigger?.authorId ?? channel.recipientId ?? null) : null;
+      draft.mode = mode;
+      draft.started = journal.start(guildId, {
+        channelId: channel.id,
+        mode: journalMode(mode, triggerKind),
+        trigger: trigger ? { kind: triggerKind ?? null, messageId: trigger.id ?? null, authorId: trigger.authorId ?? null } : null,
+        participants: trigger?.authorId ? [trigger.authorId] : [],
+        sourceMessageIds: trigger?.id ? [trigger.id] : [],
+        privateUserId: draft.privateUserId,
+        turnId: journalTurn?.turnId ?? null,
+        attemptId: journalTurn?.attemptId ?? null,
+      });
     }
     // A turn answering a person first lets them finish writing (pace.settleMs), holding the
     // attention meanwhile; the turn's clocks (its deadline, its bar) start after this wait. The
@@ -3819,6 +3960,14 @@ export function createTurnRunner({
       );
       // What `<recent>` showed, held back or cut: counts only.
       if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
+      // The journal: what of the window went in, whose lines they were, what the budget dropped.
+      if (draft.started && request.seen) {
+        draft.seen = request.seen;
+        const keptIds = new Set(request.seen.messageIds);
+        const authors = history.filter((message) => keptIds.has(message.id) && !message.self).map((message) => message.authorId);
+        draft.participants = [...new Set([...authors, trigger?.authorId].filter((id) => typeof id === 'string' && id))];
+        draft.dropped = droppedSections(request.stats);
+      }
 
       // A Discord CDN image the provider cannot fetch must not cost the
       // persona the reply -- the provider's own fetcher gets a 403 from
@@ -3850,6 +3999,7 @@ export function createTurnRunner({
           ),
         );
         messages = [messages[0], { ...userMessage, content: allDownloaded ? resolvedContent : request.textFallback }];
+        if (!allDownloaded && draft.seen) draft.seen = { ...draft.seen, parts: { ...draft.seen.parts, images: [] } };
       }
 
       let completion;
@@ -3873,6 +4023,7 @@ export function createTurnRunner({
         const aboutThePictures = err.statusCode >= 400 && err.statusCode < 500 && !RETRY_STATUS.has(err.statusCode);
         if (Array.isArray(request.textFallback) && aboutThePictures) {
           const textOnly = messages.map((m) => (Array.isArray(m.content) ? { ...m, content: request.textFallback } : m));
+          if (draft.seen) draft.seen = { ...draft.seen, parts: { ...draft.seen.parts, images: [] } };
           completion = await beforeBar(llm.complete(textOnly, replyOptions()));
         } else {
           throw err;
@@ -3937,6 +4088,13 @@ export function createTurnRunner({
       parsed.gif = resolveGif(guildId, parsed.gif, channel.id);
       const nothingToDo =
         parsed.messages.length === 0 && parsed.reactions.length === 0 && parsed.draw === null && parsed.gif === null && !(setDraws?.length > 0);
+      // The journal keeps the think (journal.thinkChars); the log then carries its length only.
+      if (draft.started) {
+        draft.think = parsed.think;
+        draft.usage = journalUsage(completion);
+        draft.limits = replyLimits(draft.dropped ?? {}, draft.usage, hot.config.llm?.maxOutputTokens);
+      }
+      const thinkField = journalOn() ? { thinkChars: Array.from(parsed.think ?? '').length } : { think: parsed.think };
 
       log.info('turn: model answered', {
         mode: finalMode,
@@ -3955,7 +4113,7 @@ export function createTurnRunner({
         budget: request.stats,
         // Per user-message part: length and a short hash, to see which part changes between turns (no content).
         segments: request.segments,
-        think: parsed.think,
+        ...thinkField,
         skip: parsed.skip || nothingToDo,
         messages: parsed.messages.length,
         reactions: parsed.reactions.length,
@@ -4067,6 +4225,10 @@ export function createTurnRunner({
       });
       noteSpokeSaw(channel, history, serverShown, pulled, notAnswered);
       stampShownCalls({ shown: serverShown, pulled, answered: acted.answered ?? new Set(), exceptId: ownCallId });
+      if (draft.started) {
+        draft.posted = acted.posts ?? [];
+        draft.reactions = acted.reacted ?? [];
+      }
       // A diary post that reached the chat is recorded and counted.
       const recorded =
         diaryPrep && acted.delivered === true
@@ -4087,15 +4249,18 @@ export function createTurnRunner({
           reason: 'too-slow',
           seconds: Math.round((clock() - turnStartedAt) / 100) / 10,
         });
+        draft.reason = 'too-slow';
         return { outcome: 'error' };
       }
       if (err instanceof DailyCapError || err instanceof TokenLimitError) {
         log.warn('turn: refused by a safety rail', { channel: channel.id, error: err });
+        draft.reason = railReason(err);
         return { outcome: 'refused', limit: limitOf(err) };
       }
       log.error('turn: failed', { channel: channel.id, error: err });
       return { outcome: 'error' };
     } finally {
+      draft.mode = turnMode;
       stopTyping();
       deadline?.close();
       bar?.close();
