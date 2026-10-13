@@ -212,7 +212,7 @@ test('recall: forms are searched one after another in order; the summary reads t
   const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
   assert.deepEqual(searches(s.calls).map((c) => c.query.content), ['κουνέλι', 'κουνελιού']);
   assert.equal(s.maxInFlight(), 1, 'never two searches at once');
-  assert.ok(searches(s.calls).every((c) => c.query.max_id === snowflakeAt(NOW - 30 * MINUTE)), 'the turn\'s own chat never takes a result slot');
+  assert.ok(searches(s.calls).every((c) => c.query.max_id === undefined), 'no range asked: the turn\'s own chat bounds no query');
   assert.equal(result.text, 'Ana did it on October 1.');
   assert.equal(result.stretch.channelId, 'c1');
   assert.equal(result.stretch.channelName, 'general');
@@ -1188,4 +1188,60 @@ test('recall-run: a window that follows into the turn\'s chat is flagged and sho
   const user = s.llmCalls[0].messages[1].content;
   assert.deepEqual(user.split('\n').filter((l) => l.startsWith('## ')), ['## 1 | 2026-10-05 | #general [CURRENT]']);
   assert.ok(!user.slice(user.indexOf('<found>'), user.indexOf('</found>')).includes('τι έγινε'), 'the chat line stays out');
+});
+
+// ---- the whole server past the visible chat; stored names for `who` ------------------------------
+
+test('recall-run: a dated question searches past the visible chat\'s oldest line; the chat itself is dropped by id', async () => {
+  const early = Date.UTC(2026, 9, 5, 3, 37);
+  const morning = line('m7', Date.UTC(2026, 9, 5, 7, 0), { name: 'Éloïse', author: 'u3', content: 'καλημέρα από τον κήπο' });
+  const visible = line('h2', NOW - MINUTE, { name: 'Nikos', author: 'u5', content: 'τι έκανε σήμερα;' });
+  const s = scene({
+    lines: { c1: [visible], c2: [morning] },
+    answers: (route, query) => (route.endsWith('/messages/search') && !query.offset ? { total_results: 2, messages: [[rawHit('c1', visible)], [rawHit('c2', morning)]] } : { total_results: 0, messages: [] }),
+  });
+  const history = [
+    { id: 'h1', channelId: 'c1', ts: early, self: false, bot: false, authorName: 'Nikos', content: 'καλημέρα' },
+    { id: 'h2', channelId: 'c1', ts: NOW - MINUTE, self: false, bot: false, authorName: 'Nikos', content: 'τι έκανε σήμερα;' },
+  ];
+  const from = Date.UTC(2026, 9, 5);
+  const { logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, history, candidate: history[1], server: { forms: [], who: [], from, to: NOW } }));
+  const sent = searches(s.calls);
+  assert.ok(sent.length > 0);
+  assert.ok(sent.every((c) => c.query.max_id === snowflakeAt(NOW + 1) && c.query.min_id === snowflakeAt(from)), 'the range alone bounds the query');
+  assert.ok(sent.every((c) => c.query.max_id !== snowflakeAt(early)), 'never capped at the visible chat');
+  assert.deepEqual(s.fetches.map((f) => f.around), ['m7'], 'the hit of the other channel is kept');
+  const searched = logs.find((l) => l.msg === 'recall: searched');
+  assert.deepEqual([searched.hits, searched.inChatDropped, searched.kept], [2, 1, 1]);
+});
+
+test('recall-run: nothing planned skips with reason no-query', async () => {
+  const s = scene();
+  const { logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { forms: [], who: [], from: NOW, to: NOW - HOUR } }));
+  assert.equal(searches(s.calls).length, 0);
+  assert.deepEqual(logs.filter((l) => l.msg === 'recall: skipped').map((l) => l.reason), ['no-query']);
+});
+
+test('recall-run: a who form equal to a stored alias (folded) finds the member when the member search finds nobody; the record is read by author', async () => {
+  const record = fakeSource({ guild: [recLine('r-elo', NOW - 2 * HOUR, 'καλημέρα κήπε', { by: ELO_ID })] });
+  const s = scene({
+    profiles: [{ id: ELO_ID, names: ['Éloïse'], aliases: [{ name: 'Lulú' }], episodes: [] }],
+    answers: (route) => (route.endsWith('/members/search') ? [] : { total_results: 0, messages: [] }),
+    record,
+  });
+  const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { forms: [], who: ['lulu'], from: Date.UTC(2026, 9, 5), to: NOW } }));
+  assert.deepEqual(result.people.map((p) => p.id), [ELO_ID]);
+  assert.ok(searches(s.calls).some((c) => c.query.author_id === ELO_ID), 'an author query for the member');
+  assert.equal(result.stats.record, 1, 'the record line found by its author');
+  assert.ok(s.llmCalls[0].messages[1].content.includes('καλημέρα κήπε'));
+});
+
+test('recall-run: the persona\'s own stored profile never joins the people', async () => {
+  const s = scene({
+    profiles: [{ id: 'self', names: ['Zoë'], aliases: [], episodes: [] }],
+    answers: (route) => (route.endsWith('/members/search') ? [] : { total_results: 0, messages: [] }),
+  });
+  const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { forms: [], who: ['zoë'], from: Date.UTC(2026, 9, 5), to: NOW } }));
+  assert.deepEqual(result.people, []);
+  assert.ok(!searches(s.calls).some((c) => c.query.author_id === 'self'));
 });

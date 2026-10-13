@@ -163,17 +163,15 @@ test('searchPlan: each content query carries its kind, form for a server form an
   assert.deepEqual(shared.map((q) => [q.content, q.kind]), [['β', 'form'], ['α', 'form']], 'a form in both lists is a server form');
 });
 
-test('searchPlan: the range bounds every query; the turn\'s own chat caps the end', () => {
+test('searchPlan: the range alone bounds every query; a range that ends before it starts plans nothing', () => {
   const from = Date.UTC(2025, 11, 31, 18);
   const to = Date.UTC(2026, 0, 1, 6);
   const [query] = searchPlan({ forms: ['α'], from, to, maxForms: 8 });
   assert.equal(tsOf(query.minId), from);
   assert.equal(tsOf(query.maxId), to + 1);
-  const before = Date.UTC(2026, 9, 5, 11);
-  const [capped] = searchPlan({ forms: ['α'], maxForms: 8, before });
-  assert.equal(capped.minId, null);
-  assert.equal(tsOf(capped.maxId), before);
-  assert.deepEqual(searchPlan({ forms: ['α'], from: before + HOUR, maxForms: 8, before }), [], 'a range inside the visible chat');
+  const [open] = searchPlan({ forms: ['α'], maxForms: 8, before: Date.UTC(2026, 9, 5, 11) });
+  assert.deepEqual([open.minId, open.maxId], [null, null], 'no bound without a range; before is not a parameter');
+  assert.deepEqual(searchPlan({ forms: ['α'], from: to + HOUR, to, maxForms: 8 }), []);
 });
 
 test('searchPlan: a range and nothing else is one range query; nothing at all is no query', () => {

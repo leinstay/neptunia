@@ -49,7 +49,7 @@ import { audienceAllows, checkPull } from '../discord/pull-fetch.js';
 import { fetchAfter, fetchAround, searchMembers, searchMessages } from '../discord/search.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { oneLine } from '../memory/clamp.js';
-import { liveRecent, recentSettings } from '../memory/recent.js';
+import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { bumpDaily, countToday } from '../time.js';
 import { audienceCovers } from './elsewhere.js';
 import { classifierTextModel } from './mention.js';
@@ -255,10 +255,11 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
 
   /**
    * The people the `who` forms point at, at most `maxPeople`: per form, the
-   * stored profiles with that name or alias (exact, any case), then -- for a
-   * Latin form no profile matched -- Discord's member search (prefix match),
-   * other bots left out. A member search is not sent once `searchUntil` is
-   * past; `beforeRequest` runs before each one.
+   * stored profiles one of whose names or alias names equals the whole form
+   * (both folded, src/memory/recent.js#foldText), the persona's own profile
+   * never; then -- for a Latin form no profile matched -- Discord's member
+   * search (prefix match), other bots left out. A member search is not sent
+   * once `searchUntil` is past; `beforeRequest` runs before each one.
    */
   async function findPeople({ guild, guildId, who, maxPeople, selfId, signal, searchUntil, beforeRequest }) {
     const found = new Map();
@@ -268,11 +269,14 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       if (found.size >= maxPeople || signal.aborted) break;
       profiles ??= store.listUserProfiles?.(guildId) ?? [];
       let matched = false;
+      const folded = foldText(form);
       for (const profile of profiles) {
         if (!profile?.id) continue;
         const names = [...(Array.isArray(profile.names) ? profile.names : []), ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((a) => a?.name)];
-        if (!names.some((name) => typeof name === 'string' && oneLine(name).toLowerCase() === form)) continue;
+        if (!folded || !names.some((name) => typeof name === 'string' && foldText(name) === folded)) continue;
         matched = true;
+        // The persona's own name points at no member to read about: it neither joins nor sends a member search.
+        if (String(profile.id) === String(selfId)) continue;
         if (found.has(profile.id) || found.size >= maxPeople) continue;
         found.set(profile.id, { id: profile.id, name: oneLine(profile.names?.[0]) || form, username: '' });
       }
@@ -541,11 +545,11 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const people = await findPeople({ guild, guildId, who: server.who ?? [], maxPeople: settings.maxPeople, selfId, signal: searchSignal, searchUntil, beforeRequest });
     if (signal.aborted) return null;
 
-    // 2. The queries: never past the oldest line of the turn's own chat (a private chat is
-    // not part of the server: it bounds nothing).
+    // 2. The queries, over the whole server and the range asked: the turn's own chat bounds no
+    // query, its lines are dropped from the hits by id (step 4; a private chat is not part of
+    // the server: it drops nothing).
     const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id) : [];
     const ownIds = new Set(own.map((m) => m.id));
-    const oldest = own.reduce((min, m) => (Number.isFinite(m.ts) && m.ts < min ? m.ts : min), Infinity);
     const plan = searchPlan({
       forms: server.forms ?? [],
       who: server.who ?? [],
@@ -553,7 +557,6 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       from: server.from ?? null,
       to: server.to ?? null,
       maxForms: settings.maxForms,
-      before: Number.isFinite(oldest) ? oldest : null,
     });
     const peopleOut = () => people.map((p) => ({ count: 0, newestTs: null, ...p }));
 
@@ -561,7 +564,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const recordWindows = await recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId });
     if (signal.aborted) return null;
     if (plan.length === 0 && memory.items.length === 0 && recordWindows.length === 0) {
-      log.info('recall: skipped', { channel: channelId, reason: Number.isFinite(server.from) ? 'visible' : 'no-query' });
+      log.info('recall: skipped', { channel: channelId, reason: 'no-query' });
       return result({ people: peopleOut() });
     }
 
@@ -802,7 +805,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * `no-query` (no form, name form or range), `no-prompt` (no
    * `prompts['recall-summary']`), `daily-cap` (`llm.capLeft()` spent) or
    * `daily` (`recall.maxPerDay` runs today), each before any request; later
-   * `visible` (the range lies inside the turn's own chat) or `no-hits`
+   * `no-query` (nothing to search: no query planned) or `no-hits`
    * (nothing left to read), either only when no stored memory matched
    * either (storedMemory; `stats.memory` its items, `stats.archived` those
    * from the archive, also on `recall: searched`) and the record gave no
