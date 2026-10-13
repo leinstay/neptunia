@@ -4,7 +4,9 @@ Below: <channels> lists other channels that can be shown, in a fixed order, one 
 
 Answer ONE line:
 
-A number from the list: the message asks about, refers to, or continues something posted in that channel. A channel may be named by its name, theme or purpose, or through the writer or their aliases ("X's channel", "X's latest post"). Copy the number exactly from the list.
+A number from the list: the message asks about, refers to, or continues something posted in that channel. A channel may be named by its name, theme or purpose, or through the writer or their aliases ("X's channel", "X's latest post"). Copy the number exactly from the list. A plain number shows the newest messages.
+
+A number followed by earlier: the messages before what {{name}} was already shown from that channel in this conversation. The transcript shows when {{name}} answered from a pulled channel. Use this when the message refers to something older than the part already covered.
 
 none: the message can be answered from the current conversation. It mentions a person or a topic without pointing at what was posted elsewhere. The match is a guess, or two channels fit equally and nothing breaks the tie. A wrong number costs a fetch and clutters the context; a miss means {{name}} answers without seeing that channel. When unsure, none.
 

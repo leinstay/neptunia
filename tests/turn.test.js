@@ -4000,6 +4000,29 @@ test('runTurn: route hook ids are pulled after explicit mentions', async () => {
   assert.ok(view.includes('σημειώσεις για αύριο'));
 });
 
+test('runTurn: an earlier route pick fetches the page before the oldest line shown last time, else the newest page', async () => {
+  const answers = [[DIARY], [{ id: DIARY, direction: 'earlier' }]];
+  const scene = pullScene({ mention: false, routeChannels: async () => answers.shift() ?? [] });
+
+  const { logs } = await withCapturedLogs(async () => {
+    await scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' });
+    await scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' });
+  });
+
+  const pages = scene.other.fetches.filter((arg) => arg && typeof arg === 'object');
+  assert.equal(pages.length, 2);
+  assert.equal('before' in pages[0], false, 'the first view is the newest page');
+  assert.equal(pages[1].before, 'd1', 'the second starts before the oldest line the first one showed');
+  const pulls = logs.filter((l) => l.msg === 'pull: channel');
+  assert.deepEqual(pulls.map((l) => [l.direction, l.beforeId]), [[null, undefined], ['earlier', true]]);
+
+  const fresh = pullScene({ mention: false, routeChannels: async () => [{ id: DIARY, direction: 'earlier' }] });
+  const alone = await withCapturedLogs(() => fresh.turns.runTurn({ channel: fresh.channel, mode: 'reply', trigger: fresh.trigger, triggerKind: 'mention' }));
+  const [page] = fresh.other.fetches.filter((arg) => arg && typeof arg === 'object');
+  assert.equal('before' in page, false, 'no previous view: the newest page');
+  assert.equal(alone.logs.find((l) => l.msg === 'pull: channel').pullDirection, 'earlier-no-previous');
+});
+
 test('runTurn: the route hook is not asked once the mentions fill every slot, nor while features.channelPull is off', async () => {
   for (const features of [{}, { channelPull: false }]) {
     let asked = 0;

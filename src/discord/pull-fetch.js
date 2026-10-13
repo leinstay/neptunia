@@ -61,7 +61,7 @@ const DEFAULT_TIMERS = Object.freeze({
  * @property {number} picturesNotSeen  pictures of `messages` left without a caption
  * @property {Map<string, 'answered'|'skipped'|'unanswered'>} pingState  message id -> state of its ring call,
  *                                    for every shown line that is a call in the ring except the trigger itself
- * @property {{ hashes: Map<string, string>, oldestTs: number, shownAt: number }} [seenBefore]  the last view of
+ * @property {{ hashes: Map<string, string>, oldestTs: number, oldestId: string|null, shownAt: number }} [seenBefore]  the last view of
  *                                    this channel shown in the turn's channel (createPullViews), attached by
  *                                    src/behavior/turn.js; absent when there is none within the TTL
  */
@@ -71,15 +71,17 @@ const DEFAULT_TIMERS = Object.freeze({
  * process only (no file: it is about the current conversation, and a restart
  * forgets it). Keyed `${destinationChannelId}:${sourceChannelId}`; one view
  * holds each shown line's id with its hash, the oldest window line's time and
- * when it was shown. src/behavior/turn.js reads it before building a turn's
+ * id (`oldestId`: an earlier page starts before it, fetchPull's `beforeId`)
+ * and when it was shown. src/behavior/turn.js reads it before building a turn's
  * request (the PulledChannel's `seenBefore`) and writes it once the request
  * was sent and answered, from buildRequest's `pulledViews`. A view older than
  * the TTL (`context.pull.seenTtlMinutes`, read by the caller at the moment of
  * use) is ignored and pruned.
  * @returns {{
  *   previous: (destinationId: string, sourceId: string, options: { now: number, ttlMinutes: number }) =>
- *     ({ hashes: Map<string, string>, oldestTs: number, shownAt: number }|null),
- *   remember: (destinationId: string, views: { channelId: string, hashes: Map<string, string>, oldestTs: number }[], now: number) => void,
+ *     ({ hashes: Map<string, string>, oldestTs: number, oldestId: string|null, shownAt: number }|null),
+ *   remember: (destinationId: string, views: { channelId: string, hashes: Map<string, string>, oldestTs: number,
+ *     oldestId?: string|number|null }[], now: number) => void,
  *   size: () => number,
  * }}
  */
@@ -96,7 +98,8 @@ export function createPullViews() {
     remember(destinationId, shown, now) {
       for (const view of Array.isArray(shown) ? shown : []) {
         if (!view?.channelId || !(view.hashes instanceof Map)) continue;
-        views.set(`${destinationId}:${view.channelId}`, { hashes: view.hashes, oldestTs: view.oldestTs, shownAt: now });
+        const oldestId = view.oldestId === null || view.oldestId === undefined || view.oldestId === '' ? null : String(view.oldestId);
+        views.set(`${destinationId}:${view.channelId}`, { hashes: view.hashes, oldestTs: view.oldestTs, oldestId, shownAt: now });
       }
     },
     size: () => views.size,
@@ -200,9 +203,29 @@ export function checkPull({ guild, channelId, destination = null, partner = null
  * history window fetch failed`) and returns what it has, so an empty result
  * would look like an empty channel: the view of the channel handed to it
  * notes the failure. A message of the page that cannot be normalized throws
- * out of fetchHistoryWindow: `pull: page unreadable`, null.
+ * out of fetchHistoryWindow: `pull: page unreadable`, null. With `beforeId`
+ * (an earlier page) instead: the `limit` messages before that message
+ * (exclusive), one request (`{ before, limit }`), normalized the same way;
+ * a failed request is null too.
  */
-async function fetchPage(channel, { anchorId, limit, selfId, embedTextChars, videoSites }, logIds) {
+async function fetchPage(channel, { anchorId, beforeId = null, limit, selfId, embedTextChars, videoSites }, logIds) {
+  if (beforeId) {
+    let fetched;
+    try {
+      fetched = await channel.messages.fetch({ before: beforeId, limit });
+    } catch (err) {
+      log.warn('pull: earlier page fetch failed', { ...logIds, error: err });
+      return null;
+    }
+    try {
+      return [...fetched.values()]
+        .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+        .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites }));
+    } catch (err) {
+      log.warn('pull: page unreadable', { ...logIds, error: err });
+      return null;
+    }
+  }
   let failed = false;
   const watched = {
     id: channel.id,
@@ -413,8 +436,17 @@ export async function captionPulled(pulled, { describer = null, guildId = null, 
  * before the turn is certain gets them later from captionPulled. Pictures
  * left without a caption are counted in `picturesNotSeen`.
  *
+ * With `direction: 'earlier'` and a `beforeId` (the oldest window line of
+ * the last view of this channel shown in the destination, createPullViews),
+ * the page is the one before that message instead of the newest one; the
+ * window then ends at that page's newest message. `earlier` without a
+ * `beforeId` pulls the newest page (`pullDirection: 'earlier-no-previous'` in
+ * the log); a `beforeId` without `earlier` is ignored. An anchor wins over both.
+ *
  * Logs `pull: channel` (`channel` = the destination, `source`, `pullReason`
- * = why the pull was asked, the counts, ms) or `pull: skipped` (the same ids,
+ * = why the pull was asked, `direction` (`earlier` or null), for an earlier
+ * pull `beforeId` = whether a previous view gave one (a boolean, never the
+ * id), the counts, ms) or `pull: skipped` (the same ids,
  * `reason` = the skip code, `pullReason`); never message text or captions.
  * `earlier` counts the ring calls added before the window, `earlierGone` the
  * ones wanted but gone or unreadable; `asked` the pictures handed to the
@@ -431,6 +463,8 @@ export async function captionPulled(pulled, { describer = null, guildId = null, 
  * @param {'routed'|'noticed'|'mention'|'route'|'recall'} args.reason
  * @param {string|null} [args.anchorId]  The window ends at this message instead of the newest one. No
  *   production caller yet: the seam a recall (reason `recall`) will use; only tests pass it today.
+ * @param {'earlier'|null} [args.direction]  `earlier`: the page before `beforeId` (see above).
+ * @param {string|null} [args.beforeId]  The oldest window line of the last view shown (createPullViews).
  * @param {object|null} [args.trigger]   A routed call (normalized), always shown (the channel's copy), see above.
  * @param {object[]} [args.pings]        The stored ring of calls (`state.json` `elsewherePings`, any channel):
  *   `{ messageId, channelId, ts, answeredAt, skippedAt }`; only this channel's unexpired entries count
@@ -454,6 +488,8 @@ export async function fetchPull({
   partner = null,
   reason = null,
   anchorId = null,
+  direction = null,
+  beforeId = null,
   trigger = null,
   pings = [],
   config,
@@ -487,7 +523,9 @@ export async function fetchPull({
 
   const normalizeOptions = { embedTextChars: config?.media?.embedTextChars, videoSites: config?.media?.video?.sites };
   const limit = Math.min(PAGE, Math.max(settings.maxMessages, settings.minMessages) + 1);
-  const page = await fetchPage(channel, { anchorId: anchor, limit, selfId, ...normalizeOptions }, logIds);
+  const earlierPull = direction === 'earlier';
+  const before = earlierPull && anchor === null && typeof beforeId === 'string' && beforeId !== '' ? beforeId : null;
+  const page = await fetchPage(channel, { anchorId: anchor, beforeId: before, limit, selfId, ...normalizeOptions }, logIds);
   if (page === null) return skipWith('fetch-failed');
 
   const window = pullWindow(page, {
@@ -512,8 +550,10 @@ export async function fetchPull({
   // The routed trigger, as the channel holds it now; a deleted one ends the pull.
   const triggerId = isTriggerOf(trigger, channel.id) ? trigger.id : null;
   if (triggerId !== null && !shownIds.has(triggerId)) {
+    // The page's span: from its oldest message to the anchor, the earlier page's newest one, or now.
+    const pageEnd = anchorTs ?? (before !== null ? page.at(-1).ts : null);
     const deleted =
-      !pageById.has(triggerId) && trigger.ts > page[0].ts && (anchorTs === null || trigger.ts <= anchorTs);
+      !pageById.has(triggerId) && trigger.ts > page[0].ts && (pageEnd === null || trigger.ts <= pageEnd);
     const line = deleted ? null : await byId(triggerId);
     if (!line) return skipWith('trigger-gone');
     shown.push(line);
@@ -572,6 +612,9 @@ export async function fetchPull({
   log.info('pull: channel', {
     ...logIds,
     pullReason: reason,
+    direction: earlierPull ? 'earlier' : null,
+    ...(earlierPull ? { beforeId: before !== null } : {}),
+    ...(earlierPull && before === null ? { pullDirection: 'earlier-no-previous' } : {}),
     messages: shown.length,
     earlier,
     earlierGone: wanted.length - earlier,

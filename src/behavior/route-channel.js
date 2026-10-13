@@ -38,15 +38,16 @@ import {
  * channel. Else one request on classifierTextModel, its answer capped at
  * `route.maxOutputTokens`, with the helper timeout, logged `route:
  * classified` (`kind`, `channels` = the list length, `pick` = the channel id
- * or null, `parse` = the parse code, `ms`). Resolves `[id]` for a pick, else
- * `[]`; never rejects: a failure logs `route: failed` (`reason`: the rail
+ * or null, `parse` = the parse code, `direction`, `ms`). Resolves `[id]` for a
+ * pick, `[{ id, direction: 'earlier' }]` for a pick that asks for the page
+ * before the last view of that channel (parseRouteAnswer), else `[]`; never rejects: a failure logs `route: failed` (`reason`: the rail
  * code of a refused or failed request, `error` for anything else). Counts,
  * ids and codes only: never a message text, never a channel name.
  * @param {{ hot: { config: object, prompts: object }, store: object, llm: { complete: Function },
  *   now?: () => number }} deps
  * @returns {(args: { guildId: string, channel: object, guild?: object|null, partner?: object|null,
  *   history: object[], trigger: object|null, triggerKind?: string|null, selfName: string,
- *   config?: object }) => Promise<string[]>}  `guild`: the served guild (default: the channel's).
+ *   config?: object }) => Promise<Array<string|{ id: string, direction: 'earlier' }>>}  `guild`: the served guild (default: the channel's).
  */
 export function createChannelRouter({ hot, store, llm, now = Date.now }) {
   return async function routeChannels({ guildId, channel, guild = channel?.guild ?? null, partner = null, history, trigger = null, triggerKind = null, selfName }) {
@@ -109,10 +110,11 @@ export function createChannelRouter({ hot, store, llm, now = Date.now }) {
         log.warn('route: failed', { channel: channelId, reason: railReason(err), status: err?.statusCode ?? null, name: err?.name ?? null });
         return [];
       }
-      const { index, reason } = parseRouteAnswer(completion?.text, ids.length);
+      const { index, reason, direction } = parseRouteAnswer(completion?.text, ids.length);
       const pick = index === null ? null : ids[index - 1];
-      log.info('route: classified', { channel: channelId, kind: triggerKind ?? null, channels: ids.length, pick, parse: reason, ms: now() - at });
-      return pick ? [pick] : [];
+      log.info('route: classified', { channel: channelId, kind: triggerKind ?? null, channels: ids.length, pick, parse: reason, direction: pick ? direction : null, ms: now() - at });
+      if (!pick) return [];
+      return direction === 'earlier' ? [{ id: pick, direction }] : [pick];
     } catch (err) {
       log.warn('route: failed', { channel: channelId, reason: 'error', status: null, name: err?.name ?? null });
       return [];

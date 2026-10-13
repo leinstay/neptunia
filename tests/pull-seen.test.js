@@ -123,6 +123,7 @@ test('pull seen: a first view carries no seen line and reports its ids, hashes a
   assert.equal(shown.channelId, SRC);
   assert.deepEqual([...shown.hashes.keys()], ['p4', 'p5', 'p6']);
   assert.equal(shown.oldestTs, NOW - 40 * MIN);
+  assert.equal(shown.oldestId, 'p4', 'the oldest window line shown, for an earlier page to start before');
   assert.equal(built.stats.pulled.seenFresh, undefined);
 });
 
@@ -133,6 +134,14 @@ test('pull seen: the same ids and content within the TTL -> seenSame right after
   assert.equal(view.length, 5);
   assert.equal(built.stats.pulled.seenFresh, 0);
   assert.equal(built.stats.pulled.seenOlder, 0);
+});
+
+test('pull seen: an earlier page counts every line as new and older than the last view', () => {
+  const earlier = [line('p1', 70), line('p2', 60), line('p3', 50)];
+  const built = request(earlier, { seenBefore: shownBefore(request(PAGE), 2) });
+  assert.equal(viewOf(built)[1], fill(labels.pull.seenBefore, { fresh: 3, older: 3, ago: ago(2) }));
+  assert.equal(built.stats.pulled.seenOlder, 3);
+  assert.equal(built.pulledViews[0].oldestId, 'p1', 'the next earlier page starts before this one');
 });
 
 test('pull seen: two new messages at the bottom -> seenBefore with fresh 2, older 0', () => {
@@ -174,6 +183,7 @@ test('createPullViews: a view is found for the same destination and source withi
   const previous = views.previous(DEST, SRC, { now: NOW, ttlMinutes: 120 });
   assert.equal(previous.shownAt, NOW - 30 * MIN);
   assert.equal(previous.oldestTs, NOW - 40 * MIN);
+  assert.equal(previous.oldestId, 'p4');
   assert.deepEqual([...previous.hashes.keys()], ['p4', 'p5', 'p6']);
 });
 

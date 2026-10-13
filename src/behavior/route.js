@@ -246,29 +246,38 @@ const WRAPPING = /^["'`«“‘]+|["'`»”’]+$/gu;
 /** Punctuation that may trail the answer. */
 const TRAILING = /[.,;:!?…]+$/u;
 
+/** The words after a number that ask for the page before the last view of that channel. */
+const EARLIER_WORDS = new Set(['earlier', 'older']);
+
 /**
  * The classifier's answer: its first non-empty line, wrapping quotes and
  * trailing punctuation stripped. `none` as the first word (any case) ->
  * `{ index: null, reason: 'none' }`; a number (`3`, `#3`, `3.`) within
  * `1..count` -> `{ index, reason: 'pick' }` (1-based), outside it ->
- * `unknown-id`; nothing -> `empty`; anything else -> `unparsed`.
+ * `unknown-id`; nothing -> `empty`; anything else -> `unparsed`. A number may
+ * be followed by one word, `earlier` or `older` (any case): the same pick
+ * with `direction: 'earlier'` (the page before the last view of that
+ * channel); `direction` is null otherwise.
  * @param {unknown} raw
  * @param {number} count  How many lines the list had.
- * @returns {{ index: number|null, reason: 'pick'|'none'|'unknown-id'|'empty'|'unparsed' }}
+ * @returns {{ index: number|null, reason: 'pick'|'none'|'unknown-id'|'empty'|'unparsed', direction: 'earlier'|null }}
  */
 export function parseRouteAnswer(raw, count) {
+  const answer = (index, reason, direction = null) => ({ index, reason, direction });
   const first = String(raw ?? '')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find(Boolean);
-  if (!first) return { index: null, reason: 'empty' };
+  if (!first) return answer(null, 'empty');
   const text = first.replace(WRAPPING, '').trim().replace(TRAILING, '').trim();
-  if (!text) return { index: null, reason: 'empty' };
+  if (!text) return answer(null, 'empty');
   const word = text.split(/\s+/u)[0].replace(/[^\p{L}]/gu, '').toLowerCase();
-  if (word === 'none') return { index: null, reason: 'none' };
-  const number = /^#?(\d+)$/u.exec(text);
-  if (!number) return { index: null, reason: 'unparsed' };
+  if (word === 'none') return answer(null, 'none');
+  const number = /^#?(\d+)(?:\s+(\p{L}+))?$/u.exec(text);
+  if (!number) return answer(null, 'unparsed');
+  const direction = number[2] === undefined ? null : EARLIER_WORDS.has(number[2].toLowerCase()) ? 'earlier' : undefined;
+  if (direction === undefined) return answer(null, 'unparsed');
   const index = Number(number[1]);
-  if (!Number.isSafeInteger(index) || index < 1 || index > count) return { index: null, reason: 'unknown-id' };
-  return { index, reason: 'pick' };
+  if (!Number.isSafeInteger(index) || index < 1 || index > count) return answer(null, 'unknown-id');
+  return answer(index, 'pick', direction);
 }
