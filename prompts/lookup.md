@@ -18,6 +18,10 @@ When the question is about a person named in it who is not obviously someone in 
 when: <from> .. <to>
 When the question points at a time: a date, a holiday, "last winter", "yesterday". YYYY-MM-DD or YYYY-MM-DD HH:MM on each side of `..`; one date alone means that whole day. A date said without a year is the nearest past one, counted from today. A question only about a time ("what happened on <date>") gets `when` alone.
 
+recent: yes | no
+<!-- nep-writer: wording -->
+[PLACEHOLDER for nep-writer: when to answer `recent: yes`. Protocol: `yes` marks a vague "recently" without a date; it only qualifies the other lines and alone asks nothing.]
+
 Both `web` and server lines together when the question could be about the outside world or about this server and the message does not say which.
 
 none

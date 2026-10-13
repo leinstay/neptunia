@@ -299,7 +299,11 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `maxPerDay` | `100` | Daily recall runs (stored in `state.json` as `recallDay` / `recallCount`) |
 | `timeoutMs` | `10000` | Total time for the recall run (search, windows, summary). Once half the time is gone no further search is sent; the summary runs only when at least `minSummaryMs` is left |
 | `minSummaryMs` | `2500` | Minimum time left for the summary helper to be asked. Without it the verbatim stretch of the top window is returned without a note |
-| `memoryItems` | `6` | Stored memory items (episodes, lore, lessons, recent lines) matched against the classifier's word forms and name forms and sent in the `<memory>` block of the recall summary. `0` turns the match off |
+| `memoryItems` | `6` | Stored memory items (episodes, lore, lessons, recent lines, and archived items) matched against the classifier's word forms and name forms and sent in the `<memory>` block of the recall summary. `0` turns the match off |
+| `memoryTokens` | `600` | Token budget of the `<memory>` block (estimated per line): lines are added in rank order until the next one would pass it. `0` = no line fits |
+| `archiveMonths` | `6` | Months of the archive (items that left hot memory: evicted, expired or replaced) searched for `<memory>` when the question has no `when:` range; with a range, the archive is searched from the range's start. Read as a stream, never loaded whole. `0` = the archive is searched only for a dated question |
+| `recordDays` | `3` | For a dated question or a vague "recently", the days of the record (every observed message on disk) read for matching lines: the last days of the `when:` range, or of now, at most this many. Matching lines become extra stretches marked `source: record`. `0` = the record is not read |
+| `recordContext` | `3` | Lines before and after each matching record line added to its stretch, besides the chain of messages it replies to |
 | `maxOutputTokens` | `500` | Max output tokens for the summary helper |
 
 ## `gifs`

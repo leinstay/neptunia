@@ -309,7 +309,7 @@
     "search": { "enabled": true, "maxPerTurn": 1, "results": 5, "summaryChars": 900, "maxOutputTokens": 400, "classifierMaxOutputTokens": 200, "cacheHours": 24, "contextMessages": 50, "timeoutMs": 10000 }
   },
   "participation": { "hours": 72, "linesBefore": 3, "linesAfter": 1, "followMinutes": 10, "mergeGapMinutes": 10, "contextMinutes": 30, "maxMessages": 32, "maxStored": 120, "maxTextChars": 400, "shown": 4, "perChannel": 2, "episodeChars": 1800, "contextMessages": 6, "maxOutputTokens": 60 },
-  "recall": { "maxForms": 5, "maxPeople": 2, "dateSamples": 4, "clusterGapMinutes": 30, "maxClusters": 5, "keepOldest": 0, "rareHits": 5, "windowMessages": 16, "answerChars": 1200, "stretchChars": 1500, "maxPerDay": 100, "timeoutMs": 10000, "minSummaryMs": 2500, "memoryItems": 6, "maxOutputTokens": 500, "selfBonus": 1, "selfExtra": 2, "contextMessages": 6, "traceMaxLines": 500 },
+  "recall": { "maxForms": 5, "maxPeople": 2, "dateSamples": 4, "clusterGapMinutes": 30, "maxClusters": 5, "keepOldest": 0, "rareHits": 5, "windowMessages": 16, "answerChars": 1200, "stretchChars": 1500, "maxPerDay": 100, "timeoutMs": 10000, "minSummaryMs": 2500, "memoryItems": 6, "maxOutputTokens": 500, "selfBonus": 1, "selfExtra": 2, "contextMessages": 6, "traceMaxLines": 500, "memoryTokens": 600, "recordDays": 3, "recordContext": 3, "archiveMonths": 6 },
   "image": {
     "model": "openai/gpt-image-2.5-flare",
     "maxPerDay": 50,

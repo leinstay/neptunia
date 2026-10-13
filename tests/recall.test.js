@@ -12,7 +12,9 @@ import {
   cutStretch,
   dropChatHits,
   fallbackWindow,
+  isRecentCue,
   matchMemory,
+  matchRecord,
   mergeWindows,
   parseLookupAnswer,
   parseRecallAnswer,
@@ -23,11 +25,17 @@ import {
   recallSettings,
   renderRecallWindows,
   sampleOffsets,
+  scanArchive,
   searchPlan,
   snowflakeAt,
 } from '../src/behavior/recall.js';
+import { estimateTokens } from '../src/llm/tokens.js';
+import { createAppendStore } from '../src/memory/append-store.js';
+import { createRecord, toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
-import { readFileSync } from 'node:fs';
+import fs, { readFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const SHIPPED_CONFIG = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 
@@ -826,4 +834,189 @@ test('mergeWindows: a merged window overlaps the chat when any of its parts does
     { channelId: 'c2', channelName: 'garden', messages: [msg('n1', t)], hitIds: ['n1'] },
   ]);
   assert.deepEqual(merged.map((w) => w.overlapsChat), [true, false]);
+});
+
+// ---- the archive and the recent record as sources -------------------------------------------
+
+/** An archive entry as src/memory/archive.js#archiveEntry writes it (the fields recall reads). */
+function archived(itemKind, itemId, text, { observedAt = { date: '2026-08-01', precision: 'day' }, scope = { user: ANA }, recordedAt = '2026-10-01T00:00:00.000Z', neutral = null, weight } = {}) {
+  return { v: 1, id: `a-${itemId}-${recordedAt}`, kind: 'archive', event: 'evicted', itemKind, itemId, revisionId: `rv-${recordedAt}`, scope, participants: scope.user ? [scope.user] : [], observedAt, neutral, text, ...(weight === undefined ? {} : { weight }), stored: {}, recordedAt, guildId: 'g1' };
+}
+
+test('recall: archive hits render as archived <kind> with the date and dedupe against hot by itemId', async () => {
+  const profiles = [{ id: ANA, names: ['Ana'], aliases: [], episodes: [{ ...ep('2026-10-02', 'fed the κουνέλι'), itemId: 'ep-hot' }] }];
+  const entries = [
+    archived('episode', 'ep-hot', { what: 'fed the κουνέλι an old carrot' }, { observedAt: { date: '2026-10-02', precision: 'day' } }),
+    archived('episode', 'ep-old', { what: 'buried the κουνέλι', quote: '', feeling: '' }, { recordedAt: '2026-09-01T00:00:00.000Z' }),
+    archived('episode', 'ep-old', { what: 'buried the κουνέλι under the oak', quote: 'αντίο', feeling: '' }, { recordedAt: '2026-09-20T00:00:00.000Z' }),
+    archived('episode', 'ep-felt', { what: 'a quiet evening', feeling: 'the κουνέλι made her sad' }),
+    archived('interest', 'in-1', { topic: 'pets', note: 'keeps one' }, { neutral: 'Ana keeps a κουνέλι', observedAt: { date: '2026-07-01T22:30:00.000Z', precision: 'time' } }),
+  ];
+  const scanned = await scanArchive((async function* () { yield* entries; })(), { forms: ['κουνέλι'], profiles, max: 6, timezone: BERLIN });
+  assert.ok(!scanned.some((e) => e.itemId === 'ep-felt'), 'a feeling is never searched');
+  const items = matchMemory({ forms: ['κουνέλι'], profiles, archived: scanned, max: 10, timezone: BERLIN });
+  assert.deepEqual(
+    items.map((i) => [i.kind, i.itemId, i.date, i.memberId, i.text]),
+    [
+      ['episode', 'ep-hot', '2026-10-02', ANA, 'fed the κουνέλι'],
+      ['archived episode', 'ep-old', '2026-08-01', ANA, 'buried the κουνέλι under the oak "αντίο"'],
+      ['archived interest', 'in-1', '2026-07-02', ANA, 'pets: keeps one'],
+    ],
+    'the hot copy wins its itemId, the newest revision of an archived item stands for it, a time is dated in the zone',
+  );
+  const user = buildRecallRequest({ prompt: 'p', selfName: 'Zoë', question: { authorName: 'Nikos', content: 'q' }, windows: [], memory: items, nameOf: (id) => (id === ANA ? 'Ana' : null), labels, timezone: BERLIN, answerChars: 100 })[1].content;
+  assert.ok(user.includes('archived episode | 2026-08-01 | Ana | buried the κουνέλι under the oak "αντίο"'), user);
+  const ranged = matchMemory({ forms: ['κουνέλι'], profiles, archived: scanned, from: Date.UTC(2026, 6, 25), to: Date.UTC(2026, 7, 5), max: 10, timezone: BERLIN });
+  assert.deepEqual(ranged.map((i) => i.itemId), ['ep-old'], 'a when: range matches observedAt');
+});
+
+test('recall: a vague recently ranks recency first and her own exchanges first', () => {
+  assert.equal(parseLookupAnswer('server: κουνέλι\nrecent: yes', { now: NOW }).server.recent, true);
+  assert.equal('recent' in parseLookupAnswer('server: κουνέλι\nrecent: no', { now: NOW }).server, false);
+  assert.deepEqual(parseLookupAnswer('recent: yes', { now: NOW }), { web: null, server: null, reason: 'none' }, 'recent alone asks nothing');
+  const DAY = 24 * HOUR;
+  assert.equal(isRecentCue({ forms: ['κουνέλι'], who: [], from: null, to: null, recent: true }, { now: NOW, recordDays: 3 }), true);
+  assert.equal(isRecentCue({ forms: ['κουνέλι'], who: [], from: null, to: null }, { now: NOW, recordDays: 3 }), false);
+  assert.equal(isRecentCue({ forms: [], who: [], from: NOW - 2 * DAY, to: NOW }, { now: NOW, recordDays: 3 }), true, 'a range over the last days');
+  assert.equal(isRecentCue({ forms: [], who: [], from: NOW - 30 * DAY, to: NOW - 20 * DAY, recent: true }, { now: NOW, recordDays: 3 }), false, 'a dated range wins over the flag');
+
+  const profiles = [{ id: ANA, names: ['Ana'], episodes: [{ ...ep('2026-10-04', 'κουνέλι and καρότο'), itemId: 'ep-a' }] }];
+  const recentLines = [{ id: 1, itemId: 'rc-1', at: Date.UTC(2026, 9, 5, 9), channelId: 'c1', text: 'a κουνέλι ran past', weight: 2 }];
+  const entries = [
+    archived('episode', 'ep-b', { what: 'the κουνέλι escaped' }, { observedAt: { date: '2026-10-03', precision: 'day' } }),
+    archived(
+      'participation',
+      'pt-1',
+      {
+        messages: [
+          { id: 'p1', ts: Date.UTC(2026, 9, 2, 10), authorId: ANA, name: 'Ana', self: false, text: 'look, a κουνέλι' },
+          { id: 'p2', ts: Date.UTC(2026, 9, 2, 10, 1), authorId: '', name: 'Zoë', self: true, text: 'so fluffy' },
+        ],
+      },
+      { observedAt: { date: '2026-10-02T10:00:00.000Z', precision: 'time' }, scope: { channel: 'c2' } },
+    ),
+  ];
+  const ask = (recent) => matchMemory({ forms: ['κουνέλι', 'καρότο'], profiles, recentLines, archived: entries, max: 10, timezone: 'UTC', recent }).map((i) => i.itemId);
+  assert.deepEqual(ask(false), ['ep-a', 'rc-1', 'ep-b', 'pt-1'], 'by score, then weight, then the newer');
+  assert.deepEqual(ask(true), ['pt-1', 'rc-1', 'ep-a', 'ep-b'], 'her own exchange first, then the newest');
+  const own = matchMemory({ forms: ['κουνέλι'], archived: entries, max: 10, timezone: 'UTC', recent: true });
+  assert.equal(own[0].self, true);
+  assert.equal(own[0].text, 'Ana: look, a κουνέλι / Zoë: so fluffy');
+});
+
+test('recall: the memory block stops at memoryTokens', () => {
+  const memory = [
+    { kind: 'episode', text: 'one κουνέλι line', date: '2026-10-01', memberId: null, score: 1 },
+    { kind: 'lore', text: 'two: a longer lore text about the garden', date: null, memberId: null, score: 1 },
+    { kind: 'learned', text: 'three', date: null, memberId: null, score: 1 },
+  ];
+  const lines = ['episode | 2026-10-01 | - | one κουνέλι line', 'lore | - | - | two: a longer lore text about the garden', 'learned | - | - | three'];
+  const base = { prompt: 'p', selfName: 'Zoë', question: { authorName: 'Nikos', content: 'q' }, windows: [], memory, labels, timezone: 'UTC', answerChars: 100 };
+  const memoryBlock = (cap) => {
+    const out = buildRecallRequest({ ...base, memoryTokens: cap });
+    return out ? out[1].content.split('\n<question>')[0] : null;
+  };
+  const [a, b] = lines.map((l) => estimateTokens(l));
+  assert.equal(memoryBlock(a + b), ['<memory>', lines[0], lines[1], '</memory>'].join('\n'));
+  assert.equal(memoryBlock(a + b - 1), ['<memory>', lines[0], '</memory>'].join('\n'), 'the block stops at the first line that does not fit');
+  assert.equal(memoryBlock(a - 1), null, 'no line fits and no window: nothing to ask');
+  assert.equal(memoryBlock(undefined), ['<memory>', ...lines, '</memory>'].join('\n'), 'no cap given');
+  assert.equal(recallSettings({}).memoryTokens, SHIPPED_CONFIG.recall.memoryTokens);
+  assert.equal(recallSettings({ recall: { recordDays: 0 } }).recordDays, 0, 'the record reader off');
+  assert.equal(recallSettings({ recall: { archiveMonths: 0 } }).archiveMonths, 0, 'the archive not searched');
+});
+
+/** A record line of `channelId` (src/memory/record.js#toRecordLine), `kind` seen unless said. */
+function rec(id, ts, { channelId = 'c2', by = ANA, text = `line ${id}`, replyTo = null, kind = 'seen', revision = 1 } = {}) {
+  return toRecordLine({ id, channelId, authorId: by, content: text, ts, replyToId: replyTo }, { kind, revision, now: () => NOW, uuid: () => `x-${id}-${revision}` });
+}
+
+/** A fake record over `lines`: iterate keeps the query's [from, to] on occurredAt and notes each query. */
+function fakeRecord(lines) {
+  const queries = [];
+  return {
+    queries,
+    async *iterate(guildId, query = {}) {
+      queries.push({ guildId, ...query });
+      const from = query.from ? Date.parse(query.from) : -Infinity;
+      const to = query.to ? Date.parse(query.to) : Infinity;
+      for (const line of lines) {
+        const at = Date.parse(line.occurredAt);
+        if (at >= from && at <= to) yield line;
+      }
+    },
+  };
+}
+
+test('recall: the record reader returns the matching lines with reply chain and recordContext neighbours from the last recordDays', async () => {
+  const T = NOW - 20 * HOUR;
+  const lines = [
+    rec('old', NOW - 2.5 * 24 * HOUR - 5 * HOUR, { text: 'το κουνέλι long ago' }),
+    rec('q1', T - 5 * HOUR, { by: ELO, text: 'who has a pet' }),
+    rec('q2', T - 4 * HOUR, { text: 'I do', replyTo: 'q1' }),
+    rec('f1', T - 4 * MINUTE),
+    rec('f2', T - 3 * MINUTE),
+    rec('f3', T - 2 * MINUTE),
+    rec('f4', T - MINUTE),
+    rec('h1', T, { by: KITE, text: 'το κουνέλι μου', replyTo: 'q2' }),
+    rec('other', T + 30_000, { channelId: 'c1', text: 'unrelated' }),
+    rec('n1', T + MINUTE, { kind: 'said', text: 'ωραίο' }),
+    rec('n2', T + 2 * MINUTE, { text: 'x' }),
+    rec('n2', T + 2 * MINUTE, { text: 'x edited', revision: 2 }),
+    rec('n3', T + 3 * MINUTE, { text: 'gone' }),
+    { ...rec('n3', T + 3 * MINUTE), kind: 'deleted' },
+    rec('n4', T + 4 * MINUTE),
+    rec('n5', T + 5 * MINUTE),
+    rec('k1', T + 2 * HOUR, { channelId: 'c3', text: 'ask Κιτέζου' }),
+  ];
+  const record = fakeRecord(lines);
+  const names = { [ANA]: 'Ana', [ELO]: 'Éloïse', [KITE]: 'Kitezu' };
+  const options = { record, range: { from: null, to: null }, participants: [], forms: ['κουνέλι'], aliases: [], recordDays: 2, recordContext: 3, now: NOW, maxWindows: 5, nameOf: (id) => names[id] ?? null, selfName: 'Zoë' };
+  const { windows } = await matchRecord('g1', options);
+  assert.equal(windows.length, 1, 'the line older than recordDays is not read');
+  const [window] = windows;
+  assert.equal(window.source, 'record');
+  assert.equal(window.channelId, 'c2');
+  assert.deepEqual(window.messages.map((m) => m.id), ['q1', 'q2', 'f2', 'f3', 'f4', 'h1', 'n1', 'n2', 'n4'], 'the reply chain, three before, three after (a deleted line is gone)');
+  assert.deepEqual([...window.hitIds], ['h1']);
+  const byId = Object.fromEntries(window.messages.map((m) => [m.id, m]));
+  assert.deepEqual([byId.n1.self, byId.n1.authorName, byId.h1.authorName, byId.n2.content, byId.h1.replyToId], [true, 'Zoë', 'Kitezu', 'x edited', 'q2']);
+  assert.equal(record.queries[0].from, new Date(NOW - 2 * 24 * HOUR).toISOString(), 'never further back than recordDays');
+
+  const aliased = await matchRecord('g1', { ...options, forms: [], aliases: ['κιτέζου'] });
+  assert.deepEqual(aliased.windows.map((w) => [...w.hitIds]), [['k1']], 'an alias matches as a whole word');
+  const person = await matchRecord('g1', { ...options, forms: [], participants: [ELO] });
+  assert.deepEqual(person.windows.flatMap((w) => [...w.hitIds]), ['q1'], 'a participant matches the lines naming them');
+  const off = await matchRecord('g1', { ...options, recordDays: 0 });
+  assert.equal(off.windows.length, 0);
+});
+
+test('recall: a record line outside the range is not scanned', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-recall-record-'));
+  const quiet = { info() {}, warn() {} };
+  try {
+    const appendStore = createAppendStore({ fsyncMs: 0, log: quiet });
+    const opened = [];
+    const watched = {
+      ...appendStore,
+      iterate: (file, opts) => {
+        opened.push(path.basename(file));
+        return appendStore.iterate(file, opts);
+      },
+    };
+    const record = createRecord({ appendStore: watched, dataDir, log: quiet, now: () => NOW });
+    await record.append('g1', [rec('new', NOW - 24 * HOUR, { text: 'το κουνέλι today' }), rec('old', NOW - 5 * 24 * HOUR, { text: 'το κουνέλι back then' })]);
+    await appendStore.close();
+    const base = { record, participants: [], forms: ['κουνέλι'], aliases: [], recordDays: 3, recordContext: 3, now: NOW, maxWindows: 5 };
+    opened.length = 0;
+    const recent = await matchRecord('g1', { ...base, range: { from: null, to: null } });
+    assert.deepEqual(recent.windows.flatMap((w) => [...w.hitIds]), ['new']);
+    assert.ok(!opened.includes('2026-09-30.jsonl'), `the old day file is never opened: ${opened}`);
+    opened.length = 0;
+    const back = await matchRecord('g1', { ...base, range: { from: NOW - 6 * 24 * HOUR, to: NOW - 4 * 24 * HOUR } });
+    assert.deepEqual(back.windows.flatMap((w) => [...w.hitIds]), ['old'], 'an older range reads its own days');
+    assert.ok(!opened.includes('2026-10-04.jsonl'), `${opened}`);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });
