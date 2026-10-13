@@ -29,7 +29,7 @@ export const DIARY_DAILY = { dayKey: 'diaryDay', countKey: 'diaryPosts' };
 export const DIARY_PICTURES_DAILY = { dayKey: 'diaryPicturesDay', countKey: 'diaryPictures' };
 
 const BRIEF_CHARS = 300;
-const TOPIC_CHARS = 300;
+const TOPIC_CHARS = 1000;
 const DEFAULT_GRACE_MINUTES = 30; // diary.slotGraceMinutes
 const DEFAULT_MAX_PER_DAY = 3; // diary.maxPerDay
 const DEFAULT_QUIET_DAY_CHANCE = 0.3; // diary.quietDayChance
@@ -504,7 +504,7 @@ export function renderSeedsBlock(sets, labels) {
 
 /**
  * The owner's topic for a forced post (`/nep diary post topic`): one line,
- * cut at a word boundary to at most 300 characters. Null for a missing,
+ * cut at a word boundary to at most 1000 characters. Null for a missing,
  * non-string or blank topic.
  * @param {unknown} text
  * @returns {string|null}
@@ -605,7 +605,7 @@ function writable(channel) {
  * un-marks the slot, so the next tick retries it within the grace; a `spoke`
  * one appends it to the plan's `posted` (what feeds a window). One post
  * at a time. `force({ kind, topic })` runs one post now, outside the plan and
- * the quiet day, under the same rails; a topic (diaryTopic: one line, 300
+ * the quiet day, under the same rails; a topic (diaryTopic: one line, 1000
  * characters at most; blank is none) reaches the turn as `diary.topic`, and
  * no topic leaves the field out; while another turn holds the one attention
  * (`turns.isAnyBusy()`, or a `busy` outcome) it waits for `turns.waitIdle()`

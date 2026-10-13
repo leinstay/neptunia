@@ -498,7 +498,7 @@ export function buildCommandTree(commandName) {
               description: 'Post one entry now.',
               options: [
                 { type: STRING, name: 'kind', description: 'Kind.', required: false },
-                { type: STRING, name: 'topic', description: 'Topic.', required: false, max_length: 300 },
+                { type: STRING, name: 'topic', description: 'Topic.', required: false, max_length: 1000 },
               ],
             },
           ],

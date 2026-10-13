@@ -878,8 +878,8 @@ test('force: passes kind and topic to the turn', async () => {
   await h.diary.force({ kind: 'meme', topic: '  une  promenade\n au port  ' });
   assert.deepEqual(h.turnCalls[0].params.diary, { kind: 'meme', topic: 'une promenade au port', forced: true });
   const long = diaryHarness();
-  await long.diary.force({ topic: 'é'.repeat(400) });
-  assert.ok([...long.turnCalls[0].params.diary.topic].length <= 300, 'the topic is clamped to 300 characters');
+  await long.diary.force({ topic: 'é'.repeat(1200) });
+  assert.ok([...long.turnCalls[0].params.diary.topic].length <= 1000, 'the topic is clamped to 1000 characters');
   const blank = diaryHarness();
   await blank.diary.force({ topic: '   ' });
   assert.deepEqual(blank.turnCalls[0].params.diary, { kind: null, forced: true }, 'a blank topic is none');

@@ -105,7 +105,7 @@
 | `<found>` | 日記の検索結果: `labels.diary.found`、次に検索結果テキスト。計画が検索を要求し結果があった場合のみ。予算では `<lookup>` の直後 |
 | `<kinds>` | 投稿種類と重み・使用回数: `labels.diary.kinds`、次に正の重みを持つ種類ごとに `labels.diary.kindLine`; 投稿が画像を含められない場合、`diary.pictureKinds` の種類は除外される。カットされない |
 | `<seeds>` | ランダムシード組み合わせ: `labels.diary.seeds`、次にセットごとに `- a; b; c`。計画リクエストのみ。ファイルなしまたは `diary.seedSets` = 0 で省略。カットされない |
-| `<topic>` | オーナーの強制投稿の題材（`/nep diary post [kind] [topic]`）: `labels.diary.topic`、次にトピック 1 行、最大 300 文字。計画リクエストのみ、`<seeds>` の直後、トピック指定時のみ。カットされない |
+| `<topic>` | オーナーの強制投稿の題材（`/nep diary post [kind] [topic]`）: `labels.diary.topic`、次にトピック 1 行、最大 1000 文字。計画リクエストのみ、`<seeds>` の直後、トピック指定時のみ。カットされない |
 | `<task>` | `reply` / `follow-up`（`follow-up.md` が存在する場合、`followUp` と @メンションのない `reply` 用）/ `interject` / `initiate` / `overheard`（`overheard.md` が存在する場合）/ `elsewhere`（`elsewhere.md` が存在する場合、注目コメント用）/ `diary`（`diary.md` が存在する場合、日記投稿用）、プレースホルダー補完済み。モードプロンプトの後、条件が成立する場合に最大 3 つの `task.*` ラベルが追加（それぞれ空行で区切り）: 分割メッセージの 1 パートに応答するターンでは `task.part`、またはトリガー著者が他の呼びかけを待機中なら `task.queued`。次に他のメンバーがチャンネルで呼びかけを待機中なら `task.queuedOthers`。次に後のメッセージがこの呼びかけに統合されていれば `task.added`。`labels.task.*` を参照 |
 
 バジェットの優先順位（このリストの下からセクションがトリムされる）: system + task + clock + tempo + senses
