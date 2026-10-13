@@ -28,6 +28,7 @@ import {
   MEMORY_VOICE_REQUEST,
 } from '../src/llm/openrouter.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createLimits } from '../src/llm/limits.js';
 
 function baseConfig(overrides = {}) {
   return {
@@ -2798,4 +2799,40 @@ test('hedge: a choice-level error of the winning attempt is thrown, not hedged a
   assert.equal(calls.length, 1);
   assert.deepEqual(linesOf(logs, 'llm: usage'), []);
   assert.equal(linesOf(logs, 'llm: provider error').length, 1);
+});
+
+test('openrouter: estimate-off and output-cap are reported to the collector', async () => {
+  let usage = null;
+  const llm = createLlm({
+    apiKey: 'k',
+    getConfig: () => baseConfig({ safetyMargin: 0.9, maxOutputTokens: 100 }),
+    calibrator: fakeCalibrator(),
+    state: fakeState(),
+    fetchImpl: async () => okResponse('x', usage),
+  });
+  const messages = [{ role: 'user', content: 'λέξη '.repeat(80) }];
+
+  // The provider counted twice the estimate and the completion reached the request's max.
+  let limits = createLimits();
+  const probe = await llm.complete(messages, { limits: createLimits() });
+  usage = { prompt_tokens: probe.estimated * 2, completion_tokens: 100 };
+  const first = await llm.complete(messages, { purpose: 'reply', limits });
+  assert.deepEqual(limits.list(), [
+    { kind: 'estimate-off', where: 'reply', lost: first.estimated, detail: `${first.estimated}->${first.estimated * 2}` },
+    { kind: 'output-cap', where: 'completion', lost: null },
+  ]);
+
+  // Within the margin (10 %), and a completion under its own max: nothing to report.
+  limits = createLimits();
+  usage = { prompt_tokens: Math.floor(first.estimated * 1.1), completion_tokens: 40 };
+  await llm.complete(messages, { purpose: 'reply', maxOutputTokens: 50, limits });
+  assert.deepEqual(limits.list(), []);
+
+  // The request's own max counts, not llm.maxOutputTokens.
+  usage = { prompt_tokens: first.estimated, completion_tokens: 50 };
+  await llm.complete(messages, { maxOutputTokens: 50, limits });
+  assert.deepEqual(limits.list(), [{ kind: 'output-cap', where: 'completion', lost: null }]);
+
+  // No collector: nothing breaks.
+  await llm.complete(messages);
 });

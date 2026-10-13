@@ -26,11 +26,13 @@
 // Memory is persistent: nothing here ever wipes it — a failed update just
 // leaves the buffer alone and backs off for a while.
 
+import { createHash, randomUUID } from 'node:crypto';
 import { isPlainObject } from '../config.js';
 import { fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../llm/budget.js';
 import { formatClock, formatDate, formatTranscript, renderTranscript } from '../discord/format.js';
 import { parseJsonObject } from '../llm/parse.js';
 import { DailyCapError, MEMORY_VOICE_REQUEST, TokenLimitError, dailyCapOf, railReason } from '../llm/openrouter.js';
+import { createLimits } from '../llm/limits.js';
 import { isDescribable, mediaParts, stickerUrl } from '../discord/media.js';
 import { log } from '../log.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, bumpDaily, dailyCounter } from '../time.js';
@@ -1135,6 +1137,38 @@ function leadingRun(items, kept) {
   return n;
 }
 
+/** How many characters (code points) of `text`, trimmed, `kept` left out; 0 when nothing was. */
+function lostChars(text, kept) {
+  if (typeof text !== 'string') return 0;
+  return Math.max(0, [...text.trim()].length - [...(typeof kept === 'string' ? kept : '')].length);
+}
+
+/**
+ * `clampText(text, limit)`, and a cut told to `limits` (src/llm/limits.js#createLimits, may be
+ * null) as a `clamp` of `field` with the characters lost: a stored text is never cut silently.
+ * @returns {string}
+ */
+function clampReported(text, limit, tolerance, limits, field) {
+  const kept = clampText(text, limit, { tolerance });
+  const lost = lostChars(text, kept);
+  if (lost > 0) limits?.add({ kind: 'clamp', where: field, lost });
+  return kept;
+}
+
+/**
+ * A prose verdict (src/memory/prose.js#acceptProse) told to `limits` (may be null): a rewrite
+ * refused over its limit as an `over-limit` of `field` (`lost`: the characters over it), a first
+ * write cut to its limit as a `clamp` (`lost`: the characters cut).
+ */
+function reportProse(limits, field, verdict, next, limit) {
+  if (!limits || typeof next !== 'string') return;
+  if (verdict.outcome === 'over') limits.add({ kind: 'over-limit', where: field, lost: Math.max(0, [...next.trim()].length - Number(limit)) });
+  else if (verdict.outcome === 'first') {
+    const lost = lostChars(next, verdict.text);
+    if (lost > 0) limits.add({ kind: 'clamp', where: field, lost });
+  }
+}
+
 /**
  * An analyzer-written list (the guild's `injokes`, a single-stage `self`) as it is stored: each
  * string `clampText`-ed to `maxChars`, non-strings and results left empty by clamping (e.g. a lone
@@ -1147,10 +1181,12 @@ function leadingRun(items, kept) {
  * @param {number} maxItems  Not a finite number -> no cap.
  * @param {number} [tolerance]  `memory.clampTolerance`.
  * @param {unknown} [stored]  The list stored now (its non-strings ignored).
+ * @param {{ limits?: { add: Function }|null, field?: string }} [report]  Where an item cut by the
+ *   clamp is told (`clampReported`).
  * @returns {string[]}
  */
-function clampStringArray(value, maxChars, maxItems, tolerance, stored) {
-  const cleaned = value.map((item) => (typeof item === 'string' ? clampText(item, maxChars, { tolerance }) : '')).filter(Boolean);
+function clampStringArray(value, maxChars, maxItems, tolerance, stored, { limits = null, field = null } = {}) {
+  const cleaned = value.map((item) => (typeof item === 'string' ? clampReported(item, maxChars, tolerance, limits, field) : '')).filter(Boolean);
   const cap = Number.isFinite(maxItems) ? Math.max(0, Math.floor(maxItems)) : Infinity;
   if (cleaned.length <= cap) return cleaned;
   const storedKeys = new Set((Array.isArray(stored) ? stored : []).filter((item) => typeof item === 'string').map(normalizeTopic));
@@ -1182,10 +1218,11 @@ function clampStringArray(value, maxChars, maxItems, tolerance, stored) {
  * never a throw.
  * @param {unknown} raw
  * @param {{ tokenize: (text: string) => string, isKnownId: (id: string) => boolean,
- *   learnedChars: number, clampTolerance?: number }} deps
+ *   learnedChars: number, clampTolerance?: number, limits?: { add: Function }|null }} deps
+ *   `limits`: where a text cut by the clamp is told (`clampReported`, field `guild.learned`).
  * @returns {{ ops: { add: object[], seen: number[], remove: number[] }, added: number }|null}
  */
-function parseLearnedOps(raw, { tokenize, isKnownId, learnedChars, clampTolerance }) {
+function parseLearnedOps(raw, { tokenize, isKnownId, learnedChars, clampTolerance, limits = null }) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
 
   const add = [];
@@ -1193,7 +1230,7 @@ function parseLearnedOps(raw, { tokenize, isKnownId, learnedChars, clampToleranc
     const isObj = item && typeof item === 'object' && !Array.isArray(item);
     const rawText = isObj ? item.text : item;
     if (typeof rawText !== 'string') continue;
-    const text = clampText(tokenize(rawText), learnedChars, { tolerance: clampTolerance });
+    const text = clampReported(tokenize(rawText), learnedChars, clampTolerance, limits, 'guild.learned');
     if (!text) continue;
     const op = { text };
     const from = isObj ? teacherToken(item.from, isKnownId) : undefined;
@@ -1811,6 +1848,10 @@ export function reconcileNoteReviews({ flagged, reviews, changedChannels, guildC
  * @param {{ enabled: boolean, kept: number }} [options.versions]  The version history settings the
  *   store writers get: `features.versions` and `memory.versionsKept`, read by the caller at the
  *   moment of use. Omitted -> on, `cfg.versionsKept` (missing = 20, config.json's value).
+ * @param {{ add: Function }|null} [options.limits]  A collector (src/llm/limits.js#createLimits)
+ *   told every prose rewrite refused over its limit (`over-limit`, the field and the characters
+ *   over) and every text cut on its way in (`clamp`: a first prose write, a learned text, an
+ *   in-joke, a self fact; the field and the characters cut). Omitted -> nothing is told.
  *
  * Every prose field (a channel's purpose / topics / tone at `cfg.fieldChars`, the server notes'
  * patterns / starters at `cfg.fieldChars * 2`, a relationship at its limit, a portrait writer's
@@ -1856,7 +1897,7 @@ export function applyMemoryUpdate(
   update,
   cfg,
   knownUserIds,
-  { knownChannelIds = new Set(), aliasOnlyIds = new Set(), relationships, episodes, lore, recent, timing, batchAuthorNames, portraitFields = false, relationshipChars, by = 'analyzer', versions } = {},
+  { knownChannelIds = new Set(), aliasOnlyIds = new Set(), relationships, episodes, lore, recent, timing, batchAuthorNames, portraitFields = false, relationshipChars, by = 'analyzer', versions, limits = null } = {},
 ) {
   const result = {
     users: 0,
@@ -1905,6 +1946,7 @@ export function applyMemoryUpdate(
   // answer, or a rewrite over its limit -- left out whole and counted, never cut.
   const accepted = (name, previous, next, limit) => {
     const verdict = acceptProse(previous, next, limit, { tolerance: cfg.clampTolerance });
+    reportProse(limits, name, verdict, next, limit);
     if (verdict.outcome === 'over') {
       result.overLimit += 1;
       result.overLimitFields.push(name);
@@ -2097,7 +2139,7 @@ export function applyMemoryUpdate(
     }
     if (Array.isArray(g.injokes) && g.injokes.length) {
       // A new in-joke enters a full list, the last carried one leaves (clampStringArray).
-      const injokes = clampStringArray(tokenizeArray(g.injokes), INJOKE_CHARS, cfg.maxInjokes, cfg.clampTolerance, store.getGuild(guildId).injokes);
+      const injokes = clampStringArray(tokenizeArray(g.injokes), INJOKE_CHARS, cfg.maxInjokes, cfg.clampTolerance, store.getGuild(guildId).injokes, { limits, field: 'guild.injokes' });
       if (injokes.length) guildFields.injokes = injokes;
     }
   }
@@ -2127,6 +2169,7 @@ export function applyMemoryUpdate(
     isKnownId,
     learnedChars: cfg.learnedChars ?? MEMORY_LIMIT_DEFAULTS.learnedChars,
     clampTolerance: cfg.clampTolerance,
+    limits,
   });
   if (learned) {
     store.applyLearnedOps(guildId, learned.ops, learnedOpsOptions(cfg, timing?.seenAt ?? relationships?.now ?? episodes?.now ?? Date.now()));
@@ -2149,7 +2192,7 @@ export function applyMemoryUpdate(
     });
     logSelfDropped(guildId, result.selfDropped);
     // The single-stage list replaces the stored one; a new fact enters a full list (clampStringArray).
-    const self = clampStringArray(proposed, SELF_CHARS, cfg.maxSelfFacts, cfg.clampTolerance, storedSelf);
+    const self = clampStringArray(proposed, SELF_CHARS, cfg.maxSelfFacts, cfg.clampTolerance, storedSelf, { limits, field: 'guild.self' });
     if (self.length > 0) {
       // Counted only when the stored list moves: a list returned unchanged is no change (and unstamped).
       const before = fieldsSnapshot(store.getGuild(guildId), ['self']);
@@ -2210,8 +2253,9 @@ function hasContent(value) {
  * @param {{ relationships?: object, episodes?: object, timing?: object, batchAuthorNames?: Map<string, string>,
  *   relationshipChars?: number }} [options]
  *   As for `applyMemoryUpdate` (`timing` from `computeSeenAt`, `batchAuthorNames` from
- *   `batchAuthorNamesMap`, `relationshipChars` the text's limit); there is no channel, lore or
- *   guild here. A written private relationship is stamped in the private layer: the EFFECTIVE
+ *   `batchAuthorNamesMap`, `relationshipChars` the text's limit, `limits` the collector told a
+ *   refused or clamped relationship text); there is no channel, lore or guild here. A written
+ *   private relationship is stamped in the private layer: the EFFECTIVE
  *   score after this batch's delta and the batch clock (`relationshipWrittenAt`), the clock this
  *   batch's private move is stamped with, so the move is not one since the text.
  * A relationship text goes through src/memory/prose.js#acceptProse against the stored private
@@ -2223,7 +2267,7 @@ function hasContent(value) {
  *   `dropped.recent`: the items of a `recent` field (`add` and `remove` entries; a bare list's
  *   items), read as the guild apply reads the field (`recentFieldOf`).
  */
-export function applyPrivateUpdate(store, guildId, userId, update, cfg, { relationships, episodes, timing, batchAuthorNames, relationshipChars } = {}) {
+export function applyPrivateUpdate(store, guildId, userId, update, cfg, { relationships, episodes, timing, batchAuthorNames, relationshipChars, limits = null } = {}) {
   const id = String(userId);
   const result = {
     users: 0,
@@ -2257,7 +2301,9 @@ export function applyPrivateUpdate(store, guildId, userId, update, cfg, { relati
   if (typeof raw.relationship === 'string') {
     // A rewrite over the limit is refused whole, never cut (the store cuts only a first write); an
     // identical text is written again, renewing its stamps, as in applyMemoryUpdate.
-    const verdict = acceptProse(before?.relationship, tokenize(raw.relationship), relationshipLimit, { tolerance: cfg.clampTolerance });
+    const next = tokenize(raw.relationship);
+    const verdict = acceptProse(before?.relationship, next, relationshipLimit, { tolerance: cfg.clampTolerance });
+    reportProse(limits, 'private.relationship', verdict, next, relationshipLimit);
     if (verdict.outcome === 'first' || verdict.outcome === 'replaced' || verdict.outcome === 'same') ops.relationship = verdict.text;
     if (verdict.outcome === 'over') {
       result.overLimit += 1;
@@ -2713,6 +2759,114 @@ function storeNameOf(store, guildId) {
   return (id) => store.getUser(guildId, id)?.names?.[0] ?? null;
 }
 
+/** How many hex characters an episode's journal `key` keeps. */
+const EPISODE_KEY_CHARS = 12;
+/** The guild fields a memory record's `changed.guild` compares: the server notes and what the persona keeps about itself and was taught. */
+const TRACED_GUILD_FIELDS = ['patterns', 'starters', 'injokes', 'self', 'learned'];
+
+/**
+ * The journal `key` of a stored episode: the first EPISODE_KEY_CHARS hex characters of the
+ * sha256 of `date|what`. Names an episode stored before episodes carried an `itemId`.
+ * @param {{ date?: string, what?: string }} episode
+ * @returns {string}
+ */
+export function episodeKey(episode) {
+  const text = `${episode?.date ?? ''}|${episode?.what ?? ''}`;
+  return createHash('sha256').update(text).digest('hex').slice(0, EPISODE_KEY_CHARS);
+}
+
+/** The profile a trace reads for `userId`: the member's private layer in a private trace, else the public profile. */
+function tracedHolder(store, guildId, userId, privateUserId) {
+  return privateUserId ? (store.getPrivate?.(guildId, userId) ?? null) : (store.getUser(guildId, userId) ?? null);
+}
+
+/**
+ * What a memory record compares, read right before an apply: per member of `userIds` the profile
+ * (the private layer in a private trace) as JSON, its episode keys and its attitude score; for a
+ * guild trace the server notes, the self facts and the learned items. Synchronous with the apply
+ * that follows, so every difference is that apply's.
+ * @param {object} store
+ * @param {string} guildId
+ * @param {string[]} userIds
+ * @param {string|null} privateUserId  The DM partner of a private trace, else null.
+ * @returns {object}  For `traceAfter`.
+ */
+function traceBefore(store, guildId, userIds, privateUserId = null) {
+  const users = new Map();
+  for (const id of userIds) {
+    const holder = tracedHolder(store, guildId, id, privateUserId);
+    users.set(id, {
+      json: JSON.stringify(holder),
+      episodes: new Set((Array.isArray(holder?.episodes) ? holder.episodes : []).map(episodeKey)),
+      score: holder?.affinity?.score ?? 0,
+    });
+  }
+  const guild = privateUserId ? null : store.getGuild(guildId);
+  return {
+    privateUserId,
+    users,
+    guildJson: guild ? JSON.stringify(TRACED_GUILD_FIELDS.map((key) => guild[key])) : null,
+    learnedIds: new Set((Array.isArray(guild?.learned) ? guild.learned : []).map((item) => item?.id)),
+    self: new Set((Array.isArray(guild?.self) ? guild.self : []).filter((fact) => typeof fact === 'string')),
+  };
+}
+
+/**
+ * What changed since `traceBefore`, read from the store right after the apply: the members whose
+ * profile changed, the episodes stored new (`itemId` when the episode carries one, else null, and
+ * its `key`), the attitude moves (`delta` asked, `applied`, `reason` from the newest history
+ * entry; the score difference when no history is kept), the self facts and learned items added,
+ * and whether the guild fields changed.
+ * @returns {{ users: string[], guild: boolean, episodes: object[], attitude: object[], self: string[],
+ *   learned: { id: unknown, text: string }[] }}
+ */
+function traceAfter(store, guildId, before) {
+  const out = { users: [], guild: false, episodes: [], attitude: [], self: [], learned: [] };
+  for (const [id, prev] of before.users) {
+    const holder = tracedHolder(store, guildId, id, before.privateUserId);
+    if (JSON.stringify(holder) !== prev.json) out.users.push(id);
+    for (const episode of Array.isArray(holder?.episodes) ? holder.episodes : []) {
+      const key = episodeKey(episode);
+      if (prev.episodes.has(key)) continue;
+      const itemId = typeof episode?.itemId === 'string' && episode.itemId ? episode.itemId : null;
+      out.episodes.push({ userId: id, itemId, key, what: episode?.what ?? '', weight: Number.isFinite(episode?.weight) ? episode.weight : null });
+    }
+    const score = holder?.affinity?.score ?? 0;
+    if (score !== prev.score) {
+      const history = Array.isArray(holder?.affinity?.history) ? holder.affinity.history : [];
+      const last = history.at(-1);
+      out.attitude.push({
+        userId: id,
+        delta: Number.isFinite(last?.delta) ? last.delta : null,
+        applied: Number.isFinite(last?.appliedDelta) ? last.appliedDelta : roundScore(score - prev.score),
+        reason: typeof last?.reason === 'string' ? last.reason : (holder?.affinity?.reason ?? ''),
+      });
+    }
+  }
+  if (before.guildJson !== null) {
+    const guild = store.getGuild(guildId);
+    out.guild = JSON.stringify(TRACED_GUILD_FIELDS.map((key) => guild[key])) !== before.guildJson;
+    out.self = (Array.isArray(guild.self) ? guild.self : []).filter((fact) => typeof fact === 'string' && !before.self.has(fact));
+    out.learned = (Array.isArray(guild.learned) ? guild.learned : [])
+      .filter((item) => item && !before.learnedIds.has(item.id))
+      .map((item) => ({ id: item.id, text: item.text }));
+  }
+  return out;
+}
+
+/**
+ * The member ids a memory record names: the given ones, then the `<@id>` tokens of its texts,
+ * each once, in order.
+ * @param {string[]} ids
+ * @param {unknown[]} texts
+ * @returns {string[]}
+ */
+function namedIds(ids, texts) {
+  const out = new Set(ids.filter((id) => typeof id === 'string' && id));
+  for (const text of texts) for (const id of tokenIds(text)) out.add(id);
+  return [...out];
+}
+
 /**
  * @param {object} deps
  * @param {object} deps.hot          Live config + prompts; read at the moment of use.
@@ -2730,8 +2884,16 @@ function storeNameOf(store, guildId) {
  * @param {{ append: Function }|null} [deps.record]  src/memory/record.js#createRecord: with
  *   features.record exactly true (read at each run) every batch is appended to it as `seen` lines
  *   before it is analyzed (recordBatch); a refused append keeps the batch in the buffer.
+ * @param {object|null} [deps.journal]  src/memory/journal.js#createJournal (optional). With
+ *   `features.journal` exactly true (read at the moment of use) every applied batch writes one
+ *   `memory` record (`writeMemoryRecord`) -- a guild batch to the guild's journal, a private one
+ *   to the partner's private journal -- and so does every group of voice writes (stage `voice`);
+ *   while `journal.stalled()` says the append store's retry queue is full, no batch and no voice
+ *   run is applied (`memory: paused`, reason `append-stalled`, once per streak): the buffers and
+ *   the voice queue keep everything until the disk answers. Chat turns are not affected.
+ * @param {() => string} [deps.uuid]  Ids of batches (`b-`) and applied results (`r-`).
  */
-export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null }) {
+export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null, journal = null, uuid = randomUUID }) {
   const running = new Set();
   let idleWaiters = []; // resolvers for waitIdle() (/nep pause), notified once running.size hits 0
   const backoffUntil = new Map();
@@ -2751,6 +2913,92 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   const voiceBackoff = new Map();
   const voiceSkipLogged = new Map();
   let voicePromptMissing = false;
+  // Whether the last look found the journal's append store stalled: `memory: paused` is logged
+  // once each time this turns true.
+  let appendStalled = false;
+
+  /** Whether memory records are written now: a journal injected and features.journal exactly true (read now). */
+  function journalOn() {
+    return Boolean(journal) && hot.config.features?.journal === true;
+  }
+
+  /**
+   * Whether memory application waits for the journal's append store (its retry queue full): only
+   * with the journal on. Logs `memory: paused` (reason `append-stalled`) once per streak.
+   */
+  function appendPaused(guildId) {
+    const stalled = journalOn() && typeof journal.stalled === 'function' && journal.stalled() === true;
+    if (stalled && !appendStalled) log.warn('memory: paused', { guildId, reason: 'append-stalled' });
+    appendStalled = stalled;
+    return stalled;
+  }
+
+  /**
+   * `runVoiceWrites`, journalled: with the journal on, the writes are grouped by audience (the
+   * server's, or one member's private layer, whose record goes to that member's private journal),
+   * each group traced around its writes and recorded as one `memory` record of stage `voice`
+   * (not awaited: the journal never rejects). `limits` (a collector, optional): what the voice
+   * request behind the writes hit; a voice request serves one audience, so its list goes on each
+   * group's record.
+   * @returns {number}  runVoiceWrites' count.
+   */
+  function voiceWrites(guildId, writes, config, nowMs, limits = null) {
+    if (!journalOn() || writes.length === 0) return runVoiceWrites(store, guildId, writes, config, nowMs);
+    const groups = new Map();
+    for (const write of writes) {
+      const key = write.layer === 'private' && write.userId != null ? String(write.userId) : '';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(write);
+    }
+    let landed = 0;
+    for (const [key, group] of groups) {
+      const privateUserId = key || null;
+      const ids = privateUserId ? [privateUserId] : [...new Set(group.map((write) => write.userId).filter((id) => id != null).map(String))];
+      const before = traceBefore(store, guildId, ids, privateUserId);
+      landed += runVoiceWrites(store, guildId, group, config, nowMs);
+      const trace = traceAfter(store, guildId, before);
+      writeMemoryRecord(guildId, { batchId: `b-${uuid()}`, stage: 'voice', messages: [], trace, limits: limits?.list() ?? [], privateUserId });
+    }
+    return landed;
+  }
+
+  /**
+   * One `memory` journal record from an applied result (see createMemoryUpdater's `journal`).
+   * Never rejects (the journal logs a failed append).
+   * @param {string} guildId
+   * @param {{ batchId: string, stage: string, messages: object[], trace: object, result?: object|null,
+   *   limits?: object[], privateUserId?: string|null }} input
+   *   `messages`: the lines the batch consumed (none for voice writes); `trace`: traceAfter's.
+   */
+  function writeMemoryRecord(guildId, { batchId, stage, messages, trace, result = null, limits = [], privateUserId = null }) {
+    const messageIds = messages.map((message) => message?.id).filter((id) => typeof id === 'string' && id);
+    const named = [...trace.users, ...trace.episodes.map((ep) => ep.userId), ...trace.attitude.map((move) => move.userId), ...batchAuthorIds(messages)];
+    const texts = [...trace.episodes.map((ep) => ep.what), ...trace.attitude.map((move) => move.reason), ...trace.self, ...trace.learned.map((item) => item.text)];
+    return journal.memory(guildId, {
+      batchId,
+      stage,
+      appliedRevision: `r-${uuid()}`,
+      batch: { messageIds, consumed: messages.length },
+      changed: {
+        users: trace.users,
+        guild: trace.guild || result?.guild === true,
+        channels: Array.isArray(result?.changedChannels) ? [...result.changedChannels] : [],
+        lore: Number.isFinite(result?.lore) ? result.lore : 0,
+      },
+      episodes: trace.episodes,
+      attitude: trace.attitude,
+      self: trace.self,
+      learned: trace.learned,
+      consolidation: [],
+      archived: [],
+      limits,
+      promptsHash: hot.hashes?.promptsHash ?? null,
+      configHash: hot.hashes?.configHash ?? null,
+      participants: namedIds(privateUserId ? [privateUserId, ...named] : named, texts),
+      sourceMessageIds: messageIds,
+      privateUserId,
+    });
+  }
 
   /**
    * The analyzer one batch runs (`analyzerMode`), read from the live config and prompts at the
@@ -2900,7 +3148,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         }
         return { profiles: context.profiles, channels: context.channels, guildChannels, rosterProfiles, recentLines, now: now() };
       },
-      (update, { relationships, episodes, lore, recent }, { rosterIds, recentIds, rewriteIds, stage, nowMs, consumed }) => {
+      (update, { relationships, episodes, lore, recent }, { rosterIds, recentIds, rewriteIds, stage, nowMs, consumed, limits }) => {
         const cfg = hot.config.memory;
         // Only the lines the model saw (`consumed`, the batch's oldest): an author or a channel
         // whose lines were all deferred is written by the batch that shows them.
@@ -2926,6 +3174,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
           relationshipChars: voiceLimits(hot.config).relationship,
           by: 'analyzer',
           versions: { enabled: hot.config.features?.versions !== false, kept: hot.config.memory?.versionsKept ?? 20 },
+          limits,
         };
         // Stage A drops every portrait key, the `portrait` cue included: nothing to report.
         // A forced rewrite is queued for the voice run even when stage A gave no brief for it.
@@ -2984,13 +3233,14 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         const view = { ...privateProfile, affinity };
         return { profiles: { [id]: view }, channels: {}, privateChat: { publicProfile, now: now() } };
       },
-      (update, { relationships, episodes }, { stage, nowMs, consumed }) => {
+      (update, { relationships, episodes }, { stage, nowMs, consumed, limits }) => {
         const options = {
           relationships,
           episodes,
           timing: computeSeenAt(consumed),
           batchAuthorNames: batchAuthorNamesMap(consumed),
           relationshipChars: voiceLimits(hot.config).relationship,
+          limits,
         };
         const result =
           stage === 'two'
@@ -2999,6 +3249,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         store.touchPrivateSeen(guildId, id, now());
         return result;
       },
+      { privateUserId: id },
     );
   }
 
@@ -3108,8 +3359,10 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * the rail reached nothing is sent and the reason is 'daily-cap' (backed off, not halved); a
    * request the llm refuses before sending gives its count back.
    */
-  async function analyzeBatch(guildId, messages, requestInput, applyUpdate) {
+  async function analyzeBatch(guildId, messages, requestInput, applyUpdate, { privateUserId = null } = {}) {
     const stage = stageOfBatch();
+    // The journal's view of this batch (read once, before the request): what bit, what changed.
+    const limits = journalOn() ? createLimits() : null;
     // Said only while the switch is on: with it off, outcomes and log lines are as before.
     const marker = hot.config.features?.memoryTwoStage === true ? { stage } : {};
     const promptText = stage === 'two' ? hot.prompts['memory-decide'] : hot.prompts.memory;
@@ -3167,7 +3420,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       recentIds = sentRecent;
       consumedMessages = messages.slice(0, consumed);
 
-      const options = batchRequestOptions(hot.config, stage);
+      const options = limits ? { ...batchRequestOptions(hot.config, stage), limits } : batchRequestOptions(hot.config, stage);
       if (options.purpose === MEMORY_VOICE_REQUEST.purpose) {
         const sendMs = now();
         if (voiceRailReached(sendMs)) return { ok: false, usage: null, estimated: 0, result: null, reason: 'daily-cap', ...marker };
@@ -3209,15 +3462,19 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
 
     try {
       let result;
+      // Read right before the apply, with nothing awaited in between: every difference is its own.
+      const traceIds = privateUserId ? [privateUserId] : [...new Set([...(isPlainObject(update?.users) ? Object.keys(update.users) : []), ...batchAuthorIds(consumedMessages)])];
+      const before = limits ? traceBefore(store, guildId, traceIds, privateUserId) : null;
       if (stage === 'two') {
         // One clock read for the whole stage A apply: the split addresses the attitude move and
         // the episodes it stores by this instant, so the switches stamp them with it too.
         const nowMs = now();
-        result = applyUpdate(update, memorySwitches(hot.config, () => nowMs), { rosterIds, recentIds, rewriteIds, stage, nowMs, consumed: consumedMessages });
+        result = applyUpdate(update, memorySwitches(hot.config, () => nowMs), { rosterIds, recentIds, rewriteIds, stage, nowMs, consumed: consumedMessages, limits });
       } else {
-        result = applyUpdate(update, applySwitches(), { rosterIds, recentIds, stage, consumed: consumedMessages });
+        result = applyUpdate(update, applySwitches(), { rosterIds, recentIds, stage, consumed: consumedMessages, limits });
       }
-      return { ok: true, usage, estimated, result, ...fit, ...marker };
+      const journalled = before ? { trace: traceAfter(store, guildId, before), limits: limits.list() } : {};
+      return { ok: true, usage, estimated, result, ...fit, ...marker, ...journalled };
     } catch (err) {
       // A parsed answer the store failed to take: not the answer's size, so the batch is not
       // halved (see recordFailure). Logged by the error's name only.
@@ -3350,10 +3607,13 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   async function run(guildId) {
     running.add(guildId);
     try {
+      // The journal cannot take a record: the batch waits in the buffer, nothing is sent.
+      if (appendPaused(guildId)) return;
       const buffer = store.getBuffer(guildId);
       const messages = buffer.slice(0, batchTake(guildId, buffer.length));
       // The batch reaches the record before anything consumes it; a refused append keeps it.
       if (!(await recordBatch(guildId, messages, buffer))) return;
+      const batchId = `b-${uuid()}`;
 
       const outcome = await analyze(guildId, messages);
       if (outcome.ok) {
@@ -3368,6 +3628,9 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         // Counts only: a portrait cue's text is the analyzer's prose about a member; the review
         // map and the change list feed the reconciliation below, not the log line.
         const { portraitRequests, noteReviews, changedChannels, guildChanged, guildBriefQueued, ...counts } = outcome.result;
+        if (outcome.trace) {
+          await writeMemoryRecord(guildId, { batchId, stage: outcome.stage ?? 'single', messages: consumed, trace: outcome.trace, result: outcome.result, limits: outcome.limits });
+        }
         let noteCounts = null;
         if (notesFlagged > 0) {
           // A store without a stamp (an older store module) leaves the markers to come again.
@@ -3452,10 +3715,12 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     if (running.has(key)) return;
     running.add(key);
     try {
+      if (appendPaused(guildId)) return;
       const buffer = store.getPrivateBuffer(guildId, userId);
       const messages = buffer.slice(0, batchTake(key, buffer.length));
       if (messages.length === 0) return;
       if (!(await recordBatch(guildId, messages, buffer, userId))) return;
+      const batchId = `b-${uuid()}`;
 
       const outcome = await analyzePrivate(guildId, userId, messages);
       if (outcome.ok) {
@@ -3463,6 +3728,10 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         const consumed = messages.slice(0, outcome.consumed);
         store.shiftPrivateBuffer(guildId, userId, consumed);
         store.flush();
+        if (outcome.trace) {
+          const privateUserId = String(userId);
+          await writeMemoryRecord(guildId, { batchId, stage: outcome.stage ?? 'single', messages: consumed, trace: outcome.trace, result: outcome.result, limits: outcome.limits, privateUserId });
+        }
         log.info('memory: private update applied', {
           guildId,
           consumed: consumed.length,
@@ -3577,7 +3846,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     const { expired } = store.updateVoiceQueue(guildId, (queue) => expireItems(queue, nowMs, config));
     if (expired.length === 0) return 0;
     const { writes } = degradedApply(expired, { config, hasMember: voiceMemberCheck(store, guildId) });
-    const degraded = runVoiceWrites(store, guildId, writes, config, nowMs);
+    const degraded = voiceWrites(guildId, writes, config, nowMs);
     store.flush();
     log.info('memory: voice dropped', { guildId, expired: expired.length, overflow: 0, degraded });
     return expired.length;
@@ -3610,11 +3879,13 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * @param {string} guildId
    * @param {string[]} sent         buildVoiceRequest's `sent`.
    * @param {Map<string, string>} worded  parseVoiceAnswer's map.
-   * @param {{ only?: Set<string>, dropOver?: boolean }} [opts]
+   * @param {{ only?: Set<string>, dropOver?: boolean, limits?: object|null }} [opts]
+   *   `limits`: the request's collector (journal on), told each item that leaves over its limit
+   *   (`over-limit`, `voice.<kind>`, the characters over) before the writes are recorded.
    * @returns {{ result: object, still: object[], landed: number, portraits: number, overLimit: number }}
    *   `overLimit`: items that left the queue over the limit.
    */
-  function writeVoiceAnswer(guildId, sent, worded, { only, dropOver = false } = {}) {
+  function writeVoiceAnswer(guildId, sent, worded, { only, dropOver = false, limits = null } = {}) {
     const doneMs = now();
     const config = hot.config;
     const wanted = only ?? new Set(sent);
@@ -3627,9 +3898,15 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       hasMember: voiceMemberCheck(store, guildId),
       oldTextOf: (item) => voiceOldText(store, guildId, item),
     });
-    const landed = runVoiceWrites(store, guildId, result.writes, config, doneMs);
-    const portraits = stampVoicePortraits(store, guildId, still, result.portraits);
     const overIds = dropOver ? result.overItems.map((over) => over.id) : [];
+    if (limits) {
+      for (const over of dropOver ? result.overItems : []) {
+        const kind = still.find((item) => item.id === over.id)?.kind ?? 'item';
+        limits.add({ kind: 'over-limit', where: `voice.${kind}`, lost: Number(over.chars) - Number(over.limit) });
+      }
+    }
+    const landed = voiceWrites(guildId, result.writes, config, doneMs, limits);
+    const portraits = stampVoicePortraits(store, guildId, still, result.portraits);
     const missedOver = only ? result.missing : [];
     const missed = only ? [] : result.missing;
     const leaving = [...result.applied, ...result.gone, ...result.off, ...overIds, ...missedOver];
@@ -3656,14 +3933,18 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   async function retryOverLimit(guildId, request, answer, overItems) {
     const only = new Set(overItems.map((over) => over.id));
     const startMs = now();
+    // The retry's own collector (journal on): what this second request hit.
+    const limits = journalOn() ? createLimits() : null;
     let completion;
     let reason;
     if (voiceRailReached(startMs)) {
       reason = 'daily-cap';
+      limits?.add({ kind: 'daily-cap', where: 'memory.voice.maxPerDay' });
     } else {
       const day = countVoiceRequest(startMs);
       try {
-        completion = await llm.complete(buildVoiceRetry(request.messages, answer, overItems, request.sent), voiceRequestOptions(hot.config));
+        const options = limits ? { ...voiceRequestOptions(hot.config), limits } : voiceRequestOptions(hot.config);
+        completion = await llm.complete(buildVoiceRetry(request.messages, answer, overItems, request.sent), options);
       } catch (err) {
         if (err instanceof DailyCapError || err instanceof TokenLimitError) releaseVoiceRequest(day);
         reason = railReason(err);
@@ -3679,7 +3960,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         reason = looksTruncated(completion.text, completion.finishReason) ? 'truncated' : 'bad-json';
       }
     }
-    return { written: writeVoiceAnswer(guildId, request.sent, worded, { only, dropOver: true }), reason };
+    return { written: writeVoiceAnswer(guildId, request.sent, worded, { only, dropOver: true, limits }), reason };
   }
 
   /**
@@ -3728,6 +4009,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       return idle('paused');
     }
 
+    // The journal cannot take a record: the queue keeps every item, nothing expires or is sent.
+    if (appendPaused(guildId)) return idle('append-stalled');
     const config = hot.config;
     // Local work, no request: on time whatever the switch, the voice prompt or the guild's
     // back-off say (an item's age is not the model's fault), so a rollback of the switch or a
@@ -3772,10 +4055,12 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
 
     // Counted only once there is something to send; a request that went out counts even when it fails.
     const day = countVoiceRequest(startMs);
+    // What this request hit, for the memory records of its writes (journal on).
+    const limits = journalOn() ? createLimits() : null;
     let completion;
     let failure = null;
     try {
-      completion = await llm.complete(request.messages, voiceRequestOptions(config));
+      completion = await llm.complete(request.messages, limits ? { ...voiceRequestOptions(config), limits } : voiceRequestOptions(config));
     } catch (err) {
       // Refused before sending: the request never went out, so it does not count.
       if (err instanceof DailyCapError || err instanceof TokenLimitError) releaseVoiceRequest(day);
@@ -3803,7 +4088,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     voiceBackoff.delete(guildId);
     // Read at the moment of use: 0 (or anything not above 0) drops an over item at once.
     const retrying = Number(hot.config.memory?.overLimitRetries ?? 1) > 0;
-    const first = writeVoiceAnswer(guildId, request.sent, worded, { dropOver: !retrying });
+    const first = writeVoiceAnswer(guildId, request.sent, worded, { dropOver: !retrying, limits });
     const over = first.result.overItems;
     if (!retrying || over.length === 0) {
       return logVoiceApplied(guildId, request.sent, first, null, { outputTokens: request.outputTokens, overLimitRetried: 0 });
@@ -3848,7 +4133,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * anything unexpected is logged by name and backs the guild off.
    * @param {string} guildId
    * @returns {Promise<{ sent: number, applied: number, reason?: string }>}  `reason` when it did
-   *   not apply an answer: `busy`, `off`, `paused`, `no-prompt`, `backoff`, `nothing-due`,
+   *   not apply an answer: `busy`, `off`, `paused`, `append-stalled`, `no-prompt`, `backoff`, `nothing-due`,
    *   `daily-cap`, `token-limit`, `llm-error`, `bad-json`, `truncated`, `apply-error`.
    */
   async function runVoice(guildId) {

@@ -12,11 +12,16 @@
 // -written JSON, editor temp state) is ignored on reload: the previous good
 // value stays live and the error is logged. On the very first load, invalid
 // JSON still throws so a broken deployment fails fast at startup.
+//
+// `hot.hashes` names what is live: a short sha256 of the loaded prompts and of the loaded
+// config, computed at every load that took, so a journal record can say which wording and
+// which settings produced it.
 
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { readConfig, deepMerge } from './config.js';
+import { readConfig, deepMerge, isPlainObject } from './config.js';
 import { log } from './log.js';
 
 const DEBOUNCE_MS = 250;
@@ -30,6 +35,24 @@ const LOCAL_PROMPTS_DIRNAME = 'prompts.local';
 const RETIRED_CONFIG_KEYS = Object.freeze([
   { key: 'memory.voiceModel', use: 'llm.model', read: (config) => config?.memory?.voiceModel },
 ]);
+
+/** How many hex characters of the sha256 `hot.hashes` keeps. */
+const HASH_CHARS = 16;
+
+/** `value` as JSON with every object's keys sorted, so equal content gives equal text. */
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (isPlainObject(value)) {
+    const keys = Object.keys(value).filter((key) => value[key] !== undefined).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** The first HASH_CHARS hex characters of the sha256 of `value`'s canonical JSON. */
+function shortHash(value) {
+  return createHash('sha256').update(canonicalJson(value)).digest('hex').slice(0, HASH_CHARS);
+}
 
 function stripText(raw) {
   return raw.replace(/^﻿/, '').replace(/\r\n/g, '\n').trim();
@@ -116,6 +139,9 @@ function loadPromptLayers(promptsDir, localPromptsDir, prevPrompts, prevSources)
 /**
  * Create a live view over the config and the two prompt layers under `rootDir`.
  * Emits 'change' with `{ what: 'config' | 'prompts' }` after every successful reload.
+ * `hot.hashes` is `{ promptsHash, configHash }`: the first 16 hex characters of the sha256 of
+ * the live prompts (every layer merged, labels included) and of the live config (both files
+ * merged), each recomputed when its reload takes; a reload that fails keeps the previous one.
  * @param {{ rootDir: string, watchImpl?: typeof fs.watch }} options  `watchImpl` is a test
  *   hook; production uses `fs.watch`.
  */
@@ -149,10 +175,12 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
   hot.promptsDir = promptsDir;
   hot.localPromptsDir = localPromptsDir;
   hot.rootDir = rootDir;
+  hot.hashes = { promptsHash: shortHash(hot.prompts), configHash: shortHash(hot.config) };
 
   hot.reloadConfig = () => {
     try {
       hot.config = readConfig(rootDir);
+      hot.hashes = { ...hot.hashes, configHash: shortHash(hot.config) };
       log.info('hot: config reloaded');
       reportRetiredKeys();
       hot.emit('change', { what: 'config' });
@@ -184,6 +212,7 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
 
       hot.prompts = { ...mdPrompts, labels };
       hot.promptSources = { ...mdSources, labels: labelsSource };
+      hot.hashes = { ...hot.hashes, promptsHash: shortHash(hot.prompts) };
       log.info('hot: prompts reloaded', { prompts: Object.keys(mdPrompts), keptPrevious });
       hot.emit('change', { what: 'prompts' });
       return true;

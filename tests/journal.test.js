@@ -350,3 +350,20 @@ test('journal: reconcile leaves alone an operation started after its cutoff', as
   assert.deepEqual(fetched, []);
   assert.deepEqual((await journal.pending('g1', { day: '2026-10-13' })).map((p) => p.opId), [live.opId]);
 });
+
+test('journal: stalled follows the append store and a private memory record goes to the private day file', async () => {
+  const clock = { ms: DAY_D };
+  const { journal, appendStore } = journalAt(clock);
+  assert.equal(journal.stalled(), false, 'a store without stats never stalls');
+  let stalled = false;
+  appendStore.stats = () => ({ pending: stalled ? 1000 : 0, failed: 0, stalled });
+  assert.equal(journal.stalled(), false);
+  stalled = true;
+  assert.equal(journal.stalled(), true);
+
+  await journal.memory('g1', { batchId: 'b-1', stage: 'single', participants: ['u7'], privateUserId: 'u7' });
+  const [{ file, record }] = records(appendStore);
+  assert.equal(file, journal.dayFile('g1', '2026-10-13', 'u7'));
+  assert.deepEqual(record.scope, { user: 'u7', private: true });
+  assert.equal(record.kind, 'memory');
+});

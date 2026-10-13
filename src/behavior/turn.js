@@ -78,6 +78,8 @@ import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
 import { toRecordLine } from '../memory/record.js';
+import { budgetDrops } from '../llm/budget.js';
+import { createLimits } from '../llm/limits.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -539,14 +541,16 @@ const DISCORD_MESSAGE_CHARS = 2000;
 
 /**
  * `text` cut to `max` characters at its end, never inside a `<...>` token (a
- * mention, a custom emoji); unchanged when it fits.
+ * mention, a custom emoji); unchanged when it fits. A cut is told to `limits`
+ * (src/llm/limits.js#createLimits, optional) as a `message-cut` with the characters lost.
  */
-function cutPost(text, max) {
+function cutPost(text, max, limits = null) {
   let body = clampChars(text, max);
   if (body.length < text.length) {
     const open = body.lastIndexOf('<');
     if (open > body.lastIndexOf('>')) body = body.slice(0, open);
     body = body.trimEnd();
+    limits?.add({ kind: 'message-cut', where: 'post', lost: [...text].length - [...body].length });
   }
   return body;
 }
@@ -557,13 +561,13 @@ function cutPost(text, max) {
  * message: `text` is cut at its end (cutPost) when it would outgrow it --
  * with a link, so that the link always fits; without one, after the mentions
  * and custom emoji expanded into it (parse.js leaves only a small margin for
- * them, which a few long ones or a link outgrow).
+ * them, which a few long ones or a link outgrow). `limits` (optional) is told a cut (cutPost).
  */
-function withLink(text, link, labels) {
-  if (!link) return cutPost(text, DISCORD_MESSAGE_CHARS);
+function withLink(text, link, labels, limits = null) {
+  if (!link) return cutPost(text, DISCORD_MESSAGE_CHARS, limits);
   const template = labels?.elsewhere?.link;
   const join = (body) => (typeof template === 'string' && template ? fill(template, { text: body, link }) : `${body}\n${link}`);
-  return join(cutPost(text, Math.max(0, DISCORD_MESSAGE_CHARS - [...join('')].length)));
+  return join(cutPost(text, Math.max(0, DISCORD_MESSAGE_CHARS - [...join('')].length), limits));
 }
 
 const REWATCH_QUESTION_CHARS = 300;
@@ -975,18 +979,6 @@ function journalUsage(completion) {
 }
 
 /**
- * The limits that bit during the reply request: a `budget-drop` per section that lost items
- * (`lost`: the items), and `output-cap` when the completion reached `maxOutputTokens`.
- */
-function replyLimits(dropped, usage, maxOutputTokens) {
-  const limits = Object.entries(dropped).map(([where, lost]) => ({ kind: 'budget-drop', where, lost }));
-  if (Number.isFinite(maxOutputTokens) && maxOutputTokens > 0 && usage.completion !== null && usage.completion >= maxOutputTokens) {
-    limits.push({ kind: 'output-cap', where: 'completion', lost: null });
-  }
-  return limits;
-}
-
-/**
  * One attempt's `turn` record (src/memory/journal.js) from what the attempt noted in its
  * draft and the result it returned: `reason` is the attempt's skip or refusal code, else null.
  */
@@ -1010,7 +1002,7 @@ function journalTurnRecord(draft, result) {
     actions: draft.actions ?? [],
     usage: draft.usage ?? null,
     budget: { dropped: draft.dropped ?? {} },
-    limits: draft.limits ?? [],
+    limits: typeof draft.limits?.list === 'function' ? draft.limits.list() : [],
   };
 }
 
@@ -1484,7 +1476,7 @@ export function createTurnRunner({
       const to = answeredId ? ` · to ${authorNameFor(lines, answeredId) ?? '—'}` : '';
       const link = linkFor(pulledId);
       // Same deliberate exception as above: the persona's own output, dry-run only.
-      const text = withLink(withChannelLinks(channel, renderCustomEmoji(resolveMentions(message.text, lines, knownNames).text, emojiLookup())), link, labels);
+      const text = withLink(withChannelLinks(channel, renderCustomEmoji(resolveMentions(message.text, lines, knownNames).text, emojiLookup())), link, labels, draft?.limits);
       await rehearse('post', { intent: { replyTo: replyId, text }, sourceMessageIds: replyId ? [replyId] : [] });
       log.info('dry-run: would send', { channel: channel.id, channelName, mode, trigger: triggerKind ?? null, replyTo: replyId, link, text });
       // The mirror shows @name as the model wrote it: resolving it to a real
@@ -1714,9 +1706,9 @@ export function createTurnRunner({
    * The persona's `<gif>` resolved against the guild's library: `{ id,
    * replyTo, entry }`, or null (logged with its reason, never a URL) when
    * features.gifs is false, the handle is unknown, or `gifs.maxPerDay`
-   * (default 40, read now) is spent.
+   * (default 40, read now) is spent -- the last told to `limits` (optional) as a `daily-cap`.
    */
-  function resolveGif(guildId, gif, channelId) {
+  function resolveGif(guildId, gif, channelId, limits = null) {
     if (!gif) return null;
     let reason = null;
     let entry = null;
@@ -1728,6 +1720,7 @@ export function createTurnRunner({
       else if (posts.used >= posts.cap) reason = 'daily';
     }
     if (reason) {
+      if (reason === 'daily') limits?.add({ kind: 'daily-cap', where: 'gifs.maxPerDay' });
       log.info('turn: gif dropped', { channel: channelId, reason, usedToday: gifsToday().used });
       return null;
     }
@@ -2074,7 +2067,7 @@ export function createTurnRunner({
       // Custom emoji after the mentions: `<@id>` has no `:name:` in it to break.
       const spoken = renderCustomEmoji(mentioned.text, emojiLookup());
       // Channel links on the text sent; the typing time stays on the text as written.
-      const text = withLink(withChannelLinks(channel, spoken), link, hot.prompts?.labels);
+      const text = withLink(withChannelLinks(channel, spoken), link, hot.prompts?.labels, draft?.limits);
       // The first message was typed alongside the GIF picker, above.
       if (typingOn && !typedAbove(index)) await typeFor(spoken);
 
@@ -3500,7 +3493,8 @@ export function createTurnRunner({
    * posts plain).
    */
   async function runTurnOnce(args) {
-    const draft = {};
+    // `limits`: what bit during this attempt (src/llm/limits.js), for its turn record.
+    const draft = { limits: createLimits() };
     let result;
     try {
       result = await runTurnAttempt(args, draft);
@@ -3642,14 +3636,16 @@ export function createTurnRunner({
       // hedged (pace.replyHedgeMs, read now): no answer by then, a second identical request is
       // sent and the first answer wins, the whole call still cut at the same timeout.
       const replyOptions = () => {
+        // A journalled attempt's reply request tells its collector what it hit (src/llm/openrouter.js#complete).
+        const journalLimits = draft.started ? { limits: draft.limits } : {};
         const left = bar.leftMs();
-        if (left === null) return { ...REPLY_REQUEST };
+        if (left === null) return { ...REPLY_REQUEST, ...journalLimits };
         if (left <= 0) throw TOO_SLOW;
         const configured = hot.config.llm?.timeoutMs;
         const timeoutMs = Number.isFinite(configured) && configured > 0 ? Math.min(configured, left) : left;
         const hedgeMs = paceSettings(hot.config).replyHedgeMs;
         const hedge = hedgeMs !== null && hedgeMs < timeoutMs ? { hedge: { afterMs: hedgeMs, timeoutMs } } : {};
-        return { ...REPLY_REQUEST, timeoutMs, signal: barAbort.signal, ...hedge };
+        return { ...REPLY_REQUEST, timeoutMs, signal: barAbort.signal, ...hedge, ...journalLimits };
       };
       // A drawFailed turn only says the picture failed: no classifier is paid for a second time.
       const answersDrawFailure = triggerKind === 'drawFailed';
@@ -4096,12 +4092,19 @@ export function createTurnRunner({
       // What this turn has: a stage still running is left out (named in `late`).
       const late = PREPARE_STAGES.filter((name) => stages.has(name) && !stages.get(name).done);
       for (const name of late) {
+        draft.limits?.add({ kind: 'helper-timeout', where: name });
         const stage = stages.get(name);
         stage.settled.then(() => log.info('turn: stage late', { channel: channel.id, stage: name, ms: stage.ms }));
       }
       const timings = { history: historyMs };
       for (const name of PREPARE_STAGES.slice(1)) timings[name] = stages.get(name)?.done ? stages.get(name).ms : null;
       history = previewed();
+      // A text attachment cut at media.filePreviewChars (src/discord/collect.js#withTextPreviews).
+      for (const message of history) {
+        for (const attachment of message.attachments ?? []) {
+          if (attachment?.previewLost > 0) draft.limits?.add({ kind: 'preview-cut', where: message.id, lost: attachment.previewLost, detail: attachment.id });
+        }
+      }
       const descriptions = captions?.done ? captions.value?.descriptions : undefined;
       // A video stage past the deadline: the cached states stay, and the videos it was still
       // watching render not watched (`pending`) instead of as a bare still frame.
@@ -4261,6 +4264,7 @@ export function createTurnRunner({
         const authors = [...history, ...pulledLines].filter((message) => keptIds.has(message.id) && !message.self).map((message) => message.authorId);
         draft.participants = [...new Set([...authors, trigger?.authorId].filter((id) => typeof id === 'string' && id))];
         draft.dropped = droppedSections(request.stats);
+        budgetDrops(request.stats, draft.limits);
       }
 
       // A Discord CDN image the provider cannot fetch must not cost the
@@ -4379,14 +4383,13 @@ export function createTurnRunner({
           : null;
       if (setDraws) parsed.draw = null;
       // features.gifs off, an unknown handle or gifs.maxPerDay spent: the <gif> is dropped.
-      parsed.gif = resolveGif(guildId, parsed.gif, channel.id);
+      parsed.gif = resolveGif(guildId, parsed.gif, channel.id, draft.limits);
       const nothingToDo =
         parsed.messages.length === 0 && parsed.reactions.length === 0 && parsed.draw === null && parsed.gif === null && !(setDraws?.length > 0);
       // The journal keeps the think (journal.thinkChars); the log then carries its length only.
       if (draft.started) {
         draft.think = parsed.think;
         draft.usage = journalUsage(completion);
-        draft.limits = replyLimits(draft.dropped ?? {}, draft.usage, hot.config.llm?.maxOutputTokens);
       }
       const thinkField = journalOn() ? { thinkChars: Array.from(parsed.think ?? '').length } : { think: parsed.think };
 
@@ -4550,6 +4553,7 @@ export function createTurnRunner({
       if (err instanceof DailyCapError || err instanceof TokenLimitError) {
         log.warn('turn: refused by a safety rail', { channel: channel.id, error: err });
         draft.reason = railReason(err);
+        if (err instanceof DailyCapError) draft.limits?.add({ kind: 'daily-cap', where: limitOf(err)?.key ?? 'llm.maxRequestsPerDay' });
         return { outcome: 'refused', limit: limitOf(err) };
       }
       log.error('turn: failed', { channel: channel.id, error: err });

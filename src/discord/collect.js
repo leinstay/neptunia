@@ -385,6 +385,11 @@ export function normalizeMessage(message, selfId, options = {}) {
  * @returns {Promise<string|null>}
  */
 export async function fetchTextPreview(url, maxChars, fetchImpl = fetch) {
+  return (await fetchPreview(url, maxChars, fetchImpl))?.text ?? null;
+}
+
+/** fetchTextPreview's body: `{ text, lost }` (`lost`: the characters past `maxChars` left out), or null. */
+async function fetchPreview(url, maxChars, fetchImpl) {
   try {
     const response = await fetchImpl(url);
     if (!response.ok) return null;
@@ -392,7 +397,8 @@ export async function fetchTextPreview(url, maxChars, fetchImpl = fetch) {
     if (Number.isFinite(declaredSize) && declaredSize > TEXT_PREVIEW_SIZE_GUARD) return null;
     const text = await response.text();
     if (!Number.isFinite(declaredSize) && Buffer.byteLength(text, 'utf8') > TEXT_PREVIEW_SIZE_GUARD) return null;
-    return text.slice(0, maxChars);
+    const preview = text.slice(0, maxChars);
+    return { text: preview, lost: text.length - preview.length };
   } catch (err) {
     log.warn('collect: text attachment preview fetch failed', { error: err });
     return null;
@@ -404,7 +410,8 @@ export async function fetchTextPreview(url, maxChars, fetchImpl = fetch) {
  * every `kind: 'text'` attachment that does not have one yet (best effort,
  * in parallel, never mutates the input). Meant to run once, right before the
  * messages are handed to buildRequest/buildMemoryRequest — see the header
- * comment of fetchTextPreview.
+ * comment of fetchTextPreview. A preview cut at `maxChars` also carries
+ * `previewLost`: the characters left out (the turn's journal names the cut).
  * @param {object[]} messages
  * @param {number} maxChars
  * @param {typeof fetch} [fetchImpl]
@@ -414,13 +421,15 @@ export async function withTextPreviews(messages, maxChars, fetchImpl = fetch) {
     messages.map(async (message) => {
       const textAttachments = (message.attachments ?? []).filter((a) => a.kind === 'text' && !a.previewText);
       if (textAttachments.length === 0) return message;
-      const previews = await Promise.all(textAttachments.map((a) => fetchTextPreview(a.url, maxChars, fetchImpl)));
+      const previews = await Promise.all(textAttachments.map((a) => fetchPreview(a.url, maxChars, fetchImpl)));
       const byId = new Map(textAttachments.map((a, i) => [a.id, previews[i]]));
       return {
         ...message,
-        attachments: message.attachments.map((a) =>
-          byId.has(a.id) && byId.get(a.id) != null ? { ...a, previewText: byId.get(a.id) } : a,
-        ),
+        attachments: message.attachments.map((a) => {
+          const preview = byId.get(a.id);
+          if (!preview) return a;
+          return preview.lost > 0 ? { ...a, previewText: preview.text, previewLost: preview.lost } : { ...a, previewText: preview.text };
+        }),
       };
     }),
   );

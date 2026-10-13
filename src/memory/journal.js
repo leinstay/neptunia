@@ -104,6 +104,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   reconcile(guildId: string, options: { days: string[], before?: number, fetchOwnMessages: (channelId: string, n: number) =>
  *     Promise<Array<{ id: string, content: string, replyToId: string|null, createdAt: unknown }>> }):
  *     Promise<{ succeeded: number, unknown: number }>,
+ *   stalled(): boolean,
  * }}
  *   `start` writes a `turn.start` line (not awaited: a failed append is logged) and returns the
  *   turn's id: a new one, or `input.turnId` with `input.attemptId` for a later attempt of the
@@ -125,6 +126,9 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   (dated no earlier than the `started` line, less a minute of skew; one message closes one
  *   post) gets `succeeded` with its `messageId`; any other post, a failed fetch, and every
  *   other operation get `unknown`; each closing line carries `reconciled: true`.
+ *
+ *   `stalled` says whether the append store's retry queue is full (`stats().stalled`; false for a
+ *   store without stats): what depends on a record being taken (memory application) waits.
  */
 export function createJournal({ appendStore, dataDir, config = () => ({}), now = Date.now, uuid = randomUUID, log = defaultLog }) {
   function dayFile(guildId, dateIso, privateUserId = null) {
@@ -327,5 +331,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     return counts;
   }
 
-  return { start, turn, action, memory, system, read, dayFile, op, pending, reconcile };
+  const stalled = () => typeof appendStore.stats === 'function' && appendStore.stats()?.stalled === true;
+
+  return { start, turn, action, memory, system, read, dayFile, op, pending, reconcile, stalled };
 }
