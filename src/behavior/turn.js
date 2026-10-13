@@ -69,7 +69,7 @@ import { fill, formatNow, replyMarker } from '../discord/format.js';
 import { log } from '../log.js';
 import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { gifPostsToday } from '../memory/gif-watch.js';
-import { linkChannels } from '../memory/mentions.js';
+import { linkChannels, linkMessageNumbers } from '../memory/mentions.js';
 import { rankGifs } from '../memory/gifs.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { participationSettings, recordOwnLine } from '../memory/participation.js';
@@ -1245,6 +1245,22 @@ export function createTurnRunner({
   }
 
   /**
+   * `text` with every transcript number `#n` of this turn's numbering (`idByIndex`, chat and
+   * pulled lines) turned into the jump link of that message (src/memory/mentions.js#linkMessageNumbers):
+   * features.messageLinks on (read now; a missing key counts as on). A pulled line links in its own
+   * channel (`pulledIds`), any other in `channelId`; a private chat uses `@me` for the guild.
+   */
+  function withMessageLinks(text, { guildId, channelId, privateChat, idByIndex, pulledIds }) {
+    if (hot.config.features?.messageLinks === false || !idByIndex) return text;
+    const scope = privateChat || !guildId ? '@me' : guildId;
+    return linkMessageNumbers(text, (n) => {
+      const messageId = idByIndex.get(n);
+      if (!messageId) return null;
+      return `https://discord.com/channels/${scope}/${pulledIds?.get(messageId) ?? channelId}/${messageId}`;
+    });
+  }
+
+  /**
    * `text` with every `#name` of one of the guild's text channels turned into its `<#id>` link
    * (src/memory/mentions.js#linkChannels): features.channelLinks on (read now; a missing key counts
    * as on) and a guild channel -- a private chat has no guild, its text is returned as is.
@@ -1437,7 +1453,7 @@ export function createTurnRunner({
       const to = answeredId ? ` · to ${authorNameFor(lines, answeredId) ?? '—'}` : '';
       const link = linkFor(pulledId);
       // Same deliberate exception as above: the persona's own output, dry-run only.
-      const text = withLink(withChannelLinks(channel, renderCustomEmoji(resolveMentions(message.text, lines, knownNames).text, emojiLookup())), link, labels, draft?.limits);
+      const text = withLink(withChannelLinks(channel, withMessageLinks(renderCustomEmoji(resolveMentions(message.text, lines, knownNames).text, emojiLookup()), { guildId, channelId: channel.id, privateChat: false, idByIndex, pulledIds })), link, labels, draft?.limits);
       await rehearse('post', { intent: { replyTo: replyId, text }, sourceMessageIds: replyId ? [replyId] : [] });
       log.info('dry-run: would send', { channel: channel.id, channelName, mode, trigger: triggerKind ?? null, replyTo: replyId, link, text });
       // The mirror shows @name as the model wrote it: resolving it to a real
@@ -1993,7 +2009,7 @@ export function createTurnRunner({
       // Custom emoji after the mentions: `<@id>` has no `:name:` in it to break.
       const spoken = renderCustomEmoji(mentioned.text, emojiLookup());
       // Channel links on the text sent; the typing time stays on the text as written.
-      const text = withLink(withChannelLinks(channel, spoken), link, hot.prompts?.labels, draft?.limits);
+      const text = withLink(withChannelLinks(channel, withMessageLinks(spoken, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds })), link, hot.prompts?.labels, draft?.limits);
       // The first message was typed alongside the GIF picker, above.
       if (typingOn && !typedAbove(index)) await typeFor(spoken);
 
