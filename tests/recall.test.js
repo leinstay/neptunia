@@ -578,7 +578,7 @@ function ep(date, what, { quote = '', feeling = '', weight = 3, addedAt = `${dat
   return { date, what, quote, feeling, weight, addedAt };
 }
 
-test('matchMemory: forms match whole words only, folded; inflected forms count separately; more forms rank first', () => {
+test('matchMemory: forms match word stems, folded; an inflected form matches its other endings; more forms rank first', () => {
   const profiles = [
     {
       id: ANA,
@@ -594,21 +594,28 @@ test('matchMemory: forms match whole words only, folded; inflected forms count s
   ];
   const lore = [
     { id: 'l1', title: 'Le Lapin', keys: ['lapin'], text: 'The rabbit of the garden, buried in L’Été.', weight: 3, updatedAt: '2026-09-10T00:00:00.000Z' },
-    { id: 'l2', title: 'Lapinou', keys: ['lapinou'], text: 'A plush toy.', weight: 3 },
+    { id: 'l2', title: 'Lapinouchette', keys: ['lapinouchette'], text: 'A plush toy.', weight: 3 },
+    { id: 'l3', title: 'Lapins', keys: ['lapins'], text: 'The hutch.', weight: 1 },
   ];
   const items = matchMemory({ forms: ['κουνέλι', 'κουνελιού', 'ete'], profiles, lore, max: 10 });
   assert.deepEqual(
     items.map((i) => [i.kind, i.score, i.text]),
     [
+      ['episode', 2, 'shot the κουνέλι behind the shed'],
+      ['episode', 2, 'said nothing about animals "το ΚΟΥΝΈΛΙ μου"'],
       ['episode', 2, 'held a funeral for the κουνέλι at the κουνελιού grave'],
-      ['episode', 1, 'shot the κουνέλι behind the shed'],
+      ['episode', 1, 'showed photos of κουνελάκια'],
       ['lore', 1, 'Le Lapin: The rabbit of the garden, buried in L’Été.'],
-      ['episode', 1, 'said nothing about animals "το ΚΟΥΝΈΛΙ μου"'],
     ],
+    'κουνελιού reaches κουνέλι by its stem; κουνελάκια is in reach of κουνέλι only',
   );
-  assert.deepEqual([items[0].date, items[0].memberId], ['2026-10-02', ANA]);
-  assert.deepEqual([items[2].date, items[2].memberId], [null, null]);
-  assert.deepEqual(matchMemory({ forms: ['lapin'], lore, max: 10 }).map((i) => i.text), ['Le Lapin: The rabbit of the garden, buried in L’Été.'], 'not inside lapinou');
+  assert.deepEqual([items[0].date, items[0].memberId], ['2026-10-01', ANA]);
+  assert.deepEqual([items[4].date, items[4].memberId], [null, null]);
+  assert.deepEqual(
+    matchMemory({ forms: ['lapin'], lore, max: 10 }).map((i) => i.text),
+    ['Le Lapin: The rabbit of the garden, buried in L’Été.', 'Lapins: The hutch.'],
+    'an ending matches, a word four letters longer does not',
+  );
   assert.equal(matchMemory({ forms: ['κουνέλι'], profiles, max: 1 }).length, 1, 'capped at max');
   assert.deepEqual(matchMemory({ forms: ['κουνέλι'], profiles, max: 0 }), []);
   assert.deepEqual(matchMemory({ forms: [], who: [], profiles, lore, max: 10 }), [], 'nothing asked, nothing found');
@@ -986,6 +993,8 @@ test('recall: the record reader returns the matching lines with reply chain and 
 
   const aliased = await matchRecord('g1', { ...options, forms: [], aliases: ['κιτέζου'] });
   assert.deepEqual(aliased.windows.map((w) => [...w.hitIds]), [['k1']], 'an alias matches as a whole word');
+  const inflected = await matchRecord('g1', { ...options, forms: ['κουνελιού'] });
+  assert.deepEqual(inflected.windows.map((w) => [...w.hitIds]), [['h1']], 'another ending of the form matches by its stem');
   const person = await matchRecord('g1', { ...options, forms: [], participants: [ELO] });
   assert.deepEqual(person.windows.flatMap((w) => [...w.hitIds]), ['q1'], 'a participant matches the lines naming them');
   const off = await matchRecord('g1', { ...options, recordDays: 0 });

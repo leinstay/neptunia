@@ -42,7 +42,7 @@ import { block, fillPromptTemplate } from './prompt.js';
 import { formatTranscript, renderTranscript } from '../discord/format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { episodeDate } from '../memory/episodes.js';
-import { TEACHER_TOKEN_RE, fromTokens, occursAsWholeWord, tokenIds } from '../memory/mentions.js';
+import { TEACHER_TOKEN_RE, fromTokens, occursAsWordStem, tokenIds } from '../memory/mentions.js';
 import { foldText, memberIdOf } from '../memory/recent.js';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 
@@ -818,10 +818,10 @@ function foldedForms(list) {
   return [...new Set((Array.isArray(list) ? list : []).filter((form) => typeof form === 'string').map(foldText).filter(Boolean))];
 }
 
-/** How many of `forms` (folded) occur as a whole word in at least one of `texts` (folded here). */
+/** How many of `forms` (folded) occur, word endings allowed (src/memory/mentions.js#occursAsWordStem), in at least one of `texts` (folded here). */
 function formsMatched(texts, forms) {
   const folded = texts.filter((text) => typeof text === 'string' && text).map(foldText);
-  return forms.filter((form) => folded.some((text) => occursAsWholeWord(text, form))).length;
+  return forms.filter((form) => folded.some((text) => occursAsWordStem(text, form))).length;
 }
 
 /** A time from an ISO string, or -Infinity. */
@@ -953,10 +953,10 @@ function archivedItem(entry, ctx) {
  * (`archived`: entries scanArchive kept; see archivedItem) -- each list as the
  * caller passes it, already gated (the caller never passes a private layer
  * the turn may not read).
- * - A form of `forms` or `who` matches a text when it occurs in it as a whole
- *   word or phrase, both folded (src/memory/recent.js#foldText: case, accents;
- *   src/memory/mentions.js#occursAsWholeWord). Inflected forms are separate
- *   forms; nothing is stemmed.
+ * - A form of `forms` or `who` matches a text when it occurs in it as a word
+ *   or phrase, word endings allowed, both folded (src/memory/recent.js#foldText:
+ *   case, accents; src/memory/mentions.js#occursAsWordStem: a form word of 5+
+ *   letters matches by its stem, a shorter one or one with digits only whole).
  * - A `who` form equal (folded) to one of a profile's `names` or alias names
  *   picks that member: each of their moments, every item whose text holds
  *   their `<@id>` token (a recent line's `who` too) and every archive entry
@@ -1361,7 +1361,7 @@ function recordMessage(line, { nameOf, selfName }) {
  * audience and private-owner rule); the newest revision of a message
  * stands, a deleted message goes, `felt` lines are not chat. A line matches
  * when a form of `forms` or `aliases` (the members' names and alias names)
- * occurs in its text as a whole word, both folded, or when its author or
+ * occurs in its text, word endings allowed (occursAsWordStem), both folded, or when its author or
  * `participants` name one of `participants`; `score` = forms matched + 1 for
  * a member. Lines whose id is in `exclude` (the turn's own chat) are never
  * hits nor shown; a window that lost one is `overlapsChat`. Each hit's
