@@ -13,6 +13,7 @@ import { log } from './log.js';
 import { createStore } from './memory/store.js';
 import { createAppendStore } from './memory/append-store.js';
 import { createJournal } from './memory/journal.js';
+import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm } from './llm/openrouter.js';
 import { createImageGen } from './llm/images.js';
@@ -354,6 +355,31 @@ async function startupStep(step, fn, { wait = false } = {}) {
   }
 }
 
+/**
+ * The persona's last `n` messages of `channelId` (the bot's own among the channel's last `n`),
+ * as the journal's reconciliation reads them: id, raw content, the message replied to, the time.
+ */
+async function fetchOwnMessages(channelId, n) {
+  const channel = await client.channels.fetch(channelId);
+  const messages = await channel.messages.fetch({ limit: n });
+  return [...messages.values()]
+    .filter((message) => message.author?.id === client.user.id)
+    .map((message) => ({ id: message.id, content: message.content, replyToId: message.reference?.messageId ?? null, createdAt: message.createdTimestamp }));
+}
+
+/**
+ * The journal's operations left open by the last run (features.journal, read now), yesterday's
+ * and today's: a post is looked for among the persona's own messages, everything else is marked
+ * unknown; nothing is sent again. Only operations started before this start are touched.
+ */
+async function reconcileJournal(guildId) {
+  if (hot.config.features?.journal !== true) return;
+  const startedAt = Date.now();
+  const days = [utcDay(startedAt - DAY_MS), utcDay(startedAt)];
+  const counts = await journal.reconcile(guildId, { days, before: startedAt, fetchOwnMessages });
+  log.info('journal: reconciled', { guildId, succeeded: counts.succeeded, unknown: counts.unknown });
+}
+
 let lastCommandName = hot.config.bot.commandName;
 let lastAdminCommandsOn = hot.config.features?.adminCommands !== false;
 
@@ -397,6 +423,10 @@ client.once(Events.ClientReady, async () => {
       pausedAt: store.state.data.pausedAt ?? null,
     });
   }
+
+  // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
+  // starting meanwhile is never touched (only earlier operations are), and it never sends.
+  await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId));
 
   const guild = client.guilds.cache.get(instance.guildId);
   await startupStep('registerCommands', () => registerCommands(guild, hot.config), { wait: true });

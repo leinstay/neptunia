@@ -7624,10 +7624,12 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
   assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(lines.map(({ record }) => record.kind), ['turn.start', 'turn']);
-  const [start, turn] = lines.map(({ record }) => record);
-  assert.equal(lines[0].file, lines[1].file);
-  assert.ok(lines[0].file.endsWith('2026-09-20.jsonl'));
+  // Between them, the action records of the post and the reaction (Task C's tests check those).
+  const turnLines = lines.filter(({ record }) => record.kind !== 'action');
+  assert.deepEqual(turnLines.map(({ record }) => record.kind), ['turn.start', 'turn']);
+  const [start, turn] = turnLines.map(({ record }) => record);
+  assert.equal(turnLines[0].file, turnLines[1].file);
+  assert.ok(turnLines[0].file.endsWith('2026-09-20.jsonl'));
   assert.equal(result.turnId, start.turnId);
   assert.equal(result.attemptId, 1);
   assert.equal(start.mode, 'reply');
@@ -7637,13 +7639,14 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   assert.equal(turn.attemptId, 1);
   assert.equal(turn.outcome, 'spoke');
   assert.equal(turn.reason, null);
-  assert.deepEqual(turn.seen, { messageIds: ['m0', 'm1'], parents: [], parts: { images: [], filePreviews: [] } });
+  assert.deepEqual(turn.seen, { messageIds: ['m0', 'm1'], parents: [], parts: { images: [], filePreviews: [] }, pulled: [] });
   assert.deepEqual(turn.sourceMessageIds, ['m0', 'm1']);
   assert.deepEqual([...turn.participants].sort(), ['u1', 'u2']);
   assert.equal(turn.think, 'Η Αλίκη με φωνάζει.');
-  assert.deepEqual(turn.posted, [{ messageId: 'sent-1', replyTo: 'm1' }]);
-  assert.deepEqual(turn.reactions, [{ to: 'm0', emoji: '\u{1F389}' }]);
-  assert.deepEqual(turn.actions, []);
+  const opOf = (name) => lines.find(({ record }) => record.kind === 'action' && record.name === name && record.phase === 'started').record.opId;
+  assert.deepEqual(turn.posted, [{ opId: opOf('post'), messageId: 'sent-1', replyTo: 'm1' }]);
+  assert.deepEqual(turn.reactions, [{ opId: opOf('react'), to: 'm0', emoji: '\u{1F389}' }]);
+  assert.deepEqual(turn.actions, [opOf('react'), opOf('post')]);
   assert.deepEqual(turn.usage, { prompt: 1500, cached: 300, completion: 700 });
   assert.equal(typeof turn.budget.dropped, 'object');
   assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'output-cap'), [{ kind: 'output-cap', where: 'completion', lost: null }]);
@@ -7653,9 +7656,10 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
 
   // The switch off (read at the moment of use): nothing more is written.
   hot.config.features.journal = false;
+  const written = lines.length;
   const off = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
   assert.equal(off.outcome, 'spoke');
-  assert.equal(lines.length, 2);
+  assert.equal(lines.length, written);
   assert.equal('turnId' in off, false);
 
   // A budget that drops chat lines: the drop is named in budget.dropped and in limits.
@@ -7689,4 +7693,152 @@ test('turn: logs thinkChars not think when the journal is on', async () => {
   const off = await run({ journal: false }, journalOverMemory().journal);
   assert.equal(off.think, 'Ζωή μιλά');
   assert.equal('thinkChars' in off, false);
+});
+
+/** The action records of `lines` for operation `name`, in order. */
+function actionsNamed(lines, name) {
+  return lines.map(({ record }) => record).filter((record) => record.kind === 'action' && record.name === name);
+}
+
+test('turn: a post writes started then succeeded with the messageId and the turn record links the opId', async () => {
+  const earlier = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Zoé', ts: NOW - 5000, content: 'καλημέρα' });
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
+  const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
+  const { journal, lines } = journalOverMemory();
+  // The started line is written before the message is sent.
+  const send = channel.send;
+  const linesAtSend = [];
+  channel.send = async (payload) => {
+    linesAtSend.push(lines.map(({ record }) => `${record.kind}:${record.name ?? ''}:${record.phase ?? ''}`));
+    return send(payload);
+  };
+  const llm = fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg><react to="#1">\u{1F389}</react>');
+  const hot = fakeHot({ journal: true, typingSimulation: false });
+  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
+
+  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  assert.equal(result.outcome, 'spoke');
+
+  const posts = actionsNamed(lines, 'post');
+  assert.deepEqual(posts.map((r) => r.phase), ['started', 'succeeded']);
+  const [started, succeeded] = posts;
+  assert.equal(started.opId, succeeded.opId);
+  assert.equal(started.by, 'persona');
+  assert.equal(started.turnId, result.turnId);
+  assert.deepEqual(started.intent, { replyTo: 'm1', text: 'γεια σου Αλίκη' });
+  assert.deepEqual(started.scope, { channel: 'c1' });
+  assert.deepEqual(succeeded.result, { messageId: 'sent-1' });
+  assert.ok(linesAtSend[0].includes('action:post:started'));
+  assert.ok(!linesAtSend[0].includes('action:post:succeeded'));
+
+  const reacts = actionsNamed(lines, 'react');
+  assert.deepEqual(reacts.map((r) => r.phase), ['started', 'succeeded']);
+  assert.equal(reacts[0].by, 'persona');
+  assert.deepEqual(reacts[1].result, { to: 'm0', emoji: '\u{1F389}' });
+
+  const turn = lines.map(({ record }) => record).find((record) => record.kind === 'turn');
+  assert.deepEqual(turn.posted, [{ opId: started.opId, messageId: 'sent-1', replyTo: 'm1' }]);
+  assert.deepEqual(turn.reactions, [{ opId: reacts[0].opId, to: 'm0', emoji: '\u{1F389}' }]);
+  assert.deepEqual([...turn.actions].sort(), [started.opId, reacts[0].opId].sort());
+
+  // A dry run: started and succeeded with dryRun, no messageId, nothing sent.
+  const dry = journalOverMemory();
+  const dryChannel = fakeTurnChannel({ historyMessages: [earlier, raw] });
+  const dryTurns = createTurnRunner({
+    hot: fakeHot({ journal: true, typingSimulation: false, dryRun: true }),
+    store: fakeStore(),
+    llm: fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg><react to="#1">\u{1F389}</react>'),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    journal: dry.journal,
+  });
+  const { result: dryResult } = await withCapturedLogs(() => dryTurns.runTurn({ channel: dryChannel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  assert.equal(dryResult.dryRun, true);
+  assert.equal(dryChannel.sent.length, 0);
+  for (const name of ['post', 'react']) {
+    const phases = actionsNamed(dry.lines, name);
+    assert.deepEqual(phases.map((r) => r.phase), ['started', 'succeeded'], name);
+    assert.ok(phases.every((r) => r.dryRun === true), name);
+    assert.equal('messageId' in (phases[1].result ?? {}), false, name);
+  }
+  const dryTurn = dry.lines.map(({ record }) => record).find((record) => record.kind === 'turn');
+  assert.equal(dryTurn.actions.length, 2);
+});
+
+test('turn: a send that throws writes unknown', async () => {
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
+  const run = async (error) => {
+    const channel = fakeTurnChannel({ historyMessages: [raw] });
+    channel.send = async () => {
+      throw error;
+    };
+    const { journal, lines } = journalOverMemory();
+    const turns = createTurnRunner({ hot: fakeHot({ journal: true, typingSimulation: false }), store: fakeStore(), llm: fakeLlm('<msg reply="#1">Ζωή</msg>'), calibrator: identityCalibrator(), client: fakeClient(), journal });
+    const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+    return { result, lines };
+  };
+
+  // The request may have reached Discord: the outcome is unknown, never retried.
+  const lost = await run(new Error('socket hang up'));
+  const posts = actionsNamed(lost.lines, 'post');
+  assert.deepEqual(posts.map((r) => r.phase), ['started', 'unknown']);
+  assert.equal(posts[0].opId, posts[1].opId);
+  const turn = lost.lines.map(({ record }) => record).find((record) => record.kind === 'turn');
+  assert.deepEqual(turn.posted, []);
+  assert.deepEqual(turn.actions, [posts[0].opId]);
+
+  // Discord answered with a refusal: a known failure with its code.
+  const refused = Object.assign(new Error('Missing Permissions'), { status: 403, code: 50013 });
+  const failed = actionsNamed((await run(refused)).lines, 'post');
+  assert.deepEqual(failed.map((r) => r.phase), ['started', 'failed']);
+  assert.deepEqual(failed[1].result, { code: 'http-403' });
+});
+
+test('turn: an engine preparation step writes action records with by engine', async () => {
+  const hot = lookupHot({ journal: true, typingSimulation: false });
+  const llm = lookupLlm('champions final winner 2026');
+  const lookup = fakeLookup({ reads: { 'm1#e0': 'une recette, trois œufs' } });
+  const messages = [linkRaw('m1', NOW - 5000, [PAGE_EMBED]), rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' })];
+  const channel = fakeTurnChannel({ historyMessages: messages });
+  const { journal, lines } = journalOverMemory();
+  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, journal });
+
+  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(messages[1]), triggerKind: 'mention' });
+  assert.equal(result.outcome, 'spoke');
+
+  const reads = actionsNamed(lines, 'read-link');
+  assert.deepEqual(reads.map((r) => r.phase), ['started', 'succeeded']);
+  assert.equal(reads[0].by, 'engine');
+  assert.equal(reads[0].turnId, result.turnId);
+  assert.deepEqual(reads[0].input, { hosts: ['example.org'] });
+  assert.deepEqual(reads[1].result, { hosts: ['example.org'], chars: 'une recette, trois œufs'.length, delivered: true });
+
+  const searches = actionsNamed(lines, 'lookup');
+  assert.deepEqual(searches.map((r) => r.phase), ['started', 'succeeded']);
+  assert.equal(searches[0].by, 'engine');
+  assert.deepEqual(searches[0].input, { query: 'champions final winner 2026' });
+  assert.deepEqual(searches[1].result, { results: 1, delivered: true });
+
+  const turn = lines.map(({ record }) => record).find((record) => record.kind === 'turn');
+  for (const opId of [reads[0].opId, searches[0].opId]) assert.ok(turn.actions.includes(opId));
+  // Every operation is closed.
+  const opened = lines.filter(({ record }) => record.phase === 'started').map(({ record }) => record.opId);
+  const closed = new Set(lines.filter(({ record }) => record.kind === 'action' && record.phase !== 'started').map(({ record }) => record.opId));
+  assert.ok(opened.every((opId) => closed.has(opId)));
+});
+
+test('turn: pulled lines appear in seen.pulled', async () => {
+  const scene = pullScene({ features: { journal: true, typingSimulation: false } });
+  const { journal, lines } = journalOverMemory();
+  const turns = createTurnRunner({ hot: scene.hot, store: scene.store, llm: scene.llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => NOW, journal });
+
+  const { result } = await withCapturedLogs(() => turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
+  assert.equal(result.outcome, 'spoke');
+  assert.ok(channelViewOf(scene.llm), 'the request carries <channel_view>');
+
+  const turn = lines.map(({ record }) => record).find((record) => record.kind === 'turn');
+  assert.deepEqual(turn.seen.pulled, [{ channelId: DIARY, messageIds: ['d1', 'd2'] }]);
+  assert.deepEqual(turn.seen.messageIds, ['m1', 'm9', 'd1', 'd2']);
+  assert.deepEqual(turn.sourceMessageIds, turn.seen.messageIds);
+  assert.ok(turn.participants.includes('u3'), 'the pulled lines name their authors');
 });

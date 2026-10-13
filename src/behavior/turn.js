@@ -840,6 +840,119 @@ function journalMode(mode, triggerKind) {
   return triggerKind === 'followUp' || triggerKind === 'overheard' ? triggerKind : (mode ?? null);
 }
 
+/** A journal operation that writes nothing: an attempt the journal does not follow. */
+const NO_OP = Object.freeze({
+  opId: null,
+  started: async () => {},
+  succeeded: async () => {},
+  failed: async () => {},
+  unknown: async () => {},
+});
+
+/**
+ * How a Discord call that threw closes its journal operation: refused by Discord (an HTTP 4xx
+ * answer) is `failed` with `http-<status>`; anything else (a network error, a timeout, a 5xx)
+ * may have taken effect anyway, so its outcome is `unknown` (the restart's reconciliation looks
+ * for a post; nothing is ever sent again).
+ */
+function closeThrown(op, err) {
+  const status = err?.status ?? err?.statusCode;
+  if (Number.isInteger(status) && status >= 400 && status < 500) return op.failed(`http-${status}`);
+  return op.unknown();
+}
+
+/** The distinct hosts of `links` (`{ url }` items), in order; a URL that does not parse is left out. */
+function linkHosts(links) {
+  const hosts = [];
+  for (const link of links ?? []) {
+    let host = null;
+    try {
+      host = new URL(link?.url).hostname;
+    } catch {
+      host = null;
+    }
+    if (host && !hosts.includes(host)) hosts.push(host);
+  }
+  return hosts;
+}
+
+/**
+ * The preparation steps of one attempt in the journal (link reads, video watches, captions,
+ * searches): each step's operation is closed once its work settled and the turn took what it
+ * had. `step(stage, op, offeredOf)` wraps an operation of the stage `stage`; its
+ * `succeeded(result, offered?)` keeps the result until `take(stage, used)` says whether the
+ * stage's value reached the request, then writes `succeeded` with `delivered` (taken and
+ * something to offer: `offered`, else `offeredOf(result)`). A step that settles after its
+ * take, or one never taken (`closeAll`), is written with `delivered: false`.
+ */
+function createPrepLedger() {
+  const entries = [];
+  const close = (entry) => {
+    if (entry.closed || entry.result === undefined || entry.taken === null) return;
+    entry.closed = true;
+    entry.op.succeeded({ ...entry.result, delivered: entry.taken && entry.offered });
+  };
+  return {
+    step(stage, op, offeredOf = () => true) {
+      const entry = { stage, op, result: undefined, offered: false, taken: null, closed: false };
+      entries.push(entry);
+      return {
+        opId: op.opId,
+        started: (extra) => op.started(extra),
+        succeeded: (result = {}, offered) => {
+          entry.result = result;
+          entry.offered = typeof offered === 'boolean' ? offered : Boolean(offeredOf(result));
+          close(entry);
+          return Promise.resolve();
+        },
+        failed: (code) => {
+          entry.closed = true;
+          return op.failed(code);
+        },
+        unknown: () => {
+          entry.closed = true;
+          return op.unknown();
+        },
+      };
+    },
+    take(stage, used) {
+      for (const entry of entries) {
+        if (entry.stage !== stage || entry.taken !== null) continue;
+        entry.taken = Boolean(used);
+        close(entry);
+      }
+    },
+    closeAll() {
+      for (const entry of entries) {
+        if (entry.taken !== null) continue;
+        entry.taken = false;
+        close(entry);
+      }
+    },
+  };
+}
+
+/**
+ * `work()` with its preparation step `op` (createPrepLedger's, or null: no journal) around it:
+ * `started` before, then `toResult(value)` -- `{ result, offered? }`, or `{ failed: code }` --
+ * closes it; a throw is `failed` with `error` and rethrown.
+ */
+async function journalled(op, work, toResult) {
+  if (!op) return work();
+  await op.started();
+  let value;
+  try {
+    value = await work();
+  } catch (err) {
+    op.failed('error');
+    throw err;
+  }
+  const closing = toResult(value) ?? {};
+  if (typeof closing.failed === 'string') op.failed(closing.failed);
+  else op.succeeded(closing.result ?? {}, closing.offered);
+  return value;
+}
+
 /** The budget sections of a request's stats line that lost items: `{ section: dropped }`. */
 function droppedSections(stats) {
   const out = {};
@@ -893,7 +1006,7 @@ function journalTurnRecord(draft, result) {
     think: typeof draft.think === 'string' ? draft.think : null,
     posted: draft.posted ?? [],
     reactions: draft.reactions ?? [],
-    actions: [],
+    actions: draft.actions ?? [],
     usage: draft.usage ?? null,
     budget: { dropped: draft.dropped ?? {} },
     limits: draft.limits ?? [],
@@ -1051,6 +1164,13 @@ function taskInput({ part, queued, added, labels, channelId }) {
  * true (read at the moment of use), every attempt that passes the pause and attention rails
  * writes a `turn.start` line, and runTurn writes each attempt's `turn` record once it returns
  * (journalTurnRecord); `turn: model answered` then logs `thinkChars` instead of `think`.
+ * Every side effect of such an attempt is a journal operation (journalOp): `started` before
+ * it, then `succeeded`, `failed` or `unknown` -- the persona's posts, reactions, GIFs and
+ * pictures (`by: 'persona'`; a dry run writes `started` and `succeeded` with `dryRun: true`),
+ * and the engine's preparation (`by: 'engine'`: link reads, video watches, captions, the
+ * searches; createPrepLedger says whether each result reached the request). A post's
+ * `started` line carries its `intent` (the message it replies to, the first 80 characters of
+ * its text) for the reconciliation after a restart (src/memory/journal.js#reconcile).
  */
 export function createTurnRunner({
   hot,
@@ -1103,6 +1223,33 @@ export function createTurnRunner({
     for (const { draft, result } of attempts) {
       await journal.turn(draft.guildId, journalTurnRecord(draft, result));
     }
+  }
+
+  /**
+   * One side effect of the attempt `draft` as a journal operation (src/memory/journal.js#op):
+   * `name`, `by` (`persona`: her output asked for it; `engine`: preparation the engine runs on
+   * its own) and `fields` (`input`, `intent`, `participants`, `sourceMessageIds`, `dryRun`).
+   * NO_OP when the attempt is not journalled. Its opId joins the turn record's `actions` once
+   * its `started` line is written.
+   */
+  function journalOp(draft, name, by, fields = {}) {
+    if (!draft?.started || typeof journal?.op !== 'function') return NO_OP;
+    const handle = journal.op(draft.guildId, {
+      turnId: draft.started.turnId,
+      name,
+      by,
+      channelId: draft.channelId,
+      privateUserId: draft.privateUserId,
+      ...fields,
+    });
+    const actions = (draft.actions ??= []);
+    return {
+      ...handle,
+      started: (extra) => {
+        if (!actions.includes(handle.opId)) actions.push(handle.opId);
+        return handle.started(extra);
+      },
+    };
   }
 
   /**
@@ -1242,7 +1389,7 @@ export function createTurnRunner({
    *   channels, then this chat's history (names and authors); `knownNames`: the stored names
    *   `@name` resolves by too (storedNames).
    */
-  async function dryAct({ channel, guildId, parsed, idByIndex, history = [], mode, triggerKind, trigger = null, plain, selfName, pulledIds, lines, knownNames, linkFor, part = null, gifPick = true, setDraws = null }) {
+  async function dryAct({ channel, guildId, parsed, idByIndex, history = [], mode, triggerKind, trigger = null, plain, selfName, pulledIds, lines, knownNames, linkFor, part = null, gifPick = true, setDraws = null, draft = null }) {
     const channelName = channel.name ?? null;
     const where = mirrorChannelLabel(channel);
     // Every triggered turn shares the mode `reply`: the header names its
@@ -1251,6 +1398,13 @@ export function createTurnRunner({
     const partMark = part ? ` · part ${part.index}/${part.total}` : '';
     const head = `[dry-run] ${where} · ${mode}${triggerKind ? ` · ${triggerKind}` : ''}${partMark}`;
     const labels = hot.prompts?.labels;
+    // The journal: every would-be action as an operation that started and succeeded, marked dryRun.
+    const rehearse = async (name, fields = {}, result = {}) => {
+      const op = journalOp(draft, name, 'persona', { ...fields, dryRun: true });
+      if (!op.opId) return;
+      await op.started();
+      await op.succeeded(result);
+    };
 
     for (const reaction of parsed.reactions) {
       const targetId = idByIndex.get(reaction.to);
@@ -1260,6 +1414,7 @@ export function createTurnRunner({
         log.info('turn: reaction dropped', { channel: channel.id, source: route.source, reason: route.reason });
         continue;
       }
+      await rehearse('react', { input: { to: targetId, emoji: reaction.emoji }, sourceMessageIds: [targetId] }, { to: targetId, emoji: reaction.emoji });
       const authorName = authorNameFor(lines, targetId) ?? '—';
       // The ONE deliberate exception to "never log message contents": this is
       // the persona's own output, not a user's, and only while dry-run is on.
@@ -1273,6 +1428,7 @@ export function createTurnRunner({
       const link = linkFor(pulledId);
       const { entry } = gif;
       // The persona's own pick from the library, dry-run only: the handle and the stored URL.
+      await rehearse('gif', { input: { gif: entry.id }, sourceMessageIds: replyId ? [replyId] : [] });
       log.info('dry-run: would send gif', { channel: channel.id, channelName, mode, replyTo: replyId, link, gif: entry.id, kind: entry.kind, url: entry.url });
       await mirror(`${head} · gif ${entry.id}`, withLink(entry.url, link, labels));
       lastPostAt.set(channel.id, clock());
@@ -1290,6 +1446,7 @@ export function createTurnRunner({
       const link = linkFor(pulledId);
       // Same deliberate exception as above: the persona's own output, dry-run only.
       const text = withLink(withChannelLinks(channel, renderCustomEmoji(resolveMentions(message.text, lines, knownNames).text, emojiLookup())), link, labels);
+      await rehearse('post', { intent: { replyTo: replyId, text }, sourceMessageIds: replyId ? [replyId] : [] });
       log.info('dry-run: would send', { channel: channel.id, channelName, mode, trigger: triggerKind ?? null, replyTo: replyId, link, text });
       // The mirror shows @name as the model wrote it: resolving it to a real
       // mention here would ping someone in a channel meant to be invisible to them.
@@ -1309,6 +1466,7 @@ export function createTurnRunner({
       // owner can check the prompt files in dry-run. Same deliberate exception:
       // the persona's own output, dry-run only. Nothing is generated.
       const prompt = drawPromptFor(selfName, drawn);
+      await rehearse('draw', { input: { self, ...(setDraws ? { set: true } : {}) } });
       log.info('dry-run: would draw', { channel: channel.id, channelName, mode, self, link, prompt, ...(setDraws ? { set: true } : {}) });
       // A full prompt outgrows one Discord message: mirrored in numbered parts.
       const setMark = setDraws ? ` · set ${index + 1}/${setDraws.length}` : '';
@@ -1380,11 +1538,15 @@ export function createTurnRunner({
    * written there: the limit notice is posted here as a plain message, never as
    * a Discord reply across channels. `plain`: the turn quotes no chat line (postsPlain).
    */
-  async function draw({ channel, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId = null }) {
+  async function draw({ channel, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId = null, draft = null }) {
     const config = hot.config;
     const self = parsed.draw.self === true;
     const prompt = drawPromptFor(selfName, parsed.draw);
     const asked = askedFor(trigger, triggerKind);
+    // The journal: the picture is one operation from its generation to its post.
+    const op = journalOp(draft, 'draw', 'persona', { input: { self } });
+    let sending = false;
+    if (op.opId) await op.started();
     try {
       let reference = null;
       if (self && config.image?.reference === 'avatar') {
@@ -1395,12 +1557,15 @@ export function createTurnRunner({
       const picture = await images.generate({ prompt, reference, userId: asked ? (trigger.authorId ?? null) : null });
       const { replyId, pulledId } = replyTarget(parsed.draw.replyTo, { plain, idByIndex, pulledIds });
       const link = linkFor(pulledId);
+      sending = true;
       const message = await channel.send({
         ...(link ? { content: link } : {}),
         files: [{ attachment: picture.buffer, name: imageFileName(picture.mediaType) }],
         reply: replyId ? { messageReference: replyId, failIfNotExists: false } : undefined,
         allowedMentions: { parse: [] },
       });
+      sending = false;
+      if (op.opId) await op.succeeded({ messageId: message?.id ?? null, bytes: picture.buffer?.length ?? 0 });
       lastPostAt.set(channel.id, clock());
       log.info('turn: drew', {
         channel: channel.id,
@@ -1410,8 +1575,12 @@ export function createTurnRunner({
         bytes: picture.buffer?.length ?? 0,
         ...(link ? { link: true } : {}),
       });
-      return { posted: true, pulledId, replyId, message };
+      return { posted: true, pulledId, replyId, message, op };
     } catch (err) {
+      if (op.opId) {
+        if (sending) await closeThrown(op, err);
+        else await op.failed(err instanceof ImageCapError ? 'image-cap' : err instanceof ImageGenError ? (err.reason ?? 'error') : 'error');
+      }
       if (err instanceof ImageCapError) {
         const limit = limitOf(err);
         log.info('turn: draw refused by a limit', {
@@ -1563,21 +1732,26 @@ export function createTurnRunner({
    * URL comes first and still embeds), or null.
    * @returns {Promise<object|null>}
    */
-  async function postGif(channel, guildId, gif, replyId, link) {
+  async function postGif(channel, guildId, gif, replyId, link, op = NO_OP) {
     const { entry } = gif;
+    let sending = false;
     try {
       const fresh = entry.kind === 'attachment' ? await freshAttachmentUrl(channel, entry) : null;
+      sending = true;
       const message = await channel.send({
         content: withLink(fresh ?? entry.url, link, hot.prompts?.labels),
         reply: replyId ? { messageReference: replyId, failIfNotExists: false } : undefined,
         allowedMentions: { parse: [] },
       });
+      sending = false;
+      if (op.opId) await op.succeeded({ messageId: message?.id ?? null });
       countGif();
       if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(guildId, entry.key, clock());
       lastPostAt.set(channel.id, clock());
       log.info('turn: gif sent', { channel: channel.id, gif: entry.id, kind: entry.kind, fresh: Boolean(fresh), ...(link ? { link: true } : {}) });
       return message ?? {};
     } catch (err) {
+      if (op.opId) await (sending ? closeThrown(op, err) : op.failed('error'));
       log.warn('turn: gif failed', { channel: channel.id, gif: entry.id, error: err });
       return null;
     }
@@ -1749,7 +1923,7 @@ export function createTurnRunner({
    * picture was posted) and `drawFailed` when the picture failed; with a `set`, `setPictures`
    * (the pictures posted) and `setScene` (the scene of the first one posted).
    */
-  async function act({ channel, guildId, privateChat, parsed, idByIndex, history, startedAt, mode, triggerKind, plain, trigger, selfName, pulledIds, lines, knownNames, linkFor, sourceId, gifPick = true, participation = null, set = null }) {
+  async function act({ channel, guildId, privateChat, parsed, idByIndex, history, startedAt, mode, triggerKind, plain, trigger, selfName, pulledIds, lines, knownNames, linkFor, sourceId, gifPick = true, participation = null, set = null, draft = null }) {
     const cfg = hot.config.typing;
     const typingOn = hot.config.features?.typingSimulation !== false;
     // The typing imitation of one message: the indicator, then the time its text takes to type.
@@ -1777,11 +1951,12 @@ export function createTurnRunner({
       if (ledgerPost) recordPost(sent, ledgerPost);
     };
     // For the journal: every post that reached the chat with the message it answers, every
-    // reaction put with its target.
+    // reaction put with its target, each with the operation that made it (journalOp).
     const posts = [];
     const reacted = [];
-    const notePost = (sent, replyTo = null) => {
-      if (typeof sent?.id === 'string' && sent.id) posts.push({ messageId: sent.id, replyTo: replyTo ?? null });
+    const opField = (op) => (op?.opId ? { opId: op.opId } : {});
+    const notePost = (sent, replyTo = null, op = null) => {
+      if (typeof sent?.id === 'string' && sent.id) posts.push({ ...opField(op), messageId: sent.id, replyTo: replyTo ?? null });
     };
 
     for (const reaction of parsed.reactions) {
@@ -1793,13 +1968,17 @@ export function createTurnRunner({
         continue;
       }
       if (typingOn) await sleep(between(cfg.reactionDelayMs, rng));
+      const op = journalOp(draft, 'react', 'persona', { input: { to: targetId, emoji: reaction.emoji }, sourceMessageIds: [targetId] });
+      if (op.opId) await op.started();
       try {
         const target = await route.target.messages.fetch(targetId);
         await target.react(reaction.emoji);
         delivered = true;
-        reacted.push({ to: targetId, emoji: reaction.emoji });
+        reacted.push({ ...opField(op), to: targetId, emoji: reaction.emoji });
         if (route.source) answered.add(targetId);
+        if (op.opId) await op.succeeded({ to: targetId, emoji: reaction.emoji });
       } catch (err) {
+        if (op.opId) await closeThrown(op, err);
         log.warn('turn: reaction failed', { channel: channel.id, ...(route.source ? { source: route.source } : {}), emoji: reaction.emoji, error: err });
       }
     }
@@ -1822,12 +2001,14 @@ export function createTurnRunner({
     // One GIF post (the turn's own or the picked one), recorded like a message.
     const sendGif = async (gif) => {
       const { replyId, pulledId } = replyTarget(gif.replyTo, { plain, idByIndex, pulledIds });
-      const sent = await postGif(channel, guildId, gif, replyId, linkFor(pulledId));
+      const op = journalOp(draft, 'gif', 'persona', { input: { gif: gif.entry?.id ?? null }, sourceMessageIds: replyId ? [replyId] : [] });
+      if (op.opId) await op.started();
+      const sent = await postGif(channel, guildId, gif, replyId, linkFor(pulledId), op);
       if (sent) {
         delivered = true;
         if (pulledId) answered.add(pulledId);
         record(sent);
-        notePost(sent, replyId);
+        notePost(sent, replyId, op);
       }
       return sent;
     };
@@ -1858,6 +2039,13 @@ export function createTurnRunner({
       // The first message was typed alongside the GIF picker, above.
       if (typingOn && !typedAbove(index)) await typeFor(spoken);
 
+      // The journal: the post's operation, with what the reconciliation after a restart looks for.
+      const op = journalOp(draft, 'post', 'persona', {
+        intent: { replyTo: replyId, text },
+        participants: repliedAuthorId ? [repliedAuthorId] : [],
+        sourceMessageIds: replyId ? [replyId] : [],
+      });
+      if (op.opId) await op.started();
       let posted;
       try {
         posted = await channel.send({
@@ -1866,15 +2054,17 @@ export function createTurnRunner({
           allowedMentions: { parse: [], users: userIds.filter((id) => !pingsOff(id)), repliedUser: !pingsOff(repliedAuthorId) },
         });
       } catch (err) {
+        if (op.opId) await closeThrown(op, err);
         log.warn('turn: send failed', { channel: channel.id, index: replaced ? index + 1 : index, error: err });
         sendFailed = true;
         break;
       }
+      if (op.opId) await op.succeeded({ messageId: posted?.id ?? null });
       delivered = true;
       if (pulledId) answered.add(pulledId);
       lastPostAt.set(channel.id, clock());
       record(posted);
-      notePost(posted, replyId);
+      notePost(posted, replyId, op);
       postedTexts.push(message.text);
       const ownLine = {
         id: posted?.id ?? null,
@@ -1918,19 +2108,24 @@ export function createTurnRunner({
       let setPictures = 0;
       for (const [index, chunk] of chunks.entries()) {
         let message;
+        const bytes = chunk.reduce((sum, picture) => sum + (picture.buffer?.length ?? 0), 0);
+        const op = journalOp(draft, 'draw', 'persona', { input: { set: true, pictures: chunk.length } });
+        if (op.opId) await op.started();
         try {
           message = await channel.send({
             files: chunk.map((picture) => ({ attachment: picture.buffer, name: imageFileName(picture.mediaType) })),
             allowedMentions: { parse: [] },
           });
         } catch (err) {
+          if (op.opId) await closeThrown(op, err);
           log.warn('turn: send failed', { channel: channel.id, index: messages.length + index, set: true, error: err });
           break;
         }
+        if (op.opId) await op.succeeded({ messageId: message?.id ?? null, bytes });
         delivered = true;
         lastPostAt.set(channel.id, clock());
         record(message);
-        notePost(message);
+        notePost(message, null, op);
         if (typeof message?.id === 'string' && message.id) messageIds.push(message.id);
         if (setPictures === 0) posted.setScene = chunk[0].text;
         setMessages += 1;
@@ -1947,11 +2142,11 @@ export function createTurnRunner({
 
     // The picture comes last, once every message is out.
     if (!parsed.draw) return { delivered, answered, ...posted };
-    const drawn = await draw({ channel, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId });
+    const drawn = await draw({ channel, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId, draft });
     if (drawn.posted === true) {
       if (drawn.pulledId) answered.add(drawn.pulledId);
       record(drawn.message);
-      notePost(drawn.message, drawn.replyId);
+      notePost(drawn.message, drawn.replyId, drawn.op);
       if (typeof drawn.message?.id === 'string' && drawn.message.id) messageIds.push(drawn.message.id);
       posted.drew = true;
     }
@@ -2252,7 +2447,7 @@ export function createTurnRunner({
    * (the turn's deadline grows to pace.prepareSearchMs; until the answer the
    * turn holds its deadline on this call, see createDeadline's `hold`).
    */
-  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch }) {
+  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, journalStep = null }) {
     const channelId = channel.id;
     const prompt = hot.prompts?.lookup;
     const searchCfg = config.web?.search ?? {};
@@ -2322,12 +2517,27 @@ export function createTurnRunner({
     const runServer = serverOn && Boolean(server);
     if (!runWeb && !runServer) return null;
     onSearch?.();
+    // The journal: each search the answer asks for is an operation of the engine (journalStep).
+    const webOp = runWeb ? (journalStep?.('lookup', 'lookup', { input: { query: parsed.web } }) ?? null) : null;
+    const recallOp = runServer
+      ? (journalStep?.('lookup', 'recall', { input: { forms: server.forms, who: server.who, from: server.from, to: server.to } }, (result) => result.summaryChars > 0 || result.stretch === true) ?? null)
+      : null;
     const [webResult, found] = await Promise.all([
-      runWeb ? settleLookupPart(() => lookup.search(guildId, parsed.web), channelId, 'web') : null,
+      runWeb
+        ? settleLookupPart(
+            () =>
+              journalled(webOp, () => lookup.search(guildId, parsed.web), (result) =>
+                result ? { result: { results: Array.isArray(result.sources) ? result.sources.length : 0 }, offered: Boolean(result.text) } : { failed: 'no-result' },
+              ),
+            channelId,
+            'web',
+          )
+        : null,
       runServer
         ? settleLookupPart(
             () =>
               recall.run({
+                ...(recallOp ? { op: recallOp } : {}),
                 guild,
                 guildId,
                 channel,
@@ -2607,7 +2817,7 @@ export function createTurnRunner({
    * @returns {Promise<{ posts: object[], plan: { kind: string|null, brief: string, search: string,
    *   picture: boolean, fallback: boolean, topic?: string }, found: string|null, pictureAllowed: boolean, seeds: string }>}
    */
-  async function prepareDiary({ config, guildId, channel, selfName, history, now, params, memoryOn }) {
+  async function prepareDiary({ config, guildId, channel, selfName, history, now, params, memoryOn, draft = null }) {
     const prompts = hot.prompts;
     const labels = prompts?.labels;
     const diaryCfg = config.diary ?? {};
@@ -2688,11 +2898,16 @@ export function createTurnRunner({
 
     let found = null;
     if (plan.search && typeof lookup?.search === 'function') {
+      // The journal: the plan's search is the engine's operation; what it found enters the post's request.
+      const op = journalOp(draft, 'lookup', 'engine', { input: { query: plan.search } });
+      if (op.opId) await op.started();
       try {
         const result = await lookup.search(guildId, plan.search);
         found = typeof result?.text === 'string' && result.text.trim() ? result.text.trim() : null;
+        if (op.opId) await (result ? op.succeeded({ results: Array.isArray(result.sources) ? result.sources.length : 0, delivered: found !== null }) : op.failed('no-result'));
         if (found === null) log.info('diary: search failed', { channel: channel.id, reason: result ? 'nothing' : 'refused' });
       } catch (err) {
+        if (op.opId) await op.failed('error');
         log.warn('diary: search failed', { channel: channel.id, reason: 'error', error: err });
       }
     }
@@ -3284,6 +3499,13 @@ export function createTurnRunner({
     // A server channel carries its guild; a private chat is served on behalf of the pinned one.
     const guildId = channel.guild?.id ?? guildIdParam;
     if (!guildId) throw new Error('runTurn: a channel without a guild needs a guildId');
+    // The journal's preparation steps of this attempt (createPrepLedger): each an operation of
+    // the engine, closed with whether its result reached the request.
+    const prep = createPrepLedger();
+    const prepStep = (stage, name, fields, offeredOf) => {
+      const op = journalOp(draft, name, 'engine', fields);
+      return op.opId ? prep.step(stage, op, offeredOf) : null;
+    };
     const isPrivate = !channel.guild;
     // Set when this turn hands off to a drawFailed turn: runTurn notifies after it.
     let handOff = false;
@@ -3429,7 +3651,7 @@ export function createTurnRunner({
       // into a value or an error so a refusal waits for its turn to be thrown.
       const diaryPending =
         mode === 'diary'
-          ? prepareDiary({ config, guildId, channel, selfName, history: rawHistory, now, params: diaryParams, memoryOn }).then(
+          ? prepareDiary({ config, guildId, channel, selfName, history: rawHistory, now, params: diaryParams, memoryOn, draft }).then(
               (value) => ({ value }),
               (error) => ({ error }),
             )
@@ -3525,7 +3747,13 @@ export function createTurnRunner({
         const picked = features.vision !== false ? selectPictures({ trigger, history: rawHistory, visionCfg, now, channelId: channel.id }) : [];
         const includePicked = features.attachedDescriptions !== false;
         captionCandidates = describableCandidates(rawHistory, picked, { includePicked });
-        captions = track('captions', () => describer.describeMany(guildId, captionCandidates, { maxNew: config.media?.maxPerTurn ?? 6 }));
+        const describeOp = captionCandidates.length > 0 ? prepStep('captions', 'describe', { input: { candidates: captionCandidates.length } }) : null;
+        captions = track('captions', () =>
+          journalled(describeOp, () => describer.describeMany(guildId, captionCandidates, { maxNew: config.media?.maxPerTurn ?? 6 }), (value) => {
+            const count = value?.descriptions?.size ?? 0;
+            return { result: { count }, offered: count > 0 };
+          }),
+        );
       }
       // The captions a classifier's transcript shows: this turn's once they are done, else what
       // the describer's cache holds at the classifier's start (a fresh caption lands there).
@@ -3581,7 +3809,17 @@ export function createTurnRunner({
           videoCandidates.push(...collectVideos(rawHistory[i], { videoSites: videoCfg.sites }));
         }
         const candidates = videoCandidates;
-        videoStage = track('videos', () => describer.describeVideos(guildId, candidates, { maxNew: videoCfg.maxPerTurn ?? 1 }));
+        const watchOp = candidates.length > 0 ? prepStep('videos', 'watch-video', { input: { candidates: candidates.length } }) : null;
+        const watchStartedAt = clock();
+        videoStage = track('videos', () =>
+          journalled(watchOp, () => describer.describeVideos(guildId, candidates, { maxNew: videoCfg.maxPerTurn ?? 1 }), (value) => {
+            const states = value?.videos instanceof Map ? [...value.videos.values()] : [];
+            return {
+              result: { seconds: Math.round((clock() - watchStartedAt) / 100) / 10, watched: states.filter((state) => state?.state === 'watched').length },
+              offered: states.length > 0,
+            };
+          }),
+        );
       }
 
       // A second look when the trigger asks about a watched video or a posted picture: a
@@ -3689,7 +3927,13 @@ export function createTurnRunner({
         linksStage = track('links', async () => {
           try {
             const candidates = readableLinkCandidates(rawHistory, config.media?.video?.sites);
-            const read = await lookup.readLinks(guildId, candidates, { maxNew: webCfg.links?.maxPerTurn ?? 2 });
+            // The journal: the link reads as one operation of the engine, hosts only.
+            const readOp = candidates.length > 0 ? prepStep('links', 'read-link', { input: { hosts: linkHosts(candidates) } }) : null;
+            const read = await journalled(readOp, () => lookup.readLinks(guildId, candidates, { maxNew: webCfg.links?.maxPerTurn ?? 2 }), (value) => {
+              const reads = value?.reads instanceof Map ? value.reads : new Map();
+              const chars = [...reads.values()].reduce((sum, text) => sum + (typeof text === 'string' ? text.length : 0), 0);
+              return { result: { hosts: linkHosts(candidates.filter((link) => reads.has(link.id))), chars }, offered: reads.size > 0 };
+            });
             return read.reads;
           } catch (err) {
             log.warn('lookup: links failed', { channel: channel.id, error: err });
@@ -3734,6 +3978,7 @@ export function createTurnRunner({
                     webOn,
                     serverOn,
                     onSearch: () => deadline.extend(pace.prepareSearchMs),
+                    journalStep: prepStep,
                   });
                 } catch (err) {
                   log.warn('lookup: failed', { channel: channel.id, error: err });
@@ -3832,6 +4077,11 @@ export function createTurnRunner({
       const imageAnswers = rewatchStage?.done && rewatchStage.value?.imageAnswers?.size > 0 ? rewatchStage.value.imageAnswers : null;
       const reads = linksStage?.done ? linksStage.value : undefined;
       const lookupResult = lookupStage?.done ? (lookupStage.value ?? null) : null;
+      // The journal: which preparation steps reached the request (the rest close as not delivered).
+      prep.take('captions', Boolean(captions?.done));
+      prep.take('videos', Boolean(videoStage?.done));
+      prep.take('links', Boolean(linksStage?.done));
+      prep.take('lookup', Boolean(lookupStage?.done));
       const neighborsFound = neighborsStage?.done ? neighborsStage.value : null;
       const neighbors = Array.isArray(neighborsFound?.neighbors) ? neighborsFound.neighbors : [];
       const neighborsHidden = neighborsFound?.hidden ?? 0;
@@ -3962,9 +4212,13 @@ export function createTurnRunner({
       if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
       // The journal: what of the window went in, whose lines they were, what the budget dropped.
       if (draft.started && request.seen) {
-        draft.seen = request.seen;
-        const keptIds = new Set(request.seen.messageIds);
-        const authors = history.filter((message) => keptIds.has(message.id) && !message.self).map((message) => message.authorId);
+        // The lines of the pulled channels whose block the request kept count as seen too, by channel.
+        const pulledSeen = (request.pulledKept ?? []).map(({ channelId, ids }) => ({ channelId, messageIds: [...ids] }));
+        const pulledIdsSeen = pulledSeen.flatMap((entry) => entry.messageIds);
+        draft.seen = { ...request.seen, messageIds: [...new Set([...request.seen.messageIds, ...pulledIdsSeen])], pulled: pulledSeen };
+        const keptIds = new Set(draft.seen.messageIds);
+        const pulledLines = pulledSeen.flatMap(({ channelId }) => pulled.find((entry) => entry.channelId === channelId)?.messages ?? []);
+        const authors = [...history, ...pulledLines].filter((message) => keptIds.has(message.id) && !message.self).map((message) => message.authorId);
         draft.participants = [...new Set([...authors, trigger?.authorId].filter((id) => typeof id === 'string' && id))];
         draft.dropped = droppedSections(request.stats);
       }
@@ -4176,7 +4430,7 @@ export function createTurnRunner({
       if (hot.config.features?.dryRun === true) {
         // Nothing is generated: a set with fewer drawings than it needs would be short.
         if (setDraws && setDraws.length < setMinPosted) return setShort(setDraws.length, { dryRun: true });
-        await dryAct({ channel, guildId, parsed, idByIndex, history, mode: finalMode, triggerKind, trigger, selfName, part, ...routing, gifPick: !diaryPrep, setDraws });
+        await dryAct({ channel, guildId, parsed, idByIndex, history, mode: finalMode, triggerKind, trigger, selfName, part, ...routing, gifPick: !diaryPrep, setDraws, draft });
         noteSpokeSaw(channel, history, serverShown, pulled, notAnswered);
         // A rehearsed diary post is not recorded and counts for no daily cap.
         const rehearsedPictures = setDraws ? setDraws.length : parsed.draw ? 1 : 0;
@@ -4222,6 +4476,7 @@ export function createTurnRunner({
         gifPick: !diaryPrep,
         participation: isPrivate ? null : { descriptions: descriptions ?? null },
         set,
+        draft,
       });
       noteSpokeSaw(channel, history, serverShown, pulled, notAnswered);
       stampShownCalls({ shown: serverShown, pulled, answered: acted.answered ?? new Set(), exceptId: ownCallId });
@@ -4261,6 +4516,7 @@ export function createTurnRunner({
       return { outcome: 'error' };
     } finally {
       draft.mode = turnMode;
+      prep.closeAll();
       stopTyping();
       deadline?.close();
       bar?.close();
