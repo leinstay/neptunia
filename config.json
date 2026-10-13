@@ -29,6 +29,7 @@
     "recallTrace": false,
     "journal": true,
     "record": true,
+    "archive": true,
     "imageGeneration": false,
     "privateMessages": false,
     "privateLikeServer": true,
@@ -399,5 +400,9 @@
   },
   "record": {
     "fsyncMs": 500
+  },
+  "archive": {
+    "pendingMax": 500,
+    "drainMs": 30000
   }
 }

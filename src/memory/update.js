@@ -2892,8 +2892,18 @@ function namedIds(ids, texts) {
  *   run is applied (`memory: paused`, reason `append-stalled`, once per streak): the buffers and
  *   the voice queue keep everything until the disk answers. Chat turns are not affected.
  * @param {() => string} [deps.uuid]  Ids of batches (`b-`) and applied results (`r-`).
+ * @param {{ stats: (guildId: string) => { pending: number } }|null} [deps.archive]
+ *   src/memory/archive.js#createArchive (optional). With `features.archive` exactly true (read at
+ *   the moment of use), while its pending queue holds more than `archive.pendingMax` entries (read
+ *   then too; config.json's 500) no batch and no voice run is applied (`memory: archive stalled`,
+ *   once per streak, and one `notify` line): the buffers keep everything until the drain empties
+ *   the queue. What the store archived for a batch's writes (src/memory/store.js#settleArchive)
+ *   fills the journal record's `archived`, confirmed copies only; entries sent to the pending
+ *   queue instead are logged as `memory: archive deferred` (counts).
+ * @param {((text: string) => unknown)|null} [deps.notify]  A status line for the development channel
+ *   (src/index.js posts it to `bot.dryRunChannelId`); its failure is ignored.
  */
-export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null, journal = null, uuid = randomUUID }) {
+export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null, journal = null, uuid = randomUUID, archive = null, notify = null }) {
   const running = new Set();
   let idleWaiters = []; // resolvers for waitIdle() (/nep pause), notified once running.size hits 0
   const backoffUntil = new Map();
@@ -2916,6 +2926,9 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   // Whether the last look found the journal's append store stalled: `memory: paused` is logged
   // once each time this turns true.
   let appendStalled = false;
+  // The guilds whose archive queue the last look found over archive.pendingMax: `memory: archive
+  // stalled` is logged (and sent to the development channel) once each time a guild enters it.
+  const archiveStalled = new Set();
 
   /** Whether memory records are written now: a journal injected and features.journal exactly true (read now). */
   function journalOn() {
@@ -2931,6 +2944,46 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     if (stalled && !appendStalled) log.warn('memory: paused', { guildId, reason: 'append-stalled' });
     appendStalled = stalled;
     return stalled;
+  }
+
+  /**
+   * Whether memory application waits for the archive: with features.archive exactly true and an
+   * archive injected, its pending queue for the guild holds more than `archive.pendingMax` entries
+   * (both read now). Logs `memory: archive stalled` and sends one `notify` line once per streak.
+   */
+  function archivePaused(guildId) {
+    const on = Boolean(archive) && typeof archive.stats === 'function' && hot.config.features?.archive === true;
+    const pending = on ? Number(archive.stats(guildId)?.pending) || 0 : 0;
+    const pendingMax = hot.config.archive?.pendingMax ?? 500;
+    const stalled = on && pending > pendingMax;
+    if (stalled && !archiveStalled.has(guildId)) {
+      log.warn('memory: archive stalled', { guildId, pending, pendingMax });
+      if (typeof notify === 'function') {
+        Promise.resolve()
+          .then(() => notify(`memory: archive stalled pending=${pending} pendingMax=${pendingMax}`))
+          .catch(() => {});
+      }
+    }
+    if (stalled) archiveStalled.add(guildId);
+    else archiveStalled.delete(guildId);
+    return stalled;
+  }
+
+  /**
+   * What the store archived for the writes between two marks (src/memory/store.js#settleArchive):
+   * `{ archived, deferred }`; nothing to wait for without marks or without a store that archives.
+   * A deferral is logged as `memory: archive deferred` (counts).
+   */
+  async function settleArchive(guildId, marks) {
+    if (!marks || marks.from === marks.to || typeof store.settleArchive !== 'function') return { archived: [], deferred: 0 };
+    const settled = await store.settleArchive(guildId, marks);
+    if (settled.deferred > 0) log.warn('memory: archive deferred', { guildId, deferred: settled.deferred, archived: settled.archived.length });
+    return settled;
+  }
+
+  /** The store's archive mark now, or null for a store without one. */
+  function archiveMark(guildId) {
+    return typeof store.archiveMark === 'function' ? store.archiveMark(guildId) : null;
   }
 
   /**
@@ -2955,9 +3008,18 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       const privateUserId = key || null;
       const ids = privateUserId ? [privateUserId] : [...new Set(group.map((write) => write.userId).filter((id) => id != null).map(String))];
       const before = traceBefore(store, guildId, ids, privateUserId);
+      const from = archiveMark(guildId);
       landed += runVoiceWrites(store, guildId, group, config, nowMs);
+      const to = archiveMark(guildId);
       const trace = traceAfter(store, guildId, before);
-      writeMemoryRecord(guildId, { batchId: `b-${uuid()}`, stage: 'voice', messages: [], trace, limits: limits?.list() ?? [], privateUserId });
+      const input = { batchId: `b-${uuid()}`, stage: 'voice', messages: [], trace, limits: limits?.list() ?? [], privateUserId };
+      // Without archive entries the record goes at once; with some, once the archive answered.
+      if (from === to) writeMemoryRecord(guildId, input);
+      else {
+        settleArchive(guildId, { from, to })
+          .then(({ archived }) => writeMemoryRecord(guildId, { ...input, archived }))
+          .catch((err) => log.warn('memory: journal record failed', { guildId, stage: 'voice', error: errorNameOf(err) }));
+      }
     }
     return landed;
   }
@@ -2967,10 +3029,11 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * Never rejects (the journal logs a failed append).
    * @param {string} guildId
    * @param {{ batchId: string, stage: string, messages: object[], trace: object, result?: object|null,
-   *   limits?: object[], privateUserId?: string|null }} input
-   *   `messages`: the lines the batch consumed (none for voice writes); `trace`: traceAfter's.
+   *   limits?: object[], privateUserId?: string|null, archived?: object[] }} input
+   *   `messages`: the lines the batch consumed (none for voice writes); `trace`: traceAfter's;
+   *   `archived`: settleArchive's confirmed entries.
    */
-  function writeMemoryRecord(guildId, { batchId, stage, messages, trace, result = null, limits = [], privateUserId = null }) {
+  function writeMemoryRecord(guildId, { batchId, stage, messages, trace, result = null, limits = [], privateUserId = null, archived = [] }) {
     const messageIds = messages.map((message) => message?.id).filter((id) => typeof id === 'string' && id);
     const named = [...trace.users, ...trace.episodes.map((ep) => ep.userId), ...trace.attitude.map((move) => move.userId), ...batchAuthorIds(messages)];
     const texts = [...trace.episodes.map((ep) => ep.what), ...trace.attitude.map((move) => move.reason), ...trace.self, ...trace.learned.map((item) => item.text)];
@@ -2990,7 +3053,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       self: trace.self,
       learned: trace.learned,
       consolidation: [],
-      archived: [],
+      // Only the copies the archive confirmed (store.settleArchive).
+      archived: archived.map(({ itemId, revisionId }) => ({ itemId, revisionId, confirmed: true })),
       limits,
       promptsHash: hot.hashes?.promptsHash ?? null,
       configHash: hot.hashes?.configHash ?? null,
@@ -3465,6 +3529,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       // Read right before the apply, with nothing awaited in between: every difference is its own.
       const traceIds = privateUserId ? [privateUserId] : [...new Set([...(isPlainObject(update?.users) ? Object.keys(update.users) : []), ...batchAuthorIds(consumedMessages)])];
       const before = limits ? traceBefore(store, guildId, traceIds, privateUserId) : null;
+      const archiveFrom = archiveMark(guildId);
       if (stage === 'two') {
         // One clock read for the whole stage A apply: the split addresses the attitude move and
         // the episodes it stores by this instant, so the switches stamp them with it too.
@@ -3474,7 +3539,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         result = applyUpdate(update, applySwitches(), { rosterIds, recentIds, stage, consumed: consumedMessages, limits });
       }
       const journalled = before ? { trace: traceAfter(store, guildId, before), limits: limits.list() } : {};
-      return { ok: true, usage, estimated, result, ...fit, ...marker, ...journalled };
+      const archiveMarks = { from: archiveFrom, to: archiveMark(guildId) };
+      return { ok: true, usage, estimated, result, ...fit, ...marker, ...journalled, archiveMarks };
     } catch (err) {
       // A parsed answer the store failed to take: not the answer's size, so the batch is not
       // halved (see recordFailure). Logged by the error's name only.
@@ -3607,8 +3673,9 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   async function run(guildId) {
     running.add(guildId);
     try {
-      // The journal cannot take a record: the batch waits in the buffer, nothing is sent.
-      if (appendPaused(guildId)) return;
+      // The journal cannot take a record, or the archive is too far behind: the batch waits in the
+      // buffer, nothing is sent.
+      if (appendPaused(guildId) || archivePaused(guildId)) return;
       const buffer = store.getBuffer(guildId);
       const messages = buffer.slice(0, batchTake(guildId, buffer.length));
       // The batch reaches the record before anything consumes it; a refused append keeps it.
@@ -3628,8 +3695,9 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         // Counts only: a portrait cue's text is the analyzer's prose about a member; the review
         // map and the change list feed the reconciliation below, not the log line.
         const { portraitRequests, noteReviews, changedChannels, guildChanged, guildBriefQueued, ...counts } = outcome.result;
+        const { archived } = await settleArchive(guildId, outcome.archiveMarks);
         if (outcome.trace) {
-          await writeMemoryRecord(guildId, { batchId, stage: outcome.stage ?? 'single', messages: consumed, trace: outcome.trace, result: outcome.result, limits: outcome.limits });
+          await writeMemoryRecord(guildId, { batchId, stage: outcome.stage ?? 'single', messages: consumed, trace: outcome.trace, result: outcome.result, limits: outcome.limits, archived });
         }
         let noteCounts = null;
         if (notesFlagged > 0) {
@@ -3715,7 +3783,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     if (running.has(key)) return;
     running.add(key);
     try {
-      if (appendPaused(guildId)) return;
+      if (appendPaused(guildId) || archivePaused(guildId)) return;
       const buffer = store.getPrivateBuffer(guildId, userId);
       const messages = buffer.slice(0, batchTake(key, buffer.length));
       if (messages.length === 0) return;
@@ -3728,9 +3796,10 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         const consumed = messages.slice(0, outcome.consumed);
         store.shiftPrivateBuffer(guildId, userId, consumed);
         store.flush();
+        const { archived } = await settleArchive(guildId, outcome.archiveMarks);
         if (outcome.trace) {
           const privateUserId = String(userId);
-          await writeMemoryRecord(guildId, { batchId, stage: outcome.stage ?? 'single', messages: consumed, trace: outcome.trace, result: outcome.result, limits: outcome.limits, privateUserId });
+          await writeMemoryRecord(guildId, { batchId, stage: outcome.stage ?? 'single', messages: consumed, trace: outcome.trace, result: outcome.result, limits: outcome.limits, privateUserId, archived });
         }
         log.info('memory: private update applied', {
           guildId,
@@ -4011,6 +4080,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
 
     // The journal cannot take a record: the queue keeps every item, nothing expires or is sent.
     if (appendPaused(guildId)) return idle('append-stalled');
+    // The archive is too far behind: the queue keeps every item until the drain catches up.
+    if (archivePaused(guildId)) return idle('archive-stalled');
     const config = hot.config;
     // Local work, no request: on time whatever the switch, the voice prompt or the guild's
     // back-off say (an item's age is not the model's fault), so a rollback of the switch or a
@@ -4133,7 +4204,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * anything unexpected is logged by name and backs the guild off.
    * @param {string} guildId
    * @returns {Promise<{ sent: number, applied: number, reason?: string }>}  `reason` when it did
-   *   not apply an answer: `busy`, `off`, `paused`, `append-stalled`, `no-prompt`, `backoff`, `nothing-due`,
+   *   not apply an answer: `busy`, `off`, `paused`, `append-stalled`, `archive-stalled`, `no-prompt`, `backoff`, `nothing-due`,
    *   `daily-cap`, `token-limit`, `llm-error`, `bad-json`, `truncated`, `apply-error`.
    */
   async function runVoice(guildId) {

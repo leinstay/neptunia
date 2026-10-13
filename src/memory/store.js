@@ -69,18 +69,24 @@
 // runs src/memory/participation.js#expireEpisodes (`participation.hours`, then
 // `participation.maxStored`), never a read; a forget takes the member's
 // messages out (written at once), a wipe deletes the file.
+//
+// With the archive on (src/memory/archive.js, `features.archive`), whatever one of
+// these retentions, a cap or an analyzer op takes out of a list stays in it, over
+// the cap, until the archive confirms its copy; only then does `trimArchived`
+// finish the removal. So no file here loses an item before the archive holds it
+// (see "The archive" inside createStore). A forget and a wipe are not archived.
 
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
-import { utcDay } from '../time.js';
+import { HOUR_MS, utcDay } from '../time.js';
 import { emptyAffinity, applyDelta, decayAffinity } from './affinity.js';
 import { mergeEpisodes } from './episodes.js';
 import { loreVersionKey, upsertLore } from './lore.js';
 import { sentenceDiff } from './prose.js';
-import { applyInterestOps, attachDropped, normalizeInterests, normalizeTopic } from './interests.js';
+import { applyInterestOps, attachDropped, normalizeInterests, normalizeTopic, stripTrailingParenthetical } from './interests.js';
 import { applyDetailOps, normalizeDetails } from './details.js';
 import { applyAliasOps } from './aliases.js';
 import { clampText } from './clamp.js';
@@ -90,7 +96,8 @@ import { mergeEmojiUsage, normalizeEmojiUsage } from './emoji-usage.js';
 import { emptyGifs, findGif, markOwnGif, mergeGifs, normalizeBackfillStamp, normalizeGifs, resetGifCounts } from './gifs.js';
 import { FEELING_CHARS, REASON_CHARS, SELF_CHARS, forgetMember, normalizeQueue } from './voice.js';
 import { emptyRecent, mergeRecent, normalizeRecent, purgeRecentFor } from './recent.js';
-import { emptyParticipation, expireEpisodes, normalizeParticipation, purgeParticipationFor } from './participation.js';
+import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizeParticipation, purgeParticipationFor } from './participation.js';
+import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.js';
 
 const DIARY_HISTORY_POSTS = 150; // diary.historyPosts
 
@@ -108,27 +115,8 @@ const GUILD_PROSE = ['patterns', 'starters'];
 /** The diary of a guild with no post yet (data/guilds/<id>/diary.json). */
 const emptyDiary = () => ({ posts: [], updatedAt: 0 });
 
-/**
- * The prefix of an item's `itemId` by kind: the stable identity a stored memory item gets on its
- * first write (`ep-` + a UUID, ...) and keeps, so whatever later leaves the hot files can be told
- * apart and found again. The field is optional: an item written before it existed loads without
- * one and gets it on its next write; no reader requires it. Self facts and in-jokes are stored as
- * plain strings, so they carry no id while stored: the id is minted when one leaves the list.
- */
-export const ITEM_ID_PREFIX = Object.freeze({
-  episode: 'ep-',
-  lesson: 'ln-',
-  interest: 'in-',
-  detail: 'dt-',
-  alias: 'al-',
-  selfFact: 'sf-',
-  move: 'mv-',
-  recent: 'rc-',
-  participation: 'pt-',
-  diary: 'dy-',
-  injoke: 'ij-',
-  version: 'vs-',
-});
+/** The prefix of an item's `itemId` by kind (src/memory/archive.js#ITEM_ID_PREFIX, the one copy). */
+export { ITEM_ID_PREFIX };
 
 /** Whether `item` already carries an `itemId` (a non-empty string). */
 function hasItemId(item) {
@@ -190,6 +178,104 @@ function droppedStrings(stored, next, prefix, newId) {
   const held = new Set((Array.isArray(next) ? next : []).filter((text) => typeof text === 'string').map(normalizeTopic));
   const gone = (Array.isArray(stored) ? stored : []).filter((text) => typeof text === 'string' && text.trim() && !held.has(normalizeTopic(text)));
   return stringItems(gone, prefix, newId);
+}
+
+/**
+ * The list a held archive victim lives in: `{ holder, key }` with `holder[key]` the list, found by
+ * walking `keys` from `value` (`['episodes']`, `['affinity', 'history']`, ...); null when a step on
+ * the way is not an object.
+ * @param {unknown} value
+ * @param {string[]} keys
+ * @returns {{ holder: object, key: string }|null}
+ */
+function listAt(value, keys) {
+  let holder = value;
+  for (const key of keys.slice(0, -1)) {
+    if (!isPlainObject(holder?.[key])) return null;
+    holder = holder[key];
+  }
+  return isPlainObject(holder) ? { holder, key: keys.at(-1) } : null;
+}
+
+/** How a held victim is found in its list: an object by its `itemId`, a plain string by its normalized text. */
+function identOf(strings, item) {
+  if (strings) return normalizeTopic(typeof item === 'string' ? item : item?.text);
+  return typeof item?.itemId === 'string' && item.itemId ? item.itemId : null;
+}
+
+/** An item without its `itemId`, as JSON (a string by its normalized text): tells a stored item from its stamped copy. */
+function anchorKey(strings, item) {
+  if (strings) return normalizeTopic(typeof item === 'string' ? item : item?.text);
+  if (!isPlainObject(item)) return JSON.stringify(item);
+  const { itemId, ...rest } = item;
+  return JSON.stringify(rest);
+}
+
+/**
+ * `current` (a list after a write) with every one of `victims` it no longer holds put back where
+ * it stood in `previous` (before the next item of `previous` that `current` still holds, else after the
+ * nearest earlier one it still holds, else first; a victim `previous` never held goes last). A string
+ * list gets the victims' `text` back. Pure.
+ * @param {unknown[]} previous
+ * @param {unknown[]} current
+ * @param {object[]} victims  Objects with an `itemId`, or `{ itemId, text }` for a string list.
+ * @param {boolean} strings
+ * @returns {unknown[]}
+ */
+function reinsert(previous, current, victims, strings) {
+  const result = [...current];
+  const before = Array.isArray(previous) ? previous : [];
+  const beforeKeys = before.map((item) => anchorKey(strings, item));
+  const sameAs = (a, b) => anchorKey(strings, a) === anchorKey(strings, b) || (!strings && identOf(false, a) !== null && identOf(false, a) === identOf(false, b));
+  for (const victim of victims) {
+    if (result.some((item) => sameAs(item, victim))) continue;
+    const from = beforeKeys.indexOf(anchorKey(strings, victim));
+    let at = result.length;
+    if (from !== -1) {
+      at = -1;
+      for (let i = from + 1; i < before.length && at === -1; i += 1) at = result.findIndex((item) => sameAs(item, before[i]));
+      // Nothing after it is left: right after the nearest earlier one still there, else first.
+      for (let i = from - 1; i >= 0 && at === -1; i -= 1) {
+        const index = result.findIndex((item) => sameAs(item, before[i]));
+        if (index !== -1) at = index + 1;
+      }
+      if (at === -1) at = 0;
+    }
+    result.splice(at, 0, strings ? victim.text : victim);
+  }
+  return result;
+}
+
+/** The identities an op's `remove` list names: normalized texts, and ids as strings. */
+function removeKeysOf(list) {
+  const keys = new Set();
+  for (const raw of Array.isArray(list) ? list : []) {
+    if (typeof raw === 'string' && raw.trim()) keys.add(normalizeTopic(stripTrailingParenthetical(raw).topic));
+    if (typeof raw === 'string' && raw.trim()) keys.add(normalizeTopic(raw));
+    if (typeof raw === 'number' && Number.isFinite(raw)) keys.add(String(raw));
+  }
+  return keys;
+}
+
+/**
+ * The archive event of a ranked item (interest, detail, alias, lesson) a write dropped: `replaced`
+ * when an op's `remove` named it, `merged` when it was an interest folded into another under its
+ * topic without the trailing qualifier, else `evicted` (the cap).
+ * @param {object} victim
+ * @param {string} identity  The item's identity field (`topic`, `text`, `name`).
+ * @param {Set<string>} removing  removeKeysOf(ops.remove)
+ * @param {object[]} kept  The list after the write.
+ * @param {boolean} interest
+ * @returns {'replaced'|'merged'|'evicted'}
+ */
+function rankedEvent(victim, identity, removing, kept, interest) {
+  const key = normalizeTopic(victim?.[identity]);
+  if (removing.has(key) || (Number.isFinite(victim?.id) && removing.has(String(victim.id)))) return 'replaced';
+  if (interest) {
+    const base = normalizeTopic(stripTrailingParenthetical(victim?.topic).topic);
+    if (base !== key && kept.some((item) => normalizeTopic(item?.topic) === base)) return 'merged';
+  }
+  return 'evicted';
 }
 
 function readJson(file, fallback) {
@@ -751,9 +837,267 @@ function normalizeChannel(channel) {
  *   src/index.js passes features.record exactly true) every feeling stored on an episode -- with
  *   the episode (`addEpisodes` / `addPrivateEpisodes`) or later (`fillEpisodeFeeling`) -- is
  *   appended to it as a `felt` line, in the background (a refused append is logged, counts only).
+ *   `archive` (src/memory/archive.js#createArchive, optional): while `archiveOn()` (read at each
+ *   write; src/index.js passes features.archive exactly true) nothing leaves a hot list on disk
+ *   before its copy is in the archive -- see "The archive" inside, `settleArchive`,
+ *   `drainArchive` and `trimArchived`.
  */
-export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record) }) {
+export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive) }) {
   const entries = new Map(); // file path -> { value, dirty }
+
+  // ---- The archive (src/memory/archive.js): nothing leaves a hot list without a copy ----
+  //
+  // With an archive injected and `archiveOn()` true, every item a write drops (a cap, an expiry,
+  // an analyzer's remove, a list replaced whole, an interest folded into another) stays in its
+  // list in the cache -- over the cap -- and its archive entry is queued for the guild. The writers
+  // stay synchronous: the queue is appended in the background (`archive.append`), and once the
+  // archive confirms an entry `trimArchived` takes the item out of its list. So a flush can only
+  // write a file without the item after its copy is in the archive. A refused append sends the
+  // entries to the archive's pending queue, the items stay hot, and the drain (`drainArchive`, on
+  // src/index.js's timer) archives and trims them later. A write that changes an item's text in
+  // place (an interest's note) queues the previous version (`replaced`); the new one is already
+  // hot. A later merge that keeps an item held for the cap (it ranks again) releases it: the newest
+  // merge's verdict stands; an item removed or replaced stays held until it is archived. `archiveMark` / `settleArchive` tell a caller what became of the entries its
+  // writes queued.
+
+  /** Outcomes kept for `settleArchive` per guild, oldest dropped first. */
+  const ARCHIVE_OUTCOMES_KEPT = 5000;
+  // guildId -> { seq, queue: [{ seq, entry, privateUserId }], held: [...], outcomes: Map(seq -> outcome),
+  //   retry: [...] (entries neither archived nor queued as pending), chain: Promise, scheduled: boolean }
+  const archiveGuilds = new Map();
+
+  /** Whether writes archive their victims now: an archive injected and `archiveOn()` true (read now). */
+  function archiving() {
+    return Boolean(archive) && archiveOn() === true;
+  }
+
+  function archiveGuild(guildId) {
+    const key = String(guildId);
+    let state = archiveGuilds.get(key);
+    if (!state) {
+      state = { seq: 0, queue: [], held: [], outcomes: new Map(), retry: [], chain: Promise.resolve(), scheduled: false };
+      archiveGuilds.set(key, state);
+    }
+    return state;
+  }
+
+  /** Queue one entry for the background append of `guildId`'s archive (the member's private one with `privateUserId`). */
+  function queueArchiveEntry(guildId, entry, privateUserId = null) {
+    const state = archiveGuild(guildId);
+    state.seq += 1;
+    state.queue.push({ seq: state.seq, entry, privateUserId });
+    if (state.scheduled) return;
+    state.scheduled = true;
+    state.chain = state.chain
+      .then(() => {
+        state.scheduled = false;
+        return sendArchiveQueue(guildId);
+      })
+      .catch((error) => log.warn('store: archive failed', { guildId: String(guildId), code: error?.code ?? null }));
+  }
+
+  /** Mark the held victim of `entry` confirmed: the archive holds its copy. */
+  function confirmHeld(state, entry) {
+    for (const held of state.held) {
+      if (held.itemId === entry?.itemId && held.revisionId === entry?.revisionId) held.confirmed = true;
+    }
+  }
+
+  function noteOutcome(state, queued, status) {
+    if (status === 'archived') confirmHeld(state, queued.entry);
+    const { itemId, revisionId, itemKind, event } = queued.entry;
+    state.outcomes.set(queued.seq, { status, itemId, revisionId, itemKind, event });
+    while (state.outcomes.size > ARCHIVE_OUTCOMES_KEPT) state.outcomes.delete(state.outcomes.keys().next().value);
+  }
+
+  /** `queued` grouped by the archive they go to: the guild's (`''`) or a member's private one. */
+  function byArchive(queued) {
+    const groups = new Map();
+    for (const item of queued) {
+      const key = item.privateUserId ?? '';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    }
+    return groups;
+  }
+
+  /**
+   * Append `queued` to the archive; a refused group goes to the archive's pending queue (kept in
+   * memory for the drain when even that fails). Returns the outcome of each group.
+   */
+  async function appendQueued(guildId, queued) {
+    const state = archiveGuild(guildId);
+    const results = [];
+    for (const [key, group] of byArchive(queued)) {
+      const opts = key ? { privateUserId: key } : {};
+      const entries = group.map((item) => item.entry);
+      try {
+        await archive.append(guildId, entries, opts);
+        results.push({ group, status: 'archived' });
+      } catch (error) {
+        log.warn('store: archive failed', { guildId: String(guildId), entries: entries.length, ...(key ? { private: true } : {}), code: error?.code ?? null });
+        try {
+          await archive.queuePending(guildId, entries, opts);
+        } catch (queueError) {
+          log.warn('store: archive queue failed', { guildId: String(guildId), entries: entries.length, code: queueError?.code ?? null });
+          state.retry.push(...group);
+        }
+        results.push({ group, status: 'deferred' });
+      }
+    }
+    return results;
+  }
+
+  async function sendArchiveQueue(guildId) {
+    const state = archiveGuild(guildId);
+    const queued = state.queue.splice(0);
+    if (queued.length === 0) return;
+    for (const { group, status } of await appendQueued(guildId, queued)) {
+      for (const item of group) noteOutcome(state, item, status);
+    }
+    trimArchived(guildId);
+  }
+
+  /**
+   * Hold what one write dropped from one list: each victim goes back into its list (where it
+   * stood) and its archive entry is queued, unless the same version is held already. Held items
+   * of this list the write kept are released. Call it only for a list the write really merged.
+   * @param {string} guildId
+   * @param {{ item: { value: object, dirty: boolean }, file: string, path: string[], strings?: boolean,
+   *   previous: unknown[], victims: object[], itemKind: string, eventOf: (victim: object, index: number) => string,
+   *   scope: object|((victim: object) => object), privateUserId?: string|null, userId?: string|null }} site
+   */
+  function holdVictims(guildId, site) {
+    if (!archiving()) return;
+    const state = archiveGuild(guildId);
+    const strings = site.strings === true;
+    const siteKey = `${site.file}#${site.path.join('.')}`;
+    const where = listAt(site.item.value, site.path);
+    if (!where) return;
+    const current = Array.isArray(where.holder[where.key]) ? where.holder[where.key] : [];
+    const victims = (Array.isArray(site.victims) ? site.victims : []).filter((victim) => (strings ? typeof victim?.text === 'string' : isPlainObject(victim) && identOf(false, victim) !== null));
+    const victimIds = new Set(victims.map((victim) => identOf(strings, victim)));
+    // A victim of the cap that this write's merge kept ranks again: released. A removed or replaced one stays held.
+    state.held = state.held.filter((held) => held.siteKey !== siteKey || held.event !== 'evicted' || victimIds.has(held.ident) || !current.some((item) => identOf(strings, item) === held.ident));
+    if (victims.length === 0) return;
+    victims.forEach((victim, index) => {
+      const ident = identOf(strings, victim);
+      const revisionId = archiveRevision(site.itemKind, victim);
+      if (state.held.some((held) => held.siteKey === siteKey && held.ident === ident && held.revisionId === revisionId)) return;
+      const scope = typeof site.scope === 'function' ? site.scope(victim) : site.scope;
+      const entry = archiveEntry(victim, { itemKind: site.itemKind, event: site.eventOf(victim, index), scope, uuid: newId });
+      state.held.push({ siteKey, file: site.file, path: site.path, strings, ident, itemId: entry.itemId, revisionId, itemKind: site.itemKind, event: entry.event, userId: site.userId ?? null, confirmed: false });
+      queueArchiveEntry(guildId, entry, site.privateUserId ?? null);
+    });
+    where.holder[where.key] = reinsert(site.previous, current, victims, strings);
+    site.item.dirty = true;
+  }
+
+  /**
+   * Queue the previous version of every item of `previous` whose text `current` changed in place
+   * (same `itemId`, another revision) with event `replaced`. Nothing is held: the item stays.
+   */
+  function archiveReplaced(guildId, { previous, current, itemKind, scope, privateUserId = null }) {
+    if (!archiving() || !Array.isArray(previous) || !Array.isArray(current)) return;
+    const now = new Map(current.filter((item) => identOf(false, item) !== null).map((item) => [item.itemId, item]));
+    for (const before of previous) {
+      const after = identOf(false, before) !== null ? now.get(before.itemId) : undefined;
+      if (!after || archiveRevision(itemKind, after) === archiveRevision(itemKind, before)) continue;
+      queueArchiveEntry(guildId, archiveEntry(before, { itemKind, event: 'replaced', scope, uuid: newId }), privateUserId);
+    }
+  }
+
+  /**
+   * The ranked lists of a member file one write merged (interests, details, aliases): the
+   * victims held, the texts changed in place archived.
+   */
+  function archiveProfileItems(guildId, userId, { item, file, previous, dropped, ops, privateUserId = null }) {
+    if (!archiving()) return;
+    const id = String(userId);
+    const scope = { user: id };
+    for (const [field, itemKind, identity] of [['interests', 'interest', 'topic'], ['details', 'detail', 'text'], ['aliases', 'alias', 'name']]) {
+      if (!isPlainObject(ops?.[field])) continue;
+      const kept = Array.isArray(item.value[field]) ? item.value[field] : [];
+      const removing = removeKeysOf(ops[field].remove);
+      archiveReplaced(guildId, { previous: previous[field], current: kept, itemKind, scope, privateUserId });
+      holdVictims(guildId, {
+        item, file, path: [field], previous: previous[field], victims: dropped[field], itemKind, scope, privateUserId, userId: id,
+        eventOf: (victim) => rankedEvent(victim, identity, removing, kept, itemKind === 'interest'),
+      });
+    }
+  }
+
+  /** Take the confirmed victims out of their lists (see "The archive" above); returns how many went. */
+  function trimArchived(guildId) {
+    const state = archiveGuilds.get(String(guildId));
+    // /nep pause: nothing may make the store dirty while paused; the holds wait for the resume.
+    if (!state || stateEntry.value.paused) return 0;
+    let trimmed = 0;
+    const keep = [];
+    for (const held of state.held) {
+      if (!held.confirmed) {
+        keep.push(held);
+        continue;
+      }
+      const item = entries.get(held.file);
+      // A file not in the cache (unloaded by a pause) is trimmed once it is read again.
+      if (!item) {
+        keep.push(held);
+        continue;
+      }
+      const where = listAt(item.value, held.path);
+      const list = where && Array.isArray(where.holder[where.key]) ? where.holder[where.key] : null;
+      const index = list ? list.findIndex((value) => identOf(held.strings, value) === held.ident) : -1;
+      // Gone already, or changed since it was held: a later write owns it now.
+      if (index === -1 || archiveRevision(held.itemKind, list[index]) !== held.revisionId) continue;
+      where.holder[where.key] = list.filter((_, i) => i !== index);
+      item.dirty = true;
+      trimmed += 1;
+    }
+    state.held = keep;
+    if (trimmed > 0) log.info('store: archive trimmed', { guildId: String(guildId), trimmed });
+    return trimmed;
+  }
+
+  /** Where an archived item goes back to (`restoreArchived`): its cache entry (null without the file) and list; null for a kind that cannot. */
+  function restoreTarget(guildId, archived) {
+    const userId = typeof archived?.scope?.user === 'string' ? archived.scope.user : null;
+    const isPrivate = archived?.scope?.private === true;
+    const member = (keys) => {
+      if (!userId) return null;
+      if (isPrivate) return { item: hasPrivate(guildId, userId) ? privateEntry(guildId, userId) : null, path: keys };
+      return { item: store.getUser(guildId, userId) ? entries.get(userFile(guildId, userId)) : null, path: keys };
+    };
+    const guild = (keys, strings = false) => {
+      const item = entry(guildFile(guildId), emptyGuild);
+      normalizeGuild(item.value);
+      return { item, path: keys, strings };
+    };
+    switch (archived?.itemKind) {
+      case 'episode': return member(['episodes']);
+      case 'interest': return member(['interests']);
+      case 'detail': return member(['details']);
+      case 'alias': return isPrivate ? null : member(['aliases']);
+      case 'lesson': return guild(['learned']);
+      case 'selfFact': return guild(['self'], true);
+      case 'injoke': return guild(['injokes'], true);
+      case 'diary': return { item: diaryEntry(guildId), path: ['posts'] };
+      default: return null;
+    }
+  }
+
+  /** Let go of what one member left in the archive queue and holds (a forget): nothing of theirs is archived later. */
+  function forgetArchived(guildId, userId, { privateOnly = false } = {}) {
+    const state = archiveGuilds.get(String(guildId));
+    if (!state) return;
+    const id = String(userId);
+    const privateFileOf = privateFile(guildId, id);
+    const concerns = (queued) =>
+      queued.privateUserId === id || (!privateOnly && (queued.entry?.scope?.user === id || (Array.isArray(queued.entry?.participants) && queued.entry.participants.includes(id))));
+    state.queue = state.queue.filter((queued) => !concerns(queued));
+    state.retry = state.retry.filter((queued) => !concerns(queued));
+    state.held = state.held.filter((held) => (privateOnly ? held.file !== privateFileOf : held.userId !== id));
+  }
 
   /**
    * A `felt` line (src/memory/record.js#feltLine) for each of `episodes` that holds a feeling,
@@ -918,6 +1262,17 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     item.value[field] = all.slice(-kept);
     const dropped = all.slice(0, all.length - item.value[field].length);
     item.dirty = true;
+    holdVictims(guildId, {
+      item,
+      file: versionsFile(guildId, kind, id),
+      path: [field],
+      previous: list,
+      victims: dropped,
+      itemKind: 'version',
+      eventOf: () => 'evicted',
+      scope: kind === 'users' ? { user: String(id) } : kind === 'channels' ? { channel: String(id) } : { guild: true },
+      userId: kind === 'users' ? String(id) : null,
+    });
     log.info('store: version recorded', {
       guildId,
       kind,
@@ -943,15 +1298,33 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * @returns {{ added: number, dropped: object[] }}  `dropped`: the evicted episodes, each with an itemId.
    */
   function mergeEpisodesInto(item, incoming, opts, owner = null) {
-    const before = new Set(Array.isArray(item.value.episodes) ? item.value.episodes : []);
+    const previous = Array.isArray(item.value.episodes) ? item.value.episodes : [];
+    const before = new Set(previous);
     const { episodes, added, dropped } = mergeEpisodes(item.value.episodes, incoming, opts);
+    const victims = withItemIds(dropped, ITEM_ID_PREFIX.episode, newId);
     if (added > 0) {
       const stamped = withItemIds(episodes, ITEM_ID_PREFIX.episode, newId);
       item.value.episodes = stamped;
       item.dirty = true;
       if (owner) recordFelt(owner.guildId, owner.userId, owner.layer, stamped.filter((_, i) => !before.has(episodes[i])));
+      if (owner) {
+        const id = String(owner.userId);
+        const isPrivate = owner.layer === 'private';
+        holdVictims(owner.guildId, {
+          item,
+          file: isPrivate ? privateFile(owner.guildId, id) : userFile(owner.guildId, id),
+          path: ['episodes'],
+          previous,
+          victims,
+          itemKind: 'episode',
+          eventOf: () => 'evicted',
+          scope: { user: id },
+          privateUserId: isPrivate ? id : null,
+          userId: id,
+        });
+      }
     }
-    return { added, dropped: withItemIds(dropped, ITEM_ID_PREFIX.episode, newId) };
+    return { added, dropped: victims };
   }
 
   /**
@@ -963,6 +1336,24 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     if (!Array.isArray(next.droppedMoves)) return next;
     const stamped = { ...next, history: withItemIds(next.history, ITEM_ID_PREFIX.move, newId) };
     return attachDropped(stamped, 'droppedMoves', withItemIds(next.droppedMoves, ITEM_ID_PREFIX.move, newId));
+  }
+
+  /** The attitude moves an affinity write let go past the history size, held for the archive (`holdVictims`). */
+  function holdMoves(guildId, userId, item, file, current, next, isPrivate = false) {
+    if (next === current || !Array.isArray(next.droppedMoves)) return;
+    const id = String(userId);
+    holdVictims(guildId, {
+      item,
+      file,
+      path: ['affinity', 'history'],
+      previous: Array.isArray(current?.history) ? current.history : [],
+      victims: next.droppedMoves,
+      itemKind: 'move',
+      eventOf: () => 'evicted',
+      scope: { user: id },
+      privateUserId: isPrivate ? id : null,
+      userId: id,
+    });
   }
 
   /** Whether a channel has an entry, cached or on disk (no side effects on the cache). */
@@ -1114,12 +1505,15 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * `max`, oldest first, with theirs. */
   function writeDiary(guildId, posts, { max, now } = {}) {
     const item = diaryEntry(guildId);
+    const previous = item.value.posts;
     const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : DIARY_HISTORY_POSTS;
     const all = withItemIds(posts, ITEM_ID_PREFIX.diary, newId);
     const kept = all.slice(-limit);
     item.value = { posts: kept, updatedAt: Number.isFinite(now) ? now : Date.now() };
     item.dirty = true;
-    return { dropped: all.slice(0, all.length - kept.length) };
+    const dropped = all.slice(0, all.length - kept.length);
+    holdVictims(guildId, { item, file: diaryFile(guildId), path: ['posts'], previous, victims: dropped, itemKind: 'diary', eventOf: () => 'evicted', scope: { guild: true } });
+    return { dropped };
   }
 
   /** Take every recent line that names one member out of the guild's recent store
@@ -1285,6 +1679,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         recordVersion(guildId, 'users', userId, 'relationship', previous, next, opts));
 
       // What left the profile (removed, folded, evicted), each with its itemId: the archive's input.
+      const previous = { interests: profile.interests, details: profile.details, aliases: profile.aliases };
       const dropped = { ...applyItemOps(profile, ops, opts, seenAt, newId), aliases: [] };
 
       if (ops?.aliases && typeof ops.aliases === 'object' && !Array.isArray(ops.aliases)) {
@@ -1298,6 +1693,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         profile.aliases = changedWithItemIds(profile.aliases, aliases, ITEM_ID_PREFIX.alias, newId);
         dropped.aliases = withItemIds(aliases.dropped, ITEM_ID_PREFIX.alias, newId);
       }
+      archiveProfileItems(guildId, userId, { item, file: userFile(guildId, userId), previous, dropped, ops });
 
       profile.updatedAt = new Date(opts.now ?? Date.now()).toISOString();
       item.dirty = true;
@@ -1344,6 +1740,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const next = applyDeltaWithIds(current, delta, reason, opts);
       item.value.affinity = next;
       item.dirty = true;
+      holdMoves(guildId, userId, item, userFile(guildId, userId), current, next);
       return next;
     },
 
@@ -1396,6 +1793,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @returns {{ recentRemoved: number }}  How many recent lines went.
      */
     forgetUser(guildId, userId) {
+      // Nothing of theirs still waiting for the archive is archived after this.
+      forgetArchived(guildId, userId);
       const profile = store.getUser(guildId, userId);
       const names = [...(Array.isArray(profile?.names) ? profile.names : []), ...(profile?.aliases ?? []).map((alias) => alias?.name)];
       const recentRemoved = forgetRecent(guildId, userId, names);
@@ -1520,7 +1919,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       writeRelationship(priv, ops?.relationship, opts);
 
       // What left the private layer, each with its itemId: the archive's input.
+      const previous = { interests: priv.interests, details: priv.details };
       const dropped = applyItemOps(priv, ops, opts, seenAt, newId);
+      archiveProfileItems(guildId, userId, { item, file: privateFile(guildId, userId), previous, dropped, ops: { interests: ops?.interests, details: ops?.details }, privateUserId: String(userId) });
 
       item.dirty = true;
       return priv;
@@ -1539,9 +1940,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      */
     adjustPrivateAffinity(guildId, userId, delta, reason, opts) {
       const item = privateEntry(guildId, userId);
-      const next = applyDeltaWithIds(item.value.affinity, delta, reason, opts);
+      const current = item.value.affinity;
+      const next = applyDeltaWithIds(current, delta, reason, opts);
       item.value.affinity = next;
       item.dirty = true;
+      holdMoves(guildId, userId, item, privateFile(guildId, userId), current, next, true);
       return next;
     },
 
@@ -1691,6 +2094,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @param {string} userId
      */
     forgetPrivate(guildId, userId) {
+      forgetArchived(guildId, userId, { privateOnly: true });
       const file = privateFile(guildId, userId);
       entries.delete(file);
       fs.rmSync(file, { force: true });
@@ -1786,9 +2190,18 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         injokes: 'injokes' in safeFields ? droppedStrings(item.value.injokes, safeFields.injokes, ITEM_ID_PREFIX.injoke, newId) : [],
         self: 'self' in safeFields ? droppedStrings(item.value.self, safeFields.self, ITEM_ID_PREFIX.selfFact, newId) : [],
       };
+      const previous = { injokes: item.value.injokes, self: item.value.self };
       Object.assign(item.value, safeFields, stamps);
       opts.onDropped?.(dropped);
       item.dirty = true;
+      // A list written whole replaces the stored one: what it no longer holds is held for the archive.
+      for (const [field, itemKind] of [['injokes', 'injoke'], ['self', 'selfFact']]) {
+        if (!(field in safeFields)) continue;
+        holdVictims(guildId, {
+          item, file: guildFile(guildId), path: [field], strings: true, previous: previous[field], victims: dropped[field], itemKind, scope: { guild: true },
+          eventOf: () => 'replaced',
+        });
+      }
       return item.value;
     },
 
@@ -2024,6 +2437,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       if (!ops || typeof ops !== 'object' || Array.isArray(ops)) return guild.learned;
 
       const before = JSON.stringify([guild.learned, guild.learnedNextId]);
+      const previous = guild.learned;
       const { items, nextId, dropped } = applyDetailOps(guild.learned, ops, {
         maxDetails: opts.maxLearned,
         maxDetailsStored: opts.maxLearnedStored,
@@ -2041,7 +2455,15 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         guild.updatedAt = new Date().toISOString();
         item.dirty = true;
       }
-      return attachDropped(guild.learned, 'dropped', withItemIds(dropped, ITEM_ID_PREFIX.lesson, newId));
+      const victims = withItemIds(dropped, ITEM_ID_PREFIX.lesson, newId);
+      const removing = removeKeysOf(ops.remove);
+      const kept = guild.learned;
+      archiveReplaced(guildId, { previous, current: kept, itemKind: 'lesson', scope: { guild: true } });
+      holdVictims(guildId, {
+        item, file: guildFile(guildId), path: ['learned'], previous, victims, itemKind: 'lesson', scope: { guild: true },
+        eventOf: (victim) => rankedEvent(victim, 'text', removing, kept, false),
+      });
+      return attachDropped(guild.learned, 'dropped', victims);
     },
 
     /**
@@ -2106,12 +2528,17 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         }
       }
 
+      const dropped = stringItems(leaving, ITEM_ID_PREFIX.selfFact, newId);
       if (counts.added + counts.removed > 0) {
         guild.self = next;
         guild.updatedAt = new Date(Number.isFinite(opts.now) ? opts.now : Date.now()).toISOString();
         item.dirty = true;
+        holdVictims(guildId, {
+          item, file: guildFile(guildId), path: ['self'], strings: true, previous: stored, victims: dropped, itemKind: 'selfFact', scope: { guild: true },
+          eventOf: (_, index) => (index < counts.removed ? 'replaced' : 'evicted'),
+        });
       }
-      return attachDropped(counts, 'dropped', stringItems(leaving, ITEM_ID_PREFIX.selfFact, newId));
+      return attachDropped(counts, 'dropped', dropped);
     },
 
     /**
@@ -2576,12 +3003,20 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      */
     applyRecentOps(guildId, incoming, opts = {}) {
       const item = recentEntry(guildId);
+      const previous = item.value.lines;
       const { value, droppedLines, ...counts } = mergeRecent(item.value, incoming, opts);
+      const victims = withItemIds(droppedLines, ITEM_ID_PREFIX.recent, newId);
       if (counts.added + counts.removed + counts.expired + counts.evicted > 0) {
         item.value = { ...value, lines: withItemIds(value.lines, ITEM_ID_PREFIX.recent, newId) };
         item.dirty = true;
+        // droppedLines: the expired, then the removed, then the evicted.
+        holdVictims(guildId, {
+          item, file: recentFile(guildId), path: ['lines'], previous, victims, itemKind: 'recent',
+          scope: (line) => (typeof line.channelId === 'string' && line.channelId ? { channel: line.channelId } : { guild: true }),
+          eventOf: (_, index) => (index < counts.expired ? 'expired' : index < counts.expired + counts.removed ? 'replaced' : 'evicted'),
+        });
       }
-      return attachDropped(counts, 'droppedLines', withItemIds(droppedLines, ITEM_ID_PREFIX.recent, newId));
+      return attachDropped(counts, 'droppedLines', victims);
     },
 
     // ---- the participation store: the persona's exchanges on the channels (src/memory/participation.js) ----
@@ -2614,10 +3049,20 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      */
     setParticipation(guildId, state, { settings, now } = {}) {
       const item = participationEntry(guildId);
-      const { state: next, dropped } = expireEpisodes(state, settings, Number.isFinite(now) ? now : Date.now());
+      const previous = item.value.episodes;
+      const at = Number.isFinite(now) ? now : Date.now();
+      const { state: next, dropped } = expireEpisodes(state, settings, at);
       item.value = structuredClone({ ...next, episodes: withItemIds(next.episodes, ITEM_ID_PREFIX.participation, newId) });
       item.dirty = true;
-      return { dropped: withItemIds(dropped, ITEM_ID_PREFIX.participation, newId) };
+      const victims = withItemIds(dropped, ITEM_ID_PREFIX.participation, newId);
+      // As src/memory/participation.js#expireEpisodes reads `hours`: past it an episode expired, else the cap took it.
+      const hours = Number.isFinite(settings?.hours) && settings.hours >= 0 ? settings.hours : PARTICIPATION_DEFAULTS.hours;
+      holdVictims(guildId, {
+        item, file: participationFile(guildId), path: ['episodes'], previous, victims, itemKind: 'participation',
+        scope: (episode) => (typeof episode.channelId === 'string' && episode.channelId ? { channel: episode.channelId } : { guild: true }),
+        eventOf: (episode) => (episode.lastOwnAt < at - hours * HOUR_MS ? 'expired' : 'evicted'),
+      });
+      return { dropped: victims };
     },
 
     /**
@@ -2649,6 +3094,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *   recentLines: number }}  `recentLines`: the recent lines the wipe removed.
      */
     wipeGuild(guildId, { keepOwnerLore = true, keepMediaCache = true } = {}) {
+      // What waits for the archive goes with the memory it came from.
+      archiveGuilds.delete(String(guildId));
       const userIds = idsUnder(usersDir(guildId));
       for (const id of userIds) {
         const file = userFile(guildId, id);
@@ -2773,6 +3220,119 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
     flush() {
       flushAll();
+    },
+
+    // ---- the archive (see "The archive" at the top of createStore) ----
+
+    /**
+     * The guild's archive sequence now: take one before and one after a group of synchronous
+     * writes and `settleArchive` reports on the entries those writes queued.
+     * @param {string} guildId
+     * @returns {number}
+     */
+    archiveMark(guildId) {
+      return archiveGuilds.get(String(guildId))?.seq ?? 0;
+    },
+
+    /**
+     * Wait for the background appends of the entries queued after mark `from` up to mark `to`
+     * (every one queued so far when omitted) and report them once: `archived` the confirmed ones,
+     * `deferred` how many went to the archive's pending queue instead (their items stay hot until
+     * the drain archives them). An entry reported here is not reported again.
+     * @param {string} guildId
+     * @param {{ from?: number, to?: number }} [marks]
+     * @returns {Promise<{ archived: Array<{ itemId: string, revisionId: string, itemKind: string, event: string }>, deferred: number }>}
+     */
+    async settleArchive(guildId, { from = 0, to = Infinity } = {}) {
+      const state = archiveGuilds.get(String(guildId));
+      if (!state) return { archived: [], deferred: 0 };
+      for (;;) {
+        const chain = state.chain;
+        await chain;
+        if (chain === state.chain) break;
+      }
+      const archived = [];
+      let deferred = 0;
+      for (const [seq, outcome] of state.outcomes) {
+        if (seq <= from || seq > to) continue;
+        state.outcomes.delete(seq);
+        if (outcome.status === 'archived') archived.push({ itemId: outcome.itemId, revisionId: outcome.revisionId, itemKind: outcome.itemKind, event: outcome.event });
+        else deferred += 1;
+      }
+      return { archived, deferred };
+    },
+
+    /**
+     * Archive what waits: the entries neither archived nor queued as pending first, then the
+     * archive's pending queue (src/memory/archive.js#drainPending); every victim now confirmed
+     * is trimmed from its list. Runs whether or not features.archive is on (what waits was
+     * queued while it was). No archive -> nothing.
+     * @param {string} guildId
+     * @returns {Promise<{ archived: number, left: number }>}
+     */
+    async drainArchive(guildId) {
+      if (!archive) return { archived: 0, left: 0 };
+      const state = archiveGuild(guildId);
+      if (state.retry.length > 0) {
+        const retry = state.retry.splice(0);
+        for (const { group, status } of await appendQueued(guildId, retry)) {
+          if (status === 'archived') for (const item of group) confirmHeld(state, item.entry);
+        }
+      }
+      const result = (await archive.drainPending(guildId)) ?? {};
+      for (const entry of Array.isArray(result.confirmed) ? result.confirmed : []) confirmHeld(state, entry);
+      trimArchived(guildId);
+      return { archived: Number(result.archived) || 0, left: Number(result.left) || 0 };
+    },
+
+    /**
+     * Take every victim the archive confirmed out of its list now (it runs by itself after each
+     * append and drain). Not while paused, and not for a file the cache does not hold.
+     * @param {string} guildId
+     * @returns {number} How many items went.
+     */
+    trimArchived(guildId) {
+      return trimArchived(guildId);
+    },
+
+    /**
+     * Put an archived item back into its hot list (`/nep memory restore`): the entry's text and
+     * stored fields rebuild it under its own `itemId`, appended to the member's or the guild's
+     * list without any cap (it is not pinned: the next write evicts it again by the usual rules).
+     * Kinds: episode, interest, detail, alias (a member's profile, or their private layer for a
+     * private entry; no private aliases), lesson, selfFact, injoke, diary (the guild). Nothing
+     * changes when the item is hot already (`hot`), the member has no profile or private layer
+     * (`no-profile`), or the kind cannot go back (`kind`: moves, recent lines, participation
+     * episodes and versions belong to their moment).
+     * @param {string} guildId
+     * @param {object} entry  An archive entry (src/memory/archive.js#archiveEntry).
+     * @returns {{ restored: boolean, reason?: 'hot'|'no-profile'|'kind', item?: object|string }}
+     */
+    restoreArchived(guildId, entry) {
+      const target = restoreTarget(guildId, entry);
+      if (!target) return { restored: false, reason: 'kind' };
+      if (!target.item) return { restored: false, reason: 'no-profile' };
+      const where = listAt(target.item.value, target.path);
+      if (!where) return { restored: false, reason: 'no-profile' };
+      const list = Array.isArray(where.holder[where.key]) ? where.holder[where.key] : [];
+      const strings = target.strings === true;
+      let value;
+      if (strings) {
+        value = typeof entry.text?.text === 'string' && entry.text.text.trim() ? entry.text.text : null;
+        if (value === null) return { restored: false, reason: 'kind' };
+      } else {
+        value = {
+          ...(isPlainObject(entry.stored) ? structuredClone(entry.stored) : {}),
+          ...(isPlainObject(entry.text) ? structuredClone(entry.text) : {}),
+          ...(Number.isFinite(entry.weight) ? { weight: entry.weight } : {}),
+          itemId: entry.itemId,
+        };
+      }
+      const ident = strings ? identOf(true, value) : entry.itemId;
+      if (list.some((item) => identOf(strings, item) === ident)) return { restored: false, reason: 'hot' };
+      where.holder[where.key] = [...list, value];
+      target.item.dirty = true;
+      return { restored: true, item: value };
     },
 
     /**

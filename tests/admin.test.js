@@ -16,6 +16,8 @@ import {
 import { emptyAffinity, applyDelta } from '../src/memory/affinity.js';
 import { upsertLore } from '../src/memory/lore.js';
 import { createStore } from '../src/memory/store.js';
+import { createAppendStore } from '../src/memory/append-store.js';
+import { createArchive } from '../src/memory/archive.js';
 import { createMemoryUpdater } from '../src/memory/update.js';
 import { createWarmup } from '../src/memory/warmup.js';
 import { createSpontaneous } from '../src/behavior/spontaneous.js';
@@ -333,6 +335,7 @@ function makeAdmin(rootDir, extra = {}) {
     mentor: extra.mentor,
     mentorCases: extra.mentorCases,
     mentorBudget: extra.mentorBudget,
+    archive: extra.archive,
   });
   return { admin, hot, store };
 }
@@ -4060,4 +4063,52 @@ test('run: memory.recent works while paused, writes nothing and is open to a gra
   assert.equal(store.flushCalls, 0);
   assert.equal(admin.isAllowed('memory.recent', { userId: '7', roleIds: ['123'] }), true);
   assert.equal(admin.isAllowed('memory.recent', { userId: '7', roleIds: [] }), false);
+});
+
+// ---------------------------------------------------------------------------
+// memory.archive / memory.restore
+// ---------------------------------------------------------------------------
+
+test('admin: memory restore re-inserts an episode and writes a restored event, idempotent', async () => {
+  const rootDir = makeRoot();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-admin-archive-'));
+  const appendStore = createAppendStore({ fsyncMs: 0, log: { info() {}, warn() {}, error() {} } });
+  const archive = createArchive({ appendStore, dataDir, log: { info() {}, warn() {}, error() {} } });
+  const store = createStore({ dataDir, archive });
+  const { admin } = makeAdmin(rootDir, { store, archive });
+  try {
+    const opts = { maxEpisodes: 1, maxNew: 3, now: Date.UTC(2026, 9, 12) };
+    store.touchUser('g1', 'u1', 'Zoé', opts.now);
+    store.addEpisodes('g1', 'u1', [{ date: '2026-10-01', what: 'Έχασε στο σκάκι', quote: 'ξανά', weight: 1 }], opts);
+    const [old] = store.getUser('g1', 'u1').episodes;
+    store.addEpisodes('g1', 'u1', [{ date: '2026-10-12', what: 'Κέρδισε στο σκάκι', weight: 3 }], opts);
+    await store.settleArchive('g1');
+    assert.deepEqual(store.getUser('g1', 'u1').episodes.map((ep) => ep.what), ['Κέρδισε στο σκάκι'], 'evicted and archived');
+
+    const listed = await admin.run('memory.archive', { userId: 'u1' }, { guildId: 'g1' });
+    assert.match(listed, new RegExp(`evicted\\s+episode\\s+${old.itemId}`));
+    assert.match(listed, /Έχασε στο σκάκι/);
+    assert.equal(await admin.run('memory.archive', { kind: 'episode' }, { guildId: 'g1' }), '(none)', 'nothing at the server level');
+
+    const reply = await admin.run('memory.restore', { itemId: old.itemId }, { guildId: 'g1' });
+    assert.match(reply, /restored/);
+    const episodes = store.getUser('g1', 'u1').episodes;
+    const back = episodes.find((ep) => ep.itemId === old.itemId);
+    assert.ok(back, 'the episode is hot again under its own id');
+    assert.deepEqual([back.date, back.what, back.quote, back.weight, back.addedAt], [old.date, old.what, old.quote, old.weight, old.addedAt]);
+    assert.equal(episodes.length, 2, 'not pinned, and no cap applied by the restore itself');
+    let lines = await archive.find('g1', old.itemId);
+    assert.deepEqual(lines.map((entry) => [entry.event, entry.by]), [['evicted', 'store'], ['restored', 'owner']]);
+
+    // Again: the item is hot already, nothing is written.
+    const again = await admin.run('memory.restore', { itemId: old.itemId }, { guildId: 'g1' });
+    assert.match(again, /already/);
+    assert.equal(store.getUser('g1', 'u1').episodes.length, 2);
+    lines = await archive.find('g1', old.itemId);
+    assert.equal(lines.length, 2);
+
+    await assert.rejects(admin.run('memory.restore', { itemId: 'ep-none' }, { guildId: 'g1' }), /no archived item/);
+  } finally {
+    await appendStore.close();
+  }
 });

@@ -45,6 +45,7 @@ Every key in `config.json` with its default, grouped by section.
 | `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
 | `journal` | `true` | Keep the persona's journal: for every turn, one line when it starts and one when it ends (what of the chat went into the request, its hidden reasoning, what it posted and reacted to, token usage, the limits that cut something), in `data/guilds/<id>/journal/<YYYY-MM-DD>.jsonl` by UTC day; a private chat's turns go to `data/guilds/<id>/private/<userId>/journal/` instead. While on, the live log carries only the length of the hidden reasoning (`thinkChars`). Must be exactly `true` to enable; a missing key counts as off. See [`journal`](#journal) |
 | `record` | `true` | Keep the record: every message the memory buffer took (written before the batch is analyzed; a batch the disk refuses stays in the buffer and is retried), every edit as a new line with the next revision, every deletion, each message the persona posted and each feeling she stored on a moment, one line each, in `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl` by UTC day. Only ids, time, channel, author, reply target, text, media kinds and mentions are kept, never a URL. A private chat's lines go to `data/guilds/<id>/private/<userId>/record/` instead. Never trimmed. Must be exactly `true` to enable; a missing key counts as off. See [`record`](#record) |
+| `archive` | `true` | Keep the archive: before anything leaves the stored memory (an episode or an interest pushed out by a cap, a recent line or an exchange that expired, a lesson or a self-claim the analyzer removed, an in-joke list rewritten, an attitude move, a diary post or an old note version past its limit, the previous text of an interest changed in place), a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl` by month (a private chat's items to `data/guilds/<id>/private/<userId>/archive/`). The item stays in memory, over its cap, until the archive confirms the copy; a copy the disk refuses waits in `archive/pending.jsonl` and is retried every `archive.drainMs`. Never trimmed. The same copy is not written twice. Must be exactly `true` to enable; a missing key counts as off. See [`archive`](#archive) |
 | `recent` | `true` | Show a `<recent>` block of what happened on the server in the last few days. A missing key counts as on. See `memory.recentHours` and `context.caps.recent` |
 | `participation` | `true` | The persona remembers its own exchanges on other channels over the last few days and, on a server turn, sees a few of them in a `<participation>` block. A missing key counts as on. See [`participation`](#participation) and `context.caps.participation` |
 | `channelRoute` | `true` | A classifier picks a channel the conversation is about before a turn, so the channel can be pulled into the request. A missing key counts as on. See `route.*` |
@@ -801,6 +802,13 @@ Settings for the manual testing sub-process (`features.mentor`). The mentor inve
 | Key | Default | Meaning |
 |---|---|---|
 | `fsyncMs` | `500` | The record's files are flushed to disk (fsync) at most this long (ms) after a write. Read at startup |
+
+## `archive`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `pendingMax` | `500` | Copies waiting in the archive's pending queue (the disk refused them) before memory updates stop: past it no analyzer batch and no voice run is applied, the messages stay in the buffer, `memory: archive stalled` is logged and one status line goes to `bot.dryRunChannelId`. Updates resume by themselves once the queue is back at or under the limit. Read at each batch |
+| `drainMs` | `30000` | How often (ms) the copies waiting in the pending queue are retried; once archived, their items leave memory. Read before each wait |
 
 ## Models
 

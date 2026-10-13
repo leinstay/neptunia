@@ -9135,3 +9135,135 @@ test('memory update: a two-stage batch writes its stage two record, then the voi
     assert.deepEqual(voice.participants, ['1']);
   });
 });
+
+// ---- the archive: a stalled pending queue pauses application; the record lists confirmed copies ----
+
+test('memory update: pending above pendingMax pauses application with the batch retained and logs memory: archive stalled', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    for (const message of notesLines('c1', 3)) {
+      touchMemory(store, guildId, message);
+      store.pushBuffer(guildId, message, 100);
+    }
+    const hot = journalHot();
+    hot.config.features = { ...hot.config.features, archive: true };
+    hot.config.archive = { pendingMax: 500, drainMs: 30000 };
+    let pending = 501;
+    const archive = { stats: (id) => (id === guildId ? { pending } : { pending: 0 }) };
+    const notices = [];
+    let calls = 0;
+    const updater = createMemoryUpdater({
+      hot,
+      store,
+      llm: {
+        complete: async () => {
+          calls += 1;
+          return { text: '{}' };
+        },
+      },
+      calibrator: createCalibrator(),
+      getSelfName: () => 'Nept',
+      now: () => NOTES_NOW,
+      journal: fakeJournal(),
+      archive,
+      notify: async (text) => {
+        notices.push(text);
+      },
+    });
+
+    const { logs } = await withCapturedLogs(async () => {
+      await updater.run(guildId);
+      await updater.run(guildId);
+    });
+    assert.equal(calls, 0, 'nothing sent');
+    assert.deepEqual(store.getBuffer(guildId).map((m) => m.id), ['c1-0', 'c1-1', 'c1-2'], 'the batch stays in the buffer');
+    const stalled = logs.filter((entry) => entry.msg === 'memory: archive stalled');
+    assert.equal(stalled.length, 1, 'once per streak');
+    assert.deepEqual([stalled[0].level, stalled[0].guildId, stalled[0].pending, stalled[0].pendingMax], ['warn', guildId, 501, 500]);
+    assert.equal(notices.length, 1, 'the development channel hears it once');
+    assert.match(notices[0], /memory: archive stalled/);
+
+    // pendingMax is read at the moment of use; at or under it the batch is applied.
+    hot.config.archive.pendingMax = 501;
+    await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(calls, 1);
+    assert.deepEqual(store.getBuffer(guildId), []);
+
+    // features.archive off: the queue does not pause anything.
+    hot.config.archive.pendingMax = 500;
+    pending = 900;
+    hot.config.features.archive = false;
+    for (const message of notesLines('c2', 3)) store.pushBuffer(guildId, message, 100);
+    await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(calls, 2);
+  });
+});
+
+test('memory update: the journal memory record lists only confirmed archive ids', async () => {
+  const dir = tempDir();
+  try {
+    const appended = [];
+    const queued = [];
+    const archive = {
+      fail: false,
+      async append(guildId, entries) {
+        if (archive.fail) throw Object.assign(new Error('disk refused'), { code: 'archive-unconfirmed' });
+        appended.push(...entries);
+        return { written: entries.length, duplicates: 0 };
+      },
+      async queuePending(guildId, entries) {
+        queued.push(...entries);
+        return entries.length;
+      },
+      stats: () => ({ pending: queued.length }),
+    };
+    const store = createStore({ dataDir: dir, archive });
+    const guildId = 'g1';
+    const hot = journalHot({ maxEpisodes: 1 });
+    hot.config.features = { ...hot.config.features, archive: true };
+    hot.config.archive = { pendingMax: 500, drainMs: 30000 };
+    const lines = (channelId) => {
+      for (const message of notesLines(channelId, 3)) {
+        touchMemory(store, guildId, message);
+        store.pushBuffer(guildId, message, 100);
+      }
+    };
+    lines('c1');
+    store.addEpisodes(guildId, '1', [{ date: '2026-01-10', what: 'Μια παλιά στιγμή.', weight: 1 }], { maxEpisodes: 1, maxNew: 3, now: NOTES_NOW - DAY_MS });
+    const [old] = store.getUser(guildId, '1').episodes;
+    const answers = [
+      { users: { 1: { episodes: [{ date: '2026-01-20', what: 'Μια νέα στιγμή.', weight: 3 }] } } },
+      { users: { 1: { episodes: [{ date: '2026-01-20', what: 'Μια τρίτη στιγμή.', weight: 3 }] } } },
+    ];
+    const journal = fakeJournal();
+    const updater = createMemoryUpdater({
+      hot,
+      store,
+      llm: { complete: async () => ({ text: JSON.stringify(answers.shift()) }) },
+      calibrator: createCalibrator(),
+      getSelfName: () => 'Nept',
+      now: () => NOTES_NOW,
+      journal,
+      archive,
+    });
+
+    await withCapturedLogs(() => updater.run(guildId));
+    assert.deepEqual(appended.map((entry) => [entry.itemKind, entry.event, entry.itemId]), [['episode', 'evicted', old.itemId]]);
+    assert.deepEqual(journal.records[0].record.archived, [{ itemId: old.itemId, revisionId: appended[0].revisionId, confirmed: true }]);
+    assert.deepEqual(store.getUser(guildId, '1').episodes.map((ep) => ep.what), ['Μια νέα στιγμή.'], 'trimmed once confirmed');
+
+    // The archive refuses: the victim stays hot, the record lists nothing, the deferral is logged.
+    archive.fail = true;
+    lines('c2');
+    const { logs } = await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(journal.records.length, 2);
+    assert.deepEqual(journal.records[1].record.archived, []);
+    assert.equal(queued.length, 1);
+    assert.deepEqual(store.getUser(guildId, '1').episodes.map((ep) => ep.what), ['Μια νέα στιγμή.', 'Μια τρίτη στιγμή.']);
+    const deferred = logs.find((entry) => entry.msg === 'memory: archive deferred');
+    assert.ok(deferred, 'memory: archive deferred is logged');
+    assert.deepEqual([deferred.guildId, deferred.deferred, deferred.archived], [guildId, 1, 0]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

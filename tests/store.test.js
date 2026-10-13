@@ -3221,3 +3221,151 @@ test('store: a stored feeling writes a felt line', async () => {
   store.addPrivateEpisodes('g1', 'u1', [{ date: '2026-10-12', what: 'a secret', feeling: 'ζεστασιά', weight: 3 }], opts);
   assert.deepEqual(appended[2].opts, { privateUserId: 'u1' });
 });
+
+// ---- the archive (src/memory/archive.js): nothing leaves a hot list without a copy ----
+
+/** An archive stand-in: what was appended or queued; with `manual`, `append` resolves when released. */
+function fakeArchive({ manual = false, fail = false } = {}) {
+  const fake = {
+    appended: [],
+    pending: [],
+    events: [],
+    fail,
+    releases: [],
+    append(guildId, entries, opts = {}) {
+      fake.appended.push({ guildId, entries, opts });
+      if (fake.fail) return Promise.reject(Object.assign(new Error('disk refused'), { code: 'archive-unconfirmed' }));
+      const result = { written: entries.length, duplicates: 0 };
+      if (!manual) return Promise.resolve(result);
+      return new Promise((resolve) => {
+        fake.releases.push(() => {
+          fake.events.push('append-resolved');
+          resolve(result);
+        });
+      });
+    },
+    async queuePending(guildId, entries, opts = {}) {
+      fake.pending.push(...entries.map((entry) => ({ guildId, entry, opts })));
+      return entries.length;
+    },
+    async drainPending() {
+      const confirmed = fake.pending.splice(0).map((item) => item.entry);
+      return { archived: confirmed.length, left: 0, confirmed };
+    },
+    stats() {
+      return { pending: fake.pending.length };
+    },
+  };
+  return fake;
+}
+
+const whats = (episodes) => episodes.map((ep) => ep.what);
+
+test('store: an evicted episode is archived before the hot file on disk loses it', async () => {
+  const dir = tmpDataDir();
+  const archive = fakeArchive({ manual: true });
+  const store = createStore({ dataDir: dir, newId: counterIds(), archive });
+  const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
+  // Every write of the member's file, in order with the archive's answer.
+  const write = () => {
+    store.flush();
+    const onDisk = whats(JSON.parse(fs.readFileSync(file, 'utf8')).episodes);
+    archive.events.push(onDisk.includes('παλιό') ? 'write-with' : 'write-without');
+  };
+  const opts = { maxEpisodes: 1, maxNew: 3, now: ID_NOW };
+  store.touchUser('g1', 'u1', 'Zoé', ID_NOW);
+  store.addEpisodes('g1', 'u1', [{ date: '2026-10-01', what: 'παλιό', weight: 1 }], opts);
+  write();
+
+  const from = store.archiveMark('g1');
+  store.addEpisodes('g1', 'u1', [{ date: '2026-10-04', what: 'νέο', weight: 3 }], opts);
+  const to = store.archiveMark('g1');
+  assert.deepEqual(whats(store.getUser('g1', 'u1').episodes), ['παλιό', 'νέο'], 'the victim stays hot, over the cap');
+  write();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(archive.appended.length, 1, 'the append runs in the background');
+  const [{ guildId, entries, opts: appendOpts }] = archive.appended;
+  assert.equal(guildId, 'g1');
+  assert.deepEqual(appendOpts, {});
+  assert.deepEqual(entries.map((entry) => [entry.itemKind, entry.event, entry.text.what, entry.scope]), [['episode', 'evicted', 'παλιό', { user: 'u1' }]]);
+  assert.equal(entries[0].itemId, store.getUser('g1', 'u1').episodes[0].itemId, 'the hot copy carries the archived id');
+  write();
+
+  archive.releases.shift()();
+  const settled = await store.settleArchive('g1', { from, to });
+  assert.deepEqual(settled, { archived: [{ itemId: entries[0].itemId, revisionId: entries[0].revisionId, itemKind: 'episode', event: 'evicted' }], deferred: 0 });
+  assert.deepEqual(whats(store.getUser('g1', 'u1').episodes), ['νέο'], 'trimmed once confirmed');
+  write();
+
+  const resolved = archive.events.indexOf('append-resolved');
+  assert.ok(resolved > 0, JSON.stringify(archive.events));
+  assert.ok(archive.events.slice(0, resolved).every((event) => event === 'write-with'), JSON.stringify(archive.events));
+  assert.equal(archive.events.at(-1), 'write-without');
+
+  // With features.archive off (archiveOn false) a victim leaves at once and nothing is archived.
+  const offArchive = fakeArchive();
+  const off = createStore({ dataDir: tmpDataDir(), newId: counterIds(), archive: offArchive, archiveOn: () => false });
+  off.addEpisodes('g1', 'u1', [{ date: '2026-10-01', what: 'παλιό', weight: 1 }], opts);
+  off.addEpisodes('g1', 'u1', [{ date: '2026-10-04', what: 'νέο', weight: 3 }], opts);
+  assert.deepEqual(whats(off.getUser('g1', 'u1').episodes), ['νέο']);
+  assert.deepEqual(await off.settleArchive('g1'), { archived: [], deferred: 0 });
+  assert.equal(offArchive.appended.length, 0);
+});
+
+test('store: a failing archive keeps every victim hot and queues them; drainPending archives and trims', async () => {
+  const dir = tmpDataDir();
+  const archive = fakeArchive({ fail: true });
+  const store = createStore({ dataDir: dir, newId: counterIds(), archive });
+  const opts = { maxEpisodes: 3, maxNew: 3, now: ID_NOW };
+  store.touchUser('g1', 'u1', 'Zoé', ID_NOW);
+  store.addEpisodes('g1', 'u1', [1, 2, 3].map((n) => ({ date: `2026-10-0${n}`, what: `στιγμή ${n}`, weight: 1 })), opts);
+  store.applySelfOps('g1', { add: ['α', 'β'] }, { maxSelfFacts: 2 });
+
+  const from = store.archiveMark('g1');
+  store.addEpisodes('g1', 'u1', [{ date: '2026-10-04', what: 'βαριά', weight: 3 }, { date: '2026-10-05', what: 'βαριά δύο', weight: 3 }], opts);
+  store.applySelfOps('g1', { add: ['γ'] }, { maxSelfFacts: 2 });
+  const to = store.archiveMark('g1');
+
+  const { logs, result: settled } = await withCapturedLogs(() => store.settleArchive('g1', { from, to }));
+  assert.deepEqual(settled, { archived: [], deferred: 3 });
+  assert.ok(logs.some((entry) => entry.msg === 'store: archive failed' && entry.entries === 3), 'counts only');
+  assert.equal(store.getUser('g1', 'u1').episodes.length, 5, 'every victim stays hot');
+  assert.deepEqual(store.getGuild('g1').self, ['α', 'β', 'γ']);
+  assert.deepEqual(archive.pending.map((item) => `${item.entry.itemKind} ${item.entry.event}`).sort(), ['episode evicted', 'episode evicted', 'selfFact evicted']);
+  store.flush();
+  const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).episodes.length, 5, 'on disk too');
+
+  // A later write drops the same victims again: nothing is queued twice.
+  store.addEpisodes('g1', 'u1', [{ date: '2026-10-06', what: 'βαριά τρία', weight: 3 }], opts);
+  await store.settleArchive('g1');
+  assert.equal(archive.pending.length, 4, 'only the new victim is queued');
+
+  const drained = await store.drainArchive('g1');
+  assert.deepEqual(drained, { archived: 4, left: 0 });
+  assert.deepEqual(whats(store.getUser('g1', 'u1').episodes), ['βαριά', 'βαριά δύο', 'βαριά τρία']);
+  assert.deepEqual(store.getGuild('g1').self, ['β', 'γ']);
+  store.flush();
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).episodes.length, 3);
+});
+
+test('store: a replace op archives the previous version with event replaced', async () => {
+  const archive = fakeArchive();
+  const store = createStore({ dataDir: tmpDataDir(), newId: counterIds(), archive });
+  store.applyProfileOps('g1', 'u1', { interests: { add: [{ topic: 'σκάκι', note: 'παίζει τα βράδια' }] } }, { now: ID_NOW });
+  const [stored] = store.getUser('g1', 'u1').interests;
+
+  store.applyProfileOps('g1', 'u1', { interests: { update: [{ topic: 'σκάκι', note: 'παίζει online' }] } }, { now: ID_NOW + 1000 });
+  await store.settleArchive('g1');
+  const [entry] = archive.appended.flatMap((call) => call.entries);
+  assert.deepEqual([entry.itemKind, entry.event, entry.itemId], ['interest', 'replaced', stored.itemId]);
+  assert.deepEqual(entry.text, { topic: 'σκάκι', note: 'παίζει τα βράδια' }, 'the previous version');
+  assert.equal(store.getUser('g1', 'u1').interests[0].note, 'παίζει online', 'the new version stays hot');
+
+  // A remove is a replace too: held until confirmed, then gone.
+  store.applyProfileOps('g1', 'u1', { interests: { remove: ['σκάκι'] } }, { now: ID_NOW + 2000 });
+  const settled = await store.settleArchive('g1');
+  assert.deepEqual(settled.archived.map((item) => [item.itemKind, item.event, item.itemId]), [['interest', 'replaced', stored.itemId]]);
+  assert.equal(archive.appended.at(-1).entries[0].text.note, 'παίζει online');
+  assert.deepEqual(store.getUser('g1', 'u1').interests, []);
+});

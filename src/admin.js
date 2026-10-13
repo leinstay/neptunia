@@ -64,7 +64,8 @@ import { backfillDiary } from './behavior/diary.js';
 import { anchorMax, checkCaseText } from './mentor/cases.js';
 import { renderCard, renderFile, renderLastRun } from './mentor/report.js';
 import { log } from './log.js';
-import { clampAtBoundary } from './memory/clamp.js';
+import { clampAtBoundary, oneLine } from './memory/clamp.js';
+import { ARCHIVE_KINDS, archiveEntry } from './memory/archive.js';
 import { countToday, utcDay, zonedDay } from './time.js';
 import { formatClock } from './discord/format.js';
 import { liveRecent, recentSettings } from './memory/recent.js';
@@ -84,6 +85,7 @@ const READ_ONLY_ACCESS_KEYS = new Set([
   'memory.channel',
   'memory.server',
   'memory.recent',
+  'memory.archive',
   'rule.list',
   'lore.list',
   'lore.show',
@@ -899,6 +901,9 @@ const GIFS_RECACHE_SKIPS = {
  * `diary` — from createDiary() (src/behavior/diary.js), optional: `force({ kind })` (`/nep diary post`)
  *   and `status()` (`/nep diary show`, the plan in the `set` reply). Absent -> `show` prints the
  *   channel and the history size only, and `post` reports the diary is not running.
+ * `archive` — from createArchive() (src/memory/archive.js), optional: `iterate` (`/nep memory
+ *   archive`), `find` and `append` (`/nep memory restore`, with the store's `restoreArchived`).
+ *   Absent -> both report the archive is not available.
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing
  * message) on bad input; it never touches discord.js.
@@ -927,6 +932,7 @@ export function createAdmin({
   mentorCases,
   mentorBudget,
   diary,
+  archive = null,
 }) {
   /** Owner, or `bot.access` granted the command by exact key, group, or `*`, or a member
    * command while `features.memberCommands` is on (read now) — see
@@ -1682,6 +1688,78 @@ export function createAdmin({
       .sort((a, b) => b.at - a.at || (Number(b.id) || 0) - (Number(a.id) || 0))
       .map((line) => `${zonedDay(line.at, timezone)} ${formatClock(line.at, timezone)}  ${channelText(line.channelId)}  w${line.weight}  ${resolve(line.text)}`);
     return [`recent lines: ${live.length} live, window ${settings.hours} h`, ...lines].join('\n');
+  }
+
+  /** One archive entry's text on one line: its text fields joined (an exchange's messages by their text), tokens resolved. */
+  function archivedText(entry, resolve) {
+    const parts = [];
+    for (const value of Object.values(entry?.text ?? {})) {
+      if (typeof value === 'string' && value.trim()) parts.push(value);
+      else if (Array.isArray(value)) parts.push(value.map((message) => (typeof message?.text === 'string' ? message.text : '')).filter(Boolean).join(' / '));
+    }
+    return oneLine(resolve(parts.filter(Boolean).join(' | ')));
+  }
+
+  /**
+   * `/nep memory archive [user] [kind] [n]`: the newest `n` (1..100, default 20) entries of the
+   * guild's archive (src/memory/archive.js), newest first: with a member, those scoped to them;
+   * without one, the server-level ones (no member scope). `kind` narrows to one item kind. The
+   * private archives are never read here. One line each: the UTC day the item left, the event,
+   * the kind, the item id and its text (tokens resolved, cut to 160 characters). Read only; the
+   * archive is streamed and only the newest `n` are kept in memory.
+   */
+  async function cmdMemoryArchive(args, context) {
+    const guildId = requireGuildId(context);
+    if (!archive) return 'the archive is not available';
+    const kind = args?.kind ?? null;
+    if (kind !== null && !ARCHIVE_KINDS.includes(kind)) throw new Error(`unknown kind; one of: ${ARCHIVE_KINDS.join(', ')}`);
+    const n = Number.isInteger(args?.n) ? Math.min(100, Math.max(1, args.n)) : 20;
+    const userId = args?.userId ? String(args.userId) : null;
+    const newest = [];
+    for await (const entry of archive.iterate(guildId, { scope: userId ? { user: userId } : null, kinds: kind ? [kind] : null })) {
+      if (!userId && typeof entry?.scope?.user === 'string') continue;
+      newest.push(entry);
+      if (newest.length > n) newest.shift();
+    }
+    if (newest.length === 0) return NONE;
+    const { resolve } = tokenResolver(guildId);
+    return newest
+      .reverse()
+      .map((entry) => `${String(entry.recordedAt ?? '').slice(0, 10)}  ${entry.event}  ${entry.itemKind}  ${entry.itemId}  ${clampAtBoundary(archivedText(entry, resolve), 160)}`)
+      .join('\n');
+  }
+
+  /**
+   * `/nep memory restore <itemId>`: the item's newest archived version back into its hot list
+   * (store.restoreArchived: under its own id, not pinned), then a `restored` line in the archive
+   * (by `owner`). Idempotent: an item already hot changes nothing and writes nothing. Waits for
+   * a running analyzer batch first; refused while paused.
+   */
+  async function cmdMemoryRestore(args, context) {
+    assertNotPaused();
+    const guildId = requireGuildId(context);
+    const itemId = String(args?.itemId ?? '').trim();
+    if (!itemId) throw new Error('an item id is required');
+    if (!archive || typeof store.restoreArchived !== 'function') throw new Error('the archive is not available');
+    await waitForAnalyzer();
+    const versions = (await archive.find(guildId, itemId)).filter((entry) => entry.event !== 'restored');
+    if (versions.length === 0) throw new Error(`no archived item ${itemId}`);
+    const latest = versions.at(-1);
+    const result = store.restoreArchived(guildId, latest);
+    if (!result.restored) {
+      if (result.reason === 'hot') return `${latest.itemKind} ${itemId} is already in memory; nothing changed`;
+      if (result.reason === 'no-profile') throw new Error(`no stored memory to restore ${itemId} into`);
+      throw new Error(`a ${latest.itemKind} cannot be restored`);
+    }
+    const item = typeof result.item === 'string' ? { itemId: latest.itemId, text: result.item } : result.item;
+    const line = archiveEntry(item, { itemKind: latest.itemKind, event: 'restored', scope: latest.scope, by: 'owner', participants: latest.participants });
+    const privateUserId = latest.scope?.private === true ? latest.scope.user : null;
+    try {
+      await archive.append(guildId, [line], privateUserId ? { privateUserId } : {});
+    } catch (error) {
+      return `restored ${latest.itemKind} ${itemId}; the archive line failed (${error?.code ?? 'error'})`;
+    }
+    return `restored ${latest.itemKind} ${itemId}`;
   }
 
   /**
@@ -3225,6 +3303,8 @@ export function createAdmin({
     'memory.channel': (args, context) => cmdMemoryChannel(args, context),
     'memory.server': (args, context) => cmdMemoryServer(args, context),
     'memory.recent': (args, context) => cmdMemoryRecent(args, context),
+    'memory.archive': (args, context) => cmdMemoryArchive(args, context),
+    'memory.restore': (args, context) => cmdMemoryRestore(args, context),
     'memory.forget': (args, context) => cmdMemoryForget(args, context),
     'memory.wipe': (args, context) => cmdMemoryWipe(args, context),
     'memory.affinity': (args, context) => cmdMemoryAffinity(args, context),

@@ -42,8 +42,13 @@ function idList(...values) {
   return out;
 }
 
-/** An epoch-ms or ISO time as an ISO string, else null. */
-function isoOf(value) {
+/**
+ * An epoch-ms or ISO time (a bare `YYYY-MM-DD` is that day's midnight UTC) as an ISO string, else
+ * null. Shared with src/memory/archive.js.
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+export function isoOf(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return new Date(value).toISOString();
   if (typeof value === 'string' && value) {
     if (DATE_ONLY_RE.test(value)) return `${value}T00:00:00.000Z`;

@@ -14,6 +14,8 @@ import { createStore } from './memory/store.js';
 import { createAppendStore } from './memory/append-store.js';
 import { createJournal } from './memory/journal.js';
 import { createRecord } from './memory/record.js';
+import { createArchive } from './memory/archive.js';
+import { mirrorDryRun } from './behavior/limits.js';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm } from './llm/openrouter.js';
@@ -118,7 +120,22 @@ const recordAppendStore = createAppendStore({
   log,
 });
 const record = createRecord({ appendStore: recordAppendStore, dataDir, log });
-const store = createStore({ dataDir, record, recordOn: () => hot.config.features?.record === true });
+// The archive (src/memory/archive.js): every memory item a write drops is copied here before any
+// hot file loses it, while features.archive is exactly true (read at each write). Its own append
+// store, so its counts tell whether an archive line is on disk.
+const archiveAppendStore = createAppendStore({
+  fsyncMs: hot.config.appendStore?.fsyncMs ?? 500,
+  retryMax: hot.config.appendStore?.retryMax ?? 1000,
+  log,
+});
+const archive = createArchive({ appendStore: archiveAppendStore, dataDir, log });
+const store = createStore({
+  dataDir,
+  record,
+  recordOn: () => hot.config.features?.record === true,
+  archive,
+  archiveOn: () => hot.config.features?.archive === true,
+});
 
 const calibrator = createCalibrator(store.state.data.calibration);
 const llm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: store.state });
@@ -222,6 +239,10 @@ const memory = createMemoryUpdater({
   },
   // features.record: each batch reaches the record before it is analyzed.
   record,
+  // features.archive: a pending queue over archive.pendingMax pauses memory application.
+  archive,
+  // A status line for the development channel (bot.dryRunChannelId, read now).
+  notify: (text) => mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header: 'memory', body: text }),
 });
 const tagHistory = createTagHistory();
 // The custom emoji ranking read from history (Discord API only, no LLM): once at startup, again on /nep emoji rescan.
@@ -318,6 +339,8 @@ const admin = createAdmin({
   mentor,
   mentorCases,
   mentorBudget,
+  // /nep memory archive | restore: the archive of what left hot memory.
+  archive,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 
@@ -350,6 +373,26 @@ function sweepAffinityDecay() {
   if (store.state.data.paused || isWarmingUp()) return;
   const counts = store.decayAffinities(guildId, Date.now(), config.relationships ?? {});
   if (counts.decayed > 0) log.info('index: affinity decay applied', counts);
+}
+
+/**
+ * The archive drain: what the archive refused waits in its pending queue (and the victims stay
+ * hot); this retries it every archive.drainMs (read before each wait; config.json's 30000), so
+ * the queue empties without waiting for new messages. Skipped while paused (the trim would make
+ * the store dirty). Runs whatever features.archive says: what waits was queued while it was on.
+ */
+let archiveDrainTimer = null;
+function scheduleArchiveDrain() {
+  const ms = Number(hot.config.archive?.drainMs);
+  archiveDrainTimer = setTimeout(() => {
+    Promise.resolve()
+      .then(() => (instance.guildId && !store.state.data.paused ? store.drainArchive(instance.guildId) : null))
+      .catch((err) => log.error('index: archive drain failed', { error: err }))
+      .finally(() => {
+        if (!shuttingDown) scheduleArchiveDrain();
+      });
+  }, Number.isFinite(ms) && ms > 0 ? ms : 30_000);
+  archiveDrainTimer.unref?.();
 }
 
 /**
@@ -423,6 +466,7 @@ client.once(Events.ClientReady, async () => {
   const notes = createNotesScheduler({ hot, store, refreshChannelNotes: warmup.refreshChannelNotes, refreshServerNotes: warmup.refreshServerNotes, isWarmingUp, getGuildId, now: Date.now });
   every(60_000, () => notes.tick(), 'notes.tick');
   every(3_600_000, sweepAffinityDecay, 'affinity decay');
+  scheduleArchiveDrain();
 
   if (!hot.config.bot.guildId) {
     log.info('index: bot.guildId is not set, using the only guild the bot is in — pin it in config.local.json', {
@@ -465,6 +509,10 @@ client.once(Events.ClientReady, async () => {
 
   // Affinity decay: once now (catches up the days the process was down), then hourly (above).
   await startupStep('affinity decay', sweepAffinityDecay, { wait: true });
+
+  // What the archive refused before this start: drained once now (it also counts the queue for
+  // the stall check), then on the timer (above). Fire-and-forget.
+  await startupStep('archive.drain', () => (store.state.data.paused ? null : store.drainArchive(instance.guildId)));
 });
 
 // A running instance never switches servers live: bot.guildId is only read at
@@ -515,6 +563,7 @@ async function shutdown(signal) {
   shuttingDown = true;
   log.info('index: shutting down', { signal });
   for (const id of timers) clearInterval(id);
+  if (archiveDrainTimer) clearTimeout(archiveDrainTimer);
   spontaneous.stop();
   diary.stop();
   onMessage.stop();
@@ -522,6 +571,7 @@ async function shutdown(signal) {
   store.flush();
   await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await recordAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
+  await archiveAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await client.destroy();
   process.exit(0);
 }
