@@ -4221,7 +4221,7 @@ test('prompt: a closed claim renders once as before on its successor within supe
     ],
   });
   const fresh = renderProfile(profileAt(now - 2 * day), labels, { interlocutor: true, now, supersededShownDays: 7 });
-  assert.match(fresh, /πόκερ \(before: σκάκι\)/);
+  assert.match(fresh, /πόκερ \(was: σκάκι\)/);
   assert.equal(fresh.split('σκάκι').length - 1, 1, 'once');
   assert.ok(!fresh.includes('τάβλι'), 'a closed claim without a shown successor never renders alone');
 
@@ -4246,7 +4246,7 @@ test('prompt: a conflict set renders both claims with dates', () => {
     ],
   };
   const text = renderProfile(profile, labels, { interlocutor: true, now: Date.UTC(2026, 9, 10) });
-  assert.match(text, /ζει στη Λυών \/ ζει στη Νίκαια \(both claimed, 2026-08-30 and 2026-09-10\)/);
+  assert.match(text, /ζει στη Λυών \/ ζει στη Νίκαια \((conflicting, 2026-08-30 and 2026-09-10)\)/);
   assert.equal(text.split('Νίκαια').length - 1, 1, 'never collapsed, never twice');
   assert.ok(text.includes('έχει γάτα'));
 });
