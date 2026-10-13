@@ -158,7 +158,7 @@ GIF ピッカー（`features.gifPicker`、デフォルトオン）。ペルソ�
 
 ```
 locale                                   BCP-47 tag for dates
-ping.prompt                              the whole user message of `/nep ping`; must make any model answer one short word
+ping.prompt                              the user message of a model reachability probe; must make any model answer one short word. No longer used by any command
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: `context.gapMarkerMinutes` 分以上離れた隣り合う 2 行の間の時間。メッセージの経過時間と読まれない書き方にする

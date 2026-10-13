@@ -164,7 +164,7 @@ recent (лимит `context.caps.recent`) ->
 
 ```
 locale                                   BCP-47 tag for dates
-ping.prompt                              the whole user message of `/nep ping`; must make any model answer one short word
+ping.prompt                              the user message of a model reachability probe; must make any model answer one short word. No longer used by any command
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: время между двумя соседними строками, если между ними не меньше `context.gapMarkerMinutes` минут; формулировка не должна читаться как возраст сообщения

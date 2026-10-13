@@ -160,7 +160,7 @@ GIF 挑选器（`features.gifPicker`，默认开启）。当角色写了一条�
 
 ```
 locale                                   BCP-47 tag for dates
-ping.prompt                              the whole user message of `/nep ping`; must make any model answer one short word
+ping.prompt                              the user message of a model reachability probe; must make any model answer one short word. No longer used by any command
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: 相隔至少 `context.gapMarkerMinutes` 分钟的两条相邻行之间的时间；措辞不能让人把它当成消息的距今时间
