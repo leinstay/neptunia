@@ -27,19 +27,27 @@
 //            range touches: data/guilds/<id>/backfill/manifest-<YYYY-MM>.json (message ids in order
 //            with their channel ids).
 //   extract  --since <day> [--until <day>] --max-usd <n> --max-windows <n> --max-tokens <n>
-//            [--pilot <day>] [--window-max 120] [--usd-per-ktok 0.005] [--dry-run]
+//            [--pilot <day>] [--redo <day>] [--include-thin] [--window-max 120] [--usd-per-ktok 0.005] [--dry-run]
 //            Windows of connected lines (tools/lib/backfill.mjs#windowsOf: reply chains and
 //            `recall.clusterGapMinutes` gaps, at most `--window-max` lines), each sent with the
 //            roster of its members (stored names and aliases only) and prompts/backfill.md to the
 //            analyzer model (`memory.model`, else `llm.model`). The answers' items go to
-//            data/guilds/<id>/backfill/candidates.jsonl. The estimate is printed first; the run is
-//            refused (exit 2) when it exceeds `--max-usd` or `--max-tokens`, and stops once the
-//            spent tokens or USD reach them. Windows already extracted are skipped.
+//            data/guilds/<id>/backfill/candidates.jsonl (quotes checked against their message,
+//            items citing a line outside the window dropped; tools/lib/backfill.mjs
+//            #readExtractAnswer). The estimate is printed first; the run is refused (exit 2) when
+//            it exceeds `--max-usd` or `--max-tokens`, and stops once the spent tokens or USD reach
+//            them. Windows already extracted are never sent again; thin windows (few content
+//            lines, no line by the persona, no question or mention) are skipped and counted.
 //            `--pilot <day>`: only that day's windows, and the candidates are printed.
+//            `--redo <day>`: only that day's windows, extracted again: that day's candidates and
+//            done marks are removed first (once the estimate passes).
+//            `--include-thin`: thin windows are sent too.
 //            `--dry-run`: the window plan and the estimate, nothing written, nothing sent.
-//   dedupe   Candidates against the hot episodes (src/memory/episodes.js#isSameEpisode) and the
-//            archive (a shared source message with an entry of the same kind); the rest are
-//            archived with stable item ids (`ep-bf-...`, `ln-bf-...`), event `backfill`.
+//   dedupe   Candidates against the hot episodes (the same moment, or the same member and the
+//            same meaning) and the archive (a shared source message with an entry of the same
+//            kind, or the same member or teacher and the same meaning); candidates that repeat
+//            one another are merged; the rest are archived with stable item ids (`ep-bf-...`,
+//            `ln-bf-...`), event `backfill`. Running it again archives nothing new.
 //   voice    --spend <usd> [--min-weight 4]
 //            For each archived backfill episode of at least `--min-weight`, not yet worded: a
 //            present-day first-person reconstruction through the voice pass (prompts/memory-voice.md,
@@ -67,7 +75,7 @@ import { fileURLToPath } from 'node:url';
 import { CliError, REFUSED_EXIT, daysBetween, parseFlags, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
 import {
   WINDOW_MAX_LINES, advanceCursor, archiveItemOf, buildExtractRequest, candidateItemId, dedupeCandidates, estimate,
-  ledgerDrops, parseExtractAnswer, rosterOf, snowflakeAt, windowsOf,
+  DEDUPE_REASONS, ledgerDrops, readExtractAnswer, rosterOf, snowflakeAt, windowsOf,
 } from './lib/backfill.mjs';
 import { isPlainObject } from '../src/config.js';
 import { log as defaultLog } from '../src/log.js';
@@ -86,7 +94,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const USAGE =
   'usage: node tools/backfill.mjs fetch --since <day> [--until <day>] [--guild <id>] [--dry-run]\n' +
   '       node tools/backfill.mjs merge --since <day> [--until <day>] [--guild <id>]\n' +
-  '       node tools/backfill.mjs extract --since <day> [--until <day>] --max-usd <n> --max-windows <n> --max-tokens <n> [--pilot <day>] [--window-max 120] [--usd-per-ktok 0.005] [--dry-run] [--guild <id>]\n' +
+  '       node tools/backfill.mjs extract --since <day> [--until <day>] --max-usd <n> --max-windows <n> --max-tokens <n> [--pilot <day>] [--redo <day>] [--include-thin] [--window-max 120] [--usd-per-ktok 0.005] [--dry-run] [--guild <id>]\n' +
   '       node tools/backfill.mjs dedupe [--guild <id>]\n' +
   '       node tools/backfill.mjs voice --spend <usd> [--min-weight 4] [--guild <id>]\n' +
   '       node tools/backfill.mjs report [--since <day>] [--until <day>] [--guild <id>]   (cwd: the bot directory)';
@@ -277,8 +285,8 @@ function openStores(dataDir, now, log) {
  */
 export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: givenHot = null, llmClient = null, source = null, log = defaultLog, rootDir = ROOT } = {}) {
   const flags = parseFlags(argv, {
-    values: ['--guild', '--since', '--until', '--max-usd', '--max-windows', '--max-tokens', '--pilot', '--spend', '--min-weight', '--window-max', '--usd-per-ktok', '--data'],
-    switches: ['--dry-run'],
+    values: ['--guild', '--since', '--until', '--max-usd', '--max-windows', '--max-tokens', '--pilot', '--redo', '--spend', '--min-weight', '--window-max', '--usd-per-ktok', '--data'],
+    switches: ['--dry-run', '--include-thin'],
     usage: USAGE,
   });
   const sub = flags._[0];
@@ -295,14 +303,18 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
   const guildId = resolveGuildId(dataDir, flags['--guild'] ?? (hot.config.bot?.guildId || undefined));
   const today = new Date(now()).toISOString().slice(0, 10);
   const pilot = flags['--pilot'];
-  if (pilot !== undefined && (sub !== 'extract' || !DAY_RE.test(pilot))) throw new CliError(USAGE);
+  const redo = flags['--redo'];
+  for (const day of [pilot, redo]) if (day !== undefined && (sub !== 'extract' || !DAY_RE.test(day))) throw new CliError(USAGE);
+  if (flags['--include-thin'] === true && sub !== 'extract') throw new CliError(USAGE);
+  if (pilot !== undefined && redo !== undefined && pilot !== redo) throw new CliError(USAGE);
+  const single = pilot ?? redo;
   const needsRange = ['fetch', 'merge', 'extract'].includes(sub);
-  if (needsRange && !flags['--since'] && !pilot) throw new CliError(USAGE);
-  const days = flags['--since'] || pilot ? daysBetween(flags['--since'] ?? pilot, flags['--until'] ?? (pilot && !flags['--since'] ? pilot : today), USAGE) : null;
+  if (needsRange && !flags['--since'] && !single) throw new CliError(USAGE);
+  const days = flags['--since'] || single ? daysBetween(flags['--since'] ?? single, flags['--until'] ?? (single && !flags['--since'] ? single : today), USAGE) : null;
 
   const guildDir = path.join(dataDir, 'guilds', guildId);
   const ctx = {
-    flags, sub, dryRun, hot, dataDir, guildId, guildDir, days, now, log, llmClient, source, rootDir, pilot,
+    flags, sub, dryRun, hot, dataDir, guildId, guildDir, days, now, log, llmClient, source, rootDir, pilot, redo,
     cursorFile: path.join(guildDir, 'record', 'backfill.json'),
     workDir: path.join(guildDir, 'backfill'),
   };
@@ -625,12 +637,17 @@ async function cmdExtract(ctx) {
   if (ctx.dryRun) await refuseWhileForgetting(ctx);
   else await guard(ctx);
 
-  const days = ctx.pilot ? [ctx.pilot] : ctx.days;
+  const days = ctx.pilot ? [ctx.pilot] : ctx.redo ? [ctx.redo] : ctx.days;
+  const single = ctx.pilot ?? ctx.redo;
+  const includeThin = flags['--include-thin'] === true;
   const stream = await streamOf(ctx, days);
-  const windows = windowsOf(stream, { gapMinutes: config.recall?.clusterGapMinutes ?? 30, maxLines: windowMax }).filter((window) => !ctx.pilot || window.day === ctx.pilot);
+  const windows = windowsOf(stream, { gapMinutes: config.recall?.clusterGapMinutes ?? 30, maxLines: windowMax }).filter((window) => !single || window.day === single);
   const state = readState(ctx);
-  const done = new Set(Array.isArray(state.extract?.done) ? state.extract.done : []);
-  const todo = windows.filter((window) => !done.has(window.id));
+  const redone = new Set(ctx.redo ? windows.map((window) => window.id) : []);
+  const done = new Set((Array.isArray(state.extract?.done) ? state.extract.done : []).filter((id) => !redone.has(id)));
+  const open = windows.filter((window) => !done.has(window.id));
+  const thin = open.filter((window) => window.thin);
+  const todo = includeThin ? open : open.filter((window) => !window.thin);
   const chosen = maxWindows === null ? todo : todo.slice(0, maxWindows);
   const { selfId, selfName, channels } = selfOf(ctx);
   const names = namesOf(ctx.store, ctx.guildId);
@@ -646,19 +663,31 @@ async function cmdExtract(ctx) {
     return { window, messages, tokens: estimateTokens(messages.map((message) => message.content).join('\n')) + EXTRACT_OUTPUT_TOKENS };
   });
   const planned = estimate(requests, (request) => request.tokens, usdPerKTok);
+  const doneBefore = windows.length - open.length;
   const plan = [
-    `backfill extract${ctx.dryRun ? ' (dry run, nothing written or sent)' : ''}: ${days[0]}..${days.at(-1)}${ctx.pilot ? ' (pilot)' : ''}`,
-    `windows: ${planned.windows} (of ${windows.length}; ${windows.length - todo.length} done before)`,
+    `backfill extract${ctx.dryRun ? ' (dry run, nothing written or sent)' : ''}: ${days[0]}..${days.at(-1)}${ctx.pilot ? ' (pilot)' : ''}${ctx.redo ? ` (redo ${ctx.redo})` : ''}`,
+    `windows: ${planned.windows} (of ${windows.length}; ${doneBefore} done before${doneBefore > 0 ? ', --redo <day> extracts a day again' : ''}; thin: ${thin.length}, ${includeThin ? 'included' : 'skipped'})`,
     `estimate: ~${planned.tokens} tokens, ~${planned.usd.toFixed(2)} USD at ${usdPerKTok} USD per 1k tokens`,
   ];
   if (ctx.dryRun) {
-    for (const { window, tokens } of requests) plan.push(`- ${window.id} ${window.day} ${channels[window.channelId] ?? window.channelId} lines=${window.lines.length} ~${tokens} tokens`);
+    for (const { window, tokens } of requests) plan.push(`- ${window.id} ${window.day} ${channels[window.channelId] ?? window.channelId} lines=${window.lines.length} ~${tokens} tokens${window.thin ? ' thin' : ''}`);
+    if (!includeThin) for (const window of thin) plan.push(`- ${window.id} ${window.day} ${channels[window.channelId] ?? window.channelId} lines=${window.lines.length} thin, skipped`);
     return `${plan.join('\n')}\n`;
   }
   process.stderr.write(`${plan.join('\n')}\n`);
   if (planned.usd > maxUsd || planned.tokens > maxTokens) {
     throw new CliError(`${plan.join('\n')}\nrefused: over --max-usd ${maxUsd} or --max-tokens ${maxTokens}; lower --max-windows or raise the limits`, { exitCode: REFUSED_EXIT });
   }
+  const extractBefore = isPlainObject(state.extract) ? state.extract : {};
+  const thinIds = new Set([...(Array.isArray(extractBefore.thin) ? extractBefore.thin : []), ...(includeThin ? [] : thin.map((window) => window.id))]);
+  state.extract = { ...extractBefore, done: [...done], thin: [...thinIds] };
+  if (ctx.redo) {
+    const candidatesBefore = readJsonl(ctx.candidatesFile);
+    const keptCandidates = candidatesBefore.filter((candidate) => candidate?.date !== ctx.redo);
+    if (keptCandidates.length < candidatesBefore.length) writeLines(ctx.candidatesFile, keptCandidates);
+    log.info('backfill: redo', { guildId: ctx.guildId, windows: redone.size, candidates: candidatesBefore.length - keptCandidates.length });
+  }
+  saveState(ctx, state);
   if (requests.length === 0) return `${plan.join('\n')}\ncandidates: 0\n`;
 
   const llm = await modelClient(ctx);
@@ -677,6 +706,7 @@ async function cmdExtract(ctx) {
     ...(isPlainObject(cfg.reasoning) ? { reasoning: cfg.reasoning } : {}),
   };
   const spent = { windows: 0, tokens: 0, usd: 0, failed: 0 };
+  const taken = { clamped: 0, quotesDropped: 0, outsideWindow: 0 };
   const printed = [];
   let candidates = 0;
   let inARow = 0;
@@ -709,7 +739,11 @@ async function cmdExtract(ctx) {
     spent.windows += 1;
     spent.tokens += used;
     spent.usd = Math.round((spent.usd + (used / 1000) * usdPerKTok) * 1e6) / 1e6;
-    const found = parseExtractAnswer(completion?.text, { window, selfId, clampTolerance: cfg.clampTolerance, learnedChars: cfg.learnedChars }).filter((candidate) => !ledgerDrops(candidate, ledger));
+    // The persona's name forms, read now: her display name and the configured name triggers.
+    const selfNames = [selfName, ...(Array.isArray(hot.config.bot?.nameTriggers) ? hot.config.bot.nameTriggers : [])];
+    const answer = readExtractAnswer(completion?.text, { window, selfId, selfNames, clampTolerance: cfg.clampTolerance, learnedChars: cfg.learnedChars });
+    for (const key of Object.keys(taken)) taken[key] += answer.counts[key];
+    const found = answer.candidates.filter((candidate) => !ledgerDrops(candidate, ledger));
     if (found.length > 0) {
       fs.mkdirSync(ctx.workDir, { recursive: true });
       fs.appendFileSync(ctx.candidatesFile, found.map((candidate) => `${JSON.stringify(candidate)}\n`).join(''));
@@ -717,22 +751,31 @@ async function cmdExtract(ctx) {
     candidates += found.length;
     if (ctx.pilot) printed.push(...found);
     done.add(window.id);
+    thinIds.delete(window.id);
     const extract = isPlainObject(state.extract) ? state.extract : {};
     state.extract = {
       ...extract,
       done: [...done],
+      thin: [...thinIds],
       windows: (extract.windows ?? 0) + 1,
       candidates: (extract.candidates ?? 0) + found.length,
+      clamped: (extract.clamped ?? 0) + answer.counts.clamped,
+      quotesDropped: (extract.quotesDropped ?? 0) + answer.counts.quotesDropped,
+      outsideWindow: (extract.outsideWindow ?? 0) + answer.counts.outsideWindow,
       tokens: (extract.tokens ?? 0) + used,
       usd: Math.round(((extract.usd ?? 0) + (used / 1000) * usdPerKTok) * 1e6) / 1e6,
       at: new Date(now()).toISOString(),
     };
     saveState(ctx, state);
   }
-  log.info('backfill: extracted', { guildId: ctx.guildId, windows: spent.windows, candidates, tokens: spent.tokens, failed: spent.failed, stopped });
+  if (taken.clamped > 0) log.info('backfill: clamped', { guildId: ctx.guildId, count: taken.clamped });
+  if (taken.quotesDropped > 0) log.info('backfill: quotes dropped', { guildId: ctx.guildId, count: taken.quotesDropped });
+  if (taken.outsideWindow > 0) log.info('backfill: candidates dropped', { guildId: ctx.guildId, reason: 'outside-window', count: taken.outsideWindow });
+  log.info('backfill: extracted', { guildId: ctx.guildId, windows: spent.windows, candidates, tokens: spent.tokens, failed: spent.failed, stopped, thin: includeThin ? 0 : thin.length });
   return [
-    `backfill extract: windows sent: ${spent.windows}, failed: ${spent.failed}${stopped ? `, stopped: ${stopped}` : ''}`,
+    `backfill extract: windows sent: ${spent.windows}, failed: ${spent.failed}${stopped ? `, stopped: ${stopped}` : ''}, thin skipped: ${includeThin ? 0 : thin.length}`,
     `candidates: ${candidates}`,
+    `clamped (a what cut mid-sentence): ${taken.clamped}, quotes dropped (not in their message): ${taken.quotesDropped}, items dropped (a source outside the window): ${taken.outsideWindow}`,
     `spent: ~${spent.tokens} tokens, ~${spent.usd.toFixed(2)} USD`,
     ...printed.map((candidate) => JSON.stringify(candidate)),
     '',
@@ -741,20 +784,33 @@ async function cmdExtract(ctx) {
 
 // ---- dedupe ------------------------------------------------------------------------------------
 
+/** What each dedupe rule means, for the summary and the report. */
+const DEDUPE_LABELS = Object.freeze({
+  hot: 'same moment as a hot episode',
+  'hot-similar': 'same meaning as a hot episode',
+  archive: 'sources already archived',
+  'archive-similar': 'same meaning as an archived item',
+  repeat: 'merged (shared sources or the same moment)',
+  similar: 'merged (same meaning)',
+});
+
+/** The per-rule counts of a dedupe, one phrase each. */
+const dedupeLine = (counts) => DEDUPE_REASONS.map((reason) => `${DEDUPE_LABELS[reason]} ${counts?.[reason] ?? 0}`).join(', ');
+
 async function cmdDedupe(ctx) {
   const { now, log } = ctx;
   const ledger = await guard(ctx);
   const candidates = readJsonl(ctx.candidatesFile).filter((candidate) => !ledgerDrops(candidate, ledger));
   const hotEpisodes = ctx.store.listUserProfiles(ctx.guildId).flatMap((profile) => (Array.isArray(profile.episodes) ? profile.episodes : []).map((episode) => ({ ...episode, userId: profile.id })));
   const archived = [];
-  for await (const entry of ctx.archive.iterate(ctx.guildId)) archived.push({ itemKind: entry.itemKind, sourceRefs: entry.sourceRefs, scope: entry.scope });
+  for await (const entry of ctx.archive.iterate(ctx.guildId)) archived.push({ itemKind: entry.itemKind, sourceRefs: entry.sourceRefs, scope: entry.scope, text: entry.text, stored: entry.stored });
   const { kept, dropped } = dedupeCandidates(candidates, { hotEpisodes, archived });
   const entries = kept.map((candidate) => {
     const { item, itemKind, scope, participants } = archiveItemOf(candidate);
     return archiveEntry(item, { itemKind, event: 'backfill', scope, origin: 'backfill', by: 'backfill', now, participants });
   });
   const { written, duplicates } = entries.length > 0 ? await ctx.archive.append(ctx.guildId, entries) : { written: 0, duplicates: 0 };
-  const reasons = { hot: 0, archive: 0, repeat: 0 };
+  const reasons = Object.fromEntries(DEDUPE_REASONS.map((reason) => [reason, 0]));
   for (const { reason } of dropped) reasons[reason] += 1;
   const state = readState(ctx);
   const before = isPlainObject(state.dedupe) ? state.dedupe : {};
@@ -762,14 +818,14 @@ async function cmdDedupe(ctx) {
     at: new Date(now()).toISOString(),
     candidates: candidates.length,
     archived: (before.archived ?? 0) + written,
-    dropped: { hot: reasons.hot, archive: reasons.archive, repeat: reasons.repeat, index: duplicates },
+    dropped: { ...reasons, index: duplicates },
   };
   saveState(ctx, state);
   log.info('backfill: deduped', { guildId: ctx.guildId, candidates: candidates.length, archived: written, ...reasons });
   return [
     `backfill dedupe: candidates: ${candidates.length}`,
     `archived: ${written}`,
-    `dropped: same as a hot episode ${reasons.hot}, sources already archived ${reasons.archive}, repeats ${reasons.repeat}, already in the index ${duplicates}`,
+    `dropped: ${dedupeLine(reasons)}, already in the index ${duplicates}`,
     '',
   ].join('\n');
 }
@@ -894,6 +950,8 @@ async function cmdReport(ctx) {
   const extract = isPlainObject(state.extract) ? state.extract : {};
   const voice = isPlainObject(state.voice) ? state.voice : {};
   const dropped = state.dedupe?.dropped ?? {};
+  const doneIds = new Set(Array.isArray(extract.done) ? extract.done : []);
+  const thinSkipped = (Array.isArray(extract.thin) ? extract.thin : []).filter((id) => !doneIds.has(id)).length;
   const gaps = Array.isArray(saved?.gaps) ? saved.gaps : [];
   const label = (id) => `${names[id] ?? '?'} (${id})`;
   const out = [
@@ -911,10 +969,10 @@ async function cmdReport(ctx) {
     '',
     '## Extraction',
     '',
-    `- windows extracted: ${extract.windows ?? 0}`,
-    `- candidates: ${readJsonl(ctx.candidatesFile).length}`,
+    `- windows extracted: ${extract.windows ?? 0}; thin windows skipped: ${thinSkipped}`,
+    `- candidates: ${readJsonl(ctx.candidatesFile).length}; a what cut mid-sentence: ${extract.clamped ?? 0}; quotes dropped: ${extract.quotesDropped ?? 0}; items dropped for a source outside the window: ${extract.outsideWindow ?? 0}`,
     `- archived: ${Object.entries(archivedKinds).map(([kind, n]) => `${kind} ${n}`).join(', ') || 'none'}; with a reconstructed feeling: ${voiced}`,
-    `- duplicates dropped: hot ${dropped.hot ?? 0}, archive ${dropped.archive ?? 0}, repeats ${dropped.repeat ?? 0}, index ${dropped.index ?? 0}`,
+    `- duplicates dropped: ${dedupeLine(dropped)}, already in the index ${dropped.index ?? 0}`,
     `- extract: ~${extract.tokens ?? 0} tokens, ~${(extract.usd ?? 0).toFixed(2)} USD`,
     `- voice: ${voice.requests ?? 0} request(s), ~${voice.tokens ?? 0} tokens, ~${((Number.isFinite(voice.worded) ? voice.worded : 0) * VOICE_USD_PER_ITEM).toFixed(2)} USD estimated`,
     '',
