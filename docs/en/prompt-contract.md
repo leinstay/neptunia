@@ -329,6 +329,7 @@ diary.seeds                              first line of the `<seeds>` block
 diary.topic                              first line of the `<topic>` block (the owner's topic for a forced post)
 memory.privateNote                       the <private> block content in a private analyzer batch: marks the batch as a private conversation, constrains output to users for the partner's id only
 memory.privateChannel                    heading used in place of a channel name for the <new_messages> section in a private batch
+memory.redaction                         the neutral token that replaces a forgotten member's mention inside a diary post (one word)
 limits.notice                            {limit} {used} {cap}: posted as a plain reply when a rail refuses a triggered action; limit is the config key, used/cap are the numbers
 limits.paused                            posted as a plain reply when the persona is called while paused (`features.pauseNotice`). No placeholders. At most once per channel per `mention.pauseNoticeMinutes`
 warmup.ownMark                           prefixed to a member's own lines in the profile.md transcript

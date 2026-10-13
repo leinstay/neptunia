@@ -130,8 +130,8 @@
     "episodes": "Moments you remember with this person:",
     "episode": "{date}: {what} — \"{quote}\" — felt: {feeling}",
     "episodeNoQuote": "{date}: {what} — felt: {feeling}",
-    "before": "(before: {text})",
-    "conflict": "{a} / {b} (both claimed, {dateA} and {dateB})"
+    "before": "(was: {text})",
+    "conflict": "{a} / {b} (conflicting, {dateA} and {dateB})"
   },
   "lore": {
     "entry": "{title} — {text}"
@@ -240,7 +240,8 @@
   },
   "memory": {
     "privateNote": "This batch is a private conversation with one person. Judge only this person — everything learned here is private and must not describe the server or other people. Output users for this person's id only; guild, channels, lore and self are empty.",
-    "privateChannel": "private chat"
+    "privateChannel": "private chat",
+    "redaction": "someone"
   },
   "limits": {
     "notice": "...but nobody came ({limit}, {used}/{cap})",

@@ -6,7 +6,7 @@ Watch and record. Nothing more.
 
 `<character>` — {{name}}'s personality. Read it to judge how {{name}} would feel about people's behavior.
 
-`<existing_profiles>` — stored profiles as JSON, keyed by user ID. Each has `character` and `style` (prose paragraphs), `relationship` (how {{name}} and this person stand; empty string = nothing written yet), `affinity` (score and reason), `episodes`, `interests` (`{ topic, note, seen, last }`), `details` (`{ id, text, seen, last }`) and `aliases` (list). `seen` = occasions observed; `last` = date last seen.
+`<existing_profiles>` — stored profiles as JSON, keyed by user ID. Each has `character` and `style` (prose paragraphs), `relationship` (how {{name}} and this person stand; empty string = nothing written yet), `affinity` (score and reason), `episodes`, `interests` (`{ topic, note, seen, last }`, plus `itemId`, `from` and `conflict` when set), `details` (`{ id, text, seen, last }`, plus `itemId`, `from` and `conflict` when set) and `aliases` (list). `seen` = occasions observed; `last` = date last seen. `from` is when the claim started being true; `conflict` is a shared id between two open claims that contradict each other. A whole profile may carry `closed`: replaced claims whose topic, text or alias name occurs in this batch, each with `kind`, the identity field, `from` and `to` (the period the claim was true).
 
 The lists of interests, details, episodes and aliases shown are the ranked top of longer stored lists. Code checks every new item against the full list, so something absent from the view may still be stored; add what the batch shows and do not restore an item from the chat merely because it is missing here. A profile that did not fit the request arrives as a stub marked `"compact": true` with only names and attitude; you can still add interests, details, episodes, aliases and an attitude change for that member, but do not write `relationship` or `portrait` when you cannot see the stored text.
 
@@ -151,6 +151,8 @@ When the profile carries `relationshipStale`, the standing state has shifted and
 
 The input shows the top {{maxInterests}} by rank; code keeps more. Add whatever is new — if stored, code counts a sighting.
 
+An `add` or `update` may carry `supersedes` (the `itemId` or topic of a stored open interest this one replaces), `validFrom` (`YYYY-MM-DD`, since when the new claim is true) and `conflict` (the `itemId` or topic of another open interest that contradicts it without replacing it). `supersedes` closes the old item at the new one's `validFrom`, or at the batch day when `validFrom` is absent. When the earlier claim was never true (said as a joke or a bit), give the new claim a `validFrom` equal to the old claim's own `from` so it closes the moment it started. A claim listed under `closed` is not re-added; if the batch shows it true again, treat it as a new `add` with `supersedes` pointing at the claim that replaced it.
+
 **`details`** — standalone facts. The input shows each with its numeric `id`.
 
 - `add` — new facts, as `{ "text": "" }` (a bare string is accepted). Use `"sure": false` when uncertain.
@@ -159,9 +161,13 @@ The input shows the top {{maxInterests}} by rank; code keeps more. Add whatever 
 
 The input shows the top {{maxDetails}}; code keeps more.
 
+An `add` may carry `supersedes` (the `id`, `itemId` or text of a stored open detail this one replaces), `validFrom` (`YYYY-MM-DD`, since when the new claim is true) and `conflict` (the same references, pointing at another open detail that contradicts it without replacing it). `supersedes` closes the old detail at the new one's `validFrom`, or at the batch day when `validFrom` is absent. When the earlier claim was never true (said as a joke or a bit), give the new claim a `validFrom` equal to the old claim's own `from` so it closes the moment it started. A claim listed under `closed` is not re-added; if the batch shows it true again, treat it as a new `add` with `supersedes` pointing at the claim that replaced it.
+
 **`aliases`** — what others call this member in chat: a stable nickname, shortened or translated name, NOT a Discord display name. One explicit statement that a person is called N is enough: said to {{name}}, said openly in the chat, or an answer to {{name}}'s own question about who someone is. Inferring an alias from usage alone, when nobody stated whom the name means, needs repeated use by others that clearly points at one member. The alias goes under the SUBJECT's id, never the speaker's. When `<known_members>` is present, match a loosely typed, shortened or earlier display name against it to find the id. When two members fit or none clearly does, record nothing; the list may be incomplete. For a member who appears only in `<known_members>`, return `aliases` under their id and nothing else. Write the alias as people type it, in its base form (not an inflected case form). A teasing or insulting name thrown once is not an alias; a name people actually call the member by is. `add` of a known alias is a sighting. `remove` wrong ones.
 
 A joke-request or playful agreement alone does not establish a lasting preference, instruction, habit or alias. Repetition within the same bit is not independent confirmation. Record a joke-name as an alias only when the person adopts it or clear use outside the bit shows it has stuck.
+
+An `add` in object form (`{ "name": "..." }`) may carry `supersedes` (the name of a stored alias this one replaces), `validFrom` (`YYYY-MM-DD`, since when the new alias is true) and `conflict` (the name of another stored alias that contradicts it without replacing it). `supersedes` closes the old alias at the new one's `validFrom`, or at the batch day when `validFrom` is absent. When the earlier alias was never real (said as a joke), give the new claim a `validFrom` equal to the old claim's own `from` so it closes the moment it started. An alias listed under `closed` is not re-added; if the batch shows it in use again, add it in object form with `supersedes` pointing at the alias that replaced it.
 
 Examples:
 - Alex writes three messages about Elden Ring and mentions a build → add `{ "topic": "Elden Ring", "note": "plays, strength build" }` to Alex.
