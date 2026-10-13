@@ -158,6 +158,7 @@ GIF ピッカー（`features.gifPicker`、デフォルトオン）。ペルソ�
 
 ```
 locale                                   BCP-47 tag for dates
+status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: `context.gapMarkerMinutes` 分以上離れた隣り合う 2 行の間の時間。メッセージの経過時間と読まれない書き方にする

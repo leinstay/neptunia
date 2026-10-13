@@ -38,6 +38,7 @@ export function createOpsEnv({
   diary,
   archive = null,
   journal,
+  llm,
   dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
 } = {}) {
   // The gateway's last reconnect, for the status card: a resumed session, or a shard ready again
@@ -227,6 +228,7 @@ export function createOpsEnv({
     diary,
     archive,
     journal,
+    llm,
     dataDir,
     connection,
     slash,

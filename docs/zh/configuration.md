@@ -77,6 +77,7 @@
 | `maxRequestTokens` | `50000` | 每请求硬性 token 上限 |
 | `safetyMargin` | `0.9` | `maxRequestTokens` 的预算比例 |
 | `timeoutMs` | `300000` | 请求超时（毫秒） |
+| `probeTimeoutMs` | `30000` | 所有者的 `/nep status` 卡片对每个模型探测的超时（毫秒） |
 | `helperTimeoutMs` | `30000` | 与回合并行运行的辅助任务（路由分类器、搜索分类器和 recall 摘要）的超时。超时的辅助任务被放弃，回合在没有其结果的情况下继续 |
 | `retries` | `2` | 临时 HTTP 错误（408/429/5xx）和网络故障的重试次数。提供商账户的日配额 429 不重试：一次尝试后直接抛出 |
 | `maxRequestsPerDay` | `5000` | 每日请求上限 |

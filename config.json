@@ -69,6 +69,7 @@
     "maxRequestTokens": 50000,
     "safetyMargin": 0.9,
     "timeoutMs": 300000,
+    "probeTimeoutMs": 30000,
     "helperTimeoutMs": 30000,
     "retries": 2,
     "maxRequestsPerDay": 5000,

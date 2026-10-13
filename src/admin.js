@@ -96,6 +96,9 @@ const ARCHIVE_CHOICES = 25;
  *   member). Absent -> no records, and `/nep memory journal` reports it is not available.
  *   `withWriterLock` holds the journal's, the record's and the archive's writes while `/nep memory
  *   snapshot` copies `data/` and while a forget or a wipe runs; absent, they run without it.
+ * `llm` — from createLlm() (src/llm/openrouter.js), optional: `complete()`, the probe the owner's
+ *   `/nep status` card sends to each role's model, and `modelEndpoints()`, its free check of the
+ *   drawing model. Absent -> the card names the models without probing them.
  * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing
