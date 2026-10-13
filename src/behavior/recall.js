@@ -17,9 +17,11 @@
 // reaches the summary even when it sits under another member or a lore key
 // the question does not name; the archive (items that left hot memory) is a
 // fifth source of those items (scanArchive streams it, matchMemory ranks
-// it), and for a dated or vague "recently" question the record of the last
-// days is read for matching lines with their reply chains and neighbours
-// (matchRecord), as windows marked `source: record` beside the search's.
+// it), and for every question the record is read for matching lines with
+// their reply chains and neighbours (matchRecord: a dated question its range,
+// any other the last `recall.recordDays` days, a dateless one keeping the
+// window of the earliest match so an origin question sees where a thing
+// started), as windows marked `source: record` beside the search's.
 // Hits the turn already shows in its chat are
 // dropped before clustering (dropChatHits); once the windows are fetched, a
 // window holding the persona's own line ranks higher (rankClusters), and the
@@ -1329,7 +1331,11 @@ function recordMessage(line, { nameOf, selfName }) {
  * (mergeWindows), every hit inside a window is in its `hitIds`. At most
  * `maxWindows` windows are kept: by their best score, then the newer last
  * line; with `recent` (isRecentCue) a window with a line of the persona
- * first, then the newer. Returned newest first, each
+ * first, then the newer. A dateless question (no `range` bound) without
+ * `recent` reads the last `recordDays` days and reserves one kept window for
+ * its earliest hit among those with the best score (the origin of a phrase
+ * repeated since), unless that window is kept anyway; a dated or recent
+ * question has no such reservation. Returned newest first, each
  * `{ source: 'record', channelId, channelName, messages, hitIds, overlapsChat }`
  * (`channelName` from `channelNameOf`; authors' names from `nameOf`, the
  * persona's own lines under `selfName`). Stops reading at an aborted `signal`.
@@ -1403,9 +1409,15 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   const hitOrder = recent
     ? (a, b) => Number(b.message.self) - Number(a.message.self) || b.message.ts - a.message.ts || b.score - a.score
     : (a, b) => b.score - a.score || b.message.ts - a.message.ts;
-  const windows = hits
-    .sort(hitOrder)
-    .slice(0, keep * RECORD_HITS_PER_WINDOW)
+  // A dateless, not-recent question: the earliest hit with the best score keeps a window of its own.
+  const dateless = !recent && !Number.isFinite(range?.from) && !Number.isFinite(range?.to);
+  const bestScore = Math.max(0, ...hits.map((hit) => hit.score));
+  const earliest = dateless
+    ? hits.filter((hit) => hit.score === bestScore).reduce((a, b) => (!a || b.message.ts < a.message.ts || (b.message.ts === a.message.ts && b.message.id < a.message.id) ? b : a), null)
+    : null;
+  const chosenHits = hits.sort(hitOrder).slice(0, keep * RECORD_HITS_PER_WINDOW);
+  if (earliest && !chosenHits.includes(earliest)) chosenHits.push(earliest);
+  const windows = chosenHits
     .map(({ message }) => {
       const list = byChannel.get(message.channelId);
       const at = position.get(message.id);
@@ -1438,9 +1450,9 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   const windowOrder = recent
     ? (a, b) => Number(b.self) - Number(a.self) || b.endTs - a.endTs || b.score - a.score
     : (a, b) => b.score - a.score || b.endTs - a.endTs;
-  const kept = merged
-    .sort(windowOrder)
-    .slice(0, keep)
+  const ordered = merged.sort(windowOrder);
+  const origin = earliest ? ordered.findIndex((window) => window.hitIds.has(earliest.message.id)) : -1;
+  const kept = (origin >= keep ? [...ordered.slice(0, keep - 1), ordered[origin]] : ordered.slice(0, keep))
     .sort((a, b) => b.endTs - a.endTs)
     .map(({ score, self, endTs, ...window }) => window);
   return { windows: kept, scanned, hits: hits.length };

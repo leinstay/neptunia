@@ -394,9 +394,10 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
   }
 
   /**
-   * The record windows of a dated or "recently" question (recall.js
-   * matchRecord), or none: without `deps.record`, with `recall.recordDays`
-   * 0, or for a question with neither a `when:` range nor a recent cue. The
+   * The record windows of every question (recall.js matchRecord): a dated
+   * one reads its `when:` range, any other the last `recall.recordDays`
+   * days (a dateless, not-recent one keeps the window of its earliest
+   * match); none without `deps.record` or with `recall.recordDays` 0. The
    * forms are the server forms and the name forms; the members are the
    * people found, matched by id and by their stored names and aliases. Read
    * through `allowLine` (the audience and private-owner rule) before
@@ -405,8 +406,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * logs `recall: record failed` and gives none.
    */
   async function recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId }) {
-    const ranged = Number.isFinite(server.from) || Number.isFinite(server.to);
-    if (typeof record?.iterate !== 'function' || settings.recordDays <= 0 || (!ranged && !recent)) return [];
+    if (typeof record?.iterate !== 'function' || settings.recordDays <= 0) return [];
     try {
       const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
       const ids = new Set(people.map((p) => String(p.id)));
