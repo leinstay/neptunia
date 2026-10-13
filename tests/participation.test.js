@@ -187,9 +187,9 @@ test('expireEpisodes: drops episodes past hours, then the oldest over maxStored'
   let state = emptyParticipation();
   for (let i = 0; i < 4; i += 1) state = recordOwnLine(state, { channelId: `c${i}`, own: own(`o${i}`, i * 60) }, S, T0 + 4 * HOUR);
   deepFreeze(state);
-  const expired = expireEpisodes(state, { ...S, hours: 2 }, T0 + 3 * HOUR + 30 * MIN);
+  const expired = expireEpisodes(state, { ...S, hours: 2 }, T0 + 3 * HOUR + 30 * MIN).state;
   assert.deepEqual(expired.episodes.map((ep) => ep.id), ['p3', 'p4']);
-  const capped = expireEpisodes(state, { ...S, maxStored: 3 }, T0 + 4 * HOUR);
+  const capped = expireEpisodes(state, { ...S, maxStored: 3 }, T0 + 4 * HOUR).state;
   assert.deepEqual(capped.episodes.map((ep) => ep.id), ['p2', 'p3', 'p4']);
   assert.equal(capped.nextId, 5);
 });
@@ -338,4 +338,18 @@ test('cutEpisode: a priority cut keeps her lines, their parents, matched lines, 
     assert.ok(kept.reduce((sum, item) => sum + [...item.message.text].length, 0) <= maxChars, `never above ${maxChars}`);
   }
   assert.deepEqual(shape(cutEpisode(episode, { maxChars: 0 })), ['-10']);
+});
+
+test('participation: eviction returns the dropped items with their itemId', () => {
+  let state = emptyParticipation();
+  for (let i = 0; i < 4; i += 1) state = recordOwnLine(state, { channelId: `c${i}`, own: own(`o${i}`, i * 60) }, S, T0 + 4 * HOUR);
+  state = { ...state, episodes: state.episodes.map((ep) => ({ ...ep, itemId: `pt-${ep.id}` })) };
+  deepFreeze(state);
+  assert.equal(normalizeParticipation(state).episodes[0].itemId, 'pt-p1', 'normalizing keeps an itemId');
+  const { state: next, dropped } = expireEpisodes(state, { ...S, hours: 3, maxStored: 2 }, T0 + 3 * HOUR + 30 * MIN);
+  assert.deepEqual(next.episodes.map((ep) => ep.itemId), ['pt-p3', 'pt-p4']);
+  assert.deepEqual(dropped.map((ep) => ep.itemId), ['pt-p1', 'pt-p2'], 'expired by age, then over the cap');
+  const later = recordFollowing(next, { channelId: 'c3', message: msg('m9', 3 * 60 + 1) }, S, T0 + 3 * HOUR + 2 * MIN);
+  assert.equal(later.episodes.find((ep) => ep.channelId === 'c3').itemId, 'pt-p4', 'a recorded message keeps the episode itemId');
+  assert.equal('itemId' in normalizeParticipation(emptyParticipation()), false);
 });

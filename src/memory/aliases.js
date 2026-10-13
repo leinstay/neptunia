@@ -27,7 +27,8 @@ const MAX_ALIAS_CHARS = 40;
  * @param {string[]} displayNames           The member's own stored Discord display names.
  * @param {{ maxAliases?: number, maxAliasesStored?: number, confirmGapHours?: number,
  *   seenAt?: number, halfLifeDays?: number }} [opts]
- * @returns {object[]}
+ * @returns {object[]}  With the non-enumerable `dropped` of src/memory/interests.js#applyRankedOps:
+ *   the stored aliases that left (removed or evicted), as stored.
  */
 export function applyAliasOps(
   existing,

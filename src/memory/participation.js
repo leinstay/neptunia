@@ -141,11 +141,12 @@ function messageOf(raw, { maxTextChars, self } = {}) {
   };
 }
 
-/** An episode with `messages` (sorted by `ts`), its times recomputed from them. */
+/** An episode with `messages` (sorted by `ts`), its times recomputed from them; its optional
+ * `itemId` (a non-empty string) rides along, none is added. */
 function withMessages(episode, messages) {
   const sorted = [...messages].sort((a, b) => a.ts - b.ts);
   const own = sorted.filter((m) => m.self);
-  return {
+  const out = {
     id: episode.id,
     channelId: episode.channelId,
     startAt: sorted[0].ts,
@@ -154,6 +155,8 @@ function withMessages(episode, messages) {
     messages: sorted,
     continues: episode.continues ?? null,
   };
+  if (typeof episode.itemId === 'string' && episode.itemId) out.itemId = episode.itemId;
+  return out;
 }
 
 /**
@@ -189,7 +192,7 @@ export function normalizeParticipation(value) {
     seenIds.add(raw.id);
     highest = Math.max(highest, number);
     const continues = episodeNumber(raw.continues) === null ? null : raw.continues;
-    episodes.push(withMessages({ id: raw.id, channelId, continues }, messages));
+    episodes.push(withMessages({ id: raw.id, channelId, continues, itemId: raw.itemId }, messages));
   }
   const storedNext = Number.isInteger(source.nextId) && source.nextId >= 1 ? source.nextId : 1;
   return { episodes, nextId: Math.max(storedNext, highest + 1) };
@@ -335,19 +338,23 @@ export function recordFollowing(state, { channelId, message } = {}, settings, no
  * @param {unknown} state
  * @param {object} [settings]
  * @param {number} now
- * @returns {{ episodes: object[], nextId: number }}
+ * @returns {{ state: { episodes: object[], nextId: number }, dropped: object[] }}  `dropped`: the
+ *   episodes that went, as normalised (their `itemId` included) -- the expired, then the ones over
+ *   the cap, each in stored order.
  */
 export function expireEpisodes(state, settings, now) {
   const s = settingsOf(settings);
   const base = normalizeParticipation(state);
   const cutoff = nowOf(now) - s.hours * HOUR_MS;
   let episodes = base.episodes.filter((ep) => ep.lastOwnAt >= cutoff);
+  const dropped = base.episodes.filter((ep) => ep.lastOwnAt < cutoff);
   const cap = Math.floor(s.maxStored);
   if (episodes.length > cap) {
     const keep = new Set([...episodes].sort((a, b) => b.lastOwnAt - a.lastOwnAt).slice(0, cap));
+    dropped.push(...episodes.filter((ep) => !keep.has(ep)));
     episodes = episodes.filter((ep) => keep.has(ep));
   }
-  return { episodes, nextId: base.nextId };
+  return { state: { episodes, nextId: base.nextId }, dropped };
 }
 
 /**

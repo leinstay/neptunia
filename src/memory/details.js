@@ -60,20 +60,23 @@ function validFrom(from) {
  *   docs/prompt-contract.md, "More is stored than shown, and rank
  *   decays with age"), the lowest-RANKED items are evicted first (see
  *   src/memory/ranking.js#rank, driven by `halfLifeDays`).
+ * - `dropped` lists every stored item that left (a `remove`, then the
+ *   eviction), as stored (its `itemId` included).
  *
  * @param {object[]|undefined} existing  Stored details.
  * @param {{ add?: unknown, seen?: unknown, remove?: unknown }} ops  Untrusted, model-extracted.
  * @param {{ maxDetails?: number, maxDetailsStored?: number, fieldChars?: number, confirmGapHours?: number,
  *   seenAt?: number, nextId?: number, halfLifeDays?: number, clampTolerance?: number }} [opts]
  *   `text` is free prose, clamped tolerantly (see src/memory/clamp.js) with `clampTolerance`.
- * @returns {{ items: object[], nextId: number }}
+ * @returns {{ items: object[], nextId: number, dropped: object[] }}
  */
 export function applyDetailOps(
   existing,
   ops,
   { maxDetails, maxDetailsStored, fieldChars, confirmGapHours, seenAt = Date.now(), nextId, halfLifeDays, clampTolerance } = {},
 ) {
-  let items = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
+  const items = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
+  const removed = [];
   const priorLastSeen = items.map((item) => item.lastSeen ?? null);
   const seenAtIso = new Date(seenAt).toISOString();
   const gapMs = (Number.isFinite(confirmGapHours) ? confirmGapHours : DEFAULT_CONFIRM_GAP_HOURS) * HOUR_MS;
@@ -128,7 +131,7 @@ export function applyDetailOps(
   function remove(raw) {
     if (typeof raw !== 'number' && typeof raw !== 'string') return;
     const index = findIndex(raw);
-    if (index !== -1) items.splice(index, 1);
+    if (index !== -1) removed.push(...items.splice(index, 1));
   }
 
   if (ops && typeof ops === 'object' && !Array.isArray(ops)) {
@@ -138,9 +141,9 @@ export function applyDetailOps(
   }
 
   const cap = effectiveStorageCap(maxDetailsStored, maxDetails);
-  items = evictToCapacity(items, cap, halfLifeDays);
+  const { kept, dropped } = evictToCapacity(items, cap, halfLifeDays);
 
-  return { items, nextId: id };
+  return { items: kept, nextId: id, dropped: [...removed, ...dropped] };
 }
 
 /**
@@ -148,7 +151,8 @@ export function applyDetailOps(
  * ARRAY is checked item by item (untrusted JSON, possibly hand-edited while
  * paused) -- a valid integer `id` is kept, otherwise one is assigned fresh
  * off `startId` so the sequence never collides; an optional `from` survives
- * only as a non-empty string (see `applyDetailOps`); anything else ->
+ * only as a non-empty string (see `applyDetailOps`), an optional `itemId`
+ * likewise (kept, never added); anything else ->
  * `{ items: [], nextId: startId }`. Never throws on garbage.
  * @param {unknown} value
  * @param {number} [startId]
@@ -170,6 +174,7 @@ export function normalizeDetails(value, startId = 1) {
         const item = { id: itemId, text, weight, firstSeen, lastSeen };
         const from = validFrom(raw.from);
         if (from) item.from = from;
+        if (typeof raw.itemId === 'string' && raw.itemId) item.itemId = raw.itemId;
         items.push(item);
       }
     }

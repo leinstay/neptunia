@@ -57,9 +57,9 @@ function writeRaw(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
 
-/** Every count `mergeRecent` returns, without the value. */
+/** Every count `mergeRecent` returns, without the value and the dropped lines. */
 function countsOf(result) {
-  const { value, ...counts } = result;
+  const { value, droppedLines, ...counts } = result;
   return counts;
 }
 
@@ -625,4 +625,25 @@ test('recent view: malformed lines, profiles and episodes are passed over, never
   assert.deepEqual(shapeOf(view), [1, 'έγκυρη']);
   assert.equal(view.items[1].name, null, 'no stored name: the caller resolves one or passes over it');
   assert.deepEqual(recentView({}).items, []);
+});
+
+test('recent: eviction returns the dropped items with their itemId', () => {
+  const old = line(1, { at: NOW - 30 * HOUR_MS, itemId: 'rc-old' });
+  const removed = line(2, { text: 'ένα café', itemId: 'rc-removed' });
+  const light = line(3, { text: 'ελαφρύ', weight: 1, itemId: 'rc-light' });
+  const heavy = line(4, { text: 'βαρύ', weight: 3, itemId: 'rc-heavy' });
+  const result = mergeRecent(stored([old, removed, light, heavy]), [{ text: 'νέο', at: NOW, channelId: AGORA, weight: 3 }], {
+    now: NOW,
+    hours: 24,
+    maxStored: 2,
+    removeIds: [2],
+  });
+  assert.equal(result.expired, 1);
+  assert.equal(result.removed, 1);
+  assert.equal(result.evicted, 1);
+  assert.deepEqual(result.droppedLines.map((l) => l.itemId), ['rc-old', 'rc-removed', 'rc-light'], 'expired, removed, evicted');
+  assert.deepEqual(result.value.lines.map((l) => l.itemId), ['rc-heavy', undefined]);
+  assert.deepEqual(mergeRecent(stored([heavy]), [], { now: NOW }).droppedLines, []);
+  assert.equal(normalizeRecent(stored([heavy])).lines[0].itemId, 'rc-heavy', 'normalizing keeps an itemId');
+  assert.equal('itemId' in normalizeRecent(stored([line(5)])).lines[0], false, 'and adds none');
 });

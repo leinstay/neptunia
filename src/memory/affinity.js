@@ -15,6 +15,7 @@
 import { clampText } from './clamp.js';
 import { DAY_MS } from '../time.js';
 import { sortByRank } from './ranking.js';
+import { attachDropped } from './interests.js';
 
 /** How long an attitude reason may be, in characters, before `memory.clampTolerance`. */
 export const REASON_CHARS = 200;
@@ -310,7 +311,10 @@ export function roundScore(score) {
  *   <score>` needs the exact (possibly fractional, since a damped score itself carries two
  *   decimals) gap applied, so it passes `false`.
  * @returns {{ score: number, reason: string, history: object[] }} A NEW affinity object,
- *   or the (normalized) input unchanged when the score does not actually move.
+ *   or the (normalized) input unchanged when the score does not actually move. A new object
+ *   carries the non-enumerable `droppedMoves` (src/memory/interests.js#attachDropped, so it is
+ *   never stored): the history entries that fell off `historySize`, as stored (their `itemId`
+ *   included), oldest first; `[]` when none fell. The unchanged input carries none (nothing fell).
  */
 export function applyDelta(
   affinity,
@@ -337,11 +341,13 @@ export function applyDelta(
   // The entry is this move's own record: an earlier reason is never copied onto a move it did not cause.
   const entry = { ts: new Date(now).toISOString(), delta: clampedDelta, appliedDelta, score: newScore, reason: trimmedReason };
   const size = Number.isFinite(historySize) && historySize > 0 ? historySize : 0;
-  const history = size > 0 ? [...base.history, entry].slice(-size) : [];
+  const all = [...base.history, entry];
+  const history = size > 0 ? all.slice(-size) : [];
+  const droppedMoves = base.history.slice(0, all.length - history.length);
 
   // Any other stored field (`decayedAt`, see `decayAffinity`) rides along untouched.
   const extra = affinity && typeof affinity === 'object' && !Array.isArray(affinity) ? affinity : {};
-  return { ...extra, score: newScore, reason: finalReason, history };
+  return attachDropped({ ...extra, score: newScore, reason: finalReason, history }, 'droppedMoves', droppedMoves);
 }
 
 /** Upper bound on the days one `decayAffinity` call applies; the rest waits for the next sweep. */

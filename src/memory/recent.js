@@ -165,7 +165,8 @@ function lineIdOf(raw) {
  * gets a fresh id: the stored `nextId` or the one after the highest id,
  * whichever is larger, so a healed line never takes an id a gone line once held.
  * `text` is kept on one line, `weight` clamped (see `mergeRecent`), `who`
- * recomputed from the text, `addedAt` kept when it is a string, else null.
+ * recomputed from the text, `addedAt` kept when it is a string, else null,
+ * an optional non-empty string `itemId` kept (never added).
  * `nextId` ends above every id. Pure: `value` is never mutated, and the result
  * normalises to itself.
  * @param {unknown} value
@@ -180,7 +181,7 @@ export function normalizeRecent(value) {
     const text = typeof raw.text === 'string' ? oneLine(raw.text) : '';
     const channelId = channelIdOf(raw.channelId);
     if (id === null || !Number.isFinite(raw.at) || !text || channelId === null) continue;
-    valid.push({
+    const line = {
       id,
       at: raw.at,
       addedAt: typeof raw.addedAt === 'string' ? raw.addedAt : null,
@@ -188,7 +189,9 @@ export function normalizeRecent(value) {
       text,
       who: tokenIds(text),
       weight: weightOf(raw.weight),
-    });
+    };
+    if (typeof raw.itemId === 'string' && raw.itemId) line.itemId = raw.itemId;
+    valid.push(line);
   }
   const storedNext = lineIdOf(source.nextId) ?? 1;
   let lastId = Math.max(storedNext - 1, ...valid.map((line) => line.id));
@@ -244,10 +247,11 @@ function evictionOrder(a, b) {
  *   clampTolerance?: number, removeIds?: unknown[] }} [opts]
  * @returns {{ value: { nextId: number, lines: object[] }, added: number, removed: number,
  *   expired: number, evicted: number, dropped: number, invalid: number, noChannel: number,
- *   stale: number, duplicate: number, overCap: number }}  `added`, `removed`, `expired` and
+ *   stale: number, duplicate: number, overCap: number, droppedLines: object[] }}  `added`, `removed`, `expired` and
  *   `evicted` count stored lines (the store holds `before - expired - removed - evicted + added`);
  *   `dropped` counts the incoming items not added, the sum of `invalid`, `noChannel`, `stale`,
- *   `duplicate` and `overCap`.
+ *   `duplicate` and `overCap`. `droppedLines`: the stored lines that left, as normalised (their
+ *   `itemId` included) -- the expired, then the removed, then the evicted, each in stored order.
  */
 export function mergeRecent(stored, incoming, opts = {}) {
   const options = isPlainObject(opts) ? opts : {};
@@ -260,10 +264,12 @@ export function mergeRecent(stored, incoming, opts = {}) {
   const base = normalizeRecent(stored);
   const live = base.lines.filter((line) => line.at >= cutoff);
   const expired = base.lines.length - live.length;
+  const expiredLines = base.lines.filter((line) => line.at < cutoff);
 
   const removing = new Set((Array.isArray(options.removeIds) ? options.removeIds : []).map(lineIdOf).filter((id) => id !== null));
   const kept = live.filter((line) => !removing.has(line.id));
   const removed = live.length - kept.length;
+  const removedLines = live.filter((line) => removing.has(line.id));
 
   const items = Array.isArray(incoming) ? incoming : [];
   const held = new Set(kept.map((line) => foldText(line.text)));
@@ -298,9 +304,11 @@ export function mergeRecent(stored, incoming, opts = {}) {
   // none up.
   let survivors = [...kept, ...fresh.map((item, i) => ({ ...item, id: base.nextId + i }))];
   let evicted = 0;
+  let evictedLines = [];
   if (fresh.length > 0 && survivors.length > maxStored) {
     const going = new Set([...survivors].sort(evictionOrder).slice(0, survivors.length - maxStored).map((line) => line.id));
-    evicted = kept.filter((line) => going.has(line.id)).length;
+    evictedLines = kept.filter((line) => going.has(line.id));
+    evicted = evictedLines.length;
     why.overCap += going.size - evicted;
     survivors = survivors.filter((line) => !going.has(line.id));
   }
@@ -317,7 +325,8 @@ export function mergeRecent(stored, incoming, opts = {}) {
   });
 
   const dropped = why.invalid + why.noChannel + why.stale + why.duplicate + why.overCap;
-  return { value: { nextId, lines }, added, removed, expired, evicted, dropped, ...why };
+  const droppedLines = [...expiredLines, ...removedLines, ...evictedLines];
+  return { value: { nextId, lines }, added, removed, expired, evicted, dropped, ...why, droppedLines };
 }
 
 /**

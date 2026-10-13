@@ -68,16 +68,34 @@ export function effectiveStorageCap(storedMax, shownMax) {
  * Drop items over `cap`, keeping the highest-ranked ones (see
  * src/memory/ranking.js#topByRank) while preserving `items`' own relative
  * order among the survivors -- eviction never reshuffles storage order, it
- * only decides who stays.
+ * only decides who stays. What leaves is returned too, in storage order, so a
+ * caller can keep it elsewhere before the list is written (the archive).
  * @param {object[]} items
  * @param {number} cap
  * @param {number} [halfLifeDays]
- * @returns {object[]}
+ * @returns {{ kept: object[], dropped: object[] }}  `kept` is `items` itself when nothing leaves.
  */
 export function evictToCapacity(items, cap, halfLifeDays) {
-  if (!Number.isFinite(cap) || items.length <= cap) return items;
+  if (!Number.isFinite(cap) || items.length <= cap) return { kept: items, dropped: [] };
   const keep = new Set(topByRank(items, cap, halfLifeDays));
-  return items.filter((item) => keep.has(item));
+  return { kept: items.filter((item) => keep.has(item)), dropped: items.filter((item) => !keep.has(item)) };
+}
+
+/**
+ * `value` with `list` attached under `key` as a NON-enumerable property: how a merge whose
+ * return is a plain list (or an object stored as it is) also hands back what it dropped, without
+ * changing what existing callers compare, spread or write to disk (JSON and object spread skip
+ * it). The one copy, shared by the ranked items here, src/memory/affinity.js#applyDelta and
+ * src/memory/store.js. Mutates and returns `value`.
+ * @template T
+ * @param {T} value
+ * @param {string} key
+ * @param {object[]} list
+ * @returns {T}
+ */
+export function attachDropped(value, key, list) {
+  Object.defineProperty(value, key, { value: list, enumerable: false, configurable: true, writable: true });
+  return value;
 }
 
 /** Earlier of two ISO date strings; a missing one never wins. */
@@ -169,6 +187,9 @@ export function isStale(item, nowMs, staleDays) {
  *   src/memory/ranking.js#rank, driven by `halfLifeDays`) -- this runs on
  *   every call, even one with no ops, so a profile left over-stuffed by a
  *   lowered cap self-heals on its first update.
+ * - Every stored item that leaves (a `remove`, then the eviction) is on the
+ *   returned list's non-enumerable `dropped` (see `attachDropped`), as
+ *   stored (its `itemId` included); `[]` when none left.
  *
  * @param {object[]|undefined} existing
  * @param {{ add?: unknown, update?: unknown, seen?: unknown, remove?: unknown }} ops  Untrusted, model-extracted.
@@ -184,11 +205,12 @@ export function applyRankedOps(
   ops,
   { identityField, noteField, identityChars, noteChars, confirmGapHours, seenAt = Date.now(), halfLifeDays, cap, clampTolerance } = {},
 ) {
-  let items = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
+  const items = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
   const priorLastSeen = items.map((item) => item.lastSeen ?? null);
   const seenAtIso = new Date(seenAt).toISOString();
   const gapMs = (Number.isFinite(confirmGapHours) ? confirmGapHours : DEFAULT_CONFIRM_GAP_HOURS) * HOUR_MS;
   const bumped = new Set();
+  const removed = [];
 
   function findIndex(identity) {
     const norm = normalizeTopic(identity);
@@ -240,13 +262,13 @@ export function applyRankedOps(
     for (const raw of Array.isArray(ops.remove) ? ops.remove : []) {
       if (typeof raw !== 'string') continue;
       const index = findIndex(raw);
-      if (index !== -1) items.splice(index, 1);
+      if (index !== -1) removed.push(...items.splice(index, 1));
     }
   }
 
-  items = evictToCapacity(items, Number.isFinite(cap) ? cap : Infinity, halfLifeDays);
+  const { kept, dropped } = evictToCapacity(items, Number.isFinite(cap) ? cap : Infinity, halfLifeDays);
 
-  return items;
+  return attachDropped(kept, 'dropped', [...removed, ...dropped]);
 }
 
 /**
@@ -377,12 +399,14 @@ function mergeInterestItems(primary, other) {
  * strip one) into its plain form: a stored item whose plain form is targeted
  * by an incoming op (see `targetTopics`) is rewritten to the plain form; any
  * items that now -- or already did -- share the same plain form
- * (case-insensitively) are merged into one via `mergeInterestItems`.
+ * (case-insensitively) are merged into one via `mergeInterestItems`; each
+ * stored item folded into an earlier one is pushed onto `merged`, as stored.
  * @param {object[]|undefined} existing
  * @param {object} strippedOps  Already run through `stripParentheticalTopics`.
+ * @param {object[]} [merged]   Collects the items folded away (mutated).
  * @returns {object[]|undefined}
  */
-function resolveParentheticalVariants(existing, strippedOps) {
+function resolveParentheticalVariants(existing, strippedOps, merged = []) {
   if (!Array.isArray(existing) || existing.length === 0) return existing;
 
   const targets = targetTopics(strippedOps);
@@ -397,7 +421,7 @@ function resolveParentheticalVariants(existing, strippedOps) {
 
   const order = [];
   const indexByKey = new Map();
-  for (const item of items) {
+  items.forEach((item, index) => {
     const key = normalizeTopic(item.topic);
     const existingIndex = indexByKey.get(key);
     if (existingIndex === undefined) {
@@ -405,8 +429,9 @@ function resolveParentheticalVariants(existing, strippedOps) {
       order.push(item);
     } else {
       order[existingIndex] = mergeInterestItems(order[existingIndex], item);
+      merged.push(existing[index]);
     }
-  }
+  });
   return order;
 }
 
@@ -454,7 +479,9 @@ function fillQualifierNotes(strippedOps, resolvedExisting) {
  * every incoming topic (see `stripTrailingParenthetical`), resolves any
  * stored topic that still carries one (see `resolveParentheticalVariants`),
  * then decides whether the stripped qualifier may fill an item's note (see
- * `fillQualifierNotes`).
+ * `fillQualifierNotes`). The returned list's non-enumerable `dropped` holds
+ * every stored item that left: folded into another by that resolution, then
+ * what `applyRankedOps` reports.
  * @param {object[]|undefined} existing  Stored interests.
  * @param {{ add?: unknown, update?: unknown, seen?: unknown, remove?: unknown }} ops  Untrusted, model-extracted.
  * @param {{ maxInterests?: number, maxInterestsStored?: number, topicChars?: number, noteChars?: number,
@@ -467,9 +494,10 @@ export function applyInterestOps(
   { maxInterests, maxInterestsStored, topicChars, noteChars, confirmGapHours, seenAt = Date.now(), halfLifeDays, clampTolerance } = {},
 ) {
   const strippedOps = stripParentheticalTopics(ops);
-  const resolvedExisting = resolveParentheticalVariants(existing, strippedOps);
+  const merged = [];
+  const resolvedExisting = resolveParentheticalVariants(existing, strippedOps, merged);
   const finalOps = fillQualifierNotes(strippedOps, resolvedExisting);
-  return applyRankedOps(resolvedExisting, finalOps, {
+  const items = applyRankedOps(resolvedExisting, finalOps, {
     identityField: 'topic',
     noteField: 'note',
     identityChars: topicChars,
@@ -480,12 +508,14 @@ export function applyInterestOps(
     clampTolerance,
     cap: effectiveStorageCap(maxInterestsStored, maxInterests),
   });
+  return attachDropped(items, 'dropped', [...merged, ...items.dropped]);
 }
 
 /**
  * Validate whatever a profile's `interests` field currently holds on disk:
  * an ARRAY is checked item by item (unknown/garbage entries dropped, missing
- * fields defaulted -- untrusted JSON, possibly hand-edited while paused);
+ * fields defaulted, an optional non-empty string `itemId` kept, never added --
+ * untrusted JSON, possibly hand-edited while paused);
  * anything that is not an array becomes `[]`.
  * @param {unknown} value
  * @returns {object[]}
@@ -501,7 +531,9 @@ export function normalizeInterests(value) {
     const weight = Number.isInteger(raw.weight) ? raw.weight : 1;
     const firstSeen = typeof raw.firstSeen === 'string' ? raw.firstSeen : null;
     const lastSeen = typeof raw.lastSeen === 'string' ? raw.lastSeen : null;
-    out.push({ topic, note, weight, firstSeen, lastSeen });
+    const item = { topic, note, weight, firstSeen, lastSeen };
+    if (typeof raw.itemId === 'string' && raw.itemId) item.itemId = raw.itemId;
+    out.push(item);
   }
   return out;
 }

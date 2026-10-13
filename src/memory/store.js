@@ -70,6 +70,7 @@
 // `participation.maxStored`), never a read; a forget takes the member's
 // messages out (written at once), a wipe deletes the file.
 
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isPlainObject } from '../config.js';
@@ -79,7 +80,7 @@ import { emptyAffinity, applyDelta, decayAffinity } from './affinity.js';
 import { mergeEpisodes } from './episodes.js';
 import { loreVersionKey, upsertLore } from './lore.js';
 import { sentenceDiff } from './prose.js';
-import { applyInterestOps, normalizeInterests, normalizeTopic } from './interests.js';
+import { applyInterestOps, attachDropped, normalizeInterests, normalizeTopic } from './interests.js';
 import { applyDetailOps, normalizeDetails } from './details.js';
 import { applyAliasOps } from './aliases.js';
 import { clampText } from './clamp.js';
@@ -105,6 +106,90 @@ const GUILD_PROSE = ['patterns', 'starters'];
 
 /** The diary of a guild with no post yet (data/guilds/<id>/diary.json). */
 const emptyDiary = () => ({ posts: [], updatedAt: 0 });
+
+/**
+ * The prefix of an item's `itemId` by kind: the stable identity a stored memory item gets on its
+ * first write (`ep-` + a UUID, ...) and keeps, so whatever later leaves the hot files can be told
+ * apart and found again. The field is optional: an item written before it existed loads without
+ * one and gets it on its next write; no reader requires it. Self facts and in-jokes are stored as
+ * plain strings, so they carry no id while stored: the id is minted when one leaves the list.
+ */
+export const ITEM_ID_PREFIX = Object.freeze({
+  episode: 'ep-',
+  lesson: 'ln-',
+  interest: 'in-',
+  detail: 'dt-',
+  alias: 'al-',
+  selfFact: 'sf-',
+  move: 'mv-',
+  recent: 'rc-',
+  participation: 'pt-',
+  diary: 'dy-',
+  injoke: 'ij-',
+  version: 'vs-',
+});
+
+/** Whether `item` already carries an `itemId` (a non-empty string). */
+function hasItemId(item) {
+  return typeof item?.itemId === 'string' && item.itemId !== '';
+}
+
+/**
+ * `list` with an `itemId` (`prefix` + `newId()`) on every object item that has none; an item that
+ * has one keeps it and stays the same object, anything that is not an object passes through. Pure
+ * apart from `newId`; anything but an array -> `[]`.
+ * @param {unknown} list
+ * @param {string} prefix  One of `ITEM_ID_PREFIX`.
+ * @param {() => string} newId
+ * @returns {object[]}
+ */
+function withItemIds(list, prefix, newId) {
+  if (!Array.isArray(list)) return [];
+  return list.map((item) => (isPlainObject(item) && !hasItemId(item) ? { ...item, itemId: `${prefix}${newId()}` } : item));
+}
+
+/**
+ * `next` as `withItemIds` stamps it -- unless it equals `previous` as stored (JSON), in which case
+ * `previous` comes back untouched: a merge that changed nothing does not rewrite the list just to
+ * add ids, so the callers' before/after comparisons (src/memory/update.js counts changed
+ * interests and aliases) still see no change.
+ * @param {unknown} previous
+ * @param {object[]} next
+ * @param {string} prefix
+ * @param {() => string} newId
+ * @returns {object[]}
+ */
+function changedWithItemIds(previous, next, prefix, newId) {
+  if (Array.isArray(previous) && JSON.stringify(previous) === JSON.stringify(next)) return previous;
+  return withItemIds(next, prefix, newId);
+}
+
+/**
+ * Strings leaving a list stored as plain strings (self facts, in-jokes), which have no place to
+ * keep an id while stored: each as `{ itemId, text }` with a freshly minted id.
+ * @param {string[]} texts
+ * @param {string} prefix
+ * @param {() => string} newId
+ * @returns {Array<{ itemId: string, text: string }>}
+ */
+function stringItems(texts, prefix, newId) {
+  return texts.map((text) => ({ itemId: `${prefix}${newId()}`, text }));
+}
+
+/**
+ * The strings of `stored` that `next` no longer holds (compared by
+ * src/memory/interests.js#normalizeTopic), as `stringItems`.
+ * @param {unknown} stored
+ * @param {unknown} next
+ * @param {string} prefix
+ * @param {() => string} newId
+ * @returns {Array<{ itemId: string, text: string }>}
+ */
+function droppedStrings(stored, next, prefix, newId) {
+  const held = new Set((Array.isArray(next) ? next : []).filter((text) => typeof text === 'string').map(normalizeTopic));
+  const gone = (Array.isArray(stored) ? stored : []).filter((text) => typeof text === 'string' && text.trim() && !held.has(normalizeTopic(text)));
+  return stringItems(gone, prefix, newId);
+}
 
 function readJson(file, fallback) {
   try {
@@ -445,15 +530,21 @@ function seenAtOf(opts) {
  * Apply `ops.interests` (src/memory/interests.js#applyInterestOps) and `ops.details`
  * (src/memory/details.js#applyDetailOps, advancing `target.detailsSeq`) to a public profile
  * or a private layer, in place -- the item blocks `applyProfileOps` and `applyPrivateOps`
- * share. Only the ops-object shape is taken; anything else changes nothing.
+ * share. Only the ops-object shape is taken; anything else changes nothing. Every item of a list
+ * the ops changed gets an `itemId` when it has none (`changedWithItemIds`), and so does every
+ * item that left.
  * @param {object} target  A normalised profile or private layer.
  * @param {object} ops
  * @param {object} opts    As for `applyProfileOps`.
  * @param {number} seenAt
+ * @param {() => string} newId
+ * @returns {{ interests: object[], details: object[] }}  The stored items that left (removed,
+ *   folded into another, evicted).
  */
-function applyItemOps(target, ops, opts, seenAt) {
+function applyItemOps(target, ops, opts, seenAt, newId) {
+  const dropped = { interests: [], details: [] };
   if (isPlainObject(ops?.interests)) {
-    target.interests = applyInterestOps(target.interests, ops.interests, {
+    const interests = applyInterestOps(target.interests, ops.interests, {
       maxInterests: opts.maxInterests,
       maxInterestsStored: opts.maxInterestsStored,
       topicChars: opts.topicChars,
@@ -463,9 +554,11 @@ function applyItemOps(target, ops, opts, seenAt) {
       clampTolerance: opts.clampTolerance,
       seenAt,
     });
+    target.interests = changedWithItemIds(target.interests, interests, ITEM_ID_PREFIX.interest, newId);
+    dropped.interests = withItemIds(interests.dropped, ITEM_ID_PREFIX.interest, newId);
   }
   if (isPlainObject(ops?.details)) {
-    const { items, nextId } = applyDetailOps(target.details, ops.details, {
+    const { items, nextId, dropped: gone } = applyDetailOps(target.details, ops.details, {
       maxDetails: opts.maxDetails,
       maxDetailsStored: opts.maxDetailsStored,
       fieldChars: opts.fieldChars,
@@ -475,9 +568,11 @@ function applyItemOps(target, ops, opts, seenAt) {
       seenAt,
       nextId: target.detailsSeq,
     });
-    target.details = items;
+    target.details = changedWithItemIds(target.details, items, ITEM_ID_PREFIX.detail, newId);
     target.detailsSeq = nextId;
+    dropped.details = withItemIds(gone, ITEM_ID_PREFIX.detail, newId);
   }
+  return dropped;
 }
 
 /** Keep only the newest `max` UTC-date keys of a `days` counter map. */
@@ -646,7 +741,12 @@ function normalizeChannel(channel) {
   channel.notesAttemptAt = isoStampOrNull(channel.notesAttemptAt);
 }
 
-export function createStore({ dataDir }) {
+/**
+ * The store over one data directory.
+ * @param {{ dataDir: string, newId?: () => string }} options  `newId`: the source of the UUID in
+ *   every new `itemId` (`ITEM_ID_PREFIX`); node:crypto's `randomUUID` unless a test injects one.
+ */
+export function createStore({ dataDir, newId = randomUUID }) {
   const entries = new Map(); // file path -> { value, dirty }
 
   function entry(file, fallback) {
@@ -763,20 +863,24 @@ export function createStore({ dataDir }) {
    * @param {unknown} previous
    * @param {unknown} next
    * @param {{ by?: string, now?: number, versions?: { enabled?: boolean, kept?: number } }} [opts]
+   * @returns {{ dropped: object[] }}  Every entry of the field's list gets an `itemId` when it has
+   *   none (`vs-`); `dropped`: the entries that fell past `kept`, oldest first, with theirs.
    */
   function recordVersion(guildId, kind, id, field, previous, next, opts = {}) {
     const settings = opts.versions ?? DEFAULT_VERSIONS;
-    if (settings.enabled === false) return;
-    if (typeof previous !== 'string' || !previous.trim() || typeof next !== 'string' || previous === next) return;
+    if (settings.enabled === false) return { dropped: [] };
+    if (typeof previous !== 'string' || !previous.trim() || typeof next !== 'string' || previous === next) return { dropped: [] };
     const kept = Number.isFinite(settings.kept) ? Math.max(0, Math.floor(settings.kept)) : DEFAULT_VERSIONS.kept;
-    if (kept === 0) return;
+    if (kept === 0) return { dropped: [] };
     const item = versionsEntry(guildId, kind, id);
     const diff = sentenceDiff(previous, next);
     const by = typeof opts.by === 'string' && opts.by.trim() ? opts.by.trim() : 'unknown';
     const at = new Date(Number.isFinite(opts.now) ? opts.now : Date.now()).toISOString();
     const chars = [...previous].length;
     const list = Array.isArray(item.value[field]) ? item.value[field] : [];
-    item.value[field] = [...list, { at, by, chars, ...diff, text: previous }].slice(-kept);
+    const all = withItemIds([...list, { at, by, chars, ...diff, text: previous }], ITEM_ID_PREFIX.version, newId);
+    item.value[field] = all.slice(-kept);
+    const dropped = all.slice(0, all.length - item.value[field].length);
     item.dirty = true;
     log.info('store: version recorded', {
       guildId,
@@ -789,6 +893,33 @@ export function createStore({ dataDir }) {
       removed: diff.removed,
       added: diff.added,
     });
+    return { dropped };
+  }
+
+  /**
+   * Merge `incoming` episodes into a member file's list (src/memory/episodes.js#mergeEpisodes) and
+   * write it when one was added, every stored episode with an `itemId` (`withItemIds`).
+   * @param {{ value: object, dirty: boolean }} item  A profile or private layer's cache entry.
+   * @returns {{ added: number, dropped: object[] }}  `dropped`: the evicted episodes, each with an itemId.
+   */
+  function mergeEpisodesInto(item, incoming, opts) {
+    const { episodes, added, dropped } = mergeEpisodes(item.value.episodes, incoming, opts);
+    if (added > 0) {
+      item.value.episodes = withItemIds(episodes, ITEM_ID_PREFIX.episode, newId);
+      item.dirty = true;
+    }
+    return { added, dropped: withItemIds(dropped, ITEM_ID_PREFIX.episode, newId) };
+  }
+
+  /**
+   * src/memory/affinity.js#applyDelta, with an `itemId` on every history move of a new affinity
+   * and on its non-enumerable `droppedMoves`; an unchanged affinity comes back as it is.
+   */
+  function applyDeltaWithIds(affinity, delta, reason, opts) {
+    const next = applyDelta(affinity, delta, reason, opts);
+    if (!Array.isArray(next.droppedMoves)) return next;
+    const stamped = { ...next, history: withItemIds(next.history, ITEM_ID_PREFIX.move, newId) };
+    return attachDropped(stamped, 'droppedMoves', withItemIds(next.droppedMoves, ITEM_ID_PREFIX.move, newId));
   }
 
   /** Whether a channel has an entry, cached or on disk (no side effects on the cache). */
@@ -935,12 +1066,17 @@ export function createStore({ dataDir }) {
     return item;
   }
 
-  /** Store `posts` (the newest `max`) as the guild's diary, stamped `now`, and mark it dirty. */
+  /** Store `posts` (the newest `max`) as the guild's diary, stamped `now`, and mark it dirty. Every
+   * post gets an `itemId` when it has none (`dy-`); returns `{ dropped }`, the posts that fell past
+   * `max`, oldest first, with theirs. */
   function writeDiary(guildId, posts, { max, now } = {}) {
     const item = diaryEntry(guildId);
     const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : DIARY_HISTORY_POSTS;
-    item.value = { posts: posts.slice(-limit), updatedAt: Number.isFinite(now) ? now : Date.now() };
+    const all = withItemIds(posts, ITEM_ID_PREFIX.diary, newId);
+    const kept = all.slice(-limit);
+    item.value = { posts: kept, updatedAt: Number.isFinite(now) ? now : Date.now() };
     item.dirty = true;
+    return { dropped: all.slice(0, all.length - kept.length) };
   }
 
   /** Take every recent line that names one member out of the guild's recent store
@@ -1105,16 +1241,19 @@ export function createStore({ dataDir }) {
       writeRelationship(profile, ops?.relationship, opts, (previous, next) =>
         recordVersion(guildId, 'users', userId, 'relationship', previous, next, opts));
 
-      applyItemOps(profile, ops, opts, seenAt);
+      // What left the profile (removed, folded, evicted), each with its itemId: the archive's input.
+      const dropped = { ...applyItemOps(profile, ops, opts, seenAt, newId), aliases: [] };
 
       if (ops?.aliases && typeof ops.aliases === 'object' && !Array.isArray(ops.aliases)) {
-        profile.aliases = applyAliasOps(profile.aliases, ops.aliases, profile.names, {
+        const aliases = applyAliasOps(profile.aliases, ops.aliases, profile.names, {
           maxAliases: opts.maxAliases,
           maxAliasesStored: opts.maxAliasesStored,
           confirmGapHours: opts.confirmGapHours,
           halfLifeDays: opts.aliasHalfLifeDays,
           seenAt,
         });
+        profile.aliases = changedWithItemIds(profile.aliases, aliases, ITEM_ID_PREFIX.alias, newId);
+        dropped.aliases = withItemIds(aliases.dropped, ITEM_ID_PREFIX.alias, newId);
       }
 
       profile.updatedAt = new Date(opts.now ?? Date.now()).toISOString();
@@ -1151,19 +1290,15 @@ export function createStore({ dataDir }) {
      */
     addEpisodes(guildId, userId, incoming, opts) {
       const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
-      const { episodes, added } = mergeEpisodes(item.value.episodes, incoming, opts);
-      if (added > 0) {
-        item.value.episodes = episodes;
-        item.dirty = true;
-      }
-      return added;
+      return mergeEpisodesInto(item, incoming, opts).added;
     },
 
-    /** Fold one delta into a member's stored affinity (see src/memory/affinity.js); `decayedAt` is kept. */
+    /** Fold one delta into a member's stored affinity (see src/memory/affinity.js); `decayedAt` is
+     * kept. Returns the stored affinity, with `applyDelta`'s non-enumerable `droppedMoves`. */
     adjustAffinity(guildId, userId, delta, reason, opts) {
       const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
       const current = item.value.affinity ?? emptyAffinity();
-      const next = applyDelta(current, delta, reason, opts);
+      const next = applyDeltaWithIds(current, delta, reason, opts);
       item.value.affinity = next;
       item.dirty = true;
       return next;
@@ -1338,7 +1473,8 @@ export function createStore({ dataDir }) {
 
       writeRelationship(priv, ops?.relationship, opts);
 
-      applyItemOps(priv, ops, opts, seenAt);
+      // What left the private layer, each with its itemId: the archive's input.
+      const dropped = applyItemOps(priv, ops, opts, seenAt, newId);
 
       item.dirty = true;
       return priv;
@@ -1357,7 +1493,7 @@ export function createStore({ dataDir }) {
      */
     adjustPrivateAffinity(guildId, userId, delta, reason, opts) {
       const item = privateEntry(guildId, userId);
-      const next = applyDelta(item.value.affinity, delta, reason, opts);
+      const next = applyDeltaWithIds(item.value.affinity, delta, reason, opts);
       item.value.affinity = next;
       item.dirty = true;
       return next;
@@ -1375,12 +1511,7 @@ export function createStore({ dataDir }) {
      */
     addPrivateEpisodes(guildId, userId, incoming, opts) {
       const item = privateEntry(guildId, userId);
-      const { episodes, added } = mergeEpisodes(item.value.episodes, incoming, opts);
-      if (added > 0) {
-        item.value.episodes = episodes;
-        item.dirty = true;
-      }
-      return added;
+      return mergeEpisodesInto(item, incoming, opts).added;
     },
 
     /**
@@ -1575,8 +1706,13 @@ export function createStore({ dataDir }) {
      * `injokes`) really changes; `self` alone never moves it, and neither do
      * `applySelfOps` or `applyLearnedOps`, so it tells how old the notes are
      * (src/memory/update.js#notesStale). A changed `patterns`/`starters` keeps its previous
-     * text (`recordVersion`; `opts.by`, `opts.versions`).
-     * @param {{ by?: string, versions?: { enabled?: boolean, kept?: number } }} [opts]
+     * text (`recordVersion`; `opts.by`, `opts.versions`). The return stays the stored guild, so what
+     * a write of `injokes` or `self` takes out of the stored list (by
+     * src/memory/interests.js#normalizeTopic) is handed to `opts.onDropped` instead, as
+     * `{ injokes, self }` lists of `{ itemId, text }` (`ij-`/`sf-`, minted here, see
+     * `ITEM_ID_PREFIX`), called once per write.
+     * @param {{ by?: string, versions?: { enabled?: boolean, kept?: number },
+     *   onDropped?: (dropped: { injokes: object[], self: object[] }) => void }} [opts]
      */
     updateGuild(guildId, fields, opts = {}) {
       const item = entry(guildFile(guildId), emptyGuild);
@@ -1598,7 +1734,14 @@ export function createStore({ dataDir }) {
       for (const key of GUILD_PROSE) {
         if (key in safeFields) recordVersion(guildId, 'guild', 'guild', key, item.value[key], safeFields[key], opts);
       }
+      // The in-jokes (and a single-stage self list) are replaced whole: what the new list no longer
+      // holds leaves the guild here (src/memory/update.js clamps the list before).
+      const dropped = {
+        injokes: 'injokes' in safeFields ? droppedStrings(item.value.injokes, safeFields.injokes, ITEM_ID_PREFIX.injoke, newId) : [],
+        self: 'self' in safeFields ? droppedStrings(item.value.self, safeFields.self, ITEM_ID_PREFIX.selfFact, newId) : [],
+      };
       Object.assign(item.value, safeFields, stamps);
+      opts.onDropped?.(dropped);
       item.dirty = true;
       return item.value;
     },
@@ -1824,7 +1967,9 @@ export function createStore({ dataDir }) {
      * @param {{ add?: unknown[], seen?: unknown[], remove?: unknown[] }} ops
      * @param {{ seenAt?: number, maxLearned?: number, maxLearnedStored?: number, learnedChars?: number,
      *   learnedHalfLifeDays?: number, confirmGapHours?: number, clampTolerance?: number }} [opts]
-     * @returns {object[]} The guild's `learned` list after the ops.
+     * @returns {object[]} The guild's `learned` list after the ops (a written list gives every item
+     *   an `itemId` when it has none, `ln-`), with the non-enumerable `dropped`: the lessons that
+     *   left (removed, evicted), each with one; `[]` when the list did not change.
      */
     applyLearnedOps(guildId, ops, opts = {}) {
       const item = entry(guildFile(guildId), emptyGuild);
@@ -1833,7 +1978,7 @@ export function createStore({ dataDir }) {
       if (!ops || typeof ops !== 'object' || Array.isArray(ops)) return guild.learned;
 
       const before = JSON.stringify([guild.learned, guild.learnedNextId]);
-      const { items, nextId } = applyDetailOps(guild.learned, ops, {
+      const { items, nextId, dropped } = applyDetailOps(guild.learned, ops, {
         maxDetails: opts.maxLearned,
         maxDetailsStored: opts.maxLearnedStored,
         fieldChars: opts.learnedChars,
@@ -1843,13 +1988,14 @@ export function createStore({ dataDir }) {
         seenAt: Number.isFinite(opts.seenAt) ? opts.seenAt : Date.now(),
         nextId: guild.learnedNextId,
       });
+      // Compared before the ids are stamped: a call that changes nothing still writes nothing.
       if (JSON.stringify([items, nextId]) !== before) {
-        guild.learned = items;
+        guild.learned = withItemIds(items, ITEM_ID_PREFIX.lesson, newId);
         guild.learnedNextId = nextId;
         guild.updatedAt = new Date().toISOString();
         item.dirty = true;
       }
-      return guild.learned;
+      return attachDropped(guild.learned, 'dropped', withItemIds(dropped, ITEM_ID_PREFIX.lesson, newId));
     },
 
     /**
@@ -1872,7 +2018,9 @@ export function createStore({ dataDir }) {
      *   src/memory/update.js#MEMORY_LIMIT_DEFAULTS'; the store keeps no copy). A fraction is
      *   floored.
      * @returns {{ added: number, removed: number, evicted: number }}  `evicted`: facts that left
-     *   to stay under the cap (a claim added in this call included).
+     *   to stay under the cap (a claim added in this call included). The non-enumerable `dropped`
+     *   lists every fact that left (removed, then evicted) as `{ itemId, text }` (`sf-`, minted
+     *   here: a stored self fact is a plain string, see `ITEM_ID_PREFIX`).
      * @throws {TypeError} `opts.maxSelfFacts` is not a finite number of at least 0; nothing changes.
      */
     applySelfOps(guildId, ops, opts = {}) {
@@ -1892,6 +2040,7 @@ export function createStore({ dataDir }) {
       removing.delete('');
       let next = stored.filter((fact) => !removing.has(normalizeTopic(fact)));
       counts.removed = stored.length - next.length;
+      const leaving = stored.filter((fact) => removing.has(normalizeTopic(fact)));
 
       if (cap > 0) {
         const held = new Set(next.map(normalizeTopic));
@@ -1906,6 +2055,7 @@ export function createStore({ dataDir }) {
         }
         if (counts.added > 0 && next.length > cap) {
           counts.evicted = next.length - cap;
+          leaving.push(...next.slice(0, counts.evicted));
           next = next.slice(-cap);
         }
       }
@@ -1915,7 +2065,7 @@ export function createStore({ dataDir }) {
         guild.updatedAt = new Date(Number.isFinite(opts.now) ? opts.now : Date.now()).toISOString();
         item.dirty = true;
       }
-      return counts;
+      return attachDropped(counts, 'dropped', stringItems(leaving, ITEM_ID_PREFIX.selfFact, newId));
     },
 
     /**
@@ -2327,9 +2477,10 @@ export function createStore({ dataDir }) {
      *   pictures?: number, messageIds: string[], search: string }} post  `pictures`: a set post's count
      *   (`picture` is then its first scene).
      * @param {{ max?: number, now?: number }} [opts]
+     * @returns {{ dropped: object[] }}  The posts that fell past `max` (see `writeDiary`).
      */
     appendDiaryPost(guildId, post, opts = {}) {
-      writeDiary(guildId, [...diaryEntry(guildId).value.posts, structuredClone(post)], opts);
+      return writeDiary(guildId, [...diaryEntry(guildId).value.posts, structuredClone(post)], opts);
     },
 
     /**
@@ -2338,9 +2489,10 @@ export function createStore({ dataDir }) {
      * @param {string} guildId
      * @param {Array<object>} posts  Oldest first.
      * @param {{ max?: number, now?: number }} [opts]
+     * @returns {{ dropped: object[] }}  The posts that fell past `max` (see `writeDiary`).
      */
     setDiaryPosts(guildId, posts, opts = {}) {
-      writeDiary(guildId, Array.isArray(posts) ? structuredClone(posts) : [], opts);
+      return writeDiary(guildId, Array.isArray(posts) ? structuredClone(posts) : [], opts);
     },
 
     // ---- the recent store: short dated lines about the last days (src/memory/recent.js) ----
@@ -2372,16 +2524,18 @@ export function createStore({ dataDir }) {
      *   clampTolerance?: number, removeIds?: unknown[] }} [opts]
      * @returns {{ added: number, removed: number, expired: number, evicted: number, dropped: number,
      *   invalid: number, noChannel: number, stale: number, duplicate: number, overCap: number }}
-     *   `dropped` is the sum of the five reasons after it.
+     *   `dropped` is the sum of the five reasons after it. A written store gives every line an
+     *   `itemId` when it has none (`rc-`); the non-enumerable `droppedLines` holds the stored lines
+     *   that left (expired, removed, evicted), each with one.
      */
     applyRecentOps(guildId, incoming, opts = {}) {
       const item = recentEntry(guildId);
-      const { value, ...counts } = mergeRecent(item.value, incoming, opts);
+      const { value, droppedLines, ...counts } = mergeRecent(item.value, incoming, opts);
       if (counts.added + counts.removed + counts.expired + counts.evicted > 0) {
-        item.value = value;
+        item.value = { ...value, lines: withItemIds(value.lines, ITEM_ID_PREFIX.recent, newId) };
         item.dirty = true;
       }
-      return counts;
+      return attachDropped(counts, 'droppedLines', withItemIds(droppedLines, ITEM_ID_PREFIX.recent, newId));
     },
 
     // ---- the participation store: the persona's exchanges on the channels (src/memory/participation.js) ----
@@ -2409,11 +2563,15 @@ export function createStore({ dataDir }) {
      * @param {string} guildId
      * @param {unknown} state
      * @param {{ settings?: object, now?: number }} [opts]
+     * @returns {{ dropped: object[] }}  Every stored episode gets an `itemId` when it has none
+     *   (`pt-`); `dropped`: the episodes the expiry removed, each with one.
      */
     setParticipation(guildId, state, { settings, now } = {}) {
       const item = participationEntry(guildId);
-      item.value = structuredClone(expireEpisodes(state, settings, Number.isFinite(now) ? now : Date.now()));
+      const { state: next, dropped } = expireEpisodes(state, settings, Number.isFinite(now) ? now : Date.now());
+      item.value = structuredClone({ ...next, episodes: withItemIds(next.episodes, ITEM_ID_PREFIX.participation, newId) });
       item.dirty = true;
+      return { dropped: withItemIds(dropped, ITEM_ID_PREFIX.participation, newId) };
     },
 
     /**

@@ -250,15 +250,15 @@ test('pingsOff: a hand-broken field reads as [], junk entries dropped, duplicate
 
 test('applyLearnedOps: adds items with per-guild ids, from kept, returns the new list, persists across a restart', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, newId: counterIds() });
   const learned = store.applyLearnedOps(
     'g1',
     { add: [{ text: 'Café closes at nine', from: '<@322222222222222222>' }, 'Friday is τυρόπιτα day'] },
     { ...LEARNED_CFG, seenAt: TEACH_AT },
   );
   assert.deepEqual(learned, [
-    { id: 1, text: 'Café closes at nine', weight: 1, firstSeen: new Date(TEACH_AT).toISOString(), lastSeen: new Date(TEACH_AT).toISOString(), from: '<@322222222222222222>' },
-    { id: 2, text: 'Friday is τυρόπιτα day', weight: 1, firstSeen: new Date(TEACH_AT).toISOString(), lastSeen: new Date(TEACH_AT).toISOString() },
+    { id: 1, text: 'Café closes at nine', weight: 1, firstSeen: new Date(TEACH_AT).toISOString(), lastSeen: new Date(TEACH_AT).toISOString(), from: '<@322222222222222222>', itemId: 'ln-u1' },
+    { id: 2, text: 'Friday is τυρόπιτα day', weight: 1, firstSeen: new Date(TEACH_AT).toISOString(), lastSeen: new Date(TEACH_AT).toISOString(), itemId: 'ln-u2' },
   ]);
   assert.equal(store.getGuild('g1').learnedNextId, 3);
   store.flush();
@@ -2704,7 +2704,7 @@ test('store: getRecent on a fresh guild creates no file, nor does a write that c
 
 test('store: recent lines are written atomically, survive a restart and read back normalised', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, newId: counterIds() });
   const counts = store.applyRecentOps('g1', [recentAdd(`<@${ELENI}> έφερε σύκα`, { weight: 3 }), recentAdd('βράδυ με βροχή')], { now: RECENT_NOW });
   assert.deepEqual(counts, recentCounts({ added: 2 }));
   store.flush();
@@ -2715,8 +2715,8 @@ test('store: recent lines are written atomically, survive a restart and read bac
   assert.deepEqual(restarted.getRecent('g1'), {
     nextId: 3,
     lines: [
-      { id: 1, at: RECENT_NOW - RECENT_HOUR, addedAt: new Date(RECENT_NOW).toISOString(), channelId: AGORA, text: `<@${ELENI}> έφερε σύκα`, who: [ELENI], weight: 3 },
-      { id: 2, at: RECENT_NOW - RECENT_HOUR, addedAt: new Date(RECENT_NOW).toISOString(), channelId: AGORA, text: 'βράδυ με βροχή', who: [], weight: 2 },
+      { id: 1, at: RECENT_NOW - RECENT_HOUR, addedAt: new Date(RECENT_NOW).toISOString(), channelId: AGORA, text: `<@${ELENI}> έφερε σύκα`, who: [ELENI], weight: 3, itemId: 'rc-u1' },
+      { id: 2, at: RECENT_NOW - RECENT_HOUR, addedAt: new Date(RECENT_NOW).toISOString(), channelId: AGORA, text: 'βράδυ με βροχή', who: [], weight: 2, itemId: 'rc-u2' },
     ],
   });
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), restarted.getRecent('g1'));
@@ -2952,7 +2952,7 @@ function partState(state, { channelId, minute, authorId = 'u1' }) {
 
 test('store: participation round trip, a copy on read, nothing created by reading', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, newId: counterIds() });
   const file = path.join(dir, 'guilds', 'g1', 'participation.json');
   assert.deepEqual(store.getParticipation('g1'), { episodes: [], nextId: 1 });
   store.flush();
@@ -2961,11 +2961,12 @@ test('store: participation round trip, a copy on read, nothing created by readin
   const state = partState(emptyParticipation(), { channelId: 'c1', minute: 0 });
   store.setParticipation('g1', state, { settings: PARTICIPATION_DEFAULTS, now: PART_AT });
   const copy = store.getParticipation('g1');
-  assert.deepEqual(copy, state);
+  const stored = { ...state, episodes: state.episodes.map((ep) => ({ ...ep, itemId: 'pt-u1' })) };
+  assert.deepEqual(copy, stored);
   copy.episodes.length = 0;
   assert.equal(store.getParticipation('g1').episodes.length, 1);
   store.flush();
-  assert.deepEqual(createStore({ dataDir: dir }).getParticipation('g1'), state);
+  assert.deepEqual(createStore({ dataDir: dir }).getParticipation('g1'), stored);
 });
 
 test('store: participation expires on every write', () => {
@@ -3052,4 +3053,123 @@ test('applyProfileOps: writing a relationship text clears the rewrite flag, any 
 
   store.applyProfileOps('g1', 'u1', { relationship: 'Φίλοι που μιλούν κάθε μέρα.' }, { fieldChars: 400, now: WRITTEN_NOW + 2000 });
   assert.equal(store.getUser('g1', 'u1').relationshipRewrite, undefined);
+});
+
+// ---- itemId and what every write drops ----------------------------------------------------
+
+/** A counter standing in for randomUUID, so the ids a test sees are predictable. */
+function counterIds() {
+  let n = 0;
+  return () => {
+    n += 1;
+    return `u${n}`;
+  };
+}
+
+const ID_NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
+
+test('store: an item without itemId gets one on write and old items load unchanged', () => {
+  const dir = tmpDataDir();
+  const old = {
+    id: 'u1',
+    names: ['Zoé'],
+    interests: [{ topic: 'σκάκι', note: '', weight: 1, firstSeen: '2026-09-01T00:00:00.000Z', lastSeen: '2026-09-01T00:00:00.000Z' }],
+    details: [{ id: 1, text: 'έχει γάτα', weight: 1, firstSeen: null, lastSeen: null }],
+    detailsSeq: 2,
+    aliases: [{ name: 'Λένα', weight: 1, firstSeen: null, lastSeen: null }],
+    episodes: [{ date: '2026-09-01', what: 'έπαιξε σκάκι', quote: '', feeling: '', weight: 3, addedAt: '2026-09-01T00:00:00.000Z', itemId: 'ep-kept' }],
+    affinity: { score: 1, reason: 'café', history: [{ ts: '2026-09-01T00:00:00.000Z', delta: 1, appliedDelta: 1, score: 1, reason: 'café' }] },
+  };
+  writeJsonAtomic(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), old);
+  const store = createStore({ dataDir: dir, newId: counterIds() });
+
+  const loaded = store.getUser('g1', 'u1');
+  assert.deepEqual(loaded.interests, old.interests, 'an old interest loads without an itemId');
+  assert.deepEqual(loaded.details, old.details, 'an old detail loads without an itemId');
+  assert.deepEqual(loaded.aliases, old.aliases, 'an old alias loads without an itemId');
+  assert.deepEqual(loaded.episodes, old.episodes, 'a stored itemId loads as it is');
+  assert.deepEqual(loaded.affinity, old.affinity);
+
+  store.applyProfileOps('g1', 'u1', { interests: { add: [{ topic: 'café' }] }, details: { add: ['ζει στη Λυών'] }, aliases: { add: ['Élise'] } }, { now: ID_NOW });
+  store.addEpisodes('g1', 'u1', [{ what: 'τραγούδησε', weight: 2 }], { maxEpisodes: 10, now: ID_NOW });
+  store.adjustAffinity('g1', 'u1', 2, 'σκάκι', { maxDelta: 5, historySize: 5, now: ID_NOW });
+  store.updateUser('g1', 'u1', { character: 'πρώτο' });
+  store.updateUser('g1', 'u1', { character: 'δεύτερο' });
+  store.applyLearnedOps('g1', { add: ['το café είναι πικρό'] }, { seenAt: ID_NOW });
+  store.applyRecentOps('g1', [{ text: 'γραμμή', at: ID_NOW, channelId: '900000000000000001' }], { now: ID_NOW });
+  store.appendDiaryPost('g1', { at: ID_NOW, kind: null, gist: 'ημέρα', picture: null, messageIds: [], search: '' }, { now: ID_NOW });
+  const ownLine = { id: 'o1', ts: ID_NOW, authorId: 'bot', name: 'persona', self: true, text: 'γεια' };
+  const part = recordOwnLine(emptyParticipation(), { channelId: 'c1', own: ownLine }, PARTICIPATION_DEFAULTS, ID_NOW);
+  store.setParticipation('g1', part, { settings: PARTICIPATION_DEFAULTS, now: ID_NOW });
+  store.flush();
+
+  const reread = createStore({ dataDir: dir, newId: () => 'never' });
+  const profile = reread.getUser('g1', 'u1');
+  const ids = (list) => list.map((item) => item.itemId);
+  const every = (list, prefix) => Array.isArray(list) && list.length > 0 && list.every((item) => typeof item.itemId === 'string' && item.itemId.startsWith(prefix));
+  assert.ok(every(profile.interests, 'in-u'), JSON.stringify(ids(profile.interests)));
+  assert.ok(every(profile.details, 'dt-u'), JSON.stringify(ids(profile.details)));
+  assert.ok(every(profile.aliases, 'al-u'), JSON.stringify(ids(profile.aliases)));
+  assert.equal(profile.episodes[0].itemId, 'ep-kept', 'an item that has an itemId keeps it');
+  assert.ok(profile.episodes[1].itemId.startsWith('ep-u'));
+  assert.ok(every(profile.affinity.history, 'mv-u'));
+  assert.equal(profile.affinity.score, 3);
+  assert.ok(every(reread.listVersions('g1', 'users', 'u1').character, 'vs-u'));
+  assert.ok(every(reread.getGuild('g1').learned, 'ln-u'));
+  assert.ok(every(reread.getRecent('g1').lines, 'rc-u'));
+  assert.ok(every(reread.getDiary('g1').posts, 'dy-u'));
+  assert.ok(every(reread.getParticipation('g1').episodes, 'pt-u'));
+  const all = [profile.interests, profile.details, profile.aliases, profile.episodes, profile.affinity.history].flatMap(ids);
+  assert.equal(new Set(all).size, all.length, 'every id is distinct');
+});
+
+test('store: eviction returns the dropped items with their itemId', () => {
+  const dir = tmpDataDir();
+  const store = createStore({ dataDir: dir, newId: counterIds() });
+
+  store.applySelfOps('g1', { add: ['α', 'β', 'γ'] }, { maxSelfFacts: 5 });
+  const self = store.applySelfOps('g1', { add: ['δ'], remove: ['α'] }, { maxSelfFacts: 2 });
+  assert.deepEqual(self, { added: 1, removed: 1, evicted: 1 }, 'the counts stay what they were');
+  assert.deepEqual(self.dropped.map((d) => d.text), ['α', 'β']);
+  assert.ok(self.dropped.every((d) => d.itemId.startsWith('sf-u')));
+
+  let onDropped = null;
+  store.updateGuild('g1', { injokes: ['ο café', 'η γάτα'] });
+  store.updateGuild('g1', { injokes: ['η γάτα', 'το σκάκι'] }, { onDropped: (d) => (onDropped = d) });
+  assert.deepEqual(onDropped.injokes.map((d) => d.text), ['ο café']);
+  assert.ok(onDropped.injokes[0].itemId.startsWith('ij-u'));
+  assert.deepEqual(onDropped.self, []);
+
+  const posts = ['ένα', 'δύο', 'τρία'].map((gist, i) => ({ at: ID_NOW + i, kind: null, gist, picture: null, messageIds: [], search: '' }));
+  store.setDiaryPosts('g1', posts.slice(0, 2), { max: 2, now: ID_NOW });
+  const firstPostId = store.getDiary('g1').posts[0].itemId;
+  const diary = store.appendDiaryPost('g1', posts[2], { max: 2, now: ID_NOW });
+  assert.deepEqual(diary.dropped.map((p) => [p.gist, p.itemId]), [['ένα', firstPostId]]);
+  assert.ok(firstPostId.startsWith('dy-u'));
+
+  store.applyLearnedOps('g1', { add: ['πρώτο', 'δεύτερο'] }, { seenAt: ID_NOW });
+  const firstLessonId = store.getGuild('g1').learned[0].itemId;
+  const learned = store.applyLearnedOps('g1', { remove: [1] }, { seenAt: ID_NOW });
+  assert.deepEqual(learned.dropped.map((l) => [l.text, l.itemId]), [['πρώτο', firstLessonId]]);
+
+  store.applyRecentOps('g1', [{ text: 'παλιό', at: ID_NOW - 1000, channelId: '900000000000000001' }], { now: ID_NOW - 1000 });
+  const lineId = store.getRecent('g1').lines[0].itemId;
+  const recent = store.applyRecentOps('g1', [], { now: ID_NOW, hours: 0 });
+  assert.equal(recent.expired, 1);
+  assert.deepEqual(recent.droppedLines.map((l) => l.itemId), [lineId]);
+  assert.equal('droppedLines' in JSON.parse(JSON.stringify(recent)), false);
+
+  store.touchUser('g1', 'u1', 'Zoé', ID_NOW);
+  store.adjustAffinity('g1', 'u1', 1, 'α', { maxDelta: 5, historySize: 1, now: ID_NOW });
+  const moveId = store.getUser('g1', 'u1').affinity.history[0].itemId;
+  const affinity = store.adjustAffinity('g1', 'u1', 1, 'β', { maxDelta: 5, historySize: 1, now: ID_NOW + 1 });
+  assert.deepEqual(affinity.droppedMoves.map((m) => m.itemId), [moveId]);
+
+  const own = (id, ts) => ({ id, ts, authorId: 'bot', name: 'persona', self: true, text: 'γεια' });
+  let part = recordOwnLine(emptyParticipation(), { channelId: 'c1', own: own('o1', ID_NOW) }, PARTICIPATION_DEFAULTS, ID_NOW);
+  store.setParticipation('g1', part, { settings: PARTICIPATION_DEFAULTS, now: ID_NOW });
+  const episodeId = store.getParticipation('g1').episodes[0].itemId;
+  part = recordOwnLine(store.getParticipation('g1'), { channelId: 'c2', own: own('o2', ID_NOW + 1000) }, PARTICIPATION_DEFAULTS, ID_NOW + 1000);
+  const { dropped } = store.setParticipation('g1', part, { settings: { ...PARTICIPATION_DEFAULTS, maxStored: 1 }, now: ID_NOW + 1000 });
+  assert.deepEqual(dropped.map((ep) => ep.itemId), [episodeId]);
 });

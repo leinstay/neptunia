@@ -263,3 +263,17 @@ test('normalizeDetails: a valid string from survives, a garbage from is dropped'
   assert.equal('from' in items[1], false);
   assert.equal('from' in items[2], false);
 });
+
+test('details: eviction returns the dropped items with their itemId', () => {
+  const old = { id: 1, text: 'έχει γάτα', weight: 1, firstSeen: '2025-01-01T00:00:00.000Z', lastSeen: '2025-01-01T00:00:00.000Z', itemId: 'dt-old' };
+  const fresh = { id: 2, text: 'ζει στη Λυών', weight: 3, firstSeen: '2026-09-20T00:00:00.000Z', lastSeen: '2026-09-20T00:00:00.000Z', itemId: 'dt-fresh' };
+  const removed = { id: 3, text: 'πίνει café', weight: 2, firstSeen: '2026-09-19T00:00:00.000Z', lastSeen: '2026-09-19T00:00:00.000Z', itemId: 'dt-removed' };
+  const result = applyDetailOps([old, fresh, removed], { remove: [3] }, opts({ maxDetails: 1, halfLifeDays: 30, nextId: 4 }));
+  assert.deepEqual(result.items, [fresh]);
+  assert.deepEqual(result.dropped, [removed, old]);
+  assert.deepEqual(applyDetailOps([fresh], { seen: [2] }, opts({ nextId: 4 })).dropped, []);
+
+  const normalized = normalizeDetails([old]);
+  assert.equal(normalized.items[0].itemId, 'dt-old', 'normalizing keeps an itemId');
+  assert.equal('itemId' in normalizeDetails([{ id: 1, text: 'χωρίς' }]).items[0], false, 'and adds none');
+});

@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyInterestOps,
+  evictToCapacity,
   normalizeInterests,
   normalizeTopic,
   isConfirmed,
@@ -544,4 +545,20 @@ test('applyInterestOps: collapsing falls back to the other note when the heavier
   ];
   const items = applyInterestOps(existing, { seen: ['anime'] }, opts());
   assert.equal(items[0].note, 'the only note here', 'the heavier variant had no note, so the lighter one\'s note is kept');
+});
+
+test('interests: eviction returns the dropped items with their itemId', () => {
+  const old = { topic: 'σκάκι', note: '', weight: 1, firstSeen: '2025-01-01T00:00:00.000Z', lastSeen: '2025-01-01T00:00:00.000Z', itemId: 'in-old' };
+  const kept = { topic: 'café', note: '', weight: 4, firstSeen: '2026-09-20T00:00:00.000Z', lastSeen: '2026-09-20T00:00:00.000Z', itemId: 'in-kept' };
+  const gone = { topic: 'ζωγραφική', note: '', weight: 2, firstSeen: '2026-09-19T00:00:00.000Z', lastSeen: '2026-09-19T00:00:00.000Z', itemId: 'in-gone' };
+
+  const { kept: survivors, dropped } = evictToCapacity([old, kept], 1, 30);
+  assert.deepEqual(survivors, [kept]);
+  assert.deepEqual(dropped, [old]);
+  assert.deepEqual(evictToCapacity([old, kept], 5, 30), { kept: [old, kept], dropped: [] });
+
+  const result = applyInterestOps([old, kept, gone], { remove: ['ζωγραφική'] }, opts({ maxInterests: 1, halfLifeDays: 30 }));
+  assert.deepEqual(result, [kept], 'the return is still the plain list');
+  assert.deepEqual(result.dropped.map((item) => item.itemId), ['in-gone', 'in-old'], 'removed first, then evicted');
+  assert.deepEqual(Object.keys(result), ['0'], 'dropped is not an enumerable field of the list');
 });

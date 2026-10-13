@@ -553,12 +553,12 @@ test('store: setDiaryPosts replaces the list and keeps the newest max', () => {
 
 test('store: diary survives flush and reload', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore({ dataDir: dir, newId: () => 'one' });
   store.appendDiaryPost('g1', { ...post(1), gist: 'Ελένη at the café' }, { max: 150, now: 42 });
   store.flush();
   assert.ok(fs.existsSync(path.join(dir, 'guilds', 'g1', 'diary.json')));
   const again = createStore({ dataDir: dir });
-  assert.deepEqual(again.getDiary('g1'), { posts: [{ ...post(1), gist: 'Ελένη at the café' }], updatedAt: 42 });
+  assert.deepEqual(again.getDiary('g1'), { posts: [{ ...post(1), gist: 'Ελένη at the café', itemId: 'dy-one' }], updatedAt: 42 });
 });
 
 test('store: a malformed diary file reads as the empty default', () => {
