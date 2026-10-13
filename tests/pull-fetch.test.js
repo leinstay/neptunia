@@ -352,6 +352,66 @@ test('fetchPull: an explicit anchor ends the window at that message', async () =
   assert.equal(BigInt(diary.fetchCalls[0].before), BigInt(anchorId) + 1n, 'the page ends at the anchor inclusive');
 });
 
+test('fetchPull: an earlier page ends just before the oldest message shown last time', async () => {
+  const guild = fakeGuild();
+  mainChannel(guild);
+  const diary = addChannel(guild, { id: '760000000000000011', messages: burst(LAST - 300 * MIN, LAST, 10) });
+  const beforeId = idAt(diary, LAST - 60 * MIN);
+  const { result, logs } = await withCapturedLogs(() => pull(guild, diary.id, { reason: 'route', direction: 'earlier', beforeId }));
+  const { pulled, skip } = result;
+  assert.equal(skip, null);
+  assert.deepEqual(diary.fetchCalls, [{ before: beforeId, limit: 61 }], 'one page before the oldest message shown, the usual limit');
+  assert.deepEqual(
+    pulled.messages.map((m) => m.ts),
+    burst(LAST - 130 * MIN, LAST - 70 * MIN, 10).map((spec) => spec.ts),
+    'the hour before the last view, nothing of it and nothing newer',
+  );
+  assert.equal(pulled.olderNotShown, true);
+  const line = logs.find((entry) => entry.msg === 'pull: channel');
+  assert.equal(line.direction, 'earlier');
+  assert.equal(line.beforeId, true, 'only whether there was an id, never the id');
+  assert.equal('pullDirection' in line, false);
+  assert.ok(!JSON.stringify(logs).includes(beforeId), 'the id itself is not logged');
+});
+
+test('fetchPull: an earlier page without a previous view falls back to the newest page and says so', async () => {
+  const guild = fakeGuild();
+  mainChannel(guild);
+  const diary = addChannel(guild, { id: '760000000000000012', messages: burst(LAST - 300 * MIN, LAST, 10) });
+  const { result, logs } = await withCapturedLogs(() => pull(guild, diary.id, { reason: 'route', direction: 'earlier', beforeId: null }));
+  assert.deepEqual(diary.fetchCalls, [{ limit: 100 }], 'the newest page, as a plain pull');
+  assert.equal(result.pulled.messages.at(-1).id, idAt(diary, LAST));
+  const line = logs.find((entry) => entry.msg === 'pull: channel');
+  assert.equal(line.direction, 'earlier');
+  assert.equal(line.beforeId, false);
+  assert.equal(line.pullDirection, 'earlier-no-previous');
+});
+
+test('fetchPull: a plain pull logs no direction and ignores a stray beforeId', async () => {
+  const guild = fakeGuild();
+  mainChannel(guild);
+  const diary = addChannel(guild, { id: '760000000000000013', messages: burst(LAST - 300 * MIN, LAST, 10) });
+  const beforeId = idAt(diary, LAST - 60 * MIN);
+  const { result, logs } = await withCapturedLogs(() => pull(guild, diary.id, { beforeId }));
+  assert.deepEqual(diary.fetchCalls, [{ limit: 100 }]);
+  assert.equal(result.pulled.messages.at(-1).id, idAt(diary, LAST));
+  const line = logs.find((entry) => entry.msg === 'pull: channel');
+  assert.equal(line.direction, null);
+  assert.equal('beforeId' in line || 'pullDirection' in line, false);
+});
+
+test('fetchPull: nothing before the previous view is an empty skip, a failed earlier page a failed fetch', async () => {
+  const guild = fakeGuild();
+  mainChannel(guild);
+  const diary = addChannel(guild, { id: '760000000000000014', messages: burst(LAST - 30 * MIN, LAST, 10) });
+  const first = idAt(diary, LAST - 30 * MIN);
+  const empty = await withCapturedLogs(() => pull(guild, diary.id, { reason: 'route', direction: 'earlier', beforeId: first }));
+  assert.equal(empty.result.skip, 'empty');
+  const broken = addChannel(guild, { id: '760000000000000015', messages: burst(LAST - 30 * MIN, LAST, 10), fail: true });
+  const failed = await withCapturedLogs(() => pull(guild, broken.id, { reason: 'route', direction: 'earlier', beforeId: first }));
+  assert.equal(failed.result.skip, 'fetch-failed');
+});
+
 test('fetchPull: a malformed anchor is not found, an anchor older than a positive maxAgeDays is too old', async () => {
   const guild = fakeGuild();
   mainChannel(guild);
@@ -1018,6 +1078,7 @@ test('fetchPull: the logs carry counts and codes, never message text or captions
     'asked',
     'cached',
     'channel',
+    'direction',
     'earlier',
     'earlierGone',
     'fresh',

@@ -2714,11 +2714,18 @@ export function createTurnRunner({
     }
   }
 
-  /** The route hook's channel ids (non-empty strings); a throw (`pull: route failed`) or a non-array answer is []. */
+  /**
+   * The route hook's picks as `{ id, direction }`: a non-empty string id (direction null) or
+   * `{ id, direction: 'earlier' }` (the page before the last view of that channel); anything
+   * else is dropped. A throw (`pull: route failed`) or a non-array answer is [].
+   */
   async function routeIds(args) {
     try {
       const ids = await routeChannels(args);
-      return Array.isArray(ids) ? ids.filter((id) => typeof id === 'string' && id !== '') : [];
+      if (!Array.isArray(ids)) return [];
+      return ids
+        .map((pick) => (typeof pick === 'string' ? { id: pick, direction: null } : { id: pick?.id, direction: pick?.direction === 'earlier' ? 'earlier' : null }))
+        .filter((pick) => typeof pick.id === 'string' && pick.id !== '');
     } catch (err) {
       log.warn('pull: route failed', { channel: args.channel.id, error: err });
       return [];
@@ -3078,7 +3085,10 @@ export function createTurnRunner({
    * `<#id>` mentions of the trigger and of the last `context.pull.scanMessages`
    * messages, then the route hook's ids (routeIds; asked only with
    * features.channelPull on, not on a drawFailed turn, and while a slot is
-   * left; on a routed turn it reads the source's lines), at most
+   * left; on a routed turn it reads the source's lines; a pick marked
+   * `earlier` fetches the page before the oldest line of the last view of that
+   * channel shown here, pullViews within `context.pull.seenTtlMinutes`, else
+   * the newest page -- the source itself is never paged back), at most
    * `context.pull.maxChannels` in all. features.channelPull off: the source
    * alone. Without `labelled` (no `labels.pull.header`: buildRequest renders
    * no `<channel_view>`) the source alone too, with no fresh caption, and one
@@ -3143,6 +3153,13 @@ export function createTurnRunner({
       if (wanted.length > 0 || hookWanted) log.info('pull: skipped', { channel: channel.id, reason: 'no-label' });
     }
     const pings = store.state.data.elsewherePings ?? [];
+    // The route hook's channels asked for the page before their last view here.
+    const earlierIds = new Set();
+    const pageOf = (channelId) => {
+      if (!earlierIds.has(channelId)) return {};
+      const previous = pullViews.previous(channel.id, channelId, { now, ttlMinutes: settings.seenTtlMinutes });
+      return { direction: 'earlier', beforeId: previous?.oldestId ?? null };
+    };
     const pullOne = (target) =>
       pullSafely({
         guild,
@@ -3152,6 +3169,7 @@ export function createTurnRunner({
         partner,
         reason: target.reason,
         trigger: target.reason === 'routed' ? trigger : null,
+        ...pageOf(target.channelId),
         pings,
         config,
         selfId,
@@ -3173,9 +3191,10 @@ export function createTurnRunner({
     }
     if (typeof routeChannels === 'function' && channelPull && !drawFailure && targets.length < settings.maxChannels) {
       const routedLines = source?.reason === 'routed' ? sourcePulled?.messages : null;
-      const ids = await routeIds({ guildId, channel, guild, partner, history: routedLines ?? history, trigger: candidate, triggerKind, selfName, config });
+      const picks = await routeIds({ guildId, channel, guild, partner, history: routedLines ?? history, trigger: candidate, triggerKind, selfName, config });
       judging = 'route';
-      if (ids.length > 0) targets = targetsWith(ids);
+      for (const pick of picks) if (pick.direction === 'earlier' && pick.id !== sourceTarget?.channelId) earlierIds.add(pick.id);
+      if (picks.length > 0) targets = targetsWith(picks.map((pick) => pick.id));
     }
     const fetched = await Promise.all(targets.filter((target) => target.channelId !== sourceTarget?.channelId).map(pullOne));
     logRefused();

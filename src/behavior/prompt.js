@@ -1991,9 +1991,10 @@ function seenBeforeOf(entry) {
  * is never lost to the share or the cap); then nothing else is kept. Null when
  * no window line fits: a header alone is never shown.
  * `seen` counts what the seen line said (null without one); `hashes` and
- * `oldestTs` are this view as the next one compares against it.
+ * `oldestTs` are this view as the next one compares against it, `oldestId`
+ * the line an earlier page starts before.
  * @returns {{ text: string, ids: Array<string|number>, newestId: string|number, newestTs: number,
- *   hashes: Map<string, string>, oldestTs: number, seen: { fresh: number, older: number }|null }|null}
+ *   hashes: Map<string, string>, oldestTs: number, oldestId: string|number, seen: { fresh: number, older: number }|null }|null}
  */
 function fitPulledChannel(channel, { budget, ceiling = budget, cost, labels, timezone, now, readOnly, triggerId, seenOn = false }) {
   const p = labels.pull;
@@ -2060,6 +2061,7 @@ function fitPulledChannel(channel, { budget, ceiling = budget, cost, labels, tim
       newestTs: newest.ts,
       hashes: new Map(ids.map((id) => [String(id), hashById.get(String(id))])),
       oldestTs: kept[0].ts,
+      oldestId: kept[0].id,
       seen: seenLine(counts) ? counts : null,
     };
   };
@@ -2358,7 +2360,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   idByIndex: Map<number, string>, tempo: object,
  *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
  *   pulledKept: { channelId: string, ids: string[], newestId: string, newestTs: number }[],
- *   pulledViews: { channelId: string, hashes: Map<string, string>, oldestTs: number }[],
+ *   pulledViews: { channelId: string, hashes: Map<string, string>, oldestTs: number, oldestId: string|number }[],
  *   peopleShown: { id: string, names: string[] }[],
  *   recent: { lines: number, episodes: number, cut: number, hidden: number, repeated: number,
  *     unnamed: number }|null,
@@ -3152,7 +3154,7 @@ export function buildRequest(input) {
   // What each kept channel showed, for the next view of it in this channel to compare against;
   // the seen lines' counts join the budget line only when one was shown.
   const keptFits = pulledFits.filter((fit) => keptPulled.has(fit.text));
-  const pulledViews = keptFits.map(({ channelId, hashes, oldestTs }) => ({ channelId, hashes, oldestTs }));
+  const pulledViews = keptFits.map(({ channelId, hashes, oldestTs, oldestId }) => ({ channelId, hashes, oldestTs, oldestId }));
   const seenFits = keptFits.filter((fit) => fit.seen);
   if (seenFits.length > 0) {
     stats.pulled.seenFresh = seenFits.reduce((sum, fit) => sum + fit.seen.fresh, 0);

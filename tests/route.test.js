@@ -169,18 +169,33 @@ test('buildRouteRequest: null for a blank prompt or no line', () => {
 });
 
 test('parseRouteAnswer: every outcome', () => {
-  assert.deepEqual(parseRouteAnswer('2', 3), { index: 2, reason: 'pick' });
-  assert.deepEqual(parseRouteAnswer('\n  #3.\nbecause', 3), { index: 3, reason: 'pick' });
-  assert.deepEqual(parseRouteAnswer('"1."', 3), { index: 1, reason: 'pick' });
-  assert.deepEqual(parseRouteAnswer('none', 3), { index: null, reason: 'none' });
-  assert.deepEqual(parseRouteAnswer('NONE of them fit', 3), { index: null, reason: 'none' });
-  assert.deepEqual(parseRouteAnswer('4', 3), { index: null, reason: 'unknown-id' });
-  assert.deepEqual(parseRouteAnswer('0', 3), { index: null, reason: 'unknown-id' });
-  assert.deepEqual(parseRouteAnswer('', 3), { index: null, reason: 'empty' });
-  assert.deepEqual(parseRouteAnswer('  \n \n', 3), { index: null, reason: 'empty' });
-  assert.deepEqual(parseRouteAnswer(null, 3), { index: null, reason: 'empty' });
-  assert.deepEqual(parseRouteAnswer('channel 2', 3), { index: null, reason: 'unparsed' });
-  assert.deepEqual(parseRouteAnswer('2 or 3', 3), { index: null, reason: 'unparsed' });
+  assert.deepEqual(parseRouteAnswer('2', 3), { index: 2, reason: 'pick', direction: null });
+  assert.deepEqual(parseRouteAnswer('\n  #3.\nbecause', 3), { index: 3, reason: 'pick', direction: null });
+  assert.deepEqual(parseRouteAnswer('"1."', 3), { index: 1, reason: 'pick', direction: null });
+  assert.deepEqual(parseRouteAnswer('none', 3), { index: null, reason: 'none', direction: null });
+  assert.deepEqual(parseRouteAnswer('NONE of them fit', 3), { index: null, reason: 'none', direction: null });
+  assert.deepEqual(parseRouteAnswer('4', 3), { index: null, reason: 'unknown-id', direction: null });
+  assert.deepEqual(parseRouteAnswer('0', 3), { index: null, reason: 'unknown-id', direction: null });
+  assert.deepEqual(parseRouteAnswer('', 3), { index: null, reason: 'empty', direction: null });
+  assert.deepEqual(parseRouteAnswer('  \n \n', 3), { index: null, reason: 'empty', direction: null });
+  assert.deepEqual(parseRouteAnswer(null, 3), { index: null, reason: 'empty', direction: null });
+  assert.deepEqual(parseRouteAnswer('channel 2', 3), { index: null, reason: 'unparsed', direction: null });
+  assert.deepEqual(parseRouteAnswer('2 or 3', 3), { index: null, reason: 'unparsed', direction: null });
+});
+
+test('parseRouteAnswer: a number followed by earlier or older asks for the page before the last view', () => {
+  assert.deepEqual(parseRouteAnswer('3', 3), { index: 3, reason: 'pick', direction: null });
+  assert.deepEqual(parseRouteAnswer('3 earlier', 3), { index: 3, reason: 'pick', direction: 'earlier' });
+  assert.deepEqual(parseRouteAnswer('3 older', 3), { index: 3, reason: 'pick', direction: 'earlier' });
+  assert.deepEqual(parseRouteAnswer('"#2 EARLIER."\nbecause', 3), { index: 2, reason: 'pick', direction: 'earlier' });
+  assert.deepEqual(parseRouteAnswer('2 Older', 3), { index: 2, reason: 'pick', direction: 'earlier' });
+  assert.deepEqual(parseRouteAnswer('none', 3), { index: null, reason: 'none', direction: null });
+  assert.deepEqual(parseRouteAnswer('none earlier', 3), { index: null, reason: 'none', direction: null });
+  assert.deepEqual(parseRouteAnswer('4 earlier', 3), { index: null, reason: 'unknown-id', direction: null });
+  assert.deepEqual(parseRouteAnswer('3 later', 3), { index: null, reason: 'unparsed', direction: null });
+  assert.deepEqual(parseRouteAnswer('3 earlier please', 3), { index: null, reason: 'unparsed', direction: null });
+  assert.deepEqual(parseRouteAnswer('earlier 3', 3), { index: null, reason: 'unparsed', direction: null });
+  assert.deepEqual(parseRouteAnswer('garbage', 3), { index: null, reason: 'unparsed', direction: null });
 });
 
 // ---- the context ---------------------------------------------------------------------------
@@ -293,6 +308,7 @@ test('createChannelRouter: a pick returns its channel id; the request lists only
   assert.equal(classified.channels, 2);
   assert.equal(classified.pick, 'c2');
   assert.equal(classified.parse, 'pick');
+  assert.equal(classified.direction, null);
   assert.equal(typeof classified.ms, 'number');
   assert.ok(!JSON.stringify(logs).includes('journal') && !JSON.stringify(logs).includes('ημερολόγιο'), 'no channel name, no message text in the logs');
 });
@@ -323,6 +339,15 @@ test('createChannelRouter: the request options carry the classifier model, the p
   assert.equal(options.timeoutMs, 12345);
   assert.equal(options.countAgainstDailyCap, true);
   assert.equal(options.skipCalibration, true);
+});
+
+test('createChannelRouter: an earlier pick returns its channel id with the direction and logs it', async () => {
+  const { router, args } = routerScene({ answer: '1 earlier' });
+  const { result, logs } = await withCapturedLogs(() => router(args));
+  assert.deepEqual(result, [{ id: 'c2', direction: 'earlier' }]);
+  const classified = logs.find((l) => l.msg === 'route: classified');
+  assert.equal(classified.pick, 'c2');
+  assert.equal(classified.direction, 'earlier');
 });
 
 test('createChannelRouter: none, an unknown number or junk return no id', async () => {
