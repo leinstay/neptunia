@@ -134,6 +134,8 @@ export const labels = {
     episodes: 'moments you remember together:',
     episode: '{date}: {what} — "{quote}" ({feeling})',
     episodeNoQuote: '{date}: {what} ({feeling})',
+    before: '(before: {text})',
+    conflict: '{a} / {b} (both claimed, {dateA} and {dateB})',
   },
   lore: {
     entry: '{title}: {text}',

@@ -112,6 +112,13 @@ const CHANNEL_PROSE = ['purpose', 'topics', 'tone'];
 /** The prose fields of the guild memory (kind `guild`, id `guild`). */
 const GUILD_PROSE = ['patterns', 'starters'];
 
+/** `memory.maxClosedStored` when it is missing (config.json carries the same). */
+const DEFAULT_MAX_CLOSED_STORED = 40;
+/** `archive.holdMaxMs` when it is missing (config.json carries the same). */
+const DEFAULT_HOLD_MAX_MS = 5000;
+/** The kinds a profile's `closed` list holds (src/memory/interests.js#applyValidity). */
+const CLOSED_KINDS = ['interest', 'detail', 'alias'];
+
 /** The diary of a guild with no post yet (data/guilds/<id>/diary.json). */
 const emptyDiary = () => ({ posts: [], updatedAt: 0 });
 
@@ -458,8 +465,17 @@ function normalizeProfile(profile) {
   profile.detailsSeq = nextId;
 
   if (!Array.isArray(profile.aliases)) profile.aliases = [];
+  normalizeClosed(profile);
   // Only `true` is the flag; anything else a hand edit left is no flag.
   if ('relationshipRewrite' in profile && profile.relationshipRewrite !== true) delete profile.relationshipRewrite;
+}
+
+/** A profile's or private layer's `closed` list (the claims a `supersedes` closed, see
+ * `storeClosed`), in place: absent stays absent (an old file loads unchanged); anything but a
+ * list becomes `[]`; an entry that is no object or of no known kind is left out. */
+function normalizeClosed(holder) {
+  if (!('closed' in holder)) return;
+  holder.closed = Array.isArray(holder.closed) ? holder.closed.filter((item) => isPlainObject(item) && CLOSED_KINDS.includes(item.kind)) : [];
 }
 
 /**
@@ -495,6 +511,7 @@ function normalizePrivate(priv) {
   const { items, nextId } = normalizeDetails(priv.details, priv.detailsSeq);
   priv.details = items;
   priv.detailsSeq = nextId;
+  normalizeClosed(priv);
 
   if (typeof priv.relationship !== 'string') priv.relationship = '';
   if (!Array.isArray(priv.episodes)) priv.episodes = [];
@@ -625,11 +642,12 @@ function seenAtOf(opts) {
  * @param {object} opts    As for `applyProfileOps`.
  * @param {number} seenAt
  * @param {() => string} newId
- * @returns {{ interests: object[], details: object[] }}  The stored items that left (removed,
- *   folded into another, evicted).
+ * @returns {{ interests: object[], details: object[], closed: { interest: object[], detail: object[] } }}
+ *   The stored items that left (removed, folded into another, evicted); `closed`: the claims a
+ *   `supersedes` closed, for `storeClosed`.
  */
 function applyItemOps(target, ops, opts, seenAt, newId) {
-  const dropped = { interests: [], details: [] };
+  const dropped = { interests: [], details: [], closed: { interest: [], detail: [] } };
   if (isPlainObject(ops?.interests)) {
     const interests = applyInterestOps(target.interests, ops.interests, {
       maxInterests: opts.maxInterests,
@@ -640,12 +658,15 @@ function applyItemOps(target, ops, opts, seenAt, newId) {
       halfLifeDays: opts.interestHalfLifeDays,
       clampTolerance: opts.clampTolerance,
       seenAt,
+      mintId: () => `${ITEM_ID_PREFIX.interest}${newId()}`,
+      now: opts.now,
     });
     target.interests = changedWithItemIds(target.interests, interests, ITEM_ID_PREFIX.interest, newId);
     dropped.interests = withItemIds(interests.dropped, ITEM_ID_PREFIX.interest, newId);
+    dropped.closed.interest = withItemIds(interests.closed, ITEM_ID_PREFIX.interest, newId);
   }
   if (isPlainObject(ops?.details)) {
-    const { items, nextId, dropped: gone } = applyDetailOps(target.details, ops.details, {
+    const { items, nextId, dropped: gone, closed } = applyDetailOps(target.details, ops.details, {
       maxDetails: opts.maxDetails,
       maxDetailsStored: opts.maxDetailsStored,
       fieldChars: opts.fieldChars,
@@ -654,10 +675,13 @@ function applyItemOps(target, ops, opts, seenAt, newId) {
       clampTolerance: opts.clampTolerance,
       seenAt,
       nextId: target.detailsSeq,
+      mintId: () => `${ITEM_ID_PREFIX.detail}${newId()}`,
+      now: opts.now,
     });
     target.details = changedWithItemIds(target.details, items, ITEM_ID_PREFIX.detail, newId);
     target.detailsSeq = nextId;
     dropped.details = withItemIds(gone, ITEM_ID_PREFIX.detail, newId);
+    dropped.closed.detail = withItemIds(closed, ITEM_ID_PREFIX.detail, newId);
   }
   return dropped;
 }
@@ -881,11 +905,17 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     return state;
   }
 
-  /** Queue one entry for the background append of `guildId`'s archive (the member's private one with `privateUserId`). */
-  function queueArchiveEntry(guildId, entry, privateUserId = null) {
+  /**
+   * Queue one entry for the background append of `guildId`'s archive (the member's private one
+   * with `privateUserId`). With `holdItem` (the cache entry whose file already holds the item's
+   * NEW version) that file is held back from every flush (`holdFlush`) until the archive or its
+   * pending queue took the entry (`releaseHold`).
+   */
+  function queueArchiveEntry(guildId, entry, privateUserId = null, holdItem = null) {
     const state = archiveGuild(guildId);
     state.seq += 1;
-    state.queue.push({ seq: state.seq, entry, privateUserId });
+    if (holdItem) holdItem.holdFlush = (holdItem.holdFlush ?? 0) + 1;
+    state.queue.push({ seq: state.seq, entry, privateUserId, holdItem });
     if (state.scheduled) return;
     state.scheduled = true;
     state.chain = state.chain
@@ -894,6 +924,14 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         return sendArchiveQueue(guildId);
       })
       .catch((error) => log.warn('store: archive failed', { guildId: String(guildId), code: error?.code ?? null }));
+  }
+
+  /** Let the file a queued entry held back be flushed again (once per entry). */
+  function releaseHold(queued) {
+    const item = queued?.holdItem;
+    if (!item) return;
+    queued.holdItem = null;
+    item.holdFlush = Math.max(0, (item.holdFlush ?? 0) - 1);
   }
 
   /** Mark the held victim of `entry` confirmed: the archive holds its copy. */
@@ -933,11 +971,13 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const entries = group.map((item) => item.entry);
       try {
         await archive.append(guildId, entries, opts);
+        group.forEach(releaseHold);
         results.push({ group, status: 'archived' });
       } catch (error) {
         log.warn('store: archive failed', { guildId: String(guildId), entries: entries.length, ...(key ? { private: true } : {}), code: error?.code ?? null });
         try {
           await archive.queuePending(guildId, entries, opts);
+          group.forEach(releaseHold);
         } catch (queueError) {
           log.warn('store: archive queue failed', { guildId: String(guildId), entries: entries.length, code: queueError?.code ?? null });
           state.retry.push(...group);
@@ -995,15 +1035,16 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
   /**
    * Queue the previous version of every item of `previous` whose text `current` changed in place
-   * (same `itemId`, another revision) with event `replaced`. Nothing is held: the item stays.
+   * (same `itemId`, another revision) with event `replaced`. The item stays; `item` (the cache
+   * entry of the file) is held back from the flush until the old version is archived.
    */
-  function archiveReplaced(guildId, { previous, current, itemKind, scope, privateUserId = null }) {
+  function archiveReplaced(guildId, { previous, current, itemKind, scope, privateUserId = null, item = null }) {
     if (!archiving() || !Array.isArray(previous) || !Array.isArray(current)) return;
     const now = new Map(current.filter((item) => identOf(false, item) !== null).map((item) => [item.itemId, item]));
     for (const before of previous) {
       const after = identOf(false, before) !== null ? now.get(before.itemId) : undefined;
       if (!after || archiveRevision(itemKind, after) === archiveRevision(itemKind, before)) continue;
-      queueArchiveEntry(guildId, archiveEntry(before, { itemKind, event: 'replaced', scope, uuid: newId }), privateUserId);
+      queueArchiveEntry(guildId, archiveEntry(before, { itemKind, event: 'replaced', scope, uuid: newId }), privateUserId, item);
     }
   }
 
@@ -1019,10 +1060,36 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       if (!isPlainObject(ops?.[field])) continue;
       const kept = Array.isArray(item.value[field]) ? item.value[field] : [];
       const removing = removeKeysOf(ops[field].remove);
-      archiveReplaced(guildId, { previous: previous[field], current: kept, itemKind, scope, privateUserId });
+      archiveReplaced(guildId, { previous: previous[field], current: kept, itemKind, scope, privateUserId, item });
       holdVictims(guildId, {
         item, file, path: [field], previous: previous[field], victims: dropped[field], itemKind, scope, privateUserId, userId: id,
         eventOf: (victim) => rankedEvent(victim, identity, removing, kept, itemKind === 'interest'),
+      });
+    }
+  }
+
+  /**
+   * Append the claims one write closed (`closed`, by kind) to the `closed` list of a profile or
+   * private layer (`target`, the value of `item`), every one tagged with its `kind`, then keep
+   * the newest `opts.maxClosedStored` (config.json's 40 when missing). What falls off the front
+   * leaves through the archive with event `replaced` (held like any victim, see `holdVictims`);
+   * with the archive off it simply goes.
+   */
+  function storeClosed(guildId, userId, { item, file, target, closed, opts, privateUserId = null }) {
+    const incoming = CLOSED_KINDS.flatMap((kind) => (Array.isArray(closed?.[kind]) ? closed[kind] : []).map((value) => ({ kind, ...value })));
+    if (incoming.length === 0) return;
+    const cap = Number.isInteger(opts?.maxClosedStored) && opts.maxClosedStored >= 0 ? opts.maxClosedStored : DEFAULT_MAX_CLOSED_STORED;
+    const all = [...(Array.isArray(target.closed) ? target.closed : []), ...incoming];
+    target.closed = all.slice(Math.max(0, all.length - cap));
+    const evicted = all.slice(0, all.length - target.closed.length);
+    item.dirty = true;
+    const id = String(userId);
+    for (const kind of CLOSED_KINDS) {
+      const victims = evicted.filter((value) => value.kind === kind);
+      if (victims.length === 0) continue;
+      holdVictims(guildId, {
+        item, file, path: ['closed'], previous: all, victims, itemKind: kind, scope: { user: id }, privateUserId, userId: id,
+        eventOf: () => 'replaced',
       });
     }
   }
@@ -1094,6 +1161,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     const privateFileOf = privateFile(guildId, id);
     const concerns = (queued) =>
       queued.privateUserId === id || (!privateOnly && (queued.entry?.scope?.user === id || (Array.isArray(queued.entry?.participants) && queued.entry.participants.includes(id))));
+    for (const queued of [...state.queue, ...state.retry]) if (concerns(queued)) releaseHold(queued);
     state.queue = state.queue.filter((queued) => !concerns(queued));
     state.retry = state.retry.filter((queued) => !concerns(queued));
     state.held = state.held.filter((held) => (privateOnly ? held.file !== privateFileOf : held.userId !== id));
@@ -1155,19 +1223,33 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     return [...ids];
   }
 
-  /** Write one dirty cache entry to disk; a failed write is logged and stays dirty for the next flush. */
-  function flushEntry(file, item) {
-    if (!item.dirty) return;
+  /**
+   * Write one dirty cache entry to disk; a failed write is logged and stays dirty for the next
+   * flush. An entry held for the archive (`holdFlush` > 0: the old version of an item its file
+   * replaced in place is not archived yet, see `archiveReplaced`) is skipped unless `force`.
+   * @returns {'clean'|'held'|'written'|'failed'}
+   */
+  function flushEntry(file, item, { force = false } = {}) {
+    if (!item.dirty) return 'clean';
+    if (!force && item.holdFlush > 0) return 'held';
     try {
       writeJsonAtomic(file, item.value);
       item.dirty = false;
+      return 'written';
     } catch (err) {
       log.error('store: flush failed', { file, error: err });
+      return 'failed';
     }
   }
 
-  function flushAll() {
-    for (const [file, item] of entries) flushEntry(file, item);
+  /** Flush every dirty cache entry (`flushEntry`); returns how many were written, failed and held. */
+  function flushAll({ force = false } = {}) {
+    const counts = { written: 0, failed: 0, held: 0 };
+    for (const [file, item] of entries) {
+      const outcome = flushEntry(file, item, { force });
+      if (outcome !== 'clean') counts[outcome] += 1;
+    }
+    return counts;
   }
 
   const guildDir = (guildId) => path.join(dataDir, 'guilds', String(guildId));
@@ -1689,11 +1771,15 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
           confirmGapHours: opts.confirmGapHours,
           halfLifeDays: opts.aliasHalfLifeDays,
           seenAt,
+          mintId: () => `${ITEM_ID_PREFIX.alias}${newId()}`,
+          now: opts.now,
         });
         profile.aliases = changedWithItemIds(profile.aliases, aliases, ITEM_ID_PREFIX.alias, newId);
         dropped.aliases = withItemIds(aliases.dropped, ITEM_ID_PREFIX.alias, newId);
+        dropped.closed.alias = withItemIds(aliases.closed, ITEM_ID_PREFIX.alias, newId);
       }
       archiveProfileItems(guildId, userId, { item, file: userFile(guildId, userId), previous, dropped, ops });
+      storeClosed(guildId, userId, { item, file: userFile(guildId, userId), target: profile, closed: dropped.closed, opts });
 
       profile.updatedAt = new Date(opts.now ?? Date.now()).toISOString();
       item.dirty = true;
@@ -1922,6 +2008,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const previous = { interests: priv.interests, details: priv.details };
       const dropped = applyItemOps(priv, ops, opts, seenAt, newId);
       archiveProfileItems(guildId, userId, { item, file: privateFile(guildId, userId), previous, dropped, ops: { interests: ops?.interests, details: ops?.details }, privateUserId: String(userId) });
+      storeClosed(guildId, userId, { item, file: privateFile(guildId, userId), target: priv, closed: dropped.closed, opts, privateUserId: String(userId) });
 
       item.dirty = true;
       return priv;
@@ -2447,6 +2534,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         clampTolerance: opts.clampTolerance,
         seenAt: Number.isFinite(opts.seenAt) ? opts.seenAt : Date.now(),
         nextId: guild.learnedNextId,
+        // A lesson carries no validity fields.
+        validity: false,
       });
       // Compared before the ids are stamped: a call that changes nothing still writes nothing.
       if (JSON.stringify([items, nextId]) !== before) {
@@ -2458,7 +2547,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const victims = withItemIds(dropped, ITEM_ID_PREFIX.lesson, newId);
       const removing = removeKeysOf(ops.remove);
       const kept = guild.learned;
-      archiveReplaced(guildId, { previous, current: kept, itemKind: 'lesson', scope: { guild: true } });
+      archiveReplaced(guildId, { previous, current: kept, itemKind: 'lesson', scope: { guild: true }, item });
       holdVictims(guildId, {
         item, file: guildFile(guildId), path: ['learned'], previous, victims, itemKind: 'lesson', scope: { guild: true },
         eventOf: (victim) => rankedEvent(victim, 'text', removing, kept, false),
@@ -3095,6 +3184,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      */
     wipeGuild(guildId, { keepOwnerLore = true, keepMediaCache = true } = {}) {
       // What waits for the archive goes with the memory it came from.
+      const waiting = archiveGuilds.get(String(guildId));
+      for (const queued of waiting ? [...waiting.queue, ...waiting.retry] : []) releaseHold(queued);
       archiveGuilds.delete(String(guildId));
       const userIds = idsUnder(usersDir(guildId));
       for (const id of userIds) {
@@ -3218,8 +3309,45 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       writeTextAtomic(file, `${[...lines, line].slice(-cap).join('\n')}\n`);
     },
 
+    /**
+     * Write every dirty cache entry that is not held for the archive (see `flushEntry`).
+     * @returns {{ written: number, failed: number, held: number }}
+     */
     flush() {
-      flushAll();
+      return flushAll();
+    },
+
+    /**
+     * The flush before a shutdown or a pause: waits up to `holdMaxMs` (`archive.holdMaxMs`,
+     * config.json's 5000 when missing) for the archive to take what holds files back, then writes
+     * everything, held or not; files written while still held are logged as `store: flushed held`.
+     * @param {{ holdMaxMs?: number }} [opts]
+     * @returns {Promise<{ written: number, failed: number, held: number }>}
+     */
+    async flushSettled({ holdMaxMs } = {}) {
+      const heldFiles = () => [...entries.values()].filter((item) => item.dirty && item.holdFlush > 0).length;
+      if (heldFiles() > 0) {
+        const waitMs = Number.isFinite(holdMaxMs) && holdMaxMs >= 0 ? holdMaxMs : DEFAULT_HOLD_MAX_MS;
+        let timer = null;
+        const timeout = new Promise((resolve) => {
+          timer = setTimeout(resolve, waitMs);
+        });
+        const settled = (async () => {
+          for (const state of [...archiveGuilds.values()]) {
+            for (;;) {
+              const chain = state.chain;
+              await chain;
+              if (chain === state.chain) break;
+            }
+          }
+        })();
+        await Promise.race([timeout, settled]);
+        clearTimeout(timer);
+      }
+      const held = heldFiles();
+      const counts = flushAll({ force: true });
+      if (held > 0) log.warn('store: flushed held', { files: held });
+      return counts;
     },
 
     // ---- the archive (see "The archive" at the top of createStore) ----

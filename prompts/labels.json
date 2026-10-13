@@ -129,7 +129,9 @@
     "affinityMove": "{delta} on {date}: {reason}",
     "episodes": "Moments you remember with this person:",
     "episode": "{date}: {what} — \"{quote}\" — felt: {feeling}",
-    "episodeNoQuote": "{date}: {what} — felt: {feeling}"
+    "episodeNoQuote": "{date}: {what} — felt: {feeling}",
+    "before": "(before: {text})",
+    "conflict": "{a} / {b} (both claimed, {dateA} and {dateB})"
   },
   "lore": {
     "entry": "{title} — {text}"

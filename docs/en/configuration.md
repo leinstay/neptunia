@@ -539,6 +539,8 @@ Follow-up windows are persisted in `data/state.json` under `followUpWindows` and
 | `maxAliasesStored` | `15` | Aliases kept per profile; the top by frequency and recency are shown |
 | `aliasRosterSize` | `40` | Members carried in the `<known_members>` block of a guild analyzer batch: stored profiles not present as authors, so the analyzer can record an alias for one of them. `0` turns the roster off. Private batches never carry it |
 | `aliasHalfLifeDays` | `365` | Weight half-life for aliases (days) |
+| `maxClosedStored` | `40` | Closed claims kept per profile: an interest, detail or alias the analyzer marked as replaced by a newer one (`supersedes`) leaves the ranked list and is kept here with the dates it was true; past the limit the oldest goes to the archive (event `replaced`). Read at each write |
+| `supersededShownDays` | `7` | Days a replaced claim is still shown to the persona, once, next to the claim that replaced it (counted from when the new claim was recorded). Read at each request |
 | `maxInjokes` | `15` | Max server in-jokes |
 | `maxSelfFacts` | `20` | Max self-claims |
 | `maxEpisodes` | `20` | Max episodes kept per person |
@@ -809,6 +811,7 @@ Settings for the manual testing sub-process (`features.mentor`). The mentor inve
 |---|---|---|
 | `pendingMax` | `500` | Copies waiting in the archive's pending queue (the disk refused them) before memory updates stop: past it no analyzer batch and no voice run is applied, the messages stay in the buffer, `memory: archive stalled` is logged and one status line goes to `bot.dryRunChannelId`. Updates resume by themselves once the queue is back at or under the limit. Read at each batch |
 | `drainMs` | `30000` | How often (ms) the copies waiting in the pending queue are retried; once archived, their items leave memory. Read before each wait |
+| `holdMaxMs` | `5000` | A memory file whose item was rewritten in place is not written to disk until the old version is in the archive (or its pending queue). On shutdown and on `/nep pause` the bot waits up to this long (ms) for that, then writes the file anyway and logs `store: flushed held`. Read at that moment |
 
 ## Models
 

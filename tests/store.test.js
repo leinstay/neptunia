@@ -3369,3 +3369,53 @@ test('store: a replace op archives the previous version with event replaced', as
   assert.equal(archive.appended.at(-1).entries[0].text.note, 'παίζει online');
   assert.deepEqual(store.getUser('g1', 'u1').interests, []);
 });
+
+test('store: a replaced note is not flushed to disk before its old version is archived', async () => {
+  const dir = tmpDataDir();
+  const archive = fakeArchive({ manual: true });
+  const store = createStore({ dataDir: dir, newId: counterIds(), archive });
+  const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
+  const noteOnDisk = () => JSON.parse(fs.readFileSync(file, 'utf8')).interests[0].note;
+  store.applyProfileOps('g1', 'u1', { interests: { add: [{ topic: 'σκάκι', note: 'παίζει τα βράδια' }] } }, { now: ID_NOW });
+  assert.equal(store.flush().held, 0);
+  assert.equal(noteOnDisk(), 'παίζει τα βράδια');
+
+  store.applyProfileOps('g1', 'u1', { interests: { update: [{ topic: 'σκάκι', note: 'παίζει online' }] } }, { now: ID_NOW + 1000 });
+  assert.equal(store.flush().held, 1, 'the member file waits for the archive');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(store.flush().held, 1, 'still waiting while the append is in flight');
+  assert.equal(noteOnDisk(), 'παίζει τα βράδια', 'the old note stays on disk until its copy is archived');
+
+  archive.releases.shift()();
+  await store.settleArchive('g1');
+  assert.equal(store.flush().held, 0);
+  assert.equal(noteOnDisk(), 'παίζει online');
+
+  // A hold that never clears: the shutdown flush waits holdMaxMs, then writes anyway and logs it.
+  store.applyProfileOps('g1', 'u1', { interests: { update: [{ topic: 'σκάκι', note: 'παίζει σπάνια' }] } }, { now: ID_NOW + 2000 });
+  const { logs, result } = await withCapturedLogs(() => store.flushSettled({ holdMaxMs: 20 }));
+  assert.equal(result.held, 0);
+  assert.equal(noteOnDisk(), 'παίζει σπάνια');
+  assert.ok(logs.some((entry) => entry.msg === 'store: flushed held' && entry.files === 1), JSON.stringify(logs));
+});
+
+test('store: closed items are capped and archived as replaced', async () => {
+  const archive = fakeArchive();
+  const store = createStore({ dataDir: tmpDataDir(), newId: counterIds(), archive });
+  const opts = (n) => ({ now: ID_NOW + n * 1000, maxClosedStored: 2 });
+  store.applyProfileOps('g1', 'u1', { interests: { add: [{ topic: 'α', note: '' }] } }, opts(0));
+  for (const [n, topic] of [[1, 'β'], [2, 'γ'], [3, 'δ']]) {
+    const [open] = store.getUser('g1', 'u1').interests;
+    store.applyProfileOps('g1', 'u1', { interests: { add: [{ topic, note: '', supersedes: open.itemId }] } }, opts(n));
+  }
+  const profile = store.getUser('g1', 'u1');
+  assert.deepEqual(profile.interests.map((item) => item.topic), ['δ']);
+  assert.deepEqual(profile.closed.map((item) => item.topic), ['α', 'β', 'γ'], 'the evicted one stays until archived');
+
+  const settled = await store.settleArchive('g1');
+  assert.deepEqual(settled.archived.map((item) => [item.itemKind, item.event]), [['interest', 'replaced']]);
+  const [entry] = archive.appended.flatMap((call) => call.entries);
+  assert.equal(entry.text.topic, 'α');
+  assert.deepEqual(store.getUser('g1', 'u1').closed.map((item) => [item.kind, item.topic]), [['interest', 'β'], ['interest', 'γ']]);
+  assert.equal(store.getUser('g1', 'u1').closed[1].supersededBy, profile.interests[0].itemId);
+});

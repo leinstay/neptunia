@@ -9267,3 +9267,76 @@ test('memory update: the journal memory record lists only confirmed archive ids'
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---- validity: closed claims and supersedes / conflict ops ---------------------
+
+test('memory update: existing_profiles lists closed claims of the batch\'s topics', () => {
+  const messages = [slimMessage({ id: 'm1', content: 'Anyone up for chess tonight? Vex says hi', ts: Date.UTC(2026, 9, 1, 12, 0, 0) })];
+  const { messages: llmMessages } = buildMemoryRequest({
+    prompts: { memory: 'sys', labels },
+    config: makeConfig(),
+    calibrator: createCalibrator(),
+    profiles: {
+      1: {
+        names: ['nick'],
+        interests: [{ topic: 'Go', note: 'plays', weight: 1, firstSeen: '2026-09-20T00:00:00.000Z', lastSeen: null, itemId: 'in-b' }],
+        details: [],
+        aliases: [{ name: 'Vertex', weight: 1, itemId: 'al-b' }],
+        closed: [
+          { kind: 'interest', topic: 'Chess', note: 'played', weight: 3, firstSeen: '2026-01-02T00:00:00.000Z', itemId: 'in-a', validFrom: '2026-01-01', validTo: '2026-09-20', supersededBy: 'in-b' },
+          { kind: 'interest', topic: 'Chessboxing', note: '', weight: 1, firstSeen: '2026-01-02T00:00:00.000Z', itemId: 'in-c', validTo: '2026-09-20' },
+          { kind: 'detail', id: 4, text: 'lives in Lyon', weight: 1, firstSeen: '2026-03-01T00:00:00.000Z', itemId: 'dt-a', validTo: '2026-09-01' },
+          { kind: 'alias', name: 'Vex', weight: 1, firstSeen: '2026-02-01T00:00:00.000Z', itemId: 'al-a', validTo: '2026-09-15' },
+        ],
+      },
+    },
+    guildMemory: {},
+    messages,
+    selfName: 'Nept',
+  });
+  const user = llmMessages[1].content;
+  const profiles = JSON.parse(/<existing_profiles>\n([\s\S]*?)\n<\/existing_profiles>/.exec(user)[1]);
+  assert.deepEqual(profiles['1'].closed, [
+    { kind: 'interest', topic: 'Chess', note: 'played', from: '2026-01-01', to: '2026-09-20' },
+    { kind: 'alias', name: 'Vex', from: '2026-02-01', to: '2026-09-15' },
+  ]);
+  assert.deepEqual(profiles['1'].interests, [{ itemId: 'in-b', topic: 'Go', note: 'plays', seen: 1 }], 'open items carry the itemId an op names');
+});
+
+test('memory update: supersedes and conflict ops reach the store', () => {
+  withStore((store) => {
+    const guildId = 'g1';
+    store.touchUser(guildId, '1', 'nick', Date.now());
+    applyMemoryUpdate(store, guildId, { users: { 1: { interests: { add: [{ topic: 'Chess', note: 'plays' }] }, details: { add: ['lives in Lyon'] }, aliases: { add: ['Vex'] } } } }, MEMORY_CFG, new Set(['1']));
+    const before = store.getUser(guildId, '1');
+    const chessId = before.interests[0].itemId;
+    const lyonId = before.details[0].itemId;
+    assert.ok(chessId && lyonId);
+
+    const result = applyMemoryUpdate(
+      store,
+      guildId,
+      {
+        users: {
+          1: {
+            interests: { add: [{ topic: 'Go', note: 'plays', supersedes: chessId, validFrom: '2026-09-20' }] },
+            details: { add: [{ text: 'lives in Nice', conflict: lyonId }] },
+            aliases: { add: [{ name: 'Vertex', supersedes: 'Vex' }] },
+          },
+        },
+      },
+      MEMORY_CFG,
+      new Set(['1']),
+    );
+    assert.equal(result.interestsChanged, 1);
+    const profile = store.getUser(guildId, '1');
+    assert.deepEqual(profile.interests.map((item) => item.topic), ['Go']);
+    assert.deepEqual(profile.aliases.map((item) => item.name), ['Vertex']);
+    const closed = profile.closed.map((item) => [item.kind, item.topic ?? item.name, item.validTo, item.supersededBy]);
+    assert.deepEqual(closed[0], ['interest', 'Chess', '2026-09-20', profile.interests[0].itemId]);
+    assert.equal(closed[1][0], 'alias');
+    assert.equal(closed[1][1], 'Vex');
+    assert.equal(closed[1][3], profile.aliases[0].itemId);
+    assert.deepEqual(profile.details.map((item) => [item.text, item.conflictSetId]), [['lives in Lyon', lyonId], ['lives in Nice', lyonId]]);
+  });
+});

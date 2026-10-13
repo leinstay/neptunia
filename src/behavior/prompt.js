@@ -55,9 +55,9 @@ import {
   renderTempo,
   renderTranscript,
 } from '../discord/format.js';
-import { HOUR_MS, MINUTE_MS, zonedDay } from '../time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay } from '../time.js';
 import { affinityBand, roundScore, strongestMoves } from '../memory/affinity.js';
-import { isConfirmed, isStale } from '../memory/interests.js';
+import { isConfirmed, isOpen, isStale } from '../memory/interests.js';
 import { topByRank } from '../memory/ranking.js';
 import { rankEmojiUsage } from '../memory/emoji-usage.js';
 import { gifHandleMap, normalizeGifs, rankGifs } from '../memory/gifs.js';
@@ -167,6 +167,66 @@ function markConfirmation(text, item, p, marks) {
   return out;
 }
 
+/** `memory.supersededShownDays` when it is missing (config.json carries the same). */
+const DEFAULT_SUPERSEDED_SHOWN_DAYS = 7;
+
+/** The day a claim is dated by in `<people>`: its `validFrom`, else the day of its `recordedAt`, else of its `firstSeen`; '' when none. */
+function claimDay(item) {
+  if (typeof item?.validFrom === 'string' && item.validFrom) return item.validFrom;
+  for (const key of ['recordedAt', 'firstSeen']) {
+    if (typeof item?.[key] === 'string' && item[key]) return item[key].slice(0, 10);
+  }
+  return '';
+}
+
+/**
+ * The texts of ranked items (interests, details, aliases) with their validity applied, in
+ * `ordered`'s order -- see docs/prompt-contract.md, "Validity". Only open items are expected
+ * (the caller filters). An item whose successor-closed claims (`closed` entries of `kind` with
+ * `supersededBy` = its `itemId`) are fresh -- its `recordedAt` younger than
+ * `validity.shownDays` -- gets each of them once as `labels.profile.before` appended; a closed
+ * claim never renders alone. Two open items sharing a `conflictSetId` render together, once,
+ * through `labels.profile.conflict` with their days (the earlier first), at the place of the
+ * first one ranked. A missing label leaves that part out (an older labels.json).
+ * @param {object[]} ordered  The items shown, best first.
+ * @param {object[]} open     Every open item of the list (a conflict partner may rank lower).
+ * @param {(item: object) => string} render
+ * @param {object} p  `labels.profile`.
+ * @param {{ closed?: unknown, kind: string, now?: number, shownDays?: number, renderClosed: (item: object) => string }} validity
+ * @returns {string[]}
+ */
+function validityTexts(ordered, open, render, p, validity) {
+  const closed = (Array.isArray(validity.closed) ? validity.closed : []).filter((item) => item?.kind === validity.kind && typeof item.supersededBy === 'string');
+  const shownDays = Number.isFinite(validity.shownDays) ? validity.shownDays : DEFAULT_SUPERSEDED_SHOWN_DAYS;
+  const nowMs = Number.isFinite(validity.now) ? validity.now : Date.now();
+  const withBefore = (item) => {
+    const text = render(item);
+    if (!p.before || closed.length === 0 || typeof item.itemId !== 'string') return text;
+    const recordedMs = Date.parse(item.recordedAt ?? '');
+    if (!Number.isFinite(recordedMs) || nowMs - recordedMs > shownDays * DAY_MS) return text;
+    const before = closed.filter((old) => old.supersededBy === item.itemId).map((old) => fill(p.before, { text: validity.renderClosed(old) }));
+    return before.length > 0 ? [text, ...before].join(' ') : text;
+  };
+  const done = new Set();
+  const out = [];
+  for (const item of ordered) {
+    if (done.has(item)) continue;
+    done.add(item);
+    const partner =
+      p.conflict && typeof item.conflictSetId === 'string' && item.conflictSetId
+        ? open.find((other) => other !== item && !done.has(other) && other.conflictSetId === item.conflictSetId)
+        : undefined;
+    if (!partner) {
+      out.push(withBefore(item));
+      continue;
+    }
+    done.add(partner);
+    const [a, b] = claimDay(partner) < claimDay(item) ? [partner, item] : [item, partner];
+    out.push(fill(p.conflict, { a: withBefore(a), b: withBefore(b), dateA: claimDay(a), dateB: claimDay(b) }));
+  }
+  return out;
+}
+
 /**
  * One remembered interest as prompt text: `labels.profile.interestItem`
  * (`{topic}`/`{note}`) when the note is non-empty and the label exists,
@@ -197,12 +257,18 @@ function renderInterestItem(item, p, marks) {
  * profile can hold more than a lowered live cap until the next analyzer
  * update evicts). `marks` (see `markConfirmation`) controls the unsure/stale
  * marks on each item; without `marks.interestHalfLifeDays` the rank is pure
- * weight (no decay).
+ * weight (no decay). Only open items show; `marks.validity` (`{ closed, now,
+ * shownDays }`) adds the closed claims and conflict sets, see `validityTexts`.
  */
 function interestsText(interests, labels, maxInterests, marks) {
   if (!Array.isArray(interests) || interests.length === 0) return '';
-  const ordered = topByRank(interests, maxInterests, marks?.interestHalfLifeDays);
-  return ordered.map((item) => renderInterestItem(item, labels.profile, marks)).join('; ');
+  const open = interests.filter(isOpen);
+  const ordered = topByRank(open, maxInterests, marks?.interestHalfLifeDays);
+  return validityTexts(ordered, open, (item) => renderInterestItem(item, labels.profile, marks), labels.profile, {
+    ...marks?.validity,
+    kind: 'interest',
+    renderClosed: (item) => renderInterestItem(item, labels.profile, { nameOf: marks?.nameOf }),
+  }).join('; ');
 }
 
 /**
@@ -213,15 +279,19 @@ function interestsText(interests, labels, maxInterests, marks) {
  * the stale mark, details do not go stale (see
  * docs/prompt-contract.md, "Dates come from the messages"). `''` when
  * there is nothing to show. `maxDetails` not an integer -> every stored
- * detail renders.
+ * detail renders. Open items only, with the closed claims and conflict sets of
+ * `marks.validity` (see `validityTexts`).
  */
 function detailsText(details, labels, maxDetails, marks) {
   if (!Array.isArray(details) || details.length === 0) return '';
   const p = labels.profile;
-  const ordered = topByRank(details, maxDetails, marks?.detailHalfLifeDays);
-  return ordered
-    .map((item) => markConfirmation(resolveChatText(item.text, marks?.nameOf) ?? '', item, p, { ...marks, stale: false }))
-    .join('; ');
+  const open = details.filter(isOpen);
+  const ordered = topByRank(open, maxDetails, marks?.detailHalfLifeDays);
+  return validityTexts(ordered, open, (item) => markConfirmation(resolveChatText(item.text, marks?.nameOf) ?? '', item, p, { ...marks, stale: false }), p, {
+    ...marks?.validity,
+    kind: 'detail',
+    renderClosed: (item) => resolveChatText(item.text, marks?.nameOf) ?? '',
+  }).join('; ');
 }
 
 /**
@@ -234,7 +304,7 @@ function detailsText(details, labels, maxDetails, marks) {
  */
 function compactInterestsText(interests, labels, halfLifeDays) {
   if (!Array.isArray(interests) || interests.length === 0) return '';
-  return topByRank(interests, 5, halfLifeDays)
+  return topByRank(interests.filter(isOpen), 5, halfLifeDays)
     .map((item) => item.topic)
     .join('; ');
 }
@@ -246,14 +316,18 @@ function compactInterestsText(interests, labels, halfLifeDays) {
  * "Aliases". `''` when there is nothing to show, or when
  * `labels.profile.aliases` is missing (an older labels.json never renders
  * this line). Alias names are never token-resolved -- they are literal
- * nicknames, not a reference to someone else.
+ * nicknames, not a reference to someone else. Open items only, with the closed
+ * claims and conflict sets of `validity` (see `validityTexts`).
  */
-function aliasesText(aliases, labels, maxAliases, aliasHalfLifeDays) {
+function aliasesText(aliases, labels, maxAliases, aliasHalfLifeDays, validity) {
   if (!labels.profile?.aliases) return '';
   if (!Array.isArray(aliases) || aliases.length === 0) return '';
-  return topByRank(aliases, maxAliases, aliasHalfLifeDays)
-    .map((item) => item.name)
-    .join(', ');
+  const open = aliases.filter(isOpen);
+  return validityTexts(topByRank(open, maxAliases, aliasHalfLifeDays), open, (item) => item.name, labels.profile, {
+    ...validity,
+    kind: 'alias',
+    renderClosed: (item) => item.name,
+  }).join(', ');
 }
 
 /**
@@ -326,6 +400,11 @@ function moveLines(affinity, labels, { max, timezone, nameOf }) {
  * interlocutor's heading; false leaves the heading bare and changes nothing
  * else -- the author of an overheard line is rendered in full but is not
  * talking to the persona.
+ *
+ * Interests, details and aliases show open items only (`validTo` unset); the
+ * profile's `closed` claims and conflict sets render as `validityTexts` says,
+ * `opts.supersededShownDays` (`memory.supersededShownDays`, 7 when missing) the
+ * window a closed claim rides on its successor.
  * @param {object|null} profile
  * @param {object} labels
  * @param {object} [opts]  The options above.
@@ -422,12 +501,14 @@ function renderProfileShown(
     nameOf,
     shownMoves,
     timezone,
+    supersededShownDays,
   } = {},
 ) {
   if (!profile) return { text: '', episodes: 0 };
   const p = labels.profile;
   const name = profile.names?.[0] ?? profile.id;
-  const marks = { confirmAfter, staleDays, now, interestHalfLifeDays, detailHalfLifeDays, nameOf };
+  const validity = { closed: profile.closed, now, shownDays: supersededShownDays };
+  const marks = { confirmAfter, staleDays, now, interestHalfLifeDays, detailHalfLifeDays, nameOf, validity };
 
   const attitudeLines = [];
   const affinity = profile.affinity;
@@ -445,7 +526,7 @@ function renderProfileShown(
 
   const restLines = [];
   if (!compact && profile.names?.length > 1) restLines.push(fill(p.formerNames, { names: profile.names.slice(1).join(', ') }));
-  const aliasesLine = aliasesText(profile.aliases, labels, maxAliases, aliasHalfLifeDays);
+  const aliasesLine = aliasesText(profile.aliases, labels, maxAliases, aliasHalfLifeDays, validity);
   if (aliasesLine) restLines.push(fill(p.aliases, { text: aliasesLine }));
   if (profile.character) restLines.push(fill(p.character, { text: resolveChatText(profile.character, nameOf) }));
   const interestsLine = compact
@@ -2449,6 +2530,7 @@ export function buildRequest(input) {
     nameOf,
     shownMoves,
     timezone,
+    supersededShownDays: config.memory?.supersededShownDays,
   });
   const fixedSection = {
     name: 'fixed',
@@ -2687,6 +2769,7 @@ export function buildRequest(input) {
       nameOf,
       shownMoves,
       timezone,
+      supersededShownDays: config.memory?.supersededShownDays,
     });
   const askedAboutBare = askedAbout.map((profile) => renderAsked(profile, undefined).text);
   let askedAboutItems = askedAboutBare;

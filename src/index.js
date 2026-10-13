@@ -567,8 +567,10 @@ async function shutdown(signal) {
   spontaneous.stop();
   diary.stop();
   onMessage.stop();
+  // archive.holdMaxMs: how long a file held for the archive may wait before it is written anyway.
+  const holdMaxMs = hot.config.archive?.holdMaxMs ?? 5000;
   hot.close();
-  store.flush();
+  await store.flushSettled({ holdMaxMs });
   await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await recordAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await archiveAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));

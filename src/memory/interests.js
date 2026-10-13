@@ -129,6 +129,100 @@ export function isFarEnough(seenAt, priorLastSeenIso, gapMs) {
   return Math.abs(seenAt - priorMs) >= gapMs;
 }
 
+/** A `YYYY-MM-DD` string that is a real calendar day, else null. */
+export function validDay(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const ms = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value ? value : null;
+}
+
+/** The validity fields a ranked item (interest, detail, alias) may carry. */
+export const VALIDITY_FIELDS = Object.freeze(['recordedAt', 'validFrom', 'validTo', 'supersededBy', 'conflictSetId']);
+
+/**
+ * Copy the validity fields `raw` holds onto `item` (a normalised stored item): each one kept
+ * only when present as a non-empty string or null; anything else is left out. An item that
+ * never had one gets none, so an old item loads unchanged.
+ * @param {object} item  Mutated.
+ * @param {object} raw
+ * @returns {object} `item`
+ */
+export function copyValidity(item, raw) {
+  for (const key of VALIDITY_FIELDS) {
+    if (!Object.hasOwn(raw, key)) continue;
+    const value = raw[key];
+    if (value === null || (typeof value === 'string' && value)) item[key] = value;
+  }
+  return item;
+}
+
+/** Whether a stored item is open: its `validTo` is unset (null or absent). */
+export function isOpen(item) {
+  return item?.validTo === undefined || item?.validTo === null;
+}
+
+/**
+ * Apply the validity requests of one merge (`applyRankedOps` below,
+ * src/memory/details.js#applyDetailOps) to `items` (the merged list, mutated). Each request is
+ * `{ item, supersedes, validFrom, conflict }`, `item` the stored item an add/update op wrote;
+ * a request that touches something sets `validFrom` (a real day) on that item, and
+ * `recordedAt` when it has none. Then:
+ *
+ * - `supersedes` names another OPEN item of the list (by `itemId`, else through
+ *   `findOther`): that one is closed -- `validTo` = the op's `validFrom` when given, else
+ *   `batchDay`; `supersededBy` = the writing item's `itemId` -- and moves out of `items`
+ *   into the returned list. Closing is not losing: a closed item is never in `dropped`.
+ * - `conflict` names another open item: both get one `conflictSetId` (the named item's own,
+ *   else its `itemId`).
+ *
+ * An item without an `itemId` gets one from `mintId` when it needs one and `mintId` is given.
+ * A request naming the item itself, nothing, or a closed item changes nothing.
+ * @param {object[]} items
+ * @param {Array<{ item: object, supersedes?: unknown, validFrom?: unknown, conflict?: unknown }>} requests
+ * @param {{ batchDay: string, recordedAt: string, mintId?: () => string,
+ *   findOther: (ref: unknown) => (object|undefined) }} opts
+ * @returns {object[]} The items closed, in the order closed.
+ */
+export function applyValidity(items, requests, { batchDay, recordedAt, mintId, findOther }) {
+  const closed = [];
+  const find = (ref) => {
+    if (ref === undefined || ref === null || ref === '') return undefined;
+    const byId = typeof ref === 'string' ? items.find((item) => item.itemId === ref) : undefined;
+    return byId ?? findOther(ref);
+  };
+  const ensureId = (item) => {
+    if (!(typeof item.itemId === 'string' && item.itemId) && typeof mintId === 'function') item.itemId = mintId();
+    return typeof item.itemId === 'string' && item.itemId ? item.itemId : null;
+  };
+  const usable = (other, item) => other !== undefined && other !== item && isOpen(other) && items.includes(other);
+  for (const { item, supersedes, validFrom, conflict } of requests) {
+    if (!items.includes(item)) continue;
+    const from = validDay(validFrom);
+    const target = find(supersedes);
+    const other = find(conflict);
+    const closes = usable(target, item);
+    const conflicts = usable(other, item);
+    if (!from && !closes && !conflicts) continue;
+    if (from) item.validFrom = from;
+    if (!item.recordedAt) item.recordedAt = recordedAt;
+    if (closes) {
+      target.validTo = from ?? batchDay;
+      target.supersededBy = ensureId(item);
+      items.splice(items.indexOf(target), 1);
+      closed.push(target);
+    }
+    if (conflicts) {
+      const setId = other.conflictSetId ?? ensureId(other);
+      if (setId) {
+        ensureId(item);
+        other.conflictSetId = setId;
+        item.conflictSetId = setId;
+      }
+    }
+  }
+  return closed;
+}
+
 /**
  * Whether a stored item (interest or detail; anything with a `weight`) counts
  * as CONFIRMED for the chat model -- see docs/prompt-contract.md,
@@ -190,11 +284,18 @@ export function isStale(item, nowMs, staleDays) {
  * - Every stored item that leaves (a `remove`, then the eviction) is on the
  *   returned list's non-enumerable `dropped` (see `attachDropped`), as
  *   stored (its `itemId` included); `[]` when none left.
+ * - An `add`/`update` object may carry `supersedes` (an `itemId`, else an
+ *   identity), `validFrom` (`YYYY-MM-DD`) and `conflict` (an `itemId`, else an
+ *   identity) -- see `applyValidity`; the items it closes are on the
+ *   non-enumerable `closed` (`[]` when none), never in `dropped`. `mintId`
+ *   gives a writing item its `itemId` when it needs one. A new item gets
+ *   `recordedAt`, the ISO time of `now` (else `seenAt`).
  *
  * @param {object[]|undefined} existing
  * @param {{ add?: unknown, update?: unknown, seen?: unknown, remove?: unknown }} ops  Untrusted, model-extracted.
  * @param {{ identityField: string, noteField?: string, identityChars?: number, noteChars?: number,
- *   confirmGapHours?: number, seenAt?: number, halfLifeDays?: number, cap?: number, clampTolerance?: number }} opts
+ *   confirmGapHours?: number, seenAt?: number, halfLifeDays?: number, cap?: number, clampTolerance?: number,
+ *   mintId?: () => string, now?: number }} opts
  *   The identity (`topic`/`name`) is a HARD clamp (no tolerance, still boundary-safe -- see
  *   src/memory/clamp.js); the note, when there is one, is clamped with `clampTolerance`
  *   (soft by default) since it is free text, not an identity.
@@ -203,11 +304,13 @@ export function isStale(item, nowMs, staleDays) {
 export function applyRankedOps(
   existing,
   ops,
-  { identityField, noteField, identityChars, noteChars, confirmGapHours, seenAt = Date.now(), halfLifeDays, cap, clampTolerance } = {},
+  { identityField, noteField, identityChars, noteChars, confirmGapHours, seenAt = Date.now(), halfLifeDays, cap, clampTolerance, mintId, now } = {},
 ) {
   const items = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
+  const validity = [];
   const priorLastSeen = items.map((item) => item.lastSeen ?? null);
   const seenAtIso = new Date(seenAt).toISOString();
+  const recordedAt = new Date(Number.isFinite(now) ? now : seenAt).toISOString();
   const gapMs = (Number.isFinite(confirmGapHours) ? confirmGapHours : DEFAULT_CONFIRM_GAP_HOURS) * HOUR_MS;
   const bumped = new Set();
   const removed = [];
@@ -232,18 +335,26 @@ export function applyRankedOps(
     }
     if (!identity) return;
     const index = findIndex(identity);
+    // supersedes / validFrom / conflict ride on an object op; applied once every op is merged.
+    const wantValidity = (item) => {
+      if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw.supersedes !== undefined || raw.validFrom !== undefined || raw.conflict !== undefined)) {
+        validity.push({ item, supersedes: raw.supersedes, validFrom: raw.validFrom, conflict: raw.conflict });
+      }
+    };
 
     if (index === -1) {
       if (!allowCreate) return;
-      const item = { [identityField]: identity, weight: sure ? 1 : 0, firstSeen: seenAtIso, lastSeen: seenAtIso };
+      const item = { [identityField]: identity, weight: sure ? 1 : 0, firstSeen: seenAtIso, lastSeen: seenAtIso, recordedAt };
       if (noteField) item[noteField] = note;
       items.push(item);
+      wantValidity(item);
       return;
     }
 
     if (!sure) return; // sure: false on an existing item changes nothing at all
 
     const item = items[index];
+    wantValidity(item);
     if (noteField && note) item[noteField] = note;
     item.firstSeen = minIso(item.firstSeen, seenAtIso);
     item.lastSeen = maxIso(item.lastSeen, seenAtIso);
@@ -266,9 +377,16 @@ export function applyRankedOps(
     }
   }
 
+  const closed = applyValidity(items, validity, {
+    batchDay: seenAtIso.slice(0, 10),
+    recordedAt,
+    mintId,
+    findOther: (ref) => (typeof ref === 'string' && ref.trim() ? items[findIndex(ref)] : undefined),
+  });
+
   const { kept, dropped } = evictToCapacity(items, Number.isFinite(cap) ? cap : Infinity, halfLifeDays);
 
-  return attachDropped(kept, 'dropped', [...removed, ...dropped]);
+  return attachDropped(attachDropped(kept, 'dropped', [...removed, ...dropped]), 'closed', closed);
 }
 
 /**
@@ -481,17 +599,19 @@ function fillQualifierNotes(strippedOps, resolvedExisting) {
  * then decides whether the stripped qualifier may fill an item's note (see
  * `fillQualifierNotes`). The returned list's non-enumerable `dropped` holds
  * every stored item that left: folded into another by that resolution, then
- * what `applyRankedOps` reports.
+ * what `applyRankedOps` reports; its non-enumerable `closed` the items a
+ * `supersedes` closed (see `applyValidity`).
  * @param {object[]|undefined} existing  Stored interests.
  * @param {{ add?: unknown, update?: unknown, seen?: unknown, remove?: unknown }} ops  Untrusted, model-extracted.
  * @param {{ maxInterests?: number, maxInterestsStored?: number, topicChars?: number, noteChars?: number,
- *   confirmGapHours?: number, seenAt?: number, halfLifeDays?: number, clampTolerance?: number }} [opts]
+ *   confirmGapHours?: number, seenAt?: number, halfLifeDays?: number, clampTolerance?: number,
+ *   mintId?: () => string, now?: number }} [opts]
  * @returns {object[]}
  */
 export function applyInterestOps(
   existing,
   ops,
-  { maxInterests, maxInterestsStored, topicChars, noteChars, confirmGapHours, seenAt = Date.now(), halfLifeDays, clampTolerance } = {},
+  { maxInterests, maxInterestsStored, topicChars, noteChars, confirmGapHours, seenAt = Date.now(), halfLifeDays, clampTolerance, mintId, now } = {},
 ) {
   const strippedOps = stripParentheticalTopics(ops);
   const merged = [];
@@ -506,6 +626,8 @@ export function applyInterestOps(
     seenAt,
     halfLifeDays,
     clampTolerance,
+    mintId,
+    now,
     cap: effectiveStorageCap(maxInterestsStored, maxInterests),
   });
   return attachDropped(items, 'dropped', [...merged, ...items.dropped]);
@@ -514,7 +636,8 @@ export function applyInterestOps(
 /**
  * Validate whatever a profile's `interests` field currently holds on disk:
  * an ARRAY is checked item by item (unknown/garbage entries dropped, missing
- * fields defaulted, an optional non-empty string `itemId` kept, never added --
+ * fields defaulted, an optional non-empty string `itemId` and the validity fields
+ * (`copyValidity`) kept, never added --
  * untrusted JSON, possibly hand-edited while paused);
  * anything that is not an array becomes `[]`.
  * @param {unknown} value
@@ -533,6 +656,7 @@ export function normalizeInterests(value) {
     const lastSeen = typeof raw.lastSeen === 'string' ? raw.lastSeen : null;
     const item = { topic, note, weight, firstSeen, lastSeen };
     if (typeof raw.itemId === 'string' && raw.itemId) item.itemId = raw.itemId;
+    copyValidity(item, raw);
     out.push(item);
   }
   return out;

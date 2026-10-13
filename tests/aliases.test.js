@@ -116,3 +116,14 @@ test('aliases: eviction returns the dropped items with their itemId', () => {
   assert.deepEqual(result.dropped, [old]);
   assert.equal(result.dropped[0].itemId, 'al-old');
 });
+
+test('aliases: a supersedes op closes the old nickname', () => {
+  const old = { name: 'Vex', weight: 2, firstSeen: '2026-09-01T10:00:00.000Z', lastSeen: '2026-09-10T10:00:00.000Z', itemId: 'al-old' };
+  const items = applyAliasOps([old], { add: [{ name: 'Vertex', supersedes: 'al-old' }] }, ['LongDisplayName'], opts({ mintId: () => 'al-new' }));
+  assert.deepEqual(items.map((item) => item.name), ['Vertex']);
+  assert.deepEqual(items.closed, [{ ...old, validTo: '2026-09-21', supersededBy: 'al-new' }]);
+  // By name, too; a plain string add stays a plain add.
+  const byName = applyAliasOps([old], { add: [{ name: 'Vertex', supersedes: 'vex' }, 'Vx'] }, [], opts({ mintId: () => 'al-new' }));
+  assert.deepEqual(byName.map((item) => item.name), ['Vertex', 'Vx']);
+  assert.equal(byName.closed[0].name, 'Vex');
+});

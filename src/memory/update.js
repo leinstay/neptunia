@@ -40,7 +40,7 @@ import { emptyAffinity, roundScore, affinityBand, applyDelta, relationshipStaleO
 import { emptyChannel } from './store.js';
 import { messagesSince } from './channels.js';
 import { keywordMatches } from './lore.js';
-import { normalizeInterests, normalizeTopic } from './interests.js';
+import { isOpen, normalizeInterests, normalizeTopic } from './interests.js';
 import { normalizeDetails } from './details.js';
 import { applyAliasOps } from './aliases.js';
 import { emojiUsageOpts } from './emoji-usage.js';
@@ -441,28 +441,38 @@ function resolveTextArray(values, nameOf) {
  * (unlimited, matching the behaviour before this feature); `halfLifeDays` not
  * a positive number -> no decay, ranked by weight alone. See
  * docs/prompt-contract.md, "The analyzer" and "More is stored than
- * shown, and rank decays with age". */
+ * shown, and rank decays with age". Open items only; `itemId` (what a
+ * `supersedes`/`conflict` op names), `from` (`validFrom`) and `conflict`
+ * (`conflictSetId`) are present only when the item has them -- see
+ * docs/prompt-contract.md, "Validity". */
 function existingInterestsView(interests, maxInterests, halfLifeDays, nameOf) {
-  const list = Array.isArray(interests) ? interests : [];
-  return topByRank(list, maxInterests, halfLifeDays).map(({ topic, note, weight, lastSeen }) => ({
+  const list = Array.isArray(interests) ? interests.filter(isOpen) : [];
+  return topByRank(list, maxInterests, halfLifeDays).map(({ itemId, topic, note, weight, lastSeen, validFrom, conflictSetId }) => ({
+    itemId: itemId || undefined,
     topic,
     note: resolveText(note, nameOf),
     seen: weight,
     last: dateOnly(lastSeen),
+    from: validFrom || undefined,
+    conflict: conflictSetId || undefined,
   }));
 }
 
 /** The `<existing_profiles>` view of one person's details: only the top
  * `maxDetails` by rank, in rank order -- `{ id, text, seen, last }` (`seen` =
  * weight, `last` = the date-only lastSeen, omitted when unknown). `text` is
- * resolved via `nameOf`, same as `existingInterestsView` above. */
+ * resolved via `nameOf`, same as `existingInterestsView` above, and carries
+ * `itemId`/`from`/`conflict` the same way. */
 function existingDetailsView(details, maxDetails, halfLifeDays, nameOf) {
-  const list = Array.isArray(details) ? details : [];
-  return topByRank(list, maxDetails, halfLifeDays).map(({ id, text, weight, lastSeen }) => ({
+  const list = Array.isArray(details) ? details.filter(isOpen) : [];
+  return topByRank(list, maxDetails, halfLifeDays).map(({ id, itemId, text, weight, lastSeen, validFrom, conflictSetId }) => ({
     id,
+    itemId: itemId || undefined,
     text: resolveText(text, nameOf),
     seen: weight,
     last: dateOnly(lastSeen),
+    from: validFrom || undefined,
+    conflict: conflictSetId || undefined,
   }));
 }
 
@@ -473,8 +483,39 @@ function existingDetailsView(details, maxDetails, halfLifeDays, nameOf) {
  * hand-editable: an item without a string `name` is skipped, never thrown on
  * (it would otherwise fail every batch whose roster or authors include its member). */
 function existingAliasesView(aliases, maxAliases, halfLifeDays) {
-  const list = Array.isArray(aliases) ? aliases.filter((item) => typeof item?.name === 'string') : [];
+  const list = Array.isArray(aliases) ? aliases.filter((item) => typeof item?.name === 'string' && isOpen(item)) : [];
   return topByRank(list, maxAliases, halfLifeDays).map((item) => item.name);
+}
+
+/**
+ * The `closed` key of one `<existing_profiles>` view: the claims of `closed` (a profile's or
+ * private layer's `closed` list, see src/memory/store.js#storeClosed) whose identity -- an
+ * interest's topic, a detail's text, an alias's name -- occurs as a whole word or phrase
+ * (src/memory/mentions.js#occursAsWholeWord, case-insensitive) in the batch's texts, in stored
+ * order, each with its days: `from` (`validFrom`, else the day of `firstSeen`; omitted when
+ * unknown) and `to` (`validTo`). So the analyzer sees what was already closed on the topics it
+ * is looking at and does not add it again. `[]` when none matches. See
+ * docs/prompt-contract.md, "Validity".
+ * @param {unknown} closed
+ * @param {string} batchLower  The batch's texts, joined and lowercased.
+ * @param {(id: string) => (string|null)} nameOf
+ * @returns {object[]}
+ */
+function closedClaimsView(closed, batchLower, nameOf) {
+  const out = [];
+  for (const item of Array.isArray(closed) ? closed : []) {
+    if (!isPlainObject(item)) continue;
+    const identity = item.kind === 'interest' ? item.topic : item.kind === 'detail' ? item.text : item.kind === 'alias' ? item.name : null;
+    if (typeof identity !== 'string' || !occursAsWholeWord(batchLower, normalizeTopic(resolveText(identity, nameOf)))) continue;
+    const view = { kind: item.kind };
+    if (item.kind === 'interest') Object.assign(view, { topic: item.topic, note: resolveText(item.note ?? '', nameOf) });
+    else if (item.kind === 'detail') view.text = resolveText(item.text, nameOf);
+    else view.name = item.name;
+    view.from = item.validFrom || dateOnly(item.firstSeen);
+    view.to = item.validTo ?? undefined;
+    out.push(view);
+  }
+  return out;
 }
 
 /**
@@ -829,6 +870,8 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
   // Each profile twice: whole (what the analyzer rewrites, its lists capped to their ranked top)
   // and compact (id, names, attitude), sent when the whole one does not fit (see the fit below).
   const profileViews = [];
+  // The batch's texts, for the closed claims a whole view carries (closedClaimsView).
+  const batchLower = messages.map((m) => (typeof m?.content === 'string' ? m.content : '')).join('\n').toLowerCase();
   const episodeCap = analyzerEpisodes(config);
   for (const [id, profile] of Object.entries(profiles ?? {})) {
     const fields = pickProfileFields(profile);
@@ -850,6 +893,8 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
       const aliases = existingAliasesView(profile.aliases, config.memory?.maxAliases, config.memory?.aliasHalfLifeDays);
       if (aliases.length > 0) fields.aliases = aliases;
     }
+    const closedClaims = closedClaimsView(profile?.closed, batchLower, resolveName);
+    if (closedClaims.length > 0) fields.closed = closedClaims;
     if (relationships) {
       const affinity = profile?.affinity ?? emptyAffinity();
       const score = Number.isFinite(affinity.score) ? affinity.score : 0;
@@ -1452,6 +1497,7 @@ function profileOpsOptions(cfg, nowMs, seenAt) {
     maxAliases: cfg.maxAliases,
     maxAliasesStored: cfg.maxAliasesStored,
     aliasHalfLifeDays: cfg.aliasHalfLifeDays,
+    maxClosedStored: cfg.maxClosedStored,
     confirmGapHours: cfg.confirmGapHours,
     clampTolerance: cfg.clampTolerance,
     now: nowMs,
@@ -1604,7 +1650,8 @@ function aliasIdentity(name) {
  * that is not a string, holds a `<@` token or an `(id:` marker is dropped, and so is one equal
  * to any of the member's stored display names once case, spaces and punctuation are ignored.
  * The ops object (`{ add, remove }`) passes on with both of its creating lists (`add`,
- * `update`) filtered. A bare list -- the shape of the input view -- is read as an add of the
+ * `update`) filtered. An `add` item may also be `{ name, supersedes?, validFrom?, conflict? }` (see
+ * docs/prompt-contract.md, "Validity"), guarded by its `name`. A bare list -- the shape of the input view -- is read as an add of the
  * names NOT stored yet (compared by the identity the store keeps, clamp included): echoing the
  * stored list back is never a sighting. Untrusted input: any shape -> a result, never a throw.
  * @param {unknown} raw
@@ -1615,7 +1662,11 @@ function aliasIdentity(name) {
  */
 function guardedAliasOps(raw, profile) {
   const ownNames = new Set((Array.isArray(profile?.names) ? profile.names : []).map(looseNameKey).filter(Boolean));
-  const acceptable = (name) => typeof name === 'string' && !ALIAS_REF_RE.test(name) && !ownNames.has(looseNameKey(name));
+  // An add may also be an object whose `name` is one (it may carry supersedes / validFrom / conflict).
+  const acceptable = (raw, key = 'add') => {
+    const name = key === 'add' && isPlainObject(raw) ? raw.name : raw;
+    return typeof name === 'string' && !ALIAS_REF_RE.test(name) && !ownNames.has(looseNameKey(name));
+  };
   if (Array.isArray(raw)) {
     const known = new Set((Array.isArray(profile?.aliases) ? profile.aliases : []).map((item) => aliasIdentity(item?.name)));
     const add = [];
@@ -1632,7 +1683,7 @@ function guardedAliasOps(raw, profile) {
   let dropped = 0;
   for (const key of ['add', 'update']) {
     if (!Array.isArray(ops[key])) continue;
-    const kept = ops[key].filter(acceptable);
+    const kept = ops[key].filter((raw) => acceptable(raw, key));
     dropped += ops[key].length - kept.length;
     ops[key] = kept;
   }

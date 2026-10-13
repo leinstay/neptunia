@@ -269,6 +269,8 @@ profile.affinityMove                     {delta} {date} {reason}: one attitude m
 profile.episodes                         heading line above the caller's episodes
 profile.episode                          {date} {what} {quote} {feeling}: one remembered moment
 profile.episodeNoQuote                   {date} {what} {feeling}: the same without a quote
+profile.before                           {text}: a closed claim, appended once (after a space) to the interest, detail or alias that superseded it while that one's recordedAt is younger than memory.supersededShownDays (default 7); never shown alone. Missing = not shown
+profile.conflict                         {a} {b} {dateA} {dateB}: two open claims sharing a conflictSetId, rendered together once, the earlier first; a date is validFrom, else the day of recordedAt, else of firstSeen. Missing = both render as separate items
 lore.entry                               {title} {text}
 emoji.header                             introduces the custom emoji list
 emoji.entry                              {name} {text}: one emoji with a caption
@@ -503,6 +505,22 @@ of what is already stored, so facts are not degraded by being rewritten batch af
   `labels.profile.aliases` `{text}`. A member whose current name OR alias occurs in the recent transcript is pulled
   into `<people>` even if they have not spoken; members referred to in the trigger or the last five messages (by mention, current name or alias, prefix match for names of 4+ characters) come right after the interlocutor in full (`context.askedAboutProfiles` at most), the other recent participants after them in compact form (name, aliases, character, attitude, top 5 topics); the budget trims the compact ones first.
   For a member listed in `<known_members>` (a roster member), only `aliases` is applied; every other key in the answer is dropped and counted. A profile is never created for a roster member: it must already exist. Guards on a proposed alias (all members, authors and roster alike): dropped when it holds a `<@` token or an `(id:` marker, dropped when it equals one of the member's stored display names (case-insensitive, punctuation ignored). A bare array under `aliases` (instead of `{ add, remove }`) is read as an add of the names not already stored (it never bumps a stored alias). The `firstSeen`/`lastSeen` date for a roster member's alias comes from the newest message in the batch, since the roster member wrote no message themselves.
+- **Validity.** Interests, details and aliases may carry `recordedAt` (ISO, set when the item is first written),
+  `validFrom` and `validTo` (`YYYY-MM-DD` or null: when the claim was true), `supersededBy` (an itemId) and
+  `conflictSetId`; items without them load unchanged. An `add` or `update` op (an alias `add` as
+  `{ "name": "…" }`) may carry `supersedes: <itemId>` (an interest's topic, a detail's numeric `id` or text, an
+  alias's name also name it), `validFrom: "YYYY-MM-DD"` and `conflict: <itemId>` (same references).
+  `supersedes` closes the named open item: `validTo` = the op's `validFrom` when given (a claim that was never true,
+  such as a joke, closes at its own `validFrom`), else the batch day; `supersededBy` = the new item's itemId. The
+  closed item leaves the ranked list for the profile's `closed` list (`kind`: `interest` | `detail` | `alias`, at
+  most `memory.maxClosedStored`, default 40; the oldest past it goes to the archive with event `replaced`).
+  `conflict` gives the named open item and the new one one shared `conflictSetId` (the named item's own, else its
+  itemId). A plain `remove` behaves as before (archived as `replaced`). In `<existing_profiles>` the open interests
+  and details carry `itemId`, `from` (`validFrom`) and `conflict` (`conflictSetId`) when set; a whole profile
+  carries `closed`: the closed claims whose topic, text or alias occurs as a whole word in the batch, as
+  `{ kind, topic, note | text | name, from, to }` (`from` = `validFrom`, else the day of `firstSeen`; `to` =
+  `validTo`), so a closed claim is not added again. The chat model sees open items only, plus
+  `labels.profile.before` and `labels.profile.conflict`.
 - **Main channels are the source of the portrait.** `memory.mainChannelIds` (default `[]`) lists the channels where
   people talk to each other; in `<existing_channels>` such a channel carries `"main": true` (key omitted otherwise).
   `character` and `style` are judged from how the person talks with others in a main channel; diaries and topical

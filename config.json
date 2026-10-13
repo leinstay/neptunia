@@ -222,6 +222,8 @@
     "maxAliasesStored": 15,
     "aliasRosterSize": 40,
     "aliasHalfLifeDays": 365,
+    "maxClosedStored": 40,
+    "supersededShownDays": 7,
     "confirmAfter": 2,
     "confirmGapHours": 12,
     "interestStaleDays": 90,
@@ -403,6 +405,7 @@
   },
   "archive": {
     "pendingMax": 500,
-    "drainMs": 30000
+    "drainMs": 30000,
+    "holdMaxMs": 5000
   }
 }

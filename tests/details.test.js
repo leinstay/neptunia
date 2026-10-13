@@ -277,3 +277,26 @@ test('details: eviction returns the dropped items with their itemId', () => {
   assert.equal(normalized.items[0].itemId, 'dt-old', 'normalizing keeps an itemId');
   assert.equal('itemId' in normalizeDetails([{ id: 1, text: 'χωρίς' }]).items[0], false, 'and adds none');
 });
+
+// ---- validity: supersedes / validFrom -------------------------------------------
+
+test('details: a joke correction closes with validTo equal to validFrom', () => {
+  const old = { id: 1, text: 'Lives in Lyon', weight: 1, firstSeen: '2026-09-19T10:00:00.000Z', lastSeen: '2026-09-19T10:00:00.000Z', itemId: 'dt-old', validFrom: '2026-09-19' };
+  const { items, closed, dropped } = applyDetailOps(
+    [old],
+    { add: [{ text: 'Lives in Nice', supersedes: 'dt-old', validFrom: '2026-09-19' }] },
+    opts({ nextId: 2, mintId: () => 'dt-new' }),
+  );
+  assert.deepEqual(items.map((item) => item.text), ['Lives in Nice']);
+  assert.equal(items[0].validFrom, '2026-09-19');
+  assert.equal(closed.length, 1);
+  assert.equal(closed[0].validTo, closed[0].validFrom, 'it was never true');
+  assert.equal(closed[0].supersededBy, 'dt-new');
+  assert.deepEqual(dropped, []);
+
+  // By the numeric id the input view shows, the same.
+  const byId = applyDetailOps([old], { add: [{ text: 'Lives in Nice', supersedes: 1 }] }, opts({ nextId: 2, mintId: () => 'dt-new' }));
+  assert.equal(byId.closed[0].validTo, '2026-09-21', 'no validFrom: the batch day');
+  // Old items load unchanged; validity fields survive.
+  assert.deepEqual(normalizeDetails([{ ...old, validTo: '2026-09-20', supersededBy: 'dt-new' }]).items, [{ ...old, validTo: '2026-09-20', supersededBy: 'dt-new' }]);
+});
