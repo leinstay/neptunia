@@ -59,9 +59,8 @@ function byAction(actions) {
  * The command keys of the tree (src/discord/commands.js#COMMAND_TABLE, `<group>.<name>` or a bare
  * `<name>`) -> operation: an operation name (same arguments), or `(args) => ({ op, args })` where
  * the arguments pick the operation (`talk`, `media` and `memory.private` by `action`, `pings` by
- * `mode`, `memory.affinity` by `score`), or `{ invalid }` when they cannot. The mentor and the
- * commands the tree dropped (`ping`, `reload`, `learned.list`) are not operations; src/admin.js
- * still runs them itself.
+ * `mode`, `memory.affinity` by `score`), or `{ invalid }` when they cannot. A key not listed
+ * here runs nothing.
  */
 export const COMMAND_TO_OP = Object.freeze({
   status: 'status.show',
@@ -210,7 +209,8 @@ export function resolveCommand(commandKey, args = {}) {
  * stored grants (src/discord/access.js#migrateGrants): `*` -> every operation (`from: '*'`); an
  * old command key -> the operation it runs with no optional argument (`memory.affinity` ->
  * `memory.affinity.read`); an old group -> its keys' operations (`from` the group); a key with
- * no operation (`ping`, `reload`, `learned.list`, `mentor.*`, now owner-only) -> null.
+ * no operation (`ping`, `reload`, `learned.list` and the other removed commands) -> null: such a
+ * grant is dropped.
  * @param {string} key
  * @returns {{ from: string|null, names: string[] } | null}
  */
@@ -251,7 +251,7 @@ function checkRights(op, ctx) {
 
 /** What an operation's `run` returned, as a result: a full result passes through; a reply text
  * or `{ text, files }` is an `ok` whose summary is the text and whose data holds the value.
- * Exported for src/admin.js, whose few commands with no operation answer in the same shape. */
+ * Exported for the tests' fake admin, which answers in the same shape. */
 export function asResult(value) {
   if (value && typeof value === 'object' && STATUSES.includes(value.status)) return value;
   if (value && typeof value === 'object') return { status: 'ok', code: 'ok', summary: String(value.text ?? ''), data: value };

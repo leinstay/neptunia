@@ -32,7 +32,7 @@
 /**
  * The digits of a Discord member id, as a regex source: the one id range every
  * pattern that reads an id out of text is built from (`<@id>` tokens,
- * `(id:...)` markers, a taught item's `from`, a mentor message reference).
+ * `(id:...)` markers, a taught item's `from`).
  */
 export const ID_DIGITS = '\\d{17,20}';
 

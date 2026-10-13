@@ -24,8 +24,6 @@ import { createSpontaneous } from '../src/behavior/spontaneous.js';
 import { buildDrawPrompt } from '../src/behavior/prompt.js';
 import { familyOf, ImageGenError } from '../src/llm/images.js';
 import { createLlm } from '../src/llm/openrouter.js';
-import { createCaseStore } from '../src/mentor/cases.js';
-import { createMentorBudget } from '../src/mentor/budget.js';
 import { labels } from './fixtures/labels.js';
 
 // ---------------------------------------------------------------------------
@@ -341,9 +339,6 @@ function makeAdmin(rootDir, extra = {}) {
     emojiBackfill: extra.emojiBackfill,
     gifBackfill: extra.gifBackfill,
     gifRecache: extra.gifRecache,
-    mentor: extra.mentor,
-    mentorCases: extra.mentorCases,
-    mentorBudget: extra.mentorBudget,
     archive: extra.archive,
     journal: extra.journal,
   });
@@ -587,7 +582,7 @@ test('run: model.set rejects an unknown role, the old role names and the classif
   for (const role of ['bogus', 'followup', 'media', 'video', 'classifier', 'talk']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
-      new RegExp(`unknown role: ${role} \\(voice, analyzer, classifier\\.text, classifier\\.media, classifier\\.video, mentor, image\\)`),
+      new RegExp(`unknown role: ${role} \\(voice, analyzer, classifier\\.text, classifier\\.media, classifier\\.video, image\\)`),
       role,
     );
   }
@@ -609,19 +604,6 @@ test('run: model.set accepts a loosely-valid id (letters, digits, dot, colon, sl
 
   await admin.run('model.set', { role: 'classifier.media', id: 'anthropic/claude-haiku-4.5:beta' }, {});
   assert.deepEqual(readLocal(rootDir), { classifier: { media: 'anthropic/claude-haiku-4.5:beta' } });
-});
-
-test('model show: lists the mentor role', async () => {
-  const rootDir = makeRoot();
-  const hot = makeHotWithMedia(rootDir);
-  const { admin } = makeAdmin(rootDir, { hot });
-
-  const unset = (await admin.run('model.show', {}, {})).split('\n');
-  assert.ok(unset.includes('mentor: -'), 'an unset mentor model does not fall back to the voice model');
-
-  hot.config.mentor = { model: 'openrouter/mentor-model' };
-  const set = (await admin.run('model.show', {}, {})).split('\n');
-  assert.ok(set.includes('mentor: openrouter/mentor-model'));
 });
 
 test('model show: the voice role is llm.model, never memory.model or a stale memory.voiceModel; no talk line', async () => {
@@ -672,18 +654,19 @@ test('isAllowed: a non-owner reads bot.access off the live hot.config, role gran
   assert.equal(admin.isAllowed('status', { userId: '999', roleIds: [] }), false, 'a grant on the old command key opens nothing');
 });
 
-test('isAllowed: the commands with no operation (ping, reload, learned list, the mentor) are owner-only', async () => {
+test('isAllowed: the commands the tree dropped (ping, reload, learned list) run nothing; isAllowed keeps an unknown key owner-only', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
   const open = { everyone: true, roles: [], users: [] };
-  hot.config.bot.access = { '*': open, ping: open, reload: open, 'learned.list': open, mentor: open, 'mentor.status': open };
+  hot.config.bot.access = { '*': open, ping: open, reload: open, 'learned.list': open };
   const { admin } = makeAdmin(rootDir, { hot });
 
-  for (const key of ['ping', 'reload', 'learned.list', 'mentor.status']) {
+  for (const key of ['ping', 'reload', 'learned.list']) {
     assert.equal(admin.isAllowed(key, { userId: '999', roleIds: [] }), false, key);
-    assert.equal(admin.isAllowed(key, { userId: '42', roleIds: [] }), true, `${key}: owner`);
-    const refused = await admin.runCommand(key, {}, { guildId: 'g1', userId: '999', roleIds: [] });
-    assert.equal(refused.status, 'denied', key);
+    assert.equal(admin.operationFor(key, {}), null, key);
+    const owner = await admin.runCommand(key, {}, { guildId: 'g1', userId: '42', roleIds: [] });
+    assert.equal(owner.status, 'invalid', `${key}: unknown even to the owner`);
+    await assert.rejects(() => admin.run(key, {}, { guildId: 'g1' }), /unknown command/, key);
   }
 });
 
@@ -969,322 +952,6 @@ test('access.grant: a write operation gets the write note; a read operation none
     assert.ok(!(access[name]?.roles ?? []).includes('mods'), `* never covers ${name}`);
   }
   assert.ok(access['memory.profile.read'].roles.includes('mods'));
-});
-
-// ---------------------------------------------------------------------------
-// ping: reach each role's model directly, in parallel
-// ---------------------------------------------------------------------------
-
-function fakeLlm(script) {
-  const calls = [];
-  return {
-    calls,
-    complete: async (messages, options) => {
-      calls.push({ messages, options });
-      return script(options, calls.length - 1);
-    },
-  };
-}
-
-function hotForPing(rootDir, { label = true } = {}) {
-  const hot = makeHotWithMedia(rootDir);
-  hot.prompts = {
-    ...hot.prompts,
-    labels: { ...hot.prompts.labels, ...(label ? { ping: { prompt: 'Reply with one word: pong' } } : {}) },
-  };
-  return hot;
-}
-
-test('run: ping pings the seven roles in parallel and reports latency, provider and tokens', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  hot.config.memory.model = 'openrouter/analyzer-model'; // distinct from voice, so every role gets its own call
-  hot.config.classifier.video = 'openrouter/video-model';
-  const llm = fakeLlm((options) => ({
-    text: 'pong',
-    usage: { prompt_tokens: 5, completion_tokens: 1 },
-    estimated: 6,
-    finishReason: 'stop',
-    provider: `provider-for-${options.model}`,
-  }));
-  const { admin } = makeAdmin(rootDir, { hot, llm });
-
-  const body = await admin.run('ping', {}, {});
-  const lines = body.split('\n');
-
-  assert.equal(llm.calls.length, 4, 'voice, analyzer, media and video are four distinct models here; classifier.text falls back to classifier.media; mentor is unset');
-  assert.equal(lines.length, 7, 'six role lines and the image line');
-  assert.ok(lines.some((l) => l.startsWith('voice: anthropic/claude-opus-4.6 — ok,') && l.includes('provider=provider-for-anthropic/claude-opus-4.6') && l.includes('tokens 5/1')));
-  assert.ok(lines.some((l) => l.startsWith('analyzer: openrouter/analyzer-model — ok,')));
-  assert.ok(lines.some((l) => l.startsWith('classifier.media: anthropic/claude-haiku-4.5 — ok,')));
-  assert.ok(lines.some((l) => l.startsWith('classifier.text: anthropic/claude-haiku-4.5 — ok,')));
-  assert.ok(lines.some((l) => l.startsWith('classifier.video: openrouter/video-model — ok,')));
-  assert.ok(llm.calls.some((c) => c.options.model === 'openrouter/video-model'));
-  assert.ok(lines.includes('mentor: (no model configured)'), 'an unset mentor model never falls back to the voice model');
-});
-
-test('run: ping single-role form pings only that role\'s model (classifier.text falls back to classifier.media), or reports no model when it is unset', async () => {
-  // `model` is the one model pinged, or null when the role has none and nothing is sent;
-  // `line` is the start of the one-line reply, or the whole reply when nothing is sent.
-  for (const [label, role, setup, model, line] of [
-    ['classifier.video set', 'classifier.video', (cfg) => (cfg.classifier.video = 'openrouter/video-model'), 'openrouter/video-model', 'classifier.video: openrouter/video-model — ok,'],
-    ['classifier.video unset', 'classifier.video', () => {}, null, 'classifier.video: (no model configured)'],
-    ['classifier.text unset: classifier.media', 'classifier.text', () => {}, 'anthropic/claude-haiku-4.5', 'classifier.text: anthropic/claude-haiku-4.5 — ok,'],
-    ['classifier.text set', 'classifier.text', (cfg) => (cfg.classifier.text = 'openrouter/text-model'), 'openrouter/text-model', 'classifier.text: openrouter/text-model — ok,'],
-    ['classifier.media', 'classifier.media', () => {}, 'anthropic/claude-haiku-4.5', 'classifier.media: anthropic/claude-haiku-4.5 — ok,'],
-    ['mentor set', 'mentor', (cfg) => (cfg.mentor = { model: 'openrouter/mentor-model' }), 'openrouter/mentor-model', 'mentor: openrouter/mentor-model — ok,'],
-    ['mentor unset', 'mentor', () => {}, null, 'mentor: (no model configured)'],
-  ]) {
-    const rootDir = makeRoot();
-    const hot = hotForPing(rootDir);
-    setup(hot.config);
-    const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-    const { admin } = makeAdmin(rootDir, { hot, llm });
-
-    const body = await admin.run('ping', { role }, {});
-
-    if (model === null) {
-      assert.equal(llm.calls.length, 0, label);
-      assert.equal(body, line, label);
-    } else {
-      assert.equal(llm.calls.length, 1, label);
-      assert.equal(llm.calls[0].options.model, model, label);
-      assert.equal(body.split('\n').length, 1, label);
-      assert.ok(body.startsWith(line), `${label}: ${body}`);
-    }
-  }
-});
-
-test('run: ping classifier pings the three classifier roles and no other', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  hot.config.classifier.text = 'openrouter/text-model';
-  hot.config.classifier.video = 'openrouter/video-model';
-  const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-  const describer = fakeYoutubeDescriber({ status: 'ytdlp', detail: '', keySet: false });
-  const { admin } = makeAdmin(rootDir, { hot, llm, describer });
-
-  const lines = (await admin.run('ping', { role: 'classifier' }, {})).split('\n');
-
-  assert.equal(lines.length, 4, 'three role lines and the YouTube line');
-  assert.ok(lines[0].startsWith('classifier.text: openrouter/text-model — ok,'));
-  assert.ok(lines[1].startsWith('classifier.media: anthropic/claude-haiku-4.5 — ok,'));
-  assert.ok(lines[2].startsWith('classifier.video: openrouter/video-model — ok,'));
-  assert.equal(lines[3], 'youtube: API key — not needed (yt-dlp ok)', 'the YouTube line follows the video role');
-  assert.deepEqual(llm.calls.map((c) => c.options.model).sort(), ['anthropic/claude-haiku-4.5', 'openrouter/text-model', 'openrouter/video-model']);
-});
-
-test('run: ping calls llm.complete with the ping prompt, 16 max tokens, no daily cap and no calibration', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  hot.config.llm.pingTimeoutMs = 12345;
-  const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-  const { admin } = makeAdmin(rootDir, { hot, llm });
-
-  await admin.run('ping', { role: 'voice' }, {});
-
-  assert.equal(llm.calls.length, 1);
-  const [{ messages, options }] = llm.calls;
-  assert.deepEqual(messages, [{ role: 'user', content: 'Reply with one word: pong' }]);
-  assert.equal(options.model, 'anthropic/claude-opus-4.6');
-  assert.equal(options.maxOutputTokens, 16);
-  assert.equal(options.countAgainstDailyCap, false);
-  assert.equal(options.skipCalibration, true);
-  assert.equal(options.timeoutMs, 12345);
-});
-
-test('run: ping de-duplicates identical models: one call, reported for every role that uses it', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  // memory.model is null in makeHotWithMedia -> analyzer falls back to the same model as voice.
-  const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-  const { admin } = makeAdmin(rootDir, { hot, llm });
-
-  const body = await admin.run('ping', {}, {});
-  const lines = body.split('\n');
-
-  assert.equal(llm.calls.length, 2, 'voice+analyzer share one model, classifier.media (and classifier.text, which falls back to it) share another: two calls');
-  assert.equal(lines.length, 7, 'one line per requested role, and the image line');
-  assert.ok(lines.some((l) => l.startsWith('voice: anthropic/claude-opus-4.6 — ok,')));
-  assert.ok(lines.some((l) => l.startsWith('analyzer: anthropic/claude-opus-4.6 — ok,')));
-  assert.ok(lines.some((l) => l.startsWith('classifier.text: anthropic/claude-haiku-4.5 — ok,')));
-  assert.ok(lines.includes('classifier.video: (no model configured)'), 'no classifier.video -> skipped, like any role without a model');
-});
-
-test('ping: role voice pings llm.model as role voice; a stale memory.voiceModel is never pinged', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  hot.config.memory.model = 'openai/analyzer-model';
-  hot.config.memory.voiceModel = 'openrouter/stale-voice-model';
-  const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-  const { admin } = makeAdmin(rootDir, { hot, llm });
-
-  const body = await admin.run('ping', { role: 'voice' }, {});
-  assert.equal(llm.calls.length, 1);
-  assert.equal(llm.calls[0].options.model, 'anthropic/claude-opus-4.6');
-  assert.equal(llm.calls[0].options.role, 'voice');
-  assert.equal(llm.calls[0].options.countAgainstDailyCap, false);
-  assert.equal(body.split('\n').length, 1);
-  assert.ok(body.startsWith('voice: anthropic/claude-opus-4.6 — ok,'));
-
-  llm.calls.length = 0;
-  await admin.run('ping', {}, {});
-  assert.ok(!llm.calls.some((c) => c.options.model === 'openrouter/stale-voice-model'));
-  assert.ok(!llm.calls.some((c) => c.options.role === 'talk'));
-});
-
-test('ping: one voice line and no talk line, whatever the routes; talk is not a ping role', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  const llm = fakeLlm((options) => ({ text: 'pong', usage: {}, estimated: 1, provider: `served-${options.role}` }));
-  const { admin } = makeAdmin(rootDir, { hot, llm });
-
-  for (const routes of [{}, { 'anthropic/@voice': { only: ['amazon-bedrock'] } }, { 'anthropic/@talk': { only: ['amazon-bedrock'] } }]) {
-    hot.config.llm.providerByModel = routes;
-    llm.calls.length = 0;
-    const lines = (await admin.run('ping', {}, {})).split('\n');
-    const label = JSON.stringify(routes);
-    assert.equal(lines.filter((l) => l.startsWith('voice:')).length, 1, label);
-    assert.equal(lines.filter((l) => l.startsWith('talk:')).length, 0, label);
-    assert.ok(lines.some((l) => l.startsWith('voice: anthropic/claude-opus-4.6 — ok,') && l.includes('provider=served-voice')), label);
-    assert.ok(!llm.calls.some((c) => c.options.role === 'talk'), label);
-  }
-
-  // `talk` names no role: like any unknown argument, every role is pinged, still without a talk line.
-  const all = (await admin.run('ping', { role: 'talk' }, {})).split('\n');
-  assert.equal(all.filter((l) => l.startsWith('talk:')).length, 0);
-  assert.equal(all.filter((l) => l.startsWith('voice:')).length, 1);
-});
-
-test('ping: every model line comes before the youtube and web lines, the image line among the models', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  hot.config.memory.model = 'openrouter/analyzer-model';
-  hot.config.classifier.video = 'openrouter/video-model';
-  hot.config.mentor = { model: 'openrouter/mentor-model' };
-  hot.config.image = { model: 'openai/gpt-image-2.5-flare' };
-  hot.config.features = { ...hot.config.features, webLookup: true };
-  const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-  const describer = fakeYoutubeDescriber({ status: 'api', detail: '', keySet: true });
-  const { admin } = makeAdmin(rootDir, { hot, llm, describer, lookup: fakeWebLookup(true) });
-
-  const lines = (await admin.run('ping', {}, {})).split('\n');
-
-  assert.deepEqual(
-    lines.map((l) => l.split(':')[0]),
-    ['voice', 'analyzer', 'classifier.text', 'classifier.media', 'classifier.video', 'mentor', 'image', 'youtube', 'web'],
-  );
-  assert.ok(!llm.calls.some((c) => c.options.model === 'openai/gpt-image-2.5-flare' || c.options.role === 'image'), 'no chat request for the image model');
-});
-
-test('ping image: the image model is checked by its listing, never with a chat request', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  hot.config.image = { model: 'openai/gpt-image-2.5-flare' };
-  const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-  const listed = [];
-  llm.modelEndpoints = async (model) => {
-    listed.push(model);
-    return { ok: true, status: 200, json: { data: { architecture: { output_modalities: ['image'] }, endpoints: [{}] } } };
-  };
-  const { admin } = makeAdmin(rootDir, { hot, llm });
-
-  const body = await admin.run('ping', { role: 'image' }, {});
-  assert.equal(llm.calls.length, 0);
-  assert.deepEqual(listed, ['openai/gpt-image-2.5-flare']);
-  assert.match(body, /^image: openai\/gpt-image-2\.5-flare — listed, image output, 1 endpoint\(s\)/);
-});
-
-// A real "wrong provider keys" 404 body captured from OpenRouter, verbatim -- see the
-// module header's WHY. `error.metadata.routing_funnel` is the real location; `step` is the
-// real step-name key; `endpoint_count` (snake_case) is the real count key.
-const REAL_NO_ENDPOINTS_BODY =
-  '{"error":{"message":"No endpoints found for anthropic/claude-opus-4.6.","code":404,"metadata":{"routing_funnel":[' +
-  '{"step":"Initial Endpoints","endpoint_count":6},' +
-  '{"step":"Filter by Regional Surcharge","endpoint_count":5},' +
-  '{"step":"Filter by Allowed Providers","endpoint_count":2},' +
-  '{"step":"Apply Manual Order","endpoint_count":2},' +
-  '{"step":"Add BYOK Endpoints","endpoint_count":0}]}}}';
-
-function throwHttpError(statusCode, bodyText) {
-  const err = new Error(`OpenRouter HTTP ${statusCode}: ${bodyText}`);
-  err.statusCode = statusCode;
-  err.body = bodyText;
-  throw err;
-}
-
-test('run: ping reports a role that returns an HTTP error with its status, a trimmed message and the real routing funnel shape', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  hot.config.memory.model = 'openrouter/analyzer-model';
-  const llm = fakeLlm((options) => {
-    if (options.model === 'anthropic/claude-opus-4.6') throwHttpError(404, REAL_NO_ENDPOINTS_BODY);
-    return { text: 'pong', usage: {}, estimated: 1 };
-  });
-  const { admin } = makeAdmin(rootDir, { hot, llm });
-
-  const body = await admin.run('ping', {}, {});
-  const lines = body.split('\n');
-
-  const voiceLine = lines.find((l) => l.startsWith('voice:'));
-  assert.ok(voiceLine.includes('FAIL'));
-  assert.ok(voiceLine.includes('404'));
-  // The last step is also the first one that hit 0 here, so only one is shown.
-  assert.ok(voiceLine.includes('funnel: Add BYOK Endpoints -> 0 endpoints'));
-  assert.ok(!voiceLine.includes('first hit 0 at'));
-  assert.ok(lines.some((l) => l.startsWith('analyzer: openrouter/analyzer-model — ok,')));
-  assert.ok(lines.some((l) => l.startsWith('classifier.media: anthropic/claude-haiku-4.5 — ok,')));
-});
-
-test('run: ping shows both the last step and the first step that hit 0 endpoints, when they differ', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  const bodyText = JSON.stringify({
-    error: {
-      message: 'No endpoints found.',
-      code: 404,
-      metadata: {
-        routing_funnel: [
-          { step: 'Initial Endpoints', endpoint_count: 6 },
-          { step: 'Filter by Regional Surcharge', endpoint_count: 0 },
-          { step: 'Filter by Allowed Providers', endpoint_count: 0 },
-          { step: 'Add BYOK Endpoints', endpoint_count: 0 },
-        ],
-      },
-    },
-  });
-  const llm = fakeLlm(() => throwHttpError(404, bodyText));
-  const { admin } = makeAdmin(rootDir, { hot, llm });
-
-  const body = await admin.run('ping', { role: 'voice' }, {});
-
-  assert.ok(body.includes('funnel: Add BYOK Endpoints -> 0 endpoints'));
-  assert.ok(body.includes('(first hit 0 at Filter by Regional Surcharge -> 0 endpoints)'));
-});
-
-test('run: ping reports every role skipped when labels.ping.prompt is missing, without calling llm.complete', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir, { label: false });
-  const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-  const { admin } = makeAdmin(rootDir, { hot, llm });
-
-  const body = await admin.run('ping', {}, {});
-
-  assert.equal(llm.calls.length, 0);
-  const lines = body.split('\n');
-  assert.equal(lines.length, 7, 'six role lines and the image line');
-  assert.ok(lines.slice(0, 6).every((l) => l.includes('skipped: label missing')));
-  assert.equal(lines[6], 'image: (no model configured)', 'the image check needs no label');
-});
-
-test('run: ping works while paused', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-  const { admin, store } = makeAdmin(rootDir, { hot, llm });
-  store.state.data.paused = true;
-
-  await assert.doesNotReject(() => admin.run('ping', {}, {}));
 });
 
 // ---------------------------------------------------------------------------
@@ -2079,32 +1746,6 @@ test('run: alias.add/alias.remove are refused while paused', async () => {
 
 const LEARNED_DAY = (iso) => Date.parse(`${iso}T12:00:00.000Z`);
 
-test('run: learned.list orders by rank, decayed with memory.learnedHalfLifeDays', async () => {
-  const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
-  try {
-    const opts = { confirmGapHours: 0 };
-    // #1: heavy (weight 3) but last seen in March; #2: weight 1, seen in September.
-    store.applyLearnedOps('g1', { add: ['ἀρχαῖα ἑλληνικά'] }, { ...opts, seenAt: LEARNED_DAY('2026-01-01') });
-    store.applyLearnedOps('g1', { seen: [1] }, { ...opts, seenAt: LEARNED_DAY('2026-02-01') });
-    store.applyLearnedOps('g1', { seen: [1] }, { ...opts, seenAt: LEARNED_DAY('2026-03-01') });
-    store.applyLearnedOps('g1', { add: ['crème brûlée'] }, { ...opts, seenAt: LEARNED_DAY('2026-09-01') });
-
-    hot.config.memory = { learnedHalfLifeDays: 720 };
-    let lines = (await admin.run('learned.list', {}, { guildId: 'g1' })).split('\n');
-    assert.match(lines[0], /^#1 ἀρχαῖα ἑλληνικά · seen 3 · last 2026-03-01$/);
-    assert.match(lines[1], /^#2 crème brûlée /);
-
-    hot.config.memory = { learnedHalfLifeDays: 10 };
-    lines = (await admin.run('learned.list', {}, { guildId: 'g1' })).split('\n');
-    assert.match(lines[0], /^#2 crème brûlée /, 'a short half-life lets the recent item outrank the heavy old one');
-    assert.match(lines[1], /^#1 /);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
 test('run: learned.add stores a new item without from, confirmed at once (memory.confirmAfter 3), firstSeen == lastSeen == now', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
@@ -2248,7 +1889,7 @@ test('run: lore.remove deletes an entry by id and reports its title', async () =
 });
 
 // ---------------------------------------------------------------------------
-// status / reload
+// status
 // ---------------------------------------------------------------------------
 
 test('run: status reports dry-run on, logging only, when no mirror channel is configured', async () => {
@@ -2457,55 +2098,6 @@ test('run: pause waits for an in-flight warmup run before dropping caches', asyn
   resolveIdle();
   await pausePromise;
   assert.equal(store.dropCachesCalls, 1);
-});
-
-test('pause: stops a mentor run and waits for it before flushing', async () => {
-  const rootDir = makeRoot();
-  let resolveIdle;
-  const idlePromise = new Promise((resolve) => {
-    resolveIdle = resolve;
-  });
-  const calls = [];
-  let running = true;
-  const mentor = {
-    isRunning: () => running,
-    stop: () => {
-      calls.push('stop');
-      return { ok: true };
-    },
-    waitIdle: () => {
-      calls.push('waitIdle');
-      return idlePromise;
-    },
-  };
-  const { admin, store } = makeAdmin(rootDir, { mentor });
-
-  const pausePromise = admin.run('pause', {}, {});
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.deepEqual(calls, ['stop', 'waitIdle'], 'the run is stopped first, then waited for');
-  assert.equal(store.dropCachesCalls, 0, 'must not drop caches before the mentor run ended');
-  const flushesBefore = store.flushCalls;
-
-  running = false;
-  resolveIdle();
-  const result = await pausePromise;
-  assert.equal(store.dropCachesCalls, 1);
-  assert.ok(store.flushCalls > flushesBefore, 'flushed after the mentor run ended');
-  assert.match(result, /mentor run .*stopped/i);
-  assert.match(result, /resume/i);
-
-  // Nothing runs: no stop, and the reply says nothing about the mentor.
-  const idleCalls = [];
-  const idleMentor = {
-    isRunning: () => false,
-    stop: () => idleCalls.push('stop'),
-    waitIdle: () => (idleCalls.push('waitIdle'), Promise.resolve()),
-  };
-  const { admin: idleAdmin } = makeAdmin(makeRoot(), { mentor: idleMentor });
-  const idleResult = await idleAdmin.run('pause', {}, {});
-  assert.deepEqual(idleCalls, []);
-  assert.doesNotMatch(idleResult, /mentor/i);
 });
 
 // /nep pause: a live-analyzer run() already in flight when the pause
@@ -2866,7 +2458,6 @@ test('run: read-only and config commands keep working while paused', async () =>
   await assert.doesNotReject(() => admin.run('lore.list', {}, { guildId: 'g1' }));
   await assert.doesNotReject(() => admin.run('model.show', {}, {}));
   await assert.doesNotReject(() => admin.run('rule.list', {}, {}));
-  await assert.doesNotReject(() => admin.run('reload', {}, {}));
   await assert.doesNotReject(() => admin.run('set', { path: 'llm.model', value: '"x/y"' }, {}));
   await assert.doesNotReject(() => admin.run('unset', { path: 'llm.model' }, {}));
   await assert.doesNotReject(() => admin.run('model.set', { role: 'voice', id: 'x/y' }, {}));
@@ -3208,194 +2799,6 @@ test('run: memory.wipe is refused while a warmup is in flight', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// ping: the YouTube line after the video role (src/memory/youtube-check.js)
-// ---------------------------------------------------------------------------
-
-function fakeYoutubeDescriber(result) {
-  let calls = 0;
-  return {
-    get calls() {
-      return calls;
-    },
-    checkYoutube: async () => {
-      calls += 1;
-      if (result instanceof Error) throw result;
-      return result;
-    },
-  };
-}
-
-test('run: ping video appends the YouTube line right after the video line, one per status', async () => {
-  const cases = [
-    [{ status: 'ytdlp', detail: 'duration 19s', keySet: false }, 'youtube: API key — not needed (yt-dlp ok)'],
-    [{ status: 'api', detail: 'duration 19s', keySet: true }, 'youtube: API key — ok'],
-    [{ status: 'page', detail: 'duration 19s', keySet: false }, 'youtube: API key — missing (page only, unreliable)'],
-    [
-      { status: 'page', detail: 'duration 19s', keySet: true },
-      'youtube: API key — failed (page only, unreliable)',
-    ],
-    [{ status: 'blocked', detail: '', keySet: false }, 'youtube: API key — missing (blocked)'],
-    [
-      { status: 'blocked', detail: 'ytdlp=download api=download page=download', keySet: true },
-      'youtube: API key — failed (blocked)',
-    ],
-  ];
-  for (const [result, expected] of cases) {
-    const rootDir = makeRoot();
-    const hot = hotForPing(rootDir);
-    hot.config.classifier.video = 'openrouter/video-model';
-    const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-    const describer = fakeYoutubeDescriber(result);
-    const { admin } = makeAdmin(rootDir, { hot, llm, describer });
-
-    const lines = (await admin.run('ping', { role: 'classifier.video' }, {})).split('\n');
-    assert.equal(lines.length, 2);
-    assert.ok(lines[0].startsWith('classifier.video: openrouter/video-model — ok,'));
-    assert.equal(lines[1], expected);
-    assert.equal(describer.calls, 1);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ping: the web line (src/web/lookup.js), no network call
-// ---------------------------------------------------------------------------
-
-function fakeWebLookup(hasKey) {
-  let searches = 0;
-  return {
-    hasSearch: () => hasKey,
-    search: async () => {
-      searches += 1;
-      return null;
-    },
-    get searches() {
-      return searches;
-    },
-  };
-}
-
-test('run: ping classifier appends the web line last: key ok, no key, or lookup off', async () => {
-  const cases = [
-    [true, true, 'web: API key — ok'],
-    [true, false, 'web: API key — missing'],
-    [false, true, 'web: API key — off'],
-    [undefined, true, 'web: API key — off'],
-  ];
-  for (const [webLookup, hasKey, expected] of cases) {
-    const rootDir = makeRoot();
-    const hot = hotForPing(rootDir);
-    if (webLookup !== undefined) hot.config.features = { ...hot.config.features, webLookup };
-    else if (hot.config.features) delete hot.config.features.webLookup;
-    const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-    const lookup = fakeWebLookup(hasKey);
-    const { admin } = makeAdmin(rootDir, { hot, llm, lookup });
-
-    const lines = (await admin.run('ping', { role: 'classifier' }, {})).split('\n');
-    assert.equal(lines.at(-1), expected);
-    assert.equal(lines.filter((l) => l.startsWith('web:')).length, 1);
-    assert.equal(lookup.searches, 0, 'no search request');
-    assert.ok(llm.calls.every((c) => c.options.maxOutputTokens === 16), 'only the model pings');
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ping: the image line, checked against the provider's public model listing
-// ---------------------------------------------------------------------------
-
-const IMAGE_MODEL = 'openai/gpt-image-2.5-flare';
-const FAKE_KEY = 'sk-or-v1-fakekeyfortests0000';
-
-/** A fake fetch: records every call and answers with `respond(url, init)`. */
-function fakeListingFetch(respond) {
-  const calls = [];
-  const impl = async (url, init) => {
-    calls.push({ url: String(url), init });
-    return respond(url, init);
-  };
-  impl.calls = calls;
-  return impl;
-}
-
-function listing(status, body) {
-  return { ok: status >= 200 && status < 300, status, json: async () => body };
-}
-
-function listedBody(modalities, endpoints) {
-  return { data: { id: IMAGE_MODEL, architecture: { output_modalities: modalities }, endpoints } };
-}
-
-/** A ping-ready hot config with the image model set, drawing on, and a base URL with a trailing slash. */
-function hotForImagePing(rootDir, { model = IMAGE_MODEL, imageGeneration = true } = {}) {
-  const hot = hotForPing(rootDir);
-  hot.config.llm.baseUrl = 'https://openrouter.ai/api/v1/';
-  hot.config.image = { model };
-  hot.config.features = { ...hot.config.features, imageGeneration };
-  return hot;
-}
-
-/** `llm` with the real client's `modelEndpoints` (src/llm/openrouter.js) over `fetchImpl` and FAKE_KEY:
- * the listing GET goes out exactly as in production, while chat completions stay fake. */
-function withListing(llm, hot, fetchImpl) {
-  const real = createLlm({
-    apiKey: FAKE_KEY,
-    getConfig: () => hot.config,
-    calibrator: { apply: (n) => n, observe() {} },
-    state: { data: {}, markDirty() {} },
-    fetchImpl,
-  });
-  return Object.assign(llm, { modelEndpoints: real.modelEndpoints });
-}
-
-function imageAdmin(rootDir, { hot, fetchImpl, llm } = {}) {
-  const config = hot ?? hotForImagePing(rootDir);
-  return makeAdmin(rootDir, {
-    hot: config,
-    llm: withListing(llm ?? fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 })), config, fetchImpl),
-  });
-}
-
-test('ping: image listed with image output reports the endpoint count and latency', async () => {
-  const rootDir = makeRoot();
-  const fetchImpl = fakeListingFetch(() => listing(200, listedBody(['image', 'text'], [{}, {}])));
-  const { admin } = imageAdmin(rootDir, { fetchImpl });
-
-  const body = await admin.run('ping', { role: 'image' }, {});
-
-  assert.match(body, /^image: openai\/gpt-image-2\.5-flare — listed, image output, 2 endpoint\(s\), \d+ ms$/);
-  assert.equal(fetchImpl.calls.length, 1);
-  const [{ url, init }] = fetchImpl.calls;
-  assert.equal(url, 'https://openrouter.ai/api/v1/models/openai/gpt-image-2.5-flare/endpoints');
-  assert.equal(init.method, 'GET');
-  assert.equal(init.headers.Authorization, `Bearer ${FAKE_KEY}`);
-  assert.ok(init.signal instanceof AbortSignal, 'the request carries a timeout signal');
-});
-
-test('ping: the image check sends no chat completion and leaves state untouched', async () => {
-  const rootDir = makeRoot();
-  const fetchImpl = fakeListingFetch(() => listing(200, listedBody(['image'], [{}])));
-  const llm = fakeLlm(() => ({ text: 'pong', usage: {}, estimated: 1 }));
-  const calibrator = { ratio: 1 };
-  const images = { familyOf, quota: () => { throw new Error('the image caps must not be read'); }, generate: async () => { throw new Error('no generation'); } };
-  const hot = hotForImagePing(rootDir);
-  const { admin, store } = makeAdmin(rootDir, { hot, llm: withListing(llm, hot, fetchImpl), calibrator, images });
-  const before = structuredClone(store.state.data);
-  let dirtied = 0;
-  store.state.markDirty = () => {
-    dirtied += 1;
-  };
-
-  const body = await admin.run('ping', { role: 'image' }, {});
-
-  assert.equal(llm.calls.length, 0, 'no chat completion');
-  assert.equal(fetchImpl.calls.length, 1);
-  assert.deepEqual(store.state.data, before);
-  assert.equal(dirtied, 0);
-  assert.deepEqual(calibrator, { ratio: 1 });
-  assert.ok(!body.includes(FAKE_KEY), 'the key never reaches the reply');
-  assert.ok(!body.includes('Bearer'));
-});
-
-// ---------------------------------------------------------------------------
 // draw / the image lines of status and model.show (src/llm/images.js)
 // ---------------------------------------------------------------------------
 
@@ -3591,262 +2994,13 @@ test('run: draw is refused while paused', async () => {
   assert.equal(images.calls.length, 0);
 });
 
-// ---------------------------------------------------------------------------
-// mentor: the owner's interface to the manual mentor (src/mentor/*)
-// ---------------------------------------------------------------------------
-
-const MENTOR_NOW = Date.parse('2026-09-30T12:00:00.000Z');
-
-/** A fake mentor: `run`/`check` resolve at once with a `done` that never settles, so a handler
- * that awaited it would never finish. */
-/** A moment as the mentor's resolveAnchor returns it: two messages up to the trigger, an answer of two. */
-function sampleMoment(messageId = '800000000000000004') {
-  return {
-    channelId: '500000000000000001',
-    messageId,
-    triggerId: '800000000000000003',
-    history: [
-      { id: '800000000000000002', authorId: 'bot', self: true, content: 'ναι' },
-      { id: '800000000000000003', authorId: 'u1', self: false, content: 'é'.repeat(1580) },
-    ],
-    original: ['you are right, but', 'no'],
-  };
-}
-
-function fakeMentor({ run, check, status, stopOk = false, resolveAnchor } = {}) {
-  const calls = [];
-  return {
-    calls,
-    async readAnchor(ref, context) {
-      calls.push(['resolveAnchor', ref, context]);
-      if (resolveAnchor) return resolveAnchor(ref, context);
-      return sampleMoment(/^\d+$/.test(ref) ? ref : '800000000000000004');
-    },
-    async run(caseId) {
-      calls.push(['run', caseId]);
-      if (run) return run(caseId);
-      return { started: true, done: new Promise(() => {}) };
-    },
-    async check() {
-      calls.push(['check']);
-      if (check) return check();
-      return { started: true, cases: 2, done: new Promise(() => {}) };
-    },
-    stop() {
-      calls.push(['stop']);
-      return { ok: stopOk };
-    },
-    status() {
-      return status ? status() : { running: false };
-    },
-    isRunning: () => false,
-  };
-}
-
-/** An admin with a real case store on a temp dir, a real budget over the fake store's state and a fake mentor. */
-function makeMentorAdmin(extra = {}) {
-  const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.features = { mentor: true };
-  hot.config.mentor = { model: 'mentor/model-a', maxTokensPerDay: 1000 };
-  const store = makeStore();
-  const now = () => MENTOR_NOW;
-  const mentorCases = createCaseStore({ dataDir: path.join(rootDir, 'data'), now });
-  const mentorBudget = createMentorBudget({ state: store.state, getConfig: () => hot.config, now });
-  const mentor = extra.mentor ?? fakeMentor();
-  const { admin } = makeAdmin(rootDir, { hot, store, mentor, mentorCases, mentorBudget });
-  return { admin, hot, store, mentor, mentorCases, mentorBudget, rootDir };
-}
-
-/** A finished run as the mentor saves it, trimmed to what the report reads. */
-function sampleMentorRun(caseId, { passed = true, overall = 7, target = 'reply' } = {}) {
-  return {
-    caseId,
-    caseText: 'Answer a greeting with one short line.',
-    target,
-    kind: 'run',
-    startedAt: '2026-09-30T11:00:00.000Z',
-    finishedAt: '2026-09-30T11:05:00.000Z',
-    models: { mentor: 'mentor/model-a', voice: 'voice/model', analyzer: 'voice/model' },
-    reference: { profile: null, samples: 0 },
-    situations: [],
-    dropped: 0,
-    repeated: [],
-    medians: { human: overall, character: overall, rules: overall, goal: overall, overall },
-    passed,
-    reasons: passed ? [] : ['human below the bar'],
-    tokens: { spent: 120, left: 880 },
-  };
-}
-
-const MENTOR_KEYS = [
-  'mentor.add',
-  'mentor.anchor',
-  'mentor.cases',
-  'mentor.remove',
-  'mentor.run',
-  'mentor.check',
-  'mentor.stop',
-  'mentor.show',
-  'mentor.wrong',
-  'mentor.status',
-];
-const MENTOR_ARGS = { text: 'Answer a greeting with one short line.', message: '800000000000000009', id: 1, reason: 'it was fine' };
-
-test('run: mentor.add reads the moment of the message and stores a reply case with it as moment 1', async () => {
-  const { admin, mentor, mentorCases } = makeMentorAdmin();
-  const link = 'https://discord.com/channels/1/500000000000000001/800000000000000004';
-
-  assert.equal(
-    await admin.run('mentor.add', { message: ` ${link} `, text: 'Too quick to concede before objecting.' }, { guildId: 'g1', channelId: '500000000000000007' }),
-    'case 1 added (reply), moment 1: 2 messages up to the trigger, an answer of 2 messages',
-  );
-  // The link as given (trimmed), with the channel the command was typed in (for a bare id).
-  assert.deepEqual(mentor.calls, [['resolveAnchor', link, { channelId: '500000000000000007' }]]);
-  const [item] = mentorCases.list('g1');
-  assert.deepEqual([item.id, item.target, item.state, item.text], [1, 'reply', 'new', 'Too quick to concede before objecting.']);
-  assert.deepEqual(item.anchors, [{ id: 1, ...sampleMoment(), addedAt: new Date(MENTOR_NOW).toISOString() }]);
-  // A target given by an older client is ignored: every new case is a reply case.
-  await admin.run('mentor.add', { message: '800000000000000005', text: 'Remember the pet named Héloïse.', target: 'memory' }, { guildId: 'g1' });
-  assert.equal(mentorCases.get('g1', 2).target, 'reply');
-});
-
-test('run: mentor.anchor adds a moment to a case, up to mentor.anchor.max read now', async () => {
-  const { admin, mentor, mentorCases, hot } = makeMentorAdmin();
-  await admin.run('mentor.add', { message: '800000000000000004', text: 'Answer a greeting with one short line.' }, { guildId: 'g1' });
-  hot.config.mentor.anchor = { max: 2 };
-
-  assert.equal(
-    await admin.run('mentor.anchor', { id: 1, message: '800000000000000005' }, { guildId: 'g1', channelId: '500000000000000001' }),
-    'case 1: moment 2: 2 messages up to the trigger, an answer of 2 messages (2 of 2)',
-  );
-  assert.deepEqual(mentor.calls.at(-1), ['resolveAnchor', '800000000000000005', { channelId: '500000000000000001' }]);
-  assert.deepEqual(mentorCases.get('g1', 1).anchors.map((a) => [a.id, a.messageId]), [[1, '800000000000000004'], [2, '800000000000000005']]);
-
-  // Full: refused before the message is read.
-  const reads = mentor.calls.length;
-  await assert.rejects(() => admin.run('mentor.anchor', { id: 1, message: '800000000000000006' }, { guildId: 'g1' }), /at most 2 \(mentor\.anchor\.max\)/);
-  assert.equal(mentor.calls.length, reads);
-  // The same message twice is refused by the case store.
-  hot.config.mentor.anchor = { max: 5 };
-  await assert.rejects(() => admin.run('mentor.anchor', { id: 1, message: '800000000000000005' }, { guildId: 'g1' }), /already a moment of case 1/);
-  // An unknown case, or no message, is refused before anything is read.
-  await assert.rejects(() => admin.run('mentor.anchor', { id: 9, message: '800000000000000006' }, { guildId: 'g1' }), /^Error: no case 9$/);
-  await assert.rejects(() => admin.run('mentor.anchor', { id: 1 }, { guildId: 'g1' }), /message link or id is required/);
-  assert.equal(mentor.calls.length, reads + 1);
-  assert.equal(mentorCases.get('g1', 1).anchors.length, 2);
-});
-
-test('run: mentor.cases lists the active cases, one line each, with the last score or - and the text clipped to 80', async () => {
-  const { admin, mentorCases, rootDir } = makeMentorAdmin();
-  const long = `Keep replies short in the evening; ${'every message stays under a dozen words '.repeat(3)}`.trim();
-  mentorCases.add('g1', { text: long, target: 'reply' });
-  // A memory case stored by an earlier version (`add` takes reply cases only) is still listed as it is.
-  mentorCases.add('g1', { text: 'Remember the pet named Héloïse.', target: 'reply' });
-  const casesFile = path.join(rootDir, 'data', 'guilds', 'g1', 'mentor', 'cases.json');
-  const stored = JSON.parse(fs.readFileSync(casesFile, 'utf8'));
-  stored.cases[1].target = 'memory';
-  fs.writeFileSync(casesFile, JSON.stringify(stored));
-  mentorCases.add('g1', { text: 'A retired case that is not listed.', target: 'reply' });
-  mentorCases.saveRun('g1', sampleMentorRun(2, { passed: true, overall: 7, target: 'memory' }));
-  mentorCases.retire('g1', 3);
-  mentorCases.add('g1', { text: 'Too quick to concede before objecting.', target: 'reply', anchor: sampleMoment() });
-
-  const lines = (await admin.run('mentor.cases', {}, { guildId: 'g1' })).split('\n');
-  assert.deepEqual(lines, [
-    `1 [new] reply - ${long.slice(0, 77)}...`,
-    '2 [passing] memory 7 Remember the pet named Héloïse.',
-    '4 [new] reply - moments 1 Too quick to concede before objecting.',
-  ]);
-});
-
-test('run: mentor.remove retires a case; an unknown id is refused', async () => {
-  const { admin, mentorCases } = makeMentorAdmin();
-  mentorCases.add('g1', { text: 'Answer a greeting with one short line.', target: 'reply' });
-
-  assert.equal(await admin.run('mentor.remove', { id: 1 }, { guildId: 'g1' }), 'case 1 retired');
-  assert.equal(mentorCases.get('g1', 1).state, 'retired');
-  await assert.rejects(() => admin.run('mentor.remove', { id: 9 }, { guildId: 'g1' }), /^Error: no case 9$/);
-});
-
-/** `n` reply cases in the real case store, ids 1..n. */
-function seedMentorCases(mentorCases, n) {
-  for (let i = 0; i < n; i += 1) mentorCases.add('g1', { text: 'Answer a greeting with one short line.', target: 'reply' });
-}
-
-test('run: mentor.run starts the run and replies at once, without waiting for it to finish', async () => {
-  const { admin, mentor, hot, mentorCases } = makeMentorAdmin();
-  seedMentorCases(mentorCases, 3);
-  hot.config.bot.dryRunChannelId = '700000000000000001';
-  const reply = await admin.run('mentor.run', { id: 3 }, { guildId: 'g1' });
-  assert.equal(reply, 'run started for case 3; the report will come to the admin channel');
-  assert.deepEqual(mentor.calls, [['run', 3]]);
-});
-
-test('run: mentor.wrong records the owner feedback on the last run', async () => {
-  const { admin, mentorCases } = makeMentorAdmin();
-  mentorCases.add('g1', { text: 'Answer a greeting with one short line.', target: 'reply' });
-  const saved = mentorCases.saveRun('g1', sampleMentorRun(1));
-
-  assert.equal(await admin.run('mentor.wrong', { id: 1, reason: 'the second answer was the natural one' }, { guildId: 'g1' }), 'noted for case 1');
-  const [entry] = mentorCases.recentFeedback('g1', 5);
-  assert.equal(entry.caseId, 1);
-  assert.equal(entry.runId, saved.id);
-  assert.equal(entry.reason, 'the second answer was the natural one');
-});
-
-/** A saved run with its own outcome and finish time; one scored answer of two. */
-function finishedMentorRun(caseId, finishedAt, extra = {}) {
-  return {
-    ...sampleMentorRun(caseId, { passed: false, overall: 5 }),
-    situations: [{ n: 1, title: 't', lines: [], transcript: '', answers: [{ id: 's1a1', score: { overall: 5 } }, { id: 's1a2', score: null }] }],
-    tokens: { spent: 450, left: 550 },
-    finishedAt,
-    ...extra,
-  };
-}
-
-test('mentor.status: an unreadable run file gives "last: cannot be read"', async () => {
-  const { admin, mentorCases, rootDir } = makeMentorAdmin();
-  mentorCases.add('g1', { text: 'First case text here.', target: 'reply' });
-  mentorCases.add('g1', { text: 'Second case text here.', target: 'reply' });
-  mentorCases.saveRun('g1', finishedMentorRun(1, '2026-09-30T11:05:00.000Z'));
-  const broken = mentorCases.saveRun('g1', finishedMentorRun(2, '2026-09-30T11:10:00.000Z'));
-  fs.writeFileSync(path.join(rootDir, 'data', 'guilds', 'g1', 'mentor', 'runs', '2', `${broken.id}.json`),'{ not json');
-
-  const lines = (await admin.run('mentor.status', {}, { guildId: 'g1' })).split('\n');
-  assert.equal(lines.at(-2), 'running: no');
-  assert.equal(lines.at(-1), 'last: cannot be read');
-});
-
-test('run: mentor add/anchor/remove/run/check/wrong are refused while paused; cases/show/status/stop are not', async () => {
-  const { admin, mentor, mentorCases, store } = makeMentorAdmin();
-  mentorCases.add('g1', { text: 'Answer a greeting with one short line.', target: 'reply' });
-  mentorCases.saveRun('g1', sampleMentorRun(1));
-  store.state.data.paused = true;
-
-  for (const key of ['mentor.add', 'mentor.anchor', 'mentor.remove', 'mentor.run', 'mentor.check', 'mentor.wrong']) {
-    await assert.rejects(() => admin.run(key, MENTOR_ARGS, { guildId: 'g1' }), /paused.*resume/i, key);
-  }
-  assert.deepEqual(mentor.calls, [], 'the mentor is never started while paused');
-  assert.equal(mentorCases.list('g1').length, 1);
-  assert.equal(mentorCases.get('g1', 1).state, 'passing');
-  assert.deepEqual(mentorCases.recentFeedback('g1', 5), []);
-
-  for (const key of ['mentor.cases', 'mentor.show', 'mentor.status', 'mentor.stop']) {
-    await assert.doesNotReject(() => admin.run(key, MENTOR_ARGS, { guildId: 'g1' }), key);
-  }
-});
-
-test('run: access.grant refuses private memory, the mentor and access management (owner-only), writing nothing', async () => {
+test('run: access.grant refuses private memory and access management (owner-only), writing nothing', async () => {
   // [group, the operations or keys under it, the refusal of each]: an owner-only operation is
-  // refused by name; a group holding only owner-only operations covers nothing; the mentor has no
-  // operation at all (owner-only, never grantable).
+  // refused by name; a group holding only owner-only operations covers nothing.
   const ownerOnly = /is owner-only and cannot be granted/;
   for (const [group, commands, refusal] of [
     ['memory.private', ['memory.private.read', 'memory.private.forget', 'memory.private.purge'], ownerOnly],
     ['memory.private', ['memory.private'], /covers no grantable read operation/],
-    ['mentor', ['mentor', ...MENTOR_KEYS], /unknown operation/],
     ['access', ['access.grant', 'access.revoke', 'access.list'], ownerOnly],
     ['access', ['access'], /covers no grantable read operation/],
   ]) {
@@ -4054,7 +3208,6 @@ function hotForRoutes(rootDir) {
   const hot = makeHotWithMedia(rootDir);
   hot.config.llm.provider = null;
   hot.config.classifier = { text: null, media: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash' };
-  hot.config.mentor = { model: null };
   hot.config.image = { model: 'openai/gpt-image-x', provider: { only: ['openai'] } };
   hot.config.media = { video: { provider: { order: ['google-ai-studio'], allow_fallbacks: false } } };
   return hot;
@@ -4082,7 +3235,6 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     '  classifier.text: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  classifier.media: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  classifier.video: google/gemini-3.8-flash -> google/@classifier.video (only google-ai-studio, fallbacks: off); direct-URL videos: media.video.provider (order google-ai-studio, fallbacks: off)',
-    '  mentor: (no model configured)',
     '  image: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
   ]);
 });
@@ -4108,25 +3260,6 @@ test('access: route.list is read-only, route.set and route.remove open a write; 
   assert.ok((await admin.run('access.grant', { command: 'route.set', roleId: '7' }, {})).includes('Note:'));
   assert.ok((await admin.run('access.grant', { command: 'route.remove', userId: '8' }, {})).includes('Note:'));
   assert.ok((await admin.run('access.grant', { command: 'route' }, {})).includes('Note:'));
-});
-
-test('run: ping sends each role as its own role and pings a shared model once per distinct route', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForPing(rootDir);
-  // memory.model null -> the analyzer shares the voice model; classifier.text falls back to classifier.media.
-  const llm = fakeLlm((options) => ({ text: 'pong', usage: {}, estimated: 1, provider: `served-${options.role}` }));
-  const { admin } = makeAdmin(rootDir, { hot, llm });
-
-  const plain = (await admin.run('ping', {}, {})).split('\n');
-  assert.deepEqual(llm.calls.map((c) => c.options.role), ['voice', 'classifier.text'], 'no routes: one call per model, as the first role using it');
-  assert.ok(plain.some((l) => l.startsWith('analyzer: anthropic/claude-opus-4.6 — ok,') && l.includes('provider=served-voice')));
-
-  hot.config.llm.providerByModel = { 'anthropic/@analyzer': { only: ['amazon-bedrock'] } };
-  llm.calls.length = 0;
-  const routed = (await admin.run('ping', {}, {})).split('\n');
-  assert.deepEqual(llm.calls.map((c) => c.options.role), ['voice', 'analyzer', 'classifier.text'], 'the analyzer route differs from voice: its own call');
-  assert.ok(routed.some((l) => l.startsWith('voice: anthropic/claude-opus-4.6 — ok,') && l.includes('provider=served-voice')));
-  assert.ok(routed.some((l) => l.startsWith('analyzer: anthropic/claude-opus-4.6 — ok,') && l.includes('provider=served-analyzer')));
 });
 
 // ---------------------------------------------------------------------------

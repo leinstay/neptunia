@@ -1,8 +1,8 @@
 // The input of one turn's request, named in full. src/behavior/prompt.js#buildRequest
 // reads many optional inputs, and an input a caller forgets is silently
 // absent: the request is built without its block and nothing fails. Every
-// caller that builds a turn's request (src/behavior/turn.js, and the mentor's
-// sandbox, which leaves some out on purpose) passes its context through here,
+// caller that builds a turn's request (src/behavior/turn.js; the replay
+// sandbox, src/behavior/sandbox.js, names its own and leaves some out on purpose) passes its context through here,
 // so a key left out throws instead. `null` says "deliberately absent";
 // `undefined` (or a missing key) is an omission. Pure.
 

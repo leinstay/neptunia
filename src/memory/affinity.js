@@ -291,7 +291,7 @@ export function roundScore(score) {
  *   reason the voice run fills in later through src/memory/store.js#fillAffinityReason). It also
  *   becomes `affinity.reason`; with none, `affinity.reason` keeps the previous one. The newest
  *   entry's reason is therefore not always the stored one: a reader that restores an earlier
- *   state from the history (src/mentor/moment.js#affinityBefore) has to look past the entries
+ *   state from the history (src/behavior/sandbox.js#momentView) has to look past the entries
  *   without a reason.
  * @param {object} opts
  * @param {number} opts.maxDelta      `delta` is clamped to +-`deltaCapOf(maxDelta)` BEFORE damping,

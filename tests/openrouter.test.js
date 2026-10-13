@@ -1256,7 +1256,7 @@ test('complete: llm: usage carries the request\'s duration, its purpose and its 
   const ask = (options) => llm.complete([{ role: 'user', content: 'the prompt itself' }], options);
   const { logs } = await withCapturedLogs(async () => {
     await ask({ role: 'classifier.text', purpose: 'rewatch' });
-    await ask({ role: 'voice', origin: 'mentor', countAgainstDailyCap: false });
+    await ask({ role: 'voice', origin: 'replay', countAgainstDailyCap: false });
     await ask({ role: 'voice' });
     await ask({ purpose: 7, origin: { text: 'not a code' } });
     answerMs = -5000; // the clock is stepped back while the request is out: never a negative duration
@@ -1266,7 +1266,7 @@ test('complete: llm: usage carries the request\'s duration, its purpose and its 
     usageLines(logs).map(({ role, purpose, origin, ms }) => ({ role, purpose, origin, ms })),
     [
       { role: 'classifier.text', purpose: 'rewatch', origin: null, ms: 1234 },
-      { role: 'voice', purpose: null, origin: 'mentor', ms: 1234 },
+      { role: 'voice', purpose: null, origin: 'replay', ms: 1234 },
       { role: 'voice', purpose: null, origin: null, ms: 1234 },
       { role: null, purpose: null, origin: null, ms: 1234 },
       { role: 'voice', purpose: 'lookup', origin: null, ms: 0 },
@@ -1275,7 +1275,7 @@ test('complete: llm: usage carries the request\'s duration, its purpose and its 
   assert.equal(bodies.length, 5);
   for (const body of bodies) {
     assert.deepEqual(Object.keys(JSON.parse(body)).sort(), ['max_tokens', 'messages', 'model', 'provider', 'temperature'], 'no purpose, no origin, no role');
-    for (const word of ['rewatch', 'lookup', 'mentor', 'purpose', 'origin']) assert.ok(!body.includes(word), `${word} is logged only`);
+    for (const word of ['rewatch', 'lookup', 'replay', 'purpose', 'origin']) assert.ok(!body.includes(word), `${word} is logged only`);
   }
   const text = JSON.stringify(logs);
   assert.ok(!text.includes('the prompt itself') && !text.includes('the answer itself'), 'counts and codes only');
@@ -1397,9 +1397,9 @@ test('resolveProvider: a key for another role never applies; the fallback does',
 });
 
 test('resolveProvider: an empty prefix with a role matches every model for that role', () => {
-  const byModel = { '@mentor': STUDIO, 'google/': VERTEX };
-  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'mentor' }), STUDIO);
-  assert.equal(resolveProvider('openai/gpt-x', { byModel, role: 'mentor' }), STUDIO);
+  const byModel = { '@classifier.video': STUDIO, 'google/': VERTEX };
+  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'classifier.video' }), STUDIO);
+  assert.equal(resolveProvider('openai/gpt-x', { byModel, role: 'classifier.video' }), STUDIO);
 });
 
 test('matchRoute: names the matching key and its role, or null', () => {
@@ -1501,7 +1501,7 @@ test('cacheTtlFor: no marker unless features.promptCache is exactly true', () =>
 });
 
 test('cacheTtlFor: a role outside llm.cache.roles gets none; a non-array roles reads as voice only', () => {
-  for (const role of ['analyzer', 'classifier.text', 'mentor', undefined, null, 7]) {
+  for (const role of ['analyzer', 'classifier.text', 'classifier.video', undefined, null, 7]) {
     assert.equal(cacheTtlFor(cachingConfig(), role, LISTED_MODEL), null, String(role));
   }
   assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: ['voice', 'analyzer'] } }), 'analyzer', LISTED_MODEL), '1h');
@@ -1539,7 +1539,7 @@ test('cacheTtlFor: an unknown ttl reads as 1h; force true and false override the
     assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, ttl } }), 'voice', LISTED_MODEL), '1h', String(ttl));
   }
   // true marks whatever the switch, the role list and the model list say (the cache probe sends it with the switch off)
-  assert.equal(cacheTtlFor(baseConfig(), 'mentor', 'test-model', true), '1h');
+  assert.equal(cacheTtlFor(baseConfig(), 'classifier.video', 'test-model', true), '1h');
   assert.equal(cacheTtlFor({ llm: { cache: { ttl: '5m' } } }, undefined, undefined, true), '5m');
   assert.equal(cacheTtlFor(cachingConfig({ promptCache: false }), 'voice', LISTED_MODEL, true), '1h');
   assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [] } }), 'voice', UNLISTED_MODEL, true), '1h');
@@ -1850,11 +1850,11 @@ test("complete: with promptCache off or the role not listed the body is byte-ide
   ];
   for (const config of configs) {
     const { llm, sent } = cachingLlm(() => config);
-    for (const role of ['voice', 'analyzer', 'classifier.text', 'mentor', undefined]) await llm.complete(messages, { role });
+    for (const role of ['voice', 'analyzer', 'classifier.text', 'classifier.video', undefined]) await llm.complete(messages, { role });
     for (const body of sent) assert.equal(body, today(config.llm.model));
   }
   const { llm, sent } = cachingLlm(() => cachingConfig());
-  for (const role of ['analyzer', 'classifier.text', 'classifier.media', 'mentor', undefined]) await llm.complete(messages, { role });
+  for (const role of ['analyzer', 'classifier.text', 'classifier.media', 'classifier.video', undefined]) await llm.complete(messages, { role });
   for (const body of sent) assert.equal(body, today(LISTED_MODEL));
 });
 
@@ -2124,7 +2124,7 @@ test('complete: the usage line keeps numbers, booleans and ids only; a value of 
 
 test('complete: a classifier.text request carries no marker even with promptCache on', async () => {
   const { llm, sent } = cachingLlm(() => cachingConfig());
-  for (const role of ['classifier.text', 'analyzer', 'mentor', undefined]) {
+  for (const role of ['classifier.text', 'analyzer', 'classifier.video', undefined]) {
     await llm.complete(replyMessages(), { role });
   }
   assert.equal(sent.length, 4);
@@ -2689,7 +2689,7 @@ test('currentRoleName: talk reads as voice and says so once per process; any oth
   ]);
   assert.deepEqual(result, ['voice', 'voice', 'voice', 'analyzer', undefined, 7, 'voice', '1h']);
   assert.equal(logs.filter((line) => line.msg === 'config: role talk is now voice').length, 1);
-  assert.equal(currentRoleName('mentor'), 'mentor');
+  assert.equal(currentRoleName('classifier.video'), 'classifier.video');
 });
 
 // --- a choice-level provider error inside a 200 ---

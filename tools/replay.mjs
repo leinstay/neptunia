@@ -68,19 +68,20 @@
 //   normalized), the persona's own messages marked `self`, reply references,
 //   mentions, attachment / embed / sticker labels, reactions. Pictures are
 //   never downloaded or described; the describer's cached captions and watched
-//   summaries are rendered as a replayed mentor moment renders them
-//   (src/mentor/anchor.js#replayMedia, every entry the cache holds now).
-// - Answers it as a stored mentor moment (src/mentor/sandbox.js#answerReply
+//   summaries are rendered as the live transcript renders them
+//   (src/behavior/sandbox.js#replayMedia, every entry the cache holds now).
+// - Answers it in the replay sandbox (src/behavior/sandbox.js#answerReply
 //   with `{ history, triggerId, kind, mode }`) at the trigger's time. The
-//   trigger kind and mode come from the post ledger (state.json `postLedger`)
-//   when an entry names this trigger; otherwise the sandbox guesses: `reply`
-//   when the trigger replies to the persona, else `mention`.
-// - Memory: the live view (src/mentor/sandbox.js#liveView: data/, the live
+//   trigger kind and mode come from the journal's newest `turn.start` record
+//   whose trigger is this message (data/guilds/<g>/journal, read only);
+//   otherwise the sandbox guesses: `reply` when the trigger replies to the
+//   persona, else `mention`.
+// - Memory: the live view (src/behavior/sandbox.js#liveView: data/, the live
 //   config.local.json and prompts.local/), except that `<recent>` never shows
 //   lines the analyzer added at or after the trigger (they describe what came
 //   after it). `--as-of-moment` hides every dated item written at or after
-//   the trigger instead (src/mentor/moment.js#momentView, the mentor's own
-//   replay rule) and reports what was hidden.
+//   the trigger instead (src/behavior/sandbox.js#momentView) and reports what
+//   was hidden.
 // - `--hide-self <substring>` (repeatable) leaves out of the request every
 //   self fact of the guild memory (`getGuild().self`) that contains any given
 //   substring (case-insensitive); `--hide-self-all` leaves out every self
@@ -160,7 +161,7 @@
 //
 // What keeps the running bot undisturbed: no gateway session (a discord.js
 // Client that never logs in, its token on REST only); the memory store is the
-// real one behind a wrapper that passes only the mentor's read methods and
+// real one behind a wrapper that passes only the sandbox's read methods and
 // refuses every write; the llm client counts on an in-memory copy of the
 // daily counters and every request goes out with `countAgainstDailyCap:
 // false`, `skipCalibration: true`, `origin: 'replay'`; with one sample no
@@ -377,14 +378,15 @@ function blockOf(text, tag) {
 }
 
 /**
- * The post ledger's newest entry whose trigger is `triggerId` (a turn that
- * answered this message), or null.
+ * The journal's newest `turn.start` record whose trigger is `triggerId` (a
+ * turn that answered this message), or null.
+ * @param {object[]} records  The journal's records, oldest first (journalRecords).
+ * @param {string} triggerId
  */
-function ledgerEntryForTrigger(ledger, triggerId) {
-  if (!Array.isArray(ledger)) return null;
-  for (let i = ledger.length - 1; i >= 0; i -= 1) {
-    const entry = ledger[i];
-    if (entry && typeof entry === 'object' && entry.triggerId === triggerId) return entry;
+function turnStartForTrigger(records, triggerId) {
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    const record = records[i];
+    if (record?.kind === 'turn.start' && record.trigger?.messageId === triggerId) return record;
   }
   return null;
 }
@@ -1162,7 +1164,7 @@ function answerOut(answer) {
 export async function main(argv, { root = process.cwd(), signal, rng = Math.random } = {}) {
   const args = parseArgs(argv);
   const src = path.join(root, 'src');
-  if (!fs.existsSync(path.join(src, 'mentor', 'sandbox.js'))) throw new CliError(`replay-cli: no engine under ${src}; run it from the bot's directory`);
+  if (!fs.existsSync(path.join(src, 'behavior', 'sandbox.js'))) throw new CliError(`replay-cli: no engine under ${src}; run it from the bot's directory`);
   const load = (rel) => import(pathToFileURL(path.join(src, rel)).href);
 
   // The triggers of a pair, read before anything else: their number is the estimate.
@@ -1229,10 +1231,20 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   const { createStore } = await load('memory/store.js');
   const { createCalibrator } = await load('llm/tokens.js');
   const { createLlm } = await load('llm/openrouter.js');
-  const { MENTOR_STORE_READS } = await load('mentor/mentor.js');
-  const { liveView, answerReply, situationHistory, sandboxRequestInput } = await load('mentor/sandbox.js');
-  const { momentView, momentCutoff, hiddenLater } = await load('mentor/moment.js');
-  const { anchorKind, anchorMode, isSpontaneous, replayMedia } = await load('mentor/anchor.js');
+  const {
+    SANDBOX_STORE_READS,
+    liveView,
+    answerReply,
+    situationHistory,
+    sandboxRequestInput,
+    momentView,
+    momentCutoff,
+    hiddenLater,
+    momentKind,
+    momentMode,
+    isSpontaneous,
+    replayMedia,
+  } = await load('behavior/sandbox.js');
   const { fetchHistoryWindow, fetchMessage } = await load('discord/collect.js');
   const { createEmojiIndex } = await load('discord/emoji.js');
   const { resolveGuild } = await load('discord/guild.js');
@@ -1268,12 +1280,12 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     const config = hot.config;
 
     const realStore = createStore({ dataDir });
-    const store = readOnlyStore(realStore, MENTOR_STORE_READS);
+    const store = readOnlyStore(realStore, SANDBOX_STORE_READS);
     const stateData = store.state.data;
     const calibrator = createCalibrator(stateData.calibration);
     const llmState = { data: { llmDay: stateData.llmDay, llmCount: stateData.llmCount }, markDirty() {} };
     const realLlm = openrouterKey ? createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: llmState }) : null;
-    // The sandbox sends origin 'mentor'; this tool's requests are marked as its own. One sample or the splitter: no cache marker.
+    // Every request is marked as this tool's own. One sample or the splitter: no cache marker.
     const noCache = args.split || args.recall || args.samples === 1;
     const llm = {
       complete: (messages, options) =>
@@ -1282,6 +1294,9 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
     const gifs = hot.config.features?.gifs !== false && typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null;
     const customEmoji = createEmojiIndex(client, guildId).list();
+    // The live journal's records, read once on first need: the mode and trigger kind each turn recorded at its start.
+    let journalCache = null;
+    const journalOf = () => (journalCache ??= journalRecords(path.join(liveData, 'guilds', String(guildId), 'journal')));
     const momentOf = (channelId, triggerId) =>
       readMoment({ client, guild, guildId, self, channelId, triggerId, before, config, fetchHistoryWindow, fetchMessage, log });
     const channelOf = (channel) => ({ id: channel.id, name: channel.name ?? null, category: channel.parent?.name ?? null, topic: channel.topic ?? null });
@@ -1318,10 +1333,10 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
           continue;
         }
         const { channel, history, triggerLine, at } = moment;
-        const entry = ledgerEntryForTrigger(stateData.postLedger, trigger.triggerId);
-        const ledgerMode = entry ? anchorMode(entry.mode) : null;
-        const mode = ledgerMode && !isSpontaneous(ledgerMode) ? ledgerMode : 'reply';
-        const kind = entry ? anchorKind(entry.triggerKind) : null;
+        const recorded = turnStartForTrigger(journalOf(), trigger.triggerId);
+        const recordedMode = recorded ? momentMode(recorded.mode) : null;
+        const mode = recordedMode && !isSpontaneous(recordedMode) ? recordedMode : 'reply';
+        const kind = recorded ? momentKind(recorded.trigger?.kind) : null;
         const situation = { history, triggerId: trigger.triggerId, kind, mode };
         const media = replayMedia(history, { cache: mediaCache, sites: hot.config.media?.video?.sites, before: null });
         const answers = {};
@@ -1376,18 +1391,18 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
 
     const { channel, history, triggerLine, at } = await momentOf(args.channelId, args.triggerId);
 
-    // The turn this trigger started: the journal's turn.start record (--show-request), the post
-    // ledger's entry, else the sandbox's guess.
-    const entry = ledgerEntryForTrigger(stateData.postLedger, args.triggerId);
-    const recordedMode = turnStart ? anchorMode(turnStart.mode) : entry ? anchorMode(entry.mode) : null;
+    // The turn this trigger started: the journal's turn.start record (the one --show-request
+    // names, else the newest whose trigger is this message), else the sandbox's guess.
+    const recorded = turnStart ?? turnStartForTrigger(journalOf(), args.triggerId);
+    const recordedMode = recorded ? momentMode(recorded.mode) : null;
     const mode = recordedMode && !isSpontaneous(recordedMode) ? recordedMode : 'reply';
-    const kind = turnStart ? anchorKind(turnStart.trigger?.kind) : entry ? anchorKind(entry.triggerKind) : null;
-    const kindFrom = turnStart ? 'journal' : entry ? 'ledger' : 'guess';
+    const kind = recorded ? momentKind(recorded.trigger?.kind) : null;
+    const kindFrom = recorded ? 'journal' : 'guess';
     const situation = { history, triggerId: args.triggerId, kind, mode };
 
     if (args.split) {
-      // The trigger kind as the sandbox reads it: the post ledger's, else 'reply' to the persona, else 'mention'.
-      const { triggerKind } = situationHistory(situation, { selfId: self.id, selfName: self.name, at });
+      // The trigger kind as the sandbox reads it: the journal's, else 'reply' to the persona, else 'mention'.
+      const { triggerKind } = situationHistory(situation);
       // The live splitter gets captions only when the describer runs (features.mediaDescriptions === true).
       const descriptions =
         hot.config.features?.mediaDescriptions === true
@@ -1402,7 +1417,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
         history,
         trigger,
         triggerKind,
-        kindFrom: kind ? 'ledger' : 'guess',
+        kindFrom: kind ? 'journal' : 'guess',
         selfName: self.name,
         descriptions,
         samples: args.samples,
@@ -1412,7 +1427,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
 
     if (args.recall) {
       // The trigger kind as the sandbox reads it (reported only: the live turn asks the search classifier on a direct call).
-      const { triggerKind } = situationHistory(situation, { selfId: self.id, selfName: self.name, at });
+      const { triggerKind } = situationHistory(situation);
       // --text: the same message (author, time, id) with the operator's text in place of its own.
       const trigger = args.text !== null ? { ...triggerLine, content: args.text } : triggerLine;
       // `<recent>` as the reply mode shows it: no line the analyzer added at or after the trigger.
@@ -1429,7 +1444,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
         history,
         trigger,
         triggerKind,
-        kindFrom: kind ? 'ledger' : 'guess',
+        kindFrom: kind ? 'journal' : 'guess',
         mediaCache,
         recentAsOf: () => asOf.memory.getRecent(),
         replayMedia,

@@ -38,9 +38,6 @@ export function createOpsEnv({
   emojiBackfill,
   gifBackfill,
   gifRecache,
-  mentor,
-  mentorCases,
-  mentorBudget,
   diary,
   archive = null,
   journal,
@@ -92,8 +89,8 @@ export function createOpsEnv({
    * alias.add, alias.remove, memory.forget, private.forget, private.purge, memory.wipe, memory.affinity (when
    * setting a score), memory.refresh, lore.add, lore.remove, learned.add,
    * learned.remove, warmup.run, warmup.users, warmup.channels, warmup.server,
-   * warmup.reset, emoji.rescan, gifs.rescan, gifs.recache, draw (it counts against the image rail in state.json) and
-   * mentor.add, mentor.anchor, mentor.remove, mentor.run, mentor.check and mentor.wrong.
+   * warmup.reset, emoji.rescan, gifs.rescan, gifs.recache and draw (it counts against the image rail
+   * in state.json).
    */
   function assertNotPaused() {
     if (store.state.data.paused) {
@@ -233,9 +230,6 @@ export function createOpsEnv({
     emojiBackfill,
     gifBackfill,
     gifRecache,
-    mentor,
-    mentorCases,
-    mentorBudget,
     diary,
     archive,
     journal,

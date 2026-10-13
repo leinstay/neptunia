@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { COMMAND_TO_OP, listOps, resolveCommand, runOp } from '../src/ops/index.js';
+import { COMMAND_TO_OP, legacyGrantOps, listOps, resolveCommand, runOp } from '../src/ops/index.js';
 import { createOpsEnv } from '../src/ops/env.js';
 import { commandKeys } from '../src/discord/commands.js';
 
@@ -39,10 +39,6 @@ const OWNER_ONLY = [
   'memory.private.read', 'memory.private.forget', 'memory.private.purge',
   'memory.journal.read', 'memory.snapshot', 'memory.forget', 'memory.wipe', 'memory.archive.read', 'memory.restore',
 ];
-
-/** Command keys the tree still dispatches outside the operations for now: the mentor (removed in
- * a later task) and the commands the agreed tree drops. */
-const LEGACY_KEYS = new Set(['ping', 'reload', 'learned.list']);
 
 function makeEnv({ access = {}, emojiBackfill } = {}) {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ops-'));
@@ -143,7 +139,6 @@ test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', 
   // The keys whose required `action` option picks the operation: every action is tried.
   const ACTIONS = { talk: ['interject', 'initiate'], media: ['status', 'rescan', 'recache'], 'memory.private': ['show', 'forget', 'purge'] };
   for (const key of commandKeys().keys) {
-    if (key.startsWith('mentor.') || LEGACY_KEYS.has(key)) continue;
     assert.ok(Object.hasOwn(COMMAND_TO_OP, key), `${key} has no operation`);
     const variants = Object.hasOwn(ACTIONS, key) ? ACTIONS[key].map((action) => ({ action })) : [{}, { score: 10, mode: 'on' }];
     for (const args of variants) {
@@ -157,5 +152,10 @@ test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', 
   assert.equal(resolveCommand('memory.private', { action: 'show', userId: '1' }).op, 'memory.private.read');
   assert.match(resolveCommand('talk', {}).invalid, /action must be one of: interject, initiate/);
   assert.equal(resolveCommand('gifs.recache', {}), null, 'an old key dispatches nothing');
-  assert.equal(resolveCommand('mentor.run', {}), null);
+  for (const gone of ['ping', 'reload', 'learned.list']) assert.equal(resolveCommand(gone, {}), null, gone);
+});
+
+test('ops: a stored grant on a command or group that runs no operation any more is dropped', () => {
+  for (const key of ['ping', 'reload', 'learned.list', 'removed', 'removed.run']) assert.equal(legacyGrantOps(key), null, key);
+  assert.deepEqual(legacyGrantOps('status'), { from: null, names: ['status.show'] });
 });

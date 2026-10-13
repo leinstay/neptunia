@@ -43,12 +43,8 @@ import { createPageFetcher } from './web/fetch-page.js';
 import { createBraveSearch } from './web/brave.js';
 import { createLookup } from './web/lookup.js';
 import { createAdmin } from './admin.js';
-import { createMentor } from './mentor/mentor.js';
-import { createCaseStore } from './mentor/cases.js';
-import { createMentorBudget } from './mentor/budget.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './discord/events.js';
-import { fetchHistoryWindow, fetchMoment } from './discord/collect.js';
 import { resolveGuild } from './discord/guild.js';
 import { createAudienceWarmer } from './discord/audience-warm.js';
 import { isValidCommandName, registerCommands, createInteractionHandler } from './discord/commands.js';
@@ -257,30 +253,6 @@ const gifBackfill = createGifBackfill({ hot, store, client, describer, log });
 // The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache.
 const gifRecache = createGifRecache({ hot, store, client, describer, isWarmingUp, log });
 
-// The mentor (features.mentor): a manual sub-process started only by /nep mentor run|check,
-// never by a timer. Its cases live under data/, its daily token budget in state.json.
-const mentorCases = createCaseStore({ dataDir });
-const mentorBudget = createMentorBudget({ state: store.state, getConfig: () => hot.config });
-const mentor = createMentor({
-  hot,
-  store,
-  llm,
-  client,
-  // Read only: whether a search is available, for the sandbox's senses line.
-  lookup,
-  cases: mentorCases,
-  budget: mentorBudget,
-  getGuildId,
-  // The persona as a turn names it; null until the client is ready.
-  getSelf: () => (client.user ? { id: client.user.id, name: getSelfName(getGuildId()) } : null),
-  fetchHistoryWindow,
-  // /nep mentor add|anchor: the moment of a message of the persona, read over REST.
-  fetchMoment,
-  // Read only: the sandboxes measure tokens as a real turn does and never feed it.
-  calibrator,
-  emoji,
-});
-
 const onMessage = createMessageHandler({
   hot,
   store,
@@ -321,13 +293,10 @@ const admin = createAdmin({
   memory,
   // /nep pause: clears the pending-ping queue on pause.
   pending: { clear: () => onMessage.clearPending() },
-  // /nep ping: reaches each role's model directly through the same rails.
   llm,
   // The sample-based memory warmup: run, user/users, channel/channels, server, status, reset, portrait refresh.
   warmup,
-  // /nep ping video: which YouTube duration source works on this host.
   describer,
-  // /nep ping classifier: whether the web lookup is on and has a search key.
   lookup,
   // The image client's quota and model family, for the owner commands; /nep draw generates through it.
   images,
@@ -339,10 +308,6 @@ const admin = createAdmin({
   gifBackfill,
   // /nep gifs recache: the library's captions re-described by watching; /nep pause waits for it.
   gifRecache,
-  // /nep mentor: cases, runs, the owner's feedback and the mentor's own token budget.
-  mentor,
-  mentorCases,
-  mentorBudget,
   // /nep memory archive | restore: the archive of what left hot memory.
   archive,
   // /nep pause|resume, memory forget|wipe: system records; /nep memory journal reads it.

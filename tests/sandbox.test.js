@@ -1,12 +1,18 @@
-// Tests for src/mentor/sandbox.js: the invented chat excerpt turned into
-// normalized messages and the reply sandbox (the talk path's request, sampled,
-// nothing sent), all against fakes.
+// Tests for src/behavior/sandbox.js: the replay sandbox (a real moment's
+// request as a turn builds it, sampled, nothing sent), the memory as it stood
+// at the moment, the cached media a replay renders, and tools/replay.mjs's use
+// of the module, all against fakes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { liveView, situationToHistory, situationHistory, answerReply, sandboxRequestInput, SANDBOX_OMITS } from '../src/mentor/sandbox.js';
+import * as sandbox from '../src/behavior/sandbox.js';
+import { fetchHistoryWindow } from '../src/discord/collect.js';
+import { formatTranscript } from '../src/discord/format.js';
+import { videoUrlCacheKey } from '../src/discord/video-sites.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { fill } from '../src/discord/format.js';
+
+const { liveView, situationHistory, answerReply, sandboxRequestInput, SANDBOX_OMITS, momentView, momentCutoff, hiddenLater, replayMedia } = sandbox;
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { labels } from './fixtures/labels.js';
 
@@ -16,14 +22,17 @@ const ALICE = '111111111111111111';
 const BRUNO = '222222222222222222';
 const CHANNEL = { id: '500000000000000001', name: 'general', category: 'Talk', topic: null };
 
-function situation(lines, title = 'a small talk') {
-  return { title, lines };
+/** A moment as normalized channel messages (src/discord/collect.js#normalizeMessage), oldest first:
+ * one `[authorId, authorName, text, minutesBefore]` per line, the last one the trigger. */
+function moment(lines) {
+  const base = { channelId: CHANNEL.id, channelName: CHANNEL.name, channelCategory: CHANNEL.category, channelTopic: null, self: false, bot: false, mentionedUserIds: [], replyToId: null, forwardedFrom: null, attachments: [], links: [], forwarded: [], stickers: [], emojis: [], reactions: [] };
+  return { history: lines.map(([authorId, authorName, content, minutes], i) => ({ ...base, id: `80000000000000010${i}`, authorId, authorName, content, ts: NOW - minutes * 60_000 })) };
 }
 
 function twoLines() {
-  return situation([
-    { authorId: BRUNO, authorName: 'Bruno', text: 'καλημέρα', replyTo: null, minutesBefore: 5 },
-    { authorId: ALICE, authorName: 'Alice', text: 'what do you think about chess?', replyTo: null, minutesBefore: 1 },
+  return moment([
+    [BRUNO, 'Bruno', 'καλημέρα', 5],
+    [ALICE, 'Alice', 'what do you think about chess?', 1],
   ]);
 }
 
@@ -102,115 +111,6 @@ function fakeLlm(texts, { usage = { total_tokens: 120 }, estimated = 100, onCall
   };
 }
 
-
-// ---- situationToHistory ------------------------------------------------------
-
-test('situationToHistory: the last line is the trigger', () => {
-  const { history, trigger, triggerKind } = situationToHistory(twoLines(), { selfId: SELF_ID, selfName: 'Zoë', at: NOW, channel: CHANNEL });
-  assert.equal(history.length, 2);
-  assert.equal(trigger, history[1]);
-  assert.equal(triggerKind, 'mention');
-  assert.deepEqual(history.map((m) => m.id), ['sb-1', 'sb-2']);
-  assert.deepEqual(trigger.mentionedUserIds, [SELF_ID]);
-  assert.deepEqual(history[0].mentionedUserIds, []);
-  assert.deepEqual(trigger, {
-    id: 'sb-2',
-    channelId: CHANNEL.id,
-    channelName: 'general',
-    channelCategory: 'Talk',
-    channelTopic: null,
-    authorId: ALICE,
-    authorName: 'Alice',
-    self: false,
-    bot: false,
-    content: 'what do you think about chess?',
-    ts: NOW - 60000,
-    mentionedUserIds: [SELF_ID],
-    replyToId: null,
-    forwardedFrom: null,
-    attachments: [],
-    links: [],
-    forwarded: [],
-    stickers: [],
-    emojis: [],
-    reactions: [],
-  });
-});
-
-test('situationToHistory: a reply to her own line is triggerKind reply', () => {
-  const s = situation([
-    { authorId: 'self', text: 'I prefer draughts', replyTo: null, minutesBefore: 3 },
-    { authorId: ALICE, authorName: 'Alice', text: 'why?', replyTo: 0, minutesBefore: 1 },
-  ]);
-  const { history, triggerKind, trigger } = situationToHistory(s, { selfId: SELF_ID, selfName: 'Zoë', at: NOW, channel: CHANNEL });
-  assert.equal(triggerKind, 'reply');
-  assert.equal(history[0].authorId, SELF_ID);
-  assert.equal(history[0].authorName, 'Zoë');
-  assert.equal(history[0].self, true);
-  assert.equal(trigger.replyToId, 'sb-1');
-  assert.deepEqual(trigger.mentionedUserIds, []);
-});
-
-test('situationToHistory: a reply to a member line is still a mention', () => {
-  const s = situation([
-    { authorId: BRUNO, authorName: 'Bruno', text: 'chess is dull', replyTo: null, minutesBefore: 3 },
-    { authorId: ALICE, authorName: 'Alice', text: 'agree?', replyTo: 0, minutesBefore: 1 },
-  ]);
-  const { triggerKind, trigger } = situationToHistory(s, { selfId: SELF_ID, selfName: 'Zoë', at: NOW, channel: CHANNEL });
-  assert.equal(triggerKind, 'mention');
-  assert.equal(trigger.replyToId, 'sb-1');
-});
-
-test('situationToHistory: timestamps go back by minutesBefore', () => {
-  const s = situation([
-    { authorId: BRUNO, authorName: 'Bruno', text: 'a', replyTo: null, minutesBefore: 30 },
-    { authorId: ALICE, authorName: 'Alice', text: 'b', replyTo: null, minutesBefore: 2 },
-    { authorId: BRUNO, authorName: 'Bruno', text: 'c', replyTo: null, minutesBefore: 0 },
-  ]);
-  const { history } = situationToHistory(s, { selfId: SELF_ID, selfName: 'Zoë', at: NOW, channel: CHANNEL });
-  assert.deepEqual(history.map((m) => m.ts), [NOW - 30 * 60000, NOW - 2 * 60000, NOW]);
-});
-
-test('situationToHistory: missing minutesBefore spaces lines a minute apart, ending a minute before now', () => {
-  const s = situation([
-    { authorId: BRUNO, authorName: 'Bruno', text: 'a', replyTo: null },
-    { authorId: ALICE, authorName: 'Alice', text: 'b', replyTo: null },
-    { authorId: BRUNO, authorName: 'Bruno', text: 'c', replyTo: null },
-  ]);
-  const { history } = situationToHistory(s, { selfId: SELF_ID, selfName: 'Zoë', at: NOW, channel: CHANNEL });
-  assert.deepEqual(history.map((m) => m.ts), [NOW - 3 * 60000, NOW - 2 * 60000, NOW - 60000]);
-});
-
-test('situationToHistory: a line that would go back in time follows the previous one', () => {
-  const s = situation([
-    { authorId: BRUNO, authorName: 'Bruno', text: 'a', replyTo: null, minutesBefore: 2 },
-    { authorId: ALICE, authorName: 'Alice', text: 'b', replyTo: null, minutesBefore: 10 },
-  ]);
-  const { history } = situationToHistory(s, { selfId: SELF_ID, selfName: 'Zoë', at: NOW, channel: CHANNEL });
-  assert.deepEqual(history.map((m) => m.ts), [NOW - 2 * 60000, NOW - 2 * 60000 + 1000]);
-});
-
-test('situationToHistory: refuses a last line by self', () => {
-  const s = situation([
-    { authorId: ALICE, authorName: 'Alice', text: 'hi', replyTo: null },
-    { authorId: 'self', text: 'hello', replyTo: null },
-  ]);
-  assert.throws(() => situationToHistory(s, { selfId: SELF_ID, selfName: 'Zoë', at: NOW, channel: CHANNEL }));
-});
-
-test('situationToHistory: a named kind is the trigger kind; only a mention tags her', () => {
-  const at = { selfId: SELF_ID, selfName: 'Zoë', at: NOW, channel: CHANNEL };
-  for (const kind of ['overheard', 'followUp', 'name']) {
-    const { trigger, triggerKind } = situationToHistory({ ...twoLines(), kind }, at);
-    assert.equal(triggerKind, kind);
-    assert.deepEqual(trigger.mentionedUserIds, [], kind);
-  }
-  assert.deepEqual(situationToHistory({ ...twoLines(), kind: 'mention' }, at).trigger.mentionedUserIds, [SELF_ID]);
-  // `reply` needs a last line that replies to hers; an unknown kind is no kind: the guess.
-  assert.equal(situationToHistory({ ...twoLines(), kind: 'reply' }, at).triggerKind, 'mention');
-  assert.equal(situationToHistory({ ...twoLines(), kind: 'drawFailed' }, at).triggerKind, 'mention');
-  assert.equal(situationToHistory({ ...twoLines(), kind: 'shouted' }, at).triggerKind, 'mention');
-});
 
 // ---- liveView ----------------------------------------------------------------
 
@@ -297,12 +197,10 @@ test('answerReply: sends the live system prompt and renders the member\'s profil
   assert.deepEqual(store.writes, [], 'nothing is written to memory');
 });
 
-/** A real moment as stored with a case: normalized messages, the trigger last. */
+/** A real moment: normalized messages, the trigger last. */
 function storedMoment({ replyToSelf = false, mentions = [] } = {}) {
   const base = { channelId: CHANNEL.id, channelName: 'general', channelCategory: 'Talk', channelTopic: null, bot: false, mentionedUserIds: [], replyToId: null, forwardedFrom: null, attachments: [], links: [], forwarded: [], stickers: [], emojis: [], reactions: [] };
   return {
-    title: '',
-    anchor: 1,
     history: [
       { ...base, id: '800000000000000001', authorId: SELF_ID, authorName: 'Zoë', self: true, content: 'it opens at nine', ts: NOW - 120000 },
       {
@@ -318,21 +216,19 @@ function storedMoment({ replyToSelf = false, mentions = [] } = {}) {
         reactions: [{ emoji: '👍', count: 2, mine: false }],
       },
     ],
-    original: ['you are right, but'],
   };
 }
 
 test('situationHistory: a stored moment is replayed as stored, the last message the trigger', () => {
   const moment = storedMoment();
-  const { history, trigger, triggerKind } = situationHistory(moment, { selfId: SELF_ID, selfName: 'Zoë', at: NOW, channel: CHANNEL });
+  const { history, trigger, triggerKind } = situationHistory(moment);
   assert.equal(history, moment.history);
   assert.equal(trigger, moment.history[1]);
   assert.equal(triggerKind, 'mention');
-  assert.equal(situationHistory(storedMoment({ replyToSelf: true }), { selfId: SELF_ID }).triggerKind, 'reply');
-  assert.throws(() => situationHistory({ history: [] }, { selfId: SELF_ID }), /stored/);
-  assert.throws(() => situationHistory({ history: [moment.history[0]] }, { selfId: SELF_ID }), /self/);
-  // Invented lines still go through situationToHistory.
-  assert.equal(situationHistory(twoLines(), { selfId: SELF_ID, selfName: 'Zoë', at: NOW, channel: CHANNEL }).history[0].id, 'sb-1');
+  assert.equal(situationHistory(storedMoment({ replyToSelf: true })).triggerKind, 'reply');
+  assert.throws(() => situationHistory({ history: [] }), /empty/);
+  assert.throws(() => situationHistory({}), /empty/);
+  assert.throws(() => situationHistory({ history: [moment.history[0]] }), /self/);
 });
 
 test('answerReply: a stored moment is answered from its own messages, reactions included', async () => {
@@ -562,15 +458,7 @@ function kindHot(featureOverrides = {}) {
 }
 
 const TRIGGER_ID = '800000000000000002';
-const SOURCE = { id: '500000000000000002', name: 'announcements' };
 const KITCHEN = { id: '500000000000000003', name: 'kitchen' };
-
-/** A channel window as src/mentor/anchor.js#resolveAnchor stores it: lines `[id, authorId, authorName, text]`. */
-function storedWindow(channel, lines, { reason = 'mention', readOnly = false } = {}) {
-  const base = { channelId: channel.id, channelName: channel.name, channelCategory: null, channelTopic: null, self: false, bot: false, mentionedUserIds: [], replyToId: null, forwardedFrom: null, attachments: [], links: [], forwarded: [], stickers: [], emojis: [], reactions: [] };
-  const messages = lines.map(([id, authorId, authorName, content], i) => ({ ...base, id, authorId, authorName, content, ts: NOW - (lines.length - i) * 90_000 }));
-  return { channelId: channel.id, channelName: channel.name, readOnly, reason, messages, olderNotShown: false };
-}
 
 function aliceStore() {
   return fakeStore({
@@ -590,24 +478,24 @@ async function replay(situation, { hot = kindHot(), samples = 1, ...extra } = {}
 
 test('situationHistory: a stored kind replaces the guess; the trigger is found by its id', () => {
   const moment = { ...storedMoment(), kind: 'overheard', triggerId: TRIGGER_ID };
-  const { trigger, triggerKind } = situationHistory(moment, { selfId: SELF_ID });
+  const { trigger, triggerKind } = situationHistory(moment);
   assert.equal(triggerKind, 'overheard');
   assert.equal(trigger.id, TRIGGER_ID);
   // A kind a turn does not know is no kind: the guess.
-  assert.equal(situationHistory({ ...storedMoment(), kind: 'shouted' }, { selfId: SELF_ID }).triggerKind, 'mention');
+  assert.equal(situationHistory({ ...storedMoment(), kind: 'shouted' }).triggerKind, 'mention');
   // A line of hers after the trigger (her request held it) does not make the moment unusable.
   const later = { ...moment.history[0], id: '800000000000000003', content: 'a later line of hers', ts: NOW - 30_000 };
-  const extended = situationHistory({ ...moment, history: [...moment.history, later] }, { selfId: SELF_ID });
+  const extended = situationHistory({ ...moment, history: [...moment.history, later] });
   assert.equal(extended.trigger.id, TRIGGER_ID);
   assert.equal(extended.history.length, 3);
   // A trigger id that points at her own line is refused.
-  assert.throws(() => situationHistory({ ...moment, triggerId: '800000000000000001' }, { selfId: SELF_ID }), /self/);
+  assert.throws(() => situationHistory({ ...moment, triggerId: '800000000000000001' }), /self/);
 });
 
 test('situationHistory: a spontaneous moment has no trigger, whoever wrote last', () => {
   for (const mode of ['interject', 'initiate']) {
     const own = { ...storedMoment(), mode, history: storedMoment().history.slice(0, 1) };
-    const { history, trigger, triggerKind } = situationHistory(own, { selfId: SELF_ID });
+    const { history, trigger, triggerKind } = situationHistory(own);
     assert.equal(history.length, 1);
     assert.equal(trigger, null);
     assert.equal(triggerKind, null);
@@ -654,29 +542,12 @@ test('answerReply: a follow-up and an untagged reply are replayed with the follo
   assert.ok(!tagged.request.user.includes('FOLLOW_UP_TASK'));
 });
 
-test('answerReply: a moment with a pulled channel is replayed with its <channel_view>', async () => {
-  const kitchen = storedWindow(KITCHEN, [['800000000000000101', BRUNO, 'Bruno', 'PULLED_LINE the oven is on']]);
-  const result = await replay({ ...storedMoment(), pulled: [kitchen] });
-  assert.match(result.request.user, /<channel_view>\n[^]*PULLED_LINE the oven is on[^]*\n<\/channel_view>/);
-  assert.ok(result.request.user.includes('channel #kitchen'));
-  // An invented situation is shown no other channel.
-  const invented = await replay({ ...twoLines(), pulled: [kitchen] });
-  assert.ok(!invented.request.user.includes('<channel_view>'));
-});
-
-test('answerReply: a routed moment answers the call in its source channel, with the called text', async () => {
-  const call = '800000000000000202';
-  const source = storedWindow(SOURCE, [['800000000000000201', ALICE, 'Alice', 'an earlier note'], [call, BRUNO, 'Bruno', 'CALL_LINE are you there?']], { reason: 'routed', readOnly: true });
-  const situation = { ...storedMoment(), mode: 'reply', kind: 'mention', triggerId: call, source: { channelId: SOURCE.id, reason: 'routed' }, pulled: [source] };
-  const called = fill(labels.elsewhere.called, { channel: SOURCE.name, destination: CHANNEL.name });
-  const result = await replay(situation);
-  assert.match(result.request.user, /<channel_view>\n[^]*CALL_LINE are you there\?[^]*\n<\/channel_view>/);
-  assert.ok(result.request.user.includes(called), result.request.user);
-  assert.ok(result.request.user.includes(`REPLY_TASK Bruno: ${labels.triggers.mention}`));
-  assert.ok(result.request.user.includes('BRUNO_PORTRAIT'));
-  // Without its source the same lines are a pulled channel and no called text.
-  const plain = await replay({ ...situation, source: null, triggerId: TRIGGER_ID });
-  assert.ok(!plain.request.user.includes(called));
+test('answerReply: no other channel is pulled in and no call is routed', async () => {
+  const result = await replay({ ...storedMoment(), pulled: [{ channelId: KITCHEN.id }], source: { channelId: KITCHEN.id, reason: 'routed' } });
+  assert.ok(!result.request.user.includes('<channel_view>'));
+  const input = sandboxRequestInput({ view: liveView({ hot: kindHot(), store: aliceStore(), guildId: 'g1' }), situation: storedMoment(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW });
+  assert.deepEqual(input.pulled, []);
+  assert.equal(input.source, null);
 });
 
 test('answerReply: the destination of a read-only call and the search flag reach <senses>', async () => {
@@ -726,10 +597,10 @@ test('answerReply: with the prompt cache on, samples 1 and 2 carry the same mark
   assert.ok(off.calls.every((call) => typeof call.messages[1].content === 'string'));
 });
 
-test('answerReply: every sample is sent as the mentor\'s', async () => {
+test('answerReply: every sample is sent as the replay\'s', async () => {
   const { llm } = await replay(storedMoment(), { samples: 2 });
   assert.equal(llm.calls.length, 2);
-  assert.ok(llm.calls.every((call) => call.options.origin === 'mentor' && call.options.role === 'voice' && call.options.purpose === 'reply'));
+  assert.ok(llm.calls.every((call) => call.options.origin === 'replay' && call.options.role === 'voice' && call.options.purpose === 'reply'));
 });
 
 // ---- the last hours: <recent> -------------------------------------------------
@@ -792,7 +663,7 @@ test('answerReply: a recent store that cannot be read costs the block, never the
   );
   assert.equal(result.answers.length, 1);
   assert.ok(!result.request.user.includes('<recent>'));
-  assert.deepEqual(logs.map((entry) => [entry.level, entry.msg]), [['warn', 'mentor: recent failed']]);
+  assert.deepEqual(logs.map((entry) => [entry.level, entry.msg]), [['warn', 'sandbox: recent failed']]);
 });
 
 /** Every input buildRequest reads: the keys it destructures from `input` and each `input.<key>` of its body. */
@@ -824,4 +695,376 @@ test('sandboxRequestInput: names every input buildRequest reads; what it leaves 
       assert.ok(absent, `${key} is left out`);
     }
   }
+});
+
+// ---- the memory as it stood at the moment: momentView, momentCutoff, hiddenLater ---------------
+
+const CUTOFF = Date.UTC(2026, 8, 29, 18, 2, 0);
+const iso = (ms) => new Date(ms).toISOString();
+const BEFORE = iso(CUTOFF - 60_000);
+const EARLIER = iso(CUTOFF - 3_600_000);
+const AT = iso(CUTOFF);
+const AFTER = iso(CUTOFF + 60_000);
+
+function aliceProfile() {
+  return {
+    id: ALICE,
+    names: ['Alice'],
+    firstSeen: '2026-08-01T10:00:00.000Z',
+    lastSeen: AFTER,
+    messageCount: 40,
+    character: 'Argues with care.',
+    style: 'Long messages, accents: é à.',
+    relationship: 'Old friend of the persona.',
+    interests: [
+      { topic: 'chess', note: '', weight: 3, firstSeen: EARLIER, lastSeen: AFTER },
+      { topic: 'όπερα', note: 'new', weight: 1, firstSeen: AT, lastSeen: AT },
+      { topic: 'sailing', note: '', weight: 1, firstSeen: AFTER, lastSeen: AFTER },
+      { topic: 'tea', note: '', weight: 1, firstSeen: null, lastSeen: null },
+    ],
+    details: [
+      { id: 1, text: 'lives by the sea', weight: 2, firstSeen: BEFORE, lastSeen: AFTER },
+      { id: 2, text: 'lost the argument', weight: 1, firstSeen: AFTER, lastSeen: AFTER },
+      { id: 3, text: 'undated detail', weight: 1, firstSeen: null, lastSeen: null },
+    ],
+    detailsSeq: 4,
+    aliases: [
+      { name: 'Ali', weight: 2, firstSeen: EARLIER, lastSeen: AFTER },
+      { name: 'Λίσα', weight: 1, firstSeen: AT, lastSeen: AT },
+    ],
+    affinity: {
+      score: 12,
+      reason: 'R3 after the argument',
+      history: [
+        { ts: EARLIER, delta: 5, appliedDelta: 5, score: 5, reason: 'R1' },
+        { ts: BEFORE, delta: 4, appliedDelta: 4, score: 9, reason: 'R2' },
+        { ts: AFTER, delta: 3, appliedDelta: 3, score: 12, reason: 'R3 after the argument' },
+      ],
+    },
+    episodes: [
+      { date: '2026-09-20', what: 'old episode', quote: '', feeling: '', weight: 3, addedAt: EARLIER },
+      { date: '2026-09-29', what: 'the argument itself', quote: '', feeling: 'won it', weight: 4, addedAt: AFTER },
+      { date: '2026-09-29', what: 'written at the cutoff', quote: '', feeling: '', weight: 2, addedAt: AT },
+      { date: '2026-09-28', what: 'no addedAt, the day before', quote: '', feeling: '', weight: 2 },
+      { date: '2026-09-29', what: 'no addedAt, the same day', quote: '', feeling: '', weight: 2 },
+      { what: 'no date at all', quote: '', feeling: '', weight: 1 },
+    ],
+    updatedAt: AFTER,
+  };
+}
+
+function brunoProfile() {
+  return {
+    id: BRUNO,
+    names: ['Bruno'],
+    character: 'Quiet.',
+    style: '',
+    relationship: '',
+    interests: [],
+    details: [],
+    aliases: [],
+    affinity: { score: -4, reason: 'R only after', history: [{ ts: AFTER, delta: -4, appliedDelta: -4, score: -4, reason: 'R only after' }] },
+    episodes: [],
+  };
+}
+
+function guildMemory() {
+  return {
+    patterns: 'Short greetings.',
+    starters: 'Games.',
+    injokes: ['the café'],
+    self: ['likes rain'],
+    learned: [
+      { id: 1, text: 'answer in one line', weight: 3, firstSeen: '2026-09-01T00:00:00.000Z', lastSeen: AFTER },
+      { id: 2, text: 'taught right after', weight: 1, firstSeen: AFTER, lastSeen: AFTER, from: `<@${ALICE}>` },
+    ],
+    learnedNextId: 3,
+  };
+}
+
+function loreEntries() {
+  return [
+    { id: 'a', title: 'Old tale', keys: ['tale'], text: 'Known.', source: 'analyzer', createdAt: EARLIER, updatedAt: AFTER },
+    { id: 'b', title: 'The argument', keys: ['argument'], text: 'How it ended.', source: 'analyzer', createdAt: AFTER, updatedAt: AFTER },
+    { id: 'c', title: 'Owner note', keys: ['note'], text: 'Undated.', source: 'owner' },
+  ];
+}
+
+function deepFreeze(value) {
+  if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) deepFreeze(item);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/** A base view (liveView's shape) over plain data; its data is deep-frozen, so a write throws. */
+function baseView() {
+  const data = deepFreeze({ users: { [ALICE]: aliceProfile(), [BRUNO]: brunoProfile() }, guild: guildMemory(), lore: loreEntries(), channels: [{ id: 'c1', name: 'games' }] });
+  const hot = { prompts: { rules: 'RULES' }, config: { features: {} } };
+  return {
+    hot,
+    view: {
+      get prompts() {
+        return hot.prompts;
+      },
+      get config() {
+        return hot.config;
+      },
+      calibrator: { ratio: 1, apply: (n) => n },
+      memory: {
+        getGuild: () => data.guild,
+        getUser: (id) => data.users[id] ?? null,
+        listUserProfiles: () => Object.values(data.users),
+        listChannels: () => data.channels,
+        getLore: () => data.lore,
+      },
+    },
+  };
+}
+
+test('momentCutoff: the newest line she saw, else the answer time, else null', () => {
+  const history = [{ ts: CUTOFF - 120_000 }, { ts: CUTOFF }];
+  assert.equal(momentCutoff({ history, at: CUTOFF + 5000 }), CUTOFF);
+  assert.equal(momentCutoff({ history: [{ ts: 1 }, {}], at: CUTOFF + 5000 }), CUTOFF + 5000);
+  assert.equal(momentCutoff({ history: [{}], at: undefined }), null);
+  assert.equal(momentCutoff({}), null);
+  // Lines after the trigger that her request held: the last of them.
+  assert.equal(momentCutoff({ history: [{ id: 't', ts: CUTOFF - 60_000 }, { id: 'n', ts: CUTOFF }], triggerId: 't' }), CUTOFF);
+  // A trigger id found nowhere: the last line.
+  assert.equal(momentCutoff({ history: [{ id: 'a', ts: CUTOFF - 120_000 }, { id: 'b', ts: CUTOFF - 60_000 }], triggerId: 'gone' }), CUTOFF - 60_000);
+});
+
+test('momentView: episodes written at or after the cutoff are hidden, earlier ones kept', () => {
+  const { view } = baseView();
+  const episodes = momentView(view, CUTOFF).memory.getUser(ALICE).episodes.map((e) => e.what);
+  assert.deepEqual(episodes, ['old episode', 'no addedAt, the day before', 'no date at all']);
+});
+
+test('momentView: affinity history entries at or after the cutoff are hidden; the reason falls back, the score stays', () => {
+  const { view } = baseView();
+  const at = momentView(view, CUTOFF);
+  const affinity = at.memory.getUser(ALICE).affinity;
+  assert.deepEqual(affinity.history.map((h) => h.reason), ['R1', 'R2']);
+  assert.equal(affinity.reason, 'R2');
+  assert.equal(affinity.score, 12);
+  const other = at.memory.getUser(BRUNO).affinity;
+  assert.deepEqual(other.history, []);
+  assert.equal(other.reason, '');
+  assert.equal(other.score, -4);
+  const later = momentView(view, CUTOFF + 3_600_000).memory.getUser(ALICE).affinity;
+  assert.equal(later.reason, 'R3 after the argument');
+  assert.equal(later.history.length, 3);
+});
+
+test('momentView: the restored reason looks past kept entries whose reason is empty', () => {
+  const { view } = baseView();
+  const profile = {
+    ...aliceProfile(),
+    affinity: {
+      score: 14,
+      reason: 'R3 after the argument',
+      history: [
+        { ts: EARLIER, delta: 5, appliedDelta: 5, score: 5, reason: 'R1' },
+        { ts: BEFORE, delta: 4, appliedDelta: 4, score: 9, reason: '' },
+        { ts: AFTER, delta: 5, appliedDelta: 5, score: 14, reason: 'R3 after the argument' },
+      ],
+    },
+  };
+  const affinity = momentView({ ...view, memory: { ...view.memory, getUser: () => profile } }, CUTOFF).memory.getUser(ALICE).affinity;
+  assert.deepEqual(affinity.history.map((h) => h.reason), ['R1', '']);
+  assert.equal(affinity.reason, 'R1');
+});
+
+test('momentView: details, interests and aliases first recorded at or after the cutoff are hidden', () => {
+  const { view } = baseView();
+  const profile = momentView(view, CUTOFF).memory.getUser(ALICE);
+  assert.deepEqual(profile.details.map((d) => d.text), ['lives by the sea', 'undated detail']);
+  assert.deepEqual(profile.interests.map((i) => i.topic), ['chess', 'tea']);
+  assert.deepEqual(profile.aliases.map((a) => a.name), ['Ali']);
+  assert.deepEqual(profile.details[0], aliceProfile().details[0]);
+});
+
+test('momentView: learned items and lore entries created at or after the cutoff are hidden', () => {
+  const { view } = baseView();
+  const at = momentView(view, CUTOFF);
+  assert.deepEqual(at.memory.getGuild().learned.map((i) => i.text), ['answer in one line']);
+  assert.deepEqual(at.memory.getLore().map((e) => e.title), ['Old tale', 'Owner note']);
+});
+
+test('momentView: recent lines added at or after the cutoff are hidden; a base without a recent store reads none', () => {
+  const { view } = baseView();
+  const line = (id, fields = {}) => ({ id, at: CUTOFF - 7_200_000, addedAt: EARLIER, channelId: 'c1', text: `σημείωση ${id}`, who: [], weight: 2, ...fields });
+  const stored = deepFreeze({
+    nextId: 6,
+    lines: [line(1), line(2, { addedAt: AT }), line(3, { at: CUTOFF - 60_000, addedAt: AFTER }), line(4, { addedAt: null }), line(5, { at: CUTOFF + 60_000, addedAt: null })],
+  });
+  const base = { prompts: view.prompts, config: view.config, memory: { ...view.memory, getRecent: () => stored } };
+  const seen = momentView(base, CUTOFF).memory.getRecent();
+  assert.deepEqual(seen.lines.map((entry) => entry.id), [1, 4]);
+  assert.equal(seen.lines[0], stored.lines[0], 'a kept line is the stored one');
+  assert.equal(momentView(base, CUTOFF + 3_600_000).memory.getRecent(), stored);
+  assert.equal(momentView(view, CUTOFF).memory.getRecent(), null);
+  assert.deepEqual(hiddenLater(base, CUTOFF), hiddenLater(view, CUTOFF));
+});
+
+test('momentView: undated fields, channels, prompts and config are untouched', () => {
+  const { view, hot } = baseView();
+  const at = momentView(view, CUTOFF);
+  const profile = at.memory.getUser(ALICE);
+  const stored = aliceProfile();
+  for (const key of ['id', 'names', 'firstSeen', 'lastSeen', 'messageCount', 'character', 'style', 'relationship', 'detailsSeq', 'updatedAt']) {
+    assert.deepEqual(profile[key], stored[key], key);
+  }
+  const g = at.memory.getGuild();
+  for (const key of ['patterns', 'starters', 'injokes', 'self', 'learnedNextId']) assert.deepEqual(g[key], guildMemory()[key], key);
+  assert.equal(at.memory.listChannels(), view.memory.listChannels());
+  assert.equal(at.memory.getUser('333333333333333333'), null);
+  assert.equal(at.calibrator, view.calibrator);
+  assert.deepEqual(at.memory.listUserProfiles()[0], at.memory.getUser(ALICE));
+  hot.prompts = { rules: 'NEW RULES' };
+  assert.equal(at.prompts.rules, 'NEW RULES');
+  assert.equal(at.config, hot.config);
+});
+
+test('hiddenLater: counts what the cutoff hides, by kind; nothing for undated memory', () => {
+  const { view } = baseView();
+  assert.deepEqual(hiddenLater(view, CUTOFF), { episodes: 3, affinity: 2, reasons: 2, details: 1, interests: 2, aliases: 1, learned: 1, lore: 1 });
+  const bare = { id: ALICE, names: ['Alice'], character: 'x' };
+  const plain = { memory: { getGuild: () => ({ patterns: 'p' }), getUser: () => bare, listUserProfiles: () => [bare], listChannels: () => [], getLore: () => null } };
+  assert.deepEqual(momentView(plain, CUTOFF).memory.getUser(ALICE), bare);
+  assert.equal(momentView(plain, CUTOFF).memory.getLore(), null);
+  assert.deepEqual(hiddenLater(plain, CUTOFF), { episodes: 0, affinity: 0, reasons: 0, details: 0, interests: 0, aliases: 0, learned: 0, lore: 0 });
+});
+
+// ---- what the persona saw of the moment's media: replayMedia ------------------------------------
+
+const START = Date.UTC(2026, 8, 29, 18, 0, 0);
+const VIDEO_ID = '810000000000000001';
+const IMAGE_ID = '810000000000000002';
+const BLANK_ID = '810000000000000003';
+const EMOJI_ID = '810000000000000004';
+const SITES = ['youtube.com'];
+const YOUTUBE = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+const SEEN_TS = START + 3 * 60_000 + 30_000;
+const LATER_TS = START + 10 * 60_000;
+
+/** A snowflake for the n-th message, a minute apart from START. */
+function sf(n) {
+  return ((BigInt(START + n * 60_000) - 1420070400000n) << 22n).toString();
+}
+
+function rawMessage(n, authorId, text, extra = {}) {
+  const names = { [SELF_ID]: 'Zoë', [ALICE]: 'Alice', [BRUNO]: 'Bruno' };
+  return {
+    id: sf(n),
+    channelId: CHANNEL.id,
+    channel: { name: CHANNEL.name },
+    author: { id: authorId, bot: authorId === SELF_ID, globalName: names[authorId], username: names[authorId] },
+    member: { displayName: names[authorId] },
+    cleanContent: text,
+    createdTimestamp: START + n * 60_000,
+    reference: null,
+    attachments: new Map(),
+    stickers: new Map(),
+    embeds: [],
+    messageSnapshots: new Map(),
+    reactions: { cache: new Map() },
+    ...extra,
+  };
+}
+
+/** A readable guild channel over `raws` (oldest first). */
+function fakeChannel(raws) {
+  return {
+    id: CHANNEL.id,
+    name: CHANNEL.name,
+    guild: { id: '600000000000000001', members: { me: { id: SELF_ID } } },
+    viewable: true,
+    isTextBased: () => true,
+    isThread: () => false,
+    permissionsFor: () => ({ has: () => true }),
+    messages: {
+      async fetch(arg) {
+        let list = [...raws];
+        if (arg.before) list = list.filter((m) => BigInt(m.id) < BigInt(arg.before)).slice(-arg.limit);
+        else list = list.slice(-arg.limit);
+        return new Map(list.map((m) => [m.id, m]));
+      },
+    },
+  };
+}
+
+function attachmentsOf(...list) {
+  return new Map(list.map((a) => [a.id, { url: `https://cdn.discordapp.com/attachments/1/${a.id}/${a.name}`, size: 1000, ...a }]));
+}
+
+/** A chat with media: a clip, two pictures, a video-site link, a custom emoji in the trigger. */
+function mediaChat() {
+  return [
+    rawMessage(0, BRUNO, 'look', { attachments: attachmentsOf({ id: VIDEO_ID, contentType: 'video/mp4', name: 'clip.mp4', duration: 12 }) }),
+    rawMessage(1, ALICE, 'and these', { attachments: attachmentsOf({ id: IMAGE_ID, contentType: 'image/png', name: 'a.png' }, { id: BLANK_ID, contentType: 'image/png', name: 'b.png' }) }),
+    rawMessage(2, BRUNO, `this one too ${YOUTUBE}`),
+    rawMessage(3, ALICE, 'what do you think :wave:', { content: `what do you think <:wave:${EMOJI_ID}>` }),
+  ];
+}
+
+/** The describer's cache as the live turns left it; frozen, so a write throws. */
+function mediaCache() {
+  return deepFreeze({
+    [VIDEO_ID]: { text: 'a still of a cat', ts: SEEN_TS },
+    [`video:${VIDEO_ID}`]: { text: 'a cat knocks a cup off the table', ts: SEEN_TS, watched: true },
+    [IMAGE_ID]: { text: 'a café terrace at night', ts: SEEN_TS },
+    [BLANK_ID]: { miss: true, ts: SEEN_TS },
+    [`video:${videoUrlCacheKey(YOUTUBE)}`]: { text: 'a music video from the eighties', ts: SEEN_TS, watched: true },
+    // Described only after she answered: she never saw it.
+    [`emoji:${EMOJI_ID}`]: { text: 'a waving hand', ts: LATER_TS },
+  });
+}
+
+function rendered(history, { descriptions, videos } = {}) {
+  return formatTranscript(history, { timezone: 'UTC', gapMinutes: 60, maxChars: 2000, selfName: 'Zoë', labels, descriptions, videos })
+    .map((item) => item.text)
+    .join('\n');
+}
+
+test('replayMedia: the describer cache as it stood when she answered renders as the live transcript did, read only', async () => {
+  const history = await fetchHistoryWindow(fakeChannel(mediaChat()), { anchorId: sf(3), limit: 30, selfId: SELF_ID, embedTextChars: 300, videoSites: SITES });
+  assert.equal(history.length, 4);
+  const cache = mediaCache();
+  const media = replayMedia(history, { cache, sites: SITES, before: START + 4 * 60_000 });
+  assert.deepEqual(media.descriptions, new Map([[VIDEO_ID, 'a still of a cat'], [IMAGE_ID, 'a café terrace at night']]));
+  assert.deepEqual(
+    media.videos,
+    new Map([
+      [VIDEO_ID, { state: 'watched', text: 'a cat knocks a cup off the table' }],
+      [videoUrlCacheKey(YOUTUBE), { state: 'watched', text: 'a music video from the eighties' }],
+    ]),
+  );
+  const text = rendered(history, media);
+  assert.match(text, /\[video: clip\.mp4, 0:12, watched: a cat knocks a cup off the table\]/);
+  assert.match(text, /\[image: a café terrace at night\] \[image\]/);
+  assert.match(text, /\[watched: a music video from the eighties\]/);
+  assert.doesNotMatch(text, /a waving hand/);
+  // No time bound: what was described later is taken too.
+  assert.equal(replayMedia(history, { cache, sites: SITES }).descriptions.get(`emoji:${EMOJI_ID}`), 'a waving hand');
+  // Nothing cached: empty maps, the transcript as it renders without any.
+  for (const empty of [replayMedia(history, { cache: null, sites: SITES }), replayMedia(history, { cache: {}, sites: SITES }), replayMedia(history)]) {
+    assert.equal(empty.descriptions.size, 0);
+    assert.equal(empty.videos.size, 0);
+    assert.equal(rendered(history, empty), rendered(history));
+  }
+});
+
+// ---- tools/replay.mjs ------------------------------------------------------------------------
+
+test('tools/replay.mjs: replays through src/behavior/sandbox.js, every name it takes exported there', () => {
+  const source = fs.readFileSync(new URL('../tools/replay.mjs', import.meta.url), 'utf8');
+  assert.ok(source.includes("path.join(src, 'behavior', 'sandbox.js')"), 'the engine check names the sandbox');
+  const match = /const \{([^}]*)\} = await load\('behavior\/sandbox\.js'\);/.exec(source);
+  assert.ok(match, 'replay loads the sandbox');
+  const names = match[1].split(',').map((name) => name.trim()).filter(Boolean);
+  assert.ok(names.length >= 10);
+  for (const name of names) assert.notEqual(sandbox[name], undefined, name);
+  assert.deepEqual([...sandbox.SANDBOX_STORE_READS].sort(), ['getGifs', 'getGuild', 'getLore', 'getMediaCache', 'getRecent', 'getUser', 'listChannels', 'listUserProfiles']);
 });

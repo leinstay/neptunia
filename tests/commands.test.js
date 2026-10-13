@@ -163,12 +163,12 @@ test('commandKeys: every group and every leaf command key, derived from the tree
   assert.ok(groups.has('learning'));
   assert.ok(!groups.has('learned'), 'renamed to learning');
   assert.ok(!groups.has('private'), 'private memory lives under memory');
-  assert.ok(!groups.has('mentor') && !groups.has('emoji') && !groups.has('gifs'), 'not registered any more');
+  assert.ok(!groups.has('emoji') && !groups.has('gifs'), 'not registered any more');
   assert.ok(!groups.has('status'), 'a bare top-level command is not a group');
   assert.ok(keys.has('memory.private'));
   assert.ok(keys.has('talk'));
   assert.ok(keys.has('media'));
-  for (const gone of ['private.show', 'private.forget', 'private.purge', 'emoji.status', 'gifs.recache', 'interject', 'initiate', 'ping', 'reload', 'mentor.run']) {
+  for (const gone of ['private.show', 'private.forget', 'private.purge', 'emoji.status', 'gifs.recache', 'interject', 'initiate', 'ping', 'reload', 'learned.list']) {
     assert.ok(!keys.has(gone), `${gone} is not in the tree`);
   }
 
@@ -504,7 +504,7 @@ test('interaction handler: a non-owner with a grant on a DIFFERENT operation, or
   assert.match(interaction.replies[0].content, /not allowed/i);
 });
 
-test('interaction handler: /nep memory private and the mentor keys stay owner-only even with a grant on them, their group or *', async () => {
+test('interaction handler: /nep memory private stays owner-only even with a grant on it, its group or *', async () => {
   const open = { everyone: true, roles: [], users: [] };
   const user = { id: 'target1' };
   // [granted keys, the calls of a granted member, the owner's own call]
@@ -513,11 +513,6 @@ test('interaction handler: /nep memory private and the mentor keys stay owner-on
       ['memory', 'memory.private', 'memory.private.read', 'memory.private.forget', 'memory.private.purge'],
       ['show', 'forget', 'purge'].map((action) => ({ group: 'memory', subcommand: 'private', optionValues: { action, user } })),
       { group: 'memory', subcommand: 'private', optionValues: { action: 'show', user } },
-    ],
-    [
-      ['mentor', ...MENTOR_SUBCOMMANDS.map((name) => `mentor.${name}`)],
-      MENTOR_SUBCOMMANDS.map((subcommand) => ({ group: 'mentor', subcommand, optionValues: { id: 1 } })),
-      { group: 'mentor', subcommand: 'status' },
     ],
   ]) {
     const access = { '*': open, ...Object.fromEntries(keys.map((key) => [key, open])) };
@@ -788,24 +783,25 @@ test('commands: an interaction retry with the same id does not run the op twice'
   }
 });
 
-test('commands: replies are ephemeral by default and visible for talk, diary post and draw', async () => {
+test('commands: every reply is ephemeral', async () => {
   const admin = fakeAdmin({ runImpl: () => 'done' });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
-  // Visible: deferred with no ephemeral flag, then edited.
+  // Deferred ones (what they post in the channel is the persona's own message, not the reply).
   for (const call of [
     { subcommand: 'talk', optionValues: { action: 'interject' } },
     { subcommand: 'talk', optionValues: { action: 'initiate', channel: { id: 'chan1' } } },
     { group: 'diary', subcommand: 'post', optionValues: {} },
     { subcommand: 'draw', optionValues: { text: 'a lighthouse' } },
+    { group: 'memory', subcommand: 'wipe', optionValues: { confirm: 'x' } },
   ]) {
     const interaction = fakeInteraction(call);
     await handler(interaction);
-    assert.deepEqual(interaction.replies[0], { deferred: true, opts: {} }, JSON.stringify(call));
+    assert.deepEqual(interaction.replies[0], { deferred: true, opts: { flags: MessageFlags.Ephemeral } }, JSON.stringify(call));
     assert.equal(interaction.edits[0].content, 'done', JSON.stringify(call));
   }
 
-  // Ephemeral: memory, access, config, status, and a fast or a deferred one alike.
+  // Fast ones.
   for (const call of [
     { group: 'memory', subcommand: 'show', optionValues: { user: { id: 'target1' } } },
     { group: 'access', subcommand: 'list' },
@@ -816,27 +812,25 @@ test('commands: replies are ephemeral by default and visible for talk, diary pos
     await handler(interaction);
     assert.deepEqual(interaction.replies[0], { content: 'done', flags: MessageFlags.Ephemeral }, JSON.stringify(call));
   }
-  const wipe = fakeInteraction({ group: 'memory', subcommand: 'wipe', optionValues: { confirm: 'x' } });
-  await handler(wipe);
-  assert.deepEqual(wipe.replies[0], { deferred: true, opts: { flags: MessageFlags.Ephemeral } });
 
-  // An error of a visible command is ephemeral: the public deferred reply is deleted first.
+  // An error of a deferred command edits the ephemeral deferred reply.
   const failing = fakeAdmin({
     runImpl: () => {
       throw new Error('busy');
     },
   });
   const failingHandler = createInteractionHandler({ hot: baseHot(), admin: failing, getGuildId: () => 'g1' });
-  const talk = fakeInteraction({ subcommand: 'talk', optionValues: { action: 'interject' } });
-  await failingHandler(talk);
-  assert.equal(talk.deletes.length, 1);
-  assert.equal(talk.edits.length, 0);
-  assert.deepEqual(talk.followUps, [{ content: 'Error: busy', flags: MessageFlags.Ephemeral }]);
+  const draw = fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a lighthouse' } });
+  await failingHandler(draw);
+  assert.deepEqual(draw.replies[0], { deferred: true, opts: { flags: MessageFlags.Ephemeral } });
+  assert.equal(draw.deletes.length, 0);
+  assert.equal(draw.edits[0].content, 'Error: busy');
 
-  // A refusal too: a member with no grant never sees a public reply.
+  // A refusal too.
   const member = fakeInteraction({ user: { id: 'helper1' }, subcommand: 'talk', optionValues: { action: 'interject' } });
   await handler(member);
-  assert.deepEqual(member.followUps, [{ content: 'Not allowed', flags: MessageFlags.Ephemeral }]);
+  assert.deepEqual(member.replies[0], { deferred: true, opts: { flags: MessageFlags.Ephemeral } });
+  assert.equal(member.edits[0].content, 'Not allowed');
 });
 
 // ---------------------------------------------------------------------------
@@ -959,12 +953,12 @@ test('autocomplete: command-option choices for /nep access grant|revoke -- every
   assert.ok(!choices.some((c) => c.name === 'memory.show'), 'never an old command key');
 });
 
-test('autocomplete: command-option choices never offer the owner-only private memory and mentor commands', async () => {
+test('autocomplete: command-option choices never offer the owner-only private memory commands', async () => {
   const admin = fakeAdmin();
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
   // [owner-only group, a typed prefix of it]
-  for (const [group, typed] of [['memory.private', 'priv'], ['memory.journal', 'jour'], ['memory.restore', 'rest'], ['mentor', 'ment']]) {
+  for (const [group, typed] of [['memory.private', 'priv'], ['memory.journal', 'jour'], ['memory.restore', 'rest']]) {
     for (const [subcommand, value] of [['grant', typed], ['revoke', typed], ['grant', '']]) {
       const interaction = fakeInteraction({ kind: 'autocomplete', group: 'access', subcommand, focused: { name: 'command', value } });
       await handler(interaction);
@@ -1145,7 +1139,7 @@ test('interaction handler: draw maps text and self (self false when omitted)', a
   assert.deepEqual(admin.runCalls[1][1], { text: 'a cat', self: false });
 });
 
-test('interaction handler: draw defers, then edits the reply with the text and the file', async () => {
+test('interaction handler: draw defers ephemerally, then edits the reply with the text and the file', async () => {
   const attachment = Buffer.from('fake-png');
   const admin = fakeAdmin({ runImpl: () => ({ text: 'openai/x · 12.3s · cost 0.04', files: [{ attachment, name: 'image.png' }] }) });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
@@ -1154,7 +1148,7 @@ test('interaction handler: draw defers, then edits the reply with the text and t
   await handler(interaction);
 
   assert.equal(interaction.deferred, true);
-  assert.deepEqual(interaction.replies[0], { deferred: true, opts: {} }, 'the picture is posted for the channel to see');
+  assert.deepEqual(interaction.replies[0], { deferred: true, opts: { flags: MessageFlags.Ephemeral } }, 'ephemeral like every reply');
   assert.equal(interaction.edits.length, 1);
   assert.equal(interaction.edits[0].content, 'openai/x · 12.3s · cost 0.04');
   assert.deepEqual(interaction.edits[0].files, [{ attachment, name: 'image.png' }]);
@@ -1183,31 +1177,11 @@ test('interaction handler: a failed draw is reported ephemerally as an error tex
   const interaction = fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a cat' } });
   await handler(interaction);
 
-  assert.equal(interaction.deletes.length, 1, 'the public deferred reply goes');
-  assert.equal(interaction.followUps.length, 1);
-  assert.match(interaction.followUps[0].content, /Error: draw failed \(moderation, HTTP 400\)/);
-  assert.equal(interaction.followUps[0].flags, MessageFlags.Ephemeral);
-  assert.equal(interaction.followUps[0].files, undefined);
-});
-
-// ---------------------------------------------------------------------------
-// mentor: the owner-only group that measures the persona in a sandbox
-// ---------------------------------------------------------------------------
-
-const MENTOR_SUBCOMMANDS = ['add', 'anchor', 'cases', 'remove', 'run', 'check', 'stop', 'show', 'wrong', 'status'];
-
-test('buildCommandTree: the mentor group is no longer registered; its keys reach no operation and are never deferred', async () => {
-  const [command] = buildCommandTree('nep');
-  assert.equal(findOption(command.options, 'mentor'), undefined);
-  const admin = fakeAdmin({ runImpl: () => 'mentor result' });
-  const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
-  for (const subcommand of MENTOR_SUBCOMMANDS) {
-    assert.equal(admin.operationFor(`mentor.${subcommand}`, {}), null, subcommand);
-    const interaction = fakeInteraction({ group: 'mentor', subcommand, optionValues: { id: 1, text: 'a case text', message: '800000000000000004', reason: 'why' } });
-    await handler(interaction);
-    assert.equal(interaction.deferred, false, subcommand);
-    assert.deepEqual(interaction.replies[0], { content: 'mentor result', flags: MessageFlags.Ephemeral }, subcommand);
-  }
+  assert.deepEqual(interaction.replies[0], { deferred: true, opts: { flags: MessageFlags.Ephemeral } });
+  assert.equal(interaction.deletes.length, 0);
+  assert.equal(interaction.edits.length, 1);
+  assert.match(interaction.edits[0].content, /Error: draw failed \(moderation, HTTP 400\)/);
+  assert.equal(interaction.edits[0].files, undefined);
 });
 
 // ---------------------------------------------------------------------------

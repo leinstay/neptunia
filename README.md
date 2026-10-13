@@ -144,12 +144,6 @@ The persona can see attached pictures, watch short video clips, read pages behin
 
 `features.privateMessages` (off by default) lets guild members talk to the persona in Discord DMs. The persona is the same character with the same public memory; what is said in a DM is remembered in a per-member private layer that no other conversation ever sees. DMs need the same server membership and no extra permission beyond what the invite URL already grants. See [`docs/en/messages-and-memory.md`](docs/en/messages-and-memory.md#private-layer) for the gate, the private memory layer and the owner commands.
 
-## Mentor
-
-`features.mentor` (off by default) adds a manual testing sub-process with its own model. A case is a real message of the persona plus one sentence about what is wrong with it. The mentor stores the chat that led to the message, invents more situations of the same kind, runs the persona through all of them in a sandbox with the live prompts and memory, and scores every answer on five axes (0–10). When a run fails or scores poorly, the mentor names likely causes in the persona's context and proposes changes as advice for the owner to review. All work stays in `data/`. When `bot.dryRunChannelId` is set, a finished run is posted there as well; without an admin channel the owner follows a run with `/nep mentor status` and reads the report with `/nep mentor show <id>`.
-
-The mentor model, budget and commands are independent from the persona's. See [`docs/en/configuration.md`](docs/en/configuration.md#mentor) for the config keys and [`docs/en/owner-commands.md`](docs/en/owner-commands.md) for the `/nep mentor` subcommands.
-
 ## Costs
 
 Each turn is one LLM request; a memory update adds a second. A split-message classifier and a merge classifier may add one request each on the `classifier.text` model when their conditions are met. Cost depends on the model and endpoint; `llm.model` and `llm.baseUrl` accept any compatible values. The daily cap (`llm.maxRequestsPerDay`) prevents runaway spending. Video descriptions add one request per watched clip to a separate, cheaper model (`media.video.maxPerDay` caps the daily count); `yt-dlp` and `ffmpeg` run locally and cost nothing beyond bandwidth. Link reads and web searches (`features.webLookup`, off by default) add requests to the text classifier model, capped by `web.maxPerDay`; web search additionally needs a Brave Search API key (free tier: 2,000 queries/month). Server-history searches (`features.recall`, on by default) use Discord's built-in search API and add only the classifier and summary requests. Image generation (`features.imageGeneration`, off by default) bills per output token through `image.model`; `image.maxPerDay` caps the daily count separately from chat requests. Private chat (`features.privateMessages`, off by default) uses the same LLM and caps; each DM reply is one request, each private analyzer batch is another. With `features.webLookup` on, the bot makes outbound HTTP requests to fetch pages and to the Brave Search API; private addresses are refused.
@@ -225,10 +219,6 @@ prompts/
   room.md                  classifier: is this message for everyone in the room
   route-channel.md         classifier: does answering need another channel
   elsewhere.md             task: comment on a read-only channel in the main channel
-  mentor-situations.md     mentor: invent test situations
-  mentor-score.md          mentor: score the persona's answers
-  mentor-signs.md          mentor: known habits of model-written text
-  mentor-diagnose.md       mentor: explain weak answers after scoring
   split.md                 classifier: does a direct call hold several separate requests
   merge.md                 classifier: does a new message belong to something already waiting
   profile.md               warmup: one member's profile from a message sample
@@ -340,7 +330,7 @@ tests/                     node --test, pure-function unit tests
 deploy/
   neptunia-bot.service     example systemd unit
 data/                      persistent state (gitignored, created at runtime)
-  state.json               scheduler times, token calibration, daily counters, warmup progress, post ledger
+  state.json               scheduler times, token calibration, daily counters, warmup progress
   guilds/<id>/guild.json   server habits, in-jokes, the persona's self-claims
   guilds/<id>/buffer.json  messages observed since the last memory update
   guilds/<id>/media.json   media description cache

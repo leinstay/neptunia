@@ -7,10 +7,11 @@
 // serves; `createInteractionHandler` turns a discord.js interaction into an
 // `admin.runCommand(commandKey, args, context)` call -- the command's
 // operation run through src/ops/index.js#runOp, rights included -- and
-// replies, never letting an error escape into discord.js. Replies are
-// ephemeral, except the ones whose operation posts in the channel anyway
-// (VISIBLE_OPS); an operation that may outlast Discord's reply window is
-// deferred first (DEFERRED_OPS); an interaction delivered twice runs once.
+// replies, never letting an error escape into discord.js. Every reply is
+// ephemeral (what a command posts in the channel -- a message, a drawing, a
+// diary entry -- is the persona's own post, not the reply); an operation that
+// may outlast Discord's reply window is deferred first (DEFERRED_OPS); an
+// interaction delivered twice runs once.
 // One subcommand, `pings`, is a member's own notification switch, open to
 // every member (its operations' `rights.member`).
 //
@@ -71,10 +72,6 @@ export const DEFERRED_OPS = Object.freeze(new Set([
   'draw.create',
 ]));
 
-/** Operations whose reply everyone in the channel sees: they post there anyway. Every other
- * reply, and every error, is ephemeral. */
-export const VISIBLE_OPS = Object.freeze(new Set(['talk.interject', 'talk.initiate', 'diary.post', 'draw.create']));
-
 /**
  * The chat-model roles, each with the config path of its model (src/admin.js):
  * the roles `/nep model` and `/nep route` list, plus `image` (`MODEL_SET_PATHS`);
@@ -88,7 +85,6 @@ export const MODEL_ROLE_PATHS = Object.freeze({
   'classifier.text': 'classifier.text',
   'classifier.media': 'classifier.media',
   'classifier.video': 'classifier.video',
-  mentor: 'mentor.model',
 });
 
 /** The roles of `MODEL_ROLE_PATHS`, in order. */
@@ -711,18 +707,17 @@ export function leafPaths(config, prefix = '') {
  * long, code-fenced when multi-line), `{ text, files: [{ attachment: Buffer,
  * name }] }`, whose files ride on the first message, or `{ text, embeds }`
  * (the status card: plain embed data, wrapped in EmbedBuilder here), the
- * embeds first and the text below them as follow-ups. Ephemeral unless
- * `visible`; a `deferred` reply edits the deferred one, whose visibility the
- * defer already set.
+ * embeds first and the text below them as follow-ups. Always ephemeral; a
+ * `deferred` reply edits the deferred (ephemeral) one.
  */
-async function respond(interaction, result, { deferred = false, visible = false } = {}) {
+async function respond(interaction, result, { deferred = false } = {}) {
   const isObject = result !== null && typeof result === 'object';
   const body = String((isObject ? result.text : result) ?? '');
   const files = isObject && Array.isArray(result.files) && result.files.length > 0 ? result.files : null;
   const embeds = isObject && Array.isArray(result.embeds) && result.embeds.length > 0 ? result.embeds.map((data) => new EmbedBuilder(data)) : null;
   const wrap = body.includes('\n');
   const format = (chunk) => (wrap ? `\`\`\`\n${chunk}\n\`\`\`` : chunk);
-  const flags = visible ? {} : { flags: MessageFlags.Ephemeral };
+  const flags = { flags: MessageFlags.Ephemeral };
   const chunks = body ? chunkText(body, REPLY_CHUNK_CHARS) : [];
 
   let first;
@@ -743,20 +738,6 @@ async function respond(interaction, result, { deferred = false, visible = false 
   for (const chunk of rest) {
     await interaction.followUp({ content: format(chunk), ...flags });
   }
-}
-
-/**
- * Reply with an error or a refusal, always ephemerally. A deferred visible
- * reply cannot turn ephemeral: it is deleted and the text follows up
- * ephemerally instead (edited in place when it cannot be deleted).
- */
-async function respondError(interaction, text, { deferred = false, visible = false } = {}) {
-  if (deferred && visible && typeof interaction.deleteReply === 'function') {
-    await interaction.deleteReply().catch(() => {});
-    await interaction.followUp({ content: text, flags: MessageFlags.Ephemeral });
-    return;
-  }
-  await respond(interaction, text, { deferred, visible: false });
 }
 
 /** The interacting member's role ids as strings — discord.js gives a `GuildMemberRoleManager`
@@ -891,26 +872,26 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
       return;
     }
 
-    let mode = { deferred: false, visible: false };
+    let mode = { deferred: false };
     try {
       const args = buildArgs(commandKey, interaction);
       const op = typeof admin.operationFor === 'function' ? admin.operationFor(commandKey, args) : null;
-      mode = { deferred: op !== null && DEFERRED_OPS.has(op), visible: op !== null && VISIBLE_OPS.has(op) };
-      if (mode.deferred) await interaction.deferReply(mode.visible ? {} : { flags: MessageFlags.Ephemeral });
+      mode = { deferred: op !== null && DEFERRED_OPS.has(op) };
+      if (mode.deferred) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const context = { guildId: interaction.guildId, channelId: interaction.channelId, userId: interaction.user.id, roleIds: roleIdsFor(interaction) };
       // The rights are checked by the operation's own runOp (src/ops/index.js), every time.
       const result = await admin.runCommand(commandKey, args, context);
       if (result.status === 'ok') {
         await respond(interaction, result.data?.files || result.data?.embeds ? result.data : result.summary, mode);
       } else if (result.status === 'denied') {
-        await respondError(interaction, NOT_ALLOWED_MESSAGE, mode);
+        await respond(interaction, NOT_ALLOWED_MESSAGE, mode);
       } else {
         log.warn('commands: command failed', { command: commandKey, status: result.status, code: result.code, error: new Error(result.summary) });
-        await respondError(interaction, `Error: ${result.summary}`, mode).catch(() => {});
+        await respond(interaction, `Error: ${result.summary}`, mode).catch(() => {});
       }
     } catch (err) {
       log.warn('commands: command failed', { command: commandKey, error: err });
-      await respondError(interaction, `Error: ${err?.message ?? String(err)}`, mode).catch(() => {});
+      await respond(interaction, `Error: ${err?.message ?? String(err)}`, mode).catch(() => {});
     }
   }
 

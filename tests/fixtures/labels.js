@@ -239,11 +239,6 @@ export const labels = {
     notice: 'limit reached ({limit}, {used}/{cap})',
     paused: 'paused for now, back later',
   },
-  mentor: {
-    intended: ['a limit notice is a feature'],
-    examples: 'real moments, each with the rejected original answer',
-    original: 'the rejected original answer, a reference only',
-  },
   address: {
     author: '{name} -- known as: {aliases}',
   },

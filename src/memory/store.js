@@ -3,7 +3,7 @@
 //
 //   data/state.json                          the pause flag, the spontaneous schedule, token calibration, the
 //                                            daily counters (LLM requests, portrait refreshes, voice requests,
-//                                            mentor tokens, videos and re-watches, pictures drawn, web lookups,
+//                                            videos and re-watches, pictures drawn, web lookups,
 //                                            GIFs posted and watched), the warmup progress, the open follow-up
 //                                            windows, the ring of calls from other channels and the seen marks
 //                                            of the channels a turn pulled in

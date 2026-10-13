@@ -6,7 +6,7 @@ Channels, roles and users are picked from Discord's own pickers; `set`/`unset` a
 
 **After the deploy that keyed access by operation.** On the first start, every stored grant is converted once: an old command key becomes the operation it ran; an old group or `*` becomes the read operations it covered; owner-only operations are dropped. A journal `system` record `access-migrated` lists what each old grant covers now. Then run `/nep access revoke * everyone` followed by `/nep access grant memory.profile.read everyone`, and re-grant any other operation by name (check `/nep access list`).
 
-The table below is generated from the command table (`src/discord/commands.js#COMMAND_TABLE`): each command, the operation it runs, how it answers (ephemeral, or visible to the channel; deferred when the operation may outlast Discord's three-second reply window) and its description. An interaction Discord delivers twice runs once.
+The table below is generated from the command table (`src/discord/commands.js#COMMAND_TABLE`): each command, the operation it runs, how it answers (always ephemeral; deferred when the operation may outlast Discord's three-second reply window) and its description. An interaction Discord delivers twice runs once.
 
 | Command | Operation | Reply | What it does |
 |---|---|---|---|
@@ -15,14 +15,14 @@ The table below is generated from the command table (`src/discord/commands.js#CO
 | `/nep unset <path>` | `config.unset` | ephemeral | Remove a config override; `path` autocompletes |
 | `/nep pause` | `bot.pause` | ephemeral, deferred | Pause the persona and flush memory so data/ can be hand-edited |
 | `/nep resume` | `bot.resume` | ephemeral, deferred | Resume after a pause; refused if a data/ file is invalid |
-| `/nep draw <text> [self]` | `draw.create` | visible, deferred | Draw one picture in this channel. Spends balance |
-| `/nep talk <action:interject\|initiate> [channel]` | `talk.interject`, `talk.initiate` | visible, deferred | Make the persona speak now |
+| `/nep draw <text> [self]` | `draw.create` | ephemeral, deferred | Draw one picture in this channel. Spends balance |
+| `/nep talk <action:interject\|initiate> [channel]` | `talk.interject`, `talk.initiate` | ephemeral, deferred | Make the persona speak now |
 | `/nep media <kind:emoji\|gifs> <action:status\|rescan\|recache>` | `media.status`, `media.rescan`, `media.recache` | ephemeral, deferred for `media.rescan` | The custom emoji ranking and the GIF library |
 | `/nep model show` | `model.show` | ephemeral | Show the model of each role |
-| `/nep model set <role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|mentor\|image> <id>` | `model.set` | ephemeral | Set the model for one role; `id` autocompletes |
+| `/nep model set <role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image> <id>` | `model.set` | ephemeral | Set the model for one role; `id` autocompletes |
 | `/nep route list` | `route.list` | ephemeral | Every route, then each role's current model and route |
-| `/nep route set <model> <providers> [role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|mentor\|image] [fallbacks]` | `route.set` | ephemeral | Route a model prefix, for one role or any, to these providers only; `model` autocompletes |
-| `/nep route remove <model> [role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|mentor\|image]` | `route.remove` | ephemeral | Remove a model prefix's route, for one role or any; `model` autocompletes |
+| `/nep route set <model> <providers> [role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image] [fallbacks]` | `route.set` | ephemeral | Route a model prefix, for one role or any, to these providers only; `model` autocompletes |
+| `/nep route remove <model> [role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image]` | `route.remove` | ephemeral | Remove a model prefix's route, for one role or any; `model` autocompletes |
 | `/nep rule add <text>` | `rule.add` | ephemeral | Append a rule |
 | `/nep rule list` | `rule.list` | ephemeral | List the rules, numbered |
 | `/nep rule remove <number>` | `rule.remove` | ephemeral | Remove a rule by number |
@@ -40,7 +40,7 @@ The table below is generated from the command table (`src/discord/commands.js#CO
 | `/nep diary set <channel>` | `diary.set` | ephemeral, deferred | Set the diary channel |
 | `/nep diary show` | `diary.show` | ephemeral | Diary state today |
 | `/nep diary off` | `diary.off` | ephemeral | Stop the diary |
-| `/nep diary post [kind] [topic]` | `diary.post` | visible, deferred | Post one entry now |
+| `/nep diary post [kind] [topic]` | `diary.post` | ephemeral, deferred | Post one entry now |
 | `/nep alias add <user> <name>` | `alias.add` | ephemeral | Add or strengthen a member's alias |
 | `/nep alias remove <user> <name>` | `alias.remove` | ephemeral | Remove a member's alias |
 | `/nep learning add <text>` | `learning.add` | ephemeral | Add or strengthen a learned item |

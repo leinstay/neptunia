@@ -39,7 +39,6 @@ Every key in `config.json` with its default, grouped by section.
 | `notesRefresh` | `true` | Periodically re-examine channel and server notes from a spread sample of recent messages. A missing key counts as on. See `memory.notesRefreshDays*` and [Warmup: Keeping the notes current](warmup.md#keeping-the-notes-current) |
 | `versions` | `true` | Keep a version history of every prose memory field when its text is replaced. Previous texts are stored in `data/guilds/<id>/versions/`. `/nep memory forget` and `/nep memory wipe` delete version files. A missing key counts as on |
 | `memoryTwoStage` | `false` | Split the memory analyzer into two stages: a neutral GPT model decides what changed (stage A), then the voice model words the persona's texts (stage B). Must be exactly `true` to enable; a missing key counts as off. See `memory.voice.*` |
-| `mentor` | `false` | Manual testing sub-process with its own model. Must be exactly `true` to enable; a missing key counts as off. See [Mentor](#mentor) |
 | `promptCache` | `false` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
 | `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
@@ -101,7 +100,7 @@ Every key in `config.json` with its default, grouped by section.
 
 `llm.provider` sets a default OpenRouter provider routing on chat requests, for example `{ "ignore": ["some-provider"] }` or `{ "order": ["anthropic"], "allow_fallbacks": true }`. `llm.providerByModel` adds per-model overrides: each key is a model id prefix (matching any role) or `<prefix>@<role>` (matching one role only), and each value is an OpenRouter routing object sent verbatim.
 
-For one request the provider is resolved in order: a per-call pin (the video describer uses `media.video.provider` for the direct-URL path), then the longest matching prefix among `providerByModel` keys for the request's role, then the longest matching prefix among role-less keys, then `llm.provider` (for image requests `image.provider`), then nothing. A role-specific key always beats a role-less key for the same model. Role names: `voice`, `analyzer`, `classifier.text`, `classifier.media`, `classifier.video`, `mentor`, `image`. For compatibility, a route key or a roles list that still says `talk` is read as `voice` with one log line (`config: role talk is now voice`).
+For one request the provider is resolved in order: a per-call pin (the video describer uses `media.video.provider` for the direct-URL path), then the longest matching prefix among `providerByModel` keys for the request's role, then the longest matching prefix among role-less keys, then `llm.provider` (for image requests `image.provider`), then nothing. A role-specific key always beats a role-less key for the same model. Role names: `voice`, `analyzer`, `classifier.text`, `classifier.media`, `classifier.video`, `image`. For compatibility, a route key or a roles list that still says `talk` is read as `voice` with one log line (`config: role talk is now voice`).
 
 Example: `"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` routes all Google models through Vertex, while `"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` sends the video classifier through AI Studio. Route keys that contain dots (e.g. `google/@classifier.video`) cannot be edited through `/nep set` because it splits on dots; use `/nep route set` and `/nep route remove`.
 
@@ -109,7 +108,7 @@ If the OpenRouter account itself restricts allowed providers, ignoring the only 
 
 With `features.promptCache` on, the system message is marked for the provider's prompt cache on requests whose role is in `llm.cache.roles` and whose model starts with a prefix in `llm.cache.models`. On the reply, two more markers follow in the user message: one at the end of the stable prefix (`llm.cache.ttl`) and one at the end of the profiles (`llm.cache.profilesTtl`); three of the provider's four markers in all. See "Cache segments" in the [prompt contract](prompt-contract.md). Three helper requests send their user message in two parts so the provider can cache the bulk that repeats between calls: the GIF picker (the `<gifs>` library), the route classifier (the `<channels>` list) and the participation pick (the `<episodes>` list) tag that first part with the same `cacheSegment: 'stable'` (marker TTL `llm.cache.ttl`); the per-turn text follows untagged. The marker is placed only when the helper's role (`classifier.text`) is in `llm.cache.roles` and its model matches `llm.cache.models`; add `classifier.text` to `llm.cache.roles` to cache them. The markers go on after the token estimate, so the 50k per-request cap and the calibration are unaffected. `llm.cache.promptIncludesCached` tells the engine how the provider reports cached tokens; set it once from a real probe. The `llm: usage` log line gains `cache`: `write`, `read`, `none` or `off`.
 
-The `llm: usage` log line also carries `ms` (wall time of the request), `purpose` (a short string naming what the request was for, e.g. `route-channel`, `recall-summary`, `address`), `origin` (e.g. `mentor` for requests the mentor made or caused), `hedged` (true when the request was hedged) and `attempt` (1 or 2 for hedged requests, absent otherwise).
+The `llm: usage` log line also carries `ms` (wall time of the request), `purpose` (a short string naming what the request was for, e.g. `route-channel`, `recall-summary`, `address`), `origin` (e.g. `replay` for the requests of `tools/replay.mjs`), `hedged` (true when the request was hedged) and `attempt` (1 or 2 for hedged requests, absent otherwise).
 
 With `llm.hedge` configured, requests on the roles it lists are hedged: a second attempt fires `llm.hedge.afterMs` after the first, and the first to finish wins. Both are aborted at `llm.hedge.timeoutMs` (or `longTimeoutMs` for a `long: true` request). This adds one extra request per hedged call that did not finish before the second started; both count against `llm.maxRequestsPerDay`.
 
@@ -734,40 +733,6 @@ Settings for private chat (`features.privateMessages`). All hot-reloaded. The ga
 
 With `features.relationships` off, public scores stay at 0, so with the default `minAffinity` only owners can DM.
 
-## `mentor`
-
-Settings for the manual testing sub-process (`features.mentor`). The mentor invents chat situations, runs the persona through them in a sandbox, and scores the answers. It uses its own model and its own daily token budget; nothing it does counts against `llm.maxRequestsPerDay`. All hot-reloaded.
-
-| Key | Default | Meaning |
-|---|---|---|
-| `model` | `null` | Mentor model ID. `null` or missing disables all commands that need the model |
-| `maxTokensPerDay` | `400000` | Daily token budget. Counted from real usage: prompt tokens x1, cached prompt tokens x`cachedTokenWeight`, output tokens x`outputTokenWeight`. Sandbox answers of the persona's voice model are counted the same way |
-| `outputTokenWeight` | `5` | Weight of output tokens in the budget. Accounts for the higher cost of generated tokens |
-| `cachedTokenWeight` | `0.1` | Weight of cached prompt tokens in the budget |
-| `maxOutputTokens` | `6000` | Max output tokens per mentor request |
-| `timeoutMs` | `300000` | Request timeout for mentor requests (ms) |
-| `situations` | `5` | Chat situations invented per run |
-| `situationLines` | `[6, 15]` | Min and max lines per situation |
-| `samples` | `3` | Persona completions per situation. Real moments use `anchor.samples` instead |
-| `check.samples` | `1` | Persona completions per situation during `/nep mentor check`. Real moments use `anchor.samples` instead |
-| `pass.score` | `7` | A case passes when the median of `overall` and the median of `goal` reach this threshold |
-| `pass.anchorScore` | `null` | Threshold for a real moment. When set to a number, a real moment fails the case when its median `overall` or `goal` is under that number. `null` uses `pass.score` |
-| `pass.floor` | `5` | A case fails when any axis has a median below this floor. Every invented situation is held to this floor too: the case fails when the median `overall` or median `goal` of any one invented situation is under it, whatever the medians over all answers. A real moment is held to the pass score (`pass.anchorScore` when set, otherwise `pass.score`) |
-| `diagnose` | `true` | After a failing or weak run, the mentor states what in the context caused the weak answers. Stored as `diagnosis` on the run; a check never asks |
-| `reference.days` | `7` | Days of chat history used to build the style reference |
-| `reference.samples` | `60` | Random lines (2–200 characters) picked from the reference window as style examples |
-| `reference.maxMessages` | `3000` | Max messages read from the reference channels |
-| `reference.rarePer1000` | `0.5` | A mark used less often than this many times per 1000 characters counts as rare |
-| `reference.rareMinAuthors` | `2` | A mark used by fewer authors than this counts as rare |
-| `anchor.max` | `5` | Real moments per case. Each moment is a message of the persona the owner rejected, stored with the chat that led to it |
-| `anchor.contextMessages` | `30` | Messages of the channel fetched as context when resolving a moment, ending at the trigger |
-| `anchor.samples` | `5` | Persona completions per real moment in a run and in `/nep mentor check` |
-| `anchor.hideLaterMemory` | `true` | When replaying a real moment, hide memory written at or after its trigger (episodes, attitude changes, details, interests, aliases, learned items, lore entries). `false` replays it with all of today's memory |
-| `anchor.ledgerSize` | `300` | Entries kept in the post ledger (`state.json` `postLedger`). The ledger maps each posted message to its turn so the mentor can find the trigger of a real moment. Written only while `features.mentor` is on. `0` keeps none |
-| `feedbackExamples` | `10` | Latest owner corrections (`/nep mentor wrong`) included in every scoring request |
-
-`llm.maxRequestTokens` (50k per request) applies to every request the mentor makes or causes, including sandbox answers. Before each mentor request the budget check counts the prompt plus the most the answer may cost (`mentor.maxOutputTokens` at `mentor.outputTokenWeight`), so a request is refused when its possible output does not fit what is left. When the budget runs out the run stops and reports what it has. A run also stops when `features.mentor` or `mentor.model` is turned off during it, or when the reference channels hold no messages of people in the reference window.
-
 ## `warmup`
 
 | Key | Default | Meaning |
@@ -859,10 +824,6 @@ Cost per one-minute clip, USD, from OpenRouter prices on 2026-09-23:
 | `google/gemini-3.8-flash` (default) | 0.014 |
 
 `qwen/qwen3.8-omni-flash` also accepts video and audio. Prices change; the table is a snapshot as of the date above.
-
-### Mentor (`mentor.model`)
-
-Role `mentor`. Scores the persona's answers and invents test situations. A model from a different family than the voice model is recommended: a model is blind to the habits of its own family. `null` (default) leaves the mentor disabled; `/nep mentor` commands that need the model say so.
 
 ### Pictures out (`image.model`)
 

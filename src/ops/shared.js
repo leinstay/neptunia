@@ -508,13 +508,10 @@ export function oldestMessageId(batch) {
 }
 
 // ---------------------------------------------------------------------------
-// Model roles, `/nep ping` and `/nep route`: pure helpers
+// Model roles and `/nep route`: pure helpers
 // ---------------------------------------------------------------------------
 
 export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
-
-/** `/nep ping classifier` pings the three classifier roles together. */
-export const PING_GROUPS = { classifier: MODEL_ROLES.filter((role) => role.startsWith('classifier.')) };
 
 /** Every role a route may name: the `/nep model` roles, then the drawing model's. */
 export const ROUTE_ROLES = [...MODEL_ROLES, IMAGE_ROLE];
@@ -522,20 +519,7 @@ export const ROUTE_ROLES = [...MODEL_ROLES, IMAGE_ROLE];
 /** A provider slug as OpenRouter writes it: lowercase letters, digits and `-`. */
 export const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
 
-/** The order the model lines of `/nep ping` are printed in (a display rule only: the speaking
- * model first, then the subprocessors); the image line follows them, the API checks come last. */
-export const PING_DISPLAY_ORDER = ['voice', 'analyzer', 'classifier.text', 'classifier.media', 'classifier.video', 'mentor'];
-
-/** The roles one `/nep ping` argument stands for: one role, a group, the image check, or (anything else)
- * all of them, the image check last. */
-export function pingRolesFor(role) {
-  if (MODEL_ROLES.includes(role)) return [role];
-  if (PING_GROUPS[role]) return PING_GROUPS[role];
-  if (role === IMAGE_ROLE) return [IMAGE_ROLE];
-  return [...MODEL_ROLES, IMAGE_ROLE];
-}
-
-/** The model id one role resolves to right now — used by model show and ping alike. */
+/** The model id one role resolves to right now (`/nep model show`, the status card). */
 export function modelForRole(role, cfg) {
   // The one model that speaks as the persona: its replies and its memory wording.
   if (role === 'voice') return cfg?.llm?.model || undefined;
@@ -543,8 +527,6 @@ export function modelForRole(role, cfg) {
   if (role === 'classifier.text') return classifierTextModel(cfg);
   if (role === 'classifier.media') return classifierMediaModel(cfg);
   if (role === 'classifier.video') return classifierVideoModel(cfg);
-  // No fallback to the voice model: an unset mentor model means the mentor is not configured.
-  if (role === 'mentor') return cfg?.mentor?.model || undefined;
   return undefined;
 }
 
@@ -552,98 +534,6 @@ export function modelForRole(role, cfg) {
 export function modelForRouteRole(role, cfg) {
   if (role === IMAGE_ROLE) return cfg?.image?.model || undefined;
   return modelForRole(role, cfg);
-}
-
-/** `entry.step`/`.name`/`.stage`, or `'step'` when a routing-funnel entry names itself none of those. */
-export function funnelStepName(entry) {
-  return entry?.step ?? entry?.name ?? entry?.stage ?? 'step';
-}
-
-/** `entry.endpoint_count` (OpenRouter's real key, verbatim from a captured 404 body) first, then a
- * few other plausible spellings, so a future rename does not silently go blank. */
-export function funnelEndpointCount(entry) {
-  return entry?.endpoint_count ?? entry?.endpoints ?? entry?.count ?? entry?.remaining ?? entry?.endpointCount;
-}
-
-export function describeFunnelStep(entry) {
-  const count = funnelEndpointCount(entry);
-  return count == null ? funnelStepName(entry) : `${funnelStepName(entry)} -> ${count} endpoints`;
-}
-
-/**
- * The last `routing_funnel` step out of an OpenRouter error body, when present -- the diagnostic
- * that actually tells "wrong provider keys" apart from a genuine outage. A real captured 404 body
- * carries it at `error.metadata.routing_funnel` (checked first); a
- * couple of other plausible locations are tried too, and it never throws on a body that is not
- * JSON or carries no such field. When the step that first hit 0 endpoints is not the last step
- * (the funnel kept going after already emptying out), both are shown -- the first zero is usually
- * the actually useful one to fix, the last is what the request ultimately failed at.
- */
-export function extractRoutingFunnel(rawBody) {
-  if (!rawBody) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(rawBody);
-  } catch {
-    return null;
-  }
-  const funnel = parsed?.error?.metadata?.routing_funnel ?? parsed?.routing_funnel ?? parsed?.error?.routing_funnel;
-  if (!Array.isArray(funnel) || funnel.length === 0) return null;
-  const last = funnel[funnel.length - 1];
-  if (!last || typeof last !== 'object') return null;
-
-  const firstZero = funnel.find((entry) => funnelEndpointCount(entry) === 0);
-  const lastLine = `funnel: ${describeFunnelStep(last)}`;
-  if (firstZero && firstZero !== last) {
-    return `${lastLine} (first hit 0 at ${describeFunnelStep(firstZero)})`;
-  }
-  return lastLine;
-}
-
-/** One role's line on a successful ping. */
-export function formatPingSuccess(role, model, result, ms) {
-  const parts = [`${role}: ${model} — ok, ${ms}ms`];
-  if (result.provider) parts.push(`provider=${result.provider}`);
-  const usage = result.usage ?? {};
-  if (usage.prompt_tokens != null || usage.completion_tokens != null) {
-    parts.push(`tokens ${usage.prompt_tokens ?? '?'}/${usage.completion_tokens ?? '?'}`);
-  }
-  return parts.join(', ');
-}
-
-/** One role's line on a failed ping: the HTTP status is already folded into `err.message` by
- * src/llm/openrouter.js, so this only trims it and appends the routing-funnel diagnostic, if any. */
-export function formatPingFailure(role, model, err, ms) {
-  const message = String(err?.message ?? err ?? 'error').slice(0, 200);
-  const parts = [`${role}: ${model} — FAIL, ${ms}ms, ${message}`];
-  const funnel = extractRoutingFunnel(err?.body);
-  if (funnel) parts.push(funnel);
-  return parts.join(' | ');
-}
-
-/** The YouTube line of `/nep ping video`: the state of the Data API key given which duration
- * source works here (src/memory/youtube-check.js). No duration, no detail. */
-export function formatYoutubeLine(result) {
-  const status = result?.status;
-  const keySet = Boolean(result?.keySet);
-  let state;
-  if (status === 'api') state = 'ok';
-  else if (status === 'ytdlp') state = 'not needed (yt-dlp ok)';
-  else if (status === 'page') state = keySet ? 'failed (page only, unreliable)' : 'missing (page only, unreliable)';
-  else state = keySet ? 'failed (blocked)' : 'missing (blocked)';
-  return `youtube: API key — ${state}`;
-}
-
-/** `lines` with the YouTube line appended: an API check, so it follows every model line. */
-export function withYoutubeLine(lines, youtubeLine) {
-  if (youtubeLine == null) return lines;
-  return [...lines, youtubeLine];
-}
-
-/** `lines` with the image line appended, after the other model lines and before the API checks. */
-export function withImageLine(lines, imageLine) {
-  if (imageLine == null) return lines;
-  return [...lines, imageLine];
 }
 
 /** The providers part of a routing object: its `only`/`order`/`ignore` lists, or the object as
@@ -690,7 +580,7 @@ export function routeRoleArg(args) {
 }
 
 // ---------------------------------------------------------------------------
-// Warmup, mentor, access and the media commands: pure helpers
+// Warmup, access and the media commands: pure helpers
 // ---------------------------------------------------------------------------
 
 /** `N s ago` / `N min ago` / `N h ago` before `now`, or `never` when `lastActivityAt` is unknown. */
@@ -749,9 +639,6 @@ export function formatWarmupPhase(s) {
 export function outcomeText(outcome, fallback) {
   return outcome?.message ?? outcome?.reason ?? fallback;
 }
-
-export const MENTOR_CASE_TEXT_SHOWN = 80;
-export const MENTOR_STATES = ['new', 'passing', 'failing', 'retired'];
 
 /** Why `/nep emoji rescan` did not run, by src/memory/emoji-backfill.js's skip reason (the
  * reasons every background job shares -- paused, no guild -- are worded by `skipText`). */

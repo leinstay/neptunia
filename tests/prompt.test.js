@@ -3891,7 +3891,7 @@ test('prompt: features.recent false, no recentLines or nothing inside the window
   const before = buildRequest(recentScene({ recentLines: undefined, candidateProfiles: [nikos] }));
   assert.ok(!userText(before).includes('<recent>'));
   assert.equal(before.recent, null);
-  // No store's lines handed over (the mentor's sandbox) or the switch off: no block, a moment in the window or not.
+  // No store's lines handed over (the replay sandbox) or the switch off: no block, a moment in the window or not.
   for (const overrides of [{ recentLines: 'όχι λίστα' }, { recentLines: [recentLine(1)], features: { recent: false } }]) {
     const request = buildRequest(recentScene({ candidateProfiles: [nikos], ...overrides }));
     assert.deepEqual(request.messages, before.messages, JSON.stringify(overrides));

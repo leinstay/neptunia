@@ -114,38 +114,6 @@ export function postsPlain(triggerKind) {
   return triggerKind === 'followUp' || triggerKind === 'overheard';
 }
 
-/** `mentor.anchor.ledgerSize` when it is missing or unusable: config.json's value. */
-const POST_LEDGER_SIZE_FALLBACK = 300;
-
-/**
- * How many entries the post ledger (`state.json` `postLedger`) keeps:
- * `mentor.anchor.ledgerSize` read from `config` (the live config), floored;
- * 0 keeps none; missing or not a non-negative number -> 300 (config.json's value).
- * @param {object} config
- * @returns {number}
- */
-export function postLedgerSize(config) {
-  const size = config?.mentor?.anchor?.ledgerSize;
-  return Number.isFinite(size) && size >= 0 ? Math.floor(size) : POST_LEDGER_SIZE_FALLBACK;
-}
-
-/**
- * The post ledger with `entry` appended, cut to its newest `size` entries.
- * The ledger tells the mentor (src/mentor/anchor.js#ledgerEntryFor) which
- * turn a posted message of the persona belonged to. A value that is not a
- * list counts as an empty ledger. Pure: the given list is not changed.
- * @param {unknown} ledger
- * @param {{ messageId: string, channelId: string, mode: string, triggerKind: string|null,
- *   triggerId: string|null, newestHistoryId: string|null, sourceChannelId: string|null, at: number }} entry
- * @param {number} size
- * @returns {object[]}
- */
-export function appendPostLedger(ledger, entry, size) {
-  if (!(size > 0)) return [];
-  const list = Array.isArray(ledger) ? ledger : [];
-  return [...list, entry].slice(-size);
-}
-
 /** `pace` when a key is missing: config.json's values. */
 const PACE_FALLBACK = Object.freeze({ prepareMs: 6000, prepareSearchMs: 12000, prepareMediaMs: 20000, dropAfterMs: 60000, replyHedgeMs: 20000, typingWhilePreparing: false, unpromptedWaits: true, settleMs: 0, settleMaxMs: 15000 });
 
@@ -423,7 +391,7 @@ function storedNames(peopleShown, shownLines, profileOf) {
 
 /**
  * Profiles of the people most recently active in the transcript, excluding `exceptId`.
- * Also used by the mentor's reply sandbox (src/mentor/sandbox.js) with a store-shaped reader.
+ * Also used by the replay sandbox (src/behavior/sandbox.js) with a store-shaped reader.
  * @param {{ getUser: (guildId: string, userId: string) => (object|null) }} store
  * @param {string} guildId
  * @param {object[]} history
@@ -1071,14 +1039,7 @@ function taskInput({ part, queued, added, labels, channelId }) {
  * A web-only result is exactly the web search's object, as before recall.
  *
  * `now` (default Date.now) is the turn's clock: its own time, `{{today}}` of
- * the search classifier, the daily GIF counter, every `lastPostAt` stamp and
- * the post ledger's times.
- *
- * With features.mentor true every message, GIF and picture a turn posts in a
- * server channel is recorded in `state.json` `postLedger` (recordPost; at
- * most `mentor.anchor.ledgerSize`, nothing while paused or in a dry run): `{
- * messageId, channelId, mode, triggerKind, triggerId, newestHistoryId,
- * sourceChannelId, at }`, read by src/mentor/anchor.js#ledgerEntryFor.
+ * the search classifier, the daily GIF counter and every `lastPostAt` stamp.
  *
  * `emoji` (src/discord/emoji.js#createEmojiIndex) is optional: absent, or
  * `features.customEmoji` false (a missing key counts as on), no `:name:` is
@@ -1789,23 +1750,7 @@ export function createTurnRunner({
     }
   }
 
-  /**
-   * Record one message the persona posted in the post ledger (`state.json`
-   * `postLedger`, appendPostLedger, capped at postLedgerSize): `post` (the
-   * turn's mode, trigger kind and id, the newest line of its history, its
-   * source channel) with the posted message's id and the time. Only with
-   * features.mentor true (read now, like the size), never while paused (the
-   * owner may be editing data/), never without a message id; marks the state
-   * dirty. The mentor reads it to replay a moment as the turn it was.
-   */
-  function recordPost(sent, post) {
-    if (hot.config.features?.mentor !== true) return;
-    const data = store.state.data;
-    const messageId = sent?.id;
-    if (data.paused || typeof messageId !== 'string' || !messageId) return;
-    data.postLedger = appendPostLedger(data.postLedger, { messageId, ...post, at: clock() }, postLedgerSize(hot.config));
-    store.state.markDirty();
-  }
+
 
   /**
    * The GIF picker (src/behavior/gif-pick.js), on the turn's FIRST message as
@@ -1917,10 +1862,6 @@ export function createTurnRunner({
    * later message, GIF or picture, and the turn resolves what reached the chat
    * before it.
    *
-   * In a server channel every posted message, GIF and picture is recorded in
-   * the post ledger (recordPost) with `mode`, the trigger, the newest line of
-   * `history` and `sourceId`.
-   *
    * The messages are posted as the model wrote them: nothing rewrites them.
    * A member with pings off (store.isPingsOff) is mentioned and replied to
    * without a notification: only allowedMentions changes, never the text.
@@ -1968,20 +1909,6 @@ export function createTurnRunner({
     // the pulled lines it answered (the ring of calls marks them by it).
     let delivered = false;
     const answered = new Set();
-    // What the post ledger records of each post of this turn (server channels only).
-    const ledgerPost = privateChat
-      ? null
-      : {
-          channelId: channel.id,
-          mode,
-          triggerKind: triggerKind ?? null,
-          triggerId: trigger?.id ?? null,
-          newestHistoryId: history.at(-1)?.id ?? null,
-          sourceChannelId: sourceId ?? null,
-        };
-    const record = (sent) => {
-      if (ledgerPost) recordPost(sent, ledgerPost);
-    };
     // For the journal: every post that reached the chat with the message it answers, every
     // reaction put with its target, each with the operation that made it (journalOp).
     const posts = [];
@@ -2039,7 +1966,6 @@ export function createTurnRunner({
       if (sent) {
         delivered = true;
         if (pulledId) answered.add(pulledId);
-        record(sent);
         notePost(sent, replyId, op);
       }
       return sent;
@@ -2096,7 +2022,6 @@ export function createTurnRunner({
       delivered = true;
       if (pulledId) answered.add(pulledId);
       lastPostAt.set(channel.id, clock());
-      record(posted);
       notePost(posted, replyId, op);
       postedTexts.push(message.text);
       const ownLine = {
@@ -2157,7 +2082,6 @@ export function createTurnRunner({
         if (op.opId) await op.succeeded({ messageId: message?.id ?? null, bytes });
         delivered = true;
         lastPostAt.set(channel.id, clock());
-        record(message);
         notePost(message, null, op);
         if (typeof message?.id === 'string' && message.id) messageIds.push(message.id);
         if (setPictures === 0) posted.setScene = chunk[0].text;
@@ -2178,7 +2102,6 @@ export function createTurnRunner({
     const drawn = await draw({ channel, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId, draft });
     if (drawn.posted === true) {
       if (drawn.pulledId) answered.add(drawn.pulledId);
-      record(drawn.message);
       notePost(drawn.message, drawn.replyId, drawn.op);
       if (typeof drawn.message?.id === 'string' && drawn.message.id) messageIds.push(drawn.message.id);
       posted.drew = true;

@@ -1,6 +1,6 @@
 // Time units, the UTC day key and the per-day counter, in one place. Every
 // daily rail kept in state.json (LLM requests, pictures, web reads, posted
-// GIFs, video watches, the mentor's tokens) is a pair of fields -- the UTC
+// GIFs, video watches) is a pair of fields -- the UTC
 // day it counts for and the count -- that starts again from zero when the
 // day turns; this module owns that rollover so the rails cannot drift apart:
 // dailyCounter / bumpDaily for the owner that counts, countToday for every

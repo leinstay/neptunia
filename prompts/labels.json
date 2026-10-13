@@ -247,17 +247,6 @@
     "notice": "...but nobody came ({limit}, {used}/{cap})",
     "paused": "...but nobody came (resting)"
   },
-  "mentor": {
-    "intended": [
-      "May stay silent when silence fits the situation",
-      "May react with an emoji instead of a text reply",
-      "May request a picture through the drawing sub-process",
-      "Posts a limit notice when a daily cap is reached",
-      "Knows what it can and cannot perceive (pictures, video, links, search)"
-    ],
-    "examples": "Real moments from this chat. Each shows the transcript up to the trigger and the answer the persona gave, which the owner rejected.",
-    "original": "The persona's answer at the time. The owner rejected it. A known-bad reference, not an answer to score."
-  },
   "address": {
     "author": "{name}, also called: {aliases}"
   },
