@@ -1009,7 +1009,7 @@ export function createLlm({
    * both combined with `AbortSignal.any`. Once `options.signal` is aborted,
    * a caught error is rethrown immediately with NO retry (an external abort
    * is deliberate, not a transient failure worth retrying). Exists for the
-   * memory warmup's `/nep warmup stop` (src/memory/warmup.js): the
+   * memory warmup's stop (src/memory/warmup.js, Ctrl+C in tools/warmup.mjs): the
    * request already counted by the provider cannot be un-billed, but no
    * further retry/tokens are spent past the moment of the abort.
    * `options.provider` — OpenRouter provider routing for this one call; a plain

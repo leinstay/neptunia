@@ -349,7 +349,7 @@ async function refuseWhileForgetting(ctx) {
 }
 
 /** The newest forget time of each member of the ledger (epoch ms). */
-function ledgerTimes(ledger) {
+export function ledgerTimes(ledger) {
   const latest = new Map();
   for (const entry of ledger) {
     const at = Date.parse(entry?.at);
@@ -360,7 +360,7 @@ function ledgerTimes(ledger) {
 }
 
 /** Whether data/ still holds something the ledger takes out: an earlier profile, record line or archive entry of a forgotten member. */
-async function ledgerStale(ctx, latest) {
+export async function ledgerStale(ctx, latest) {
   for (const [id, at] of latest) {
     const profile = readJson(path.join(ctx.guildDir, 'users', `${id}.json`), null);
     if (isPlainObject(profile) && !(Date.parse(profile.firstSeen) >= at)) return true;

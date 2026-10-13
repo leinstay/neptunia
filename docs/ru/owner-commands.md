@@ -1,6 +1,6 @@
 # Команды
 
-Одна слэш-команда `/nep` с 19 корневыми записями. Все ответы эфемерные (видит только вызвавший). Каналы, роли и пользователи выбираются из стандартных пикеров Discord. Несколько опций автодополняются: `set`/`unset` автодополняют `path`, `access grant`/`access revoke` автодополняют `command`, `model set` автодополняет `id` (используемые модели), `route set`/`route remove` автодополняют `model`, `memory restore` автодополняет `id` (новейшие записи архива).
+Одна слэш-команда `/nep` с 18 корневыми записями. Все ответы эфемерные (видит только вызвавший). Каналы, роли и пользователи выбираются из стандартных пикеров Discord. Несколько опций автодополняются: `set`/`unset` автодополняют `path`, `access grant`/`access revoke` автодополняют `command`, `model set` автодополняет `id` (используемые модели), `route set`/`route remove` автодополняют `model`, `memory restore` автодополняет `id` (новейшие записи архива).
 
 ## Доступ
 
@@ -39,14 +39,6 @@
 | `/nep access grant <command> [role] [user]` | `access.grant` | эфемерный | Открыть операцию, группу или * всем, роли или пользователю; `command` автодополняется |
 | `/nep access revoke <command> [role] [user]` | `access.revoke` | эфемерный | Отозвать операцию, группу или * у всех, роли или пользователя; `command` автодополняется |
 | `/nep access list` | `access.list` | эфемерный | Список всех разрешений |
-| `/nep warmup run` | `warmup.run` | эфемерный, отложенный | Начать или возобновить: каналы, люди, сервер |
-| `/nep warmup users [user]` | `warmup.users` | эфемерный, отложенный | Перестроить профиль одного участника или всех подходящих |
-| `/nep warmup channels [channel]` | `warmup.channels` | эфемерный, отложенный | Переописать один канал или все читаемые |
-| `/nep warmup server` | `warmup.server` | эфемерный, отложенный | Пересобрать серверные заметки и лорбук |
-| `/nep warmup people` | `warmup.people` | эфемерный, отложенный | Кто подходит под выборку сейчас |
-| `/nep warmup status` | `warmup.status` | эфемерный, отложенный | Фаза, прогресс, расход токенов, следующая цель |
-| `/nep warmup stop` | `warmup.stop` | эфемерный, отложенный | Остановить работу прогрева, текущий запрос включительно |
-| `/nep warmup reset` | `warmup.reset` | эфемерный, отложенный | Очистить прогресс прогрева; сохранённая память не трогается |
 | `/nep diary set <channel>` | `diary.set` | эфемерный, отложенный | Указать канал дневника |
 | `/nep diary show` | `diary.show` | эфемерный | Состояние дневника на сегодня |
 | `/nep diary off` | `diary.off` | эфемерный | Отключить дневник |
@@ -63,7 +55,7 @@
 | `/nep memory channel [channel]` | `memory.channel.read` | эфемерный | Заметки канала или таблица всех каналов |
 | `/nep memory server` | `memory.server.read` | эфемерный | Серверные заметки: паттерны, стартеры, шутки, факты о себе |
 | `/nep memory recent` | `memory.recent.read` | эфемерный | Текущие недавние заметки, новейшие первыми |
-| `/nep memory refresh <user>` | `memory.refresh` | эфемерный, отложенный | Принудительно обновить портрет участника |
+| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | эфемерный, отложенный | Rewrite a member's portrait, or a channel's or the server notes from a fresh sample |
 | `/nep memory forget <user>` | `memory.forget` | эфемерный, отложенный | Удалить профиль и приватную память участника |
 | `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | эфемерный | Показать или установить отношение |
 | `/nep memory wipe <confirm>` | `memory.wipe` | эфемерный, отложенный | Стереть ВСЮ серверную память (профили, приватная память, привычки, каналы, лор) |

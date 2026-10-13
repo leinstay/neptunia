@@ -486,7 +486,7 @@ Follow-up windows are persisted in `data/state.json` under `followUpWindows` and
 | `portraitRefreshHours` | `24` | Min hours between portrait refreshes triggered by the analyzer's cue per member |
 | `portraitRefreshMessages` | `300` | Own messages since the last portrait before a code-triggered refresh is due. Also the sample size for the refresh |
 | `portraitRefreshDays` | `3` | Days since the last successful refresh before a code-triggered refresh is due |
-| `portraitRefreshPerDay` | `3` | Max portrait refreshes per server per day (code-triggered, analyzer cue and `/nep memory refresh` share this cap). The day counter lives in `state.json` as `portraitDay` / `portraitCount` and survives `/nep warmup reset` |
+| `portraitRefreshPerDay` | `3` | Max portrait refreshes per server per day (code-triggered, analyzer cue and `/nep memory refresh` share this cap). The day counter lives in `state.json` as `portraitDay` / `portraitCount` and survives `tools/warmup.mjs reset` |
 | `portraitRetryHours` | `24` | Hours to wait after a failed refresh attempt before trying the same member again |
 | `portraitCheckMinutes` | `60` | How often the portrait scheduler checks for members due a refresh |
 | `analyzerEpisodes` | `8` | Episodes shown per author in the analyzer's `<existing_profiles>`. Only the top by weight and recency are sent; the stored list keeps every episode. `0` sends none |
@@ -737,7 +737,7 @@ With `features.relationships` off, public scores stay at 0, so with the default 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | Run the warmup automatically on first start |
+| `enabled` | `false` | The tool runs warmup; the bot only resumes an unfinished run when this is true |
 | `lookbackDays` | `60` | How far back to sample (days) |
 | `minMessages` | `30` | Own messages for a member to qualify |
 | `maxPeople` | `40` | Members processed, most active first |

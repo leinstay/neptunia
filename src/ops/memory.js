@@ -642,10 +642,10 @@ const handlers = perEnv((env) => {
     return `Set affinity for ${userId} to ${roundScore(affinity.score)} (${affinityBand(affinity.score)}).`;
   }
 
-  /** `/nep memory refresh user:<member>`: forces a portrait refresh (character/style only),
-   * ignoring the hours rail, not the daily request cap. No hint is sent with it: the profile
+  /** `/nep memory refresh kind:user user:<member>`: forces a portrait refresh (character/style
+   * only), ignoring the hours rail, not the daily request cap. No hint is sent with it: the profile
    * prompt then has no `<hint>` block. Refused while paused or while a warmup runs. */
-  async function cmdMemoryRefresh(args, context) {
+  async function cmdMemoryRefreshUser(args, context) {
     if (!warmup) return 'warmup is not available';
     assertNotPaused();
     const userId = args?.userId;
@@ -664,7 +664,54 @@ const handlers = perEnv((env) => {
     return `Portrait refreshed for ${userId}.`;
   }
 
-  return { cmdMemoryShow, mainChannelIdSet, cmdMemoryChannel, cmdMemoryServer, cmdMemoryRecent, cmdMemoryArchive, cmdMemoryRestore, cmdMemoryForget, cmdMemoryJournal, cmdMemorySnapshot, cmdPrivateShow, cmdPrivateForget, cmdPrivatePurge, cmdMemoryWipe, cmdMemoryAffinity, cmdMemoryRefresh };
+  /** A sampled notes refresh's outcome (src/memory/warmup.js#refreshChannelNotes /
+   * #refreshServerNotes) as the owner reads it: changed or reviewed with the sample's size, or why
+   * nothing was written (its reason, the over-limit fields, the provider detail). */
+  function notesRefreshText(what, result) {
+    if (result.ok) {
+      const sample = `sample: ${result.sample} messages, ${result.authors} authors, ${result.days} days`;
+      return result.changed ? `${what} rewritten from a fresh sample (${sample}).` : `${what} checked against a fresh sample, nothing to change (${sample}).`;
+    }
+    const why = result.reason === 'running' ? warmupBusyText() : result.reason;
+    const fields = Array.isArray(result.fields) && result.fields.length > 0 ? ` (${result.fields.join(', ')})` : '';
+    const detail = result.detail ? ` (${result.detail})` : '';
+    return `Refresh not performed: ${why}${fields}${detail}`;
+  }
+
+  /** `/nep memory refresh kind:channel channel:<channel>`: rewrites that channel's notes from a
+   * fresh sample spread over recent days (src/memory/warmup.js#refreshChannelNotes: the live rails,
+   * the 50k request cap and the daily request cap, no persona mute, no whole-history read). A
+   * channel with no notes yet is left to tools/warmup.mjs, and the reply says so. Refused while
+   * paused or while a warmup runs. */
+  async function cmdMemoryRefreshChannel(args, context) {
+    if (!warmup) return 'warmup is not available';
+    assertNotPaused();
+    const channelId = args?.channelId;
+    if (!channelId) throw invalid('a channel is required');
+    const guildId = requireGuildId(context);
+    if (isWarmingUp()) return `Refresh not performed: ${warmupBusyText()}`;
+    const stored = store.getChannel(guildId, channelId);
+    if (!stored || !(stored.purpose || stored.topics || stored.tone)) {
+      return `Refresh not performed: this channel has no notes yet; describe it first with tools/warmup.mjs channels --channel ${channelId} (bot stopped).`;
+    }
+
+    return notesRefreshText('Channel notes', await warmup.refreshChannelNotes(guildId, channelId));
+  }
+
+  /** `/nep memory refresh kind:server`: rewrites the server notes (patterns, starters, in-jokes)
+   * from a fresh sample of the main channels (src/memory/warmup.js#refreshServerNotes, the same live
+   * rails). Lore is not rebuilt here: that is tools/warmup.mjs `server`. Refused while paused or
+   * while a warmup runs. */
+  async function cmdMemoryRefreshServer(_args, context) {
+    if (!warmup) return 'warmup is not available';
+    assertNotPaused();
+    const guildId = requireGuildId(context);
+    if (isWarmingUp()) return `Refresh not performed: ${warmupBusyText()}`;
+
+    return notesRefreshText('Server notes', await warmup.refreshServerNotes(guildId));
+  }
+
+  return { cmdMemoryShow, mainChannelIdSet, cmdMemoryChannel, cmdMemoryServer, cmdMemoryRecent, cmdMemoryArchive, cmdMemoryRestore, cmdMemoryForget, cmdMemoryJournal, cmdMemorySnapshot, cmdPrivateShow, cmdPrivateForget, cmdPrivatePurge, cmdMemoryWipe, cmdMemoryAffinity, cmdMemoryRefreshUser, cmdMemoryRefreshChannel, cmdMemoryRefreshServer };
 });
 
 defineOp({
@@ -688,9 +735,19 @@ defineOp({
   run: (args, ctx) => handlers(ctx.env).cmdMemoryRecent(args, ctx),
 });
 defineOp({
-  name: 'memory.refresh',
+  name: 'memory.refresh.user',
   rights: { kind: 'write' },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefresh(args, ctx),
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefreshUser(args, ctx),
+});
+defineOp({
+  name: 'memory.refresh.channel',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefreshChannel(args, ctx),
+});
+defineOp({
+  name: 'memory.refresh.server',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefreshServer(args, ctx),
 });
 defineOp({
   name: 'memory.forget',

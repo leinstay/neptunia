@@ -135,7 +135,7 @@ npm start
 
 Одна слэш-команда Discord: `/nep` (имя задаётся в `bot.commandName`), зарегистрированная как серверная команда. Все ответы эфемерные; их видит только вызвавший, в любом канале.
 
-19 корневых записей:
+18 корневых записей:
 
 - `status` показывает карточку с состоянием бота, подключением, моделями, лимитами и счётчиками памяти
 - `set` / `unset` переопределяют или удаляют значение конфигурации в `config.local.json`
@@ -148,7 +148,6 @@ npm start
 - `route` управляет маршрутизацией провайдеров по префиксу модели и роли
 - `rule` добавляет, показывает или удаляет правки в `prompts.local/rules.md`
 - `access` выдаёт или отзывает операции для ролей и пользователей
-- `warmup` запускает или проверяет прогрев
 - `diary` указывает, показывает или отключает дневник и публикует запись
 - `alias` добавляет или удаляет псевдоним участника
 - `learning` добавляет или удаляет урок
@@ -316,7 +315,6 @@ src/
     model.js               /nep model (show, set)
     route.js               /nep route (list, set, remove)
     rule.js                /nep rule (add, list, remove)
-    warmup.js              /nep warmup (run, users, channels, server, people, status, stop, reset)
     diary.js               /nep diary (set, show, off, post)
     alias.js               /nep alias (add, remove)
     learning.js            /nep learning (add, remove)

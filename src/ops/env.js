@@ -66,9 +66,11 @@ export function createOpsEnv({
     return `paused -- run ${slash('resume')} first`;
   }
 
-  /** The one wording of "a warmup is running", for a refused command and a skipped job alike. */
+  /** The one wording of "a warmup is running", for a refused command and a skipped job alike.
+   * The warmup has no command of its own (tools/warmup.mjs runs it with the bot stopped); one in
+   * this process is an unfinished run resumed at start (`warmup.enabled` true), followed in the log. */
   function warmupBusyText() {
-    return `a warmup is running: follow it with ${slash('warmup status')}, end it with ${slash('warmup stop')}`;
+    return 'a warmup is running: wait for it to finish (the log follows it)';
   }
 
   /** A background job's skip reason as the owner reads it: the job's own `skips` first, then the
@@ -85,9 +87,8 @@ export function createOpsEnv({
    * `/nep pause`: refuse a command that would write under `data/` while
    * paused, with a hint to resume first. Guards interject, initiate,
    * alias.add, alias.remove, memory.forget, private.forget, private.purge, memory.wipe, memory.affinity (when
-   * setting a score), memory.refresh, lore.add, lore.remove, learned.add,
-   * learned.remove, warmup.run, warmup.users, warmup.channels, warmup.server,
-   * warmup.reset, emoji.rescan, gifs.rescan, gifs.recache and draw (it counts against the image rail
+   * setting a score), memory.refresh.*, lore.add, lore.remove, learned.add,
+   * learned.remove, emoji.rescan, gifs.rescan, gifs.recache and draw (it counts against the image rail
    * in state.json).
    */
   function assertNotPaused() {

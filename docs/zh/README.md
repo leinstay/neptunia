@@ -135,7 +135,7 @@ Neptunia 在被呼叫时回答: 通过 @提及、回复它的消息、或在文�
 
 Discord 斜杠命令只有一个：`/nep`（名称来自 `bot.commandName`），注册为服务器命令。所有回复仅调用者可见（ephemeral），不论在哪个频道。
 
-19 个顶层条目：
+18 个顶层条目：
 
 - `status` 显示机器人状态、连接、模型、限额和记忆计数器的卡片
 - `set` / `unset` 覆盖或移除 config.local.json 中的配置值
@@ -148,7 +148,6 @@ Discord 斜杠命令只有一个：`/nep`（名称来自 `bot.commandName`），
 - `route` 按模型前缀和角色管理 provider 路由
 - `rule` 添加、列出或移除 `prompts.local/rules.md` 中的修正
 - `access` 为身份组和用户授予或撤销操作
-- `warmup` 启动或检查记忆预热
 - `diary` 设置、查看或关闭日记，发布条目
 - `alias` 添加或移除成员昵称
 - `learning` 添加或移除所学内容

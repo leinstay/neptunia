@@ -236,11 +236,10 @@ const handlers = perEnv((env) => {
     return Number.isFinite(pending) ? pending : 0;
   }
 
-  /** The long-tasks field: a warmup, the history backfills and the GIF recache running, and what
-   * the archive drain still holds; `none` when nothing runs. */
+  /** The long-tasks field: the history backfills and the GIF recache running, and what the archive
+   * drain still holds; `none` when nothing runs. */
   function longTasksValue(guildId) {
     const parts = [];
-    if (isWarmingUp()) parts.push('warmup running');
     for (const [job, name] of [
       [emojiBackfill, 'emoji backfill'],
       [gifBackfill, 'GIF backfill'],

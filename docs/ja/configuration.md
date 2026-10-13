@@ -696,7 +696,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 
 | キー | デフォルト | 説明 |
 |---|---|---|
-| `enabled` | `true` | 初回起動時にウォームアップを自動実行 |
+| `enabled` | `false` | The tool runs warmup; the bot only resumes an unfinished run when this is true |
 | `lookbackDays` | `60` | サンプルする過去の日数 |
 | `minMessages` | `30` | メンバーが対象となるための自身のメッセージの最低数 |
 | `maxPeople` | `40` | 処理するメンバー数（アクティブ順） |

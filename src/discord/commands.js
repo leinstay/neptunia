@@ -1,6 +1,6 @@
 // The owner's Discord surface: one top-level guild slash command (name from
 // `config.bot.commandName`) whose tree is built here as plain JSON from one
-// declarative table (COMMAND_TABLE: the nineteen top-level entries, each leaf
+// declarative table (COMMAND_TABLE: the eighteen top-level entries, each leaf
 // with its options and its option -> args mapping) — no discord.js builder
 // classes — so `buildCommandTree` is trivially unit-tested.
 // `registerCommands` pushes that tree to the single guild this instance
@@ -50,15 +50,9 @@ export const DEFERRED_OPS = Object.freeze(new Set([
   'talk.initiate',
   'bot.pause',
   'bot.resume',
-  'warmup.people',
-  'warmup.run',
-  'warmup.stop',
-  'warmup.users',
-  'warmup.channels',
-  'warmup.server',
-  'warmup.status',
-  'warmup.reset',
-  'memory.refresh',
+  'memory.refresh.user',
+  'memory.refresh.channel',
+  'memory.refresh.server',
   'memory.forget',
   'memory.wipe',
   'memory.archive.read',
@@ -123,6 +117,9 @@ const ROUTE_ROLES = MODEL_SET_ROLES;
 
 /** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'all']);
+
+/** `/nep memory refresh`'s `kind` choices (src/ops/index.js#COMMAND_TO_OP picks the operation by it). */
+export const MEMORY_REFRESH_KINDS = Object.freeze(['user', 'channel', 'server']);
 
 /** `/nep pings`'s `mode` choices (src/admin.js#cmdPings reads the same list). */
 export const PINGS_MODES = Object.freeze(['on', 'off']);
@@ -301,30 +298,6 @@ export const COMMAND_TABLE = Object.freeze([
     ],
   },
   {
-    name: 'warmup',
-    description: 'Memory warmup from a recent sample: channels, people, server.',
-    subcommands: [
-      { name: 'run', description: 'Start or resume the run: channels, people, then server.', args: none },
-      {
-        name: 'users',
-        description: '(Re)profile one member now, or all qualifying ones in the background.',
-        options: [userOption('Member (omit for everyone, in the background).', false)],
-        args: (options) => ({ userId: options.getUser('user')?.id }),
-      },
-      {
-        name: 'channels',
-        description: '(Re)describe one channel now, or all readable ones in the background.',
-        options: [channelOption('Channel (omit for every channel, in the background).')],
-        args: (options) => ({ channelId: options.getChannel('channel')?.id }),
-      },
-      { name: 'server', description: '(Re)build the server-wide notes and lore now.', args: none },
-      { name: 'people', description: 'Who qualifies for the sample now.', args: none },
-      { name: 'status', description: 'Phase, progress, tokens used and the next target.', args: none },
-      { name: 'stop', description: 'Cancel warmup work in flight, the current model call included.', args: none },
-      { name: 'reset', description: 'Clear warmup progress, never written memory; refused while running.', args: none },
-    ],
-  },
-  {
     name: 'diary',
     description: 'The diary.',
     subcommands: [
@@ -456,9 +429,13 @@ export const COMMAND_TABLE = Object.freeze([
       { name: 'recent', description: 'Show the live recent lines, newest first.', args: none },
       {
         name: 'refresh',
-        description: "Rewrite a member's portrait now, ignoring the refresh-hours rail.",
-        options: [userOption()],
-        args: (options) => ({ userId: userId(options) }),
+        description: "Rewrite a member's portrait, or a channel's or the server notes from a fresh sample.",
+        options: [
+          { type: STRING, name: 'kind', description: 'user, channel or server.', required: true, choices: choicesOf(MEMORY_REFRESH_KINDS) },
+          userOption('Member (kind user).', false),
+          channelOption('Channel (kind channel).'),
+        ],
+        args: (options) => ({ kind: options.getString('kind', true), userId: options.getUser('user')?.id, channelId: options.getChannel('channel')?.id }),
       },
       {
         name: 'forget',

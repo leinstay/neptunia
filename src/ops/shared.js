@@ -1,6 +1,6 @@
 // Pure helpers and constants of the owner operations (src/ops/*.js), moved from src/admin.js:
 // the rules-file and config-path functions, the profile views, the ping/route formatters, the
-// warmup/media wording tables and the line formatters several operations share. No I/O but
+// media wording tables and the line formatters several operations share. No I/O but
 // `treeSize` (a directory walk for the memory snapshot).
 
 import fs from 'node:fs';
@@ -580,60 +580,8 @@ export function routeRoleArg(args) {
 }
 
 // ---------------------------------------------------------------------------
-// Warmup, access and the media commands: pure helpers
+// Access and the media commands: pure helpers
 // ---------------------------------------------------------------------------
-
-/** `N s ago` / `N min ago` / `N h ago` before `now`, or `never` when `lastActivityAt` is unknown. */
-export function humanizeAgo(lastActivityAt, now) {
-  if (!Number.isFinite(lastActivityAt)) return 'never';
-  const deltaMs = Math.max(0, now - lastActivityAt);
-  const seconds = Math.round(deltaMs / 1000);
-  if (seconds < 60) return `${seconds} s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
-  return `${Math.round(minutes / 60)} h ago`;
-}
-
-/** One `phase: …` line's TEXT from a warmup status's in-memory `activity` snapshot (see
- * src/memory/warmup.js's `touchActivity`) -- falls back to `s.phase` (the coarser "running" /
- * "not started" / "finished" / "aborted (reason)" / "idle" summary) whenever `activity` carries
- * nothing more specific yet (e.g. right after a restart, before the first channel is fetched).
- * Never throws on a missing/partial snapshot. */
-export function formatWarmupPhase(s) {
-  const a = s?.activity;
-  const d = a?.detail ?? {};
-  switch (a?.phase) {
-    case 'fetching':
-      return `fetching history, ${d.channelsFetched ?? 0}/${d.channelsTotal ?? 0} channels`;
-    case 'channel': {
-      const label = d.name ? `#${d.name}` : d.id ? `id:${d.id}` : 'a channel';
-      const count = d.total ? ` (${d.index ?? '?'} of ${d.total})` : '';
-      return `describing channel ${label}${count}`;
-    }
-    case 'person': {
-      const who = `${d.name ?? '?'} (id:${d.id ?? '?'})`;
-      const count = d.total ? ` (${d.index ?? '?'} of ${d.total})` : '';
-      const chunk = d.chunk ? `, chunk ${d.chunk.k}/${d.chunk.n}` : '';
-      return `profiling ${who}${count}${chunk}`;
-    }
-    case 'server':
-      return 'building the server notes';
-    case 'waiting-rate-limit': {
-      const until = Number.isFinite(d.until) ? `${new Date(d.until).toISOString().slice(11, 16)} UTC` : '?';
-      return `waiting for the provider rate limit until ${until} (wait ${d.waits ?? 1})`;
-    }
-    case 'paused':
-      return 'paused';
-    case 'stopped':
-      return 'stopped';
-    case 'finished':
-      return 'finished';
-    case 'aborted':
-      return `aborted (${d.reason ?? s?.aborted ?? 'unknown'})`;
-    default:
-      return s?.phase ?? 'idle';
-  }
-}
 
 /** A refused warmup or portrait outcome as the owner reads it: its message, else its reason code. */
 export function outcomeText(outcome, fallback) {

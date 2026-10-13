@@ -696,7 +696,7 @@
 
 | Ключ | По умолчанию | Описание |
 |---|---|---|
-| `enabled` | `true` | Запускать прогрев автоматически при первом старте |
+| `enabled` | `false` | The tool runs warmup; the bot only resumes an unfinished run when this is true |
 | `lookbackDays` | `60` | Глубина выборки (дней) |
 | `minMessages` | `30` | Мин. собственных сообщений, чтобы участник попал в прогрев |
 | `maxPeople` | `40` | Обрабатываемых участников, самые активные первыми |
