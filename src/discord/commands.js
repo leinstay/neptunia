@@ -429,7 +429,7 @@ export const COMMAND_TABLE = Object.freeze([
       { name: 'recent', description: 'Show the live recent lines, newest first.', args: none },
       {
         name: 'refresh',
-        description: "Rewrite a member's portrait, a channel's notes or the server notes now.",
+        description: "Rewrite a member's portrait, or a channel's or the server notes from a fresh sample.",
         options: [
           { type: STRING, name: 'kind', description: 'user, channel or server.', required: true, choices: choicesOf(MEMORY_REFRESH_KINDS) },
           userOption('Member (kind user).', false),

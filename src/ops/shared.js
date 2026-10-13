@@ -1,6 +1,6 @@
 // Pure helpers and constants of the owner operations (src/ops/*.js), moved from src/admin.js:
 // the rules-file and config-path functions, the profile views, the ping/route formatters, the
-// media wording tables, the refresh outcome lines and the line formatters several operations share. No I/O but
+// media wording tables and the line formatters several operations share. No I/O but
 // `treeSize` (a directory walk for the memory snapshot).
 
 import fs from 'node:fs';
@@ -580,7 +580,7 @@ export function routeRoleArg(args) {
 }
 
 // ---------------------------------------------------------------------------
-// Refresh, access and the media commands: pure helpers
+// Access and the media commands: pure helpers
 // ---------------------------------------------------------------------------
 
 /** A refused warmup or portrait outcome as the owner reads it: its message, else its reason code. */
@@ -624,36 +624,6 @@ export function channelTopWritersText(topWriters, nameOf) {
     })
     .filter(Boolean)
     .join(', ');
-}
-
-/** `/nep memory refresh kind:channel`: the note written (purpose/topics/tone), plus the counters
- * and top writers `store.setChannelFacts` filled in -- the same lines as `/nep memory channel`
- * (writers as `name (count)` through `nameOf`, an id with no profile skipped; the last message as
- * a date). The outcome's message or reason when nothing was written. */
-export function channelWrittenText(outcome, nameOf) {
-  if (!outcome?.ok) return outcomeText(outcome, 'not done');
-  const { channel, result, facts } = outcome;
-  const lines = [
-    `described #${channel.name} (id:${channel.id})`,
-    `purpose: ${result.purpose || '(empty)'}`,
-    `topics: ${result.topics || '(empty)'}`,
-    `tone: ${result.tone || '(empty)'}`,
-  ];
-  if (facts) {
-    lines.push(`messages seen: ${facts.messageCount}`);
-    lines.push(`last message: ${isoDay(facts.lastMessageAt)}`);
-    const writers = channelTopWritersText(facts.topWriters, nameOf);
-    if (writers) lines.push(`top writers: ${writers}`);
-  }
-  return lines.join('\n');
-}
-
-/** `/nep memory refresh kind:server`: counts of what was written (patterns/starters lengths,
- * in-jokes, lore entries); the outcome's message or reason when nothing was. */
-export function serverWrittenText(outcome) {
-  if (!outcome?.ok) return outcomeText(outcome, 'not done');
-  const c = outcome.counts;
-  return `server notes updated: patterns ${c.patternsChars} chars, starters ${c.startersChars} chars, injokes ${c.injokes}, lore entries ${c.lore}`;
 }
 
 /** One line of `/nep memory channel`'s table view (no channel given): name, activity verdict,

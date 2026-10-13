@@ -57,7 +57,7 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep memory channel [channel]` | `memory.channel.read` | ephemeral | Show a channel's note, or a table of all stored channels |
 | `/nep memory server` | `memory.server.read` | ephemeral | Show server notes: patterns, starters, in-jokes, self facts |
 | `/nep memory recent` | `memory.recent.read` | ephemeral | Show the live recent lines, newest first |
-| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | ephemeral, deferred | Rewrite a member's portrait, a channel's notes or the server notes now |
+| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | ephemeral, deferred | Rewrite a member's portrait, or a channel's or the server notes from a fresh sample |
 | `/nep memory forget <user>` | `memory.forget` | ephemeral, deferred | Delete a member's profile and private memory |
 | `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | ephemeral | Show or set a member's attitude score |
 | `/nep memory wipe <confirm>` | `memory.wipe` | ephemeral, deferred | Delete ALL server memory (profiles, private memory, habits, channels, lore) |
@@ -69,7 +69,7 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 
 ## Memory commands
 
-`/nep memory refresh kind:user <user>` rewrites a member's portrait now, ignoring the refresh-hours rail (not the daily cap). `kind:channel <channel>` re-describes one channel's notes and `kind:server` rebuilds the server notes and lore, through the warmup's own channel and server passes under its rails; the persona stays mute while they run. The warmup itself is not a command: it is `tools/warmup.mjs`, run with the bot stopped (see [Warmup](warmup.md)).
+`/nep memory refresh kind:user <user>` rewrites a member's portrait now, ignoring the refresh-hours rail (not the daily cap). `kind:channel <channel>` and `kind:server` rewrite a channel's notes or the server notes (patterns, starters, in-jokes) from a fresh sample spread over recent days, the same request as the notes refresh in [Warmup](warmup.md#keeping-the-notes-current): the 50k token cap and `llm.maxRequestsPerDay` apply, the persona keeps talking, no whole history is read. A channel with no notes yet is refused with a pointer to `tools/warmup.mjs channels --channel <id>`; lore is rebuilt only by `tools/warmup.mjs server`. The warmup itself is not a command: it is `tools/warmup.mjs`, run with the bot stopped (see [Warmup](warmup.md)).
 
 `/nep memory show` reads a member's stored profile: the compact summary or a specific section (character, style, relationship, affinity, aliases, interests, details, episodes, or the raw JSON). `/nep memory channel` shows a channel's stored notes or a table of all stored channels. `/nep memory server` shows the server-wide patterns, starters, in-jokes and self-facts.
 

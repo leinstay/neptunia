@@ -2,7 +2,7 @@
 
 The warmup builds the persona's memory of a server from a sample of recent messages. It is an operations tool, `tools/warmup.mjs`, run on the server from the bot's checkout with the bot stopped, before the first start (see [Running it](#running-it)). It has no slash command.
 
-With `warmup.enabled` true the bot still starts a run by itself when it starts and no run was ever started and no profile exists, and resumes a run that was started and never finished. The persona stays mute while that run is in flight. Set `warmup.enabled` to false to leave every run to the tool.
+The bot never starts a warmup run. With `warmup.enabled` true (default false) it resumes, at start, a run that was started and never finished; the persona stays mute while that run is in flight.
 
 ## Stages
 
@@ -84,7 +84,7 @@ sudo systemctl start neptunia-bot
 
 **What it writes.** Channel notes and facts under `data/guilds/<id>/channels/`, member profiles under `data/guilds/<id>/users/`, server notes in `data/guilds/<id>/guild.json`, lore in `data/guilds/<id>/lore.json`, progress in `data/state.json`; with `features.archive` on, what a rewrite drops goes to the archive first.
 
-**Afterwards.** Start the bot. From then on memory is kept current by the bot: the stream analyzer from live batches, the portrait refresh and the notes refresh below. `/nep memory refresh kind:user <user>` rewrites one member's portrait now; `kind:channel <channel>` re-describes one channel through the warmup's channel pass, and `kind:server` rebuilds the server notes and lore through its server pass. Both run inside the bot, under the warmup's rails, and the persona stays mute while they run.
+**Afterwards.** Start the bot. From then on memory is kept current by the bot: the stream analyzer from live batches, the portrait refresh and the notes refresh below. `/nep memory refresh kind:user <user>` rewrites one member's portrait now; `kind:channel <channel>` and `kind:server` rewrite a channel's notes or the server notes from a fresh sample, the same request as the notes refresh below, under the live rails, with the persona talking. A channel with no notes yet and the lore are the tool's: `channels --channel <id>` and `server`.
 
 For a truly fresh start, use `/nep memory wipe` first: it clears member profiles with their attitudes and episodes, server habits, the channel map, lore entries and warmup progress.
 

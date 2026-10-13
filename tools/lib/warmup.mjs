@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CliError } from './cli.mjs';
-import { NONE, isoDay, outcomeText } from '../../src/ops/shared.js';
+import { NONE, channelTopWritersText, isoDay, outcomeText } from '../../src/ops/shared.js';
 
 /** Every subcommand, in the order the usage lists them. */
 export const WARMUP_SUBCOMMANDS = Object.freeze(['run', 'users', 'channels', 'server', 'people', 'status', 'reset']);
@@ -186,6 +186,36 @@ export function formatUserWritten(outcome) {
     `interests: ${a.interests?.length ?? 0}, details: ${a.details?.length ?? 0}, episodes: ${a.episodes?.length ?? 0}, aliases: ${a.aliases?.length ?? 0}`,
     `character: ${characterExcerpt}`,
   ].join('\n');
+}
+
+/** `channels --channel`: the note written (purpose/topics/tone), plus the counters
+ * and top writers `store.setChannelFacts` filled in -- the same lines as `/nep memory channel`
+ * (writers as `name (count)` through `nameOf`, an id with no profile skipped; the last message as
+ * a date). The outcome's message or reason when nothing was written. */
+export function channelWrittenText(outcome, nameOf) {
+  if (!outcome?.ok) return outcomeText(outcome, 'not done');
+  const { channel, result, facts } = outcome;
+  const lines = [
+    `described #${channel.name} (id:${channel.id})`,
+    `purpose: ${result.purpose || '(empty)'}`,
+    `topics: ${result.topics || '(empty)'}`,
+    `tone: ${result.tone || '(empty)'}`,
+  ];
+  if (facts) {
+    lines.push(`messages seen: ${facts.messageCount}`);
+    lines.push(`last message: ${isoDay(facts.lastMessageAt)}`);
+    const writers = channelTopWritersText(facts.topWriters, nameOf);
+    if (writers) lines.push(`top writers: ${writers}`);
+  }
+  return lines.join('\n');
+}
+
+/** `server`: counts of what was written (patterns/starters lengths,
+ * in-jokes, lore entries); the outcome's message or reason when nothing was. */
+export function serverWrittenText(outcome) {
+  if (!outcome?.ok) return outcomeText(outcome, 'not done');
+  const c = outcome.counts;
+  return `server notes updated: patterns ${c.patternsChars} chars, starters ${c.startersChars} chars, injokes ${c.injokes}, lore entries ${c.lore}`;
 }
 
 /** `N s ago` / `N min ago` / `N h ago` before `now`, or `never` when `lastActivityAt` is unknown. */

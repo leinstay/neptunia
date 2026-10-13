@@ -46,7 +46,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { CliError, REFUSED_EXIT, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
 import {
-  SPENDING_SUBCOMMANDS, assertBotStopped, formatPeople, formatStatus, formatUserWritten, parseWarmupArgs, warmupEstimate, warmupPlan,
+  SPENDING_SUBCOMMANDS, assertBotStopped, channelWrittenText, formatPeople, formatStatus, formatUserWritten, parseWarmupArgs, serverWrittenText, warmupEstimate, warmupPlan,
 } from './lib/warmup.mjs';
 import { ledgerStale, ledgerTimes } from './backfill.mjs';
 import { readableChannels } from '../src/discord/collect.js';
@@ -57,7 +57,6 @@ import { createJournal } from '../src/memory/journal.js';
 import { createRecord, forgettingIds } from '../src/memory/record.js';
 import { createStore, readLedger } from '../src/memory/store.js';
 import { createWarmup } from '../src/memory/warmup.js';
-import { channelWrittenText, serverWrittenText } from '../src/ops/shared.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

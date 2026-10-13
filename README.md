@@ -123,7 +123,7 @@ The prompt files, placeholders, labels, context blocks and output tags are descr
 
 ## Warmup
 
-The warmup builds memory of people, channels and the server from a sample of recent messages. Run it before the first start, with the bot stopped, through the operations tool `tools/warmup.mjs` (`run`, `users`, `channels`, `server`, `people`, `status`, `reset`): it prints its estimate and refuses to spend without `--spend`, and keeps its progress in `data/state.json`, so a stopped run resumes. The total token spend is capped by `warmup.maxTokens`. With `warmup.enabled` true and no profile at all, the bot also starts a run by itself at start, and stays mute while it runs. Afterwards `/nep memory refresh` rewrites a member's portrait, a channel's notes or the server notes on demand. See [`docs/en/warmup.md`](docs/en/warmup.md) for the stages, progress, rails and the tool.
+The warmup builds memory of people, channels and the server from a sample of recent messages. Run it before the first start, with the bot stopped, through the operations tool `tools/warmup.mjs` (`run`, `users`, `channels`, `server`, `people`, `status`, `reset`): it prints its estimate and refuses to spend without `--spend`, and keeps its progress in `data/state.json`, so a stopped run resumes. The total token spend is capped by `warmup.maxTokens`. The bot never starts a run; with `warmup.enabled` true (default false) it resumes an unfinished one at start. Afterwards `/nep memory refresh` rewrites a member's portrait, or a channel's or the server notes from a fresh sample, on demand. See [`docs/en/warmup.md`](docs/en/warmup.md) for the stages, progress, rails and the tool.
 
 ## Dry run
 

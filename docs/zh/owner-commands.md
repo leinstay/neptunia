@@ -55,7 +55,7 @@
 | `/nep memory channel [channel]` | `memory.channel.read` | ephemeral | 频道笔记或所有频道列表 |
 | `/nep memory server` | `memory.server.read` | ephemeral | 服务器笔记：模式、开场白、内部梗、自述事实 |
 | `/nep memory recent` | `memory.recent.read` | ephemeral | 实时近期记事行（从新到旧） |
-| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | ephemeral，延迟 | 立即刷新成员画像 |
+| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | ephemeral，延迟 | Rewrite a member's portrait, or a channel's or the server notes from a fresh sample |
 | `/nep memory forget <user>` | `memory.forget` | ephemeral，延迟 | 删除成员的档案和私有记忆 |
 | `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | ephemeral | 查看或设置态度分数 |
 | `/nep memory wipe <confirm>` | `memory.wipe` | ephemeral，延迟 | 删除服务器的所有记忆（档案、私有记忆、习惯、频道、世界书） |

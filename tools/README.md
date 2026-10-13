@@ -134,6 +134,7 @@ ledger first when `data/` still holds something it removes. The tool flushes mem
 exits. `reset` clears the progress only, never the memory written.
 
 **Afterwards.** The bot keeps memory current by itself: the stream analyzer, the portrait refresh and the notes
-refresh. `/nep memory refresh kind:user|channel|server` redoes one member's portrait, one channel's notes or the
-server notes on demand, inside the running bot. With `warmup.enabled` true and no profile at all, the bot also starts
-a warmup run by itself at start; set it to false to leave every run to this tool.
+refresh. `/nep memory refresh kind:user|channel|server` rewrites one member's portrait, or one channel's or the
+server notes from a fresh sample, on demand, inside the running bot; a channel with no notes yet and the lore stay
+this tool's (`channels --channel <id>`, `server`). The bot never starts a warmup run; with `warmup.enabled` true
+(default false) it resumes an unfinished one at start.

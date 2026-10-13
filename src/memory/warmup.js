@@ -12,9 +12,9 @@
 // clampText/toTokens/fromTokens helpers).
 //
 // The operations tool tools/warmup.mjs drives it with the bot stopped (the
-// subcommands named below); the bot itself starts a run automatically on a
-// first start (`resumeIfNeeded`) and runs `/nep memory refresh`'s channel and
-// server passes. `peopleReport` stays read-only (never touches the store)
+// subcommands named below); the bot only resumes an unfinished run at start
+// while `warmup.enabled` is true (`resumeIfNeeded`), and `/nep memory refresh`
+// uses the sampled notes refresh (`refreshChannelNotes`/`refreshServerNotes`). `peopleReport` stays read-only (never touches the store)
 // for `people`. `createWarmup().run()` is the write path: channels →
 // people → server, in order, resumable (progress in `state.warmup`,
 // flushed after every request), muting the persona for as long as it is in
@@ -2288,21 +2288,22 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
   }
 
   /**
-   * Start (nothing stored anywhere yet) or resume (a previous run began but never finished) a run,
-   * automatically -- called once at startup (src/index.js) and safe to call again on every tick, a
-   * no-op otherwise. Never awaited by the caller: fire-and-forget, errors logged.
-   * @returns {boolean} true when a run was (re)started
+   * Resume a run that was started and never finished (`state.warmup`), automatically -- called once
+   * at startup (src/index.js) and safe to call again, a no-op otherwise. Only while
+   * `warmup.enabled` is exactly true (read now; config.json's default is false): the warmup is
+   * tools/warmup.mjs's, run with the bot stopped, and the bot never starts a fresh run. Never
+   * awaited by the caller: fire-and-forget, errors logged.
+   * @returns {boolean} true when a run was resumed
    */
   function resumeIfNeeded(guildId) {
-    if (hot.config.warmup?.enabled === false) return false;
+    if (hot.config.warmup?.enabled !== true) return false;
     if (running || store.state.data.paused) return false;
-    const progress = warmupState(store);
+    const progress = progressView(store);
     const hasProgress = progress.done.channels.length > 0 || progress.done.people.length > 0 || progress.done.server;
     const unfinished = !progress.finishedAt && (Boolean(progress.startedAt) || hasProgress);
-    const neverStarted = !progress.startedAt && store.listUserProfiles(guildId).length === 0;
-    if (!unfinished && !neverStarted) return false;
+    if (!unfinished) return false;
 
-    log.info('warmup: starting/resuming a run automatically', { guildId, unfinished, neverStarted });
+    log.info('warmup: resuming an unfinished run automatically', { guildId });
     run(guildId).catch((err) => log.error('warmup: automatic run failed', { error: err }));
     return true;
   }

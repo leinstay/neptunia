@@ -512,9 +512,9 @@ client.once(Events.ClientReady, async () => {
   // Fire-and-forget: REST one by one, never throws.
   await startupStep('audienceWarmer.warm', () => audienceWarmer.warm());
 
-  // THE way memory starts: with warmup.enabled and no stored profile at all, starts a run
-  // automatically; with an unfinished run left from before a restart, resumes it. Fire-and-forget.
-  await startupStep('warmup.resumeIfNeeded', () => warmup.resumeIfNeeded(instance.guildId));
+  // The warmup is tools/warmup.mjs's, run with the bot stopped. Only with warmup.enabled exactly
+  // true (read now; default false) does the bot resume a run left unfinished. Fire-and-forget.
+  await startupStep('warmup.resumeIfNeeded', () => (hot.config.warmup?.enabled === true ? warmup.resumeIfNeeded(instance.guildId) : false));
 
   // The custom emoji ranking from history, once (features.customEmoji on, no emojiBackfill stamp,
   // context.customEmoji.backfillMessages > 0). Fire-and-forget: never blocks the persona, logs its errors.

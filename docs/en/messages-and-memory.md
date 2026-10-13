@@ -169,7 +169,7 @@ The full command list is in [Commands](owner-commands.md). The most relevant for
 | `/nep memory show <user>` | Compact summary or a specific section of a stored profile |
 | `/nep memory channel` | Stored channel notes and code-maintained facts |
 | `/nep memory server` | Server-wide habits, in-jokes, self-facts |
-| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | Rewrite a member's portrait, a channel's notes or the server notes now |
+| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | Rewrite a member's portrait, or a channel's or the server notes from a fresh sample |
 | `/nep memory forget <user>` | Delete a stored profile, private memory and queued voice items |
 | `/nep memory affinity <user>` | Show or set attitude |
 | `/nep memory wipe` | Wipe all analyzer memory for the server, including private files |

@@ -19,7 +19,7 @@ import { formatClock } from '../discord/format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { journalLine } from '../memory/journal.js';
 import { DEFAULT_REDACTION, DEFAULT_VAULT_DIR, SNAPSHOTS_DIR } from '../memory/store.js';
-import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText, channelWrittenText, serverWrittenText } from './shared.js';
+import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 const handlers = perEnv((env) => {
@@ -664,10 +664,25 @@ const handlers = perEnv((env) => {
     return `Portrait refreshed for ${userId}.`;
   }
 
-  /** `/nep memory refresh kind:channel channel:<channel>`: re-describes that channel's notes now
-   * (purpose/topics/tone and its facts) through the warmup's own channel pass
-   * (src/memory/warmup.js#runChannel, the one tools/warmup.mjs `channels --channel` runs), under the
-   * warmup's rails. Refused while paused or while a warmup runs. */
+  /** A sampled notes refresh's outcome (src/memory/warmup.js#refreshChannelNotes /
+   * #refreshServerNotes) as the owner reads it: changed or reviewed with the sample's size, or why
+   * nothing was written (its reason, the over-limit fields, the provider detail). */
+  function notesRefreshText(what, result) {
+    if (result.ok) {
+      const sample = `sample: ${result.sample} messages, ${result.authors} authors, ${result.days} days`;
+      return result.changed ? `${what} rewritten from a fresh sample (${sample}).` : `${what} checked against a fresh sample, nothing to change (${sample}).`;
+    }
+    const why = result.reason === 'running' ? warmupBusyText() : result.reason;
+    const fields = Array.isArray(result.fields) && result.fields.length > 0 ? ` (${result.fields.join(', ')})` : '';
+    const detail = result.detail ? ` (${result.detail})` : '';
+    return `Refresh not performed: ${why}${fields}${detail}`;
+  }
+
+  /** `/nep memory refresh kind:channel channel:<channel>`: rewrites that channel's notes from a
+   * fresh sample spread over recent days (src/memory/warmup.js#refreshChannelNotes: the live rails,
+   * the 50k request cap and the daily request cap, no persona mute, no whole-history read). A
+   * channel with no notes yet is left to tools/warmup.mjs, and the reply says so. Refused while
+   * paused or while a warmup runs. */
   async function cmdMemoryRefreshChannel(args, context) {
     if (!warmup) return 'warmup is not available';
     assertNotPaused();
@@ -675,22 +690,25 @@ const handlers = perEnv((env) => {
     if (!channelId) throw invalid('a channel is required');
     const guildId = requireGuildId(context);
     if (isWarmingUp()) return `Refresh not performed: ${warmupBusyText()}`;
+    const stored = store.getChannel(guildId, channelId);
+    if (!stored || !(stored.purpose || stored.topics || stored.tone)) {
+      return `Refresh not performed: this channel has no notes yet; describe it first with tools/warmup.mjs channels --channel ${channelId} (bot stopped).`;
+    }
 
-    const result = await warmup.runChannel(guildId, channelId);
-    return channelWrittenText(result.ok ? result.outcome : result, tokenResolver(guildId).nameOf);
+    return notesRefreshText('Channel notes', await warmup.refreshChannelNotes(guildId, channelId));
   }
 
-  /** `/nep memory refresh kind:server`: rebuilds the server notes and lore now through the warmup's
-   * own server pass (src/memory/warmup.js#runServer, the one tools/warmup.mjs `server` runs), under
-   * the warmup's rails. Refused while paused or while a warmup runs. */
+  /** `/nep memory refresh kind:server`: rewrites the server notes (patterns, starters, in-jokes)
+   * from a fresh sample of the main channels (src/memory/warmup.js#refreshServerNotes, the same live
+   * rails). Lore is not rebuilt here: that is tools/warmup.mjs `server`. Refused while paused or
+   * while a warmup runs. */
   async function cmdMemoryRefreshServer(_args, context) {
     if (!warmup) return 'warmup is not available';
     assertNotPaused();
     const guildId = requireGuildId(context);
     if (isWarmingUp()) return `Refresh not performed: ${warmupBusyText()}`;
 
-    const result = await warmup.runServer(guildId);
-    return serverWrittenText(result.ok ? result.outcome : result);
+    return notesRefreshText('Server notes', await warmup.refreshServerNotes(guildId));
   }
 
   return { cmdMemoryShow, mainChannelIdSet, cmdMemoryChannel, cmdMemoryServer, cmdMemoryRecent, cmdMemoryArchive, cmdMemoryRestore, cmdMemoryForget, cmdMemoryJournal, cmdMemorySnapshot, cmdPrivateShow, cmdPrivateForget, cmdPrivatePurge, cmdMemoryWipe, cmdMemoryAffinity, cmdMemoryRefreshUser, cmdMemoryRefreshChannel, cmdMemoryRefreshServer };

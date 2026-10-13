@@ -63,8 +63,9 @@ const ARCHIVE_CHOICES = 25;
  * `pending` — `{ clear() }`, optional: clears src/discord/events.js's pending-ping queue on pause.
  *   Absent -> nothing to clear.
  * `warmup` — from createWarmup() (src/memory/warmup.js), optional: the sample-based
- *   memory warmup's engine -- `refreshPortrait` (`/nep memory refresh kind:user`), `runChannel`
- *   and `runServer` (`kind:channel`, `kind:server`), `summary` (`/nep status detail`) and
+ *   memory warmup's engine -- `refreshPortrait` (`/nep memory refresh kind:user`),
+ *   `refreshChannelNotes` and `refreshServerNotes` (`kind:channel`, `kind:server`: a fresh
+ *   sample, the live rails), `summary` (`/nep status detail`) and
  *   `waitIdle` (awaited by `/nep pause`, same shape as `memory`/`turns`; it also covers portrait
  *   refreshes in flight). A warmup run itself is tools/warmup.mjs's, with the bot stopped.
  *   Absent -> every `memory.refresh.*` command reports it is not available.

@@ -7,12 +7,14 @@ import {
   BOT_STOP_COMMAND,
   DEFAULT_USD_PER_KTOK,
   assertBotStopped,
+  channelWrittenText,
   formatPeople,
   formatStatus,
   formatUserWritten,
   formatWarmupPhase,
   humanizeAgo,
   parseWarmupArgs,
+  serverWrittenText,
   warmupEstimate,
   warmupPlan,
 } from '../tools/lib/warmup.mjs';
@@ -167,4 +169,31 @@ test('warmup phase: the activity snapshot read as a line, the coarse phase witho
   assert.equal(formatWarmupPhase({ phase: 'finished' }), 'finished');
   assert.equal(humanizeAgo(1000, 61_000), '1 min ago');
   assert.equal(humanizeAgo(undefined, 5), 'never');
+});
+
+test('warmup channel and server: what was written, or why nothing was', () => {
+  const text = channelWrittenText(
+    {
+      ok: true,
+      channel: { id: 'c1', name: 'général' },
+      result: { purpose: 'chat', topics: '', tone: 'calm' },
+      facts: { messageCount: 40, lastMessageAt: Date.parse('2026-10-01T10:00:00Z'), topWriters: [{ id: '1', count: 30 }, { id: 'gone', count: 5 }] },
+    },
+    (id) => (id === '1' ? 'Zoé' : null),
+  );
+  assert.deepEqual(text.split('\n'), [
+    'described #général (id:c1)',
+    'purpose: chat',
+    'topics: (empty)',
+    'tone: calm',
+    'messages seen: 40',
+    'last message: 2026-10-01',
+    'top writers: Zoé (30)',
+  ]);
+  assert.equal(channelWrittenText({ ok: false, message: 'channel not found, not readable, or not in this guild' }, () => null), 'channel not found, not readable, or not in this guild');
+  assert.equal(
+    serverWrittenText({ ok: true, counts: { patternsChars: 120, startersChars: 40, injokes: 3, lore: 2 } }),
+    'server notes updated: patterns 120 chars, starters 40 chars, injokes 3, lore entries 2',
+  );
+  assert.equal(serverWrittenText({ ok: false, reason: 'bad-json' }), 'bad-json');
 });

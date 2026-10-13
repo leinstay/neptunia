@@ -2605,37 +2605,31 @@ test('run: memory.show/lore.list/lore.show drop caches first while paused, so a 
 
 // ---------------------------------------------------------------------------
 // memory.refresh -- a member's portrait, a channel's notes, the server notes, through the warmup
-// engine (src/memory/warmup.js); refused while paused or while a warmup runs.
+// engine's live paths (src/memory/warmup.js); refused while paused or while a warmup runs.
 // ---------------------------------------------------------------------------
 
 function fakeWarmup(overrides = {}) {
-  const calls = { runChannel: 0, runServer: 0, refreshPortrait: 0 };
+  const calls = { refreshChannelNotes: 0, refreshServerNotes: 0, refreshPortrait: 0, runChannel: 0, runServer: 0 };
   return {
     calls,
-    runChannel: async (guildId, channelId) => {
-      calls.runChannel += 1;
-      calls.lastRunChannel = [guildId, channelId];
-      return (
-        overrides.runChannel ?? {
-          ok: true,
-          outcome: {
-            ok: true,
-            channel: { id: channelId, name: 'general' },
-            result: { purpose: 'general chat', topics: 'everything', tone: 'casual' },
-            facts: { messageCount: 40, lastMessageAt: Date.parse('2026-10-01T10:00:00Z'), topWriters: [{ id: '1', count: 30 }, { id: 'gone', count: 5 }] },
-          },
-        }
-      );
+    refreshChannelNotes: async (guildId, channelId) => {
+      calls.refreshChannelNotes += 1;
+      calls.lastChannel = [guildId, channelId];
+      return overrides.refreshChannelNotes ?? { ok: true, changed: true, sample: 160, authors: 12, days: 30 };
     },
-    runServer: async (guildId) => {
+    refreshServerNotes: async (guildId) => {
+      calls.refreshServerNotes += 1;
+      calls.lastServerGuildId = guildId;
+      return overrides.refreshServerNotes ?? { ok: true, changed: false, sample: 150, authors: 20, days: 30 };
+    },
+    // The warmup passes: a refresh must never take them (whole history, the persona muted).
+    runChannel: async () => {
+      calls.runChannel += 1;
+      return { ok: false };
+    },
+    runServer: async () => {
       calls.runServer += 1;
-      calls.lastRunServerGuildId = guildId;
-      return (
-        overrides.runServer ?? {
-          ok: true,
-          outcome: { ok: true, counts: { patternsChars: 120, startersChars: 40, injokes: 3, lore: 2 } },
-        }
-      );
+      return { ok: false };
     },
     refreshPortrait: async (guildId, userId, reason, opts) => {
       calls.refreshPortrait += 1;
@@ -2659,59 +2653,75 @@ test('run: memory.refresh kind:user forces a portrait refresh, ignoring the hour
   await assert.rejects(() => admin.run('memory.refresh', { kind: 'user' }, { guildId: 'g1' }), /a user is required/);
 });
 
-test('run: memory.refresh kind:channel re-describes that channel through the warmup engine and reports the note', async () => {
+test('run: memory.refresh kind:channel rewrites stored notes from a fresh sample, never through the warmup pass', async () => {
   const rootDir = makeRoot();
   const warmup = fakeWarmup();
   const { admin, store } = makeAdmin(rootDir, { warmup });
-  store.profiles.set('g1:1', { id: '1', names: ['Zoé'] });
+  store.channels.set('g1:c1', { id: 'c1', name: 'general', purpose: 'chat', topics: '', tone: '' });
 
   const body = await admin.run('memory.refresh', { kind: 'channel', channelId: 'c1' }, { guildId: 'g1' });
-  assert.deepEqual(warmup.calls.lastRunChannel, ['g1', 'c1']);
-  assert.equal(warmup.calls.runServer + warmup.calls.refreshPortrait, 0, 'only the channel pass runs');
-  assert.deepEqual(body.split('\n'), [
-    'described #general (id:c1)',
-    'purpose: general chat',
-    'topics: everything',
-    'tone: casual',
-    'messages seen: 40',
-    'last message: 2026-10-01',
-    'top writers: Zoé (30)',
-  ]);
+  assert.deepEqual(warmup.calls.lastChannel, ['g1', 'c1']);
+  assert.equal(warmup.calls.runChannel + warmup.calls.runServer + warmup.calls.refreshServerNotes, 0);
+  assert.equal(body, 'Channel notes rewritten from a fresh sample (sample: 160 messages, 12 authors, 30 days).');
   await assert.rejects(() => admin.run('memory.refresh', { kind: 'channel' }, { guildId: 'g1' }), /a channel is required/);
-  assert.equal(warmup.calls.runChannel, 1);
 });
 
-test('run: memory.refresh kind:channel relays why nothing was written', async () => {
+test('run: memory.refresh kind:channel on a channel with no notes points to the tool and sends nothing', async () => {
   const rootDir = makeRoot();
-  const warmup = fakeWarmup({ runChannel: { ok: false, message: 'channel not found, not readable, or not in this guild' } });
-  const { admin } = makeAdmin(rootDir, { warmup });
+  const warmup = fakeWarmup();
+  const { admin, store } = makeAdmin(rootDir, { warmup });
+  store.channels.set('g1:c2', { id: 'c2', name: 'quiet', purpose: '', topics: '', tone: '' });
 
-  assert.equal(await admin.run('memory.refresh', { kind: 'channel', channelId: 'c9' }, { guildId: 'g1' }), 'channel not found, not readable, or not in this guild');
+  for (const channelId of ['c2', 'c9']) {
+    const body = await admin.run('memory.refresh', { kind: 'channel', channelId }, { guildId: 'g1' });
+    assert.match(body, /no notes yet/, channelId);
+    assert.match(body, new RegExp(`tools/warmup\\.mjs channels --channel ${channelId}`), channelId);
+  }
+  assert.equal(warmup.calls.refreshChannelNotes + warmup.calls.runChannel, 0);
 });
 
-test('run: memory.refresh kind:server rebuilds the server notes and lore through the warmup engine', async () => {
+test('run: memory.refresh relays why a sampled refresh wrote nothing', async () => {
+  const rootDir = makeRoot();
+  const warmup = fakeWarmup({
+    refreshChannelNotes: { ok: false, reason: 'over-limit', fields: ['topics'] },
+    refreshServerNotes: { ok: false, reason: 'llm-error', detail: 'HTTP 502' },
+  });
+  const { admin, store } = makeAdmin(rootDir, { warmup });
+  store.channels.set('g1:c1', { id: 'c1', name: 'general', purpose: 'chat' });
+
+  assert.equal(await admin.run('memory.refresh', { kind: 'channel', channelId: 'c1' }, { guildId: 'g1' }), 'Refresh not performed: over-limit (topics)');
+  assert.equal(await admin.run('memory.refresh', { kind: 'server' }, { guildId: 'g1' }), 'Refresh not performed: llm-error (HTTP 502)');
+});
+
+test('run: memory.refresh kind:server rewrites the server notes from a fresh sample, never through the warmup pass', async () => {
   const rootDir = makeRoot();
   const warmup = fakeWarmup();
   const { admin } = makeAdmin(rootDir, { warmup });
 
   const body = await admin.run('memory.refresh', { kind: 'server' }, { guildId: 'g1' });
-  assert.equal(warmup.calls.runServer, 1);
-  assert.equal(warmup.calls.lastRunServerGuildId, 'g1');
-  assert.equal(body, 'server notes updated: patterns 120 chars, starters 40 chars, injokes 3, lore entries 2');
+  assert.equal(warmup.calls.refreshServerNotes, 1);
+  assert.equal(warmup.calls.lastServerGuildId, 'g1');
+  assert.equal(warmup.calls.runServer + warmup.calls.runChannel, 0, 'the lore rebuild stays the tool\'s');
+  assert.equal(body, 'Server notes checked against a fresh sample, nothing to change (sample: 150 messages, 20 authors, 30 days).');
 });
 
 test('run: memory.refresh of every kind is refused while paused, and while a warmup runs', async () => {
   for (const args of [{ kind: 'user', userId: '1' }, { kind: 'channel', channelId: 'c1' }, { kind: 'server' }]) {
     const paused = fakeWarmup();
     const first = makeAdmin(makeRoot(), { warmup: paused });
+    first.store.channels.set('g1:c1', { id: 'c1', purpose: 'chat' });
     await first.admin.run('pause', {}, {});
     await assert.rejects(() => first.admin.run('memory.refresh', args, { guildId: 'g1' }), /paused/, args.kind);
 
     const busy = fakeWarmup();
     const second = makeAdmin(makeRoot(), { warmup: busy, isWarmingUp: () => true });
+    second.store.channels.set('g1:c1', { id: 'c1', purpose: 'chat' });
     assert.match(await second.admin.run('memory.refresh', args, { guildId: 'g1' }), /^Refresh not performed: a warmup is running/, args.kind);
 
-    for (const warmup of [paused, busy]) assert.equal(warmup.calls.runChannel + warmup.calls.runServer + warmup.calls.refreshPortrait, 0, args.kind);
+    for (const warmup of [paused, busy]) {
+      const { calls } = warmup;
+      assert.equal(calls.refreshChannelNotes + calls.refreshServerNotes + calls.refreshPortrait + calls.runChannel + calls.runServer, 0, args.kind);
+    }
   }
 });
 

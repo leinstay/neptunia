@@ -696,7 +696,7 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
-| `enabled` | `true` | 首次启动时自动运行预热 |
+| `enabled` | `false` | The tool runs warmup; the bot only resumes an unfinished run when this is true |
 | `lookbackDays` | `60` | 回溯采样天数 |
 | `minMessages` | `30` | 成员入选所需的最少自身消息数 |
 | `maxPeople` | `40` | 处理的成员数，按活跃度排序 |

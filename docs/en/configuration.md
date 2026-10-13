@@ -737,7 +737,7 @@ With `features.relationships` off, public scores stay at 0, so with the default 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | Run the warmup automatically on first start |
+| `enabled` | `false` | The tool runs warmup; the bot only resumes an unfinished run when this is true |
 | `lookbackDays` | `60` | How far back to sample (days) |
 | `minMessages` | `30` | Own messages for a member to qualify |
 | `maxPeople` | `40` | Members processed, most active first |
