@@ -26,7 +26,8 @@
 // lesson's teacher.
 //
 // Channels go the same way back out: `linkChannels` turns the `#name` the
-// persona writes into the `<#id>` link the chat shows as a channel. And a forget takes a member
+// persona writes into the `<#id>` link the chat shows as a channel, and `linkMessageNumbers` turns a
+// transcript number `#93` into the jump link of that message. And a forget takes a member
 // out of a kept text (`redactUser`): their token and their names become a neutral word.
 
 /**
@@ -271,6 +272,36 @@ export function linkChannels(text, channels) {
     }
   }
   return result + text.slice(index);
+}
+
+/** Spans `linkMessageNumbers` leaves alone: fenced code, inline code, and URLs already in the text. */
+const PROTECTED_SPAN_RE = /```[\s\S]*?```|`[^`\n]*`|https?:\/\/\S+/g;
+const MESSAGE_NUMBER_RE = /(?<![\p{L}\p{N}_&#<])#(\d+)(?![\p{L}\p{N}_])/gu;
+
+/**
+ * Turn every transcript number `#n` in the persona's outgoing `text` into the jump link of the
+ * message it names, so the chat shows a clickable pill instead of a bare number. A token counts
+ * when `n` is digits, the character before `#` is not a word character, `&`, `#` or `<`, and the
+ * one after the digits is not a word character; a number `resolve` does not know stays as
+ * written. Code spans and URLs already present are skipped.
+ * @param {string} text
+ * @param {(n: number) => (string|null|undefined)} resolve  Number -> link, or null when unmapped.
+ * @returns {string}
+ */
+export function linkMessageNumbers(text, resolve) {
+  if (typeof text !== 'string' || !text.includes('#') || typeof resolve !== 'function') return text;
+  const convert = (part) =>
+    part.replace(MESSAGE_NUMBER_RE, (whole, digits) => {
+      const link = resolve(Number(digits));
+      return typeof link === 'string' && link ? link : whole;
+    });
+  let result = '';
+  let index = 0;
+  for (const match of text.matchAll(PROTECTED_SPAN_RE)) {
+    result += convert(text.slice(index, match.index)) + match[0];
+    index = match.index + match[0].length;
+  }
+  return result + convert(text.slice(index));
 }
 
 /** The fewest word characters a name needs before `redactUser` replaces it (a shorter one is too common a word). */

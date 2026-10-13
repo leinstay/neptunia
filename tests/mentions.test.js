@@ -2,7 +2,7 @@
 // id-token round trip) and teacherToken (the lesson teacher rule). Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TEACHER_TOKEN_RE, isWordChar, linkChannels, toTokens, fromTokens, occursAsWholeWord, teacherToken } from '../src/memory/mentions.js';
+import { TEACHER_TOKEN_RE, isWordChar, linkChannels, linkMessageNumbers, toTokens, fromTokens, occursAsWholeWord, teacherToken } from '../src/memory/mentions.js';
 
 const ID_A = '123456789012345678';
 const ID_B = '223456789012345678';
@@ -225,4 +225,38 @@ test('linkChannels: text without # comes back unchanged', () => {
   assert.equal(linkChannels('γενικά χωρίς σύνδεσμο', channels), 'γενικά χωρίς σύνδεσμο');
   assert.equal(linkChannels('', channels), '');
   assert.equal(linkChannels('#γενικά', []), '#γενικά');
+});
+
+// ---- linkMessageNumbers -----------------------------------------------------
+
+const jump = (n) => (n === 93 ? 'https://discord.com/channels/1/2/3' : n === 7 ? 'https://discord.com/channels/1/9/8' : null);
+
+test('linkMessageNumbers: a mapped #n becomes its message link', () => {
+  assert.equal(linkMessageNumbers('see #93 there', jump), 'see https://discord.com/channels/1/2/3 there');
+  assert.equal(linkMessageNumbers('#93', jump), 'https://discord.com/channels/1/2/3');
+});
+
+test('linkMessageNumbers: an unmapped number stays', () => {
+  assert.equal(linkMessageNumbers('#5 in the charts', jump), '#5 in the charts');
+});
+
+test('linkMessageNumbers: glued, entity and doubled forms stay', () => {
+  for (const text of ['#93abc', '&#93;', 'x#93', '##93', '#93_', '<#93>', 'ά#93']) assert.equal(linkMessageNumbers(text, jump), text);
+});
+
+test('linkMessageNumbers: two numbers in one text both convert', () => {
+  assert.equal(
+    linkMessageNumbers('#93 and #7, #93.', jump),
+    'https://discord.com/channels/1/2/3 and https://discord.com/channels/1/9/8, https://discord.com/channels/1/2/3.',
+  );
+});
+
+test('linkMessageNumbers: code spans and existing URLs stay', () => {
+  const text = 'a `#93` b ```\n#93\n``` https://example.com/x#93 c';
+  assert.equal(linkMessageNumbers(text, jump), text);
+});
+
+test('linkMessageNumbers: no resolver or no # returns the text', () => {
+  assert.equal(linkMessageNumbers('#93', null), '#93');
+  assert.equal(linkMessageNumbers('plain', jump), 'plain');
 });
