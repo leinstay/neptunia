@@ -344,11 +344,12 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
   const pendingFile = (base) => path.join(base, 'pending.jsonl');
   const doneFile = (base) => path.join(base, 'pending-done.jsonl');
 
-  async function listDir(dir) {
+  async function listDir(dir, { dirsOnly = false } = {}) {
     try {
-      return (await fs.readdir(dir)).sort();
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      return entries.filter((entry) => !dirsOnly || entry.isDirectory()).map((entry) => entry.name).sort();
     } catch (error) {
-      if (error?.code === 'ENOENT') return [];
+      if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return [];
       throw error;
     }
   }
@@ -363,10 +364,11 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     return out;
   }
 
-  /** Every base of a guild: its own archive, then each private layer's that exists. */
+  /** Every base of a guild: its own archive, then each private layer's that exists. The private
+   * directory also holds the DM memory files (`<userId>.json`): only directories are layers. */
   async function bases(guildId) {
     const out = [{ base: baseDir(guildId), privateUserId: null }];
-    for (const userId of await listDir(path.join(guildBase(guildId), 'private'))) {
+    for (const userId of await listDir(path.join(guildBase(guildId), 'private'), { dirsOnly: true })) {
       const base = baseDir(guildId, userId);
       if ((await listDir(base)).length > 0) out.push({ base, privateUserId: userId });
     }
