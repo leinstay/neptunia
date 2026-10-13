@@ -1962,7 +1962,7 @@ export function createAdmin({
       `profile: ${n('profile')}, private memory: ${n('private')}, voice items: ${n('voice')}, recent lines: ${n('recent')}, ` +
         `participation messages: ${n('participation')}, version files: ${n('versions')}`,
       `archive entries: ${n('archive')}, record lines: ${n('record')}, journal records: ${n('journal')}, request dumps: ${n('requests')}, ` +
-        `snapshots: ${n('snapshots')}, diary posts redacted: ${n('diary')}`,
+        `snapshots: ${n('snapshots')}, diary posts redacted: ${n('diary')}, backfill candidates: ${n('backfill')}`,
     ].join('\n');
   }
 
@@ -2208,7 +2208,7 @@ export function createAdmin({
     if (confirm !== guildName) {
       return (
         'This deletes everything remembered about this server: every member profile and private memory, the server habits, ' +
-        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore, the journal, the request dumps, the deletion ledger, this server in every snapshot and the warmup progress; a copy of it all goes to the vault first. ' +
+        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore, the record, the archive, the backfill files, the journal, the request dumps, the deletion ledger, this server in every snapshot and the warmup progress; a copy of it all goes to the vault first. ' +
         `To confirm, run again with confirm: ${guildName}`
       );
     }
@@ -2220,7 +2220,7 @@ export function createAdmin({
       // The vault first, then the journal (its files are closed before the store deletes the
       // private directories), then the rest.
       const vault = store.vaultGuild(guildId, { vaultDir });
-      let journalLines = [];
+      let journalLines = ['journal: kept (no journal is running)'];
       if (journal) {
         try {
           const removed = await journal.removeGuild(guildId);
@@ -2239,13 +2239,17 @@ export function createAdmin({
     return [
       `Memory wiped for ${guildName}.`,
       `Vault: ${counts.vault ?? vault}`,
+      `profiles removed: ${counts.users ?? 0}`,
+      `private memory removed: ${counts.privateLayers ?? 0} private layers, with every private directory`,
+      `record files removed: ${counts.recordFiles ?? 0}`,
+      `archive files removed: ${counts.archiveFiles ?? 0}`,
+      `backfill files removed: ${counts.backfillFiles ?? 0}`,
+      ...journalLines,
       `snapshots that lost this server: ${counts.snapshots ?? 0}`,
-      `users removed: ${counts.users} (with their private memory)`,
       `channels removed: ${counts.channels}`,
       `lore removed: ${counts.loreRemoved} (kept: ${counts.loreKept})`,
       `buffer messages cleared: ${counts.bufferMessages}`,
-      ...journalLines,
-      'Also removed: the server habits, the learned list, the emoji ranking, the voice queue, the recent lines and the warmup progress.',
+      'Also removed: the server habits, the learned list, the emoji ranking, the voice queue, the recent lines, the participation store, the recall trace, the profile versions, the deletion ledger and the warmup progress.',
       'Kept: owner lore, the GIF library, the media description cache, token calibration, the daily request counts and the spontaneous schedule.',
     ].join('\n');
   }

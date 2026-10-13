@@ -1369,7 +1369,7 @@ test('wipeGuild: removes profiles, guild memory, channels, buffer and analyzer l
   storeA.flush();
 
   const { vault, ...counts } = storeA.wipeGuild('g1');
-  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0 });
+  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 0, recordFiles: 0, archiveFiles: 0, backfillFiles: 0 });
   assert.ok(vault.startsWith(path.join(dir, 'vault', 'wipe-')));
 
   // cache is immediately usable
@@ -1865,7 +1865,7 @@ test('wipeGuild: removes the private directory, cache and disk, leaves other gui
   store.applyPrivateOps('g2', 'u9', {});
 
   const { vault, ...counts } = store.wipeGuild('g1');
-  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0 });
+  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 2, recordFiles: 0, archiveFiles: 0, backfillFiles: 0 });
   assert.ok(vault.startsWith(path.join(dir, 'vault', 'wipe-')));
   assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'private')), false);
   assert.equal(store.getPrivate('g1', 'u1'), null);
@@ -3495,6 +3495,16 @@ async function seedForget(dir, kit) {
   fs.mkdirSync(requests, { recursive: true });
   fs.writeFileSync(path.join(requests, 't-1-1.json'), JSON.stringify({ recordedAt: new Date(ts).toISOString(), parts: [{ type: 'text', text: `<@${GONE}> γεια` }] }));
   fs.writeFileSync(path.join(requests, 't-2-1.json'), JSON.stringify({ recordedAt: new Date(ts).toISOString(), parts: [{ type: 'text', text: 'καλημέρα' }] }));
+  const backfill = path.join(dir, 'guilds', 'g1', 'backfill');
+  fs.mkdirSync(backfill, { recursive: true });
+  fs.writeFileSync(
+    path.join(backfill, 'candidates.jsonl'),
+    [
+      { kind: 'episode', userId: GONE, what: 'sang by the sea', sourceRefs: [{ channelId: 'c1', messageId: 'm1' }], participants: [GONE] },
+      { kind: 'lesson', text: 'tea first', from: null, sourceRefs: [{ channelId: 'c1', messageId: 'm2', by: GONE }], participants: [STAYS] },
+      { kind: 'episode', userId: STAYS, what: 'made tea', sourceRefs: [{ channelId: 'c1', messageId: 'm2' }], participants: [STAYS] },
+    ].map((line) => `${JSON.stringify(line)}\n`).join(''),
+  );
   const snapshotUsers = path.join(dir, 'snapshots', '2026-10-11T00-00-00-000Z', 'guilds', 'g1', 'users');
   fs.mkdirSync(snapshotUsers, { recursive: true });
   fs.writeFileSync(path.join(snapshotUsers, `${GONE}.json`), JSON.stringify({ id: GONE, names: ['Ελένη'] }));
@@ -3543,6 +3553,7 @@ test('store: forgetUser copies everything it will remove into data/vault before 
   assert.deepEqual(dropped(/archive\/.*\.dropped\.jsonl$/).map((entry) => entry.text.what), ['sang by the sea']);
   assert.deepEqual(dropped(/record\/.*\.dropped\.jsonl$/).map((line) => line.messageId), ['m1']);
   assert.deepEqual(dropped(/journal\/[^/]*\.dropped\.jsonl$/).map((rec) => rec.participants), [[GONE, STAYS]]);
+  assert.deepEqual(dropped(/backfill\/candidates\.jsonl\.dropped\.jsonl$/).map((candidate) => candidate.what ?? candidate.text), ['sang by the sea', 'tea first'], 'a participant or a cited author');
   assert.equal(JSON.parse(fs.readFileSync(path.join(vault, 'guilds', 'g1', 'diary.before.json'), 'utf8')).posts[0].gist, `A walk with <@${GONE}>, Λενιώ laughed`);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(vault, 'guilds', 'g1', 'voice.extract.json'), 'utf8')).map((item) => item.userId), [GONE]);
 
@@ -3555,8 +3566,9 @@ test('store: forgetUser copies everything it will remove into data/vault before 
   assert.deepEqual(linesUnder(path.join(guild, 'journal'), /^[^/]*\.jsonl$/).map((rec) => rec.participants), [[STAYS]]);
   assert.deepEqual(kit.store.getDiary('g1').posts.map((post) => post.gist), ['A walk with κάποιος, κάποιος laughed', 'Rain.']);
   assert.deepEqual(filesUnder(path.join(guild, 'journal', 'requests')), ['2026-10-10/t-2-1.json']);
+  assert.deepEqual(linesUnder(path.join(guild, 'backfill'), /\.jsonl$/).map((candidate) => candidate.what), ['made tea']);
   assert.deepEqual(filesUnder(path.join(dir, 'snapshots')), ['2026-10-11T00-00-00-000Z/guilds/g1/forgotten.json', `2026-10-11T00-00-00-000Z/guilds/g1/users/${STAYS}.json`]);
-  assert.deepEqual(counts, { profile: 1, private: 1, voice: 1, recent: 0, participation: 0, versions: 1, diary: 1, snapshots: 1, archive: 1, record: 1, journal: 1, requests: 1 });
+  assert.deepEqual(counts, { profile: 1, private: 1, voice: 1, recent: 0, participation: 0, versions: 1, diary: 1, snapshots: 1, archive: 1, record: 1, journal: 1, requests: 1, backfill: 2 });
 });
 
 test('store: forgetUser writes the marker first and the ledger last; a crash mid-way is finished on the next start', async () => {
@@ -3617,7 +3629,9 @@ test('store: wipeGuild copies the guild directory into data/vault first, then de
   fs.writeFileSync(path.join(snapshotGuild, 'users', 'u1.json'), '{"id":"u1"}');
   const live = filesUnder(path.join(dir, 'guilds', 'g1'));
 
-  const { vault, snapshots } = store.wipeGuild('g1', { now: () => FORGET_AT });
+  store.applyPrivateOps('g1', 'u1', { relationship: 'μυστικό' }, { fieldChars: 300 });
+  const { vault, snapshots, privateLayers, recordFiles, archiveFiles, backfillFiles } = store.wipeGuild('g1', { now: () => FORGET_AT });
+  assert.deepEqual({ privateLayers, recordFiles, archiveFiles, backfillFiles }, { privateLayers: 1, recordFiles: 1, archiveFiles: 1, backfillFiles: 1 }, 'the counts the reply lists');
 
   assert.equal(vault, path.join(dir, 'vault', 'wipe-2026-10-13T12-00-00-000Z'));
   const copied = filesUnder(path.join(vault, 'guilds', 'g1'));

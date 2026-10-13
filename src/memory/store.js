@@ -403,6 +403,19 @@ function namesIn(dir) {
   }
 }
 
+/** How many files there are under `dir`, recursively; 0 when it is missing. */
+function filesIn(dir) {
+  let count = 0;
+  let list;
+  try {
+    list = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of list) count += entry.isDirectory() ? filesIn(path.join(dir, entry.name)) : 1;
+  return count;
+}
+
 /** A parsed JSONL line, or null. */
 function parseLine(line) {
   try {
@@ -436,6 +449,23 @@ function filterJsonlSync(file, keep) {
   const dropped = lines.length - kept.length;
   if (dropped > 0) writeTextAtomic(file, `${kept.map((line) => `${line}\n`).join('')}${tail}`);
   return dropped;
+}
+
+/**
+ * Whether a forget of `userId` drops a line of the backfill tool's candidates
+ * (`backfill/candidates.jsonl`, tools/backfill.mjs): the member is its member, its teacher, one of
+ * its `participants` or the author of one of its `sourceRefs`. Every such line, whatever its date.
+ * @param {object} candidate
+ * @param {string} userId
+ * @returns {boolean}
+ */
+export function backfillDrops(candidate, userId) {
+  if (!isPlainObject(candidate)) return false;
+  const id = String(userId);
+  if (candidate.userId === id || candidate.from === id) return true;
+  if (Array.isArray(candidate.participants) && candidate.participants.includes(id)) return true;
+  const refs = Array.isArray(candidate.sourceRefs) ? candidate.sourceRefs : [];
+  return refs.some((ref) => isPlainObject(ref) && (ref.by === id || ref.authorId === id));
 }
 
 /** A ledger file's entries (`[{ userId, at }]`), [] when it is missing or not a list. */
@@ -1798,7 +1828,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * The guild's append-only files a forget rewrites, each with the rule of its module: the
    * archive's month segments and pending queue (src/memory/archive.js#archiveDrops), the record's
    * day files (src/memory/record.js#recordDrops), the journal's day files
-   * (src/memory/journal.js#journalDrops). `index`: the id index a direct rewrite makes stale.
+   * (src/memory/journal.js#journalDrops), the backfill tool's candidates (`backfillDrops`).
+   * `index`: the id index a direct rewrite makes stale.
    */
   function memberLineFiles(guildId) {
     const base = guildDir(guildId);
@@ -1824,6 +1855,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     for (const name of namesIn(journalDir).filter((entry) => DAY_JSONL_RE.test(entry))) {
       out.push({ kind: 'journal', file: path.join(journalDir, name), drops: journalDrops, index: null });
     }
+    const candidates = path.join(base, 'backfill', 'candidates.jsonl');
+    if (fs.existsSync(candidates)) out.push({ kind: 'backfill', file: candidates, drops: (value, userId) => backfillDrops(value, userId), index: null });
     return out;
   }
 
@@ -2107,6 +2140,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       if (!marker.steps.requests) {
         done('requests', { requests: typeof journal?.forgetRequests === 'function' ? (await journal.forgetRequests(guildId, id))?.removed ?? 0 : dropRequestsSync(guildId, id) });
       }
+      // The backfill tool refuses to run while the marker exists, so its candidates are rewritten directly.
+      if (!marker.steps.backfill) done('backfill', { backfill: dropLinesSync(guildId, id, 'backfill') });
       if (!marker.steps.private) {
         // What the modules left of the private directory (and anything else in it) goes whole.
         const dir = memberDir(guildId, id);
@@ -2391,7 +2426,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *      under `data/`): plain copies, under their paths below `data/`, of the profile, the
      *      private layer and directory, the profile versions, the voice items about them
      *      (`voice.extract.json`), the recent and participation files when they change, the
-     *      archive, record and journal lines about to be dropped (`<path>.dropped.jsonl`), the
+     *      archive, record, journal and backfill candidate lines about to be dropped (`<path>.dropped.jsonl`), the
      *      diary before its redaction (`diary.before.json`), the request dumps naming them and
      *      their files in every snapshot;
      *   3. the hot part: profile, private layer, voice items about them and the lessons they taught
@@ -2406,7 +2441,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *   6. the archive, the record and the journal (`archive.forgetUser`, `record.forgetUser`,
      *      `journal.forgetUser`: the store's own archive and record unless `deps` names others; a
      *      missing module's files are rewritten directly by the same rule), the guild request
-     *      dumps naming them (`journal.forgetRequests`), what is left of their private directory;
+     *      dumps naming them (`journal.forgetRequests`), the backfill tool's candidates naming them
+     *      (`backfill/candidates.jsonl`, `backfillDrops`), what is left of their private directory;
      *   7. the caches (anything a writer put back meanwhile goes again), then the ledger
      *      `forgotten.json` gets `{ userId, at }`, then the marker goes.
      *
@@ -2419,7 +2455,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *   redaction?: string, now?: () => number }} [deps]
      * @returns {Promise<{ vault: string, counts: { profile: number, private: number, voice: number,
      *   recent: number, participation: number, versions: number, diary: number, snapshots: number,
-     *   archive: number, record: number, journal: number, requests: number } }>}  `vault`: the
+     *   archive: number, record: number, journal: number, requests: number, backfill: number } }>}  `vault`: the
      *   absolute path of the vault directory.
      */
     forgetUser(guildId, userId, deps = {}) {
@@ -3826,8 +3862,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @param {{ keepOwnerLore?: boolean, keepMediaCache?: boolean, vault?: string|null,
      *   vaultDir?: string, now?: () => number }} [opts]
      * @returns {{ users: number, channels: number, loreRemoved: number, loreKept: number, bufferMessages: number,
-     *   recentLines: number, snapshots: number, vault: string }}  `recentLines`: the recent lines the
-     *   wipe removed; `snapshots`: the snapshots that lost the guild; `vault`: the vault copy's path.
+     *   recentLines: number, snapshots: number, privateLayers: number, recordFiles: number,
+     *   archiveFiles: number, backfillFiles: number, vault: string }}  `recentLines`: the recent lines the
+     *   wipe removed; `snapshots`: the snapshots that lost the guild; `privateLayers`: the members'
+     *   private layers removed; `recordFiles` / `archiveFiles` / `backfillFiles`: the files removed
+     *   under `record/`, `archive/`, `backfill/`; `vault`: the vault copy's path.
      */
     wipeGuild(guildId, { keepOwnerLore = true, keepMediaCache = true, vault = null, vaultDir, now = Date.now } = {}) {
       const vaultPath = typeof vault === 'string' && vault ? vault : store.vaultGuild(guildId, { vaultDir, now });
@@ -3855,6 +3894,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         fs.rmSync(file, { force: true });
       }
 
+      // The members' private layers (`private/<id>.json`, on disk or only cached), not their directories' files.
+      const privateLayers = new Set([
+        ...namesIn(privateDir(guildId)).filter((name) => name.endsWith('.json')),
+        ...[...entries.keys()].filter((file) => path.dirname(file) === privateDir(guildId)).map((file) => path.basename(file)),
+      ]).size;
       {
         const dir = privateDir(guildId);
         const prefix = dir + path.sep;
@@ -3915,7 +3959,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       fs.rmSync(recallTraceFile(guildId), { force: true });
       // The record and the archive are this guild's memory too, and the backfill tool's scratch
       // files (tools/backfill.mjs) quote it: the vault holds their copy.
-      for (const name of ['record', 'archive', 'backfill']) fs.rmSync(path.join(guildDir(guildId), name), { recursive: true, force: true });
+      const files = {};
+      for (const name of ['record', 'archive', 'backfill']) {
+        files[name] = filesIn(path.join(guildDir(guildId), name));
+        fs.rmSync(path.join(guildDir(guildId), name), { recursive: true, force: true });
+      }
       // The deletion ledger goes with the memory it guarded.
       fs.rmSync(ledgerFile(guildId), { force: true });
 
@@ -3937,7 +3985,20 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
       flushAll();
 
-      return { users: userIds.length, channels: channelIds.length, loreRemoved, loreKept, bufferMessages, recentLines, snapshots, vault: vaultPath };
+      return {
+        users: userIds.length,
+        channels: channelIds.length,
+        loreRemoved,
+        loreKept,
+        bufferMessages,
+        recentLines,
+        snapshots,
+        privateLayers,
+        recordFiles: files.record,
+        archiveFiles: files.archive,
+        backfillFiles: files.backfill,
+        vault: vaultPath,
+      };
     },
 
     /**
