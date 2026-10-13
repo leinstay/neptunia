@@ -140,16 +140,22 @@ test('ops: an exception becomes failed with its code', async () => {
 
 test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', () => {
   const registered = new Set(listOps().map((op) => op.name));
+  // The keys whose required `action` option picks the operation: every action is tried.
+  const ACTIONS = { talk: ['interject', 'initiate'], media: ['status', 'rescan', 'recache'], 'memory.private': ['show', 'forget', 'purge'] };
   for (const key of commandKeys().keys) {
     if (key.startsWith('mentor.') || LEGACY_KEYS.has(key)) continue;
     assert.ok(Object.hasOwn(COMMAND_TO_OP, key), `${key} has no operation`);
-    for (const args of [{}, { score: 10, mode: 'on' }]) {
+    const variants = Object.hasOwn(ACTIONS, key) ? ACTIONS[key].map((action) => ({ action })) : [{}, { score: 10, mode: 'on' }];
+    for (const args of variants) {
       const target = resolveCommand(key, args);
-      assert.ok(target && registered.has(target.op), `${key} maps to an unregistered op`);
+      assert.ok(target && registered.has(target.op), `${key} ${JSON.stringify(args)} maps to an unregistered op`);
     }
   }
   assert.equal(resolveCommand('memory.affinity', { userId: '1' }).op, 'memory.affinity.read');
   assert.equal(resolveCommand('memory.affinity', { userId: '1', score: 0 }).op, 'memory.affinity.set');
-  assert.deepEqual(resolveCommand('gifs.recache', {}), { op: 'media.recache', args: { kind: 'gifs' } });
+  assert.deepEqual(resolveCommand('media', { kind: 'gifs', action: 'recache' }), { op: 'media.recache', args: { kind: 'gifs', action: 'recache' } });
+  assert.equal(resolveCommand('memory.private', { action: 'show', userId: '1' }).op, 'memory.private.read');
+  assert.match(resolveCommand('talk', {}).invalid, /action must be one of: interject, initiate/);
+  assert.equal(resolveCommand('gifs.recache', {}), null, 'an old key dispatches nothing');
   assert.equal(resolveCommand('mentor.run', {}), null);
 });

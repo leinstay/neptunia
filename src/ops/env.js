@@ -46,6 +46,20 @@ export function createOpsEnv({
   journal,
   dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
 } = {}) {
+  // The gateway's last reconnect, for the status card: a resumed session, or a shard ready again
+  // after its first ready. Null until one happens; nothing is tracked without a client to listen to.
+  const connection = { lastReconnectAt: null };
+  if (typeof client?.on === 'function') {
+    let readies = 0;
+    client.on('shardReady', () => {
+      readies += 1;
+      if (readies > 1) connection.lastReconnectAt = Date.now();
+    });
+    client.on('shardResume', () => {
+      connection.lastReconnectAt = Date.now();
+    });
+  }
+
   /** `/<command name> <rest>`, the command name read now (`bot.commandName`, default `nep`):
    * every reply that points the owner at another command says it this way. */
   function slash(rest) {
@@ -226,6 +240,7 @@ export function createOpsEnv({
     archive,
     journal,
     dataDir,
+    connection,
     slash,
     pausedText,
     warmupBusyText,

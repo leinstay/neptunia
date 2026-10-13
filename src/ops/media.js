@@ -1,4 +1,4 @@
-// Operations: `/nep emoji|gifs status|rescan|recache`: the custom emoji ranking and the GIF library, one operation per action with `kind`.
+// Operations: `/nep media kind:emoji|gifs action:status|rescan|recache`: the custom emoji ranking and the GIF library, one operation per action with `kind`.
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -118,12 +118,12 @@ const handlers = perEnv((env) => {
 
     const result = gifRecache.start(guildId);
     if (!result.ok) {
-      if (result.reason === 'running') return `A GIF recache is already running: see ${slash('gifs status')}.`;
+      if (result.reason === 'running') return `A GIF recache is already running: see ${slash('media kind:gifs action:status')}.`;
       return skipText(GIFS_RECACHE_SKIPS, result.reason, `not started (${result.reason})`);
     }
     return [
       `GIF recache started: ${result.queued} library GIFs to watch, ${result.dropped} one-frame captions dropped from the media cache.`,
-      `Follow it with ${slash('gifs status')}.`,
+      `Follow it with ${slash('media kind:gifs action:status')}.`,
     ].join('\n');
   }
 

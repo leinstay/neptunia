@@ -130,7 +130,7 @@ const REWATCH_ANSWER_CHARS_FALLBACK = 1200;
 const REWATCH_TTL_MS = 60 * MINUTE_MS;
 const PERMANENT_VIDEO_MISSES = new Set(['length', 'size']);
 /** The state.json fields of the daily video counter (every watch and every re-watch attempt). */
-const VIDEO_DAILY = Object.freeze({ dayKey: 'videoDay', countKey: 'videoCount' });
+export const VIDEO_DAILY = Object.freeze({ dayKey: 'videoDay', countKey: 'videoCount' });
 /** The state.json fields of the daily second-look counter: a video re-watch and a picture relook alike. */
 const REWATCH_DAILY = Object.freeze({ dayKey: 'rewatchDay', countKey: 'rewatchCount' });
 /** The state.json fields of the daily GIF watch counter: a GIF watch and a GIF's second look alike. */

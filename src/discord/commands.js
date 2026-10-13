@@ -1,22 +1,27 @@
 // The owner's Discord surface: one top-level guild slash command (name from
-// `config.bot.commandName`) whose tree is built here as plain JSON — no
-// discord.js builder classes — so `buildCommandTree` is trivially unit
-// -tested. `registerCommands` pushes that tree to the single guild this
-// instance serves; `createInteractionHandler` turns a discord.js interaction
-// into an `admin.runCommand(commandKey, args, context)` call -- the command's
+// `config.bot.commandName`) whose tree is built here as plain JSON from one
+// declarative table (COMMAND_TABLE: the nineteen top-level entries, each leaf
+// with its options and its option -> args mapping) — no discord.js builder
+// classes — so `buildCommandTree` is trivially unit-tested.
+// `registerCommands` pushes that tree to the single guild this instance
+// serves; `createInteractionHandler` turns a discord.js interaction into an
+// `admin.runCommand(commandKey, args, context)` call -- the command's
 // operation run through src/ops/index.js#runOp, rights included -- and
-// replies, always ephemerally, never letting an error escape into discord.js.
+// replies, never letting an error escape into discord.js. Replies are
+// ephemeral, except the ones whose operation posts in the channel anyway
+// (VISIBLE_OPS); an operation that may outlast Discord's reply window is
+// deferred first (DEFERRED_OPS); an interaction delivered twice runs once.
 // One subcommand, `pings`, is a member's own notification switch, open to
 // every member (its operations' `rights.member`).
 //
-// Every option → args mapping lives in one place (OPTION_MAPPERS): adding a
-// command here means one tree entry and one mapper, plus a SLOW_COMMANDS
-// entry when it may outlast Discord's reply window; its handler lives in
-// src/admin.js.
+// Adding a command here means one COMMAND_TABLE entry (its options and its
+// `args` mapper) and one src/ops/index.js#COMMAND_TO_OP entry, plus a
+// DEFERRED_OPS entry when its operation may outlast the reply window.
 
-import { MessageFlags } from 'discord.js';
+import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
+import { MINUTE_MS } from '../time.js';
 
 // Raw Discord API option-type numbers (application-command-option-type):
 // https://discord.com/developers/docs/interactions/application-commands
@@ -35,14 +40,15 @@ const GUILD_TEXT = 0;
 const REPLY_CHUNK_CHARS = 1900;
 const MAX_AUTOCOMPLETE_CHOICES = 25;
 
-/** Commands that may take long enough to need `deferReply` before `editReply`. */
-const SLOW_COMMANDS = new Set([
-  'interject',
-  'initiate',
-  'reload',
-  'pause',
-  'resume',
-  'ping',
+/** How long an interaction id is remembered, so a retried delivery runs nothing. */
+const RETRY_WINDOW_MS = 15 * MINUTE_MS;
+
+/** Operations that may take long enough to need `deferReply` before `editReply`. */
+export const DEFERRED_OPS = Object.freeze(new Set([
+  'talk.interject',
+  'talk.initiate',
+  'bot.pause',
+  'bot.resume',
   'warmup.people',
   'warmup.run',
   'warmup.stop',
@@ -54,28 +60,24 @@ const SLOW_COMMANDS = new Set([
   'memory.refresh',
   'memory.forget',
   'memory.wipe',
-  'memory.archive',
+  'memory.archive.read',
   'memory.restore',
   'memory.snapshot',
-  'emoji.rescan',
-  'gifs.rescan',
-  'private.forget',
-  'private.purge',
+  'memory.private.forget',
+  'memory.private.purge',
+  'media.rescan',
   'diary.set',
   'diary.post',
-  'draw',
-  'mentor.add',
-  'mentor.anchor',
-  'mentor.run',
-  'mentor.check',
-  'mentor.show',
-]);
+  'draw.create',
+]));
+
+/** Operations whose reply everyone in the channel sees: they post there anyway. Every other
+ * reply, and every error, is ephemeral. */
+export const VISIBLE_OPS = Object.freeze(new Set(['talk.interject', 'talk.initiate', 'diary.post', 'draw.create']));
 
 /**
  * The chat-model roles, each with the config path of its model (src/admin.js):
- * the roles `/nep ping` sends a chat completion for. `/nep model` and `/nep
- * route` add `image` (`MODEL_SET_PATHS`), `/nep ping` adds `image` (checked
- * against the provider's listing, never with a chat request) and `classifier`:
+ * the roles `/nep model` and `/nep route` list, plus `image` (`MODEL_SET_PATHS`);
  * every role choice list is derived from this one. `voice` is the one model that
  * speaks as the persona: its replies and every memory text worded in its voice
  * (src/memory/update.js#runVoice).
@@ -122,7 +124,6 @@ function choicesOf(values) {
 }
 
 const ROUTE_ROLES = MODEL_SET_ROLES;
-const PING_ROLES = Object.freeze([...ROUTE_ROLES, 'classifier']);
 
 /** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'all']);
@@ -135,6 +136,409 @@ const NOT_ALLOWED_MESSAGE = 'Not allowed';
 
 /** Discord's cap on one application command's combined text (see `commandSize`). */
 const COMMAND_SIZE_LIMIT = 8000;
+
+// ---------------------------------------------------------------------------
+// The table
+// ---------------------------------------------------------------------------
+
+const channelOption = (description, required = false) => ({ type: CHANNEL, name: 'channel', description, required, channel_types: [GUILD_TEXT] });
+const userOption = (description = 'Member.', required = true) => ({ type: USER, name: 'user', description, required });
+const userId = (options) => options.getUser('user', true).id;
+const none = () => ({});
+
+/**
+ * The whole `/nep` tree, top level in display order: a leaf is `{ name, description, options?,
+ * args }`, a group is `{ name, description, subcommands: [leaf, ...] }`. `args(options)` maps a
+ * discord.js interaction's options onto the plain `args` of src/admin.js#runCommand; the rest is
+ * the Discord JSON of the node (`buildCommandTree` drops `args`). Option names are lowercase;
+ * no name carries a hyphen; `action` only where every action takes the same options.
+ */
+export const COMMAND_TABLE = Object.freeze([
+  {
+    name: 'status',
+    description: 'What the bot is doing now: one card.',
+    options: [{ type: BOOLEAN, name: 'detail', description: 'Add the long form below the card.', required: false }],
+    args: (options) => ({ detail: options.getBoolean('detail') ?? false }),
+  },
+  {
+    name: 'set',
+    description: 'Override a config value in config.local.json.',
+    options: [
+      { type: STRING, name: 'path', description: 'Dotted config path.', required: true, autocomplete: true },
+      { type: STRING, name: 'value', description: 'New value: JSON or a plain string.', required: true },
+    ],
+    args: (options) => ({ path: options.getString('path', true), value: options.getString('value', true) }),
+  },
+  {
+    name: 'unset',
+    description: 'Remove a config override.',
+    options: [{ type: STRING, name: 'path', description: 'Dotted config path.', required: true, autocomplete: true }],
+    args: (options) => ({ path: options.getString('path', true) }),
+  },
+  { name: 'pause', description: 'Pause the persona and flush memory so data/ can be hand-edited.', args: none },
+  { name: 'resume', description: 'Resume after a pause; refused if a data/ file is invalid.', args: none },
+  {
+    name: 'draw',
+    description: 'Draw one picture in this channel. Spends balance.',
+    options: [
+      { type: STRING, name: 'text', description: 'What to draw.', required: true },
+      { type: BOOLEAN, name: 'self', description: 'The persona is in it (adds the appearance prompt).', required: false },
+    ],
+    args: (options) => ({ text: options.getString('text', true), self: options.getBoolean('self') ?? false }),
+  },
+  {
+    name: 'pings',
+    description: "Choose whether the bot's messages notify you.",
+    options: [{ type: STRING, name: 'mode', description: 'on or off; leave empty to see your current setting.', required: false, choices: choicesOf(PINGS_MODES) }],
+    args: (options) => ({ mode: options.getString('mode') ?? undefined }),
+  },
+  {
+    name: 'talk',
+    description: 'Make the persona speak now.',
+    options: [
+      { type: STRING, name: 'action', description: 'interject joins the conversation, initiate starts a topic.', required: true, choices: choicesOf(['interject', 'initiate']) },
+      channelOption('Channel (default: this one).'),
+    ],
+    args: (options) => ({ action: options.getString('action', true), channelId: options.getChannel('channel')?.id }),
+  },
+  {
+    name: 'media',
+    description: 'The custom emoji ranking and the GIF library.',
+    options: [
+      { type: STRING, name: 'kind', description: 'emoji or gifs.', required: true, choices: choicesOf(['emoji', 'gifs']) },
+      { type: STRING, name: 'action', description: 'status; rescan recounts from history; recache re-describes GIFs.', required: true, choices: choicesOf(['status', 'rescan', 'recache']) },
+    ],
+    args: (options) => ({ kind: options.getString('kind', true), action: options.getString('action', true) }),
+  },
+  {
+    name: 'model',
+    description: 'Which model serves each role.',
+    subcommands: [
+      { name: 'show', description: 'Show the model of each role.', args: none },
+      {
+        name: 'set',
+        description: 'Set the model for one role.',
+        options: [
+          { type: STRING, name: 'role', description: 'Role to change.', required: true, choices: choicesOf(MODEL_SET_ROLES) },
+          { type: STRING, name: 'id', description: 'OpenRouter model id.', required: true, autocomplete: true },
+        ],
+        args: (options) => ({ role: options.getString('role', true), id: options.getString('id', true) }),
+      },
+    ],
+  },
+  {
+    name: 'route',
+    description: 'Providers per model and role (llm.providerByModel).',
+    subcommands: [
+      { name: 'list', description: "Every route, then each role's current model and route.", args: none },
+      {
+        name: 'set',
+        description: 'Route a model prefix, for one role or any, to these providers only.',
+        options: [
+          { type: STRING, name: 'model', description: 'Model id or prefix, e.g. google/ (no @ or spaces).', required: true, autocomplete: true },
+          { type: STRING, name: 'providers', description: 'Comma-separated provider slugs, e.g. google-vertex.', required: true },
+          { type: STRING, name: 'role', description: 'Only for this role (default: any).', required: false, choices: choicesOf(ROUTE_ROLES) },
+          { type: BOOLEAN, name: 'fallbacks', description: 'Allow other providers if these fail (default: false).', required: false },
+        ],
+        args: (options) => ({
+          model: options.getString('model', true),
+          providers: options.getString('providers', true),
+          role: options.getString('role') ?? undefined,
+          fallbacks: options.getBoolean('fallbacks') ?? undefined,
+        }),
+      },
+      {
+        name: 'remove',
+        description: "Remove a model prefix's route, for one role or any.",
+        options: [
+          { type: STRING, name: 'model', description: 'Model id or prefix of the route.', required: true, autocomplete: true },
+          { type: STRING, name: 'role', description: "The route's role (default: any).", required: false, choices: choicesOf(ROUTE_ROLES) },
+        ],
+        args: (options) => ({ model: options.getString('model', true), role: options.getString('role') ?? undefined }),
+      },
+    ],
+  },
+  {
+    name: 'rule',
+    description: 'Live corrections in prompts.local/rules.md.',
+    subcommands: [
+      {
+        name: 'add',
+        description: 'Append a rule.',
+        options: [{ type: STRING, name: 'text', description: 'Rule text.', required: true }],
+        args: (options) => ({ text: options.getString('text', true) }),
+      },
+      { name: 'list', description: 'List the rules, numbered.', args: none },
+      {
+        name: 'remove',
+        description: 'Remove a rule by number.',
+        options: [{ type: INTEGER, name: 'number', description: 'Rule number.', required: true, min_value: 1 }],
+        args: (options) => ({ number: options.getInteger('number', true) }),
+      },
+    ],
+  },
+  {
+    name: 'access',
+    description: 'Who besides owners may run which operations.',
+    subcommands: [
+      {
+        name: 'grant',
+        description: 'Open an operation, group or * to everyone, a role or a user.',
+        options: [
+          { type: STRING, name: 'command', description: 'Operation name, group, or *.', required: true, autocomplete: true },
+          { type: ROLE, name: 'role', description: 'Role (omit both for everyone).', required: false },
+          { type: USER, name: 'user', description: 'User (omit both for everyone).', required: false },
+        ],
+        args: (options) => ({ command: options.getString('command', true), roleId: options.getRole('role')?.id, userId: options.getUser('user')?.id }),
+      },
+      {
+        name: 'revoke',
+        description: 'Revoke an operation, group or * from everyone, a role or a user.',
+        options: [
+          { type: STRING, name: 'command', description: 'Operation name, group, or *.', required: true, autocomplete: true },
+          { type: ROLE, name: 'role', description: 'Role (omit both to clear everyone).', required: false },
+          { type: USER, name: 'user', description: 'User (omit both to clear everyone).', required: false },
+        ],
+        args: (options) => ({ command: options.getString('command', true), roleId: options.getRole('role')?.id, userId: options.getUser('user')?.id }),
+      },
+      { name: 'list', description: 'List every access grant.', args: none },
+    ],
+  },
+  {
+    name: 'warmup',
+    description: 'Memory warmup from a recent sample: channels, people, server.',
+    subcommands: [
+      { name: 'run', description: 'Start or resume the run: channels, people, then server.', args: none },
+      {
+        name: 'users',
+        description: '(Re)profile one member now, or all qualifying ones in the background.',
+        options: [userOption('Member (omit for everyone, in the background).', false)],
+        args: (options) => ({ userId: options.getUser('user')?.id }),
+      },
+      {
+        name: 'channels',
+        description: '(Re)describe one channel now, or all readable ones in the background.',
+        options: [channelOption('Channel (omit for every channel, in the background).')],
+        args: (options) => ({ channelId: options.getChannel('channel')?.id }),
+      },
+      { name: 'server', description: '(Re)build the server-wide notes and lore now.', args: none },
+      { name: 'people', description: 'Who qualifies for the sample now.', args: none },
+      { name: 'status', description: 'Phase, progress, tokens used and the next target.', args: none },
+      { name: 'stop', description: 'Cancel warmup work in flight, the current model call included.', args: none },
+      { name: 'reset', description: 'Clear warmup progress, never written memory; refused while running.', args: none },
+    ],
+  },
+  {
+    name: 'diary',
+    description: 'The diary.',
+    subcommands: [
+      {
+        name: 'set',
+        description: 'Set the diary channel.',
+        options: [channelOption('Channel.', true)],
+        args: (options) => ({ channelId: options.getChannel('channel', true).id }),
+      },
+      { name: 'show', description: 'Diary state today.', args: none },
+      { name: 'off', description: 'Stop the diary.', args: none },
+      {
+        name: 'post',
+        description: 'Post one entry now.',
+        options: [
+          { type: STRING, name: 'kind', description: 'Kind.', required: false },
+          { type: STRING, name: 'topic', description: 'Topic.', required: false, max_length: 1000 },
+        ],
+        args: (options) => {
+          const topic = options.getString('topic');
+          return { kind: options.getString('kind') ?? undefined, ...(topic != null ? { topic } : {}) };
+        },
+      },
+    ],
+  },
+  {
+    name: 'alias',
+    description: 'Nicknames others in chat call a member.',
+    subcommands: [
+      {
+        name: 'add',
+        description: "Add or strengthen a member's alias.",
+        options: [userOption(), { type: STRING, name: 'name', description: 'The alias.', required: true }],
+        args: (options) => ({ userId: userId(options), name: options.getString('name', true) }),
+      },
+      {
+        name: 'remove',
+        description: "Remove a member's alias.",
+        options: [userOption(), { type: STRING, name: 'name', description: 'The alias.', required: true }],
+        args: (options) => ({ userId: userId(options), name: options.getString('name', true) }),
+      },
+    ],
+  },
+  {
+    name: 'learning',
+    description: 'What people taught the persona here.',
+    subcommands: [
+      {
+        name: 'add',
+        description: 'Add or strengthen a learned item.',
+        options: [{ type: STRING, name: 'text', description: 'What the persona should know.', required: true }],
+        args: (options) => ({ text: options.getString('text', true) }),
+      },
+      {
+        name: 'remove',
+        description: 'Delete a learned item.',
+        options: [{ type: INTEGER, name: 'number', description: 'Item number.', required: true, min_value: 1 }],
+        args: (options) => ({ id: options.getInteger('number', true) }),
+      },
+    ],
+  },
+  {
+    name: 'lore',
+    description: 'Lorebook: events, recurring characters, running jokes.',
+    subcommands: [
+      {
+        name: 'add',
+        description: 'Add or overwrite an entry (it becomes an owner entry).',
+        options: [
+          { type: STRING, name: 'title', description: 'Entry title (its identity).', required: true },
+          { type: STRING, name: 'keys', description: 'Comma-separated keys/phrases people type.', required: true },
+          { type: STRING, name: 'text', description: 'Entry text, up to lore.textChars.', required: true },
+          { type: BOOLEAN, name: 'always', description: 'Show it even without a match.', required: false },
+        ],
+        args: (options) => ({
+          title: options.getString('title', true),
+          keys: options.getString('keys', true),
+          text: options.getString('text', true),
+          always: options.getBoolean('always') ?? false,
+        }),
+      },
+      {
+        name: 'list',
+        description: 'List entries, optionally filtered.',
+        options: [{ type: STRING, name: 'query', description: 'Substring of the title or keys.', required: false }],
+        args: (options) => ({ query: options.getString('query') ?? undefined }),
+      },
+      {
+        name: 'show',
+        description: 'Show one entry in full.',
+        options: [{ type: STRING, name: 'id', description: 'Entry id.', required: true }],
+        args: (options) => ({ id: options.getString('id', true) }),
+      },
+      {
+        name: 'remove',
+        description: 'Delete one entry.',
+        options: [{ type: STRING, name: 'id', description: 'Entry id.', required: true }],
+        args: (options) => ({ id: options.getString('id', true) }),
+      },
+    ],
+  },
+  {
+    name: 'memory',
+    description: 'Inspect or edit stored memory.',
+    subcommands: [
+      {
+        name: 'show',
+        description: "Show a member's stored profile.",
+        options: [
+          userOption(),
+          { type: STRING, name: 'section', description: 'Profile part (default: summary).', required: false, choices: choicesOf(MEMORY_SHOW_SECTIONS) },
+          { type: INTEGER, name: 'limit', description: 'Max items for a list section (default 25).', required: false, min_value: 1, max_value: 100 },
+          { type: STRING, name: 'order', description: 'Order for a list section (default: rank).', required: false, choices: choicesOf(['rank', 'recent']) },
+        ],
+        args: (options) => ({
+          userId: userId(options),
+          section: options.getString('section') ?? undefined,
+          limit: options.getInteger('limit') ?? undefined,
+          order: options.getString('order') ?? undefined,
+        }),
+      },
+      {
+        name: 'channel',
+        description: "Show a channel's note, or a table of all stored channels.",
+        options: [channelOption('Channel to show (omit for the table).')],
+        args: (options) => ({ channelId: options.getChannel('channel')?.id }),
+      },
+      { name: 'server', description: 'Show server notes: patterns, starters, in-jokes, self facts.', args: none },
+      { name: 'recent', description: 'Show the live recent lines, newest first.', args: none },
+      {
+        name: 'refresh',
+        description: "Rewrite a member's portrait now, ignoring the refresh-hours rail.",
+        options: [userOption()],
+        args: (options) => ({ userId: userId(options) }),
+      },
+      {
+        name: 'forget',
+        description: "Delete a member's profile and private memory.",
+        options: [userOption()],
+        args: (options) => ({ userId: userId(options) }),
+      },
+      {
+        name: 'affinity',
+        description: "Show or set a member's attitude score.",
+        options: [
+          userOption(),
+          { type: INTEGER, name: 'score', description: 'New score; omit to only show it.', required: false, min_value: -100, max_value: 100 },
+          { type: STRING, name: 'reason', description: 'Why (only with score).', required: false },
+        ],
+        args: (options) => ({ userId: userId(options), score: options.getInteger('score') ?? undefined, reason: options.getString('reason') ?? undefined }),
+      },
+      {
+        name: 'wipe',
+        description: 'Delete ALL server memory (profiles, private memory, habits, channels, lore).',
+        options: [{ type: STRING, name: 'confirm', description: "Type this server's exact name to confirm.", required: true }],
+        args: (options) => ({ confirm: options.getString('confirm', true) }),
+      },
+      {
+        name: 'journal',
+        description: 'Journal records.',
+        options: [
+          { type: STRING, name: 'day', description: 'UTC day (default: today).', required: false },
+          { type: STRING, name: 'kind', description: 'Kind (default: all).', required: false, choices: choicesOf(JOURNAL_KINDS) },
+          { type: INTEGER, name: 'n', description: 'How many (default 20).', required: false, min_value: 1, max_value: 50 },
+        ],
+        args: (options) => ({ day: options.getString('day') ?? undefined, kind: options.getString('kind') ?? undefined, n: options.getInteger('n') ?? undefined }),
+      },
+      {
+        name: 'archive',
+        description: 'Archived items.',
+        options: [
+          userOption('Member; omit for the server.', false),
+          { type: STRING, name: 'kind', description: 'Kind.', required: false },
+          { type: INTEGER, name: 'n', description: 'How many (default 20).', required: false, min_value: 1, max_value: 100 },
+        ],
+        args: (options) => ({ userId: options.getUser('user')?.id, kind: options.getString('kind') ?? undefined, n: options.getInteger('n') ?? undefined }),
+      },
+      {
+        name: 'restore',
+        description: 'Restore an archived item.',
+        options: [{ type: STRING, name: 'id', description: 'Archived item id.', required: true, autocomplete: true }],
+        args: (options) => ({ itemId: options.getString('id', true) }),
+      },
+      { name: 'snapshot', description: 'Snapshot data/ for the tools.', args: none },
+      {
+        name: 'private',
+        description: "A member's private memory: what they said in DMs.",
+        options: [
+          { type: STRING, name: 'action', description: 'show; forget deletes it; purge deletes the DMs too.', required: true, choices: choicesOf(['show', 'forget', 'purge']) },
+          userOption(),
+        ],
+        args: (options) => ({ action: options.getString('action', true), userId: userId(options) }),
+      },
+    ],
+  },
+]);
+
+/** One table node as Discord JSON: `args` dropped, a group's leaves under `options`. */
+function nodeJson(node, type) {
+  const { args: _args, subcommands, options, ...rest } = node;
+  if (subcommands) return { type: SUBCOMMAND_GROUP, ...rest, options: subcommands.map((sub) => nodeJson(sub, SUBCOMMAND)) };
+  return options ? { type, ...rest, options } : { type, ...rest };
+}
+
+/** Every leaf's command key (`<group>.<name>` or a bare `<name>`) -> its `args` mapper. */
+const OPTION_MAPPERS = new Map(
+  COMMAND_TABLE.flatMap((node) =>
+    node.subcommands ? node.subcommands.map((sub) => [`${node.name}.${sub.name}`, sub.args]) : [[node.name, node.args]],
+  ),
+);
 
 /**
  * The size Discord checks against its 8000-character limit for one
@@ -167,636 +571,29 @@ export function isValidCommandName(name) {
 /**
  * The whole command tree as plain, JSON-serializable objects (the shape
  * `guild.commands.set([...])` expects), for one top-level command named
- * `commandName`. Pure — no discord.js object, no I/O. Always visible to
- * every member (no `default_member_permissions`); an ungranted member who
- * runs it gets the not-allowed reply — all gating happens at interaction
- * time (`createInteractionHandler`, `admin.runCommand`), never through
- * Discord's own command visibility, so re-registering never invalidates a
- * client's cached command.
+ * `commandName`, built from COMMAND_TABLE. Pure — no discord.js object, no
+ * I/O. Always visible to every member (no `default_member_permissions`); an
+ * ungranted member who runs it gets the not-allowed reply — all gating
+ * happens at interaction time (`createInteractionHandler`,
+ * `admin.runCommand`), never through Discord's own command visibility, so
+ * re-registering never invalidates a client's cached command.
  */
 export function buildCommandTree(commandName) {
-  const caseIdHelp = `Case id from /${commandName} mentor cases.`;
   return [
     {
       name: commandName,
       description: 'Owner controls for the persona.',
-      options: [
-        { type: SUBCOMMAND, name: 'status', description: 'Model, calibration, quotas and memory status.' },
-        {
-          type: SUBCOMMAND,
-          name: 'ping',
-          description: "Check each role's model is reachable: latency, provider, errors.",
-          options: [
-            {
-              type: STRING,
-              name: 'role',
-              description: 'Role to ping (default: all).',
-              required: false,
-              choices: choicesOf(PING_ROLES),
-            },
-          ],
-        },
-        { type: SUBCOMMAND, name: 'reload', description: 'Reload config and prompts now.' },
-        {
-          type: SUBCOMMAND,
-          name: 'pings',
-          description: "Choose whether the bot's messages notify you.",
-          options: [
-            { type: STRING, name: 'mode', description: 'on or off; leave empty to see your current setting.', required: false, choices: choicesOf(PINGS_MODES) },
-          ],
-        },
-        {
-          type: SUBCOMMAND,
-          name: 'pause',
-          description: 'Pause the persona and flush memory so data/ can be hand-edited.',
-        },
-        {
-          type: SUBCOMMAND,
-          name: 'resume',
-          description: 'Resume after a pause; refused if a data/ file is invalid.',
-        },
-        {
-          type: SUBCOMMAND,
-          name: 'interject',
-          description: 'Make the persona join the conversation now.',
-          options: [
-            {
-              type: CHANNEL,
-              name: 'channel',
-              description: 'Channel (default: this one).',
-              required: false,
-              channel_types: [GUILD_TEXT],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND,
-          name: 'initiate',
-          description: 'Make the persona start a topic now.',
-          options: [
-            {
-              type: CHANNEL,
-              name: 'channel',
-              description: 'Channel (default: this one).',
-              required: false,
-              channel_types: [GUILD_TEXT],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND,
-          name: 'draw',
-          description: 'Draw one picture, shown only to you. Spends balance.',
-          options: [
-            { type: STRING, name: 'text', description: 'What to draw.', required: true },
-            { type: BOOLEAN, name: 'self', description: 'The persona is in it (adds the appearance prompt).', required: false },
-          ],
-        },
-        {
-          type: SUBCOMMAND,
-          name: 'set',
-          description: 'Override a config value in config.local.json.',
-          options: [
-            { type: STRING, name: 'path', description: 'Dotted config path.', required: true, autocomplete: true },
-            { type: STRING, name: 'value', description: 'New value: JSON or a plain string.', required: true },
-          ],
-        },
-        {
-          type: SUBCOMMAND,
-          name: 'unset',
-          description: 'Remove a config override.',
-          options: [
-            { type: STRING, name: 'path', description: 'Dotted config path.', required: true, autocomplete: true },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'rule',
-          description: 'Live corrections in prompts.local/rules.md.',
-          options: [
-            {
-              type: SUBCOMMAND,
-              name: 'add',
-              description: 'Append a rule.',
-              options: [{ type: STRING, name: 'text', description: 'Rule text.', required: true }],
-            },
-            { type: SUBCOMMAND, name: 'list', description: 'List the rules, numbered.' },
-            {
-              type: SUBCOMMAND,
-              name: 'remove',
-              description: 'Remove a rule by number.',
-              options: [{ type: INTEGER, name: 'number', description: 'Rule number.', required: true, min_value: 1 }],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'memory',
-          description: 'Inspect or edit stored memory.',
-          options: [
-            {
-              type: SUBCOMMAND,
-              name: 'show',
-              description: "Show a member's stored profile.",
-              options: [
-                { type: USER, name: 'user', description: 'Member.', required: true },
-                {
-                  type: STRING,
-                  name: 'section',
-                  description: 'Profile part (default: summary).',
-                  required: false,
-                  choices: choicesOf(MEMORY_SHOW_SECTIONS),
-                },
-                {
-                  type: INTEGER,
-                  name: 'limit',
-                  description: 'Max items for a list section (default 25).',
-                  required: false,
-                  min_value: 1,
-                  max_value: 100,
-                },
-                {
-                  type: STRING,
-                  name: 'order',
-                  description: 'Order for a list section (default: rank).',
-                  required: false,
-                  choices: [
-                    { name: 'rank', value: 'rank' },
-                    { name: 'recent', value: 'recent' },
-                  ],
-                },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'channel',
-              description: "Show a channel's note, or a table of all stored channels.",
-              options: [
-                {
-                  type: CHANNEL,
-                  name: 'channel',
-                  description: 'Channel to show (omit for the table).',
-                  required: false,
-                  channel_types: [GUILD_TEXT],
-                },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'server',
-              description: 'Show server notes: patterns, starters, in-jokes, self facts.',
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'recent',
-              description: 'Show the live recent lines, newest first.',
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'archive',
-              description: 'Archived items.',
-              options: [
-                { type: USER, name: 'user', description: 'Member; omit for the server.', required: false },
-                {
-                  type: STRING,
-                  name: 'kind',
-                  description: 'Kind.',
-                  required: false,
-                },
-                {
-                  type: INTEGER,
-                  name: 'n',
-                  description: 'How many (default 20).',
-                  required: false,
-                  min_value: 1,
-                  max_value: 100,
-                },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'journal',
-              description: 'Journal records.',
-              options: [
-                { type: STRING, name: 'day', description: 'UTC day (default: today).', required: false },
-                { type: STRING, name: 'kind', description: 'Kind (default: all).', required: false, choices: choicesOf(JOURNAL_KINDS) },
-                { type: INTEGER, name: 'n', description: 'How many (default 20).', required: false, min_value: 1, max_value: 50 },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'restore',
-              description: 'Restore an archived item.',
-              options: [{ type: STRING, name: 'item', description: 'Item id.', required: true }],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'snapshot',
-              description: 'Snapshot data/ for the tools.',
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'forget',
-              description: "Delete a member's profile and private memory.",
-              options: [{ type: USER, name: 'user', description: 'Member.', required: true }],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'affinity',
-              description: "Show or set a member's attitude score.",
-              options: [
-                { type: USER, name: 'user', description: 'Member.', required: true },
-                {
-                  type: INTEGER,
-                  name: 'score',
-                  description: 'New score; omit to only show it.',
-                  required: false,
-                  min_value: -100,
-                  max_value: 100,
-                },
-                { type: STRING, name: 'reason', description: 'Why (only with score).', required: false },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'wipe',
-              description: 'Delete ALL server memory (profiles, private memory, habits, channels, lore).',
-              options: [
-                {
-                  type: STRING,
-                  name: 'confirm',
-                  description: "Type this server's exact name to confirm.",
-                  required: true,
-                },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'refresh',
-              description: "Rewrite a member's portrait now, ignoring the refresh-hours rail.",
-              options: [{ type: USER, name: 'user', description: 'Member.', required: true }],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'private',
-          description: "A member's private memory: what they said in DMs.",
-          options: [
-            {
-              type: SUBCOMMAND,
-              name: 'show',
-              description: "Private memory, private and effective attitude, today's DM replies.",
-              options: [{ type: USER, name: 'user', description: 'Member.', required: true }],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'forget',
-              description: 'Delete only the private memory; the profile stays.',
-              options: [{ type: USER, name: 'user', description: 'Member.', required: true }],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'purge',
-              description: "Delete the bot's DMs with the member, then their private memory.",
-              options: [{ type: USER, name: 'user', description: 'Member.', required: true }],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'diary',
-          description: 'The diary.',
-          options: [
-            {
-              type: SUBCOMMAND,
-              name: 'set',
-              description: 'Set the diary channel.',
-              options: [
-                {
-                  type: CHANNEL,
-                  name: 'channel',
-                  description: 'Channel.',
-                  required: true,
-                  channel_types: [GUILD_TEXT],
-                },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'show',
-              description: 'Diary state today.',
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'off',
-              description: 'Stop the diary.',
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'post',
-              description: 'Post one entry now.',
-              options: [
-                { type: STRING, name: 'kind', description: 'Kind.', required: false },
-                { type: STRING, name: 'topic', description: 'Topic.', required: false, max_length: 1000 },
-              ],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'alias',
-          description: 'Nicknames others in chat call a member.',
-          options: [
-            {
-              type: SUBCOMMAND,
-              name: 'add',
-              description: "Add or strengthen a member's alias.",
-              options: [
-                { type: USER, name: 'user', description: 'Member.', required: true },
-                { type: STRING, name: 'name', description: 'The alias.', required: true },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'remove',
-              description: "Remove a member's alias.",
-              options: [
-                { type: USER, name: 'user', description: 'Member.', required: true },
-                { type: STRING, name: 'name', description: 'The alias.', required: true },
-              ],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'lore',
-          description: 'Lorebook: events, recurring characters, running jokes.',
-          options: [
-            {
-              type: SUBCOMMAND,
-              name: 'add',
-              description: 'Add or overwrite an entry (it becomes an owner entry).',
-              options: [
-                { type: STRING, name: 'title', description: 'Entry title (its identity).', required: true },
-                { type: STRING, name: 'keys', description: 'Comma-separated keys/phrases people type.', required: true },
-                { type: STRING, name: 'text', description: 'Entry text, up to lore.textChars.', required: true },
-                { type: BOOLEAN, name: 'always', description: 'Show it even without a match.', required: false },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'list',
-              description: 'List entries, optionally filtered.',
-              options: [{ type: STRING, name: 'query', description: 'Substring of the title or keys.', required: false }],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'show',
-              description: 'Show one entry in full.',
-              options: [{ type: STRING, name: 'id', description: 'Entry id.', required: true }],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'remove',
-              description: 'Delete one entry.',
-              options: [{ type: STRING, name: 'id', description: 'Entry id.', required: true }],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'learned',
-          description: 'What people taught the persona here.',
-          options: [
-            { type: SUBCOMMAND, name: 'list', description: 'List learned items, best ranked first.' },
-            {
-              type: SUBCOMMAND,
-              name: 'add',
-              description: 'Add or strengthen a learned item.',
-              options: [{ type: STRING, name: 'text', description: 'What the persona should know.', required: true }],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'remove',
-              description: 'Delete a learned item.',
-              options: [{ type: INTEGER, name: 'id', description: 'Item #number from the list.', required: true, min_value: 1 }],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'emoji',
-          description: 'Which custom emoji members use, counted without the model.',
-          options: [
-            { type: SUBCOMMAND, name: 'status', description: 'Ranking size, top 10 with counts, backfill stamp.' },
-            {
-              type: SUBCOMMAND,
-              name: 'rescan',
-              description: 'Clear and recount the ranking from recent history.',
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'gifs',
-          description: 'The GIF library the persona posts from, built from shared GIFs.',
-          options: [
-            { type: SUBCOMMAND, name: 'status', description: 'Library size, top 10 with counts, backfill stamp, GIFs posted today.' },
-            {
-              type: SUBCOMMAND,
-              name: 'rescan',
-              description: 'Reset the use counts and recount from recent history, then caption the top ones.',
-            },
-            { type: SUBCOMMAND, name: 'recache', description: 'Re-describe GIFs by watching them (background, per-run cap).' },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'model',
-          description: 'Which model serves each role.',
-          options: [
-            { type: SUBCOMMAND, name: 'show', description: 'Show the model of each role.' },
-            {
-              type: SUBCOMMAND,
-              name: 'set',
-              description: 'Set the model for one role.',
-              options: [
-                {
-                  type: STRING,
-                  name: 'role',
-                  description: 'Role to change.',
-                  required: true,
-                  choices: choicesOf(MODEL_SET_ROLES),
-                },
-                { type: STRING, name: 'id', description: 'OpenRouter model id.', required: true },
-              ],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'route',
-          description: 'Providers per model and role (llm.providerByModel).',
-          options: [
-            { type: SUBCOMMAND, name: 'list', description: "Every route, then each role's current model and route." },
-            {
-              type: SUBCOMMAND,
-              name: 'set',
-              description: 'Route a model prefix, for one role or any, to these providers only.',
-              options: [
-                { type: STRING, name: 'model', description: 'Model id or prefix, e.g. google/ (no @ or spaces).', required: true, autocomplete: true },
-                { type: STRING, name: 'providers', description: 'Comma-separated provider slugs, e.g. google-vertex.', required: true },
-                { type: STRING, name: 'role', description: 'Only for this role (default: any).', required: false, choices: choicesOf(ROUTE_ROLES) },
-                { type: BOOLEAN, name: 'fallbacks', description: 'Allow other providers if these fail (default: false).', required: false },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'remove',
-              description: "Remove a model prefix's route, for one role or any.",
-              options: [
-                { type: STRING, name: 'model', description: 'Model id or prefix of the route.', required: true, autocomplete: true },
-                { type: STRING, name: 'role', description: "The route's role (default: any).", required: false, choices: choicesOf(ROUTE_ROLES) },
-              ],
-            },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'warmup',
-          description: 'Memory warmup from a recent sample: channels, people, server.',
-          options: [
-            { type: SUBCOMMAND, name: 'people', description: 'Who qualifies for the sample now.' },
-            { type: SUBCOMMAND, name: 'run', description: 'Start or resume the run: channels, people, then server.' },
-            { type: SUBCOMMAND, name: 'stop', description: 'Cancel warmup work in flight, the current model call included.' },
-            {
-              type: SUBCOMMAND,
-              name: 'users',
-              description: '(Re)profile one member now, or all qualifying ones in the background.',
-              options: [
-                {
-                  type: USER,
-                  name: 'user',
-                  description: 'Member (omit for everyone, in the background).',
-                  required: false,
-                },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'channels',
-              description: '(Re)describe one channel now, or all readable ones in the background.',
-              options: [
-                {
-                  type: CHANNEL,
-                  name: 'channel',
-                  description: 'Channel (omit for every channel, in the background).',
-                  required: false,
-                  channel_types: [GUILD_TEXT],
-                },
-              ],
-            },
-            { type: SUBCOMMAND, name: 'server', description: '(Re)build the server-wide notes and lore now.' },
-            { type: SUBCOMMAND, name: 'status', description: 'Phase, progress, tokens used and the next target.' },
-            { type: SUBCOMMAND, name: 'reset', description: 'Clear warmup progress, never written memory; refused while running.' },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'mentor',
-          description: 'Behaviour cases measured in a sandbox, reported to the admin channel.',
-          options: [
-            {
-              type: SUBCOMMAND,
-              name: 'add',
-              description: 'Add a case: a message you disliked, with a comment.',
-              options: [
-                { type: STRING, name: 'message', description: 'Message link (or id, in this channel).', required: true },
-                { type: STRING, name: 'text', description: 'Your comment, one sentence (10-1000 chars).', required: true },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'anchor',
-              description: 'Add another message to a case.',
-              options: [
-                { type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 },
-                { type: STRING, name: 'message', description: 'Message link (or id, in this channel).', required: true },
-              ],
-            },
-            { type: SUBCOMMAND, name: 'cases', description: 'Active cases with their state and last score.' },
-            {
-              type: SUBCOMMAND,
-              name: 'remove',
-              description: 'Retire a case; its runs and feedback are kept.',
-              options: [{ type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 }],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'run',
-              description: 'Measure one case now. Spends balance.',
-              options: [{ type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 }],
-            },
-            { type: SUBCOMMAND, name: 'check', description: 'Replay every case. Spends balance.' },
-            { type: SUBCOMMAND, name: 'stop', description: 'Stop the run in flight.' },
-            {
-              type: SUBCOMMAND,
-              name: 'show',
-              description: "A case's last run: the card and the full report file.",
-              options: [{ type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 }],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'wrong',
-              description: 'Mark a case as misjudged.',
-              options: [
-                { type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 },
-                { type: STRING, name: 'reason', description: 'Why the verdict was wrong (3-500 chars).', required: true },
-              ],
-            },
-            { type: SUBCOMMAND, name: 'status', description: 'Mentor status.' },
-          ],
-        },
-        {
-          type: SUBCOMMAND_GROUP,
-          name: 'access',
-          description: 'Who besides owners may run which commands.',
-          options: [
-            {
-              type: SUBCOMMAND,
-              name: 'grant',
-              description: 'Open a command, group or * to everyone, a role or a user.',
-              options: [
-                { type: STRING, name: 'command', description: 'Command key, group name, or *.', required: true, autocomplete: true },
-                { type: ROLE, name: 'role', description: 'Role (omit both for everyone).', required: false },
-                { type: USER, name: 'user', description: 'User (omit both for everyone).', required: false },
-              ],
-            },
-            {
-              type: SUBCOMMAND,
-              name: 'revoke',
-              description: 'Revoke a command, group or * from everyone, a role or a user.',
-              options: [
-                { type: STRING, name: 'command', description: 'Command key, group name, or *.', required: true, autocomplete: true },
-                { type: ROLE, name: 'role', description: 'Role (omit both to clear everyone).', required: false },
-                { type: USER, name: 'user', description: 'User (omit both to clear everyone).', required: false },
-              ],
-            },
-            { type: SUBCOMMAND, name: 'list', description: 'List every access grant.' },
-          ],
-        },
-      ],
+      options: COMMAND_TABLE.map((node) => nodeJson(node, SUBCOMMAND)),
     },
   ];
 }
 
 /**
- * Every command key `/nep access` may name: every leaf `<group>.<name>` (or
- * bare top-level `<name>`) command key, and every subcommand-group name —
- * derived straight from the tree, so a new command is grantable the moment
- * it exists, with nothing to keep in sync by hand. `'*'` is a caller-known
- * constant, not part of either set. Pure — no discord.js object, no I/O.
+ * Every command key the interaction handler dispatches: every leaf
+ * `<group>.<name>` (or bare top-level `<name>`) command key, and every
+ * subcommand-group name — derived straight from the tree (src/ops/index.js#COMMAND_TO_OP
+ * maps each key onto its operation; access is granted by operation, not by key).
+ * Pure — no discord.js object, no I/O.
  * @returns {{ keys: Set<string>, groups: Set<string> }}
  */
 export function commandKeys() {
@@ -890,122 +687,8 @@ function commandKeyFor(interaction) {
   return group ? `${group}.${sub}` : sub;
 }
 
-const OPTION_MAPPERS = {
-  status: () => ({}),
-  ping: (options) => ({ role: options.getString('role') ?? undefined }),
-  pings: (options) => ({ mode: options.getString('mode') ?? undefined }),
-  reload: () => ({}),
-  pause: () => ({}),
-  resume: () => ({}),
-  interject: (options) => ({ channelId: options.getChannel('channel')?.id }),
-  initiate: (options) => ({ channelId: options.getChannel('channel')?.id }),
-  draw: (options) => ({ text: options.getString('text', true), self: options.getBoolean('self') ?? false }),
-  set: (options) => ({ path: options.getString('path', true), value: options.getString('value', true) }),
-  unset: (options) => ({ path: options.getString('path', true) }),
-  'rule.add': (options) => ({ text: options.getString('text', true) }),
-  'rule.list': () => ({}),
-  'rule.remove': (options) => ({ number: options.getInteger('number', true) }),
-  'memory.show': (options) => ({
-    userId: options.getUser('user', true).id,
-    section: options.getString('section') ?? undefined,
-    limit: options.getInteger('limit') ?? undefined,
-    order: options.getString('order') ?? undefined,
-  }),
-  'memory.channel': (options) => ({ channelId: options.getChannel('channel')?.id }),
-  'memory.server': () => ({}),
-  'memory.recent': () => ({}),
-  'memory.archive': (options) => ({
-    userId: options.getUser('user')?.id,
-    kind: options.getString('kind') ?? undefined,
-    n: options.getInteger('n') ?? undefined,
-  }),
-  'memory.restore': (options) => ({ itemId: options.getString('item', true) }),
-  'memory.journal': (options) => ({
-    day: options.getString('day') ?? undefined,
-    kind: options.getString('kind') ?? undefined,
-    n: options.getInteger('n') ?? undefined,
-  }),
-  'memory.snapshot': () => ({}),
-  'memory.forget': (options) => ({ userId: options.getUser('user', true).id }),
-  'memory.wipe': (options) => ({ confirm: options.getString('confirm', true) }),
-  'memory.refresh': (options) => ({ userId: options.getUser('user', true).id }),
-  'memory.affinity': (options) => ({
-    userId: options.getUser('user', true).id,
-    score: options.getInteger('score') ?? undefined,
-    reason: options.getString('reason') ?? undefined,
-  }),
-  'private.show': (options) => ({ userId: options.getUser('user', true).id }),
-  'private.forget': (options) => ({ userId: options.getUser('user', true).id }),
-  'private.purge': (options) => ({ userId: options.getUser('user', true).id }),
-  'diary.set': (options) => ({ channelId: options.getChannel('channel', true).id }),
-  'diary.show': () => ({}),
-  'diary.off': () => ({}),
-  'diary.post': (options) => {
-    const topic = options.getString('topic');
-    return { kind: options.getString('kind') ?? undefined, ...(topic != null ? { topic } : {}) };
-  },
-  'alias.add': (options) => ({ userId: options.getUser('user', true).id, name: options.getString('name', true) }),
-  'alias.remove': (options) => ({ userId: options.getUser('user', true).id, name: options.getString('name', true) }),
-  'lore.add': (options) => ({
-    title: options.getString('title', true),
-    keys: options.getString('keys', true),
-    text: options.getString('text', true),
-    always: options.getBoolean('always') ?? false,
-  }),
-  'lore.list': (options) => ({ query: options.getString('query') ?? undefined }),
-  'lore.show': (options) => ({ id: options.getString('id', true) }),
-  'lore.remove': (options) => ({ id: options.getString('id', true) }),
-  'learned.list': () => ({}),
-  'learned.add': (options) => ({ text: options.getString('text', true) }),
-  'learned.remove': (options) => ({ id: options.getInteger('id', true) }),
-  'emoji.status': () => ({}),
-  'emoji.rescan': () => ({}),
-  'gifs.status': () => ({}),
-  'gifs.rescan': () => ({}),
-  'gifs.recache': () => ({}),
-  'model.show': () => ({}),
-  'model.set': (options) => ({ role: options.getString('role', true), id: options.getString('id', true) }),
-  'route.list': () => ({}),
-  'route.set': (options) => ({
-    model: options.getString('model', true),
-    providers: options.getString('providers', true),
-    role: options.getString('role') ?? undefined,
-    fallbacks: options.getBoolean('fallbacks') ?? undefined,
-  }),
-  'route.remove': (options) => ({ model: options.getString('model', true), role: options.getString('role') ?? undefined }),
-  'warmup.people': () => ({}),
-  'warmup.run': () => ({}),
-  'warmup.stop': () => ({}),
-  'warmup.users': (options) => ({ userId: options.getUser('user')?.id }),
-  'warmup.channels': (options) => ({ channelId: options.getChannel('channel')?.id }),
-  'warmup.server': () => ({}),
-  'warmup.status': () => ({}),
-  'warmup.reset': () => ({}),
-  'mentor.add': (options) => ({ message: options.getString('message', true), text: options.getString('text', true) }),
-  'mentor.anchor': (options) => ({ id: options.getInteger('id', true), message: options.getString('message', true) }),
-  'mentor.cases': () => ({}),
-  'mentor.remove': (options) => ({ id: options.getInteger('id', true) }),
-  'mentor.run': (options) => ({ id: options.getInteger('id', true) }),
-  'mentor.check': () => ({}),
-  'mentor.stop': () => ({}),
-  'mentor.show': (options) => ({ id: options.getInteger('id', true) }),
-  'mentor.wrong': (options) => ({ id: options.getInteger('id', true), reason: options.getString('reason', true) }),
-  'mentor.status': () => ({}),
-  'access.grant': (options) => ({
-    command: options.getString('command', true),
-    roleId: options.getRole('role')?.id,
-    userId: options.getUser('user')?.id,
-  }),
-  'access.revoke': (options) => ({
-    command: options.getString('command', true),
-    roleId: options.getRole('role')?.id,
-    userId: options.getUser('user')?.id,
-  }),
-  'access.list': () => ({}),
-};
-
 function buildArgs(commandKey, interaction) {
-  const mapper = OPTION_MAPPERS[commandKey];
+  const mapper = OPTION_MAPPERS.get(commandKey);
   return mapper ? mapper(interaction.options) : {};
 }
 
@@ -1024,28 +707,56 @@ export function leafPaths(config, prefix = '') {
 }
 
 /**
- * Reply with an admin handler's result, always ephemerally: a string (chunked
- * into follow-ups when long, code-fenced when multi-line), or
- * `{ text, files: [{ attachment: Buffer, name }] }`, whose files ride on the
- * first message.
+ * Reply with an admin handler's result: a string (chunked into follow-ups when
+ * long, code-fenced when multi-line), `{ text, files: [{ attachment: Buffer,
+ * name }] }`, whose files ride on the first message, or `{ text, embeds }`
+ * (the status card: plain embed data, wrapped in EmbedBuilder here), the
+ * embeds first and the text below them as follow-ups. Ephemeral unless
+ * `visible`; a `deferred` reply edits the deferred one, whose visibility the
+ * defer already set.
  */
-async function respond(interaction, result, deferred) {
+async function respond(interaction, result, { deferred = false, visible = false } = {}) {
   const isObject = result !== null && typeof result === 'object';
   const body = String((isObject ? result.text : result) ?? '');
   const files = isObject && Array.isArray(result.files) && result.files.length > 0 ? result.files : null;
+  const embeds = isObject && Array.isArray(result.embeds) && result.embeds.length > 0 ? result.embeds.map((data) => new EmbedBuilder(data)) : null;
   const wrap = body.includes('\n');
-  const chunks = chunkText(body, REPLY_CHUNK_CHARS);
   const format = (chunk) => (wrap ? `\`\`\`\n${chunk}\n\`\`\`` : chunk);
-  const first = files ? { content: format(chunks[0]), files } : { content: format(chunks[0]) };
+  const flags = visible ? {} : { flags: MessageFlags.Ephemeral };
+  const chunks = body ? chunkText(body, REPLY_CHUNK_CHARS) : [];
+
+  let first;
+  let rest;
+  if (embeds) {
+    first = files ? { embeds, files } : { embeds };
+    rest = chunks;
+  } else {
+    first = files ? { content: format(chunks[0] ?? ''), files } : { content: format(chunks[0] ?? '') };
+    rest = chunks.slice(1);
+  }
 
   if (deferred) {
     await interaction.editReply(first);
   } else {
-    await interaction.reply({ ...first, flags: MessageFlags.Ephemeral });
+    await interaction.reply({ ...first, ...flags });
   }
-  for (const chunk of chunks.slice(1)) {
-    await interaction.followUp({ content: format(chunk), flags: MessageFlags.Ephemeral });
+  for (const chunk of rest) {
+    await interaction.followUp({ content: format(chunk), ...flags });
   }
+}
+
+/**
+ * Reply with an error or a refusal, always ephemerally. A deferred visible
+ * reply cannot turn ephemeral: it is deleted and the text follows up
+ * ephemerally instead (edited in place when it cannot be deleted).
+ */
+async function respondError(interaction, text, { deferred = false, visible = false } = {}) {
+  if (deferred && visible && typeof interaction.deleteReply === 'function') {
+    await interaction.deleteReply().catch(() => {});
+    await interaction.followUp({ content: text, flags: MessageFlags.Ephemeral });
+    return;
+  }
+  await respond(interaction, text, { deferred, visible: false });
 }
 
 /** The interacting member's role ids as strings — discord.js gives a `GuildMemberRoleManager`
@@ -1090,9 +801,28 @@ function routeModelChoices(config, typed) {
 /**
  * `hot`, `admin` — see src/hot.js, src/admin.js#createAdmin.
  * `getGuildId` — the single guild this instance serves, or null before it resolves.
+ * `now` — the clock of the retry window (epoch ms), injected for the tests.
  * @returns {(interaction: import('discord.js').Interaction) => Promise<void>}
  */
-export function createInteractionHandler({ hot, admin, getGuildId }) {
+export function createInteractionHandler({ hot, admin, getGuildId, now = Date.now }) {
+  // Interaction ids seen in the last RETRY_WINDOW_MS, oldest first: Discord may deliver one
+  // interaction twice, and the second delivery must not run its operation again.
+  const seen = new Map();
+
+  /** True the first time `id` arrives within the window; an interaction with no id always runs. */
+  function firstDelivery(id) {
+    if (id === undefined || id === null) return true;
+    const at = now();
+    for (const [key, seenAt] of seen) {
+      if (at - seenAt < RETRY_WINDOW_MS) break;
+      seen.delete(key);
+    }
+    const key = String(id);
+    if (seen.has(key)) return false;
+    seen.set(key, at);
+    return true;
+  }
+
   async function handleAutocomplete(interaction) {
     if (interaction.guildId !== getGuildId()) return;
     const config = hot.config;
@@ -1102,7 +832,8 @@ export function createInteractionHandler({ hot, admin, getGuildId }) {
     }
 
     const commandKey = commandKeyFor(interaction);
-    const allowed = admin.isAllowed(commandKey, { userId: interaction.user.id, roleIds: roleIdsFor(interaction) });
+    const context = { guildId: interaction.guildId, channelId: interaction.channelId, userId: interaction.user.id, roleIds: roleIdsFor(interaction) };
+    const allowed = admin.isAllowed(commandKey, context);
     if (!allowed) {
       await interaction.respond([]).catch(() => {});
       return;
@@ -1125,8 +856,15 @@ export function createInteractionHandler({ hot, admin, getGuildId }) {
       return;
     }
 
-    if (focused.name === 'model') {
+    // `/nep route set|remove model:` and `/nep model set id:` offer the same model ids.
+    if (focused.name === 'model' || (commandKey === 'model.set' && focused.name === 'id')) {
       await interaction.respond(routeModelChoices(config, typed)).catch(() => {});
+      return;
+    }
+
+    if (commandKey === 'memory.restore' && focused.name === 'id') {
+      const choices = typeof admin.archiveChoices === 'function' ? await admin.archiveChoices(context, typed).catch(() => []) : [];
+      await interaction.respond(choices.slice(0, MAX_AUTOCOMPLETE_CHOICES)).catch(() => {});
       return;
     }
 
@@ -1148,24 +886,31 @@ export function createInteractionHandler({ hot, admin, getGuildId }) {
       return;
     }
 
-    const slow = SLOW_COMMANDS.has(commandKey);
+    if (!firstDelivery(interaction.id)) {
+      log.warn('commands: duplicate interaction', { command: commandKey });
+      return;
+    }
+
+    let mode = { deferred: false, visible: false };
     try {
-      if (slow) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const args = buildArgs(commandKey, interaction);
+      const op = typeof admin.operationFor === 'function' ? admin.operationFor(commandKey, args) : null;
+      mode = { deferred: op !== null && DEFERRED_OPS.has(op), visible: op !== null && VISIBLE_OPS.has(op) };
+      if (mode.deferred) await interaction.deferReply(mode.visible ? {} : { flags: MessageFlags.Ephemeral });
       const context = { guildId: interaction.guildId, channelId: interaction.channelId, userId: interaction.user.id, roleIds: roleIdsFor(interaction) };
       // The rights are checked by the operation's own runOp (src/ops/index.js), every time.
       const result = await admin.runCommand(commandKey, args, context);
       if (result.status === 'ok') {
-        await respond(interaction, result.data?.files ? result.data : result.summary, slow);
+        await respond(interaction, result.data?.files || result.data?.embeds ? result.data : result.summary, mode);
       } else if (result.status === 'denied') {
-        await respond(interaction, NOT_ALLOWED_MESSAGE, slow);
+        await respondError(interaction, NOT_ALLOWED_MESSAGE, mode);
       } else {
         log.warn('commands: command failed', { command: commandKey, status: result.status, code: result.code, error: new Error(result.summary) });
-        await respond(interaction, `Error: ${result.summary}`, slow).catch(() => {});
+        await respondError(interaction, `Error: ${result.summary}`, mode).catch(() => {});
       }
     } catch (err) {
       log.warn('commands: command failed', { command: commandKey, error: err });
-      await respond(interaction, `Error: ${err?.message ?? String(err)}`, slow).catch(() => {});
+      await respondError(interaction, `Error: ${err?.message ?? String(err)}`, mode).catch(() => {});
     }
   }
 

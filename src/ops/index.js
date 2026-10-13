@@ -2,8 +2,8 @@
 // persona's adapter will call later. `runOp(name, args, ctx)` checks the caller's rights
 // (owner-only before any grant; grants are stored per operation name, src/discord/access.js),
 // runs the operation and always answers
-// `{ status, code, summary, data }` -- it never throws. The slash commands still arrive under
-// their old keys (`memory.show`, `emoji.status`, ...): COMMAND_TO_OP maps each one onto its
+// `{ status, code, summary, data }` -- it never throws. The slash commands arrive under
+// their command keys (`memory.show`, `media`, ...): COMMAND_TO_OP maps each one onto its
 // operation and arguments; src/admin.js renders the result as the reply.
 
 import { isAllowed } from '../discord/access.js';
@@ -43,12 +43,88 @@ function absent(value) {
 }
 
 /**
- * The old command keys (src/discord/commands.js#commandKeys) -> operation: an operation name
- * (same arguments), or `(args) => ({ op, args })` where the arguments pick the operation or add
- * one. The mentor and the commands the new tree drops (`ping`, `reload`, `learned.list`) are not
- * operations; src/admin.js still runs them itself.
+ * An `action` option (with `kind` for media) picking one operation among `actions`
+ * (`{ action: operation }`): the operation with the arguments as given, or `{ invalid }` naming
+ * the actions when the action is missing or unknown.
+ */
+function byAction(actions) {
+  return (args) => {
+    const action = args?.action;
+    if (!Object.hasOwn(actions, String(action))) return { invalid: `action must be one of: ${Object.keys(actions).join(', ')}` };
+    return { op: actions[action], args };
+  };
+}
+
+/**
+ * The command keys of the tree (src/discord/commands.js#COMMAND_TABLE, `<group>.<name>` or a bare
+ * `<name>`) -> operation: an operation name (same arguments), or `(args) => ({ op, args })` where
+ * the arguments pick the operation (`talk`, `media` and `memory.private` by `action`, `pings` by
+ * `mode`, `memory.affinity` by `score`), or `{ invalid }` when they cannot. The mentor and the
+ * commands the tree dropped (`ping`, `reload`, `learned.list`) are not operations; src/admin.js
+ * still runs them itself.
  */
 export const COMMAND_TO_OP = Object.freeze({
+  status: 'status.show',
+  set: 'config.set',
+  unset: 'config.unset',
+  pause: 'bot.pause',
+  resume: 'bot.resume',
+  draw: 'draw.create',
+  pings: (args) => ({ op: absent(args?.mode) ? 'pings.get' : 'pings.set', args }),
+  talk: byAction({ interject: 'talk.interject', initiate: 'talk.initiate' }),
+  media: byAction({ status: 'media.status', rescan: 'media.rescan', recache: 'media.recache' }),
+  'model.show': 'model.show',
+  'model.set': 'model.set',
+  'route.list': 'route.list',
+  'route.set': 'route.set',
+  'route.remove': 'route.remove',
+  'rule.add': 'rule.add',
+  'rule.list': 'rule.list',
+  'rule.remove': 'rule.remove',
+  'access.grant': 'access.grant',
+  'access.revoke': 'access.revoke',
+  'access.list': 'access.list',
+  'warmup.run': 'warmup.run',
+  'warmup.users': 'warmup.users',
+  'warmup.channels': 'warmup.channels',
+  'warmup.server': 'warmup.server',
+  'warmup.people': 'warmup.people',
+  'warmup.status': 'warmup.status',
+  'warmup.stop': 'warmup.stop',
+  'warmup.reset': 'warmup.reset',
+  'diary.set': 'diary.set',
+  'diary.show': 'diary.show',
+  'diary.off': 'diary.off',
+  'diary.post': 'diary.post',
+  'alias.add': 'alias.add',
+  'alias.remove': 'alias.remove',
+  'learning.add': 'learning.add',
+  'learning.remove': 'learning.remove',
+  'lore.add': 'lore.add',
+  'lore.list': 'lore.list',
+  'lore.show': 'lore.show',
+  'lore.remove': 'lore.remove',
+  'memory.show': 'memory.profile.read',
+  'memory.channel': 'memory.channel.read',
+  'memory.server': 'memory.server.read',
+  'memory.recent': 'memory.recent.read',
+  'memory.refresh': 'memory.refresh',
+  'memory.forget': 'memory.forget',
+  'memory.affinity': (args) => ({ op: absent(args?.score) ? 'memory.affinity.read' : 'memory.affinity.set', args }),
+  'memory.wipe': 'memory.wipe',
+  'memory.journal': 'memory.journal.read',
+  'memory.archive': 'memory.archive.read',
+  'memory.restore': 'memory.restore',
+  'memory.snapshot': 'memory.snapshot',
+  'memory.private': byAction({ show: 'memory.private.read', forget: 'memory.private.forget', purge: 'memory.private.purge' }),
+});
+
+/**
+ * The slash-command keys of the tree before the operations layer -> operation, the same shape as
+ * COMMAND_TO_OP: kept only so `legacyGrantOps` can read the grants stored under those keys (the
+ * one-time migration, src/discord/access.js#migrateGrants). Never dispatched.
+ */
+const LEGACY_COMMAND_TO_OP = Object.freeze({
   status: 'status.show',
   set: 'config.set',
   unset: 'config.unset',
@@ -111,16 +187,22 @@ export const COMMAND_TO_OP = Object.freeze({
   'private.purge': 'memory.private.purge',
 });
 
+/** `table[key]` resolved with `args`; null for a key the table does not hold. */
+function resolveIn(table, key, args) {
+  if (!Object.hasOwn(table, key)) return null;
+  const target = table[key];
+  return typeof target === 'function' ? target(args) : { op: target, args };
+}
+
 /**
- * The operation and arguments an old command key runs, or null for a key with no operation.
+ * The operation and arguments a command key runs, `{ invalid }` (an operator-facing message)
+ * when its arguments pick none, or null for a key with no operation.
  * @param {string} commandKey
  * @param {object} [args]
- * @returns {{ op: string, args: object } | null}
+ * @returns {{ op: string, args: object } | { invalid: string } | null}
  */
 export function resolveCommand(commandKey, args = {}) {
-  if (!Object.hasOwn(COMMAND_TO_OP, commandKey)) return null;
-  const target = COMMAND_TO_OP[commandKey];
-  return typeof target === 'function' ? target(args) : { op: target, args };
+  return resolveIn(COMMAND_TO_OP, commandKey, args);
 }
 
 /**
@@ -134,10 +216,10 @@ export function resolveCommand(commandKey, args = {}) {
  */
 export function legacyGrantOps(key) {
   if (key === '*') return { from: '*', names: listOps().map((op) => op.name) };
-  if (Object.hasOwn(COMMAND_TO_OP, key)) return { from: null, names: [resolveCommand(key, {}).op] };
-  const under = Object.keys(COMMAND_TO_OP).filter((full) => full.startsWith(`${key}.`));
+  if (Object.hasOwn(LEGACY_COMMAND_TO_OP, key)) return { from: null, names: [resolveIn(LEGACY_COMMAND_TO_OP, key, {}).op] };
+  const under = Object.keys(LEGACY_COMMAND_TO_OP).filter((full) => full.startsWith(`${key}.`));
   if (under.length === 0) return null;
-  return { from: key, names: [...new Set(under.map((full) => resolveCommand(full, {}).op))] };
+  return { from: key, names: [...new Set(under.map((full) => resolveIn(LEGACY_COMMAND_TO_OP, full, {}).op))] };
 }
 
 /** A refusal result. */

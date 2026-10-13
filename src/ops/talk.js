@@ -1,4 +1,4 @@
-// Operations: `/nep interject|initiate`: one spontaneous turn now.
+// Operations: `/nep talk action:interject|initiate`: one spontaneous turn now.
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 

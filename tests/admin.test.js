@@ -1442,7 +1442,7 @@ test('run: private.show renders the private layer under the public name, with bo
   store.profiles.set('g1:123', { id: '123', names: ['Zoé', 'old name'], affinity: { score: 50, reason: 'public reason', history: [] } });
   store.privates.set('g1:123', samplePrivate());
 
-  const result = await admin.run('private.show', { userId: '123' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private', { action: 'show', userId: '123' }, { guildId: 'g1' });
 
   assert.match(result.split('\n')[0], /Zoé/);
   assert.match(result, /trusts the persona with plans/);
@@ -1467,7 +1467,7 @@ test('run: private.show clamps the effective score and uses the owner cap for an
   store.profiles.set('g1:42', { id: '42', names: ['Owner'], affinity: { score: 90, reason: '', history: [] } });
   store.privates.set('g1:42', samplePrivate({ affinity: { score: 30, reason: '', history: [] } }));
 
-  const result = await admin.run('private.show', { userId: '42' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private', { action: 'show', userId: '42' }, { guildId: 'g1' });
 
   assert.match(result, /effective affinity: 100\b/);
   assert.match(result, /replies today: 7 \/ 200/);
@@ -1479,7 +1479,7 @@ test('run: private.show counts replies stored for another day as 0 today', async
   store.profiles.set('g1:123', { id: '123', names: ['Zoé'] });
   store.privates.set('g1:123', samplePrivate({ replies: { day: '2000-01-01', count: 55, noticedDay: '' } }));
 
-  const result = await admin.run('private.show', { userId: '123' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private', { action: 'show', userId: '123' }, { guildId: 'g1' });
 
   assert.match(result, /replies today: 0\b/);
   assert.ok(!result.includes('55'));
@@ -1488,12 +1488,12 @@ test('run: private.show counts replies stored for another day as 0 today', async
 test('run: private.show / private.forget need a user and a resolved guild', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
-  await assert.rejects(() => admin.run('private.show', {}, { guildId: 'g1' }), /a user is required/);
-  await assert.rejects(() => admin.run('private.forget', {}, { guildId: 'g1' }), /a user is required/);
+  await assert.rejects(() => admin.run('memory.private', { action: 'show' }, { guildId: 'g1' }), /a user is required/);
+  await assert.rejects(() => admin.run('memory.private', { action: 'forget' }, { guildId: 'g1' }), /a user is required/);
 
   const { admin: unresolved } = makeAdmin(rootDir, { getGuildId: () => null });
-  await assert.rejects(() => unresolved.run('private.show', { userId: '123' }, {}), /no guild resolved yet/);
-  await assert.rejects(() => unresolved.run('private.forget', { userId: '123' }, {}), /no guild resolved yet/);
+  await assert.rejects(() => unresolved.run('memory.private', { action: 'show', userId: '123' }, {}), /no guild resolved yet/);
+  await assert.rejects(() => unresolved.run('memory.private', { action: 'forget', userId: '123' }, {}), /no guild resolved yet/);
 });
 
 test('run: private.forget removes only the private layer and says so', async () => {
@@ -1502,7 +1502,7 @@ test('run: private.forget removes only the private layer and says so', async () 
   store.profiles.set('g1:123', { id: '123', names: ['Zoé'] });
   store.privates.set('g1:123', samplePrivate());
 
-  const result = await admin.run('private.forget', { userId: '123' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private', { action: 'forget', userId: '123' }, { guildId: 'g1' });
 
   assert.deepEqual(store.forgottenPrivate, [['g1', '123']]);
   assert.deepEqual(store.forgotten, [], 'the public profile is never forgotten');
@@ -1521,9 +1521,9 @@ test('run: private.forget is refused while paused; private.show keeps working', 
 
   await admin.run('pause', {}, {});
 
-  await assert.rejects(() => admin.run('private.forget', { userId: '123' }, { guildId: 'g1' }), /paused.*resume/i);
+  await assert.rejects(() => admin.run('memory.private', { action: 'forget', userId: '123' }, { guildId: 'g1' }), /paused.*resume/i);
   assert.deepEqual(store.forgottenPrivate, []);
-  await assert.doesNotReject(() => admin.run('private.show', { userId: '123' }, { guildId: 'g1' }));
+  await assert.doesNotReject(() => admin.run('memory.private', { action: 'show', userId: '123' }, { guildId: 'g1' }));
 });
 
 // ---------------------------------------------------------------------------
@@ -1591,7 +1591,7 @@ test('run: private.purge pages through the DM, deletes only its own messages and
   store.profiles.set('g1:123', { id: '123', names: ['Zoé'] });
   store.privates.set('g1:123', samplePrivate());
 
-  const result = await admin.run('private.purge', { userId: '123' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' });
 
   assert.deepEqual(client.userFetches, ['123']);
   assert.equal(channel.fetchCalls.length, 2, 'a full page of 100, then a short page of 50');
@@ -1615,7 +1615,7 @@ test('run: private.purge counts a failing delete and carries on', async () => {
   const { admin, store } = makeAdmin(rootDir, { client });
   store.privates.set('g1:123', samplePrivate());
 
-  const result = await admin.run('private.purge', { userId: '123' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' });
 
   assert.equal(deleted.length, 8);
   assert.match(result, /\b8\b/);
@@ -1630,7 +1630,7 @@ test('run: private.purge stops scanning at private.purgeMaxMessages', async () =
   const { admin, hot } = makeAdmin(rootDir, { client: fakeDmClient(channel) });
   hot.config.private = { purgeMaxMessages: 150 };
 
-  await admin.run('private.purge', { userId: '123' }, { guildId: 'g1' });
+  await admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' });
 
   assert.equal(deleted.length, 150);
   assert.equal(channel.fetchCalls.length, 2);
@@ -1644,11 +1644,11 @@ test('run: private.purge with a user that cannot be fetched or a DM that cannot 
   const unknown = fakeDmClient(channel, { fetchUser: async () => { throw new Error('Unknown User'); } });
   const { admin, store } = makeAdmin(rootDir, { client: unknown });
   store.privates.set('g1:123', samplePrivate());
-  await assert.rejects(() => admin.run('private.purge', { userId: '123' }, { guildId: 'g1' }), /nothing was deleted/i);
+  await assert.rejects(() => admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' }), /nothing was deleted/i);
 
   const closed = fakeDmClient(channel, { createDM: async () => { throw new Error('Cannot open a DM'); } });
   const { admin: admin2 } = makeAdmin(rootDir, { client: closed, store });
-  await assert.rejects(() => admin2.run('private.purge', { userId: '123' }, { guildId: 'g1' }), /nothing was deleted/i);
+  await assert.rejects(() => admin2.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' }), /nothing was deleted/i);
 
   assert.equal(channel.fetchCalls.length, 0);
   assert.deepEqual(deleted, []);
@@ -1663,7 +1663,7 @@ test('run: private.purge whose first history page fails deletes nothing; a later
   broken.messages.fetch = async () => { throw new Error('Missing Access'); };
   const { admin, store } = makeAdmin(rootDir, { client: fakeDmClient(broken) });
   store.privates.set('g1:123', samplePrivate());
-  await assert.rejects(() => admin.run('private.purge', { userId: '123' }, { guildId: 'g1' }), /nothing was deleted/i);
+  await assert.rejects(() => admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' }), /nothing was deleted/i);
   assert.deepEqual(deleted, []);
   assert.deepEqual(store.forgottenPrivate, [], 'the private memory stays');
 
@@ -1674,7 +1674,7 @@ test('run: private.purge whose first history page fails deletes nothing; a later
     return pageOf(options);
   };
   const { admin: admin2 } = makeAdmin(rootDir, { client: fakeDmClient(flaky), store });
-  const result = await admin2.run('private.purge', { userId: '123' }, { guildId: 'g1' });
+  const result = await admin2.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' });
   assert.equal(deleted.length, 100, 'the first page was purged');
   assert.deepEqual(store.forgottenPrivate, [['g1', '123']]);
   assert.match(result, /\b100\b/);
@@ -1691,7 +1691,7 @@ test('run: private.purge keeps the private memory when a pause lands while it is
     return firstDelete();
   };
 
-  const result = await admin.run('private.purge', { userId: '123' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' });
 
   assert.equal(deleted.length, 3);
   assert.deepEqual(store.forgottenPrivate, [], 'nothing under data/ is written while paused');
@@ -1710,8 +1710,8 @@ test('run: private.purge is refused while paused, with the same message as priva
 
   let purgeError;
   let forgetError;
-  await admin.run('private.purge', { userId: '123' }, { guildId: 'g1' }).catch((err) => { purgeError = err; });
-  await admin.run('private.forget', { userId: '123' }, { guildId: 'g1' }).catch((err) => { forgetError = err; });
+  await admin.run('memory.private', { action: 'purge', userId: '123' }, { guildId: 'g1' }).catch((err) => { purgeError = err; });
+  await admin.run('memory.private', { action: 'forget', userId: '123' }, { guildId: 'g1' }).catch((err) => { forgetError = err; });
   assert.ok(purgeError && forgetError);
   assert.equal(purgeError.message, forgetError.message);
   assert.deepEqual(client.userFetches, []);
@@ -1744,14 +1744,14 @@ test('run: private.show / private.forget / memory.forget against the real store'
     store.bumpPrivateReplies('g1', '123', utcToday());
     store.flush();
 
-    const shown = await admin.run('private.show', { userId: '123' }, { guildId: 'g1' });
+    const shown = await admin.run('memory.private', { action: 'show', userId: '123' }, { guildId: 'g1' });
     assert.match(shown.split('\n')[0], /Zoé/);
     assert.match(shown, /private affinity: 8\b/);
     assert.match(shown, /replies today: 1\b/);
     assert.match(shown, /buffer: 1\b/);
     assert.ok(!shown.includes('SECRET-BUFFERED-TEXT'));
 
-    await admin.run('private.forget', { userId: '123' }, { guildId: 'g1' });
+    await admin.run('memory.private', { action: 'forget', userId: '123' }, { guildId: 'g1' });
     assert.equal(store.getPrivate('g1', '123'), null);
     assert.ok(store.getUser('g1', '123'), 'the public profile stays');
 
@@ -1824,12 +1824,12 @@ function inFlightAnalyzer() {
   return { waits: 0, waitIdle() { this.waits += 1; return idle; }, finish: () => finish() };
 }
 
-test('memory.forget / private.forget / memory.wipe: wait for a live-analyzer run in flight before deleting', async () => {
+test('memory.forget / memory.private action:forget / memory.wipe: wait for a live-analyzer run in flight before deleting', async () => {
   const rootDir = makeRoot();
   const client = clientWithGuild('g1', 'The Server');
   for (const [key, args, deleted] of [
     ['memory.forget', { userId: '123' }, (store) => store.forgotten.length],
-    ['private.forget', { userId: '123' }, (store) => store.forgottenPrivate.length],
+    ['memory.private', { action: 'forget', userId: '123' }, (store) => store.forgottenPrivate.length],
     ['memory.wipe', { confirm: 'The Server' }, (store) => store.wipeCalls.length],
   ]) {
     const memory = inFlightAnalyzer();
@@ -2112,7 +2112,7 @@ test('run: learned.add stores a new item without from, confirmed at once (memory
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
   try {
     const before = Date.now();
-    await admin.run('learned.add', { text: '  ο φάρος ανάβει στις εννιά  ' }, { guildId: 'g1' });
+    await admin.run('learning.add', { text: '  ο φάρος ανάβει στις εννιά  ' }, { guildId: 'g1' });
     const after = Date.now();
     const learned = store.getGuild('g1').learned;
     assert.equal(learned.length, 1);
@@ -2134,7 +2134,7 @@ test('run: learned.add reads memory.confirmAfter and confirms up to exactly that
   hot.config.memory = { confirmAfter: 4 };
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
   try {
-    await admin.run('learned.add', { text: 'crème brûlée' }, { guildId: 'g1' });
+    await admin.run('learning.add', { text: 'crème brûlée' }, { guildId: 'g1' });
     assert.equal(store.getGuild('g1').learned[0].weight, 4);
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
@@ -2148,7 +2148,7 @@ test('run: learned.add confirms an existing unconfirmed item in place (same id a
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
   try {
     store.applyLearnedOps('g1', { add: ['Ο Φάρος'] }, { seenAt: LEARNED_DAY('2026-09-01') });
-    await admin.run('learned.add', { text: 'ο φάρος' }, { guildId: 'g1' });
+    await admin.run('learning.add', { text: 'ο φάρος' }, { guildId: 'g1' });
     const learned = store.getGuild('g1').learned;
     assert.equal(learned.length, 1);
     assert.equal(learned[0].id, 1);
@@ -2164,16 +2164,16 @@ test('run: a repeat learned.add of a confirmed item is one ordinary sighting, ne
   hot.config.memory = { confirmAfter: 3, confirmGapHours: 12 };
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
   try {
-    await admin.run('learned.add', { text: 'première' }, { guildId: 'g1' });
+    await admin.run('learning.add', { text: 'première' }, { guildId: 'g1' });
     assert.equal(store.getGuild('g1').learned[0].weight, 3);
 
     // Within confirmGapHours: a sighting would not bump it, so neither does the repeat.
-    await admin.run('learned.add', { text: 'Première' }, { guildId: 'g1' });
+    await admin.run('learning.add', { text: 'Première' }, { guildId: 'g1' });
     assert.equal(store.getGuild('g1').learned[0].weight, 3);
 
     // With no gap required, a sighting bumps by exactly one -- and so does the repeat.
     hot.config.memory = { confirmAfter: 3, confirmGapHours: 0 };
-    await admin.run('learned.add', { text: 'première' }, { guildId: 'g1' });
+    await admin.run('learning.add', { text: 'première' }, { guildId: 'g1' });
     const learned = store.getGuild('g1').learned;
     assert.equal(learned.length, 1);
     assert.equal(learned[0].weight, 4);
@@ -2187,7 +2187,7 @@ test('run: learned.remove deletes the item by id and reports it', async () => {
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
     store.applyLearnedOps('g1', { add: ['première', 'δεύτερο'] }, { seenAt: LEARNED_DAY('2026-09-01') });
-    const result = await admin.run('learned.remove', { id: 1 }, { guildId: 'g1' });
+    const result = await admin.run('learning.remove', { id: 1 }, { guildId: 'g1' });
     assert.deepEqual(store.getGuild('g1').learned.map((i) => i.id), [2]);
     assert.match(result, /#1/);
     assert.match(result, /première/);
@@ -2202,8 +2202,8 @@ test('run: learned.add/learned.remove are refused while paused', async () => {
 
   await admin.run('pause', {}, {});
 
-  await assert.rejects(() => admin.run('learned.add', { text: 'première' }, { guildId: 'g1' }), /paused.*resume/i);
-  await assert.rejects(() => admin.run('learned.remove', { id: 1 }, { guildId: 'g1' }), /paused.*resume/i);
+  await assert.rejects(() => admin.run('learning.add', { text: 'première' }, { guildId: 'g1' }), /paused.*resume/i);
+  await assert.rejects(() => admin.run('learning.remove', { id: 1 }, { guildId: 'g1' }), /paused.*resume/i);
 });
 
 // ---------------------------------------------------------------------------
@@ -2257,7 +2257,7 @@ test('run: status reports dry-run on, logging only, when no mirror channel is co
   hot.config.features = { dryRun: true };
   hot.config.bot.dryRunChannelId = '';
 
-  const body = await admin.run('status', {}, {});
+  const { text: body } = await admin.run('status', { detail: true }, { userId: '42' });
   assert.equal(body.split('\n')[0], 'dry-run: on → log');
 });
 
@@ -2266,13 +2266,56 @@ test('run: status shows the initiate cooldown only while it holds', async () => 
   const { admin, hot, store } = makeAdmin(rootDir);
   hot.config.spontaneous = { initiateCooldownHours: [2, 4] };
   const until = Date.now() + 3_600_000;
-  const cooldownLines = (body) => body.split('\n').filter((line) => line.startsWith('initiate cooldown'));
+  const cooldownLines = (reply) => reply.text.split('\n').filter((line) => line.startsWith('initiate cooldown'));
+  const status = () => admin.run('status', { detail: true }, { userId: '42' });
 
-  assert.deepEqual(cooldownLines(await admin.run('status', {}, {})), [], 'none stored');
+  assert.deepEqual(cooldownLines(await status()), [], 'none stored');
   store.state.data.spontaneousInitiateUntil = { g1: until };
-  assert.deepEqual(cooldownLines(await admin.run('status', {}, {})), [`initiate cooldown until ${new Date(until).toISOString()}`]);
+  assert.deepEqual(cooldownLines(await status()), [`initiate cooldown until ${new Date(until).toISOString()}`]);
   store.state.data.spontaneousInitiateUntil = { g1: Date.now() - 1000 };
-  assert.deepEqual(cooldownLines(await admin.run('status', {}, {})), [], 'already over');
+  assert.deepEqual(cooldownLines(await status()), [], 'already over');
+});
+
+test('status: the card carries the fields in order and the member variant drops the memory fields', async () => {
+  const rootDir = makeRoot();
+  const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-status-journal-'));
+  const dayFile = path.join(journalDir, 'today.jsonl');
+  fs.writeFileSync(dayFile, '{}\n');
+  const journal = { dayFile: () => dayFile, stalled: () => true };
+  const archive = { stats: () => ({ pending: 3 }) };
+  const client = { ws: { ping: 41.6 }, guilds: { cache: new Map() } };
+  const { admin, hot, store } = makeAdmin(rootDir, { journal, archive, client, isWarmingUp: () => true });
+  hot.config.memory = { model: 'x/analyzer' };
+  hot.config.media = { video: { maxPerDay: 40 } };
+  hot.config.recall = { maxPerDay: 100 };
+  hot.config.web = { maxPerDay: 60 };
+  store.state.data.paused = true;
+  store.state.data.pausedAt = '2026-10-13T08:30:00.000Z';
+  store.state.data.pausedBy = '42';
+
+  const owner = await admin.run('status', {}, { userId: '42' });
+  assert.equal(owner.text, '', 'no long form without detail');
+  assert.equal(owner.embeds.length, 1);
+  const fields = owner.embeds[0].fields;
+  assert.deepEqual(fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'today', 'memory', 'journal', 'uptime']);
+  const value = (name) => fields.find((f) => f.name === name).value;
+  assert.equal(value('state'), 'paused since 2026-10-13 08:30 UTC by <@42>');
+  assert.match(value('connection'), /^gateway 42 ms · last reconnect none$/);
+  assert.match(value('long tasks'), /warmup running/);
+  assert.match(value('long tasks'), /archive drain: 3 pending/);
+  assert.equal(value('models'), 'voice anthropic/claude-opus-4.6 · analyzer x/analyzer', 'the other roles only where they differ');
+  assert.match(value('today'), /^requests \d+\/300 · videos 0\/40 · recall 0\/100 · lookups 0\/60\nresets 00:00 UTC$/);
+  assert.match(value('memory'), /profiles \d+ · buffer \d+ lines · archive pending 3 · journal last write \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
+  assert.equal(value('journal'), 'append store STALLED · archive pending 3');
+  assert.match(value('uptime'), /^(\d+d )?(\d+h )?\d+m$/);
+  for (const field of fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
+
+  const detail = await admin.run('status', { detail: true }, { userId: '42' });
+  assert.match(detail.text, /^dry-run: /, 'detail adds the long form');
+
+  const member = await admin.run('status', { detail: true }, { userId: '999' });
+  assert.deepEqual(member.embeds[0].fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'today', 'uptime']);
+  assert.equal(member.text, '', 'a member never gets the long form');
 });
 
 // ---------------------------------------------------------------------------
@@ -2290,27 +2333,27 @@ function fakeSpontaneous(forceResult) {
   };
 }
 
-test('run: interject and initiate use the context channel when no channel argument is given', async () => {
+test('run: talk action:interject and action:initiate use the context channel when no channel argument is given', async () => {
   for (const mode of ['interject', 'initiate']) {
     const rootDir = makeRoot();
     const spontaneous = fakeSpontaneous();
     const client = { channels: { fetch: async (id) => ({ id }) } };
     const { admin } = makeAdmin(rootDir, { spontaneous, client });
 
-    const result = await admin.run(mode, {}, { channelId: 'c1' });
+    const result = await admin.run('talk', { action: mode }, { channelId: 'c1' });
 
     assert.deepEqual(spontaneous.calls, [['c1', mode]], mode);
     assert.ok(result.includes(`${mode} on c1`), `${mode}: ${result}`);
   }
 });
 
-test('run: interject uses the channel argument when given, overriding the context channel', async () => {
+test('run: talk action:interject uses the channel argument when given, overriding the context channel', async () => {
   const rootDir = makeRoot();
   const spontaneous = fakeSpontaneous();
   const client = { channels: { fetch: async (id) => ({ id }) } };
   const { admin } = makeAdmin(rootDir, { spontaneous, client });
 
-  await admin.run('interject', { channelId: 'other' }, { channelId: 'c1' });
+  await admin.run('talk', { action: 'interject', channelId: 'other' }, { channelId: 'c1' });
 
   assert.deepEqual(spontaneous.calls, [['other', 'interject']]);
 });
@@ -2793,8 +2836,8 @@ test('run: every command that writes data/ is refused while paused, with a hint 
     ['memory.wipe', { confirm: 'The Server' }],
     ['lore.add', { title: 'Y', keys: 'y', text: 'z' }],
     ['lore.remove', { id: loreId }],
-    ['interject', {}],
-    ['initiate', {}],
+    ['talk', { action: 'interject' }],
+    ['talk', { action: 'initiate' }],
   ];
   for (const [key, args] of attempts) {
     await assert.rejects(
@@ -3839,7 +3882,7 @@ test('run: emoji.rescan runs the backfill forced and replies with the counts', a
   const emojiBackfill = fakeEmojiBackfill();
   const { admin } = makeAdmin(rootDir, { emojiBackfill });
 
-  const body = await admin.run('emoji.rescan', {}, { guildId: 'g1' });
+  const body = await admin.run('media', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' });
   assert.deepEqual(emojiBackfill.calls, [['g1', { force: true }]]);
   assert.equal(body, 'Emoji rescan done: 3 channels, 120 messages read, 17 emoji uses counted.');
 });
@@ -3849,11 +3892,11 @@ test('run: emoji.rescan is refused while paused and without the backfill', async
   const emojiBackfill = fakeEmojiBackfill();
   const { admin } = makeAdmin(rootDir, { emojiBackfill });
   await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('emoji.rescan', {}, { guildId: 'g1' }), /paused/);
+  await assert.rejects(() => admin.run('media', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' }), /paused/);
   assert.equal(emojiBackfill.calls.length, 0);
 
   const { admin: bare } = makeAdmin(rootDir);
-  assert.equal(await bare.run('emoji.rescan', {}, { guildId: 'g1' }), 'the emoji backfill is not available');
+  assert.equal(await bare.run('media', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' }), 'the emoji backfill is not available');
 });
 
 // ---------------------------------------------------------------------------
@@ -3876,11 +3919,11 @@ test('run: gifs.rescan is refused while paused and without the backfill', async 
   const gifBackfill = fakeGifBackfill();
   const { admin } = makeAdmin(rootDir, { gifBackfill });
   await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('gifs.rescan', {}, { guildId: 'g1' }), /paused/);
+  await assert.rejects(() => admin.run('media', { kind: 'gifs', action: 'rescan' }, { guildId: 'g1' }), /paused/);
   assert.equal(gifBackfill.calls.length, 0);
 
   const { admin: bare } = makeAdmin(rootDir);
-  assert.equal(await bare.run('gifs.rescan', {}, { guildId: 'g1' }), 'the GIF backfill is not available');
+  assert.equal(await bare.run('media', { kind: 'gifs', action: 'rescan' }, { guildId: 'g1' }), 'the GIF backfill is not available');
 });
 
 test('run: gifs.status counts the library by caption format: watched with fields, old format, unwatched', async () => {
@@ -3894,7 +3937,7 @@ test('run: gifs.status counts the library by caption format: watched with fields
     'm3#e0': { text: 'a still', ts: 1, gif: true },
   });
   const { admin } = makeAdmin(rootDir, { store });
-  const out = await admin.run('gifs.status', {}, { guildId: 'g1' });
+  const out = await admin.run('media', { kind: 'gifs', action: 'status' }, { guildId: 'g1' });
   assert.ok(out.includes('caption format: 1 watched with fields, 1 watched in the old format (to re-describe), 2 unwatched'), out);
   assert.equal(out.includes('oui.'), false, 'counts only, no field text');
 });
@@ -3922,11 +3965,11 @@ test('run: gifs.recache is refused while paused and without the recache; pause w
   const { admin } = makeAdmin(rootDir, { gifRecache });
   await admin.run('pause', {}, {});
   assert.equal(gifRecache.idleWaits, 1, '/nep pause waits for the recache');
-  await assert.rejects(() => admin.run('gifs.recache', {}, { guildId: 'g1' }), /paused/);
+  await assert.rejects(() => admin.run('media', { kind: 'gifs', action: 'recache' }, { guildId: 'g1' }), /paused/);
   assert.equal(gifRecache.calls.length, 0);
 
   const { admin: bare } = makeAdmin(rootDir);
-  assert.equal(await bare.run('gifs.recache', {}, { guildId: 'g1' }), 'the GIF recache is not available');
+  assert.equal(await bare.run('media', { kind: 'gifs', action: 'recache' }, { guildId: 'g1' }), 'the GIF recache is not available');
 });
 
 // ---------------------------------------------------------------------------

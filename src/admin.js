@@ -8,8 +8,8 @@
 // `features.memberCommands` is on). This is the ONLY place in the project that ever
 // deletes stored memory, through the three functions store.js allows for it:
 // store.forgetUser (one member everywhere, the vault copy first), store.forgetPrivate
-// (one member's private layer only, `/nep private forget` and
-// `/nep private purge`) and
+// (one member's private layer only, `/nep memory private action:forget` and
+// `action:purge`) and
 // store.wipeGuild (a whole guild's memory,
 // `/nep memory wipe`, gated by the served guild's exact name); src/index.js only finishes at start
 // a forget a crash cut short and re-applies the deletion ledger. The tracked
@@ -22,7 +22,8 @@
 // rights on the operation the key runs and answers `{ status, code, summary,
 // data }`; `run` (the tests' entry, no rights check) returns the reply text
 // (or, for `/nep draw` and `/nep mentor show`, `{ text, files }` with the
-// picture or the report file), or throws an
+// picture or the report file; for `/nep status`, `{ text, embeds }` with the
+// card), or throws an
 // `Error` with an operator-facing message on bad input. Mapping a
 // discord.js interaction's options onto `args` is src/discord/commands.js's
 // job. The handlers themselves are typed operations under src/ops/ (one file
@@ -46,6 +47,9 @@ import { getOp, listOps } from './ops/registry.js';
 import { grantKeys, migrateStoredGrants } from './ops/access.js';
 
 export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from './ops/shared.js';
+
+/** How many archive entries `/nep memory restore`'s autocomplete offers (Discord's cap on choices). */
+const ARCHIVE_CHOICES = 25;
 
 /**
  * `hot`, `store` — see src/hot.js, src/memory/store.js.
@@ -132,7 +136,13 @@ export function createAdmin(deps) {
    * a command with no operation (`legacy` below, or an unknown key) is owner-only. */
   function opForCommand(commandKey, args = {}) {
     const target = resolveCommand(commandKey, args);
-    return (target && getOp(target.op)) ?? { name: commandKey, rights: { kind: 'write', ownerOnly: true } };
+    return (target?.op && getOp(target.op)) ?? { name: commandKey, rights: { kind: 'write', ownerOnly: true } };
+  }
+
+  /** The operation name `commandKey` runs with `args`, or null (a command with no operation, or
+   * arguments that pick none): src/discord/commands.js defers and shows replies by operation. */
+  function operationFor(commandKey, args = {}) {
+    return resolveCommand(commandKey, args)?.op ?? null;
   }
 
   /** Whether the caller may run `commandKey` (with `args`, which pick the operation for
@@ -504,9 +514,10 @@ export function createAdmin(deps) {
   };
 
   /** An operation's result as the reply the command adapter expects: `ok` -> its text (or
-   * `{ text, files }`); anything else -> the operator-facing Error the handler used to throw. */
+   * `{ text, files }`, or `{ text, embeds }` for `status`); anything else -> the operator-facing
+   * Error the handler used to throw. */
   function render(result) {
-    if (result.status === 'ok') return result.data?.files ? result.data : result.summary;
+    if (result.status === 'ok') return result.data?.files || result.data?.embeds ? result.data : result.summary;
     throw Object.assign(new Error(result.summary), { code: result.code, status: result.status });
   }
 
@@ -520,6 +531,7 @@ export function createAdmin(deps) {
     if (Object.hasOwn(legacy, commandKey)) return legacy[commandKey](args, context);
     const target = resolveCommand(commandKey, args);
     if (!target) throw new Error(`unknown command: ${commandKey}`);
+    if (target.invalid) throw Object.assign(new Error(target.invalid), { code: 'invalid-args', status: 'invalid' });
     return render(await runOpPrechecked(target.op, target.args, { ...context, env }));
   }
 
@@ -541,6 +553,7 @@ export function createAdmin(deps) {
     }
     const target = resolveCommand(commandKey, args);
     if (!target) return { status: 'invalid', code: 'unknown-command', summary: `unknown command: ${commandKey}`, data: null };
+    if (target.invalid) return { status: 'invalid', code: 'invalid-args', summary: target.invalid, data: null };
     return runOp(target.op, target.args, { ...context, env });
   }
 
@@ -550,5 +563,35 @@ export function createAdmin(deps) {
     return migrateStoredGrants(env, guildId, legacyGrantOps);
   }
 
-  return { isAllowed, accessKeys, run, runCommand, migrateAccess };
+  /**
+   * `/nep memory restore`'s autocomplete: the item ids of the newest ARCHIVE_CHOICES entries of
+   * the guild's archive (a restore line left out) whose id holds `typed`, newest first, each once,
+   * as `{ name, value }` choices. Empty without an archive or a guild; never throws.
+   */
+  async function archiveChoices(context, typed = '') {
+    const guildId = resolvedGuildId(context);
+    if (!guildId || typeof env.archive?.iterate !== 'function') return [];
+    const needle = String(typed ?? '').toLowerCase();
+    const newest = [];
+    try {
+      for await (const entry of env.archive.iterate(guildId, { scope: null, kinds: null })) {
+        if (typeof entry?.itemId !== 'string' || !entry.itemId || entry.event === 'restored') continue;
+        if (needle && !entry.itemId.toLowerCase().includes(needle)) continue;
+        newest.push(entry);
+        if (newest.length > ARCHIVE_CHOICES) newest.shift();
+      }
+    } catch {
+      return [];
+    }
+    const seen = new Set();
+    const choices = [];
+    for (const entry of newest.reverse()) {
+      if (seen.has(entry.itemId)) continue;
+      seen.add(entry.itemId);
+      choices.push({ name: `${entry.itemId} (${entry.itemKind ?? '?'})`.slice(0, 100), value: entry.itemId.slice(0, 100) });
+    }
+    return choices;
+  }
+
+  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, migrateAccess };
 }

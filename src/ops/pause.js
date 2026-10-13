@@ -9,7 +9,7 @@ const handlers = perEnv((env) => {
   const { hot, store, turns, memory, pending, warmup, gifRecache, mentor, slash, resolvedGuildId, journalSystem, announce } = env;
 
   /**
-   * Sets `paused`/`pausedAt` in state.json FIRST (so a crash or restart
+   * Sets `paused`/`pausedAt` (and `pausedBy`, the caller) in state.json FIRST (so a crash or restart
    * mid-pause comes back paused), then waits out a turn already running, AND
    * a live-analyzer `run()` or voice run already in flight (its LLM call can take
    * 30-90s; `tick()`/`observe()` are already no-ops from the moment `paused`
@@ -33,6 +33,8 @@ const handlers = perEnv((env) => {
 
     state.paused = true;
     state.pausedAt = new Date().toISOString();
+    // Who paused, for the status card; absent when the caller is unknown.
+    if (context?.userId) state.pausedBy = String(context.userId);
     store.state.markDirty();
     store.flush();
 
@@ -124,6 +126,7 @@ const handlers = perEnv((env) => {
 
     delete state.paused;
     delete state.pausedAt;
+    delete state.pausedBy;
     store.state.markDirty();
     store.flush();
 
