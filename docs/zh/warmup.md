@@ -1,8 +1,8 @@
 # 预热
 
-预热从近期消息样本中构建角色对服务器的记忆。首次启动时，当 `warmup.enabled` 为 true 且尚不存在任何档案时，预热会自动运行。预热运行期间角色保持静默。
+预热从近期消息样本中构建角色对服务器的记忆。它是运维工具 `tools/warmup.mjs`，在机器人停止的状态下从服务器上的代码目录运行，在首次启动之前使用（参见[运行方式](#运行方式)）。没有对应的斜杠命令。
 
-`/nep warmup run` 可随时启动或恢复完整运行；完整命令列表见[命令](owner-commands.md)。
+机器人不会运行预热。工具自行恢复未完成的运行。
 
 ## 阶段
 
@@ -14,7 +14,7 @@
 
 ### 人物
 
-最活跃的成员入选：在最近 `warmup.lookbackDays` 天内至少有 `warmup.minMessages` 条自身消息，最多 `warmup.maxPeople` 人，按活跃度排序。`/nep warmup people` 列出当前设置下符合条件的成员。
+最活跃的成员入选：在最近 `warmup.lookbackDays` 天内至少有 `warmup.minMessages` 条自身消息，最多 `warmup.maxPeople` 人，按活跃度排序。`node tools/warmup.mjs people` 列出当前设置下符合条件的成员。
 
 对于每个符合条件的成员，引擎采样最多 `warmup.messagesPerPerson` 条其消息，附带 `warmup.contextBefore` 行上下文。单个频道在样本中的占比不超过 `warmup.maxChannelShare`。大样本按时间顺序分成适合 `warmup.maxRequestTokens` 的块；第一块之后的每个块都会收到前一个回答作为 `<draft>` 块，以便模型保留有效内容、纠正变化并用新证据扩展。最终回答存储性格、风格、兴趣、细节、回忆和别名；消息计数和首次/末次出现时间戳由代码计算。
 
@@ -32,7 +32,7 @@
 
 ## 进度
 
-每次请求后进度持久化到 `state.warmup`，重启后仍保留。因重启、速率限制或 `/nep warmup stop` 中断的运行，在再次调用 `/nep warmup run` 时从中断处恢复。`/nep warmup reset` 仅清除进度，不清除已存储的记忆。
+每次请求后进度持久化到 `data/state.json` 的 `state.warmup`，重启后仍保留。因 Ctrl+C、token 预算、速率限制或连续三次请求失败中断的运行，在再次执行 `node tools/warmup.mjs run` 时从中断处恢复。`node tools/warmup.mjs reset` 仅清除进度，不清除已存储的记忆。
 
 ## 限制
 
@@ -54,22 +54,37 @@
 
 刷新时以存储的画像为 `<draft>`、分析器笔记为 `<hint>`（如有）调用 `profile.md`。草稿是合并基础：与采样一致的保留（压缩腾出空间），矛盾的修改，新的反复习惯添加，采样中未出现的不删除。新的性格和风格替换存储的版本；回答中的兴趣、细节、回忆和别名被忽略。
 
-## 命令
+## 运行方式
 
-所有预热命令位于 `/nep warmup` 下。完整参考见[命令](owner-commands.md)。
+从机器人的代码目录，以服务用户身份，在机器人停止的状态下运行：
 
-| 命令 | 说明 |
-|---|---|
-| `run` | 启动或恢复完整预热（频道、人物、服务器） |
-| `users [member]` | 为一个成员或所有符合条件的成员生成档案 |
-| `channels [channel]` | 描述一个频道或所有可读频道 |
-| `server` | 重建服务器笔记和世界书 |
-| `people` | 列出符合条件的成员 |
-| `status` | 显示进度和 token 使用量 |
-| `stop` | 取消进行中的预热工作；进行中的请求被中止，进度保留 |
-| `reset` | 仅清除进度，不清除已存储的记忆 |
+```bash
+sudo systemctl stop neptunia-bot
+cd /opt/neptunia-bot
+sudo -u neptunia-bot node tools/warmup.mjs run --guild <server id> --dry-run
+sudo -u neptunia-bot node tools/warmup.mjs run --guild <server id> --spend <usd>
+sudo systemctl start neptunia-bot
+```
 
-`run`、`users` 和 `channels` 在运行进行中时会被拒绝。除 `status`、`people` 和 `stop` 外，所有预热命令在机器人暂停期间会被拒绝。
+当 `data/guilds/` 只有一个服务器或设置了 `bot.guildId` 时，可以省略 `--guild`。工具从代码目录读取 `config.json`、`config.local.json`、`prompts/`、`prompts.local/` 和 `.env`，通过 bot token 以 REST 方式读取 Discord 历史（无 gateway 会话，不发布任何内容），通过 OpenRouter 密钥发送模型请求。
+
+| 子命令 | 功能 | 消耗 |
+|---|---|---|
+| `run` | 按顺序处理进度尚未完成的所有可读频道、符合条件的成员和服务器笔记 | 是 |
+| `users [--user <id>]` | 为指定成员或所有符合条件的成员生成档案（忽略进度） | 是 |
+| `channels [--channel <id>]` | 描述指定频道或所有可读频道 | 是 |
+| `server` | 重建服务器笔记和世界书 | 是 |
+| `people` | 列出符合条件的成员 | 否 |
+| `status` | 阶段、进度、相对于 `warmup.maxTokens` 的 token 使用量 | 否 |
+| `reset` | 仅清除进度，不清除已存储的记忆 | 否 |
+
+**消耗说明。** `run`、`users`、`channels` 和 `server` 先打印计划（频道、成员、服务器笔记）和估算，若 `--spend <usd>` 未能覆盖估算则以退出码 2 拒绝。估算按 `warmup.maxRequestTokens` 计算每个请求，在 `warmup.maxTokens` 剩余额度和 `--max-usd <n>` 的范围内，按 `--usd-per-ktok`（默认每千 token 0.005 USD）定价。运行以该估算为预算：到达时停止（可恢复），绝不超出。样本无法放入单个请求的成员可能提前消耗预算；再次运行即可继续。`--dry-run` 仅打印计划和估算，不发送请求。请求不计入 `llm.maxRequestsPerDay`。
+
+**安全性。** `run`、`users`、`channels`、`server` 和 `reset` 在机器人使用同一 `data/`（日志的 `.running` 标记存在）时拒绝，并提示 `sudo systemctl stop neptunia-bot`。消耗子命令在删除进行中、记忆暂停时也会拒绝，并在 `data/` 仍包含删除台账要移除的内容时先应用台账。`people`、`status` 和试运行不写入任何内容。Ctrl+C 取消当前请求并停止运行；进度保留。工具退出前将记忆刷写到磁盘，包括归档副本。
+
+**写入内容。** 频道笔记和事实写入 `data/guilds/<id>/channels/`，成员档案写入 `data/guilds/<id>/users/`，服务器笔记写入 `data/guilds/<id>/guild.json`，世界书写入 `data/guilds/<id>/lore.json`，进度写入 `data/state.json`；当 `features.archive` 启用时，被重写覆盖的内容先归档。
+
+**之后。** 启动机器人。此后记忆由机器人维护：流分析器处理实时批次，画像刷新以及下文的笔记刷新。`/nep memory refresh kind:user <user>` 立即重写某成员的画像。`kind:channel <channel>` 和 `kind:server` 从新鲜样本重写频道笔记或服务器笔记（与下文笔记刷新相同的请求，在实时限制下，角色继续对话）。尚无笔记的频道和世界书仍由此工具处理：`channels --channel <id>` 和 `server`。
 
 如需完全重新开始，先使用 `/nep memory wipe`：它会清除成员档案及其态度和回忆、服务器习惯、频道地图、世界书条目和预热进度。
 

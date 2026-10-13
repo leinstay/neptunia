@@ -2,7 +2,7 @@
 
 The warmup builds the persona's memory of a server from a sample of recent messages. It is an operations tool, `tools/warmup.mjs`, run on the server from the bot's checkout with the bot stopped, before the first start (see [Running it](#running-it)). It has no slash command.
 
-The bot never starts a warmup run. With `warmup.enabled` true (default false) it resumes, at start, a run that was started and never finished; the persona stays mute while that run is in flight.
+The bot never runs the warmup. The tool resumes an unfinished run itself.
 
 ## Stages
 

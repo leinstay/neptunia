@@ -55,7 +55,7 @@
 | `/nep memory channel [channel]` | `memory.channel.read` | эфемерный | Заметки канала или таблица всех каналов |
 | `/nep memory server` | `memory.server.read` | эфемерный | Серверные заметки: паттерны, стартеры, шутки, факты о себе |
 | `/nep memory recent` | `memory.recent.read` | эфемерный | Текущие недавние заметки, новейшие первыми |
-| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | эфемерный, отложенный | Rewrite a member's portrait, or a channel's or the server notes from a fresh sample |
+| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | эфемерный, отложенный | Перезаписать портрет участника, заметки канала или сервера из свежей выборки |
 | `/nep memory forget <user>` | `memory.forget` | эфемерный, отложенный | Удалить профиль и приватную память участника |
 | `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | эфемерный | Показать или установить отношение |
 | `/nep memory wipe <confirm>` | `memory.wipe` | эфемерный, отложенный | Стереть ВСЮ серверную память (профили, приватная память, привычки, каналы, лор) |

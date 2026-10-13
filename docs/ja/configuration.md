@@ -448,7 +448,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `portraitRefreshHours` | `24` | メンバーごとのポートレートリフレッシュの最小間隔（時間） |
 | `portraitRefreshMessages` | `300` | 前回のポートレート以降のメンバー自身のメッセージ数がこの値に達するとコードトリガーのリフレッシュが発動。サンプルサイズも兼ねる |
 | `portraitRefreshDays` | `3` | 前回の成功リフレッシュからこの日数が経過するとコードトリガーのリフレッシュが発動 |
-| `portraitRefreshPerDay` | `3` | サーバーあたりのポートレートリフレッシュの 1 日最大数（コードトリガー、アナライザーのキュー、`/nep memory refresh` で共有）。日次カウンターは `state.json` に `portraitDay` / `portraitCount` として保存され、`/nep warmup reset` で消去されない |
+| `portraitRefreshPerDay` | `3` | サーバーあたりのポートレートリフレッシュの 1 日最大数（コードトリガー、アナライザーのキュー、`/nep memory refresh` で共有）。日次カウンターは `state.json` に `portraitDay` / `portraitCount` として保存され、`tools/warmup.mjs reset` で消去されない |
 | `portraitRetryHours` | `24` | リフレッシュ失敗後、同じメンバーを再試行するまでの待機時間（時間） |
 | `portraitCheckMinutes` | `60` | ポートレートスケジューラーがリフレッシュ対象をチェックする頻度（分） |
 | `analyzerEpisodes` | `8` | アナライザーの `<existing_profiles>` で著者ごとに表示するエピソード数。重みと新しさの上位のみ送信され、保存リストはすべてのエピソードを保持。`0` で送信しない |
@@ -696,7 +696,6 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 
 | キー | デフォルト | 説明 |
 |---|---|---|
-| `enabled` | `false` | The tool runs warmup; the bot only resumes an unfinished run when this is true |
 | `lookbackDays` | `60` | サンプルする過去の日数 |
 | `minMessages` | `30` | メンバーが対象となるための自身のメッセージの最低数 |
 | `maxPeople` | `40` | 処理するメンバー数（アクティブ順） |

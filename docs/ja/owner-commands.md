@@ -55,7 +55,7 @@
 | `/nep memory channel [channel]` | `memory.channel.read` | エフェメラル | チャンネルのノート、またはすべてのチャンネルの一覧 |
 | `/nep memory server` | `memory.server.read` | エフェメラル | サーバーノート: パターン、スターター、内輪ネタ、自己言及 |
 | `/nep memory recent` | `memory.recent.read` | エフェメラル | ライブの最近のラインを新しい順に表示 |
-| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | エフェメラル、遅延 | Rewrite a member's portrait, or a channel's or the server notes from a fresh sample |
+| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | エフェメラル、遅延 | メンバーのポートレート、チャンネルやサーバーのノートを新しいサンプルから書き換える |
 | `/nep memory forget <user>` | `memory.forget` | エフェメラル、遅延 | メンバーのプロファイルとプライベートメモリを削除 |
 | `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | エフェメラル | 態度スコアの表示または設定 |
 | `/nep memory wipe <confirm>` | `memory.wipe` | エフェメラル、遅延 | サーバーのすべてのメモリを削除（プロファイル、プライベートメモリ、傾向、チャンネル、ロア） |
