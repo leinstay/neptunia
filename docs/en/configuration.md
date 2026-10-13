@@ -43,6 +43,7 @@ Every key in `config.json` with its default, grouped by section.
 | `promptCache` | `false` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
 | `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
+| `journal` | `true` | Keep the persona's journal: for every turn, one line when it starts and one when it ends (what of the chat went into the request, its hidden reasoning, what it posted and reacted to, token usage, the limits that cut something), in `data/guilds/<id>/journal/<YYYY-MM-DD>.jsonl` by UTC day; a private chat's turns go to `data/guilds/<id>/private/<userId>/journal/` instead. While on, the live log carries only the length of the hidden reasoning (`thinkChars`). Must be exactly `true` to enable; a missing key counts as off. See [`journal`](#journal) |
 | `recent` | `true` | Show a `<recent>` block of what happened on the server in the last few days. A missing key counts as on. See `memory.recentHours` and `context.caps.recent` |
 | `participation` | `true` | The persona remembers its own exchanges on other channels over the last few days and, on a server turn, sees a few of them in a `<participation>` block. A missing key counts as on. See [`participation`](#participation) and `context.caps.participation` |
 | `channelRoute` | `true` | A classifier picks a channel the conversation is about before a turn, so the channel can be pulled into the request. A missing key counts as on. See `route.*` |
@@ -784,6 +785,15 @@ Settings for the manual testing sub-process (`features.mentor`). The mentor inve
 |---|---|---|
 | `fsyncMs` | `500` | Append-only files under `data/` are flushed to disk (fsync) at most this long (ms) after a write; writes that must survive a crash flush at once |
 | `retryMax` | `1000` | Lines kept in memory while the disk refuses writes, retried every second in order. When the queue is full, further writes are refused until the disk answers again |
+
+## `journal`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `thinkChars` | `4000` | The persona's hidden reasoning is stored in the journal cut to this many characters at a word boundary; a cut record carries `thinkTruncated: true`. `0` stores it whole |
+| `retentionDays` | `0` | Days a journal file is kept; `0` keeps it forever. Not yet applied |
+| `keepRequests` | `3` | Days the full request and model output of each turn are kept beside the journal; `0` keeps none. Not yet applied |
+| `announceChannelId` | `""` | The channel where the persona says it was paused or resumed. Not yet applied |
 
 ## Models
 

@@ -67,7 +67,7 @@ import { RECENT_EPISODES_PER_MEMBER, episodeKey, foldText, memberIdOf, recentSet
 import { cutEpisode, participationSettings, selectEpisodes } from '../memory/participation.js';
 import { matchLore } from '../memory/lore.js';
 import { channelActivity, renderChannel } from '../memory/channels.js';
-import { selectPictures, mediaProxyUrl, fitBox } from '../discord/media.js';
+import { selectPictures, mediaProxyUrl, fitBox, mediaParts } from '../discord/media.js';
 import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { mergeProfiles } from './private.js';
 import { gifWatchBlocker } from '../memory/gif-watch.js';
@@ -1932,6 +1932,36 @@ export function usesFollowUpTask({ mode, triggerKind, taggedCall = null, routed 
 }
 
 /**
+ * What of the chat window entered a turn's request, for the journal: the ids of the kept
+ * transcript lines (oldest first), of the reply parents among them (prepended to the window
+ * from outside it, `replyParent: true`), of the messages whose pictures went in as image parts
+ * and of the kept messages whose text attachment was previewed.
+ * @param {{ history: object[], keptChat: { id: string }[], pictures: { messageId?: string }[] }} input
+ * @returns {{ messageIds: string[], parents: string[], parts: { images: string[], filePreviews: string[] } }}
+ */
+function seenOf({ history, keptChat, pictures }) {
+  const byId = new Map(history.map((message) => [message.id, message]));
+  const messageIds = keptChat.map((item) => item.id).filter((id) => typeof id === 'string' && id);
+  const keptMessages = messageIds.map((id) => byId.get(id)).filter(Boolean);
+  const images = [];
+  for (const picture of pictures) {
+    if (typeof picture.messageId === 'string' && picture.messageId && !images.includes(picture.messageId)) images.push(picture.messageId);
+  }
+  return {
+    messageIds,
+    parents: keptMessages.filter((message) => message.replyParent === true).map((message) => message.id),
+    parts: {
+      images,
+      filePreviews: keptMessages
+        .filter((message) =>
+          mediaParts(message).some((part) => (part.attachments ?? []).some((a) => a?.kind === 'text' && typeof a.previewText === 'string')),
+        )
+        .map((message) => message.id),
+    },
+  };
+}
+
+/**
  * @param {object} input
  * @param {object} input.config            Live config.
  * @param {object} input.prompts           Live prompts keyed by file name.
@@ -2129,7 +2159,8 @@ export function usesFollowUpTask({ mode, triggerKind, taggedCall = null, routed 
  *   pulledKept: { channelId: string, ids: string[], newestId: string, newestTs: number }[],
  *   peopleShown: { id: string, names: string[] }[],
  *   recent: { lines: number, episodes: number, cut: number, hidden: number, repeated: number,
- *     unnamed: number }|null }}
+ *     unnamed: number }|null,
+ *   seen: { messageIds: string[], parents: string[], parts: { images: string[], filePreviews: string[] } } }}
  *   The user message's content is always an array: its text parts (assembleUser: the stable
  *   part, the profiles and the tail, each tagged with its `cacheSegment` but the tail; an empty
  *   one left out), then one image_url part per attached picture; userText reads its whole text.
@@ -2153,6 +2184,9 @@ export function usesFollowUpTask({ mode, triggerKind, taggedCall = null, routed 
  *   adds to the budget line `offered` (episodes selected), `shown`, `cut` (offered and not
  *   shown: a channel without a name, an episode left without an own line by the dedup, the
  *   budget's cut) and `deduped` (lines left out as already shown elsewhere in the request).
+ *   `seen` (seenOf) names what of the chat window went in: the kept lines' ids, the reply
+ *   parents among them, the messages whose pictures are image parts and whose text
+ *   attachments were previewed -- for the journal's turn record.
  */
 export function buildRequest(input) {
   const { config, prompts, calibrator, mode, forced = false, now, selfName, history, neighbors, trigger, triggerKind, channels = [], currentChannelId = null, descriptions, videos, imageAnswers, reads, lookup = null } = input;
@@ -2912,6 +2946,7 @@ export function buildRequest(input) {
   }
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
+  const seen = seenOf({ history, keptChat, pictures });
   const user = assembleUser({ now, timezone, labels, sensesText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
 
   // A provider that rejects the images (see src/behavior/turn.js's 4xx
@@ -2971,6 +3006,7 @@ export function buildRequest(input) {
     pulledKept,
     peopleShown,
     recent,
+    seen,
   };
 }
 

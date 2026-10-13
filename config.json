@@ -27,6 +27,7 @@
     "webLookup": false,
     "recall": true,
     "recallTrace": false,
+    "journal": true,
     "imageGeneration": false,
     "privateMessages": false,
     "privateLikeServer": true,
@@ -388,5 +389,11 @@
   "appendStore": {
     "fsyncMs": 500,
     "retryMax": 1000
+  },
+  "journal": {
+    "thinkChars": 4000,
+    "retentionDays": 0,
+    "keepRequests": 3,
+    "announceChannelId": ""
   }
 }

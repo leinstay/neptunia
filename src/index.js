@@ -11,6 +11,9 @@ import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { createHot } from './hot.js';
 import { log } from './log.js';
 import { createStore } from './memory/store.js';
+import { createAppendStore } from './memory/append-store.js';
+import { createJournal } from './memory/journal.js';
+import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm } from './llm/openrouter.js';
 import { createImageGen } from './llm/images.js';
@@ -98,6 +101,14 @@ for (const { key, use } of deprecatedModelKeys(hot.config)) log.warn('index: dep
 
 const dataDir = path.join(ROOT_DIR, 'data');
 const store = createStore({ dataDir });
+// The append-only files under data/ (the journal): one serialized writer per file. Its settings
+// are read once here; the journal reads its own section (journal.*) at each write.
+const appendStore = createAppendStore({
+  fsyncMs: hot.config.appendStore?.fsyncMs ?? 500,
+  retryMax: hot.config.appendStore?.retryMax ?? 1000,
+  log,
+});
+const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {} });
 
 const calibrator = createCalibrator(store.state.data.calibration);
 const llm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: store.state });
@@ -177,6 +188,7 @@ const turns = createTurnRunner({
   routeChannels,
   isWarmingUp: () => warmup.isWarmingUp(),
   activity,
+  journal,
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
@@ -343,6 +355,31 @@ async function startupStep(step, fn, { wait = false } = {}) {
   }
 }
 
+/**
+ * The persona's last `n` messages of `channelId` (the bot's own among the channel's last `n`),
+ * as the journal's reconciliation reads them: id, raw content, the message replied to, the time.
+ */
+async function fetchOwnMessages(channelId, n) {
+  const channel = await client.channels.fetch(channelId);
+  const messages = await channel.messages.fetch({ limit: n });
+  return [...messages.values()]
+    .filter((message) => message.author?.id === client.user.id)
+    .map((message) => ({ id: message.id, content: message.content, replyToId: message.reference?.messageId ?? null, createdAt: message.createdTimestamp }));
+}
+
+/**
+ * The journal's operations left open by the last run (features.journal, read now), yesterday's
+ * and today's: a post is looked for among the persona's own messages, everything else is marked
+ * unknown; nothing is sent again. Only operations started before this start are touched.
+ */
+async function reconcileJournal(guildId) {
+  if (hot.config.features?.journal !== true) return;
+  const startedAt = Date.now();
+  const days = [utcDay(startedAt - DAY_MS), utcDay(startedAt)];
+  const counts = await journal.reconcile(guildId, { days, before: startedAt, fetchOwnMessages });
+  log.info('journal: reconciled', { guildId, succeeded: counts.succeeded, unknown: counts.unknown });
+}
+
 let lastCommandName = hot.config.bot.commandName;
 let lastAdminCommandsOn = hot.config.features?.adminCommands !== false;
 
@@ -386,6 +423,10 @@ client.once(Events.ClientReady, async () => {
       pausedAt: store.state.data.pausedAt ?? null,
     });
   }
+
+  // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
+  // starting meanwhile is never touched (only earlier operations are), and it never sends.
+  await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId));
 
   const guild = client.guilds.cache.get(instance.guildId);
   await startupStep('registerCommands', () => registerCommands(guild, hot.config), { wait: true });
@@ -461,6 +502,7 @@ async function shutdown(signal) {
   onMessage.stop();
   hot.close();
   store.flush();
+  await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await client.destroy();
   process.exit(0);
 }
