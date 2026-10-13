@@ -1,12 +1,24 @@
 # Commands
 
-Channels, roles and users are picked from Discord's own pickers; `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
+One slash command, `/nep`, with 19 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
 
-`/nep` is visible to every member from the start; access is gated per operation at the moment a command runs, never through Discord's own command visibility. Each command runs one named operation, and reading and changing are separate operations: `/nep memory show` runs `memory.profile.read`, `/nep memory affinity <user>` runs `memory.affinity.read`, and `/nep memory affinity <user> <score>` runs `memory.affinity.set`. Owners (`bot.owners`) can always run everything. Everyone else needs a grant on the exact operation: `/nep access grant <operation> [role] [user]` opens one operation (e.g. `memory.profile.read`) to everyone (no role/user given), a role, or a user. A group (e.g. `memory`) or `*` is accepted too, but it is stored as the read operations that exist at that moment, one grant each: it never opens a write, and an operation added later stays closed until it is granted by name. `/nep access revoke` removes the target from the operation, or from every stored operation under a group or `*`; `/nep access list` shows each operation with who holds it and, for a grant that came from a group or `*`, where it came from. Without a grant, a non-owner gets an ephemeral "Not allowed" reply. Owner-only operations (`access.*`, `diary.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.forget`, `memory.wipe`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
+## Access
 
-**After the deploy that keyed access by operation.** On the first start, every stored grant is converted once: an old command key becomes the operation it ran; an old group or `*` becomes the read operations it covered; owner-only operations are dropped. A journal `system` record `access-migrated` lists what each old grant covers now. Then run `/nep access revoke * everyone` followed by `/nep access grant memory.profile.read everyone`, and re-grant any other operation by name (check `/nep access list`).
+`/nep` is visible to every member from the start. Access is gated per operation at the moment a command runs, not through Discord's command visibility. Each command runs one named operation. Reading and changing are separate: `/nep memory show` runs `memory.profile.read`, `/nep memory affinity <user>` runs `memory.affinity.read`, and `/nep memory affinity <user> <score>` runs `memory.affinity.set`.
 
-The table below is generated from the command table (`src/discord/commands.js#COMMAND_TABLE`): each command, the operation it runs, how it answers (always ephemeral; deferred when the operation may outlast Discord's three-second reply window) and its description. An interaction Discord delivers twice runs once.
+Owners (`bot.owners`) can always run everything. Everyone else needs a grant on the exact operation. `/nep access grant <operation> [role] [user]` opens one operation (e.g. `memory.profile.read`) to everyone (no role or user given), to a role, or to a user. A group name (e.g. `memory`) or `*` is accepted, but the grant is stored as the individual read operations that exist at that moment, one entry each: it never opens a write, and an operation added later stays closed until it is granted by name. `/nep access revoke` removes the target from one operation, or from every stored operation under a group or `*`. `/nep access list` shows each operation, who holds it, and where each grant came from when it was part of a group or `*` expansion. Without a grant, a non-owner gets an ephemeral "Not allowed" reply.
+
+Owner-only operations (`access.*`, `diary.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.forget`, `memory.wipe`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
+
+**Migration from the old command keys.** On the first start after the deploy that keyed access by operation, every stored grant is converted once: an old command key becomes the operation it ran; an old group or `*` becomes the read operations it covered; owner-only operations are dropped. A journal `system` record `access-migrated` lists what each old grant covers now. After the migration: `/nep access revoke * everyone`, then `/nep access grant memory.profile.read everyone`, and re-grant any other operation by name (check `/nep access list`).
+
+## Status
+
+`/nep status` shows a single card with the fields that matter most for a quick check: the bot's state (running or paused since when), the gateway connection, long-running tasks (warmup, backfills, the archive drain), which model serves each role, today's daily limits (requests, images, videos, recall, lookups) and uptime. `/nep status detail` adds the long text form below the card: model calibration, the warmup's progress, every loaded prompt with its source, and the voice queue. A member granted `status.show` sees the card without the memory and journal fields and never the long form.
+
+## Command table
+
+The table is generated from the command table (`src/discord/commands.js#COMMAND_TABLE`): each command, the operation it runs, how it answers (always ephemeral; deferred when the operation may outlast Discord's three-second reply window) and what it does. An interaction Discord delivers twice runs once.
 
 | Command | Operation | Reply | What it does |
 |---|---|---|---|
@@ -62,6 +74,16 @@ The table below is generated from the command table (`src/discord/commands.js#CO
 | `/nep memory restore <id>` | `memory.restore` | ephemeral, deferred | Restore an archived item; `id` autocompletes |
 | `/nep memory snapshot` | `memory.snapshot` | ephemeral, deferred | Snapshot data/ for the tools |
 | `/nep memory private <action:show\|forget\|purge> <user>` | `memory.private.read`, `memory.private.forget`, `memory.private.purge` | ephemeral, deferred for `memory.private.forget`, `memory.private.purge` | A member's private memory: what they said in DMs |
+
+## Memory commands
+
+`/nep memory show` reads a member's stored profile: the compact summary or a specific section (character, style, relationship, affinity, aliases, interests, details, episodes, or the raw JSON). `/nep memory channel` shows a channel's stored notes or a table of all stored channels. `/nep memory server` shows the server-wide patterns, starters, in-jokes and self-facts.
+
+`/nep memory forget` deletes a member's public profile, their private DM file, their voice queue items, their version history and their record and archive entries. Before deleting, it copies everything into a vault directory (`memory.vaultDir`, default `data/vault/`) and writes the member's id to `data/guilds/<id>/forgotten.json`. The engine never reads the vault back; to restore a member, copy their files by hand and remove the entry from `forgotten.json`. `/nep memory wipe` does the same for the entire server: it copies everything under the guild directory into the vault, then deletes all profiles, private files, channels, habits, lore, the journal, the record, the archive, the voice queue, versions, diary history and the recall trace.
+
+`/nep memory journal` shows the persona's journal records for a UTC day, optionally filtered by kind (turn, action, memory, system). `/nep memory archive` shows archived items, optionally for one member or one kind. `/nep memory restore` puts an archived item back into hot memory (the `id` autocompletes from the newest entries). `/nep memory snapshot` copies `data/` to a timestamped directory for the measurement tools.
+
+`/nep memory private show` reads a member's private DM memory. `/nep memory private forget` deletes only the private file; the public profile stays. `/nep memory private purge` deletes the private file and also bulk-deletes the bot's DM messages to that member (up to `private.purgeMaxMessages`).
 
 ## Member commands
 
