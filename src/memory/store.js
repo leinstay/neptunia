@@ -84,6 +84,7 @@ import { applyInterestOps, attachDropped, normalizeInterests, normalizeTopic } f
 import { applyDetailOps, normalizeDetails } from './details.js';
 import { applyAliasOps } from './aliases.js';
 import { clampText } from './clamp.js';
+import { feltLine } from './record.js';
 import { sortByRank } from './ranking.js';
 import { mergeEmojiUsage, normalizeEmojiUsage } from './emoji-usage.js';
 import { emptyGifs, findGif, markOwnGif, mergeGifs, normalizeBackfillStamp, normalizeGifs, resetGifCounts } from './gifs.js';
@@ -743,11 +744,46 @@ function normalizeChannel(channel) {
 
 /**
  * The store over one data directory.
- * @param {{ dataDir: string, newId?: () => string }} options  `newId`: the source of the UUID in
- *   every new `itemId` (`ITEM_ID_PREFIX`); node:crypto's `randomUUID` unless a test injects one.
+ * @param {{ dataDir: string, newId?: () => string, record?: { append: Function }|null,
+ *   recordOn?: () => boolean }} options  `newId`: the source of the UUID in every new `itemId`
+ *   (`ITEM_ID_PREFIX`); node:crypto's `randomUUID` unless a test injects one. `record`
+ *   (src/memory/record.js#createRecord, optional): while `recordOn()` (read at each write;
+ *   src/index.js passes features.record exactly true) every feeling stored on an episode -- with
+ *   the episode (`addEpisodes` / `addPrivateEpisodes`) or later (`fillEpisodeFeeling`) -- is
+ *   appended to it as a `felt` line, in the background (a refused append is logged, counts only).
  */
-export function createStore({ dataDir, newId = randomUUID }) {
+export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record) }) {
   const entries = new Map(); // file path -> { value, dirty }
+
+  /**
+   * A `felt` line (src/memory/record.js#feltLine) for each of `episodes` that holds a feeling,
+   * appended to the record of `guildId` (the member's private record for the private layer).
+   * Not awaited: the store's writers stay synchronous; a refused append is logged.
+   */
+  function recordFelt(guildId, userId, layer, episodes) {
+    if (!record || !recordOn()) return;
+    const lines = episodes
+      .filter((ep) => isPlainObject(ep) && typeof ep.feeling === 'string' && ep.feeling)
+      .map((ep) =>
+        feltLine(
+          {
+            userId: String(userId),
+            itemId: ep.itemId ?? null,
+            text: ep.feeling,
+            date: ep.date ?? null,
+            sourceMessageIds: Array.isArray(ep.sourceMessageIds) ? ep.sourceMessageIds : [],
+          },
+          { uuid: newId },
+        ),
+      );
+    if (lines.length === 0) return;
+    const failed = (error) => log.warn('store: record failed', { kind: 'felt', guildId: String(guildId), lines: lines.length, code: error?.code ?? null });
+    try {
+      Promise.resolve(record.append(guildId, lines, layer === 'private' ? { privateUserId: String(userId) } : {})).catch(failed);
+    } catch (error) {
+      failed(error);
+    }
+  }
 
   function entry(file, fallback) {
     let item = entries.get(file);
@@ -900,13 +936,20 @@ export function createStore({ dataDir, newId = randomUUID }) {
    * Merge `incoming` episodes into a member file's list (src/memory/episodes.js#mergeEpisodes) and
    * write it when one was added, every stored episode with an `itemId` (`withItemIds`).
    * @param {{ value: object, dirty: boolean }} item  A profile or private layer's cache entry.
+   * @param {unknown} incoming
+   * @param {object} opts
+   * @param {{ guildId: string, userId: string, layer?: 'private' }} [owner]  Whose episodes: the
+   *   feelings of the newly stored ones go to the record (recordFelt).
    * @returns {{ added: number, dropped: object[] }}  `dropped`: the evicted episodes, each with an itemId.
    */
-  function mergeEpisodesInto(item, incoming, opts) {
+  function mergeEpisodesInto(item, incoming, opts, owner = null) {
+    const before = new Set(Array.isArray(item.value.episodes) ? item.value.episodes : []);
     const { episodes, added, dropped } = mergeEpisodes(item.value.episodes, incoming, opts);
     if (added > 0) {
-      item.value.episodes = withItemIds(episodes, ITEM_ID_PREFIX.episode, newId);
+      const stamped = withItemIds(episodes, ITEM_ID_PREFIX.episode, newId);
+      item.value.episodes = stamped;
       item.dirty = true;
+      if (owner) recordFelt(owner.guildId, owner.userId, owner.layer, stamped.filter((_, i) => !before.has(episodes[i])));
     }
     return { added, dropped: withItemIds(dropped, ITEM_ID_PREFIX.episode, newId) };
   }
@@ -1290,7 +1333,7 @@ export function createStore({ dataDir, newId = randomUUID }) {
      */
     addEpisodes(guildId, userId, incoming, opts) {
       const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
-      return mergeEpisodesInto(item, incoming, opts).added;
+      return mergeEpisodesInto(item, incoming, opts, { guildId, userId }).added;
     },
 
     /** Fold one delta into a member's stored affinity (see src/memory/affinity.js); `decayedAt` is
@@ -1408,7 +1451,8 @@ export function createStore({ dataDir, newId = randomUUID }) {
      * episode added at `episode.at` (its `addedAt`) whose `date` and `what` EQUAL the given ones.
      * `feeling` is clamped as src/memory/episodes.js#sanitizeEpisode clamps it
      * (src/memory/voice.js#FEELING_CHARS, the limit the voice run words it to). Writing the
-     * same text again changes nothing.
+     * same text again changes nothing; a new text is also appended to the record as a `felt`
+     * line (recordFelt).
      * @param {string} guildId
      * @param {string} userId
      * @param {{ at: string, date: string, what: string }} episode  The episode's address.
@@ -1428,8 +1472,10 @@ export function createStore({ dataDir, newId = randomUUID }) {
       const index = episodes.findLastIndex((ep) => isPlainObject(ep) && ep.addedAt === at && ep.date === date && ep.what === what);
       if (index === -1) return false;
       if (episodes[index].feeling === text) return true;
-      item.value.episodes = episodes.map((ep, i) => (i === index ? { ...ep, feeling: text } : ep));
+      const stamped = withItemIds(episodes.map((ep, i) => (i === index ? { ...ep, feeling: text } : ep)), ITEM_ID_PREFIX.episode, newId);
+      item.value.episodes = stamped;
       item.dirty = true;
+      recordFelt(guildId, userId, opts.layer, [stamped[index]]);
       return true;
     },
 
@@ -1511,7 +1557,7 @@ export function createStore({ dataDir, newId = randomUUID }) {
      */
     addPrivateEpisodes(guildId, userId, incoming, opts) {
       const item = privateEntry(guildId, userId);
-      return mergeEpisodesInto(item, incoming, opts).added;
+      return mergeEpisodesInto(item, incoming, opts, { guildId, userId, layer: 'private' }).added;
     },
 
     /**

@@ -3173,3 +3173,51 @@ test('store: eviction returns the dropped items with their itemId', () => {
   const { dropped } = store.setParticipation('g1', part, { settings: { ...PARTICIPATION_DEFAULTS, maxStored: 1 }, now: ID_NOW + 1000 });
   assert.deepEqual(dropped.map((ep) => ep.itemId), [episodeId]);
 });
+
+// ---- the record (src/memory/record.js): feelings as felt lines ----
+
+test('store: a stored feeling writes a felt line', async () => {
+  const appended = [];
+  let on = true;
+  const record = { append: async (guildId, lines, opts) => { appended.push({ guildId, lines, opts }); return { written: lines.length, duplicates: 0 }; } };
+  let n = 0;
+  const store = createStore({ dataDir: tmpDataDir(), newId: () => `id${(n += 1)}`, record, recordOn: () => on });
+  store.touchUser('g1', 'u1', 'Ελένη', Date.UTC(2026, 9, 12));
+  const opts = { maxEpisodes: 10, maxNew: 3, now: Date.UTC(2026, 9, 12, 22, 0, 0) };
+
+  // Single stage: an episode stored with its feeling.
+  assert.equal(store.addEpisodes('g1', 'u1', [{ date: '2026-10-12', what: 'won the match', feeling: 'χαρά', weight: 3 }], opts), 1);
+  // Two stage: stored without one, the feeling filled in later.
+  store.addEpisodes('g1', 'u1', [{ date: '2026-10-11', what: 'lost the bet', weight: 2 }], opts);
+  assert.equal(appended.length, 1, 'an episode without a feeling writes nothing');
+  const [stored, later] = store.getUser('g1', 'u1').episodes;
+  assert.equal(store.fillEpisodeFeeling('g1', 'u1', { at: later.addedAt, date: later.date, what: later.what }, 'λύπη'), true);
+  assert.equal(appended.length, 2);
+
+  const [first, second] = appended.map((call) => call.lines[0]);
+  assert.equal(appended[0].guildId, 'g1');
+  assert.equal(first.kind, 'felt');
+  assert.equal(first.itemId, stored.itemId);
+  assert.equal(first.text, 'χαρά');
+  assert.equal(first.occurredAt, '2026-10-12T00:00:00.000Z');
+  assert.deepEqual(first.scope, { user: 'u1' });
+  assert.deepEqual(first.participants, ['u1']);
+  assert.deepEqual(first.sourceMessageIds, []);
+  assert.match(first.revisionId, /^rv-[0-9a-f]{12}$/);
+  assert.match(first.feltId, /^f-/);
+  assert.equal(second.itemId, store.getUser('g1', 'u1').episodes[1].itemId);
+  assert.equal(second.text, 'λύπη');
+  assert.notEqual(second.feltId, first.feltId);
+  assert.notEqual(second.revisionId, first.revisionId);
+
+  // The same text again changes nothing and writes nothing; the switch off writes nothing.
+  store.fillEpisodeFeeling('g1', 'u1', { at: later.addedAt, date: later.date, what: later.what }, 'λύπη');
+  on = false;
+  store.fillEpisodeFeeling('g1', 'u1', { at: later.addedAt, date: later.date, what: later.what }, 'ντροπή');
+  assert.equal(appended.length, 2);
+
+  // The private layer's feelings go to the member's private record.
+  on = true;
+  store.addPrivateEpisodes('g1', 'u1', [{ date: '2026-10-12', what: 'a secret', feeling: 'ζεστασιά', weight: 3 }], opts);
+  assert.deepEqual(appended[2].opts, { privateUserId: 'u1' });
+});

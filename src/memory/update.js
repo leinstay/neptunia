@@ -48,6 +48,7 @@ import { topEpisodes } from './episodes.js';
 import { ID_DIGITS, occursAsWholeWord, teacherToken, toTokens, fromTokens, tokenIds } from './mentions.js';
 import { INJOKE_CHARS, MEMORY_LIMIT_DEFAULTS, SELF_CHARS } from './text-limits.js';
 import { clampText } from './clamp.js';
+import { toRecordLine } from './record.js';
 import { acceptProse } from './prose.js';
 import { RECENT_DEFAULTS, foldText, liveRecent, recentSettings } from './recent.js';
 import { videoStateFromCache } from './describe.js';
@@ -2625,6 +2626,8 @@ export function slimMessage(normalized, direct = false) {
     content: normalized.content,
     ts: normalized.ts,
     replyToId: normalized.replyToId,
+    // The members the message mentions (the record's `mentions`); absent when none.
+    ...(Array.isArray(normalized.mentionedUserIds) && normalized.mentionedUserIds.length > 0 ? { mentionedUserIds: [...normalized.mentionedUserIds] } : {}),
     ...slimMedia(normalized),
     // A forwarded message's snapshots (src/discord/collect.js
     // #normalizeSnapshot), stripped the same way, so the analyzer's
@@ -2724,8 +2727,11 @@ function storeNameOf(store, guildId) {
  *   src/memory/warmup.js#createWarmup's `refreshPortrait`, which does the actual rewrite
  *   (`profile.md`, `<draft>`/`<hint>`); this module only reports the cue, never awaits the result.
  *   Omitted -> no-op.
+ * @param {{ append: Function }|null} [deps.record]  src/memory/record.js#createRecord: with
+ *   features.record exactly true (read at each run) every batch is appended to it as `seen` lines
+ *   before it is analyzed (recordBatch); a refused append keeps the batch in the buffer.
  */
-export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest }) {
+export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null }) {
   const running = new Set();
   let idleWaiters = []; // resolvers for waitIdle() (/nep pause), notified once running.size hits 0
   const backoffUntil = new Map();
@@ -3297,6 +3303,41 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   }
 
   /**
+   * Append the batch `messages` to the record (src/memory/record.js) as `seen` lines, with
+   * features.record exactly true (read now) and a record injected; a line already recorded (a
+   * batch retried after a failure) is refused there. The reply target's author is taken from
+   * `buffer` when the replied message is in it. A private batch (`privateUserId`) goes to the
+   * member's private record. Resolves false when the append was refused (`memory: record
+   * failed`, counts only): the batch must stay in the buffer, unanalyzed, for the next run.
+   * @param {string} guildId
+   * @param {object[]} messages  The batch's slim messages.
+   * @param {object[]} buffer    The whole buffer the batch was taken from.
+   * @param {string|null} [privateUserId]
+   * @returns {Promise<boolean>}
+   */
+  async function recordBatch(guildId, messages, buffer, privateUserId = null) {
+    if (!record || hot.config.features?.record !== true || messages.length === 0) return true;
+    const authors = new Map();
+    for (const message of buffer) if (message?.id != null) authors.set(String(message.id), message.authorId ?? null);
+    const lines = messages.map((message) => {
+      const replyToAuthorId = message?.replyToId ? (authors.get(String(message.replyToId)) ?? null) : null;
+      return toRecordLine(replyToAuthorId ? { ...message, replyToAuthorId } : message, { now });
+    });
+    try {
+      await record.append(guildId, lines, privateUserId ? { privateUserId } : {});
+      return true;
+    } catch (err) {
+      log.warn('memory: record failed', {
+        guildId,
+        lines: lines.length,
+        ...(privateUserId ? { private: true } : {}),
+        code: err?.code ?? null,
+      });
+      return false;
+    }
+  }
+
+  /**
    * Run a memory update for one guild if its buffer is due and it is not busy/backed off. Only
    * the lines the request showed are consumed (`outcome.consumed`, the batch's oldest); the
    * deferred rest stays in the buffer and leads the next batch. The server and channel notes the
@@ -3311,6 +3352,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     try {
       const buffer = store.getBuffer(guildId);
       const messages = buffer.slice(0, batchTake(guildId, buffer.length));
+      // The batch reaches the record before anything consumes it; a refused append keeps it.
+      if (!(await recordBatch(guildId, messages, buffer))) return;
 
       const outcome = await analyze(guildId, messages);
       if (outcome.ok) {
@@ -3412,6 +3455,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       const buffer = store.getPrivateBuffer(guildId, userId);
       const messages = buffer.slice(0, batchTake(key, buffer.length));
       if (messages.length === 0) return;
+      if (!(await recordBatch(guildId, messages, buffer, userId))) return;
 
       const outcome = await analyzePrivate(guildId, userId, messages);
       if (outcome.ok) {

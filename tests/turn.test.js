@@ -7842,3 +7842,38 @@ test('turn: pulled lines appear in seen.pulled', async () => {
   assert.deepEqual(turn.sourceMessageIds, turn.seen.messageIds);
   assert.ok(turn.participants.includes('u3'), 'the pulled lines name their authors');
 });
+
+// ---- the record (src/memory/record.js): the persona's posted lines ----
+
+test('turn: a successful post writes a said line', async () => {
+  const earlier = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Zoé', ts: NOW - 5000, content: 'καλημέρα' });
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
+  const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
+  const appended = [];
+  const record = { append: async (guildId, lines, opts) => { appended.push({ guildId, lines, opts }); return { written: lines.length, duplicates: 0 }; } };
+  const { journal, lines } = journalOverMemory();
+  const hot = fakeHot({ journal: true, record: true, typingSimulation: false });
+  const turns = createTurnRunner({ hot, store: fakeStore(), llm: fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg>'), calibrator: identityCalibrator(), client: fakeClient(), journal, record });
+
+  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].guildId, 'g1');
+  assert.deepEqual(appended[0].opts, {});
+  const [said] = appended[0].lines;
+  const succeeded = lines.map(({ record: r }) => r).find((r) => r.kind === 'action' && r.name === 'post' && r.phase === 'succeeded');
+  assert.equal(said.kind, 'said');
+  assert.equal(said.messageId, 'sent-1');
+  assert.equal(said.text, 'γεια σου Αλίκη');
+  assert.equal(said.replyTo, 'm1');
+  assert.deepEqual(said.mentions, []);
+  assert.deepEqual(said.participants, ['u1'], 'the reply target author');
+  assert.deepEqual(said.scope, { channel: 'c1' });
+  assert.equal(said.turnId, result.turnId);
+  assert.equal(said.opId, succeeded.opId);
+
+  // features.record off (read at use): nothing is appended.
+  hot.config.features.record = false;
+  await turns.runTurn({ channel: fakeTurnChannel({ historyMessages: [earlier, raw] }), mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  assert.equal(appended.length, 1);
+});

@@ -13,6 +13,7 @@ import { log } from './log.js';
 import { createStore } from './memory/store.js';
 import { createAppendStore } from './memory/append-store.js';
 import { createJournal } from './memory/journal.js';
+import { createRecord } from './memory/record.js';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm } from './llm/openrouter.js';
@@ -100,7 +101,6 @@ if (!isValidCommandName(hot.config.bot.commandName)) {
 for (const { key, use } of deprecatedModelKeys(hot.config)) log.warn('index: deprecated model key ignored', { key, use });
 
 const dataDir = path.join(ROOT_DIR, 'data');
-const store = createStore({ dataDir });
 // The append-only files under data/ (the journal): one serialized writer per file. Its settings
 // are read once here; the journal reads its own section (journal.*) at each write.
 const appendStore = createAppendStore({
@@ -109,6 +109,16 @@ const appendStore = createAppendStore({
   log,
 });
 const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {} });
+// The record (src/memory/record.js): every observed message, the persona's own lines and her
+// feelings, written while features.record is exactly true (read at each write). Its own append
+// store, flushed every record.fsyncMs (read once here).
+const recordAppendStore = createAppendStore({
+  fsyncMs: hot.config.record?.fsyncMs ?? 500,
+  retryMax: hot.config.appendStore?.retryMax ?? 1000,
+  log,
+});
+const record = createRecord({ appendStore: recordAppendStore, dataDir, log });
+const store = createStore({ dataDir, record, recordOn: () => hot.config.features?.record === true });
 
 const calibrator = createCalibrator(store.state.data.calibration);
 const llm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: store.state });
@@ -189,6 +199,7 @@ const turns = createTurnRunner({
   isWarmingUp: () => warmup.isWarmingUp(),
   activity,
   journal,
+  record,
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
@@ -208,6 +219,8 @@ const memory = createMemoryUpdater({
   onPortraitRequest: (guildId, userId, reason) => {
     warmup.refreshPortrait(guildId, userId, reason).catch((err) => log.error('index: portrait refresh failed', { error: err }));
   },
+  // features.record: each batch reaches the record before it is analyzed.
+  record,
 });
 const tagHistory = createTagHistory();
 // The custom emoji ranking read from history (Discord API only, no LLM): once at startup, again on /nep emoji rescan.
@@ -260,6 +273,8 @@ const onMessage = createMessageHandler({
   lookup,
   // pace.settleMs: every member's message is noted for the turn runner's settle wait.
   activity,
+  // features.record: deletions and edits reach the record.
+  record,
 });
 
 // One attention (mention.oneAtATime): once a turn frees its channel, answer
@@ -482,6 +497,8 @@ hot.on('change', ({ what }) => {
 client.on('messageCreate', onMessage);
 // Discord attaches some embeds (a Tenor GIF's) after the message arrived: fold them into memory.
 client.on('messageUpdate', onMessage.onMessageUpdate);
+// A deleted message is a `deleted` line of the record (features.record).
+client.on('messageDelete', onMessage.onMessageDelete);
 // A new or edited channel of the served guild may name a member the cache has not seen.
 const warmOnChannel = (channel) => {
   if (instance.guildId && channel?.guild?.id === instance.guildId) audienceWarmer.warm({ quiet: true });
@@ -503,6 +520,7 @@ async function shutdown(signal) {
   hot.close();
   store.flush();
   await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
+  await recordAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await client.destroy();
   process.exit(0);
 }

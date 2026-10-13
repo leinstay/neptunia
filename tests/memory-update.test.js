@@ -8851,3 +8851,55 @@ test('run (single-stage): a rewrite member answered with no text keeps the flag;
     assert.equal(store.getUser(guildId, '1').relationshipRewrite, undefined);
   });
 });
+
+// ---- the record (src/memory/record.js) ---------------------------------------
+
+test('memory update: a failing record append keeps the batch in the buffer and skips analysis', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    const base = Date.UTC(2026, 9, 11, 12, 0, 0);
+    store.pushBuffer(guildId, slimMessage({ id: 'm1', ts: base, mentionedUserIds: ['2'] }), 100);
+    store.pushBuffer(guildId, slimMessage({ id: 'm2', authorId: '2', authorName: 'other', ts: base + 1000, replyToId: 'm1' }), 100);
+    const before = structuredClone(store.getBuffer(guildId));
+    const config = makeConfig({ memory: { ...makeConfig().memory, batchMessages: 2, minBatchMessages: 1 } });
+    config.features = { ...(config.features ?? {}), record: true };
+    const hot = { config, prompts: { memory: 'sys', labels } };
+    let llmCalls = 0;
+    const llm = { complete: async () => { llmCalls += 1; return { text: '{}' }; } };
+    const appended = [];
+    let fail = true;
+    const record = {
+      append: async (gid, lines, opts) => {
+        appended.push({ gid, lines, opts });
+        if (fail) throw Object.assign(new Error('disk refused'), { code: 'append-stalled' });
+        return { written: lines.length, duplicates: 0 };
+      },
+    };
+    const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => base + 60_000, record });
+
+    const { logs } = await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(llmCalls, 0, 'nothing is analyzed');
+    assert.deepEqual(store.getBuffer(guildId), before, 'the batch stays in the buffer');
+    const failed = logs.find((entry) => entry.msg === 'memory: record failed');
+    assert.ok(failed, 'memory: record failed is logged');
+    assert.equal(failed.lines, 2);
+    assert.equal(failed.code, 'append-stalled');
+    assert.equal(JSON.stringify(failed).includes('hello'), false, 'counts only, never the text');
+    assert.deepEqual(appended[0].lines.map((line) => [line.kind, line.messageId]), [['seen', 'm1'], ['seen', 'm2']]);
+    assert.deepEqual(appended[0].lines[0].mentions, ['2']);
+    assert.deepEqual(appended[0].lines[1].participants, ['2', '1'], 'the reply target author from the buffer');
+
+    // The next run retries: the append succeeds, then the batch is analyzed and consumed.
+    fail = false;
+    await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(appended.length, 2, 'the same batch is appended again');
+    assert.equal(llmCalls, 1);
+    assert.deepEqual(store.getBuffer(guildId), []);
+
+    // features.record off (read at use): nothing is appended.
+    hot.config.features.record = false;
+    store.pushBuffer(guildId, slimMessage({ id: 'm3', ts: base + 2000 }), 100);
+    await withCapturedLogs(() => updater.run(guildId));
+    assert.equal(appended.length, 2);
+  });
+});

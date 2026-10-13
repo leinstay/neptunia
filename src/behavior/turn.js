@@ -77,6 +77,7 @@ import { createParticipationPicker } from './participation-pick.js';
 import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
+import { toRecordLine } from '../memory/record.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -1171,6 +1172,10 @@ function taskInput({ part, queued, added, labels, channelId }) {
  * searches; createPrepLedger says whether each result reached the request). A post's
  * `started` line carries its `intent` (the message it replies to, the first 80 characters of
  * its text) for the reconciliation after a restart (src/memory/journal.js#reconcile).
+ * `record` (src/memory/record.js#createRecord; optional): with features.record exactly true
+ * (read at the moment of use), every message of the persona that reached the chat is appended
+ * to it as a `said` line (recordSaid), with the turn's and the post operation's ids when the
+ * journal follows the attempt.
  */
 export function createTurnRunner({
   hot,
@@ -1193,6 +1198,7 @@ export function createTurnRunner({
   isWarmingUp = () => false,
   activity = null,
   journal = null,
+  record = null,
 }) {
   const busy = new Set();
   // channelId -> the chain of parts running there (runChain): its author, its parts, the part
@@ -1222,6 +1228,39 @@ export function createTurnRunner({
   async function writeTurnRecords(attempts) {
     for (const { draft, result } of attempts) {
       await journal.turn(draft.guildId, journalTurnRecord(draft, result));
+    }
+  }
+
+  /**
+   * The persona's posted message `posted` as a `said` line of the record: `text` as she wrote
+   * it, the message it replies to and that message's author, the members it mentions, the
+   * turn's id and the post operation's (null when the journal does not follow the attempt). A
+   * private chat's line goes to its partner's private record, and nowhere without a known
+   * partner. Off unless a record is injected and features.record is exactly true (read now).
+   * Not awaited; a refused append is logged as `turn: record failed` (counts only).
+   */
+  function recordSaid({ guildId, channel, privateChat, trigger, draft, op, posted, text, replyId, repliedAuthorId, userIds }) {
+    if (!record || hot.config.features?.record !== true) return;
+    if (typeof posted?.id !== 'string' || !posted.id) return;
+    const privateUserId = privateChat ? (draft?.privateUserId ?? trigger?.authorId ?? channel.recipientId ?? null) : null;
+    if (privateChat && !privateUserId) return;
+    const line = toRecordLine(
+      {
+        id: posted.id,
+        channelId: channel.id,
+        content: text,
+        ts: Number.isFinite(posted.createdTimestamp) ? posted.createdTimestamp : clock(),
+        replyToId: replyId ?? null,
+        replyToAuthorId: repliedAuthorId ?? null,
+        mentionedUserIds: userIds,
+      },
+      { kind: 'said', now: clock, turnId: draft?.started?.turnId ?? null, opId: op?.opId ?? null },
+    );
+    const failed = (err) => log.warn('turn: record failed', { channel: channel.id, lines: 1, code: err?.code ?? null });
+    try {
+      Promise.resolve(record.append(guildId, [line], privateUserId ? { privateUserId } : {})).catch(failed);
+    } catch (err) {
+      failed(err);
     }
   }
 
@@ -2060,6 +2099,7 @@ export function createTurnRunner({
         break;
       }
       if (op.opId) await op.succeeded({ messageId: posted?.id ?? null });
+      recordSaid({ guildId, channel, privateChat, trigger, draft, op, posted, text: message.text, replyId, repliedAuthorId, userIds });
       delivered = true;
       if (pulledId) answered.add(pulledId);
       lastPostAt.set(channel.id, clock());

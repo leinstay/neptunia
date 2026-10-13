@@ -48,6 +48,7 @@ import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
 import { slimMessage } from '../memory/update.js';
+import { toRecordLine } from '../memory/record.js';
 import { gifOpts } from '../memory/gifs.js';
 import { participationSettings, recordFollowing } from '../memory/participation.js';
 
@@ -187,6 +188,10 @@ function bufferedMediaIds(buffered) {
  *   From src/behavior/activity.js#createActivity, shared with the turn runner: every message of
  *   anyone but the persona in a served channel or a private chat is noted (no contents), so a
  *   turn answering a person can wait until they stop writing (pace.settleMs). Absent: nothing noted.
+ * @param {{ append: Function }|null} [deps.record]  From src/memory/record.js#createRecord,
+ *   optional: with features.record exactly true (read at each event), a deleted message of the
+ *   served guild writes a `deleted` line (onMessageDelete) and an edited one a `seen` line with
+ *   the next revision (recordEdit). Absent: nothing is recorded here.
  * @returns {(message: import('discord.js').Message) => Promise<void>} Also carries a
  *   `.drainPending()` method: called once a turn finishes anywhere (src/index.js wires it to
  *   src/behavior/turn.js's `setOnIdle`, in the same `finally` that frees the channel) to answer
@@ -196,7 +201,8 @@ function bufferedMediaIds(buffered) {
  *   method (shutdown, src/index.js) that clears every settle wait, so none starts a turn while the
  *   client goes down. And an `.onMessageUpdate(oldMessage, newMessage)` method (src/index.js wires
  *   it to `messageUpdate`) that folds an embed Discord attached after the message arrived into
- *   its buffered copy -- see onMessageUpdate below.
+ *   its buffered copy -- see onMessageUpdate below. And an `.onMessageDelete(message)` method
+ *   (src/index.js wires it to `messageDelete`) that writes a `deleted` line to the record.
  */
 export function createMessageHandler({
   hot,
@@ -217,7 +223,14 @@ export function createMessageHandler({
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   timers = { set: setTimeout, clear: clearTimeout },
   activity = null,
+  record = null,
 }) {
+  // The record's edits (recordEdit): messageId -> the last revision written, for the UTC day
+  // `revisionsDay`; cleared when the day turns, so it stays small. An edit of a message not in
+  // it is revision 2 (the message itself was revision 1).
+  const revisions = new Map();
+  let revisionsDay = null;
+
   /**
    * Whether the message `replyToId` (normalizeMessage's: a forward has none)
    * is one of the persona's own (collect.js#fetchMessage: the channel's cache
@@ -2486,6 +2499,7 @@ export function createMessageHandler({
    * @returns {Promise<void>}
    */
   async function onMessageUpdate(_oldMessage, newMessage) {
+    await recordEdit(_oldMessage, newMessage);
     try {
       const config = hot.config;
       const features = config.features ?? {};
@@ -2525,8 +2539,83 @@ export function createMessageHandler({
     }
   }
 
+  /**
+   * Whether `message` may enter the record: a record injected and features.record exactly true
+   * (`config` read now), the served guild, no system or webhook message, no other bot's, an
+   * allowed channel outside threads and the dry-run mirror.
+   */
+  function recordable(message, config) {
+    if (!record || config.features?.record !== true) return false;
+    const guildId = message?.guild?.id ?? message?.guildId ?? null;
+    if (!guildId || guildId !== getGuildId()) return false;
+    if (message.system || message.webhookId) return false;
+    if (message.author?.bot && message.author.id !== client.user?.id) return false;
+    if (!message.channel || message.channel.isThread?.()) return false;
+    if (!channelAllowed(message.channel, config.bot)) return false;
+    const dryRunChannelId = config.bot?.dryRunChannelId;
+    return !(dryRunChannelId && message.channel.id === dryRunChannelId);
+  }
+
+  /** The text of a message as Discord holds it, for telling an edit from an embed update. */
+  const rawText = (message) => (typeof message?.content === 'string' ? message.content : (message?.cleanContent ?? ''));
+
+  /**
+   * An edited message (its text changed between `oldMessage` and `newMessage`) as a `seen`
+   * line of the record with the next revision of the day (`revisions`). An update that only
+   * attached embeds is no edit. Never throws: a refused append is logged as `events: record
+   * failed` (counts only).
+   */
+  async function recordEdit(oldMessage, newMessage) {
+    try {
+      const config = hot.config;
+      if (!newMessage || newMessage.partial || !recordable(newMessage, config)) return;
+      if (oldMessage && !oldMessage.partial && rawText(oldMessage) === rawText(newMessage)) return;
+      const guildId = newMessage.guild?.id ?? newMessage.guildId;
+      const normalized = normalizeMessage(newMessage, client.user.id, {
+        embedTextChars: config.media?.embedTextChars,
+        videoSites: config.media?.video?.sites,
+      });
+      const buffered = typeof store?.getBuffer === 'function' ? store.getBuffer(guildId).find((m) => m?.id != null && String(m.id) === String(normalized.id)) : null;
+      const day = utcDay(now());
+      if (day !== revisionsDay) {
+        revisions.clear();
+        revisionsDay = day;
+      }
+      const revision = (revisions.get(normalized.id) ?? 1) + 1;
+      revisions.set(normalized.id, revision);
+      const line = toRecordLine(slimMessage(normalized, buffered?.direct === true), { revision, now });
+      await record.append(guildId, [line]);
+    } catch (err) {
+      log.warn('events: record failed', { kind: 'seen', lines: 1, code: err?.code ?? null });
+    }
+  }
+
+  /**
+   * A message of the served guild deleted on Discord (`messageDelete`) as a `deleted` line of
+   * the record, dated now; the message's recorded text stays (a deletion is not a forget
+   * request). Only what `recordable` lets in. Never throws: a refused append is logged as
+   * `events: record failed` (counts only).
+   * @param {import('discord.js').Message|import('discord.js').PartialMessage} message
+   * @returns {Promise<void>}
+   */
+  async function onMessageDelete(message) {
+    try {
+      const config = hot.config;
+      if (!message?.id || !recordable(message, config)) return;
+      const guildId = message.guild?.id ?? message.guildId;
+      const line = toRecordLine(
+        { id: String(message.id), channelId: message.channel.id, authorId: message.author?.id ?? null, ts: now() },
+        { kind: 'deleted', now },
+      );
+      await record.append(guildId, [line]);
+    } catch (err) {
+      log.warn('events: record failed', { kind: 'deleted', lines: 1, code: err?.code ?? null });
+    }
+  }
+
   onMessage.drainPending = drainPending;
   onMessage.onMessageUpdate = onMessageUpdate;
+  onMessage.onMessageDelete = onMessageDelete;
   /**
    * Drop every pending direct ping and every settle wait without answering any
    * of them (`/nep pause`): no timer fires afterwards. Each wait is logged as
