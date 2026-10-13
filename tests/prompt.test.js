@@ -4250,3 +4250,41 @@ test('prompt: a conflict set renders both claims with dates', () => {
   assert.equal(text.split('Νίκαια').length - 1, 1, 'never collapsed, never twice');
   assert.ok(text.includes('έχει γάτα'));
 });
+
+// ---- the persona's recent time away, inside <now> ----
+
+function nowBlockOf(request) {
+  const user = contentText(request.messages[1].content);
+  const match = /<now>\n([\s\S]*?)\n<\/now>/.exec(user);
+  return match ? match[1] : null;
+}
+
+/** `{from}` / `{to}` as the request writes a moment: the date and the clock in the bot's zone. */
+const momentOf = (ts) => `${formatDate(ts, 'Europe/Moscow')}, ${formatClock(ts, 'Europe/Moscow')}`;
+
+test('buildRequest: an owner pause 10:00-10:20 is one line under the lead inside <now>, in the tail', () => {
+  const from = NOW - 2 * 60 * MIN;
+  const to = from + 20 * MIN;
+  const request = buildRequest(baseInput({ offPeriods: [{ kind: 'paused', from, to }] }));
+  const lines = nowBlockOf(request).split('\n');
+  assert.equal(lines.length, 3);
+  assert.equal(lines[1], labels.journal.offLead);
+  assert.equal(lines[2], fill(labels.journal.offPaused, { from: momentOf(from), to: momentOf(to), length: formatDuration(20 * MIN, labels.units) }));
+  assert.ok(lines[2].includes('20 '));
+  // Per-turn: never inside a cached part of the user message.
+  const parts = request.messages[1].content.filter((part) => part.type === 'text');
+  const holder = parts.find((part) => part.text.includes(labels.journal.offLead));
+  assert.equal(holder.cacheSegment, undefined);
+});
+
+test('buildRequest: a stopped period reads offStopped; none, or the switch off, leaves <now> bare', () => {
+  const from = NOW - 3 * 60 * MIN;
+  const to = from + 5 * MIN;
+  const stopped = nowBlockOf(buildRequest(baseInput({ offPeriods: [{ kind: 'stopped', from, to }] })));
+  assert.ok(stopped.endsWith(fill(labels.journal.offStopped, { from: momentOf(from), to: momentOf(to), length: formatDuration(5 * MIN, labels.units) })));
+  const bare = nowBlockOf(buildRequest(baseInput()));
+  assert.equal(bare.split('\n').length, 1);
+  assert.equal(nowBlockOf(buildRequest(baseInput({ offPeriods: [] }))), bare);
+  const off = buildRequest(baseInput({ config: fakeConfig({ features: { offPeriods: false } }), offPeriods: [{ kind: 'stopped', from, to }] }));
+  assert.equal(nowBlockOf(off), bare);
+});

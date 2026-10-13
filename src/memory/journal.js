@@ -38,6 +38,9 @@
 // append stores are flushed through `lockStores`). A copy of `data/` taken inside it sees no line
 // half-way, and a forget run inside it is not raced by a new line.
 //
+// The persona's time away (`offPeriods`, `createOffPeriodsReader`): the owner's pauses and the
+// service's stops of the last hours, read from the system records (`timeline`), for her request.
+//
 // Logs carry the kind and an error code, never the record's contents.
 
 import path from 'node:path';
@@ -45,7 +48,7 @@ import * as nodeFs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { clampText, oneLine } from './clamp.js';
-import { DAY_MS, utcDay } from '../time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
 
 /** The schema version every record carries. */
 export const JOURNAL_VERSION = 1;
@@ -180,6 +183,109 @@ function idList(value) {
   return out;
 }
 
+/** How many off periods the persona's request shows at most. */
+export const OFF_PERIODS_MAX = 3;
+/** Off periods closer than this are one. */
+const OFF_MERGE_MS = MINUTE_MS;
+/** How long a computed list of off periods is reused (createOffPeriodsReader). */
+const OFF_CACHE_MS = MINUTE_MS;
+/** `journal.offWindowHours`' fallback (config.json carries the same). */
+const DEFAULT_OFF_WINDOW_HOURS = 24;
+// The envelope's first fields, in the order `envelope` writes them: a line's kind and time read
+// without parsing the whole record (a turn line carries the model's think).
+const ENVELOPE_HEAD_RE = /^\{"v":\d+,"id":"[^"\\]*","kind":"([^"\\]+)","occurredAt":"([^"\\]+)"/;
+
+/**
+ * The persona's off periods from a journal timeline (`timeline`'s entries, `{ at, kind, event }`,
+ * any order): an owner `pause` to the next `resume` is `paused`; a service `stop` to the next
+ * `start` is `stopped`, and a `start` with no `stop` before it (a crash) is `stopped` from the
+ * last record before it (an `unclean-stop` record, written at that start, does not count). A
+ * pause with no resume yet is left out (the persona says nothing while paused), and so is a
+ * start with nothing before it. Periods that overlap or lie less than a minute apart are one,
+ * of the kind of its longest part. Only periods that ended within `windowMs` before `now`
+ * count; at most `max`, newest first. Pure.
+ * @param {Array<{ at: number, kind: string, event?: string|null }>} timeline
+ * @param {{ now: number, windowMs: number, max?: number }} options
+ * @returns {Array<{ kind: 'paused'|'stopped', from: number, to: number }>}
+ */
+export function offPeriods(timeline, { now, windowMs, max = OFF_PERIODS_MAX }) {
+  const entries = (Array.isArray(timeline) ? timeline : [])
+    .filter((entry) => Number.isFinite(entry?.at))
+    .map((entry, i) => ({ entry, i }))
+    .sort((a, b) => a.entry.at - b.entry.at || a.i - b.i)
+    .map(({ entry }) => entry);
+  const found = [];
+  let pausedAt = null;
+  let stoppedAt = null;
+  let lastAt = null;
+  for (const { at, kind, event } of entries) {
+    const system = kind === 'system';
+    if (system && event === 'pause') {
+      if (pausedAt === null) pausedAt = at;
+    } else if (system && event === 'resume') {
+      if (pausedAt !== null) found.push({ kind: 'paused', from: pausedAt, to: at });
+      pausedAt = null;
+    } else if (system && event === 'stop') {
+      if (stoppedAt === null) stoppedAt = at;
+    } else if (system && event === 'start') {
+      const from = stoppedAt ?? lastAt;
+      if (from !== null) found.push({ kind: 'stopped', from, to: at });
+      stoppedAt = null;
+    }
+    if (!(system && event === 'unclean-stop')) lastAt = at;
+  }
+  const merged = [];
+  for (const period of found.sort((a, b) => a.from - b.from)) {
+    const last = merged.at(-1);
+    if (last && period.from - last.to < OFF_MERGE_MS) {
+      const lastLongest = last.longest;
+      const length = period.to - period.from;
+      if (length > lastLongest) {
+        last.kind = period.kind;
+        last.longest = length;
+      }
+      last.to = Math.max(last.to, period.to);
+    } else {
+      merged.push({ ...period, longest: period.to - period.from });
+    }
+  }
+  return merged
+    .filter((period) => period.to >= now - windowMs && period.to <= now)
+    .sort((a, b) => b.to - a.to)
+    .slice(0, max)
+    .map(({ kind, from, to }) => ({ kind, from, to }));
+}
+
+/**
+ * The off periods of a guild's last `windowHours` hours (`journal.offWindowHours`), read through
+ * `journal.timeline` and reused for a minute per guild and window, so a busy channel does not read
+ * the day files every turn. A read that fails gives no period and one warn (`journal: off periods
+ * unread`, the guild and the error code); no journal, or one without `timeline`, gives none.
+ * @param {{ journal: { timeline: Function }|null, now?: () => number, log?: { warn: Function } }} options
+ * @returns {(guildId: string, options?: { windowHours?: number }) => Promise<Array<{ kind: string, from: number, to: number }>>}
+ */
+export function createOffPeriodsReader({ journal, now = Date.now, log = defaultLog }) {
+  const cache = new Map(); // `${guildId}:${hours}` -> { at, periods }
+  return async function read(guildId, { windowHours } = {}) {
+    if (!journal || typeof journal.timeline !== 'function' || !guildId) return [];
+    const hours = Number.isFinite(windowHours) && windowHours > 0 ? windowHours : DEFAULT_OFF_WINDOW_HOURS;
+    const at = now();
+    const key = `${guildId}:${hours}`;
+    const cached = cache.get(key);
+    if (cached && at - cached.at >= 0 && at - cached.at < OFF_CACHE_MS) return cached.periods;
+    const windowMs = hours * HOUR_MS;
+    let periods = [];
+    try {
+      periods = offPeriods(await journal.timeline(guildId, { from: at - windowMs }), { now: at, windowMs });
+    } catch (error) {
+      log.warn('journal: off periods unread', { guildId: String(guildId), code: error?.code ?? null });
+    }
+    cache.clear();
+    cache.set(key, { at, periods });
+    return periods;
+  };
+}
+
 /** The record's scope: the partner's private layer, a channel, or the whole guild. */
 function scopeOf({ privateUserId = null, channelId = null } = {}) {
   if (typeof privateUserId === 'string' && privateUserId) return { user: privateUserId, private: true };
@@ -210,6 +316,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   memory(guildId: string, record: object): Promise<void>,
  *   system(guildId: string, record: object): Promise<void>,
  *   read(guildId: string, query: { day: string, kind?: string, n?: number, privateUserId?: string|null }): Promise<object[]>,
+ *   timeline(guildId: string, query: { from: number }): Promise<Array<{ at: number, kind: string, event: string|null }>>,
  *   dayFile(guildId: string, dateIso: string, privateUserId?: string|null): string,
  *   op(guildId: string, base: object): { opId: string, started(extra?: object): Promise<void>,
  *     succeeded(result?: object): Promise<void>, failed(code: string, result?: object): Promise<void>,
@@ -401,6 +508,42 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       if (out.length > limit) out.shift();
     }
     return out;
+  }
+
+  /**
+   * The guild journal's records from the UTC day of `from` (epoch ms) through today, oldest
+   * first, each as `{ at, kind, event }` (`event` of a system record, else null): the times
+   * offPeriods reads, nothing about anyone. A line's kind and time come from the envelope's head;
+   * only a system line, or one whose head does not match, is parsed whole. A private journal is
+   * not read.
+   */
+  async function timeline(guildId, { from } = {}) {
+    const end = now();
+    const start = Number.isFinite(from) ? Math.min(from, end) : end;
+    const out = [];
+    for (let day = Date.parse(`${utcDay(start)}T00:00:00Z`); day <= end; day += DAY_MS) {
+      for await (const { line } of appendStore.iterate(dayFile(guildId, utcDay(day)))) {
+        const head = ENVELOPE_HEAD_RE.exec(line);
+        let kind = head?.[1] ?? null;
+        let occurredAt = head?.[2] ?? null;
+        let event = null;
+        if (!head || kind === 'system') {
+          let record;
+          try {
+            record = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          if (!record || typeof record !== 'object') continue;
+          kind = record.kind;
+          occurredAt = record.occurredAt;
+          event = kind === 'system' && typeof record.event === 'string' ? record.event : null;
+        }
+        const at = Date.parse(occurredAt);
+        if (typeof kind === 'string' && Number.isFinite(at)) out.push({ at, kind, event });
+      }
+    }
+    return out.map((entry, i) => ({ entry, i })).sort((a, b) => a.entry.at - b.entry.at || a.i - b.i).map(({ entry }) => entry);
   }
 
   function op(guildId, base = {}) {
@@ -818,6 +961,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     memory,
     system,
     read,
+    timeline,
     dayFile,
     op,
     pending,

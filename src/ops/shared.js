@@ -38,13 +38,6 @@ export async function treeSize(dir) {
   return { bytes, files };
 }
 
-/** What the owner's pause/resume reply adds when the persona's announcement did not go out, by reason. */
-export const NOT_TOLD = {
-  'no-channel': '(she was not told: no announce channel)',
-  'no-label': '(she was not told: no announce wording)',
-  'send-failed': '(she was not told: the announce post failed)',
-};
-
 export const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /** Config paths only an owner may change through `/nep set` and `/nep unset`: who is an owner and

@@ -6,7 +6,7 @@ import { log } from '../log.js';
 import { defineOp, perEnv } from './registry.js';
 
 const handlers = perEnv((env) => {
-  const { hot, store, turns, memory, pending, warmup, gifRecache, slash, resolvedGuildId, journalSystem, announce } = env;
+  const { hot, store, turns, memory, pending, warmup, gifRecache, slash, resolvedGuildId, journalSystem } = env;
 
   /**
    * Sets `paused`/`pausedAt` (and `pausedBy`, the caller) in state.json FIRST (so a crash or restart
@@ -19,7 +19,8 @@ const handlers = perEnv((env) => {
    * queue, flush everything and drop every cache except state.json itself, so
    * nothing stale (or a late in-flight write) can land in data/ after the
    * owner starts editing it. Idempotent: a second call just reports the
-   * state. Then the one line to the chat (`announce`) and the journal's `pause` record.
+   * state. Then the journal's `pause` record; nothing is posted to the chat (the persona learns
+   * of the pause from the journal, src/memory/journal.js#offPeriods).
    */
   async function cmdPause(context) {
     const state = store.state.data;
@@ -73,16 +74,11 @@ const handlers = perEnv((env) => {
 
     log.info('admin: paused', { dropped });
 
-    const told = await announce('paused');
-    await journalSystem(resolvedGuildId(context), {
-      event: 'pause',
-      by: 'owner',
-      announced: told.announced,
-    });
+    await journalSystem(resolvedGuildId(context), { event: 'pause', by: 'owner' });
 
     return [
       'Paused. Memory is flushed to disk -- files under data/ can be edited safely now.',
-      `Run ${slash('resume')} when done.${told.note ? ` ${told.note}` : ''}`,
+      `Run ${slash('resume')} when done.`,
     ].join('\n');
   }
 
@@ -92,7 +88,7 @@ const handlers = perEnv((env) => {
    * data/ fails to parse, naming the offending paths; else re-reads
    * state.json (the owner may have hand-edited data/ while paused) and clears
    * the pause flags, letting every other cache lazily re-populate from disk.
-   * Then the one line to the chat (`announce`) and the journal's `resume` record.
+   * Then the journal's `resume` record; nothing is posted to the chat.
    */
   async function cmdResume(context) {
     if (!store.state.data.paused) return 'Not paused.';
@@ -119,10 +115,9 @@ const handlers = perEnv((env) => {
 
     log.info('admin: resumed', {});
 
-    const told = await announce('resumed');
-    await journalSystem(resolvedGuildId(context), { event: 'resume', by: 'owner', announced: told.announced });
+    await journalSystem(resolvedGuildId(context), { event: 'resume', by: 'owner' });
 
-    return told.note ? `Resumed. ${told.note}` : 'Resumed.';
+    return 'Resumed.';
   }
 
   return { cmdPause, cmdResume };

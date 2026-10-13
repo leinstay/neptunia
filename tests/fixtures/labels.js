@@ -294,7 +294,8 @@ export const labels = {
     topic: 'Topic the owner asked for:',
   },
   journal: {
-    paused: 'Paused by the owner.',
-    resumed: 'Back.',
+    offLead: 'Your recent time away:',
+    offPaused: 'Paused by the owner from {from} to {to} ({length}).',
+    offStopped: 'Switched off from {from} to {to} ({length}).',
   },
 };

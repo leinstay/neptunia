@@ -2525,8 +2525,7 @@ test('run: resume clears the flags and reports plain confirmation', async () => 
   assert.equal(store.state.data.paused, undefined);
   assert.equal(store.state.data.pausedAt, undefined);
   assert.equal(store.reloadStateCalls, 1);
-  // No announce channel configured: the reply says the chat was not told.
-  assert.equal(result, 'Resumed. (she was not told: no announce channel)');
+  assert.equal(result, 'Resumed.');
 });
 
 test('run: every command that writes data/ is refused while paused, with a hint to resume', async () => {
@@ -3336,7 +3335,7 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
 });
 
 // ---------------------------------------------------------------------------
-// the journal: system records, the pause announcement, /nep journal, forget and wipe
+// the journal: system records, /nep journal, forget and wipe
 // ---------------------------------------------------------------------------
 
 /** A journal fake: records every write and call; `read` serves `days[day]` filtered like the real one. */
@@ -3362,8 +3361,8 @@ function fakeJournal(days = {}) {
   };
 }
 
-/** A client whose channels collect what is sent to them. */
-function announceClient({ fail = false } = {}) {
+/** A client whose channels collect what is sent to them (nothing should be). */
+function sendingClient() {
   const sent = [];
   return {
     sent,
@@ -3371,7 +3370,6 @@ function announceClient({ fail = false } = {}) {
       fetch: async (id) => ({
         id,
         send: async (message) => {
-          if (fail) throw Object.assign(new Error('Missing Access'), { code: 50001 });
           sent.push([id, message]);
         },
       }),
@@ -3379,70 +3377,36 @@ function announceClient({ fail = false } = {}) {
   };
 }
 
-test('admin: pause writes a system record and announces in announceChannelId', async () => {
+test('admin: pause and resume write system records and post nothing to the chat', async () => {
   const rootDir = makeRoot();
   const journal = fakeJournal();
-  const client = announceClient();
+  const client = sendingClient();
   const hot = makeHot(rootDir);
   hot.config.features = { journal: true };
-  hot.config.journal = { announceChannelId: 'c-announce' };
-  hot.prompts.labels = { ...hot.prompts.labels, journal: { paused: 'Ζωή is away.', resumed: 'Ζωή is back.' } };
+  hot.config.journal = {};
   const { admin } = makeAdmin(rootDir, { hot, client, journal });
 
   const paused = await admin.run('pause', {}, { guildId: 'g1' });
-  assert.doesNotMatch(paused, /not told/);
-  assert.equal(client.sent.length, 1);
-  assert.equal(client.sent[0][0], 'c-announce');
-  assert.equal(client.sent[0][1].content, 'Ζωή is away.');
-  assert.deepEqual(client.sent[0][1].allowedMentions, { parse: [] });
+  assert.match(paused, /^Paused./);
+  assert.equal(client.sent.length, 0);
   const pauseRecord = journal.calls.find(([name]) => name === 'system');
-  assert.deepEqual(pauseRecord.slice(0, 2), ['system', 'g1']);
-  assert.equal(pauseRecord[2].event, 'pause');
-  assert.equal(pauseRecord[2].by, 'owner');
-  assert.equal(pauseRecord[2].announced, true);
+  assert.deepEqual(pauseRecord, ['system', 'g1', { event: 'pause', by: 'owner' }]);
 
   const resumed = await admin.run('resume', {}, { guildId: 'g1' });
-  assert.match(resumed, /^Resumed\./);
-  assert.equal(client.sent[1][1].content, 'Ζωή is back.');
-  const records = journal.calls.filter(([name]) => name === 'system').map(([, , record]) => [record.event, record.announced]);
-  assert.deepEqual(records, [['pause', true], ['resume', true]]);
+  assert.equal(resumed, 'Resumed.');
+  assert.equal(client.sent.length, 0);
+  const records = journal.calls.filter(([name]) => name === 'system').map(([, , record]) => record);
+  assert.deepEqual(records, [{ event: 'pause', by: 'owner' }, { event: 'resume', by: 'owner' }]);
 
-  // A repeat pause or resume that changes nothing posts and records nothing.
+  // A repeat pause or resume that changes nothing records nothing.
   await admin.run('resume', {}, { guildId: 'g1' });
-  assert.equal(client.sent.length, 2);
   assert.equal(journal.calls.filter(([name]) => name === 'system').length, 2);
 
-  // With the journal off the announcement still goes out, but nothing is recorded.
+  // With the journal off nothing is recorded, and still nothing is posted.
   hot.config.features.journal = false;
   await admin.run('pause', {}, { guildId: 'g1' });
-  assert.equal(client.sent.length, 3);
-  assert.equal(journal.calls.filter(([name]) => name === 'system').length, 2);
-});
-
-test('admin: pause without an announce channel replies that the persona was not told', async () => {
-  const rootDir = makeRoot();
-  const journal = fakeJournal();
-  const client = announceClient();
-  const hot = makeHot(rootDir);
-  hot.config.features = { journal: true };
-  hot.config.journal = { announceChannelId: '' };
-  hot.prompts.labels = { ...hot.prompts.labels, journal: { paused: 'away', resumed: 'back' } };
-  const { admin, store } = makeAdmin(rootDir, { hot, client, journal });
-
-  const paused = await admin.run('pause', {}, { guildId: 'g1' });
-  assert.match(paused, /\(she was not told: no announce channel\)/);
   assert.equal(client.sent.length, 0);
-  assert.equal(journal.calls.find(([name]) => name === 'system')[2].announced, false);
-
-  // A channel the post fails in: the command still works and says so.
-  const failing = announceClient({ fail: true });
-  const second = makeAdmin(rootDir, { hot, store, client: failing, journal });
-  hot.config.journal.announceChannelId = 'c-locked';
-  const resumed = await second.admin.run('resume', {}, { guildId: 'g1' });
-  assert.match(resumed, /^Resumed\./);
-  assert.match(resumed, /she was not told/);
-  const resume = journal.calls.filter(([name]) => name === 'system').at(-1)[2];
-  assert.deepEqual([resume.event, resume.announced], ['resume', false]);
+  assert.equal(journal.calls.filter(([name]) => name === 'system').length, 2);
 });
 
 test('admin: journal lists the last n records of a day as short lines', async () => {

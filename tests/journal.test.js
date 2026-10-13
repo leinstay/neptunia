@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createJournal } from '../src/memory/journal.js';
+import { createJournal, createOffPeriodsReader, offPeriods } from '../src/memory/journal.js';
 
 const DATA = path.join('fake-root', 'data');
 const DAY_D = Date.UTC(2026, 9, 13, 23, 59, 50);
@@ -666,4 +666,122 @@ test('journal: request dumps that mention a forgotten user are deleted', async (
   assert.deepEqual(await journal.forgetRequests('g1', id), { removed: 3 });
   assert.deepEqual([...fs.files.keys()].sort(), [longer, other].sort(), 'another id that only starts the same stays');
   assert.deepEqual(await journal.forgetRequests('g1', id), { removed: 0 });
+});
+
+// ---- the persona's time away: offPeriods, timeline, createOffPeriodsReader ----
+
+const T0 = Date.UTC(2026, 9, 14, 10, 0, 0);
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY_WINDOW = 24 * HOUR;
+const sys = (at, event) => ({ at, kind: 'system', event });
+const turnAt = (at) => ({ at, kind: 'turn', event: null });
+
+test('offPeriods: an owner pause at 10:00 and its resume at 10:20 are one paused period', () => {
+  const timeline = [sys(T0, 'pause'), sys(T0 + 20 * MINUTE, 'resume')];
+  assert.deepEqual(offPeriods(timeline, { now: T0 + HOUR, windowMs: DAY_WINDOW }), [
+    { kind: 'paused', from: T0, to: T0 + 20 * MINUTE },
+  ]);
+});
+
+test('offPeriods: a service stop and the next start are one stopped period', () => {
+  const timeline = [turnAt(T0 - MINUTE), sys(T0, 'stop'), sys(T0 + 5 * MINUTE, 'start')];
+  assert.deepEqual(offPeriods(timeline, { now: T0 + HOUR, windowMs: DAY_WINDOW }), [
+    { kind: 'stopped', from: T0, to: T0 + 5 * MINUTE },
+  ]);
+});
+
+test('offPeriods: two restarts 30 s apart merge into one period', () => {
+  const timeline = [
+    sys(T0, 'stop'),
+    sys(T0 + MINUTE, 'start'),
+    sys(T0 + MINUTE + 30_000, 'stop'),
+    sys(T0 + 5 * MINUTE, 'start'),
+  ];
+  assert.deepEqual(offPeriods(timeline, { now: T0 + HOUR, windowMs: DAY_WINDOW }), [
+    { kind: 'stopped', from: T0, to: T0 + 5 * MINUTE },
+  ]);
+});
+
+test('offPeriods: a start with no stop before it (a crash) counts from the last record before it', () => {
+  const timeline = [turnAt(T0), sys(T0 + 30 * MINUTE, 'unclean-stop'), sys(T0 + 30 * MINUTE, 'start')];
+  assert.deepEqual(offPeriods(timeline, { now: T0 + HOUR, windowMs: DAY_WINDOW }), [
+    { kind: 'stopped', from: T0, to: T0 + 30 * MINUTE },
+  ]);
+  // The first start the journal holds has nothing before it: no period.
+  assert.deepEqual(offPeriods([sys(T0, 'start')], { now: T0 + HOUR, windowMs: DAY_WINDOW }), []);
+});
+
+test('offPeriods: periods that ended before the window are ignored; an ongoing pause is not shown', () => {
+  const old = [sys(T0 - 30 * HOUR, 'pause'), sys(T0 - 29 * HOUR, 'resume')];
+  assert.deepEqual(offPeriods(old, { now: T0, windowMs: DAY_WINDOW }), []);
+  const ongoing = [sys(T0 - HOUR, 'pause')];
+  assert.deepEqual(offPeriods(ongoing, { now: T0, windowMs: DAY_WINDOW }), []);
+  assert.deepEqual(offPeriods([], { now: T0, windowMs: DAY_WINDOW }), []);
+});
+
+test('offPeriods: at most 3 periods, newest first; an overlap takes the kind of its longest part', () => {
+  const timeline = [
+    sys(T0, 'pause'), sys(T0 + 10 * MINUTE, 'resume'),
+    sys(T0 + HOUR, 'pause'), sys(T0 + HOUR + 10 * MINUTE, 'resume'),
+    sys(T0 + 2 * HOUR, 'stop'), sys(T0 + 2 * HOUR + 10 * MINUTE, 'start'),
+    // A pause that a restart falls inside: one period, paused.
+    sys(T0 + 3 * HOUR, 'pause'), sys(T0 + 3 * HOUR + 5 * MINUTE, 'stop'), sys(T0 + 3 * HOUR + 6 * MINUTE, 'start'),
+    sys(T0 + 3 * HOUR + 40 * MINUTE, 'resume'),
+  ];
+  assert.deepEqual(offPeriods(timeline, { now: T0 + 5 * HOUR, windowMs: DAY_WINDOW }), [
+    { kind: 'paused', from: T0 + 3 * HOUR, to: T0 + 3 * HOUR + 40 * MINUTE },
+    { kind: 'stopped', from: T0 + 2 * HOUR, to: T0 + 2 * HOUR + 10 * MINUTE },
+    { kind: 'paused', from: T0 + HOUR, to: T0 + HOUR + 10 * MINUTE },
+  ]);
+});
+
+test('journal: timeline reads the guild day files the window spans, oldest first, kind and event only', async () => {
+  const clock = { ms: T0 - 36 * HOUR };
+  const { journal } = journalAt(clock);
+  await journal.system('g1', { event: 'stop', by: 'service' }); // two days back: outside the read days
+  clock.ms = T0 - 20 * HOUR; // yesterday
+  journal.start('g1', { channelId: 'c1', mode: 'reply', participants: ['u1'] });
+  await Promise.resolve();
+  clock.ms = T0;
+  await journal.system('g1', { event: 'start', by: 'service' });
+  journal.start('g1', { channelId: 'c1', mode: 'reply', privateUserId: 'u2' }); // a private journal: not read
+  await Promise.resolve();
+  const timeline = await journal.timeline('g1', { from: T0 - DAY_WINDOW });
+  assert.deepEqual(timeline, [
+    { at: T0 - 20 * HOUR, kind: 'turn.start', event: null },
+    { at: T0, kind: 'system', event: 'start' },
+  ]);
+});
+
+test('createOffPeriodsReader: reads the window once a minute and gives [] with a warn on a failure', async () => {
+  const clock = { ms: T0 + HOUR };
+  const reads = [];
+  const warns = [];
+  let fail = false;
+  const journal = {
+    timeline: async (guildId, query) => {
+      reads.push([guildId, query]);
+      if (fail) throw Object.assign(new Error('boom'), { code: 'EIO' });
+      return [sys(T0, 'pause'), sys(T0 + 20 * MINUTE, 'resume')];
+    },
+  };
+  const log = { warn: (event, fields) => warns.push([event, fields]) };
+  const read = createOffPeriodsReader({ journal, now: () => clock.ms, log });
+
+  const first = await read('g1', { windowHours: 24 });
+  assert.deepEqual(first, [{ kind: 'paused', from: T0, to: T0 + 20 * MINUTE }]);
+  assert.deepEqual(reads, [['g1', { from: T0 + HOUR - DAY_WINDOW }]]);
+  clock.ms += 30_000;
+  assert.deepEqual(await read('g1', { windowHours: 24 }), first);
+  assert.equal(reads.length, 1, 'within a minute: the cached list');
+
+  clock.ms += MINUTE;
+  fail = true;
+  assert.deepEqual(await read('g1', { windowHours: 24 }), []);
+  assert.equal(reads.length, 2);
+  assert.deepEqual(warns, [['journal: off periods unread', { guildId: 'g1', code: 'EIO' }]]);
+
+  // No reader at all: nothing to show.
+  assert.deepEqual(await createOffPeriodsReader({ journal: null })('g1', { windowHours: 24 }), []);
 });

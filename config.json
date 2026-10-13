@@ -28,6 +28,7 @@
     "recall": true,
     "recallTrace": false,
     "journal": true,
+    "offPeriods": true,
     "record": true,
     "archive": true,
     "imageGeneration": false,
@@ -382,7 +383,7 @@
     "thinkChars": 4000,
     "retentionDays": 0,
     "keepRequests": 3,
-    "announceChannelId": ""
+    "offWindowHours": 24
   },
   "record": {
     "fsyncMs": 500
