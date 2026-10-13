@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fromTokens } from '../memory/mentions.js';
 import { familyOf as imageFamilyOf } from '../llm/images.js';
 import { log } from '../log.js';
+import { invalid } from './registry.js';
 import { NOT_TOLD, NO_GUILD, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.js';
 
 /**

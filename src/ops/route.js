@@ -74,8 +74,8 @@ const handlers = perEnv((env) => {
     const role = routeRoleArg(args);
     const providers = [...new Set(String(args?.providers ?? '').split(',').map((slug) => slug.trim()).filter(Boolean))];
     if (providers.length === 0) throw invalid('at least one provider slug is required, e.g. google-vertex');
-    const invalid = providers.find((slug) => !PROVIDER_SLUG_RE.test(slug));
-    if (invalid) throw invalid(`invalid provider slug: ${invalid} (lowercase letters, digits and -)`);
+    const badSlug = providers.find((slug) => !PROVIDER_SLUG_RE.test(slug));
+    if (badSlug) throw invalid(`invalid provider slug: ${badSlug} (lowercase letters, digits and -)`);
     const allowFallbacks = args?.fallbacks === true;
 
     const key = role ? `${prefix}@${role}` : prefix;
