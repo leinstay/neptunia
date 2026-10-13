@@ -1007,7 +1007,7 @@ test('events: media.prefillPerMessage caps the pictures handed to the describer,
   assert.equal(describer.calls.length, 1);
 
   delete config.media.prefillPerMessage;
-  await handler(fakeMessage({ cleanContent: 'lots of pics', attachments: pictureAttachments(4) }));
+  await handler(fakeMessage({ cleanContent: 'lots of pics', attachments: pictureAttachments(DEFAULT_CONFIG.media.prefillPerMessage + 1) }));
   assert.equal(describer.calls.length, 2);
   assert.equal(describer.calls[1].items.length, DEFAULT_CONFIG.media.prefillPerMessage);
 });
@@ -1024,7 +1024,7 @@ test('events: media.video.prefillPerMessage caps the videos watched ahead per me
   assert.equal(describer.videoCalls.length, 1);
 
   delete config.media.video.prefillPerMessage;
-  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(3) }));
+  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(DEFAULT_CONFIG.media.video.prefillPerMessage + 1) }));
   assert.equal(describer.videoCalls.length, 2);
   assert.equal(describer.videoCalls[1].items.length, DEFAULT_CONFIG.media.video.prefillPerMessage);
 });
@@ -2863,7 +2863,7 @@ const TODAY = '2026-09-29';
 const TODAY_MS = Date.parse(`${TODAY}T12:00:00Z`);
 
 function privateConfig(overrides = {}) {
-  return baseConfig(deepMerge({ features: { privateMessages: true }, bot: { owners: ['owner1'] } }, overrides));
+  return baseConfig(deepMerge({ features: { privateMessages: true }, bot: { owners: ['owner1'] }, private: { maxPerUserPerDay: 100 } }, overrides));
 }
 
 function fakeDmChannel(id = 'dm1', recipientId = 'u1', overrides = {}) {

@@ -248,7 +248,7 @@ function memoryFormatOptions(config, selfName, labels) {
   return {
     timezone: config?.bot?.timezone ?? 'UTC',
     gapMinutes: config?.context?.gapMarkerMinutes ?? 20,
-    maxChars: config?.context?.maxMessageChars ?? 800,
+    maxChars: config?.context?.maxMessageChars ?? 2000,
     selfName,
     mode: 'memory',
     labels,

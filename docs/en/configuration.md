@@ -39,7 +39,7 @@ Every key in `config.json` with its default, grouped by section.
 | `notesRefresh` | `true` | Periodically re-examine channel and server notes from a spread sample of recent messages. A missing key counts as on. See `memory.notesRefreshDays*` and [Warmup: Keeping the notes current](warmup.md#keeping-the-notes-current) |
 | `versions` | `true` | Keep a version history of every prose memory field when its text is replaced. Previous texts are stored in `data/guilds/<id>/versions/`. `/nep memory forget` and `/nep memory wipe` delete version files. A missing key counts as on |
 | `memoryTwoStage` | `false` | Split the memory analyzer into two stages: a neutral GPT model decides what changed (stage A), then the voice model words the persona's texts (stage B). Must be exactly `true` to enable; a missing key counts as off. See `memory.voice.*` |
-| `promptCache` | `false` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
+| `promptCache` | `true` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
 | `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
 | `journal` | `true` | Keep the persona's journal: for every turn, one line when it starts and one when it ends (what of the chat went into the request, its hidden reasoning, what it posted and reacted to, token usage, the limits that cut something), in `data/guilds/<id>/journal/<YYYY-MM-DD>.jsonl` by UTC day; a private chat's turns go to `data/guilds/<id>/private/<userId>/journal/` instead. While on, the live log carries only the length of the hidden reasoning (`thinkChars`). Must be exactly `true` to enable; a missing key counts as off. See [`journal`](#journal) |
@@ -78,14 +78,13 @@ Every key in `config.json` with its default, grouped by section.
 | `baseUrl` | `"https://openrouter.ai/api/v1"` | Chat completions endpoint |
 | `model` | `"anthropic/claude-opus-4.6"` | Model ID |
 | `temperature` | `1` | Sampling temperature |
-| `maxOutputTokens` | `700` | Max output tokens |
+| `maxOutputTokens` | `2000` | Max output tokens |
 | `maxRequestTokens` | `50000` | Hard token cap per request |
 | `safetyMargin` | `0.9` | Budgeting fraction of maxRequestTokens |
 | `timeoutMs` | `300000` | Request timeout (ms) |
 | `helperTimeoutMs` | `30000` | Timeout for a helper that runs alongside the turn (the route classifier, the search classifier and the recall summary). A helper that runs past this limit is abandoned; the turn continues without its result |
-| `pingTimeoutMs` | `30000` | Timeout for the startup connectivity probe (ms). No longer used by any command |
 | `retries` | `2` | Retries on transient HTTP errors (408/429/5xx) and network failures. A provider account's daily-quota 429 gets one attempt and is thrown at once, not retried |
-| `maxRequestsPerDay` | `300` | Daily request cap |
+| `maxRequestsPerDay` | `5000` | Daily request cap |
 | `provider` | `null` | OpenRouter `provider` routing object, passed verbatim; `null` sends nothing |
 | `providerByModel` | `{}` | Per-model provider routing; see below |
 | `cache.ttl` | `"1h"` | Cache TTL of the markers on the system message and on the reply's stable user prefix (`<self_facts>`, `<about_chat>`, `<gifs>`): `"1h"` or `"5m"` |
@@ -136,7 +135,7 @@ The three helper model roles, grouped under one key. Each is set independently, 
 | `neighborMaxAgeMinutes` | `60` | Max age for neighbour messages (min) |
 | `neighborMaxChannels` | `8` | Max neighbour channels |
 | `neighborMessageChars` | `300` | Characters kept per message from a neighbouring channel (`<other_channels>`) |
-| `maxMessageChars` | `800` | Truncate messages beyond this (chars) |
+| `maxMessageChars` | `2000` | Truncate messages beyond this (chars) |
 | `gapMarkerMinutes` | `20` | Time-gap marker threshold (min) |
 | `ageAfterMinutes` | `60` | When the persona reads a chat, every message at least this many minutes old shows how long ago it was posted next to its time, as in `[14:32 · 2 h 58 min ago]`; newer messages show only `[14:32]`. Applies to the current channel and to pulled and neighbour channels. An empty `transcript.timeAged` in `prompts.local/labels.json` turns ages off |
 | `reactionsPerMessage` | `6` | Max reactions listed per message in the transcript, most frequent first |
@@ -214,12 +213,12 @@ How long each stage of a turn may take when someone is waiting for the answer. A
 | Key | Default | Meaning |
 |---|---|---|
 | `prepareMs` | `6000` | Milliseconds from the turn's start before the voice request. Everything that runs before the LLM call (history, captions, the route and search classifiers) must finish within this window. `0` or a non-number removes the limit |
-| `prepareSearchMs` | `12000` | The deadline extends to this limit while the search classifier is deciding and while any search it requests runs. A 'no search' verdict releases the hold at once. Never shorter than `prepareMs`. `0` or a non-number removes the limit |
+| `prepareSearchMs` | `18000` | The deadline extends to this limit while the search classifier is deciding and while any search it requests runs. A 'no search' verdict releases the hold at once. Never shorter than `prepareMs`. `0` or a non-number removes the limit |
 | `prepareMediaMs` | `20000` | Extended deadline on a direct call whose trigger message (or the line it replies to) carries a picture, GIF or video the describer or video stage will work on. Never shorter than `prepareMs`; when the search extension also applies, the larger limit wins. `0` or a non-number removes the extension |
-| `dropAfterMs` | `60000` | Milliseconds from the turn's start. If the finished answer has not arrived by this time, the turn is dropped unposted (`turn: dropped`). `0` or a non-number removes the bar |
-| `replyHedgeMs` | `20000` | On a turn answering a direct call, when the reply request has no answer after this many milliseconds, a second identical request is sent. The first to finish wins and the other is aborted. The second attempt counts against `llm.maxRequestsPerDay`. The `dropAfterMs` bar still ends everything. `0` or a non-number = one attempt only. Turns nobody waits for (`unpromptedWaits`) never send a second attempt |
-| `settleMs` | `0` | On a turn answering a person (mention, reply, name, follow-up, overheard, private), the persona first waits until that person has written nothing in that channel for this many milliseconds, then reads the chat. Every new message of theirs restarts the count, so a thought posted as two or three quick messages is answered whole. The persona's attention is taken during the wait, and the `prepareMs`, `prepareSearchMs`, `prepareMediaMs` and `dropAfterMs` clocks start only after it. Turns nobody started (interjecting, starting a topic, the diary) never wait. `0`, a negative value or a non-number = no wait. The wait actually spent is logged as `settleMs` in `turn: timings` |
-| `settleMaxMs` | `15000` | The longest that wait may run, counted from the message that called the persona: once this many milliseconds have passed since it, the turn goes on even if the person is still writing. `0` or a non-number = at most one `settleMs` from that message |
+| `dropAfterMs` | `120000` | Milliseconds from the turn's start. If the finished answer has not arrived by this time, the turn is dropped unposted (`turn: dropped`). `0` or a non-number removes the bar |
+| `replyHedgeMs` | `30000` | On a turn answering a direct call, when the reply request has no answer after this many milliseconds, a second identical request is sent. The first to finish wins and the other is aborted. The second attempt counts against `llm.maxRequestsPerDay`. The `dropAfterMs` bar still ends everything. `0` or a non-number = one attempt only. Turns nobody waits for (`unpromptedWaits`) never send a second attempt |
+| `settleMs` | `3000` | On a turn answering a person (mention, reply, name, follow-up, overheard, private), the persona first waits until that person has written nothing in that channel for this many milliseconds, then reads the chat. Every new message of theirs restarts the count, so a thought posted as two or three quick messages is answered whole. The persona's attention is taken during the wait, and the `prepareMs`, `prepareSearchMs`, `prepareMediaMs` and `dropAfterMs` clocks start only after it. Turns nobody started (interjecting, starting a topic, the diary) never wait. `0`, a negative value or a non-number = no wait. The wait actually spent is logged as `settleMs` in `turn: timings` |
+| `settleMaxMs` | `8000` | The longest that wait may run, counted from the message that called the persona: once this many milliseconds have passed since it, the turn goes on even if the person is still writing. `0` or a non-number = at most one `settleMs` from that message |
 | `typingWhilePreparing` | `false` | Show the typing indicator from the start of a turn answering a direct call (mention, reply, name, follow-up, private), not only while the finished answer is being typed out. Must be exactly `true` to enable |
 | `unpromptedWaits` | `true` | A turn nobody waits for (interjecting, starting a topic, noticed comment, room question, overheard) waits for every stage and posts when ready, ignoring `prepareMs`, `prepareSearchMs` and `dropAfterMs`. `false` applies the same deadlines to every turn. A missing key counts as on |
 
@@ -281,7 +280,7 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 
 | Key | Default | Meaning |
 |---|---|---|
-| `maxForms` | `5` | Search forms (word inflections) the classifier may list per `server:` line |
+| `maxForms` | `8` | Search forms (word inflections) the classifier may list per `server:` line |
 | `maxPeople` | `2` | People the `who:` line may name |
 | `dateSamples` | `4` | Date-only queries sampled across a `when:` range when no content forms are given |
 | `clusterGapMinutes` | `30` | Gap between hits that separates them into clusters |
@@ -296,7 +295,7 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `answerChars` | `1200` | Max characters for the summary note; fills `{{answerChars}}` in `recall-summary.md` |
 | `stretchChars` | `1500` | Max characters of the verbatim stretch shown to the persona |
 | `maxPerDay` | `100` | Daily recall runs (stored in `state.json` as `recallDay` / `recallCount`) |
-| `timeoutMs` | `10000` | Total time for the recall run (search, windows, summary). Once half the time is gone no further search is sent; the summary runs only when at least `minSummaryMs` is left |
+| `timeoutMs` | `15000` | Total time for the recall run (search, windows, summary). Once half the time is gone no further search is sent; the summary runs only when at least `minSummaryMs` is left |
 | `minSummaryMs` | `2500` | Minimum time left for the summary helper to be asked. Without it the verbatim stretch of the top window is returned without a note |
 | `memoryItems` | `6` | Stored memory items (episodes, lore, lessons, recent lines, and archived items) matched against the classifier's word forms and name forms and sent in the `<memory>` block of the recall summary. `0` turns the match off |
 | `memoryTokens` | `600` | Token budget of the `<memory>` block (estimated per line): lines are added in rank order until the next one would pass it. `0` = no line fits |
@@ -311,7 +310,7 @@ Settings for the GIF library (`features.gifs`). Uses are counted as each message
 
 | Key | Default | Meaning |
 |---|---|---|
-| `max` | `40` | GIFs shown in the `<gifs>` block, ranked by recency-weighted use |
+| `max` | `25` | GIFs shown in the `<gifs>` block, ranked by recency-weighted use |
 | `reactionChars` | `40` | Characters kept per reaction label in the `<gifs>` list and a library GIF's transcript line. `0` shows the whole text |
 | `actionChars` | `70` | Characters kept per action line in the `<gifs>` list and a library GIF's transcript line, cut at a word boundary. `0` shows the whole line |
 | `storeMax` | `300` | GIFs kept in the library; the top `max` are shown |
@@ -338,13 +337,13 @@ Settings for the media describer (`features.mediaDescriptions`). The describer m
 
 | Key | Default | Meaning |
 |---|---|---|
-| `maxOutputTokens` | `120` | Max output tokens per description; raise for a reasoning model whose thinking counts against this cap |
-| `descriptionChars` | `200` | Max characters for a picture description; the first line is kept and cut on a word boundary. Fills `{{maxChars}}` in `describe.md` when the placeholder is present |
+| `maxOutputTokens` | `2000` | Max output tokens per description; raise for a reasoning model whose thinking counts against this cap |
+| `descriptionChars` | `500` | Max characters for a picture description; the first line is kept and cut on a word boundary. Fills `{{maxChars}}` in `describe.md` when the placeholder is present |
 | `imageSize` | `512` | Via Discord's media proxy, a picture's longer side is scaled down to at most this many px with its aspect kept; a picture of unknown size is sent at its original size |
 | `maxPerTurn` | `6` | Max descriptions generated per turn |
-| `prefillPerMessage` | `2` | Pictures, stickers and custom emoji of one observed message sent to the describer as they arrive; `0` turns the picture prefill off |
+| `prefillPerMessage` | `5` | Pictures, stickers and custom emoji of one observed message sent to the describer as they arrive; `0` turns the picture prefill off |
 | `cacheEntries` | `5000` | Description cache size, keyed by attachment |
-| `filePreviewChars` | `500` | Characters shown from the beginning of text files |
+| `filePreviewChars` | `10000` | Characters shown from the beginning of text files |
 | `embedTextChars` | `200` | Characters shown from link embed text |
 
 ### `media.gif`
@@ -354,7 +353,7 @@ Settings for watching GIFs as short clips (`media.gif.watch`). When enabled, a G
 | Key | Default | Meaning |
 |---|---|---|
 | `watch` | `true` | Watch GIFs as short video clips instead of describing a single frame. Needs `features.mediaDescriptions` and `features.videoDescriptions` on. A missing key counts as on |
-| `maxSeconds` | `8` | Seconds of the animation sent to the video model; the clip is converted with ffmpeg. A GIF's second look on a question (`media.video.rewatch`) uses the same cap |
+| `maxSeconds` | `15` | Seconds of the animation sent to the video model; the clip is converted with ffmpeg. A GIF's second look on a question (`media.video.rewatch`) uses the same cap |
 | `maxPerDay` | `200` | Daily GIF watch cap, counted separately from `media.video.maxPerDay`. Once spent, a GIF gets the one-frame description instead. A GIF's second look on a question takes a slot here too |
 
 ### `media.video`
@@ -370,7 +369,7 @@ Settings for the video describer (`features.videoDescriptions`). Video vision ne
 | `maxSeconds` | `180` | Max clip duration (seconds) for attachments and downloaded site videos; longer attachments are trimmed with `ffmpeg`, longer site videos are cut to their first `maxSeconds` by `yt-dlp`. Direct-URL sites use `directUrlMaxSeconds` instead |
 | `directUrlMaxSeconds` | `3600` | Max duration (seconds) for a public-URL video (YouTube and other `directUrlSites`) when `urlProcessing` is `agentic`. In any other mode the effective cap is the smaller of this value and `maxRequestTokens / tokensPerSecond`. Longer videos take the download route (first `maxSeconds` via yt-dlp), which YouTube often blocks with a bot check on servers |
 | `maxBytes` | `12000000` | Max file size (bytes) for attachments and downloaded site clips; the download itself may be up to 4x this size. Over-size files are re-encoded to 360p with `ffmpeg` first; only a clip still too large after re-encoding is refused as a permanent miss |
-| `maxPerTurn` | `1` | Max NEW videos per turn; every fetch attempt counts, failed or not |
+| `maxPerTurn` | `5` | Max NEW videos per turn; every fetch attempt counts, failed or not |
 | `maxPerDay` | `40` | Daily video request cap (stored in `state.json` as `videoDay`/`videoCount`) |
 | `tokensPerSecond` | `120` | Token estimate per second of video for the budget check. Applies to downloaded clips and to public-URL videos outside agentic mode; in agentic mode `directUrlTokensPerSecond` is used instead |
 | `directUrlTokensPerSecond` | `10` | Per-second token estimate for the pre-flight budget check on a public-URL video in agentic mode (the model loads only what it needs; the video itself is not counted as prompt tokens). A missing or invalid value falls back to `tokensPerSecond`. `tokensPerSecond` (120) still applies to downloaded clips and to URLs in other modes |
@@ -389,7 +388,7 @@ Settings for the video describer (`features.videoDescriptions`). Video vision ne
 | `urlProcessing` | `"agentic"` | OpenRouter's processing mode sent on public-URL video parts; without it some providers see only a single frame. `null` omits the field |
 | `reasoning` | `{ "effort": "low" }` | OpenRouter `reasoning` setting for every video request; keeps reasoning from eating the output budget. A non-object omits the field |
 | `prefill` | `true` | Watch a video as soon as it arrives, so the next turn finds it cached |
-| `prefillPerMessage` | `1` | Videos of one observed message watched as they arrive (with `prefill` on); `0` turns the video prefill off |
+| `prefillPerMessage` | `5` | Videos of one observed message watched as they arrive (with `prefill` on); `0` turns the video prefill off |
 
 Both `yt-dlp` and `ffmpeg` are optional system binaries. Without them, attachments within the caps still work (sent as-is). Longer attachments and all site links fall back to the still frame or preview picture, and the persona is told the reason. Every video request counts against `llm.maxRequestsPerDay` and the video token cap (`maxRequestTokens`).
 
@@ -403,7 +402,7 @@ Settings for the re-watch classifier (`features.videoRewatch`). When the persona
 |---|---|---|
 | `maxPerDay` | `20` | Daily re-watch cap (separate from `media.video.maxPerDay`) |
 | `maxOutputTokens` | `600` | Max output tokens for the re-watch answer (the video model's second-look response, not the classifier's pick) |
-| `classifierMaxOutputTokens` | `120` | Max output tokens for the re-watch classifier (the pick/retry/none decision). A reasoning model that thinks before answering needs a larger cap, or it returns an empty answer |
+| `classifierMaxOutputTokens` | `2000` | Max output tokens for the re-watch classifier (the pick/retry/none decision). A reasoning model that thinks before answering needs a larger cap, or it returns an empty answer |
 | `answerChars` | `1200` | Max characters for the answer; fills `{{maxChars}}` in `rewatch-answer.md` |
 | `recentMessages` | `60` | How many recent messages to scan for watched or error-state videos |
 | `maxCandidates` | `6` | Max videos offered to the classifier from the recent window, newest first |
@@ -436,10 +435,10 @@ At most one re-watch or retry per turn. Answers are cached for one hour per ques
 | `followUpMinutes` | `15` | Follow-up window after the persona's last reply (min) |
 | `followUpClassifyReplies` | `true` | Send a reply to another member's message to the classifier instead of automatic `no`. Missing key = on. With the switch off, any reply is `no` before the model is asked |
 | `followUpContext` | `15` | Transcript lines sent to the classifier |
-| `followUpMaxOutputTokens` | `8` | Max output tokens for the address classifier. A reasoning model that thinks before answering needs a larger cap, or it returns an empty answer |
+| `followUpMaxOutputTokens` | `2000` | Max output tokens for the address classifier. A reasoning model that thinks before answering needs a larger cap, or it returns an empty answer |
 | `followUpOverheard` | `true` | When on, an `overheard` answer from the address classifier starts its own kind of turn with `prompts/overheard.md`. Off: an `overheard` answer counts as a plain `yes` (a follow-up turn). Missing key = on |
 | `followUpAliases` | `5` | Stored aliases of the persona sent to the address classifier alongside their name, so the classifier recognises them as a call. `0` sends none |
-| `followUpNoStreak` | `3` | Consecutive `no` verdicts that close the window |
+| `followUpNoStreak` | `5` | Consecutive `no` verdicts that close the window |
 | `pauseNoticeMinutes` | `10` | Minimum minutes between pause notices in the same channel. `0` posts one for every call |
 
 Follow-up windows are persisted in `data/state.json` under `followUpWindows` and restored at startup; expired ones are dropped.
@@ -459,10 +458,10 @@ Follow-up windows are persisted in `data/state.json` under `followUpWindows` and
 | Key | Default | Meaning |
 |---|---|---|
 | `channels` | `[]` | Allowed channels |
-| `maxChannelSilenceHours` | `72` | Channel silence that blocks spontaneous messages (hours); 0 = no limit |
+| `maxChannelSilenceHours` | `6` | Channel silence that blocks spontaneous messages (hours); 0 = no limit |
 | `someoneAroundMinutes` | `120` | No spontaneous turn when every readable channel's last message is older than this (minutes). The persona's own last post in a channel does not count; another bot's does. `0` = no gate |
-| `initiateCooldownHours` | `[6, 12]` | Cooldown after starting a topic (hours); no further topic starts until it expires. Interjecting, room questions, eavesdrop, noticed comments and `/nep talk initiate` are not affected. Stored in `state.json`; `/nep status` shows the end while active. `[0, 0]` = no cooldown |
-| `minIntervalMinutes` | `25` | Min check interval (min) |
+| `initiateCooldownHours` | `[24, 48]` | Cooldown after starting a topic (hours); no further topic starts until it expires. Interjecting, room questions, eavesdrop, noticed comments and `/nep talk initiate` are not affected. Stored in `state.json`; `/nep status` shows the end while active. `[0, 0]` = no cooldown |
+| `minIntervalMinutes` | `45` | Min check interval (min) |
 | `maxIntervalMinutes` | `420` | Max check interval (min) |
 | `burstChance` | `0.15` | Burst follow-up chance |
 | `burstMinutes` | `[3, 15]` | Burst timing range (min) |
@@ -470,7 +469,7 @@ Follow-up windows are persisted in `data/state.json` under `followUpWindows` and
 | `liveWindowMinutes` | `15` | Live window (min) |
 | `liveMinMessages` | `4` | Min messages for "live" |
 | `deadAfterMinutes` | `90` | Silence before "dead" (min) |
-| `initiateChance` | `0.35` | Chance of starting a topic vs interjecting |
+| `initiateChance` | `0.1` | Chance of starting a topic vs interjecting |
 | `roomQuestionChance` | `0.04` | Chance that a message put to the room (not to one person) is picked up by the persona. A classifier (`prompts/room.md`) pre-filters. `0` turns it off |
 | `eavesdropChance` | `0.02` | Per-message jump-in chance |
 | `eavesdropDelayMs` | `[5000, 40000]` | Eavesdrop delay range (ms) |
@@ -586,7 +585,7 @@ Settings for stage B of the two-stage analyzer (`features.memoryTwoStage`). Stag
 | `rewriteOnDrift` | `8` | Flag the text for rewrite when the score has drifted this many points since the text was written, even within the same band. `0` = off |
 | `rewriteAfterMoves` | `6` | Flag the text for rewrite after this many attitude history entries since the text was written. `0` = off |
 | `bandHysteresis` | `2` | Points past the old band's edge before a band change is counted as a rewrite cause. Prevents rewrites from scores that hover near a band boundary |
-| `textChars` | `600` | Max characters for the relationship text. Fills `{{relationshipChars}}` in the analyzer prompt. A rewrite over the limit is refused and the stored text stays; only the first write of an empty field is cut |
+| `textChars` | `800` | Max characters for the relationship text. Fills `{{relationshipChars}}` in the analyzer prompt. A rewrite over the limit is refused and the stored text stays; only the first write of an empty field is cut |
 
 With `damping` on, a change that pushes the score further from zero is scaled by `(1 - |score| / 100) ^ dampingPower`, so extremes take sustained effort; a change back toward zero applies at full strength. The score is stored with fractional precision and shown as a whole number; `/nep memory affinity` sets it directly without damping.
 
@@ -621,7 +620,7 @@ Settings for the web lookup (`features.webLookup`). Both link reading and search
 | `maxBytes` | `1500000` | Max page size (bytes) before the page is refused |
 | `textChars` | `6000` | Max characters of page text sent to the condenser |
 | `summaryChars` | `700` | Max characters for the condensed excerpt; fills `{{maxChars}}` in `read-link.md` |
-| `maxOutputTokens` | `300` | Max output tokens for the condenser |
+| `maxOutputTokens` | `4000` | Max output tokens for the condenser |
 | `fetchTimeoutMs` | `10000` | Download timeout per page (ms) |
 | `skipSites` | `["cdn.discordapp.com", "media.discordapp.net", "tenor.com", "giphy.com", "klipy.com", "imgur.com", "i.redd.it", "v.redd.it", "pbs.twimg.com"]` | Hostnames (subdomains included) whose links are never read (in addition to video sites, which are always excluded) |
 
@@ -633,8 +632,8 @@ Settings for the web lookup (`features.webLookup`). Both link reading and search
 | `maxPerTurn` | `1` | Max searches per turn |
 | `results` | `5` | Number of Brave Search results requested |
 | `summaryChars` | `900` | Max characters for the condensed answer; fills `{{maxChars}}` in `search-summary.md` |
-| `maxOutputTokens` | `400` | Max output tokens for the condenser |
-| `classifierMaxOutputTokens` | `200` | Max output tokens for the search classifier. Raised to fit the multi-line answer format (`web:`, `server:`, `who:`, `when:`). A reasoning model that thinks before answering needs a larger cap |
+| `maxOutputTokens` | `4000` | Max output tokens for the condenser |
+| `classifierMaxOutputTokens` | `2000` | Max output tokens for the search classifier. Raised to fit the multi-line answer format (`web:`, `server:`, `who:`, `when:`). A reasoning model that thinks before answering needs a larger cap |
 | `cacheHours` | `24` | Hours a cached search result is served before re-searching |
 | `contextMessages` | `50` | Recent channel messages rendered as a `<transcript>` for the search classifier |
 | `timeoutMs` | `10000` | Brave Search request timeout (ms) |
@@ -688,8 +687,8 @@ Settings for the diary channel (`features.diary`). The persona posts in one owne
 | `hungerBoost` | `0.5` | How strongly an empty window pushes later posts. A window that drew no posts gets one extra roll per hunger point, and each roll redraws its count with chance 1 minus this value. `1` turns hunger off |
 | `quietCarry` | `0.25` | After quiet days in a row the quiet chance is `quietDayChance` times this value per quiet day, so a long silence gets less likely. `1` keeps the chance flat |
 | `minGapMinutes` | `90` | Minimum minutes between two planned slots. A slot closer than this to the previous one is dropped |
-| `maxPerDay` | `3` | Maximum posts per day. When the planner draws more slots than this, extras are dropped at random. The daily count also gates `/nep diary post` |
-| `maxPicturesPerDay` | `2` | Maximum diary pictures per day. Shared with `image.maxPerDay`: whichever cap runs out first wins. When spent, the plan's `picture` is forced false and the senses say no drawing. The cap is checked before a post starts; a set post counts every picture it generated, so one set can take the day's count past the cap |
+| `maxPerDay` | `12` | Maximum posts per day. When the planner draws more slots than this, extras are dropped at random. The daily count also gates `/nep diary post` |
+| `maxPicturesPerDay` | `8` | Maximum diary pictures per day. Shared with `image.maxPerDay`: whichever cap runs out first wins. When spent, the plan's `picture` is forced false and the senses say no drawing. The cap is checked before a post starts; a set post counts every picture it generated, so one set can take the day's count past the cap |
 | `slotGraceMinutes` | `30` | Minutes after a planned slot during which it still fires. A slot missed by more than this while the bot was down is dropped, not fired late |
 | `forceWaitMs` | `120000` | Milliseconds `/nep diary post` waits for a running turn to finish before posting. When the wait runs out the command answers `busy`. Scheduled posts are not affected |
 | `maxMessages` | `3` | Maximum `<msg>` messages per diary post. Excess messages are trimmed |
@@ -704,8 +703,8 @@ Settings for the diary channel (`features.diary`). The persona posts in one owne
 | `set.minPosted` | `2` | A set with fewer pictures generated than this is not posted at all, its messages included. Generation stops early once the pictures left cannot reach it. The pictures already generated still count against the day's picture caps |
 | `set.seedSets` | `6` | Random seed combinations shown in a `<seeds>` block of the compose request of a set post (the plan request keeps `seedSets`). `0` omits the block |
 | `set.maxMessageBytes` | `8000000` | The most picture bytes one Discord message carries. A set larger than this, or of more than 10 pictures, is split over several messages |
-| `planMaxOutputTokens` | `300` | Max output tokens for the plan request |
-| `planTimeoutMs` | `20000` | Timeout for the plan request (ms). Also the limit of its hedged call when `llm.hedge.roles` includes `classifier.text`, in place of `llm.hedge.timeoutMs` |
+| `planMaxOutputTokens` | `2000` | Max output tokens for the plan request |
+| `planTimeoutMs` | `60000` | Timeout for the plan request (ms). Also the limit of its hedged call when `llm.hedge.roles` includes `classifier.text`, in place of `llm.hedge.timeoutMs` |
 
 Default `windows`:
 
@@ -727,7 +726,7 @@ Settings for private chat (`features.privateMessages`). All hot-reloaded. The ga
 | Key | Default | Meaning |
 |---|---|---|
 | `minAffinity` | `5` | Minimum public attitude score to answer a DM; owners bypass this check |
-| `maxPerUserPerDay` | `100` | DM turns per member per day that reached the model (answered or silent); a cap hit posts a limit notice once per day |
+| `maxPerUserPerDay` | `20` | DM turns per member per day that reached the model (answered or silent); a cap hit posts a limit notice once per day |
 | `maxPerOwnerPerDay` | `200` | DM turns per day for bot owners that reached the model (answered or silent) |
 | `purgeMaxMessages` | `5000` | Max DM messages `/nep memory private purge` scans (newest first) in one run |
 

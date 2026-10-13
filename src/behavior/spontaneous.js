@@ -132,11 +132,11 @@ function initiateChanceDue(history, now, cfg) {
 }
 
 // Only when spontaneous.initiateCooldownHours is missing (config.json always has it).
-const INITIATE_COOLDOWN_FALLBACK = [6, 12];
+const INITIATE_COOLDOWN_FALLBACK = [24, 48];
 
 /**
  * The `[min, max]` hours of the pause after an initiate the persona posted
- * (`spontaneous.initiateCooldownHours`, or [6, 12], config.json's value, when
+ * (`spontaneous.initiateCooldownHours`, or [24, 48], config.json's value, when
  * it is missing), or null when there is none: not an array of two finite
  * numbers, or a max that is not positive ([0, 0] switches it off).
  * @param {object} cfg  config.spontaneous

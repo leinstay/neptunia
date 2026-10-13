@@ -228,9 +228,6 @@ export const labels = {
     privateChannel: 'direct chat',
     redaction: 'someone',
   },
-  ping: {
-    prompt: 'Reply with one word: pong',
-  },
   warmup: {
     ownMark: '[own] ',
     contextMark: '[ctx] ',

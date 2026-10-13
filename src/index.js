@@ -293,11 +293,8 @@ const admin = createAdmin({
   memory,
   // /nep pause: clears the pending-ping queue on pause.
   pending: { clear: () => onMessage.clearPending() },
-  llm,
   // The sample-based memory warmup: run, user/users, channel/channels, server, status, reset, portrait refresh.
   warmup,
-  describer,
-  lookup,
   // The image client's quota and model family, for the owner commands; /nep draw generates through it.
   images,
   // /nep draw self: the avatar reference, fetched the same way a turn fetches it.

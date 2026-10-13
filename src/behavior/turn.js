@@ -115,7 +115,7 @@ export function postsPlain(triggerKind) {
 }
 
 /** `pace` when a key is missing: config.json's values. */
-const PACE_FALLBACK = Object.freeze({ prepareMs: 6000, prepareSearchMs: 12000, prepareMediaMs: 20000, dropAfterMs: 60000, replyHedgeMs: 20000, typingWhilePreparing: false, unpromptedWaits: true, settleMs: 0, settleMaxMs: 15000 });
+const PACE_FALLBACK = Object.freeze({ prepareMs: 6000, prepareSearchMs: 18000, prepareMediaMs: 20000, dropAfterMs: 120000, replyHedgeMs: 30000, typingWhilePreparing: false, unpromptedWaits: true, settleMs: 3000, settleMaxMs: 8000 });
 
 /** The longest single pause of a settle wait: the author's activity is read again after it. */
 const SETTLE_STEP_MS = 250;
@@ -2119,7 +2119,7 @@ export function createTurnRunner({
    * @returns {{ triggerText: string, transcriptBlock: string }}
    */
   function classifierContext({ config, selfName, history, trigger, contextMessages, descriptions, videos, reads }) {
-    const triggerText = [...String(trigger.content ?? '')].slice(0, config.context?.maxMessageChars ?? 800).join('');
+    const triggerText = [...String(trigger.content ?? '')].slice(0, config.context?.maxMessageChars ?? 2000).join('');
     const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
     if (context.length === 0) return { triggerText, transcriptBlock: '' };
     const body = classifierTranscript(context, { config, selfName, labels: hot.prompts.labels, descriptions, videos, reads });
@@ -2266,7 +2266,7 @@ export function createTurnRunner({
         ],
         {
           model: classifierTextModel(config),
-          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: rewatchCfg.classifierMaxOutputTokens ?? 120, purpose: 'rewatch' }),
+          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: rewatchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'rewatch' }),
         },
       );
     } catch (err) {
@@ -2444,7 +2444,7 @@ export function createTurnRunner({
           { role: 'system', content: fillPromptTemplate(prompt, { today: zonedDay(clock(), config.bot?.timezone), name: selfName ?? '' }) },
           { role: 'user', content: user },
         ],
-        { model, ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 200, purpose: 'lookup' }) },
+        { model, ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }) },
       );
     } catch (err) {
       log.warn('lookup: classifier failed', { channel: channelId, status: err.statusCode ?? null, name: err.name });
@@ -2815,7 +2815,7 @@ export function createTurnRunner({
         seedsText,
         topicText: renderTopicBlock(topic, labels),
       });
-      const planTimeoutMs = diaryCfg.planTimeoutMs ?? 20000;
+      const planTimeoutMs = diaryCfg.planTimeoutMs ?? 60000;
       // A hedged plan request gets the plan's own limit, not llm.hedge.timeoutMs.
       const hedge = hedgeSettings(config);
       const planHedge = hedge && hedge.afterMs > 0 && hedge.roles.includes('classifier.text')
@@ -2827,7 +2827,7 @@ export function createTurnRunner({
           model: classifierTextModel(config),
           ...helperRequestOptions(config, {
             role: 'classifier.text',
-            maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 300,
+            maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 2000,
             purpose: 'diary-plan',
             timeoutMs: planTimeoutMs,
           }),
@@ -2898,7 +2898,7 @@ export function createTurnRunner({
     const imageQuota = images && typeof images.quota === 'function' ? images.quota({}) : null;
     if (!imageQuota || config.features?.imageGeneration === false || !canAttach(channel)) return closed();
     const picturesToday = countToday(store.state.data, DIARY_PICTURES_DAILY, now);
-    const diaryCap = config.diary?.maxPicturesPerDay ?? 2;
+    const diaryCap = config.diary?.maxPicturesPerDay ?? 8;
     if (picturesToday >= diaryCap) return closed({ key: 'diary.maxPicturesPerDay', used: picturesToday, cap: diaryCap });
     if (imageQuota.used >= imageQuota.cap) return closed({ key: 'image.maxPerDay', used: imageQuota.used, cap: imageQuota.cap });
     return { allowed: true, limit: null };
@@ -3688,7 +3688,7 @@ export function createTurnRunner({
       // Lazy, request-time only (see fetchTextPreview's header comment):
       // never fetched during plain normalization or while just buffered. Read by the
       // transcripts alone: the request's and the two classifiers'.
-      const previews = track('previews', () => withTextPreviews(rawHistory, config.media?.filePreviewChars ?? 500, fetchImpl));
+      const previews = track('previews', () => withTextPreviews(rawHistory, config.media?.filePreviewChars ?? 10000, fetchImpl));
       const previewed = () => (previews.done && Array.isArray(previews.value) ? previews.value : rawHistory);
 
       // Pictures NOT selected to be attached as image_url may still get a
@@ -3771,7 +3771,7 @@ export function createTurnRunner({
         const watchOp = candidates.length > 0 ? prepStep('videos', 'watch-video', { input: { candidates: candidates.length } }) : null;
         const watchStartedAt = clock();
         videoStage = track('videos', () =>
-          journalled(watchOp, () => describer.describeVideos(guildId, candidates, { maxNew: videoCfg.maxPerTurn ?? 1 }), (value) => {
+          journalled(watchOp, () => describer.describeVideos(guildId, candidates, { maxNew: videoCfg.maxPerTurn ?? 5 }), (value) => {
             const states = value?.videos instanceof Map ? [...value.videos.values()] : [];
             return {
               result: { seconds: Math.round((clock() - watchStartedAt) / 100) / 10, watched: states.filter((state) => state?.state === 'watched').length },
@@ -4037,7 +4037,7 @@ export function createTurnRunner({
           : videoStage?.done
             ? videoStage.value?.videos
             : videoStage
-              ? lateVideoStates(videoCandidates, await videosSoFar(), config.media?.video?.maxPerTurn ?? 1)
+              ? lateVideoStates(videoCandidates, await videosSoFar(), config.media?.video?.maxPerTurn ?? 5)
               : undefined;
       // A picture's second look on a question (features.imageRelook): rendered under its line.
       const imageAnswers = rewatchStage?.done && rewatchStage.value?.imageAnswers?.size > 0 ? rewatchStage.value.imageAnswers : null;

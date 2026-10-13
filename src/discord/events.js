@@ -267,7 +267,7 @@ export function createMessageHandler({
     warmVideoCache(guildId, normalized);
     if (hot.config.features?.mediaDescriptions !== true) return null;
     // Per real-time message, not per batch, so it stays small (media.prefillPerMessage).
-    const max = prefillPerMessage(hot.config.media?.prefillPerMessage, 2);
+    const max = prefillPerMessage(hot.config.media?.prefillPerMessage, 5);
     const candidates = describableItems([normalized]).slice(0, max);
     if (candidates.length === 0) return null;
     return describer
@@ -317,7 +317,7 @@ export function createMessageHandler({
     if (config.media?.video?.prefill !== true) return;
     if (typeof describer.describeVideos !== 'function') return;
     // Watching is far dearer than a picture caption: one video per message by default.
-    const max = prefillPerMessage(config.media.video.prefillPerMessage, 1);
+    const max = prefillPerMessage(config.media.video.prefillPerMessage, 5);
     const candidates = collectVideos(normalized, { videoSites: config.media.video.sites }).slice(0, max);
     if (candidates.length === 0) return;
     describer
@@ -465,7 +465,7 @@ export function createMessageHandler({
     // A window replaced meanwhile (the persona spoke again while a classifier
     // call was in flight) is not the live one: nothing to mirror or close.
     if (followUpWindows.get(channelId) !== state) return;
-    if (state.noStreak >= (mentionCfg.followUpNoStreak ?? 3)) {
+    if (state.noStreak >= (mentionCfg.followUpNoStreak ?? 5)) {
       log.info('follow-up: window closed', { channel: channelId });
       closeFollowUpWindow(channelId);
     } else {
@@ -1238,7 +1238,7 @@ export function createMessageHandler({
 
   /** A waiting item's or a candidate's text as the merge classifier and the task labels show it: one line, cut. */
   function itemText(text) {
-    return clampChars(oneLine(text), hot.config.context?.maxMessageChars ?? 800);
+    return clampChars(oneLine(text), hot.config.context?.maxMessageChars ?? 2000);
   }
 
   /**

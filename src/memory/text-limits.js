@@ -32,7 +32,7 @@ export const MEMORY_LIMIT_DEFAULTS = Object.freeze({
   maxLearnedStored: 60,
   learnedChars: 160,
   learnedHalfLifeDays: 720,
-  relationshipChars: 600,
+  relationshipChars: 800,
   clampTolerance: 1.25,
 });
 

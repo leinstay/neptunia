@@ -62,21 +62,12 @@ const ARCHIVE_CHOICES = 25;
  *   they removed). Absent -> the wait is skipped.
  * `pending` — `{ clear() }`, optional: clears src/discord/events.js's pending-ping queue on pause.
  *   Absent -> nothing to clear.
- * `llm` — from createLlm() (src/llm/openrouter.js), optional: `complete()`, used by `/nep ping`
- *   to reach each role's model directly, and `modelEndpoints()`, its free check of the drawing
- *   model. Absent -> `/nep ping` reports it is not available.
  * `warmup` — from createWarmup() (src/memory/warmup.js), optional: the sample-based
  *   memory warmup -- `peopleReport` (read-only), `run`/`runPerson`/`runChannel`/`runServer`/
  *   `runUsers`/`runChannels`/`status`/`reset` (write under data/), `refreshPortrait`, `waitIdle`
  *   (awaited by `/nep pause`, same shape as `memory`/`turns`; it also covers portrait refreshes
  *   in flight). Absent -> every `warmup.*`/
  *   `memory.refresh` command reports it is not available.
- * `describer` — from createDescriber() (src/memory/describe.js), optional: `checkYoutube()`, used by
- *   `/nep ping` (video role) to add a line saying which YouTube duration source works on this host.
- *   Absent -> no such line.
- * `lookup` — from createLookup() (src/web/lookup.js), optional: `hasSearch()`, used by `/nep ping`
- *   (classifier.text role) to add a line saying whether the web lookup is on and has a search key.
- *   Absent -> no such line.
  * `images` — from createImageGen() (src/llm/images.js), optional: `generate()` for `/nep draw`,
  *   `quota()` and `familyOf()` for the image lines of `/nep status` and `/nep model show`.
  *   Absent -> `/nep draw` reports it is not available and `/nep status` has no image lines.

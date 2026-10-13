@@ -867,7 +867,7 @@ function gifItems(gifs, mediaCache, labels, gifsCfg, now) {
   const marked = new Set();
   const g = labels.gifs;
   if (!g?.header || !g.entryNoText) return { items: [], marked };
-  const max = Number.isInteger(gifsCfg?.max) && gifsCfg.max >= 0 ? gifsCfg.max : 40;
+  const max = Number.isInteger(gifsCfg?.max) && gifsCfg.max >= 0 ? gifsCfg.max : 25;
   const options = { ...gifFieldChars(gifsCfg), ownMarkHours: gifsCfg?.ownMarkHours ?? 24, now };
   const chosen = rankGifs(gifs, gifsCfg?.halfLifeDays ?? 30).slice(0, max);
   if (chosen.length === 0) return { items: [], marked };
@@ -1160,7 +1160,7 @@ export function classifierTranscript(messages, { config, selfName, labels, descr
   const items = formatTranscript(messages, {
     timezone: config.bot?.timezone,
     gapMinutes: config.context?.gapMarkerMinutes,
-    maxChars: config.context?.maxMessageChars ?? 800,
+    maxChars: config.context?.maxMessageChars ?? 2000,
     selfName,
     labels,
     seeReactions: config.features?.seeReactions !== false,
