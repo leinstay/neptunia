@@ -48,7 +48,7 @@ import { audienceOf } from '../discord/collect.js';
 import { audienceAllows, checkPull } from '../discord/pull-fetch.js';
 import { fetchAfter, fetchAround, searchMembers, searchMessages } from '../discord/search.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
-import { oneLine } from '../memory/clamp.js';
+import { clampChars, oneLine } from '../memory/clamp.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { bumpDaily, countToday } from '../time.js';
 import { audienceCovers } from './elsewhere.js';
@@ -92,6 +92,8 @@ const DEFAULT_TIMERS = Object.freeze({
 // A name form Discord's member search can match: Latin letters (at least one), digits, `.`, `_`, `'`, `-`, spaces.
 const LATIN_FORM_RE = /^[\p{Script=Latin}\p{N} ._'-]+$/u;
 const LATIN_LETTER_RE = /\p{Script=Latin}/u;
+/** The characters of a stored-memory item's text the trace keeps when the item has no itemId. */
+const TRACE_TEXT_CHARS = 120;
 
 /** Whether the parsed server part asks anything. */
 function asksServer(server) {
@@ -150,19 +152,59 @@ function newTrace({ started, channelId, candidate, server }) {
     who: Array.isArray(server?.who) ? [...server.who] : [],
     when: from !== null || to !== null ? { from: isoOf(from), to: isoOf(to) } : null,
     clusters: [],
-    summary: { answer: null, stretch: null, text: null },
+    summary: { answer: null, stretch: null, text: null, note: null },
+    skipped: null,
+    people: [],
+    plan: [],
+    memory: [],
+    record: [],
+  };
+}
+
+/** A stored-memory item as the trace keeps it: its itemId, or a short text when it has none. */
+function traceItem(item) {
+  const itemId = typeof item?.itemId === 'string' && item.itemId ? item.itemId : null;
+  return {
+    kind: item?.kind ?? null,
+    date: item?.date ?? null,
+    itemId,
+    text: itemId ? null : clampChars(oneLine(item?.text), TRACE_TEXT_CHARS),
+    memberId: item?.memberId ?? null,
+    self: item?.self === true,
+    score: Number.isFinite(item?.score) ? item.score : null,
+  };
+}
+
+/** A record window as the trace keeps it; `kept` false until it joins the windows the summary reads. */
+function traceRecordWindow(window) {
+  const messages = window?.messages ?? [];
+  return {
+    channelId: window?.channelId ?? null,
+    from: isoOf(messages[0]?.ts),
+    to: isoOf(messages[messages.length - 1]?.ts),
+    hitIds: [...(window?.hitIds ?? [])],
+    kept: false,
   };
 }
 
 /**
  * The trace line of a finished run: `{ at, channelId, triggerId, forms, who,
- * when, hits, inChatDropped, clusters, summary, lookupChars }`. `summary`
- * `{ answer, stretch, text }`: `answer` `text` | `nothing` | `fallback` (null
- * when no summary was asked or reached), `stretch` null or `{ n, channelId,
- * channelName, lines }` (the `<found>` section number and the very lines the
- * persona gets), `text` the summary's text. `lookupChars`: the characters
- * the run hands to the turn (the text and the stretch lines; the turn's own
- * labels around them not counted).
+ * when, hits, inChatDropped, clusters, summary, lookupChars, skipped, people,
+ * plan, memory, record }`. `summary` `{ answer, stretch, text, note }`:
+ * `answer` `text` | `nothing` | `fallback` (null when no summary was asked
+ * or reached), `stretch` null or `{ n, channelId, channelName, lines }` (the
+ * `<found>` section number and the very lines the persona gets), `text` the
+ * summary's text, `note` the helper's whole answer as written (null without
+ * one). `lookupChars`: the characters the run hands to the turn (the text and
+ * the stretch lines; the turn's own labels around them not counted).
+ * `skipped`: the reason code of a run skipped before its summary (a gate of
+ * `run`, or `no-query` / `no-hits`), else null. `people`: `{ id, form, how }`
+ * per member the `who` forms found, `how` `stored` (a stored name or alias)
+ * or `member-search`. `plan`: `{ kind, content, authorId, offset, sent,
+ * total }` per Discord search planned (`total` null while unsent or when it
+ * failed). `memory`: the stored-memory items matched, the archive's included
+ * (traceItem). `record`: `{ channelId, from, to, hitIds, kept }` per record
+ * window, `kept` whether it joined the windows the summary reads.
  */
 function traceLine(trace, out) {
   const text = typeof out?.text === 'string' ? out.text : null;
@@ -181,8 +223,14 @@ function traceLine(trace, out) {
       answer: trace.summary.answer,
       stretch: stretch ? { n: trace.summary.stretch, channelId: stretch.channelId, channelName: stretch.channelName ?? null, lines: stretch.lines } : null,
       text,
+      note: trace.summary.note ?? null,
     },
     lookupChars: [...(text ?? '')].length + [...(stretch?.lines ?? '')].length,
+    skipped: trace.skipped,
+    people: trace.people,
+    plan: trace.plan,
+    memory: trace.memory,
+    record: trace.record,
   };
 }
 
@@ -260,8 +308,10 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * never; then -- for a Latin form no profile matched -- Discord's member
    * search (prefix match), other bots left out. A member search is not sent
    * once `searchUntil` is past; `beforeRequest` runs before each one.
+   * `via` (an optional Map) gets, per member found, `{ form, how }`: `how`
+   * `stored` or `member-search`.
    */
-  async function findPeople({ guild, guildId, who, maxPeople, selfId, signal, searchUntil, beforeRequest }) {
+  async function findPeople({ guild, guildId, who, maxPeople, selfId, signal, searchUntil, beforeRequest, via = null }) {
     const found = new Map();
     if (maxPeople <= 0 || !Array.isArray(who) || who.length === 0) return [];
     let profiles = null;
@@ -279,6 +329,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         if (String(profile.id) === String(selfId)) continue;
         if (found.has(profile.id) || found.size >= maxPeople) continue;
         found.set(profile.id, { id: profile.id, name: oneLine(profile.names?.[0]) || form, username: '' });
+        via?.set(profile.id, { form, how: 'stored' });
       }
       if (matched || found.size >= maxPeople || !LATIN_FORM_RE.test(form) || !LATIN_LETTER_RE.test(form) || now() >= searchUntil) continue;
       beforeRequest();
@@ -292,6 +343,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         }
         if (found.size >= maxPeople) break;
         found.set(member.id, { id: member.id, name: member.nick ?? member.globalName ?? member.username ?? '', username: member.username ?? '' });
+        via?.set(member.id, { form, how: 'member-search' });
       }
     }
     return [...found.values()];
@@ -540,10 +592,13 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     if (signal.aborted) return null;
     stats.memory = memory.items.length;
     stats.archived = memory.items.filter((item) => item.kind.startsWith('archived ')).length;
+    if (trace) trace.memory = memory.items.map(traceItem);
 
     // 1. People.
-    const people = await findPeople({ guild, guildId, who: server.who ?? [], maxPeople: settings.maxPeople, selfId, signal: searchSignal, searchUntil, beforeRequest });
+    const via = new Map();
+    const people = await findPeople({ guild, guildId, who: server.who ?? [], maxPeople: settings.maxPeople, selfId, signal: searchSignal, searchUntil, beforeRequest, via });
     if (signal.aborted) return null;
+    if (trace) trace.people = people.map((p) => ({ id: p.id, form: via.get(p.id)?.form ?? null, how: via.get(p.id)?.how ?? null }));
 
     // 2. The queries, over the whole server and the range asked: the turn's own chat bounds no
     // query, its lines are dropped from the hits by id (step 4; a private chat is not part of
@@ -563,8 +618,11 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     // 2b. The record of the last days, for a dated or "recently" question: no request.
     const recordWindows = await recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId });
     if (signal.aborted) return null;
+    const recordTrace = new Map(recordWindows.map((window) => [window, traceRecordWindow(window)]));
+    if (trace) trace.record = [...recordTrace.values()];
     if (plan.length === 0 && memory.items.length === 0 && recordWindows.length === 0) {
       log.info('recall: skipped', { channel: channelId, reason: 'no-query' });
+      if (trace) trace.skipped = 'no-query';
       return result({ people: peopleOut() });
     }
 
@@ -574,6 +632,15 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const totals = new Map();
     const queue = [...plan];
     stats.planned = plan.length;
+    // The trace's entry of each planned query, filled once it is sent.
+    const planned = new Map();
+    const tracePlanned = (query) => {
+      if (!trace) return;
+      const entry = { kind: query.kind, content: query.content ?? null, authorId: query.authorId ?? null, offset: query.offset ?? 0, sent: false, total: null };
+      planned.set(query, entry);
+      trace.plan.push(entry);
+    };
+    for (const query of plan) tracePlanned(query);
     while (queue.length > 0) {
       if (signal.aborted) return null;
       if (searchSignal.aborted || (stats.queries > 0 && now() >= searchUntil)) break;
@@ -581,6 +648,11 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       beforeRequest();
       const page = await searchMessages(guild, query, { signal: searchSignal });
       stats.queries += 1;
+      const traced = planned.get(query);
+      if (traced) {
+        traced.sent = true;
+        traced.total = page ? page.total : null;
+      }
       if (signal.aborted) return null;
       if (!page) {
         stats.failed += 1;
@@ -599,6 +671,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
           .filter((offset) => offset > 0)
           .map((offset) => ({ ...query, offset }));
         queue.push(...more);
+        for (const sample of more) tracePlanned(sample);
         stats.planned += more.length;
       }
     }
@@ -687,6 +760,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       if (at === -1) windows.push(window);
       else windows.splice(at, 0, window);
       stats.record += 1;
+      const traced = recordTrace.get(window);
+      if (traced) traced.kept = true;
     }
     stats.windows = windows.length;
     const descriptions = cachedCaptions(config, guildId, windows);
@@ -750,6 +825,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         : null;
     if (!messages) {
       log.info('recall: skipped', { channel: channelId, reason: 'no-hits' });
+      if (trace) trace.skipped = 'no-hits';
       return result({ people: peopleOut() });
     }
     // Without a summary the search still answers: the first-ranked window verbatim, no text
@@ -759,7 +835,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       stats.summary = kind;
       const chosenWindow = fallbackWindow(windows);
       const stretch = stretchOf(chosenWindow);
-      if (trace) trace.summary = { answer: 'fallback', stretch: stretch ? windows.indexOf(chosenWindow) + 1 : null, text: null };
+      if (trace) trace.summary = { answer: 'fallback', stretch: stretch ? windows.indexOf(chosenWindow) + 1 : null, text: null, note: null };
       log.info('recall: summary', { channel: channelId, ms: asked === null ? 0 : now() - asked, answer: 'fallback', stretch: stretch !== null, summary: kind });
       return result({ stretch, people: peopleOut() });
     };
@@ -790,7 +866,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     stats.summary = 'answered';
     const answer = parseRecallAnswer(completion?.text, { answerChars: settings.answerChars, count: windows.length });
     const stretch = answer.stretch !== null ? stretchOf(windows[answer.stretch - 1]) : null;
-    if (trace) trace.summary = { answer: answer.text ? 'text' : 'nothing', stretch: stretch ? answer.stretch : null, text: answer.text };
+    if (trace) trace.summary = { answer: answer.text ? 'text' : 'nothing', stretch: stretch ? answer.stretch : null, text: answer.text, note: typeof completion?.text === 'string' ? completion.text : null };
     log.info('recall: summary', { channel: channelId, ms: now() - asked, answer: answer.text ? 'text' : 'nothing', stretch: stretch !== null });
     return result({ text: answer.text, stretch, people: peopleOut() });
   }
@@ -832,9 +908,10 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * mark a window that reaches into it. `context` (default `history`) is
    * where the summary's `<context>` lines come from: the last
    * `recall.contextMessages` before `candidate`, with `contextDescriptions`
-   * as their captions. With `features.recallTrace` true every run past the
-   * gates above appends its trace record (store.appendRecallTrace; see
-   * traceLine). `op` (optional, a journal operation: src/memory/journal.js#op,
+   * as their captions. With `features.recallTrace` true every run with
+   * `features.recall` on appends its trace record (store.appendRecallTrace;
+   * see traceLine), one skipped by a gate above included, with the reason in
+   * `skipped`; a private chat without a guild has nowhere to write it. `op` (optional, a journal operation: src/memory/journal.js#op,
    * as the turn hands it) is started once the gates above passed, before the
    * first request, and closed with the run: `succeeded` with `status` (`ok`,
    * or `timeout` when the run ran out yet left its fallback stretch), `hits`
@@ -846,15 +923,16 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const channelId = channel?.id ?? null;
     const stats = emptyStats();
     const empty = () => ({ text: null, stretch: null, people: [], stats: { ...stats, ms: now() - started } });
+    let trace = null;
+    let traceMaxLines = null;
     const skip = (reason) => {
       log.info('recall: skipped', { channel: channelId, reason });
-      return empty();
+      if (trace) trace.skipped = reason;
+      return finish(empty());
     };
     let controller = null;
     let timer = null;
     let cut = null;
-    let trace = null;
-    let traceMaxLines = null;
     const finish = (out) => {
       if (trace) writeTrace({ guildId, channelId, trace, out, maxLines: traceMaxLines });
       return out;
@@ -871,16 +949,17 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       const config = hot.config;
       const settings = recallSettings(config);
       if (!settings) return empty();
+      // Every run past the switch is traced, one skipped by a gate below included (its reason in `skipped`).
+      if (config.features?.recallTrace === true) {
+        trace = newTrace({ started, channelId, candidate, server });
+        traceMaxLines = settings.traceMaxLines;
+      }
       if (!guild || (!channel?.guild && !partner)) return skip('private-chat');
       if (!asksServer(server)) return skip('no-query');
       const prompt = summaryPrompt();
       if (!prompt) return skip('no-prompt');
       if (capSpent()) return skip('daily-cap');
       if (dailySpent(settings)) return skip('daily');
-      if (config.features?.recallTrace === true) {
-        trace = newTrace({ started, channelId, candidate, server });
-        traceMaxLines = settings.traceMaxLines;
-      }
       if (op) await op.started();
 
       controller = new AbortController();

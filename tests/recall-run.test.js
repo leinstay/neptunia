@@ -943,7 +943,7 @@ test('recall: with features.recallTrace on every run appends one trace line with
     const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
     const [record, ...rest] = t.lines();
     assert.equal(rest.length, 0);
-    assert.deepEqual(Object.keys(record), ['at', 'channelId', 'triggerId', 'forms', 'who', 'when', 'hits', 'inChatDropped', 'clusters', 'summary', 'lookupChars']);
+    assert.deepEqual(Object.keys(record), ['at', 'channelId', 'triggerId', 'forms', 'who', 'when', 'hits', 'inChatDropped', 'clusters', 'summary', 'lookupChars', 'skipped', 'people', 'plan', 'memory', 'record']);
     assert.equal(record.at, new Date(NOW).toISOString());
     assert.deepEqual([record.channelId, record.triggerId, record.forms, record.who, record.when], ['c1', 'h2', RABBIT_SERVER.forms, [], null]);
     assert.deepEqual([record.hits, record.inChatDropped], [3, 1]);
@@ -955,7 +955,9 @@ test('recall: with features.recallTrace on every run appends one trace line with
       answer: 'text',
       stretch: { n: 1, channelId: 'c2', channelName: 'garden', lines: result.stretch.lines },
       text: 'Ana did it on October 1.',
+      note: 'stretch: 1\nAna did it on October 1.',
     });
+    assert.equal(record.skipped, null);
     assert.ok(record.summary.stretch.lines.includes('το είδα κι εγώ'), 'the stretch lines themselves');
     assert.equal(record.lookupChars, [...result.text].length + [...result.stretch.lines].length);
   } finally {
@@ -975,6 +977,82 @@ test('recall: with features.recallTrace off or missing no trace is written', asy
     } finally {
       t.cleanup();
     }
+  }
+});
+
+test('recall: one trace line holds every source -- stored memory, record windows, search clusters -- the people, the plan and the full note', async () => {
+  const t = tempStore();
+  try {
+    const record = fakeSource({
+      guild: [
+        recLine('g1', GARDEN_LINES[0].ts, 'ένα κουνέλι στον κήπο'),
+        recLine('r-c2', NOW - 2 * HOUR, 'κουνέλι στον κήπο σήμερα'),
+      ],
+    });
+    const archive = fakeSource({ guild: [archEntry('rc-2', 'recent', { text: 'κουνέλι archived in the garden' }, { channel: 'c2' })] });
+    const s = scene({
+      lines: CHAT_LINES,
+      answers: chatAnswers,
+      features: { recallTrace: true },
+      recall: { recordDays: 7, recordContext: 0, archiveMonths: 1 },
+      profiles: MEMORY_PROFILES,
+      memory: { getLore: () => MEMORY_LORE, appendRecallTrace: (...args) => t.store.appendRecallTrace(...args) },
+      record,
+      archive,
+    });
+    const { logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { forms: ['κουνέλι'], who: ['Ana'], from: null, to: null } }));
+    const [line, ...rest] = t.lines();
+    assert.equal(rest.length, 0);
+    assert.equal(line.skipped, null);
+    assert.deepEqual(line.people, [{ id: ANA_ID, form: 'Ana', how: 'stored' }]);
+    assert.deepEqual(line.plan, [
+      { kind: 'form', content: 'κουνέλι', authorId: null, offset: 0, sent: true, total: 3 },
+      { kind: 'who', content: 'Ana', authorId: null, offset: 0, sent: true, total: 0 },
+      { kind: 'author', content: null, authorId: ANA_ID, offset: 0, sent: true, total: 0 },
+    ]);
+    for (const item of line.memory) assert.deepEqual(Object.keys(item), ['kind', 'date', 'itemId', 'text', 'memberId', 'self', 'score']);
+    assert.deepEqual(line.memory.find((item) => item.kind === 'archived recent'), { kind: 'archived recent', date: '2026-10-04', itemId: 'rc-2', text: null, memberId: null, self: false, score: 1 });
+    assert.deepEqual(line.memory.find((item) => item.kind === 'lore'), { kind: 'lore', date: null, itemId: null, text: 'Το κουνέλι: The rabbit of the main channel.', memberId: null, self: false, score: 1 });
+    assert.ok(line.memory.some((item) => item.kind === 'episode' && item.memberId === ANA_ID && item.score === 2));
+    assert.deepEqual(line.record, [
+      { channelId: 'c2', from: new Date(NOW - 2 * HOUR).toISOString(), to: new Date(NOW - 2 * HOUR).toISOString(), hitIds: ['r-c2'], kept: true },
+      { channelId: 'c2', from: new Date(GARDEN_LINES[0].ts).toISOString(), to: new Date(GARDEN_LINES[0].ts).toISOString(), hitIds: ['g1'], kept: false },
+    ]);
+    assert.equal(line.clusters.length, 2);
+    assert.deepEqual(line.summary.note, 'stretch: 1\nAna did it on October 1.');
+    assert.equal(line.summary.text, 'Ana did it on October 1.');
+    const all = JSON.stringify(logs);
+    for (const text of ['κουνέλι', 'Ana did it', 'rc-2']) assert.ok(!all.includes(text), `nothing new in the service log: ${text}`);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('recall: a run skipped early still writes its trace line with the reason; with the trace off nothing is written', async () => {
+  const t = tempStore();
+  try {
+    const capped = scene({ features: { recallTrace: true }, capLeft: 0, memory: { appendRecallTrace: (...args) => t.store.appendRecallTrace(...args) } });
+    await withCapturedLogs(() => capped.recaller.run({ ...capped.args, server: RABBIT_SERVER }));
+    const planless = scene({ features: { recallTrace: true }, memory: { appendRecallTrace: (...args) => t.store.appendRecallTrace(...args) } });
+    await withCapturedLogs(() => planless.recaller.run({ ...planless.args, server: { forms: [], who: [], from: NOW, to: NOW - HOUR } }));
+    const [first, second, ...rest] = t.lines();
+    assert.equal(rest.length, 0);
+    assert.equal(first.skipped, 'daily-cap');
+    assert.deepEqual([first.channelId, first.triggerId, first.forms], ['c1', 'h2', RABBIT_SERVER.forms]);
+    assert.deepEqual([first.clusters, first.people, first.plan, first.memory, first.record], [[], [], [], [], []]);
+    assert.deepEqual(first.summary, { answer: null, stretch: null, text: null, note: null });
+    assert.equal(second.skipped, 'no-query');
+    assert.equal(capped.llmCalls.length + planless.llmCalls.length, 0);
+  } finally {
+    t.cleanup();
+  }
+  const off = tempStore();
+  try {
+    const s = scene({ features: { recallTrace: false }, capLeft: 0, memory: { appendRecallTrace: (...args) => off.store.appendRecallTrace(...args) } });
+    await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+    assert.equal(fs.existsSync(off.file), false);
+  } finally {
+    off.cleanup();
   }
 });
 
