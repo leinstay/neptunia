@@ -12,8 +12,8 @@
 // clampText/toTokens/fromTokens helpers).
 //
 // The operations tool tools/warmup.mjs drives it with the bot stopped (the
-// subcommands named below); the bot only resumes an unfinished run at start
-// while `warmup.enabled` is true (`resumeIfNeeded`), and `/nep memory refresh`
+// subcommands named below) and resumes its own unfinished run; the bot never
+// starts or resumes a run, and `/nep memory refresh`
 // uses the sampled notes refresh (`refreshChannelNotes`/`refreshServerNotes`). `peopleReport` stays read-only (never touches the store)
 // for `people`. `createWarmup().run()` is the write path: channels →
 // people → server, in order, resumable (progress in `state.warmup`,
@@ -2287,27 +2287,6 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
     });
   }
 
-  /**
-   * Resume a run that was started and never finished (`state.warmup`), automatically -- called once
-   * at startup (src/index.js) and safe to call again, a no-op otherwise. Only while
-   * `warmup.enabled` is exactly true (read now; config.json's default is false): the warmup is
-   * tools/warmup.mjs's, run with the bot stopped, and the bot never starts a fresh run. Never
-   * awaited by the caller: fire-and-forget, errors logged.
-   * @returns {boolean} true when a run was resumed
-   */
-  function resumeIfNeeded(guildId) {
-    if (hot.config.warmup?.enabled !== true) return false;
-    if (running || store.state.data.paused) return false;
-    const progress = progressView(store);
-    const hasProgress = progress.done.channels.length > 0 || progress.done.people.length > 0 || progress.done.server;
-    const unfinished = !progress.finishedAt && (Boolean(progress.startedAt) || hasProgress);
-    if (!unfinished) return false;
-
-    log.info('warmup: resuming an unfinished run automatically', { guildId });
-    run(guildId).catch((err) => log.error('warmup: automatic run failed', { error: err }));
-    return true;
-  }
-
   /** Cheap, synchronous summary for `/nep status` -- never fetches Discord history, never writes
    * state.json (a read-only view of the progress, see `progressView`). */
   function summary() {
@@ -2836,7 +2815,6 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
     runServer: (guildId) => runOneTarget(guildId, 'server', null),
     runUsers: (guildId) => startBulk(guildId, 'people'),
     runChannels: (guildId) => startBulk(guildId, 'channels'),
-    resumeIfNeeded,
     summary,
     status,
     reset,

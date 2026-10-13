@@ -357,7 +357,6 @@
   "gifs": { "max": 25, "reactionChars": 40, "actionChars": 70, "ownMarkHours": 24, "storeMax": 300, "halfLifeDays": 30, "maxPerDay": 40, "backfillMessages": 500, "backfillDescribe": 20, "recachePerRun": 50, "pick": { "maxChars": 160, "contextMessages": 4, "maxOutputTokens": 60 } },
   "private": { "minAffinity": 5, "maxPerUserPerDay": 20, "maxPerOwnerPerDay": 200, "purgeMaxMessages": 5000 },
   "warmup": {
-    "enabled": false,
     "lookbackDays": 60,
     "minMessages": 30,
     "maxPeople": 40,

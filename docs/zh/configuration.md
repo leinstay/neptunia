@@ -448,7 +448,7 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 | `portraitRefreshHours` | `24` | 每成员画像刷新最短间隔（小时） |
 | `portraitRefreshMessages` | `300` | 自上次画像以来的成员自身消息数达到此值时触发代码刷新。也是采样大小 |
 | `portraitRefreshDays` | `3` | 自上次成功刷新以来经过此天数后触发代码刷新 |
-| `portraitRefreshPerDay` | `3` | 每服务器每天最大画像刷新次数（代码触发、分析器提示和 `/nep memory refresh` 共享此限额）。日计数器存储在 `state.json` 中（`portraitDay` / `portraitCount`），`/nep warmup reset` 不会清除它 |
+| `portraitRefreshPerDay` | `3` | 每服务器每天最大画像刷新次数（代码触发、分析器提示和 `/nep memory refresh` 共享此限额）。日计数器存储在 `state.json` 中（`portraitDay` / `portraitCount`），`tools/warmup.mjs reset` 不会清除它 |
 | `portraitRetryHours` | `24` | 失败的刷新尝试后等待多少小时再重试同一成员 |
 | `portraitCheckMinutes` | `60` | 画像调度器检查需要刷新的成员的频率（分钟） |
 | `analyzerEpisodes` | `8` | 分析器 `<existing_profiles>` 中每个作者显示的回忆数。只发送按权重和近期排名的前几个；存储列表保留全部。`0` 不发送 |
@@ -696,7 +696,6 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
-| `enabled` | `false` | The tool runs warmup; the bot only resumes an unfinished run when this is true |
 | `lookbackDays` | `60` | 回溯采样天数 |
 | `minMessages` | `30` | 成员入选所需的最少自身消息数 |
 | `maxPeople` | `40` | 处理的成员数，按活跃度排序 |

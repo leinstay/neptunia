@@ -57,6 +57,8 @@ Every message the persona hears and every one it posts are written to a permanen
 
 The persona keeps a journal: for every turn, one record with what of the chat went into the request, the persona's hidden reasoning, what it posted and how many tokens the request used, written by day in `data/`. The full model request and the raw answer are also saved for a few days (`journal.keepRequests`), so a bad reply can be inspected after the fact. `/nep status` shows one card with the bot's state, connection, models, today's limits and memory counters; granted members see the card without the memory fields. A backfill tool (`tools/backfill.mjs`) fills the persona's past from old messages: it reads history into the record, picks out episodes and lessons, and optionally sends the strongest ones through the voice model for a feeling in the persona's words. The results go to the archive, not hot memory, and surface through recall.
 
+The warmup that builds memory from old messages before the first start is now a standalone tool (`tools/warmup.mjs`), run with the bot stopped. `/nep warmup` is removed. `/nep memory refresh kind:channel` and `kind:server` rewrite channel notes or the server notes from a fresh sample inside the running bot.
+
 Every `/nep` subcommand runs a named operation with separate read and write rights. Owners can always run everything; for anyone else, each operation is granted by name, and a grant on a group opens only the read operations that exist at that moment. On a fresh server, members can use `/nep pings` and nothing else until the owner grants more. Owner-only operations (access grants, forget, wipe, the journal, the archive, snapshots and private memory) are never opened by any grant. The mentor (`features.mentor`) is removed. `/nep ping` and `/nep reload` are gone: the connectivity check lives in `/nep status` and prompt reloads are automatic.
 
 **12.10.2026**  
@@ -123,7 +125,7 @@ The prompt files, placeholders, labels, context blocks and output tags are descr
 
 ## Warmup
 
-The warmup builds memory of people, channels and the server from a sample of recent messages. Run it before the first start, with the bot stopped, through the operations tool `tools/warmup.mjs` (`run`, `users`, `channels`, `server`, `people`, `status`, `reset`): it prints its estimate and refuses to spend without `--spend`, and keeps its progress in `data/state.json`, so a stopped run resumes. The total token spend is capped by `warmup.maxTokens`. The bot never starts a run; with `warmup.enabled` true (default false) it resumes an unfinished one at start. Afterwards `/nep memory refresh` rewrites a member's portrait, or a channel's or the server notes from a fresh sample, on demand. See [`docs/en/warmup.md`](docs/en/warmup.md) for the stages, progress, rails and the tool.
+The warmup builds memory of people, channels and the server from a sample of recent messages. Run it before the first start, with the bot stopped, through the operations tool `tools/warmup.mjs` (`run`, `users`, `channels`, `server`, `people`, `status`, `reset`): it prints its estimate and refuses to spend without `--spend`, and keeps its progress in `data/state.json`, so a stopped run resumes. The total token spend is capped by `warmup.maxTokens`. The bot never runs the warmup; the tool resumes an unfinished run itself. Afterwards `/nep memory refresh` rewrites a member's portrait, or a channel's or the server notes from a fresh sample, on demand. See [`docs/en/warmup.md`](docs/en/warmup.md) for the stages, progress, rails and the tool.
 
 ## Dry run
 
@@ -200,7 +202,7 @@ git pull && sudo systemctl restart neptunia-bot
 
 A restart loses nothing; all state is on disk. Restarts are only needed after code changes under `src/`. Prompt and config edits apply live.
 
-Memory lives in the process and is written to `data/`; editing those files under a running bot is unsafe because the next write overwrites the change. To edit memory by hand: `/nep pause`, edit the files, `/nep resume`. The pause stops all activity, flushes memory to disk and unloads it; a running warmup pauses after the current request. The state is persisted: a restart comes back paused, and the warmup does not auto-start until resume. `/nep resume` validates every JSON file under `data/` and refuses if any do not parse, naming the broken ones; otherwise it reloads memory and continues, including a warmup from where it left off. Read-only and config commands work while paused; commands that write memory are refused. `/nep status` shows the paused state.
+Memory lives in the process and is written to `data/`; editing those files under a running bot is unsafe because the next write overwrites the change. To edit memory by hand: `/nep pause`, edit the files, `/nep resume`. The pause stops all activity, flushes memory to disk and unloads it. The state is persisted: a restart comes back paused. `/nep resume` validates every JSON file under `data/` and refuses if any do not parse, naming the broken ones; otherwise it reloads memory and continues. Read-only and config commands work while paused; commands that write memory are refused. `/nep status` shows the paused state.
 
 ## Contributing
 
