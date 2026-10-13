@@ -643,3 +643,27 @@ test('journal: withWriterLock releases the lock when fn throws', async () => {
   await journal.system('g1', { event: 'resume', by: 'owner' });
   assert.equal(appendStore.lines.length, 1);
 });
+
+test('journal: request dumps that mention a forgotten user are deleted', async () => {
+  const { journal, fs } = dumpJournal();
+  fs.readFile = async (file) => {
+    if (!fs.files.has(file)) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    return fs.files.get(file);
+  };
+  const id = '348100000000000101';
+  const privateRequests = path.join(DATA, 'guilds', 'g1', 'private', '348100000000000202', 'journal', 'requests');
+  const named = path.join(REQUESTS, '2026-10-12', 't-1-1.json');
+  const token = path.join(REQUESTS, '2026-10-13', 't-2-1.json');
+  const inPrivate = path.join(privateRequests, '2026-10-13', 't-3-1.json');
+  const other = path.join(REQUESTS, '2026-10-13', 't-4-1.json');
+  const longer = path.join(REQUESTS, '2026-10-13', 't-5-1.json');
+  fs.files.set(named, JSON.stringify({ system: `Ελένη (id:${id})`, parts: [] }));
+  fs.files.set(token, JSON.stringify({ system: '', parts: [{ type: 'text', text: `<@${id}> καλημέρα` }] }));
+  fs.files.set(inPrivate, JSON.stringify({ system: '', parts: [{ type: 'text', text: `about <@${id}>` }] }));
+  fs.files.set(other, JSON.stringify({ system: '', parts: [{ type: 'text', text: 'καλησπέρα' }] }));
+  fs.files.set(longer, JSON.stringify({ system: '', parts: [{ type: 'text', text: `<@${id}9>` }] }));
+
+  assert.deepEqual(await journal.forgetRequests('g1', id), { removed: 3 });
+  assert.deepEqual([...fs.files.keys()].sort(), [longer, other].sort(), 'another id that only starts the same stays');
+  assert.deepEqual(await journal.forgetRequests('g1', id), { removed: 0 });
+});

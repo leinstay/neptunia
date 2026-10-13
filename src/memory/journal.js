@@ -28,10 +28,15 @@
 // with the model's raw answer and its usage, written whole through a `.tmp` file and a rename
 // (not the append store: it is one document, not a line). Written only while
 // `journal.keepRequests` is above 0; `pruneRequests` deletes the day directories older than that
-// many days, a private chat's included. A dump is a debugging copy: it may hold the chat's text.
+// many days, a private chat's included. A dump is a debugging copy: it may hold the chat's text,
+// so a forget deletes the dumps naming the member (`forgetRequests`) and a wipe deletes them all.
 //
-// `withWriterLock(fn)` (`/nep memory snapshot`) holds every new line back while `fn` runs, after
-// the append store flushed what it had: a copy of `data/` taken inside it sees no line half-way.
+// `withWriterLock(fn)` (`/nep memory snapshot`, `/nep memory forget|wipe`, the deletion ledger at
+// start) holds every new line back while `fn` runs, after the append stores flushed what they had:
+// the journal's own lines and request dumps here, and the record's and the archive's appends,
+// which wait on `waitUnlocked` (src/memory/record.js, src/memory/archive.js `writerGate`; their
+// append stores are flushed through `lockStores`). A copy of `data/` taken inside it sees no line
+// half-way, and a forget run inside it is not raced by a new line.
 //
 // Logs carry the kind and an error code, never the record's contents.
 
@@ -103,13 +108,47 @@ export function journalLine(record) {
   return words(at, kind, short);
 }
 
-/** Whether a journal line names `userId` among its participants; a line that does not parse does not. */
-function namesParticipant(line, userId) {
+/**
+ * Whether forgetting `userId` drops this journal record: it names them among its `participants`
+ * and, with `before` (epoch ms, the deletion ledger's time), it happened earlier (a record
+ * without a readable `occurredAt` counts as earlier). The one rule `forgetUser` and the
+ * store's vault pass (src/memory/store.js#forgetUser) both apply.
+ * @param {unknown} record  A parsed journal line.
+ * @param {string} userId
+ * @param {number|null} [before]
+ * @returns {boolean}
+ */
+export function journalDrops(record, userId, before = null) {
+  if (!Array.isArray(record?.participants) || !record.participants.includes(String(userId))) return false;
+  if (!Number.isFinite(before)) return true;
+  return !(Date.parse(record.occurredAt) >= before);
+}
+
+/** Whether a journal line is dropped by `journalDrops`; a line that does not parse is not. */
+function namesParticipant(line, userId, before = null) {
   try {
-    const record = JSON.parse(line);
-    return Array.isArray(record?.participants) && record.participants.includes(userId);
+    return journalDrops(JSON.parse(line), userId, before);
   } catch {
     return false;
+  }
+}
+
+/**
+ * Whether a request dump's text names member `userId`: the id as a whole number (no digit
+ * right before or after it), as a bare id or inside a `<@id>` token.
+ * @param {string} text
+ * @param {string} userId
+ * @returns {boolean}
+ */
+export function requestMentions(text, userId) {
+  const id = String(userId ?? '');
+  if (!id || typeof text !== 'string') return false;
+  let from = 0;
+  for (;;) {
+    const at = text.indexOf(id, from);
+    if (at === -1) return false;
+    if (!/\d/.test(text[at - 1] ?? '') && !/\d/.test(text[at + id.length] ?? '')) return true;
+    from = at + 1;
   }
 }
 
@@ -160,6 +199,8 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  * @param {() => string} [options.uuid=randomUUID]
  * @param {{ warn: Function }} [options.log]
  * @param {object} [options.fs]  a `node:fs/promises`-shaped API (the markers, listing and deleting)
+ * @param {Array<{ flush: Function }>} [options.lockStores]  other append stores `withWriterLock`
+ *   flushes before `fn` (the record's and the archive's, src/index.js)
  * @returns {{
  *   start(guildId: string, input: { channelId?: string, mode?: string, trigger?: object|null,
  *     participants?: string[], sourceMessageIds?: string[], privateUserId?: string|null,
@@ -179,14 +220,16 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *     Promise<Array<{ id: string, content: string, replyToId: string|null, createdAt: unknown }>> }):
  *     Promise<{ succeeded: number, unknown: number }>,
  *   stalled(): boolean,
- *   forgetUser(guildId: string, userId: string): Promise<{ files: number, dropped: number }>,
+ *   forgetUser(guildId: string, userId: string, opts?: { before?: number|null }): Promise<{ files: number, dropped: number }>,
  *   resumeForgets(guildId: string): Promise<{ finished: number }>,
  *   removeGuild(guildId: string): Promise<{ files: number }>,
  *   markRunning(guildId: string): Promise<{ unclean: boolean }>,
  *   clearRunning(guildId: string): Promise<void>,
  *   dumpRequest(guildId: string, dump: object): Promise<void>,
  *   pruneRequests(guildId: string): Promise<{ removed: number }>,
+ *   forgetRequests(guildId: string, userId: string, opts?: { before?: number|null }): Promise<{ removed: number }>,
  *   withWriterLock<T>(fn: () => Promise<T>|T): Promise<T>,
+ *   waitUnlocked(): Promise<void>,
  * }}
  *   `start` writes a `turn.start` line (not awaited: a failed append is logged) and returns the
  *   turn's id: a new one, or `input.turnId` with `input.attemptId` for a later attempt of the
@@ -213,7 +256,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   `stalled` says whether the append store's retry queue is full (`stats().stalled`; false for a
  *   store without stats): what depends on a record being taken (memory application) waits.
  */
-export function createJournal({ appendStore, dataDir, config = () => ({}), now = Date.now, uuid = randomUUID, log = defaultLog, fs = nodeFs }) {
+export function createJournal({ appendStore, dataDir, config = () => ({}), now = Date.now, uuid = randomUUID, log = defaultLog, fs = nodeFs, lockStores = [] }) {
   const guildDir = (guildId) => path.join(dataDir, 'guilds', String(guildId));
   function journalDir(guildId, privateUserId = null) {
     return typeof privateUserId === 'string' && privateUserId
@@ -519,12 +562,8 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     const keep = keepRequests();
     if (keep === 0) return { removed: 0 };
     const cutoff = utcDay(now() - keep * DAY_MS);
-    const roots = [path.join(journalDir(guildId), 'requests')];
-    for (const userId of await namesIn(path.join(guildDir(guildId), 'private'))) {
-      if (USER_ID_RE.test(userId)) roots.push(path.join(journalDir(guildId, userId), 'requests'));
-    }
     let removed = 0;
-    for (const root of roots) {
+    for (const root of await requestRoots(guildId)) {
       for (const name of await namesIn(root)) {
         if (!REQUEST_DAY_RE.test(name) || name >= cutoff) continue;
         await fs.rm(path.join(root, name), { recursive: true, force: true });
@@ -534,11 +573,58 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     return { removed };
   }
 
+  /** The request-dump roots of the guild: its own, then every private journal's. */
+  async function requestRoots(guildId) {
+    const roots = [path.join(journalDir(guildId), 'requests')];
+    for (const userId of await namesIn(path.join(guildDir(guildId), 'private'))) {
+      if (USER_ID_RE.test(userId)) roots.push(path.join(journalDir(guildId, userId), 'requests'));
+    }
+    return roots;
+  }
+
   /**
-   * Run `fn` with every journal write held back: the lock waits for one already held, the
-   * append store flushes (queued lines retried, files fsynced), then `fn` runs; lines and request
-   * dumps written meanwhile wait and land after it in their order. The lock is released however
-   * `fn` ends; its result or rejection is passed on.
+   * Delete the request dumps of the guild (its own and every private journal's) whose text names
+   * `userId` (`requestMentions`); with `before` (epoch ms) only those recorded earlier.
+   * @param {string} guildId
+   * @param {string} userId
+   * @param {{ before?: number|null }} [opts]
+   * @returns {Promise<{ removed: number }>}
+   */
+  async function forgetRequests(guildId, userId, { before = null } = {}) {
+    const id = checkUserId(userId);
+    let removed = 0;
+    const files = [];
+    for (const root of await requestRoots(guildId)) {
+      for (const day of (await namesIn(root)).filter((name) => REQUEST_DAY_RE.test(name))) {
+        for (const name of (await namesIn(path.join(root, day))).filter((entry) => entry.endsWith('.json'))) files.push(path.join(root, day, name));
+      }
+    }
+    for (const file of files) {
+      const text = await fs.readFile(file, 'utf8').catch(() => '');
+      if (!requestMentions(text, id)) continue;
+      if (Number.isFinite(before)) {
+        let at = NaN;
+        try {
+          at = Date.parse(JSON.parse(text)?.recordedAt);
+        } catch {
+          at = NaN;
+        }
+        if (at >= before) continue;
+      }
+      await fs.rm(file, { force: true });
+      removed += 1;
+    }
+    return { removed };
+  }
+
+  /**
+   * Run `fn` with every journal write held back, and the record's and the archive's appends too
+   * (they wait on `waitUnlocked` through their `writerGate`): the lock waits for one already
+   * held, the append store and every `lockStores` store flush (queued lines retried, files
+   * fsynced), then `fn` runs; lines and request dumps written meanwhile wait and land after it in
+   * their order. A forget (src/memory/store.js#forgetUser) runs inside it, so no writer of the
+   * guild adds a line while the lines are dropped. The lock is released however `fn` ends; its
+   * result or rejection is passed on.
    * @template T
    * @param {() => Promise<T>|T} fn
    * @returns {Promise<T>}
@@ -552,6 +638,9 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     });
     try {
       if (typeof appendStore.flush === 'function') await appendStore.flush();
+      for (const other of Array.isArray(lockStores) ? lockStores : []) {
+        if (typeof other?.flush === 'function') await other.flush();
+      }
       return await fn();
     } finally {
       held = null;
@@ -572,15 +661,36 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     await fs.rm(file, { force: true });
   }
 
-  /** The journal part of forgetting `userId`: the guild day files rewritten, torn tails naming them and the private journal deleted. */
-  async function purgeUser(guildId, userId) {
+  /**
+   * The journal part of forgetting `userId`: the guild day files rewritten, torn tails naming them
+   * and the private journal deleted. With `before` (the deletion ledger re-applied) only the
+   * records that happened earlier go, the private journal is rewritten the same way, and torn
+   * tails stay.
+   */
+  async function purgeUser(guildId, userId, before = null) {
     const dir = journalDir(guildId);
     let files = 0;
     let dropped = 0;
     for (const file of await dayFiles(dir)) {
-      const result = await appendStore.rewrite(file, (line) => !namesParticipant(line, userId));
+      const result = await appendStore.rewrite(file, (line) => !namesParticipant(line, userId, before));
       files += 1;
       dropped += result?.dropped ?? 0;
+    }
+    const privateDir = journalDir(guildId, userId);
+    if (Number.isFinite(before)) {
+      const earlier = (line) => {
+        try {
+          return !(Date.parse(JSON.parse(line)?.occurredAt) >= before);
+        } catch {
+          return false;
+        }
+      };
+      for (const file of await dayFiles(privateDir)) {
+        const result = await appendStore.rewrite(file, (line) => !earlier(line));
+        files += 1;
+        dropped += result?.dropped ?? 0;
+      }
+      return { files, dropped };
     }
     // A torn tail is a line cut short: it may name the member, so one that does goes.
     for (const name of (await namesIn(dir)).filter((entry) => TORN_FILE_RE.test(entry))) {
@@ -588,7 +698,6 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       const text = await fs.readFile(file, 'utf8').catch(() => '');
       if (text.includes(userId)) await fs.rm(file, { force: true });
     }
-    const privateDir = journalDir(guildId, userId);
     for (const file of await dayFiles(privateDir)) {
       await dropFile(file);
       files += 1;
@@ -609,13 +718,17 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
    * when absent; removed at the end only when this call wrote it, or a crashed call of this
    * module did), every day file is rewritten without the records whose `participants` include
    * them, and their private journal is deleted. Rejects on a disk error, the marker left for
-   * `resumeForgets`.
+   * `resumeForgets`. With `before` (epoch ms: the deletion ledger re-applied, src/memory/store.js
+   * #applyLedger) no marker is written and only the records that happened earlier go
+   * (`journalDrops`), the private journal's too.
    * @param {string} guildId
    * @param {string} userId
+   * @param {{ before?: number|null }} [opts]
    * @returns {Promise<{ files: number, dropped: number }>}
    */
-  async function forgetUser(guildId, userId) {
+  async function forgetUser(guildId, userId, { before = null } = {}) {
     const id = checkUserId(userId);
+    if (Number.isFinite(before)) return purgeUser(guildId, id, before);
     const marker = path.join(forgettingDir(guildId), `${id}.json`);
     await fs.mkdir(forgettingDir(guildId), { recursive: true });
     let owned = false;
@@ -649,8 +762,8 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
   }
 
   /**
-   * Delete every journal day file of the guild, private journals included (`/nep memory wipe`);
-   * the `.running` marker and the forget markers stay.
+   * Delete every journal day file of the guild and every request dump, private journals included
+   * (`/nep memory wipe`); the `.running` marker and the forget markers stay.
    * @param {string} guildId
    * @returns {Promise<{ files: number }>}
    */
@@ -666,6 +779,8 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
         files += 1;
       }
       for (const name of (await namesIn(dir)).filter((entry) => TORN_FILE_RE.test(entry))) await fs.rm(path.join(dir, name), { force: true });
+      // The request dumps quote the chat: they go with it.
+      await fs.rm(path.join(dir, 'requests'), { recursive: true, force: true });
     }
     return { files };
   }
@@ -715,6 +830,8 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     clearRunning,
     dumpRequest,
     pruneRequests,
+    forgetRequests,
     withWriterLock,
+    waitUnlocked: unlocked,
   };
 }

@@ -26,7 +26,8 @@
 // lesson's teacher.
 //
 // Channels go the same way back out: `linkChannels` turns the `#name` the
-// persona writes into the `<#id>` link the chat shows as a channel.
+// persona writes into the `<#id>` link the chat shows as a channel. And a forget takes a member
+// out of a kept text (`redactUser`): their token and their names become a neutral word.
 
 /**
  * The digits of a Discord member id, as a regex source: the one id range every
@@ -270,4 +271,29 @@ export function linkChannels(text, channels) {
     }
   }
   return result + text.slice(index);
+}
+
+/** The fewest word characters a name needs before `redactUser` replaces it (a shorter one is too common a word). */
+const MIN_REDACT_NAME = 3;
+
+/**
+ * `text` with one member taken out of it (a forget, src/memory/store.js#forgetUser): every
+ * `<@id>` / `<@!id>` token of `userId` and every one of `names` occurring as a whole word
+ * (case-insensitive, any script; the longest first; a name with fewer than three word characters
+ * is left alone) replaced by `token`. Anything that is not a string comes back unchanged.
+ * @param {unknown} text
+ * @param {{ userId: string, names?: string[], token: string }} opts
+ * @returns {unknown}
+ */
+export function redactUser(text, { userId, names = [], token }) {
+  if (typeof text !== 'string' || !text) return text;
+  const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let out = text.split(`<@${userId}>`).join(token).split(`<@!${userId}>`).join(token);
+  const usable = [...new Set((Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map((name) => name.trim()))]
+    .filter((name) => [...name].filter((ch) => isWordChar(ch) && ch !== '_').length >= MIN_REDACT_NAME)
+    .sort((a, b) => b.length - a.length);
+  for (const name of usable) {
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${escape(name)}(?![\\p{L}\\p{N}_])`, 'giu'), () => token);
+  }
+  return out;
 }

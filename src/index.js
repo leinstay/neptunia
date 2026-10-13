@@ -110,7 +110,6 @@ const appendStore = createAppendStore({
   retryMax: hot.config.appendStore?.retryMax ?? 1000,
   log,
 });
-const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {} });
 // The record (src/memory/record.js): every observed message, the persona's own lines and her
 // feelings, written while features.record is exactly true (read at each write). Its own append
 // store, flushed every record.fsyncMs (read once here).
@@ -119,7 +118,8 @@ const recordAppendStore = createAppendStore({
   retryMax: hot.config.appendStore?.retryMax ?? 1000,
   log,
 });
-const record = createRecord({ appendStore: recordAppendStore, dataDir, log });
+// A forget holds the record's appends with the journal's writer lock (journal.withWriterLock).
+const record = createRecord({ appendStore: recordAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked() });
 // The archive (src/memory/archive.js): every memory item a write drops is copied here before any
 // hot file loses it, while features.archive is exactly true (read at each write). Its own append
 // store, so its counts tell whether an archive line is on disk.
@@ -128,7 +128,10 @@ const archiveAppendStore = createAppendStore({
   retryMax: hot.config.appendStore?.retryMax ?? 1000,
   log,
 });
-const archive = createArchive({ appendStore: archiveAppendStore, dataDir, log });
+const archive = createArchive({ appendStore: archiveAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked() });
+// The journal's writer lock (a snapshot, a forget, a wipe, the ledger at start) flushes the record's
+// and the archive's append stores too, and holds their writers through their writerGate.
+const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {}, lockStores: [recordAppendStore, archiveAppendStore] });
 const store = createStore({
   dataDir,
   record,
@@ -453,14 +456,18 @@ async function pruneJournalRequests(guildId) {
 }
 
 /**
- * The journal at start: forgets a crash left half done are finished first (whatever the
- * switch: what was journalled about a forgotten member goes); then, with the journal on, a
+ * The journal at start: forgets a crash left half done are finished first (store.resumeForgets,
+ * every step of `/nep memory forget`, whatever the switch: what was journalled about a forgotten
+ * member goes), then the deletion ledger is re-applied (store.applyLedger: a restored copy brings
+ * no forgotten member back) -- both before the updater's first tick; then, with the journal on, a
  * `.running` marker left by a run that never stopped cleanly becomes an `unclean-stop` record,
  * this run's marker is written and the `start` record follows.
  */
 async function startJournal(guildId) {
-  const { finished } = await journal.resumeForgets(guildId);
-  if (finished > 0) log.info('journal: forgets finished', { guildId, finished });
+  // memory.vaultDir and labels.memory.redaction, read now (store.js carries the same fallbacks).
+  const deps = { journal, vaultDir: hot.config.memory?.vaultDir, redaction: hot.prompts.labels?.memory?.redaction };
+  await store.resumeForgets(guildId, deps);
+  await store.applyLedger(guildId, deps);
   if (!journalOn()) return;
   const { unclean } = await journal.markRunning(guildId);
   if (unclean) log.warn('journal: unclean stop noted', { guildId });

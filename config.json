@@ -201,6 +201,7 @@
     "notesSampleMessages": 160,
     "notesSampleMaxAuthorShare": 0.35,
     "versionsKept": 20,
+    "vaultDir": "vault",
     "overLimitRetries": 1,
     "privateMaxAgeMinutes": 360,
     "channelWritersStored": 20,

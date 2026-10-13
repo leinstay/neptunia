@@ -273,10 +273,14 @@ function makeStore() {
       profiles.set(key, profile);
       return profile.affinity;
     },
-    forgetUser(guildId, userId) {
+    forgetDeps: null,
+    forgetResult: null,
+    forgetUser(guildId, userId, deps) {
       forgotten.push([String(guildId), String(userId)]);
+      this.forgetDeps = deps;
       profiles.delete(`${guildId}:${userId}`);
       privates.delete(`${guildId}:${userId}`);
+      return Promise.resolve(this.forgetResult ?? { vault: `/data/vault/forget-${userId}`, counts: { profile: 1, journal: 5 } });
     },
     privates,
     forgottenPrivate,
@@ -301,6 +305,11 @@ function makeStore() {
       return [];
     },
     wipeCalls: [],
+    vaultCalls: [],
+    vaultGuild(guildId, opts) {
+      this.vaultCalls.push([String(guildId), opts]);
+      return '/data/vault/wipe-1';
+    },
     wipeGuild(guildId, opts) {
       this.wipeCalls.push([String(guildId), opts]);
       return { users: 2, channels: 1, loreRemoved: 3, loreKept: 1, bufferMessages: 5 };
@@ -1693,7 +1702,7 @@ test('run: memory.wipe with the exact guild name wipes the guild and reports the
 
   const result = await admin.run('memory.wipe', { confirm: 'The Server' }, { guildId: 'g1' });
 
-  assert.deepEqual(store.wipeCalls, [['g1', undefined]]);
+  assert.deepEqual(store.wipeCalls, [['g1', { vault: '/data/vault/wipe-1', vaultDir: 'vault' }]]);
   assert.ok(result.includes('users removed: 2'));
   assert.ok(result.includes('channels removed: 1'));
   assert.ok(result.includes('lore removed: 3 (kept: 1)'));
@@ -4283,10 +4292,10 @@ test('admin: memory forget rewrites the journal and writes a forget record', asy
   const result = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
   assert.ok(result.includes('Forgot 123'));
   assert.deepEqual(store.forgotten, [['g1', '123']]);
-  assert.deepEqual(journal.calls[0], ['forgetUser', 'g1', '123']);
+  assert.equal(store.forgetDeps.journal, journal, 'the store runs the journal part under the lock');
   const forget = journal.calls.find(([name]) => name === 'system');
   assert.deepEqual([forget[1], forget[2].event, forget[2].by, forget[2].participants], ['g1', 'forget', 'owner', ['123']]);
-  assert.match(result, /journal records removed: 5/i);
+  assert.match(result, /journal records: 5/i);
 
   // The wipe empties the journal, then records itself.
   const wiped = await admin.run('memory.wipe', { confirm: 'The Server' }, { guildId: 'g1' });
@@ -4367,4 +4376,78 @@ test('admin: memory snapshot is owner-only and cannot be granted', async () => {
   hot.config.bot.access = { memory: { everyone: true } };
   assert.equal(admin.isAllowed('memory.snapshot', { userId: '7' }), false);
   assert.equal(admin.isAllowed('memory.snapshot', { userId: '42' }), true);
+});
+
+// ---------------------------------------------------------------------------
+// memory.forget / memory.wipe: the vault
+// ---------------------------------------------------------------------------
+
+test('admin: memory forget reports the vault path and per-store counts', async () => {
+  const rootDir = makeRoot();
+  const journal = fakeJournal();
+  const hot = makeHot(rootDir);
+  hot.config.memory = { vaultDir: 'κρύπτη' };
+  hot.prompts.labels = { ...hot.prompts.labels, memory: { redaction: 'κάποιος' } };
+  const { admin, store } = makeAdmin(rootDir, { hot, journal });
+  store.forgetResult = {
+    vault: '/data/κρύπτη/forget-123-2026-10-13T12-00-00-000Z',
+    counts: { profile: 1, private: 1, voice: 2, recent: 3, participation: 4, versions: 1, archive: 5, record: 6, journal: 7, requests: 8, snapshots: 9, diary: 10 },
+  };
+
+  const reply = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
+
+  assert.deepEqual([store.forgetDeps.journal, store.forgetDeps.vaultDir, store.forgetDeps.redaction], [journal, 'κρύπτη', 'κάποιος']);
+  assert.ok(reply.includes('Vault: /data/κρύπτη/forget-123-2026-10-13T12-00-00-000Z'));
+  for (const part of [
+    'profile: 1', 'private memory: 1', 'voice items: 2', 'recent lines: 3', 'participation messages: 4', 'version files: 1',
+    'archive entries: 5', 'record lines: 6', 'journal records: 7', 'request dumps: 8', 'snapshots: 9', 'diary posts redacted: 10',
+  ]) {
+    assert.ok(reply.includes(part), part);
+  }
+
+  // A job cut short: the reply says it finishes at the next start and still names the vault.
+  store.forgetUser = () => Promise.reject(Object.assign(new Error('disk full'), { code: 'ENOSPC', vault: '/data/κρύπτη/forget-123-x' }));
+  const cut = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
+  assert.match(cut, /next start/);
+  assert.ok(cut.includes('/data/κρύπτη/forget-123-x'));
+});
+
+test('admin: memory wipe reports the vault path', async () => {
+  const rootDir = makeRoot();
+  const order = [];
+  const journal = {
+    ...fakeJournal(),
+    async withWriterLock(fn) {
+      order.push('lock');
+      try {
+        return await fn();
+      } finally {
+        order.push('unlock');
+      }
+    },
+    removeGuild: async () => {
+      order.push('journal');
+      return { files: 3 };
+    },
+  };
+  const hot = makeHot(rootDir);
+  hot.config.memory = { vaultDir: 'κρύπτη' };
+  const client = clientWithGuild('g1', 'The Server');
+  const { admin, store } = makeAdmin(rootDir, { hot, journal, client });
+  store.vaultGuild = (guildId, opts) => {
+    order.push(['vault', guildId, opts.vaultDir]);
+    return '/data/κρύπτη/wipe-2026-10-13T12-00-00-000Z';
+  };
+  const wipeGuild = store.wipeGuild.bind(store);
+  store.wipeGuild = (guildId, opts) => {
+    order.push('wipe');
+    return { ...wipeGuild(guildId, opts), snapshots: 2, vault: opts.vault };
+  };
+
+  const reply = await admin.run('memory.wipe', { confirm: 'The Server' }, { guildId: 'g1' });
+
+  assert.deepEqual(order, ['lock', ['vault', 'g1', 'κρύπτη'], 'journal', 'wipe', 'unlock'], 'the vault before anything is deleted');
+  assert.deepEqual(store.wipeCalls, [['g1', { vault: '/data/κρύπτη/wipe-2026-10-13T12-00-00-000Z', vaultDir: 'κρύπτη' }]]);
+  assert.ok(reply.includes('Vault: /data/κρύπτη/wipe-2026-10-13T12-00-00-000Z'));
+  assert.ok(reply.includes('snapshots that lost this server: 2'));
 });

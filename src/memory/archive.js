@@ -16,7 +16,8 @@
 // archived; a `restored` line is a lifecycle event and is never refused. Entries the archive could
 // not take wait in `archive/pending.jsonl`; `drainPending` writes them and notes each one in
 // `archive/pending-done.jsonl`, then compacts both files. `forgetUser` drops every entry naming a
-// member, under the forgetting marker src/memory/record.js uses.
+// member, under the forgetting marker src/memory/record.js uses; `iterate` and `find` hide such a
+// member until the forget is done, and the writers wait while a writer lock is held (`writerGate`).
 //
 // Logs carry counts and guild ids, never an entry's text.
 
@@ -26,7 +27,7 @@ import { randomUUID } from 'node:crypto';
 import { isPlainObject } from '../config.js';
 import { log as defaultLog } from '../log.js';
 import { TEACHER_TOKEN_RE, tokenIds } from './mentions.js';
-import { isoOf, revisionOf } from './record.js';
+import { forgettingIds, isoOf, revisionOf } from './record.js';
 
 /** The schema version every entry carries. */
 export const ARCHIVE_VERSION = 1;
@@ -254,6 +255,23 @@ function names(entry, id) {
 }
 
 /**
+ * Whether forgetting `userId` drops this archive entry: it is scoped to them or names them among
+ * its participants and, with `before` (epoch ms, the deletion ledger's time), it was archived
+ * earlier (an entry without a readable `recordedAt` counts as earlier). A pending line's entry is
+ * judged the same. The one rule `forgetUser` and the store's vault pass
+ * (src/memory/store.js#forgetUser) both apply.
+ * @param {unknown} entry  A parsed archive entry.
+ * @param {string} userId
+ * @param {number|null} [before]
+ * @returns {boolean}
+ */
+export function archiveDrops(entry, userId, before = null) {
+  if (!isPlainObject(entry) || !names(entry, String(userId))) return false;
+  if (!Number.isFinite(before)) return true;
+  return !(Date.parse(entry.recordedAt) >= before);
+}
+
+/**
  * Create the archive.
  *
  * @param {object} options
@@ -264,6 +282,9 @@ function names(entry, id) {
  * @param {() => number} [options.now=Date.now]
  * @param {() => string} [options.uuid=randomUUID]
  * @param {object} [options.fs]  a `node:fs/promises`-shaped API
+ * @param {(() => Promise<void>)|null} [options.writerGate]  awaited before every append, queue and
+ *   drain: the journal's `waitUnlocked`, so a forget's writer lock
+ *   (src/memory/journal.js#withWriterLock) holds the archive's writers too
  * @returns {{
  *   append(guildId: string, entries: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,
  *   iterate(guildId: string, query?: { from?: string, to?: string, scope?: object, kinds?: string[], privateUserId?: string|null }): AsyncIterable<object>,
@@ -271,8 +292,12 @@ function names(entry, id) {
  *   queuePending(guildId: string, entries: object[], opts?: { privateUserId?: string|null }): Promise<number>,
  *   drainPending(guildId: string): Promise<{ archived: number, left: number, confirmed: object[] }>,
  *   stats(guildId: string): { pending: number },
- *   forgetUser(guildId: string, userId: string): Promise<{ dropped: number }>,
+ *   forgetUser(guildId: string, userId: string, opts?: { before?: number|null }): Promise<{ dropped: number }>,
  * }}
+ *   `iterate` and `find` leave out the entries of a member under a forgetting marker
+ *   (`archiveDrops`), and read nothing of such a member's private archive. `forgetUser` with
+ *   `before` (the deletion ledger re-applied, src/memory/store.js#applyLedger) writes no marker and
+ *   drops only the entries archived earlier, the member's private archive rewritten the same way.
  *   `append` stamps `guildId` (and, with `privateUserId`, the private scope `{ user, private: true }`)
  *   on each entry, refuses an entry whose key the month's index holds (`duplicates`), writes the
  *   rest with an fsync, then the touched months' indexes. It rejects (code `archive-unconfirmed`)
@@ -292,7 +317,7 @@ function names(entry, id) {
  *   and removes the marker it wrote last; `dropped` counts the guild entries removed (pending
  *   ones included). Every method but `iterate`, `find` and `stats` runs one at a time.
  */
-export function createArchive({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs }) {
+export function createArchive({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs, writerGate = null }) {
   const indexes = new Map(); // ids.json path -> Set of keys
   const pendingCounts = new Map(); // guildId -> entries waiting in the pending files
   let chain = Promise.resolve();
@@ -445,7 +470,13 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     return { written, duplicates };
   }
 
-  function append(guildId, entries, { privateUserId = null } = {}) {
+  /** Wait while a writer lock is held (outside the chain: a forget queued behind it would wait for itself). */
+  async function gate() {
+    if (typeof writerGate === 'function') await writerGate();
+  }
+
+  async function append(guildId, entries, { privateUserId = null } = {}) {
+    await gate();
     return serial(() => appendNow(guildId, entries, privateUserId));
   }
 
@@ -457,6 +488,9 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     const toMonth = to ? String(isoOf(to) ?? '').slice(0, 7) : '9999-99';
     const wanted = Array.isArray(kinds) && kinds.length > 0 ? new Set(kinds) : null;
     const scopeKeys = isPlainObject(scope) ? Object.entries(scope) : [];
+    // A member being forgotten is hidden until the forget is done.
+    const hidden = await forgettingIds(fs, dataDir, guildId);
+    if (typeof privateUserId === 'string' && hidden.has(privateUserId)) return;
     for (const month of await months(base)) {
       if (!MONTH_RE.test(month) || month < fromMonth || month > toMonth) continue;
       const seen = new Set();
@@ -468,6 +502,7 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
         if (Number.isFinite(at) && (at < fromMs || at > toMs)) continue;
         if (wanted && !wanted.has(entry.itemKind)) continue;
         if (scopeKeys.some(([key, value]) => entry.scope?.[key] !== value)) continue;
+        if (hidden.size > 0 && [...hidden].some((id) => archiveDrops(entry, id))) continue;
         yield entry;
       }
     }
@@ -507,7 +542,8 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     return pending;
   }
 
-  function queuePending(guildId, entries, { privateUserId = null } = {}) {
+  async function queuePending(guildId, entries, { privateUserId = null } = {}) {
+    await gate();
     return serial(async () => {
       const base = baseDir(guildId, privateUserId);
       let queued = 0;
@@ -521,7 +557,8 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     });
   }
 
-  function drainPending(guildId) {
+  async function drainPending(guildId) {
+    await gate();
     return serial(async () => {
       let archived = 0;
       const confirmed = [];
@@ -561,7 +598,30 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
     return { pending: pendingCounts.get(String(guildId)) ?? 0 };
   }
 
-  function forgetUser(guildId, userId) {
+  /**
+   * The deletion ledger re-applied (`forgetUser` with `before`): every guild entry (pending ones
+   * included) of the member archived before `before` goes, and every earlier entry of their
+   * private archive; no marker.
+   */
+  async function forgetEarlier(guildId, id, before) {
+    const drops = (entry) => archiveDrops(entry, id, before);
+    const earlier = (entry) => isPlainObject(entry) && !(Date.parse(entry.recordedAt) >= before);
+    let dropped = 0;
+    for (const [base, test] of [[baseDir(guildId), drops], [baseDir(guildId, id), earlier]]) {
+      for (const month of await months(base)) {
+        const result = await appendStore.rewrite(segmentFile(base, month), (line) => !test(parse(line)));
+        if (result.dropped > 0) await rebuild(base, month);
+        dropped += result.dropped;
+      }
+      dropped += (await appendStore.rewrite(pendingFile(base), (line) => !test(parse(line)?.entry))).dropped;
+    }
+    await countPending(guildId);
+    if (dropped > 0) log.info('archive: forgotten', { guildId: String(guildId), dropped });
+    return { dropped };
+  }
+
+  function forgetUser(guildId, userId, { before = null } = {}) {
+    if (Number.isFinite(before)) return serial(() => forgetEarlier(guildId, String(userId), before));
     return serial(async () => {
       const id = String(userId);
       const marker = path.join(guildBase(guildId), 'forgetting', `${id}.json`);
@@ -576,7 +636,7 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
       }
       const keep = (line) => {
         const value = parse(line);
-        return !value || !names(value, id);
+        return !value || !archiveDrops(value, id);
       };
       const base = baseDir(guildId);
       let dropped = 0;
@@ -585,7 +645,7 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
         if (result.dropped > 0) await rebuild(base, month);
         dropped += result.dropped;
       }
-      dropped += (await appendStore.rewrite(pendingFile(base), (line) => !names(parse(line)?.entry, id))).dropped;
+      dropped += (await appendStore.rewrite(pendingFile(base), (line) => !archiveDrops(parse(line)?.entry, id))).dropped;
       // The private archive goes whole; each of its files is emptied through the append store
       // first, so its descriptor is closed and no queued line lands after the delete.
       const privateBase = baseDir(guildId, id);

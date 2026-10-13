@@ -6,7 +6,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createStore, writeJsonAtomic } from '../src/memory/store.js';
+import { createStore, readLedger, writeJsonAtomic } from '../src/memory/store.js';
+import { createAppendStore } from '../src/memory/append-store.js';
+import { createRecord, toRecordLine } from '../src/memory/record.js';
+import { archiveEntry, createArchive } from '../src/memory/archive.js';
+import { createJournal } from '../src/memory/journal.js';
 import { applyDelta } from '../src/memory/affinity.js';
 import { mergeEpisodes } from '../src/memory/episodes.js';
 import { applyMemoryUpdate, MEMORY_LIMIT_DEFAULTS } from '../src/memory/update.js';
@@ -1364,8 +1368,9 @@ test('wipeGuild: removes profiles, guild memory, channels, buffer and analyzer l
   seedGuild(storeA);
   storeA.flush();
 
-  const counts = storeA.wipeGuild('g1');
-  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0 });
+  const { vault, ...counts } = storeA.wipeGuild('g1');
+  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0 });
+  assert.ok(vault.startsWith(path.join(dir, 'vault', 'wipe-')));
 
   // cache is immediately usable
   assert.equal(storeA.getUser('g1', 'u1'), null);
@@ -1859,8 +1864,9 @@ test('wipeGuild: removes the private directory, cache and disk, leaves other gui
   store.pushPrivateBuffer('g1', 'u2', { id: 'm1', ts: 1000 }); // only cached, never flushed
   store.applyPrivateOps('g2', 'u9', {});
 
-  const counts = store.wipeGuild('g1');
-  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0 });
+  const { vault, ...counts } = store.wipeGuild('g1');
+  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0 });
+  assert.ok(vault.startsWith(path.join(dir, 'vault', 'wipe-')));
   assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'private')), false);
   assert.equal(store.getPrivate('g1', 'u1'), null);
   assert.equal(store.getPrivate('g1', 'u2'), null);
@@ -2752,7 +2758,7 @@ test('store: applyRecentOps marks the file dirty only when a line was added, rem
   assert.deepEqual(recentTexts(createStore({ dataDir: dir }), 'g1'), ['τέσσερα'], 'written: the evictions alone mark the file dirty');
 });
 
-test('store: forgetUser drops the member\'s recent lines with the profile', () => {
+test('store: forgetUser drops the member\'s recent lines with the profile', async () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
   store.touchUser('g1', ELENI, 'Ελένη', 1000);
@@ -2765,14 +2771,14 @@ test('store: forgetUser drops the member\'s recent lines with the profile', () =
   store.applyRecentOps('g2', [recentAdd(`<@${ELENI}> σε άλλο σπίτι`)], { now: RECENT_NOW });
   store.flush();
 
-  assert.deepEqual(store.forgetUser('g1', ELENI), { recentRemoved: 3 });
+  assert.equal((await store.forgetUser('g1', ELENI)).counts.recent, 3);
   assert.equal(store.getUser('g1', ELENI), null);
   assert.deepEqual(recentTexts(store, 'g1'), [`<@${NIKOS}> έφτιαξε τσάι`]);
   assert.deepEqual(recentTexts(createStore({ dataDir: dir }), 'g1'), [`<@${NIKOS}> έφτιαξε τσάι`], 'on disk at once, no flush needed');
   assert.deepEqual(recentTexts(store, 'g2'), [`<@${ELENI}> σε άλλο σπίτι`], 'another guild is not touched');
 
-  assert.deepEqual(store.forgetUser('g1', ELENI), { recentRemoved: 0 }, 'a second forget finds nothing');
-  assert.deepEqual(store.forgetUser('g3', ELENI), { recentRemoved: 0 });
+  assert.equal((await store.forgetUser('g1', ELENI)).counts.recent, 0, 'a second forget finds nothing');
+  assert.equal((await store.forgetUser('g3', ELENI)).counts.recent, 0);
   store.flush();
   assert.equal(fs.existsSync(recentFileOf(dir, 'g3')), false, 'a forget creates no recent file');
 });
@@ -3418,4 +3424,259 @@ test('store: closed items are capped and archived as replaced', async () => {
   assert.equal(entry.text.topic, 'α');
   assert.deepEqual(store.getUser('g1', 'u1').closed.map((item) => [item.kind, item.topic]), [['interest', 'β'], ['interest', 'γ']]);
   assert.equal(store.getUser('g1', 'u1').closed[1].supersededBy, profile.interests[0].itemId);
+});
+
+// ---- deletion: one rule across every copy, a vault before, a ledger after ----
+
+const GONE = '348100000000000101';
+const STAYS = '348100000000000202';
+const FORGET_AT = Date.UTC(2026, 9, 13, 12, 0, 0);
+const quietLog = { info() {}, warn() {}, error() {} };
+
+/** A store over `dir` with a real record, archive and journal, each on its own append store. */
+function durableKit(dir, now = () => FORGET_AT) {
+  const stores = [0, 1, 2].map(() => createAppendStore({ fsyncMs: 0, log: quietLog }));
+  const journal = createJournal({ appendStore: stores[0], dataDir: dir, now, log: quietLog });
+  const record = createRecord({ appendStore: stores[1], dataDir: dir, now, log: quietLog });
+  const archive = createArchive({ appendStore: stores[2], dataDir: dir, now, log: quietLog });
+  const store = createStore({ dataDir: dir, record, recordOn: () => false, archive, archiveOn: () => false });
+  // A process exit: every append store closed, so another instance may rewrite the files.
+  const close = () => Promise.all(stores.map((appendStore) => appendStore.close()));
+  return { journal, record, archive, store, close };
+}
+
+/** Every file under `dir`, as forward-slash paths relative to it. */
+function filesUnder(dir) {
+  const out = [];
+  const walk = (at) => {
+    for (const entry of fs.readdirSync(at, { withFileTypes: true })) {
+      const full = path.join(at, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else out.push(path.relative(dir, full).split(path.sep).join('/'));
+    }
+  };
+  if (fs.existsSync(dir)) walk(dir);
+  return out.sort();
+}
+
+/** The parsed lines of the JSONL files under `dir` whose path matches `re`. */
+function linesUnder(dir, re) {
+  return filesUnder(dir)
+    .filter((rel) => re.test(rel))
+    .flatMap((rel) => fs.readFileSync(path.join(dir, rel), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)));
+}
+
+/** Seed one guild with the member to forget and another one, in every store a forget reaches. */
+async function seedForget(dir, kit) {
+  const { store, record, archive, journal } = kit;
+  store.touchUser('g1', GONE, 'Ελένη', Date.UTC(2026, 9, 1));
+  store.applyProfileOps('g1', GONE, { aliases: { add: ['Λενιώ'] } }, { maxAliases: 5, maxAliasesStored: 15, now: Date.UTC(2026, 9, 1) });
+  store.applyProfileOps('g1', GONE, { character: 'Πρώτα.' }, { fieldChars: 1000 });
+  store.applyProfileOps('g1', GONE, { character: 'Μετά.' }, { fieldChars: 1000 });
+  store.applyPrivateOps('g1', GONE, { relationship: 'μυστικό' }, { fieldChars: 300 });
+  store.touchUser('g1', STAYS, 'Νίκος', Date.UTC(2026, 9, 1));
+  queueItems(store, 'g1', [voiceItem('relationship', { userId: GONE }), voiceItem('relationship', { userId: STAYS })]);
+  store.appendDiaryPost('g1', { at: Date.UTC(2026, 9, 2), kind: 'news', gist: `A walk with <@${GONE}>, Λενιώ laughed` }, { now: Date.UTC(2026, 9, 2) });
+  store.appendDiaryPost('g1', { at: Date.UTC(2026, 9, 3), kind: 'mood', gist: 'Rain.' }, { now: Date.UTC(2026, 9, 3) });
+  store.flush();
+  const ts = Date.UTC(2026, 9, 10, 9, 0, 0);
+  await record.append('g1', [
+    toRecordLine({ id: 'm1', channelId: 'c1', authorId: GONE, content: 'γεια', ts }),
+    toRecordLine({ id: 'm2', channelId: 'c1', authorId: STAYS, content: 'καλημέρα', ts }),
+  ]);
+  await record.append('g1', [toRecordLine({ id: 'p1', channelId: 'dm', authorId: GONE, content: 'μυστικό', ts })], { privateUserId: GONE });
+  await archive.append('g1', [
+    archiveEntry({ what: 'sang by the sea', date: '2026-10-02' }, { itemKind: 'episode', event: 'evicted', scope: { user: GONE }, now: () => ts }),
+    archiveEntry({ what: 'made tea', date: '2026-10-02' }, { itemKind: 'episode', event: 'evicted', scope: { user: STAYS }, now: () => ts }),
+  ]);
+  await journal.memory('g1', { participants: [GONE, STAYS], occurredAt: new Date(ts).toISOString() });
+  await journal.memory('g1', { participants: [STAYS], occurredAt: new Date(ts).toISOString() });
+  const requests = path.join(dir, 'guilds', 'g1', 'journal', 'requests', '2026-10-10');
+  fs.mkdirSync(requests, { recursive: true });
+  fs.writeFileSync(path.join(requests, 't-1-1.json'), JSON.stringify({ recordedAt: new Date(ts).toISOString(), parts: [{ type: 'text', text: `<@${GONE}> γεια` }] }));
+  fs.writeFileSync(path.join(requests, 't-2-1.json'), JSON.stringify({ recordedAt: new Date(ts).toISOString(), parts: [{ type: 'text', text: 'καλημέρα' }] }));
+  const snapshotUsers = path.join(dir, 'snapshots', '2026-10-11T00-00-00-000Z', 'guilds', 'g1', 'users');
+  fs.mkdirSync(snapshotUsers, { recursive: true });
+  fs.writeFileSync(path.join(snapshotUsers, `${GONE}.json`), JSON.stringify({ id: GONE, names: ['Ελένη'] }));
+  fs.writeFileSync(path.join(snapshotUsers, `${STAYS}.json`), JSON.stringify({ id: STAYS, names: ['Νίκος'] }));
+}
+
+test('store: forgetUser copies everything it will remove into data/vault before touching it', async () => {
+  const dir = tmpDataDir();
+  const kit = durableKit(dir);
+  await seedForget(dir, kit);
+  const guild = path.join(dir, 'guilds', 'g1');
+  const vaultRoot = path.join(dir, 'vault');
+
+  // What the vault held when the first module started removing lines.
+  let vaultAtFirstRemoval = null;
+  const archive = {
+    forgetUser: async (...args) => {
+      vaultAtFirstRemoval = filesUnder(vaultRoot);
+      return kit.archive.forgetUser(...args);
+    },
+  };
+  const { vault, counts } = await kit.store.forgetUser('g1', GONE, { journal: kit.journal, archive, vaultDir: 'vault', redaction: 'κάποιος', now: () => FORGET_AT });
+
+  assert.equal(vault, path.join(vaultRoot, `forget-${GONE}-2026-10-13T12-00-00-000Z`));
+  const prefix = path.relative(vaultRoot, vault).split(path.sep).join('/');
+  const g = `${prefix}/guilds/g1`;
+  const kept = filesUnder(vaultRoot);
+  for (const rel of [
+    `${g}/users/${GONE}.json`,
+    `${g}/private/${GONE}.json`,
+    `${g}/versions/users/${GONE}.json`,
+    `${g}/voice.extract.json`,
+    `${g}/diary.before.json`,
+    `${g}/journal/requests/2026-10-10/t-1-1.json`,
+    `${prefix}/snapshots/2026-10-11T00-00-00-000Z/guilds/g1/users/${GONE}.json`,
+  ]) {
+    assert.ok(kept.includes(rel), rel);
+  }
+  assert.ok(kept.some((rel) => rel.startsWith(`${g}/private/${GONE}/record/`)), 'the private directory, whole');
+  assert.ok(!kept.some((rel) => rel.includes(STAYS)), 'nothing of the member who stays');
+  assert.ok(!kept.includes(`${g}/journal/requests/2026-10-10/t-2-1.json`));
+  assert.deepEqual(vaultAtFirstRemoval, kept, 'the vault was complete before the first line went');
+
+  // The dropped lines, by each module's rule, under their own paths.
+  const dropped = (re) => linesUnder(vault, re);
+  assert.deepEqual(dropped(/archive\/.*\.dropped\.jsonl$/).map((entry) => entry.text.what), ['sang by the sea']);
+  assert.deepEqual(dropped(/record\/.*\.dropped\.jsonl$/).map((line) => line.messageId), ['m1']);
+  assert.deepEqual(dropped(/journal\/[^/]*\.dropped\.jsonl$/).map((rec) => rec.participants), [[GONE, STAYS]]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(vault, 'guilds', 'g1', 'diary.before.json'), 'utf8')).posts[0].gist, `A walk with <@${GONE}>, Λενιώ laughed`);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(vault, 'guilds', 'g1', 'voice.extract.json'), 'utf8')).map((item) => item.userId), [GONE]);
+
+  // Then everything went, and nothing of the other member.
+  assert.equal(kit.store.getUser('g1', GONE), null);
+  assert.ok(kit.store.getUser('g1', STAYS));
+  assert.equal(fs.existsSync(path.join(guild, 'private', GONE)), false);
+  assert.deepEqual(linesUnder(path.join(guild, 'record'), /\.jsonl$/).map((line) => line.messageId), ['m2']);
+  assert.deepEqual(linesUnder(path.join(guild, 'archive'), /\.jsonl$/).map((entry) => entry.text.what), ['made tea']);
+  assert.deepEqual(linesUnder(path.join(guild, 'journal'), /^[^/]*\.jsonl$/).map((rec) => rec.participants), [[STAYS]]);
+  assert.deepEqual(kit.store.getDiary('g1').posts.map((post) => post.gist), ['A walk with κάποιος, κάποιος laughed', 'Rain.']);
+  assert.deepEqual(filesUnder(path.join(guild, 'journal', 'requests')), ['2026-10-10/t-2-1.json']);
+  assert.deepEqual(filesUnder(path.join(dir, 'snapshots')), ['2026-10-11T00-00-00-000Z/guilds/g1/forgotten.json', `2026-10-11T00-00-00-000Z/guilds/g1/users/${STAYS}.json`]);
+  assert.deepEqual(counts, { profile: 1, private: 1, voice: 1, recent: 0, participation: 0, versions: 1, diary: 1, snapshots: 1, archive: 1, record: 1, journal: 1, requests: 1 });
+});
+
+test('store: forgetUser writes the marker first and the ledger last; a crash mid-way is finished on the next start', async () => {
+  const dir = tmpDataDir();
+  const kit = durableKit(dir);
+  await seedForget(dir, kit);
+  const marker = path.join(dir, 'guilds', 'g1', 'forgetting', `${GONE}.json`);
+  const seen = [];
+  const archive = {
+    forgetUser: async (...args) => {
+      seen.push({ marker: fs.existsSync(marker), ledger: readLedger(dir, 'g1').length });
+      return kit.archive.forgetUser(...args);
+    },
+  };
+  const crashing = {
+    forgetUser: async () => {
+      throw new Error('killed');
+    },
+  };
+  const failed = await kit.store.forgetUser('g1', GONE, { journal: kit.journal, archive, record: crashing, now: () => FORGET_AT }).catch((error) => error);
+  assert.match(failed.message, /killed/);
+  assert.deepEqual(seen, [{ marker: true, ledger: 0 }], 'the marker is there before the steps, the ledger is not');
+  const left = JSON.parse(fs.readFileSync(marker, 'utf8'));
+  assert.deepEqual([left.userId, left.owner, left.startedAt], [GONE, 'store', new Date(FORGET_AT).toISOString()]);
+  assert.deepEqual(Object.keys(left.steps), ['vault', 'hot', 'diary', 'snapshots', 'archive']);
+  assert.equal(failed.vault, path.resolve(dir, left.vault));
+  assert.deepEqual(readLedger(dir, 'g1'), []);
+  assert.deepEqual(linesUnder(path.join(dir, 'guilds', 'g1', 'record'), /\.jsonl$/).map((line) => line.messageId), ['m1', 'm2'], 'the record step never ran');
+
+  // The next start: a new store over the same directory finishes the job from the marker.
+  await kit.close();
+  const restarted = durableKit(dir, () => FORGET_AT + 60_000);
+  assert.equal(restarted.store.getUser('g1', GONE), null);
+  assert.deepEqual(await restarted.store.resumeForgets('g1', { journal: restarted.journal, now: () => FORGET_AT + 60_000 }), { finished: 1 });
+  assert.equal(fs.existsSync(marker), false, 'the marker goes last');
+  assert.deepEqual(readLedger(dir, 'g1'), [{ userId: GONE, at: new Date(FORGET_AT + 60_000).toISOString() }]);
+  assert.deepEqual(linesUnder(path.join(dir, 'guilds', 'g1', 'record'), /\.jsonl$/).map((line) => line.messageId), ['m2']);
+  assert.deepEqual(linesUnder(path.join(dir, 'guilds', 'g1', 'journal'), /^[^/]*\.jsonl$/).map((rec) => rec.participants), [[STAYS]]);
+  assert.ok(fs.existsSync(path.join(path.resolve(dir, left.vault), 'guilds', 'g1', 'users', `${GONE}.json`)), 'the vault of the first run stays the vault');
+  assert.deepEqual(await restarted.store.resumeForgets('g1', { journal: restarted.journal, now: () => FORGET_AT + 60_000 }), { finished: 0 });
+});
+
+test('store: wipeGuild copies the guild directory into data/vault first', () => {
+  const dir = tmpDataDir();
+  const store = createStore({ dataDir: dir });
+  seedGuild(store);
+  store.flush();
+  store.touchUser('g1', 'u3', 'Ζωή', 2000); // only cached: the vault flushes first
+  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'forgotten.json'), JSON.stringify([{ userId: 'u9', at: '2026-10-01T00:00:00.000Z' }]));
+  const snapshotGuild = path.join(dir, 'snapshots', '2026-10-11T00-00-00-000Z', 'guilds', 'g1');
+  fs.mkdirSync(path.join(snapshotGuild, 'users'), { recursive: true });
+  fs.writeFileSync(path.join(snapshotGuild, 'users', 'u1.json'), '{"id":"u1"}');
+  const live = filesUnder(path.join(dir, 'guilds', 'g1'));
+
+  const { vault, snapshots } = store.wipeGuild('g1', { now: () => FORGET_AT });
+
+  assert.equal(vault, path.join(dir, 'vault', 'wipe-2026-10-13T12-00-00-000Z'));
+  const copied = filesUnder(path.join(vault, 'guilds', 'g1'));
+  for (const rel of [...live, 'users/u3.json']) assert.ok(copied.includes(rel), rel);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(vault, 'guilds', 'g1', 'users', 'u3.json'), 'utf8')).names[0], 'Ζωή');
+  assert.ok(fs.existsSync(path.join(vault, 'snapshots', '2026-10-11T00-00-00-000Z', 'guilds', 'g1', 'users', 'u1.json')));
+  assert.equal(snapshots, 1);
+  assert.equal(fs.existsSync(snapshotGuild), false, 'the snapshot loses the guild');
+  assert.deepEqual(readLedger(dir, 'g1'), [], 'the ledger goes with the rest');
+  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'users', 'u3.json')), false);
+});
+
+test('store: applyLedger removes a reappeared profile and lines of a forgotten user', async () => {
+  const dir = tmpDataDir();
+  const kit = durableKit(dir);
+  await seedForget(dir, kit);
+  const { vault } = await kit.store.forgetUser('g1', GONE, { journal: kit.journal, now: () => FORGET_AT });
+  const guild = path.join(dir, 'guilds', 'g1');
+
+  // A backup from before the forget is put back by hand: the profile, a record line and an
+  // archive entry; after the forget the member spoke again (a new line, a new profile elsewhere).
+  fs.copyFileSync(path.join(vault, 'guilds', 'g1', 'users', `${GONE}.json`), path.join(guild, 'users', `${GONE}.json`));
+  for (const rel of filesUnder(vault).filter((name) => /(record|archive)\/.*\.dropped\.jsonl$/.test(name))) {
+    const target = path.join(guild, rel.replace(/^guilds\/g1\//, '').replace(/\.dropped\.jsonl$/, ''));
+    fs.appendFileSync(target, fs.readFileSync(path.join(vault, rel)));
+  }
+  const after = Date.UTC(2026, 9, 14, 9, 0, 0);
+  await kit.close();
+  const restarted = durableKit(dir, () => after);
+  await restarted.record.append('g1', [toRecordLine({ id: 'm3', channelId: 'c1', authorId: GONE, content: 'πάλι εδώ', ts: after })]);
+
+  const { result: counts, logs } = await withCapturedLogs(() => restarted.store.applyLedger('g1', { journal: restarted.journal }));
+  assert.deepEqual(counts, { users: 1, profiles: 1, private: 0, archive: 1, record: 1, journal: 0, diary: 0, requests: 0 });
+  assert.equal(restarted.store.getUser('g1', GONE), null);
+  assert.equal(fs.existsSync(path.join(guild, 'users', `${GONE}.json`)), false);
+  assert.deepEqual(linesUnder(path.join(guild, 'record'), /\.jsonl$/).map((line) => line.messageId).sort(), ['m2', 'm3'], 'what they said after the forget stays');
+  assert.deepEqual(linesUnder(path.join(guild, 'archive'), /\.jsonl$/).map((entry) => entry.text.what), ['made tea']);
+  const applied = logs.find((entry) => entry.msg === 'memory: ledger applied');
+  assert.deepEqual([applied.guildId, applied.profiles, applied.record], ['g1', 1, 1]);
+
+  const again = await restarted.store.applyLedger('g1', { journal: restarted.journal });
+  assert.deepEqual(again, { users: 1, profiles: 0, private: 0, archive: 0, record: 0, journal: 0, diary: 0, requests: 0 }, 'idempotent');
+});
+
+test('store: a user under a forgetting marker is hidden from getUser', async () => {
+  const dir = tmpDataDir();
+  const first = createStore({ dataDir: dir });
+  first.touchUser('g1', 'u1', 'Ζωή', 1000);
+  first.applyPrivateOps('g1', 'u1', { relationship: 'μυστικό' }, { fieldChars: 300 });
+  first.touchUser('g1', 'u2', 'Νίκος', 1000);
+  first.flush();
+  // A forget a crash left half done.
+  fs.mkdirSync(path.join(dir, 'guilds', 'g1', 'forgetting'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'forgetting', 'u1.json'), JSON.stringify({ userId: 'u1', owner: 'journal', startedAt: '2026-10-13T00:00:00.000Z' }));
+
+  const store = createStore({ dataDir: dir });
+  assert.equal(store.getUser('g1', 'u1'), null);
+  assert.equal(store.getPrivate('g1', 'u1'), null);
+  assert.deepEqual(store.listUserProfiles('g1').map((profile) => profile.id), ['u2']);
+  assert.ok(fs.existsSync(path.join(dir, 'guilds', 'g1', 'users', 'u1.json')), 'hidden, not yet deleted');
+
+  assert.deepEqual(await store.resumeForgets('g1', { now: () => FORGET_AT }), { finished: 1 });
+  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'users', 'u1.json')), false);
+  assert.ok(fs.existsSync(path.join(dir, 'vault', 'forget-u1-2026-10-13T12-00-00-000Z', 'guilds', 'g1', 'users', 'u1.json')), 'a marker another module left still gets its vault');
+  assert.deepEqual(readLedger(dir, 'g1').map((entry) => entry.userId), ['u1']);
+  store.touchUser('g1', 'u1', 'Ζωή', FORGET_AT + 1000);
+  assert.ok(store.getUser('g1', 'u1'), 'after the forget a member who speaks again is seen again');
 });

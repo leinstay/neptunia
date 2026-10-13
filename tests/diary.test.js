@@ -34,6 +34,7 @@ import { fill, localHour } from '../src/discord/format.js';
 import { MINUTE_MS, HOUR_MS } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
 import { createStore } from '../src/memory/store.js';
+import { redactUser } from '../src/memory/mentions.js';
 
 const seq = (values) => {
   let i = 0;
@@ -983,4 +984,25 @@ test('force: a busy outcome from the turn waits once and posts again', async () 
   assert.equal(result.outcome, 'spoke');
   assert.equal(idle, 1);
   assert.equal(h.turnCalls.length, 2);
+});
+
+test('diary: redactUser replaces the mention and the names with the token and keeps the post', () => {
+  const dir = tmpDataDir();
+  const store = createStore({ dataDir: dir });
+  const id = '348100000000000101';
+  store.appendDiaryPost('g1', { at: 1000, kind: 'news', gist: `Walked with <@${id}> and Λενιώ by the sea; λενιώ laughed, <@!${id}> too` }, { now: 1000 });
+  store.appendDiaryPost('g1', { at: 2000, kind: 'mood', gist: 'Rain all day, Λενιώτισσα sang.' }, { now: 2000 });
+  const before = store.getDiary('g1').posts;
+
+  assert.equal(store.redactDiary('g1', id, { names: ['Λενιώ', 'Ελένη', 'Al'], token: 'κάποιος' }), 1);
+  const after = store.getDiary('g1').posts;
+  assert.equal(after.length, 2, 'the posts stay');
+  assert.equal(after[0].gist, 'Walked with κάποιος and κάποιος by the sea; κάποιος laughed, κάποιος too');
+  assert.deepEqual({ ...after[0], gist: before[0].gist }, before[0], 'everything but the gist is kept, itemId included');
+  assert.deepEqual(after[1], before[1], 'a longer word that only starts with a name is not a mention');
+  assert.equal(createStore({ dataDir: dir }).getDiary('g1').posts[0].gist, after[0].gist, 'on disk at once');
+
+  assert.equal(redactUser('Al met Alexandros', { userId: id, names: ['Al', 'Alex'], token: 'x' }), 'Al met Alexandros', 'a two-letter name is too common to replace');
+  assert.equal(redactUser(`<@${id}9> stays`, { userId: id, names: [], token: 'x' }), `<@${id}9> stays`);
+  assert.equal(store.redactDiary('g1', id, { names: ['Λενιώ'], token: 'κάποιος' }), 0, 'a second pass finds nothing');
 });

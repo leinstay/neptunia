@@ -14,7 +14,9 @@
 // author, reply target, text, media kinds (never a URL), mentions, `direct`. A per-month id
 // index (`record/<YYYY-MM>/ids.json`, a sorted array of `messageId:revision` keys, held in
 // memory per month and rebuilt from the segments when missing) refuses a line already
-// recorded. `forgetUser` drops every line naming a member, under a forgetting marker.
+// recorded. `forgetUser` drops every line naming a member, under a forgetting marker; `iterate`
+// hides such a member until the forget is done, and `append` waits while a writer lock is held
+// (`writerGate`).
 //
 // Logs carry counts and ids of guilds, never a line's contents.
 
@@ -176,6 +178,37 @@ function parse(line) {
 }
 
 /**
+ * Whether forgetting `userId` drops this record line: its `participants` or its `by` name them
+ * and, with `before` (epoch ms, the deletion ledger's time), it happened earlier (a line without a
+ * readable `occurredAt` counts as earlier). The one rule `forgetUser` and the store's vault pass
+ * (src/memory/store.js#forgetUser) both apply.
+ * @param {unknown} value  A parsed record line.
+ * @param {string} userId
+ * @param {number|null} [before]
+ * @returns {boolean}
+ */
+export function recordDrops(value, userId, before = null) {
+  const id = String(userId);
+  const names = (Array.isArray(value?.participants) && value.participants.includes(id)) || value?.by === id;
+  if (!names) return false;
+  if (!Number.isFinite(before)) return true;
+  return !(Date.parse(value.occurredAt) >= before);
+}
+
+/** The member ids under a forgetting marker of the guild (`data/guilds/<id>/forgetting/<userId>.json`). Shared with src/memory/archive.js. */
+export async function forgettingIds(fs, dataDir, guildId) {
+  try {
+    return new Set(
+      (await fs.readdir(path.join(dataDir, 'guilds', String(guildId), 'forgetting')))
+        .filter((name) => name.endsWith('.json'))
+        .map((name) => name.slice(0, -'.json'.length)),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/**
  * Create the record.
  *
  * @param {object} options
@@ -185,13 +218,20 @@ function parse(line) {
  * @param {() => number} [options.now=Date.now]
  * @param {() => string} [options.uuid=randomUUID]
  * @param {object} [options.fs]  a `node:fs/promises`-shaped API
+ * @param {(() => Promise<void>)|null} [options.writerGate]  awaited before every append: the
+ *   journal's `waitUnlocked`, so a forget's writer lock (src/memory/journal.js#withWriterLock)
+ *   holds the record's appends too
  * @returns {{
  *   append(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,
  *   dayFile(guildId: string, occurredAtIso: string, privateUserId?: string|null): string,
  *   iterate(guildId: string, query?: { from?: string, to?: string, channelIds?: string[], privateUserId?: string|null }): AsyncIterable<object>,
  *   rebuildIndex(guildId: string, month: string, privateUserId?: string|null): Promise<number>,
- *   forgetUser(guildId: string, userId: string): Promise<{ dropped: number }>,
+ *   forgetUser(guildId: string, userId: string, opts?: { before?: number|null }): Promise<{ dropped: number }>,
  * }}
+ *   `iterate` leaves out the lines naming a member under a forgetting marker (`recordDrops`),
+ *   and yields nothing of such a member's private record. `forgetUser` with `before` (the
+ *   deletion ledger re-applied, src/memory/store.js#applyLedger) writes no marker and drops only
+ *   the lines that happened earlier, the member's private record rewritten the same way.
  *   `append` stamps `guildId` (and, with `privateUserId`, the private scope) on each line,
  *   refuses a line whose key the month's index already holds (`duplicates`), writes the rest
  *   to their day files and then the touched months' `ids.json`; it rejects when the append
@@ -205,7 +245,7 @@ function parse(line) {
  *   member's private record whole and removes the marker it wrote last; `dropped` counts the
  *   guild lines removed. Appends and forgets run one at a time.
  */
-export function createRecord({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs }) {
+export function createRecord({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs, writerGate = null }) {
   const indexes = new Map(); // ids.json path -> Set of keys
   let chain = Promise.resolve();
 
@@ -298,7 +338,9 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
     return keys;
   }
 
-  function append(guildId, lines, { privateUserId = null } = {}) {
+  async function append(guildId, lines, { privateUserId = null } = {}) {
+    // Outside the chain: a forget queued behind a held append would wait for itself.
+    if (typeof writerGate === 'function') await writerGate();
     return serial(async () => {
       const base = baseDir(guildId, privateUserId);
       const isPrivate = typeof privateUserId === 'string' && privateUserId;
@@ -347,6 +389,9 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
     const fromDay = from ? dayOf(from) : '0000-00-00';
     const toDay = to ? dayOf(to) : '9999-99-99';
     const channels = Array.isArray(channelIds) ? new Set(channelIds) : null;
+    // A member being forgotten is hidden until the forget is done.
+    const hidden = await forgettingIds(fs, dataDir, guildId);
+    if (typeof privateUserId === 'string' && hidden.has(privateUserId)) return;
     for (const month of await listDir(base)) {
       if (!MONTH_RE.test(month) || month < fromDay.slice(0, 7) || month > toDay.slice(0, 7)) continue;
       for (const { day, file } of await dayFiles(base, month)) {
@@ -357,17 +402,46 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
           const at = Date.parse(value.occurredAt);
           if (Number.isFinite(at) && (at < fromMs || at > toMs)) continue;
           if (channels && !channels.has(value.scope?.channel)) continue;
+          if (hidden.size > 0 && [...hidden].some((id) => recordDrops(value, id))) continue;
           yield value;
         }
       }
     }
   }
 
+  /**
+   * The deletion ledger re-applied (`forgetUser` with `before`): every guild line naming the member
+   * that happened before `before` goes, and every earlier line of their private record; no marker.
+   */
+  async function forgetEarlier(guildId, id, before) {
+    const keep = (line) => {
+      const value = parse(line);
+      return !value || !recordDrops(value, id, before);
+    };
+    const earlier = (line) => {
+      const value = parse(line);
+      return Boolean(value) && !(Date.parse(value.occurredAt) >= before);
+    };
+    let dropped = 0;
+    for (const [base, test] of [[baseDir(guildId), keep], [baseDir(guildId, id), (line) => !earlier(line)]]) {
+      for (const month of await listDir(base)) {
+        if (!MONTH_RE.test(month)) continue;
+        let monthDropped = 0;
+        for (const { file } of await dayFiles(base, month)) monthDropped += (await appendStore.rewrite(file, test)).dropped;
+        if (monthDropped > 0) await rebuild(base, month);
+        dropped += monthDropped;
+      }
+    }
+    if (dropped > 0) log.info('record: forgotten', { guildId: String(guildId), dropped });
+    return { dropped };
+  }
+
   function rebuildIndex(guildId, month, privateUserId = null) {
     return serial(() => rebuild(baseDir(guildId, privateUserId), month));
   }
 
-  function forgetUser(guildId, userId) {
+  function forgetUser(guildId, userId, { before = null } = {}) {
+    if (Number.isFinite(before)) return serial(() => forgetEarlier(guildId, String(userId), before));
     return serial(async () => {
       const id = String(userId);
       const marker = path.join(dataDir, 'guilds', String(guildId), 'forgetting', `${id}.json`);
@@ -380,10 +454,9 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
         await fs.writeFile(marker, JSON.stringify({ userId: id, at: new Date(now()).toISOString(), step: 'record' }));
         created = true;
       }
-      const names = (value) => (Array.isArray(value?.participants) && value.participants.includes(id)) || value?.by === id;
       const keep = (line) => {
         const value = parse(line);
-        return !value || !names(value);
+        return !value || !recordDrops(value, id);
       };
       const base = baseDir(guildId);
       let dropped = 0;
