@@ -69,9 +69,9 @@ import { fill, formatNow, replyMarker } from '../discord/format.js';
 import { log } from '../log.js';
 import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { gifPostsToday } from '../memory/gif-watch.js';
-import { linkChannels, linkMessageNumbers } from '../memory/mentions.js';
+import { isWordChar, linkChannels, linkMessageNumbers, occursAsWholeWord } from '../memory/mentions.js';
 import { rankGifs } from '../memory/gifs.js';
-import { liveRecent, recentSettings } from '../memory/recent.js';
+import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { participationSettings, recordOwnLine } from '../memory/participation.js';
 import { createParticipationPicker } from './participation-pick.js';
 import { isVideoVisionOn } from '../memory/youtube-check.js';
@@ -330,6 +330,73 @@ function createDeadline({ clock, startedAt, schedule, limitMs }) {
  */
 function askedFor(trigger, triggerKind) {
   return Boolean(trigger) && triggerKind !== 'overheard';
+}
+
+/** A word of the question this long or longer (in characters) is a fallback search form. */
+const FALLBACK_FORM_MIN_CHARS = 5;
+/** A longer word is no search form (a pasted token, a link's tail): recall's own cap on a form. */
+const FALLBACK_FORM_MAX_CHARS = 40;
+
+/** The words of `text`: maximal runs of word characters (isWordChar). */
+function wordsIn(text) {
+  const words = [];
+  let current = '';
+  for (const ch of String(text ?? '')) {
+    if (isWordChar(ch)) current += ch;
+    else if (current) {
+      words.push(current);
+      current = '';
+    }
+  }
+  if (current) words.push(current);
+  return words;
+}
+
+/**
+ * The server search a direct question gets when the search classifier failed
+ * (recall.fallbackOnClassifierFailure): built from the question's own words.
+ * `who`: for each stored member (`profiles`, the persona's own `selfId` left
+ * out) the first of their names or alias names that occurs in `text` as a
+ * whole word (both folded, src/memory/recent.js#foldText), lowercased, each
+ * once. `forms`: the words of `text` (runs of isWordChar) of 5 to 40
+ * characters with at least one letter, lowercased, deduplicated (folded),
+ * without the words of a name found or of the persona's `selfName`, longest
+ * first (ties in text order). Each list holds at most `maxForms` (0 or not an
+ * integer: none). No date range. Null when both lists are empty. Pure.
+ * @param {{ text: string, profiles?: object[], selfId?: string|null, selfName?: string, maxForms?: number }} params
+ * @returns {{ forms: string[], who: string[], from: null, to: null }|null}
+ */
+export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfName = '', maxForms = 0 } = {}) {
+  const cap = Number.isInteger(maxForms) && maxForms > 0 ? maxForms : 0;
+  const folded = foldText(text);
+  const skipWords = new Set(wordsIn(foldText(selfName)));
+  const who = [];
+  for (const profile of Array.isArray(profiles) ? profiles : []) {
+    if (who.length >= cap) break;
+    if (!profile || typeof profile !== 'object' || (selfId !== null && String(profile.id) === String(selfId))) continue;
+    const names = [...(Array.isArray(profile.names) ? profile.names : []), ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name)];
+    const hit = names.find((name) => typeof name === 'string' && [...foldText(name)].length >= 2 && occursAsWholeWord(folded, foldText(name)));
+    if (!hit) continue;
+    const form = oneLine(hit).toLowerCase();
+    if (!who.includes(form)) who.push(form);
+    for (const word of wordsIn(foldText(hit))) skipWords.add(word);
+  }
+  const seen = new Set();
+  const candidates = [];
+  for (const word of wordsIn(String(text ?? '').toLowerCase())) {
+    const chars = [...word].length;
+    if (chars < FALLBACK_FORM_MIN_CHARS || chars > FALLBACK_FORM_MAX_CHARS || !/\p{L}/u.test(word)) continue;
+    const key = foldText(word);
+    if (seen.has(key) || skipWords.has(key)) continue;
+    seen.add(key);
+    candidates.push({ word, chars, at: candidates.length });
+  }
+  const forms = candidates
+    .sort((a, b) => b.chars - a.chars || a.at - b.at)
+    .slice(0, cap)
+    .map((item) => item.word);
+  if (forms.length === 0 && who.length === 0) return null;
+  return { forms, who, from: null, to: null };
 }
 
 /**
@@ -2413,13 +2480,18 @@ export function createTurnRunner({
    * the `lookup` input of the request (see createTurnRunner) or null. The
    * query, the forms and the transcript are data: never logged (`lookup:
    * classified` carries codes and counts only); an empty or blank answer is
-   * a failed call (`lookup: classifier failed`, `reason: 'empty'`), no
-   * search. Its request is a helper's (helperRequestOptions). `onSearch()`
+   * a failed call (`lookup: classifier failed`, `reason: 'empty'`). A failed
+   * call (it threw, or answered nothing) on a direct call (`triggerKind` in
+   * DIRECT_CALLS) with `serverOn` and recall.fallbackOnClassifierFailure on
+   * runs the server search on the question's own words instead
+   * (fallbackLookupPlan over the stored profiles; `lookup: fallback` with
+   * `reason` `classifier-failed` | `empty` and the counts, a `helper-fallback`
+   * entry on `limits`); never the web search; else no search. Its request is a helper's (helperRequestOptions). `onSearch()`
    * is called once the answer asks for a search that runs, before it starts
    * (the turn's deadline grows to pace.prepareSearchMs; until the answer the
    * turn holds its deadline on this call, see createDeadline's `hold`).
    */
-  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, journalStep = null }) {
+  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, journalStep = null, triggerKind = null, limits = null }) {
     const channelId = channel.id;
     const prompt = hot.prompts?.lookup;
     const searchCfg = config.web?.search ?? {};
@@ -2464,13 +2536,13 @@ export function createTurnRunner({
       );
     } catch (err) {
       log.warn('lookup: classifier failed', { channel: channelId, status: err.statusCode ?? null, name: err.name });
-      return null;
+      return fallback('classifier-failed');
     }
     if (!String(completion.text ?? '').trim()) {
       // Nothing at all (typically a reasoning model that spent its whole
       // output cap thinking) is a failed call, not a silent "none".
       log.warn('lookup: classifier failed', { channel: channelId, reason: 'empty', model: model ?? null });
-      return null;
+      return fallback('empty');
     }
     const parsed = parseLookupAnswer(completion.text, { timezone: config.bot?.timezone, now: clock(), maxForms: recallSettings(config)?.maxForms });
     const server = parsed.server;
@@ -2485,55 +2557,77 @@ export function createTurnRunner({
       who: server?.who.length ?? 0,
       ranged: Boolean(server && (server.from !== null || server.to !== null)),
     });
-    const runWeb = webCan && Boolean(parsed.web);
-    const runServer = serverOn && Boolean(server);
-    if (!runWeb && !runServer) return null;
-    onSearch?.();
-    // The journal: each search the answer asks for is an operation of the engine (journalStep).
-    const webOp = runWeb ? (journalStep?.('lookup', 'lookup', { input: { query: parsed.web } }) ?? null) : null;
-    const recallOp = runServer
-      ? (journalStep?.('lookup', 'recall', { input: { forms: server.forms, who: server.who, from: server.from, to: server.to } }, (result) => result.summaryChars > 0 || result.stretch === true) ?? null)
-      : null;
-    const [webResult, found] = await Promise.all([
-      runWeb
-        ? settleLookupPart(
-            () =>
-              journalled(webOp, () => lookup.search(guildId, parsed.web), (result) =>
-                result ? { result: { results: Array.isArray(result.sources) ? result.sources.length : 0 }, offered: Boolean(result.text) } : { failed: 'no-result' },
-              ),
-            channelId,
-            'web',
-          )
-        : null,
-      runServer
-        ? settleLookupPart(
-            () =>
-              recall.run({
-                ...(recallOp ? { op: recallOp } : {}),
-                guild,
-                guildId,
-                channel,
-                partner,
-                selfId,
-                selfName,
-                history: chatHistory,
-                context: history,
-                contextDescriptions: descriptions,
-                candidate: trigger,
-                server,
-              }),
-            channelId,
-            'server',
-          )
-        : null,
-    ]);
-    // A server search that found nothing leaves no server part.
-    const serverPart =
-      found && (found.text || found.stretch)
-        ? { text: found.text ?? null, stretch: found.stretch ?? null, people: Array.isArray(found.people) ? found.people : [] }
+    return runSearches({ web: parsed.web, server });
+
+    /**
+     * The failed classifier's fallback (`reason`: `classifier-failed` | `empty`): on a direct call
+     * (DIRECT_CALLS) with the server search possible and recall.fallbackOnClassifierFailure on, a
+     * recall on the question's own words (fallbackLookupPlan); never the web side. Null otherwise.
+     */
+    async function fallback(reason) {
+      if (!serverOn || !DIRECT_CALLS.has(triggerKind)) return null;
+      const settings = recallSettings(config);
+      if (!settings?.fallbackOnClassifierFailure) return null;
+      const plan = fallbackLookupPlan({ text: triggerText, profiles: store.listUserProfiles?.(guildId) ?? [], selfId, selfName, maxForms: settings.maxForms });
+      if (!plan) return null;
+      // Counts only, never a form or a name.
+      log.info('lookup: fallback', { channel: channelId, reason, forms: plan.forms.length, who: plan.who.length });
+      limits?.add({ kind: 'helper-fallback', where: 'lookup', detail: reason });
+      return runSearches({ web: null, server: plan });
+    }
+
+    /** The searches asked for (`web` query, `server` part), those whose side can run, in parallel. */
+    async function runSearches({ web, server }) {
+      const runWeb = webCan && Boolean(web);
+      const runServer = serverOn && Boolean(server);
+      if (!runWeb && !runServer) return null;
+      onSearch?.();
+      // The journal: each search the answer asks for is an operation of the engine (journalStep).
+      const webOp = runWeb ? (journalStep?.('lookup', 'lookup', { input: { query: web } }) ?? null) : null;
+      const recallOp = runServer
+        ? (journalStep?.('lookup', 'recall', { input: { forms: server.forms, who: server.who, from: server.from, to: server.to } }, (result) => result.summaryChars > 0 || result.stretch === true) ?? null)
         : null;
-    if (!serverPart) return webResult ?? null;
-    return { ...(webResult ?? {}), server: serverPart };
+      const [webResult, found] = await Promise.all([
+        runWeb
+          ? settleLookupPart(
+              () =>
+                journalled(webOp, () => lookup.search(guildId, web), (result) =>
+                  result ? { result: { results: Array.isArray(result.sources) ? result.sources.length : 0 }, offered: Boolean(result.text) } : { failed: 'no-result' },
+                ),
+              channelId,
+              'web',
+            )
+          : null,
+        runServer
+          ? settleLookupPart(
+              () =>
+                recall.run({
+                  ...(recallOp ? { op: recallOp } : {}),
+                  guild,
+                  guildId,
+                  channel,
+                  partner,
+                  selfId,
+                  selfName,
+                  history: chatHistory,
+                  context: history,
+                  contextDescriptions: descriptions,
+                  candidate: trigger,
+                  server,
+                }),
+              channelId,
+              'server',
+            )
+          : null,
+      ]);
+      // A server search that found nothing leaves no server part.
+      const serverPart =
+        found && (found.text || found.stretch)
+          ? { text: found.text ?? null, stretch: found.stretch ?? null, people: Array.isArray(found.people) ? found.people : [] }
+          : null;
+      if (!serverPart) return webResult ?? null;
+      return { ...(webResult ?? {}), server: serverPart };
+    }
   }
 
   /**
@@ -3954,6 +4048,8 @@ export function createTurnRunner({
                     serverOn,
                     onSearch: () => deadline.extend(pace.prepareSearchMs),
                     journalStep: prepStep,
+                    triggerKind,
+                    limits: draft.limits ?? null,
                   });
                 } catch (err) {
                   log.warn('lookup: failed', { channel: channel.id, error: err });
