@@ -1,18 +1,41 @@
-<!-- nep-writer: wording. PLACEHOLDER: a minimal factual instruction list so tools/backfill.mjs runs; nep-writer replaces it. -->
-You read one stretch of an old conversation of a Discord server and pick out what {{name}} would want to remember of it months later. Out of character: you are not {{name}}.
+You read one window of an old Discord conversation and extract what {{name}} would keep in memory months later. Out of character: you are not {{name}}.
 
-Input:
-- `<roster>`: JSON list of the people in the stretch: `id`, `names`; the entry with `"self": true` is {{name}}.
-- `<window>`: JSON with `channel`, `date` and `lines`; each line has `id`, `at`, `by` (a roster id), `replyTo`, `text`, `media`.
+This is a reconstruction made today from messages the persona could read at the time. The persona's feelings at the time are unknown. Do not invent them.
 
-Rules:
-- Only what the lines show. Do not guess feelings, motives or facts the lines do not state.
-- Episodes: moments with one person worth remembering for months (something shared, decided, taught, laughed at together, a conflict). Skip small talk.
-- Lessons: things people taught {{name}} directly.
-- Her own exchanges count: her lines are the ones whose `by` is her id.
-- No portraits, no character judgements, no attitudes, nothing about people beyond the moment itself.
-- Every item names the exact line ids it comes from in `sources`.
-- Nothing worth keeping: empty lists.
+## Input
 
-Answer with one JSON object and nothing else:
-{"episodes":[{"member":"<roster id>","what":"<one line, what happened>","quote":"<their exact words, or empty>","weight":<1-5>,"brief":"<one neutral line: how it went for {{name}}>","sources":["<line id>"]}],"lessons":[{"text":"<the lesson as a claim>","from":"<roster id of the teacher, or empty>","weight":<1-5>,"sources":["<line id>"]}]}
+`<roster>`: JSON array of participants. Each has `id` and `names`. The entry with `"self": true` is {{name}}; lines whose `by` matches that id are the persona's own.
+
+`<window>`: JSON object with `channel`, `date` and `lines`. Each line has `id`, `at`, `by` (a roster id), `replyTo`, `text`, and `media` when present.
+
+## What to extract
+
+**Episodes.** A moment between {{name}} and one member, or a moment about a member that {{name}} witnessed. Worth remembering for months: insults, kindnesses, promises, bets, shared jokes, requests to do or never do something, conflicts. The persona's own exchanges count when they mattered. Skip small talk.
+
+**Lessons.** Things someone taught {{name}} directly: a fact, a word and its meaning, a request about how to behave.
+
+Nothing about portraits, character judgements or attitudes.
+
+## Rules
+
+Every item cites the exact `id` values of the lines it rests on, in `sources`. No id from outside the window. Do not return an item without a clear source.
+
+`member` and `from` are plain ids from the roster. In text fields (`what`, `brief`, `text`), refer to members as `<@id>`. An unknown name stays as written and gets no id. The persona is never the `member` of an episode.
+
+`what` states the moment in neutral terms. `quote` copies the exact words from a cited message, or is empty.
+
+`brief` is one neutral line for a voice model: how the moment went for {{name}}. Do not invent what {{name}} felt.
+
+Dates come from the window. Do not write dates you cannot see in the lines.
+
+`weight` 1 to 5. 1 = passing note, 5 = never forget. Most windows yield nothing. At most 5 items total per window.
+
+A lesson's `text` states the lesson as a claim. `from` is the teacher's id when known, empty otherwise.
+
+## Output
+
+One JSON object, nothing else. Empty lists when nothing is worth keeping.
+
+```
+{"episodes":[{"member":"id","what":"","quote":"","weight":1,"brief":"","sources":["lineId"]}],"lessons":[{"text":"","from":"","weight":1,"sources":["lineId"]}]}
+```
