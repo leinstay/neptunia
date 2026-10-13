@@ -1359,3 +1359,13 @@ test('fetchNeighbors: accept is judged before the channel cap; a refused channel
   assert.deepEqual(all.map((n) => n.channelId), ['staff'], 'no accept: every readable channel');
 });
 
+
+test('normalizeMessage: a reaction whose emoji getter throws (a REST-only client) is skipped, not fatal', () => {
+  const throwing = { count: 3, me: false };
+  Object.defineProperty(throwing, 'emoji', { get() { throw new TypeError("Cannot read properties of null (reading 'emojis')"); } });
+  const raw = rawMessage({
+    reactions: { cache: new Map([['a', throwing], ['b', { emoji: { id: null, name: '👍' }, count: 1, me: false }]]) },
+  });
+  const m = normalizeMessage(raw, 'self');
+  assert.deepEqual(m.reactions, [{ emoji: '👍', count: 1, mine: false }]);
+});

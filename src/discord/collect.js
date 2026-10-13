@@ -98,10 +98,20 @@ function normalizeStickers(stickers) {
  * @returns {{ emoji: string, count: number, mine: boolean }[]}
  */
 function normalizeReactions(reactions) {
+  // discord.js resolves a reaction's emoji through the client's emoji cache; a REST-only client
+  // (the tools) has none and the getter throws. Such a reaction is skipped, never fatal.
+  const emojiOf = (reaction) => {
+    try {
+      return reaction?.emoji ?? null;
+    } catch {
+      return null;
+    }
+  };
   return [...(reactions?.cache?.values?.() ?? [])]
-    .filter((reaction) => Number.isInteger(reaction?.count) && reaction.count > 0 && reaction.emoji?.name)
-    .map((reaction) => ({
-      emoji: reaction.emoji.id ? `:${reaction.emoji.name}:` : reaction.emoji.name,
+    .map((reaction) => ({ reaction, emoji: emojiOf(reaction) }))
+    .filter(({ reaction, emoji }) => Number.isInteger(reaction?.count) && reaction.count > 0 && emoji?.name)
+    .map(({ reaction, emoji }) => ({
+      emoji: emoji.id ? `:${emoji.name}:` : emoji.name,
       count: reaction.count,
       mine: Boolean(reaction.me),
     }))
