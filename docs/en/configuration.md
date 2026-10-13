@@ -550,7 +550,8 @@ Follow-up windows are persisted in `data/state.json` under `followUpWindows` and
 | `maxAliasesStored` | `15` | Aliases kept per profile; the top by frequency and recency are shown |
 | `aliasRosterSize` | `40` | Members carried in the `<known_members>` block of a guild analyzer batch: stored profiles not present as authors, so the analyzer can record an alias for one of them. `0` turns the roster off. Private batches never carry it |
 | `aliasHalfLifeDays` | `365` | Weight half-life for aliases (days) |
-| `maxClosedStored` | `40` | Closed claims kept per profile: an interest, detail or alias the analyzer marked as replaced by a newer one (`supersedes`) leaves the ranked list and is kept here with the dates it was true; past the limit the oldest goes to the archive (event `replaced`). Read at each write |
+| `addressHalfLifeDays` | `30` | Days for a name use to lose half its weight in the "called most often" order |
+| `maxClosedStored` | `40` | Closed claims kept per profile: an interest, detail, alias or real name the analyzer marked as replaced by a newer one (`supersedes`) leaves the ranked list and is kept here with the dates it was true; past the limit the oldest goes to the archive (event `replaced`). Read at each write |
 | `supersededShownDays` | `7` | Days a replaced claim is still shown to the persona, once, next to the claim that replaced it (counted from when the new claim was recorded). Read at each request |
 | `maxInjokes` | `15` | Max server in-jokes |
 | `maxSelfFacts` | `20` | Max self-claims |
@@ -789,7 +790,7 @@ The witnessed record: every message the memory buffer takes, every message the p
 
 ## `archive`
 
-Before anything leaves hot memory (an episode, interest, detail, alias, lesson, attitude move, recent line, participation episode, diary gist or old version past its cap), a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl`. The item stays in memory, over its cap, until the archive confirms the write. Never trimmed. Needs `features.archive` (on by default).
+Before anything leaves hot memory (an episode, interest, detail, alias, real name, lesson, attitude move, recent line, participation episode, diary gist or old version past its cap), a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl`. The item stays in memory, over its cap, until the archive confirms the write. Never trimmed. Needs `features.archive` (on by default).
 
 | Key | Default | Meaning |
 |---|---|---|

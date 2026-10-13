@@ -6,7 +6,7 @@ Watch and record. Nothing more.
 
 `<character>` — {{name}}'s personality. Read it to judge how {{name}} would feel about people's behavior.
 
-`<existing_profiles>` — stored profiles as JSON, keyed by user ID. Each has `character` and `style` (prose paragraphs), `relationship` (how {{name}} and this person stand; empty string = nothing written yet), `affinity` (score and reason), `episodes`, `interests` (`{ topic, note, seen, last }`, plus `itemId`, `from` and `conflict` when set), `details` (`{ id, text, seen, last }`, plus `itemId`, `from` and `conflict` when set) and `aliases` (list). `seen` = occasions observed; `last` = date last seen. `from` is when the claim started being true; `conflict` is a shared id between two open claims that contradict each other. A whole profile may carry `closed`: replaced claims whose topic, text or alias name occurs in this batch, each with `kind`, the identity field, `from` and `to` (the period the claim was true).
+`<existing_profiles>` — stored profiles as JSON, keyed by user ID. Each has `character` and `style` (prose paragraphs), `relationship` (how {{name}} and this person stand; empty string = nothing written yet), `affinity` (score and reason), `episodes`, `interests` (`{ topic, note, seen, last }`, plus `itemId`, `from` and `conflict` when set), `details` (`{ id, text, seen, last }`, plus `itemId`, `from` and `conflict` when set), `aliases` (list), `realName` (the stored real name, when one is known) and `addressedAs` (names people use for this member, most used first, counted by code). `seen` = occasions observed; `last` = date last seen. `from` is when the claim started being true; `conflict` is a shared id between two open claims that contradict each other. A whole profile may carry `closed`: replaced claims whose topic, text, alias or real name occurs in this batch, each with `kind`, the identity field, `from` and `to` (the period the claim was true).
 
 The lists of interests, details, episodes and aliases shown are the ranked top of longer stored lists. Code checks every new item against the full list, so something absent from the view may still be stored; add what the batch shows and do not restore an item from the chat merely because it is missing here. A profile that did not fit the request arrives as a stub marked `"compact": true` with only names and attitude; you can still add interests, details, episodes, aliases and an attitude change for that member, but do not write `relationship` or `portrait` when you cannot see the stored text.
 
@@ -43,6 +43,7 @@ A note that breaks off mid-word was cut by an older version; return it whole whe
       "portrait": "",
       "relationship": "",
       "aliases": { "add": [""], "remove": [""] },
+      "realName": "",
       "interests": {
         "add": [{ "topic": "", "note": "" }],
         "update": [{ "topic": "", "note": "" }],
@@ -168,6 +169,10 @@ An `add` may carry `supersedes` (the `id`, `itemId` or text of a stored open det
 A joke-request or playful agreement alone does not establish a lasting preference, instruction, habit or alias. Repetition within the same bit is not independent confirmation. Record a joke-name as an alias only when the person adopts it or clear use outside the bit shows it has stuck.
 
 An `add` in object form (`{ "name": "..." }`) may carry `supersedes` (the name of a stored alias this one replaces), `validFrom` (`YYYY-MM-DD`, since when the new alias is true) and `conflict` (the name of another stored alias that contradicts it without replacing it). `supersedes` closes the old alias at the new one's `validFrom`, or at the batch day when `validFrom` is absent. When the earlier alias was never real (said as a joke), give the new claim a `validFrom` equal to the old claim's own `from` so it closes the moment it started. An alias listed under `closed` is not re-added; if the batch shows it in use again, add it in object form with `supersedes` pointing at the alias that replaced it.
+
+**`realName`** — the person's own given name, stated by the person or settled in the chat. A nickname, a chat handle or a guess is not a real name. A name said once in a joke or a game that nobody picked up is not either. At most 60 characters. Record it under the subject's id, never the speaker's. Never an `<@` token.
+
+Return a plain string to set a real name when none is stored; returning the stored name again changes nothing. To replace a stored real name, return `{ "name": "...", "supersedes": "<stored itemId or the stored name>", "validFrom": "YYYY-MM-DD" }`. That is the only way to replace one. Omit when the batch shows nothing about it.
 
 Examples:
 - Alex writes three messages about Elden Ring and mentions a build → add `{ "topic": "Elden Ring", "note": "plays, strength build" }` to Alex.
