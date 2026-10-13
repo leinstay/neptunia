@@ -39,7 +39,6 @@
 | `notesRefresh` | `true` | チャンネルとサーバーのノートを、最近のメッセージの分散サンプルから定期的に再チェック。キー欠落 = オン。`memory.notesRefreshDays*` および [ウォームアップ: ノートの鮮度維持](warmup.md#ノートの鮮度維持) 参照 |
 | `versions` | `true` | プロースメモリフィールドのテキストが置換されるたびにバージョン履歴を保持。以前のテキストは `data/guilds/<id>/versions/` に保存。`/nep memory forget` および `/nep memory wipe` でバージョンファイルを削除。キー欠落 = オン |
 | `memoryTwoStage` | `false` | メモリアナライザーを 2 段階に分割: ニュートラルな GPT モデルが変更を判定（ステージ A）、次にボイスモデルがペルソナのテキストを執筆（ステージ B）。厳密に `true` で有効。キー欠落 = オフ。`memory.voice.*` 参照 |
-| `mentor` | `false` | 独自モデルを使用する手動テストサブプロセス。有効にするには厳密に `true` にする必要がある。キーが存在しない場合はオフ。[Mentor](#mentor) を参照 |
 | `promptCache` | `false` | システムメッセージにプロバイダーのプロンプトキャッシュマーカーを付与する。キャッシュ読み取りは通常入力の数分の一のコストで、プロバイダーによってはトークンクォータにカウントされない。厳密に `true` で有効。キーが存在しない場合はオフ。`llm.cache.*` を参照 |
 | `recall` | `true` | 質問に応じてウェブ検索と並行してサーバー自身のメッセージ履歴を検索する。キー欠落 = オン。[メディア: 検索](media.md#検索) と `recall.*` 参照 |
 | `recent` | `true` | サーバーで直近数日間に何が起きたかを `<recent>` ブロックとして表示する。キー欠落 = オン。`memory.recentHours` と `context.caps.recent` 参照 |
@@ -79,7 +78,7 @@
 | `safetyMargin` | `0.9` | `maxRequestTokens` のバジェット比率 |
 | `timeoutMs` | `300000` | リクエストタイムアウト（ミリ秒） |
 | `helperTimeoutMs` | `30000` | ターンと並行して実行されるヘルパー（ルート分類器、検索分類器、リコールサマリー）のタイムアウト。この時間を超えたヘルパーは破棄され、ターンはその結果なしで続行する |
-| `pingTimeoutMs` | `30000` | `/nep ping` リクエストのタイムアウト（ミリ秒） |
+| `pingTimeoutMs` | `30000` | 起動時の接続プローブのタイムアウト（ミリ秒）。現在どのコマンドも使用しない |
 | `retries` | `2` | 一時的な HTTP エラー（408/429/5xx）およびネットワーク障害時のリトライ回数。プロバイダーアカウントの日次クォータ 429 はリトライされず、1 回の試行後にそのままスローされる |
 | `maxRequestsPerDay` | `300` | 1 日あたりのリクエスト上限 |
 | `provider` | `null` | OpenRouter の `provider` ルーティングオブジェクト（そのまま渡される）。`null` の場合は送信しない |
@@ -95,15 +94,15 @@
 
 `llm.provider` はチャットリクエストに対するデフォルトの OpenRouter プロバイダールーティングを設定します。例: `{ "ignore": ["some-provider"] }` や `{ "order": ["anthropic"], "allow_fallbacks": true }`。`llm.providerByModel` はモデルごとのオーバーライドを追加します。キーはモデル id のプレフィックス（任意のロールに一致）または `<prefix>@<role>`（1 つのロールのみ一致）で、値はそのまま渡される OpenRouter ルーティングオブジェクトです。
 
-1 つのリクエストに対するプロバイダーの解決順序: 呼び出しごとの固定ルート（動画説明モデルのダイレクト URL パスでは `media.video.provider`）、次にリクエストのロールに一致する `providerByModel` キーのうち最長プレフィックス、次にロールなしキーのうち最長プレフィックス、次に `llm.provider`（画像リクエストでは `image.provider`）、最後にルーティングなし。同じモデルに対してロール指定キーはロールなしキーより常に優先されます。ロール名: `voice`、`analyzer`、`classifier.text`、`classifier.media`、`classifier.video`、`mentor`、`image`。互換性のため、ルートキーやロールリストで `talk` と記載されたものは `voice` として読み取られ、1 回のログ行が出力されます（`config: role talk is now voice`）。
+1 つのリクエストに対するプロバイダーの解決順序: 呼び出しごとの固定ルート（動画説明モデルのダイレクト URL パスでは `media.video.provider`）、次にリクエストのロールに一致する `providerByModel` キーのうち最長プレフィックス、次にロールなしキーのうち最長プレフィックス、次に `llm.provider`（画像リクエストでは `image.provider`）、最後にルーティングなし。同じモデルに対してロール指定キーはロールなしキーより常に優先されます。ロール名: `voice`、`analyzer`、`classifier.text`、`classifier.media`、`classifier.video`、`image`。互換性のため、ルートキーやロールリストで `talk` と記載されたものは `voice` として読み取られ、1 回のログ行が出力されます（`config: role talk is now voice`）。
 
 例: `"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` はすべての Google モデルを Vertex 経由にし、`"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` は動画分類器を AI Studio 経由にします。ドットを含むルートキー（例: `google/@classifier.video`）は `/nep set` では編集できません（ドットでパスを分割するため）。`/nep route set` と `/nep route remove` を使用してください。
 
-OpenRouter アカウント自体が許可プロバイダーを制限している場合、唯一残ったプロバイダーを除外するとすべてのリクエストが "No endpoints found" で失敗します。プロバイダー設定を変更した後は `/nep ping` を実行してすべてのモデルロールが到達可能か確認してください。各ロールは `llm.providerByModel` のルートに従うため、表示されるプロバイダーはそのルートが選択したものです。
+OpenRouter アカウント自体が許可プロバイダーを制限している場合、唯一残ったプロバイダーを除外するとすべてのリクエストが "No endpoints found" で失敗します。プロバイダー設定を変更した後は `/nep status` を確認してすべてのモデルロールが到達可能か確認してください。各ロールは `llm.providerByModel` のルートに従うため、表示されるプロバイダーはそのルートが選択したものです。
 
 `features.promptCache` がオンの場合、ロールが `llm.cache.roles` に含まれ、モデルが `llm.cache.models` のプレフィックスで始まるリクエストのシステムメッセージにプロバイダーのプロンプトキャッシュマーカーが付与されます。マーカーはトークン推定の後に付与されるため、リクエストあたり 50k の上限とキャリブレーションに影響しません。`llm.cache.promptIncludesCached` は、プロバイダーがキャッシュトークンをどのように報告するかをエンジンに伝えます。実際のプローブから一度設定してください。`llm: usage` ログ行に `cache` フィールドが追加されます: `write`、`read`、`none`、`off`。
 
-`llm: usage` ログ行には `ms`（リクエストの経過時間）、`purpose`（リクエストの用途を示す短い文字列。例: `route-channel`、`recall-summary`、`address`）、`origin`（例: mentor が発行したリクエストでは `mentor`）、`hedged`（ヘッジされたリクエストの場合 true）、`attempt`（ヘッジされたリクエストで 1 または 2。それ以外は省略）も含まれます。
+`llm: usage` ログ行には `ms`（リクエストの経過時間）、`purpose`（リクエストの用途を示す短い文字列。例: `route-channel`、`recall-summary`、`address`）、`origin`（例: `tools/replay.mjs` のリクエストでは `replay`）、`hedged`（ヘッジされたリクエストの場合 true）、`attempt`（ヘッジされたリクエストで 1 または 2。それ以外は省略）も含まれます。
 
 `llm.hedge` が設定されている場合、リストされたロールのリクエストはヘッジされます: 1 回目の `llm.hedge.afterMs` 後に 2 回目の試行が発火し、先に完了した方が採用されます。どちらも `llm.hedge.timeoutMs`（`long: true` リクエストでは `longTimeoutMs`）で打ち切られます。2 回目が開始される前に完了しなかったヘッジ呼び出しは追加のリクエストを 1 件発生させ、両方が `llm.maxRequestsPerDay` にカウントされます。
 
@@ -282,7 +281,7 @@ GIF ライブラリ（`features.gifs`）の設定です。メッセージ到着�
 | `maxPerDay` | `40` | ペルソナが 1 日に投稿できる GIF 数 |
 | `backfillMessages` | `500` | 起動時にライブラリをシードするためチャンネルごとの履歴から読むメッセージ数 |
 | `backfillDescribe` | `20` | バックフィル後すぐにキャプションを付ける上位 GIF の数 |
-| `recachePerRun` | `50` | `/nep gifs recache` の 1 回の実行で再記述するライブラリ GIF の件数。ライブラリ外の単一フレーム説明は即座に削除され、旧形式の視聴済みエントリ（`reaction` フィールドなし）が未完了のものと共にキューされ、古いものから順に処理される。1 回の実行でこの件数まで視聴され、`media.gif.maxPerDay` で制限される |
+| `recachePerRun` | `50` | `/nep media kind:gifs action:recache` の 1 回の実行で再記述するライブラリ GIF の件数。ライブラリ外の単一フレーム説明は即座に削除され、旧形式の視聴済みエントリ（`reaction` フィールドなし）が未完了のものと共にキューされ、古いものから順に処理される。1 回の実行でこの件数まで視聴され、`media.gif.maxPerDay` で制限される |
 | `ownMarkHours` | `24` | ペルソナの GIF 投稿後、`<gifs>` リストの該当項目にマークが付く時間。`0` でオフ |
 
 ### `gifs.pick`
@@ -342,7 +341,7 @@ GIF を短いクリップとして視聴する機能（`media.gif.watch`）の�
 | `sites` | `["youtube.com", "youtu.be", "tiktok.com", "vk.com", "vkvideo.ru", "x.com", "twitter.com", "reddit.com", "twitch.tv"]` | 動画として扱うリンクのホスト名 |
 | `directUrlSites` | `["youtube.com", "youtu.be"]` | 公開 URL を直接プロバイダーに渡せるサイト（プロバイダーが動画を取得） |
 | `directUrlUnknownDuration` | `false` | プローブで再生時間を特定できなかった場合でも directUrlSites のリンクをプロバイダーに送信する。トークン推定は `maxSeconds` を使用。下記の再生時間チェーンを参照 |
-| `canaryUrl` | `"https://www.youtube.com/watch?v=jNQXAC9IVRw"` | 起動時と `/nep ping classifier.video` でプローブされる固定の YouTube 動画。YouTube API key と再生時間ソースをテストする |
+| `canaryUrl` | `"https://www.youtube.com/watch?v=jNQXAC9IVRw"` | 起動時にプローブされる固定の YouTube 動画。YouTube API key と再生時間ソースをテストする |
 | `ytdlpPath` | `"yt-dlp"` | `yt-dlp` バイナリのパス。サイト動画リンクと再生時間のプローブに必要 |
 | `ffmpegPath` | `"ffmpeg"` | `ffmpeg` のパス。長い、またはサイズの大きい添付ファイルのトリムとダウンスケールに必要 |
 | `proxy` | `""` | `yt-dlp` 用のプロキシ URL。`yt-dlp` が受け入れる形式（`socks5h://user:pass@host:port`、`http://host:port`）で指定する。`""` = プロキシなし。サイトがサーバーの IP を拒否する場合に使用（YouTube はデータセンターの IP に「ロボットでないことを確認してください」を返す）。`proxySites` のサイトへのリンクのみがプロキシを使用する。値にパスワードを含む場合があり、ログには出力されない。プロキシ経由では動画全体をダウンロードし、`ffmpeg` がローカルで先頭の `maxSeconds` を切り出す。yt-dlp のセクションダウンロードモードは ffmpeg を起動するが、ffmpeg は SOCKS プロキシを使用できないため、ダウンロード上限（4x `maxBytes`）が長い動画の可否を決める |
@@ -356,7 +355,7 @@ GIF を短いクリップとして視聴する機能（`media.gif.watch`）の�
 
 `yt-dlp` と `ffmpeg` はどちらもオプションのシステムバイナリです。これらがなくても上限内の添付ファイルはそのまま動作します（そのまま送信されます）。長い添付ファイルとすべてのサイトリンクは静止フレームまたはプレビュー画像にフォールバックし、ペルソナには理由が伝えられます。すべての動画リクエストは `llm.maxRequestsPerDay` と動画トークン上限（`maxRequestTokens`）にカウントされます。
 
-YouTube リンクの再生時間は次の順序で取得されます: まず yt-dlp、次に YouTube Data API（`.env` に `YOUTUBE_API_KEY` が設定されている場合）、最後にウォッチページのスクレイプ。すべてのプローブが失敗し `directUrlUnknownDuration` がオフ（デフォルト）の場合、リンクは「読み込めませんでした」と報告されます。スイッチがオンの場合、URL はそのままプロバイダーに送信され、トークン推定では `maxSeconds` として計上されます。Data API キーは無料です: Google Cloud コンソールで YouTube Data API v3 を有効にしてキーを作成します。無料枠は 1 日 10,000 ユニット、再生時間のルックアップ 1 回は 1 ユニットです。`/nep ping classifier.video` は `canaryUrl` をプローブし、API key のステータスを報告します（例: `youtube: API key — ok`）。キャッシュされた長さ制限の結果は動画の再生時間を記録し、上限が引き上げられたときに再試行されます。
+YouTube リンクの再生時間は次の順序で取得されます: まず yt-dlp、次に YouTube Data API（`.env` に `YOUTUBE_API_KEY` が設定されている場合）、最後にウォッチページのスクレイプ。すべてのプローブが失敗し `directUrlUnknownDuration` がオフ（デフォルト）の場合、リンクは「読み込めませんでした」と報告されます。スイッチがオンの場合、URL はそのままプロバイダーに送信され、トークン推定では `maxSeconds` として計上されます。Data API キーは無料です: Google Cloud コンソールで YouTube Data API v3 を有効にしてキーを作成します。無料枠は 1 日 10,000 ユニット、再生時間のルックアップ 1 回は 1 ユニットです。起動時にボットは `canaryUrl` をプローブし、API key のステータスを報告します（例: `youtube: API key — ok`）。キャッシュされた長さ制限の結果は動画の再生時間を記録し、上限が引き上げられたときに再試行されます。
 
 ### `media.video.rewatch`
 
@@ -424,7 +423,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `channels` | `[]` | 許可チャンネル |
 | `maxChannelSilenceHours` | `72` | 自発的メッセージをブロックするチャンネル沈黙時間（時間）。0 = 制限なし |
 | `someoneAroundMinutes` | `120` | すべての読めるチャンネルの最新メッセージがこの時間より古い場合、自発的ターンは発生しない（分）。ペルソナ自身のチャンネルでの最終投稿はカウントしない; 他のボットのメッセージはカウントする。`0` = ゲートなし |
-| `initiateCooldownHours` | `[6, 12]` | 話題を切り出した後のクールダウン（時間）。終了まで次の話題は切り出されない。割り込み、全員への質問、盗み聞き、気づいたコメント、`/nep initiate` は影響を受けない。`state.json` に保存され再起動後も維持。`/nep status` で有効中の終了時刻を表示。`[0, 0]` = クールダウンなし |
+| `initiateCooldownHours` | `[6, 12]` | 話題を切り出した後のクールダウン（時間）。終了まで次の話題は切り出されない。割り込み、全員への質問、盗み聞き、気づいたコメント、`/nep talk action:initiate` は影響を受けない。`state.json` に保存され再起動後も維持。`/nep status` で有効中の終了時刻を表示。`[0, 0]` = クールダウンなし |
 | `minIntervalMinutes` | `25` | 最小チェック間隔（分） |
 | `maxIntervalMinutes` | `420` | 最大チェック間隔（分） |
 | `burstChance` | `0.15` | バースト（続けてもう一言）の確率 |
@@ -689,43 +688,9 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `minAffinity` | `5` | DM に応答するための最低公開アティチュードスコア。オーナーはこのチェックをバイパス |
 | `maxPerUserPerDay` | `100` | メンバーごとの 1 日あたりのモデルに到達した DM ターン数（応答または沈黙）。到達時は 1 日 1 回のリミット通知を投稿 |
 | `maxPerOwnerPerDay` | `200` | ボットオーナーの 1 日あたりのモデルに到達した DM ターン数（応答または沈黙） |
-| `purgeMaxMessages` | `5000` | `/nep private purge` が 1 回の実行でスキャンする DM メッセージの最大数（新しいものから） |
+| `purgeMaxMessages` | `5000` | `/nep memory private purge` が 1 回の実行でスキャンする DM メッセージの最大数（新しいものから） |
 
 `features.relationships` がオフの場合、公開スコアは 0 のままになるため、デフォルトの `minAffinity` ではオーナーのみが DM できます。
-
-## `mentor`
-
-手動テストサブプロセス（`features.mentor`）の設定。Mentor はチャット状況を作成し、サンドボックスでペルソナに回答させ、スコアリングします。独自のモデルと日次トークン予算を使用し、`llm.maxRequestsPerDay` にはカウントされません。すべてホットリロード。
-
-| キー | デフォルト | 説明 |
-|---|---|---|
-| `model` | `null` | Mentor モデル ID。`null` または未設定の場合、モデルが必要なすべてのコマンドはその旨を報告 |
-| `maxTokensPerDay` | `400000` | 日次トークン予算。実使用量から計算: プロンプトトークン x1、キャッシュプロンプトトークン x`cachedTokenWeight`、出力トークン x`outputTokenWeight`。サンドボックスでのペルソナのボイスモデルの回答も同様に計算 |
-| `outputTokenWeight` | `5` | 予算における出力トークンの重み。生成トークンの高コストを反映 |
-| `cachedTokenWeight` | `0.1` | 予算におけるキャッシュプロンプトトークンの重み |
-| `maxOutputTokens` | `6000` | Mentor リクエストあたりの最大出力トークン |
-| `timeoutMs` | `300000` | Mentor リクエストのタイムアウト（ミリ秒） |
-| `situations` | `5` | 1 回の実行で作成するチャット状況の数 |
-| `situationLines` | `[6, 15]` | 状況あたりの最小・最大行数 |
-| `samples` | `3` | 状況あたりのペルソナの回答数。実際の moment は `anchor.samples` を使用 |
-| `check.samples` | `1` | `/nep mentor check` 時の状況あたりのペルソナの回答数。実際の moment は `anchor.samples` を使用 |
-| `pass.score` | `7` | `overall` と `goal` の中央値がこの閾値に達した場合にケースが合格 |
-| `pass.anchorScore` | `null` | 実際の moment の閾値。数値に設定すると、実際の moment の `overall` または `goal` 中央値がその値を下回る場合にケースが不合格。`null` は `pass.score` を使用 |
-| `pass.floor` | `5` | いずれかの軸の中央値がこの下限を下回る場合にケースが不合格。各作成された状況もこの下限でチェックされ、いずれか 1 つの作成された状況の `overall` 中央値または `goal` 中央値がこの値を下回る場合、全回答の中央値に関わらずケースは不合格。実際の moment はパススコア（`pass.anchorScore` が設定されている場合はその値、それ以外は `pass.score`）で判定 |
-| `diagnose` | `true` | 不合格または弱い状況のあるラン後に、mentor がコンテキスト内の弱い回答の原因を説明。ランの `diagnosis` として保存。check では要求しない |
-| `reference.days` | `7` | スタイルリファレンス構築に使用するチャット履歴の日数 |
-| `reference.samples` | `60` | リファレンスウィンドウからランダムに選択するスタイル例の行数（2〜200 文字） |
-| `reference.maxMessages` | `3000` | リファレンスチャンネルから読み取る最大メッセージ数 |
-| `reference.rarePer1000` | `0.5` | 1000 文字あたりの使用回数がこの値未満のマークはレアとみなす |
-| `reference.rareMinAuthors` | `2` | 使用する著者数がこの値未満のマークはレアとみなす |
-| `anchor.max` | `5` | ケースあたりの実際の moment 数。各 moment はオーナーが拒否したペルソナのメッセージで、その前のチャットと共に保存 |
-| `anchor.contextMessages` | `30` | moment 解決時にチャンネルから取得するコンテキストメッセージ数（トリガーまで） |
-| `anchor.samples` | `5` | ランおよび `/nep mentor check` での実際の moment あたりのペルソナ回答数 |
-| `anchor.hideLaterMemory` | `true` | 実際の moment を再生する際、トリガーの時点以降に書き込まれた記憶を非表示にする（エピソード、態度変化、詳細、興味、エイリアス、学習項目、ロアエントリ）。`false` にすると現在の全記憶で再生 |
-| `anchor.ledgerSize` | `300` | ポストレジャー（`state.json` `postLedger`）に保持するエントリ数。各投稿メッセージとそのターンを対応付け、mentor が実際の moment のトリガーを見つけるために使用。`features.mentor` が有効の間のみ書き込み。`0` で保持しない |
-| `feedbackExamples` | `10` | すべてのスコアリングリクエストに含める最新のオーナー修正（`/nep mentor wrong`）の数 |
-
-`llm.maxRequestTokens`（リクエストあたり 50k）は、mentor が発行または引き起こすすべてのリクエスト（サンドボックス回答を含む）に適用されます。各 mentor リクエスト前の予算チェックでは、プロンプトに加えて回答が最大でかかるコスト（`mentor.maxOutputTokens` を `mentor.outputTokenWeight` で乗算）を計上するため、可能な出力が残り予算に収まらない場合リクエストは拒否されます。予算が尽きると実行が停止し、得られた結果を報告します。ラン中に `features.mentor` や `mentor.model` がオフにされた場合、またはリファレンスウィンドウ内のリファレンスチャンネルに人々のメッセージがない場合も実行が停止します。
 
 ## `warmup`
 
@@ -788,10 +753,6 @@ OpenRouter を通じて動画と音声の両方の入力を受け付けるモデ
 | `google/gemini-3.8-flash` (default) | 0.014 |
 
 `qwen/qwen3.8-omni-flash` も動画と音声を受け付けます。価格は変動します。上の表は記載日時点のスナップショットです。
-
-### Mentor（`mentor.model`）
-
-ロール `mentor`。ペルソナの回答をスコアリングし、テスト状況を作成します。ボイスモデルとは異なるファミリーのモデルを推奨: モデルは自身のファミリーの癖に気づけません。`null`（デフォルト）は mentor を無効のまま保持。モデルが必要な `/nep mentor` コマンドはその旨を報告します。
 
 ### 画像出力（`image.model`）
 

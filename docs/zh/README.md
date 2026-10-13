@@ -52,6 +52,19 @@ npm start
 
 ## 功能与变更
 
+**13.10.2026**  
+角色听到的每条消息和发出的每条消息都写入磁盘上的永久记录。当热记忆满了，一个回忆、兴趣或细节被挤出时，被淘汰的条目在离开前会复制到归档文件中。服务器搜索时，引擎在 Discord 自身搜索结果之外还会读取归档和最近几天的记录，使角色能找到即使已离开内存档案的信息。随时间变化的事实（正在玩的游戏、昵称、"今天是生日"的玩笑）带有日期：何时为真、何时不再为真、被什么替代。两个矛盾的开放声明并列显示，而非一个默默覆盖另一个。`/nep memory forget` 会将即将删除的所有内容复制到 `data/` 内的保险库目录，并将删除记录写入账本（`forgotten.json`），确保没有内容被不可恢复地丢失。
+
+角色保持日志：每个回合一条记录，包含请求中包含了聊天的哪些内容、角色的隐藏推理、发布了什么以及 token 使用量，按天写入 `data/`。完整的模型请求和原始回复也会保存数天（`journal.keepRequests`），以便事后检查有问题的回复。`/nep status` 显示一张卡片，包含机器人状态、连接、模型、今日限额和记忆计数器；获授权的成员看到的卡片不含记忆字段。回填工具（`tools/backfill.mjs`）从旧消息填充角色的过去：将历史读入记录，提取回忆和教训，可选地将最重要的通过语音模型赋予角色自己的语言来表达感受。结果进入归档而非热记忆，通过 recall 浮出。
+
+每个 `/nep` 子命令执行一个命名操作，读取和写入权限各自独立。所有者始终可以执行一切；其他人需要按名称获得操作授权，对组的授权只开放该时刻已存在的读取操作。新服务器上，成员只能使用 `/nep pings`，其余需所有者授权。仅所有者操作（访问授权、forget、wipe、日志、归档、快照和私有记忆）不会被任何授权开放。Mentor（`features.mentor`）已移除。`/nep ping` 和 `/nep reload` 已取消：连接检查在 `/nep status` 中，提示重载自动进行。
+
+**12.10.2026**  
+日记不再连续沉默几天：空窗口之后，当天晚些时候会有帖子。两种新的帖子类型一次携带四到六张图片：同一次外出的照片集（相同着装、相同时间），或 Neptunia 喜欢的任何东西的集锦（不限于自画像）。要求不被 ping 的成员会收到无通知的回复。
+
+**11.10.2026**  
+Neptunia 将自己在其他频道说过的内容周围几行保留三天。当新消息引用了其中一次交流（即使只是语义上的），它会基于实际进行过的对话来回答，而不是猜测，并且不会主动提起那些交流。
+
 **06.10.2026**  
 Neptunia 写日记: 在一个频道里自发发帖，无需任何人要求。帖子在可配置的时间窗口内随机出现，夹杂安静的日子。帖子种类多样: 场景绘画、表情包、思考、转述新闻、趣味冷知识、一行心情。每次发帖前，人格会回顾自己的历史，选择还没做过的事。部分帖子种类会触发网络搜索，用自己的话转述找到的内容。拥有者通过 `/nep diary set` 指定频道，通过配置调整时间表、帖子种类和权重。
 
@@ -120,7 +133,29 @@ Neptunia 在被呼叫时回答: 通过 @提及、回复它的消息、或在文�
 
 ## 命令
 
-Discord 斜杠命令只有一个：`/nep`（名称来自 `bot.commandName`）。启动时注册为服务器命令，仅限所服务的服务器。回复全部仅调用者可见（ephemeral），不论在哪个频道。详见 [`owner-commands.md`](owner-commands.md)。
+Discord 斜杠命令只有一个：`/nep`（名称来自 `bot.commandName`），注册为服务器命令。所有回复仅调用者可见（ephemeral），不论在哪个频道。
+
+19 个顶层条目：
+
+- `status` 显示机器人状态、连接、模型、限额和记忆计数器的卡片
+- `set` / `unset` 覆盖或移除 config.local.json 中的配置值
+- `pause` / `resume` 停止活动并刷盘，以便手动编辑 data/
+- `draw` 在当前频道画一张图
+- `pings` 让成员选择是否收到角色消息的通知
+- `talk` 让角色在频道中插话或发起话题
+- `media` 管理自定义表情排名和 GIF 库（status、rescan、recache）
+- `model` 显示或设置各角色的模型
+- `route` 按模型前缀和角色管理 provider 路由
+- `rule` 添加、列出或移除 `prompts.local/rules.md` 中的修正
+- `access` 为身份组和用户授予或撤销操作
+- `warmup` 启动或检查记忆预热
+- `diary` 设置、查看或关闭日记，发布条目
+- `alias` 添加或移除成员昵称
+- `learning` 添加或移除所学内容
+- `lore` 添加、列出、查看或移除世界书条目
+- `memory` 覆盖档案、频道、服务器笔记、态度、画像刷新、forget、wipe、日志、归档、恢复、快照和私有记忆
+
+所有者（`bot.owners`）可执行一切。其他人需要对确切操作的授权；读取和写入是独立的操作，对组或 `*` 的授权只开放该时刻已存在的读取操作。新服务器上成员只能使用 `pings`，其余需所有者授权。仅所有者操作（访问授权、forget、wipe、日志、归档、快照和私有记忆）不可被任何授权开放。完整命令表和访问模型参见 [`owner-commands.md`](owner-commands.md)。
 
 ## 消息与记忆
 
@@ -137,12 +172,6 @@ Discord 斜杠命令只有一个：`/nep`（名称来自 `bot.commandName`）。
 ## 私聊
 
 `features.privateMessages`（默认关闭）允许公会成员通过 Discord 私信与角色交谈。角色不变，公共记忆不变；私信中说的话记忆在每成员的私有层中，其他对话不可见。私信需要同一服务器成员身份，无需邀请 URL 已授予权限之外的额外权限。门控、私有记忆层和所有者命令的详情参见 [`messages-and-memory.md`](messages-and-memory.md#私有层)。
-
-## Mentor
-
-`features.mentor`（默认关闭）添加一个手动测试子进程，使用独立模型。案例是角色的一条真实消息加上一句关于问题所在的说明。Mentor 存储导致该消息的聊天记录，构造更多同类场景，在沙盒中使用实时提示和记忆让角色作答所有场景，并对每个回答按五个维度评分（0–10）。运行失败或得分较低时，mentor 指出角色上下文中的可能原因，并将修改建议作为参考意见提交给所有者。所有工作留在 `data/`。设置了 `bot.dryRunChannelId` 时，完成的运行也会发布到该频道；没有管理频道时，所有者通过 `/nep mentor status` 跟踪运行，通过 `/nep mentor show <id>` 读取报告。
-
-Mentor 的模型、预算和命令独立于角色。配置键参见 [`configuration.md`](configuration.md#mentor)；`/nep mentor` 子命令参见 [`owner-commands.md`](owner-commands.md)。
 
 ## 成本
 
@@ -197,7 +226,8 @@ prompts/
   reply.md                 任务：有人呼叫了你
   interject.md             任务：插入对话
   initiate.md              任务：发起话题
-  forced.md                强制回合（/nep interject、/nep initiate）时追加
+  forced.md                强制回合（/nep talk interject、/nep talk initiate）时追加
+  private.md               私信回合（features.privateMessages）时追加
   memory.md                记忆分析器的提示
   diary.md                 任务: 写日记帖子
   diary-plan.md            日记计划器: 选择下一篇帖子的种类和主题
@@ -218,10 +248,6 @@ prompts/
   room.md                  分类器：这条消息是面向所有人还是面向特定人
   route-channel.md         分类器：回答是否需要查看另一个频道
   elsewhere.md             任务：在主频道评论只读频道中的内容
-  mentor-situations.md     mentor：构造测试场景
-  mentor-score.md          mentor：评分角色的回答
-  mentor-signs.md          mentor：已知的模型文本习惯
-  mentor-diagnose.md       mentor：评分后解释弱回答
   split.md                 分类器：直接呼叫是否包含多个独立请求
   merge.md                 分类器：新消息是否属于已在等候的条目
   profile.md               预热：从消息样本生成一个成员的档案

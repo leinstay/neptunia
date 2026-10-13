@@ -97,13 +97,13 @@ voice 请求之前运行的所有任务（历史、说明、路由和搜索分�
 
 当 `features.privateMessages` 开启时，通过门控（公会成员身份、已存储档案、公共好感度不低于 `private.minAffinity`、今日回复数未超限）的成员可以在 Discord 私信中与角色交谈。角色不变，公共记忆不变；私信中说的话存储在每成员的私有层中。当 `features.privateLikeServer` 开启时（默认），DM 像服务器频道一样运作：路由分类器、频道拉取、服务器搜索和被问及成员的回忆均可用，仅限 DM 伙伴可查看的频道。
 
-只有机器人所有者可以查看成员的私有层（`/nep private show`）；此命令不可授权给其他用户。
+只有机器人所有者可以查看成员的私有层（`/nep memory private show`）；此命令不可授权给其他用户。
 
 私有文件 `data/guilds/<guildId>/private/<userId>.json` 存储自己的 `relationship`、`interests`、`details`、`episodes`、`affinity`（初始分数 0）、每日回复计数器和观察缓冲区。不显示给其他对话，不由服务器批次写入，不在磁盘上混入公共档案。
 
 私信中角色看到公共和私有数据的合并：兴趣按主题合并（私有笔记优先），细节连接，回忆按日期排序。有效好感度为 `clamp(公共 + 私有, -100, 100)`。服务器上仅有公共分数。
 
-`/nep memory forget <user>` 同时删除公共档案和私有文件。`/nep memory wipe` 删除服务器的整个 `private/` 目录。`/nep private forget <user>` 仅删除私有文件，公共档案保留。
+`/nep memory forget <user>` 同时删除公共档案和私有文件。`/nep memory wipe` 删除服务器的整个 `private/` 目录。`/nep memory private forget <user>` 仅删除私有文件，公共档案保留。
 
 ## 当笔记会变得太长时
 
@@ -137,7 +137,7 @@ voice 请求之前运行的所有任务（历史、说明、路由和搜索分�
 | `/nep memory forget <user>` | 删除已存储的档案和私有记忆 |
 | `/nep memory affinity <user>` | 显示或设置态度 |
 | `/nep memory wipe` | 清除服务器的所有分析器记忆（包括私有文件） |
-| `/nep private show <user>` | 显示成员的私有记忆 |
-| `/nep private forget <user>` | 仅删除私有文件；公共档案保留 |
+| `/nep memory private show <user>` | 显示成员的私有记忆 |
+| `/nep memory private forget <user>` | 仅删除私有文件；公共档案保留 |
 | `/nep lore add` | 添加或覆盖一个世界书条目 |
 | `/nep pause` / `/nep resume` | 停止活动并将记忆刷入磁盘，以便安全地手动编辑 |

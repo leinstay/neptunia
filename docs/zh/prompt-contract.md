@@ -25,7 +25,7 @@
 | `reply.md` | 是 | 任务：有人呼叫了角色 | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
 | `follow-up.md` | 否 | 任务：延续与角色对话的一行消息。角色先决定是否要再发言一次；对没有向角色提出任何要求的行，默认 `<skip/>`。触发类型为 `followUp`（地址分类器的 `yes`），或为未显式 @提及角色的 `reply`（Discord 回复自带的隐式提醒不算）时，代替 `reply.md` 作为任务文本。提及、带 @提及的回复和名字呼叫仍使用 `reply.md`。文件缺失或为空时回退到 `reply.md` | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
 | `interject.md` / `initiate.md` | 是 | 任务：插入正在进行的对话 / 在沉寂的频道中发起话题。代码在 `deadAfterMinutes` 的沉默后掷 `spontaneous.initiateChance`，因此 initiate 提示默认发言，`<skip/>` 用于新话题明显不合适的频道。频道沉寂后，即使角色自己的消息是最后一条，initiate 回合仍可触发 | `{{name}}` |
-| `forced.md` | 否 | 强制回合（`/nep interject`、`/nep initiate`）时追加在模式提示之后。覆盖默认的 `<skip/>` 选项 | `{{name}}` |
+| `forced.md` | 否 | 强制回合（`/nep talk interject`、`/nep talk initiate`）时追加在模式提示之后。覆盖默认的 `<skip/>` 选项 | `{{name}}` |
 | `memory.md` | 是 | 角色外提示，用于流分析器（单阶段模式和私有批次）：从实时批次中对记忆进行针对性编辑 | `{{name}}` `{{fieldChars}}` `{{guildFieldChars}}` `{{maxDetails}}` `{{maxInjokes}}` `{{maxSelfFacts}}` `{{maxNewEpisodes}}` `{{maxEpisodes}}` `{{maxDeltaPerUpdate}}` `{{maxInterests}}` `{{interestTopicChars}}` `{{interestNoteChars}}` `{{loreTextChars}}` `{{maxLearned}}` `{{learnedChars}}` `{{relationshipChars}}` |
 | `memory-decide.md` | 否 | 两阶段分析器的阶段 A（`features.memoryTwoStage`）：对变更的中性判定。与 `memory.md` 相同的输入块。返回 JSON。文件缺失时回退到单阶段模式 | `{{name}}` `{{fieldChars}}` `{{guildFieldChars}}` `{{maxDetails}}` `{{maxInjokes}}` `{{maxSelfFacts}}` `{{maxNewEpisodes}}` `{{maxEpisodes}}` `{{maxDeltaPerUpdate}}` `{{maxInterests}}` `{{interestTopicChars}}` `{{interestNoteChars}}` `{{loreTextChars}}` `{{maxLearned}}` `{{learnedChars}}` `{{relationshipChars}}` |
 | `memory-voice.md` | 否 | 两阶段分析器的阶段 B：角色用自己的声音撰写排队的条目。返回 JSON。`features.memoryTwoStage` 开启时必需。重试时，可选的 `<over_limit>` 块列出前次回答超出限制的条目 | `{{name}}` `{{fieldChars}}` `{{guildFieldChars}}` `{{relationshipChars}}` `{{learnedChars}}` |
@@ -54,10 +54,6 @@
 | `diary-seeds.md` | 否 | 日记计划器的随机种子族。`# name` 标题开始一个族；代码从每族选一行，组成 `diary.seedSets` 个组合。文件不存在或 `seedSets` = 0 时省略 | 无 |
 | `draw.md` | 是 | 绘画子进程的角色外提示（`features.imageGeneration`）：根据场景描述生成一张图片。仅接收外貌和请求，不接收角色卡 | `{{name}}` `{{appearance}}` `{{request}}` `{{when}}` |
 | `appearance.md` | 否 | 角色的视觉外貌，在 `self="yes"` 时插入 `draw.md`。一段话，无性格，无背景故事 | `{{name}}` |
-| `mentor-situations.md` | 否 | Mentor：为案例构造测试场景（`features.mentor`）。仅返回 JSON | `{{name}}` `{{count}}` `{{minLines}}` `{{maxLines}}` |
-| `mentor-score.md` | 否 | Mentor：对角色的回答进行评分（`features.mentor`）。接收角色卡。仅返回 JSON | `{{name}}` |
-| `mentor-signs.md` | 否 | Mentor：已知的模型文本习惯，作为 `<signs>` 块在每次 mentor 请求中发送（`features.mentor`）。文件缺失或为空时省略 | `{{name}}` |
-| `mentor-diagnose.md` | 否 | Mentor：评分后解释弱回答，指出角色上下文中的具体文本（`features.mentor`）。结果为未验证的假设，存储为运行中的 `diagnosis`。`mentor.diagnose` 为 false 或文件缺失时省略 | `{{name}}` |
 | `gif-pick.md` | 否 | 分类器：从库中挑选 GIF 替代短文本回复（`features.gifPicker`）。接收最近 `gifs.pick.contextMessages` 行聊天（标明所回复的消息）、角色的回复及带说明的完整库。长度门槛为 `gifs.pick.maxChars`（默认 160）；多条发出消息时仅替换第一条。输出为库中的一个 handle 或 `none`。不接收角色卡 | `{{name}}` |
 | `split.md` | 否 | 分类器：直接呼叫是否包含多个独立请求（`features.splitTasks`）。接收一段短 `<transcript>` 和新消息作为 `<candidate>`。输出为 `one`，或 2 到 `{{maxTasks}}` 行，每行以 `- ` 开头，用作者自己的话表述一个部分。不接收角色卡。没有此文件时分拆器关闭 | `{{name}}` `{{maxTasks}}` |
 | `merge.md` | 否 | 分类器：已有等候条目的作者的新消息是否属于其中一个。接收编号的 `<waiting>` 列表和新消息作为 `<candidate>`。输出为一行：列表中的一个编号或 `new`。不接收角色卡。没有此文件时新呼叫始终作为独立条目排队 | `{{name}}` |
@@ -67,7 +63,7 @@
 `{{target}}` 呼叫消息的索引（`#87`）。
 `{{today}}` 在 `lookup.md` 中为 `bot.timezone` 中的日期；在描述器（`describe.md`、`describe-video.md`、`describe-gif.md`）和 `search-summary.md` 中为 UTC 日期。
 系统消息 = `system-prompt` + `character-card` + `rules` + `format`。分析器则单独使用 `memory.md`。
-在强制回合（`/nep interject`、`/nep initiate`）中，如果 `forced.md` 存在，则追加在模式提示之后。
+在强制回合（`/nep talk interject`、`/nep talk initiate`）中，如果 `forced.md` 存在，则追加在模式提示之后。
 在 `overheard` 回合中，`overheard.md` 替代模式提示（它是任务文本本身，而非追加）。当 `overheard.md` 缺失或为空时，使用模式提示代替（降级：模式提示将消息描述为对角色说话，与实际不符）。
 在私聊中，`private.md` 追加在模式提示之后（`forced.md` 之前），使用相同的 `{{name}}` 和 `{{author}}` 占位符。
 分析器和预热的 `profile.md`、`server.md` 在用户消息中以 `<character>` 块接收角色卡和 `rules.md`。
@@ -302,9 +298,6 @@ limits.notice                            {limit} {used} {cap}: posted as a plain
 limits.paused                            posted as a plain reply when the persona is called while paused (`features.pauseNotice`). No placeholders. At most once per channel per `mention.pauseNoticeMinutes`
 warmup.ownMark                           prefixed to a member's own lines in the profile.md transcript
 warmup.contextMark                       prefixed to context lines in the profile.md transcript
-mentor.intended                          array of short strings: engine behaviours that must not cost points in the mentor's scoring
-mentor.examples                          first line inside the `<examples>` block in a situations request: introduces the real moments
-mentor.original                          first line inside the `<original>` block in a score request: introduces the persona's rejected answer
 room.focus                               {target} {author}: appended to the reply task when a room question triggers the turn
 address.author                           {name} {aliases}: the candidate author's display name and known aliases, shown to the address classifier when the member has aliases
 recent.header                            REQUIRED {hours}: the block's first line. A missing header or a missing `recent.line` means no `<recent>` block
@@ -771,203 +764,6 @@ task.added                               {added}: later messages from the author
 ### 私有模式的分析器
 
 `analyzePrivate` 构建与相同 `memory.md` 格式的请求，加上 `<private>` 块（`labels.memory.privateNote`）。`<existing_profiles>` 仅包含伙伴。回答中仅 `users[<partnerId>]` 通过私有存储方法应用。`portrait`、`aliases`、`guild`、`channels`、`lore`、`self` 被丢弃。
-
-## Mentor
-
-手动子进程（`features.mentor`），使用独立模型（`mentor.model`）。所有者添加案例（角色应有的行为），mentor 构造聊天场景，在沙盒中让角色作答并评分。运行失败或得分较低时，mentor 指出角色上下文中的可能原因，并将修改建议作为参考意见提交给所有者。一次只运行一个。所有工作留在 `data/`；设置了 `bot.dryRunChannelId` 时，完成的运行也会发布到该频道。没有管理频道时，所有者通过 `/nep mentor status` 跟踪运行，通过 `/nep mentor show <id>` 读取报告。
-
-### 隐私
-
-Mentor 模型读取渲染后的沙盒请求，因此可以读取角色记忆中关于真实用户的内容。私信和私有记忆层永远不会出现在沙盒请求中。
-
-沙盒包含与实时回合相同的自定义表情和 GIF 块，因此角色在沙盒回答中可以使用表情反应、发布 GIF 或绘画。GIF 或绘画与 `<msg>` 一样计为一个动作。沙盒还携带 elsewhere 目标和搜索感知的 `<senses>` 行，以便测试角色对这些功能的认知。
-
-### 发布账本
-
-`state.json` `postLedger` 记录角色在服务器频道发布的每条消息：消息 id、频道、模式、触发类型、触发 id、最新历史行 id 和来源频道 id。仅在 `features.mentor` 开启时（或 mentor 的 anchor 相关路径被使用时）写入。账本上限为 `mentor.anchor.ledgerSize`（默认 300）条；mentor 用它在解析真实 moment 时找到某条已发布消息属于哪个回合。mentor 自身发起的请求在使用日志中携带 `origin: mentor`。
-
-### 运行如何结束
-
-运行正常结束时会产生判定和报告。也可能提前结束：
-
-- **停止** (`budget`)：每日 token 预算耗尽。开关和预算在每个场景前和每个 mentor 请求前检查。
-- **停止** (`owner`)：所有者执行了 `/nep mentor stop` 或 `/nep pause`。
-- **停止** (`disabled`)：运行期间 `features.mentor` 或 `mentor.model` 被关闭。
-- **错误** (`the reference is empty`)：参考窗口内无法从参考频道读取任何人的消息。在任何模型请求之前结束运行。
-
-停止的运行保留已有的分数并在报告中包含它们。
-
-### 真实 moment（anchors）
-
-案例可包含来自聊天的真实 moment。每个 moment 是所有者拒绝的角色的一条消息。解析过程：机器人获取该消息，找到触发消息（该消息回复的消息，或其之前最后一条非角色消息），收集该频道直到触发消息的最多 `mentor.anchor.contextMessages`（默认 30）条消息，并将角色的整个连续消息（从指定消息开始的连续消息）存储为原始回答。存储的历史与常规转录的规范化方式相同（媒体标签、反应），但不下载或描述任何内容。解析同时存储角色所见的媒体：对每条消息，描述器在 `media.json` 中缓存的标注（图片、GIF、视频帧、链接缩略图、贴纸、自定义表情）和已观看视频摘要（写入时间不晚于角色消息的条目）成为 `mediaSeen: { captions?: { <itemId>: text }, watched?: { <itemId>: text } }`。不保留的内容：未观看状态（限制或错误）、二次查看回答（`videoAnswered`）、网页查询读取（`linkRead`）和附加图片标记。名称和反应保持获取时的状态。存储后，moment 从其存储的消息重放，即使频道继续或消息被删除。
-
-案例将 moment 存储为 `anchors`：
-
-```json
-[{ "id": 1, "channelId": "...", "messageId": "...", "triggerId": "...",
-   "addedAt": "...",
-   "history": [
-     { "...规范化消息字段...",
-       "mediaSeen": { "captions": { "<itemId>": "text" }, "watched": { "<itemId>": "text" } } }
-   ],
-   "original": ["text", "..."] }]
-```
-
-在运行中，每个可用的 anchor 成为独立的场景，编号在构造的场景之前。场景记录携带 `anchor: <id>`（构造的场景没有此字段）。重放使用存储的历史，在角色原始消息的时间点，在 anchor 自己的频道中。
-
-重放时，存储的 `mediaSeen` 使用当前转录标签（`imageDescribed`、`gifDescribed`、`videoDescribed`、`videoWatched`、`thumbnailDescribed`、`linkWatched`、`stickerDescribed`、`emojiDescribed`）在角色请求、`<examples>`、评分 `<situation>` 和 `<worst>` 中渲染。对于没有存储描述的项，在重放时以相同的时间限制（角色的回答）只读查询缓存。若缓存中也没有，项使用其原始标签渲染。
-
-当 `mentor.anchor.hideLaterMemory` 不为 `false` 时（默认 `true`），重放的 moment 使用触发消息之前的记忆状态回答。时间在触发消息时间点或之后的条目被隐藏：事件（按 `addedAt`，回退到 `date` 按 UTC 天）、态度历史记录和态度原因（分数保持当前值）、详情（按 `firstSeen`）、兴趣（按 `firstSeen`）、别名（按 `firstSeen`）、学到的内容（按 `firstSeen`）和知识库条目（按 `createdAt`）。没有可解析日期的条目不被过滤。无日期字段（档案文本字段、服务器模式、开场白、梗、自我事实、频道条目）保持可见并使用当前值。评分中真实 moment 的 `<learned>` 块也以相同方式过滤。设为 `false` 则使用当前全部记忆重放。
-
-在场景请求中，案例的 anchor 以 `<examples>`（最后一个块）的形式展示给 mentor 模型。每个 `<example>` 包含存储转录的 `<situation>` 和角色消息的 `<original>`。每个示例的最旧消息可能被裁剪以适应请求预算；触发消息不会被删除。Mentor 构造同类场景：匹配消息长度、回合数和压力程度。
-
-在真实 moment 的评分请求中，`<original>` 出现在 `<situation>` 和 `<answers>` 之间，携带角色被拒绝的回答作为已知的差参考。
-
-验证器对构造场景单行的上限为 2000 字符（原先为 500），使 mentor 能够匹配示例中的消息长度。
-
-### 提示
-
-Mentor 使用四个提示文件：场景/评分一对，加上特征文件和诊断文件：
-
-- `mentor-situations.md`（构造场景）和 `mentor-score.md`（评分回答）。
-- `mentor-diagnose.md`（评分后解释弱回答）。
-
-每个提示文件是一次 mentor 请求的系统消息。块在用户消息中传递。
-
-代码填充的占位符：所有四个文件中的 `{{name}}`；场景提示中的 `{{count}}`、`{{minLines}}`、`{{maxLines}}`。
-
-### 块
-
-| 块 | 内容 | 在哪个请求中 |
-|---|---|---|
-| `<case>` | 所有者的案例文本，逐字 | 全部 |
-| `<members>` | 每行一个存储的档案：`name (id:123)` | 场景 |
-| `<reference>` | 风格档案 JSON：标点频率、长度、回复频率、未使用的字符 | 场景、评分 |
-| `<samples>` | 聊天中的随机行，每行一条 | 场景、评分 |
-| `<signs>` | 填充了 `{{name}}` 的 `mentor-signs.md`：已知的模型文本习惯。文件缺失或为空时省略 | 全部 |
-| `<intended>` | `labels.mentor.intended`，每项一行 | 评分 |
-| `<feedback>` | 所有者修正的 JSON 数组：`[{ "case": "...", "reason": "..." }]`，从新到旧；空时省略 | 全部 |
-| `<examples>` | 聊天中的真实 moment：`labels.mentor.examples` 为首行，然后每个 moment 一个 `<example>`。每个 `<example>` 包含 `<situation>`（存储的转录，最旧消息可裁剪以适应请求预算）和 `<original>`（角色的消息）。案例无 moment 时省略 | 场景 |
-| `<original>` | 角色当时的回答（在真实 moment 的评分请求中）。`labels.mentor.original` 为首行，然后是角色的消息。已知的差参考，不是待评分的回答。构造的场景省略此块 | 评分（仅真实 moment） |
-| `<character>` | 填充了 `{{name}}` 的角色卡 | 评分 |
-| `<rules>` | 规则提示 | 评分 |
-| `<learned>` | 角色看到的指令式已学内容。对于启用了 `mentor.anchor.hideLaterMemory` 的真实 moment，在触发消息时间点或之后写入的内容被隐藏 | 评分 |
-| `<situation>` | 渲染为聊天记录的场景，角色所见。真实 moment 的最旧消息可能被裁剪以适应请求预算；触发消息不会被删除 | 评分 |
-| `<answers>` | JSON 数组：`[{ "id": "s1a1", "messages": ["..."], "reactions": ["..."], "silent": false }]` | 评分 |
-| `<facts>` | 按回答 id 索引的 JSON 对象，包含确定性测量结果（未使用标记、稀有标记、逗号计数、逗号密度、长度），以及在两个或更多不同场景中出现的短语 `"repeated"`。每个回答：`commas` 为计数；`commaPer1000` 仅在测量文本至少 150 字符时为数字，更短时为 `null`（太短无法测量；mentor 根据计数评判，不推断密度）。`repeated` 列出在不同场景中重复出现的短语，`count` 为场景数 | 评分 |
-| `<verdict>` | JSON：`{ passed, medians, situations, reasons }`，包含通过/失败结果、各轴中位数、各场景中位数和诊断原因。原因包括构造场景的 `situation <n>: <axis> <v> is under the floor <f>` 和真实 moment 的 `real moment <n>: <axis> <v> is under the pass score <s>` 或 `real moment <n>: <axis> <v> is under the anchor score <s>` | 诊断 |
-| `<worst>` | JSON：`overall` 中位数最低的任意类型场景（平局时取较小的 `goal` 中位数，然后真实 moment 优先于构造场景，再取较小的 `n`）：`{ n, title, transcript, answers }`，每个回答包含 id、messages/reactions/silent、`facts` 和 `score`。转录可能被裁剪以适应请求预算 | 诊断 |
-| `<seen>` | 角色在该场景中收到的完整请求，分两个子块：`<system>`（系统提示含角色卡、规则和格式）和 `<user>`（聊天记录、记忆块和任务） | 诊断 |
-
-### 回答 ID
-
-`s<场景>a<样本>`，均从 1 开始。示例：`s2a3` 是第二个场景的第三个样本。
-
-### 场景 schema
-
-```json
-{
-  "situations": [
-    {
-      "title": "简短标签",
-      "lines": [
-        {
-          "authorId": "123456789 or self",
-          "authorName": "显示名称",
-          "text": "消息内容",
-          "replyTo": null,
-          "minutesBefore": 5
-        }
-      ]
-    }
-  ]
-}
-```
-
-`authorId` 是 `<members>` 中的成员 id 或 `self`（角色自己的行）。`replyTo` 是该场景 `lines` 数组中的 0 索引，或 `null`。最后一行不能是 `self`，且必须对角色说话。
-
-来自真实 moment 的场景记录携带 `anchor: <id>` 而非 `lines`。其转录从存储的历史构建；记录还包含 `original`（角色的消息）和 `at`（角色回答的时间）。
-
-### 评分 schema
-
-```json
-{
-  "answers": [
-    {
-      "id": "s1a1",
-      "human": 7,
-      "character": 8,
-      "rules": 9,
-      "goal": 6,
-      "overall": 7,
-      "comment": "一两句话。"
-    }
-  ]
-}
-```
-
-每个分数为 0–10 的整数或 `null`。`overall` 和 `goal` 始终为数字。
-
-### 轴
-
-均为 0–10 整数，10 为理想，`null` 表示无法评判（绝不用 5 代替"未知"）。
-
-| 轴 | 测量内容 | 0 | 5 | 10 |
-|---|---|---|---|---|
-| `human` | 多大程度上不像 AI 写的 | 与聊天中真人的写法相差甚远 | 可能是人也可能是 AI | 与参考中的真人写法一致 |
-| `character` | 与角色卡的匹配度 | 完全不符 | 可识别但有偏差 | 完全符合卡的声音 |
-| `rules` | 遵守规则和已学内容 | 违反所有适用规则 | 部分遵守部分违反 | 遵守每条适用规则 |
-| `goal` | 是否做到 `<case>` 要求的 | 做了相反的事 | 部分达成部分遗漏 | 完全按描述处理 |
-| `overall` | Mentor 的综合判断 | 全面失败 | 尚可但有明显弱点 | 全面优秀 |
-
-### 通过规则
-
-案例通过条件：`overall` 中位数 >= `mentor.pass.score`（默认 7）且 `goal` 中位数 >= `mentor.pass.score` 且没有任何轴的中位数低于 `mentor.pass.floor`（默认 5）。构造场景受下限约束：当任一构造场景的 `overall` 中位数或 `goal` 中位数低于 `mentor.pass.floor` 时案例失败，无论所有回答的中位数如何。真实 moment 以通过分为阈值：当其 `overall` 或 `goal` 中位数低于 `mentor.pass.anchorScore`（设为数字时）或低于 `mentor.pass.score`（`anchorScore` 为 `null` 时）案例失败。原因字符串：`anchorScore` 未设置时为 `real moment <n>: <axis> <v> is under the pass score <s>`，设置时为 `real moment <n>: <axis> <v> is under the anchor score <s>`。报告显示每个场景的 `overall` 和 `goal` 中位数。所有分数均为 `null` 的轴中位数为 `null`，不参与检查。
-
-### 评分证据顺序
-
-1. `<feedback>` 中所有者的修正，优先于 mentor 的品味。
-2. 测量的参考（`<reference>`、`<samples>`）和确定性事实（`<facts>`）。
-3. 已知的模型文本特征（`<signs>`）。特征绝不凌驾于测量结果或参考。
-4. Mentor 自身的品味，提出建议但绝不凌驾于前三者。
-
-### 来源
-
-`mentor-signs.md` 中的已知特征列表参考了维基百科的 "Signs of AI writing" 和 humanizer skill (MIT)。
-
-### 诊断
-
-评分后，当运行未提前结束且案例失败或任一场景的 `overall` 中位数低于 `mentor.pass.score` 时，mentor 再发起一次请求，解释角色上下文中导致弱回答的原因。开关 `mentor.diagnose`（默认 `true`）。通过 `/nep mentor check` 启动的运行不请求诊断。此步骤的失败不会导致运行失败：运行以 `diagnosis: null` 保存并记录错误。
-
-结果存储在运行中的 `diagnosis` 字段，并在报告中输出。这些是供所有者审阅的假设，mentor 本身不进行任何修改。
-
-原因可以指向的层：`rules`（规则块中的一条规则）、`prompt`（引擎系统提示、格式或任务）、`card`（角色卡）、`self`（角色关于自己的笔记）、`learned`（他人教会角色的内容）、`guild`（服务器习惯或梗）、`profile`（角色对某人的记忆）、`labels`（`labels.json` 中的字符串）、`lore`（世界书条目）、`channel`（频道笔记）、`recent`（`<recent>` 块中的行）、`missing`（应当存在但缺失的指令）。
-
-#### 诊断 schema
-
-```json
-{
-  "summary": "一个段落",
-  "causes": [
-    {
-      "layer": "rules|prompt|card|self|learned|guild|profile|missing",
-      "excerpt": "逐字引自 <seen>，至多 300 字符；missing 时为空",
-      "why": "一两句话"
-    }
-  ],
-  "changes": [
-    {
-      "layer": "rules|prompt|card|self|learned|guild|profile",
-      "target": "哪个文件、规则或项目",
-      "from": "逐字引用要替换的文本；添加时为空",
-      "to": "新文本",
-      "why": "一句话"
-    }
-  ]
-}
-```
-
-最多 5 个原因和 5 个修改。`summary` 截断至 1500 字符；`excerpt` 至 300；`from`/`to` 至 1000；`target` 至 200；`why` 至 500。`layer` 未知或缺少 `why` 的项被丢弃。`summary` 和 `why` 使用聊天语言；`to` 使用目标层的语言。
 
 ## 限制通知
 

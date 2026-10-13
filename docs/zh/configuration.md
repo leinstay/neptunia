@@ -39,7 +39,6 @@
 | `notesRefresh` | `true` | 定期从近期消息的分散样本中重新检查频道和服务器笔记。缺失键 = 开。参见 `memory.notesRefreshDays*` 和[预热：保持笔记更新](warmup.md#保持笔记更新) |
 | `versions` | `true` | 当散文记忆字段的文本被替换时保留版本历史。旧文本保存在 `data/guilds/<id>/versions/`。`/nep memory forget` 和 `/nep memory wipe` 会删除版本文件。缺失键 = 开 |
 | `memoryTwoStage` | `false` | 将记忆分析器拆分为两个阶段：中性 GPT 模型判定变更（阶段 A），然后语音模型撰写角色文本（阶段 B）。必须严格为 `true` 才能启用；缺失键 = 关。参见 `memory.voice.*` |
-| `mentor` | `false` | 手动测试子进程，使用独立模型。必须严格为 `true` 才能启用；缺失的键视为关闭。参见 [Mentor](#mentor) |
 | `promptCache` | `false` | 为系统消息添加提供商的提示缓存标记。缓存读取仅为正常输入成本的一小部分；某些提供商不将缓存读取计入 token 配额。必须严格为 `true` 才能启用；缺失的键视为关闭。参见 `llm.cache.*` |
 | `recall` | `true` | 当问题需要时，在网络搜索之外同时搜索服务器自身的消息历史。缺失的键视为开启。参见[媒体：搜索](media.md#搜索)和 `recall.*` |
 | `recent` | `true` | 在请求中显示一个 `<recent>` 块，呈现服务器最近几天发生的事情。缺失的键视为开启。参见 `memory.recentHours` 和 `context.caps.recent` |
@@ -79,7 +78,7 @@
 | `safetyMargin` | `0.9` | `maxRequestTokens` 的预算比例 |
 | `timeoutMs` | `300000` | 请求超时（毫秒） |
 | `helperTimeoutMs` | `30000` | 与回合并行运行的辅助任务（路由分类器、搜索分类器和 recall 摘要）的超时。超时的辅助任务被放弃，回合在没有其结果的情况下继续 |
-| `pingTimeoutMs` | `30000` | `/nep ping` 请求超时（毫秒） |
+| `pingTimeoutMs` | `30000` | 启动时连接探测的超时（毫秒）。目前没有命令使用它 |
 | `retries` | `2` | 临时 HTTP 错误（408/429/5xx）和网络故障的重试次数。提供商账户的日配额 429 不重试：一次尝试后直接抛出 |
 | `maxRequestsPerDay` | `300` | 每日请求上限 |
 | `provider` | `null` | OpenRouter `provider` 路由对象，原样传递；`null` 表示不发送该字段 |
@@ -95,15 +94,15 @@
 
 `llm.provider` 为聊天请求设置默认的 OpenRouter provider 路由字段，例如 `{ "ignore": ["some-provider"] }` 或 `{ "order": ["anthropic"], "allow_fallbacks": true }`。`llm.providerByModel` 按模型添加覆盖：每个键是模型 id 前缀（匹配任意角色）或 `<prefix>@<role>`（仅匹配一个角色），值为原样传递的 OpenRouter 路由对象。
 
-单个请求的 provider 按以下顺序解析：每次调用的固定路由（视频描述器的直接 URL 路径使用 `media.video.provider`），然后是 `providerByModel` 中与该请求角色匹配的最长前缀，然后是无角色键中匹配的最长前缀，然后是 `llm.provider`（图像请求使用 `image.provider`），最后是无路由（由 OpenRouter 选择）。角色专用键始终优先于同一模型的无角色键。角色名称：`voice`、`analyzer`、`classifier.text`、`classifier.media`、`classifier.video`、`mentor`、`image`。为兼容性，路由键或角色列表中仍写 `talk` 的会被读取为 `voice`，附带一条日志（`config: role talk is now voice`）。
+单个请求的 provider 按以下顺序解析：每次调用的固定路由（视频描述器的直接 URL 路径使用 `media.video.provider`），然后是 `providerByModel` 中与该请求角色匹配的最长前缀，然后是无角色键中匹配的最长前缀，然后是 `llm.provider`（图像请求使用 `image.provider`），最后是无路由（由 OpenRouter 选择）。角色专用键始终优先于同一模型的无角色键。角色名称：`voice`、`analyzer`、`classifier.text`、`classifier.media`、`classifier.video`、`image`。为兼容性，路由键或角色列表中仍写 `talk` 的会被读取为 `voice`，附带一条日志（`config: role talk is now voice`）。
 
 示例：`"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` 将所有 Google 模型路由到 Vertex，而 `"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` 将视频分类器发送到 AI Studio。包含点号的路由键（如 `google/@classifier.video`）无法通过 `/nep set` 编辑，因为它会按点号拆分路径；请使用 `/nep route set` 和 `/nep route remove`。
 
-如果 OpenRouter 账户本身限制了允许的 provider，忽略仅剩的那个会导致每个请求失败并报错 "No endpoints found"。更改 provider 设置后，运行 `/nep ping` 验证每个模型角色是否可达；每个角色遵循其 `llm.providerByModel` 路由，因此显示的 provider 就是该路由选定的。
+如果 OpenRouter 账户本身限制了允许的 provider，忽略仅剩的那个会导致每个请求失败并报错 "No endpoints found"。更改 provider 设置后，检查 `/nep status` 验证每个模型角色是否可达；每个角色遵循其 `llm.providerByModel` 路由，因此显示的 provider 就是该路由选定的。
 
 启用 `features.promptCache` 后，当请求的角色在 `llm.cache.roles` 中且模型以 `llm.cache.models` 中的前缀开头时，系统消息会被标记为提供商的提示缓存。标记在 token 估算之后添加，因此每请求 50k 上限和校准不受影响。`llm.cache.promptIncludesCached` 告诉引擎提供商如何报告缓存 token；通过一次实际探测设定。`llm: usage` 日志行新增 `cache` 字段: `write`、`read`、`none` 或 `off`。
 
-`llm: usage` 日志行还包含 `ms`（请求的耗时）、`purpose`（一个短字符串说明请求用途，例如 `route-channel`、`recall-summary`、`address`）、`origin`（例如 mentor 发起或引起的请求为 `mentor`）、`hedged`（请求被对冲时为 true）和 `attempt`（对冲请求为 1 或 2，否则不存在）。
+`llm: usage` 日志行还包含 `ms`（请求的耗时）、`purpose`（一个短字符串说明请求用途，例如 `route-channel`、`recall-summary`、`address`）、`origin`（例如 `tools/replay.mjs` 的请求为 `replay`）、`hedged`（请求被对冲时为 true）和 `attempt`（对冲请求为 1 或 2，否则不存在）。
 
 配置了 `llm.hedge` 后，其列出的角色的请求会被对冲：第二次尝试在第一次之后 `llm.hedge.afterMs` 启动，先完成的获胜。两者在 `llm.hedge.timeoutMs`（`long: true` 请求使用 `longTimeoutMs`）时中止。这为每个在第二次启动前未完成的对冲调用增加一次额外请求；两者都计入 `llm.maxRequestsPerDay`。
 
@@ -282,7 +281,7 @@ GIF 库（`features.gifs`）的设置。使用次数在每条消息到达时统�
 | `maxPerDay` | `40` | 角色每天可发送的 GIF 数 |
 | `backfillMessages` | `500` | 启动时从每个频道历史中读取的消息数以初始化库 |
 | `backfillDescribe` | `20` | 回填后立即获取说明的排名最高 GIF 数 |
-| `recachePerRun` | `50` | 每次 `/nep gifs recache` 运行时重新描述的库 GIF 数量。库外的单帧说明立即删除；旧格式的已观看条目（无 `reaction` 字段）与未完成的一起排队，从最旧的开始。每次运行最多观看此数量，受 `media.gif.maxPerDay` 限制 |
+| `recachePerRun` | `50` | 每次 `/nep media kind:gifs action:recache` 运行时重新描述的库 GIF 数量。库外的单帧说明立即删除；旧格式的已观看条目（无 `reaction` 字段）与未完成的一起排队，从最旧的开始。每次运行最多观看此数量，受 `media.gif.maxPerDay` 限制 |
 | `ownMarkHours` | `24` | 角色发送 GIF 后该条目在 `<gifs>` 列表中显示标记的时间（小时）。`0` 关闭标记 |
 
 ### `gifs.pick`
@@ -342,7 +341,7 @@ GIF 挑选器（`features.gifPicker`）的设置。当角色的第一条发出�
 | `sites` | `["youtube.com", "youtu.be", "tiktok.com", "vk.com", "vkvideo.ru", "x.com", "twitter.com", "reddit.com", "twitch.tv"]` | 其链接被视为视频的主机名 |
 | `directUrlSites` | `["youtube.com", "youtu.be"]` | 可将公开 URL 直接传递给提供商（由提供商自行获取视频）的站点 |
 | `directUrlUnknownDuration` | `false` | 即使所有探测均未获取到时长，仍将 directUrlSites 站点的链接发送给提供商；token 估算使用 `maxSeconds`。参见下方的时长探测链 |
-| `canaryUrl` | `"https://www.youtube.com/watch?v=jNQXAC9IVRw"` | 启动时和 `/nep ping classifier.video` 探测的固定 YouTube 视频，用于测试 YouTube API key 和时长来源 |
+| `canaryUrl` | `"https://www.youtube.com/watch?v=jNQXAC9IVRw"` | 启动时探测的固定 YouTube 视频，用于测试 YouTube API key 和时长来源 |
 | `ytdlpPath` | `"yt-dlp"` | `yt-dlp` 二进制文件的路径；站点视频链接和探测时长需要此工具 |
 | `ffmpegPath` | `"ffmpeg"` | `ffmpeg` 的路径；裁剪和缩小过长或过大的附件需要此工具 |
 | `proxy` | `""` | `yt-dlp` 的代理 URL，接受其支持的任何格式（`socks5h://user:pass@host:port`、`http://host:port`）；`""` = 无代理。当站点拒绝服务器自身 IP 时使用（YouTube 对数据中心 IP 返回"请确认您不是机器人"）。仅 `proxySites` 中的站点链接通过代理。值可能包含密码，永不写入日志。通过代理下载时会下载整个视频，再由 `ffmpeg` 在本地截取前 `maxSeconds`，因为 yt-dlp 的分段下载模式会启动 ffmpeg，而 ffmpeg 不能使用 SOCKS 代理；因此下载上限（4x `maxBytes`）决定了长视频能否下载 |
@@ -356,7 +355,7 @@ GIF 挑选器（`features.gifPicker`）的设置。当角色的第一条发出�
 
 `yt-dlp` 和 `ffmpeg` 均为可选的系统二进制文件。没有它们时，在限制内的附件仍然可用（直接发送）。更长的附件和所有站点链接会回退到静帧或预览图，角色会被告知原因。每个视频请求都计入 `llm.maxRequestsPerDay` 和视频 token 上限（`maxRequestTokens`）。
 
-YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，然后尝试 YouTube Data API（需在 `.env` 中设置 `YOUTUBE_API_KEY`），最后尝试抓取观看页面。如果所有探测均失败且 `directUrlUnknownDuration` 处于关闭状态（默认），链接将报告为"无法加载"。开启该开关后，URL 仍会发送给提供商，token 估算按 `maxSeconds` 计费。Data API 密钥免费获取：在 Google Cloud 控制台中启用 YouTube Data API v3 并创建密钥；免费配额为每天 10,000 个单位，一次时长查询消耗 1 个单位。`/nep ping classifier.video` 探测 `canaryUrl` 并报告 API key 状态（如 `youtube: API key — ok`）。缓存的长度限制结果会记录视频时长，当上限提高后会重新尝试。
+YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，然后尝试 YouTube Data API（需在 `.env` 中设置 `YOUTUBE_API_KEY`），最后尝试抓取观看页面。如果所有探测均失败且 `directUrlUnknownDuration` 处于关闭状态（默认），链接将报告为"无法加载"。开启该开关后，URL 仍会发送给提供商，token 估算按 `maxSeconds` 计费。Data API 密钥免费获取：在 Google Cloud 控制台中启用 YouTube Data API v3 并创建密钥；免费配额为每天 10,000 个单位，一次时长查询消耗 1 个单位。启动时机器人探测 `canaryUrl` 并报告 API key 状态（如 `youtube: API key — ok`）。缓存的长度限制结果会记录视频时长，当上限提高后会重新尝试。
 
 ### `media.video.rewatch`
 
@@ -424,7 +423,7 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 | `channels` | `[]` | 允许的频道 |
 | `maxChannelSilenceHours` | `72` | 阻止主动消息的频道沉默时长（小时）；0 = 无限制 |
 | `someoneAroundMinutes` | `120` | 当所有可读频道的最后一条消息都超过此时长（分钟）时，不触发自发回合。角色自身在频道的最后发言不计入；其他机器人的消息计入。`0` = 无门控 |
-| `initiateCooldownHours` | `[6, 12]` | 发起话题后的冷却时间（小时）；冷却期间不再自行发起新话题。插话、全体提问、窃听、注意到的评论和 `/nep initiate` 不受影响。存储在 `state.json` 中，重启后保留；`/nep status` 在冷却期显示结束时间。`[0, 0]` = 无冷却 |
+| `initiateCooldownHours` | `[6, 12]` | 发起话题后的冷却时间（小时）；冷却期间不再自行发起新话题。插话、全体提问、窃听、注意到的评论和 `/nep talk action:initiate` 不受影响。存储在 `state.json` 中，重启后保留；`/nep status` 在冷却期显示结束时间。`[0, 0]` = 无冷却 |
 | `minIntervalMinutes` | `25` | 最短检查间隔（分钟） |
 | `maxIntervalMinutes` | `420` | 最长检查间隔（分钟） |
 | `burstChance` | `0.15` | 连发追加消息的概率 |
@@ -689,43 +688,9 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 | `minAffinity` | `5` | 回复私信所需的最低公共好感度分数；所有者跳过此检查 |
 | `maxPerUserPerDay` | `100` | 每成员每日到达模型的私信回合数（无论回复或沉默）；达到时每天发送一次限制通知 |
 | `maxPerOwnerPerDay` | `200` | 所有者每日到达模型的私信回合数（无论回复或沉默） |
-| `purgeMaxMessages` | `5000` | `/nep private purge` 单次运行扫描的最大私信消息数（从最新开始） |
+| `purgeMaxMessages` | `5000` | `/nep memory private purge` 单次运行扫描的最大私信消息数（从最新开始） |
 
 当 `features.relationships` 关闭时，公共分数保持为 0，因此在默认 `minAffinity` 下只有所有者可以发送私信。
-
-## `mentor`
-
-手动测试子进程的设置（`features.mentor`）。Mentor 构造聊天场景，在沙盒中让角色作答并评分。使用独立的模型和独立的每日 token 预算；其操作不计入 `llm.maxRequestsPerDay`。全部热重载。
-
-| 键 | 默认值 | 说明 |
-|---|---|---|
-| `model` | `null` | Mentor 模型 ID。`null` 或缺失时，所有需要模型的命令会提示未配置 |
-| `maxTokensPerDay` | `400000` | 每日 token 预算。按实际用量计算：提示 token x1、缓存提示 token x`cachedTokenWeight`、输出 token x`outputTokenWeight`。沙盒中角色 voice 模型的回答以相同方式计算 |
-| `outputTokenWeight` | `5` | 输出 token 在预算中的权重，反映生成 token 的较高成本 |
-| `cachedTokenWeight` | `0.1` | 缓存提示 token 在预算中的权重 |
-| `maxOutputTokens` | `6000` | 每次 mentor 请求的最大输出 token |
-| `timeoutMs` | `300000` | Mentor 请求超时（毫秒） |
-| `situations` | `5` | 每次运行构造的聊天场景数 |
-| `situationLines` | `[6, 15]` | 每个场景的最小和最大行数 |
-| `samples` | `3` | 每个场景的角色回答数。真实 moment 使用 `anchor.samples` |
-| `check.samples` | `1` | `/nep mentor check` 时每个场景的角色回答数。真实 moment 使用 `anchor.samples` |
-| `pass.score` | `7` | `overall` 和 `goal` 的中位数达到此阈值时案例通过 |
-| `pass.anchorScore` | `null` | 真实 moment 的阈值。设为数字时，真实 moment 的 `overall` 或 `goal` 中位数低于该值则案例失败。`null` 使用 `pass.score` |
-| `pass.floor` | `5` | 任一轴的中位数低于此下限时案例失败。每个构造场景也受此下限约束：当任一构造场景的 `overall` 中位数或 `goal` 中位数低于此值时案例失败，无论所有回答的中位数如何。真实 moment 以通过分（设置了 `pass.anchorScore` 时用其值，否则用 `pass.score`）为阈值 |
-| `diagnose` | `true` | 失败或存在弱场景的运行结束后，mentor 说明上下文中导致弱回答的原因。存储为运行中的 `diagnosis`；check 不请求 |
-| `reference.days` | `7` | 用于构建风格参考的聊天历史天数 |
-| `reference.samples` | `60` | 从参考窗口中随机选取的风格示例行数（2–200 字符） |
-| `reference.maxMessages` | `3000` | 从参考频道读取的最大消息数 |
-| `reference.rarePer1000` | `0.5` | 每 1000 字符中使用次数低于此值的标点视为稀有 |
-| `reference.rareMinAuthors` | `2` | 使用该标点的作者数少于此值时视为稀有 |
-| `anchor.max` | `5` | 每个案例的真实 moment 数。每个 moment 是所有者拒绝的角色消息，连同之前的聊天一起存储 |
-| `anchor.contextMessages` | `30` | 解析 moment 时从频道获取的上下文消息数，截止到触发消息 |
-| `anchor.samples` | `5` | 运行和 `/nep mentor check` 中每个真实 moment 的角色回答数 |
-| `anchor.hideLaterMemory` | `true` | 重放真实 moment 时，隐藏在触发消息时间点或之后写入的记忆（事件、态度变化、详情、兴趣、别名、学到的内容、知识库条目）。设为 `false` 则使用当前全部记忆重放 |
-| `anchor.ledgerSize` | `300` | 发布账本（`state.json` `postLedger`）保留的条目数。账本将每条已发布的消息映射到其回合，以便 mentor 在解析真实 moment 时找到触发消息。仅在 `features.mentor` 开启时写入。`0` 不保留 |
-| `feedbackExamples` | `10` | 在每次评分请求中包含的最新所有者修正（`/nep mentor wrong`）数 |
-
-`llm.maxRequestTokens`（每次请求 50k）适用于 mentor 发出或引起的每个请求，包括沙盒回答。每次 mentor 请求前，预算检查计入提示加上回答可能的最大成本（`mentor.maxOutputTokens` 乘以 `mentor.outputTokenWeight`），因此当可能的输出不适合剩余预算时请求被拒绝。预算耗尽时运行停止并报告已有结果。运行期间 `features.mentor` 或 `mentor.model` 被关闭时运行也会停止，参考窗口内参考频道中没有人的消息时同样停止。
 
 ## `warmup`
 
@@ -788,10 +753,6 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 | `google/gemini-3.8-flash` (default) | 0.014 |
 
 `qwen/qwen3.8-omni-flash` 同样接受视频和音频。价格会变化；上表是截至上述日期的快照。
-
-### Mentor（`mentor.model`）
-
-`mentor` 角色。对角色的回答进行评分并构造测试场景。建议使用与 voice 模型不同家族的模型：模型看不到自身家族的习惯。`null`（默认）保持 mentor 禁用；需要模型的 `/nep mentor` 命令会提示。
 
 ### 图片输出（`image.model`）
 
