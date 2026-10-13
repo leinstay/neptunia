@@ -2,7 +2,9 @@
 
 Channels, roles and users are picked from Discord's own pickers; `set`/`unset` and `access grant`/`access revoke` autocomplete their `path`/`command` options.
 
-`/nep` is visible to every member from the start; access is gated per command at the moment it runs, never through Discord's own command visibility. Owners (`bot.owners`) can always run every command. Everyone else needs a grant: `/nep access grant <command> [role] [user]` opens one command key (e.g. `memory.show`), a whole group (e.g. `memory`), or every command (`*`) to everyone (no role/user given), a role, or a user; `/nep access revoke` undoes one of those; `/nep access list` shows the current grants. Without a grant, a non-owner who runs `/nep` gets an ephemeral "Not allowed" reply. `private.show`, `private.forget` and `private.purge` are owner-only and excluded from all grants; `access grant` refuses them, and `access list` does not offer them. The `mentor` and `access` groups are owner-only the same way and cannot be granted.
+`/nep` is visible to every member from the start; access is gated per operation at the moment a command runs, never through Discord's own command visibility. Each command runs one named operation, and reading and changing are separate operations: `/nep memory show` runs `memory.profile.read`, `/nep memory affinity <user>` runs `memory.affinity.read`, and `/nep memory affinity <user> <score>` runs `memory.affinity.set`. Owners (`bot.owners`) can always run everything. Everyone else needs a grant on the exact operation: `/nep access grant <operation> [role] [user]` opens one operation (e.g. `memory.profile.read`) to everyone (no role/user given), a role, or a user. A group (e.g. `memory`) or `*` is accepted too, but it is stored as the read operations that exist at that moment, one grant each: it never opens a write, and an operation added later stays closed until it is granted by name. `/nep access revoke` removes the target from the operation, or from every stored operation under a group or `*`; `/nep access list` shows each operation with who holds it and, for a grant that came from a group or `*`, where it came from. Without a grant, a non-owner gets an ephemeral "Not allowed" reply. Owner-only operations (`access.*`, `diary.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.forget`, `memory.wipe`, `memory.archive.read`, `memory.restore`) and the commands that are not operations (`ping`, `reload`, `learned list`, `mentor`) are never opened by any grant, `*` included.
+
+**After the deploy that keyed access by operation.** On the first start, every stored grant is converted once: an old command key becomes the operation it ran; an old group or `*` becomes the read operations it covered; owner-only operations are dropped. A journal `system` record `access-migrated` lists what each old grant covers now. Then run `/nep access revoke * everyone` followed by `/nep access grant memory.profile.read everyone`, and re-grant any other operation by name (check `/nep access list`).
 
 | Command | What it does |
 |---|---|
@@ -75,9 +77,9 @@ Channels, roles and users are picked from Discord's own pickers; `set`/`unset` a
 | `/nep mentor show <id>` | The report of the last run: situations, answers, scores, comments, and the diagnosis when present |
 | `/nep mentor wrong <id> <reason>` | Tell the mentor it judged that case wrongly and why; kept as a counter-example for future scoring |
 | `/nep mentor status` | Model, enabled or not, tokens used today / cap, cases by state, the run in flight (shows `, stopping` while a stop is pending), and the most recent finished run (`last:`): its case, outcome, median overall, scored answers, tokens and finish time |
-| `/nep access grant <command> [role] [user]` | Open a command, group or `*` to everyone (default), a role, or a user. `private.*`, `mentor.*`, `access.*`, `memory.journal` and `memory.snapshot` are excluded; see above |
-| `/nep access revoke <command> [role] [user]` | Revoke a previous grant from everyone (default), a role, or a user |
-| `/nep access list` | List every current access grant |
+| `/nep access grant <command> [role] [user]` | Open an operation to everyone (default), a role, or a user. A group or `*` opens only the read operations that exist now, stored one by one; a write is granted by its own name. Owner-only operations are refused; see above |
+| `/nep access revoke <command> [role] [user]` | Revoke a grant from everyone (default), a role, or a user: one operation, or every stored operation under a group or `*` |
+| `/nep access list` | Every granted operation with who holds it; a grant that came from a group or `*` reads `(expanded from <group>, reads only)` |
 
 ## Member commands
 

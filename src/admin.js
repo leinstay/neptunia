@@ -16,9 +16,11 @@
 // prompts/ layer is never written at runtime — live corrections always land
 // in the untracked prompts.local/ layer.
 //
-// This module knows nothing about discord.js: `createAdmin(deps).run` takes
-// a `commandKey` (e.g. `'memory.forget'`), a plain `args` object and a
-// `context` (`{ guildId, channelId, userId }`) and returns the reply text
+// This module knows nothing about discord.js: `createAdmin(deps).runCommand`
+// takes a `commandKey` (e.g. `'memory.forget'`), a plain `args` object and a
+// `context` (`{ guildId, channelId, userId, roleIds }`), checks the caller's
+// rights on the operation the key runs and answers `{ status, code, summary,
+// data }`; `run` (the tests' entry, no rights check) returns the reply text
 // (or, for `/nep draw` and `/nep mentor show`, `{ text, files }` with the
 // picture or the report file), or throws an
 // `Error` with an operator-facing message on bad input. Mapping a
@@ -32,14 +34,16 @@
 // src/ops/shared.js and are re-exported from here.
 
 import { sortByRank } from './memory/ranking.js';
-import { isAllowed as accessIsAllowed } from './discord/access.js';
+import { isAllowed as accessIsAllowed, isOwnerId } from './discord/access.js';
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from './llm/images.js';
 import { resolveProvider } from './llm/openrouter.js';
 import { anchorMax, checkCaseText } from './mentor/cases.js';
 import { renderCard, renderFile, renderLastRun } from './mentor/report.js';
 import { NONE, onOff, PING_DISPLAY_ORDER, pingRolesFor, modelForRole, formatPingSuccess, formatPingFailure, formatYoutubeLine, withYoutubeLine, withImageLine, MENTOR_CASE_TEXT_SHOWN, MENTOR_STATES, learnedLine } from './ops/shared.js';
 import { createOpsEnv } from './ops/env.js';
-import { resolveCommand, runOpPrechecked } from './ops/index.js';
+import { resolveCommand, runOp, runOpPrechecked, legacyGrantOps, asResult } from './ops/index.js';
+import { getOp, listOps } from './ops/registry.js';
+import { grantKeys, migrateStoredGrants } from './ops/access.js';
 
 export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from './ops/shared.js';
 
@@ -118,25 +122,37 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing
- * message) on bad input; it never touches discord.js.
+ * message) on bad input; `runCommand` never throws; neither touches discord.js.
  */
 export function createAdmin(deps) {
   const env = createOpsEnv(deps);
   const { hot, store, llm, describer, lookup, images, mentor, mentorCases, mentorBudget, slash, assertNotPaused, freshenIfPaused, resolvedGuildId, requireGuildId, tokenResolver } = env;
 
-  /** Owner, or `bot.access` granted the command by exact key, group, or `*`, or a member
-   * command while `features.memberCommands` is on (read now) — see
-   * src/discord/access.js#isAllowed. `roleIds` -- the caller's Discord role ids -- comes from
+  /** The operation descriptor a command key runs with `args` (src/ops/index.js#COMMAND_TO_OP);
+   * a command with no operation (`legacy` below, or an unknown key) is owner-only. */
+  function opForCommand(commandKey, args = {}) {
+    const target = resolveCommand(commandKey, args);
+    return (target && getOp(target.op)) ?? { name: commandKey, rights: { kind: 'write', ownerOnly: true } };
+  }
+
+  /** Whether the caller may run `commandKey` (with `args`, which pick the operation for
+   * `pings` and `memory.affinity`): src/discord/access.js#isAllowed on its operation, every input
+   * read now. For the autocomplete, which runs nothing; a command itself goes through
+   * `runCommand`. `roleIds` -- the caller's Discord role ids -- comes from
    * src/discord/commands.js#createInteractionHandler, which reads them off the interaction. */
-  function isAllowed(commandKey, { userId, roleIds } = {}) {
+  function isAllowed(commandKey, { userId, roleIds } = {}, args = {}) {
     return accessIsAllowed({
-      commandKey,
-      userId,
-      roleIds,
+      op: opForCommand(commandKey, args),
+      member: { userId, roleIds },
       owners: hot.config?.bot?.owners ?? [],
       access: hot.config?.bot?.access ?? {},
-      memberCommands: hot.config?.features?.memberCommands !== false,
+      features: hot.config?.features,
     });
+  }
+
+  /** `/nep access grant`'s autocomplete keys: `*`, the groups and the grantable operations. */
+  function accessKeys() {
+    return grantKeys(listOps());
   }
 
   function cmdReload() {
@@ -495,10 +511,10 @@ export function createAdmin(deps) {
   }
 
   /**
-   * Run one command. `commandKey` is `'<name>'` for a top-level command or
-   * `'<group>.<name>'` for a grouped one. Throws an operator-facing `Error`
-   * on bad input or an unknown key; never touches discord.js. The caller has
-   * already checked the rights (`isAllowed`, src/discord/commands.js).
+   * Run one command WITHOUT a rights check and render it: the reply text (or `{ text, files }`),
+   * or a thrown operator-facing `Error`. `commandKey` is `'<name>'` for a top-level command or
+   * `'<group>.<name>'` for a grouped one. The tests drive the handlers through it; the slash
+   * commands use `runCommand`, which checks the rights.
    */
   async function run(commandKey, args = {}, context = {}) {
     if (Object.hasOwn(legacy, commandKey)) return legacy[commandKey](args, context);
@@ -507,5 +523,32 @@ export function createAdmin(deps) {
     return render(await runOpPrechecked(target.op, target.args, { ...context, env }));
   }
 
-  return { isAllowed, run };
+  /**
+   * One slash command for a caller (`context`: `{ guildId, channelId, userId, roleIds }`): the
+   * command key mapped to its operation (src/ops/index.js#COMMAND_TO_OP) and run through
+   * src/ops/index.js#runOp, the full rights check included; a command with no operation
+   * (`legacy`) runs for an owner only. Never throws: `{ status, code, summary, data }`.
+   * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
+   */
+  async function runCommand(commandKey, args = {}, context = {}) {
+    if (Object.hasOwn(legacy, commandKey)) {
+      if (!isOwnerId(hot.config, context.userId)) return { status: 'denied', code: 'owner-only', summary: `${commandKey} is owner-only`, data: null };
+      try {
+        return asResult(await legacy[commandKey](args, context));
+      } catch (err) {
+        return { status: 'failed', code: typeof err?.code === 'string' && err.code ? err.code : 'error', summary: String(err?.message ?? err), data: null };
+      }
+    }
+    const target = resolveCommand(commandKey, args);
+    if (!target) return { status: 'invalid', code: 'unknown-command', summary: `unknown command: ${commandKey}`, data: null };
+    return runOp(target.op, target.args, { ...context, env });
+  }
+
+  /** Once per guild at start: the stored grants re-expanded under the operation names
+   * (src/ops/access.js#migrateStoredGrants). */
+  function migrateAccess(guildId) {
+    return migrateStoredGrants(env, guildId, legacyGrantOps);
+  }
+
+  return { isAllowed, accessKeys, run, runCommand, migrateAccess };
 }

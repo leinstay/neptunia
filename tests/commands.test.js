@@ -18,6 +18,9 @@ import {
   MODEL_SET_ROLES,
 } from '../src/discord/commands.js';
 import { isAllowed as accessIsAllowed } from '../src/discord/access.js';
+import { resolveCommand, asResult, listOps } from '../src/ops/index.js';
+import { getOp } from '../src/ops/registry.js';
+import { grantKeys } from '../src/ops/access.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 function findOption(options, name) {
@@ -262,19 +265,30 @@ test('registerCommands: a command-too-large refusal logs the tree size and the l
 // createInteractionHandler
 // ---------------------------------------------------------------------------
 
-/** A fake admin whose `isAllowed` runs the real, pure src/discord/access.js#isAllowed against
- * `owners`/`access`, exactly the way src/admin.js#createAdmin wires it -- so these tests exercise
- * the real gating logic, not a stand-in for it. */
+/** A fake admin whose rights check runs the real, pure src/discord/access.js#isAllowed on the
+ * real operation a command key maps to (src/ops/index.js#resolveCommand; a command with no
+ * operation is owner-only) against `owners`/`access`, the way src/admin.js#createAdmin wires it --
+ * so these tests exercise the real gating logic, not a stand-in for it. `runCommand` answers in
+ * runOp's shape; `runCalls` holds the command keys that got past the rights. */
 function fakeAdmin({ owners = ['owner1'], access = {}, runImpl } = {}) {
   const runCalls = [];
+  const opFor = (commandKey, args = {}) => {
+    const target = resolveCommand(commandKey, args);
+    return (target && getOp(target.op)) ?? { name: commandKey, rights: { kind: 'write', ownerOnly: true } };
+  };
+  const isAllowed = (commandKey, { userId, roleIds } = {}, args = {}) =>
+    accessIsAllowed({ op: opFor(commandKey, args), member: { userId, roleIds }, owners, access });
   return {
-    isOwner: (userId) => owners.includes(String(userId)),
-    isAllowed: (commandKey, { userId, roleIds } = {}) =>
-      accessIsAllowed({ commandKey, userId, roleIds, owners, access }),
-    run: async (commandKey, args, context) => {
+    isAllowed,
+    accessKeys: () => grantKeys(listOps()),
+    runCommand: async (commandKey, args, context) => {
+      if (!isAllowed(commandKey, context, args)) return { status: 'denied', code: 'not-granted', summary: 'Not allowed', data: null };
       runCalls.push([commandKey, args, context]);
-      if (runImpl) return runImpl(commandKey, args, context);
-      return `ok: ${commandKey}`;
+      try {
+        return asResult(runImpl ? await runImpl(commandKey, args, context) : `ok: ${commandKey}`);
+      } catch (err) {
+        return { status: 'failed', code: 'error', summary: err.message, data: null };
+      }
     },
     runCalls,
   };
@@ -391,8 +405,8 @@ test('interaction handler: a non-owner is refused ephemerally and admin.run is n
   assert.match(interaction.replies[0].content, /not allowed/i);
 });
 
-test('interaction handler: a non-owner granted the exact command key by role is let through', async () => {
-  const admin = fakeAdmin({ owners: ['owner1'], access: { status: { everyone: false, roles: ['staff'], users: [] } } });
+test('interaction handler: a non-owner granted the exact operation by role is let through', async () => {
+  const admin = fakeAdmin({ owners: ['owner1'], access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } } });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
   const interaction = fakeInteraction({ user: { id: 'helper1' }, member: { roles: ['staff'] }, subcommand: 'status' });
@@ -403,8 +417,8 @@ test('interaction handler: a non-owner granted the exact command key by role is 
   assert.equal(interaction.replies[0].content, 'ok: status');
 });
 
-test('interaction handler: a non-owner with a grant on a DIFFERENT key is still refused', async () => {
-  const admin = fakeAdmin({ owners: ['owner1'], access: { ping: { everyone: true, roles: [], users: [] } } });
+test('interaction handler: a non-owner with a grant on a DIFFERENT operation, or on the old command key, is still refused', async () => {
+  const admin = fakeAdmin({ owners: ['owner1'], access: { 'rule.list': { everyone: true, roles: [], users: [] }, status: { everyone: true, roles: [], users: [] } } });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
   const interaction = fakeInteraction({ user: { id: 'helper1' }, subcommand: 'status' });
@@ -428,7 +442,9 @@ test('interaction handler: /nep private and /nep mentor stay owner-only even wit
     for (const subcommand of subcommands) {
       const interaction = fakeInteraction({ user: { id: 'helper1' }, group, subcommand, optionValues });
       await handler(interaction);
-      assert.match(interaction.replies[0].content, /not allowed/i, `${group} ${subcommand}`);
+      // a slow command defers first, so its refusal is the edited reply
+      const answer = interaction.edits[0]?.content ?? interaction.replies[0].content;
+      assert.match(answer, /not allowed/i, `${group} ${subcommand}`);
     }
     assert.equal(admin.runCalls.length, 0, group);
 
@@ -467,7 +483,7 @@ test('interaction handler: a top-level subcommand maps to its bare command key',
 
   assert.equal(admin.runCalls.length, 1);
   assert.equal(admin.runCalls[0][0], 'status');
-  assert.deepEqual(admin.runCalls[0][2], { guildId: 'g1', channelId: 'c1', userId: 'owner1' });
+  assert.deepEqual(admin.runCalls[0][2], { guildId: 'g1', channelId: 'c1', userId: 'owner1', roleIds: [] });
   assert.equal(interaction.replies[0].flags, MessageFlags.Ephemeral);
   assert.equal(interaction.replies[0].content, 'ok: status');
 });
@@ -481,7 +497,7 @@ test('interaction handler: pings maps mode (undefined when omitted) and runs for
   await handler(fakeInteraction({ subcommand: 'pings', user: { id: 'member1' } }));
 
   assert.deepEqual(admin.runCalls.map(([key, args]) => [key, args]), [['pings', { mode: 'off' }], ['pings', { mode: undefined }]]);
-  assert.deepEqual(admin.runCalls[0][2], { guildId: 'g1', channelId: 'c1', userId: 'member1' });
+  assert.deepEqual(admin.runCalls[0][2], { guildId: 'g1', channelId: 'c1', userId: 'member1', roleIds: [] });
   assert.deepEqual(off.replies, [{ content: 'ok: pings', flags: MessageFlags.Ephemeral }], 'answered at once, not deferred');
 });
 
@@ -756,7 +772,7 @@ test('autocomplete: returns up to 25 leaf config paths filtered by the typed tex
   assert.ok(choices.some((c) => c.name === 'llm.model'));
 });
 
-test('autocomplete: command-option choices for /nep access grant|revoke -- every key, group and *, filtered', async () => {
+test('autocomplete: command-option choices for /nep access grant|revoke -- every grantable operation, group and *, filtered', async () => {
   const admin = fakeAdmin();
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
@@ -773,15 +789,17 @@ test('autocomplete: command-option choices for /nep access grant|revoke -- every
   assert.ok(choices.length <= 25);
   assert.ok(choices.every((c) => c.name.toLowerCase().includes('mem')));
   assert.ok(choices.some((c) => c.name === 'memory'));
-  assert.ok(choices.some((c) => c.name === 'memory.show'));
+  assert.ok(choices.some((c) => c.name === 'memory.profile.read'));
+  assert.ok(choices.some((c) => c.name === 'memory.affinity.set'), 'a write is offered by its name');
+  assert.ok(!choices.some((c) => c.name === 'memory.show'), 'never an old command key');
 });
 
-test('autocomplete: command-option choices never offer the owner-only private and mentor commands', async () => {
+test('autocomplete: command-option choices never offer the owner-only private memory and mentor commands', async () => {
   const admin = fakeAdmin();
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
   // [owner-only group, a typed prefix of it]
-  for (const [group, typed] of [['private', 'priv'], ['mentor', 'ment']]) {
+  for (const [group, typed] of [['private', 'priv'], ['memory.private', 'priv'], ['memory.journal', 'jour'], ['mentor', 'ment']]) {
     for (const [subcommand, value] of [['grant', typed], ['revoke', typed], ['grant', '']]) {
       const interaction = fakeInteraction({ kind: 'autocomplete', group: 'access', subcommand, focused: { name: 'command', value } });
       await handler(interaction);
@@ -800,8 +818,8 @@ test('autocomplete: command-option choices never offer the member command pings'
   assert.deepEqual(interaction.respondCalls[0], []);
 });
 
-test('autocomplete: a non-owner granted * by role gets path choices, never command-key choices (access is owner-only)', async () => {
-  const admin = fakeAdmin({ owners: ['owner1'], access: { '*': { everyone: false, roles: ['staff'], users: [] } } });
+test('autocomplete: a non-owner granted config.set by role gets path choices, never command-key choices (access is owner-only)', async () => {
+  const admin = fakeAdmin({ owners: ['owner1'], access: { 'config.set': { everyone: false, roles: ['staff'], users: [] }, 'access.grant': { everyone: false, roles: ['staff'], users: [] } } });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
   const paths = fakeInteraction({

@@ -1,4 +1,4 @@
-// Operations: `/nep diary`: the channel where the persona posts on its own (src/behavior/diary.js). Owner-only, as the diary group has always been (src/discord/access.js#OWNER_ONLY_GROUPS).
+// Operations: `/nep diary`: the channel where the persona posts on its own (src/behavior/diary.js). Owner-only, as the diary group has always been (rights.ownerOnly below).
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 

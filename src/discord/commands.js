@@ -3,10 +3,11 @@
 // discord.js builder classes — so `buildCommandTree` is trivially unit
 // -tested. `registerCommands` pushes that tree to the single guild this
 // instance serves; `createInteractionHandler` turns a discord.js interaction
-// into an `admin.run(commandKey, args, context)` call and replies, always
-// ephemerally, never letting an error escape into discord.js. One
-// subcommand, `pings`, is a member's own notification switch, open to every
-// member (src/discord/access.js#isMemberCommand).
+// into an `admin.runCommand(commandKey, args, context)` call -- the command's
+// operation run through src/ops/index.js#runOp, rights included -- and
+// replies, always ephemerally, never letting an error escape into discord.js.
+// One subcommand, `pings`, is a member's own notification switch, open to
+// every member (its operations' `rights.member`).
 //
 // Every option → args mapping lives in one place (OPTION_MAPPERS): adding a
 // command here means one tree entry and one mapper, plus a SLOW_COMMANDS
@@ -14,7 +15,6 @@
 // src/admin.js.
 
 import { MessageFlags } from 'discord.js';
-import { isMemberCommand, isOwnerOnly } from './access.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 
@@ -170,7 +170,7 @@ export function isValidCommandName(name) {
  * `commandName`. Pure — no discord.js object, no I/O. Always visible to
  * every member (no `default_member_permissions`); an ungranted member who
  * runs it gets the not-allowed reply — all gating happens at interaction
- * time (`createInteractionHandler`, `admin.isAllowed`), never through
+ * time (`createInteractionHandler`, `admin.runCommand`), never through
  * Discord's own command visibility, so re-registering never invalidates a
  * client's cached command.
  */
@@ -1058,14 +1058,12 @@ function roleIdsFor(interaction) {
   return [];
 }
 
-/** `command`-option autocomplete choices for `/nep access grant|revoke`: every known command key,
- * every group name, and `*`, filtered by the typed text. The owner-only commands
- * (src/discord/access.js#isOwnerOnly) are never offered: no grant can open them; nor is a
- * member command (src/discord/access.js#isMemberCommand), open without one. */
-function accessKeyChoices(typed) {
-  const { keys, groups } = commandKeys();
-  const all = ['*', ...groups, ...keys].filter((key) => !isOwnerOnly(key) && !isMemberCommand(key));
-  return all
+/** `command`-option autocomplete choices for `/nep access grant|revoke`: `*`, the groups and
+ * every grantable operation name (`admin.accessKeys`, src/ops/access.js#grantKeys), filtered by the
+ * typed text. Owner-only operations are never offered: no grant can open them; nor are the member
+ * operations, open without one. */
+function accessKeyChoices(admin, typed) {
+  return admin.accessKeys()
     .filter((key) => key.toLowerCase().includes(typed))
     .slice(0, MAX_AUTOCOMPLETE_CHOICES)
     .map((key) => ({ name: key, value: key }));
@@ -1123,7 +1121,7 @@ export function createInteractionHandler({ hot, admin, getGuildId }) {
     }
 
     if (focused.name === 'command') {
-      await interaction.respond(accessKeyChoices(typed)).catch(() => {});
+      await interaction.respond(accessKeyChoices(admin, typed)).catch(() => {});
       return;
     }
 
@@ -1150,19 +1148,21 @@ export function createInteractionHandler({ hot, admin, getGuildId }) {
       return;
     }
 
-    const allowed = admin.isAllowed(commandKey, { userId: interaction.user.id, roleIds: roleIdsFor(interaction) });
-    if (!allowed) {
-      await interaction.reply({ content: NOT_ALLOWED_MESSAGE, flags: MessageFlags.Ephemeral }).catch(() => {});
-      return;
-    }
-
     const slow = SLOW_COMMANDS.has(commandKey);
     try {
       if (slow) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const args = buildArgs(commandKey, interaction);
-      const context = { guildId: interaction.guildId, channelId: interaction.channelId, userId: interaction.user.id };
-      const result = await admin.run(commandKey, args, context);
-      await respond(interaction, result, slow);
+      const context = { guildId: interaction.guildId, channelId: interaction.channelId, userId: interaction.user.id, roleIds: roleIdsFor(interaction) };
+      // The rights are checked by the operation's own runOp (src/ops/index.js), every time.
+      const result = await admin.runCommand(commandKey, args, context);
+      if (result.status === 'ok') {
+        await respond(interaction, result.data?.files ? result.data : result.summary, slow);
+      } else if (result.status === 'denied') {
+        await respond(interaction, NOT_ALLOWED_MESSAGE, slow);
+      } else {
+        log.warn('commands: command failed', { command: commandKey, status: result.status, code: result.code, error: new Error(result.summary) });
+        await respond(interaction, `Error: ${result.summary}`, slow).catch(() => {});
+      }
     } catch (err) {
       log.warn('commands: command failed', { command: commandKey, error: err });
       await respond(interaction, `Error: ${err?.message ?? String(err)}`, slow).catch(() => {});

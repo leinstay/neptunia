@@ -529,6 +529,10 @@ client.once(Events.ClientReady, async () => {
   // reconciliation below reads a journal that hides every member being forgotten.
   await startupStep('journal.start', () => startJournal(instance.guildId), { wait: true });
 
+  // Once per guild after the deploy that keyed access by operation: the stored grants re-expanded
+  // under the operation names, a journal record of what each covers now (src/ops/access.js).
+  await startupStep('access.migrate', () => admin.migrateAccess(instance.guildId), { wait: true });
+
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
   // starting meanwhile is never touched (only earlier operations are), and it never sends.
   await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId));

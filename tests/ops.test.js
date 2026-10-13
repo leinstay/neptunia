@@ -83,14 +83,14 @@ test('ops: every registered op has a rights kind and a name in the agreed list',
 
 test('ops: runOp denies a non-owner on an owner-only op with a code, even under a * grant', async () => {
   const everyone = { everyone: true, roles: [], users: [] };
-  const env = makeEnv({ access: { '*': everyone, memory: everyone, access: everyone } });
+  const env = makeEnv({ access: { '*': everyone, memory: everyone, access: everyone, 'rule.list': everyone } });
   for (const name of OWNER_ONLY) {
     const result = await runOp(name, { userId: '7', confirm: 'g1' }, { env, guildId: 'g1', userId: '999', roleIds: [] });
     assert.equal(result.status, 'denied', name);
     assert.equal(result.code, 'owner-only', name);
     assert.equal(typeof result.summary, 'string');
   }
-  // the same * grant does open a grantable read
+  // a grant on the operation's own name does open a grantable read
   const open = await runOp('rule.list', {}, { env, guildId: 'g1', userId: '999', roleIds: [] });
   assert.equal(open.status, 'ok');
   // no grant at all: denied, with its own code

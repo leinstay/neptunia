@@ -15,40 +15,6 @@ import { oneLine } from '../memory/clamp.js';
 import { utcDay } from '../time.js';
 import { invalid } from './registry.js';
 
-/** `/nep access grant/revoke`'s command keys that ONLY read — everything else (including every
- * group and `*`) is treated as opening a write command, and gets the "changes memory or config"
- * note in the grant reply. The owner-only `private`, `mentor` and `access` commands are never grantable at all
- * (src/discord/access.js#isOwnerOnly), so they are not listed here. docs/en/owner-commands.md
- * describes each command; a new read-only command is simply added here. `ping` writes nothing
- * but spends balance outside the daily request cap: its grant reply says so (SPENDS_BALANCE_KEYS). */
-export const READ_ONLY_ACCESS_KEYS = new Set([
-  'status',
-  'ping',
-  'memory.show',
-  'memory.channel',
-  'memory.server',
-  'memory.recent',
-  'memory.archive',
-  'rule.list',
-  'lore.list',
-  'lore.show',
-  'learned.list',
-  'model.show',
-  'emoji.status',
-  'gifs.status',
-  'warmup.status',
-  'warmup.people',
-  'route.list',
-  'diary.show',
-]);
-
-/** Command keys whose every call spends OpenRouter balance outside `llm.maxRequestsPerDay`
- * (`/nep ping`: up to one request per role); their grant reply says so. */
-export const SPENDS_BALANCE_KEYS = new Set(['ping']);
-
-/** How `/nep access grant` names each owner-only group (src/discord/access.js#OWNER_ONLY_GROUPS) when it refuses it. */
-export const OWNER_ONLY_NAMES = { private: 'private memory', mentor: 'the mentor', access: 'access management', diary: 'the diary', 'memory.journal': 'the journal', 'memory.snapshot': 'the memory snapshot' };
-
 /** `/nep memory journal`'s `n`: default and bounds. */
 export const JOURNAL_N_DEFAULT = 20;
 export const JOURNAL_N_MAX = 50;

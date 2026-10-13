@@ -1,13 +1,14 @@
 // The operations layer: one typed operation behind every owner command, the same ones the
 // persona's adapter will call later. `runOp(name, args, ctx)` checks the caller's rights
-// (owner-only before any grant, `*` never past it), runs the operation and always answers
+// (owner-only before any grant; grants are stored per operation name, src/discord/access.js),
+// runs the operation and always answers
 // `{ status, code, summary, data }` -- it never throws. The slash commands still arrive under
 // their old keys (`memory.show`, `emoji.status`, ...): COMMAND_TO_OP maps each one onto its
 // operation and arguments; src/admin.js renders the result as the reply.
 
-import { isAllowed, isOwnerId } from '../discord/access.js';
+import { isAllowed } from '../discord/access.js';
 import { log } from '../log.js';
-import { OpError, STATUSES, getOp } from './registry.js';
+import { OpError, STATUSES, getOp, listOps } from './registry.js';
 import './status.js';
 import './config.js';
 import './pause.js';
@@ -122,39 +123,54 @@ export function resolveCommand(commandKey, args = {}) {
   return typeof target === 'function' ? target(args) : { op: target, args };
 }
 
+/**
+ * The operations an old (slash-command key) grant covered, for the one-time migration of the
+ * stored grants (src/discord/access.js#migrateGrants): `*` -> every operation (`from: '*'`); an
+ * old command key -> the operation it runs with no optional argument (`memory.affinity` ->
+ * `memory.affinity.read`); an old group -> its keys' operations (`from` the group); a key with
+ * no operation (`ping`, `reload`, `learned.list`, `mentor.*`, now owner-only) -> null.
+ * @param {string} key
+ * @returns {{ from: string|null, names: string[] } | null}
+ */
+export function legacyGrantOps(key) {
+  if (key === '*') return { from: '*', names: listOps().map((op) => op.name) };
+  if (Object.hasOwn(COMMAND_TO_OP, key)) return { from: null, names: [resolveCommand(key, {}).op] };
+  const under = Object.keys(COMMAND_TO_OP).filter((full) => full.startsWith(`${key}.`));
+  if (under.length === 0) return null;
+  return { from: key, names: [...new Set(under.map((full) => resolveCommand(full, {}).op))] };
+}
+
 /** A refusal result. */
 function refusal(status, code, summary) {
   return { status, code, summary, data: null };
 }
 
 /**
- * Null when the caller (`ctx.userId`, `ctx.roleIds`) may run `op`, else the `denied` result.
- * An owner (`bot.owners`, read now) always may; then an owner-only operation is refused before
- * any grant is looked at; a member operation is open while `features.memberCommands` is on; a
- * non-grantable one is refused; anything else needs a `bot.access` grant matched by operation
- * name, its group or `*` (src/discord/access.js#isAllowed).
+ * Null when the caller (`ctx.userId`, `ctx.roleIds`) may run `op`, else the `denied` result with
+ * its code: src/discord/access.js#isAllowed over `bot.owners`, `bot.access` and `features`, all
+ * read now. `owner-only` for an owner-only operation, `not-grantable` for one no grant opens (a
+ * member operation while `features.memberCommands` is off included), else `not-granted`.
  */
 function checkRights(op, ctx) {
   const config = ctx?.env?.hot?.config;
-  if (isOwnerId(config, ctx?.userId)) return null;
+  const allowed = isAllowed({
+    op,
+    member: { userId: ctx?.userId, roleIds: ctx?.roleIds },
+    access: config?.bot?.access ?? {},
+    owners: config?.bot?.owners ?? [],
+    features: config?.features,
+  });
+  if (allowed) return null;
   const { rights } = op;
   if (rights.ownerOnly === true) return refusal('denied', 'owner-only', `${op.name} is owner-only`);
-  if (rights.member === true && config?.features?.memberCommands !== false) return null;
   if (rights.grantable === false || rights.member === true) return refusal('denied', 'not-grantable', `${op.name} is owner-only`);
-  const granted = isAllowed({
-    commandKey: op.name,
-    userId: ctx?.userId,
-    roleIds: ctx?.roleIds,
-    owners: config?.bot?.owners ?? [],
-    access: config?.bot?.access ?? {},
-    memberCommands: false,
-  });
-  return granted ? null : refusal('denied', 'not-granted', 'Not allowed');
+  return refusal('denied', 'not-granted', 'Not allowed');
 }
 
 /** What an operation's `run` returned, as a result: a full result passes through; a reply text
- * or `{ text, files }` is an `ok` whose summary is the text and whose data holds the value. */
-function toResult(value) {
+ * or `{ text, files }` is an `ok` whose summary is the text and whose data holds the value.
+ * Exported for src/admin.js, whose few commands with no operation answer in the same shape. */
+export function asResult(value) {
   if (value && typeof value === 'object' && STATUSES.includes(value.status)) return value;
   if (value && typeof value === 'object') return { status: 'ok', code: 'ok', summary: String(value.text ?? ''), data: value };
   const text = String(value ?? '');
@@ -162,9 +178,9 @@ function toResult(value) {
 }
 
 /**
- * Runs `name` WITHOUT the rights check: only for an adapter that has already decided the caller
- * may run it (the slash commands, through src/admin.js#isAllowed on the old command key, until
- * access is keyed by operation). Same result shape as `runOp`; never throws.
+ * Runs `name` WITHOUT the rights check: only for src/admin.js#run, which the tests drive directly
+ * and the slash commands no longer use for an operation (they call `runOp`, rights included).
+ * Same result shape as `runOp`; never throws.
  * @param {string} name
  * @param {object} args
  * @param {object} ctx  `{ env, guildId, channelId, userId, roleIds }`
@@ -174,7 +190,7 @@ export async function runOpPrechecked(name, args = {}, ctx = {}) {
   const op = getOp(name);
   if (!op) return refusal('invalid', 'unknown-op', `unknown operation: ${name}`);
   try {
-    return toResult(await op.run(args ?? {}, ctx));
+    return asResult(await op.run(args ?? {}, ctx));
   } catch (err) {
     if (err instanceof OpError) return refusal(err.status, err.code, err.message);
     const code = typeof err?.code === 'string' && err.code ? err.code : 'error';
