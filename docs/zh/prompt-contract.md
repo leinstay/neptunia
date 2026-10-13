@@ -43,7 +43,7 @@
 | `lookup.md` | 否 | 分类器：角色是否需要查询某些内容（`features.webLookup`、`features.recall`）。接收一段短对话记录和一个 `<candidate>` 块。输出为 `none`，或最多四行标注行：`web:` 网络查询，`server:` 在服务器消息中搜索的词形，`who:` 找人的名称词形，`when:` 日期范围。单行无标注仍被读取为网络查询 | `{{name}}` `{{today}}` |
 | `recall-summary.md` | 否 | 角色外提示，用于 recall 摘要（`features.recall`）：读取服务器搜索找到的旧聊天片段并回答问题，可选择指出一段供角色逐字看到的原文。不接收角色卡 | `{{name}}` `{{answerChars}}` |
 | `room.md` | 否 | 分类器：这条消息是面向所有人还是面向特定人（`spontaneous.roomQuestionChance`）。接收一段短对话记录、作者的别名和一个 `<candidate>` 块。输出为一个词：`yes` 或 `no` | `{{name}}` |
-| `route-channel.md` | 否 | 分类器：回答这条消息是否需要角色看另一个频道（`features.channelRoute`）。接收一段短对话记录、一个 `<channels>` 列表和一个 `<candidate>` 块。输出为一行：列表中的一个编号或 `none` | `{{name}}` |
+| `route-channel.md` | 否 | 分类器：回答这条消息是否需要角色看另一个频道（`features.channelRoute`）。接收一段短对话记录、一个 `<channels>` 列表和一个 `<candidate>` 块。输出为一行：列表中的一个编号、`<n> earlier`（该频道上次展示之前的页面）或 `none`。在 `context.pull.seenTtlMinutes` 内没有上次展示时，earlier 显示最新页面 | `{{name}}` |
 | `elsewhere.md` | 否 | 任务：角色读了一个无法发言的频道，可以在主频道评论（`features.elsewhere`）。用作 noticed 回合的任务文本。`<skip/>` 是正常结果 | `{{name}}` `{{channel}}` `{{destination}}` |
 | `read-link.md` | 否 | 角色外提示，用于链接阅读器（`features.webLookup`，`web.links.enabled`）：将获取的页面浓缩为一个段落。接收页面标题和正文。不接收角色卡 | `{{today}}` `{{maxChars}}` |
 | `search-summary.md` | 否 | 角色外提示，用于搜索浓缩器（`features.webLookup`，`web.search.enabled`）：将编号的搜索结果浓缩为带内联来源的笔记。不接收角色卡 | `{{today}}` `{{query}}` `{{maxChars}}` |
