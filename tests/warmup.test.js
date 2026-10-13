@@ -627,7 +627,6 @@ function fakeHot(overrides = {}) {
       lore: { maxEntries: 500, textChars: 400 },
       media: {},
       warmup: {
-        enabled: true,
         lookbackDays: 60,
         minMessages: 2,
         maxPeople: 40,
@@ -1606,76 +1605,6 @@ test('createWarmup: runChannels starts a background redo of every readable chann
   assert.deepEqual(store.state.data.warmup.done.channels.sort(), ['c1', 'c2']);
 });
 
-test('createWarmup: resumeIfNeeded resumes a run left unfinished while warmup.enabled is true', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.state.data.warmup = { version: 3, startedAt: '2026-10-01T00:00:00.000Z', finishedAt: null, tokensUsed: 0, requests: 0, done: { channels: [], people: [], server: false }, aborted: 'budget' };
-  const c1 = fakeChannel('c1', [rawMessage(1000, { authorId: 'a' }), rawMessage(2000, { authorId: 'a' })]);
-  const guild = fakeGuild('g1', [c1]);
-  const client = fakeClient(guild);
-  const hot = fakeHot({ config: { warmup: { ...fakeHot().config.warmup, enabled: true } } });
-  const llm = scriptedLlm([{ purpose: 'p' }, { character: 'c', style: 's', interests: [], details: [], episodes: [], aliases: [] }, { patterns: '', starters: '', injokes: [], lore: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
-
-  const started = warmup.resumeIfNeeded('g1');
-  assert.equal(started, true);
-  // resumeIfNeeded fires the run without awaiting it -- wait for it to actually finish.
-  while (warmup.isWarmingUp()) await new Promise((r) => setTimeout(r, 5));
-  assert.ok(store.state.data.warmup.finishedAt);
-});
-
-test('createWarmup: resumeIfNeeded never starts a fresh run, even with no profile at all', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const guild = fakeGuild('g1', [fakeChannel('c1', [rawMessage(1000, { authorId: 'a' })])]);
-  const client = fakeClient(guild);
-  const hot = fakeHot({ config: { warmup: { ...fakeHot().config.warmup, enabled: true } } });
-  const llm = { complete: async () => { throw new Error('must not be called'); } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
-
-  assert.equal(warmup.resumeIfNeeded('g1'), false);
-  assert.equal(warmup.isWarmingUp(), false);
-});
-
-test('createWarmup: resumeIfNeeded leaves an unfinished run alone unless warmup.enabled is exactly true', () => {
-  for (const enabled of [undefined, false, 'yes']) {
-    const dir = tmpDataDir();
-    const store = createStore({ dataDir: dir });
-    store.state.data.warmup = { version: 3, startedAt: '2026-10-01T00:00:00.000Z', finishedAt: null, tokensUsed: 0, requests: 0, done: { channels: ['c1'], people: [], server: false }, aborted: null };
-    const warmupCfg = { ...fakeHot().config.warmup, enabled };
-    if (enabled === undefined) delete warmupCfg.enabled;
-    const hot = fakeHot({ config: { warmup: warmupCfg } });
-    const llm = { complete: async () => { throw new Error('must not be called'); } };
-    const warmup = createWarmup({ hot, store, client: fakeClient(fakeGuild('g1', [])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
-    assert.equal(warmup.resumeIfNeeded('g1'), false, String(enabled));
-  }
-});
-
-test('createWarmup: resumeIfNeeded does nothing once a profile already exists and no run is unfinished', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  store.touchUser('g1', 'a', 'Alice', 1000);
-  const guild = fakeGuild('g1', []);
-  const client = fakeClient(guild);
-  const hot = fakeHot();
-  const llm = { complete: async () => { throw new Error('must not be called'); } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
-
-  assert.equal(warmup.resumeIfNeeded('g1'), false);
-});
-
-test('createWarmup: resumeIfNeeded respects warmup.enabled: false', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const guild = fakeGuild('g1', []);
-  const client = fakeClient(guild);
-  const hot = fakeHot({ config: { warmup: { ...fakeHot().config.warmup, enabled: false } } });
-  const llm = { complete: async () => { throw new Error('must not be called'); } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
-
-  assert.equal(warmup.resumeIfNeeded('g1'), false);
-});
-
 test('createWarmup: reset() clears progress only, refused while running', async () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
@@ -1974,24 +1903,6 @@ test('refreshPortrait: queues nothing and just logs while a warmup run is in fli
 
   resolveGate();
   await runPromise;
-});
-
-test('createWarmup: resumeIfNeeded resumes a run that has progress but no start stamp, even when profiles exist', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const c1 = fakeChannel('c1', [rawMessage(1000, { authorId: 'a' }), rawMessage(2000, { authorId: 'a' })]);
-  const guild = fakeGuild('g1', [c1]);
-  const client = fakeClient(guild);
-  const hot = fakeHot();
-  const llm = scriptedLlm([{ purpose: 'p' }, { character: 'c', style: 's', interests: [], details: [], episodes: [], aliases: [] }, { patterns: '', starters: '', injokes: [], lore: [] }]);
-  store.touchUser('g1', 'a', 'alpha');
-  store.state.data.warmup = { version: 3, startedAt: null, finishedAt: null, done: { channels: [], people: ['someone'], server: false } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
-
-  warmup.resumeIfNeeded('g1');
-  await new Promise((r) => setTimeout(r, 20));
-  while (warmup.isWarmingUp()) await new Promise((r) => setTimeout(r, 5));
-  assert.ok(store.state.data.warmup.finishedAt, 'the run should have resumed and finished');
 });
 
 test('warmupState: a stored state.warmup from an older version is discarded wholesale by a write, never healed field by field', async () => {

@@ -68,7 +68,7 @@ export function createOpsEnv({
 
   /** The one wording of "a warmup is running", for a refused command and a skipped job alike.
    * The warmup has no command of its own (tools/warmup.mjs runs it with the bot stopped); one in
-   * this process is an unfinished run resumed at start (`warmup.enabled` true), followed in the log. */
+   * the bot never starts or resumes a run, so this fires only where tools/warmup.mjs runs one. */
   function warmupBusyText() {
     return 'a warmup is running: wait for it to finish (the log follows it)';
   }
