@@ -136,7 +136,7 @@ The persona sees only the open items. The closed list and the archive together k
 On a server search (`features.recall`), the engine searches more than Discord's own message history. It also reads:
 
 - The **archive**: entries that left hot memory over the last `recall.archiveMonths` (default 6) months, matched on their neutral text and their content fields (an episode's `what` and `quote`, a participation episode's message texts). A `when:` date range from the search classifier narrows the archive window.
-- The **record**: for any recall question, the last `recall.recordDays` (default 3) days of the record are read (a dated question reads its range instead). A dateless question that is not a "recently" also keeps the earliest match's window, so origin questions see where things started. Each matching message brings its reply chain and a few lines of context.
+- The **record**: for any recall question, the last `recall.recordDays` (default 3) days of the record are read (a dated question reads its range instead). A dateless question that is not a "recently" also keeps the earliest match's window, so origin questions see where things started. Each matching message brings its reply chain and a few lines of context; the stretch extends forward while the conversation continues.
 - **Hot memory**: members' episodes, lore entries, taught lessons and recent lines are matched alongside the server search hits.
 
 All sources are handed to the recall summary (`recall-summary.md`), which writes a note for the `<lookup>` block. The summary may also name one stretch of old chat for the persona to see verbatim.
