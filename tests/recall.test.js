@@ -991,6 +991,26 @@ test('recall: the record reader returns the matching lines with reply chain and 
   assert.equal(off.windows.length, 0);
 });
 
+test('recall: a dateless, not-recent record read keeps the window of the earliest best match within maxWindows', async () => {
+  const D = 24 * HOUR;
+  const lines = [
+    rec('origin', NOW - 21 * D, { channelId: 'c1', text: 'το κουνέλι started here' }),
+    rec('noise', NOW - 25 * D, { channelId: 'c1', text: 'nothing' }),
+    ...Array.from({ length: 10 }, (_, i) => rec(`rep${i}`, NOW - (10 - i) * D, { text: `κουνέλι again ${i}` })),
+  ];
+  const base = { record: fakeRecord(lines), range: { from: null, to: null }, participants: [], forms: ['κουνέλι'], aliases: [], recordDays: 30, recordContext: 0, now: NOW, maxWindows: 3 };
+  const { windows } = await matchRecord('g1', base);
+  assert.equal(windows.length, 3, 'capped at maxWindows');
+  assert.deepEqual(windows.map((w) => [...w.hitIds]), [['rep9'], ['rep8'], ['origin']], 'the newest repeats and the earliest match, newest first');
+
+  const recent = await matchRecord('g1', { ...base, record: fakeRecord(lines), recent: true });
+  assert.deepEqual(recent.windows.map((w) => [...w.hitIds]), [['rep9'], ['rep8'], ['rep7']], 'a recent question keeps the newest only');
+  const ranged = await matchRecord('g1', { ...base, record: fakeRecord(lines), range: { from: NOW - 30 * D, to: NOW } });
+  assert.deepEqual(ranged.windows.map((w) => [...w.hitIds]), [['rep9'], ['rep8'], ['rep7']], 'a dated question keeps its own order');
+  const near = await matchRecord('g1', { ...base, record: fakeRecord(lines), maxWindows: 20 });
+  assert.equal(near.windows.length, 11, 'the earliest already kept: nothing changes');
+});
+
 test('recall: a record line outside the range is not scanned', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-recall-record-'));
   const quiet = { info() {}, warn() {} };

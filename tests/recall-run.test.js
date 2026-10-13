@@ -1054,6 +1054,22 @@ test('recall-run: a channel the member cannot read is skipped before matching', 
   assert.ok(Date.parse(record.queries[0].from) >= NOW - 3 * 24 * HOUR, 'the last recordDays');
 });
 
+test('recall-run: a dateless question with no recent cue reads the record too, recordDays 0 reads none', async () => {
+  const lines = () => fakeSource({ guild: [recLine('r-old', NOW - 2 * 24 * HOUR, 'κουνέλι στον κήπο τότε')] });
+  const record = lines();
+  const s = scene({ profiles: MEMORY_PROFILES, record });
+  const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(result.stats.record, 1, 'no when: range and no recent cue, the record is still read');
+  assert.ok(s.llmCalls[0].messages[1].content.includes('κουνέλι στον κήπο τότε'));
+  assert.ok(Date.parse(record.queries[0].from) >= NOW - 3 * 24 * HOUR, 'the last recordDays');
+
+  const offRecord = lines();
+  const off = scene({ profiles: MEMORY_PROFILES, record: offRecord, recall: { recordDays: 0 } });
+  const { result: offResult } = await withCapturedLogs(() => off.recaller.run({ ...off.args, server: RABBIT_SERVER }));
+  assert.equal(offResult.stats.record, 0);
+  assert.equal(offRecord.queries.length, 0, 'recordDays 0 reads nothing');
+});
+
 test('recall-run: private entries match only for their owner', async () => {
   const sources = () => ({
     archive: fakeSource({

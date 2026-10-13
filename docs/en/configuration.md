@@ -301,7 +301,7 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `memoryItems` | `6` | Stored memory items (episodes, lore, lessons, recent lines, and archived items) matched against the classifier's word forms and name forms and sent in the `<memory>` block of the recall summary. `0` turns the match off |
 | `memoryTokens` | `600` | Token budget of the `<memory>` block (estimated per line): lines are added in rank order until the next one would pass it. `0` = no line fits |
 | `archiveMonths` | `6` | Months of the archive (items that left hot memory: evicted, expired or replaced) searched for `<memory>` when the question has no `when:` range; with a range, the archive is searched from the range's start. Read as a stream, never loaded whole. `0` = the archive is searched only for a dated question |
-| `recordDays` | `3` | For a dated question or a vague "recently", the days of the record (every observed message on disk) read for matching lines: the last days of the `when:` range, or of now, at most this many. Matching lines become extra stretches marked `source: record`. `0` = the record is not read |
+| `recordDays` | `3` | Days of the record (every observed message on disk) read for matching lines on any recall question: a dated question reads back from the end of its `when:` range, any other from now, at most this many days. A dateless question that is not a "recently" also keeps the earliest match's window. Matching lines become extra stretches marked `source: record`. `0` = the record is not read |
 | `recordContext` | `3` | Lines before and after each matching record line added to its stretch, besides the chain of messages it replies to |
 | `maxOutputTokens` | `500` | Max output tokens for the summary helper |
 
