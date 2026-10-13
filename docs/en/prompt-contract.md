@@ -363,6 +363,7 @@ Only these tags are acted on:
 - `<skip/>` stay silent.
 - `@nick` exactly as in the transcript becomes a real mention.
 - `#channel-name` of a server channel in `<msg>` text becomes a real channel link (`<#id>`) when `features.channelLinks` is on (default true, missing = on). Names are matched longest first; an existing link is left alone.
+- `#93` (a transcript line number) in `<msg>` text becomes a Discord message link to that message when `features.messageLinks` is on (default true, missing = on). A number outside the turn's transcript stays as written; code spans and existing URLs are untouched. In a DM the link uses `@me`.
 - `:name:` of a known server custom emoji becomes the real emoji in `<msg>` and `<react>`; an unknown name stays as plain text.
 
 `features.reactions: false` drops `<react>`, `features.multiMessage: false` keeps the first `<msg>`;
