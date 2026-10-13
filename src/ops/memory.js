@@ -19,7 +19,7 @@ import { formatClock } from '../discord/format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { journalLine } from '../memory/journal.js';
 import { DEFAULT_REDACTION, DEFAULT_VAULT_DIR, SNAPSHOTS_DIR } from '../memory/store.js';
-import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText } from './shared.js';
+import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText, channelWrittenText, serverWrittenText } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 const handlers = perEnv((env) => {
@@ -642,10 +642,10 @@ const handlers = perEnv((env) => {
     return `Set affinity for ${userId} to ${roundScore(affinity.score)} (${affinityBand(affinity.score)}).`;
   }
 
-  /** `/nep memory refresh user:<member>`: forces a portrait refresh (character/style only),
-   * ignoring the hours rail, not the daily request cap. No hint is sent with it: the profile
+  /** `/nep memory refresh kind:user user:<member>`: forces a portrait refresh (character/style
+   * only), ignoring the hours rail, not the daily request cap. No hint is sent with it: the profile
    * prompt then has no `<hint>` block. Refused while paused or while a warmup runs. */
-  async function cmdMemoryRefresh(args, context) {
+  async function cmdMemoryRefreshUser(args, context) {
     if (!warmup) return 'warmup is not available';
     assertNotPaused();
     const userId = args?.userId;
@@ -664,7 +664,36 @@ const handlers = perEnv((env) => {
     return `Portrait refreshed for ${userId}.`;
   }
 
-  return { cmdMemoryShow, mainChannelIdSet, cmdMemoryChannel, cmdMemoryServer, cmdMemoryRecent, cmdMemoryArchive, cmdMemoryRestore, cmdMemoryForget, cmdMemoryJournal, cmdMemorySnapshot, cmdPrivateShow, cmdPrivateForget, cmdPrivatePurge, cmdMemoryWipe, cmdMemoryAffinity, cmdMemoryRefresh };
+  /** `/nep memory refresh kind:channel channel:<channel>`: re-describes that channel's notes now
+   * (purpose/topics/tone and its facts) through the warmup's own channel pass
+   * (src/memory/warmup.js#runChannel, the one tools/warmup.mjs `channels --channel` runs), under the
+   * warmup's rails. Refused while paused or while a warmup runs. */
+  async function cmdMemoryRefreshChannel(args, context) {
+    if (!warmup) return 'warmup is not available';
+    assertNotPaused();
+    const channelId = args?.channelId;
+    if (!channelId) throw invalid('a channel is required');
+    const guildId = requireGuildId(context);
+    if (isWarmingUp()) return `Refresh not performed: ${warmupBusyText()}`;
+
+    const result = await warmup.runChannel(guildId, channelId);
+    return channelWrittenText(result.ok ? result.outcome : result, tokenResolver(guildId).nameOf);
+  }
+
+  /** `/nep memory refresh kind:server`: rebuilds the server notes and lore now through the warmup's
+   * own server pass (src/memory/warmup.js#runServer, the one tools/warmup.mjs `server` runs), under
+   * the warmup's rails. Refused while paused or while a warmup runs. */
+  async function cmdMemoryRefreshServer(_args, context) {
+    if (!warmup) return 'warmup is not available';
+    assertNotPaused();
+    const guildId = requireGuildId(context);
+    if (isWarmingUp()) return `Refresh not performed: ${warmupBusyText()}`;
+
+    const result = await warmup.runServer(guildId);
+    return serverWrittenText(result.ok ? result.outcome : result);
+  }
+
+  return { cmdMemoryShow, mainChannelIdSet, cmdMemoryChannel, cmdMemoryServer, cmdMemoryRecent, cmdMemoryArchive, cmdMemoryRestore, cmdMemoryForget, cmdMemoryJournal, cmdMemorySnapshot, cmdPrivateShow, cmdPrivateForget, cmdPrivatePurge, cmdMemoryWipe, cmdMemoryAffinity, cmdMemoryRefreshUser, cmdMemoryRefreshChannel, cmdMemoryRefreshServer };
 });
 
 defineOp({
@@ -688,9 +717,19 @@ defineOp({
   run: (args, ctx) => handlers(ctx.env).cmdMemoryRecent(args, ctx),
 });
 defineOp({
-  name: 'memory.refresh',
+  name: 'memory.refresh.user',
   rights: { kind: 'write' },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefresh(args, ctx),
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefreshUser(args, ctx),
+});
+defineOp({
+  name: 'memory.refresh.channel',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefreshChannel(args, ctx),
+});
+defineOp({
+  name: 'memory.refresh.server',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryRefreshServer(args, ctx),
 });
 defineOp({
   name: 'memory.forget',

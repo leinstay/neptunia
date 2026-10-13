@@ -23,12 +23,11 @@ const AGREED = new Set([
   'route.list', 'route.set', 'route.remove',
   'rule.add', 'rule.list', 'rule.remove',
   'access.grant', 'access.revoke', 'access.list',
-  'warmup.run', 'warmup.users', 'warmup.channels', 'warmup.server', 'warmup.people', 'warmup.status', 'warmup.stop', 'warmup.reset',
   'diary.set', 'diary.show', 'diary.off', 'diary.post',
   'alias.add', 'alias.remove',
   'learning.add', 'learning.remove',
   'lore.add', 'lore.list', 'lore.show', 'lore.remove',
-  'memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read', 'memory.refresh', 'memory.forget',
+  'memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read', 'memory.refresh.user', 'memory.refresh.channel', 'memory.refresh.server', 'memory.forget',
   'memory.affinity.read', 'memory.affinity.set', 'memory.wipe', 'memory.journal.read', 'memory.archive.read', 'memory.restore',
   'memory.snapshot', 'memory.private.read', 'memory.private.forget', 'memory.private.purge',
 ]);
@@ -136,11 +135,16 @@ test('ops: an exception becomes failed with its code', async () => {
 
 test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', () => {
   const registered = new Set(listOps().map((op) => op.name));
-  // The keys whose required `action` option picks the operation: every action is tried.
+  // The keys whose required `action` (or `kind`) option picks the operation: every value is tried.
   const ACTIONS = { talk: ['interject', 'initiate'], media: ['status', 'rescan', 'recache'], 'memory.private': ['show', 'forget', 'purge'] };
+  const KINDS = { 'memory.refresh': ['user', 'channel', 'server'] };
   for (const key of commandKeys().keys) {
     assert.ok(Object.hasOwn(COMMAND_TO_OP, key), `${key} has no operation`);
-    const variants = Object.hasOwn(ACTIONS, key) ? ACTIONS[key].map((action) => ({ action })) : [{}, { score: 10, mode: 'on' }];
+    const variants = Object.hasOwn(ACTIONS, key)
+      ? ACTIONS[key].map((action) => ({ action }))
+      : Object.hasOwn(KINDS, key)
+        ? KINDS[key].map((kind) => ({ kind }))
+        : [{}, { score: 10, mode: 'on' }];
     for (const args of variants) {
       const target = resolveCommand(key, args);
       assert.ok(target && registered.has(target.op), `${key} ${JSON.stringify(args)} maps to an unregistered op`);
@@ -153,6 +157,24 @@ test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', 
   assert.match(resolveCommand('talk', {}).invalid, /action must be one of: interject, initiate/);
   assert.equal(resolveCommand('gifs.recache', {}), null, 'an old key dispatches nothing');
   for (const gone of ['ping', 'reload', 'learned.list']) assert.equal(resolveCommand(gone, {}), null, gone);
+});
+
+test('ops: no warmup operation is left; memory refresh is one operation per kind, write rights', () => {
+  const ops = listOps();
+  assert.deepEqual(ops.filter((op) => op.name.startsWith('warmup')), [], 'the warmup is tools/warmup.mjs');
+  for (const key of Object.keys(COMMAND_TO_OP)) assert.ok(!key.startsWith('warmup'), key);
+  const byName = new Map(ops.map((op) => [op.name, op]));
+  for (const kind of ['user', 'channel', 'server']) {
+    const name = `memory.refresh.${kind}`;
+    assert.equal(resolveCommand('memory.refresh', { kind }).op, name);
+    assert.equal(byName.get(name).rights.kind, 'write', name);
+    assert.notEqual(byName.get(name).rights.ownerOnly, true, `${name} keeps today's rights: owner unless granted`);
+  }
+  assert.equal(byName.has('memory.refresh'), false);
+  assert.match(resolveCommand('memory.refresh', {}).invalid, /kind must be one of: user, channel, server/);
+  assert.deepEqual(legacyGrantOps('memory.refresh'), { from: null, names: ['memory.refresh.user'] });
+  assert.equal(legacyGrantOps('warmup.run'), null);
+  assert.equal(legacyGrantOps('warmup'), null);
 });
 
 test('ops: a stored grant on a command or group that runs no operation any more is dropped', () => {

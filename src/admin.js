@@ -50,8 +50,8 @@ const ARCHIVE_CHOICES = 25;
  * `calibrator` — token calibrator (src/llm/tokens.js), read for `.ratio`.
  * `getGuildId` — the single guild this instance serves, or null before it resolves.
  * `isWarmingUp` — `() => boolean`, optional: true while the memory warmup runner
- *   (src/memory/warmup.js) is in flight. Read by `cmdMemoryWipe`, `cmdMemoryRefresh`,
- *   `/nep warmup run` and `cmdStatus`. Default: never warming up.
+ *   (src/memory/warmup.js) is in flight. Read by `cmdMemoryWipe`, the `memory.refresh.*`
+ *   handlers and `cmdStatus`. Default: never warming up.
  * `turns` — from createTurnRunner() (src/behavior/turn.js), optional: `waitIdle()`, used by
  *   `/nep pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.
  * `memory` — from createMemoryUpdater() (src/memory/update.js), optional: `waitIdle()`, used by
@@ -63,11 +63,11 @@ const ARCHIVE_CHOICES = 25;
  * `pending` — `{ clear() }`, optional: clears src/discord/events.js's pending-ping queue on pause.
  *   Absent -> nothing to clear.
  * `warmup` — from createWarmup() (src/memory/warmup.js), optional: the sample-based
- *   memory warmup -- `peopleReport` (read-only), `run`/`runPerson`/`runChannel`/`runServer`/
- *   `runUsers`/`runChannels`/`status`/`reset` (write under data/), `refreshPortrait`, `waitIdle`
- *   (awaited by `/nep pause`, same shape as `memory`/`turns`; it also covers portrait refreshes
- *   in flight). Absent -> every `warmup.*`/
- *   `memory.refresh` command reports it is not available.
+ *   memory warmup's engine -- `refreshPortrait` (`/nep memory refresh kind:user`), `runChannel`
+ *   and `runServer` (`kind:channel`, `kind:server`), `summary` (`/nep status detail`) and
+ *   `waitIdle` (awaited by `/nep pause`, same shape as `memory`/`turns`; it also covers portrait
+ *   refreshes in flight). A warmup run itself is tools/warmup.mjs's, with the bot stopped.
+ *   Absent -> every `memory.refresh.*` command reports it is not available.
  * `images` — from createImageGen() (src/llm/images.js), optional: `generate()` for `/nep draw`,
  *   `quota()` and `familyOf()` for the image lines of `/nep status` and `/nep model show`.
  *   Absent -> `/nep draw` reports it is not available and `/nep status` has no image lines.

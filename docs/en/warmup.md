@@ -1,8 +1,8 @@
 # Warmup
 
-The warmup builds the persona's memory of a server from a sample of recent messages. On first start, when `warmup.enabled` is true and no profile exists yet, it runs automatically. The persona stays mute while a warmup run is in flight.
+The warmup builds the persona's memory of a server from a sample of recent messages. It is an operations tool, `tools/warmup.mjs`, run on the server from the bot's checkout with the bot stopped, before the first start (see [Running it](#running-it)). It has no slash command.
 
-`/nep warmup run` starts or resumes a full run at any time; see [Commands](owner-commands.md) for the complete list.
+With `warmup.enabled` true the bot still starts a run by itself when it starts and no run was ever started and no profile exists, and resumes a run that was started and never finished. The persona stays mute while that run is in flight. Set `warmup.enabled` to false to leave every run to the tool.
 
 ## Stages
 
@@ -14,7 +14,7 @@ Every readable channel gets one request, described from the newest `warmup.messa
 
 ### People
 
-The most active members qualify: at least `warmup.minMessages` own messages within the last `warmup.lookbackDays` days, up to `warmup.maxPeople`, most active first. `/nep warmup people` lists qualifying members under the current settings.
+The most active members qualify: at least `warmup.minMessages` own messages within the last `warmup.lookbackDays` days, up to `warmup.maxPeople`, most active first. `node tools/warmup.mjs people` lists qualifying members under the current settings.
 
 For each qualifying member the engine samples up to `warmup.messagesPerPerson` of their messages with `warmup.contextBefore` lines of surrounding context. No single channel may contribute more than `warmup.maxChannelShare` of the sample. Large samples are split chronologically into chunks that fit `warmup.maxRequestTokens`; each chunk after the first receives the previous answer as a `<draft>` block so the model keeps what holds, corrects what changed and extends with new evidence. The final answer stores character, style, interests, details, episodes and aliases; message count and first/last seen timestamps are computed by code.
 
@@ -32,7 +32,7 @@ Attitude and relationship are never warmed up. They grow only from live conversa
 
 ## Progress
 
-Progress is persisted to `state.warmup` after every request and survives restarts. A run interrupted by a restart, a rate limit or `/nep warmup stop` resumes from where it left off when `/nep warmup run` is called again. `/nep warmup reset` clears progress only, not stored memory.
+Progress is persisted to `state.warmup` in `data/state.json` after every request and survives restarts. A run interrupted by Ctrl+C, the token budget, a rate limit or three failed requests in a row resumes from where it left off when `node tools/warmup.mjs run` is called again. `node tools/warmup.mjs reset` clears progress only, not stored memory.
 
 ## Rails
 
@@ -48,28 +48,43 @@ After the warmup finishes, the stream analyzer keeps memory current from live ba
 
 **By the analyzer's cue.** When the stream analyzer detects a recurring habit or a change in how someone writes that the stored portrait misses or contradicts, it returns a one-line portrait hint, and code queues a refresh. This path uses the existing per-member cooldown of `memory.portraitRefreshHours` (default 24) hours. The stream analyzer can no longer overwrite `character` or `style` directly.
 
-In two-stage mode, a portrait refresh does not run while the member's character text is waiting for the voice model (`voice-pending`). A forced refresh (`/nep memory refresh`) overrides this check. `/nep memory refresh` tells the owner when the member has a queued character item.
+In two-stage mode, a portrait refresh does not run while the member's character text is waiting for the voice model (`voice-pending`). A forced refresh (`/nep memory refresh kind:user`) overrides this check. `/nep memory refresh kind:user` tells the owner when the member has a queued character item.
 
-Both paths share the daily cap. `/nep memory refresh <user>` forces a refresh regardless of timers but still counts against it. Each refresh counts against `llm.maxRequestsPerDay`.
+Both paths share the daily cap. `/nep memory refresh kind:user <user>` forces a refresh regardless of timers but still counts against it. Each refresh counts against `llm.maxRequestsPerDay`.
 
 A refresh calls `profile.md` with the stored portrait as a `<draft>` and the analyzer's note as a `<hint>` (when present). The draft is a merge base: what still holds stays (condensed to make room), what the sample contradicts is revised, new recurring habits are added, and a point the sample merely does not show is not dropped. The new character and style replace the stored ones; interests, details, episodes and aliases from the answer are ignored.
 
-## Commands
+## Running it
 
-All warmup commands live under `/nep warmup`. See [Commands](owner-commands.md) for the full reference.
+Run the tool from the bot's checkout, as the service user, with the bot stopped:
 
-| Command | What it does |
-|---|---|
-| `run` | Start or resume a full warmup (channels, people, server) |
-| `users [member]` | Profile one member or every qualifying member |
-| `channels [channel]` | Describe one channel or every readable channel |
-| `server` | Rebuild server notes and lore |
-| `people` | List qualifying members |
-| `status` | Show progress and token usage |
-| `stop` | Cancel warmup work in flight; the request in progress is aborted, progress is kept |
-| `reset` | Clear progress only, not stored memory |
+```bash
+sudo systemctl stop neptunia-bot
+cd /opt/neptunia-bot
+sudo -u neptunia-bot node tools/warmup.mjs run --guild <server id> --dry-run
+sudo -u neptunia-bot node tools/warmup.mjs run --guild <server id> --spend <usd>
+sudo systemctl start neptunia-bot
+```
 
-`run`, `users` and `channels` are refused while a run is already in flight. All warmup commands except `status`, `people` and `stop` are refused while the bot is paused.
+`--guild` can be left out once `data/guilds/` holds exactly one server, or when `bot.guildId` is set. The tool reads `config.json`, `config.local.json`, `prompts/`, `prompts.local/` and `.env` from the checkout, reads Discord's history over REST with the bot token (no gateway session, nothing posted) and sends the model requests with the OpenRouter key.
+
+| Subcommand | What it does | Spends |
+|---|---|---|
+| `run` | Every readable channel, every qualifying member and the server notes that the progress has not done yet, in that order | yes |
+| `users [--user <id>]` | Profile that member, or every qualifying member, whatever the progress says | yes |
+| `channels [--channel <id>]` | Describe that channel, or every readable channel | yes |
+| `server` | Rebuild the server notes and lore | yes |
+| `people` | List qualifying members | no |
+| `status` | Phase, progress, tokens used against `warmup.maxTokens` | no |
+| `reset` | Clear progress only, not stored memory | no |
+
+**Spending.** `run`, `users`, `channels` and `server` print the plan (channels, members, the server notes) and the estimate first, and refuse with exit code 2 unless `--spend <usd>` covers the estimate. The estimate counts every request at `warmup.maxRequestTokens`, bounded by what is left of `warmup.maxTokens` and by `--max-usd <n>` when given, priced at `--usd-per-ktok` (0.005 USD per thousand tokens by default). The run then uses that estimate as its token budget: it stops there, resumable, and never spends past it. A member whose sample takes more than one request can reach that budget early; run again to continue. `--dry-run` prints the plan and the estimate and sends nothing. The requests never count against `llm.maxRequestsPerDay`.
+
+**Safety.** `run`, `users`, `channels`, `server` and `reset` refuse while the bot runs on the same `data/` (its journal's `.running` marker) and name `sudo systemctl stop neptunia-bot`. The spending subcommands also refuse while a forget is under way, refuse while memory is paused, and apply the deletion ledger first when `data/` still holds something it removes. `people`, `status` and the dry runs write nothing. Ctrl+C cancels the request in flight and stops the run; progress is kept. Before it exits the tool flushes memory to disk, archive copies included.
+
+**What it writes.** Channel notes and facts under `data/guilds/<id>/channels/`, member profiles under `data/guilds/<id>/users/`, server notes in `data/guilds/<id>/guild.json`, lore in `data/guilds/<id>/lore.json`, progress in `data/state.json`; with `features.archive` on, what a rewrite drops goes to the archive first.
+
+**Afterwards.** Start the bot. From then on memory is kept current by the bot: the stream analyzer from live batches, the portrait refresh and the notes refresh below. `/nep memory refresh kind:user <user>` rewrites one member's portrait now; `kind:channel <channel>` re-describes one channel through the warmup's channel pass, and `kind:server` rebuilds the server notes and lore through its server pass. Both run inside the bot, under the warmup's rails, and the persona stays mute while they run.
 
 For a truly fresh start, use `/nep memory wipe` first: it clears member profiles with their attitudes and episodes, server habits, the channel map, lore entries and warmup progress.
 

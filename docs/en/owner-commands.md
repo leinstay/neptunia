@@ -1,6 +1,6 @@
 # Commands
 
-One slash command, `/nep`, with 19 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
+One slash command, `/nep`, with 18 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
 
 ## Access
 
@@ -14,7 +14,7 @@ Owner-only operations (`access.*`, `diary.*`, `memory.private.*`, `memory.journa
 
 ## Status
 
-`/nep status` shows a single card with the fields that matter most for a quick check: the bot's state (running or paused since when), the gateway connection, long-running tasks (warmup, backfills, the archive drain), which model serves each role, today's daily limits (requests, images, videos, recall, lookups) and uptime. `/nep status detail` adds the long text form below the card: model calibration, the warmup's progress, every loaded prompt with its source, and the voice queue. A member granted `status.show` sees the card without the memory and journal fields and never the long form.
+`/nep status` shows a single card with the fields that matter most for a quick check: the bot's state (running or paused since when), the gateway connection, long-running tasks (the emoji and GIF backfills, the GIF recache, the archive drain), which model serves each role, today's daily limits (requests, images, videos, recall, lookups) and uptime. `/nep status detail` adds the long text form below the card: model calibration, the warmup's progress, every loaded prompt with its source, and the voice queue. A member granted `status.show` sees the card without the memory and journal fields and never the long form.
 
 ## Command table
 
@@ -41,14 +41,6 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep access grant <command> [role] [user]` | `access.grant` | ephemeral | Open an operation, group or * to everyone, a role or a user; `command` autocompletes |
 | `/nep access revoke <command> [role] [user]` | `access.revoke` | ephemeral | Revoke an operation, group or * from everyone, a role or a user; `command` autocompletes |
 | `/nep access list` | `access.list` | ephemeral | List every access grant |
-| `/nep warmup run` | `warmup.run` | ephemeral, deferred | Start or resume the run: channels, people, then server |
-| `/nep warmup users [user]` | `warmup.users` | ephemeral, deferred | (Re)profile one member now, or all qualifying ones in the background |
-| `/nep warmup channels [channel]` | `warmup.channels` | ephemeral, deferred | (Re)describe one channel now, or all readable ones in the background |
-| `/nep warmup server` | `warmup.server` | ephemeral, deferred | (Re)build the server-wide notes and lore now |
-| `/nep warmup people` | `warmup.people` | ephemeral, deferred | Who qualifies for the sample now |
-| `/nep warmup status` | `warmup.status` | ephemeral, deferred | Phase, progress, tokens used and the next target |
-| `/nep warmup stop` | `warmup.stop` | ephemeral, deferred | Cancel warmup work in flight, the current model call included |
-| `/nep warmup reset` | `warmup.reset` | ephemeral, deferred | Clear warmup progress, never written memory; refused while running |
 | `/nep diary set <channel>` | `diary.set` | ephemeral, deferred | Set the diary channel |
 | `/nep diary show` | `diary.show` | ephemeral | Diary state today |
 | `/nep diary off` | `diary.off` | ephemeral | Stop the diary |
@@ -65,7 +57,7 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep memory channel [channel]` | `memory.channel.read` | ephemeral | Show a channel's note, or a table of all stored channels |
 | `/nep memory server` | `memory.server.read` | ephemeral | Show server notes: patterns, starters, in-jokes, self facts |
 | `/nep memory recent` | `memory.recent.read` | ephemeral | Show the live recent lines, newest first |
-| `/nep memory refresh <user>` | `memory.refresh` | ephemeral, deferred | Rewrite a member's portrait now, ignoring the refresh-hours rail |
+| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | ephemeral, deferred | Rewrite a member's portrait, a channel's notes or the server notes now |
 | `/nep memory forget <user>` | `memory.forget` | ephemeral, deferred | Delete a member's profile and private memory |
 | `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | ephemeral | Show or set a member's attitude score |
 | `/nep memory wipe <confirm>` | `memory.wipe` | ephemeral, deferred | Delete ALL server memory (profiles, private memory, habits, channels, lore) |
@@ -76,6 +68,8 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep memory private <action:show\|forget\|purge> <user>` | `memory.private.read`, `memory.private.forget`, `memory.private.purge` | ephemeral, deferred for `memory.private.forget`, `memory.private.purge` | A member's private memory: what they said in DMs |
 
 ## Memory commands
+
+`/nep memory refresh kind:user <user>` rewrites a member's portrait now, ignoring the refresh-hours rail (not the daily cap). `kind:channel <channel>` re-describes one channel's notes and `kind:server` rebuilds the server notes and lore, through the warmup's own channel and server passes under its rails; the persona stays mute while they run. The warmup itself is not a command: it is `tools/warmup.mjs`, run with the bot stopped (see [Warmup](warmup.md)).
 
 `/nep memory show` reads a member's stored profile: the compact summary or a specific section (character, style, relationship, affinity, aliases, interests, details, episodes, or the raw JSON). `/nep memory channel` shows a channel's stored notes or a table of all stored channels. `/nep memory server` shows the server-wide patterns, starters, in-jokes and self-facts.
 

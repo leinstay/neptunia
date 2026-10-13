@@ -11,19 +11,22 @@
 // (formatTranscript's 'memory' mode, the same character card, the same
 // clampText/toTokens/fromTokens helpers).
 //
-// `peopleReport` stays read-only (never touches the store) for `/nep
-// warmup people`. `createWarmup().run()` is the write path: channels →
+// The operations tool tools/warmup.mjs drives it with the bot stopped (the
+// subcommands named below); the bot itself starts a run automatically on a
+// first start (`resumeIfNeeded`) and runs `/nep memory refresh`'s channel and
+// server passes. `peopleReport` stays read-only (never touches the store)
+// for `people`. `createWarmup().run()` is the write path: channels →
 // people → server, in order, resumable (progress in `state.warmup`,
 // flushed after every request), muting the persona for as long as it is in
 // flight (`isWarmingUp()`, wired into src/discord/events.js,
 // src/behavior/spontaneous.js and src/admin.js). `runPerson`/`runChannel`/
-// `runServer` (re)do exactly one target now, synchronously, for `/nep
-// warmup users user:<member>` / `channels channel:<channel>` / `server`;
-// `runUsers`/`runChannels` (re)do EVERY qualifying member/every readable
-// channel now, sharing `running` and every rail with `run()`, for `/nep
-// warmup users`/`channels` given with no member/channel -- a redo always
-// re-processes its targets regardless of `state.warmup.done`, then marks
-// them done, so `/nep warmup status` reports the same progress either way.
+// `runServer` (re)do exactly one target now, synchronously, for `users
+// --user` / `channels --channel` / `server` (and `/nep memory refresh
+// kind:channel|server`); `runUsers`/`runChannels` (re)do EVERY qualifying
+// member/every readable channel now, sharing `running` and every rail with
+// `run()`, for `users`/`channels` given with no member/channel -- a redo
+// always re-processes its targets regardless of `state.warmup.done`, then
+// marks them done, so `status` reports the same progress either way.
 // `refreshPortrait()` rewrites only `character`/`style` from the member's own
 // lines since their last portrait (never older than the profile's `firstSeen`
 // unless the owner forces it), with the stored portrait as the `<draft>`;
@@ -56,7 +59,7 @@
 // right now -- fetching history, describing a channel, profiling a person
 // (with a chunk count when its sample does not fit one request), building
 // the server notes, waiting out a provider rate limit, paused, finished or
-// aborted -- exposed through `status()` for `/nep warmup status`.
+// aborted -- exposed through `status()` for the tool's `status`.
 
 import { readableChannels, fetchHistoryWindow } from '../discord/collect.js';
 import { formatTranscript, renderTranscript } from '../discord/format.js';
@@ -379,7 +382,7 @@ export function pickPeople(windows, cfg = {}) {
 }
 
 /** One member's stats (see pickPeople), with no threshold/cap applied -- `null` when they wrote
- * nothing in `windows` at all. Used by `/nep warmup users user:<member>` to report on exactly the
+ * nothing in `windows` at all. Used by `tools/warmup.mjs users --user <id>` to report on exactly the
  * member asked for, regardless of `warmup.minMessages`. `sinceTs` (optional) counts only messages
  * from then on: a portrait refresh's `<member>` line counts the lines since the last portrait. */
 export function memberStats(windows, memberId, sinceTs = -Infinity) {
@@ -1080,7 +1083,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
   const refreshingUsers = new Set(); // members whose portrait refresh is in flight (one at a time each)
   let idleWaiters = []; // resolvers for waitIdle(), notified once nothing above is in flight
   let consecutiveFailures = 0; // resets on any successful request; 3 in a row aborts the run (resumable)
-  let stopRequested = false; // /nep warmup stop -- see `stop()` and run()'s own checkpoints
+  let stopRequested = false; // a stop (Ctrl+C in tools/warmup.mjs) -- see `stop()` and run()'s own checkpoints
   let currentAbort = null; // the AbortController for whichever model call is in flight right now
   // (callWithRails), or null between calls -- `stop()` aborts it so the request itself is cancelled,
   // not just the loop stopped after it finishes.
@@ -1088,7 +1091,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
   // then send the single request, see portraitMode): warned once each time this turns true.
   let portraitTwoStageUnavailable = false;
 
-  // In-memory-only run activity: exposed via status() as `activity` so `/nep warmup
+  // In-memory-only run activity: exposed via status() as `activity` so `tools/warmup.mjs
   // status` can show WHICH phase a run is actually in right now (fetching history, describing a
   // channel, profiling a person, building the server notes, waiting out a provider rate limit,
   // paused, finished, aborted) instead of just "running" for minutes at a time, and progress
@@ -1163,7 +1166,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
     return client.guilds?.cache?.get(guildId) ?? null;
   }
 
-  /** `/nep warmup people`: who currently qualifies, plus totals. Never calls the model. */
+  /** `tools/warmup.mjs people`: who currently qualifies, plus totals. Never calls the model. */
   async function peopleReport(guildId) {
     const guild = resolvedGuild(guildId);
     if (!guild) return { ok: false, message: 'no guild resolved yet' };
@@ -1208,7 +1211,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
     return running;
   }
 
-  /** `/nep warmup stop`: ENDS any warmup work for good, not just after the request in
+  /** A stop (Ctrl+C in tools/warmup.mjs): ENDS any warmup work for good, not just after the request in
    * flight -- sets `stopRequested`, which the same checkpoints in `run()`/`startBulk()` that
    * already honour `store.state.data.paused` also check before starting a new target, AND aborts
    * the model call for the target actually in flight right now (`currentAbort`, see
@@ -1363,10 +1366,10 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
         completion = await llm.complete(messages, { ...analyzerRequestOptions({ voice }), countAgainstDailyCap: false, signal: controller.signal });
       } catch (err) {
         currentAbort = null;
-        // /nep warmup stop aborted THIS call -- report it as a clean stop, never a failure
+        // a stop (Ctrl+C in tools/warmup.mjs) aborted THIS call -- report it as a clean stop, never a failure
         // (never retried, never counted towards the 3-consecutive-failures abort).
         if (stopRequested) {
-          log.info('warmup: the in-flight request was cancelled by /nep warmup stop', {});
+          log.info('warmup: the in-flight request was cancelled by a stop', {});
           touchActivity('stopped');
           return { ok: false, stop: true, reason: 'stopped' };
         }
@@ -1465,8 +1468,8 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
 
   /** Sets `messageCount`/`firstSeen`/`lastSeen`/`names` on the stored profile FROM the fetched
    * window (`member`, see pickPeople/memberStats: `messages` = count in the window, `firstTs`/
-   * `lastTs` = min/max, `name` = the newest nick) -- SET, never added, so a redo (`/nep warmup
-   * users`, with or without `user:<member>`, reprocessing an already-profiled member) lands on the
+   * `lastTs` = min/max, `name` = the newest nick) -- SET, never added, so a redo (`tools/warmup.mjs
+   * users`, with or without `--user <id>`, reprocessing an already-profiled member) lands on the
    * same counters as a first write instead of doubling them (unlike src/memory/store.js#touchUser,
    * built for the live pipeline's one-message-at-a-time calls, which this deliberately does NOT use
    * here). */
@@ -1579,7 +1582,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
    * contract and the comment above for the outcomes; `{ ok: true }` on a clean write. A single
    * bad answer is `bad-json`, retried by the next run.
    * `progress` (`{ index, total }`, both 1-based/count, optional) is this channel's position among
-   * the run's eligible channels -- purely for `activity.detail`, a one-off `/nep warmup channels
+   * the run's eligible channels -- purely for `activity.detail`, a one-off `tools/warmup.mjs channels
    * channel:` call omits it.
    * `refresh` (`{ sample, existing, version }`, a sample refresh, see refreshChannelNotes): the
    * request reads `sample` as it is (no deeper fetch) with the stored notes `existing` as
@@ -1681,7 +1684,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
    * `processChannel` for the outcomes. A bad-json/truncated answer is retried once with half the
    * sample; a second failure is a final skip (`unparsable`, marked done). `progress` (`{ index, total }`, optional) is this person's position among the run's
    * eligible people, carried through the half-sample retry -- purely for `activity.detail`, a
-   * one-off `/nep warmup users user:` call omits it. */
+   * one-off `tools/warmup.mjs users --user` call omits it. */
   async function processPerson(guildId, windows, member, cfg, mainChannelIds, sampleCfgOverride, progress) {
     touchActivity('person', { id: member.id, name: member.name, index: progress?.index ?? null, total: progress?.total ?? null, chunk: null });
     if (!hot.prompts?.profile) {
@@ -1711,7 +1714,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
     let draft = null;
     let answer = null;
     let chunksDone = 0; // completed chunks so far -- feeds the "chunk k/n" detail below
-    let tokensUsed = 0; // summed across every chunk -- surfaced to `/nep warmup users user:<member>`'s reply
+    let tokensUsed = 0; // summed across every chunk -- surfaced to `tools/warmup.mjs users --user <id>`'s reply
 
     while (remaining.length > 0) {
       if (store.state.data.paused) {
@@ -2004,7 +2007,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
     }
   }
 
-  /** `/nep warmup users user:<member>` / `channels channel:<channel>` / `server`: (re)do exactly
+  /** `tools/warmup.mjs users --user <id>` / `channels --channel <id>` / `server`: (re)do exactly
    * one target right now, synchronously.
    * Refused while a run (full, another one-off, or a `users`/`channels` bulk redo) is already in
    * flight, or while paused. */
@@ -2047,13 +2050,13 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
   }
 
   /**
-   * `/nep warmup users`/`/nep warmup channels`: (re)do EVERY qualifying member (`pickPeople`)
+   * `tools/warmup.mjs users`/`channels`: (re)do EVERY qualifying member (`pickPeople`)
    * or every readable channel now, sharing `running` (and so every rail: mute, pause/resume,
    * `state.warmup.done`) with `run()` -- a redo re-processes every target regardless of `done`,
    * then marks it done either way (processChannel/processPerson already do, idempotently). Resolves
    * once the target COUNT is known and the background loop has been started, NOT once the loop
    * itself finishes, so the caller can report "started N …" at once; progress from then on is
-   * `/nep warmup status`'s job. Refused (before starting anything) while a run/one-off target is
+   * `tools/warmup.mjs status`'s job. Refused (before starting anything) while a run/one-off target is
    * already in flight, or while paused.
    * @param {string} guildId
    * @param {'people'|'channels'} kind
@@ -2321,7 +2324,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
     };
   }
 
-  /** `/nep warmup status`: `summary()` plus totals, the next target and `activity` (this
+  /** `tools/warmup.mjs status`: `summary()` plus totals, the next target and `activity` (this
    * module's own in-memory "what is it doing right now" snapshot -- see `touchActivity` above).
    * Synchronous, read-only (`progressView`), never fetches: the totals come from the windows cache when a
    * run or a recent command filled it, otherwise they are reported as unknown (null) -- `activity`
@@ -2357,7 +2360,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
     return { ...base, phase, channelsEligible, peopleEligible, nextTarget, activity: { ...activity }, stopRequested };
   }
 
-  /** `/nep warmup reset`: clears `state.warmup` (progress only, never any profile/channel/
+  /** `tools/warmup.mjs reset`: clears `state.warmup` (progress only, never any profile/channel/
    * guild/lore data already written). Refused while a run is in flight. */
   function reset() {
     if (running) return { ok: false, message: 'a warmup run is in flight -- pause or wait for it first' };
@@ -2369,7 +2372,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
   }
 
   /** Take one of today's portrait-refresh slots (`state.portraitDay` / `portraitCount`, kept
-   * apart from `state.warmup` so `/nep warmup reset` and a warmup-state version bump never zero
+   * apart from `state.warmup` so `tools/warmup.mjs reset` and a warmup-state version bump never zero
    * it). Synchronous. The UTC day the slot was taken on, or null when `perDay` is used up. */
   function reservePortraitSlot(perDay) {
     const data = store.state.data;

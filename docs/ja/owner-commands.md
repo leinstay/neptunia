@@ -1,6 +1,6 @@
 # コマンド
 
-スラッシュコマンド `/nep` 1 つに 19 のトップレベルエントリ。すべての応答はエフェメラル（実行者のみに表示）。チャンネル、ロール、ユーザーは Discord 標準のピッカーから選択します。一部のオプションはオートコンプリート対応: `set`/`unset` は `path`、`access grant`/`access revoke` は `command`、`model set` は `id`（使用中のモデル ID）、`route set`/`route remove` は `model`、`memory restore` は `id`（最新のアーカイブエントリ）をオートコンプリートします。
+スラッシュコマンド `/nep` 1 つに 18 のトップレベルエントリ。すべての応答はエフェメラル（実行者のみに表示）。チャンネル、ロール、ユーザーは Discord 標準のピッカーから選択します。一部のオプションはオートコンプリート対応: `set`/`unset` は `path`、`access grant`/`access revoke` は `command`、`model set` は `id`（使用中のモデル ID）、`route set`/`route remove` は `model`、`memory restore` は `id`（最新のアーカイブエントリ）をオートコンプリートします。
 
 ## アクセス
 
@@ -39,14 +39,6 @@
 | `/nep access grant <command> [role] [user]` | `access.grant` | エフェメラル | オペレーション、グループ、または * を全員、ロール、またはユーザーに開放; `command` はオートコンプリート |
 | `/nep access revoke <command> [role] [user]` | `access.revoke` | エフェメラル | オペレーション、グループ、または * を全員、ロール、またはユーザーから取り消し; `command` はオートコンプリート |
 | `/nep access list` | `access.list` | エフェメラル | すべてのアクセスグラントを表示 |
-| `/nep warmup run` | `warmup.run` | エフェメラル、遅延 | ランを開始または再開: チャンネル、メンバー、サーバー |
-| `/nep warmup users [user]` | `warmup.users` | エフェメラル、遅延 | 1 メンバーのプロファイル再作成、または対象全員のバックグラウンド処理 |
-| `/nep warmup channels [channel]` | `warmup.channels` | エフェメラル、遅延 | 1 チャンネルの再記述、または読み取り可能な全チャンネル |
-| `/nep warmup server` | `warmup.server` | エフェメラル、遅延 | サーバー全体のノートとロアを再構築 |
-| `/nep warmup people` | `warmup.people` | エフェメラル、遅延 | 現在サンプル対象のメンバー一覧 |
-| `/nep warmup status` | `warmup.status` | エフェメラル、遅延 | フェーズ、進捗、トークン使用量、次のターゲット |
-| `/nep warmup stop` | `warmup.stop` | エフェメラル、遅延 | ウォームアップ作業をキャンセル（進行中のモデル呼び出しを含む） |
-| `/nep warmup reset` | `warmup.reset` | エフェメラル、遅延 | ウォームアップの進捗をクリア（書き込み済みメモリには触れない）; 実行中は拒否 |
 | `/nep diary set <channel>` | `diary.set` | エフェメラル、遅延 | 日記チャンネルを設定 |
 | `/nep diary show` | `diary.show` | エフェメラル | 今日の日記の状態 |
 | `/nep diary off` | `diary.off` | エフェメラル | 日記を停止 |
@@ -63,7 +55,7 @@
 | `/nep memory channel [channel]` | `memory.channel.read` | エフェメラル | チャンネルのノート、またはすべてのチャンネルの一覧 |
 | `/nep memory server` | `memory.server.read` | エフェメラル | サーバーノート: パターン、スターター、内輪ネタ、自己言及 |
 | `/nep memory recent` | `memory.recent.read` | エフェメラル | ライブの最近のラインを新しい順に表示 |
-| `/nep memory refresh <user>` | `memory.refresh` | エフェメラル、遅延 | メンバーのポートレートを今すぐリフレッシュ |
+| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | エフェメラル、遅延 | メンバーのポートレートを今すぐリフレッシュ |
 | `/nep memory forget <user>` | `memory.forget` | エフェメラル、遅延 | メンバーのプロファイルとプライベートメモリを削除 |
 | `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | エフェメラル | 態度スコアの表示または設定 |
 | `/nep memory wipe <confirm>` | `memory.wipe` | エフェメラル、遅延 | サーバーのすべてのメモリを削除（プロファイル、プライベートメモリ、傾向、チャンネル、ロア） |

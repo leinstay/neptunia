@@ -72,12 +72,12 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   }
 });
 
-test('buildCommandTree: the exact top-level list (19 entries)', () => {
+test('buildCommandTree: the exact top-level list (18 entries, no warmup)', () => {
   const [command] = buildCommandTree('nep');
   const top = command.options.map((option) => option.name);
   assert.deepEqual(top, [
     'status', 'set', 'unset', 'pause', 'resume', 'draw', 'pings', 'talk', 'media',
-    'model', 'route', 'rule', 'access', 'warmup', 'diary', 'alias', 'learning', 'lore', 'memory',
+    'model', 'route', 'rule', 'access', 'diary', 'alias', 'learning', 'lore', 'memory',
   ]);
   assert.deepEqual(COMMAND_TABLE.map((node) => node.name), top, 'the tree is the table');
   const groups = Object.fromEntries(command.options.filter((o) => o.type === 2).map((o) => [o.name, o.options.map((sub) => sub.name)]));
@@ -86,7 +86,6 @@ test('buildCommandTree: the exact top-level list (19 entries)', () => {
     route: ['list', 'set', 'remove'],
     rule: ['add', 'list', 'remove'],
     access: ['grant', 'revoke', 'list'],
-    warmup: ['run', 'users', 'channels', 'server', 'people', 'status', 'stop', 'reset'],
     diary: ['set', 'show', 'off', 'post'],
     alias: ['add', 'remove'],
     learning: ['add', 'remove'],
@@ -102,6 +101,9 @@ test('buildCommandTree: the exact top-level list (19 entries)', () => {
   const privateMemory = findOption(findOption(command.options, 'memory').options, 'private');
   assert.deepEqual(choices(findOption(privateMemory.options, 'action')), ['show', 'forget', 'purge']);
   assert.equal(findOption(privateMemory.options, 'user').required, true);
+  const refresh = findOption(findOption(command.options, 'memory').options, 'refresh');
+  assert.deepEqual(refresh.options.map((o) => [o.name, o.required]), [['kind', true], ['user', false], ['channel', false]]);
+  assert.deepEqual(choices(findOption(refresh.options, 'kind')), ['user', 'channel', 'server']);
 });
 
 test('buildCommandTree: option names are lowercase and no name carries a hyphen', () => {
@@ -157,7 +159,7 @@ test('commandKeys: every group and every leaf command key, derived from the tree
   assert.ok(groups.has('rule'));
   assert.ok(groups.has('lore'));
   assert.ok(groups.has('model'));
-  assert.ok(groups.has('warmup'));
+  assert.ok(!groups.has('warmup'), 'the warmup is tools/warmup.mjs, not a command');
   assert.ok(groups.has('access'));
   assert.ok(groups.has('alias'));
   assert.ok(groups.has('learning'));
@@ -702,44 +704,26 @@ test('interaction handler: lore.add defaults always to false when omitted', asyn
   assert.equal(admin.runCalls[0][1].always, false);
 });
 
-test('interaction handler: defers then edits for every warmup subcommand (slow commands)', async () => {
-  const admin = fakeAdmin({ runImpl: () => 'warmup result' });
+test('interaction handler: memory refresh picks its operation by kind and defers every one', async () => {
+  const admin = fakeAdmin({ runImpl: () => 'refresh result' });
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
 
-  const peopleInteraction = fakeInteraction({ group: 'warmup', subcommand: 'people' });
-  await handler(peopleInteraction);
-  assert.equal(peopleInteraction.deferred, true);
-  assert.equal(peopleInteraction.edits[0].content, 'warmup result');
-
-  const usersInteraction = fakeInteraction({ group: 'warmup', subcommand: 'users', optionValues: { user: { id: 'target1' } } });
-  await handler(usersInteraction);
-  assert.equal(usersInteraction.deferred, true);
-  assert.equal(usersInteraction.edits[0].content, 'warmup result');
-
-  const usersBulkInteraction = fakeInteraction({ group: 'warmup', subcommand: 'users' });
-  await handler(usersBulkInteraction);
-  assert.equal(usersBulkInteraction.deferred, true);
-
-  const channelsInteraction = fakeInteraction({ group: 'warmup', subcommand: 'channels', optionValues: { channel: { id: 'chan1' } } });
-  await handler(channelsInteraction);
-  assert.equal(channelsInteraction.deferred, true);
-
-  const channelsBulkInteraction = fakeInteraction({ group: 'warmup', subcommand: 'channels' });
-  await handler(channelsBulkInteraction);
-  assert.equal(channelsBulkInteraction.deferred, true);
-
-  const serverInteraction = fakeInteraction({ group: 'warmup', subcommand: 'server' });
-  await handler(serverInteraction);
-  assert.equal(serverInteraction.deferred, true);
-
-  const resetInteraction = fakeInteraction({ group: 'warmup', subcommand: 'reset' });
-  await handler(resetInteraction);
-  assert.equal(resetInteraction.deferred, true);
-
-  const stopInteraction = fakeInteraction({ group: 'warmup', subcommand: 'stop' });
-  await handler(stopInteraction);
-  assert.equal(stopInteraction.deferred, true);
-  assert.equal(stopInteraction.edits[0].content, 'warmup result');
+  for (const [kind, optionValues, op] of [
+    ['user', { kind: 'user', user: { id: 'target1' } }, 'memory.refresh.user'],
+    ['channel', { kind: 'channel', channel: { id: 'chan1' } }, 'memory.refresh.channel'],
+    ['server', { kind: 'server' }, 'memory.refresh.server'],
+  ]) {
+    const interaction = fakeInteraction({ group: 'memory', subcommand: 'refresh', optionValues });
+    await handler(interaction);
+    assert.equal(interaction.deferred, true, kind);
+    assert.equal(interaction.edits[0].content, 'refresh result', kind);
+    assert.equal(admin.operationFor('memory.refresh', admin.runCalls.at(-1)[1]), op, kind);
+  }
+  assert.deepEqual(admin.runCalls.map(([, args]) => args), [
+    { kind: 'user', userId: 'target1', channelId: undefined },
+    { kind: 'channel', userId: undefined, channelId: 'chan1' },
+    { kind: 'server', userId: undefined, channelId: undefined },
+  ]);
 });
 
 test('interaction handler: defers then edits for a slow command (memory snapshot)', async () => {
@@ -758,7 +742,7 @@ test('interaction handler: defers then edits for a slow command (memory snapshot
 test('commands: an interaction retry with the same id does not run the op twice', async () => {
   let clock = 1_000_000;
   for (const [group, subcommand, optionValues] of [
-    ['warmup', 'run', {}],
+    ['memory', 'refresh', { kind: 'server' }],
     ['memory', 'snapshot', {}],
     ['diary', 'post', {}],
   ]) {

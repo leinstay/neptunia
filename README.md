@@ -123,7 +123,7 @@ The prompt files, placeholders, labels, context blocks and output tags are descr
 
 ## Warmup
 
-On first start, when `warmup.enabled` is true and no profile exists, the engine runs a warmup that builds memory of people, channels and the server from a sample of recent messages. The total token spend is capped by `warmup.maxTokens`. The persona stays mute while the warmup runs. See [`docs/en/warmup.md`](docs/en/warmup.md) for the stages, progress, rails and owner commands.
+The warmup builds memory of people, channels and the server from a sample of recent messages. Run it before the first start, with the bot stopped, through the operations tool `tools/warmup.mjs` (`run`, `users`, `channels`, `server`, `people`, `status`, `reset`): it prints its estimate and refuses to spend without `--spend`, and keeps its progress in `data/state.json`, so a stopped run resumes. The total token spend is capped by `warmup.maxTokens`. With `warmup.enabled` true and no profile at all, the bot also starts a run by itself at start, and stays mute while it runs. Afterwards `/nep memory refresh` rewrites a member's portrait, a channel's notes or the server notes on demand. See [`docs/en/warmup.md`](docs/en/warmup.md) for the stages, progress, rails and the tool.
 
 ## Dry run
 
@@ -135,7 +135,7 @@ First run on a new server: enable `features.dryRun`, watch the mirror or `journa
 
 One Discord slash command, `/nep` (the name comes from `bot.commandName`), registered as a guild command for the served server. Every reply is ephemeral: only the caller sees it, in whatever channel it was typed.
 
-The 19 top-level entries:
+The 18 top-level entries:
 
 - `status` shows a card with the bot's state, connection, models, limits and memory counters
 - `set` / `unset` override or remove a config value in `config.local.json`
@@ -148,7 +148,6 @@ The 19 top-level entries:
 - `route` manages provider routing per model prefix and role
 - `rule` appends, lists or removes live corrections in `prompts.local/rules.md`
 - `access` grants or revokes operations for roles and users
-- `warmup` starts or inspects the memory warmup
 - `diary` sets, shows or stops the diary and posts an entry
 - `alias` adds or removes a member's nickname
 - `learning` adds or removes a taught lesson
@@ -316,12 +315,11 @@ src/
     model.js               /nep model (show, set)
     route.js               /nep route (list, set, remove)
     rule.js                /nep rule (add, list, remove)
-    warmup.js              /nep warmup (run, users, channels, server, people, status, stop, reset)
     diary.js               /nep diary (set, show, off, post)
     alias.js               /nep alias (add, remove)
     learning.js            /nep learning (add, remove)
     lore.js                /nep lore (add, list, show, remove)
-    memory.js              /nep memory (show, channel, server, recent, refresh, forget, affinity, wipe, journal, archive, restore, snapshot, private)
+    memory.js              /nep memory (show, channel, server, recent, refresh user/channel/server, forget, affinity, wipe, journal, archive, restore, snapshot, private)
   llm/
     tokens.js              token estimation with self-calibration
     budget.js              priority-ordered section trimming
@@ -387,6 +385,7 @@ src/
     warmup.js              sample-based memory warmup
 tools/
   backfill.mjs             fill the persona's past from old messages (fetch, merge, extract, dedupe, voice, report)
+  warmup.mjs               the memory warmup, run with the bot stopped (run, users, channels, server, people, status, reset)
   journal-report.mjs       per-day numbers from the journal: turns, outcomes, tokens, limits
   request-report.mjs       the same numbers from the operational log, for days before the journal
   replay.mjs               answer a real message again, or compare two prompt layers on the same triggers

@@ -1,6 +1,6 @@
 # 命令
 
-一个斜杠命令 `/nep`，含 19 个顶层条目。所有回复均为 ephemeral（仅调用者可见）。频道、身份组和用户从 Discord 自带的选择器中选取。部分选项支持自动补全：`set`/`unset` 自动补全 `path`，`access grant`/`access revoke` 自动补全 `command`，`model set` 自动补全 `id`（当前使用的模型 ID），`route set`/`route remove` 自动补全 `model`，`memory restore` 自动补全 `id`（最新的归档条目）。
+一个斜杠命令 `/nep`，含 18 个顶层条目。所有回复均为 ephemeral（仅调用者可见）。频道、身份组和用户从 Discord 自带的选择器中选取。部分选项支持自动补全：`set`/`unset` 自动补全 `path`，`access grant`/`access revoke` 自动补全 `command`，`model set` 自动补全 `id`（当前使用的模型 ID），`route set`/`route remove` 自动补全 `model`，`memory restore` 自动补全 `id`（最新的归档条目）。
 
 ## 访问控制
 
@@ -39,14 +39,6 @@
 | `/nep access grant <command> [role] [user]` | `access.grant` | ephemeral | 将操作、组或 * 开放给所有人、身份组或用户；`command` 自动补全 |
 | `/nep access revoke <command> [role] [user]` | `access.revoke` | ephemeral | 从所有人、身份组或用户撤销操作、组或 *；`command` 自动补全 |
 | `/nep access list` | `access.list` | ephemeral | 列出所有访问授权 |
-| `/nep warmup run` | `warmup.run` | ephemeral，延迟 | 启动或恢复运行：频道、人物、服务器 |
-| `/nep warmup users [user]` | `warmup.users` | ephemeral，延迟 | 为一个成员重新生成档案，或在后台处理所有符合条件的 |
-| `/nep warmup channels [channel]` | `warmup.channels` | ephemeral，延迟 | 重新描述一个频道，或所有可读频道 |
-| `/nep warmup server` | `warmup.server` | ephemeral，延迟 | 重建服务器级笔记和世界书 |
-| `/nep warmup people` | `warmup.people` | ephemeral，延迟 | 当前符合采样条件的成员 |
-| `/nep warmup status` | `warmup.status` | ephemeral，延迟 | 阶段、进度、token 使用量和下一目标 |
-| `/nep warmup stop` | `warmup.stop` | ephemeral，延迟 | 取消预热工作（包括进行中的模型调用） |
-| `/nep warmup reset` | `warmup.reset` | ephemeral，延迟 | 清除预热进度，不删除已写入的记忆；运行中拒绝 |
 | `/nep diary set <channel>` | `diary.set` | ephemeral，延迟 | 设置日记频道 |
 | `/nep diary show` | `diary.show` | ephemeral | 今日日记状态 |
 | `/nep diary off` | `diary.off` | ephemeral | 停止日记 |
@@ -63,7 +55,7 @@
 | `/nep memory channel [channel]` | `memory.channel.read` | ephemeral | 频道笔记或所有频道列表 |
 | `/nep memory server` | `memory.server.read` | ephemeral | 服务器笔记：模式、开场白、内部梗、自述事实 |
 | `/nep memory recent` | `memory.recent.read` | ephemeral | 实时近期记事行（从新到旧） |
-| `/nep memory refresh <user>` | `memory.refresh` | ephemeral，延迟 | 立即刷新成员画像 |
+| `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | ephemeral，延迟 | 立即刷新成员画像 |
 | `/nep memory forget <user>` | `memory.forget` | ephemeral，延迟 | 删除成员的档案和私有记忆 |
 | `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | ephemeral | 查看或设置态度分数 |
 | `/nep memory wipe <confirm>` | `memory.wipe` | ephemeral，延迟 | 删除服务器的所有记忆（档案、私有记忆、习惯、频道、世界书） |

@@ -908,7 +908,7 @@ test('migrateAccess: once per guild, the old command-key grants re-expanded unde
   assert.deepEqual(access['memory.profile.read'], { everyone: false, roles: ['staff'], users: [], via: { 'role:staff': 'memory' } });
   assert.deepEqual(access['memory.affinity.read'].roles, ['staff']);
   assert.deepEqual(access['config.set'], { everyone: false, roles: [], users: ['9'] });
-  for (const key of ['memory', 'set', 'memory.journal', 'ping', 'memory.journal.read', 'memory.affinity.set', 'memory.refresh']) {
+  for (const key of ['memory', 'set', 'memory.journal', 'ping', 'memory.journal.read', 'memory.affinity.set', 'memory.refresh.user']) {
     assert.equal(Object.hasOwn(access, key), false, key);
   }
   assert.equal(store.getGuild('g1').accessMigrated, 1);
@@ -947,7 +947,7 @@ test('access.grant: a write operation gets the write note; a read operation none
   assert.match(star[0], /^Granted \* to role id:mods as status\.show, /);
   assert.equal(star[1], readsOnly);
   const access = readLocal(rootDir).bot.access;
-  for (const name of ['draw.create', 'config.set', 'memory.refresh', 'memory.affinity.set', 'memory.journal.read', 'memory.wipe', 'pings.get', 'access.list']) {
+  for (const name of ['draw.create', 'config.set', 'memory.refresh.user', 'memory.affinity.set', 'memory.journal.read', 'memory.wipe', 'pings.get', 'access.list']) {
     assert.ok(!(access[name]?.roles ?? []).includes('mods'), `* never covers ${name}`);
   }
   assert.ok(access['memory.profile.read'].roles.includes('mods'));
@@ -1941,7 +1941,7 @@ test('status: the card carries the fields in order and the member variant drops 
   const value = (name) => fields.find((f) => f.name === name).value;
   assert.equal(value('state'), 'paused since 2026-10-13 08:30 UTC by <@42>');
   assert.equal(value('connection'), 'gateway 42 ms\nlast reconnect none');
-  assert.equal(value('long tasks'), 'warmup running\narchive drain: 3 pending');
+  assert.equal(value('long tasks'), 'archive drain: 3 pending', 'a warmup is not a long task of the card');
   assert.equal(value('models'), 'voice anthropic/claude-opus-4.6\nanalyzer x/analyzer', 'no llm client: the other roles only where they differ, unprobed');
   assert.match(value('today'), /^requests \d+\/300\nvideos 0\/40\nrecall 0\/100\nlookups 0\/60\nresets 00:00 UTC$/);
   assert.match(value('memory'), /^profiles \d+\nbuffer \d+ lines\narchive pending 3\njournal last write \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
@@ -2004,7 +2004,7 @@ test('status: the card lists one item per line in every field', async () => {
   const lines = (name) => embeds[0].fields.find((f) => f.name === name).value.split('\n');
   assert.deepEqual(embeds[0].fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'today', 'memory', 'journal', 'uptime']);
   assert.deepEqual(lines('connection'), ['gateway 12 ms', 'last reconnect none']);
-  assert.deepEqual(lines('long tasks'), ['warmup running', 'emoji backfill running', 'GIF backfill running', 'archive drain: 2 pending']);
+  assert.deepEqual(lines('long tasks'), ['emoji backfill running', 'GIF backfill running', 'archive drain: 2 pending']);
   assert.deepEqual(lines('today').map((line) => line.replace(/^requests \d+/, 'requests N')), [
     'requests N/300',
     'images 2/5',
@@ -2604,62 +2604,17 @@ test('run: memory.show/lore.list/lore.show drop caches first while paused, so a 
 });
 
 // ---------------------------------------------------------------------------
-// warmup -- people stays read-only; run/user/users/channel/channels/server
-// write under data/ and are guarded by assertNotPaused().
+// memory.refresh -- a member's portrait, a channel's notes, the server notes, through the warmup
+// engine (src/memory/warmup.js); refused while paused or while a warmup runs.
 // ---------------------------------------------------------------------------
 
 function fakeWarmup(overrides = {}) {
-  const calls = {
-    peopleReport: 0,
-    run: 0,
-    stop: 0,
-    runPerson: 0,
-    runChannel: 0,
-    runServer: 0,
-    runUsers: 0,
-    runChannels: 0,
-    status: 0,
-    reset: 0,
-    refreshPortrait: 0,
-  };
+  const calls = { runChannel: 0, runServer: 0, refreshPortrait: 0 };
   return {
     calls,
-    run: async (guildId) => {
-      calls.run += 1;
-      calls.lastRunGuildId = guildId;
-      return overrides.run ?? { ok: true };
-    },
-    stop: () => {
-      calls.stop += 1;
-      return overrides.stop ?? { ok: true };
-    },
-    runPerson: async (guildId, userId) => {
-      calls.runPerson += 1;
-      calls.lastRunPersonId = userId;
-      return (
-        overrides.runPerson ?? {
-          ok: true,
-          outcome: {
-            ok: true,
-            member: { id: userId, name: 'Alice', messages: 40, firstTs: 1000, lastTs: 5000 },
-            answer: {
-              character: 'friendly and curious',
-              style: 'short',
-              interests: [{ topic: 'games', note: 'plays a lot', times: 3 }],
-              details: [{ text: 'lives nearby', times: 1 }],
-              episodes: [],
-              aliases: ['Al'],
-            },
-            sample: { ownCount: 10, contextCount: 5 },
-            tokensUsed: 1234,
-            chunks: 1,
-          },
-        }
-      );
-    },
     runChannel: async (guildId, channelId) => {
       calls.runChannel += 1;
-      calls.lastRunChannelId = channelId;
+      calls.lastRunChannel = [guildId, channelId];
       return (
         overrides.runChannel ?? {
           ok: true,
@@ -2667,6 +2622,7 @@ function fakeWarmup(overrides = {}) {
             ok: true,
             channel: { id: channelId, name: 'general' },
             result: { purpose: 'general chat', topics: 'everything', tone: 'casual' },
+            facts: { messageCount: 40, lastMessageAt: Date.parse('2026-10-01T10:00:00Z'), topWriters: [{ id: '1', count: 30 }, { id: 'gone', count: 5 }] },
           },
         }
       );
@@ -2681,229 +2637,82 @@ function fakeWarmup(overrides = {}) {
         }
       );
     },
-    runUsers: async (guildId) => {
-      calls.runUsers += 1;
-      calls.lastRunUsersGuildId = guildId;
-      return overrides.runUsers ?? { ok: true, count: 5 };
-    },
-    runChannels: async (guildId) => {
-      calls.runChannels += 1;
-      calls.lastRunChannelsGuildId = guildId;
-      return overrides.runChannels ?? { ok: true, count: 8 };
-    },
-    status: async () => {
-      calls.status += 1;
-      return (
-        overrides.status ?? {
-          phase: 'running',
-          doneChannels: 1,
-          channelsEligible: 2,
-          donePeople: 3,
-          peopleEligible: 5,
-          doneServer: false,
-          tokensUsed: 1000,
-          requests: 4,
-          startedAt: '2026-01-01T00:00:00.000Z',
-          finishedAt: null,
-          aborted: null,
-          nextTarget: 'person: Bob (id:2)',
-        }
-      );
-    },
-    reset: () => {
-      calls.reset += 1;
-      return overrides.reset ?? { ok: true };
-    },
     refreshPortrait: async (guildId, userId, reason, opts) => {
       calls.refreshPortrait += 1;
       calls.lastRefreshUserId = userId;
       calls.lastRefreshOpts = opts;
       return overrides.refreshPortrait ?? { ok: true, userId };
     },
-    peopleReport: async () => {
-      calls.peopleReport += 1;
-      return (
-        overrides.peopleReport ?? {
-          ok: true,
-          people: [{ id: '1', name: 'Alice', messages: 40, firstTs: 1000, lastTs: 5000, byChannel: { c1: 40 } }],
-          totals: { channelsRead: 3, messagesRead: 500, belowThreshold: 2 },
-        }
-      );
-    },
   };
 }
 
-// ---------------------------------------------------------------------------
-// warmup.run / users / channels / server / status / reset / memory.refresh
-// -- the write path
-// ---------------------------------------------------------------------------
-
-test('run: warmup.run starts the whole run in the background and replies at once', async () => {
+test('run: memory.refresh kind:user forces a portrait refresh, ignoring the hours rail', async () => {
   const rootDir = makeRoot();
   const warmup = fakeWarmup();
   const { admin } = makeAdmin(rootDir, { warmup });
 
-  const body = await admin.run('warmup.run', {}, { guildId: 'g1' });
-  assert.equal(warmup.calls.run, 1);
-  assert.equal(warmup.calls.lastRunGuildId, 'g1');
-  assert.match(body, /warmup started/);
-  assert.match(body, /warmup status/);
-});
-
-test('run: warmup.run is refused while a warmup is already in flight', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup, isWarmingUp: () => true });
-
-  const body = await admin.run('warmup.run', {}, { guildId: 'g1' });
-  assert.equal(warmup.calls.run, 0);
-  assert.equal(body, 'a warmup is running: follow it with /nep warmup status, end it with /nep warmup stop');
-});
-
-test('run: warmup.run is refused while paused', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('warmup.run', {}, { guildId: 'g1' }), /paused/);
-  assert.equal(warmup.calls.run, 0);
-});
-
-test('run: warmup.users with a member profiles exactly that member now, synchronously, and summarizes what was written', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  const body = await admin.run('warmup.users', { userId: '1' }, { guildId: 'g1' });
-  assert.equal(warmup.calls.runPerson, 1);
-  assert.equal(warmup.calls.lastRunPersonId, '1');
-  assert.equal(warmup.calls.runUsers, 0, 'a member given must not also start the background bulk redo');
-  assert.match(body, /profiled Alice \(id:1\)/);
-  assert.match(body, /sample: 10 own \/ 5 context lines/);
-  assert.match(body, /tokens used: 1234/);
-  assert.match(body, /interests: 1, details: 1, episodes: 0, aliases: 1/);
-  assert.match(body, /character: friendly and curious/);
-});
-
-test('run: warmup.users with a member is refused while paused', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('warmup.users', { userId: '1' }, { guildId: 'g1' }), /paused/);
-  assert.equal(warmup.calls.runPerson, 0);
-});
-
-test('run: warmup.users with no member starts a background redo of every qualifying member', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  const body = await admin.run('warmup.users', {}, { guildId: 'g1' });
-  assert.equal(warmup.calls.runUsers, 1);
-  assert.equal(warmup.calls.lastRunUsersGuildId, 'g1');
-  assert.equal(warmup.calls.runPerson, 0, 'no member given must not also profile one synchronously');
-  assert.equal(body, 'started 5 members');
-});
-
-test('run: warmup.users with no member is refused while paused', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('warmup.users', {}, { guildId: 'g1' }), /paused/);
-  assert.equal(warmup.calls.runUsers, 0);
-});
-
-test('run: warmup.channels with a channel describes exactly that channel now, synchronously, and reports the note written', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  const body = await admin.run('warmup.channels', { channelId: 'c1' }, { guildId: 'g1' });
-  assert.equal(warmup.calls.runChannel, 1);
-  assert.equal(warmup.calls.lastRunChannelId, 'c1');
-  assert.equal(warmup.calls.runChannels, 0, 'a channel given must not also start the background bulk redo');
-  assert.match(body, /described #general \(id:c1\)/);
-  assert.match(body, /purpose: general chat/);
-  assert.match(body, /topics: everything/);
-  assert.match(body, /tone: casual/);
-});
-
-test('run: warmup.channels with a channel is refused while paused', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('warmup.channels', { channelId: 'c1' }, { guildId: 'g1' }), /paused/);
-  assert.equal(warmup.calls.runChannel, 0);
-});
-
-test('run: warmup.channels with no channel starts a background redo of every readable channel', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  const body = await admin.run('warmup.channels', {}, { guildId: 'g1' });
-  assert.equal(warmup.calls.runChannels, 1);
-  assert.equal(warmup.calls.runChannel, 0, 'no channel given must not also describe one synchronously');
-  assert.equal(body, 'started 8 channels');
-});
-
-test('run: warmup.channels with no channel is refused while paused', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('warmup.channels', {}, { guildId: 'g1' }), /paused/);
-  assert.equal(warmup.calls.runChannels, 0);
-});
-
-test('run: warmup.server is refused while paused', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('warmup.server', {}, { guildId: 'g1' }), /paused/);
-  assert.equal(warmup.calls.runServer, 0);
-});
-
-test('run: warmup.reset is refused while paused and never touches warmup progress', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('warmup.reset', {}, { guildId: 'g1' }), /paused/);
-  assert.equal(warmup.calls.reset, 0);
-});
-
-test('run: memory.refresh forces a portrait refresh, ignoring the hours rail', async () => {
-  const rootDir = makeRoot();
-  const warmup = fakeWarmup();
-  const { admin } = makeAdmin(rootDir, { warmup });
-
-  const body = await admin.run('memory.refresh', { userId: '1' }, { guildId: 'g1' });
+  const body = await admin.run('memory.refresh', { kind: 'user', userId: '1' }, { guildId: 'g1' });
   assert.equal(warmup.calls.refreshPortrait, 1);
   assert.equal(warmup.calls.lastRefreshUserId, '1');
   assert.deepEqual(warmup.calls.lastRefreshOpts, { force: true });
   assert.match(body, /refreshed/);
+  await assert.rejects(() => admin.run('memory.refresh', { kind: 'user' }, { guildId: 'g1' }), /a user is required/);
 });
 
-test('run: memory.refresh is refused while paused', async () => {
+test('run: memory.refresh kind:channel re-describes that channel through the warmup engine and reports the note', async () => {
+  const rootDir = makeRoot();
+  const warmup = fakeWarmup();
+  const { admin, store } = makeAdmin(rootDir, { warmup });
+  store.profiles.set('g1:1', { id: '1', names: ['Zoé'] });
+
+  const body = await admin.run('memory.refresh', { kind: 'channel', channelId: 'c1' }, { guildId: 'g1' });
+  assert.deepEqual(warmup.calls.lastRunChannel, ['g1', 'c1']);
+  assert.equal(warmup.calls.runServer + warmup.calls.refreshPortrait, 0, 'only the channel pass runs');
+  assert.deepEqual(body.split('\n'), [
+    'described #general (id:c1)',
+    'purpose: general chat',
+    'topics: everything',
+    'tone: casual',
+    'messages seen: 40',
+    'last message: 2026-10-01',
+    'top writers: Zoé (30)',
+  ]);
+  await assert.rejects(() => admin.run('memory.refresh', { kind: 'channel' }, { guildId: 'g1' }), /a channel is required/);
+  assert.equal(warmup.calls.runChannel, 1);
+});
+
+test('run: memory.refresh kind:channel relays why nothing was written', async () => {
+  const rootDir = makeRoot();
+  const warmup = fakeWarmup({ runChannel: { ok: false, message: 'channel not found, not readable, or not in this guild' } });
+  const { admin } = makeAdmin(rootDir, { warmup });
+
+  assert.equal(await admin.run('memory.refresh', { kind: 'channel', channelId: 'c9' }, { guildId: 'g1' }), 'channel not found, not readable, or not in this guild');
+});
+
+test('run: memory.refresh kind:server rebuilds the server notes and lore through the warmup engine', async () => {
   const rootDir = makeRoot();
   const warmup = fakeWarmup();
   const { admin } = makeAdmin(rootDir, { warmup });
 
-  await admin.run('pause', {}, {});
-  await assert.rejects(() => admin.run('memory.refresh', { userId: '1' }, { guildId: 'g1' }), /paused/);
-  assert.equal(warmup.calls.refreshPortrait, 0);
+  const body = await admin.run('memory.refresh', { kind: 'server' }, { guildId: 'g1' });
+  assert.equal(warmup.calls.runServer, 1);
+  assert.equal(warmup.calls.lastRunServerGuildId, 'g1');
+  assert.equal(body, 'server notes updated: patterns 120 chars, starters 40 chars, injokes 3, lore entries 2');
+});
+
+test('run: memory.refresh of every kind is refused while paused, and while a warmup runs', async () => {
+  for (const args of [{ kind: 'user', userId: '1' }, { kind: 'channel', channelId: 'c1' }, { kind: 'server' }]) {
+    const paused = fakeWarmup();
+    const first = makeAdmin(makeRoot(), { warmup: paused });
+    await first.admin.run('pause', {}, {});
+    await assert.rejects(() => first.admin.run('memory.refresh', args, { guildId: 'g1' }), /paused/, args.kind);
+
+    const busy = fakeWarmup();
+    const second = makeAdmin(makeRoot(), { warmup: busy, isWarmingUp: () => true });
+    assert.match(await second.admin.run('memory.refresh', args, { guildId: 'g1' }), /^Refresh not performed: a warmup is running/, args.kind);
+
+    for (const warmup of [paused, busy]) assert.equal(warmup.calls.runChannel + warmup.calls.runServer + warmup.calls.refreshPortrait, 0, args.kind);
+  }
 });
 
 test('run: memory.wipe is refused while a warmup is in flight', async () => {

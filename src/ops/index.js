@@ -20,7 +20,6 @@ import './model.js';
 import './route.js';
 import './rule.js';
 import './access.js';
-import './warmup.js';
 import './diary.js';
 import './alias.js';
 import './learning.js';
@@ -43,23 +42,26 @@ function absent(value) {
 }
 
 /**
- * An `action` option (with `kind` for media) picking one operation among `actions`
- * (`{ action: operation }`): the operation with the arguments as given, or `{ invalid }` naming
- * the actions when the action is missing or unknown.
+ * The `option` argument picking one operation among `table` (`{ value: operation }`): the
+ * operation with the arguments as given, or `{ invalid }` naming the values when the argument is
+ * missing or unknown. `byAction` reads `action` (with `kind` for media), `byKind` reads `kind`.
  */
-function byAction(actions) {
+function byOption(option, table) {
   return (args) => {
-    const action = args?.action;
-    if (!Object.hasOwn(actions, String(action))) return { invalid: `action must be one of: ${Object.keys(actions).join(', ')}` };
-    return { op: actions[action], args };
+    const value = args?.[option];
+    if (!Object.hasOwn(table, String(value))) return { invalid: `${option} must be one of: ${Object.keys(table).join(', ')}` };
+    return { op: table[value], args };
   };
 }
+
+const byAction = (actions) => byOption('action', actions);
+const byKind = (kinds) => byOption('kind', kinds);
 
 /**
  * The command keys of the tree (src/discord/commands.js#COMMAND_TABLE, `<group>.<name>` or a bare
  * `<name>`) -> operation: an operation name (same arguments), or `(args) => ({ op, args })` where
- * the arguments pick the operation (`talk`, `media` and `memory.private` by `action`, `pings` by
- * `mode`, `memory.affinity` by `score`), or `{ invalid }` when they cannot. A key not listed
+ * the arguments pick the operation (`talk`, `media` and `memory.private` by `action`, `memory.refresh`
+ * by `kind`, `pings` by `mode`, `memory.affinity` by `score`), or `{ invalid }` when they cannot. A key not listed
  * here runs nothing.
  */
 export const COMMAND_TO_OP = Object.freeze({
@@ -83,14 +85,6 @@ export const COMMAND_TO_OP = Object.freeze({
   'access.grant': 'access.grant',
   'access.revoke': 'access.revoke',
   'access.list': 'access.list',
-  'warmup.run': 'warmup.run',
-  'warmup.users': 'warmup.users',
-  'warmup.channels': 'warmup.channels',
-  'warmup.server': 'warmup.server',
-  'warmup.people': 'warmup.people',
-  'warmup.status': 'warmup.status',
-  'warmup.stop': 'warmup.stop',
-  'warmup.reset': 'warmup.reset',
   'diary.set': 'diary.set',
   'diary.show': 'diary.show',
   'diary.off': 'diary.off',
@@ -107,7 +101,7 @@ export const COMMAND_TO_OP = Object.freeze({
   'memory.channel': 'memory.channel.read',
   'memory.server': 'memory.server.read',
   'memory.recent': 'memory.recent.read',
-  'memory.refresh': 'memory.refresh',
+  'memory.refresh': byKind({ user: 'memory.refresh.user', channel: 'memory.refresh.channel', server: 'memory.refresh.server' }),
   'memory.forget': 'memory.forget',
   'memory.affinity': (args) => ({ op: absent(args?.score) ? 'memory.affinity.read' : 'memory.affinity.set', args }),
   'memory.wipe': 'memory.wipe',
@@ -149,14 +143,6 @@ const LEGACY_COMMAND_TO_OP = Object.freeze({
   'access.grant': 'access.grant',
   'access.revoke': 'access.revoke',
   'access.list': 'access.list',
-  'warmup.run': 'warmup.run',
-  'warmup.users': 'warmup.users',
-  'warmup.channels': 'warmup.channels',
-  'warmup.server': 'warmup.server',
-  'warmup.people': 'warmup.people',
-  'warmup.status': 'warmup.status',
-  'warmup.stop': 'warmup.stop',
-  'warmup.reset': 'warmup.reset',
   'diary.set': 'diary.set',
   'diary.show': 'diary.show',
   'diary.off': 'diary.off',
@@ -173,7 +159,7 @@ const LEGACY_COMMAND_TO_OP = Object.freeze({
   'memory.channel': 'memory.channel.read',
   'memory.server': 'memory.server.read',
   'memory.recent': 'memory.recent.read',
-  'memory.refresh': 'memory.refresh',
+  'memory.refresh': 'memory.refresh.user',
   'memory.forget': 'memory.forget',
   'memory.affinity': (args) => ({ op: absent(args?.score) ? 'memory.affinity.read' : 'memory.affinity.set', args }),
   'memory.wipe': 'memory.wipe',
