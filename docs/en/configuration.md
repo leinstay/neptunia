@@ -307,6 +307,7 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `recordDays` | `3` | Days of the record (every observed message on disk) read for matching lines on any recall question: a dated question reads back from the end of its `when:` range, any other from now, at most this many days. A dateless question that is not a "recently" also keeps the earliest match's window. Matching lines become extra stretches marked `source: record`. `0` = the record is not read |
 | `recordContext` | `3` | Lines before and after each matching record line added to its stretch, besides the chain of messages it replies to |
 | `maxOutputTokens` | `500` | Max output tokens for the summary helper |
+| `fallbackOnClassifierFailure` | `true` | Run recall from the trigger's own words when the lookup classifier fails (an error, a timeout or an empty answer) on a direct call and server recall is available. The plan uses words of 5+ letters (longest first, at most `maxForms`, the persona's name left out) as forms, members named by a stored name or alias as `who`, no date range and no web search. Logged as `lookup: fallback` |
 
 ## `gifs`
 
