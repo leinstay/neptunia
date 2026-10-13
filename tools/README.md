@@ -73,13 +73,20 @@ with `reconstructedAt`.
    `report`.
 4. **A bug check of the pilot** by a second reviewer before anything else: duplicates, wrong participants, invented
    feelings, wrong dates, lost sources (the candidates, a sample of that day's record lines, the archive entries).
-5. Only then the full `extract` (windows already extracted are skipped), `dedupe`, `report`.
+   The tool already empties a quote that is not verbatim in the message its `quoteSourceId` names, drops an item
+   citing a line outside its window, and counts both and every `what` cut mid-sentence (the extract summary, the
+   report).
+5. Only then the full `extract` (windows already extracted are never sent again; `--redo <day>` extracts one day
+   again, its earlier candidates and done marks removed first), `dedupe` (running it twice archives nothing new),
+   `report`.
 6. Optionally `voice --spend <usd> [--min-weight 4]`, after reading its estimate.
 
 **Limits.** `extract` refuses without `--max-usd`, `--max-windows` and `--max-tokens`; it prints its estimate
 (tokens of each request plus an answer allowance, priced at `--usd-per-ktok`, 0.005 by default) and refuses with
 exit code 2 when the estimate is over `--max-usd` or `--max-tokens`; while running it stops once the tokens or USD
-spent reach them, and after three failed requests in a row. `--window-max` caps a window (120 lines). Each request
+spent reach them, and after three failed requests in a row. `--window-max` caps a window (120 lines). Thin windows
+(fewer than 4 lines with media or at least 3 words, none by the persona, none with a `?` or a mention) are skipped and
+counted in the plan and the report; `--include-thin` sends them too. Each request
 keeps the client's rails (the per-request token cap) and is marked `origin: 'backfill'`, outside
 `llm.maxRequestsPerDay`.
 

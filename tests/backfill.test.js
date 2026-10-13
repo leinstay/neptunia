@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { advanceCursor, candidateItemId, dedupeCandidates, estimate, parseExtractAnswer, windowsOf } from '../tools/lib/backfill.mjs';
+import { advanceCursor, candidateItemId, dedupeCandidates, estimate, isThinWindow, parseExtractAnswer, readExtractAnswer, textSimilarity, windowsOf } from '../tools/lib/backfill.mjs';
+import { EPISODE_CHARS } from '../src/memory/episodes.js';
 import { main } from '../tools/backfill.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
 
@@ -156,7 +157,7 @@ test('backfill: estimate prices windows and parseExtractAnswer keeps only cited 
   const window = windowsOf([line('1', T0), line('2', T0 + MIN, { kind: 'said' }), line('3', T0 + 2 * MIN, { by: NIKOS })], { gapMinutes: 30, maxLines: 120 })[0];
   const answer = JSON.stringify({
     episodes: [
-      { member: ANA, what: 'Asked her about the sea', quote: 'Καλημέρα', weight: 5, brief: 'she enjoyed it', sources: ['1', '2', '99'] },
+      { member: ANA, what: 'Asked her about the sea', quote: 'Καλημέρα', quoteSourceId: '1', weight: 5, brief: 'she enjoyed it', sources: ['1', '2'] },
       { member: SELF, what: 'about herself', sources: ['2'] },
       { member: ANA, what: 'no source', sources: ['99'] },
     ],
@@ -168,9 +169,132 @@ test('backfill: estimate prices windows and parseExtractAnswer keeps only cited 
   assert.equal(candidates[0].observedAt, '2026-09-23');
   assert.equal(candidates[0].date, '2026-09-23');
   assert.equal(candidates[0].weight, 5);
+  assert.equal(candidates[0].quote, 'Καλημέρα');
   assert.equal(candidates[1].kind, 'lesson');
   assert.equal(candidates[1].from, NIKOS);
   assert.deepEqual(parseExtractAnswer('not json', { window, selfId: SELF }), []);
+});
+
+const ELENA = '433333333333333333';
+const refsOf = (...ids) => ids.map((messageId) => ({ channelId: CH, messageId }));
+/** One window of record lines from `specs` ([id, options] pairs), a minute apart. */
+const windowOf = (...specs) => windowsOf(specs.map(([id, options], i) => ({ ...line(id, T0 + i * MIN, options), ...(options?.extra ?? {}) })), { gapMinutes: 30, maxLines: 120 })[0];
+
+test('backfill: a long what is cut at a word boundary within the episode limit and an unfinished one is counted', () => {
+  const window = windowOf(['1', { text: 'Καλημέρα σε όλους' }]);
+  const unfinished = `${'Ana told a long story about the harbour and the boats '.repeat(6)}and then`;
+  const answer = (what) => JSON.stringify({ episodes: [{ member: ANA, what, sources: ['1'] }] });
+  const { candidates, counts } = readExtractAnswer(answer(unfinished), { window, selfId: SELF, clampTolerance: 1.25 });
+  const [{ what }] = candidates;
+  assert.ok(Array.from(what).length <= Math.floor(EPISODE_CHARS.what * 1.25));
+  assert.ok(unfinished.startsWith(what));
+  assert.match(unfinished.slice(what.length), /^\s/, 'cut where a word ends, never inside one');
+  assert.equal(counts.clamped, 1);
+
+  const sentences = 'Ana told a long story about the harbour. '.repeat(8).trim();
+  const finished = readExtractAnswer(answer(sentences), { window, selfId: SELF, clampTolerance: 1.25 });
+  assert.match(finished.candidates[0].what, /harbour\.$/, 'cut at a sentence end');
+  assert.equal(finished.counts.clamped, 0);
+  assert.equal(readExtractAnswer(answer('Ana waved'), { window, selfId: SELF }).counts.clamped, 0, 'a short what without a full stop is not cut, not counted');
+});
+
+test('backfill: a quote is kept only when it is verbatim in the message quoteSourceId names', () => {
+  const window = windowOf(['1', { text: 'Πάμε  για\nψάρεμα αύριο;' }], ['2', { by: NIKOS, text: 'Όχι εγώ' }]);
+  const answer = JSON.stringify({
+    episodes: [
+      { member: ANA, what: 'Ana asked about fishing', quote: 'Πάμε για ψάρεμα', quoteSourceId: '1', sources: ['1'] },
+      { member: ANA, what: 'Ana asked again', quote: 'Πάμε για ψάρεμα', quoteSourceId: '2', sources: ['1', '2'] },
+      { member: NIKOS, what: 'Nikos said no', quote: 'Όχι εγώ', sources: ['2'] },
+      { member: NIKOS, what: 'Nikos refused', quote: 'όχι εγώ', quoteSourceId: '2', sources: ['2'] },
+      { member: NIKOS, what: 'Nikos cited a far line', sources: ['2', '99'] },
+    ],
+    lessons: [{ text: 'Fishing starts at dawn', from: ANA, sources: ['1', '98'] }],
+  });
+  const { candidates, counts } = readExtractAnswer(answer, { window, selfId: SELF });
+  assert.deepEqual(candidates.map((c) => [c.what, c.quote, c.quoteSourceId ?? null]), [
+    ['Ana asked about fishing', 'Πάμε για ψάρεμα', '1'],
+    ['Ana asked again', '', null],
+    ['Nikos said no', '', null],
+    ['Nikos refused', '', null],
+  ]);
+  assert.equal(counts.quotesDropped, 3, 'another message, no id, not verbatim');
+  assert.equal(counts.outsideWindow, 2, 'an item citing a line outside the window is dropped whole');
+});
+
+test('backfill: participants hold the actors and everyone named, mentioned only those named who did not act', () => {
+  const window = windowOf(['1'], ['2', { by: NIKOS, text: 'Ναι' }]);
+  const answer = JSON.stringify({
+    episodes: [{ member: ANA, what: `<@${ANA}> and <@${NIKOS}> argued about <@${ELENA}>`, brief: `<@${SELF}> listened`, sources: ['1', '2'] }],
+    lessons: [{ text: `<@${ANA}> spells it with one l`, from: NIKOS, sources: ['2'] }],
+  });
+  const [episode, lesson] = parseExtractAnswer(answer, { window, selfId: SELF });
+  assert.equal(episode.userId, ANA);
+  assert.deepEqual(episode.participants, [ANA, NIKOS, ELENA]);
+  assert.deepEqual(episode.mentioned, [ELENA]);
+  assert.deepEqual(lesson.participants, [NIKOS, ANA]);
+  assert.deepEqual(lesson.mentioned, [ANA]);
+});
+
+test('backfill: the persona\'s name forms become her token in what, brief and text, never in quote', () => {
+  const window = windowOf(['1', { text: 'Zoë, έλα εδώ' }]);
+  const answer = JSON.stringify({
+    episodes: [{ member: ANA, what: 'Ana called zoë over; Zoëlle stayed', quote: 'Zoë, έλα', quoteSourceId: '1', brief: 'ZOE came at once', sources: ['1'] }],
+    lessons: [{ text: 'Zoë should greet Ana first', from: ANA, sources: ['1'] }],
+  });
+  const [episode, lesson] = parseExtractAnswer(answer, { window, selfId: SELF, selfNames: ['Zoë', 'Zoe'] });
+  assert.equal(episode.what, `Ana called <@${SELF}> over; Zoëlle stayed`);
+  assert.equal(episode.brief, `<@${SELF}> came at once`);
+  assert.equal(episode.quote, 'Zoë, έλα');
+  assert.equal(lesson.text, `<@${SELF}> should greet Ana first`);
+  assert.equal(episode.participants.includes(SELF), false, 'the persona is never a participant');
+  assert.deepEqual(lesson.mentioned, []);
+});
+
+test('backfill: dedupe merges lessons and episodes that say the same thing, per member, and counts each rule', () => {
+  assert.ok(textSimilarity('Ana won the bet', 'ana WON the bet!') === 1);
+  assert.equal(textSimilarity('', 'x'), 0);
+  const lesson = (text, from, date, ...ids) => ({ kind: 'lesson', text, from, date, observedAt: date, weight: 3, sourceRefs: refsOf(...ids), participants: [from] });
+  const episode = (what, userId, date, ...ids) => ({ kind: 'episode', what, userId, date, observedAt: date, quote: '', weight: 3, sourceRefs: refsOf(...ids), participants: [userId] });
+  const candidates = [
+    lesson('Νίκος wants the persona to call him Nikos, never Nick', NIKOS, '2026-09-24', '60'),
+    lesson('Νίκος wants the persona to call him Nikos, never Nick, please', NIKOS, '2026-09-23', '61'),
+    lesson('Nikos wants the persona to call him Nikos, never Nick at all', ANA, '2026-09-24', '62'),
+    lesson('Commas go inside the quotes in English text', NIKOS, '2026-09-24', '63'),
+    episode('Ana bet a coffee that the ferry would be late', ANA, '2026-09-24', '70'),
+    episode('Ana won the coffee bet', ANA, '2026-09-23', '70', '71'),
+    episode('Ana bet a coffee that the ferry would be late again', ANA, '2026-09-25', '72'),
+    episode('Ana bet a coffee that the ferry would be late again', NIKOS, '2026-09-25', '72'),
+    episode('Ana sang the harbour song at the night market twice', ANA, '2026-09-24', '96'),
+    episode('Ana painted the old lighthouse blue yesterday', ANA, '2026-09-24', '97'),
+  ];
+  const archived = [
+    { itemKind: 'lesson', sourceRefs: refsOf('90'), scope: { guild: true }, text: { text: 'Commas go inside the quotes in English' }, stored: { from: `<@${NIKOS}>` } },
+    { itemKind: 'episode', sourceRefs: refsOf('95'), scope: { user: ANA }, text: { what: 'Ana sang the harbour song at the night market' } },
+  ];
+  const hotEpisodes = [{ userId: ANA, date: '2026-09-01', what: 'Ana painted the old lighthouse blue', quote: '' }];
+  const { kept, dropped } = dedupeCandidates(candidates, { hotEpisodes, archived });
+  assert.deepEqual(kept.map((c) => [c.text ?? c.what, c.date, c.sourceRefs.map((r) => r.messageId)]), [
+    ['Νίκος wants the persona to call him Nikos, never Nick, please', '2026-09-23', ['60', '61']],
+    ['Nikos wants the persona to call him Nikos, never Nick at all', '2026-09-24', ['62']],
+    ['Ana bet a coffee that the ferry would be late again', '2026-09-23', ['70', '71', '72']],
+    ['Ana bet a coffee that the ferry would be late again', '2026-09-25', ['72']],
+  ]);
+  assert.deepEqual(dropped.map((d) => d.reason), ['similar', 'archive-similar', 'repeat', 'similar', 'archive-similar', 'hot-similar']);
+  assert.equal(kept[0].itemId, candidateItemId(kept[0]), 'the merged candidate carries its own item id');
+  const again = dedupeCandidates(candidates, { hotEpisodes, archived });
+  assert.deepEqual(again.kept.map((c) => c.itemId), kept.map((c) => c.itemId), 'the same input merges the same way');
+});
+
+test('backfill: a window with few content lines, no persona line and no address is thin', () => {
+  const thin = windowOf(['1', { text: 'lol' }], ['2', { text: 'https://example.com/x 😀 <:cat:123456789012345678> :smile:' }], ['3', { text: 'ναι ναι ναι' }]);
+  assert.equal(thin.thin, true);
+  const words = (id) => [id, { text: 'αυτό είναι ωραίο' }];
+  assert.equal(windowOf(words('1'), words('2'), words('3'), ['4', { text: 'ok', extra: { media: ['image'] } }]).thin, false, 'four content lines, a media line among them');
+  assert.equal(windowOf(words('1'), words('2'), words('3'), ['4', { text: 'ok' }]).thin, true, 'three content lines');
+  assert.equal(windowOf(['1', { text: 'lol' }], ['2', { kind: 'said', text: 'ok' }]).thin, false, 'a line by the persona');
+  assert.equal(windowOf(['1', { text: 'lol?' }]).thin, false, 'a question');
+  assert.equal(windowOf(['1', { text: 'lol', extra: { mentions: [NIKOS] } }]).thin, false, 'a mention of a member');
+  assert.equal(isThinWindow([]), true);
 });
 
 // ---- the tool --------------------------------------------------------------------------------
@@ -311,4 +435,57 @@ test('backfill: extract, dedupe and voice write candidates and archive lines, ne
   assert.deepEqual(tree(path.join(guildDir, 'users')), hotBefore, 'hot memory untouched');
   const recordLines = fs.readFileSync(path.join(guildDir, 'record', '2026-09', '2026-09-23.jsonl'), 'utf8');
   assert.equal(/"kind":"felt"/.test(recordLines), false, 'no felt line');
+});
+
+test('backfill: extract skips thin windows, never re-sends a done one, and --redo extracts a day again without doubling its candidates', async () => {
+  const dir = tmpDir();
+  const hot = fakeHot();
+  const guildDir = path.join(dir, 'data', 'guilds', GUILD);
+  const messages = [
+    message(T0, { content: 'Πάμε για ψάρεμα;' }),
+    message(T0 + MIN, { author: SELF, content: 'Ναι!' }),
+    message(T0 + 120 * MIN, { author: NIKOS, content: 'ok' }), // a window of its own: thin
+  ];
+  const opts = { cwd: dir, hot, now: () => T0 + 30 * 86_400_000 };
+  const day = ['--guild', GUILD, '--since', '2026-09-23', '--until', '2026-09-23'];
+  const limits = ['--max-usd', '1', '--max-windows', '5', '--max-tokens', '50000'];
+  await main(['fetch', ...day], { ...opts, source: fakeSource(messages) });
+  await main(['merge', ...day], opts);
+
+  const plan = await main(['extract', ...day, '--dry-run'], opts);
+  assert.match(plan, /windows: 1 \(of 2; 0 done before; thin: 1, skipped\)/);
+  assert.match(plan, /thin, skipped/);
+  assert.match(await main(['extract', ...day, '--dry-run', '--include-thin'], opts), /windows: 2 /);
+
+  let what = 'Ana invited <@SELF> fishing';
+  let calls = 0;
+  const llmClient = {
+    async complete() {
+      calls += 1;
+      return { text: JSON.stringify({ episodes: [{ member: ANA, what: what.replace('<@SELF>', 'Zoë'), quote: 'Πάμε για ψάρεμα', quoteSourceId: messages[0].id, sources: [messages[0].id, messages[1].id] }] }) };
+    },
+  };
+  const first = await main(['extract', ...day, ...limits], { ...opts, llmClient });
+  assert.equal(calls, 1, 'the thin window is not sent');
+  assert.match(first, /thin skipped: 1/);
+  const read = () => fs.readFileSync(path.join(guildDir, 'backfill', 'candidates.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(read()[0].what, `Ana invited <@${SELF}> fishing`, 'the persona\'s name became her token');
+  assert.equal(read()[0].quote, 'Πάμε για ψάρεμα');
+
+  const second = await main(['extract', ...day, ...limits], { ...opts, llmClient });
+  assert.equal(calls, 1, 'a done window is not sent again');
+  assert.match(second, /1 done before, --redo <day> extracts a day again/);
+
+  what = 'Ana asked <@SELF> to come fishing at dawn';
+  await main(['extract', '--guild', GUILD, '--redo', '2026-09-23', ...limits], { ...opts, llmClient });
+  assert.equal(calls, 2, 'the redone window is sent once more');
+  assert.deepEqual(read().map((c) => c.what), [`Ana asked <@${SELF}> to come fishing at dawn`], 'the day\'s earlier candidates are replaced, not doubled');
+  const state = JSON.parse(fs.readFileSync(path.join(guildDir, 'backfill', 'state.json'), 'utf8'));
+  assert.equal(state.extract.done.length, 1);
+
+  assert.match(await main(['dedupe', '--guild', GUILD], opts), /archived: 1/);
+  assert.match(await main(['dedupe', '--guild', GUILD], opts), /archived: 0/, 'a second dedupe archives nothing new');
+  const report = await main(['report', ...day], opts);
+  assert.match(report, /thin windows skipped: 1/);
+  assert.match(report, /quotes dropped: 0/);
 });

@@ -632,7 +632,9 @@ Each record logs `store: version recorded` with `kind`, `field`, `by`, `chars`, 
 
 `tools/backfill.mjs extract` (an operations tool, run by hand; see `tools/README.md`) sends one request per window
 of connected old lines (reply chains, gaps of at most `recall.clusterGapMinutes`, at most 120 lines) on the analyzer
-model (`memory.model`, else `llm.model`; role `analyzer`, purpose `backfill`, no cache marker).
+model (`memory.model`, else `llm.model`; role `analyzer`, purpose `backfill`, no cache marker). A thin window is
+not sent unless `--include-thin` is given: fewer than 4 content lines (media, or at least 3 words once URLs, emoji
+and mentions are taken out), no line by the persona and no line with a `?` or a mention.
 
 System: `backfill.md` with `{{name}}`. User, two blocks:
 
@@ -646,16 +648,28 @@ System: `backfill.md` with `{{name}}`. User, two blocks:
 The answer is one JSON object:
 
 ```
-{ "episodes": [ { "member": "<roster id>", "what": "...", "quote": "...", "weight": 1-5, "brief": "...", "sources": ["<line id>", ...] } ],
+{ "episodes": [ { "member": "<roster id>", "what": "...", "quote": "...", "quoteSourceId": "<line id>", "weight": 1-5, "brief": "...", "sources": ["<line id>", ...] } ],
   "lessons":  [ { "text": "...", "from": "<roster id or empty>", "weight": 1-5, "sources": ["<line id>", ...] } ] }
 ```
 
-Code keeps only the `sources` that are lines of the window and drops an item without one; an episode needs a
-`member` the window names (never the persona) and a `what`; a lesson's `from` is kept only when it is such a member.
-`what` and `quote` are clamped as stored episodes are, a lesson's `text` to `memory.learnedChars`, `brief` to 300
-characters; a missing or unreadable `weight` is 3. The episode's date and `observedAt` are the window's day. The
-items go to a scratch file first; the `dedupe` step archives the new ones (`event: backfill`, `origin: backfill`),
-never into hot memory and never as a `felt` record line. The optional `voice` step sends the archived episodes of a
+Code drops an item whose `sources` cite an id that is not a line of the window (logged as
+`backfill: candidates dropped` with `reason: outside-window` and a count) and an item without a source; an episode
+needs a `member` the window names (never the persona) and a `what`; a lesson's `from` is kept only when it is such a
+member. In `what`, `brief` and `text` every whole-word form of the persona's name (the display name and
+`bot.nameTriggers`) becomes `<@selfId>`; `quote` is never touched. Then `what` and `quote` are clamped as stored
+episodes are, a lesson's `text` to `memory.learnedChars`, `brief` to 300 characters; a `what` the clamp cut that does
+not end at a sentence end is kept and counted (`backfill: clamped`, count). A `quote` is kept only when
+`quoteSourceId` is a line of the window whose text holds it verbatim (whitespace collapsed); otherwise it is emptied
+and counted (`backfill: quotes dropped`, count). A missing or unreadable `weight` is 3. The episode's date and
+`observedAt` are the window's day. Each item carries `participants` (its member or teacher, the authors of its
+sources, every `<@id>` of its texts, the persona left out) and `mentioned` (those ids of its texts that are neither its
+member or teacher nor an author of a source). The items go to a scratch file first; the `dedupe` step merges the ones
+that repeat each other (the same kind and member or teacher, and shared sources or a token similarity of at least
+0.8: Jaccard over lowercased words of 3 or more letters; the longer text, the earlier date, the sources united),
+drops the ones memory already holds (a hot episode that is the same moment, an archived item of the same kind that
+shares a source, or either of them reaching that similarity with the same member or teacher) and archives the rest
+(`event: backfill`, `origin: backfill`; with `quoteSourceId` and `mentioned` when there are some), never
+into hot memory and never as a `felt` record line. The optional `voice` step sends the archived episodes of a
 high enough weight as `feeling` items through `memory-voice.md` (stage B above, `brief` from this answer) and
 archives the worded text as the episode's `feeling` with `reconstructedAt`.
 
