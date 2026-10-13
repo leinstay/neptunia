@@ -30,6 +30,9 @@
 // `journal.keepRequests` is above 0; `pruneRequests` deletes the day directories older than that
 // many days, a private chat's included. A dump is a debugging copy: it may hold the chat's text.
 //
+// `withWriterLock(fn)` (`/nep memory snapshot`) holds every new line back while `fn` runs, after
+// the append store flushed what it had: a copy of `data/` taken inside it sees no line half-way.
+//
 // Logs carry the kind and an error code, never the record's contents.
 
 import path from 'node:path';
@@ -183,6 +186,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   clearRunning(guildId: string): Promise<void>,
  *   dumpRequest(guildId: string, dump: object): Promise<void>,
  *   pruneRequests(guildId: string): Promise<{ removed: number }>,
+ *   withWriterLock<T>(fn: () => Promise<T>|T): Promise<T>,
  * }}
  *   `start` writes a `turn.start` line (not awaited: a failed append is logged) and returns the
  *   turn's id: a new one, or `input.turnId` with `input.attemptId` for a later attempt of the
@@ -251,9 +255,18 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     };
   }
 
+  // While a writer lock is held (withWriterLock), the promise it resolves on release; else null.
+  let held = null;
+
+  /** Wait until no writer lock is held. */
+  async function unlocked() {
+    while (held) await held;
+  }
+
   async function write(guildId, kind, fields) {
     try {
       const { record, privateUserId } = envelope(guildId, kind, fields);
+      await unlocked();
       await appendStore.append(dayFile(guildId, record.occurredAt, privateUserId), JSON.stringify(record));
     } catch (error) {
       log.warn('journal: append failed', { kind, code: error?.code ?? null, guildId: String(guildId) });
@@ -490,6 +503,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     const dir = path.join(journalDir(guildId, privateUserId), 'requests', utcDay(now()));
     const file = path.join(dir, `${turnId}-${attemptId}.json`);
     const body = JSON.stringify({ v: JOURNAL_VERSION, turnId, attemptId, recordedAt: at, system, parts, raw: typeof raw === 'string' ? raw : '', usage });
+    await unlocked();
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(`${file}.tmp`, body);
     await fs.rename(`${file}.tmp`, file);
@@ -518,6 +532,31 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       }
     }
     return { removed };
+  }
+
+  /**
+   * Run `fn` with every journal write held back: the lock waits for one already held, the
+   * append store flushes (queued lines retried, files fsynced), then `fn` runs; lines and request
+   * dumps written meanwhile wait and land after it in their order. The lock is released however
+   * `fn` ends; its result or rejection is passed on.
+   * @template T
+   * @param {() => Promise<T>|T} fn
+   * @returns {Promise<T>}
+   */
+  async function withWriterLock(fn) {
+    // Checked again right before taking it: another caller may have taken it meanwhile.
+    while (held) await held;
+    let release;
+    held = new Promise((resolve) => {
+      release = resolve;
+    });
+    try {
+      if (typeof appendStore.flush === 'function') await appendStore.flush();
+      return await fn();
+    } finally {
+      held = null;
+      release();
+    }
   }
 
   const stalled = () => typeof appendStore.stats === 'function' && appendStore.stats()?.stalled === true;
@@ -676,5 +715,6 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     clearRunning,
     dumpRequest,
     pruneRequests,
+    withWriterLock,
   };
 }

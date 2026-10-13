@@ -54,6 +54,7 @@ const SLOW_COMMANDS = new Set([
   'memory.refresh',
   'memory.forget',
   'memory.wipe',
+  'memory.snapshot',
   'emoji.rescan',
   'gifs.rescan',
   'private.forget',
@@ -357,6 +358,11 @@ export function buildCommandTree(commandName) {
                 { type: STRING, name: 'kind', description: 'Record kind (default: all).', required: false, choices: choicesOf(JOURNAL_KINDS) },
                 { type: INTEGER, name: 'n', description: 'How many, newest last (default 20).', required: false, min_value: 1, max_value: 50 },
               ],
+            },
+            {
+              type: SUBCOMMAND,
+              name: 'snapshot',
+              description: 'Copy all of data/ to data/snapshots/<time>/ for the tools.',
             },
             {
               type: SUBCOMMAND,
@@ -883,6 +889,7 @@ const OPTION_MAPPERS = {
     kind: options.getString('kind') ?? undefined,
     n: options.getInteger('n') ?? undefined,
   }),
+  'memory.snapshot': () => ({}),
   'memory.forget': (options) => ({ userId: options.getUser('user', true).id }),
   'memory.wipe': (options) => ({ confirm: options.getString('confirm', true) }),
   'memory.refresh': (options) => ({ userId: options.getUser('user', true).id }),

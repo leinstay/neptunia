@@ -19,8 +19,9 @@
 export const OWNER_ONLY_GROUPS = Object.freeze(['private', 'mentor', 'access', 'diary']);
 
 /** Single commands only an owner may ever run, inside an otherwise grantable group: the
- * journal (`memory.journal`) holds the persona's hidden reasoning and every member's turns. */
-export const OWNER_ONLY_COMMANDS = Object.freeze(['memory.journal']);
+ * journal (`memory.journal`) holds the persona's hidden reasoning and every member's turns; a
+ * memory snapshot (`memory.snapshot`) copies all of `data/`. */
+export const OWNER_ONLY_COMMANDS = Object.freeze(['memory.journal', 'memory.snapshot']);
 
 /** Bare command keys every member may run with no grant (a member's own settings), while
  * `features.memberCommands` is on. Never offered by `/nep access grant`. */

@@ -602,3 +602,44 @@ test('journal: keepRequests 0 writes nothing', async () => {
   assert.deepEqual(await journal.pruneRequests('g1'), { removed: 0 });
   assert.equal(fs.files.size, 1);
 });
+
+test('journal: withWriterLock flushes the store first and holds appends until fn resolves', async () => {
+  const clock = { ms: DAY_D };
+  const { journal, appendStore } = journalAt(clock);
+  const order = [];
+  appendStore.flush = async () => {
+    order.push('flush');
+  };
+  let finish;
+  const held = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const locked = journal.withWriterLock(async () => {
+    order.push('fn');
+    await held;
+    return 'copied';
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const writing = journal.system('g1', { event: 'pause', by: 'owner' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, ['flush', 'fn']);
+  assert.equal(appendStore.lines.length, 0);
+  finish();
+  assert.equal(await locked, 'copied');
+  await writing;
+  assert.equal(appendStore.lines.length, 1);
+  assert.equal(JSON.parse(appendStore.lines[0].line).event, 'pause');
+});
+
+test('journal: withWriterLock releases the lock when fn throws', async () => {
+  const clock = { ms: DAY_D };
+  const { journal, appendStore } = journalAt(clock);
+  await assert.rejects(
+    journal.withWriterLock(async () => {
+      throw new Error('disk full');
+    }),
+    /disk full/,
+  );
+  await journal.system('g1', { event: 'resume', by: 'owner' });
+  assert.equal(appendStore.lines.length, 1);
+});

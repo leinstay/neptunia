@@ -103,12 +103,33 @@ const READ_ONLY_ACCESS_KEYS = new Set([
 const SPENDS_BALANCE_KEYS = new Set(['ping']);
 
 /** How `/nep access grant` names each owner-only group (src/discord/access.js#OWNER_ONLY_GROUPS) when it refuses it. */
-const OWNER_ONLY_NAMES = { private: 'private memory', mentor: 'the mentor', access: 'access management', diary: 'the diary', 'memory.journal': 'the journal' };
+const OWNER_ONLY_NAMES = { private: 'private memory', mentor: 'the mentor', access: 'access management', diary: 'the diary', 'memory.journal': 'the journal', 'memory.snapshot': 'the memory snapshot' };
 
 /** `/nep memory journal`'s `n`: default and bounds. */
 const JOURNAL_N_DEFAULT = 20;
 const JOURNAL_N_MAX = 50;
 const JOURNAL_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The directory under `data/` that `/nep memory snapshot` writes to and never copies. */
+const SNAPSHOTS_DIR = 'snapshots';
+
+/** Files and bytes under `dir`, walked recursively. */
+async function treeSize(dir) {
+  let bytes = 0;
+  let files = 0;
+  for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const inner = await treeSize(full);
+      bytes += inner.bytes;
+      files += inner.files;
+    } else if (entry.isFile()) {
+      bytes += (await fs.promises.stat(full)).size;
+      files += 1;
+    }
+  }
+  return { bytes, files };
+}
 
 /** What the owner's pause/resume reply adds when the persona's announcement did not go out, by reason. */
 const NOT_TOLD = {
@@ -916,7 +937,9 @@ const GIFS_RECACHE_SKIPS = {
  *   resume, forget and wipe (written while `features.journal` is exactly true), `read` for
  *   `/nep memory journal`, `forgetUser` and `removeGuild` for `/nep memory forget|wipe` (run
  *   whatever the switch says: what was journalled goes with the member). Absent -> no records,
- *   and `/nep memory journal` reports it is not available.
+ *   and `/nep memory journal` reports it is not available. `withWriterLock` holds the journal's
+ *   writes while `/nep memory snapshot` copies `data/`; absent, the copy runs without it.
+ * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing
  * message) on bad input; it never touches discord.js.
@@ -946,6 +969,7 @@ export function createAdmin({
   mentorBudget,
   diary,
   journal,
+  dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
 }) {
   /** Owner, or `bot.access` granted the command by exact key, group, or `*`, or a member
    * command while `features.memberCommands` is on (read now) — see
@@ -1871,6 +1895,30 @@ export function createAdmin({
     const records = await journal.read(guildId, { day, kind: kind === 'all' ? null : kind, n });
     if (records.length === 0) return `no journal records on ${day}${kind === 'all' ? '' : ` (${kind})`}`;
     return [`journal ${day}${kind === 'all' ? '' : ` (${kind})`}: last ${records.length}`, ...records.map(journalLine)].join('\n');
+  }
+
+  /**
+   * `/nep memory snapshot`: a consistent copy of `data/` for the tools (tools/memory-sim.mjs,
+   * tools/replay.mjs): the store flushed, then every entry of `data/` but `snapshots/` copied to
+   * `data/snapshots/<UTC time>/` while the journal holds its writes (journal.withWriterLock).
+   * Owner-only (src/discord/access.js). Nothing under `data/` is changed but the new directory.
+   */
+  async function cmdMemorySnapshot() {
+    if (!dataDir) return 'the memory snapshot is not available';
+    store.flush();
+    const root = path.join(dataDir, SNAPSHOTS_DIR);
+    const dest = path.join(root, new Date().toISOString().replace(/[:.]/g, '-'));
+    const copy = async () => {
+      await fs.promises.mkdir(dest, { recursive: true });
+      for (const name of await fs.promises.readdir(dataDir)) {
+        if (name === SNAPSHOTS_DIR) continue;
+        await fs.promises.cp(path.join(dataDir, name), path.join(dest, name), { recursive: true, errorOnExist: true, force: false });
+      }
+      return treeSize(dest);
+    };
+    const { bytes, files } = typeof journal?.withWriterLock === 'function' ? await journal.withWriterLock(copy) : await copy();
+    log.info('admin: memory snapshot', { files, bytes });
+    return `Snapshot written: ${dest} (${files} files, ${bytes} bytes).`;
   }
 
   // ---------------------------------------------------------------------
@@ -3333,6 +3381,7 @@ export function createAdmin({
     'memory.server': (args, context) => cmdMemoryServer(args, context),
     'memory.recent': (args, context) => cmdMemoryRecent(args, context),
     'memory.journal': (args, context) => cmdMemoryJournal(args, context),
+    'memory.snapshot': () => cmdMemorySnapshot(),
     'memory.forget': (args, context) => cmdMemoryForget(args, context),
     'memory.wipe': (args, context) => cmdMemoryWipe(args, context),
     'memory.affinity': (args, context) => cmdMemoryAffinity(args, context),

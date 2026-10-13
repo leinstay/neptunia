@@ -4244,3 +4244,76 @@ test('admin: memory forget rewrites the journal and writes a forget record', asy
   assert.deepEqual([wipe.event, wipe.by], ['wipe', 'owner']);
   assert.match(wiped, /journal files removed: 3/);
 });
+
+// ---------------------------------------------------------------------------
+// memory.snapshot
+// ---------------------------------------------------------------------------
+
+test('admin: memory snapshot flushes and copies data under the writer lock', async () => {
+  const rootDir = makeRoot();
+  const dataDir = path.join(rootDir, 'data');
+  fs.mkdirSync(path.join(dataDir, 'guilds', 'g1', 'journal'), { recursive: true });
+  fs.writeFileSync(path.join(dataDir, 'state.json'), '{"paused":false}');
+  fs.writeFileSync(path.join(dataDir, 'guilds', 'g1', 'guild.json'), '{"self":["Ζωή"]}');
+  fs.writeFileSync(path.join(dataDir, 'guilds', 'g1', 'journal', '2026-10-13.jsonl'), '{"kind":"turn"}\n');
+  fs.mkdirSync(path.join(dataDir, 'snapshots', 'older'), { recursive: true });
+  fs.writeFileSync(path.join(dataDir, 'snapshots', 'older', 'state.json'), '{}');
+
+  const order = [];
+  let locked = false;
+  const journal = {
+    ...fakeJournal(),
+    async withWriterLock(fn) {
+      order.push('lock');
+      locked = true;
+      try {
+        return await fn();
+      } finally {
+        locked = false;
+        order.push('unlock');
+      }
+    },
+  };
+  const store = makeStore();
+  store.flush = () => {
+    order.push(`flush:${locked}`);
+  };
+  const { admin } = makeAdmin(rootDir, { journal, store });
+  const realCp = fs.promises.cp;
+  fs.promises.cp = async (...args) => {
+    order.push(`copy:${locked}`);
+    return realCp(...args);
+  };
+  let reply;
+  try {
+    reply = await admin.run('memory.snapshot', {}, { guildId: 'g1', userId: '42' });
+  } finally {
+    fs.promises.cp = realCp;
+  }
+
+  assert.equal(order[0], 'flush:false');
+  assert.equal(order[1], 'lock');
+  assert.ok(order.slice(2, -1).every((step) => step === 'copy:true'));
+  assert.ok(order.includes('copy:true'));
+  assert.equal(order.at(-1), 'unlock');
+
+  const made = fs.readdirSync(path.join(dataDir, 'snapshots')).filter((name) => name !== 'older');
+  assert.equal(made.length, 1);
+  const dest = path.join(dataDir, 'snapshots', made[0]);
+  assert.equal(fs.readFileSync(path.join(dest, 'guilds', 'g1', 'guild.json'), 'utf8'), '{"self":["Ζωή"]}');
+  assert.equal(fs.readFileSync(path.join(dest, 'guilds', 'g1', 'journal', '2026-10-13.jsonl'), 'utf8'), '{"kind":"turn"}\n');
+  assert.ok(fs.existsSync(path.join(dest, 'state.json')));
+  // Earlier snapshots are never copied into a new one.
+  assert.ok(!fs.existsSync(path.join(dest, 'snapshots')));
+  assert.ok(reply.includes(dest));
+  const bytes = Buffer.byteLength('{"paused":false}') + Buffer.byteLength('{"self":["Ζωή"]}') + Buffer.byteLength('{"kind":"turn"}\n');
+  assert.ok(reply.includes(`${bytes} bytes`));
+});
+
+test('admin: memory snapshot is owner-only and cannot be granted', async () => {
+  const rootDir = makeRoot();
+  const { admin, hot } = makeAdmin(rootDir);
+  hot.config.bot.access = { memory: { everyone: true } };
+  assert.equal(admin.isAllowed('memory.snapshot', { userId: '7' }), false);
+  assert.equal(admin.isAllowed('memory.snapshot', { userId: '42' }), true);
+});
