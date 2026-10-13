@@ -94,9 +94,10 @@ import { emptyAffinity, applyDelta, decayAffinity } from './affinity.js';
 import { mergeEpisodes } from './episodes.js';
 import { loreVersionKey, upsertLore } from './lore.js';
 import { sentenceDiff } from './prose.js';
-import { applyInterestOps, attachDropped, normalizeInterests, normalizeTopic, stripTrailingParenthetical } from './interests.js';
+import { applyInterestOps, applyValidity, attachDropped, normalizeInterests, normalizeTopic, stripTrailingParenthetical, validDay } from './interests.js';
 import { applyDetailOps, normalizeDetails } from './details.js';
 import { applyAliasOps } from './aliases.js';
+import { applyAddressUses, normalizeAddressedAs } from './addressed.js';
 import { clampText } from './clamp.js';
 import { feltLine, recordDrops } from './record.js';
 import { sortByRank } from './ranking.js';
@@ -127,7 +128,9 @@ const DEFAULT_MAX_CLOSED_STORED = 40;
 /** `archive.holdMaxMs` when it is missing (config.json carries the same). */
 const DEFAULT_HOLD_MAX_MS = 5000;
 /** The kinds a profile's `closed` list holds (src/memory/interests.js#applyValidity). */
-const CLOSED_KINDS = ['interest', 'detail', 'alias'];
+const CLOSED_KINDS = ['interest', 'detail', 'alias', 'realName'];
+/** How long a stored real name may be. */
+const REAL_NAME_CHARS = 60;
 
 /** The diary of a guild with no post yet (data/guilds/<id>/diary.json). */
 const emptyDiary = () => ({ posts: [], updatedAt: 0 });
@@ -587,9 +590,76 @@ function normalizeProfile(profile) {
   profile.detailsSeq = nextId;
 
   if (!Array.isArray(profile.aliases)) profile.aliases = [];
+  // Absent stays absent (an old file loads unchanged); a hand-broken one is cleaned or dropped.
+  if ('addressedAs' in profile) profile.addressedAs = normalizeAddressedAs(profile.addressedAs);
+  if ('realName' in profile) {
+    const realName = normalizeRealName(profile.realName);
+    if (realName) profile.realName = realName;
+    else delete profile.realName;
+  }
   normalizeClosed(profile);
   // Only `true` is the flag; anything else a hand edit left is no flag.
   if ('relationshipRewrite' in profile && profile.relationshipRewrite !== true) delete profile.relationshipRewrite;
+}
+
+/** A stored `realName` (`{ name, from, to: null, itemId, recordedAt? }`) as it may be kept: a
+ * non-empty string `name`; `from` a real day or null; `itemId`/`recordedAt` only when non-empty
+ * strings. Anything else is null (the field goes). */
+function normalizeRealName(value) {
+  if (!isPlainObject(value) || typeof value.name !== 'string' || !value.name.trim()) return null;
+  const out = { name: value.name, from: validDay(value.from), to: null };
+  if (typeof value.itemId === 'string' && value.itemId) out.itemId = value.itemId;
+  if (typeof value.recordedAt === 'string' && value.recordedAt) out.recordedAt = value.recordedAt;
+  return out;
+}
+
+/**
+ * Apply one batch's `realName` answer to a profile's stored real name. `raw` is a string or
+ * `{ name, supersedes?, validFrom? }`; the name is trimmed and clamped to 60 characters. Nothing
+ * changes for a missing or empty name, nor for one equal to the stored one (case-insensitive: a
+ * sighting). With nothing stored, the name is set. A different name replaces the stored one only
+ * when `supersedes` names it (its `itemId` or its name, src/memory/interests.js#applyValidity):
+ * the stored one is closed (`validTo` = `validFrom` when given, else the batch day; `supersededBy`
+ * = the new `itemId`) and returned for the profile's `closed` list; without that the stored name
+ * stays. The new value is `{ name, from, to: null, itemId, recordedAt }`, `from` = `validFrom`
+ * when it is a real day, else the batch day.
+ * @param {object|undefined} stored  The profile's `realName`.
+ * @param {unknown} raw
+ * @param {{ seenAt: number, now?: number, mintId: () => string }} opts
+ * @returns {{ realName: object, closed: object[] }|null}  null when nothing changes.
+ */
+function applyRealName(stored, raw, { seenAt, now, mintId }) {
+  const op = isPlainObject(raw) ? raw : { name: raw };
+  if (typeof op.name !== 'string') return null;
+  const name = clampText(op.name, REAL_NAME_CHARS, { tolerance: 1 });
+  if (!name) return null;
+  const batchDay = new Date(seenAt).toISOString().slice(0, 10);
+  const recordedAt = new Date(Number.isFinite(now) ? now : seenAt).toISOString();
+  const fresh = () => ({ name, from: validDay(op.validFrom) ?? batchDay, to: null, itemId: mintId(), recordedAt });
+  if (!stored) return { realName: fresh(), closed: [] };
+  if (normalizeTopic(stored.name) === normalizeTopic(name)) return null;
+  // The stored name as a ranked-item claim, so the shared validity rules close it.
+  const current = { name: stored.name, validFrom: stored.from ?? undefined, itemId: stored.itemId, recordedAt: stored.recordedAt };
+  if (current.validFrom === undefined) delete current.validFrom;
+  const next = { name };
+  const items = [current, next];
+  const closed = applyValidity(items, [{ item: next, supersedes: op.supersedes, validFrom: op.validFrom }], {
+    batchDay,
+    recordedAt,
+    mintId,
+    findOther: (ref) => (typeof ref === 'string' && normalizeTopic(ref) === normalizeTopic(current.name) ? current : undefined),
+  });
+  if (closed.length === 0) return null;
+  return {
+    realName: { name, from: next.validFrom ?? batchDay, to: null, itemId: next.itemId ?? mintId(), recordedAt },
+    closed: closed.map((item) => {
+      const out = { ...item };
+      // The archive knows a closed claim by its itemId: a hand-edited name without one gets one.
+      if (!out.itemId) out.itemId = mintId();
+      if (!out.recordedAt) delete out.recordedAt;
+      return out;
+    }),
+  };
 }
 
 /** A profile's or private layer's `closed` list (the claims a `supersedes` closed, see
@@ -2273,7 +2343,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @param {{ character?: string, style?: string, relationship?: string,
      *   interests?: { add?: object[], update?: object[], seen?: string[], remove?: string[] },
      *   details?: { add?: unknown[], seen?: unknown[], remove?: unknown[] },
-     *   aliases?: { add?: string[], remove?: string[] } }} ops
+     *   aliases?: { add?: string[], remove?: string[] },
+     *   realName?: string|{ name: string, supersedes?: string, validFrom?: string } }} ops
+     *   `realName`: see `applyRealName` -- set when none is stored, a sighting when equal, a
+     *   replacement only through `supersedes`, the replaced one going to the `closed` list (kind
+     *   `realName`).
      * @param {{ fieldChars?: number, maxInterests?: number, maxInterestsStored?: number, topicChars?: number,
      *   noteChars?: number, interestHalfLifeDays?: number, maxDetails?: number, maxDetailsStored?: number,
      *   detailHalfLifeDays?: number, maxAliases?: number, maxAliasesStored?: number, aliasHalfLifeDays?: number,
@@ -2331,10 +2405,38 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         dropped.aliases = withItemIds(aliases.dropped, ITEM_ID_PREFIX.alias, newId);
         dropped.closed.alias = withItemIds(aliases.closed, ITEM_ID_PREFIX.alias, newId);
       }
+      if (ops?.realName !== undefined && ops?.realName !== null) {
+        const real = applyRealName(profile.realName, ops.realName, { seenAt, now: opts.now, mintId: () => `${ITEM_ID_PREFIX.realName}${newId()}` });
+        if (real) {
+          profile.realName = real.realName;
+          dropped.closed.realName = real.closed;
+        }
+      }
       archiveProfileItems(guildId, userId, { item, file: userFile(guildId, userId), previous, dropped, ops });
       storeClosed(guildId, userId, { item, file: userFile(guildId, userId), target: profile, closed: dropped.closed, opts });
 
       profile.updatedAt = new Date(opts.now ?? Date.now()).toISOString();
+      item.dirty = true;
+      return profile;
+    },
+
+    /**
+     * Fold one batch's uses of a member's names into the profile's `addressedAs`
+     * (src/memory/addressed.js#applyAddressUses): a counter like `messageCount`, so `updatedAt`
+     * is left alone. Only an existing profile is written, never a new one; no uses -> nothing.
+     * @param {string} guildId
+     * @param {string} userId
+     * @param {Array<{ name: string, at: number }>} uses
+     * @param {{ halfLifeDays?: number, max?: number, now?: number }} [opts]  `halfLifeDays`:
+     *   `memory.addressHalfLifeDays`.
+     * @returns {object|null}  The profile, or null when there is none.
+     */
+    recordAddressUses(guildId, userId, uses, opts = {}) {
+      const profile = store.getUser(guildId, userId);
+      if (!profile) return null;
+      if (!Array.isArray(uses) || uses.length === 0) return profile;
+      const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
+      profile.addressedAs = applyAddressUses(profile.addressedAs, uses, opts);
       item.dirty = true;
       return profile;
     },

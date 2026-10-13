@@ -4288,3 +4288,57 @@ test('buildRequest: a stopped period reads offStopped; none, or the switch off, 
   const off = buildRequest(baseInput({ config: fakeConfig({ features: { offPeriods: false } }), offPeriods: [{ kind: 'stopped', from, to }] }));
   assert.equal(nowBlockOf(off), bare);
 });
+
+// --- renderProfile: the names people use and the real name -------------------------
+
+test('renderProfile: addressedAs renders most used first (top 5, no numbers), then the aliases not listed yet', () => {
+  const NOW = Date.UTC(2026, 9, 1, 12);
+  const iso = (ms) => new Date(ms).toISOString();
+  const profile = {
+    id: 'p1',
+    names: ['Aria'],
+    aliases: [aliasFixture({ name: 'Ari', weight: 5 }), aliasFixture({ name: 'Rì', weight: 1 })],
+    addressedAs: {
+      // 8 uses 60 days ago are worth 2 now: below the 3 recent ones.
+      Aria: { score: 8, last: iso(NOW - 60 * 86_400_000) },
+      ari: { score: 3, last: iso(NOW) },
+      Ἀρία: { score: 1, last: iso(NOW) },
+      Lia: { score: 0.9, last: iso(NOW) },
+      Ria: { score: 0.8, last: iso(NOW) },
+      Ira: { score: 0.1, last: iso(NOW) },
+    },
+  };
+  const text = renderProfile(profile, labels, { now: NOW, addressHalfLifeDays: 30 });
+  assert.ok(text.includes('Called most often: ari, Aria, Ἀρία, Lia, Ria\n'), text);
+  assert.ok(!text.includes('Ira'), 'only the top 5');
+  assert.ok(text.includes('Called: Rì'), 'the stored alias not already listed');
+  assert.ok(!text.includes('Called: Ari'), text);
+});
+
+test('renderProfile: without addressedAs the aliases line is as before; a realName gets its own line', () => {
+  const profile = {
+    id: 'p1',
+    names: ['Aria'],
+    aliases: [aliasFixture({ name: 'Ari', weight: 5 })],
+    realName: { name: 'Théa', from: '2026-01-01', to: null, itemId: 'rn-2' },
+  };
+  const text = renderProfile(profile, labels);
+  assert.ok(text.includes('Called: Ari'));
+  assert.ok(!text.includes('Called most often'));
+  assert.ok(text.includes('Real name: Théa'));
+  const compact = renderProfile(profile, labels, { compact: true });
+  assert.ok(compact.includes('Real name: Théa'), 'a compact profile shows it too');
+});
+
+test('renderProfile: a freshly replaced real name rides on the new one through labels.profile.before', () => {
+  const NOW = Date.UTC(2026, 9, 1, 12);
+  const profile = {
+    id: 'p1',
+    names: ['Aria'],
+    realName: { name: 'Théa', from: '2026-09-30', to: null, itemId: 'rn-2', recordedAt: new Date(NOW - 86_400_000).toISOString() },
+    closed: [{ kind: 'realName', name: 'Léa', validFrom: '2026-01-01', validTo: '2026-09-30', supersededBy: 'rn-2', itemId: 'rn-1' }],
+  };
+  assert.ok(renderProfile(profile, labels, { now: NOW }).includes('Real name: Théa (was: Léa)'));
+  const later = renderProfile(profile, labels, { now: NOW + 30 * 86_400_000 });
+  assert.ok(later.includes('Real name: Théa') && !later.includes('(was: Léa)'), 'past supersededShownDays the old name is not shown');
+});

@@ -59,6 +59,7 @@ import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay } from '../time.js';
 import { affinityBand, roundScore, strongestMoves } from '../memory/affinity.js';
 import { isConfirmed, isOpen, isStale } from '../memory/interests.js';
 import { topByRank } from '../memory/ranking.js';
+import { rankAddressed } from '../memory/addressed.js';
 import { rankEmojiUsage } from '../memory/emoji-usage.js';
 import { gifHandleMap, normalizeGifs, rankGifs } from '../memory/gifs.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
@@ -317,17 +318,48 @@ function compactInterestsText(interests, labels, halfLifeDays) {
  * `labels.profile.aliases` is missing (an older labels.json never renders
  * this line). Alias names are never token-resolved -- they are literal
  * nicknames, not a reference to someone else. Open items only, with the closed
- * claims and conflict sets of `validity` (see `validityTexts`).
+ * claims and conflict sets of `validity` (see `validityTexts`). `listed` (folded names,
+ * src/memory/recent.js#foldText) leaves out the aliases another line already shows.
  */
-function aliasesText(aliases, labels, maxAliases, aliasHalfLifeDays, validity) {
+function aliasesText(aliases, labels, maxAliases, aliasHalfLifeDays, validity, listed = null) {
   if (!labels.profile?.aliases) return '';
   if (!Array.isArray(aliases) || aliases.length === 0) return '';
   const open = aliases.filter(isOpen);
-  return validityTexts(topByRank(open, maxAliases, aliasHalfLifeDays), open, (item) => item.name, labels.profile, {
+  const shown = listed ? open.filter((item) => !listed.has(foldText(item.name))) : open;
+  return validityTexts(topByRank(shown, maxAliases, aliasHalfLifeDays), open, (item) => item.name, labels.profile, {
     ...validity,
     kind: 'alias',
     renderClosed: (item) => item.name,
   }).join(', ');
+}
+
+/** How many names the `labels.profile.addressed` line shows. */
+const ADDRESSED_SHOWN = 5;
+
+/**
+ * A profile's name lines: with `addressedAs` entries and `labels.profile.addressed`, that line
+ * first -- the top 5 names by the score decayed to `now` (src/memory/addressed.js#rankAddressed,
+ * `addressHalfLifeDays`), names only -- then `labels.profile.aliases` with the stored aliases it
+ * does not already list, if any; else the aliases line as before (`aliasesText`). Then, with a
+ * stored `realName` and `labels.profile.realName`, that line, its replaced name riding on it
+ * (`labels.profile.before`) while fresh, as a closed alias does. A missing label leaves its line out.
+ * @returns {string[]}
+ */
+function nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now }) {
+  const p = labels.profile;
+  const lines = [];
+  const addressed = p.addressed ? rankAddressed(profile.addressedAs, Number.isFinite(now) ? now : Date.now(), addressHalfLifeDays).slice(0, ADDRESSED_SHOWN) : [];
+  if (addressed.length > 0) lines.push(fill(p.addressed, { text: addressed.join(', ') }));
+  const listed = addressed.length > 0 ? new Set(addressed.map((name) => foldText(name))) : null;
+  const aliasesLine = aliasesText(profile.aliases, labels, maxAliases, aliasHalfLifeDays, validity, listed);
+  if (aliasesLine) lines.push(fill(p.aliases, { text: aliasesLine }));
+  const realName = profile.realName;
+  if (p.realName && typeof realName?.name === 'string' && realName.name) {
+    const item = { name: realName.name, itemId: realName.itemId, recordedAt: realName.recordedAt };
+    const [text] = validityTexts([item], [item], (claim) => claim.name, p, { ...validity, kind: 'realName', renderClosed: (claim) => claim.name });
+    lines.push(fill(p.realName, { text }));
+  }
+  return lines;
 }
 
 /**
@@ -493,6 +525,7 @@ function renderProfileShown(
     maxDetails,
     maxAliases,
     aliasHalfLifeDays,
+    addressHalfLifeDays,
     interestHalfLifeDays,
     detailHalfLifeDays,
     confirmAfter,
@@ -526,8 +559,7 @@ function renderProfileShown(
 
   const restLines = [];
   if (!compact && profile.names?.length > 1) restLines.push(fill(p.formerNames, { names: profile.names.slice(1).join(', ') }));
-  const aliasesLine = aliasesText(profile.aliases, labels, maxAliases, aliasHalfLifeDays, validity);
-  if (aliasesLine) restLines.push(fill(p.aliases, { text: aliasesLine }));
+  restLines.push(...nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now }));
   if (profile.character) restLines.push(fill(p.character, { text: resolveChatText(profile.character, nameOf) }));
   const interestsLine = compact
     ? compactInterestsText(profile.interests, labels, interestHalfLifeDays)
@@ -2617,6 +2649,7 @@ export function buildRequest(input) {
     maxDetails: config.memory?.maxDetails,
     maxAliases: config.memory?.maxAliases,
     aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
+    addressHalfLifeDays: config.memory?.addressHalfLifeDays,
     interestHalfLifeDays: config.memory?.interestHalfLifeDays,
     detailHalfLifeDays: config.memory?.detailHalfLifeDays,
     confirmAfter: config.memory?.confirmAfter,
@@ -2858,6 +2891,7 @@ export function buildRequest(input) {
       maxDetails: config.memory?.maxDetails,
       maxAliases: config.memory?.maxAliases,
       aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
+      addressHalfLifeDays: config.memory?.addressHalfLifeDays,
       interestHalfLifeDays: config.memory?.interestHalfLifeDays,
       detailHalfLifeDays: config.memory?.detailHalfLifeDays,
       confirmAfter: config.memory?.confirmAfter,
@@ -2946,6 +2980,7 @@ export function buildRequest(input) {
         relationships,
         maxAliases: config.memory?.maxAliases,
         aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
+        addressHalfLifeDays: config.memory?.addressHalfLifeDays,
         interestHalfLifeDays: config.memory?.interestHalfLifeDays,
         confirmAfter: config.memory?.confirmAfter,
         staleDays: config.memory?.interestStaleDays,
