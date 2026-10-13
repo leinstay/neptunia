@@ -80,6 +80,7 @@ test('pullSettings: zeros and false are live values, garbage falls back, counts 
         maxChannels: 2,
         maxAgeDays: 30,
         sameAudience: false,
+        seenTtlMinutes: 0,
       },
     },
   });
@@ -94,6 +95,7 @@ test('pullSettings: zeros and false are live values, garbage falls back, counts 
     maxChannels: 2,
     maxAgeDays: 30,
     sameAudience: false,
+    seenTtlMinutes: 0,
   });
 
   const broken = pullSettings({
@@ -109,6 +111,7 @@ test('pullSettings: zeros and false are live values, garbage falls back, counts 
         maxChannels: -1,
         maxAgeDays: -3,
         sameAudience: 'no',
+        seenTtlMinutes: -5,
       },
     },
   });

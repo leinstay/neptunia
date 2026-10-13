@@ -31,6 +31,7 @@ export const PULL_DEFAULTS = Object.freeze({
   maxChannels: 1,
   maxAgeDays: 0,
   sameAudience: true,
+  seenTtlMinutes: 120,
 });
 
 /** An integer from a finite `value` of at least `min` (floored), else `fallback`. */
@@ -51,7 +52,7 @@ function numberAtLeast(value, fallback, min) {
  * @param {object} config  The live config.
  * @returns {{ windowMinutes: number, minMessages: number, maxMessages: number, maxPictures: number,
  *   maxNewDescriptions: number, describeTimeoutMs: number, scanMessages: number, maxChannels: number,
- *   maxAgeDays: number, sameAudience: boolean }}
+ *   maxAgeDays: number, sameAudience: boolean, seenTtlMinutes: number }}
  */
 export function pullSettings(config) {
   const p = config?.context?.pull ?? {};
@@ -67,6 +68,7 @@ export function pullSettings(config) {
     maxChannels: intAtLeast(p.maxChannels, d.maxChannels, 0),
     maxAgeDays: numberAtLeast(p.maxAgeDays, d.maxAgeDays, 0),
     sameAudience: p.sameAudience !== false,
+    seenTtlMinutes: numberAtLeast(p.seenTtlMinutes, d.seenTtlMinutes, 0),
   };
 }
 
