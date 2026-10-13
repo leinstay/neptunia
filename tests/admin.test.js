@@ -16,6 +16,8 @@ import {
 import { emptyAffinity, applyDelta } from '../src/memory/affinity.js';
 import { upsertLore } from '../src/memory/lore.js';
 import { createStore } from '../src/memory/store.js';
+import { createAppendStore } from '../src/memory/append-store.js';
+import { createArchive } from '../src/memory/archive.js';
 import { createMemoryUpdater } from '../src/memory/update.js';
 import { createWarmup } from '../src/memory/warmup.js';
 import { createSpontaneous } from '../src/behavior/spontaneous.js';
@@ -271,10 +273,14 @@ function makeStore() {
       profiles.set(key, profile);
       return profile.affinity;
     },
-    forgetUser(guildId, userId) {
+    forgetDeps: null,
+    forgetResult: null,
+    forgetUser(guildId, userId, deps) {
       forgotten.push([String(guildId), String(userId)]);
+      this.forgetDeps = deps;
       profiles.delete(`${guildId}:${userId}`);
       privates.delete(`${guildId}:${userId}`);
+      return Promise.resolve(this.forgetResult ?? { vault: `/data/vault/forget-${userId}`, counts: { profile: 1, journal: 5 } });
     },
     privates,
     forgottenPrivate,
@@ -299,9 +305,14 @@ function makeStore() {
       return [];
     },
     wipeCalls: [],
+    vaultCalls: [],
+    vaultGuild(guildId, opts) {
+      this.vaultCalls.push([String(guildId), opts]);
+      return '/data/vault/wipe-1';
+    },
     wipeGuild(guildId, opts) {
       this.wipeCalls.push([String(guildId), opts]);
-      return { users: 2, channels: 1, loreRemoved: 3, loreKept: 1, bufferMessages: 5 };
+      return { users: 2, channels: 1, loreRemoved: 3, loreKept: 1, bufferMessages: 5, privateLayers: 1, recordFiles: 4, archiveFiles: 2, backfillFiles: 1 };
     },
   };
   return store;
@@ -333,6 +344,7 @@ function makeAdmin(rootDir, extra = {}) {
     mentor: extra.mentor,
     mentorCases: extra.mentorCases,
     mentorBudget: extra.mentorBudget,
+    archive: extra.archive,
     journal: extra.journal,
   });
   return { admin, hot, store };
@@ -1690,8 +1702,13 @@ test('run: memory.wipe with the exact guild name wipes the guild and reports the
 
   const result = await admin.run('memory.wipe', { confirm: 'The Server' }, { guildId: 'g1' });
 
-  assert.deepEqual(store.wipeCalls, [['g1', undefined]]);
-  assert.ok(result.includes('users removed: 2'));
+  assert.deepEqual(store.wipeCalls, [['g1', { vault: '/data/vault/wipe-1', vaultDir: 'vault' }]]);
+  for (const part of [
+    'profiles removed: 2', 'private memory removed: 1 private layers', 'record files removed: 4', 'archive files removed: 2',
+    'backfill files removed: 1', 'journal: kept (no journal is running)', 'snapshots that lost this server: 0',
+  ]) {
+    assert.ok(result.includes(part), part);
+  }
   assert.ok(result.includes('channels removed: 1'));
   assert.ok(result.includes('lore removed: 3 (kept: 1)'));
   assert.ok(result.includes('buffer messages cleared: 5'));
@@ -4065,6 +4082,54 @@ test('run: memory.recent works while paused, writes nothing and is open to a gra
 });
 
 // ---------------------------------------------------------------------------
+// memory.archive / memory.restore
+// ---------------------------------------------------------------------------
+
+test('admin: memory restore re-inserts an episode and writes a restored event, idempotent', async () => {
+  const rootDir = makeRoot();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-admin-archive-'));
+  const appendStore = createAppendStore({ fsyncMs: 0, log: { info() {}, warn() {}, error() {} } });
+  const archive = createArchive({ appendStore, dataDir, log: { info() {}, warn() {}, error() {} } });
+  const store = createStore({ dataDir, archive });
+  const { admin } = makeAdmin(rootDir, { store, archive });
+  try {
+    const opts = { maxEpisodes: 1, maxNew: 3, now: Date.UTC(2026, 9, 12) };
+    store.touchUser('g1', 'u1', 'Zoé', opts.now);
+    store.addEpisodes('g1', 'u1', [{ date: '2026-10-01', what: 'Έχασε στο σκάκι', quote: 'ξανά', weight: 1 }], opts);
+    const [old] = store.getUser('g1', 'u1').episodes;
+    store.addEpisodes('g1', 'u1', [{ date: '2026-10-12', what: 'Κέρδισε στο σκάκι', weight: 3 }], opts);
+    await store.settleArchive('g1');
+    assert.deepEqual(store.getUser('g1', 'u1').episodes.map((ep) => ep.what), ['Κέρδισε στο σκάκι'], 'evicted and archived');
+
+    const listed = await admin.run('memory.archive', { userId: 'u1' }, { guildId: 'g1' });
+    assert.match(listed, new RegExp(`evicted\\s+episode\\s+${old.itemId}`));
+    assert.match(listed, /Έχασε στο σκάκι/);
+    assert.equal(await admin.run('memory.archive', { kind: 'episode' }, { guildId: 'g1' }), '(none)', 'nothing at the server level');
+
+    const reply = await admin.run('memory.restore', { itemId: old.itemId }, { guildId: 'g1' });
+    assert.match(reply, /restored/);
+    const episodes = store.getUser('g1', 'u1').episodes;
+    const back = episodes.find((ep) => ep.itemId === old.itemId);
+    assert.ok(back, 'the episode is hot again under its own id');
+    assert.deepEqual([back.date, back.what, back.quote, back.weight, back.addedAt], [old.date, old.what, old.quote, old.weight, old.addedAt]);
+    assert.equal(episodes.length, 2, 'not pinned, and no cap applied by the restore itself');
+    let lines = await archive.find('g1', old.itemId);
+    assert.deepEqual(lines.map((entry) => [entry.event, entry.by]), [['evicted', 'store'], ['restored', 'owner']]);
+
+    // Again: the item is hot already, nothing is written.
+    const again = await admin.run('memory.restore', { itemId: old.itemId }, { guildId: 'g1' });
+    assert.match(again, /already/);
+    assert.equal(store.getUser('g1', 'u1').episodes.length, 2);
+    lines = await archive.find('g1', old.itemId);
+    assert.equal(lines.length, 2);
+
+    await assert.rejects(admin.run('memory.restore', { itemId: 'ep-none' }, { guildId: 'g1' }), /no archived item/);
+  } finally {
+    await appendStore.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // the journal: system records, the pause announcement, /nep journal, forget and wipe
 // ---------------------------------------------------------------------------
 
@@ -4232,10 +4297,10 @@ test('admin: memory forget rewrites the journal and writes a forget record', asy
   const result = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
   assert.ok(result.includes('Forgot 123'));
   assert.deepEqual(store.forgotten, [['g1', '123']]);
-  assert.deepEqual(journal.calls[0], ['forgetUser', 'g1', '123']);
+  assert.equal(store.forgetDeps.journal, journal, 'the store runs the journal part under the lock');
   const forget = journal.calls.find(([name]) => name === 'system');
   assert.deepEqual([forget[1], forget[2].event, forget[2].by, forget[2].participants], ['g1', 'forget', 'owner', ['123']]);
-  assert.match(result, /journal records removed: 5/i);
+  assert.match(result, /journal records: 5/i);
 
   // The wipe empties the journal, then records itself.
   const wiped = await admin.run('memory.wipe', { confirm: 'The Server' }, { guildId: 'g1' });
@@ -4316,4 +4381,79 @@ test('admin: memory snapshot is owner-only and cannot be granted', async () => {
   hot.config.bot.access = { memory: { everyone: true } };
   assert.equal(admin.isAllowed('memory.snapshot', { userId: '7' }), false);
   assert.equal(admin.isAllowed('memory.snapshot', { userId: '42' }), true);
+});
+
+// ---------------------------------------------------------------------------
+// memory.forget / memory.wipe: the vault
+// ---------------------------------------------------------------------------
+
+test('admin: memory forget reports the vault path and per-store counts', async () => {
+  const rootDir = makeRoot();
+  const journal = fakeJournal();
+  const hot = makeHot(rootDir);
+  hot.config.memory = { vaultDir: 'κρύπτη' };
+  hot.prompts.labels = { ...hot.prompts.labels, memory: { redaction: 'κάποιος' } };
+  const { admin, store } = makeAdmin(rootDir, { hot, journal });
+  store.forgetResult = {
+    vault: '/data/κρύπτη/forget-123-2026-10-13T12-00-00-000Z',
+    counts: { profile: 1, private: 1, voice: 2, recent: 3, participation: 4, versions: 1, archive: 5, record: 6, journal: 7, requests: 8, snapshots: 9, diary: 10, backfill: 11 },
+  };
+
+  const reply = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
+
+  assert.deepEqual([store.forgetDeps.journal, store.forgetDeps.vaultDir, store.forgetDeps.redaction], [journal, 'κρύπτη', 'κάποιος']);
+  assert.ok(reply.includes('Vault: /data/κρύπτη/forget-123-2026-10-13T12-00-00-000Z'));
+  for (const part of [
+    'profile: 1', 'private memory: 1', 'voice items: 2', 'recent lines: 3', 'participation messages: 4', 'version files: 1',
+    'archive entries: 5', 'record lines: 6', 'journal records: 7', 'request dumps: 8', 'snapshots: 9', 'diary posts redacted: 10',
+    'backfill candidates: 11',
+  ]) {
+    assert.ok(reply.includes(part), part);
+  }
+
+  // A job cut short: the reply says it finishes at the next start and still names the vault.
+  store.forgetUser = () => Promise.reject(Object.assign(new Error('disk full'), { code: 'ENOSPC', vault: '/data/κρύπτη/forget-123-x' }));
+  const cut = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
+  assert.match(cut, /next start/);
+  assert.ok(cut.includes('/data/κρύπτη/forget-123-x'));
+});
+
+test('admin: memory wipe reports the vault path', async () => {
+  const rootDir = makeRoot();
+  const order = [];
+  const journal = {
+    ...fakeJournal(),
+    async withWriterLock(fn) {
+      order.push('lock');
+      try {
+        return await fn();
+      } finally {
+        order.push('unlock');
+      }
+    },
+    removeGuild: async () => {
+      order.push('journal');
+      return { files: 3 };
+    },
+  };
+  const hot = makeHot(rootDir);
+  hot.config.memory = { vaultDir: 'κρύπτη' };
+  const client = clientWithGuild('g1', 'The Server');
+  const { admin, store } = makeAdmin(rootDir, { hot, journal, client });
+  store.vaultGuild = (guildId, opts) => {
+    order.push(['vault', guildId, opts.vaultDir]);
+    return '/data/κρύπτη/wipe-2026-10-13T12-00-00-000Z';
+  };
+  const wipeGuild = store.wipeGuild.bind(store);
+  store.wipeGuild = (guildId, opts) => {
+    order.push('wipe');
+    return { ...wipeGuild(guildId, opts), snapshots: 2, vault: opts.vault };
+  };
+
+  const reply = await admin.run('memory.wipe', { confirm: 'The Server' }, { guildId: 'g1' });
+
+  assert.deepEqual(order, ['lock', ['vault', 'g1', 'κρύπτη'], 'journal', 'wipe', 'unlock'], 'the vault before anything is deleted');
+  assert.deepEqual(store.wipeCalls, [['g1', { vault: '/data/κρύπτη/wipe-2026-10-13T12-00-00-000Z', vaultDir: 'κρύπτη' }]]);
+  assert.ok(reply.includes('Vault: /data/κρύπτη/wipe-2026-10-13T12-00-00-000Z'));
+  assert.ok(reply.includes('snapshots that lost this server: 2'));
 });

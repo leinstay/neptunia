@@ -13,6 +13,9 @@ import { log } from './log.js';
 import { createStore } from './memory/store.js';
 import { createAppendStore } from './memory/append-store.js';
 import { createJournal } from './memory/journal.js';
+import { createRecord } from './memory/record.js';
+import { createArchive } from './memory/archive.js';
+import { mirrorDryRun } from './behavior/limits.js';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm } from './llm/openrouter.js';
@@ -100,7 +103,6 @@ if (!isValidCommandName(hot.config.bot.commandName)) {
 for (const { key, use } of deprecatedModelKeys(hot.config)) log.warn('index: deprecated model key ignored', { key, use });
 
 const dataDir = path.join(ROOT_DIR, 'data');
-const store = createStore({ dataDir });
 // The append-only files under data/ (the journal): one serialized writer per file. Its settings
 // are read once here; the journal reads its own section (journal.*) at each write.
 const appendStore = createAppendStore({
@@ -108,7 +110,35 @@ const appendStore = createAppendStore({
   retryMax: hot.config.appendStore?.retryMax ?? 1000,
   log,
 });
-const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {} });
+// The record (src/memory/record.js): every observed message, the persona's own lines and her
+// feelings, written while features.record is exactly true (read at each write). Its own append
+// store, flushed every record.fsyncMs (read once here).
+const recordAppendStore = createAppendStore({
+  fsyncMs: hot.config.record?.fsyncMs ?? 500,
+  retryMax: hot.config.appendStore?.retryMax ?? 1000,
+  log,
+});
+// A forget holds the record's appends with the journal's writer lock (journal.withWriterLock).
+const record = createRecord({ appendStore: recordAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked() });
+// The archive (src/memory/archive.js): every memory item a write drops is copied here before any
+// hot file loses it, while features.archive is exactly true (read at each write). Its own append
+// store, so its counts tell whether an archive line is on disk.
+const archiveAppendStore = createAppendStore({
+  fsyncMs: hot.config.appendStore?.fsyncMs ?? 500,
+  retryMax: hot.config.appendStore?.retryMax ?? 1000,
+  log,
+});
+const archive = createArchive({ appendStore: archiveAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked() });
+// The journal's writer lock (a snapshot, a forget, a wipe, the ledger at start) flushes the record's
+// and the archive's append stores too, and holds their writers through their writerGate.
+const journal = createJournal({ appendStore, dataDir, config: () => hot.config.journal ?? {}, lockStores: [recordAppendStore, archiveAppendStore] });
+const store = createStore({
+  dataDir,
+  record,
+  recordOn: () => hot.config.features?.record === true,
+  archive,
+  archiveOn: () => hot.config.features?.archive === true,
+});
 
 const calibrator = createCalibrator(store.state.data.calibration);
 const llm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: store.state });
@@ -166,7 +196,8 @@ const getSelfName = (guildId) => client.guilds.cache.get(guildId)?.members.me?.d
 // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
 const routeChannels = createChannelRouter({ hot, store, llm });
 // The search of the server's own history beside the web search (features.recall): the lookup's server part.
-const recall = createRecall({ hot, store, llm, describer });
+// It reads the archive and the record too (read only).
+const recall = createRecall({ hot, store, llm, describer, archive, record });
 // When each person last wrote in each channel (fed by the message handler): a turn answering
 // someone waits until they stop writing (pace.settleMs).
 const activity = createActivity();
@@ -189,6 +220,7 @@ const turns = createTurnRunner({
   isWarmingUp: () => warmup.isWarmingUp(),
   activity,
   journal,
+  record,
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
@@ -209,6 +241,12 @@ const memory = createMemoryUpdater({
   onPortraitRequest: (guildId, userId, reason) => {
     warmup.refreshPortrait(guildId, userId, reason).catch((err) => log.error('index: portrait refresh failed', { error: err }));
   },
+  // features.record: each batch reaches the record before it is analyzed.
+  record,
+  // features.archive: a pending queue over archive.pendingMax pauses memory application.
+  archive,
+  // A status line for the development channel (bot.dryRunChannelId, read now).
+  notify: (text) => mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header: 'memory', body: text }),
 });
 const tagHistory = createTagHistory();
 // The custom emoji ranking read from history (Discord API only, no LLM): once at startup, again on /nep emoji rescan.
@@ -261,6 +299,8 @@ const onMessage = createMessageHandler({
   lookup,
   // pace.settleMs: every member's message is noted for the turn runner's settle wait.
   activity,
+  // features.record: deletions and edits reach the record.
+  record,
 });
 
 // One attention (mention.oneAtATime): once a turn frees its channel, answer
@@ -303,6 +343,8 @@ const admin = createAdmin({
   mentor,
   mentorCases,
   mentorBudget,
+  // /nep memory archive | restore: the archive of what left hot memory.
+  archive,
   // /nep pause|resume, memory forget|wipe: system records; /nep memory journal reads it.
   journal,
 });
@@ -337,6 +379,26 @@ function sweepAffinityDecay() {
   if (store.state.data.paused || isWarmingUp()) return;
   const counts = store.decayAffinities(guildId, Date.now(), config.relationships ?? {});
   if (counts.decayed > 0) log.info('index: affinity decay applied', counts);
+}
+
+/**
+ * The archive drain: what the archive refused waits in its pending queue (and the victims stay
+ * hot); this retries it every archive.drainMs (read before each wait; config.json's 30000), so
+ * the queue empties without waiting for new messages. Skipped while paused (the trim would make
+ * the store dirty). Runs whatever features.archive says: what waits was queued while it was on.
+ */
+let archiveDrainTimer = null;
+function scheduleArchiveDrain() {
+  const ms = Number(hot.config.archive?.drainMs);
+  archiveDrainTimer = setTimeout(() => {
+    Promise.resolve()
+      .then(() => (instance.guildId && !store.state.data.paused ? store.drainArchive(instance.guildId) : null))
+      .catch((err) => log.error('index: archive drain failed', { error: err }))
+      .finally(() => {
+        if (!shuttingDown) scheduleArchiveDrain();
+      });
+  }, Number.isFinite(ms) && ms > 0 ? ms : 30_000);
+  archiveDrainTimer.unref?.();
 }
 
 /**
@@ -394,14 +456,18 @@ async function pruneJournalRequests(guildId) {
 }
 
 /**
- * The journal at start: forgets a crash left half done are finished first (whatever the
- * switch: what was journalled about a forgotten member goes); then, with the journal on, a
+ * The journal at start: forgets a crash left half done are finished first (store.resumeForgets,
+ * every step of `/nep memory forget`, whatever the switch: what was journalled about a forgotten
+ * member goes), then the deletion ledger is re-applied (store.applyLedger: a restored copy brings
+ * no forgotten member back) -- both before the updater's first tick; then, with the journal on, a
  * `.running` marker left by a run that never stopped cleanly becomes an `unclean-stop` record,
  * this run's marker is written and the `start` record follows.
  */
 async function startJournal(guildId) {
-  const { finished } = await journal.resumeForgets(guildId);
-  if (finished > 0) log.info('journal: forgets finished', { guildId, finished });
+  // memory.vaultDir and labels.memory.redaction, read now (store.js carries the same fallbacks).
+  const deps = { journal, vaultDir: hot.config.memory?.vaultDir, redaction: hot.prompts.labels?.memory?.redaction };
+  await store.resumeForgets(guildId, deps);
+  await store.applyLedger(guildId, deps);
   if (!journalOn()) return;
   const { unclean } = await journal.markRunning(guildId);
   if (unclean) log.warn('journal: unclean stop noted', { guildId });
@@ -441,6 +507,7 @@ client.once(Events.ClientReady, async () => {
   const notes = createNotesScheduler({ hot, store, refreshChannelNotes: warmup.refreshChannelNotes, refreshServerNotes: warmup.refreshServerNotes, isWarmingUp, getGuildId, now: Date.now });
   every(60_000, () => notes.tick(), 'notes.tick');
   every(3_600_000, sweepAffinityDecay, 'affinity decay');
+  scheduleArchiveDrain();
 
   if (!hot.config.bot.guildId) {
     log.info('index: bot.guildId is not set, using the only guild the bot is in — pin it in config.local.json', {
@@ -491,6 +558,10 @@ client.once(Events.ClientReady, async () => {
 
   // Affinity decay: once now (catches up the days the process was down), then hourly (above).
   await startupStep('affinity decay', sweepAffinityDecay, { wait: true });
+
+  // What the archive refused before this start: drained once now (it also counts the queue for
+  // the stall check), then on the timer (above). Fire-and-forget.
+  await startupStep('archive.drain', () => (store.state.data.paused ? null : store.drainArchive(instance.guildId)));
 });
 
 // A running instance never switches servers live: bot.guildId is only read at
@@ -524,6 +595,8 @@ hot.on('change', ({ what }) => {
 client.on('messageCreate', onMessage);
 // Discord attaches some embeds (a Tenor GIF's) after the message arrived: fold them into memory.
 client.on('messageUpdate', onMessage.onMessageUpdate);
+// A deleted message is a `deleted` line of the record (features.record).
+client.on('messageDelete', onMessage.onMessageDelete);
 // A new or edited channel of the served guild may name a member the cache has not seen.
 const warmOnChannel = (channel) => {
   if (instance.guildId && channel?.guild?.id === instance.guildId) audienceWarmer.warm({ quiet: true });
@@ -539,17 +612,22 @@ async function shutdown(signal) {
   shuttingDown = true;
   log.info('index: shutting down', { signal });
   for (const id of timers) clearInterval(id);
+  if (archiveDrainTimer) clearTimeout(archiveDrainTimer);
   spontaneous.stop();
   diary.stop();
   onMessage.stop();
+  // archive.holdMaxMs: how long a file held for the archive may wait before it is written anyway.
+  const holdMaxMs = hot.config.archive?.holdMaxMs ?? 5000;
   hot.close();
-  store.flush();
+  await store.flushSettled({ holdMaxMs });
   // The journal's `stop` record (journal on), then the run marker goes: this stop was clean.
   if (instance.guildId) {
     if (journalOn()) await journal.system(instance.guildId, { event: 'stop', by: 'service', note: signal });
     await journal.clearRunning(instance.guildId).catch((err) => log.warn('index: journal marker not removed', { error: err }));
   }
   await appendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
+  await recordAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
+  await archiveAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
   await client.destroy();
   process.exit(0);
 }

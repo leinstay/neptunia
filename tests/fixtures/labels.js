@@ -134,6 +134,8 @@ export const labels = {
     episodes: 'moments you remember together:',
     episode: '{date}: {what} — "{quote}" ({feeling})',
     episodeNoQuote: '{date}: {what} ({feeling})',
+    before: '(was: {text})',
+    conflict: '{a} / {b} (conflicting, {dateA} and {dateB})',
   },
   lore: {
     entry: '{title}: {text}',
@@ -224,6 +226,7 @@ export const labels = {
   memory: {
     privateNote: 'Private batch: judge only this person.',
     privateChannel: 'direct chat',
+    redaction: 'someone',
   },
   ping: {
     prompt: 'Reply with one word: pong',

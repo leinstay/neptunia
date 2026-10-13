@@ -22,7 +22,8 @@
 // The snapshot is copied to a scratch directory (`--scratch`, default a new temporary
 // directory) and the batches are replayed in order through src/memory/update.js
 // #createMemoryUpdater with a store rooted at the scratch copy: every write lands there, never in
-// data/. Its clock is each batch's last message time. The journal it writes to is an in-memory
+// data/; the deletion ledger (the snapshot's and the live one) is applied to it first
+// (src/memory/store.js#applyLedger). Its clock is each batch's last message time. The journal it writes to is an in-memory
 // capture (the batch limits, `over-limit` refusals included). Portrait rewrites are not run.
 // Model requests go through the real client with the daily counters on a private copy
 // (`countAgainstDailyCap: false`, `origin: 'memory-sim'`), capped at twice the estimate's
@@ -224,7 +225,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, llmClien
   if (fs.existsSync(scratch) && fs.readdirSync(scratch).length > 0) throw new CliError(`the scratch directory ${scratch} is not empty`);
   fs.cpSync(snapshotDir, scratch, { recursive: true });
 
-  const { createStore } = await import('../src/memory/store.js');
+  const { createStore, readLedger } = await import('../src/memory/store.js');
   const { createMemoryUpdater } = await import('../src/memory/update.js');
   const { createCalibrator } = await import('../src/llm/tokens.js');
   const { createLlm } = await import('../src/llm/openrouter.js');
@@ -232,6 +233,8 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, llmClien
   const { block } = await import('../src/behavior/prompt.js');
 
   const store = createStore({ dataDir: scratch });
+  // Nobody forgotten comes back through the copy: its own ledger and the live one, applied first.
+  await store.applyLedger(guildId, { entries: readLedger(liveData, guildId) });
   const before = new Map(store.listUserProfiles(guildId).map((p) => [p.id, structuredClone(p)]));
   const stateData = store.state.data;
   const llmState = { data: { llmDay: stateData.llmDay, llmCount: stateData.llmCount }, markDirty() {} };

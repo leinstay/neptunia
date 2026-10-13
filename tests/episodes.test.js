@@ -458,3 +458,16 @@ test('episodes: imports neither voice.js nor prompt.js, directly or through anot
   assert.equal(reached.includes('src/memory/voice.js'), false);
   assert.equal(reached.includes('src/behavior/prompt.js'), false);
 });
+
+test('episodes: eviction returns the dropped items with their itemId', () => {
+  const light = { date: '2026-09-01', what: 'έφυγε νωρίς', quote: '', feeling: '', weight: 1, addedAt: '2026-09-01T10:00:00.000Z', itemId: 'ep-light' };
+  const heavy = { date: '2026-09-02', what: 'έπαιξε σκάκι', quote: '', feeling: '', weight: 5, addedAt: '2026-09-02T10:00:00.000Z', itemId: 'ep-heavy' };
+  const result = mergeEpisodes([light, heavy], [{ what: 'τραγούδησε', weight: 4 }], opts({ maxEpisodes: 2 }));
+  assert.equal(result.added, 1);
+  assert.deepEqual(result.dropped, [light]);
+  assert.equal(result.dropped[0].itemId, 'ep-light');
+  assert.deepEqual(result.episodes.map((ep) => ep.itemId), ['ep-heavy', undefined]);
+
+  assert.deepEqual(mergeEpisodes([light], [{ what: 'νέο', weight: 2 }], opts()).dropped, [], 'no eviction drops nothing');
+  assert.deepEqual(mergeEpisodes([light], [], opts()).dropped, [], 'nothing incoming drops nothing');
+});

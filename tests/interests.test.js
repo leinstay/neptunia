@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyInterestOps,
+  evictToCapacity,
   normalizeInterests,
   normalizeTopic,
   isConfirmed,
@@ -544,4 +545,57 @@ test('applyInterestOps: collapsing falls back to the other note when the heavier
   ];
   const items = applyInterestOps(existing, { seen: ['anime'] }, opts());
   assert.equal(items[0].note, 'the only note here', 'the heavier variant had no note, so the lighter one\'s note is kept');
+});
+
+test('interests: eviction returns the dropped items with their itemId', () => {
+  const old = { topic: 'σκάκι', note: '', weight: 1, firstSeen: '2025-01-01T00:00:00.000Z', lastSeen: '2025-01-01T00:00:00.000Z', itemId: 'in-old' };
+  const kept = { topic: 'café', note: '', weight: 4, firstSeen: '2026-09-20T00:00:00.000Z', lastSeen: '2026-09-20T00:00:00.000Z', itemId: 'in-kept' };
+  const gone = { topic: 'ζωγραφική', note: '', weight: 2, firstSeen: '2026-09-19T00:00:00.000Z', lastSeen: '2026-09-19T00:00:00.000Z', itemId: 'in-gone' };
+
+  const { kept: survivors, dropped } = evictToCapacity([old, kept], 1, 30);
+  assert.deepEqual(survivors, [kept]);
+  assert.deepEqual(dropped, [old]);
+  assert.deepEqual(evictToCapacity([old, kept], 5, 30), { kept: [old, kept], dropped: [] });
+
+  const result = applyInterestOps([old, kept, gone], { remove: ['ζωγραφική'] }, opts({ maxInterests: 1, halfLifeDays: 30 }));
+  assert.deepEqual(result, [kept], 'the return is still the plain list');
+  assert.deepEqual(result.dropped.map((item) => item.itemId), ['in-gone', 'in-old'], 'removed first, then evicted');
+  assert.deepEqual(Object.keys(result), ['0'], 'dropped is not an enumerable field of the list');
+});
+
+// ---- validity: supersedes / validFrom / conflict ------------------------------
+
+test('interests: a supersedes op closes the old claim with validTo and supersededBy and keeps it in closed', () => {
+  const old = { topic: 'σκάκι', note: 'παίζει', weight: 2, firstSeen: '2026-09-01T10:00:00.000Z', lastSeen: '2026-09-10T10:00:00.000Z', itemId: 'in-old', validFrom: '2026-09-01' };
+  let n = 0;
+  const mintId = () => `in-new${++n}`;
+  const items = applyInterestOps([old], { add: [{ topic: 'πόκερ', note: 'παίζει', supersedes: 'in-old', validFrom: '2026-09-20' }] }, { seenAt: NOW, mintId });
+  assert.deepEqual(items.map((item) => item.topic), ['πόκερ'], 'the closed claim leaves the ranked list');
+  assert.equal(items[0].itemId, 'in-new1');
+  assert.equal(items[0].validFrom, '2026-09-20');
+  assert.equal(items[0].recordedAt, new Date(NOW).toISOString());
+  assert.deepEqual(items.closed, [{ ...old, validTo: '2026-09-20', supersededBy: 'in-new1' }]);
+  assert.deepEqual(items.dropped, [], 'closing is not losing');
+
+  // Without validFrom the old claim closes on the batch day; a supersedes by topic works too.
+  const byTopic = applyInterestOps([old], { update: [{ topic: 'πόκερ', note: '', supersedes: 'Σκάκι' }] }, { seenAt: NOW, mintId });
+  assert.equal(byTopic.closed[0].validTo, '2026-09-21');
+  assert.equal(byTopic.closed[0].supersededBy, byTopic[0].itemId);
+
+  // A plain remove still removes (and reports it dropped), nothing is closed.
+  const removed = applyInterestOps([old], { remove: ['σκάκι'] }, { seenAt: NOW });
+  assert.deepEqual(removed, []);
+  assert.deepEqual(removed.closed, []);
+  assert.equal(removed.dropped.length, 1);
+
+  // Validity fields survive normalisation; an old item loads unchanged.
+  const stored = { ...old, recordedAt: '2026-09-01T10:00:00.000Z', validTo: null, supersededBy: null, conflictSetId: 'in-x' };
+  assert.deepEqual(normalizeInterests([stored, { topic: 'go', note: '', weight: 1, firstSeen: null, lastSeen: null }]), [stored, { topic: 'go', note: '', weight: 1, firstSeen: null, lastSeen: null }]);
+});
+
+test('interests: a conflict op marks the named open claim and the new one with one conflictSetId', () => {
+  const old = { topic: 'σκάκι', note: 'μισεί', weight: 1, firstSeen: '2026-09-01T10:00:00.000Z', lastSeen: '2026-09-01T10:00:00.000Z', itemId: 'in-old' };
+  const items = applyInterestOps([old], { add: [{ topic: 'σκάκι online', note: 'λατρεύει', conflict: 'in-old' }] }, { seenAt: NOW, mintId: () => 'in-new' });
+  assert.deepEqual(items.map((item) => [item.topic, item.conflictSetId]), [['σκάκι', 'in-old'], ['σκάκι online', 'in-old']]);
+  assert.deepEqual(items.closed, []);
 });

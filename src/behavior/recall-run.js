@@ -26,7 +26,15 @@
 // persona's stored memory (recall.js matchMemory; read-only store calls, no
 // request), under the gates the reply prompt applies to each store, and the
 // items go to the summary as `<memory>`: they alone are enough to ask it,
-// but they are notes, not chat, so they are never returned verbatim.
+// but they are notes, not chat, so they are never returned verbatim. The
+// archive (src/memory/archive.js) is a fifth source of those items, streamed
+// over the months asked (recall.js scanArchive); the record
+// (src/memory/record.js) of the last days is read for a dated or "recently"
+// question (recall.js matchRecord) and its windows join Discord's. Before any
+// archive entry or record line is matched, the audience rule of the turn's
+// channel refuses what the pull rail would (by the entry's `scope.channel`,
+// the line's channel), and a private entry or line passes only on a private
+// turn with its own member.
 // Logs carry counts, ids and codes only: never a form, a name or a message.
 // What a run found and chose is diagnosed from the trace file instead
 // (`features.recallTrace`, data/guilds/<id>/recall-trace.jsonl, see traceLine):
@@ -50,7 +58,9 @@ import {
   cutStretch,
   dropChatHits,
   fallbackWindow,
+  isRecentCue,
   matchMemory,
+  matchRecord,
   mergeWindows,
   parseRecallAnswer,
   queryKey,
@@ -60,6 +70,7 @@ import {
   recallSettings,
   renderRecallWindows,
   sampleOffsets,
+  scanArchive,
   searchPlan,
 } from './recall.js';
 
@@ -100,7 +111,19 @@ function hitFrom(raw) {
 
 /** A fresh stats record of one run. */
 function emptyStats() {
-  return { memory: 0, planned: 0, queries: 0, failed: 0, hits: 0, inChatDropped: 0, kept: 0, clusters: 0, selfClusters: 0, windows: 0, summary: null, ms: 0 };
+  return { memory: 0, archived: 0, record: 0, planned: 0, queries: 0, failed: 0, hits: 0, inChatDropped: 0, kept: 0, clusters: 0, selfClusters: 0, windows: 0, summary: null, ms: 0 };
+}
+
+/** The start (epoch ms, UTC) of the month `months - 1` months before the month of `ms`: the last `months` archive segments. */
+function monthsBack(ms, months) {
+  const day = new Date(ms);
+  return Date.UTC(day.getUTCFullYear(), day.getUTCMonth() - (months - 1), 1);
+}
+
+/** The last message's time of a window, or -Infinity. */
+function windowEnd(window) {
+  const messages = window?.messages ?? [];
+  return messages.length > 0 && Number.isFinite(messages[messages.length - 1].ts) ? messages[messages.length - 1].ts : -Infinity;
 }
 
 /** An epoch-ms time as an ISO string, or null. */
@@ -182,6 +205,10 @@ function summaryFailure(err) {
  * @param {object} deps.llm        From createLlm(): `complete`, `capLeft`.
  * @param {object|null} [deps.describer]  From createDescriber (src/memory/describe.js): only its
  *   `cachedDescriptions` is used, never a fresh caption.
+ * @param {{ iterate: Function }|null} [deps.archive]  From createArchive (src/memory/archive.js): only
+ *   `iterate` is used (read only). Without it the archive is not searched.
+ * @param {{ iterate: Function }|null} [deps.record]  From createRecord (src/memory/record.js): only
+ *   `iterate` is used (read only). Without it the record is not read.
  * @param {() => number} [deps.now]
  * @param {{ set: Function, clear: Function }} [deps.timers]  setTimeout / clearTimeout (tests inject fakes).
  * @returns {{ run: (args: { guild: object, guildId?: string, channel: object, partner?: object|null, selfId: string, selfName: string,
@@ -190,7 +217,7 @@ function summaryFailure(err) {
  *   people: { id: string, name: string, username: string, count: number, newestTs: number|null }[], stats: object }>,
  *   available: () => boolean }}
  */
-export function createRecall({ hot, store, llm, describer = null, now = Date.now, timers = DEFAULT_TIMERS }) {
+export function createRecall({ hot, store, llm, describer = null, archive = null, record = null, now = Date.now, timers = DEFAULT_TIMERS }) {
   /** Whether `llm.maxRequestsPerDay` is spent today: the summary would be refused. */
   function capSpent() {
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
@@ -295,8 +322,16 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
    * `features.episodes` on, lore with `features.lore` on, learned items with
    * memory on (all three guild-wide), recent lines by shownRecentLines. A
    * private layer is never read. A store read that throws gives no item.
+   * The archive (`deps.archive`): the entries recorded since the start of
+   * the `when:` range, else over the last `recall.archiveMonths` months (0:
+   * none without a range), streamed through recall.js scanArchive with
+   * `allowEntry` applied before matching; archived episodes, recent lines and
+   * participation episodes under the same switches as their hot stores. On a
+   * private turn the partner's own private archive is read too. An archive
+   * read that throws logs `recall: archive failed` and costs only its items.
+   * `recent` ranks as a vague "recently" (isRecentCue).
    */
-  function storedMemory({ config, settings, guild, guildId, channel, partner, server }) {
+  async function storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal }) {
     const none = { items: [], nameOf: () => null };
     const forms = Array.isArray(server.forms) ? server.forms : [];
     const who = Array.isArray(server.who) ? server.who : [];
@@ -305,6 +340,38 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
       const features = config.features ?? {};
       const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
       const names = new Map(profiles.filter((p) => p?.id).map((p) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null]));
+      const ranged = Number.isFinite(server.from) || Number.isFinite(server.to);
+      let archived = [];
+      if (typeof archive?.iterate === 'function' && (ranged || settings.archiveMonths > 0)) {
+        const from = Number.isFinite(server.from) ? server.from : monthsBack(now(), Math.max(1, settings.archiveMonths));
+        const query = { from: new Date(from).toISOString() };
+        // Entries are recorded after what they observed: the months from the range's start on.
+        const entries = (async function* () {
+          yield* archive.iterate(guildId, query);
+          if (privateUserId) yield* archive.iterate(guildId, { ...query, privateUserId });
+        })();
+        const switchedOff = new Set([
+          ...(features.episodes === false ? ['episode'] : []),
+          ...(features.recent === false ? ['recent'] : []),
+          ...(features.participation === false ? ['participation'] : []),
+        ]);
+        try {
+          archived = await scanArchive(entries, {
+            forms,
+            who,
+            profiles,
+            from: server.from ?? null,
+            to: server.to ?? null,
+            timezone: config.bot?.timezone,
+            recent,
+            allow: (entry) => !switchedOff.has(entry?.itemKind) && allowEntry(entry),
+            max: settings.memoryItems,
+            signal,
+          });
+        } catch (err) {
+          log.warn('recall: archive failed', { channel: channel.id, name: err?.name ?? null });
+        }
+      }
       const items = matchMemory({
         forms,
         who,
@@ -312,15 +379,74 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
         lore: features.lore !== false && typeof store.getLore === 'function' ? (store.getLore(guildId) ?? []) : [],
         learned: typeof store.getGuild === 'function' ? (store.getGuild(guildId)?.learned ?? []) : [],
         recentLines: shownRecentLines(config, guild, guildId, channel, partner),
+        archived,
         from: server.from ?? null,
         to: server.to ?? null,
         max: settings.memoryItems,
         timezone: config.bot?.timezone,
+        recent,
       });
       return { items, nameOf: (id) => names.get(String(id)) ?? null };
     } catch (err) {
       log.warn('recall: memory failed', { channel: channel.id, name: err?.name ?? null });
       return none;
+    }
+  }
+
+  /**
+   * The record windows of a dated or "recently" question (recall.js
+   * matchRecord), or none: without `deps.record`, with `recall.recordDays`
+   * 0, or for a question with neither a `when:` range nor a recent cue. The
+   * forms are the server forms and the name forms; the members are the
+   * people found, matched by id and by their stored names and aliases. Read
+   * through `allowLine` (the audience and private-owner rule) before
+   * matching; on a private turn the partner's private record is read after
+   * the guild's. At most `recall.maxClusters` windows. A read that throws
+   * logs `recall: record failed` and gives none.
+   */
+  async function recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId }) {
+    const ranged = Number.isFinite(server.from) || Number.isFinite(server.to);
+    if (typeof record?.iterate !== 'function' || settings.recordDays <= 0 || (!ranged && !recent)) return [];
+    try {
+      const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+      const ids = new Set(people.map((p) => String(p.id)));
+      const stored = new Map(profiles.filter((p) => p?.id).map((p) => [String(p.id), p]));
+      const aliases = [...ids].flatMap((id) => {
+        const profile = stored.get(id);
+        if (!profile) return [];
+        return [...(Array.isArray(profile.names) ? profile.names : []), ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((a) => a?.name)].filter((name) => typeof name === 'string' && name);
+      });
+      const source = {
+        async *iterate(id, query) {
+          yield* record.iterate(id, query);
+          if (privateUserId) yield* record.iterate(id, { ...query, privateUserId });
+        },
+      };
+      const found = await matchRecord(guildId, {
+        record: source,
+        range: { from: server.from ?? null, to: server.to ?? null },
+        participants: [...ids],
+        forms: [...(server.forms ?? []), ...(server.who ?? [])],
+        aliases,
+        recordDays: settings.recordDays,
+        recordContext: settings.recordContext,
+        now: now(),
+        maxWindows: settings.maxClusters,
+        allowLine,
+        exclude: ownIds,
+        recent,
+        nameOf: (id) => {
+          const profile = stored.get(String(id));
+          return (typeof profile?.names?.[0] === 'string' ? profile.names[0] : null) ?? guild?.members?.cache?.get?.(id)?.displayName ?? null;
+        },
+        selfName,
+        channelNameOf: (id) => guild?.channels?.cache?.get?.(id)?.name ?? null,
+        signal,
+      });
+      return found.windows;
+    } catch (err) {
+      log.warn('recall: record failed', { channel: channelId, name: err?.name ?? null });
+      return [];
     }
   }
 
@@ -373,9 +499,37 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
     };
     const result = (extra = {}) => ({ text: null, stretch: null, people: [], stats: { ...stats, ms: now() - started }, ...extra });
 
-    // 0. Stored memory: no request, before the first Discord one so it always fits the budget.
-    const memory = storedMemory({ config, settings, guild, guildId, channel, partner, server });
+    // The pull rail toward this turn's channel, judged once per channel: Discord hits, record
+    // lines and archived items of a channel it refuses never reach the summary.
+    const judged = new Map();
+    const sourceOf = (id) => {
+      if (!judged.has(id)) {
+        let source = null;
+        try {
+          const verdict = checkPull({ guild, channelId: id, destination: channel, partner, config, now: now() });
+          source = verdict.skip === null ? verdict.channel : null;
+        } catch {
+          source = null;
+        }
+        judged.set(id, source);
+      }
+      return judged.get(id);
+    };
+    // A private entry or line is its member's alone: only a private turn with that member reads it.
+    const privateUserId = !channel.guild && typeof partner?.id === 'string' && partner.id ? partner.id : null;
+    const allowScope = (scope) => {
+      if (scope?.private === true) return privateUserId !== null && scope.user === privateUserId;
+      return typeof scope?.channel !== 'string' || sourceOf(scope.channel) !== null;
+    };
+    const allowEntry = (entry) => allowScope(entry?.scope);
+    const allowLine = (line) => (line?.scope?.private === true ? allowScope(line.scope) : typeof line?.scope?.channel === 'string' && allowScope(line.scope));
+    const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
+
+    // 0. Stored memory (the archive included): no request, before the first Discord one so it always fits the budget.
+    const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal });
+    if (signal.aborted) return null;
     stats.memory = memory.items.length;
+    stats.archived = memory.items.filter((item) => item.kind.startsWith('archived ')).length;
 
     // 1. People.
     const people = await findPeople({ guild, guildId, who: server.who ?? [], maxPeople: settings.maxPeople, selfId, signal: searchSignal, searchUntil, beforeRequest });
@@ -396,7 +550,11 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
       before: Number.isFinite(oldest) ? oldest : null,
     });
     const peopleOut = () => people.map((p) => ({ count: 0, newestTs: null, ...p }));
-    if (plan.length === 0 && memory.items.length === 0) {
+
+    // 2b. The record of the last days, for a dated or "recently" question: no request.
+    const recordWindows = await recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId });
+    if (signal.aborted) return null;
+    if (plan.length === 0 && memory.items.length === 0 && recordWindows.length === 0) {
       log.info('recall: skipped', { channel: channelId, reason: Number.isFinite(server.from) ? 'visible' : 'no-query' });
       return result({ people: peopleOut() });
     }
@@ -437,21 +595,7 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
     }
     stats.hits = hits.size;
 
-    // 4. Dropped: other bots, the turn's own chat, channels the pull rail refuses here (judged once each).
-    const judged = new Map();
-    const sourceOf = (id) => {
-      if (!judged.has(id)) {
-        let source = null;
-        try {
-          const verdict = checkPull({ guild, channelId: id, destination: channel, partner, config, now: now() });
-          source = verdict.skip === null ? verdict.channel : null;
-        } catch {
-          source = null;
-        }
-        judged.set(id, source);
-      }
-      return judged.get(id);
-    };
+    // 4. Dropped: other bots, the turn's own chat, channels the pull rail refuses here (sourceOf, judged once each).
     // The turn's own chat first, before clustering: those lines are in `<chat>` already.
     const unseen = dropChatHits([...hits.values()], ownIds);
     stats.inChatDropped = unseen.dropped;
@@ -515,12 +659,23 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
       });
     }
     const windows = mergeWindows(chosen.map((cluster) => windowOf.get(cluster)));
+    // The record's windows join them by time (Discord's order kept), unless the search already shows all their lines.
+    const shownIds = new Set(windows.flatMap((window) => window.messages.map((m) => m.id)));
+    for (const window of recordWindows) {
+      if (!window.messages.some((m) => !shownIds.has(m.id))) continue;
+      const at = windows.findIndex((other) => windowEnd(other) < windowEnd(window));
+      if (at === -1) windows.push(window);
+      else windows.splice(at, 0, window);
+      stats.record += 1;
+    }
     stats.windows = windows.length;
     const descriptions = cachedCaptions(config, guildId, windows);
     for (const window of windows) window.descriptions = descriptions;
     log.info('recall: searched', {
       channel: channelId,
       memory: stats.memory,
+      archived: stats.archived,
+      record: stats.record,
       planned: stats.planned,
       queries: stats.queries,
       failed: stats.failed,
@@ -568,6 +723,7 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
             replyQuoteChars: config.context?.replyQuoteChars,
             nameOf: memory.nameOf,
             answerChars: settings.answerChars,
+            memoryTokens: settings.memoryTokens,
             now: now(),
             ...render,
           })
@@ -631,8 +787,11 @@ export function createRecall({ hot, store, llm, describer = null, now = Date.now
    * `daily` (`recall.maxPerDay` runs today), each before any request; later
    * `visible` (the range lies inside the turn's own chat) or `no-hits`
    * (nothing left to read), either only when no stored memory matched
-   * either (storedMemory; `stats.memory` its items, also on `recall:
-   * searched`): matched memory alone still asks the summary. The first
+   * either (storedMemory; `stats.memory` its items, `stats.archived` those
+   * from the archive, also on `recall: searched`) and the record gave no
+   * window (recordWindowsFor; `stats.record` the record windows that joined
+   * the search's, also on `recall: searched`): matched memory or a record
+   * window alone still asks the summary. The first
    * request of a run (a Discord one, or the summary of a run on memory
    * alone) bumps `recallDay`/`recallCount` once. Never rejects: a failure logs `recall:
    * failed` (`reason`: the rail code of a failed summary request, `timeout`

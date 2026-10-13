@@ -37,6 +37,7 @@ import { createDescriber } from '../src/memory/describe.js';
 import { createLookup } from '../src/web/lookup.js';
 import { createMentor } from '../src/mentor/mentor.js';
 import { createMentorBudget } from '../src/mentor/budget.js';
+import { buildExtractRequest, rosterOf, windowsOf } from '../tools/lib/backfill.mjs';
 import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
@@ -157,6 +158,7 @@ const LOADS = {
   mentorSandbox: [...SYSTEM, 'reply'],
   mentorScore: ['mentor-score', 'mentor-signs', ...CHARACTER],
   mentorDiagnose: ['mentor-diagnose', 'mentor-signs', ...SYSTEM, 'reply'],
+  backfill: ['backfill'],
 };
 
 /** The shipped config.json with `overrides` deep-merged over a fresh copy. */
@@ -1357,4 +1359,22 @@ test('createMentor: a failing run fills the situations, sandbox, score and diagn
     assert.ok(calls.length > 0, `no ${kind} request was sent`);
     for (const call of calls) assertFilled(call.messages, { files, blocks }, `mentor ${kind}`);
   }
+});
+
+test('backfill: the extract request of tools/backfill.mjs carries prompts/backfill.md whole', () => {
+  const at = (minutes) => new Date(NOW + minutes * MINUTE_MS).toISOString();
+  const lines = [
+    { kind: 'seen', messageId: '1', occurredAt: at(0), scope: { channel: '700000000000000001' }, by: ANA, replyTo: null, text: 'Καλημέρα', media: [], mentions: [] },
+    { kind: 'said', messageId: '2', occurredAt: at(1), scope: { channel: '700000000000000001' }, replyTo: '1', text: 'Γεια', media: [], mentions: [] },
+  ];
+  const [window] = windowsOf(lines, { gapMinutes: shippedConfig().recall.clusterGapMinutes });
+  const messages = buildExtractRequest({
+    prompts: SHIPPED.prompts,
+    selfName: SELF_NAME,
+    selfId: SELF_ID,
+    window,
+    roster: rosterOf(window, { selfId: SELF_ID, selfName: SELF_NAME, namesOf: () => ['Ana'] }),
+    channelName: 'général',
+  });
+  assertFilled(messages, { files: LOADS.backfill, blocks: ['roster', 'window'] }, 'backfill extract');
 });

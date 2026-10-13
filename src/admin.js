@@ -7,11 +7,12 @@
 // member's own notification switch, open to everyone while
 // `features.memberCommands` is on). This is the ONLY place in the project that ever
 // deletes stored memory, through the three functions store.js allows for it:
-// store.forgetUser (one profile, private layer included), store.forgetPrivate
+// store.forgetUser (one member everywhere, the vault copy first), store.forgetPrivate
 // (one member's private layer only, `/nep private forget` and
 // `/nep private purge`) and
 // store.wipeGuild (a whole guild's memory,
-// `/nep memory wipe`, gated by the served guild's exact name). The tracked
+// `/nep memory wipe`, gated by the served guild's exact name); src/index.js only finishes at start
+// a forget a crash cut short and re-applies the deletion ledger. The tracked
 // prompts/ layer is never written at runtime — live corrections always land
 // in the untracked prompts.local/ layer.
 //
@@ -64,13 +65,15 @@ import { backfillDiary } from './behavior/diary.js';
 import { anchorMax, checkCaseText } from './mentor/cases.js';
 import { renderCard, renderFile, renderLastRun } from './mentor/report.js';
 import { log } from './log.js';
-import { clampAtBoundary } from './memory/clamp.js';
+import { clampAtBoundary, oneLine } from './memory/clamp.js';
+import { ARCHIVE_KINDS, archiveEntry } from './memory/archive.js';
 import { countToday, utcDay, zonedDay } from './time.js';
 import { formatClock } from './discord/format.js';
 import { liveRecent, recentSettings } from './memory/recent.js';
 import { VOICE_DAILY } from './memory/update.js';
 import { PORTRAIT_SLOTS, portraitSettings } from './memory/portrait.js';
 import { journalLine } from './memory/journal.js';
+import { DEFAULT_REDACTION, DEFAULT_VAULT_DIR, SNAPSHOTS_DIR } from './memory/store.js';
 
 /** `/nep access grant/revoke`'s command keys that ONLY read — everything else (including every
  * group and `*`) is treated as opening a write command, and gets the "changes memory or config"
@@ -85,6 +88,7 @@ const READ_ONLY_ACCESS_KEYS = new Set([
   'memory.channel',
   'memory.server',
   'memory.recent',
+  'memory.archive',
   'rule.list',
   'lore.list',
   'lore.show',
@@ -109,9 +113,6 @@ const OWNER_ONLY_NAMES = { private: 'private memory', mentor: 'the mentor', acce
 const JOURNAL_N_DEFAULT = 20;
 const JOURNAL_N_MAX = 50;
 const JOURNAL_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** The directory under `data/` that `/nep memory snapshot` writes to and never copies. */
-const SNAPSHOTS_DIR = 'snapshots';
 
 /** Files and bytes under `dir`, walked recursively. */
 async function treeSize(dir) {
@@ -933,12 +934,16 @@ const GIFS_RECACHE_SKIPS = {
  * `diary` — from createDiary() (src/behavior/diary.js), optional: `force({ kind })` (`/nep diary post`)
  *   and `status()` (`/nep diary show`, the plan in the `set` reply). Absent -> `show` prints the
  *   channel and the history size only, and `post` reports the diary is not running.
+ * `archive` — from createArchive() (src/memory/archive.js), optional: `iterate` (`/nep memory
+ *   archive`), `find` and `append` (`/nep memory restore`, with the store's `restoreArchived`).
+ *   Absent -> both report the archive is not available.
  * `journal` — from createJournal() (src/memory/journal.js), optional: `system` records of pause,
  *   resume, forget and wipe (written while `features.journal` is exactly true), `read` for
- *   `/nep memory journal`, `forgetUser` and `removeGuild` for `/nep memory forget|wipe` (run
- *   whatever the switch says: what was journalled goes with the member). Absent -> no records,
- *   and `/nep memory journal` reports it is not available. `withWriterLock` holds the journal's
- *   writes while `/nep memory snapshot` copies `data/`; absent, the copy runs without it.
+ *   `/nep memory journal`, handed to store.forgetUser for `/nep memory forget` and `removeGuild`
+ *   for `/nep memory wipe` (run whatever the switch says: what was journalled goes with the
+ *   member). Absent -> no records, and `/nep memory journal` reports it is not available.
+ *   `withWriterLock` holds the journal's, the record's and the archive's writes while `/nep memory
+ *   snapshot` copies `data/` and while a forget or a wipe runs; absent, they run without it.
  * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing
@@ -968,6 +973,7 @@ export function createAdmin({
   mentorCases,
   mentorBudget,
   diary,
+  archive = null,
   journal,
   dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
 }) {
@@ -1307,7 +1313,9 @@ export function createAdmin({
       pending.clear();
     }
 
-    store.flush();
+    // A file held for the archive (an item rewritten in place) waits up to archive.holdMaxMs, then is written.
+    if (typeof store.flushSettled === 'function') await store.flushSettled({ holdMaxMs: hot.config?.archive?.holdMaxMs ?? 5000 });
+    else store.flush();
     const dropped = typeof store.dropCaches === 'function' ? store.dropCaches() : 0;
 
     log.info('admin: paused', { dropped, mentorStopped });
@@ -1769,6 +1777,78 @@ export function createAdmin({
     return [`recent lines: ${live.length} live, window ${settings.hours} h`, ...lines].join('\n');
   }
 
+  /** One archive entry's text on one line: its text fields joined (an exchange's messages by their text), tokens resolved. */
+  function archivedText(entry, resolve) {
+    const parts = [];
+    for (const value of Object.values(entry?.text ?? {})) {
+      if (typeof value === 'string' && value.trim()) parts.push(value);
+      else if (Array.isArray(value)) parts.push(value.map((message) => (typeof message?.text === 'string' ? message.text : '')).filter(Boolean).join(' / '));
+    }
+    return oneLine(resolve(parts.filter(Boolean).join(' | ')));
+  }
+
+  /**
+   * `/nep memory archive [user] [kind] [n]`: the newest `n` (1..100, default 20) entries of the
+   * guild's archive (src/memory/archive.js), newest first: with a member, those scoped to them;
+   * without one, the server-level ones (no member scope). `kind` narrows to one item kind. The
+   * private archives are never read here. One line each: the UTC day the item left, the event,
+   * the kind, the item id and its text (tokens resolved, cut to 160 characters). Read only; the
+   * archive is streamed and only the newest `n` are kept in memory.
+   */
+  async function cmdMemoryArchive(args, context) {
+    const guildId = requireGuildId(context);
+    if (!archive) return 'the archive is not available';
+    const kind = args?.kind ?? null;
+    if (kind !== null && !ARCHIVE_KINDS.includes(kind)) throw new Error(`unknown kind; one of: ${ARCHIVE_KINDS.join(', ')}`);
+    const n = Number.isInteger(args?.n) ? Math.min(100, Math.max(1, args.n)) : 20;
+    const userId = args?.userId ? String(args.userId) : null;
+    const newest = [];
+    for await (const entry of archive.iterate(guildId, { scope: userId ? { user: userId } : null, kinds: kind ? [kind] : null })) {
+      if (!userId && typeof entry?.scope?.user === 'string') continue;
+      newest.push(entry);
+      if (newest.length > n) newest.shift();
+    }
+    if (newest.length === 0) return NONE;
+    const { resolve } = tokenResolver(guildId);
+    return newest
+      .reverse()
+      .map((entry) => `${String(entry.recordedAt ?? '').slice(0, 10)}  ${entry.event}  ${entry.itemKind}  ${entry.itemId}  ${clampAtBoundary(archivedText(entry, resolve), 160)}`)
+      .join('\n');
+  }
+
+  /**
+   * `/nep memory restore <itemId>`: the item's newest archived version back into its hot list
+   * (store.restoreArchived: under its own id, not pinned), then a `restored` line in the archive
+   * (by `owner`). Idempotent: an item already hot changes nothing and writes nothing. Waits for
+   * a running analyzer batch first; refused while paused.
+   */
+  async function cmdMemoryRestore(args, context) {
+    assertNotPaused();
+    const guildId = requireGuildId(context);
+    const itemId = String(args?.itemId ?? '').trim();
+    if (!itemId) throw new Error('an item id is required');
+    if (!archive || typeof store.restoreArchived !== 'function') throw new Error('the archive is not available');
+    await waitForAnalyzer();
+    const versions = (await archive.find(guildId, itemId)).filter((entry) => entry.event !== 'restored');
+    if (versions.length === 0) throw new Error(`no archived item ${itemId}`);
+    const latest = versions.at(-1);
+    const result = store.restoreArchived(guildId, latest);
+    if (!result.restored) {
+      if (result.reason === 'hot') return `${latest.itemKind} ${itemId} is already in memory; nothing changed`;
+      if (result.reason === 'no-profile') throw new Error(`no stored memory to restore ${itemId} into`);
+      throw new Error(`a ${latest.itemKind} cannot be restored`);
+    }
+    const item = typeof result.item === 'string' ? { itemId: latest.itemId, text: result.item } : result.item;
+    const line = archiveEntry(item, { itemKind: latest.itemKind, event: 'restored', scope: latest.scope, by: 'owner', participants: latest.participants });
+    const privateUserId = latest.scope?.private === true ? latest.scope.user : null;
+    try {
+      await archive.append(guildId, [line], privateUserId ? { privateUserId } : {});
+    } catch (error) {
+      return `restored ${latest.itemKind} ${itemId}; the archive line failed (${error?.code ?? 'error'})`;
+    }
+    return `restored ${latest.itemKind} ${itemId}`;
+  }
+
   /**
    * `/nep alias add`: confirms the alias at once instead of
    * waiting for it to be sighted `memory.confirmAfter` times naturally —
@@ -1851,10 +1931,11 @@ export function createAdmin({
     return formatAliasList(after, memoryCfg);
   }
 
-  /** `/nep memory forget`: one member's profile and private layer (store.forgetUser), once a
-   * live-analyzer run in flight has landed, and their journal records (journal.forgetUser, first:
-   * it closes the private journal's files before the store deletes the directory). A journal
-   * that fails keeps its marker and finishes at the next start. Refused while paused. */
+  /** `/nep memory forget`: one member everywhere (store.forgetUser: the vault copy first, then the
+   * profile and private layer, the voice items, versions, archive, record and journal lines, the
+   * diary redacted, request dumps, snapshots; the ledger last), once a live-analyzer run in flight
+   * has landed, under the journal's writer lock. The reply names the vault and the counts per
+   * store. A job cut short keeps its marker and finishes at the next start. Refused while paused. */
   async function cmdMemoryForget(args, context) {
     assertNotPaused();
     const userId = args?.userId;
@@ -1862,19 +1943,27 @@ export function createAdmin({
     const guildId = requireGuildId(context);
 
     await waitForAnalyzer();
-    let journalNote = '';
-    if (journal) {
-      try {
-        const counts = await journal.forgetUser(guildId, userId);
-        journalNote = ` Journal records removed: ${counts?.dropped ?? 0}.`;
-      } catch (err) {
-        log.warn('admin: journal forget failed', { code: err?.code ?? null, guildId });
-        journalNote = ' The journal is not cleared yet: it finishes at the next start.';
-      }
+    let result;
+    try {
+      result = await store.forgetUser(guildId, userId, {
+        journal: journal ?? null,
+        vaultDir: hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR,
+        redaction: hot.prompts?.labels?.memory?.redaction ?? DEFAULT_REDACTION,
+      });
+    } catch (err) {
+      log.warn('admin: forget unfinished', { code: err?.code ?? null, guildId });
+      return `The forget of ${userId} is not finished (see the log): it finishes at the next start, and until then the member is hidden. Vault: ${err?.vault ?? '-'}`;
     }
-    store.forgetUser(guildId, userId); // cascades to the member's private layer
     await journalSystem(guildId, { event: 'forget', by: 'owner', participants: [String(userId)] });
-    return `Forgot ${userId} (public profile and private memory).${journalNote}`;
+    const n = (key) => result?.counts?.[key] ?? 0;
+    return [
+      `Forgot ${userId} (public profile and private memory).`,
+      `Vault: ${result?.vault ?? '-'}`,
+      `profile: ${n('profile')}, private memory: ${n('private')}, voice items: ${n('voice')}, recent lines: ${n('recent')}, ` +
+        `participation messages: ${n('participation')}, version files: ${n('versions')}`,
+      `archive entries: ${n('archive')}, record lines: ${n('record')}, journal records: ${n('journal')}, request dumps: ${n('requests')}, ` +
+        `snapshots: ${n('snapshots')}, diary posts redacted: ${n('diary')}, backfill candidates: ${n('backfill')}`,
+    ].join('\n');
   }
 
   /**
@@ -1899,7 +1988,7 @@ export function createAdmin({
 
   /**
    * `/nep memory snapshot`: a consistent copy of `data/` for the tools (tools/memory-sim.mjs,
-   * tools/replay.mjs): the store flushed, then every entry of `data/` but `snapshots/` copied to
+   * tools/replay.mjs): the store flushed, then every entry of `data/` but `snapshots/` and the vault copied to
    * `data/snapshots/<UTC time>/` while the journal holds its writes (journal.withWriterLock).
    * Owner-only (src/discord/access.js). Nothing under `data/` is changed but the new directory.
    */
@@ -1908,10 +1997,12 @@ export function createAdmin({
     store.flush();
     const root = path.join(dataDir, SNAPSHOTS_DIR);
     const dest = path.join(root, new Date().toISOString().replace(/[:.]/g, '-'));
+    // The vault (memory.vaultDir, read now) is the owner's copy of what was forgotten: never copied.
+    const vaultTop = path.relative(dataDir, path.resolve(dataDir, hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR)).split(path.sep)[0];
     const copy = async () => {
       await fs.promises.mkdir(dest, { recursive: true });
       for (const name of await fs.promises.readdir(dataDir)) {
-        if (name === SNAPSHOTS_DIR) continue;
+        if (name === SNAPSHOTS_DIR || name === vaultTop) continue;
         await fs.promises.cp(path.join(dataDir, name), path.join(dest, name), { recursive: true, errorOnExist: true, force: false });
       }
       return treeSize(dest);
@@ -2100,7 +2191,9 @@ export function createAdmin({
 
   /**
    * A deliberate, owner-only clean start: wipes this guild's whole stored
-   * memory (store.wipeGuild) once a live-analyzer run in flight has landed.
+   * memory (store.wipeGuild) once a live-analyzer run in flight has landed, under the journal's
+   * writer lock: the guild directory is copied into the vault first (store.vaultGuild) and the reply
+   * names it.
    * Runs only when `confirm` matches the served guild's name exactly
    * (trimmed, case-sensitive) — otherwise nothing changes and the reply says
    * what it deletes and what to type.
@@ -2115,36 +2208,48 @@ export function createAdmin({
     if (confirm !== guildName) {
       return (
         'This deletes everything remembered about this server: every member profile and private memory, the server habits, ' +
-        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore, the journal and the warmup progress. ' +
+        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore, the record, the archive, the backfill files, the journal, the request dumps, the deletion ledger, this server in every snapshot and the warmup progress; a copy of it all goes to the vault first. ' +
         `To confirm, run again with confirm: ${guildName}`
       );
     }
 
     await waitForAnalyzer();
     if (isWarmingUp()) throw new Error(warmupBusyText());
-    // The journal first: its files are closed before the store deletes the private directories.
-    let journalLines = [];
-    if (journal) {
-      try {
-        const removed = await journal.removeGuild(guildId);
-        journalLines = [`journal files removed: ${removed?.files ?? 0}`];
-      } catch (err) {
-        log.warn('admin: journal wipe failed', { code: err?.code ?? null, guildId });
-        journalLines = ['journal: not removed (a disk error, see the log)'];
+    const vaultDir = hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR;
+    const wipe = async () => {
+      // The vault first, then the journal (its files are closed before the store deletes the
+      // private directories), then the rest.
+      const vault = store.vaultGuild(guildId, { vaultDir });
+      let journalLines = ['journal: kept (no journal is running)'];
+      if (journal) {
+        try {
+          const removed = await journal.removeGuild(guildId);
+          journalLines = [`journal files removed: ${removed?.files ?? 0}`];
+        } catch (err) {
+          log.warn('admin: journal wipe failed', { code: err?.code ?? null, guildId });
+          journalLines = ['journal: not removed (a disk error, see the log)'];
+        }
       }
-    }
-    const counts = store.wipeGuild(guildId);
-    log.info('admin: memory wiped', counts);
+      return { counts: store.wipeGuild(guildId, { vault, vaultDir }), journalLines, vault };
+    };
+    const { counts, journalLines, vault } = typeof journal?.withWriterLock === 'function' ? await journal.withWriterLock(wipe) : await wipe();
+    log.info('admin: memory wiped', { users: counts.users, channels: counts.channels, loreRemoved: counts.loreRemoved, snapshots: counts.snapshots ?? 0 });
     await journalSystem(guildId, { event: 'wipe', by: 'owner' });
 
     return [
       `Memory wiped for ${guildName}.`,
-      `users removed: ${counts.users} (with their private memory)`,
+      `Vault: ${counts.vault ?? vault}`,
+      `profiles removed: ${counts.users ?? 0}`,
+      `private memory removed: ${counts.privateLayers ?? 0} private layers, with every private directory`,
+      `record files removed: ${counts.recordFiles ?? 0}`,
+      `archive files removed: ${counts.archiveFiles ?? 0}`,
+      `backfill files removed: ${counts.backfillFiles ?? 0}`,
+      ...journalLines,
+      `snapshots that lost this server: ${counts.snapshots ?? 0}`,
       `channels removed: ${counts.channels}`,
       `lore removed: ${counts.loreRemoved} (kept: ${counts.loreKept})`,
       `buffer messages cleared: ${counts.bufferMessages}`,
-      ...journalLines,
-      'Also removed: the server habits, the learned list, the emoji ranking, the voice queue, the recent lines and the warmup progress.',
+      'Also removed: the server habits, the learned list, the emoji ranking, the voice queue, the recent lines, the participation store, the recall trace, the profile versions, the deletion ledger and the warmup progress.',
       'Kept: owner lore, the GIF library, the media description cache, token calibration, the daily request counts and the spontaneous schedule.',
     ].join('\n');
   }
@@ -3380,6 +3485,8 @@ export function createAdmin({
     'memory.channel': (args, context) => cmdMemoryChannel(args, context),
     'memory.server': (args, context) => cmdMemoryServer(args, context),
     'memory.recent': (args, context) => cmdMemoryRecent(args, context),
+    'memory.archive': (args, context) => cmdMemoryArchive(args, context),
+    'memory.restore': (args, context) => cmdMemoryRestore(args, context),
     'memory.journal': (args, context) => cmdMemoryJournal(args, context),
     'memory.snapshot': () => cmdMemorySnapshot(),
     'memory.forget': (args, context) => cmdMemoryForget(args, context),

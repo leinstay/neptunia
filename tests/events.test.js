@@ -205,6 +205,7 @@ function makeHandler({
   lookup,
   timers,
   activity,
+  record,
 } = {}) {
   return createMessageHandler({
     hot: prompts !== undefined ? { config: config ?? baseConfig(), prompts } : { config: config ?? baseConfig() },
@@ -224,6 +225,7 @@ function makeHandler({
     sleep,
     timers,
     activity,
+    record,
   });
 }
 
@@ -7731,4 +7733,58 @@ test('onMessage: no recent own post, the switch off, a bot or the diary channel 
   const diary = participationEventsStore(ownAt);
   await withCapturedLogs(() => makeHandler({ store: diary, turns: { ...fakeTurns(), lastPostAt: () => ownAt }, config: baseConfig({ diary: { channelId: 'c1' } }) })(line()));
   assert.equal(diary.writes.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// The record (src/memory/record.js): a deleted message and an edit.
+
+test('events: a deleted message writes a deleted line and an edit writes revision 2', async () => {
+  const appended = [];
+  const record = { append: async (guildId, lines, opts) => { appended.push({ guildId, lines, opts }); return { written: lines.length, duplicates: 0 }; } };
+  const config = baseConfig({ features: { record: true } });
+  const store = tmpStore();
+  const at = Date.UTC(2026, 9, 13, 10, 0, 0);
+  const handler = makeHandler({ config, store, record, now: () => at });
+  const created = fakeMessage({ id: 'm1', content: 'πρώτα', cleanContent: 'πρώτα', createdTimestamp: at - 60_000, mentions: { users: new Map([['u2', {}]]) } });
+
+  await handler.onMessageDelete(created);
+  assert.equal(appended.length, 1);
+  const [deleted] = appended[0].lines;
+  assert.equal(appended[0].guildId, 'g1');
+  assert.equal(deleted.kind, 'deleted');
+  assert.equal(deleted.messageId, 'm1');
+  assert.equal(deleted.occurredAt, new Date(at).toISOString());
+  assert.deepEqual(deleted.scope, { channel: 'c1' });
+  assert.deepEqual(deleted.participants, ['u1']);
+  assert.equal('text' in deleted, false);
+
+  // An update that only attaches embeds is no edit.
+  const embedded = fakeMessage({ ...created, embeds: [TENOR_GIFV] });
+  await withCapturedLogs(() => handler.onMessageUpdate(created, embedded));
+  assert.equal(appended.length, 1);
+
+  const edited = fakeMessage({ ...created, content: 'μετά', cleanContent: 'μετά' });
+  await withCapturedLogs(() => handler.onMessageUpdate(created, edited));
+  assert.equal(appended.length, 2);
+  const [edit] = appended[1].lines;
+  assert.equal(edit.kind, 'seen');
+  assert.equal(edit.messageId, 'm1');
+  assert.equal(edit.revision, 2);
+  assert.equal(edit.text, 'μετά');
+  assert.equal(edit.by, 'u1');
+  assert.deepEqual(edit.mentions, ['u2']);
+  assert.equal(edit.occurredAt, new Date(at - 60_000).toISOString(), 'dated by the message, like its first line');
+
+  const again = fakeMessage({ ...created, content: 'τρίτο', cleanContent: 'τρίτο' });
+  await withCapturedLogs(() => handler.onMessageUpdate(edited, again));
+  assert.equal(appended[2].lines[0].revision, 3);
+
+  // Another bot, another guild, or features.record off: nothing.
+  const otherBot = fakeMessage({ ...created, author: { id: 'b2', bot: true, globalName: 'B', username: 'b' } });
+  await handler.onMessageDelete(otherBot);
+  const elsewhere = fakeMessage({ ...created, guild: fakeGuild('g2'), channel: fakeChannel('c9', fakeGuild('g2')) });
+  await handler.onMessageDelete(elsewhere);
+  config.features.record = false;
+  await handler.onMessageDelete(created);
+  assert.equal(appended.length, 3);
 });

@@ -40,7 +40,7 @@ import { emptyAffinity, roundScore, affinityBand, applyDelta, relationshipStaleO
 import { emptyChannel } from './store.js';
 import { messagesSince } from './channels.js';
 import { keywordMatches } from './lore.js';
-import { normalizeInterests, normalizeTopic } from './interests.js';
+import { isOpen, normalizeInterests, normalizeTopic } from './interests.js';
 import { normalizeDetails } from './details.js';
 import { applyAliasOps } from './aliases.js';
 import { emojiUsageOpts } from './emoji-usage.js';
@@ -50,6 +50,7 @@ import { topEpisodes } from './episodes.js';
 import { ID_DIGITS, occursAsWholeWord, teacherToken, toTokens, fromTokens, tokenIds } from './mentions.js';
 import { INJOKE_CHARS, MEMORY_LIMIT_DEFAULTS, SELF_CHARS } from './text-limits.js';
 import { clampText } from './clamp.js';
+import { toRecordLine } from './record.js';
 import { acceptProse } from './prose.js';
 import { RECENT_DEFAULTS, foldText, liveRecent, recentSettings } from './recent.js';
 import { videoStateFromCache } from './describe.js';
@@ -440,28 +441,38 @@ function resolveTextArray(values, nameOf) {
  * (unlimited, matching the behaviour before this feature); `halfLifeDays` not
  * a positive number -> no decay, ranked by weight alone. See
  * docs/prompt-contract.md, "The analyzer" and "More is stored than
- * shown, and rank decays with age". */
+ * shown, and rank decays with age". Open items only; `itemId` (what a
+ * `supersedes`/`conflict` op names), `from` (`validFrom`) and `conflict`
+ * (`conflictSetId`) are present only when the item has them -- see
+ * docs/prompt-contract.md, "Validity". */
 function existingInterestsView(interests, maxInterests, halfLifeDays, nameOf) {
-  const list = Array.isArray(interests) ? interests : [];
-  return topByRank(list, maxInterests, halfLifeDays).map(({ topic, note, weight, lastSeen }) => ({
+  const list = Array.isArray(interests) ? interests.filter(isOpen) : [];
+  return topByRank(list, maxInterests, halfLifeDays).map(({ itemId, topic, note, weight, lastSeen, validFrom, conflictSetId }) => ({
+    itemId: itemId || undefined,
     topic,
     note: resolveText(note, nameOf),
     seen: weight,
     last: dateOnly(lastSeen),
+    from: validFrom || undefined,
+    conflict: conflictSetId || undefined,
   }));
 }
 
 /** The `<existing_profiles>` view of one person's details: only the top
  * `maxDetails` by rank, in rank order -- `{ id, text, seen, last }` (`seen` =
  * weight, `last` = the date-only lastSeen, omitted when unknown). `text` is
- * resolved via `nameOf`, same as `existingInterestsView` above. */
+ * resolved via `nameOf`, same as `existingInterestsView` above, and carries
+ * `itemId`/`from`/`conflict` the same way. */
 function existingDetailsView(details, maxDetails, halfLifeDays, nameOf) {
-  const list = Array.isArray(details) ? details : [];
-  return topByRank(list, maxDetails, halfLifeDays).map(({ id, text, weight, lastSeen }) => ({
+  const list = Array.isArray(details) ? details.filter(isOpen) : [];
+  return topByRank(list, maxDetails, halfLifeDays).map(({ id, itemId, text, weight, lastSeen, validFrom, conflictSetId }) => ({
     id,
+    itemId: itemId || undefined,
     text: resolveText(text, nameOf),
     seen: weight,
     last: dateOnly(lastSeen),
+    from: validFrom || undefined,
+    conflict: conflictSetId || undefined,
   }));
 }
 
@@ -472,8 +483,39 @@ function existingDetailsView(details, maxDetails, halfLifeDays, nameOf) {
  * hand-editable: an item without a string `name` is skipped, never thrown on
  * (it would otherwise fail every batch whose roster or authors include its member). */
 function existingAliasesView(aliases, maxAliases, halfLifeDays) {
-  const list = Array.isArray(aliases) ? aliases.filter((item) => typeof item?.name === 'string') : [];
+  const list = Array.isArray(aliases) ? aliases.filter((item) => typeof item?.name === 'string' && isOpen(item)) : [];
   return topByRank(list, maxAliases, halfLifeDays).map((item) => item.name);
+}
+
+/**
+ * The `closed` key of one `<existing_profiles>` view: the claims of `closed` (a profile's or
+ * private layer's `closed` list, see src/memory/store.js#storeClosed) whose identity -- an
+ * interest's topic, a detail's text, an alias's name -- occurs as a whole word or phrase
+ * (src/memory/mentions.js#occursAsWholeWord, case-insensitive) in the batch's texts, in stored
+ * order, each with its days: `from` (`validFrom`, else the day of `firstSeen`; omitted when
+ * unknown) and `to` (`validTo`). So the analyzer sees what was already closed on the topics it
+ * is looking at and does not add it again. `[]` when none matches. See
+ * docs/prompt-contract.md, "Validity".
+ * @param {unknown} closed
+ * @param {string} batchLower  The batch's texts, joined and lowercased.
+ * @param {(id: string) => (string|null)} nameOf
+ * @returns {object[]}
+ */
+function closedClaimsView(closed, batchLower, nameOf) {
+  const out = [];
+  for (const item of Array.isArray(closed) ? closed : []) {
+    if (!isPlainObject(item)) continue;
+    const identity = item.kind === 'interest' ? item.topic : item.kind === 'detail' ? item.text : item.kind === 'alias' ? item.name : null;
+    if (typeof identity !== 'string' || !occursAsWholeWord(batchLower, normalizeTopic(resolveText(identity, nameOf)))) continue;
+    const view = { kind: item.kind };
+    if (item.kind === 'interest') Object.assign(view, { topic: item.topic, note: resolveText(item.note ?? '', nameOf) });
+    else if (item.kind === 'detail') view.text = resolveText(item.text, nameOf);
+    else view.name = item.name;
+    view.from = item.validFrom || dateOnly(item.firstSeen);
+    view.to = item.validTo ?? undefined;
+    out.push(view);
+  }
+  return out;
 }
 
 /**
@@ -828,6 +870,8 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
   // Each profile twice: whole (what the analyzer rewrites, its lists capped to their ranked top)
   // and compact (id, names, attitude), sent when the whole one does not fit (see the fit below).
   const profileViews = [];
+  // The batch's texts, for the closed claims a whole view carries (closedClaimsView).
+  const batchLower = messages.map((m) => (typeof m?.content === 'string' ? m.content : '')).join('\n').toLowerCase();
   const episodeCap = analyzerEpisodes(config);
   for (const [id, profile] of Object.entries(profiles ?? {})) {
     const fields = pickProfileFields(profile);
@@ -849,6 +893,8 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
       const aliases = existingAliasesView(profile.aliases, config.memory?.maxAliases, config.memory?.aliasHalfLifeDays);
       if (aliases.length > 0) fields.aliases = aliases;
     }
+    const closedClaims = closedClaimsView(profile?.closed, batchLower, resolveName);
+    if (closedClaims.length > 0) fields.closed = closedClaims;
     if (relationships) {
       const affinity = profile?.affinity ?? emptyAffinity();
       const score = Number.isFinite(affinity.score) ? affinity.score : 0;
@@ -1451,6 +1497,7 @@ function profileOpsOptions(cfg, nowMs, seenAt) {
     maxAliases: cfg.maxAliases,
     maxAliasesStored: cfg.maxAliasesStored,
     aliasHalfLifeDays: cfg.aliasHalfLifeDays,
+    maxClosedStored: cfg.maxClosedStored,
     confirmGapHours: cfg.confirmGapHours,
     clampTolerance: cfg.clampTolerance,
     now: nowMs,
@@ -1603,7 +1650,8 @@ function aliasIdentity(name) {
  * that is not a string, holds a `<@` token or an `(id:` marker is dropped, and so is one equal
  * to any of the member's stored display names once case, spaces and punctuation are ignored.
  * The ops object (`{ add, remove }`) passes on with both of its creating lists (`add`,
- * `update`) filtered. A bare list -- the shape of the input view -- is read as an add of the
+ * `update`) filtered. An `add` item may also be `{ name, supersedes?, validFrom?, conflict? }` (see
+ * docs/prompt-contract.md, "Validity"), guarded by its `name`. A bare list -- the shape of the input view -- is read as an add of the
  * names NOT stored yet (compared by the identity the store keeps, clamp included): echoing the
  * stored list back is never a sighting. Untrusted input: any shape -> a result, never a throw.
  * @param {unknown} raw
@@ -1614,7 +1662,11 @@ function aliasIdentity(name) {
  */
 function guardedAliasOps(raw, profile) {
   const ownNames = new Set((Array.isArray(profile?.names) ? profile.names : []).map(looseNameKey).filter(Boolean));
-  const acceptable = (name) => typeof name === 'string' && !ALIAS_REF_RE.test(name) && !ownNames.has(looseNameKey(name));
+  // An add may also be an object whose `name` is one (it may carry supersedes / validFrom / conflict).
+  const acceptable = (raw, key = 'add') => {
+    const name = key === 'add' && isPlainObject(raw) ? raw.name : raw;
+    return typeof name === 'string' && !ALIAS_REF_RE.test(name) && !ownNames.has(looseNameKey(name));
+  };
   if (Array.isArray(raw)) {
     const known = new Set((Array.isArray(profile?.aliases) ? profile.aliases : []).map((item) => aliasIdentity(item?.name)));
     const add = [];
@@ -1631,7 +1683,7 @@ function guardedAliasOps(raw, profile) {
   let dropped = 0;
   for (const key of ['add', 'update']) {
     if (!Array.isArray(ops[key])) continue;
-    const kept = ops[key].filter(acceptable);
+    const kept = ops[key].filter((raw) => acceptable(raw, key));
     dropped += ops[key].length - kept.length;
     ops[key] = kept;
   }
@@ -2671,6 +2723,8 @@ export function slimMessage(normalized, direct = false) {
     content: normalized.content,
     ts: normalized.ts,
     replyToId: normalized.replyToId,
+    // The members the message mentions (the record's `mentions`); absent when none.
+    ...(Array.isArray(normalized.mentionedUserIds) && normalized.mentionedUserIds.length > 0 ? { mentionedUserIds: [...normalized.mentionedUserIds] } : {}),
     ...slimMedia(normalized),
     // A forwarded message's snapshots (src/discord/collect.js
     // #normalizeSnapshot), stripped the same way, so the analyzer's
@@ -2878,6 +2932,9 @@ function namedIds(ids, texts) {
  *   src/memory/warmup.js#createWarmup's `refreshPortrait`, which does the actual rewrite
  *   (`profile.md`, `<draft>`/`<hint>`); this module only reports the cue, never awaits the result.
  *   Omitted -> no-op.
+ * @param {{ append: Function }|null} [deps.record]  src/memory/record.js#createRecord: with
+ *   features.record exactly true (read at each run) every batch is appended to it as `seen` lines
+ *   before it is analyzed (recordBatch); a refused append keeps the batch in the buffer.
  * @param {object|null} [deps.journal]  src/memory/journal.js#createJournal (optional). With
  *   `features.journal` exactly true (read at the moment of use) every applied batch writes one
  *   `memory` record (`writeMemoryRecord`) -- a guild batch to the guild's journal, a private one
@@ -2886,8 +2943,18 @@ function namedIds(ids, texts) {
  *   run is applied (`memory: paused`, reason `append-stalled`, once per streak): the buffers and
  *   the voice queue keep everything until the disk answers. Chat turns are not affected.
  * @param {() => string} [deps.uuid]  Ids of batches (`b-`) and applied results (`r-`).
+ * @param {{ stats: (guildId: string) => { pending: number } }|null} [deps.archive]
+ *   src/memory/archive.js#createArchive (optional). With `features.archive` exactly true (read at
+ *   the moment of use), while its pending queue holds more than `archive.pendingMax` entries (read
+ *   then too; config.json's 500) no batch and no voice run is applied (`memory: archive stalled`,
+ *   once per streak, and one `notify` line): the buffers keep everything until the drain empties
+ *   the queue. What the store archived for a batch's writes (src/memory/store.js#settleArchive)
+ *   fills the journal record's `archived`, confirmed copies only; entries sent to the pending
+ *   queue instead are logged as `memory: archive deferred` (counts).
+ * @param {((text: string) => unknown)|null} [deps.notify]  A status line for the development channel
+ *   (src/index.js posts it to `bot.dryRunChannelId`); its failure is ignored.
  */
-export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, journal = null, uuid = randomUUID }) {
+export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null, journal = null, uuid = randomUUID, archive = null, notify = null }) {
   const running = new Set();
   let idleWaiters = []; // resolvers for waitIdle() (/nep pause), notified once running.size hits 0
   const backoffUntil = new Map();
@@ -2910,6 +2977,9 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   // Whether the last look found the journal's append store stalled: `memory: paused` is logged
   // once each time this turns true.
   let appendStalled = false;
+  // The guilds whose archive queue the last look found over archive.pendingMax: `memory: archive
+  // stalled` is logged (and sent to the development channel) once each time a guild enters it.
+  const archiveStalled = new Set();
 
   /** Whether memory records are written now: a journal injected and features.journal exactly true (read now). */
   function journalOn() {
@@ -2925,6 +2995,46 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     if (stalled && !appendStalled) log.warn('memory: paused', { guildId, reason: 'append-stalled' });
     appendStalled = stalled;
     return stalled;
+  }
+
+  /**
+   * Whether memory application waits for the archive: with features.archive exactly true and an
+   * archive injected, its pending queue for the guild holds more than `archive.pendingMax` entries
+   * (both read now). Logs `memory: archive stalled` and sends one `notify` line once per streak.
+   */
+  function archivePaused(guildId) {
+    const on = Boolean(archive) && typeof archive.stats === 'function' && hot.config.features?.archive === true;
+    const pending = on ? Number(archive.stats(guildId)?.pending) || 0 : 0;
+    const pendingMax = hot.config.archive?.pendingMax ?? 500;
+    const stalled = on && pending > pendingMax;
+    if (stalled && !archiveStalled.has(guildId)) {
+      log.warn('memory: archive stalled', { guildId, pending, pendingMax });
+      if (typeof notify === 'function') {
+        Promise.resolve()
+          .then(() => notify(`memory: archive stalled pending=${pending} pendingMax=${pendingMax}`))
+          .catch(() => {});
+      }
+    }
+    if (stalled) archiveStalled.add(guildId);
+    else archiveStalled.delete(guildId);
+    return stalled;
+  }
+
+  /**
+   * What the store archived for the writes between two marks (src/memory/store.js#settleArchive):
+   * `{ archived, deferred }`; nothing to wait for without marks or without a store that archives.
+   * A deferral is logged as `memory: archive deferred` (counts).
+   */
+  async function settleArchive(guildId, marks) {
+    if (!marks || marks.from === marks.to || typeof store.settleArchive !== 'function') return { archived: [], deferred: 0 };
+    const settled = await store.settleArchive(guildId, marks);
+    if (settled.deferred > 0) log.warn('memory: archive deferred', { guildId, deferred: settled.deferred, archived: settled.archived.length });
+    return settled;
+  }
+
+  /** The store's archive mark now, or null for a store without one. */
+  function archiveMark(guildId) {
+    return typeof store.archiveMark === 'function' ? store.archiveMark(guildId) : null;
   }
 
   /**
@@ -2949,9 +3059,18 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       const privateUserId = key || null;
       const ids = privateUserId ? [privateUserId] : [...new Set(group.map((write) => write.userId).filter((id) => id != null).map(String))];
       const before = traceBefore(store, guildId, ids, privateUserId);
+      const from = archiveMark(guildId);
       landed += runVoiceWrites(store, guildId, group, config, nowMs);
+      const to = archiveMark(guildId);
       const trace = traceAfter(store, guildId, before);
-      writeMemoryRecord(guildId, { batchId: `b-${uuid()}`, stage: 'voice', messages: [], trace, limits: limits?.list() ?? [], privateUserId });
+      const input = { batchId: `b-${uuid()}`, stage: 'voice', messages: [], trace, limits: limits?.list() ?? [], privateUserId };
+      // Without archive entries the record goes at once; with some, once the archive answered.
+      if (from === to) writeMemoryRecord(guildId, input);
+      else {
+        settleArchive(guildId, { from, to })
+          .then(({ archived }) => writeMemoryRecord(guildId, { ...input, archived }))
+          .catch((err) => log.warn('memory: journal record failed', { guildId, stage: 'voice', error: errorNameOf(err) }));
+      }
     }
     return landed;
   }
@@ -2961,10 +3080,11 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * Never rejects (the journal logs a failed append).
    * @param {string} guildId
    * @param {{ batchId: string, stage: string, messages: object[], trace: object, result?: object|null,
-   *   limits?: object[], privateUserId?: string|null }} input
-   *   `messages`: the lines the batch consumed (none for voice writes); `trace`: traceAfter's.
+   *   limits?: object[], privateUserId?: string|null, archived?: object[] }} input
+   *   `messages`: the lines the batch consumed (none for voice writes); `trace`: traceAfter's;
+   *   `archived`: settleArchive's confirmed entries.
    */
-  function writeMemoryRecord(guildId, { batchId, stage, messages, trace, result = null, limits = [], privateUserId = null }) {
+  function writeMemoryRecord(guildId, { batchId, stage, messages, trace, result = null, limits = [], privateUserId = null, archived = [] }) {
     const messageIds = messages.map((message) => message?.id).filter((id) => typeof id === 'string' && id);
     const named = [...trace.users, ...trace.episodes.map((ep) => ep.userId), ...trace.attitude.map((move) => move.userId), ...batchAuthorIds(messages)];
     const texts = [...trace.episodes.map((ep) => ep.what), ...trace.attitude.map((move) => move.reason), ...trace.self, ...trace.learned.map((item) => item.text)];
@@ -2984,7 +3104,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       self: trace.self,
       learned: trace.learned,
       consolidation: [],
-      archived: [],
+      // Only the copies the archive confirmed (store.settleArchive).
+      archived: archived.map(({ itemId, revisionId }) => ({ itemId, revisionId, confirmed: true })),
       limits,
       promptsHash: hot.hashes?.promptsHash ?? null,
       configHash: hot.hashes?.configHash ?? null,
@@ -3459,6 +3580,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       // Read right before the apply, with nothing awaited in between: every difference is its own.
       const traceIds = privateUserId ? [privateUserId] : [...new Set([...(isPlainObject(update?.users) ? Object.keys(update.users) : []), ...batchAuthorIds(consumedMessages)])];
       const before = limits ? traceBefore(store, guildId, traceIds, privateUserId) : null;
+      const archiveFrom = archiveMark(guildId);
       if (stage === 'two') {
         // One clock read for the whole stage A apply: the split addresses the attitude move and
         // the episodes it stores by this instant, so the switches stamp them with it too.
@@ -3468,7 +3590,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         result = applyUpdate(update, applySwitches(), { rosterIds, recentIds, stage, consumed: consumedMessages, limits });
       }
       const journalled = before ? { trace: traceAfter(store, guildId, before), limits: limits.list() } : {};
-      return { ok: true, usage, estimated, result, ...fit, ...marker, ...journalled };
+      const archiveMarks = { from: archiveFrom, to: archiveMark(guildId) };
+      return { ok: true, usage, estimated, result, ...fit, ...marker, ...journalled, archiveMarks };
     } catch (err) {
       // A parsed answer the store failed to take: not the answer's size, so the batch is not
       // halved (see recordFailure). Logged by the error's name only.
@@ -3554,6 +3677,41 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   }
 
   /**
+   * Append the batch `messages` to the record (src/memory/record.js) as `seen` lines, with
+   * features.record exactly true (read now) and a record injected; a line already recorded (a
+   * batch retried after a failure) is refused there. The reply target's author is taken from
+   * `buffer` when the replied message is in it. A private batch (`privateUserId`) goes to the
+   * member's private record. Resolves false when the append was refused (`memory: record
+   * failed`, counts only): the batch must stay in the buffer, unanalyzed, for the next run.
+   * @param {string} guildId
+   * @param {object[]} messages  The batch's slim messages.
+   * @param {object[]} buffer    The whole buffer the batch was taken from.
+   * @param {string|null} [privateUserId]
+   * @returns {Promise<boolean>}
+   */
+  async function recordBatch(guildId, messages, buffer, privateUserId = null) {
+    if (!record || hot.config.features?.record !== true || messages.length === 0) return true;
+    const authors = new Map();
+    for (const message of buffer) if (message?.id != null) authors.set(String(message.id), message.authorId ?? null);
+    const lines = messages.map((message) => {
+      const replyToAuthorId = message?.replyToId ? (authors.get(String(message.replyToId)) ?? null) : null;
+      return toRecordLine(replyToAuthorId ? { ...message, replyToAuthorId } : message, { now });
+    });
+    try {
+      await record.append(guildId, lines, privateUserId ? { privateUserId } : {});
+      return true;
+    } catch (err) {
+      log.warn('memory: record failed', {
+        guildId,
+        lines: lines.length,
+        ...(privateUserId ? { private: true } : {}),
+        code: err?.code ?? null,
+      });
+      return false;
+    }
+  }
+
+  /**
    * Run a memory update for one guild if its buffer is due and it is not busy/backed off. Only
    * the lines the request showed are consumed (`outcome.consumed`, the batch's oldest); the
    * deferred rest stays in the buffer and leads the next batch. The server and channel notes the
@@ -3566,10 +3724,13 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   async function run(guildId) {
     running.add(guildId);
     try {
-      // The journal cannot take a record: the batch waits in the buffer, nothing is sent.
-      if (appendPaused(guildId)) return;
+      // The journal cannot take a record, or the archive is too far behind: the batch waits in the
+      // buffer, nothing is sent.
+      if (appendPaused(guildId) || archivePaused(guildId)) return;
       const buffer = store.getBuffer(guildId);
       const messages = buffer.slice(0, batchTake(guildId, buffer.length));
+      // The batch reaches the record before anything consumes it; a refused append keeps it.
+      if (!(await recordBatch(guildId, messages, buffer))) return;
       const batchId = `b-${uuid()}`;
 
       const outcome = await analyze(guildId, messages);
@@ -3585,8 +3746,9 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         // Counts only: a portrait cue's text is the analyzer's prose about a member; the review
         // map and the change list feed the reconciliation below, not the log line.
         const { portraitRequests, noteReviews, changedChannels, guildChanged, guildBriefQueued, ...counts } = outcome.result;
+        const { archived } = await settleArchive(guildId, outcome.archiveMarks);
         if (outcome.trace) {
-          await writeMemoryRecord(guildId, { batchId, stage: outcome.stage ?? 'single', messages: consumed, trace: outcome.trace, result: outcome.result, limits: outcome.limits });
+          await writeMemoryRecord(guildId, { batchId, stage: outcome.stage ?? 'single', messages: consumed, trace: outcome.trace, result: outcome.result, limits: outcome.limits, archived });
         }
         let noteCounts = null;
         if (notesFlagged > 0) {
@@ -3672,10 +3834,11 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
     if (running.has(key)) return;
     running.add(key);
     try {
-      if (appendPaused(guildId)) return;
+      if (appendPaused(guildId) || archivePaused(guildId)) return;
       const buffer = store.getPrivateBuffer(guildId, userId);
       const messages = buffer.slice(0, batchTake(key, buffer.length));
       if (messages.length === 0) return;
+      if (!(await recordBatch(guildId, messages, buffer, userId))) return;
       const batchId = `b-${uuid()}`;
 
       const outcome = await analyzePrivate(guildId, userId, messages);
@@ -3684,9 +3847,10 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         const consumed = messages.slice(0, outcome.consumed);
         store.shiftPrivateBuffer(guildId, userId, consumed);
         store.flush();
+        const { archived } = await settleArchive(guildId, outcome.archiveMarks);
         if (outcome.trace) {
           const privateUserId = String(userId);
-          await writeMemoryRecord(guildId, { batchId, stage: outcome.stage ?? 'single', messages: consumed, trace: outcome.trace, result: outcome.result, limits: outcome.limits, privateUserId });
+          await writeMemoryRecord(guildId, { batchId, stage: outcome.stage ?? 'single', messages: consumed, trace: outcome.trace, result: outcome.result, limits: outcome.limits, privateUserId, archived });
         }
         log.info('memory: private update applied', {
           guildId,
@@ -3967,6 +4131,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
 
     // The journal cannot take a record: the queue keeps every item, nothing expires or is sent.
     if (appendPaused(guildId)) return idle('append-stalled');
+    // The archive is too far behind: the queue keeps every item until the drain catches up.
+    if (archivePaused(guildId)) return idle('archive-stalled');
     const config = hot.config;
     // Local work, no request: on time whatever the switch, the voice prompt or the guild's
     // back-off say (an item's age is not the model's fault), so a rollback of the switch or a
@@ -4089,7 +4255,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * anything unexpected is logged by name and backs the guild off.
    * @param {string} guildId
    * @returns {Promise<{ sent: number, applied: number, reason?: string }>}  `reason` when it did
-   *   not apply an answer: `busy`, `off`, `paused`, `append-stalled`, `no-prompt`, `backoff`, `nothing-due`,
+   *   not apply an answer: `busy`, `off`, `paused`, `append-stalled`, `archive-stalled`, `no-prompt`, `backoff`, `nothing-due`,
    *   `daily-cap`, `token-limit`, `llm-error`, `bad-json`, `truncated`, `apply-error`.
    */
   async function runVoice(guildId) {

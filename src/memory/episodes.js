@@ -163,8 +163,10 @@ function newestIndices(list, count, storedLength) {
  * @param {{ maxEpisodes: number, maxNew: number, now?: number, clampTolerance?: number, keepNewest?: number }} opts
  *   `keepNewest`: `memory.keepNewestEpisodes` (see src/memory/update.js#episodeOptions);
  *   omitted, negative or not a number = 0.
- * @returns {{ episodes: object[], added: number }}  `added` counts every accepted entry, one
- *   evicted again by the same merge included.
+ * @returns {{ episodes: object[], added: number, dropped: object[] }}  `added` counts every
+ *   accepted entry, one evicted again by the same merge included. `dropped`: every entry the
+ *   eviction removed, in list order -- a stored one as stored (its `itemId` included), an
+ *   accepted one as it was about to be stored; `[]` when none went.
  */
 export function mergeEpisodes(
   existing,
@@ -172,7 +174,7 @@ export function mergeEpisodes(
   { maxEpisodes, maxNew = Infinity, now: nowMs = Date.now(), clampTolerance, keepNewest = 0 } = {},
 ) {
   const stored = Array.isArray(existing) ? existing : [];
-  if (!Array.isArray(incoming) || incoming.length === 0) return { episodes: stored, added: 0 };
+  if (!Array.isArray(incoming) || incoming.length === 0) return { episodes: stored, added: 0, dropped: [] };
 
   const sanitized = incoming
     .map((raw) => sanitizeEpisode(raw, nowMs, clampTolerance))
@@ -184,9 +186,10 @@ export function mergeEpisodes(
     if (isDuplicate(candidate, stored)) continue;
     accepted.push({ ...candidate, addedAt: new Date(nowMs).toISOString() });
   }
-  if (accepted.length === 0) return { episodes: stored, added: 0 };
+  if (accepted.length === 0) return { episodes: stored, added: 0, dropped: [] };
 
   let merged = [...stored, ...accepted];
+  let dropped = [];
   const cap = Number.isInteger(maxEpisodes) ? maxEpisodes : Infinity;
   if (merged.length > cap) {
     const dropCount = merged.length - cap;
@@ -196,10 +199,11 @@ export function mergeEpisodes(
       .filter((o) => !exempt.has(o.index))
       .sort(evictionOrder);
     const dropIndices = new Set(order.slice(0, dropCount).map((o) => o.index));
+    dropped = merged.filter((_, index) => dropIndices.has(index));
     merged = merged.filter((_, index) => !dropIndices.has(index));
   }
 
-  return { episodes: merged, added: accepted.length };
+  return { episodes: merged, added: accepted.length, dropped };
 }
 
 /**

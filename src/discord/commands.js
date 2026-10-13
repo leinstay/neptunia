@@ -54,6 +54,8 @@ const SLOW_COMMANDS = new Set([
   'memory.refresh',
   'memory.forget',
   'memory.wipe',
+  'memory.archive',
+  'memory.restore',
   'memory.snapshot',
   'emoji.rescan',
   'gifs.rescan',
@@ -351,18 +353,46 @@ export function buildCommandTree(commandName) {
             },
             {
               type: SUBCOMMAND,
-              name: 'journal',
-              description: 'Read the journal: one line per record.',
+              name: 'archive',
+              description: 'Archived items.',
               options: [
-                { type: STRING, name: 'day', description: 'UTC day YYYY-MM-DD (default: today).', required: false },
-                { type: STRING, name: 'kind', description: 'Record kind (default: all).', required: false, choices: choicesOf(JOURNAL_KINDS) },
-                { type: INTEGER, name: 'n', description: 'How many, newest last (default 20).', required: false, min_value: 1, max_value: 50 },
+                { type: USER, name: 'user', description: 'Member; omit for the server.', required: false },
+                {
+                  type: STRING,
+                  name: 'kind',
+                  description: 'Kind.',
+                  required: false,
+                },
+                {
+                  type: INTEGER,
+                  name: 'n',
+                  description: 'How many (default 20).',
+                  required: false,
+                  min_value: 1,
+                  max_value: 100,
+                },
               ],
             },
             {
               type: SUBCOMMAND,
+              name: 'journal',
+              description: 'Journal records.',
+              options: [
+                { type: STRING, name: 'day', description: 'UTC day (default: today).', required: false },
+                { type: STRING, name: 'kind', description: 'Kind (default: all).', required: false, choices: choicesOf(JOURNAL_KINDS) },
+                { type: INTEGER, name: 'n', description: 'How many (default 20).', required: false, min_value: 1, max_value: 50 },
+              ],
+            },
+            {
+              type: SUBCOMMAND,
+              name: 'restore',
+              description: 'Restore an archived item.',
+              options: [{ type: STRING, name: 'item', description: 'Item id.', required: true }],
+            },
+            {
+              type: SUBCOMMAND,
               name: 'snapshot',
-              description: 'Copy all of data/ to data/snapshots/<time>/ for the tools.',
+              description: 'Snapshot data/ for the tools.',
             },
             {
               type: SUBCOMMAND,
@@ -680,7 +710,7 @@ export function buildCommandTree(commandName) {
             {
               type: SUBCOMMAND,
               name: 'add',
-              description: 'Add a case: a persona message you disliked, with your comment.',
+              description: 'Add a case: a message you disliked, with a comment.',
               options: [
                 { type: STRING, name: 'message', description: 'Message link (or id, in this channel).', required: true },
                 { type: STRING, name: 'text', description: 'Your comment, one sentence (10-1000 chars).', required: true },
@@ -689,7 +719,7 @@ export function buildCommandTree(commandName) {
             {
               type: SUBCOMMAND,
               name: 'anchor',
-              description: 'Add another persona message to a case, with the chat before it.',
+              description: 'Add another message to a case.',
               options: [
                 { type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 },
                 { type: STRING, name: 'message', description: 'Message link (or id, in this channel).', required: true },
@@ -705,11 +735,11 @@ export function buildCommandTree(commandName) {
             {
               type: SUBCOMMAND,
               name: 'run',
-              description: 'Measure one case now; report to the admin channel. Spends balance.',
+              description: 'Measure one case now. Spends balance.',
               options: [{ type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 }],
             },
-            { type: SUBCOMMAND, name: 'check', description: 'Replay stored situations of every case with a run. Spends balance.' },
-            { type: SUBCOMMAND, name: 'stop', description: 'Stop the mentor run in flight, the current model call included.' },
+            { type: SUBCOMMAND, name: 'check', description: 'Replay every case. Spends balance.' },
+            { type: SUBCOMMAND, name: 'stop', description: 'Stop the run in flight.' },
             {
               type: SUBCOMMAND,
               name: 'show',
@@ -719,13 +749,13 @@ export function buildCommandTree(commandName) {
             {
               type: SUBCOMMAND,
               name: 'wrong',
-              description: 'Tell the mentor it misjudged a case; later runs read it as feedback.',
+              description: 'Mark a case as misjudged.',
               options: [
                 { type: INTEGER, name: 'id', description: caseIdHelp, required: true, min_value: 1 },
                 { type: STRING, name: 'reason', description: 'Why the verdict was wrong (3-500 chars).', required: true },
               ],
             },
-            { type: SUBCOMMAND, name: 'status', description: 'Switch, model, tokens today, cases by state and the run in flight.' },
+            { type: SUBCOMMAND, name: 'status', description: 'Mentor status.' },
           ],
         },
         {
@@ -884,6 +914,12 @@ const OPTION_MAPPERS = {
   'memory.channel': (options) => ({ channelId: options.getChannel('channel')?.id }),
   'memory.server': () => ({}),
   'memory.recent': () => ({}),
+  'memory.archive': (options) => ({
+    userId: options.getUser('user')?.id,
+    kind: options.getString('kind') ?? undefined,
+    n: options.getInteger('n') ?? undefined,
+  }),
+  'memory.restore': (options) => ({ itemId: options.getString('item', true) }),
   'memory.journal': (options) => ({
     day: options.getString('day') ?? undefined,
     kind: options.getString('kind') ?? undefined,

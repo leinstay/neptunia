@@ -678,3 +678,15 @@ test('relationshipStaleOf: the rewrite flag on an empty text is ignored, the emp
   assert.deepEqual(relationshipStaleOf(writtenView({ text: '  ', rewrite: true }), STALE_CFG), { writtenAt: 'none', now: 'fond', cause: 'first' });
   assert.equal(relationshipStaleOf({ text: '', score: 0, rewrite: true }, STALE_CFG), null);
 });
+
+test('affinity: eviction returns the dropped items with their itemId', () => {
+  const first = { ts: '2026-09-01T00:00:00.000Z', delta: 2, appliedDelta: 2, score: 2, reason: 'café', itemId: 'mv-first' };
+  const second = { ts: '2026-09-02T00:00:00.000Z', delta: 1, appliedDelta: 1, score: 3, reason: 'σκάκι', itemId: 'mv-second' };
+  const next = applyDelta({ score: 3, reason: 'σκάκι', history: [first, second] }, 2, 'τραγούδι', { maxDelta: 5, historySize: 2, now: Date.UTC(2026, 8, 3) });
+  assert.deepEqual(next.history.map((move) => move.itemId), ['mv-second', undefined]);
+  assert.deepEqual(next.droppedMoves, [first]);
+  assert.deepEqual(Object.keys(next), ['score', 'reason', 'history'], 'droppedMoves is never stored');
+  assert.equal(JSON.parse(JSON.stringify(next)).droppedMoves, undefined);
+  const roomy = applyDelta({ score: 3, reason: '', history: [first] }, 1, '', { maxDelta: 5, historySize: 5 });
+  assert.deepEqual(roomy.droppedMoves, []);
+});

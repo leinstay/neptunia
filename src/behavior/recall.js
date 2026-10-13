@@ -1,8 +1,9 @@
 // The pure core of recall: the server's own history searched beside the web.
-// The lookup classifier (prompts/lookup.md) answers `none` or up to four
+// The lookup classifier (prompts/lookup.md) answers `none` or up to five
 // labelled lines -- `web:` a web query, `server:` word forms to look for in
 // the server's messages, `who:` forms of a person's name, `when:` a date
-// range in the bot's time zone -- and the old single unlabelled line still
+// range in the bot's time zone, `recent:` whether the question is a vague
+// "recently" -- and the old single unlabelled line still
 // reads as a web query. Discord's message search does not stem and matches
 // one form per query, so the server part becomes an ordered list of queries
 // (content forms round-robin, then authors, or a date range sampled when
@@ -14,7 +15,12 @@
 // persona's own stored memory (matchMemory: members' moments, lore, learned
 // items, recent lines), with no request, so a moment she already remembers
 // reaches the summary even when it sits under another member or a lore key
-// the question does not name. Hits the turn already shows in its chat are
+// the question does not name; the archive (items that left hot memory) is a
+// fifth source of those items (scanArchive streams it, matchMemory ranks
+// it), and for a dated or vague "recently" question the record of the last
+// days is read for matching lines with their reply chains and neighbours
+// (matchRecord), as windows marked `source: record` beside the search's.
+// Hits the turn already shows in its chat are
 // dropped before clustering (dropChatHits); once the windows are fetched, a
 // window holding the persona's own line ranks higher (rankClusters), and the
 // summary reads the chat lines before the question as `<context>`, with each
@@ -24,6 +30,8 @@
 // src/behavior/recall-run.js. No wording of ours goes into the request: tags
 // and structural marks only.
 
+import { isPlainObject } from '../config.js';
+import { estimateTokens } from '../llm/tokens.js';
 import { block, fillPromptTemplate } from './prompt.js';
 import { formatTranscript, renderTranscript } from '../discord/format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
@@ -53,6 +61,10 @@ export const RECALL_DEFAULTS = Object.freeze({
   selfExtra: 2,
   contextMessages: 6,
   traceMaxLines: 500,
+  memoryTokens: 600,
+  recordDays: 3,
+  recordContext: 3,
+  archiveMonths: 6,
 });
 
 /** How many of the newest windows the fallback stretch is chosen among (fallbackWindow). */
@@ -84,7 +96,8 @@ const FORM_MAX_WORDS = 3;
 
 // Protocol tokens of the lookup classifier (prompts/lookup.md), not wording.
 const NONE_RE = /^none\b/i;
-const LABEL_RE = /^(?:[-*•>]\s*)*\**\s*(web|server|who|when)\s*\**\s*:\s*\**\s*(.*)$/i;
+const LABEL_RE = /^(?:[-*•>]\s*)*\**\s*(web|server|who|when|recent)\s*\**\s*:\s*\**\s*(.*)$/i;
+const YES_RE = /^yes\b/i;
 const DATE_RE = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/;
 const RANGE_SPLIT_RE = /\s*\.{2,}\s*/;
 const FORM_SPLIT_RE = /[,;，、]/;
@@ -118,12 +131,16 @@ function numberAtLeast(value, fallback, min) {
  * form counted rare); so may `selfBonus` (a number, not floored: no bonus
  * for the persona's own stretches), `selfExtra` (no window beyond
  * `maxClusters`) and `contextMessages` (no `<context>` block);
- * `traceMaxLines` is at least 1; `windowMessages` is at most 100.
+ * `traceMaxLines` is at least 1; `windowMessages` is at most 100;
+ * `memoryTokens` (no `<memory>` line fits), `recordDays` (the record is not
+ * read), `recordContext` (no neighbours) and `archiveMonths` (the archive is
+ * not searched without a `when:` range) may be 0 too.
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
  *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, answerChars: number, stretchChars: number, maxPerDay: number,
  *   timeoutMs: number, minSummaryMs: number, maxOutputTokens: number, memoryItems: number, selfBonus: number, selfExtra: number,
- *   contextMessages: number, traceMaxLines: number }|null}
+ *   contextMessages: number, traceMaxLines: number, memoryTokens: number, recordDays: number, recordContext: number,
+ *   archiveMonths: number }|null}
  */
 export function recallSettings(config) {
   if (config?.features?.recall === false) return null;
@@ -149,6 +166,10 @@ export function recallSettings(config) {
     selfExtra: intAtLeast(r.selfExtra, d.selfExtra, 0),
     contextMessages: intAtLeast(r.contextMessages, d.contextMessages, 0),
     traceMaxLines: intAtLeast(r.traceMaxLines, d.traceMaxLines, 1),
+    memoryTokens: intAtLeast(r.memoryTokens, d.memoryTokens, 0),
+    recordDays: intAtLeast(r.recordDays, d.recordDays, 0),
+    recordContext: intAtLeast(r.recordContext, d.recordContext, 0),
+    archiveMonths: intAtLeast(r.archiveMonths, d.archiveMonths, 0),
   };
 }
 
@@ -264,13 +285,16 @@ function parseRange(value, timezone, now) {
  *   left open; reversed bounds are swapped; an end after `now` is clamped
  *   to `now`, a start after it drops the range; anything unparsable gives
  *   no range. The first usable one counts.
+ * - `recent`: `yes` (its first word, any case) marks a vague "recently";
+ *   anything else does not. It only qualifies the other lines: `server` gets
+ *   `recent: true` (the key is absent otherwise); the line alone asks nothing.
  * `server` is an object when there is a form, a name form or a range, else
  * null. `reason`: `empty` (no text), `none` (an explicit none, or labelled
  * lines that all say none or nothing), `unparsed` (labelled lines with
  * content none of which is usable), `ok`.
  * @param {unknown} raw
  * @param {{ timezone?: string, now?: number, maxForms?: number }} [options]
- * @returns {{ web: string|null, server: { forms: string[], who: string[], from: number|null, to: number|null }|null,
+ * @returns {{ web: string|null, server: { forms: string[], who: string[], from: number|null, to: number|null, recent?: true }|null,
  *   reason: 'empty'|'none'|'unparsed'|'ok' }}
  */
 export function parseLookupAnswer(raw, { timezone = 'UTC', now, maxForms } = {}) {
@@ -292,9 +316,15 @@ export function parseLookupAnswer(raw, { timezone = 'UTC', now, maxForms } = {})
   const forms = [];
   const who = [];
   let range = null;
+  let recent = false;
   let content = false;
   for (const [, label, value] of labelled) {
     const stripped = stripLine(value);
+    // `recent:` only qualifies the other lines: alone it asks nothing.
+    if (label.toLowerCase() === 'recent') {
+      recent ||= YES_RE.test(stripped);
+      continue;
+    }
     if (stripped && !NONE_RE.test(stripped)) content = true;
     switch (label.toLowerCase()) {
       case 'web':
@@ -310,9 +340,31 @@ export function parseLookupAnswer(raw, { timezone = 'UTC', now, maxForms } = {})
         range ??= parseRange(value, timezone ?? 'UTC', now);
     }
   }
-  const server = forms.length > 0 || who.length > 0 || range ? { forms, who, from: range?.from ?? null, to: range?.to ?? null } : null;
+  const asked = forms.length > 0 || who.length > 0 || range;
+  const server = asked ? { forms, who, from: range?.from ?? null, to: range?.to ?? null, ...(recent ? { recent: true } : {}) } : null;
   if (web || server) return { web, server, reason: 'ok' };
   return { web: null, server: null, reason: content ? 'unparsed' : 'none' };
+}
+
+/**
+ * Whether a parsed server part is a vague "recently": its `when:` range starts
+ * within the last `recordDays` days (at least one) before `now` and ends open
+ * or within the last day; without a range, the classifier's `recent: yes`
+ * (parseLookupAnswer's `recent: true`). A dated range that is not recent wins
+ * over the flag. Such a recall ranks by recency, the persona's own exchanges
+ * first (matchMemory, matchRecord).
+ * @param {{ from?: number|null, to?: number|null, recent?: boolean }|null|undefined} server
+ * @param {{ now: number, recordDays?: number }} options
+ * @returns {boolean}
+ */
+export function isRecentCue(server, { now, recordDays } = {}) {
+  if (!server || typeof server !== 'object') return false;
+  const from = Number.isFinite(server.from) ? server.from : null;
+  const to = Number.isFinite(server.to) ? server.to : null;
+  if (from === null && to === null) return server.recent === true;
+  if (from === null || !Number.isFinite(now)) return false;
+  const days = Math.max(1, intAtLeast(recordDays, RECALL_DEFAULTS.recordDays, 0));
+  return now - from <= days * DAY_MS && (to === null || now - to < DAY_MS);
 }
 
 /**
@@ -600,9 +652,12 @@ export function recallContext(history, question, count) {
  * Windows of one channel that share a message merged into the first of
  * them (messages united by id, oldest first; hit ids united; `overlapsChat`
  * true when any of them overlaps the turn's chat); the order of first
- * appearance is kept and a window without messages is dropped.
- * @param {{ channelId: string, channelName?: string|null, messages: object[], hitIds: Iterable<string>, overlapsChat?: boolean }[]} windows
- * @returns {{ channelId: string, channelName: string|null, messages: object[], hitIds: Set<string>, overlapsChat: boolean }[]}
+ * appearance is kept and a window without messages is dropped. A window
+ * marked `source: 'record'` keeps the mark when it opens a merged one.
+ * @param {{ channelId: string, channelName?: string|null, messages: object[], hitIds: Iterable<string>, overlapsChat?: boolean,
+ *   source?: 'record' }[]} windows
+ * @returns {{ channelId: string, channelName: string|null, messages: object[], hitIds: Set<string>, overlapsChat: boolean,
+ *   source?: 'record' }[]}
  */
 export function mergeWindows(windows) {
   const out = [];
@@ -618,6 +673,8 @@ export function mergeWindows(windows) {
         messages: [...messages],
         hitIds: new Set(window.hitIds ?? []),
         overlapsChat: window.overlapsChat === true,
+        // A record window keeps its mark (matchRecord merges record windows among themselves only).
+        ...(window.source === 'record' ? { source: 'record' } : {}),
       });
       continue;
     }
@@ -731,82 +788,198 @@ function isoMs(value) {
   return Number.isFinite(ms) ? ms : -Infinity;
 }
 
+/** A string field on one line, or ''. */
+function textOf(value) {
+  return typeof value === 'string' ? oneLine(value) : '';
+}
+
+/** How many archive candidates per `<memory>` item scanArchive keeps while it streams. */
+const ARCHIVE_CANDIDATES_PER_ITEM = 4;
+const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The default order of matched items: score, weight, the newer, the newer addition, input order. */
+function byScore(a, b) {
+  return b.score - a.score || b.weight - a.weight || b.ts - a.ts || b.ts2 - a.ts2 || a.order - b.order;
+}
+
+/** The order of a vague "recently": the persona's own exchanges first, then the newer, then score and weight. */
+function byRecency(a, b) {
+  return Number(b.self === true) - Number(a.self === true) || b.ts - a.ts || b.ts2 - a.ts2 || b.score - a.score || b.weight - a.weight || a.order - b.order;
+}
+
+/**
+ * The matching context shared by matchMemory and scanArchive: the folded
+ * forms, the members the name forms pick, the range tests and the scorer;
+ * null when nothing is asked.
+ */
+function memoryContext({ forms, who, profiles, from, to, timezone }) {
+  const whoForms = foldedForms(who);
+  const allForms = foldedForms([...(Array.isArray(forms) ? forms : []), ...(Array.isArray(who) ? who : [])]);
+  if (allForms.length === 0) return null;
+  const ranged = Number.isFinite(from) || Number.isFinite(to);
+  const fromDay = Number.isFinite(from) ? zonedDay(from, timezone) : null;
+  const toDay = Number.isFinite(to) ? zonedDay(to, timezone) : null;
+  const people = new Set();
+  for (const profile of Array.isArray(profiles) ? profiles : []) {
+    if (!profile || typeof profile !== 'object') continue;
+    const id = memberIdOf(profile.id);
+    if (id === null || whoForms.length === 0) continue;
+    const names = [...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name), ...(Array.isArray(profile.names) ? profile.names : [])];
+    if (names.some((name) => typeof name === 'string' && whoForms.includes(foldText(name)))) people.add(id);
+  }
+  return {
+    timezone,
+    ranged,
+    people,
+    dayInside: (day) => !ranged || (Boolean(day) && (fromDay === null || day >= fromDay) && (toDay === null || day <= toDay)),
+    atInside: (at) => !ranged || (Number.isFinite(at) && (!Number.isFinite(from) || at >= from) && (!Number.isFinite(to) || at <= to)),
+    namesPerson: (texts, extraIds = []) => [...extraIds, ...texts.flatMap((text) => tokenIds(text))].some((id) => people.has(String(id))),
+    score: (texts, person) => formsMatched(texts, allForms) + (person ? 1 : 0),
+  };
+}
+
+/** The local day of an archive entry's `observedAt` (a stored day as it is, a time in `timezone`), or null. */
+function observedDay(observedAt, timezone) {
+  const date = isPlainObject(observedAt) ? observedAt.date : null;
+  if (typeof date !== 'string' || !date) return null;
+  if (DAY_KEY_RE.test(date)) return date;
+  const ms = Date.parse(date);
+  return Number.isFinite(ms) ? zonedDay(ms, timezone) : null;
+}
+
+/**
+ * One archive entry (src/memory/archive.js#archiveEntry) as a matched item,
+ * or null when it matches nothing (or lies outside the range). Searched: the
+ * entry's `neutral` and its `text.*` fields -- an episode's `what` and
+ * `quote`, never its `feeling`; a participation episode's message texts.
+ * Rendered text: an episode as matchMemory renders one; a participation
+ * episode as `name: text` per message joined by ` / `; another kind its
+ * string fields joined by `: `; the `neutral` text when those are empty.
+ * `self` when it holds a line of the persona (a participation episode).
+ */
+function archivedItem(entry, ctx) {
+  if (!isPlainObject(entry) || typeof entry.itemKind !== 'string' || !entry.itemKind) return null;
+  const fields = isPlainObject(entry.text) ? entry.text : {};
+  let texts;
+  let text;
+  let self = false;
+  if (entry.itemKind === 'participation') {
+    const messages = (Array.isArray(fields.messages) ? fields.messages : []).filter(isPlainObject);
+    self = messages.some((m) => m.self === true);
+    const said = messages.map((m) => ({ name: textOf(m.name), text: textOf(m.text) })).filter((m) => m.text);
+    texts = said.map((m) => m.text);
+    text = said.map((m) => (m.name ? `${m.name}: ${m.text}` : m.text)).join(' / ');
+  } else if (entry.itemKind === 'episode') {
+    const what = textOf(fields.what);
+    const quote = textOf(fields.quote);
+    texts = [what, quote];
+    text = what && quote ? `${what} "${quote}"` : what || quote;
+  } else {
+    texts = Object.values(fields).map(textOf).filter(Boolean);
+    text = texts.join(': ');
+  }
+  const neutral = textOf(entry.neutral);
+  text ||= neutral;
+  if (!text) return null;
+  const date = observedDay(entry.observedAt, ctx.timezone);
+  if (!ctx.dayInside(date)) return null;
+  const memberId = typeof entry.scope?.user === 'string' && entry.scope.user ? entry.scope.user : null;
+  const ids = [...(Array.isArray(entry.participants) ? entry.participants : []), ...(memberId ? [memberId] : [])];
+  const searched = [...texts, neutral];
+  const score = ctx.score(searched, ctx.namesPerson(searched, ids));
+  if (score <= 0) return null;
+  const observed = isPlainObject(entry.observedAt) && typeof entry.observedAt.date === 'string' ? entry.observedAt.date : '';
+  return {
+    kind: `archived ${entry.itemKind}`,
+    text,
+    date,
+    memberId,
+    itemId: typeof entry.itemId === 'string' && entry.itemId ? entry.itemId : null,
+    self,
+    weight: Number.isFinite(entry.weight) ? entry.weight : NEUTRAL_WEIGHT,
+    ts: DAY_KEY_RE.test(observed) ? Date.parse(`${observed}T00:00:00Z`) : isoMs(observed),
+    ts2: isoMs(entry.recordedAt),
+    score,
+  };
+}
+
 /**
  * The persona's stored memory that speaks to a recall question, matched with
  * no request. Searched: the members' moments (`profiles[].episodes`: `what`
  * and `quote`, never `feeling`), the lorebook (`title`, `keys`, `text`), the
- * learned items (`text`) and the recent lines (`text`) -- each list as the
- * caller passes it, already gated (the caller never passes a private layer).
+ * learned items (`text`), the recent lines (`text`) and the archive
+ * (`archived`: entries scanArchive kept; see archivedItem) -- each list as the
+ * caller passes it, already gated (the caller never passes a private layer
+ * the turn may not read).
  * - A form of `forms` or `who` matches a text when it occurs in it as a whole
  *   word or phrase, both folded (src/memory/recent.js#foldText: case, accents;
  *   src/memory/mentions.js#occursAsWholeWord). Inflected forms are separate
  *   forms; nothing is stemmed.
  * - A `who` form equal (folded) to one of a profile's `names` or alias names
- *   picks that member: each of their moments, and every item whose text holds
- *   their `<@id>` token (a recent line's `who` too), counts the person once.
+ *   picks that member: each of their moments, every item whose text holds
+ *   their `<@id>` token (a recent line's `who` too) and every archive entry
+ *   scoped to them or naming them among its `participants` counts the person
+ *   once.
  * - `score` = distinct forms matched + 1 when the item counts the person; an
  *   item of score 0 is left out.
  * - With `from` / `to` (epoch ms, either may be null) only dated items inside
- *   are kept: a moment by its `date` against the local days of the bounds in
+ *   are kept: a moment by its `date` and an archive entry by the local day of
+ *   its `observedAt`, both against the local days of the bounds in
  *   `timezone`, a recent line by its `at`; lore and learned items are undated
  *   and go.
- * Ranked by score, then weight (a moment's own; any other item weighs 3, a
- * moment's default), then the newer (a moment's date then `addedAt`, lore's
- * `updatedAt` or `createdAt`, a learned item's `lastSeen`, a line's `at`),
- * then input order; at most `max` (RECALL_DEFAULTS.memoryItems when unusable,
- * 0 for none). An item: `text` (a moment's `what`, with its `quote` in double
- * quotes after it when it has one; lore as `title: text`; the stored text
- * otherwise; `<@id>` tokens kept), `date` (`YYYY-MM-DD`: a moment's own, a
- * line's local day in `timezone`; null for lore and learned), `memberId` (the
- * moment's member, a learned item's teacher, else null), `score`. Pure.
+ * - Hot and archived copies of one item are one hit: an archive entry whose
+ *   `itemId` a matched hot item carries is left out, and of several archived
+ *   revisions of one `itemId` only the newest recorded stays.
+ * Ranked by score, then weight (a moment's or an entry's own; any other item
+ * weighs 3, a moment's default), then the newer (a moment's date then
+ * `addedAt`, lore's `updatedAt` or `createdAt`, a learned item's `lastSeen`, a
+ * line's `at`, an entry's `observedAt` then `recordedAt`), then input order;
+ * with `recent` (a vague "recently", isRecentCue) the items holding the
+ * persona's own lines come first, then the newer, then score and weight. At
+ * most `max` (RECALL_DEFAULTS.memoryItems when unusable, 0 for none). An item:
+ * `kind` (`episode`, `lore`, `learned`, `recent`, or `archived <itemKind>`),
+ * `text` (a moment's `what`, with its `quote` in double quotes after it when
+ * it has one; lore as `title: text`; an archive entry as archivedItem renders
+ * it; the stored text otherwise; `<@id>` tokens kept), `date` (`YYYY-MM-DD`: a
+ * moment's own, a line's or an entry's local day in `timezone`; null for lore
+ * and learned), `memberId` (the moment's member, a learned item's teacher, an
+ * entry's scoped member, else null), `itemId` (or null), `self`, `score`. Pure.
  * @param {{ forms?: string[], who?: string[], profiles?: object[], lore?: object[], learned?: object[],
- *   recentLines?: object[], from?: number|null, to?: number|null, max?: number, timezone?: string }} params
- * @returns {{ kind: 'episode'|'lore'|'learned'|'recent', text: string, date: string|null, memberId: string|null,
+ *   recentLines?: object[], archived?: object[], from?: number|null, to?: number|null, max?: number, timezone?: string,
+ *   recent?: boolean }} params
+ * @returns {{ kind: string, text: string, date: string|null, memberId: string|null, itemId: string|null, self: boolean,
  *   score: number }[]}
  */
-export function matchMemory({ forms = [], who = [], profiles = [], lore = [], learned = [], recentLines = [], from = null, to = null, max, timezone = 'UTC' } = {}) {
+export function matchMemory({ forms = [], who = [], profiles = [], lore = [], learned = [], recentLines = [], archived = [], from = null, to = null, max, timezone = 'UTC', recent = false } = {}) {
   const limit = intAtLeast(max, RECALL_DEFAULTS.memoryItems, 0);
-  const whoForms = foldedForms(who);
-  const allForms = foldedForms([...(Array.isArray(forms) ? forms : []), ...(Array.isArray(who) ? who : [])]);
-  if (limit === 0 || allForms.length === 0) return [];
+  const ctx = memoryContext({ forms, who, profiles, from, to, timezone });
+  if (limit === 0 || ctx === null) return [];
   const list = (value) => (Array.isArray(value) ? value.filter((item) => item && typeof item === 'object') : []);
-
-  const ranged = Number.isFinite(from) || Number.isFinite(to);
-  const fromDay = Number.isFinite(from) ? zonedDay(from, timezone) : null;
-  const toDay = Number.isFinite(to) ? zonedDay(to, timezone) : null;
-  const dayInside = (day) => !ranged || (Boolean(day) && (fromDay === null || day >= fromDay) && (toDay === null || day <= toDay));
-  const atInside = (at) => !ranged || (Number.isFinite(at) && (!Number.isFinite(from) || at >= from) && (!Number.isFinite(to) || at <= to));
-
-  const people = new Set();
-  for (const profile of list(profiles)) {
-    const id = memberIdOf(profile.id);
-    if (id === null || whoForms.length === 0) continue;
-    const names = [...list(profile.aliases).map((alias) => alias.name), ...(Array.isArray(profile.names) ? profile.names : [])];
-    if (names.some((name) => typeof name === 'string' && whoForms.includes(foldText(name)))) people.add(id);
-  }
-  const namesPerson = (texts, extraIds = []) => [...extraIds, ...texts.flatMap((text) => tokenIds(text))].some((id) => people.has(String(id)));
+  const { people, namesPerson, dayInside, atInside, ranged } = ctx;
+  const itemIdOf = (value) => (typeof value?.itemId === 'string' && value.itemId ? value.itemId : null);
 
   const found = [];
   const add = (item, texts, person) => {
-    const score = formsMatched(texts, allForms) + (person ? 1 : 0);
-    if (score > 0) found.push({ ...item, score, order: found.length });
+    const score = ctx.score(texts, person);
+    if (score > 0) found.push({ itemId: null, self: false, ...item, score, order: found.length });
   };
 
   for (const profile of list(profiles)) {
     const memberId = memberIdOf(profile.id);
     if (memberId === null) continue;
     for (const ep of list(profile.episodes)) {
-      const what = typeof ep.what === 'string' ? oneLine(ep.what) : '';
+      const what = textOf(ep.what);
       if (!what) continue;
       const date = episodeDate(ep.date) || null;
       if (!dayInside(date)) continue;
-      const quote = typeof ep.quote === 'string' ? oneLine(ep.quote) : '';
+      const quote = textOf(ep.quote);
       const texts = [what, quote];
       const item = {
         kind: 'episode',
         text: quote ? `${what} "${quote}"` : what,
         date,
         memberId,
+        itemId: itemIdOf(ep),
         weight: Number.isFinite(ep.weight) ? ep.weight : NEUTRAL_WEIGHT,
         ts: date ? Date.parse(`${date}T00:00:00Z`) : -Infinity,
         ts2: isoMs(ep.addedAt),
@@ -817,37 +990,93 @@ export function matchMemory({ forms = [], who = [], profiles = [], lore = [], le
   // Lore and learned items carry no date: a range leaves them out.
   if (!ranged) {
     for (const entry of list(lore)) {
-      const title = typeof entry.title === 'string' ? oneLine(entry.title) : '';
-      const text = typeof entry.text === 'string' ? oneLine(entry.text) : '';
+      const title = textOf(entry.title);
+      const text = textOf(entry.text);
       if (!text) continue;
       const keys = Array.isArray(entry.keys) ? entry.keys.filter((key) => typeof key === 'string') : [];
-      const item = { kind: 'lore', text: title ? `${title}: ${text}` : text, date: null, memberId: null, weight: NEUTRAL_WEIGHT, ts: isoMs(entry.updatedAt || entry.createdAt), ts2: 0 };
+      const item = { kind: 'lore', text: title ? `${title}: ${text}` : text, date: null, memberId: null, itemId: itemIdOf(entry), weight: NEUTRAL_WEIGHT, ts: isoMs(entry.updatedAt || entry.createdAt), ts2: 0 };
       add(item, [title, ...keys, text], namesPerson([title, text]));
     }
     for (const entry of list(learned)) {
-      const text = typeof entry.text === 'string' ? oneLine(entry.text) : '';
+      const text = textOf(entry.text);
       if (!text) continue;
       const teacher = typeof entry.from === 'string' ? (TEACHER_TOKEN_RE.exec(entry.from.trim())?.[1] ?? null) : null;
-      const item = { kind: 'learned', text, date: null, memberId: teacher, weight: NEUTRAL_WEIGHT, ts: isoMs(entry.lastSeen), ts2: 0 };
+      const item = { kind: 'learned', text, date: null, memberId: teacher, itemId: itemIdOf(entry), weight: NEUTRAL_WEIGHT, ts: isoMs(entry.lastSeen), ts2: 0 };
       add(item, [text], namesPerson([text]));
     }
   }
   for (const line of list(recentLines)) {
-    const text = typeof line.text === 'string' ? oneLine(line.text) : '';
+    const text = textOf(line.text);
     if (!text || !Number.isFinite(line.at) || !atInside(line.at)) continue;
-    const item = { kind: 'recent', text, date: zonedDay(line.at, timezone), memberId: null, weight: NEUTRAL_WEIGHT, ts: line.at, ts2: 0 };
+    const item = { kind: 'recent', text, date: zonedDay(line.at, timezone), memberId: null, itemId: itemIdOf(line), weight: NEUTRAL_WEIGHT, ts: line.at, ts2: 0 };
     add(item, [text], namesPerson([text], Array.isArray(line.who) ? line.who : []));
   }
 
+  // The archive: an item still hot is its hot copy; of an item's archived revisions the newest recorded stands.
+  const hotIds = new Set(found.map((item) => item.itemId).filter(Boolean));
+  const newest = new Map();
+  const loose = [];
+  for (const entry of list(archived)) {
+    const item = archivedItem(entry, ctx);
+    if (!item || (item.itemId && hotIds.has(item.itemId))) continue;
+    if (!item.itemId) {
+      loose.push(item);
+      continue;
+    }
+    const known = newest.get(item.itemId);
+    if (!known || item.ts2 >= known.ts2) newest.set(item.itemId, item);
+  }
+  for (const item of [...newest.values(), ...loose]) found.push({ ...item, order: found.length });
+
   return found
-    .sort((a, b) => b.score - a.score || b.weight - a.weight || b.ts - a.ts || b.ts2 - a.ts2 || a.order - b.order)
+    .sort(recent ? byRecency : byScore)
     .slice(0, limit)
-    .map(({ kind, text, date, memberId, score }) => ({ kind, text, date, memberId, score }));
+    .map(({ kind, text, date, memberId, itemId, self, score }) => ({ kind, text, date, memberId, itemId, self, score }));
+}
+
+/**
+ * The archive entries a recall question may use, read from `entries` (an
+ * async or sync iterable, as src/memory/archive.js#iterate streams a
+ * segment's lines one by one) without holding the archive in memory: each
+ * entry `allow` refuses is skipped before it is matched (the caller's
+ * audience and private-owner rule); each one archivedItem matches is a
+ * candidate, and at most `max` x ARCHIVE_CANDIDATES_PER_ITEM (4) of the best
+ * (matchMemory's order, `recent` included) are kept while the stream runs.
+ * Stops at an aborted `signal`. Returns the kept entries, best first, for
+ * matchMemory's `archived`; none for a `max` of 0 or nothing asked.
+ * @param {AsyncIterable<object>|Iterable<object>|null|undefined} entries
+ * @param {{ forms?: string[], who?: string[], profiles?: object[], from?: number|null, to?: number|null,
+ *   timezone?: string, recent?: boolean, allow?: (entry: object) => boolean, max?: number, signal?: AbortSignal }} [options]
+ * @returns {Promise<object[]>}
+ */
+export async function scanArchive(entries, { forms = [], who = [], profiles = [], from = null, to = null, timezone = 'UTC', recent = false, allow, max, signal } = {}) {
+  const limit = intAtLeast(max, RECALL_DEFAULTS.memoryItems, 0);
+  const ctx = memoryContext({ forms, who, profiles, from, to, timezone });
+  const iterable = entries && (typeof entries[Symbol.asyncIterator] === 'function' || typeof entries[Symbol.iterator] === 'function');
+  if (limit === 0 || ctx === null || !iterable) return [];
+  const bound = limit * ARCHIVE_CANDIDATES_PER_ITEM;
+  const order = recent ? byRecency : byScore;
+  let kept = [];
+  let seen = 0;
+  for await (const entry of entries) {
+    if (signal?.aborted) break;
+    if (typeof allow === 'function' && !allow(entry)) continue;
+    const item = archivedItem(entry, ctx);
+    if (!item) continue;
+    kept.push({ ...item, order: seen, entry });
+    seen += 1;
+    if (kept.length >= bound * 2) kept = kept.sort(order).slice(0, bound);
+  }
+  return kept
+    .sort(order)
+    .slice(0, bound)
+    .map((item) => item.entry);
 }
 
 /**
  * The `<memory>` line of one matchMemory item: `kind | date | name | text`,
- * structural fields only -- `kind` the item's kind code, `date` its date or
+ * structural fields only -- `kind` the item's kind code (`archived <itemKind>`
+ * for an archive entry), `date` its date or
  * `-`, `name` the display name `nameOf` gives its `memberId` or `-`, `text`
  * on one line with `<@id>` tokens resolved through `nameOf` (an unresolved
  * one stays as stored).
@@ -872,10 +1101,14 @@ function personLine(person, timezone) {
  * `now`, `{{today}}` (the local date key in `timezone`) filled; the user
  * message holds `<people>` (one line per found member, see personLine; left
  * out when none), `<memory>` (one line per item of `memory`, matchMemory's
- * order, as memoryLine renders it: `kind | date | name | text`; left out
- * when none), `<found>` (one section per window, numbered from 1 in the
- * order given: a header `## n | YYYY-MM-DD | #channel` with the local date
- * of its first line, then its lines, renderRecallWindows with indices; left
+ * order, as memoryLine renders it: `kind | date | name | text`, in order
+ * until the next line would pass `memoryTokens` (the src/llm/tokens.js
+ * estimate of each line; no cap when it is not a number of at least 0);
+ * left out when none fits), `<found>` (one section per window, numbered from
+ * 1 in the order given: a header `## n | YYYY-MM-DD | #channel` with the
+ * local date of its first line, ` | source: record` after the channel for a
+ * window read from the record (`source: 'record'`, matchRecord), then its
+ * lines, renderRecallWindows with indices; left
  * out when no window has a line), `<context>` (the chat lines before the
  * question, recallContext's choice made by the caller, rendered as the
  * classifier transcripts are -- src/discord/format.js formatTranscript and
@@ -889,13 +1122,14 @@ function personLine(person, timezone) {
  * line of the persona (`self`), then ` ` + `labels.lookup.stretchCurrent`
  * (trimmed) when the window overlaps the turn's chat (`overlapsChat`); a
  * missing or blank label adds nothing. Null when the prompt is blank, or when no window has a line and
- * there is no memory item.
+ * no memory line fits.
  * @param {{ prompt: string|null|undefined, selfName: string, question: { authorName?: string, content?: string },
  *   people?: { name: string, username?: string, count?: number, newestTs?: number|null }[], windows: object[],
  *   memory?: { kind: string, text: string, date: string|null, memberId: string|null }[], context?: object[],
  *   contextDescriptions?: Map<string, string>, replyQuoteChars?: number,
  *   nameOf?: (id: string) => (string|null|undefined), labels: object, timezone?: string, answerChars: number,
- *   now?: number, maxChars?: number, gapMinutes?: number, seeReactions?: boolean, reactionsPerMessage?: number }} params
+ *   now?: number, maxChars?: number, gapMinutes?: number, seeReactions?: boolean, reactionsPerMessage?: number,
+ *   memoryTokens?: number }} params
  * @returns {{ role: string, content: string }[]|null}
  */
 export function buildRecallRequest({
@@ -917,11 +1151,23 @@ export function buildRecallRequest({
   gapMinutes = 20,
   seeReactions = true,
   reactionsPerMessage,
+  memoryTokens,
 }) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   const rendered = renderRecallWindows(windows, { labels, timezone, selfName, gapMinutes, maxChars, seeReactions, reactionsPerMessage, indexed: true });
   const notes = (Array.isArray(memory) ? memory : []).filter((item) => item && typeof item.text === 'string' && item.text.trim());
-  if (rendered.length === 0 && notes.length === 0) return null;
+  // The <memory> lines in order, until the next one would pass `memoryTokens`.
+  const tokenCap = Number.isFinite(memoryTokens) && memoryTokens >= 0 ? memoryTokens : Infinity;
+  const memoryLines = [];
+  let memoryUsed = 0;
+  for (const item of notes) {
+    const line = memoryLine(item, nameOf);
+    const cost = estimateTokens(line);
+    if (memoryUsed + cost > tokenCap) break;
+    memoryUsed += cost;
+    memoryLines.push(line);
+  }
+  if (rendered.length === 0 && memoryLines.length === 0) return null;
   // The windows renderRecallWindows rendered, in its order (it skips the ones without a message).
   const sources = (Array.isArray(windows) ? windows : []).filter((window) => (window?.messages ?? []).filter(Boolean).length > 0);
   const flag = (key) => {
@@ -933,7 +1179,9 @@ export function buildRecallRequest({
     const source = sources[i];
     const self = (source?.messages ?? []).some((m) => m?.self === true) ? flag('stretchSelf') : '';
     const current = source?.overlapsChat === true ? flag('stretchCurrent') : '';
-    return [`## ${i + 1} | ${zonedDay(window.startTs, timezone)} | #${oneLine(window.channelName)}${self}${current}`, ...window.lines.map((line) => line.text)].join('\n');
+    // A protocol mark, not wording: the window was read from the record, not found by the search.
+    const origin = source?.source === 'record' ? ' | source: record' : '';
+    return [`## ${i + 1} | ${zonedDay(window.startTs, timezone)} | #${oneLine(window.channelName)}${origin}${self}${current}`, ...window.lines.map((line) => line.text)].join('\n');
   });
   const chat = (Array.isArray(context) ? context : []).filter(Boolean);
   let contextText = '';
@@ -955,7 +1203,7 @@ export function buildRecallRequest({
   const text = [...String(question?.content ?? '')].slice(0, maxChars).join('');
   const user = [
     block('people', (Array.isArray(people) ? people : []).map((p) => personLine(p, timezone)).join('\n')),
-    block('memory', notes.map((item) => memoryLine(item, nameOf)).join('\n')),
+    block('memory', memoryLines.join('\n')),
     block('found', sections.join('\n\n')),
     block('context', contextText),
     block('question', `${oneLine(question?.authorName)}: ${text}`),
@@ -1028,4 +1276,172 @@ export function cutStretch(lines, maxChars) {
     else end -= 1;
   }
   return list.slice(start, end);
+}
+
+/** How many reply parents a record hit's chain follows at most. */
+const REPLY_CHAIN_MAX = 10;
+/** How many record hits per kept window are turned into windows before the ranking. */
+const RECORD_HITS_PER_WINDOW = 4;
+
+/** A record line (src/memory/record.js) as a normalized chat message (the shape renderRecallWindows reads). */
+function recordMessage(line, { nameOf, selfName }) {
+  const self = line.kind === 'said';
+  const by = typeof line.by === 'string' && line.by ? line.by : null;
+  const name = self ? oneLine(selfName ?? '') : by && typeof nameOf === 'function' ? oneLine(nameOf(by) ?? '') : '';
+  return {
+    id: line.messageId,
+    channelId: line.scope.channel,
+    authorId: by,
+    authorName: name || NO_FIELD,
+    self,
+    bot: false,
+    content: typeof line.text === 'string' ? line.text : '',
+    ts: Date.parse(line.occurredAt),
+    replyToId: typeof line.replyTo === 'string' && line.replyTo ? line.replyTo : null,
+    mentionedUserIds: Array.isArray(line.mentions) ? line.mentions : [],
+    attachments: [],
+    links: [],
+    stickers: [],
+    emojis: [],
+    forwarded: [],
+    reactions: [],
+  };
+}
+
+/**
+ * The bounded record reader: the lines of the persona's record
+ * (src/memory/record.js, `record.iterate`) that answer a recall question,
+ * as windows for the summary beside Discord's (buildRecallRequest marks them
+ * `source: record`). Read: the record days of `range` -- from the end of the
+ * range (`now` when open or later) back at most `recordDays` days, never
+ * before its start -- and only those (`recordDays` 0 reads nothing). Each
+ * line `allowLine` refuses is skipped before it is matched (the caller's
+ * audience and private-owner rule); the newest revision of a message
+ * stands, a deleted message goes, `felt` lines are not chat. A line matches
+ * when a form of `forms` or `aliases` (the members' names and alias names)
+ * occurs in its text as a whole word, both folded, or when its author or
+ * `participants` name one of `participants`; `score` = forms matched + 1 for
+ * a member. Lines whose id is in `exclude` (the turn's own chat) are never
+ * hits nor shown; a window that lost one is `overlapsChat`. Each hit's
+ * window, in its channel: its reply chain (`replyTo` within the scanned
+ * days, at most REPLY_CHAIN_MAX parents), the `recordContext` lines before
+ * and after it, and the hit; windows sharing a line are merged
+ * (mergeWindows), every hit inside a window is in its `hitIds`. At most
+ * `maxWindows` windows are kept: by their best score, then the newer last
+ * line; with `recent` (isRecentCue) a window with a line of the persona
+ * first, then the newer. Returned newest first, each
+ * `{ source: 'record', channelId, channelName, messages, hitIds, overlapsChat }`
+ * (`channelName` from `channelNameOf`; authors' names from `nameOf`, the
+ * persona's own lines under `selfName`). Stops reading at an aborted `signal`.
+ * @param {string} guildId
+ * @param {{ record: { iterate: Function }, range?: { from?: number|null, to?: number|null }, participants?: string[],
+ *   forms?: string[], aliases?: string[], recordDays?: number, recordContext?: number, now: number, maxWindows?: number,
+ *   allowLine?: (line: object) => boolean, exclude?: Set<string>|string[], recent?: boolean,
+ *   nameOf?: (id: string) => (string|null|undefined), selfName?: string, channelNameOf?: (id: string) => (string|null|undefined),
+ *   signal?: AbortSignal }} options
+ * @returns {Promise<{ windows: object[], scanned: number, hits: number }>}
+ */
+export async function matchRecord(guildId, { record, range = {}, participants = [], forms = [], aliases = [], recordDays, recordContext, now, maxWindows, allowLine, exclude, recent = false, nameOf, selfName = '', channelNameOf, signal } = {}) {
+  const none = { windows: [], scanned: 0, hits: 0 };
+  const days = intAtLeast(recordDays, RECALL_DEFAULTS.recordDays, 0);
+  const around = intAtLeast(recordContext, RECALL_DEFAULTS.recordContext, 0);
+  const keep = intAtLeast(maxWindows, RECALL_DEFAULTS.maxClusters, 1);
+  if (days === 0 || typeof record?.iterate !== 'function' || !Number.isFinite(now)) return none;
+  const textForms = foldedForms([...(Array.isArray(forms) ? forms : []), ...(Array.isArray(aliases) ? aliases : [])]);
+  const people = new Set((Array.isArray(participants) ? participants : []).filter((id) => typeof id === 'string' && id));
+  if (textForms.length === 0 && people.size === 0) return none;
+  const to = Math.min(Number.isFinite(range?.to) ? range.to : now, now);
+  const from = Math.max(Number.isFinite(range?.from) ? range.from : -Infinity, to - days * DAY_MS);
+  if (from > to) return none;
+  const excluded = exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []);
+
+  // The scanned days: the newest revision of each message; a deleted one is null.
+  const latest = new Map();
+  let scanned = 0;
+  const query = { from: new Date(from).toISOString(), to: new Date(to).toISOString() };
+  for await (const line of record.iterate(guildId, query)) {
+    if (signal?.aborted) break;
+    if (!isPlainObject(line) || typeof line.messageId !== 'string' || !line.messageId) continue;
+    if (typeof allowLine === 'function' && !allowLine(line)) continue;
+    scanned += 1;
+    if (line.kind === 'deleted') {
+      latest.set(line.messageId, null);
+      continue;
+    }
+    if ((line.kind !== 'seen' && line.kind !== 'said') || typeof line.scope?.channel !== 'string' || !Number.isFinite(Date.parse(line.occurredAt))) continue;
+    const known = latest.get(line.messageId);
+    const revision = Number.isInteger(line.revision) && line.revision > 0 ? line.revision : 1;
+    if (known === null || (known && known.revision >= revision)) continue;
+    latest.set(line.messageId, { line, revision });
+  }
+
+  const byId = new Map();
+  const byChannel = new Map();
+  const named = new Map();
+  for (const entry of latest.values()) {
+    if (!entry) continue;
+    const message = recordMessage(entry.line, { nameOf, selfName });
+    byId.set(message.id, message);
+    named.set(message.id, [message.authorId, ...(Array.isArray(entry.line.participants) ? entry.line.participants : [])]);
+    if (!byChannel.has(message.channelId)) byChannel.set(message.channelId, []);
+    byChannel.get(message.channelId).push(message);
+  }
+  const position = new Map();
+  for (const list of byChannel.values()) {
+    list.sort((x, y) => x.ts - y.ts || (x.id < y.id ? -1 : 1));
+    list.forEach((message, i) => position.set(message.id, i));
+  }
+
+  const hits = [];
+  for (const message of byId.values()) {
+    if (excluded.has(message.id)) continue;
+    const person = (named.get(message.id) ?? []).some((id) => people.has(id));
+    const score = formsMatched([message.content], textForms) + (person ? 1 : 0);
+    if (score > 0) hits.push({ message, score });
+  }
+  const hitScore = new Map(hits.map((hit) => [hit.message.id, hit.score]));
+  const hitOrder = recent
+    ? (a, b) => Number(b.message.self) - Number(a.message.self) || b.message.ts - a.message.ts || b.score - a.score
+    : (a, b) => b.score - a.score || b.message.ts - a.message.ts;
+  const windows = hits
+    .sort(hitOrder)
+    .slice(0, keep * RECORD_HITS_PER_WINDOW)
+    .map(({ message }) => {
+      const list = byChannel.get(message.channelId);
+      const at = position.get(message.id);
+      const chosen = new Map();
+      let parentId = message.replyToId;
+      for (let depth = 0; parentId && depth < REPLY_CHAIN_MAX; depth += 1) {
+        const parent = byId.get(parentId);
+        if (!parent || parent.channelId !== message.channelId || chosen.has(parent.id)) break;
+        chosen.set(parent.id, parent);
+        parentId = parent.replyToId;
+      }
+      for (const neighbour of [...list.slice(Math.max(0, at - around), at), message, ...list.slice(at + 1, at + 1 + around)]) chosen.set(neighbour.id, neighbour);
+      const all = [...chosen.values()];
+      const messages = all.filter((m) => !excluded.has(m.id)).sort((x, y) => x.ts - y.ts || (x.id < y.id ? -1 : 1));
+      return {
+        source: 'record',
+        channelId: message.channelId,
+        channelName: typeof channelNameOf === 'function' ? (channelNameOf(message.channelId) ?? null) : null,
+        messages,
+        hitIds: messages.filter((m) => hitScore.has(m.id)).map((m) => m.id),
+        overlapsChat: messages.length < all.length,
+      };
+    });
+  const merged = mergeWindows(windows).map((window) => ({
+    ...window,
+    score: Math.max(0, ...[...window.hitIds].map((id) => hitScore.get(id) ?? 0)),
+    self: window.messages.some((m) => m.self === true),
+    endTs: window.messages[window.messages.length - 1].ts,
+  }));
+  const windowOrder = recent
+    ? (a, b) => Number(b.self) - Number(a.self) || b.endTs - a.endTs || b.score - a.score
+    : (a, b) => b.score - a.score || b.endTs - a.endTs;
+  const kept = merged
+    .sort(windowOrder)
+    .slice(0, keep)
+    .sort((a, b) => b.endTs - a.endTs)
+    .map(({ score, self, endTs, ...window }) => window);
+  return { windows: kept, scanned, hits: hits.length };
 }

@@ -44,6 +44,8 @@ Every key in `config.json` with its default, grouped by section.
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
 | `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
 | `journal` | `true` | Keep the persona's journal: for every turn, one line when it starts and one when it ends (what of the chat went into the request, its hidden reasoning, what it posted and reacted to, token usage, the limits that cut something), in `data/guilds/<id>/journal/<YYYY-MM-DD>.jsonl` by UTC day; a private chat's turns go to `data/guilds/<id>/private/<userId>/journal/` instead. While on, the live log carries only the length of the hidden reasoning (`thinkChars`). Must be exactly `true` to enable; a missing key counts as off. See [`journal`](#journal) |
+| `record` | `true` | Keep the record: every message the memory buffer took (written before the batch is analyzed; a batch the disk refuses stays in the buffer and is retried), every edit as a new line with the next revision, every deletion, each message the persona posted and each feeling she stored on a moment, one line each, in `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl` by UTC day. Only ids, time, channel, author, reply target, text, media kinds and mentions are kept, never a URL. A private chat's lines go to `data/guilds/<id>/private/<userId>/record/` instead. Never trimmed. Must be exactly `true` to enable; a missing key counts as off. See [`record`](#record) |
+| `archive` | `true` | Keep the archive: before anything leaves the stored memory (an episode or an interest pushed out by a cap, a recent line or an exchange that expired, a lesson or a self-claim the analyzer removed, an in-joke list rewritten, an attitude move, a diary post or an old note version past its limit, the previous text of an interest changed in place), a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl` by month (a private chat's items to `data/guilds/<id>/private/<userId>/archive/`). The item stays in memory, over its cap, until the archive confirms the copy; a copy the disk refuses waits in `archive/pending.jsonl` and is retried every `archive.drainMs`. Never trimmed. The same copy is not written twice. Must be exactly `true` to enable; a missing key counts as off. See [`archive`](#archive) |
 | `recent` | `true` | Show a `<recent>` block of what happened on the server in the last few days. A missing key counts as on. See `memory.recentHours` and `context.caps.recent` |
 | `participation` | `true` | The persona remembers its own exchanges on other channels over the last few days and, on a server turn, sees a few of them in a `<participation>` block. A missing key counts as on. See [`participation`](#participation) and `context.caps.participation` |
 | `channelRoute` | `true` | A classifier picks a channel the conversation is about before a turn, so the channel can be pulled into the request. A missing key counts as on. See `route.*` |
@@ -297,7 +299,11 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `maxPerDay` | `100` | Daily recall runs (stored in `state.json` as `recallDay` / `recallCount`) |
 | `timeoutMs` | `10000` | Total time for the recall run (search, windows, summary). Once half the time is gone no further search is sent; the summary runs only when at least `minSummaryMs` is left |
 | `minSummaryMs` | `2500` | Minimum time left for the summary helper to be asked. Without it the verbatim stretch of the top window is returned without a note |
-| `memoryItems` | `6` | Stored memory items (episodes, lore, lessons, recent lines) matched against the classifier's word forms and name forms and sent in the `<memory>` block of the recall summary. `0` turns the match off |
+| `memoryItems` | `6` | Stored memory items (episodes, lore, lessons, recent lines, and archived items) matched against the classifier's word forms and name forms and sent in the `<memory>` block of the recall summary. `0` turns the match off |
+| `memoryTokens` | `600` | Token budget of the `<memory>` block (estimated per line): lines are added in rank order until the next one would pass it. `0` = no line fits |
+| `archiveMonths` | `6` | Months of the archive (items that left hot memory: evicted, expired or replaced) searched for `<memory>` when the question has no `when:` range; with a range, the archive is searched from the range's start. Read as a stream, never loaded whole. `0` = the archive is searched only for a dated question |
+| `recordDays` | `3` | For a dated question or a vague "recently", the days of the record (every observed message on disk) read for matching lines: the last days of the `when:` range, or of now, at most this many. Matching lines become extra stretches marked `source: record`. `0` = the record is not read |
+| `recordContext` | `3` | Lines before and after each matching record line added to its stretch, besides the chain of messages it replies to |
 | `maxOutputTokens` | `500` | Max output tokens for the summary helper |
 
 ## `gifs`
@@ -505,6 +511,7 @@ Follow-up windows are persisted in `data/state.json` under `followUpWindows` and
 | `notesSampleMessages` | `160` | Target number of messages in the spread sample. Messages are spread over the days (newest day first, one message per day per round) to avoid sampling only the latest conversation |
 | `notesSampleMaxAuthorShare` | `0.35` | One author may hold at most this share of the sample; excess messages from a dominant author are replaced with other authors' lines |
 | `versionsKept` | `20` | Previous texts kept per field in the version history. When a field accumulates more, the oldest entry is dropped. Only prose fields are versioned: member `character`, `style`, `relationship`; channel `purpose`, `topics`, `tone`; server `patterns`, `starters`; lore `text` |
+| `vaultDir` | `"vault"` | Directory, relative to `data/` (or absolute), where `/nep memory forget` and `/nep memory wipe` put a plain copy of everything they are about to delete or rewrite: `forget-<userId>-<UTC time>/` and `wipe-<UTC time>/`, with each file under its path below `data/`. The engine never reads it back and `/nep memory snapshot` never copies it; putting a member back means copying files by hand and removing their entry from `data/guilds/<id>/forgotten.json`. Read at each forget or wipe |
 | `overLimitRetries` | `1` | Retries when a model answer for a prose field exceeds its character limit. The retry sends the model's own answer back with the exact field name, character count and limit, and asks for a shorter version. `0` turns the retry off; any positive value means exactly one retry. Applies to the voice model, the portrait refresh and the notes refresh. The stream analyzer never retries (the overflowing field is dropped from that batch) |
 | `portraitMaxAgeDays` | `21` | A portrait older than this (with at least `portraitMinMessages` own messages since) is due for a refresh even if it has not reached `portraitRefreshMessages` |
 | `portraitMinMessages` | `60` | Own messages since the last portrait for the age-based due path (`portraitMaxAgeDays`) |
@@ -537,6 +544,8 @@ Follow-up windows are persisted in `data/state.json` under `followUpWindows` and
 | `maxAliasesStored` | `15` | Aliases kept per profile; the top by frequency and recency are shown |
 | `aliasRosterSize` | `40` | Members carried in the `<known_members>` block of a guild analyzer batch: stored profiles not present as authors, so the analyzer can record an alias for one of them. `0` turns the roster off. Private batches never carry it |
 | `aliasHalfLifeDays` | `365` | Weight half-life for aliases (days) |
+| `maxClosedStored` | `40` | Closed claims kept per profile: an interest, detail or alias the analyzer marked as replaced by a newer one (`supersedes`) leaves the ranked list and is kept here with the dates it was true; past the limit the oldest goes to the archive (event `replaced`). Read at each write |
+| `supersededShownDays` | `7` | Days a replaced claim is still shown to the persona, once, next to the claim that replaced it (counted from when the new claim was recorded). Read at each request |
 | `maxInjokes` | `15` | Max server in-jokes |
 | `maxSelfFacts` | `20` | Max self-claims |
 | `maxEpisodes` | `20` | Max episodes kept per person |
@@ -794,6 +803,20 @@ Settings for the manual testing sub-process (`features.mentor`). The mentor inve
 | `retentionDays` | `0` | Days a journal file is kept; `0` keeps it forever. Not yet applied |
 | `keepRequests` | `3` | Days the request dumps are kept. Each model answer to a turn writes `requests/<day>/<turnId>-<attempt>.json` in the journal directory (a private chat's under its partner's private journal): the system prompt, the message parts as sent (pictures reduced to their size) and the raw answer with its token usage. Day directories older than this many days are deleted at start and then daily. `0` writes no dump and deletes none. Needs `features.journal` |
 | `announceChannelId` | `""` | The channel where `/nep pause` and `/nep resume` post one line (`labels.journal.paused` / `resumed`), so the chat knows the persona is away. Empty: nothing is posted and the owner's reply says so |
+
+## `record`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `fsyncMs` | `500` | The record's files are flushed to disk (fsync) at most this long (ms) after a write. Read at startup |
+
+## `archive`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `pendingMax` | `500` | Copies waiting in the archive's pending queue (the disk refused them) before memory updates stop: past it no analyzer batch and no voice run is applied, the messages stay in the buffer, `memory: archive stalled` is logged and one status line goes to `bot.dryRunChannelId`. Updates resume by themselves once the queue is back at or under the limit. Read at each batch |
+| `drainMs` | `30000` | How often (ms) the copies waiting in the pending queue are retried; once archived, their items leave memory. Read before each wait |
+| `holdMaxMs` | `5000` | A memory file whose item was rewritten in place is not written to disk until the old version is in the archive (or its pending queue). On shutdown and on `/nep pause` the bot waits up to this long (ms) for that, then writes the file anyway and logs `store: flushed held`. Read at that moment |
 
 ## Models
 

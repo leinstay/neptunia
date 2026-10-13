@@ -4,7 +4,7 @@ Below: a short transcript, {{name}}'s own lines marked. Then <candidate> with th
 
 Today is {{today}}.
 
-Answer `none`, or up to four labelled lines in any order, each at most once:
+Answer `none`, or up to five labelled lines in any order, each at most once:
 
 web: <search query>
 Plain words, no quotes, no operators, at most 12 words. When the message needs facts from outside the chat: news, scores, prices, dates, "what is X", "who won", anything time-bound or specific. Also when the message explicitly asks to search, google, look something up, find something online, or check what is happening, even phrased as a dare, a test, or a step of a bigger task ("find X, then do Y"). The query is the search terms, not the request: drop verbs like "find" or "google" and addressing words. When the question echoes or quotes something from the recent lines (a clip or picture just discussed, a show, a character, a meme, a running phrase), include that source in the query so the search finds the meaning in that context. A phrase that reads like a quote, a catchphrase or a gag is searched as that phrase together with where it comes from, not rewritten into a factual question. For "what's happening today", a query that finds today's top headlines. Write the query in the language most likely to find the answer: English for tech, science, global topics; the message's language for local ones.
@@ -17,6 +17,9 @@ When the question is about a person named in it who is not obviously someone in 
 
 when: <from> .. <to>
 When the question points at a time: a date, a holiday, "last winter", "yesterday". YYYY-MM-DD or YYYY-MM-DD HH:MM on each side of `..`; one date alone means that whole day. A date said without a year is the nearest past one, counted from today. A question only about a time ("what happened on <date>") gets `when` alone.
+
+recent: yes | no
+When the message refers to something from the last few days without naming a date or range: "we talked about this recently", "you said something the other day", "a couple of days ago". `yes` tells the engine to read its own record of the last days and rank the persona's own exchanges first. It does not replace `when:`. When a date or range can be named, write `when:` instead, or both when the date is approximate. Alone it asks nothing; it only qualifies a `server:` or `who:` line.
 
 Both `web` and server lines together when the question could be about the outside world or about this server and the message does not say which.
 

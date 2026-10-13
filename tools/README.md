@@ -12,7 +12,9 @@ running service, and never change it.
 - **Read-only on `data/`.** No tool writes under `data/`. A tool that needs to change memory works on a copy
   (`tools/memory-sim.mjs` copies a snapshot to a scratch directory). The one way to make that copy is the bot itself:
   `/nep memory snapshot`. The one exception is `mentor-cli.mjs`, moved here as it was: like `/nep mentor` it writes
-  its run records and case scores under `data/guilds/<id>/mentor/`.
+  its run records and case scores under `data/guilds/<id>/mentor/`. The other is `backfill.mjs` (below): it appends
+  to the record and the archive through their own modules, keeps its cursor and scratch files under
+  `data/guilds/<id>/record/backfill.json` and `data/guilds/<id>/backfill/`, and never touches hot memory.
 - **Side effects off.** Nothing is posted to Discord; Discord is read over REST without a gateway session; the
   engine's daily counters are private copies; requests are marked with the tool's own `origin` and never count
   against `llm.maxRequestsPerDay`.
@@ -34,6 +36,7 @@ running service, and never change it.
 | `replay.mjs --show-request <turnId>` | Prints the request a turn sent, from the journal's request dumps (`journal.keepRequests` days); when the dump is gone, rebuilds it from the turn's journal record and the memory, and says so | no |
 | `replay-score.mjs sheet.html key.json scores.json` | Tallies the owner's scores of a pair sheet: per pair A better, B better or even, and the totals | no |
 | `memory-sim.mjs --snapshot <dir> --since <day> [...]` | Replays the analyzer batches the journal recorded after a snapshot (`memory` records: message ids, prompt and config hashes) on a scratch copy of the snapshot, and reports per member: fields that moved, fields that stood still while the member kept writing (`--min-messages`, default 30), words per sentence of the rewritten text (under 8 is flagged), a judge's lost facts and relations (`--judge <model>` or `mentor.model`), and refusals over a field's limit. `--from-dump <chat-*.jsonl>...` builds the batches from chat dumps when the journal has none, with the limits of that path in the report | yes, estimate per batch and per judge request |
+| `backfill.mjs fetch\|merge\|extract\|dedupe\|voice\|report` | Fills the persona's past before the live record started: old messages into the record (`origin: backfill`), episodes and lessons the model finds in them into the archive (`event: backfill`), optionally a present-day feeling for the weighty episodes. See "The backfill" below | `extract` and `voice` only |
 | `mentor-cli.mjs run\|check\|add\|list` | Starts a mentor run or check from the shell, adds or lists cases | yes (a run) |
 
 Pure helpers live in `tools/lib/` and are tested by `tests/tools-*.test.js`. The judge's system prompt of
@@ -49,3 +52,44 @@ Pure helpers live in `tools/lib/` and are tested by `tests/tools-*.test.js`. The
 5. `node tools/replay.mjs --pair prompts.local <candidate-dir> --triggers triggers.txt --out /tmp/pair-1` to read
    the estimate, then again with `--spend <usd>`; score `sheet.html` in a browser, save the scores as
    `scores.json`, then `node tools/replay-score.mjs /tmp/pair-1/sheet.html /tmp/pair-1/key.json scores.json`.
+
+## The backfill
+
+`backfill.mjs` reads the server's history from Discord once and keeps three things apart: the persona's own old
+messages (`said` record lines), the messages they could have read (`seen` record lines), both with
+`origin: backfill`, and what a model reconstructs from them today (archived episodes and lessons with
+`event: backfill`, `observedAt` the conversation's day, `sourceRefs` the exact messages cited). Nothing goes into hot
+memory and no feeling is dated in the past: the optional `voice` step words a present-day reconstruction and stores it
+with `reconstructedAt`.
+
+**Run order.**
+
+1. `node tools/backfill.mjs fetch --since <first day> --until <day before the live record> --dry-run`: the channels it
+   will read and the gaps (channels the bot cannot read: not knowable, listed in the report). Then without
+   `--dry-run`. Free, resumable: a per-channel cursor moves only after a durable append, a rerun starts with the last
+   page again and the record's id index refuses what is already there.
+2. `node tools/backfill.mjs merge --since <first day> --until <day>`: one chronological manifest per month.
+3. **A pilot day first.** `node tools/backfill.mjs extract --pilot <one early day> --dry-run` for the plan and the
+   estimate, then with `--max-usd`, `--max-windows`, `--max-tokens`; the candidates are printed. `dedupe`, then
+   `report`.
+4. **A bug check of the pilot** by a second reviewer before anything else: duplicates, wrong participants, invented
+   feelings, wrong dates, lost sources (the candidates, a sample of that day's record lines, the archive entries).
+5. Only then the full `extract` (windows already extracted are skipped), `dedupe`, `report`.
+6. Optionally `voice --spend <usd> [--min-weight 4]`, after reading its estimate.
+
+**Limits.** `extract` refuses without `--max-usd`, `--max-windows` and `--max-tokens`; it prints its estimate
+(tokens of each request plus an answer allowance, priced at `--usd-per-ktok`, 0.005 by default) and refuses with
+exit code 2 when the estimate is over `--max-usd` or `--max-tokens`; while running it stops once the tokens or USD
+spent reach them, and after three failed requests in a row. `--window-max` caps a window (120 lines). Each request
+keeps the client's rails (the per-request token cap) and is marked `origin: 'backfill'`, outside
+`llm.maxRequestsPerDay`.
+
+**Cost rule.** `fetch`, `merge`, `dedupe` and `report` spend nothing. `extract` runs on the analyzer model's key and
+`voice` (~0.05 USD per episode) on the persona's own key: read the balance first and confirm each with its own
+limit (`voice` has its own `--spend`).
+
+**Safety.** Every step but `report` refuses while a forget is under way (a `forgetting/` marker) and re-applies the
+deletion ledger first when data/ still holds something it takes out; while the bot runs that is refused (a restart
+applies it). A forgotten member's messages from before their forget are never fetched back, and candidates naming
+them are dropped. The candidates file and `report` hold what members said: for the owner's eyes on the server.
+
