@@ -250,6 +250,8 @@ export const labels = {
     pingAnswered: '[called you, answered]',
     pingUnanswered: '[called you, not answered]',
     pingSkipped: '[called you, let pass]',
+    seenBefore: 'shown here {ago} ago before; {fresh} lines new to you, {older} of them older than then',
+    seenSame: 'shown here {ago} ago before; the same lines, nothing earlier loaded',
   },
   elsewhere: {
     called: 'the call came from #{channel}, where you cannot write; you answer in #{destination}',

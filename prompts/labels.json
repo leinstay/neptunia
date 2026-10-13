@@ -257,7 +257,9 @@
     "earlierPings": "Earlier calls to you in this channel, from {date}:",
     "pingAnswered": "[called you, answered]",
     "pingUnanswered": "[called you, unanswered]",
-    "pingSkipped": "[called you, you let it pass]"
+    "pingSkipped": "[called you, you let it pass]",
+    "seenBefore": "You were shown this channel {ago} ago; {fresh} of these messages are new to you, {older} of them older than what you saw then.",
+    "seenSame": "You were shown this channel {ago} ago; these are the same messages, nothing earlier was loaded."
   },
   "elsewhere": {
     "called": "This call came from #{channel}, where you cannot write. Your answer goes to #{destination} with a link to the call. A reaction you put on a #{channel} line lands there.",

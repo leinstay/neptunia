@@ -1880,11 +1880,44 @@ function pulledTranscripts(pulledChannels, { formatOptions, descriptions, firstI
 }
 
 /**
+ * A short hash of what a pulled line is rendered from: its text, its
+ * attachments and links, its stickers and its forwarded parts -- not its
+ * reactions, its age or its index, which change without the message changing.
+ * An edited message hashes differently.
+ * @param {object} message  A normalized message.
+ * @returns {string}
+ */
+function pulledLineHash(message) {
+  const ids = (list, key) => (Array.isArray(list) ? list.map((item) => String(item?.[key] ?? item?.url ?? item?.name ?? '')) : []);
+  const forwarded = Array.isArray(message.forwarded) ? message.forwarded.map((part) => [part?.content ?? '', ids(part?.attachments, 'id')]) : [];
+  const source = JSON.stringify([message.content ?? '', ids(message.attachments, 'id'), ids(message.links, 'url'), ids(message.stickers, 'id'), forwarded]);
+  return createHash('sha1').update(source).digest('hex').slice(0, 12);
+}
+
+/**
+ * The view of the same source channel last shown in this destination channel
+ * (src/discord/pull-fetch.js#createPullViews, attached by src/behavior/turn.js
+ * as the entry's `seenBefore`), or null when there is none or it is unusable.
+ * @returns {{ hashes: Map<string, string>, oldestTs: number, shownAt: number }|null}
+ */
+function seenBeforeOf(entry) {
+  const seen = entry?.seenBefore;
+  if (!seen || !(seen.hashes instanceof Map) || !Number.isFinite(seen.shownAt)) return null;
+  return { hashes: seen.hashes, oldestTs: Number.isFinite(seen.oldestTs) ? seen.oldestTs : Infinity, shownAt: seen.shownAt };
+}
+
+/**
  * One pulled channel as its `<channel_view>` item, cut to `budget` tokens.
  * The item: `labels.pull.header` (`{channel}`, `{from}` = the first window line
  * kept, `{to}` = the window's newest line, `{ago}` = how long before `now` that
  * one was written: the channel's real span and age, whatever is cut), then --
- * each when it applies and its label exists -- `labels.server.readOnly`,
+ * with `seenOn` and a previous view of this channel in this destination
+ * (`entry.seenBefore`) -- one line of fact about the lines kept against
+ * it: `labels.pull.seenBefore` (`{fresh}` = lines not shown then or changed
+ * since, by id and pulledLineHash; `{older}` = those older than the oldest
+ * window line shown then; `{ago}` = how long before `now` it was shown) or,
+ * with nothing fresh, `labels.pull.seenSame` (`{ago}`); no line without the
+ * label. Then -- each when it applies and its label exists -- `labels.server.readOnly`,
  * `labels.pull.olderNotShown` (older messages exist, or window lines older
  * than the first one kept were cut here), `labels.pull.picturesNotSeen`
  * `{count}`; then the earlier calls under `labels.pull.earlierPings` (`{date}`
@@ -1897,9 +1930,12 @@ function pulledTranscripts(pulledChannels, { formatOptions, descriptions, firstI
  * the header has a span -- may take up to `ceiling` even past `budget` (a call
  * is never lost to the share or the cap); then nothing else is kept. Null when
  * no window line fits: a header alone is never shown.
- * @returns {{ text: string, ids: Array<string|number>, newestId: string|number, newestTs: number }|null}
+ * `seen` counts what the seen line said (null without one); `hashes` and
+ * `oldestTs` are this view as the next one compares against it.
+ * @returns {{ text: string, ids: Array<string|number>, newestId: string|number, newestTs: number,
+ *   hashes: Map<string, string>, oldestTs: number, seen: { fresh: number, older: number }|null }|null}
  */
-function fitPulledChannel(channel, { budget, ceiling = budget, cost, labels, timezone, now, readOnly, triggerId }) {
+function fitPulledChannel(channel, { budget, ceiling = budget, cost, labels, timezone, now, readOnly, triggerId, seenOn = false }) {
   const p = labels.pull;
   const windowItems = channel.items.filter((item) => !channel.earlierIds.has(String(item.id)));
   const earlierItems = channel.items.filter((item) => channel.earlierIds.has(String(item.id)));
@@ -1907,6 +1943,21 @@ function fitPulledChannel(channel, { budget, ceiling = budget, cost, labels, tim
   const notSeen = Number.isFinite(channel.entry.picturesNotSeen) ? Math.max(0, Math.floor(channel.entry.picturesNotSeen)) : 0;
   const newestWindow = windowItems.at(-1);
   const windowAt = new Map(windowItems.map((item, i) => [item.id, i]));
+  const hashById = new Map(channel.messages.map((message) => [String(message.id), pulledLineHash(message)]));
+  const previous = seenOn ? seenBeforeOf(channel.entry) : null;
+
+  // The kept lines against the previous view: new or changed ones, and those of them older than it.
+  const seenCounts = (keep) => {
+    if (!previous) return null;
+    const fresh = channel.items.filter((item) => keep.has(item.id) && previous.hashes.get(String(item.id)) !== hashById.get(String(item.id)));
+    return { fresh: fresh.length, older: fresh.filter((item) => item.ts < previous.oldestTs).length };
+  };
+  const seenLine = (counts) => {
+    if (!counts) return null;
+    const ago = formatDuration(Math.max(0, now - previous.shownAt), labels.units);
+    if (counts.fresh === 0) return p.seenSame ? fill(p.seenSame, { ago }) : null;
+    return p.seenBefore ? fill(p.seenBefore, { fresh: counts.fresh, older: counts.older, ago }) : null;
+  };
 
   const render = (keep) => {
     const keptWindow = windowItems.filter((item) => keep.has(item.id));
@@ -1920,6 +1971,8 @@ function fitPulledChannel(channel, { budget, ceiling = budget, cost, labels, tim
         ago: formatDuration(Math.max(0, now - newestWindow.ts), labels.units),
       }),
     ];
+    const seen = seenLine(seenCounts(keep));
+    if (seen) lines.push(seen);
     if (readOnly && labels.server?.readOnly) lines.push(fill(labels.server.readOnly));
     const older = channel.entry.olderNotShown === true || keptWindow[0] !== windowItems[0];
     if (older && p.olderNotShown) lines.push(fill(p.olderNotShown));
@@ -1938,11 +1991,16 @@ function fitPulledChannel(channel, { budget, ceiling = budget, cost, labels, tim
   const fitted = (keep) => {
     const kept = windowItems.filter((item) => keep.has(item.id));
     const newest = kept.at(-1);
+    const ids = [...earlierItems, ...windowItems].filter((item) => keep.has(item.id)).map((item) => item.id);
+    const counts = seenCounts(keep);
     return {
       text: render(keep),
-      ids: [...earlierItems, ...windowItems].filter((item) => keep.has(item.id)).map((item) => item.id),
+      ids,
       newestId: newest.id,
       newestTs: newest.ts,
+      hashes: new Map(ids.map((id) => [String(id), hashById.get(String(id))])),
+      oldestTs: kept[0].ts,
+      seen: seenLine(counts) ? counts : null,
     };
   };
 
@@ -2236,6 +2294,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   idByIndex: Map<number, string>, tempo: object,
  *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
  *   pulledKept: { channelId: string, ids: string[], newestId: string, newestTs: number }[],
+ *   pulledViews: { channelId: string, hashes: Map<string, string>, oldestTs: number }[],
  *   peopleShown: { id: string, names: string[] }[],
  *   recent: { lines: number, episodes: number, cut: number, hidden: number, repeated: number,
  *     unnamed: number }|null,
@@ -2248,13 +2307,17 @@ function seenOf({ history, keptChat, pictures }) {
  *   is attached), for a provider that rejects them. `idByIndex` maps chat AND pulled indices; `pulledIds` maps
  *   every pulled line's message id to its channel id (the output side reacts there, never
  *   replies across channels); `pulledKept` lists the channels whose block survived the budget,
- *   with the ids of the lines shown and the newest window line shown. `peopleShown` lists the
+ *   with the ids of the lines shown and the newest window line shown; `pulledViews` the same
+ *   channels with each shown line's hash and the oldest window line's time (what the next view of
+ *   that channel in this destination compares against: the PulledChannel's `seenBefore`,
+ *   src/discord/pull-fetch.js#createPullViews). `peopleShown` lists the
  *   members whose profile the request shows (the interlocutor when its block was kept, then those
  *   `<people>` kept, in its order) with their stored names: whose `@name` the reply may resolve
  *   (src/behavior/turn.js#resolveMentions). `stats.pulled` is the
  *   block's budget line: `used`, `kept` (channels shown), `dropped` (channels offered and not
  *   shown, the budget's cut or a missing header label), `lines` (lines offered) and `linesCut`
- *   (lines offered and not shown). `recent` counts what `<recent>` did, null when it was off or
+ *   (lines offered and not shown), plus `seenFresh` / `seenOlder` (summed over the channels shown
+ *   with a seen line) when one was. `recent` counts what `<recent>` did, null when it was off or
  *   its view held nothing (no item, none hidden, repeated or unnamed): `lines` and `episodes`
  *   shown, `cut` (items offered and not shown), `hidden` (lines `recentAudience` refused),
  *   `repeated` (moments in the window left out as shown in `<people>`) and `unnamed` (moments
@@ -2621,6 +2684,8 @@ export function buildRequest(input) {
         now,
         readOnly: readOnlyIds.has(channel.channelId),
         triggerId: pulledTriggerId,
+        // features.pullSeenMarker (a missing key counts as on), read now.
+        seenOn: config.features?.pullSeenMarker !== false,
       });
       if (!fitted) continue;
       pulledTaken += cost(fitted.text);
@@ -3015,6 +3080,15 @@ export function buildRequest(input) {
   const pulledShownLines = pulledKept.reduce((sum, shown) => sum + shown.ids.length, 0);
   const pulledLines = offered.reduce((sum, channel) => sum + channel.messages.length, 0);
   stats.pulled = { ...stats.pulled, dropped: offered.length - pulledKept.length, lines: pulledLines, linesCut: pulledLines - pulledShownLines };
+  // What each kept channel showed, for the next view of it in this channel to compare against;
+  // the seen lines' counts join the budget line only when one was shown.
+  const keptFits = pulledFits.filter((fit) => keptPulled.has(fit.text));
+  const pulledViews = keptFits.map(({ channelId, hashes, oldestTs }) => ({ channelId, hashes, oldestTs }));
+  const seenFits = keptFits.filter((fit) => fit.seen);
+  if (seenFits.length > 0) {
+    stats.pulled.seenFresh = seenFits.reduce((sum, fit) => sum + fit.seen.fresh, 0);
+    stats.pulled.seenOlder = seenFits.reduce((sum, fit) => sum + fit.seen.older, 0);
+  }
 
   // A call whose line did not make it into the block is not pointed at: the task loses its
   // target and the called text. The request only gets shorter, so the fit holds.
@@ -3085,6 +3159,7 @@ export function buildRequest(input) {
     textFallback,
     pulledIds,
     pulledKept,
+    pulledViews,
     peopleShown,
     recent,
     seen,

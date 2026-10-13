@@ -22,6 +22,7 @@ import { log } from '../log.js';
 import { isTooOld, pullPictures, pullSettings, pullWindow } from '../behavior/pull.js';
 import { audienceCovers, elsewhereSettings, pingStatus, pingsIn } from '../behavior/elsewhere.js';
 import { ID_DIGITS } from '../memory/mentions.js';
+import { MINUTE_MS } from '../time.js';
 import {
   PAGE,
   audienceOf,
@@ -60,7 +61,47 @@ const DEFAULT_TIMERS = Object.freeze({
  * @property {number} picturesNotSeen  pictures of `messages` left without a caption
  * @property {Map<string, 'answered'|'skipped'|'unanswered'>} pingState  message id -> state of its ring call,
  *                                    for every shown line that is a call in the ring except the trigger itself
+ * @property {{ hashes: Map<string, string>, oldestTs: number, shownAt: number }} [seenBefore]  the last view of
+ *                                    this channel shown in the turn's channel (createPullViews), attached by
+ *                                    src/behavior/turn.js; absent when there is none within the TTL
  */
+
+/**
+ * The last view of each pulled channel shown in each destination channel, in
+ * process only (no file: it is about the current conversation, and a restart
+ * forgets it). Keyed `${destinationChannelId}:${sourceChannelId}`; one view
+ * holds each shown line's id with its hash, the oldest window line's time and
+ * when it was shown. src/behavior/turn.js reads it before building a turn's
+ * request (the PulledChannel's `seenBefore`) and writes it once the request
+ * was sent and answered, from buildRequest's `pulledViews`. A view older than
+ * the TTL (`context.pull.seenTtlMinutes`, read by the caller at the moment of
+ * use) is ignored and pruned.
+ * @returns {{
+ *   previous: (destinationId: string, sourceId: string, options: { now: number, ttlMinutes: number }) =>
+ *     ({ hashes: Map<string, string>, oldestTs: number, shownAt: number }|null),
+ *   remember: (destinationId: string, views: { channelId: string, hashes: Map<string, string>, oldestTs: number }[], now: number) => void,
+ *   size: () => number,
+ * }}
+ */
+export function createPullViews() {
+  const views = new Map();
+  const prune = (now, ttlMs) => {
+    for (const [key, view] of views) if (now - view.shownAt > ttlMs) views.delete(key);
+  };
+  return {
+    previous(destinationId, sourceId, { now, ttlMinutes }) {
+      prune(now, ttlMinutes * MINUTE_MS);
+      return views.get(`${destinationId}:${sourceId}`) ?? null;
+    },
+    remember(destinationId, shown, now) {
+      for (const view of Array.isArray(shown) ? shown : []) {
+        if (!view?.channelId || !(view.hashes instanceof Map)) continue;
+        views.set(`${destinationId}:${view.channelId}`, { hashes: view.hashes, oldestTs: view.oldestTs, shownAt: now });
+      }
+    },
+    size: () => views.size,
+  };
+}
 
 /** A refusal: nothing of the channel. */
 function refused(skip) {

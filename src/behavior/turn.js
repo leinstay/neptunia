@@ -23,7 +23,7 @@ import {
   isWritableChannel,
   withTextPreviews,
 } from '../discord/collect.js';
-import { audienceAllows, captionPulled, checkPull, fetchPull } from '../discord/pull-fetch.js';
+import { audienceAllows, captionPulled, checkPull, createPullViews, fetchPull } from '../discord/pull-fetch.js';
 import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, fillPromptTemplate, gifFieldChars, stableThenTail, usesFollowUpTask } from './prompt.js';
 import {
   DIARY_DAILY,
@@ -1238,6 +1238,9 @@ export function createTurnRunner({
   // The participation pick classifier (src/behavior/participation-pick.js): which stored
   // exchanges of other channels a turn's `<participation>` block shows first.
   const pickParticipation = createParticipationPicker({ hot, store, llm, now: clock });
+  // The last view of each pulled channel shown in each channel, in process only: a channel
+  // shown again says what of it is new since (createPullViews; `seenBefore` on the entry).
+  const pullViews = createPullViews();
 
   /** Whether the journal is written now: one injected and features.journal exactly true (read now). */
   function journalOn() {
@@ -3184,6 +3187,24 @@ export function createTurnRunner({
   }
 
   /**
+   * The pulled records with the last view of each shown in `destinationId`
+   * (pullViews, within `context.pull.seenTtlMinutes` read now) as `seenBefore`,
+   * new objects; a record without one is passed as it is. buildRequest reads
+   * features.pullSeenMarker itself.
+   * @param {object[]} pulled  The PulledChannel records.
+   * @param {string} destinationId  The channel the turn speaks in.
+   * @param {number} at  The turn's clock.
+   * @returns {object[]}
+   */
+  function withSeenBefore(pulled, destinationId, at) {
+    const { seenTtlMinutes } = pullSettings(hot.config);
+    return pulled.map((entry) => {
+      const seenBefore = pullViews.previous(destinationId, entry.channelId, { now: at, ttlMinutes: seenTtlMinutes });
+      return seenBefore ? { ...entry, seenBefore } : entry;
+    });
+  }
+
+  /**
    * Move the seen mark of each pulled channel whose block the request showed
    * (buildRequest's `pulledKept`) to the newest line shown, in `state.json`
    * `elsewhereSeen` (src/behavior/elsewhere.js#markSeen: never backwards). The
@@ -4260,9 +4281,10 @@ export function createTurnRunner({
           // The cached captions of both lists.
           mediaCache:
             emoji || (features.gifs !== false && typeof store.getGifs === 'function') ? (store.getMediaCache(guildId) ?? null) : null,
-          // `<channel_view>`: the channels pulled into this turn, the one it is about, the chat
-          // line put to the room, where a call from a read-only channel is answered.
-          pulled,
+          // `<channel_view>`: the channels pulled into this turn (each with the last view of it
+          // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is
+          // about, the chat line put to the room, where a call from a read-only channel is answered.
+          pulled: withSeenBefore(pulled, channel.id, now),
           source,
           focus,
           tasks: tasks.input,
@@ -4479,6 +4501,8 @@ export function createTurnRunner({
       // What a private chat showed of the server stays there: no seen mark, no stamp, no pending ping.
       const serverShown = isPrivate ? [] : shownPulled;
       markPulledSeen(serverShown);
+      // This channel's view of each pulled channel the request showed, for the next view of it here.
+      if (!isPrivate) pullViews.remember(channel.id, request.pulledViews ?? [], now);
       store.state.data.calibration = calibrator.ratio;
       store.state.markDirty();
       // The calls of the ring this turn showed follow its decision (stampShownCalls), except a
