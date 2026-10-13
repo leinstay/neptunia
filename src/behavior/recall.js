@@ -404,18 +404,18 @@ export function snowflakeAt(ms) {
  * - one author query per id of `memberIds`;
  * - with none of those and a range: one query over the range alone
  *   (`kind: 'range'`), which the runner samples (sampleOffsets).
- * The range: `minId` from `from`; `maxId` from the earlier of `to`
- * (inclusive) and `before` (exclusive: the oldest line of the turn's own
- * chat, so the ongoing conversation never takes the result slots). An empty
- * list when nothing is asked, or when the range ends before it starts.
+ * The range: `minId` from `from`, `maxId` from `to` (inclusive). The
+ * queries span the whole server, so the turn's own chat bounds nothing here:
+ * its lines are dropped from the hits by id (dropChatHits). An empty list
+ * when nothing is asked, or when the range ends before it starts.
  * @param {{ forms?: string[], who?: string[], memberIds?: string[], from?: number|null, to?: number|null,
- *   maxForms?: number, before?: number|null }} params
+ *   maxForms?: number }} params
  * @returns {{ kind: 'form'|'who'|'author'|'range', content?: string, authorId?: string, minId: string|null,
  *   maxId: string|null }[]}
  */
-export function searchPlan({ forms = [], who = [], memberIds = [], from = null, to = null, maxForms, before = null } = {}) {
+export function searchPlan({ forms = [], who = [], memberIds = [], from = null, to = null, maxForms } = {}) {
   const limit = intAtLeast(maxForms, RECALL_DEFAULTS.maxForms, 0);
-  const upper = Math.min(Number.isFinite(to) ? to + 1 : Infinity, Number.isFinite(before) ? before : Infinity);
+  const upper = Number.isFinite(to) ? to + 1 : Infinity;
   const lower = Number.isFinite(from) ? from : null;
   if (lower !== null && upper <= lower) return [];
   const range = { minId: lower !== null ? snowflakeAt(lower) : null, maxId: Number.isFinite(upper) ? snowflakeAt(upper) : null };
