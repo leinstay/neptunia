@@ -73,6 +73,7 @@ export const RECALL_DEFAULTS = Object.freeze({
   recordDays: 3,
   recordContext: 3,
   archiveMonths: 6,
+  fallbackOnClassifierFailure: true,
 });
 
 /** How many of the newest windows the fallback stretch is chosen among (fallbackWindow). */
@@ -144,14 +145,15 @@ function numberAtLeast(value, fallback, min) {
  * is not followed past its end); `followGapMinutes` is a number of at least 0;
  * `memoryTokens` (no `<memory>` line fits), `recordDays` (the record is not
  * read), `recordContext` (no neighbours) and `archiveMonths` (the archive is
- * not searched without a `when:` range) may be 0 too.
+ * not searched without a `when:` range) may be 0 too. `fallbackOnClassifierFailure`
+ * is on unless it is `false` (src/behavior/turn.js#fallbackLookupPlan).
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
  *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, followMessages: number,
  *   followGapMinutes: number, answerChars: number, stretchChars: number, maxPerDay: number,
  *   timeoutMs: number, minSummaryMs: number, maxOutputTokens: number, memoryItems: number, selfBonus: number, selfExtra: number,
  *   contextMessages: number, traceMaxLines: number, memoryTokens: number, recordDays: number, recordContext: number,
- *   archiveMonths: number }|null}
+ *   archiveMonths: number, fallbackOnClassifierFailure: boolean }|null}
  */
 export function recallSettings(config) {
   if (config?.features?.recall === false) return null;
@@ -183,6 +185,7 @@ export function recallSettings(config) {
     recordDays: intAtLeast(r.recordDays, d.recordDays, 0),
     recordContext: intAtLeast(r.recordContext, d.recordContext, 0),
     archiveMonths: intAtLeast(r.archiveMonths, d.archiveMonths, 0),
+    fallbackOnClassifierFailure: r.fallbackOnClassifierFailure !== false,
   };
 }
 

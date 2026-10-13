@@ -2601,6 +2601,96 @@ test('createTurnRunner: recall -- lookup: classified carries what was asked as f
   for (const secret of ['secrète', 'λαγ', 'λέξανδρ']) assert.ok(!all.includes(secret), secret);
 });
 
+// The fallback: a failed search classifier still gets a direct question a server search on its own words.
+
+const FALLBACK_QUESTION = 'Ποιους χαρακτήρες συζήτησε ο Λευτέρης σήμερα στο παιχνίδι;';
+
+/** One turn on FALLBACK_QUESTION (or `content`) with a member known by the alias Λευτέρης; the classifier answers `classifier`. */
+async function runFallbackTurn({ classifier = new Error('hedged timeout'), content = FALLBACK_QUESTION, recall = fakeRecall(), hot = lookupHot(), triggerKind = 'mention', dm = false, client = fakeClient() } = {}) {
+  const messages = [
+    rawMessage({ id: 'm1', ts: NOW - 5000, content: 'καλημέρα' }),
+    rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content }),
+  ];
+  const channel = fakeTurnChannel({ historyMessages: messages, ...(dm ? { id: 'dm1', dm: true } : {}) });
+  const store = fakeStore({
+    userProfiles: {
+      u7: { id: 'u7', names: ['lefteris_k'], aliases: [{ name: 'Λευτέρης' }] },
+      u8: { id: 'u8', names: ['Ἀλέξανδρος'], aliases: [] },
+    },
+  });
+  const llm = lookupLlm(classifier);
+  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, lookup: fakeLookup(), recall, now: () => NOW });
+  const trigger = normalizedTrigger(messages[1]);
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, ...(dm ? { guildId: 'g1' } : {}), mode: 'reply', trigger, triggerKind: dm ? 'private' : triggerKind }),
+  );
+  return { result, logs, llm, recall, trigger };
+}
+
+test('createTurnRunner: recall fallback -- a classifier that throws still runs recall on the question\'s long words, a member named by a stored alias on who', async () => {
+  const hot = lookupHot({}, {}, { recall: { maxForms: 3 } });
+  const { recall, logs, llm, trigger } = await runFallbackTurn({ hot });
+  assert.equal(llm.classifierCalls.length, 1);
+  assert.equal(recall.runCalls.length, 1);
+  const args = recall.runCalls[0];
+  assert.equal(args.candidate.id, trigger.id);
+  assert.deepEqual(args.history.map((m) => m.id), ['m1', 'm2']);
+  assert.deepEqual(args.server, { forms: ['χαρακτήρες', 'συζήτησε', 'παιχνίδι'], who: ['λευτέρης'], from: null, to: null });
+  assert.ok(logs.some((l) => l.msg === 'lookup: classifier failed'), 'the warning stays');
+  const line = logs.find((l) => l.msg === 'lookup: fallback');
+  assert.ok(line);
+  assert.equal(line.reason, 'classifier-failed');
+  assert.equal(line.forms, 3);
+  assert.equal(line.who, 1);
+  const all = JSON.stringify(logs);
+  for (const secret of ['χαρακτήρ', 'συζήτ', 'λευτέρ', 'Λευτέρ']) assert.ok(!all.includes(secret), secret);
+  assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT].join('\n'));
+});
+
+test('createTurnRunner: recall fallback -- an empty classifier answer runs the same recall, reason empty', async () => {
+  const { recall, logs } = await runFallbackTurn({ classifier: '  ' });
+  assert.equal(recall.runCalls.length, 1);
+  assert.deepEqual(recall.runCalls[0].server, { forms: ['χαρακτήρες', 'συζήτησε', 'παιχνίδι', 'ποιους', 'σήμερα'], who: ['λευτέρης'], from: null, to: null });
+  assert.equal(logs.find((l) => l.msg === 'lookup: fallback')?.reason, 'empty');
+});
+
+test('createTurnRunner: recall fallback -- a private chat falls back on its partner\'s behalf', async () => {
+  const { client } = partnerClient();
+  const { recall } = await runFallbackTurn({ dm: true, client });
+  assert.equal(recall.runCalls.length, 1);
+  assert.deepEqual(recall.runCalls[0].server.who, ['λευτέρης']);
+});
+
+test('createTurnRunner: recall fallback -- recall.fallbackOnClassifierFailure false: no recall', async () => {
+  const { recall, logs } = await runFallbackTurn({ hot: lookupHot({}, {}, { recall: { fallbackOnClassifierFailure: false } }) });
+  assert.equal(recall.runCalls.length, 0);
+  assert.ok(!logs.some((l) => l.msg === 'lookup: fallback'));
+});
+
+test('createTurnRunner: recall fallback -- an overheard line is not a question to the persona: no fallback', async () => {
+  const { recall, logs } = await runFallbackTurn({ triggerKind: 'overheard' });
+  assert.equal(recall.runCalls.length, 0);
+  assert.ok(!logs.some((l) => l.msg === 'lookup: fallback'));
+});
+
+test('createTurnRunner: recall fallback -- only short words and no known name: no recall', async () => {
+  const { recall, logs } = await runFallbackTurn({ content: 'και τι; πού ήταν;' });
+  assert.equal(recall.runCalls.length, 0);
+  assert.ok(!logs.some((l) => l.msg === 'lookup: fallback'));
+});
+
+test('createTurnRunner: recall fallback -- a name alone is enough: the member on who, no forms', async () => {
+  const { recall } = await runFallbackTurn({ content: 'και ο Ἀλέξανδρος;' });
+  assert.equal(recall.runCalls.length, 1);
+  assert.deepEqual(recall.runCalls[0].server, { forms: [], who: ['ἀλέξανδρος'], from: null, to: null });
+});
+
+test('createTurnRunner: recall fallback -- no server search this turn (recall unavailable): no fallback', async () => {
+  const { recall, logs } = await runFallbackTurn({ recall: fakeRecall({ available: false }) });
+  assert.equal(recall.runCalls.length, 0);
+  assert.ok(!logs.some((l) => l.msg === 'lookup: fallback'));
+});
+
 // ---------------------------------------------------------------------------
 // Drawing: the persona's <draw> goes to the image client after its messages;
 // a failed generation gets its own follow-up turn.
@@ -7832,6 +7922,21 @@ test('turn: limits lists a preview cut', async () => {
   const turn = lines.find(({ record }) => record.kind === 'turn').record;
   assert.equal(hot.config.media.filePreviewChars, 500);
   assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'preview-cut'), [{ kind: 'preview-cut', where: 'm1', lost: 300, detail: 't1' }]);
+});
+
+test('turn: limits lists the search classifier\'s fallback with its reason', async () => {
+  const raw = rawMessage({ id: 'm1', content: 'ποιος σκότωσε το κουνέλι;' });
+  const channel = fakeTurnChannel({ historyMessages: [raw] });
+  const { journal, lines } = journalOverMemory();
+  const hot = lookupHot({ journal: true, typingSimulation: false });
+  const recall = fakeRecall();
+  const turns = createTurnRunner({ hot, store: fakeStore(), llm: lookupLlm(''), calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), recall, journal, now: () => NOW });
+
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+
+  assert.deepEqual(recall.runCalls[0].server.forms, ['σκότωσε', 'κουνέλι', 'ποιος']);
+  const turn = lines.find(({ record }) => record.kind === 'turn').record;
+  assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'helper-fallback'), [{ kind: 'helper-fallback', where: 'lookup', lost: null, detail: 'empty' }]);
 });
 
 test('turn: a journalled turn dumps its request and raw answer', async () => {
