@@ -19,7 +19,8 @@
 // It also owns the two text primitives those conversions rest on and other
 // modules share: `ID_DIGITS` (the id range every id pattern is built from) and
 // the whole-word test (`isWordChar`, `occursAsWholeWord`) used by name
-// triggers, lore keys and the `<people>` name scan. And the lesson teacher
+// triggers, lore keys and the `<people>` name scan, with its ending-tolerant
+// variant (`occursAsWordStem`) used by recall's forms. And the lesson teacher
 // rule (`teacherToken`, `TEACHER_TOKEN_RE`): which member taught the persona a
 // thing, one rule for both analyzer modes (src/memory/update.js#parseLearnedOps
 // and src/memory/voice.js#splitDecision), so switching modes never changes a
@@ -229,6 +230,65 @@ export function occursAsWholeWord(haystackLower, needleLower) {
     if (!isWordChar(before) && !isWordChar(after)) return true;
     from = at + 1;
   }
+}
+
+/** A form word this long or longer matches by its stem (occursAsWordStem). */
+const STEM_MIN_WORD = 5;
+/** Letters cut from a form word's end to make its stem. */
+const STEM_CUT = 2;
+/** The shortest stem. */
+const STEM_MIN = 4;
+/** How many letters a matched text word may run past the form word. */
+const STEM_MAX_EXTRA = 3;
+
+/** The words of `text`: maximal runs of word characters (`isWordChar`), each as its code points. */
+function wordsOf(text) {
+  const words = [];
+  let current = null;
+  for (const ch of text) {
+    if (isWordChar(ch)) (current ??= []).push(ch);
+    else if (current) {
+      words.push(current);
+      current = null;
+    }
+  }
+  if (current) words.push(current);
+  return words;
+}
+
+/** Whether the text word `word` matches the form word `formWord` (both code point arrays) by the stem rule. */
+function wordMatches(word, formWord) {
+  const whole = formWord.length < STEM_MIN_WORD || formWord.some((ch) => /\p{N}/u.test(ch));
+  if (whole) return word.length === formWord.length && word.every((ch, i) => ch === formWord[i]);
+  const stem = Math.max(STEM_MIN, formWord.length - STEM_CUT);
+  if (word.length < stem || word.length > formWord.length + STEM_MAX_EXTRA) return false;
+  for (let i = 0; i < stem; i += 1) if (word[i] !== formWord[i]) return false;
+  return true;
+}
+
+/**
+ * Whether `form` occurs in `text` allowing word endings, both already folded
+ * (src/memory/recent.js#foldText) -- recall's matching of a form against stored
+ * text, tolerant of inflection. Words are runs of `isWordChar`. A form word of
+ * 5+ letters without digits matches a text word that starts with its stem (the
+ * word minus its last 2 letters, never under 4 letters) and is at most 3
+ * letters longer than the form word; a shorter form word or one with digits
+ * matches only a whole equal word. A multi-word form matches consecutive text
+ * words in order, each by that rule. A form without word characters falls back
+ * to `occursAsWholeWord`; an empty form never occurs.
+ * @param {string} text
+ * @param {string} form
+ * @returns {boolean}
+ */
+export function occursAsWordStem(text, form) {
+  if (!form) return false;
+  const formWords = wordsOf(form);
+  if (formWords.length === 0) return form.trim() ? occursAsWholeWord(text, form) : false;
+  const words = wordsOf(text);
+  for (let start = 0; start + formWords.length <= words.length; start += 1) {
+    if (formWords.every((formWord, i) => wordMatches(words[start + i], formWord))) return true;
+  }
+  return false;
 }
 
 /**

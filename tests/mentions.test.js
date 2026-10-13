@@ -2,7 +2,7 @@
 // id-token round trip) and teacherToken (the lesson teacher rule). Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TEACHER_TOKEN_RE, isWordChar, linkChannels, linkMessageNumbers, toTokens, fromTokens, occursAsWholeWord, teacherToken } from '../src/memory/mentions.js';
+import { TEACHER_TOKEN_RE, isWordChar, linkChannels, linkMessageNumbers, toTokens, fromTokens, occursAsWholeWord, occursAsWordStem, teacherToken } from '../src/memory/mentions.js';
 
 const ID_A = '123456789012345678';
 const ID_B = '223456789012345678';
@@ -259,4 +259,52 @@ test('linkMessageNumbers: code spans and existing URLs stay', () => {
 test('linkMessageNumbers: no resolver or no # returns the text', () => {
   assert.equal(linkMessageNumbers('#93', null), '#93');
   assert.equal(linkMessageNumbers('plain', jump), 'plain');
+});
+
+// ---- occursAsWordStem ------------------------------------------------------------
+
+test('occursAsWordStem: a form word of 5+ letters matches its inflected forms by stem', () => {
+  assert.equal(occursAsWordStem('a few carolinas please', 'carolina'), true);
+  assert.equal(occursAsWordStem('the reapers came', 'reaper'), true);
+  assert.equal(occursAsWordStem('the reaper came', 'reaper'), true);
+  assert.equal(occursAsWordStem('η θαλασσες ηταν ησυχες', 'θαλασσα'), true);
+  assert.equal(occursAsWordStem('το χρωμα της θαλασσης', 'θαλασσα'), true);
+  assert.equal(occursAsWordStem('caroline', 'carolina'), true, 'the stem is the word minus two letters');
+  assert.equal(occursAsWordStem('a carol', 'carolina'), false, 'shorter than the stem');
+});
+
+test('occursAsWordStem: the stem is never shorter than four letters', () => {
+  assert.equal(occursAsWordStem('the pastas', 'pasta'), true);
+  assert.equal(occursAsWordStem('the past', 'pasta'), true);
+  assert.equal(occursAsWordStem('a pas de deux', 'pasta'), false);
+});
+
+test('occursAsWordStem: a text word 4+ letters longer than the form word does not match', () => {
+  assert.equal(occursAsWordStem('carolinaxyz', 'carolina'), true);
+  assert.equal(occursAsWordStem('carolinawxyz', 'carolina'), false);
+});
+
+test('occursAsWordStem: a form word under five letters matches only as a whole word', () => {
+  assert.equal(occursAsWordStem('the pier', 'pie'), false);
+  assert.equal(occursAsWordStem('a pie', 'pie'), true);
+  assert.equal(occursAsWordStem('two cats', 'cat'), false);
+});
+
+test('occursAsWordStem: a form word with digits matches only as a whole word', () => {
+  assert.equal(occursAsWordStem('the model5000x', 'model5000'), false);
+  assert.equal(occursAsWordStem('the model5000 is out', 'model5000'), true);
+});
+
+test('occursAsWordStem: a multi-word form matches consecutive inflected words in order', () => {
+  assert.equal(occursAsWordStem('two carolinas reapers, hot', 'carolina reaper'), true);
+  assert.equal(occursAsWordStem('carolinas, reapers', 'carolina reaper'), true, 'punctuation between is only a boundary');
+  assert.equal(occursAsWordStem('carolinas and reapers', 'carolina reaper'), false, 'a word between breaks the phrase');
+  assert.equal(occursAsWordStem('reapers carolinas', 'carolina reaper'), false, 'order matters');
+});
+
+test('occursAsWordStem: word boundaries are Unicode-aware; an empty form never matches', () => {
+  assert.equal(occursAsWordStem('xcarolinas', 'carolina'), false);
+  assert.equal(occursAsWordStem('(carolinas)', 'carolina'), true);
+  assert.equal(occursAsWordStem('anything', ''), false);
+  assert.equal(occursAsWordStem('anything', '   '), false);
 });
