@@ -23,6 +23,13 @@
 // file. A `.running` marker in the guild's journal directory, written at start and removed on a
 // clean stop (`markRunning` / `clearRunning`), lets the next start record an `unclean-stop`.
 //
+// Request dumps (`dumpRequest`): beside the journal, `requests/<day>/<turnId>-<attempt>.json` holds the
+// request as the client sent it (system string and message parts, pictures reduced to their size)
+// with the model's raw answer and its usage, written whole through a `.tmp` file and a rename
+// (not the append store: it is one document, not a line). Written only while
+// `journal.keepRequests` is above 0; `pruneRequests` deletes the day directories older than that
+// many days, a private chat's included. A dump is a debugging copy: it may hold the chat's text.
+//
 // Logs carry the kind and an error code, never the record's contents.
 
 import path from 'node:path';
@@ -30,7 +37,7 @@ import * as nodeFs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { clampText, oneLine } from './clamp.js';
-import { utcDay } from '../time.js';
+import { DAY_MS, utcDay } from '../time.js';
 
 /** The schema version every record carries. */
 export const JOURNAL_VERSION = 1;
@@ -56,6 +63,8 @@ const TORN_FILE_RE = /^\d{4}-\d{2}-\d{2}\.jsonl\.torn-/;
 const USER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** The `owner` a forget marker written by this module carries. */
 const MARKER_OWNER = 'journal';
+/** A request-dump directory's name. */
+const REQUEST_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** The characters of `think` a `/nep journal` line shows. */
 export const LINE_THINK_CHARS = 80;
 
@@ -172,6 +181,8 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   removeGuild(guildId: string): Promise<{ files: number }>,
  *   markRunning(guildId: string): Promise<{ unclean: boolean }>,
  *   clearRunning(guildId: string): Promise<void>,
+ *   dumpRequest(guildId: string, dump: object): Promise<void>,
+ *   pruneRequests(guildId: string): Promise<{ removed: number }>,
  * }}
  *   `start` writes a `turn.start` line (not awaited: a failed append is logged) and returns the
  *   turn's id: a new one, or `input.turnId` with `input.attemptId` for a later attempt of the
@@ -438,6 +449,77 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     return counts;
   }
 
+  /** Days the request dumps are kept; 0 (or anything unusable) means none. */
+  function keepRequests() {
+    const value = config()?.keepRequests;
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+  }
+
+  /** The text of a system message's content (a string, or text parts joined). */
+  function textOfContent(content) {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    return content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('');
+  }
+
+  /** One user-message part as stored: a picture becomes its size, a data: URL is never kept. */
+  function dumpPart(part) {
+    if (part?.type !== 'image_url') return part;
+    const url = typeof part.image_url?.url === 'string' ? part.image_url.url : '';
+    const comma = url.startsWith('data:') ? url.indexOf(',') : -1;
+    const bytes = comma >= 0 ? Math.floor(((url.length - comma - 1) * 3) / 4) : null;
+    return { image: typeof part.messageId === 'string' && part.messageId ? part.messageId : 'attachment', bytes };
+  }
+
+  /**
+   * Write one request and its raw answer as `requests/<day>/<turnId>-<attemptId>.json` (the day
+   * of now, UTC) when `journal.keepRequests` is above 0. `request` is the client's message list
+   * (`{ messages }`: the system message, then the user message) or `{ system, parts }`. Rejects
+   * on a disk error; the caller logs it.
+   * @param {string} guildId
+   * @param {{ turnId: string, attemptId?: number, request: object, raw?: string, usage?: object|null, privateUserId?: string|null }} dump
+   * @returns {Promise<void>}
+   */
+  async function dumpRequest(guildId, { turnId, attemptId = 1, request, raw = '', usage = null, privateUserId = null } = {}) {
+    if (keepRequests() === 0) return;
+    const messages = Array.isArray(request?.messages) ? request.messages : [];
+    const system = typeof request?.system === 'string' ? request.system : textOfContent(messages[0]?.content);
+    const userContent = Array.isArray(request?.parts) ? request.parts : messages[1]?.content;
+    const parts = (Array.isArray(userContent) ? userContent : [{ type: 'text', text: textOfContent(userContent) }]).map(dumpPart);
+    const at = new Date(now()).toISOString();
+    const dir = path.join(journalDir(guildId, privateUserId), 'requests', utcDay(now()));
+    const file = path.join(dir, `${turnId}-${attemptId}.json`);
+    const body = JSON.stringify({ v: JOURNAL_VERSION, turnId, attemptId, recordedAt: at, system, parts, raw: typeof raw === 'string' ? raw : '', usage });
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(`${file}.tmp`, body);
+    await fs.rename(`${file}.tmp`, file);
+  }
+
+  /**
+   * Delete the request-dump day directories (the guild's and every private journal's) dated
+   * earlier than `journal.keepRequests` days ago, by directory name; with 0 nothing is deleted.
+   * @param {string} guildId
+   * @returns {Promise<{ removed: number }>}
+   */
+  async function pruneRequests(guildId) {
+    const keep = keepRequests();
+    if (keep === 0) return { removed: 0 };
+    const cutoff = utcDay(now() - keep * DAY_MS);
+    const roots = [path.join(journalDir(guildId), 'requests')];
+    for (const userId of await namesIn(path.join(guildDir(guildId), 'private'))) {
+      if (USER_ID_RE.test(userId)) roots.push(path.join(journalDir(guildId, userId), 'requests'));
+    }
+    let removed = 0;
+    for (const root of roots) {
+      for (const name of await namesIn(root)) {
+        if (!REQUEST_DAY_RE.test(name) || name >= cutoff) continue;
+        await fs.rm(path.join(root, name), { recursive: true, force: true });
+        removed += 1;
+      }
+    }
+    return { removed };
+  }
+
   const stalled = () => typeof appendStore.stats === 'function' && appendStore.stats()?.stalled === true;
 
   /** The day files of `dir`, oldest first, as full paths. */
@@ -592,5 +674,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     removeGuild,
     markRunning,
     clearRunning,
+    dumpRequest,
+    pruneRequests,
   };
 }

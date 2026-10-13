@@ -386,6 +386,13 @@ async function reconcileJournal(guildId) {
 /** Whether the journal is written now (features.journal exactly true, read now). */
 const journalOn = () => hot.config.features?.journal === true;
 
+/** Delete the request dumps older than journal.keepRequests days (features.journal, read now). */
+async function pruneJournalRequests(guildId) {
+  if (!journalOn()) return;
+  const { removed } = await journal.pruneRequests(guildId);
+  log.info('journal: pruned', { guildId, removed });
+}
+
 /**
  * The journal at start: forgets a crash left half done are finished first (whatever the
  * switch: what was journalled about a forgotten member goes); then, with the journal on, a
@@ -458,6 +465,10 @@ client.once(Events.ClientReady, async () => {
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
   // starting meanwhile is never touched (only earlier operations are), and it never sends.
   await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId));
+
+  // The request dumps older than journal.keepRequests days: once now, then daily.
+  await startupStep('journal.prune', () => pruneJournalRequests(instance.guildId));
+  every(DAY_MS, () => pruneJournalRequests(instance.guildId), 'journal.prune');
 
   const guild = client.guilds.cache.get(instance.guildId);
   await startupStep('registerCommands', () => registerCommands(guild, hot.config), { wait: true });

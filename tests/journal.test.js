@@ -499,3 +499,106 @@ test('journalLine: one short line per kind', async () => {
   assert.equal(journalLine({ kind: 'system', occurredAt: at, event: 'unclean-stop' }), '08:09:10 system unclean-stop');
   assert.equal(journalLine({ kind: 'system', occurredAt: at, event: 'reload', note: 'prompts' }), '08:09:10 system reload prompts');
 });
+
+/** An in-memory `fs/promises` stand-in: files by path, directories derived from them. */
+function memoryFs() {
+  const files = new Map();
+  const dirNames = (dir) => {
+    const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
+    const names = new Set();
+    for (const file of files.keys()) if (file.startsWith(prefix)) names.add(file.slice(prefix.length).split(path.sep)[0]);
+    return [...names];
+  };
+  return {
+    files,
+    mkdir: async () => {},
+    writeFile: async (file, text) => {
+      files.set(file, String(text));
+    },
+    rename: async (from, to) => {
+      files.set(to, files.get(from));
+      files.delete(from);
+    },
+    readdir: async (dir) => {
+      const names = dirNames(dir);
+      if (names.length === 0) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return names;
+    },
+    rm: async (target) => {
+      for (const file of [...files.keys()]) if (file === target || file.startsWith(target + path.sep)) files.delete(file);
+    },
+  };
+}
+
+function dumpJournal({ keepRequests = 3 } = {}, ms = DAY_D) {
+  const fs = memoryFs();
+  const journal = createJournal({
+    appendStore: fakeAppendStore(),
+    dataDir: DATA,
+    config: () => ({ thinkChars: 4000, keepRequests }),
+    now: () => ms,
+    uuid: counter('u-'),
+    fs,
+  });
+  return { journal, fs };
+}
+
+const REQUESTS = path.join(DATA, 'guilds', 'g1', 'journal', 'requests');
+
+test('journal: dumpRequest writes <day>/<turnId>-<attempt>.json with the request parts and the raw answer', async () => {
+  const { journal, fs } = dumpJournal();
+  const dataUrl = `data:image/png;base64,${'QUJD'.repeat(10)}`;
+  await journal.dumpRequest('g1', {
+    turnId: 't-1',
+    attemptId: 2,
+    request: {
+      messages: [
+        { role: 'system', content: 'sys text' },
+        { role: 'user', content: [{ type: 'text', text: 'chat' }, { type: 'image_url', image_url: { url: dataUrl } }, { type: 'text', text: 'task' }] },
+      ],
+    },
+    raw: '<msg>γεια</msg>',
+    usage: { prompt: 10, cached: 4, completion: 2 },
+  });
+  const file = path.join(REQUESTS, '2026-10-13', 't-1-2.json');
+  assert.deepEqual([...fs.files.keys()], [file]);
+  const dump = JSON.parse(fs.files.get(file));
+  assert.equal(dump.v, 1);
+  assert.equal(dump.turnId, 't-1');
+  assert.equal(dump.attemptId, 2);
+  assert.equal(dump.recordedAt, new Date(DAY_D).toISOString());
+  assert.equal(dump.system, 'sys text');
+  assert.equal(dump.raw, '<msg>γεια</msg>');
+  assert.deepEqual(dump.usage, { prompt: 10, cached: 4, completion: 2 });
+  assert.deepEqual(dump.parts, [{ type: 'text', text: 'chat' }, { image: 'attachment', bytes: 30 }, { type: 'text', text: 'task' }]);
+  assert.ok(!fs.files.get(file).includes('data:'));
+
+  // A private turn lands under the partner's private journal directory.
+  await journal.dumpRequest('g1', { turnId: 't-2', attemptId: 1, request: { system: 's', parts: [{ type: 'text', text: 'x' }] }, raw: '', usage: null, privateUserId: 'u9' });
+  assert.ok(fs.files.has(path.join(DATA, 'guilds', 'g1', 'private', 'u9', 'journal', 'requests', '2026-10-13', 't-2-1.json')));
+});
+
+test('journal: pruneRequests deletes days older than keepRequests and keeps the rest', async () => {
+  const { journal, fs } = dumpJournal({ keepRequests: 3 });
+  for (const day of ['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-12', '2026-10-13']) fs.files.set(path.join(REQUESTS, day, 't-1.json'), '{}');
+  fs.files.set(path.join(DATA, 'guilds', 'g1', 'private', 'u9', 'journal', 'requests', '2026-10-01', 't-1.json'), '{}');
+  fs.files.set(path.join(REQUESTS, 'notes'), 'not a day');
+  const result = await journal.pruneRequests('g1');
+  assert.deepEqual(result, { removed: 3 });
+  const left = [...fs.files.keys()].map((file) => path.relative(DATA, file)).sort();
+  assert.deepEqual(left, [
+    path.join('guilds', 'g1', 'journal', 'requests', '2026-10-10', 't-1.json'),
+    path.join('guilds', 'g1', 'journal', 'requests', '2026-10-12', 't-1.json'),
+    path.join('guilds', 'g1', 'journal', 'requests', '2026-10-13', 't-1.json'),
+    path.join('guilds', 'g1', 'journal', 'requests', 'notes'),
+  ]);
+});
+
+test('journal: keepRequests 0 writes nothing', async () => {
+  const { journal, fs } = dumpJournal({ keepRequests: 0 });
+  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, request: { system: 's', parts: [] }, raw: 'x', usage: null });
+  assert.equal(fs.files.size, 0);
+  fs.files.set(path.join(REQUESTS, '2000-01-01', 't.json'), '{}');
+  assert.deepEqual(await journal.pruneRequests('g1'), { removed: 0 });
+  assert.equal(fs.files.size, 1);
+});
