@@ -114,6 +114,8 @@
     "interlocutorMark": " ← talking to you",
     "formerNames": "Previously known as: {names}",
     "aliases": "Also called: {text}",
+    "addressed": "Called most often: {text}",
+    "realName": "Real name: {text}",
     "character": "Character: {text}",
     "interests": "Interests: {text}",
     "interestItem": "{topic} ({note})",

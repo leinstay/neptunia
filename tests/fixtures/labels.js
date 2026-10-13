@@ -118,6 +118,8 @@ export const labels = {
     interlocutorMark: ' -- INTERLOCUTOR, they are the one who called you',
     formerNames: 'formerly known as: {names}',
     aliases: 'Called: {text}',
+    addressed: 'Called most often: {text}',
+    realName: 'Real name: {text}',
     character: 'character: {text}',
     interests: 'interests: {text}',
     interestItem: '{topic} ({note})',

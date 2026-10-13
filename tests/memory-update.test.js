@@ -9340,3 +9340,85 @@ test('memory update: supersedes and conflict ops reach the store', () => {
     assert.deepEqual(profile.details.map((item) => [item.text, item.conflictSetId]), [['lives in Lyon', lyonId], ['lives in Nice', lyonId]]);
   });
 });
+
+// ---- the real name and the names people use ----
+
+test('buildMemoryRequest: a whole profile shows realName as its name and addressedAs as names, most used first', () => {
+  const at = Date.UTC(2026, 0, 1, 12, 0, 0);
+  const iso = (ms) => new Date(ms).toISOString();
+  const { messages: llmMessages } = buildMemoryRequest({
+    prompts: { memory: 'sys', labels },
+    config: makeConfig({ memory: { ...makeConfig().memory, addressHalfLifeDays: 30 } }),
+    calibrator: createCalibrator(),
+    profiles: {
+      1: {
+        names: ['nick'],
+        character: '',
+        interests: [],
+        style: '',
+        details: [],
+        relationship: '',
+        realName: { name: 'Théo', from: '2025-12-01', to: null, itemId: 'rn-1' },
+        // Léo's 4 uses are 60 days old (worth 1 now): Nikos's 2 recent ones rank first.
+        addressedAs: { 'Léo': { score: 4, last: iso(at - 60 * DAY_MS) }, Nikos: { score: 2, last: iso(at) }, Sus: { score: 0.5, last: iso(at) } },
+      },
+      2: { names: ['other'], character: '', interests: [], style: '', details: [], relationship: '' },
+    },
+    guildMemory: {},
+    messages: [slimMessage({ id: 'm1', ts: at })],
+    selfName: 'Nept',
+    now: at,
+  });
+  const profiles = JSON.parse(/<existing_profiles>\n([\s\S]*?)\n<\/existing_profiles>/.exec(llmMessages[1].content)[1]);
+  assert.equal(profiles['1'].realName, 'Théo');
+  assert.deepEqual(profiles['1'].addressedAs, ['Nikos', 'Léo', 'Sus']);
+  assert.equal('realName' in profiles['2'], false);
+  assert.equal('addressedAs' in profiles['2'], false);
+});
+
+test('memory update: realName reaches the store as a string or an object; a member reference or a roster member\'s is dropped', () => {
+  withStore((store) => {
+    const guildId = 'g1';
+    store.touchUser(guildId, '1', 'nick', Date.now());
+    store.touchUser(guildId, '2', 'other', Date.now());
+    applyMemoryUpdate(store, guildId, { users: { 1: { realName: 'Théo' }, 2: { realName: 'Ilias' } } }, MEMORY_CFG, new Set(['1']), { aliasOnlyIds: new Set(['2']) });
+    const first = store.getUser(guildId, '1').realName;
+    assert.equal(first.name, 'Théo');
+    assert.equal(store.getUser(guildId, '2').realName, undefined, 'a roster member gets aliases only');
+
+    applyMemoryUpdate(store, guildId, { users: { 1: { realName: 'nick (id:123456789012345678)' } } }, MEMORY_CFG, new Set(['1']));
+    assert.deepEqual(store.getUser(guildId, '1').realName, first);
+
+    applyMemoryUpdate(store, guildId, { users: { 1: { realName: { name: 'Léon', supersedes: first.itemId } } } }, MEMORY_CFG, new Set(['1']));
+    const profile = store.getUser(guildId, '1');
+    assert.equal(profile.realName.name, 'Léon');
+    assert.deepEqual(profile.closed.map((item) => [item.kind, item.name, item.supersededBy]), [['realName', 'Théo', profile.realName.itemId]]);
+  });
+});
+
+test('run: a consumed batch counts the names its lines call other members by, never the author\'s own', async () => {
+  await withStoreAsync(async (store) => {
+    const guildId = 'g1';
+    const base = Date.UTC(2026, 0, 9, 12);
+    store.touchUser(guildId, '1', 'Aria', base - DAY_MS);
+    store.touchUser(guildId, '2', 'Βράνος', base - DAY_MS);
+    const lines = [
+      { id: 'm0', authorId: '1', authorName: 'Aria', content: 'hi Βράνο, see https://example.com/aria' },
+      { id: 'm1', authorId: '2', authorName: 'Βράνος', content: 'Βράνος is back' },
+      { id: 'm2', authorId: '999', authorName: 'Nept', self: true, content: 'Aria, welcome back' },
+    ];
+    lines.forEach((line, i) => store.pushBuffer(guildId, slimMessage({ ...line, ts: base + i * MINUTE_MS }), 100));
+    const hot = {
+      config: makeConfig({ memory: { ...makeConfig().memory, batchMessages: 3, minBatchMessages: 1, addressHalfLifeDays: 30 } }),
+      prompts: { memory: 'memory system prompt', labels },
+    };
+    const llm = { complete: async () => ({ text: JSON.stringify({ users: {} }) }) };
+    const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => base + HOUR_MS });
+
+    const { logs } = await withCapturedLogs(() => updater.run(guildId));
+    const applied = logs.find((entry) => entry.msg === 'memory: update applied');
+    assert.equal(applied.addressUses, 2);
+    assert.deepEqual(store.getUser(guildId, '2').addressedAs, { 'Βράνος': { score: 1, last: new Date(base).toISOString() } });
+    assert.deepEqual(store.getUser(guildId, '1').addressedAs, { Aria: { score: 1, last: new Date(base + 2 * MINUTE_MS).toISOString() } }, 'the persona\'s line counts, the URL does not');
+  });
+});

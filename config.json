@@ -225,6 +225,7 @@
     "maxAliasesStored": 15,
     "aliasRosterSize": 40,
     "aliasHalfLifeDays": 365,
+    "addressHalfLifeDays": 30,
     "maxClosedStored": 40,
     "supersededShownDays": 7,
     "confirmAfter": 2,

@@ -3705,3 +3705,86 @@ test('store: a user under a forgetting marker is hidden from getUser', async () 
   store.touchUser('g1', 'u1', 'Ζωή', FORGET_AT + 1000);
   assert.ok(store.getUser('g1', 'u1'), 'after the forget a member who speaks again is seen again');
 });
+
+// ---- the real name and the names people use (src/memory/addressed.js) ----
+
+test('applyProfileOps: a realName is set, an equal one is a sighting, a different string changes nothing', () => {
+  const store = createStore({ dataDir: tmpDataDir(), newId: counterIds() });
+  store.applyProfileOps('g1', 'u1', { realName: '  Théo  ' }, { now: ID_NOW, seenAt: ID_NOW });
+  const set = store.getUser('g1', 'u1').realName;
+  assert.equal(set.name, 'Théo');
+  assert.equal(set.from, '2026-10-05');
+  assert.equal(set.to, null);
+  assert.match(set.itemId, /^rn-/);
+
+  store.applyProfileOps('g1', 'u1', { realName: { name: 'THÉO' } }, { now: ID_NOW + 1000 });
+  assert.deepEqual(store.getUser('g1', 'u1').realName, set, 'an equal name is a sighting');
+  store.applyProfileOps('g1', 'u1', { realName: 'Léon' }, { now: ID_NOW + 2000 });
+  assert.deepEqual(store.getUser('g1', 'u1').realName, set, 'a different name without supersedes changes nothing');
+  store.applyProfileOps('g1', 'u1', { realName: '' }, { now: ID_NOW + 3000 });
+  assert.deepEqual(store.getUser('g1', 'u1').realName, set);
+  assert.equal(store.getUser('g1', 'u1').closed, undefined);
+});
+
+test('applyProfileOps: a realName is clamped to 60 characters', () => {
+  const store = createStore({ dataDir: tmpDataDir(), newId: counterIds() });
+  store.applyProfileOps('g1', 'u1', { realName: 'α'.repeat(80) }, { now: ID_NOW });
+  assert.ok([...store.getUser('g1', 'u1').realName.name].length <= 60);
+});
+
+test('applyProfileOps: a realName that supersedes the stored one closes it into the closed list, archived once evicted', async () => {
+  const archive = fakeArchive();
+  const store = createStore({ dataDir: tmpDataDir(), newId: counterIds(), archive });
+  store.applyProfileOps('g1', 'u1', { realName: 'Léon' }, { now: ID_NOW, maxClosedStored: 1 });
+  const old = store.getUser('g1', 'u1').realName;
+  store.applyProfileOps('g1', 'u1', { realName: { name: 'Théo', supersedes: old.itemId, validFrom: '2026-10-06' } }, { now: ID_NOW + 1000, maxClosedStored: 1 });
+  const profile = store.getUser('g1', 'u1');
+  assert.equal(profile.realName.name, 'Théo');
+  assert.equal(profile.realName.from, '2026-10-06');
+  assert.deepEqual(
+    profile.closed.map((item) => [item.kind, item.name, item.validTo, item.supersededBy, item.itemId]),
+    [['realName', 'Léon', '2026-10-06', profile.realName.itemId, old.itemId]],
+  );
+
+  // By name works too; the second closing pushes the first out of a one-item closed list.
+  store.applyProfileOps('g1', 'u1', { realName: { name: 'Ilias', supersedes: 'théo' } }, { now: ID_NOW + 2000, maxClosedStored: 1 });
+  assert.equal(store.getUser('g1', 'u1').realName.name, 'Ilias');
+  const settled = await store.settleArchive('g1');
+  assert.deepEqual(settled.archived.map((item) => [item.itemKind, item.event]), [['realName', 'replaced']]);
+  const [entry] = archive.appended.flatMap((call) => call.entries);
+  assert.equal(entry.text.name, 'Léon');
+  assert.deepEqual(store.getUser('g1', 'u1').closed.map((item) => [item.kind, item.name]), [['realName', 'Théo']]);
+});
+
+test('getUser: addressedAs and realName are normalised on read, absent stays absent', () => {
+  const dir = tmpDataDir();
+  const last = new Date(ID_NOW).toISOString();
+  writeJsonAtomic(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), {
+    id: 'u1',
+    names: ['Ana'],
+    addressedAs: { Ana: { score: 2, last }, broken: { score: 'x' }, worse: 1 },
+    realName: { name: 'Anaïs', from: 'never', to: '2020-01-01', itemId: 'rn-1', junk: true },
+  });
+  writeJsonAtomic(path.join(dir, 'guilds', 'g1', 'users', 'u2.json'), { id: 'u2', names: ['Bo'], realName: { name: '' }, addressedAs: [1] });
+  writeJsonAtomic(path.join(dir, 'guilds', 'g1', 'users', 'u3.json'), { id: 'u3', names: ['Cy'] });
+  const store = createStore({ dataDir: dir });
+  const one = store.getUser('g1', 'u1');
+  assert.deepEqual(one.addressedAs, { Ana: { score: 2, last } });
+  assert.deepEqual(one.realName, { name: 'Anaïs', from: null, to: null, itemId: 'rn-1' });
+  const two = store.getUser('g1', 'u2');
+  assert.equal('realName' in two, false);
+  assert.deepEqual(two.addressedAs, {});
+  const three = store.getUser('g1', 'u3');
+  assert.equal('realName' in three, false);
+  assert.equal('addressedAs' in three, false);
+});
+
+test('recordAddressUses: folds uses into an existing profile only, with the half-life given', () => {
+  const store = createStore({ dataDir: tmpDataDir() });
+  assert.equal(store.recordAddressUses('g1', 'nobody', [{ name: 'Ana', at: ID_NOW }], { halfLifeDays: 30 }), null);
+  assert.equal(store.getUser('g1', 'nobody'), null);
+  store.touchUser('g1', 'u1', 'Ana', ID_NOW);
+  store.recordAddressUses('g1', 'u1', [{ name: 'Ana', at: ID_NOW }], { halfLifeDays: 30 });
+  store.recordAddressUses('g1', 'u1', [{ name: 'ana', at: ID_NOW + 30 * 86_400_000 }], { halfLifeDays: 30 });
+  assert.deepEqual(store.getUser('g1', 'u1').addressedAs, { Ana: { score: 1.5, last: new Date(ID_NOW + 30 * 86_400_000).toISOString() } });
+});

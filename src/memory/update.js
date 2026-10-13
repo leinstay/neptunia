@@ -43,6 +43,7 @@ import { keywordMatches } from './lore.js';
 import { isOpen, normalizeInterests, normalizeTopic } from './interests.js';
 import { normalizeDetails } from './details.js';
 import { applyAliasOps } from './aliases.js';
+import { DEFAULT_ADDRESS_HALF_LIFE_DAYS, addressCandidates, countAddressUses, rankAddressed } from './addressed.js';
 import { emojiUsageOpts } from './emoji-usage.js';
 import { gifOpts } from './gifs.js';
 import { topByRank } from './ranking.js';
@@ -490,7 +491,7 @@ function existingAliasesView(aliases, maxAliases, halfLifeDays) {
 /**
  * The `closed` key of one `<existing_profiles>` view: the claims of `closed` (a profile's or
  * private layer's `closed` list, see src/memory/store.js#storeClosed) whose identity -- an
- * interest's topic, a detail's text, an alias's name -- occurs as a whole word or phrase
+ * interest's topic, a detail's text, an alias's or a real name's name -- occurs as a whole word or phrase
  * (src/memory/mentions.js#occursAsWholeWord, case-insensitive) in the batch's texts, in stored
  * order, each with its days: `from` (`validFrom`, else the day of `firstSeen`; omitted when
  * unknown) and `to` (`validTo`). So the analyzer sees what was already closed on the topics it
@@ -505,7 +506,7 @@ function closedClaimsView(closed, batchLower, nameOf) {
   const out = [];
   for (const item of Array.isArray(closed) ? closed : []) {
     if (!isPlainObject(item)) continue;
-    const identity = item.kind === 'interest' ? item.topic : item.kind === 'detail' ? item.text : item.kind === 'alias' ? item.name : null;
+    const identity = item.kind === 'interest' ? item.topic : item.kind === 'detail' ? item.text : item.kind === 'alias' || item.kind === 'realName' ? item.name : null;
     if (typeof identity !== 'string' || !occursAsWholeWord(batchLower, normalizeTopic(resolveText(identity, nameOf)))) continue;
     const view = { kind: item.kind };
     if (item.kind === 'interest') Object.assign(view, { topic: item.topic, note: resolveText(item.note ?? '', nameOf) });
@@ -873,6 +874,8 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
   // The batch's texts, for the closed claims a whole view carries (closedClaimsView).
   const batchLower = messages.map((m) => (typeof m?.content === 'string' ? m.content : '')).join('\n').toLowerCase();
   const episodeCap = analyzerEpisodes(config);
+  // The moment the `addressedAs` order is read at: `now`, else the batch's newest message.
+  const viewNow = Number.isFinite(now) ? now : Math.max(0, ...messages.map((m) => (Number.isFinite(m?.ts) ? m.ts : 0)));
   for (const [id, profile] of Object.entries(profiles ?? {})) {
     const fields = pickProfileFields(profile);
     if (privateChat) {
@@ -892,6 +895,12 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
     if (!privateChat && Array.isArray(profile?.aliases) && profile.aliases.length > 0) {
       const aliases = existingAliasesView(profile.aliases, config.memory?.maxAliases, config.memory?.aliasHalfLifeDays);
       if (aliases.length > 0) fields.aliases = aliases;
+    }
+    // The real name as its name; the names people use for them, most used first (no scores).
+    if (!privateChat && typeof profile?.realName?.name === 'string' && profile.realName.name) fields.realName = profile.realName.name;
+    if (!privateChat) {
+      const addressedAs = rankAddressed(profile?.addressedAs, viewNow, config.memory?.addressHalfLifeDays ?? DEFAULT_ADDRESS_HALF_LIFE_DAYS);
+      if (addressedAs.length > 0) fields.addressedAs = addressedAs;
     }
     const closedClaims = closedClaimsView(profile?.closed, batchLower, resolveName);
     if (closedClaims.length > 0) fields.closed = closedClaims;
@@ -1021,6 +1030,7 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
           maxDetails: config.memory?.maxDetails,
           maxAliases: config.memory?.maxAliases,
           aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
+          addressHalfLifeDays: config.memory?.addressHalfLifeDays,
           interestHalfLifeDays: config.memory?.interestHalfLifeDays,
           detailHalfLifeDays: config.memory?.detailHalfLifeDays,
           confirmAfter: config.memory?.confirmAfter,
@@ -1690,6 +1700,24 @@ function guardedAliasOps(raw, profile) {
   return { ops, dropped };
 }
 
+/**
+ * One member's `users.<id>.realName` answer as the store op (src/memory/store.js#applyProfileOps):
+ * a string, or `{ name, supersedes?, validFrom? }` (`supersedes` / `validFrom` kept only as
+ * strings), the name trimmed and non-empty and holding no `<@` token or `(id:` marker. Anything
+ * else -- missing, empty, another shape -- is null: nothing changes.
+ * @param {unknown} raw
+ * @returns {string|{ name: string, supersedes?: string, validFrom?: string }|null}
+ */
+function guardedRealName(raw) {
+  const name = isPlainObject(raw) ? raw.name : raw;
+  if (typeof name !== 'string' || !name.trim() || ALIAS_REF_RE.test(name)) return null;
+  if (!isPlainObject(raw)) return name.trim();
+  const op = { name: name.trim() };
+  if (typeof raw.supersedes === 'string' && raw.supersedes.trim()) op.supersedes = raw.supersedes.trim();
+  if (typeof raw.validFrom === 'string' && raw.validFrom.trim()) op.validFrom = raw.validFrom.trim();
+  return op;
+}
+
 /** The strings of a list the analyzer wrote (`self`, `learned.add`, a stage A brief list): a
  * bare string or an object's `text`; anything else is skipped. */
 function listTexts(list) {
@@ -2086,6 +2114,9 @@ export function applyMemoryUpdate(
       // else -- never tokenized, only guarded (`guardedAliasOps`), see
       // docs/prompt-contract.md, "Aliases".
       if (aliasOps) ops.aliases = aliasOps;
+      // A real name is literal too: never tokenized, guarded like an alias (`guardedRealName`).
+      const realName = guardedRealName(raw.realName);
+      if (realName !== null) ops.realName = realName;
 
       const beforeInterests = JSON.stringify(store.getUser(guildId, userId)?.interests ?? []);
       const beforeRelationship = store.getUser(guildId, userId)?.relationship ?? '';
@@ -2642,6 +2673,30 @@ function applyPrivateDecision(store, guildId, userId, decision, config, options,
 }
 
 /**
+ * Count which names a consumed guild batch calls members by (src/memory/addressed.js) and fold
+ * the uses into each member's `addressedAs` (`store.recordAddressUses`, `cfg.addressHalfLifeDays`,
+ * 30 when missing). The candidates are every stored profile of the guild; other bots' lines are
+ * skipped, the persona's own count. A store without `listUserProfiles` / `recordAddressUses` (a
+ * test fake) counts nothing.
+ * @param {object} store
+ * @param {string} guildId
+ * @param {object[]} messages  The consumed slim messages.
+ * @param {object} [cfg]  `config.memory`, read at the moment of use.
+ * @returns {number}  The uses recorded.
+ */
+export function recordAddressing(store, guildId, messages, cfg = {}) {
+  if (typeof store?.listUserProfiles !== 'function' || typeof store?.recordAddressUses !== 'function') return 0;
+  const lines = (Array.isArray(messages) ? messages : []).filter((m) => m && !m.bot);
+  if (lines.length === 0) return 0;
+  const uses = countAddressUses(lines, addressCandidates(store.listUserProfiles(guildId)));
+  let recorded = 0;
+  for (const [userId, list] of uses) {
+    if (store.recordAddressUses(guildId, userId, list, { halfLifeDays: cfg?.addressHalfLifeDays ?? DEFAULT_ADDRESS_HALF_LIFE_DAYS })) recorded += list.length;
+  }
+  return recorded;
+}
+
+/**
  * Record that a normalized message happened, for the counters kept on a
  * user's profile and a channel's map entry: `touchUser` (skipped for the
  * persona's own messages) and `touchChannel`, whose `topWriters` tally also
@@ -3035,6 +3090,19 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   /** The store's archive mark now, or null for a store without one. */
   function archiveMark(guildId) {
     return typeof store.archiveMark === 'function' ? store.archiveMark(guildId) : null;
+  }
+
+  /**
+   * `recordAddressing` over a consumed batch with the live `config.memory`; a store that cannot
+   * be read (a hand-broken profile) costs the count, never the batch: logged, 0 returned.
+   */
+  function recordAddressingSafely(guildId, consumed) {
+    try {
+      return recordAddressing(store, guildId, consumed, hot.config.memory ?? {});
+    } catch (err) {
+      log.warn('memory: address count left out', { guildId, reason: 'store-error', error: errorNameOf(err) });
+      return 0;
+    }
   }
 
   /**
@@ -3740,6 +3808,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         // Counted only once the lines are consumed: a failed batch, or a deferred line, stays in
         // the buffer and is counted when a batch shows it.
         const emojiUsage = store.recordEmojiUsage(guildId, consumed, emojiUsageOpts(hot.config));
+        // Which names the consumed lines call members by (no model involved), counted the same once.
+        const addressUses = recordAddressingSafely(guildId, consumed);
         store.shiftBuffer(guildId, consumed);
         const { channels: flaggedChannels, guild: flaggedGuild } = outcome.staleNotes;
         const notesFlagged = flaggedChannels.length + (flaggedGuild ? 1 : 0);
@@ -3806,6 +3876,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
           ...counts,
           portraitRequests: portraitRequests.length,
           emojiUsage,
+          addressUses,
           ...stageLogFields(outcome),
         });
         if (outcome.stage === 'two') await runVoice(guildId);
