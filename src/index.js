@@ -205,6 +205,7 @@ const memory = createMemoryUpdater({
   llm,
   calibrator,
   getSelfName,
+  journal,
   onPortraitRequest: (guildId, userId, reason) => {
     warmup.refreshPortrait(guildId, userId, reason).catch((err) => log.error('index: portrait refresh failed', { error: err }));
   },

@@ -7595,13 +7595,19 @@ function journalOverMemory() {
   return { journal, lines };
 }
 
-/** An LLM whose one answer reports provider usage: 700 completion tokens, 300 of the prompt cached. */
-function usageLlm(text) {
+/**
+ * An LLM whose one answer reports provider usage: 700 completion tokens, 300 of the prompt cached.
+ * Like the real client (src/llm/openrouter.js), it tells the request's `limits` collector the
+ * completion reached its cap: the request's `maxOutputTokens`, else `defaultMax()`.
+ */
+function usageLlm(text, defaultMax = () => Infinity) {
   const calls = [];
   return {
     calls,
-    complete: async (messages) => {
+    complete: async (messages, options = {}) => {
       calls.push(messages);
+      const max = options.maxOutputTokens ?? defaultMax();
+      if (options.limits && Number.isFinite(max) && 700 >= max) options.limits.add({ kind: 'output-cap', where: 'completion', lost: null });
       return {
         text,
         usage: { prompt_tokens: 1500, completion_tokens: 700, prompt_tokens_details: { cached_tokens: 300 } },
@@ -7616,8 +7622,8 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   const earlier = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Zoé', ts: NOW - 5000, content: 'καλημέρα' });
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
   const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
-  const llm = usageLlm('<think>Η Αλίκη με φωνάζει.</think><msg reply="#2">γεια</msg><react to="#1">\u{1F389}</react>');
   const hot = fakeHot({ journal: true, typingSimulation: false }, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
+  const llm = usageLlm('<think>Η Αλίκη με φωνάζει.</think><msg reply="#2">γεια</msg><react to="#1">\u{1F389}</react>', () => hot.config.llm.maxOutputTokens);
   const { journal, lines } = journalOverMemory();
   const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
 
@@ -7841,4 +7847,47 @@ test('turn: pulled lines appear in seen.pulled', async () => {
   assert.deepEqual(turn.seen.messageIds, ['m1', 'm9', 'd1', 'd2']);
   assert.deepEqual(turn.sourceMessageIds, turn.seen.messageIds);
   assert.ok(turn.participants.includes('u3'), 'the pulled lines name their authors');
+});
+
+test('turn: limits lists a message cut at 2000 with the lost length', async () => {
+  // A member with a long id: every @name the model wrote grows into a <@id> token when posted.
+  const bobId = '123456789012345678';
+  const earlier = rawMessage({ id: 'm0', authorId: bobId, authorName: 'Bob', ts: NOW - 5000, content: 'καλημέρα' });
+  const raw = rawMessage({ id: 'm1' });
+  const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
+  const answer = `<msg>${'α'.repeat(1400)}${' @Bob'.repeat(100)}</msg>`;
+  const { journal, lines } = journalOverMemory();
+  const turns = createTurnRunner({ hot: fakeHot({ journal: true, typingSimulation: false }), store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
+
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+
+  const [payload] = channel.sent;
+  const posted = [...payload.content].length;
+  assert.ok(posted <= 2000, String(posted));
+  const expanded = 1400 + 100 * ` <@${bobId}>`.length;
+  const turn = lines.find(({ record }) => record.kind === 'turn').record;
+  assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'message-cut'), [{ kind: 'message-cut', where: 'post', lost: expanded - posted }]);
+});
+
+test('turn: limits lists a preview cut', async () => {
+  const raw = rawMessage({
+    id: 'm1',
+    attachments: new Map([['t1', { id: 't1', contentType: 'text/plain', name: 'notes.txt', url: 'https://cdn/notes.txt' }]]),
+  });
+  const short = rawMessage({
+    id: 'm0',
+    ts: NOW - 5000,
+    attachments: new Map([['t0', { id: 't0', contentType: 'text/plain', name: 'short.txt', url: 'https://cdn/short.txt' }]]),
+  });
+  const channel = fakeTurnChannel({ historyMessages: [short, raw] });
+  const fetchImpl = async (url) => ({ ok: true, headers: { get: () => null }, text: async () => (url.endsWith('notes.txt') ? 'é'.repeat(800) : 'ένα') });
+  const { journal, lines } = journalOverMemory();
+  const hot = fakeHot({ journal: true, typingSimulation: false });
+  const turns = createTurnRunner({ hot, store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient(), fetchImpl, journal });
+
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+
+  const turn = lines.find(({ record }) => record.kind === 'turn').record;
+  assert.equal(hot.config.media.filePreviewChars, 500);
+  assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'preview-cut'), [{ kind: 'preview-cut', where: 'm1', lost: 300, detail: 't1' }]);
 });
