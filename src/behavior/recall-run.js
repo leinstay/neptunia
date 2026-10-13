@@ -695,7 +695,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       timezone: config.bot?.timezone,
       selfName,
       gapMinutes: config.context?.gapMarkerMinutes,
-      maxChars: config.context?.maxMessageChars ?? 800,
+      maxChars: config.context?.maxMessageChars ?? 2000,
       seeReactions: config.features?.seeReactions !== false,
       reactionsPerMessage: config.context?.reactionsPerMessage,
     };

@@ -213,7 +213,7 @@ export function routeContext({ history, candidate, contextMessages, config, labe
   const at = list.findIndex((m) => m?.id === candidate.id);
   const before = (at === -1 ? list.filter((m) => m && m.id !== candidate.id) : list.slice(0, at)).filter(Boolean);
   const context = contextMessages > 0 ? before.slice(-contextMessages) : [];
-  const maxChars = config.context?.maxMessageChars ?? 800;
+  const maxChars = config.context?.maxMessageChars ?? 2000;
   const text = [...String(candidate.content ?? '')].slice(0, maxChars).join('');
   const candidateBlock = block('candidate', `${candidate.authorName}: ${text}`);
   if (context.length === 0) return { transcriptBlock: '', candidateBlock };

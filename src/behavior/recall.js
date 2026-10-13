@@ -42,7 +42,7 @@ import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 
 /** Defaults of the `recall` config group (config.json carries the same values). */
 export const RECALL_DEFAULTS = Object.freeze({
-  maxForms: 5,
+  maxForms: 8,
   maxPeople: 2,
   dateSamples: 4,
   clusterGapMinutes: 30,
@@ -53,7 +53,7 @@ export const RECALL_DEFAULTS = Object.freeze({
   answerChars: 1200,
   stretchChars: 1500,
   maxPerDay: 100,
-  timeoutMs: 10000,
+  timeoutMs: 15000,
   minSummaryMs: 2500,
   maxOutputTokens: 500,
   memoryItems: 6,

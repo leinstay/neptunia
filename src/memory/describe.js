@@ -119,7 +119,7 @@ import { normalizeQuery } from '../web/lookup.js';
 
 const MISS_TTL_MS = 60 * MINUTE_MS;
 // Only when media.descriptionChars is missing or invalid (config.json always has it).
-const DESCRIPTION_CHARS_FALLBACK = 200;
+const DESCRIPTION_CHARS_FALLBACK = 500;
 // Only when media.video.errorRetryMinutes is missing or invalid (config.json always has it).
 const VIDEO_ERROR_RETRY_MINUTES_FALLBACK = 60;
 // Only when media.video.urlProcessing is missing (config.json always has it; null omits the field).
@@ -138,7 +138,7 @@ const GIF_WATCH_DAILY = Object.freeze({ dayKey: 'gifWatchDay', countKey: 'gifWat
 /** What cachedPicture returns for a picture whose recent failure is still remembered. */
 const FRESH_MISS = Symbol('fresh-miss');
 // Only when media.gif.maxSeconds is missing or invalid (config.json always has it).
-const GIF_MAX_SECONDS_FALLBACK = 8;
+const GIF_MAX_SECONDS_FALLBACK = 15;
 
 /**
  * The file a GIF watch downloads: a gif embed's `animationUrl` (the mp4 of

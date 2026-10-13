@@ -171,7 +171,6 @@ The keys of `labels.json`; `{x}` is filled by code.
 
 ```
 locale                                   BCP-47 tag for dates
-ping.prompt                              the user message of a model reachability probe; must make any model answer one short word. No longer used by any command
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: the time between two consecutive lines at least `context.gapMarkerMinutes` apart, worded so it cannot pass for an age

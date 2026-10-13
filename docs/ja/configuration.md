@@ -39,7 +39,7 @@
 | `notesRefresh` | `true` | チャンネルとサーバーのノートを、最近のメッセージの分散サンプルから定期的に再チェック。キー欠落 = オン。`memory.notesRefreshDays*` および [ウォームアップ: ノートの鮮度維持](warmup.md#ノートの鮮度維持) 参照 |
 | `versions` | `true` | プロースメモリフィールドのテキストが置換されるたびにバージョン履歴を保持。以前のテキストは `data/guilds/<id>/versions/` に保存。`/nep memory forget` および `/nep memory wipe` でバージョンファイルを削除。キー欠落 = オン |
 | `memoryTwoStage` | `false` | メモリアナライザーを 2 段階に分割: ニュートラルな GPT モデルが変更を判定（ステージ A）、次にボイスモデルがペルソナのテキストを執筆（ステージ B）。厳密に `true` で有効。キー欠落 = オフ。`memory.voice.*` 参照 |
-| `promptCache` | `false` | システムメッセージにプロバイダーのプロンプトキャッシュマーカーを付与する。キャッシュ読み取りは通常入力の数分の一のコストで、プロバイダーによってはトークンクォータにカウントされない。厳密に `true` で有効。キーが存在しない場合はオフ。`llm.cache.*` を参照 |
+| `promptCache` | `true` | システムメッセージにプロバイダーのプロンプトキャッシュマーカーを付与する。キャッシュ読み取りは通常入力の数分の一のコストで、プロバイダーによってはトークンクォータにカウントされない。厳密に `true` で有効。キーが存在しない場合はオフ。`llm.cache.*` を参照 |
 | `recall` | `true` | 質問に応じてウェブ検索と並行してサーバー自身のメッセージ履歴を検索する。キー欠落 = オン。[メディア: 検索](media.md#検索) と `recall.*` 参照 |
 | `recent` | `true` | サーバーで直近数日間に何が起きたかを `<recent>` ブロックとして表示する。キー欠落 = オン。`memory.recentHours` と `context.caps.recent` 参照 |
 | `channelRoute` | `true` | ターン前に分類器が会話の話題になっているチャンネルを特定し、リクエストに取り込めるようにする。キー欠落 = オン。`route.*` 参照 |
@@ -73,14 +73,13 @@
 | `baseUrl` | `"https://openrouter.ai/api/v1"` | チャットコンプリーションのエンドポイント |
 | `model` | `"anthropic/claude-opus-4.6"` | モデル ID |
 | `temperature` | `1` | サンプリング温度 |
-| `maxOutputTokens` | `700` | 最大出力トークン数 |
+| `maxOutputTokens` | `2000` | 最大出力トークン数 |
 | `maxRequestTokens` | `50000` | リクエストあたりのハードトークン上限 |
 | `safetyMargin` | `0.9` | `maxRequestTokens` のバジェット比率 |
 | `timeoutMs` | `300000` | リクエストタイムアウト（ミリ秒） |
 | `helperTimeoutMs` | `30000` | ターンと並行して実行されるヘルパー（ルート分類器、検索分類器、リコールサマリー）のタイムアウト。この時間を超えたヘルパーは破棄され、ターンはその結果なしで続行する |
-| `pingTimeoutMs` | `30000` | 起動時の接続プローブのタイムアウト（ミリ秒）。現在どのコマンドも使用しない |
 | `retries` | `2` | 一時的な HTTP エラー（408/429/5xx）およびネットワーク障害時のリトライ回数。プロバイダーアカウントの日次クォータ 429 はリトライされず、1 回の試行後にそのままスローされる |
-| `maxRequestsPerDay` | `300` | 1 日あたりのリクエスト上限 |
+| `maxRequestsPerDay` | `5000` | 1 日あたりのリクエスト上限 |
 | `provider` | `null` | OpenRouter の `provider` ルーティングオブジェクト（そのまま渡される）。`null` の場合は送信しない |
 | `providerByModel` | `{}` | モデルごとのプロバイダールーティング。詳細は下記 |
 | `cache.ttl` | `"1h"` | マーカーに付与するキャッシュ TTL: `"1h"` または `"5m"` |
@@ -130,7 +129,7 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 | `neighborMaxAgeMinutes` | `60` | 隣接メッセージの最大経過時間（分） |
 | `neighborMaxChannels` | `8` | 隣接チャンネルの最大数 |
 | `neighborMessageChars` | `300` | 隣接チャンネルのメッセージあたりの保持文字数（`<other_channels>`） |
-| `maxMessageChars` | `800` | この文字数を超えるメッセージを切り詰め（文字） |
+| `maxMessageChars` | `2000` | この文字数を超えるメッセージを切り詰め（文字） |
 | `gapMarkerMinutes` | `20` | タイムギャップマーカーの閾値（分） |
 | `ageAfterMinutes` | `60` | ペルソナがチャットを読む時点で投稿からこの分数以上たったメッセージは、時刻の横に経過時間も表示される（例: `[14:32 · 2 h 58 min ago]`）。それより新しいメッセージは `[14:32]` のみ。現在のチャンネル、プルされたチャンネル、隣接チャンネルに適用。`prompts.local/labels.json` で `transcript.timeAged` を空にすると経過時間は表示されない |
 | `reactionsPerMessage` | `6` | トランスクリプト内の 1 メッセージあたりの最大リアクション数（頻度降順） |
@@ -207,10 +206,10 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 | キー | デフォルト | 説明 |
 |---|---|---|
 | `prepareMs` | `6000` | ターン開始からボイスリクエストまでのミリ秒。LLM 呼び出し前に実行されるすべて（履歴、キャプション、ルートおよび検索分類器）がこのウィンドウ内に完了する必要がある。`0` または数値以外で制限を解除 |
-| `prepareSearchMs` | `12000` | 検索分類器の判定中と、分類器が要求した検索の実行中に、期限をこの値まで延長。「検索不要」の判定でホールドを即座に解除。`prepareMs` より短くならない。`0` または数値以外で制限を解除 |
+| `prepareSearchMs` | `18000` | 検索分類器の判定中と、分類器が要求した検索の実行中に、期限をこの値まで延長。「検索不要」の判定でホールドを即座に解除。`prepareMs` より短くならない。`0` または数値以外で制限を解除 |
 | `prepareMediaMs` | `20000` | 直接呼びかけのトリガーメッセージ（またはそのリプライ元）に説明モデルや動画ステージが処理する画像、GIF、動画が含まれる場合の延長期限。`prepareMs` より短くならない。検索延長も適用される場合は大きい方が優先。`0` または数値以外で延長を解除 |
-| `dropAfterMs` | `60000` | ターン開始からのミリ秒。この時間までに完成した回答が届いていない場合、ターンは投稿されず破棄（`turn: dropped`）。`0` または数値以外で制限を解除 |
-| `replyHedgeMs` | `20000` | 直接呼びかけに応答するターンで、リプライリクエストがこのミリ秒以内に回答を返さない場合、同一の 2 回目のリクエストが送信される。先に完了した方が採用され、もう一方は打ち切られる。2 回目の試行は `llm.maxRequestsPerDay` にカウントされる。`dropAfterMs` の制限はそのまま適用される。`0` または数値以外で 1 回のみ。非呼びかけターン（`unpromptedWaits`）は 2 回目を送信しない |
+| `dropAfterMs` | `120000` | ターン開始からのミリ秒。この時間までに完成した回答が届いていない場合、ターンは投稿されず破棄（`turn: dropped`）。`0` または数値以外で制限を解除 |
+| `replyHedgeMs` | `30000` | 直接呼びかけに応答するターンで、リプライリクエストがこのミリ秒以内に回答を返さない場合、同一の 2 回目のリクエストが送信される。先に完了した方が採用され、もう一方は打ち切られる。2 回目の試行は `llm.maxRequestsPerDay` にカウントされる。`dropAfterMs` の制限はそのまま適用される。`0` または数値以外で 1 回のみ。非呼びかけターン（`unpromptedWaits`）は 2 回目を送信しない |
 | `typingWhilePreparing` | `false` | 直接呼びかけ（メンション、リプライ、名前、フォローアップ、プライベート）に応答するターンの開始時点から入力中インジケーターを表示する（完成した回答のタイプアウト中だけでなく）。厳密に `true` で有効 |
 | `unpromptedWaits` | `true` | 非呼びかけターン（割り込み、話題開始、気付いたコメント、全員への質問、漏れ聞き）は全段階を待ち、準備完了後に投稿する（`prepareMs`、`prepareSearchMs`、`dropAfterMs` を無視）。`false` で全ターンに同じ期限が適用される。キー欠落 = オン |
 
@@ -251,7 +250,7 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 
 | キー | デフォルト | 説明 |
 |---|---|---|
-| `maxForms` | `5` | `server:` 行ごとの検索フォーム（語形変化）の最大数 |
+| `maxForms` | `8` | `server:` 行ごとの検索フォーム（語形変化）の最大数 |
 | `maxPeople` | `2` | `who:` 行に含められる人数 |
 | `dateSamples` | `4` | コンテンツフォームがない `when:` 範囲でサンプルされる日付のみクエリ数 |
 | `clusterGapMinutes` | `30` | ヒットを別のクラスターに分割するギャップ（分） |
@@ -262,7 +261,7 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 | `answerChars` | `1200` | サマリーノートの最大文字数。`recall-summary.md` の `{{answerChars}}` に使用 |
 | `stretchChars` | `1500` | ペルソナに表示される原文ストレッチの最大文字数 |
 | `maxPerDay` | `100` | 1 日あたりのリコール実行数（`state.json` に `recallDay` / `recallCount` として保存） |
-| `timeoutMs` | `10000` | リコール実行の合計時間（検索、ウィンドウ、サマリー）。半分の時間が経過すると新たな検索は送信されず、サマリーは少なくとも `minSummaryMs` が残っている場合のみ実行 |
+| `timeoutMs` | `15000` | リコール実行の合計時間（検索、ウィンドウ、サマリー）。半分の時間が経過すると新たな検索は送信されず、サマリーは少なくとも `minSummaryMs` が残っている場合のみ実行 |
 | `minSummaryMs` | `2500` | サマリーヘルパーを呼ぶための最小残り時間。残り時間不足の場合、上位ウィンドウの原文ストレッチがノートなしで返される |
 | `memoryItems` | `6` | 分類器のワードフォームとネームフォームに一致する保存済みメモリ項目（エピソード、ロア、レッスン、最近の行）をリコールサマリーの `<memory>` ブロックとして送信。`0` でマッチオフ |
 | `maxOutputTokens` | `500` | サマリーヘルパーの最大出力トークン数 |
@@ -273,7 +272,7 @@ GIF ライブラリ（`features.gifs`）の設定です。メッセージ到着�
 
 | キー | デフォルト | 説明 |
 |---|---|---|
-| `max` | `40` | `<gifs>` ブロックに表示する GIF 数（使用頻度と新しさでランク付け） |
+| `max` | `25` | `<gifs>` ブロックに表示する GIF 数（使用頻度と新しさでランク付け） |
 | `reactionChars` | `40` | `<gifs>` リストおよびライブラリ GIF のトランスクリプト行のリアクションラベルあたりの保持文字数。`0` で全文表示 |
 | `actionChars` | `70` | `<gifs>` リストおよびライブラリ GIF のトランスクリプト行のアクション行あたりの保持文字数（単語境界でカット）。`0` で全文表示 |
 | `storeMax` | `300` | ライブラリに保持する GIF 数。上位 `max` 件が表示される |
@@ -300,13 +299,13 @@ GIF ピッカー（`features.gifPicker`）の設定です。ペルソナの最�
 
 | キー | デフォルト | 説明 |
 |---|---|---|
-| `maxOutputTokens` | `120` | 説明文あたりの最大出力トークン数 |
+| `maxOutputTokens` | `2000` | 説明文あたりの最大出力トークン数 |
 | `descriptionChars` | `500` | 説明文の最大文字数。超過分は文の境界でカット |
 | `imageSize` | `512` | ダウンスケール目標（px） |
 | `maxPerTurn` | `6` | ターンあたりの最大説明文生成数 |
-| `prefillPerMessage` | `4` | メッセージ到着時にプリフィル記述する添付ファイルの最大数（メッセージあたり）。ターンパスはこの制限を受けない |
+| `prefillPerMessage` | `5` | メッセージ到着時にプリフィル記述する添付ファイルの最大数（メッセージあたり）。ターンパスはこの制限を受けない |
 | `cacheEntries` | `5000` | 添付ファイルをキーとする説明文キャッシュサイズ |
-| `filePreviewChars` | `500` | テキストファイル冒頭から表示する文字数 |
+| `filePreviewChars` | `10000` | テキストファイル冒頭から表示する文字数 |
 | `embedTextChars` | `200` | リンクの埋め込みテキストから表示する文字数 |
 
 ### `media.gif`
@@ -316,7 +315,7 @@ GIF を短いクリップとして視聴する機能（`media.gif.watch`）の�
 | キー | デフォルト | 説明 |
 |---|---|---|
 | `watch` | `true` | 単一フレームの記述の代わりに GIF を短い動画クリップとして視聴する。`features.mediaDescriptions` と `features.videoDescriptions` の両方が有効である必要がある。キーが存在しない場合はオンとして扱われる |
-| `maxSeconds` | `8` | 動画モデルに送信するアニメーションの秒数。クリップは ffmpeg で変換される |
+| `maxSeconds` | `15` | 動画モデルに送信するアニメーションの秒数。クリップは ffmpeg で変換される |
 | `maxPerDay` | `200` | 1 日あたりの GIF 視聴上限。`media.video.maxPerDay` とは別にカウントされる。上限到達後は単一フレームの記述にフォールバック |
 
 ### `media.video`
@@ -332,7 +331,7 @@ GIF を短いクリップとして視聴する機能（`media.gif.watch`）の�
 | `maxSeconds` | `180` | 添付ファイルとダウンロードしたサイト動画のクリップの最大長（秒）。超過する添付ファイルは `ffmpeg` でトリムされ、超過するサイト動画は `yt-dlp` で先頭の `maxSeconds` に切り取られる。ダイレクト URL サイトには `directUrlMaxSeconds` が適用される |
 | `directUrlMaxSeconds` | `3600` | 公開 URL 動画（YouTube およびその他の `directUrlSites`）の最大長（秒）。`urlProcessing` が `agentic` の場合に適用。他のモードではこの値と `maxRequestTokens / tokensPerSecond` の小さい方が有効。超過する動画はダウンロードルート（先頭の `maxSeconds` を yt-dlp で取得）へ移行するが、YouTube はサーバーからのダウンロードをボットチェックでブロックすることが多い |
 | `maxBytes` | `12000000` | 添付ファイルとダウンロードしたサイトクリップの最大ファイルサイズ（バイト）。ダウンロード自体はこの 4 倍までのサイズになることがある。超過するファイルはまず `ffmpeg` で 360p に再エンコードされ、再エンコード後も超過する場合のみ永続ミスとして拒否 |
-| `maxPerTurn` | `1` | ターンあたりの最大新規動画数。成否を問わずすべてのフェッチ試行がカウントされる |
+| `maxPerTurn` | `5` | ターンあたりの最大新規動画数。成否を問わずすべてのフェッチ試行がカウントされる |
 | `maxPerDay` | `40` | 1 日あたりの動画リクエスト上限（`state.json` に `videoDay`/`videoCount` として保存） |
 | `tokensPerSecond` | `120` | バジェットチェック用の動画 1 秒あたりのトークン推定値。ダウンロードしたクリップと agentic モード以外の公開 URL 動画に適用。agentic モードでは代わりに `directUrlTokensPerSecond` を使用 |
 | `directUrlTokensPerSecond` | `10` | agentic モードにおける公開 URL 動画のプリフライトバジェットチェック用の 1 秒あたりのトークン推定値（モデルは必要な部分だけ読み込み、動画自体はプロンプトトークンとしてカウントされない）。値が未設定または無効な場合は `tokensPerSecond` にフォールバック。`tokensPerSecond`（120）はダウンロードしたクリップと agentic 以外のモードの URL に引き続き適用 |
@@ -351,7 +350,7 @@ GIF を短いクリップとして視聴する機能（`media.gif.watch`）の�
 | `urlProcessing` | `"agentic"` | 公開 URL 動画パーツに送信される OpenRouter の処理モード。これがないと一部のプロバイダーは 1 フレームしか見ない。`null` でフィールドを省略 |
 | `reasoning` | `{ "effort": "low" }` | すべての動画リクエストに使用する OpenRouter `reasoning` 設定。推論が出力バジェットを消費するのを防ぐ。非オブジェクトでフィールドを省略 |
 | `prefill` | `true` | 動画が届いた時点で視聴し、次のターンでキャッシュ済みの状態にする |
-| `prefillPerMessage` | `2` | メッセージ到着時にプリフィル視聴する動画の最大数（メッセージあたり）。ターンパスはこの制限を受けない |
+| `prefillPerMessage` | `5` | メッセージ到着時にプリフィル視聴する動画の最大数（メッセージあたり）。ターンパスはこの制限を受けない |
 
 `yt-dlp` と `ffmpeg` はどちらもオプションのシステムバイナリです。これらがなくても上限内の添付ファイルはそのまま動作します（そのまま送信されます）。長い添付ファイルとすべてのサイトリンクは静止フレームまたはプレビュー画像にフォールバックし、ペルソナには理由が伝えられます。すべての動画リクエストは `llm.maxRequestsPerDay` と動画トークン上限（`maxRequestTokens`）にカウントされます。
 
@@ -364,7 +363,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | キー | デフォルト | 説明 |
 |---|---|---|
 | `maxPerDay` | `20` | 1 日あたりの再視聴上限（`media.video.maxPerDay` とは別） |
-| `classifierMaxOutputTokens` | `30` | 再視聴分類器の最大出力トークン数。推論する前に考えるモデルはより大きな上限が必要（空の回答を返す場合がある） |
+| `classifierMaxOutputTokens` | `2000` | 再視聴分類器の最大出力トークン数。推論する前に考えるモデルはより大きな上限が必要（空の回答を返す場合がある） |
 | `maxOutputTokens` | `600` | 再視聴回答の最大出力トークン数 |
 | `answerChars` | `1200` | 回答の最大文字数。`rewatch-answer.md` の `{{maxChars}}` に使用 |
 | `recentMessages` | `60` | 視聴済みまたはエラー状態の動画をスキャンする直近のメッセージ数 |
@@ -398,10 +397,10 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `followUpMinutes` | `15` | ペルソナの最後のリプライ後のフォローアップウィンドウ（分） |
 | `followUpClassifyReplies` | `true` | 別メンバーのメッセージへのリプライを自動 `no` にせず分類器に送る。キー欠落 = オン。スイッチオフの場合、リプライはモデルに尋ねる前に `no` |
 | `followUpContext` | `15` | 分類器に送信するトランスクリプト行数 |
-| `followUpMaxOutputTokens` | `8` | 分類器の最大出力トークン数 |
+| `followUpMaxOutputTokens` | `2000` | 分類器の最大出力トークン数 |
 | `followUpOverheard` | `true` | オンの場合、アドレス分類器の `overheard` 回答は `prompts/overheard.md` による独自のターンを開始する。オフ: `overheard` 回答は通常の `yes`（フォローアップターン）として扱われる。キーが存在しない場合はオン |
 | `followUpAliases` | `5` | アドレス分類器にペルソナの名前と共に送信する保存済みエイリアス数（呼びかけとして認識させるため）。`0` で送信しない |
-| `followUpNoStreak` | `3` | ウィンドウを閉じる連続 `no` 判定回数 |
+| `followUpNoStreak` | `5` | ウィンドウを閉じる連続 `no` 判定回数 |
 | `pauseNoticeMinutes` | `10` | 同一チャンネルでのポーズ通知の最小間隔（分）。`0` で呼びかけごとに通知 |
 
 フォローアップウィンドウは `data/state.json` の `followUpWindows` に保存され、起動時に復元されます。期限切れのウィンドウは削除されます。
@@ -421,10 +420,10 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | キー | デフォルト | 説明 |
 |---|---|---|
 | `channels` | `[]` | 許可チャンネル |
-| `maxChannelSilenceHours` | `72` | 自発的メッセージをブロックするチャンネル沈黙時間（時間）。0 = 制限なし |
+| `maxChannelSilenceHours` | `6` | 自発的メッセージをブロックするチャンネル沈黙時間（時間）。0 = 制限なし |
 | `someoneAroundMinutes` | `120` | すべての読めるチャンネルの最新メッセージがこの時間より古い場合、自発的ターンは発生しない（分）。ペルソナ自身のチャンネルでの最終投稿はカウントしない; 他のボットのメッセージはカウントする。`0` = ゲートなし |
-| `initiateCooldownHours` | `[6, 12]` | 話題を切り出した後のクールダウン（時間）。終了まで次の話題は切り出されない。割り込み、全員への質問、盗み聞き、気づいたコメント、`/nep talk action:initiate` は影響を受けない。`state.json` に保存され再起動後も維持。`/nep status` で有効中の終了時刻を表示。`[0, 0]` = クールダウンなし |
-| `minIntervalMinutes` | `25` | 最小チェック間隔（分） |
+| `initiateCooldownHours` | `[24, 48]` | 話題を切り出した後のクールダウン（時間）。終了まで次の話題は切り出されない。割り込み、全員への質問、盗み聞き、気づいたコメント、`/nep talk action:initiate` は影響を受けない。`state.json` に保存され再起動後も維持。`/nep status` で有効中の終了時刻を表示。`[0, 0]` = クールダウンなし |
+| `minIntervalMinutes` | `45` | 最小チェック間隔（分） |
 | `maxIntervalMinutes` | `420` | 最大チェック間隔（分） |
 | `burstChance` | `0.15` | バースト（続けてもう一言）の確率 |
 | `burstMinutes` | `[3, 15]` | バーストのタイミング範囲（分） |
@@ -432,7 +431,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `liveWindowMinutes` | `15` | ライブウィンドウ（分） |
 | `liveMinMessages` | `4` | 「ライブ」判定に必要な最小メッセージ数 |
 | `deadAfterMinutes` | `90` | 「デッド」判定までの沈黙時間（分） |
-| `initiateChance` | `0.35` | 割り込みではなく話題を切り出す確率 |
+| `initiateChance` | `0.1` | 割り込みではなく話題を切り出す確率 |
 | `roomQuestionChance` | `0.04` | 全員に向けた（特定の誰かではない）メッセージがペルソナに拾われる確率。分類器（`prompts/room.md`）が事前フィルター。`0` でオフ |
 | `eavesdropChance` | `0.02` | メッセージごとの割り込み確率 |
 | `eavesdropDelayMs` | `[5000, 40000]` | 盗み聞き時の遅延範囲（ミリ秒） |
@@ -545,7 +544,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `rewriteOnDrift` | `8` | 記述時からスコアがこのポイント分移動した場合、同じ段階内でも書き直し対象にフラグ。`0` = オフ |
 | `rewriteAfterMoves` | `6` | テキスト記述後にこの回数の態度履歴エントリが生じた場合、書き直し対象にフラグ。`0` = オフ |
 | `bandHysteresis` | `2` | 旧段階の境界からこのポイント超えてから段階変化を書き直し原因としてカウント。境界付近でのスコア変動による不要な書き直しを防止 |
-| `textChars` | `600` | relationship テキストの最大文字数。アナライザープロンプトの `{{relationshipChars}}` に代入。上限を超える書き換えは拒否され、保存済みテキストがそのまま残る。空のフィールドへの初回書き込みのみ切り詰められる |
+| `textChars` | `800` | relationship テキストの最大文字数。アナライザープロンプトの `{{relationshipChars}}` に代入。上限を超える書き換えは拒否され、保存済みテキストがそのまま残る。空のフィールドへの初回書き込みのみ切り詰められる |
 
 `damping` が有効な場合、ゼロから離れる方向のスコア変化は `(1 - |score| / 100) ^ dampingPower` でスケールされるため、極端な値には継続的な努力が必要です。ゼロに向かう変化はそのまま適用されます。スコアは小数精度で保存され、整数で表示されます。`/nep memory affinity` は減衰なしで直接設定します。
 
@@ -580,7 +579,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `maxBytes` | `1500000` | ページの最大サイズ（バイト）。超過するとページを拒否 |
 | `textChars` | `6000` | 要約モデルに送信するページテキストの最大文字数 |
 | `summaryChars` | `700` | 要約抜粋の最大文字数。`read-link.md` の `{{maxChars}}` に使用 |
-| `maxOutputTokens` | `300` | 要約モデルの最大出力トークン数 |
+| `maxOutputTokens` | `4000` | 要約モデルの最大出力トークン数 |
 | `fetchTimeoutMs` | `10000` | ページあたりのダウンロードタイムアウト（ミリ秒） |
 | `skipSites` | `["cdn.discordapp.com", "media.discordapp.net", "tenor.com", "giphy.com", "klipy.com", "imgur.com", "i.redd.it", "v.redd.it", "pbs.twimg.com"]` | リンクを読み取らないホスト名（サブドメインを含む。動画サイトは常に除外されるため、それに追加） |
 
@@ -592,8 +591,8 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `maxPerTurn` | `1` | ターンあたりの最大検索数 |
 | `results` | `5` | Brave Search に要求する結果数 |
 | `summaryChars` | `900` | 要約回答の最大文字数。`search-summary.md` の `{{maxChars}}` に使用 |
-| `maxOutputTokens` | `400` | 要約モデルの最大出力トークン数 |
-| `classifierMaxOutputTokens` | `200` | 検索分類器の最大出力トークン数。複数行回答形式（`web:`、`server:`、`who:`、`when:`）に合わせて増加。推論する前に考えるモデルはより大きな上限が必要 |
+| `maxOutputTokens` | `4000` | 要約モデルの最大出力トークン数 |
+| `classifierMaxOutputTokens` | `2000` | 検索分類器の最大出力トークン数。複数行回答形式（`web:`、`server:`、`who:`、`when:`）に合わせて増加。推論する前に考えるモデルはより大きな上限が必要 |
 | `cacheHours` | `24` | キャッシュされた検索結果が再検索されるまでの時間 |
 | `contextMessages` | `50` | 検索分類器に `<transcript>` として渡す直近のチャンネルメッセージ数 |
 | `timeoutMs` | `10000` | Brave Search リクエストのタイムアウト（ミリ秒） |
@@ -647,8 +646,8 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `hungerBoost` | `0.5` | How strongly an empty window pushes later posts. A window that drew no posts gets one extra roll per hunger point, and each roll redraws its count with chance 1 minus this value. `1` turns hunger off |
 | `quietCarry` | `0.25` | After quiet days in a row the quiet chance is `quietDayChance` times this value per quiet day, so a long silence gets less likely. `1` keeps the chance flat |
 | `minGapMinutes` | `90` | 計画スロット間の最小間隔（分）。これより近いスロットは削除 |
-| `maxPerDay` | `3` | 一日の最大投稿数。プランナーがこれを超えるスロットを引いた場合、ランダムに削除。日次カウントは `/nep diary post` にも適用 |
-| `maxPicturesPerDay` | `2` | 一日の日記画像最大数。`image.maxPerDay` と共有: 先に尽きた方が制限。使い切ると計画の `picture` は強制 false になり、センスは描画不可と伝える |
+| `maxPerDay` | `12` | 一日の最大投稿数。プランナーがこれを超えるスロットを引いた場合、ランダムに削除。日次カウントは `/nep diary post` にも適用 |
+| `maxPicturesPerDay` | `8` | 一日の日記画像最大数。`image.maxPerDay` と共有: 先に尽きた方が制限。使い切ると計画の `picture` は強制 false になり、センスは描画不可と伝える |
 | `slotGraceMinutes` | `30` | 計画スロットが発火可能な猶予時間（分）。ボット停止中にこれを超えて逃したスロットは削除され、遅延発火しない |
 | `forceWaitMs` | `120000` | `/nep diary post` が実行中のターンの完了を待つミリ秒数。待機がタイムアウトするとコマンドは `busy` と応答する。定期投稿には影響しない |
 | `maxMessages` | `3` | 日記投稿あたりの最大 `<msg>` メッセージ数。超過分はカット |
@@ -663,8 +662,8 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `set.minPosted` | `2` | A set with fewer pictures generated than this is not posted at all, its messages included. Generation stops early once the pictures left cannot reach it. The pictures already generated still count against the day's picture caps |
 | `set.seedSets` | `6` | Random seed combinations shown in a `<seeds>` block of the compose request of a set post (the plan request keeps `seedSets`). `0` omits the block |
 | `set.maxMessageBytes` | `8000000` | The most picture bytes one Discord message carries. A set larger than this, or of more than 10 pictures, is split over several messages |
-| `planMaxOutputTokens` | `300` | 計画リクエストの最大出力トークン数 |
-| `planTimeoutMs` | `20000` | 計画リクエストのタイムアウト（ms） |
+| `planMaxOutputTokens` | `2000` | 計画リクエストの最大出力トークン数 |
+| `planTimeoutMs` | `60000` | 計画リクエストのタイムアウト（ms） |
 
 デフォルトの `windows`:
 
@@ -686,7 +685,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | キー | デフォルト | 説明 |
 |---|---|---|
 | `minAffinity` | `5` | DM に応答するための最低公開アティチュードスコア。オーナーはこのチェックをバイパス |
-| `maxPerUserPerDay` | `100` | メンバーごとの 1 日あたりのモデルに到達した DM ターン数（応答または沈黙）。到達時は 1 日 1 回のリミット通知を投稿 |
+| `maxPerUserPerDay` | `20` | メンバーごとの 1 日あたりのモデルに到達した DM ターン数（応答または沈黙）。到達時は 1 日 1 回のリミット通知を投稿 |
 | `maxPerOwnerPerDay` | `200` | ボットオーナーの 1 日あたりのモデルに到達した DM ターン数（応答または沈黙） |
 | `purgeMaxMessages` | `5000` | `/nep memory private purge` が 1 回の実行でスキャンする DM メッセージの最大数（新しいものから） |
 
