@@ -34,7 +34,7 @@
 // the member wrote at least `--min-messages` lines in the replayed batches (stagnation; N/A
 // when the manifest holds no record of their lines), words per sentence of every merged prose
 // field (under 8 flagged: a signal, not a verdict), the judge's lost facts and relations (the
-// judge model from `--judge` or `mentor.model`; its system prompt is tools/prompts/memory-judge.md,
+// judge model from `--judge`; its system prompt is tools/prompts/memory-judge.md,
 // no judge request while that file is a placeholder), and the `over-limit` refusals. THE REPORT
 // HOLDS MEMORY ABOUT REAL PEOPLE (the judge's findings): it is for the owner's eyes on the server.
 
@@ -196,7 +196,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, llmClien
   const linesOf = (id) => (lines.has(id) ? lines.get(id) : missing > 0 ? null : 0);
 
   // The estimate: one analyzer request per batch (and a voice run with two-stage), one judge request per member who wrote.
-  const judgeModel = flags['--judge'] ?? config.mentor?.model ?? null;
+  const judgeModel = flags['--judge'] ?? null;
   const judgeSystem = judgePrompt();
   const judging = Boolean(judgeModel && judgeSystem);
   const twoStage = config.features?.memoryTwoStage === true;
@@ -368,7 +368,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, llmClien
       '',
     );
   }
-  if (!judging) out.push(`Judge: N/A (${judgeModel ? 'tools/prompts/memory-judge.md is still a placeholder' : 'no --judge and no mentor.model'})`, '');
+  if (!judging) out.push(`Judge: N/A (${judgeModel ? 'tools/prompts/memory-judge.md is still a placeholder' : 'no --judge'})`, '');
   out.push('## Profiles', '', '| member | lines | changed | unchanged while talking | short prose (words/sentence) | lost facts | lost relations |', '| --- | --- | --- | --- | --- | --- | --- |');
   for (const row of rows) out.push(`| ${row.map(cell).join(' | ')} |`);
   out.push('', `Members left out (no line in the window, nothing changed): ${quiet}`);

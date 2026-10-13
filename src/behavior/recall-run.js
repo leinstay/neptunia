@@ -75,7 +75,7 @@ import {
 } from './recall.js';
 
 /** The state.json fields of the daily recall counter. */
-const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
+export const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
 /** The share of `recall.timeoutMs` after which no further search is sent. */
 const SEARCH_SHARE = 0.5;
 /** The share of `recall.timeoutMs` at which a search still out is cut: the windows and the summary need the rest. */

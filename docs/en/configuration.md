@@ -39,7 +39,6 @@ Every key in `config.json` with its default, grouped by section.
 | `notesRefresh` | `true` | Periodically re-examine channel and server notes from a spread sample of recent messages. A missing key counts as on. See `memory.notesRefreshDays*` and [Warmup: Keeping the notes current](warmup.md#keeping-the-notes-current) |
 | `versions` | `true` | Keep a version history of every prose memory field when its text is replaced. Previous texts are stored in `data/guilds/<id>/versions/`. `/nep memory forget` and `/nep memory wipe` delete version files. A missing key counts as on |
 | `memoryTwoStage` | `false` | Split the memory analyzer into two stages: a neutral GPT model decides what changed (stage A), then the voice model words the persona's texts (stage B). Must be exactly `true` to enable; a missing key counts as off. See `memory.voice.*` |
-| `mentor` | `false` | Manual testing sub-process with its own model. Must be exactly `true` to enable; a missing key counts as off. See [Mentor](#mentor) |
 | `promptCache` | `false` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
 | `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
@@ -84,7 +83,7 @@ Every key in `config.json` with its default, grouped by section.
 | `safetyMargin` | `0.9` | Budgeting fraction of maxRequestTokens |
 | `timeoutMs` | `300000` | Request timeout (ms) |
 | `helperTimeoutMs` | `30000` | Timeout for a helper that runs alongside the turn (the route classifier, the search classifier and the recall summary). A helper that runs past this limit is abandoned; the turn continues without its result |
-| `pingTimeoutMs` | `30000` | Timeout for `/nep ping` requests (ms) |
+| `pingTimeoutMs` | `30000` | Timeout for the startup connectivity probe (ms). No longer used by any command |
 | `retries` | `2` | Retries on transient HTTP errors (408/429/5xx) and network failures. A provider account's daily-quota 429 gets one attempt and is thrown at once, not retried |
 | `maxRequestsPerDay` | `300` | Daily request cap |
 | `provider` | `null` | OpenRouter `provider` routing object, passed verbatim; `null` sends nothing |
@@ -101,15 +100,15 @@ Every key in `config.json` with its default, grouped by section.
 
 `llm.provider` sets a default OpenRouter provider routing on chat requests, for example `{ "ignore": ["some-provider"] }` or `{ "order": ["anthropic"], "allow_fallbacks": true }`. `llm.providerByModel` adds per-model overrides: each key is a model id prefix (matching any role) or `<prefix>@<role>` (matching one role only), and each value is an OpenRouter routing object sent verbatim.
 
-For one request the provider is resolved in order: a per-call pin (the video describer uses `media.video.provider` for the direct-URL path), then the longest matching prefix among `providerByModel` keys for the request's role, then the longest matching prefix among role-less keys, then `llm.provider` (for image requests `image.provider`), then nothing. A role-specific key always beats a role-less key for the same model. Role names: `voice`, `analyzer`, `classifier.text`, `classifier.media`, `classifier.video`, `mentor`, `image`. For compatibility, a route key or a roles list that still says `talk` is read as `voice` with one log line (`config: role talk is now voice`).
+For one request the provider is resolved in order: a per-call pin (the video describer uses `media.video.provider` for the direct-URL path), then the longest matching prefix among `providerByModel` keys for the request's role, then the longest matching prefix among role-less keys, then `llm.provider` (for image requests `image.provider`), then nothing. A role-specific key always beats a role-less key for the same model. Role names: `voice`, `analyzer`, `classifier.text`, `classifier.media`, `classifier.video`, `image`. For compatibility, a route key or a roles list that still says `talk` is read as `voice` with one log line (`config: role talk is now voice`).
 
 Example: `"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` routes all Google models through Vertex, while `"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` sends the video classifier through AI Studio. Route keys that contain dots (e.g. `google/@classifier.video`) cannot be edited through `/nep set` because it splits on dots; use `/nep route set` and `/nep route remove`.
 
-If the OpenRouter account itself restricts allowed providers, ignoring the only one left makes every request fail with "No endpoints found". After changing provider settings, run `/nep ping` to verify that every model role is reachable; each role follows its `llm.providerByModel` route, so the provider shown is the one that route selects.
+If the OpenRouter account itself restricts allowed providers, ignoring the only one left makes every request fail with "No endpoints found". After changing provider settings, check `/nep status` to verify that every model role is reachable; each role follows its `llm.providerByModel` route, so the provider shown is the one that route selects.
 
 With `features.promptCache` on, the system message is marked for the provider's prompt cache on requests whose role is in `llm.cache.roles` and whose model starts with a prefix in `llm.cache.models`. On the reply, two more markers follow in the user message: one at the end of the stable prefix (`llm.cache.ttl`) and one at the end of the profiles (`llm.cache.profilesTtl`); three of the provider's four markers in all. See "Cache segments" in the [prompt contract](prompt-contract.md). Three helper requests send their user message in two parts so the provider can cache the bulk that repeats between calls: the GIF picker (the `<gifs>` library), the route classifier (the `<channels>` list) and the participation pick (the `<episodes>` list) tag that first part with the same `cacheSegment: 'stable'` (marker TTL `llm.cache.ttl`); the per-turn text follows untagged. The marker is placed only when the helper's role (`classifier.text`) is in `llm.cache.roles` and its model matches `llm.cache.models`; add `classifier.text` to `llm.cache.roles` to cache them. The markers go on after the token estimate, so the 50k per-request cap and the calibration are unaffected. `llm.cache.promptIncludesCached` tells the engine how the provider reports cached tokens; set it once from a real probe. The `llm: usage` log line gains `cache`: `write`, `read`, `none` or `off`.
 
-The `llm: usage` log line also carries `ms` (wall time of the request), `purpose` (a short string naming what the request was for, e.g. `route-channel`, `recall-summary`, `address`), `origin` (e.g. `mentor` for requests the mentor made or caused), `hedged` (true when the request was hedged) and `attempt` (1 or 2 for hedged requests, absent otherwise).
+The `llm: usage` log line also carries `ms` (wall time of the request), `purpose` (a short string naming what the request was for, e.g. `route-channel`, `recall-summary`, `address`), `origin` (e.g. `replay` for the requests of `tools/replay.mjs`), `hedged` (true when the request was hedged) and `attempt` (1 or 2 for hedged requests, absent otherwise).
 
 With `llm.hedge` configured, requests on the roles it lists are hedged: a second attempt fires `llm.hedge.afterMs` after the first, and the first to finish wins. Both are aborted at `llm.hedge.timeoutMs` (or `longTimeoutMs` for a `long: true` request). This adds one extra request per hedged call that did not finish before the second started; both count against `llm.maxRequestsPerDay`.
 
@@ -320,7 +319,7 @@ Settings for the GIF library (`features.gifs`). Uses are counted as each message
 | `maxPerDay` | `40` | GIFs the persona may post per day |
 | `backfillMessages` | `500` | Messages read per channel from history at startup to seed the library. Runs once when `features.gifs` is on and no backfill has run yet for this server. `0` disables |
 | `backfillDescribe` | `20` | Top GIFs by rank that are sent to the describer for a caption right after the backfill; the rest get captions as the chat meets them |
-| `recachePerRun` | `50` | Library GIFs re-described per `/nep gifs recache` run. One-frame captions outside the library are dropped at once; watched entries in the old format (no `reaction` field) are queued alongside unfinished ones, oldest first. Up to this many are watched per run, capped by `media.gif.maxPerDay` |
+| `recachePerRun` | `50` | Library GIFs re-described per `/nep media gifs recache` run. One-frame captions outside the library are dropped at once; watched entries in the old format (no `reaction` field) are queued alongside unfinished ones, oldest first. Up to this many are watched per run, capped by `media.gif.maxPerDay` |
 | `ownMarkHours` | `24` | Hours after the persona posts a GIF during which the entry carries `gifs.ownMark` in the `<gifs>` list. `0` turns the mark off |
 
 ### `gifs.pick`
@@ -380,7 +379,7 @@ Settings for the video describer (`features.videoDescriptions`). Video vision ne
 | `sites` | `["youtube.com", "youtu.be", "tiktok.com", "vk.com", "vkvideo.ru", "x.com", "twitter.com", "reddit.com", "twitch.tv"]` | Hostnames whose links are treated as video |
 | `directUrlSites` | `["youtube.com", "youtu.be"]` | Sites whose public URL can be passed directly to the provider (the provider fetches the video itself) |
 | `directUrlUnknownDuration` | `false` | Send a direct-URL-site link to the provider even when no probe could determine the duration; the token estimate uses `maxSeconds`. See the duration chain below |
-| `canaryUrl` | `"https://www.youtube.com/watch?v=jNQXAC9IVRw"` | A fixed YouTube video probed at startup and by `/nep ping classifier.video` to test the YouTube API key and duration sources |
+| `canaryUrl` | `"https://www.youtube.com/watch?v=jNQXAC9IVRw"` | A fixed YouTube video probed at startup to test the YouTube API key and duration sources |
 | `ytdlpPath` | `"yt-dlp"` | Path to the `yt-dlp` binary; needed for site video links and for probing duration |
 | `ffmpegPath` | `"ffmpeg"` | Path to `ffmpeg`; needed for trimming and downscaling long or large attachments |
 | `proxy` | `""` | A proxy URL for `yt-dlp`, in any format it accepts (`socks5h://user:pass@host:port`, `http://host:port`); `""` = no proxy. Needed when a site refuses the server's own address (YouTube returns "confirm you're not a bot" on datacenter IPs). Only links to `proxySites` use it. The value may hold credentials and never appears in the log. A proxied download fetches the whole video and `ffmpeg` cuts the first `maxSeconds` locally, because yt-dlp's section-download mode runs ffmpeg, which cannot use a SOCKS proxy; so the download ceiling (4x `maxBytes`) decides whether a long video fits |
@@ -394,7 +393,7 @@ Settings for the video describer (`features.videoDescriptions`). Video vision ne
 
 Both `yt-dlp` and `ffmpeg` are optional system binaries. Without them, attachments within the caps still work (sent as-is). Longer attachments and all site links fall back to the still frame or preview picture, and the persona is told the reason. Every video request counts against `llm.maxRequestsPerDay` and the video token cap (`maxRequestTokens`).
 
-For YouTube links, the duration is learned through a chain: yt-dlp first, then the YouTube Data API (when `YOUTUBE_API_KEY` is set in `.env`), then a scrape of the watch page. When every probe fails and `directUrlUnknownDuration` is off (the default), the link is reported as "could not load." With the switch on, the URL is sent to the provider anyway, billed as `maxSeconds` in the token estimate. The Data API key is free: enable YouTube Data API v3 in the Google Cloud console and create a key; the free quota is 10,000 units/day and one duration lookup costs 1 unit. `/nep ping classifier.video` probes `canaryUrl` and reports the API key status (e.g. `youtube: API key — ok`). A cached length-limit result records the video's duration and is retried when the cap is raised.
+For YouTube links, the duration is learned through a chain: yt-dlp first, then the YouTube Data API (when `YOUTUBE_API_KEY` is set in `.env`), then a scrape of the watch page. When every probe fails and `directUrlUnknownDuration` is off (the default), the link is reported as "could not load." With the switch on, the URL is sent to the provider anyway, billed as `maxSeconds` in the token estimate. The Data API key is free: enable YouTube Data API v3 in the Google Cloud console and create a key; the free quota is 10,000 units/day and one duration lookup costs 1 unit. At startup the bot probes `canaryUrl` and logs the API key status (e.g. `youtube: API key — ok`). A cached length-limit result records the video's duration and is retried when the cap is raised.
 
 ### `media.video.rewatch`
 
@@ -462,7 +461,7 @@ Follow-up windows are persisted in `data/state.json` under `followUpWindows` and
 | `channels` | `[]` | Allowed channels |
 | `maxChannelSilenceHours` | `72` | Channel silence that blocks spontaneous messages (hours); 0 = no limit |
 | `someoneAroundMinutes` | `120` | No spontaneous turn when every readable channel's last message is older than this (minutes). The persona's own last post in a channel does not count; another bot's does. `0` = no gate |
-| `initiateCooldownHours` | `[6, 12]` | Cooldown after starting a topic (hours); no further topic starts until it expires. Interjecting, room questions, eavesdrop, noticed comments and `/nep initiate` are not affected. Stored in `state.json`; `/nep status` shows the end while active. `[0, 0]` = no cooldown |
+| `initiateCooldownHours` | `[6, 12]` | Cooldown after starting a topic (hours); no further topic starts until it expires. Interjecting, room questions, eavesdrop, noticed comments and `/nep talk initiate` are not affected. Stored in `state.json`; `/nep status` shows the end while active. `[0, 0]` = no cooldown |
 | `minIntervalMinutes` | `25` | Min check interval (min) |
 | `maxIntervalMinutes` | `420` | Max check interval (min) |
 | `burstChance` | `0.15` | Burst follow-up chance |
@@ -730,43 +729,9 @@ Settings for private chat (`features.privateMessages`). All hot-reloaded. The ga
 | `minAffinity` | `5` | Minimum public attitude score to answer a DM; owners bypass this check |
 | `maxPerUserPerDay` | `100` | DM turns per member per day that reached the model (answered or silent); a cap hit posts a limit notice once per day |
 | `maxPerOwnerPerDay` | `200` | DM turns per day for bot owners that reached the model (answered or silent) |
-| `purgeMaxMessages` | `5000` | Max DM messages `/nep private purge` scans (newest first) in one run |
+| `purgeMaxMessages` | `5000` | Max DM messages `/nep memory private purge` scans (newest first) in one run |
 
 With `features.relationships` off, public scores stay at 0, so with the default `minAffinity` only owners can DM.
-
-## `mentor`
-
-Settings for the manual testing sub-process (`features.mentor`). The mentor invents chat situations, runs the persona through them in a sandbox, and scores the answers. It uses its own model and its own daily token budget; nothing it does counts against `llm.maxRequestsPerDay`. All hot-reloaded.
-
-| Key | Default | Meaning |
-|---|---|---|
-| `model` | `null` | Mentor model ID. `null` or missing disables all commands that need the model |
-| `maxTokensPerDay` | `400000` | Daily token budget. Counted from real usage: prompt tokens x1, cached prompt tokens x`cachedTokenWeight`, output tokens x`outputTokenWeight`. Sandbox answers of the persona's voice model are counted the same way |
-| `outputTokenWeight` | `5` | Weight of output tokens in the budget. Accounts for the higher cost of generated tokens |
-| `cachedTokenWeight` | `0.1` | Weight of cached prompt tokens in the budget |
-| `maxOutputTokens` | `6000` | Max output tokens per mentor request |
-| `timeoutMs` | `300000` | Request timeout for mentor requests (ms) |
-| `situations` | `5` | Chat situations invented per run |
-| `situationLines` | `[6, 15]` | Min and max lines per situation |
-| `samples` | `3` | Persona completions per situation. Real moments use `anchor.samples` instead |
-| `check.samples` | `1` | Persona completions per situation during `/nep mentor check`. Real moments use `anchor.samples` instead |
-| `pass.score` | `7` | A case passes when the median of `overall` and the median of `goal` reach this threshold |
-| `pass.anchorScore` | `null` | Threshold for a real moment. When set to a number, a real moment fails the case when its median `overall` or `goal` is under that number. `null` uses `pass.score` |
-| `pass.floor` | `5` | A case fails when any axis has a median below this floor. Every invented situation is held to this floor too: the case fails when the median `overall` or median `goal` of any one invented situation is under it, whatever the medians over all answers. A real moment is held to the pass score (`pass.anchorScore` when set, otherwise `pass.score`) |
-| `diagnose` | `true` | After a failing or weak run, the mentor states what in the context caused the weak answers. Stored as `diagnosis` on the run; a check never asks |
-| `reference.days` | `7` | Days of chat history used to build the style reference |
-| `reference.samples` | `60` | Random lines (2–200 characters) picked from the reference window as style examples |
-| `reference.maxMessages` | `3000` | Max messages read from the reference channels |
-| `reference.rarePer1000` | `0.5` | A mark used less often than this many times per 1000 characters counts as rare |
-| `reference.rareMinAuthors` | `2` | A mark used by fewer authors than this counts as rare |
-| `anchor.max` | `5` | Real moments per case. Each moment is a message of the persona the owner rejected, stored with the chat that led to it |
-| `anchor.contextMessages` | `30` | Messages of the channel fetched as context when resolving a moment, ending at the trigger |
-| `anchor.samples` | `5` | Persona completions per real moment in a run and in `/nep mentor check` |
-| `anchor.hideLaterMemory` | `true` | When replaying a real moment, hide memory written at or after its trigger (episodes, attitude changes, details, interests, aliases, learned items, lore entries). `false` replays it with all of today's memory |
-| `anchor.ledgerSize` | `300` | Entries kept in the post ledger (`state.json` `postLedger`). The ledger maps each posted message to its turn so the mentor can find the trigger of a real moment. Written only while `features.mentor` is on. `0` keeps none |
-| `feedbackExamples` | `10` | Latest owner corrections (`/nep mentor wrong`) included in every scoring request |
-
-`llm.maxRequestTokens` (50k per request) applies to every request the mentor makes or causes, including sandbox answers. Before each mentor request the budget check counts the prompt plus the most the answer may cost (`mentor.maxOutputTokens` at `mentor.outputTokenWeight`), so a request is refused when its possible output does not fit what is left. When the budget runs out the run stops and reports what it has. A run also stops when `features.mentor` or `mentor.model` is turned off during it, or when the reference channels hold no messages of people in the reference window.
 
 ## `warmup`
 
@@ -790,6 +755,8 @@ Settings for the manual testing sub-process (`features.mentor`). The mentor inve
 
 ## `appendStore`
 
+The journal, record and archive are written through a shared append-only file writer. These settings control how it flushes and recovers.
+
 | Key | Default | Meaning |
 |---|---|---|
 | `fsyncMs` | `500` | Append-only files under `data/` are flushed to disk (fsync) at most this long (ms) after a write; writes that must survive a crash flush at once |
@@ -797,20 +764,26 @@ Settings for the manual testing sub-process (`features.mentor`). The mentor inve
 
 ## `journal`
 
+The persona's journal: one record per turn (what of the chat went into the request, the hidden reasoning, what was posted, token usage), written by UTC day to `data/guilds/<id>/journal/<YYYY-MM-DD>.jsonl`. Needs `features.journal` (on by default).
+
 | Key | Default | Meaning |
 |---|---|---|
 | `thinkChars` | `4000` | The persona's hidden reasoning is stored in the journal cut to this many characters at a word boundary; a cut record carries `thinkTruncated: true`. `0` stores it whole |
 | `retentionDays` | `0` | Days a journal file is kept; `0` keeps it forever. Not yet applied |
-| `keepRequests` | `3` | Days the request dumps are kept. Each model answer to a turn writes `requests/<day>/<turnId>-<attempt>.json` in the journal directory (a private chat's under its partner's private journal): the system prompt, the message parts as sent (pictures reduced to their size) and the raw answer with its token usage. Day directories older than this many days are deleted at start and then daily. `0` writes no dump and deletes none. Needs `features.journal` |
+| `keepRequests` | `3` | Days the request dumps are kept. Each turn writes a full dump of the model request and its raw answer to `requests/<day>/<turnId>-<attempt>.json` in the journal directory (a private chat's under its partner's private journal): the system prompt, the message parts as sent (pictures reduced to their size) and the raw answer with its token usage. Day directories older than this many days are deleted at start and then daily. `0` writes no dump and deletes none. Needs `features.journal` |
 | `announceChannelId` | `""` | The channel where `/nep pause` and `/nep resume` post one line (`labels.journal.paused` / `resumed`), so the chat knows the persona is away. Empty: nothing is posted and the owner's reply says so |
 
 ## `record`
+
+The witnessed record: every message the memory buffer takes, every message the persona posts and every feeling stored on an episode, written by UTC day to `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl`. Never trimmed. Needs `features.record` (on by default).
 
 | Key | Default | Meaning |
 |---|---|---|
 | `fsyncMs` | `500` | The record's files are flushed to disk (fsync) at most this long (ms) after a write. Read at startup |
 
 ## `archive`
+
+Before anything leaves hot memory (an episode, interest, detail, alias, lesson, attitude move, recent line, participation episode, diary gist or old version past its cap), a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl`. The item stays in memory, over its cap, until the archive confirms the write. Never trimmed. Needs `features.archive` (on by default).
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -859,10 +832,6 @@ Cost per one-minute clip, USD, from OpenRouter prices on 2026-09-23:
 | `google/gemini-3.8-flash` (default) | 0.014 |
 
 `qwen/qwen3.8-omni-flash` also accepts video and audio. Prices change; the table is a snapshot as of the date above.
-
-### Mentor (`mentor.model`)
-
-Role `mentor`. Scores the persona's answers and invents test situations. A model from a different family than the voice model is recommended: a model is blind to the habits of its own family. `null` (default) leaves the mentor disabled; `/nep mentor` commands that need the model say so.
 
 ### Pictures out (`image.model`)
 

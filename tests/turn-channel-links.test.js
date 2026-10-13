@@ -110,7 +110,6 @@ function fakeHot(channelLinks) {
       features: { memory: true, multiMessage: true, typingSimulation: false, channelPull: false, channelRoute: false, elsewhere: false, channelLinks },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
-      mentor: { anchor: { ledgerSize: 50 } },
     },
     prompts: {
       'system-prompt': 'You are a regular member of this chat, not an assistant.',

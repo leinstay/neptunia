@@ -1,5 +1,5 @@
 // The token limit buildRequest (src/behavior/prompt.js) fits a request under: `llm.safetyMargin`
-// read with the same validated fallback the mentor uses (0.9), and `context.vision.tokensPerImage`
+// read with the validated fallback of src/llm/budget.js#requestTokenLimit (0.9), and `context.vision.tokensPerImage`
 // with the same default the llm rail charges (400, src/llm/tokens.js#estimateMessages). Then where
 // a pulled channel (`<channel_view>`) sits in that budget: capped by `context.caps.pulled`, after
 // the chat on an ordinary turn, before it on a routed one, never a reason to fail the request.

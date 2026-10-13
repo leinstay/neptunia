@@ -4,16 +4,13 @@
 // (a spammed mention must not burn the owner's balance).
 //
 // Deliberate exception: `complete(messages, { countAgainstDailyCap: false })`
-// skips the daily-request counter and is never refused by it. Four callers
-// pass it, each with a budget or a trigger of its own, so none of them can
-// burn through the day's request cap of the chat:
+// skips the daily-request counter and is never refused by it. Its callers
+// each have a budget or a trigger of their own, so none of them can burn
+// through the day's request cap of the chat:
 // - the memory warmup (src/memory/warmup.js), a long-running seeding job
 //   under its own token budget (`warmup.maxTokens`);
-// - the mentor's judge (src/mentor/mentor.js) and the mentor sandbox
-//   (src/mentor/sandbox.js), both under the mentor's daily token budget
-//   (`mentor.maxTokensPerDay`);
-// - `/nep ping` (src/admin.js), a 16-token request per model route, sent on
-//   the owner's command only.
+// - the operations tools (tools/replay.mjs through src/behavior/sandbox.js),
+//   run by hand behind their own spend gate, never by the bot.
 // Every other request counts: the reply and every helper before it, the
 // analyzer, the voice model, a portrait refresh. The per-request token cap
 // (`TokenLimitError`) always applies, with no exception.
@@ -117,7 +114,7 @@ const HELPER_TIMEOUT_MS_FALLBACK = 30000;
  * (`{ model, ...helperRequestOptions(config, { ... }) }`). The set carries the
  * helper mark `helper: true` (never sent): only a marked request on a role
  * `llm.hedge.roles` lists is hedged by `complete` (see `hedgeSettings`), so the
- * memory wording, the analyzer, the describers and the mentor never are; the
+ * memory wording, the analyzer, the describers never are; the
  * reply only through an explicit `options.hedge` (see `complete`).
  * Pure; `config` is the live config read at the moment of use.
  * @param {object|null|undefined} config  The whole live config.
@@ -252,7 +249,7 @@ export function dailyCapOf(value, key) {
 
 /**
  * The `llm.complete` options that name the persona's reply (src/behavior/turn.js, and its replay
- * in src/mentor/sandbox.js): role `voice`, the one role on `llm.model`, purpose `reply`. Spread
+ * in src/behavior/sandbox.js): role `voice`, the one role on `llm.model`, purpose `reply`. Spread
  * into a request's own options, never mutated.
  */
 export const REPLY_REQUEST = Object.freeze({ role: 'voice', purpose: 'reply' });
@@ -557,7 +554,7 @@ function cacheCode(marked, usage) {
 // The fields of one `llm: usage` line, so a day's spend can be split by role and, inside a
 // role, by what the request was for: who asked (`role`, `model`; `purpose` = the caller's
 // `options.purpose`, which tells apart the helpers that share one role; `origin` = the caller's
-// `options.origin`, e.g. `mentor` for a request that is not live chat traffic), who served it
+// `options.origin`, e.g. `replay` for a request that is not live chat traffic), who served it
 // (`provider`, `id`), what it cost, read from OpenRouter's `usage` and its detail objects, what
 // the prompt cache did (`cache`, see `cacheCode`; `marked` = the sent request carried a marker)
 // and how long it took (`ms`: whole milliseconds on the client's clock from the start of the
@@ -971,7 +968,7 @@ export function createLlm({
    * apart by it in the journal (the reply and the memory wording both go out as
    * role `voice`).
    * `options.origin` — where the request comes from when it is not live chat
-   * traffic (e.g. `mentor`), so a day's count can leave it out. Both are
+   * traffic (e.g. `replay`), so a day's count can leave it out. Both are
    * logged on the usage line only: never sent in the request body, never
    * used for routing.
    * The calibrator is fed, and the over-cap warning
@@ -995,9 +992,8 @@ export function createLlm({
    * signal — the analyzer (a large batch, a long JSON answer) and the media
    * describer need more room than a chat reply's default.
    * `options.countAgainstDailyCap` (default true) — `false` skips the daily
-   * request counter and is never refused by it: passed by the memory warmup,
-   * the mentor's judge, the mentor sandbox and `/nep ping` only (see the
-   * header comment for why each is exempt).
+   * request counter and is never refused by it: passed by the memory warmup
+   * and the operations tools only (see the header comment for why each is exempt).
    * `options.maxRequestTokens` — overrides `cfg.maxRequestTokens` for this one call's pre-flight
    * cap check only (the global rail stays in force for every caller that omits it). Exists for
    * the memory warmup (src/memory/warmup.js), whose requests are fitted under a much larger,
@@ -1005,7 +1001,7 @@ export function createLlm({
    * `options.skipCalibration` (default false) — never feeds the provider's prompt
    * count into the calibrator. For every request whose provider-counted prompt
    * tokens say nothing about the text ratio the other requests are checked
-   * against: a 16-token `/nep ping`, a picture or video describe (the vision
+   * against: a picture or video describe (the vision
    * model counts media its own way), the short classifier passes.
    * `options.signal` — an external `AbortSignal` (e.g. an `AbortController`'s)
    * that cancels the in-flight HTTP request the moment it aborts, on top of
@@ -1022,7 +1018,7 @@ export function createLlm({
    * configured routing in charge. Exists for the video describer, which pins
    * the provider that can fetch a public video URL.
    * `options.role` — which subprocess makes the request (`voice`, `analyzer`,
-   * `classifier.text`, `classifier.media`, `classifier.video`, `mentor`; the
+   * `classifier.text`, `classifier.media`, `classifier.video`; the
    * names of `/nep model`), so a `"<prefix>@<role>"` key of
    * `llm.providerByModel` can route it; never sent. A call without a role
    * matches only role-less keys.

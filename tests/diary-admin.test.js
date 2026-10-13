@@ -304,14 +304,13 @@ test('backfillDiary: keeps only the persona\'s messages, oldest first, and skips
   assert.equal(seen.length, 1, 'a non-empty history is not even fetched');
 });
 
-test('diary commands: the options reach admin.run as channelId and kind', async () => {
+test('diary commands: the options reach admin.runCommand as channelId and kind', async () => {
   const runCalls = [];
   const admin = {
-    isOwner: () => true,
     isAllowed: () => true,
-    run: async (key, args) => {
+    runCommand: async (key, args) => {
       runCalls.push([key, args]);
-      return 'ok';
+      return { status: 'ok', code: 'ok', summary: 'ok', data: null };
     },
   };
   const hot = { config: { bot: { commandName: 'nep', owners: ['42'] }, features: {} } };

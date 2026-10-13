@@ -48,7 +48,7 @@ const SEARCH_SUMMARY_CHARS_FALLBACK = 900;
 const SEARCH_CACHE_HOURS_FALLBACK = 24;
 const QUERY_MAX_CHARS = 200;
 /** The state.json fields of the daily web counter (link reads and searches share it). */
-const WEB_DAILY = { dayKey: 'webDay', countKey: 'webCount' };
+export const WEB_DAILY = { dayKey: 'webDay', countKey: 'webCount' };
 // Tab, line feed, vertical tab, form feed, carriage return, NEL, line and paragraph separators.
 const QUERY_LINE_BREAKS = /[\t\n\v\f\r\u0085\u2028\u2029]+/g;
 const QUERY_CONTROLS = /[\u0000-\u001f\u007f-\u009f]/g;

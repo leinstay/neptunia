@@ -25,7 +25,7 @@
 | `reply.md` | はい | タスク: 誰かがペルソナに話しかけた | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
 | `follow-up.md` | いいえ | タスク: ペルソナとのやり取りを続ける行。ペルソナはまず、もう一度発言するかどうかを決める。ペルソナに何も求めていない行では `<skip/>` がデフォルト。トリガー種別が `followUp`（アドレス分類器の `yes`）、またはペルソナへの明示的な @メンションのない `reply`（Discord がリプライに付ける暗黙のピングは数えない）のとき、`reply.md` の代わりにタスクテキストとして使用。メンション、@メンション付きのリプライ、名前呼びかけは `reply.md` のまま。ファイルが存在しないか空の場合は `reply.md` にフォールバック | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
 | `interject.md` / `initiate.md` | はい | タスク: 進行中の会話に割り込む / 静かなチャットで話題を切り出す。コードが `deadAfterMinutes` の沈黙後に `spontaneous.initiateChance` を判定するため、initiate プロンプトはデフォルトで発言し、`<skip/>` は新しい話題が明らかに場違いなチャンネル用。initiate ターンはチャンネルが静まった後、ペルソナ自身の最後のメッセージの後にも発生しうる | `{{name}}` |
-| `forced.md` | いいえ | 強制ターン（`/nep interject`、`/nep initiate`）時にモードプロンプトの後に追加される。デフォルトの `<skip/>` を無効化する | `{{name}}` |
+| `forced.md` | いいえ | 強制ターン（`/nep talk interject`、`/nep talk initiate`）時にモードプロンプトの後に追加される。デフォルトの `<skip/>` を無効化する | `{{name}}` |
 | `memory.md` | はい | ストリームアナライザーのアウトオブキャラクタープロンプト（シングルステージモードおよびプライベートバッチ）: ライブバッチからのメモリへの差分更新 | `{{name}}` `{{fieldChars}}` `{{guildFieldChars}}` `{{maxDetails}}` `{{maxInjokes}}` `{{maxSelfFacts}}` `{{maxNewEpisodes}}` `{{maxEpisodes}}` `{{maxDeltaPerUpdate}}` `{{maxInterests}}` `{{interestTopicChars}}` `{{interestNoteChars}}` `{{loreTextChars}}` `{{maxLearned}}` `{{learnedChars}}` `{{relationshipChars}}` |
 | `memory-decide.md` | いいえ | 2 段階アナライザーのステージ A（`features.memoryTwoStage`）: 変更のニュートラルな判定。`memory.md` と同じ入力ブロック。JSON を返す。ファイルがない場合はシングルステージにフォールバック | `{{name}}` `{{fieldChars}}` `{{guildFieldChars}}` `{{maxDetails}}` `{{maxInjokes}}` `{{maxSelfFacts}}` `{{maxNewEpisodes}}` `{{maxEpisodes}}` `{{maxDeltaPerUpdate}}` `{{maxInterests}}` `{{interestTopicChars}}` `{{interestNoteChars}}` `{{loreTextChars}}` `{{maxLearned}}` `{{learnedChars}}` `{{relationshipChars}}` |
 | `memory-voice.md` | いいえ | 2 段階アナライザーのステージ B: ペルソナがキューされたアイテムを自分自身の声で記述。JSON を返す。リトライ時、オプションの `<over_limit>` ブロックに前回の回答が制限を超えたアイテムが列挙される | `{{name}}` `{{fieldChars}}` `{{guildFieldChars}}` `{{relationshipChars}}` `{{learnedChars}}` |
@@ -54,10 +54,6 @@
 | `diary-seeds.md` | いいえ | 日記プランナー用ランダムシードファミリー。`# name` ヘッダーがファミリーを開始。コードが各ファミリーから 1 行選び `diary.seedSets` 組み合わせを作成。ファイルなしまたは `seedSets` = 0 で省略 | なし |
 | `draw.md` | はい | 描画サブプロセスのアウトオブキャラクタープロンプト（`features.imageGeneration`）: シーン説明から画像 1 枚を生成する。外見とリクエストのみを受け取り、キャラクターカードは受け取らない | `{{name}}` `{{appearance}}` `{{request}}` `{{when}}` |
 | `appearance.md` | いいえ | ペルソナのビジュアル外見。`self="yes"` 時に `draw.md` に挿入される。パーソナリティやバックストーリーなし、1 段落 | `{{name}}` |
-| `mentor-situations.md` | いいえ | Mentor: ケースのテスト状況を作成（`features.mentor`）。JSON のみを返す | `{{name}}` `{{count}}` `{{minLines}}` `{{maxLines}}` |
-| `mentor-score.md` | いいえ | Mentor: ペルソナの回答をスコアリング（`features.mentor`）。キャラクターカードを受け取る。JSON のみを返す | `{{name}}` |
-| `mentor-signs.md` | いいえ | Mentor: モデル文の既知の癖。すべての mentor リクエストで `<signs>` ブロックとして送信（`features.mentor`）。ファイルがないか空の場合は省略 | `{{name}}` |
-| `mentor-diagnose.md` | いいえ | Mentor: スコアリング後に弱い回答の原因をペルソナのコンテキスト内の具体的なテキストで説明（`features.mentor`）。結果は未検証の仮説としてランの `diagnosis` に保存。`mentor.diagnose` が false またはファイルがない場合は省略 | `{{name}}` |
 | `gif-pick.md` | いいえ | 分類器: 短いテキスト返答の代わりにライブラリから GIF を選ぶ（`features.gifPicker`）。直近の `gifs.pick.contextMessages` チャット行（応答先メッセージを明示）、ペルソナの返答、キャプション付きのフルライブラリを受け取る。長さゲートは `gifs.pick.maxChars`（デフォルト 160）; 複数の送信メッセージがある場合は最初のメッセージのみ置換。出力はライブラリのハンドル 1 つまたは `none`。キャラクターカードなし | `{{name}}` |
 | `split.md` | いいえ | 分類器: 直接呼びかけに複数の独立したリクエストが含まれるか（`features.splitTasks`）。短い `<transcript>` と新しいメッセージを `<candidate>` として受け取る。出力は `one` という語、または 2 行から `{{maxTasks}}` 行で各行 `- ` で始まり著者自身の言葉でパートを示す。キャラクターカードなし。このファイルがない場合スプリッターはオフ | `{{name}}` `{{maxTasks}}` |
 | `merge.md` | いいえ | 分類器: 待機中の項目を持つ著者からの新しいメッセージがそのいずれかに属するか。番号付き `<waiting>` リストと新しいメッセージを `<candidate>` として受け取る。出力は 1 行: リストの番号または `new` という語。キャラクターカードなし。このファイルがない場合、新しい呼びかけは常に独自の項目としてキューされる | `{{name}}` |
@@ -67,7 +63,7 @@
 `{{target}}` 呼び出しメッセージのインデックス（`#87`）。
 `{{today}}` は `lookup.md` では `bot.timezone` の日付、説明モデル（`describe.md`、`describe-video.md`、`describe-gif.md`）と `search-summary.md` では UTC 日付。
 システムメッセージ = `system-prompt` + `character-card` + `rules` + `format`。アナライザーの場合: `memory.md` のみ。
-強制ターン（`/nep interject`、`/nep initiate`）では、`forced.md` が存在する場合、モードプロンプトの後に追加されます。
+強制ターン（`/nep talk interject`、`/nep talk initiate`）では、`forced.md` が存在する場合、モードプロンプトの後に追加されます。
 `overheard` ターンでは、`overheard.md` がモードプロンプトを置き換えます（追加ではなくタスクテキストそのもの）。`overheard.md` が存在しないか空の場合、モードプロンプトが代わりに使用されます（劣化: モードプロンプトはメッセージをペルソナ宛として扱い、実際と異なる）。
 プライベートチャットでは、`private.md` がモードプロンプトの後（`forced.md` の前）に同じ `{{name}}` と `{{author}}` プレースホルダーで追加されます。
 アナライザーとウォームアップの `profile.md` および `server.md` はキャラクターカードと `rules.md` をユーザーメッセージ内の
@@ -162,7 +158,7 @@ GIF ピッカー（`features.gifPicker`、デフォルトオン）。ペルソ�
 
 ```
 locale                                   BCP-47 tag for dates
-ping.prompt                              the whole user message of `/nep ping`; must make any model answer one short word
+ping.prompt                              the user message of a model reachability probe; must make any model answer one short word. No longer used by any command
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: `context.gapMarkerMinutes` 分以上離れた隣り合う 2 行の間の時間。メッセージの経過時間と読まれない書き方にする
@@ -313,9 +309,6 @@ limits.notice                            {limit} {used} {cap}: posted as a plain
 limits.paused                            posted as a plain reply when the persona is called while paused (`features.pauseNotice`). No placeholders. At most once per channel per `mention.pauseNoticeMinutes`
 warmup.ownMark                           prefixed to a member's own lines in the profile.md transcript
 warmup.contextMark                       prefixed to context lines in the profile.md transcript
-mentor.intended                          array of short strings: engine behaviours that must not cost points in the mentor's scoring
-mentor.examples                          first line inside the `<examples>` block in a situations request: introduces the real moments
-mentor.original                          first line inside the `<original>` block in a score request: introduces the persona's rejected answer
 room.focus                               {target} {author}: appended to the reply task when a room question triggers the turn
 address.author                           {name} {aliases}: the candidate author's display name and known aliases, shown to the address classifier when the member has aliases
 recent.header                            REQUIRED {hours}: the block's first line. A missing header or a missing `recent.line` means no `<recent>` block
@@ -664,203 +657,6 @@ DM は以下のすべてが満たされた場合にのみ応答されます（�
 ### プライベートモードのアナライザー
 
 `analyzePrivate` は同じ `memory.md` フォーマットに `<private>` ブロック（`labels.memory.privateNote`）を加えたリクエストを構築。`<existing_profiles>` にはパートナーのみ。回答からは `users[<partnerId>]` のみがプライベートストアメソッドで適用。`portrait`、`aliases`、`guild`、`channels`、`lore`、`self` は破棄。
-
-## Mentor
-
-手動サブプロセス（`features.mentor`）で、独自モデル（`mentor.model`）を使用します。オーナーがケース（ペルソナに期待する行動）を追加し、mentor がチャット状況を作成、サンドボックスでペルソナに回答させ、スコアリングします。不合格またはスコアが低い場合、ペルソナのコンテキスト内の原因を特定し、オーナーが検討する助言として変更を提案します。同時実行は 1 つのみ。すべての作業は `data/` に保存されます。`bot.dryRunChannelId` が設定されている場合、完了したランはそこにも投稿されます。管理チャンネルがない場合、オーナーは `/nep mentor status` でランを追跡し、`/nep mentor show <id>` でレポートを読みます。
-
-### プライバシー
-
-Mentor モデルはレンダリングされたサンドボックスリクエストを読み取るため、ペルソナが実際の人物について記憶している内容を読み取ります。ダイレクトメッセージとプライベートメモリレイヤーはサンドボックスリクエストに含まれません。
-
-サンドボックスにはライブターンと同じカスタム絵文字と GIF のブロックが含まれるため、ペルソナはサンドボックスの回答で絵文字リアクション、GIF の投稿、画像の描画が可能です。GIF や描画は `<msg>` と同様にアクションとしてカウントされます。サンドボックスには elsewhere の送信先と検索感覚の `<senses>` 行も含まれるため、これらの機能に対するペルソナの認識もテストされます。
-
-### ポストレジャー
-
-`state.json` の `postLedger` はペルソナがサーバーチャンネルに投稿した各メッセージを記録します: メッセージ ID、チャンネル、モード、トリガー種別、トリガー ID、最新の履歴行 ID、ソースチャンネル ID。`features.mentor` がオン（または mentor のアンカー関連パスが使用されている）間のみ書き込まれます。レジャーは `mentor.anchor.ledgerSize`（デフォルト 300）エントリで制限されます。mentor はこれを使って、実際の moment を解決する際に投稿されたメッセージがどのターンに属していたかを特定します。mentor 自身のリクエストは使用ログに `origin: mentor` を付けます。
-
-### ランの終了方法
-
-ランは通常、判定とレポートで正常終了します。早期終了もあります:
-
-- **停止** (`budget`): 日次トークン予算が枯渇。スイッチと予算は各状況の前と各 mentor リクエストの前にチェックされます。
-- **停止** (`owner`): オーナーが `/nep mentor stop` または `/nep pause` を実行。
-- **停止** (`disabled`): ラン中に `features.mentor` または `mentor.model` がオフにされた。
-- **エラー** (`the reference is empty`): リファレンスウィンドウ内のリファレンスチャンネルから人々のメッセージを読み取れなかった。モデルリクエスト前にランを終了。
-
-停止されたランは既に得られたスコアを保持し、レポートに含めます。
-
-### 実際の moment（anchors）
-
-ケースはチャットからの実際の moment を含むことができます。各 moment はオーナーが拒否したペルソナの 1 つのメッセージです。解決プロセス: ボットはメッセージを取得し、トリガー（リプライ先のメッセージ、またはその前のペルソナ以外の最後のメッセージ）を見つけ、そのチャンネルのトリガーまでの最大 `mentor.anchor.contextMessages`（デフォルト 30）件のメッセージを収集し、ペルソナのバースト全体（指定メッセージから始まる連続メッセージ）をオリジナルの回答として保存します。保存された履歴は通常のトランスクリプトと同じ方法で正規化され（メディアラベル、リアクション）、ダウンロードも記述も行いません。解決時にペルソナが見たメディアも保存されます。各メッセージについて、記述器が `media.json` にキャッシュしたキャプション（画像、GIF、動画フレーム、リンクサムネイル、スタンプ、カスタム絵文字）と視聴済み動画要約のうち、ペルソナのメッセージ以前に書き込まれたエントリが `mediaSeen: { captions?: { <itemId>: text }, watched?: { <itemId>: text } }` になります。保存されないもの: 未視聴状態（制限またはエラー）、再視聴回答（`videoAnswered`）、ウェブ検索読み取り（`linkRead`）、添付画像マーカー。名前とリアクションは取得時のまま保持されます。保存後、チャンネルが進んだりメッセージが削除されても、moment は保存されたメッセージから再生されます。
-
-ケースは moment を `anchors` として保存します:
-
-```json
-[{ "id": 1, "channelId": "...", "messageId": "...", "triggerId": "...",
-   "addedAt": "...",
-   "history": [
-     { "...正規化されたメッセージフィールド...",
-       "mediaSeen": { "captions": { "<itemId>": "text" }, "watched": { "<itemId>": "text" } } }
-   ],
-   "original": ["text", "..."] }]
-```
-
-ラン中、各使用可能な anchor は独立した状況になり、作成された状況の前に番号が付けられます。状況レコードは `anchor: <id>` を持ちます（作成された状況にはありません）。再生は保存された履歴を使用し、ペルソナのオリジナルメッセージの時点で、anchor 自身のチャンネルで行われます。
-
-再生時、保存された `mediaSeen` はライブのトランスクリプトラベル（`imageDescribed`、`gifDescribed`、`videoDescribed`、`videoWatched`、`thumbnailDescribed`、`linkWatched`、`stickerDescribed`、`emojiDescribed`）でペルソナのリクエスト、`<examples>`、スコアリングの `<situation>`、`<worst>` にレンダリングされます。保存された記述のない項目は、再生時に同じ時間制限（ペルソナの回答）でキャッシュを読み取り専用で参照します。キャッシュにもない場合、項目はプレーンラベルでレンダリングされます。
-
-`mentor.anchor.hideLaterMemory` が `false` でない場合（デフォルト `true`）、再生される moment はトリガー時点より前の記憶状態で回答されます。トリガーのタイムスタンプ以降に記録された項目は非表示になります: エピソード（`addedAt` を使用、なければ `date` の UTC 日付にフォールバック）、態度履歴エントリと態度の理由（スコアは現在の値のまま）、詳細（`firstSeen`）、興味（`firstSeen`）、エイリアス（`firstSeen`）、学習項目（`firstSeen`）、ロアエントリ（`createdAt`）。解析可能な日付のない項目はフィルタリングされません。日付のないフィールド（プロファイルのテキストフィールド、サーバーパターン、スターター、インジョーク、自己事実、チャンネルエントリ）は現在の値で表示されたままです。実際の moment の `<learned>` ブロックも同じ方法でフィルタリングされます。`false` に設定すると、現在の全記憶で moment を再生します。
-
-状況リクエストでは、ケースの anchor が `<examples>`（最後のブロック）として mentor モデルに提示されます。各 `<example>` には保存されたトランスクリプトの `<situation>` とペルソナのメッセージの `<original>` が含まれます。各例の最も古いメッセージはリクエスト予算に収まるようにトリミングされる場合があります。トリガーは削除されません。Mentor は同種の状況を作成します: メッセージの長さ、ターン数、圧力の程度を合わせます。
-
-実際の moment のスコアリングリクエストでは、`<original>` が `<situation>` と `<answers>` の間に配置され、ペルソナの拒否された回答を既知の悪い参照として含みます。
-
-バリデーターの作成された状況の 1 行あたりの上限は 2000 文字（旧 500）になり、mentor が例のメッセージの長さに合わせられます。
-
-### プロンプト
-
-Mentor は 4 つのプロンプトファイルを使用します。状況/スコアのペア、特徴ファイルと診断ファイル:
-
-- `mentor-situations.md`（状況を作成）と `mentor-score.md`（回答をスコアリング）。
-- `mentor-diagnose.md`（スコアリング後に弱い回答を説明）。
-
-各プロンプトファイルは 1 つの mentor リクエストのシステムメッセージです。ブロックはユーザーメッセージで送信されます。
-
-コードが埋めるプレースホルダー: 4 つすべてに `{{name}}`。状況プロンプトに `{{count}}`、`{{minLines}}`、`{{maxLines}}`。
-
-### ブロック
-
-| ブロック | 内容 | どのリクエストで |
-|---|---|---|
-| `<case>` | オーナーのケーステキスト、逐語 | すべて |
-| `<members>` | 保存されたプロファイル 1 行ずつ: `name (id:123)` | 状況 |
-| `<reference>` | スタイルプロファイル JSON: 句読点の頻度、長さ、返信頻度、未使用文字 | 状況、スコアリング |
-| `<samples>` | チャットからのランダムな行、1 行ずつ | 状況、スコアリング |
-| `<signs>` | `{{name}}` を埋めた `mentor-signs.md`: モデル文の既知の癖。ファイルがないか空の場合は省略 | すべて |
-| `<intended>` | `labels.mentor.intended`、1 項目ずつ | スコアリング |
-| `<feedback>` | オーナーの修正の JSON 配列: `[{ "case": "...", "reason": "..." }]`、新しい順。空の場合省略 | すべて |
-| `<examples>` | チャットからの実際の moment: `labels.mentor.examples` を先頭行とし、moment ごとに 1 つの `<example>`。各 `<example>` には `<situation>`（保存されたトランスクリプト、最も古いメッセージはリクエスト予算に合わせてトリミングされる場合あり）と `<original>`（ペルソナのメッセージ）が含まれる。ケースに moment がない場合は省略 | 状況 |
-| `<original>` | その時のペルソナの回答（実際の moment のスコアリングリクエスト内）。`labels.mentor.original` を先頭行とし、ペルソナのメッセージが続く。既知の悪い参照であり、スコアリング対象の回答ではない。作成された状況では省略 | スコアリング（実際の moment のみ） |
-| `<character>` | `{{name}}` を埋めたキャラクターカード | スコアリング |
-| `<rules>` | ルールプロンプト | スコアリング |
-| `<learned>` | ペルソナが見ている指示的な学習項目。`mentor.anchor.hideLaterMemory` が有効な実際の moment では、トリガー以降に書き込まれた項目は非表示 | スコアリング |
-| `<situation>` | チャットトランスクリプトとしてレンダリングされた状況（ペルソナの視点）。実際の moment では、最も古いメッセージがリクエスト予算に合わせてトリミングされる場合があり、トリガーは削除されない | スコアリング |
-| `<answers>` | JSON 配列: `[{ "id": "s1a1", "messages": ["..."], "reactions": ["..."], "silent": false }]` | スコアリング |
-| `<facts>` | 回答 id をキーとした JSON オブジェクト。確定的測定結果（未使用マーク、レアマーク、コンマ数、コンマ密度、長さ）と、2 つ以上の異なる状況で見つかったフレーズ `"repeated"` を含む。回答ごと: `commas` はカウント、`commaPer1000` は測定テキストが 150 文字以上の場合のみ数値で、短い場合は `null`（短すぎて測定不能、mentor はカウントで判断し密度を推定しない）。`repeated` は異なる状況で繰り返されたフレーズを列挙し、`count` は状況の数 | スコアリング |
-| `<verdict>` | JSON: `{ passed, medians, situations, reasons }`。合否結果、各軸の中央値、状況ごとの中央値、診断の理由。理由には作成された状況の `situation <n>: <axis> <v> is under the floor <f>` と実際の moment の `real moment <n>: <axis> <v> is under the pass score <s>` または `real moment <n>: <axis> <v> is under the anchor score <s>` が含まれる | 診断 |
-| `<worst>` | JSON: 種類を問わず `overall` 中央値が最低の状況（同率の場合はより低い `goal` 中央値、次に実際の moment が作成された状況より優先、次により小さい `n`）: `{ n, title, transcript, answers }`。各回答は id、messages/reactions/silent、`facts`、`score` を含む。トランスクリプトはリクエスト予算に合わせてトリミングされる場合がある | 診断 |
-| `<seen>` | その状況でペルソナに渡された完全なリクエスト。2 つのサブブロック: `<system>`（キャラクターカード、ルール、フォーマットを含むシステムプロンプト）と `<user>`（トランスクリプト、メモリブロック、タスク） | 診断 |
-
-### 回答 ID
-
-`s<状況>a<サンプル>`、どちらも 1 から。例: `s2a3` は 2 番目の状況の 3 番目のサンプル。
-
-### 状況スキーマ
-
-```json
-{
-  "situations": [
-    {
-      "title": "短いラベル",
-      "lines": [
-        {
-          "authorId": "123456789 or self",
-          "authorName": "表示名",
-          "text": "メッセージ",
-          "replyTo": null,
-          "minutesBefore": 5
-        }
-      ]
-    }
-  ]
-}
-```
-
-`authorId` は `<members>` のメンバー id または `self`（ペルソナ自身の行）。`replyTo` はこの状況の `lines` 配列内の 0 ベースインデックス、または `null`。最後の行は `self` であってはならず、ペルソナに話しかけます。
-
-実際の moment からの状況レコードは `lines` の代わりに `anchor: <id>` を持ちます。そのトランスクリプトは保存された履歴から構築されます。レコードには `original`（ペルソナのメッセージ）と `at`（ペルソナが回答した時間）も含まれます。
-
-### スコアスキーマ
-
-```json
-{
-  "answers": [
-    {
-      "id": "s1a1",
-      "human": 7,
-      "character": 8,
-      "rules": 9,
-      "goal": 6,
-      "overall": 7,
-      "comment": "1～2 文。"
-    }
-  ]
-}
-```
-
-各スコアは 0–10 の整数または `null`。`overall` と `goal` は常に数値。
-
-### 軸
-
-すべて 0–10 の整数、10 が理想、`null` は判定不能時（5 を「不明」の代用にしない）。
-
-| 軸 | 測定内容 | 0 | 5 | 10 |
-|---|---|---|---|---|
-| `human` | AI らしさの低さ | このチャットの人々の書き方から遠い | どちらとも言えない | リファレンスの実際の人の書き方と一致 |
-| `character` | キャラクターカードへの適合度 | 完全にキャラクター外 | 認識できるが滑りあり | カードの声そのもの |
-| `rules` | ルールと学習項目の遵守 | すべての適用ルールに違反 | 一部遵守、一部違反 | すべての適用ルールを遵守 |
-| `goal` | `<case>` の要求を満たしているか | 逆のことをしている | 部分的に達成、部分的に未達 | 記述通りに行動を処理 |
-| `overall` | Mentor の総合判定 | 全面的に不合格 | 明確な弱点はあるが許容範囲 | 全面的に優秀 |
-
-### 合格ルール
-
-ケースが合格する条件: `overall` の中央値 >= `mentor.pass.score`（デフォルト 7）かつ `goal` の中央値 >= `mentor.pass.score` かつ、いずれの軸の中央値も `mentor.pass.floor`（デフォルト 5）を下回らないこと。作成された状況は下限でチェックされます: いずれか 1 つの作成された状況の `overall` 中央値または `goal` 中央値が `mentor.pass.floor` を下回る場合、全回答の中央値に関わらずケースは不合格です。実際の moment はパススコアで判定されます: `mentor.pass.anchorScore`（数値に設定時）または `mentor.pass.score`（`anchorScore` が `null` の場合）を下回ると不合格です。理由文字列: `anchorScore` 未設定時は `real moment <n>: <axis> <v> is under the pass score <s>`、設定時は `real moment <n>: <axis> <v> is under the anchor score <s>`。レポートには各状況の `overall` と `goal` の中央値が表示されます。すべてのスコアが `null` の軸は中央値が `null` となり、チェックされません。
-
-### スコアリングのエビデンス順序
-
-1. `<feedback>` 内のオーナーの修正。Mentor の好みに優先する。
-2. 測定されたリファレンス（`<reference>`、`<samples>`）と確定的事実（`<facts>`）。
-3. モデル文の既知の特徴（`<signs>`）。測定結果やリファレンスに優先しない。
-4. Mentor 自身の好み。提案のみ行い、上記 3 つに優先しない。
-
-### 出典
-
-`mentor-signs.md` の既知の特徴リストは、Wikipedia の "Signs of AI writing" と humanizer skill (MIT) を参考に作成されました。
-
-### 診断
-
-スコアリング後、ランが早期終了せずケースが不合格または任意の状況の `overall` 中央値が `mentor.pass.score` を下回る場合、mentor はもう 1 つのリクエストを行い、ペルソナのコンテキストのどこが弱い回答を引き起こしたかを説明します。スイッチ `mentor.diagnose`（デフォルト `true`）。`/nep mentor check` で開始されたランは診断を要求しません。このステップの失敗はランを失敗させません。ランは `diagnosis: null` で保存され、エラーが記録されます。
-
-結果はランの `diagnosis` として保存され、レポートに出力されます。これらはオーナーが検討するための仮説であり、mentor 自体は何も編集しません。
-
-原因が指すレイヤー: `rules`（ルールブロック内のルール）、`prompt`（エンジンのシステムプロンプト、フォーマット、タスク）、`card`（キャラクターカード）、`self`（ペルソナが自身について保持するメモ）、`learned`（ペルソナに教えたこと）、`guild`（サーバーの習慣や内輪ネタ）、`profile`（ペルソナがある人について記憶していること）、`labels`（`labels.json` の文字列）、`lore`（ロアブックエントリ）、`channel`（チャンネルノート）、`recent`（`<recent>` ブロック内の行）、`missing`（あるべき指示が存在しない）。
-
-#### 診断スキーマ
-
-```json
-{
-  "summary": "1 段落",
-  "causes": [
-    {
-      "layer": "rules|prompt|card|self|learned|guild|profile|missing",
-      "excerpt": "<seen> からの逐語引用、最大 300 文字。missing の場合は空",
-      "why": "1～2 文"
-    }
-  ],
-  "changes": [
-    {
-      "layer": "rules|prompt|card|self|learned|guild|profile",
-      "target": "どのファイル、ルール、または項目",
-      "from": "置換する逐語テキスト。追加の場合は空",
-      "to": "新しいテキスト",
-      "why": "1 文"
-    }
-  ]
-}
-```
-
-最大 5 個の原因と 5 個の変更。`summary` は 1500 文字に切り詰め、`excerpt` は 300、`from`/`to` は 1000、`target` は 200、`why` は 500。不明な `layer` または `why` のない項目は破棄。`summary` と `why` はチャットの言語で、`to` は対象レイヤーの言語で記述。
 
 ## リミット通知
 

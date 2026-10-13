@@ -97,7 +97,7 @@ The analyzer also records things people taught the persona directly (words and e
 
 When `features.privateMessages` is on, members who pass the gate (guild membership, a stored profile, public affinity at or above `private.minAffinity`, today's reply count under the cap) can write to the persona in Discord DMs. The persona is the same character with the same public memory; what is said in a DM stays in a per-member private layer. With `features.privateLikeServer` on (the default), a DM works like a server channel: the route classifier, channel pull, server search and asked-about episodes are all available, restricted to channels the DM partner can view.
 
-Only bot owners can inspect a member's private layer (`/nep private show`); this command cannot be granted to other users.
+Only bot owners can inspect a member's private layer (`/nep memory private show`); this command cannot be granted to other users.
 
 The private file `data/guilds/<guildId>/private/<userId>.json` stores its own `relationship`, `interests`, `details`, `episodes`, `affinity` (score starting at 0), the daily reply counter and an observation buffer. It is never shown to any other conversation, never written by a server batch, and never mixed into the public profile on disk. The public profile is never changed by a DM.
 
@@ -105,7 +105,41 @@ In a DM the persona sees public and private data merged: interests unioned by to
 
 The private analyzer (`analyzePrivate`) runs the same `memory.md` prompt with a `<private>` block. Only `users[<partnerId>]` from the answer is applied through the private store; `portrait`, `aliases`, `guild`, `channels`, `lore`, `self` and other user ids are dropped.
 
-`/nep memory forget <user>` deletes both the public profile and the private file. `/nep memory wipe` removes the entire `private/` directory for the server. `/nep private forget <user>` deletes only the private file; the public profile is kept.
+`/nep memory forget <user>` deletes both the public profile and the private file. `/nep memory wipe` removes the entire `private/` directory for the server. `/nep memory private forget <user>` deletes only the private file; the public profile is kept.
+
+## Record
+
+When `features.record` is on (the default), every message the memory buffer takes and every message the persona posts are written to a permanent file: `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl`, one file per UTC day. Edits are written as new lines with the next revision; a deleted message gets a deletion line. Private chat lines go to `data/guilds/<id>/private/<userId>/record/` instead. The record is never trimmed: it grows as long as the bot runs.
+
+The record holds only ids, timestamps, channel, author, reply target, text, media kinds and mentions. It never stores a URL.
+
+## Archive
+
+When `features.archive` is on (the default), everything that leaves hot memory gets a copy in the archive before it is deleted. This covers episodes pushed past `memory.maxEpisodes`, interests and details pushed past their stored caps, aliases, attitude history entries past `relationships.historySize`, taught lessons, self-facts, recent notes past their window, participation episodes past theirs, diary gists, in-joke lists that were rewritten, and old version records past `memory.versionsKept`. The archive file is `data/guilds/<id>/archive/<YYYY-MM>.jsonl`, one per month; private items go to `data/guilds/<id>/private/<userId>/archive/`.
+
+An item stays in memory, over its cap, until the archive confirms the write. When the disk refuses, the copy waits in a pending queue (up to `archive.pendingMax`, default 500). Past the limit, memory updates stop until the queue drains. `/nep status` shows the pending count.
+
+## Validity
+
+Interests, details and aliases can carry dates: `validFrom` (when the claim was first true), `validTo` (when it stopped being true) and a reference to the claim that replaced it (`supersededBy`). When the analyzer marks a new item as replacing an older one (`supersedes`), the old item's `validTo` is stamped and the item moves from the ranked list to a closed list (up to `memory.maxClosedStored`, default 40, per profile; past the limit the oldest goes to the archive). Two open claims that contradict each other share a `conflictSetId` and are shown together to the persona through `labels.profile.conflict`. A closed claim that was recently replaced is shown once, next to the item that replaced it, for `memory.supersededShownDays` (default 7) days.
+
+The persona sees only the open items. The closed list and the archive together keep the full history of what changed, so a fact that was true in April and was replaced in June is still findable through recall.
+
+## Forget and the vault
+
+`/nep memory forget <user>` deletes a member's public profile, their private DM file, their voice queue items, their version history, their entries in the record and archive, and their lines in diary posts (replaced with a neutral token, `labels.memory.redaction`). Before deleting, it copies everything into a subdirectory of `memory.vaultDir` (default `data/vault/`) and writes the member's id to `data/guilds/<id>/forgotten.json`. The engine never reads the vault back. To restore a member, copy their files by hand and remove the entry from `forgotten.json`.
+
+`/nep memory wipe` does the same for the entire server's memory: profiles, private files, channels, habits, lore, the journal, the record, the archive, the voice queue, version history, diary history and the recall trace.
+
+## Recall sources
+
+On a server search (`features.recall`), the engine searches more than Discord's own message history. It also reads:
+
+- The **archive**: entries that left hot memory over the last `recall.archiveMonths` (default 6) months, matched on their neutral text and their content fields (an episode's `what` and `quote`, a participation episode's message texts). A `when:` date range from the search classifier narrows the archive window.
+- The **record**: for a question with a `when:` date range or a vague "recently", the last `recall.recordDays` (default 3) days of the record are read. Each matching message brings its reply chain and a few lines of context.
+- **Hot memory**: members' episodes, lore entries, taught lessons and recent lines are matched alongside the server search hits.
+
+All sources are handed to the recall summary (`recall-summary.md`), which writes a note for the `<lookup>` block. The summary may also name one stretch of old chat for the persona to see verbatim.
 
 ## When a note would get too long
 
@@ -139,7 +173,7 @@ The full command list is in [Commands](owner-commands.md). The most relevant for
 | `/nep memory forget <user>` | Delete a stored profile, private memory and queued voice items |
 | `/nep memory affinity <user>` | Show or set attitude |
 | `/nep memory wipe` | Wipe all analyzer memory for the server, including private files |
-| `/nep private show <user>` | Show a member's private memory |
-| `/nep private forget <user>` | Delete only the private file; the public profile is kept |
+| `/nep memory private show <user>` | Show a member's private memory |
+| `/nep memory private forget <user>` | Delete only the private file; the public profile is kept |
 | `/nep lore add` | Add or overwrite a lorebook entry |
 | `/nep pause` / `/nep resume` | Stop activity and flush memory to disk for safe manual editing |

@@ -78,7 +78,7 @@ const TAG_OVERHEAD = 60;
 /**
  * `body` wrapped in `<tag>` ... `</tag>` on lines of their own; '' for an
  * empty body, so a block with nothing to say drops out of a request. The one
- * copy: every request builder (chat, analyzer, warm-up, mentor) uses it.
+ * copy: every request builder (chat, analyzer, warm-up) uses it.
  * @param {string} tag
  * @param {string} body
  * @returns {string}
@@ -675,8 +675,6 @@ export function learnedConfig(config) {
  * item label falls back to the next simpler form, then to the bare text. An
  * item below `learnedCfg.confirmAfter` gets `aboutChat.unsureMark` appended
  * when that label exists. `''` when there is nothing to show.
- * Exported for the mentor (src/mentor/mentor.js), which shows its judge the
- * learned items exactly as the persona sees them.
  * @param {object[]} learned      `guild.learned`.
  * @param {object} a              `labels.aboutChat`.
  * @param {{ max?: number, halfLifeDays?: number, confirmAfter?: number }} learnedCfg  See `learnedConfig`.
@@ -2201,7 +2199,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   plus what the request has beyond `<people>`'s room, so `<people>` never loses room to it,
  *   and a member asked about that `<people>` could not place gets the room it frees. A private
  *   chat shows no member's moment. The switch off, the labels missing, or the input omitted or
- *   not an array (the mentor's sandbox): no block, the request as before.
+ *   not an array (the replay sandbox): no block, the request as before.
  * @param {(channelId: string|null) => boolean} [input.recentAudience]  Whether a recent line from
  *   that channel may be shown in this turn (src/behavior/turn.js decides it from the channels'
  *   audiences). Omitted -> only the lines of `currentChannelId`.
@@ -2684,7 +2682,7 @@ export function buildRequest(input) {
   const askedIntended = askedKeys(askedAbout.map(() => (askedEpisodesOn ? askedAboutEpisodes : 0)));
 
   // `<recent>`: the last `memory.recentHours`, built when the caller hands the store's lines
-  // over (an array, empty for a store without one; the mentor's sandbox hands none) with the
+  // over (an array, empty for a store without one; the replay sandbox hands none) with the
   // switch on and the labels present, and shown when the window holds an item this turn may
   // show. The lines `recentAudience` accepts (by default this channel's alone), then the
   // moments of the window (none in a private chat, none without the episode label), the ones

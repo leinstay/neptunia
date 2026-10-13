@@ -7,7 +7,7 @@
 // its labels head; together the requests load every tracked prompt file. A placeholder added to
 // a prompt without a filler, a filler dropped from a builder, a prompt file no builder sends or
 // a label key missing from labels.json fails here instead of reaching the model as literal text.
-// The switches a request needs (the mentor, the web lookup, video vision, two-stage memory) are
+// The switches a request needs (the web lookup, video vision, two-stage memory) are
 // turned on per test; every number comes from the shipped config.json.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,8 +35,6 @@ import { createWarmup } from '../src/memory/warmup.js';
 import { createStore } from '../src/memory/store.js';
 import { createDescriber } from '../src/memory/describe.js';
 import { createLookup } from '../src/web/lookup.js';
-import { createMentor } from '../src/mentor/mentor.js';
-import { createMentorBudget } from '../src/mentor/budget.js';
 import { buildExtractRequest, rosterOf, windowsOf } from '../tools/lib/backfill.mjs';
 import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -83,8 +81,8 @@ function tempStore(name) {
 /** Tracked prompt files no request here can build, each with the reason. */
 const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/discord/events.js (buildFollowUpRequest),
-  // which fetches its own history: no seam reaches it (mentor-05, owner decision O-9).
-  address: 'built inside the src/discord/events.js closure (mentor-05, O-9)',
+  // which fetches its own history: no seam reaches it (owner decision O-9).
+  address: 'built inside the src/discord/events.js closure (O-9)',
   // Split into families and drawn from line by line (src/behavior/diary.js#pickSeeds): the plan
   // request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.js#pickSeeds), never sent whole',
@@ -154,10 +152,6 @@ const LOADS = {
   merge: ['merge'],
   gifPick: ['gif-pick'],
   turn:[...SYSTEM, 'reply'],
-  mentorSituations: ['mentor-situations', 'mentor-signs'],
-  mentorSandbox: [...SYSTEM, 'reply'],
-  mentorScore: ['mentor-score', 'mentor-signs', ...CHARACTER],
-  mentorDiagnose: ['mentor-diagnose', 'mentor-signs', ...SYSTEM, 'reply'],
   backfill: ['backfill'],
 };
 
@@ -1257,108 +1251,6 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
   assertFilled(llm.calls[0].messages, { files: LOADS.merge, blocks: ['waiting', 'candidate'] }, 'merge');
   assert.equal(llm.calls[0].options.purpose, 'merge');
   assert.equal(folded.length, 1, 'folded into the waiting part');
-});
-
-// ---- the mentor -----------------------------------------------------------------------------
-
-/** An in-memory stand-in for src/mentor/cases.js#createCaseStore holding one reply case. */
-function oneCase(text) {
-  const item = { id: 1, text, target: 'reply', state: 'active', anchors: [], createdAt: iso(NOW - DAY_MS) };
-  const runs = [];
-  return {
-    item,
-    get: (guildId, id) => (id === item.id ? item : null),
-    list: () => [item],
-    recentFeedback: () => [],
-    lastRun: () => runs.at(-1) ?? null,
-    saveRun: (guildId, record) => {
-      const run = { ...record, id: runs.length + 1 };
-      runs.push(run);
-      return run;
-    },
-  };
-}
-
-test('createMentor: a failing run fills the situations, sandbox, score and diagnosis requests', async () => {
-  const hot = shippedHot({ features: { mentor: true }, mentor: { model: 'x/mentor' } });
-  const situation = (title) => ({
-    title,
-    lines: [
-      { authorId: NIKOS, authorName: 'Nikos', text: 'bonjour, la tomate a gelé', replyTo: null },
-      { authorId: 'self', authorName: SELF_NAME, text: 'pauvre tomate, non ?', replyTo: 0 },
-      { authorId: ANA, authorName: 'Ana', text: 'elle va repousser', replyTo: null },
-      { authorId: 'self', authorName: SELF_NAME, text: 'on parie, non ?', replyTo: 2 },
-      { authorId: NIKOS, authorName: 'Nikos', text: 'je parie un café', replyTo: 3 },
-      { authorId: 'self', authorName: SELF_NAME, text: 'un café, vraiment, non ?', replyTo: 4 },
-      { authorId: ANA, authorName: 'Ana', text: 'Zoë, tu as atteint ta limite de dessins ?', replyTo: null },
-    ],
-  });
-  const kindOf = (messages, options) => {
-    const user = contentText(messages[1]?.content);
-    if (options.purpose === 'reply') return 'sandbox';
-    if (user.includes('<verdict>\n')) return 'diagnose';
-    if (user.includes('<answers>\n')) return 'score';
-    return 'situations';
-  };
-  const llm = recordingLlm((messages, options) => {
-    const kind = kindOf(messages, options);
-    if (kind === 'situations') return JSON.stringify({ situations: [situation('the frozen tomato'), situation('the bet')] });
-    if (kind === 'sandbox') return '<msg>oui, plus de dessins aujourd\'hui</msg>';
-    if (kind === 'score') {
-      const ids = JSON.parse(/<answers>\n([\s\S]*?)\n<\/answers>/.exec(contentText(messages[1].content))[1]).map((a) => a.id);
-      return JSON.stringify({ answers: ids.map((id) => ({ id, human: 3, character: 4, rules: 5, goal: 3, overall: 3, comment: 'too long' })) });
-    }
-    return JSON.stringify({ summary: 'The answers run long.', causes: [], changes: [] });
-  });
-  const reference = normalize([
-    rawMessage(GENERAL_INFO, { ts: NOW - 3 * HOUR_MS, author: PEOPLE[ANA], content: 'les tomates du balcon ont gelé cette nuit' }),
-    rawMessage(GENERAL_INFO, { ts: NOW - 2 * HOUR_MS, author: PEOPLE[NIKOS], content: 'l\'ail tient bon, lui' }),
-    rawMessage(GENERAL_INFO, { ts: NOW - HOUR_MS, author: PEOPLE[BJORN], content: 'café quelqu\'un ?' }),
-  ]);
-  const store = {
-    getGuild: () => GUILD_MEMORY,
-    getUser: (guildId, id) => PROFILES[id] ?? null,
-    getPrivate: () => {
-      throw new Error('the mentor never reads the private layer');
-    },
-    listUserProfiles: () => Object.values(PROFILES),
-    listChannels: () => CHANNELS,
-    getLore: () => LORE,
-    getGifs: () => ({ nextId: 1, entries: {} }),
-    getMediaCache: () => ({}),
-  };
-  const cases = oneCase('The persona says calmly, in one line, that the drawing limit is reached.');
-  const budget = createMentorBudget({ state: { data: {}, markDirty() {} }, getConfig: () => hot.config, now: () => NOW });
-  const mentor = createMentor({
-    hot,
-    store,
-    llm,
-    client: { channels: { fetch: async (id) => ({ id }) } },
-    cases,
-    budget,
-    getGuildId: () => GUILD,
-    getSelf: () => ({ id: SELF_ID, name: SELF_NAME }),
-    fetchHistoryWindow: async () => reference,
-    calibrator: createCalibrator(),
-    now: () => NOW,
-    rng: () => 0.5,
-  });
-  const { result: run } = await withCapturedLogs(async () => (await mentor.run(cases.item.id)).done);
-  assert.equal(run.error, undefined, 'the run ended normally');
-  assert.equal(run.passed, false, 'the low scores fail it, so it asks for a diagnosis');
-
-  const byKind = (kind) => llm.calls.filter((call) => kindOf(call.messages, call.options) === kind);
-  const expected = [
-    ['situations', LOADS.mentorSituations, ['case', 'members', 'reference', 'samples', 'signs']],
-    ['sandbox', LOADS.mentorSandbox, ['senses', 'people', 'chat', 'tempo', 'task']],
-    ['score', LOADS.mentorScore, ['case', 'signs', 'character', 'rules', 'situation', 'answers', 'facts']],
-    ['diagnose', LOADS.mentorDiagnose, ['case', 'verdict', 'signs', 'worst', 'seen']],
-  ];
-  for (const [kind, files, blocks] of expected) {
-    const calls = byKind(kind);
-    assert.ok(calls.length > 0, `no ${kind} request was sent`);
-    for (const call of calls) assertFilled(call.messages, { files, blocks }, `mentor ${kind}`);
-  }
 });
 
 test('backfill: the extract request of tools/backfill.mjs carries prompts/backfill.md whole', () => {

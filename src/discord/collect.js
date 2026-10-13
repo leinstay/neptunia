@@ -31,8 +31,6 @@ const CUSTOM_EMOJI_RE = new RegExp(CUSTOM_EMOJI_MARKUP, 'g');
 const MAX_CHANNEL_MENTIONS = 5;
 // A raw channel mention `<#id>`; the group is the id.
 const CHANNEL_MENTION_RE = new RegExp(`<#(${ID_DIGITS})>`, 'g');
-// A whole message id (a snowflake), as a post ledger entry names one.
-const MESSAGE_ID_RE = new RegExp(`^${ID_DIGITS}$`);
 
 /**
  * Custom emoji markup `<:name:id>` / `<a:name:id>` reads better as `:name:`.
@@ -559,17 +557,6 @@ export async function fetchHistoryWindow(channel, { anchorId, limit, minTs = 0, 
   return collected.reverse();
 }
 
-/** A message list page (newest first), or [] when the fetch fails. */
-async function pageOf(channel, query) {
-  try {
-    const page = await channel.messages.fetch({ limit: PAGE, ...query });
-    return [...page.values()].sort((a, b) => b.createdTimestamp - a.createdTimestamp);
-  } catch (err) {
-    log.warn('collect: moment page fetch failed', { channel: channel.id, error: err });
-    return [];
-  }
-}
-
 /**
  * One message of `channel` by id: discord.js's message cache first, else one
  * fetch; null when it cannot be fetched (deleted, no access, any error) and,
@@ -629,88 +616,6 @@ export async function fetchReplyParents(channel, history, { trigger = null, rece
   for (const line of tail) await fetchParent(line.replyToId ?? null);
 
   return found.sort((a, b) => a.ts - b.ts);
-}
-
-/**
- * Whether `entry` is a post ledger entry fetchMoment can follow: an object
- * whose `newestHistoryId` is a message id.
- */
-function followableEntry(entry) {
-  return Boolean(entry) && typeof entry === 'object' && typeof entry.newestHistoryId === 'string' && MESSAGE_ID_RE.test(entry.newestHistoryId);
-}
-
-/**
- * A moment of a guild channel around one message of the persona, for the
- * mentor: the message that called for it (its TRIGGER), her whole burst (her
- * consecutive messages starting at that one, oldest first) and `limit`
- * messages of the channel's history, normalized like any history (names and
- * reactions as they are now; media labelled, nothing downloaded).
- *
- * With a `ledgerEntry` (the post ledger's record of that message,
- * `state.json` `postLedger`, written by src/behavior/turn.js) that names the
- * newest line the turn saw (`newestHistoryId`), the moment is the turn's own:
- * the history window ends at that line (inclusive; one deleted since leaves
- * the window ending before it), the trigger is the entry's `triggerId` (null
- * for a turn without one; a routed call's lives in another channel and is not
- * looked up here), and the entry comes back as `ledgerEntry`. Otherwise the
- * trigger is guessed -- the message it replies to, else the newest earlier
- * message that is not the persona's (a reply to one of her own messages
- * counts as no reply) -- and the window ends at it. A guess made although an
- * entry was handed in (one without a usable `newestHistoryId`) says so with
- * `triggerGuessed: true`; without an entry the caller knows it is a guess.
- *
- * Throws an Error with an operator-facing reason: a channel without a guild
- * (a private chat), a channel the bot cannot read (no bot member, not
- * viewable, no Read Message History), a message that cannot be fetched or is
- * not the persona's, a reply target that is gone, no earlier message of
- * anyone else, a guessed window that does not end at the trigger, or an empty
- * window at the entry's line.
- * @param {import('discord.js').TextBasedChannel} channel
- * @param {string} messageId
- * @param {{ selfId: string, limit: number, embedTextChars?: number, videoSites?: string[],
- *   ledgerEntry?: { triggerId?: string|null, newestHistoryId?: string|null }|null }} options
- * @returns {Promise<{ messageId: string, triggerId: string|null, history: object[], burst: object[],
- *   ledgerEntry?: object, triggerGuessed?: true }>}
- */
-export async function fetchMoment(channel, messageId, { selfId, limit, embedTextChars, videoSites, ledgerEntry = null }) {
-  if (!channel?.guild) throw new Error('a direct message cannot be used');
-  if (!canRead(channel)) throw new Error('the bot cannot read that channel');
-  const own = await fetchMessage(channel, messageId);
-  if (!own) throw new Error('that message was not found');
-  if (own.author?.id !== selfId) throw new Error("that message is not the persona's");
-  const normalize = (message) => normalizeMessage(message, selfId, { embedTextChars, videoSites });
-
-  const later = (await pageOf(channel, { after: own.id })).reverse();
-  const burst = [own];
-  for (const message of later) {
-    if (message.createdTimestamp < own.createdTimestamp) continue;
-    if (message.author?.id !== selfId) break;
-    burst.push(message);
-  }
-
-  if (followableEntry(ledgerEntry)) {
-    const history = await fetchHistoryWindow(channel, { anchorId: ledgerEntry.newestHistoryId, limit, selfId, embedTextChars, videoSites });
-    if (history.length === 0) throw new Error('the chat before it cannot be read');
-    const triggerId = typeof ledgerEntry.triggerId === 'string' && ledgerEntry.triggerId ? ledgerEntry.triggerId : null;
-    return { messageId: own.id, triggerId, history, burst: burst.map(normalize), ledgerEntry };
-  }
-
-  const isForward = own.reference?.type === MessageReferenceType.Forward;
-  const repliedId = isForward ? null : (own.reference?.messageId ?? null);
-  let trigger = null;
-  if (repliedId) {
-    trigger = await fetchMessage(channel, repliedId);
-    if (!trigger) throw new Error('the message it replies to is gone');
-    if (trigger.author?.id === selfId) trigger = null;
-  }
-  if (!trigger) {
-    trigger = (await pageOf(channel, { before: own.id })).find((message) => message.author?.id !== selfId) ?? null;
-    if (!trigger) throw new Error('no message of anyone else before it');
-  }
-
-  const history = await fetchHistoryWindow(channel, { anchorId: trigger.id, limit, selfId, embedTextChars, videoSites });
-  if (history.length === 0 || history[history.length - 1].id !== trigger.id) throw new Error('the chat before it cannot be read');
-  return { messageId: own.id, triggerId: trigger.id, history, burst: burst.map(normalize), ...(ledgerEntry ? { triggerGuessed: true } : {}) };
 }
 
 /**
