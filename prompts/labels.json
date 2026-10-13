@@ -207,6 +207,9 @@
     "drawFailed": "was about to get a picture, but the drawing sub-process failed: {reason}",
     "private": "wrote to you privately"
   },
+  "status": {
+    "probe": "Reply with the single word pong."
+  },
   "warmup": {
     "ownMark": ">> ",
     "contextMark": "(ctx) "

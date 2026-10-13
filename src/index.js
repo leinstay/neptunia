@@ -309,6 +309,8 @@ const admin = createAdmin({
   archive,
   // /nep pause|resume, memory forget|wipe: system records; /nep memory journal reads it.
   journal,
+  // /nep status: the owner card probes every role's model and the drawing model's listing.
+  llm,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 

@@ -171,6 +171,7 @@ The keys of `labels.json`; `{x}` is filled by code.
 
 ```
 locale                                   BCP-47 tag for dates
+status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: the time between two consecutive lines at least `context.gapMarkerMinutes` apart, worded so it cannot pass for an age

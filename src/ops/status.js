@@ -2,20 +2,26 @@
 // card (`cmdStatusCard`, plain embed data: src/discord/commands.js wraps it for discord.js), the
 // most important field first, for a phone; `detail` adds the long text form (`cmdStatus`) below
 // it. A member (anyone not in `bot.owners`) gets the card without the memory and journal fields,
-// and never the long form. Nothing here probes a provider: every value is what the bot already
-// holds.
+// and never the long form. Every field lists one item per line. The owner's card probes on every
+// call: one minimal chat completion per role's model (`labels.status.probe`, `llm.probeTimeoutMs`,
+// never counted against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`) and one free
+// GET of the drawing model's provider listing; a member's card only names the models.
 
 import fs from 'node:fs/promises';
 import { gifWatchesToday } from '../memory/gif-watch.js';
 import { initiateCooldownUntil } from '../behavior/spontaneous.js';
 import { RECALL_DAILY } from '../behavior/recall-run.js';
-import { llmCountToday } from '../llm/openrouter.js';
+import { llmCountToday, resolveProvider } from '../llm/openrouter.js';
+import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../llm/images.js';
 import { countToday, DAY_MS, HOUR_MS, MINUTE_MS } from '../time.js';
 import { VOICE_DAILY } from '../memory/update.js';
 import { VIDEO_DAILY } from '../memory/describe.js';
 import { WEB_DAILY } from '../web/lookup.js';
 import { PORTRAIT_SLOTS, portraitSettings } from '../memory/portrait.js';
+import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from '../discord/access.js';
+import { MODEL_ROLES } from '../discord/commands.js';
+import { log } from '../log.js';
 import { todayUtc, onOff, modelForRole } from './shared.js';
 import { defineOp, perEnv } from './registry.js';
 
@@ -27,6 +33,78 @@ const OWNER_FIELDS = new Set(['memory', 'journal']);
 
 /** The roles the models field names after the voice, each only when its model differs. */
 const OTHER_ROLES = Object.freeze(['analyzer', 'classifier.text', 'classifier.media', 'classifier.video']);
+
+/** `llm.probeTimeoutMs` when config.json lacks it (the same value). */
+const PROBE_TIMEOUT_MS = 30000;
+
+/** How much of a failed probe's error message the card keeps. */
+const PROBE_ERROR_CHARS = 160;
+
+/** Discord's cap on one embed field's value. */
+const FIELD_MAX_CHARS = 1024;
+
+/** `value` within Discord's field cap, cut after its last whole line that fits. */
+function fitField(value) {
+  if (value.length <= FIELD_MAX_CHARS) return value;
+  const cut = value.slice(0, FIELD_MAX_CHARS);
+  const end = cut.lastIndexOf('\n');
+  return end > 0 ? cut.slice(0, end) : cut;
+}
+
+/** `entry.step`/`.name`/`.stage`, or `'step'` when a routing-funnel entry names itself none of those. */
+function funnelStepName(entry) {
+  return entry?.step ?? entry?.name ?? entry?.stage ?? 'step';
+}
+
+/** `entry.endpoint_count` (OpenRouter's key) first, then a few other plausible spellings. */
+function funnelEndpointCount(entry) {
+  return entry?.endpoint_count ?? entry?.endpoints ?? entry?.count ?? entry?.remaining ?? entry?.endpointCount;
+}
+
+function describeFunnelStep(entry) {
+  const count = funnelEndpointCount(entry);
+  return count == null ? funnelStepName(entry) : `${funnelStepName(entry)} -> ${count} endpoints`;
+}
+
+/**
+ * The last `routing_funnel` step out of an OpenRouter error body (`error.metadata.routing_funnel`
+ * first), with the step that first hit 0 endpoints when that is an earlier one: what tells wrong
+ * provider keys apart from an outage. Null for a body that is not JSON or carries no funnel.
+ */
+function extractRoutingFunnel(rawBody) {
+  if (!rawBody) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch {
+    return null;
+  }
+  const funnel = parsed?.error?.metadata?.routing_funnel ?? parsed?.routing_funnel ?? parsed?.error?.routing_funnel;
+  if (!Array.isArray(funnel) || funnel.length === 0) return null;
+  const last = funnel[funnel.length - 1];
+  if (!last || typeof last !== 'object') return null;
+  const firstZero = funnel.find((entry) => funnelEndpointCount(entry) === 0);
+  const lastLine = `funnel: ${describeFunnelStep(last)}`;
+  return firstZero && firstZero !== last ? `${lastLine} (first hit 0 at ${describeFunnelStep(firstZero)})` : lastLine;
+}
+
+/** One role's probe lines: `<role> <model> · ok <ms> ms` with the provider and token counts
+ * indented below, or `<role> <model> · error: <message>` with the routing funnel below. */
+function probeLines(role, model, outcome) {
+  if (!outcome.ok) {
+    const message = clampChars(oneLine(outcome.err?.message ?? outcome.err ?? 'error'), PROBE_ERROR_CHARS);
+    const funnel = extractRoutingFunnel(outcome.err?.body);
+    return funnel ? [`${role} ${model} · error: ${message}`, `  ${funnel}`] : [`${role} ${model} · error: ${message}`];
+  }
+  const detail = [];
+  if (outcome.result?.provider) detail.push(`provider=${outcome.result.provider}`);
+  const usage = outcome.result?.usage ?? {};
+  if (usage.prompt_tokens != null || usage.completion_tokens != null) {
+    detail.push(`tokens ${usage.prompt_tokens ?? '?'}/${usage.completion_tokens ?? '?'}`);
+  }
+  const head = `${role} ${model} · ok ${outcome.ms} ms`;
+  return detail.length > 0 ? [head, `  ${detail.join(', ')}`] : [head];
+}
 
 /** `YYYY-MM-DD HH:MM UTC` for an epoch ms or an ISO string; `-` for anything else. */
 function utcMinute(value) {
@@ -52,7 +130,7 @@ function span(ms) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel } = env;
+  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm } = env;
 
   /** The next spontaneous turn of `guildId` as an ISO time: src/behavior/spontaneous.js#status
    * keeps `{ [guildId]: epochMs }`. Null when there is none (or no scheduler). */
@@ -149,7 +227,7 @@ const handlers = perEnv((env) => {
     const ping = client?.ws?.ping;
     const latency = Number.isFinite(ping) && ping >= 0 ? `${Math.round(ping)} ms` : '-';
     const last = env.connection?.lastReconnectAt;
-    return `gateway ${latency} · last reconnect ${last ? utcMinute(last) : 'none'}`;
+    return `gateway ${latency}\nlast reconnect ${last ? utcMinute(last) : 'none'}`;
   }
 
   /** What the archive's pending queue holds for `guildId` (0 without an archive or a guild). */
@@ -163,18 +241,19 @@ const handlers = perEnv((env) => {
   function longTasksValue(guildId) {
     const parts = [];
     if (isWarmingUp()) parts.push('warmup running');
-    const running = [
+    for (const [job, name] of [
       [emojiBackfill, 'emoji backfill'],
       [gifBackfill, 'GIF backfill'],
       [gifRecache, 'GIF recache'],
-    ].filter(([job]) => job?.isRunning?.() === true).map(([, name]) => name);
-    if (running.length > 0) parts.push(`${running.join(', ')} running`);
+    ]) {
+      if (job?.isRunning?.() === true) parts.push(`${name} running`);
+    }
     const pending = archivePending(guildId);
     if (pending > 0) parts.push(`archive drain: ${pending} pending`);
-    return parts.length > 0 ? parts.join(' · ') : 'none';
+    return parts.length > 0 ? parts.join('\n') : 'none';
   }
 
-  /** The models field: the voice, then each other role (the drawing model last) whose model differs from it. */
+  /** The models field unprobed: the voice, then each other role (the drawing model last) whose model differs from it. */
   function modelsValue(cfg) {
     const voice = modelForRole('voice', cfg) ?? '-';
     const parts = [`voice ${voice}`];
@@ -183,8 +262,99 @@ const handlers = perEnv((env) => {
       if (model && model !== voice) parts.push(`${role} ${model}`);
     }
     const image = cfg?.image?.model;
-    if (image && image !== voice) parts.push(`image ${imageModelLabel(cfg)}`);
-    return parts.join(' · ');
+    if (image && image !== voice) parts.push(`${IMAGE_ROLE} ${imageModelLabel(cfg)}`);
+    return parts.join('\n');
+  }
+
+  /** The drawing model's state from the provider's public listing: one free GET, no generation,
+   * no cap counted, no state written. Never rejects. */
+  async function imageListing(model, timeoutMs) {
+    if (!(images?.familyOf ?? imageFamilyOf)(model)) return 'unsupported family';
+    if (typeof llm?.modelEndpoints !== 'function') return 'not checked (the llm client has no listing)';
+    const start = Date.now();
+    let listing;
+    try {
+      listing = await llm.modelEndpoints(model, { timeoutMs });
+    } catch (err) {
+      return `error: ${err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'network'}`;
+    }
+    if (listing.status === 404) return 'not listed (HTTP 404)';
+    if (!listing.ok) return `error: HTTP ${listing.status}`;
+    const modalities = listing.json?.data?.architecture?.output_modalities;
+    if (!Array.isArray(modalities) || !modalities.includes('image')) return 'listed, but no image output';
+    const endpoints = Array.isArray(listing.json.data.endpoints) ? listing.json.data.endpoints.length : 0;
+    return `listed, image output, ${endpoints} endpoint(s), ${Date.now() - start} ms`;
+  }
+
+  /** The drawing model's line, or null when none is set; notes when drawing is switched off
+   * (features.imageGeneration false; a missing key counts as on). */
+  async function imageProbeLine(cfg, timeoutMs) {
+    const model = cfg?.image?.model;
+    if (!model) return null;
+    const off = cfg?.features?.imageGeneration === false ? ' (features.imageGeneration is off)' : '';
+    return `${IMAGE_ROLE} ${model} · ${await imageListing(model, timeoutMs)}${off}`;
+  }
+
+  /**
+   * The owner's models field: every role's model probed with one minimal chat completion, in
+   * parallel, then the drawing model's listing. Roles sharing a model share a probe unless a
+   * role-specific `llm.providerByModel` key routes one of them elsewhere; each probe goes out as
+   * the first role that needs it. Never counted against the daily cap, never calibrated, never
+   * writes under data/. Logs `status: probed` with the counts.
+   */
+  async function probedModelsValue(cfg) {
+    const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+    const image = imageProbeLine(cfg, timeoutMs);
+    const roleModel = new Map(MODEL_ROLES.map((role) => [role, modelForRole(role, cfg)]));
+    const targetOf = (role) => {
+      const model = roleModel.get(role);
+      const route = resolveProvider(model, { byModel: cfg?.llm?.providerByModel, fallback: cfg?.llm?.provider, role });
+      return `${model}\n${JSON.stringify(route ?? null)}`;
+    };
+    const promptText = hot.prompts?.labels?.status?.probe;
+    const results = new Map();
+    if (promptText) {
+      const targets = new Map();
+      for (const role of MODEL_ROLES) {
+        const model = roleModel.get(role);
+        if (model && !targets.has(targetOf(role))) targets.set(targetOf(role), { model, role });
+      }
+      await Promise.all(
+        [...targets].map(async ([target, { model, role }]) => {
+          const start = Date.now();
+          try {
+            const result = await llm.complete([{ role: 'user', content: promptText }], {
+              model,
+              role,
+              maxOutputTokens: 16,
+              countAgainstDailyCap: false,
+              skipCalibration: true,
+              timeoutMs,
+              origin: 'status',
+            });
+            results.set(target, { ok: true, ms: Date.now() - start, result });
+          } catch (err) {
+            results.set(target, { ok: false, ms: Date.now() - start, err });
+          }
+        }),
+      );
+    }
+    const outcomes = [...results.values()];
+    log.info('status: probed', {
+      requests: outcomes.length,
+      ok: outcomes.filter((outcome) => outcome.ok).length,
+      failed: outcomes.filter((outcome) => !outcome.ok).length,
+      reason: promptText ? null : 'no-label',
+    });
+    const lines = MODEL_ROLES.flatMap((role) => {
+      const model = roleModel.get(role);
+      if (!model) return [`${role} · no model configured`];
+      if (!promptText) return [`${role} ${model} · skipped: label missing`];
+      return probeLines(role, model, results.get(targetOf(role)));
+    });
+    const imageLine = await image;
+    if (imageLine) lines.push(imageLine);
+    return lines.join('\n');
   }
 
   /** The today field: every daily rail's used/cap, then when they reset. */
@@ -200,7 +370,7 @@ const handlers = perEnv((env) => {
       `recall ${usedOf(countToday(data, RECALL_DAILY, nowMs), cfg?.recall?.maxPerDay)}`,
       `lookups ${usedOf(countToday(data, WEB_DAILY, nowMs), cfg?.web?.maxPerDay)}`,
     );
-    return `${parts.join(' · ')}\nresets 00:00 UTC`;
+    return `${parts.join('\n')}\nresets 00:00 UTC`;
   }
 
   /** When today's journal file was last written, or null (no journal, no file yet). */
@@ -222,19 +392,20 @@ const handlers = perEnv((env) => {
       `buffer ${store.getBuffer(guildId).length} lines`,
       `archive pending ${archivePending(guildId)}`,
       `journal last write ${last === null ? 'none today' : utcMinute(last)}`,
-    ].join(' · ');
+    ].join('\n');
   }
 
   /** The journal field: whether the append store is stalled, and the archive's pending queue. */
   function journalValue(guildId) {
     const stalled = typeof journal?.stalled === 'function' && journal.stalled() === true;
-    return `append store ${stalled ? 'STALLED' : 'ok'} · archive pending ${archivePending(guildId)}`;
+    return `append store ${stalled ? 'STALLED' : 'ok'}\narchive pending ${archivePending(guildId)}`;
   }
 
   /**
    * The status card as plain embed data (`{ fields: [{ name, value, inline }] }`), the fields in
-   * STATUS_FIELDS order; `owner` false leaves out the memory and journal fields. Reads the
-   * freshest data/ even mid-pause.
+   * STATUS_FIELDS order, one item per line in each; `owner` false leaves out the memory and
+   * journal fields and names the models without probing them. Reads the freshest data/ even
+   * mid-pause.
    */
   async function cmdStatusCard({ owner }) {
     freshenIfPaused();
@@ -246,7 +417,8 @@ const handlers = perEnv((env) => {
       state: stateValue(data),
       connection: connectionValue(),
       'long tasks': longTasksValue(guildId),
-      models: modelsValue(cfg),
+      // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
+      models: owner && typeof llm?.complete === 'function' ? await probedModelsValue(cfg) : modelsValue(cfg),
       today: todayValue(cfg, data),
       memory: owner && guildId ? await memoryValue(guildId) : unresolved,
       journal: owner && guildId ? journalValue(guildId) : unresolved,
@@ -254,7 +426,7 @@ const handlers = perEnv((env) => {
     };
     const fields = STATUS_FIELDS
       .filter((name) => owner || !OWNER_FIELDS.has(name))
-      .map((name) => ({ name, value: values[name], inline: false }));
+      .map((name) => ({ name, value: fitField(values[name]), inline: false }));
     return { fields };
   }
 

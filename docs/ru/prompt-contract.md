@@ -164,6 +164,7 @@ recent (лимит `context.caps.recent`) ->
 
 ```
 locale                                   BCP-47 tag for dates
+status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: время между двумя соседними строками, если между ними не меньше `context.gapMarkerMinutes` минут; формулировка не должна читаться как возраст сообщения

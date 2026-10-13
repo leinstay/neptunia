@@ -228,6 +228,9 @@ export const labels = {
     privateChannel: 'direct chat',
     redaction: 'someone',
   },
+  status: {
+    probe: 'Reply with one word: pong',
+  },
   warmup: {
     ownMark: '[own] ',
     contextMark: '[ctx] ',

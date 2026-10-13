@@ -25,6 +25,7 @@ import { buildDrawPrompt } from '../src/behavior/prompt.js';
 import { familyOf, ImageGenError } from '../src/llm/images.js';
 import { createLlm } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
+import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 // ---------------------------------------------------------------------------
 // listRules / appendRule / removeRule
@@ -338,6 +339,7 @@ function makeAdmin(rootDir, extra = {}) {
     gifRecache: extra.gifRecache,
     archive: extra.archive,
     journal: extra.journal,
+    llm: extra.llm,
   });
   return { admin, hot, store };
 }
@@ -1938,13 +1940,12 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.deepEqual(fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'today', 'memory', 'journal', 'uptime']);
   const value = (name) => fields.find((f) => f.name === name).value;
   assert.equal(value('state'), 'paused since 2026-10-13 08:30 UTC by <@42>');
-  assert.match(value('connection'), /^gateway 42 ms · last reconnect none$/);
-  assert.match(value('long tasks'), /warmup running/);
-  assert.match(value('long tasks'), /archive drain: 3 pending/);
-  assert.equal(value('models'), 'voice anthropic/claude-opus-4.6 · analyzer x/analyzer', 'the other roles only where they differ');
-  assert.match(value('today'), /^requests \d+\/300 · videos 0\/40 · recall 0\/100 · lookups 0\/60\nresets 00:00 UTC$/);
-  assert.match(value('memory'), /profiles \d+ · buffer \d+ lines · archive pending 3 · journal last write \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
-  assert.equal(value('journal'), 'append store STALLED · archive pending 3');
+  assert.equal(value('connection'), 'gateway 42 ms\nlast reconnect none');
+  assert.equal(value('long tasks'), 'warmup running\narchive drain: 3 pending');
+  assert.equal(value('models'), 'voice anthropic/claude-opus-4.6\nanalyzer x/analyzer', 'no llm client: the other roles only where they differ, unprobed');
+  assert.match(value('today'), /^requests \d+\/300\nvideos 0\/40\nrecall 0\/100\nlookups 0\/60\nresets 00:00 UTC$/);
+  assert.match(value('memory'), /^profiles \d+\nbuffer \d+ lines\narchive pending 3\njournal last write \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+  assert.equal(value('journal'), 'append store STALLED\narchive pending 3');
   assert.match(value('uptime'), /^(\d+d )?(\d+h )?\d+m$/);
   for (const field of fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 
@@ -1954,6 +1955,125 @@ test('status: the card carries the fields in order and the member variant drops 
   const member = await admin.run('status', { detail: true }, { userId: '999' });
   assert.deepEqual(member.embeds[0].fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'today', 'uptime']);
   assert.equal(member.text, '', 'a member never gets the long form');
+});
+
+/** A fake llm client for the status probes: `complete` answers each role through `answer` (a
+ * function of the role, throwing to fail), recording every call; `modelEndpoints` returns `listing`. */
+function fakeProbeLlm(answer, listing = { ok: true, status: 200, json: { data: { architecture: { output_modalities: ['image'] }, endpoints: [{}, {}] } } }) {
+  const calls = [];
+  const listings = [];
+  return {
+    calls,
+    listings,
+    async complete(messages, options) {
+      calls.push({ messages, options });
+      return answer(options.role);
+    },
+    async modelEndpoints(model, options) {
+      listings.push({ model, options });
+      return listing;
+    },
+  };
+}
+
+/** The probe tests' config: a model per role, the drawing model, the probe timeout and label. */
+function probeConfig(hot) {
+  hot.config.memory = { model: 'x/analyzer' };
+  hot.config.classifier = { text: 'x/text', media: 'x/media', video: 'x/video' };
+  hot.config.image = { model: 'openai/gpt-image-1' };
+  hot.config.llm.probeTimeoutMs = 1234;
+  hot.prompts.labels.status = { probe: 'Answer with one word: Ωmega' };
+}
+
+
+test('status: the card lists one item per line in every field', async () => {
+  const rootDir = makeRoot();
+  const journal = { dayFile: () => path.join(rootDir, 'none.jsonl'), stalled: () => false };
+  const archive = { stats: () => ({ pending: 2 }) };
+  const emojiBackfill = { isRunning: () => true };
+  const gifBackfill = { isRunning: () => true };
+  const llm = fakeProbeLlm(() => ({ provider: 'Prov', usage: { prompt_tokens: 9, completion_tokens: 1 } }));
+  const client = { ws: { ping: 12 }, guilds: { cache: new Map() } };
+  const { admin, hot } = makeAdmin(rootDir, { journal, archive, emojiBackfill, gifBackfill, isWarmingUp: () => true, images: fakeImages({ quota: { used: 2, cap: 5 } }), llm, client });
+  probeConfig(hot);
+  hot.config.media = { video: { maxPerDay: 40 } };
+  hot.config.recall = { maxPerDay: 100 };
+  hot.config.web = { maxPerDay: 60 };
+
+  const { embeds } = await admin.run('status', {}, { userId: '42' });
+  const lines = (name) => embeds[0].fields.find((f) => f.name === name).value.split('\n');
+  assert.deepEqual(embeds[0].fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'today', 'memory', 'journal', 'uptime']);
+  assert.deepEqual(lines('connection'), ['gateway 12 ms', 'last reconnect none']);
+  assert.deepEqual(lines('long tasks'), ['warmup running', 'emoji backfill running', 'GIF backfill running', 'archive drain: 2 pending']);
+  assert.deepEqual(lines('today').map((line) => line.replace(/^requests \d+/, 'requests N')), [
+    'requests N/300',
+    'images 2/5',
+    'videos 0/40',
+    'recall 0/100',
+    'lookups 0/60',
+    'resets 00:00 UTC',
+  ]);
+  assert.deepEqual(lines('memory').map((line) => line.split(' ')[0]), ['profiles', 'buffer', 'archive', 'journal']);
+  assert.deepEqual(lines('journal'), ['append store ok', 'archive pending 2']);
+  const roleLines = lines('models').filter((line) => !line.startsWith('  '));
+  assert.deepEqual(roleLines.map((line) => line.split(' ')[0]), ['voice', 'analyzer', 'classifier.text', 'classifier.media', 'classifier.video', 'image']);
+  for (const field of embeds[0].fields) {
+    if (field.name !== 'models') assert.ok(!field.value.includes(' · '), `${field.name}: no items joined on one line`);
+    assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
+  }
+});
+
+test('status: the owner card probes every role\'s model and shows ok with latency or the error', async () => {
+  const rootDir = makeRoot();
+  const funnel = JSON.stringify({ error: { metadata: { routing_funnel: [{ step: 'model', endpoint_count: 3 }, { step: 'provider', endpoint_count: 0 }] } } });
+  const llm = fakeProbeLlm((role) => {
+    if (role === 'classifier.media') throw Object.assign(new Error('HTTP 503: upstream down'), { body: funnel });
+    return { provider: 'Prov', usage: { prompt_tokens: 9, completion_tokens: 1 } };
+  });
+  const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 2, cap: 5 } }), llm });
+  probeConfig(hot);
+  const modelOf = { voice: 'anthropic/claude-opus-4.6', analyzer: 'x/analyzer', 'classifier.text': 'x/text', 'classifier.media': 'x/media', 'classifier.video': 'x/video' };
+
+  const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
+  const lines = result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n');
+
+  assert.deepEqual(llm.calls.map((call) => call.options.role).sort(), Object.keys(modelOf).sort(), 'one probe per role model');
+  for (const { messages, options } of llm.calls) {
+    assert.deepEqual(messages, [{ role: 'user', content: 'Answer with one word: Ωmega' }]);
+    assert.equal(options.model, modelOf[options.role]);
+    assert.equal(options.countAgainstDailyCap, false, 'never counted against llm.maxRequestsPerDay');
+    assert.equal(options.skipCalibration, true);
+    assert.equal(options.origin, 'status');
+    assert.equal(options.timeoutMs, 1234);
+  }
+  assert.deepEqual(llm.listings, [{ model: 'openai/gpt-image-1', options: { timeoutMs: 1234 } }]);
+
+  assert.match(lines[0], /^voice anthropic\/claude-opus-4\.6 · ok \d+ ms$/);
+  assert.equal(lines[1], '  provider=Prov, tokens 9/1');
+  assert.match(lines[2], /^analyzer x\/analyzer · ok \d+ ms$/);
+  const media = lines.indexOf('classifier.media x/media · error: HTTP 503: upstream down');
+  assert.ok(media > 0, 'the failing role shows its error');
+  assert.equal(lines[media + 1], '  funnel: provider -> 0 endpoints', 'the routing funnel under the error');
+  assert.match(lines.at(-1), /^image openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
+
+  const probed = logs.filter((entry) => entry.msg === 'status: probed');
+  assert.equal(probed.length, 1);
+  assert.equal(probed[0].ok, 4);
+  assert.equal(probed[0].failed, 1);
+});
+
+test('status: the member card shows models without probing', async () => {
+  const rootDir = makeRoot();
+  const llm = fakeProbeLlm(() => ({ provider: 'Prov' }));
+  const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 2, cap: 5 } }), llm });
+  probeConfig(hot);
+  hot.config.bot.access = { 'status.show': { everyone: true, roles: [], users: [] } };
+
+  const { embeds } = await admin.run('status', {}, { userId: '999' });
+  const models = embeds[0].fields.find((f) => f.name === 'models').value;
+  assert.equal(models, 'voice anthropic/claude-opus-4.6\nanalyzer x/analyzer\nclassifier.text x/text\nclassifier.media x/media\nclassifier.video x/video\nimage openai/gpt-image-1');
+  assert.equal(llm.calls.length, 0, 'no probe request');
+  assert.equal(llm.listings.length, 0, 'no listing request');
 });
 
 // ---------------------------------------------------------------------------
