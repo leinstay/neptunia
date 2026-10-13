@@ -3818,8 +3818,10 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * some files never existed; the store stays fully usable afterwards (a following
      * `touchUser`/`getGuild` works and persists), no restart required. Before anything goes, the
      * whole guild directory is copied into the vault (`vaultGuild`; `opts.vault`, a path an
-     * earlier `vaultGuild` returned, skips the copy); the deletion ledger (`forgotten.json`) goes
-     * with the rest, and the guild's directory inside every snapshot under `data/snapshots/`.
+     * earlier `vaultGuild` returned, skips the copy); the record (`record/`), the archive
+     * (`archive/`), the backfill tool's files (`backfill/`) and the deletion ledger
+     * (`forgotten.json`) go with the rest, and the guild's directory inside every snapshot under
+     * `data/snapshots/`.
      * @param {string} guildId
      * @param {{ keepOwnerLore?: boolean, keepMediaCache?: boolean, vault?: string|null,
      *   vaultDir?: string, now?: () => number }} [opts]
@@ -3911,6 +3913,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
       // The recall trace quotes members' messages: it goes with the rest.
       fs.rmSync(recallTraceFile(guildId), { force: true });
+      // The record and the archive are this guild's memory too, and the backfill tool's scratch
+      // files (tools/backfill.mjs) quote it: the vault holds their copy.
+      for (const name of ['record', 'archive', 'backfill']) fs.rmSync(path.join(guildDir(guildId), name), { recursive: true, force: true });
       // The deletion ledger goes with the memory it guarded.
       fs.rmSync(ledgerFile(guildId), { force: true });
 

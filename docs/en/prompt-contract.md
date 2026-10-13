@@ -62,6 +62,7 @@ All instructions are English in both layers; a character's speech samples may be
 | `gif-pick.md` | no | Classifier: pick a GIF from the library to replace a short text reply (`features.gifPicker`). Receives the last `gifs.pick.contextMessages` chat lines with the answered message named, the persona's reply and the whole captioned library. The length gate is `gifs.pick.maxChars` (default 160); with several outgoing messages only the first is replaced. Output is one handle from the library or `none`. No character card | `{{name}}` |
 | `split.md` | no | Classifier: does a direct call hold several separate requests (`features.splitTasks`). Receives a short `<transcript>` and the new message as `<candidate>`. Output is the word `one`, or 2 to `{{maxTasks}}` lines each starting with `- ` and holding one part in the author's own words. No character card. Without this file the splitter is off | `{{name}}` `{{maxTasks}}` |
 | `merge.md` | no | Classifier: does a new message from an author with waiting items belong to one of them. Receives a numbered `<waiting>` list and the new message as `<candidate>`. Output is one line: a number from the list or the word `new`. No character card. Without this file a new call is always queued as its own item | `{{name}}` |
+| `backfill.md` | no | Out-of-character prompt of the backfill tool (`tools/backfill.mjs extract`, never the running bot): picks episodes worth months and lessons taught to the persona out of one window of old chat. Receives `<roster>` and `<window>`. Returns JSON. No character card. Without it the tool's extract step refuses | `{{name}}` |
 | `labels.json` | yes | Every string the CODE inserts into a prompt. Keys fixed below, values are the writer's | see below |
 
 `{{name}}` bot's display name · `{{author}}` caller's display name · `{{trigger}}` one of `labels.triggers.*` ·
@@ -633,6 +634,37 @@ When `features.versions` is on (the default), every replacement of a prose field
 `/nep memory forget` deletes the member's version file. `/nep memory wipe` deletes the entire `versions/` folder for the server.
 
 Each record logs `store: version recorded` with `kind`, `field`, `by`, `chars`, `kept`, `removed`, `added` (a channel id for channel versions, never a member id).
+
+## Backfill
+
+`tools/backfill.mjs extract` (an operations tool, run by hand; see `tools/README.md`) sends one request per window
+of connected old lines (reply chains, gaps of at most `recall.clusterGapMinutes`, at most 120 lines) on the analyzer
+model (`memory.model`, else `llm.model`; role `analyzer`, purpose `backfill`, no cache marker).
+
+System: `backfill.md` with `{{name}}`. User, two blocks:
+
+- `<roster>`: a JSON array, the persona first as `{ "id", "names": [<display name>], "self": true }`, then one
+  `{ "id", "names" }` per member the window names (authors, mentions, authors of replied lines), `names` the stored
+  names and alias names, at most 5. No profile text, no attitude.
+- `<window>`: a JSON object `{ "channel": <name or null>, "date": "YYYY-MM-DD", "lines": [...] }`, each line
+  `{ "id", "at" (ISO), "by" (a roster id; the persona's id on their own lines), "replyTo" (a message id or null),
+  "text", "media" (kinds, only when there are some) }`.
+
+The answer is one JSON object:
+
+```
+{ "episodes": [ { "member": "<roster id>", "what": "...", "quote": "...", "weight": 1-5, "brief": "...", "sources": ["<line id>", ...] } ],
+  "lessons":  [ { "text": "...", "from": "<roster id or empty>", "weight": 1-5, "sources": ["<line id>", ...] } ] }
+```
+
+Code keeps only the `sources` that are lines of the window and drops an item without one; an episode needs a
+`member` the window names (never the persona) and a `what`; a lesson's `from` is kept only when it is such a member.
+`what` and `quote` are clamped as stored episodes are, a lesson's `text` to `memory.learnedChars`, `brief` to 300
+characters; a missing or unreadable `weight` is 3. The episode's date and `observedAt` are the window's day. The
+items go to a scratch file first; the `dedupe` step archives the new ones (`event: backfill`, `origin: backfill`),
+never into hot memory and never as a `felt` record line. The optional `voice` step sends the archived episodes of a
+high enough weight as `feeling` items through `memory-voice.md` (stage B above, `brief` from this answer) and
+archives the worded text as the episode's `feeling` with `reconstructedAt`.
 
 ## Channel map
 

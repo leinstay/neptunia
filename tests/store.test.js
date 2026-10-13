@@ -3599,13 +3599,19 @@ test('store: forgetUser writes the marker first and the ledger last; a crash mid
   assert.deepEqual(await restarted.store.resumeForgets('g1', { journal: restarted.journal, now: () => FORGET_AT + 60_000 }), { finished: 0 });
 });
 
-test('store: wipeGuild copies the guild directory into data/vault first', () => {
+test('store: wipeGuild copies the guild directory into data/vault first, then deletes the record, the archive and the backfill files', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
   seedGuild(store);
   store.flush();
   store.touchUser('g1', 'u3', 'Ζωή', 2000); // only cached: the vault flushes first
   fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'forgotten.json'), JSON.stringify([{ userId: 'u9', at: '2026-10-01T00:00:00.000Z' }]));
+  fs.mkdirSync(path.join(dir, 'guilds', 'g1', 'record', '2026-10'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'record', '2026-10', '2026-10-12.jsonl'), '{"kind":"seen","messageId":"m1"}\n');
+  fs.mkdirSync(path.join(dir, 'guilds', 'g1', 'archive'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'archive', '2026-10.jsonl'), '{"kind":"archive","itemId":"ep-1"}\n');
+  fs.mkdirSync(path.join(dir, 'guilds', 'g1', 'backfill'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'backfill', 'candidates.jsonl'), '{"kind":"episode"}\n');
   const snapshotGuild = path.join(dir, 'snapshots', '2026-10-11T00-00-00-000Z', 'guilds', 'g1');
   fs.mkdirSync(path.join(snapshotGuild, 'users'), { recursive: true });
   fs.writeFileSync(path.join(snapshotGuild, 'users', 'u1.json'), '{"id":"u1"}');
@@ -3622,6 +3628,11 @@ test('store: wipeGuild copies the guild directory into data/vault first', () => 
   assert.equal(fs.existsSync(snapshotGuild), false, 'the snapshot loses the guild');
   assert.deepEqual(readLedger(dir, 'g1'), [], 'the ledger goes with the rest');
   assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'users', 'u3.json')), false);
+  for (const rel of ['record/2026-10/2026-10-12.jsonl', 'archive/2026-10.jsonl']) assert.ok(copied.includes(rel), `${rel} is in the vault`);
+  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'record')), false, 'the record goes after its copy');
+  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'archive')), false, 'the archive goes after its copy');
+  assert.ok(copied.includes('backfill/candidates.jsonl'));
+  assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'backfill')), false, 'the backfill scratch files go too');
 });
 
 test('store: applyLedger removes a reappeared profile and lines of a forgotten user', async () => {
