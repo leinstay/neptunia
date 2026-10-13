@@ -1,9 +1,9 @@
 // Discord's own search, for recall (src/behavior/recall-run.js): the guild's
-// message search, the guild's member search and the messages around one
-// message of a channel. Thin I/O over discord.js: the message and member
+// message search, the guild's member search, the messages around one
+// message of a channel and the ones right after it. Thin I/O over discord.js: the message and member
 // searches go through `guild.client.rest.get` (discord.js has no manager for
-// them), the window through the channel's message manager and
-// normalizeMessage. discord.js runs every request of one guild's route one
+// them), the window and what follows it through the channel's message
+// manager and normalizeMessage. discord.js runs every request of one guild's route one
 // after another (@discordjs/rest: REST#queueRequest keys a SequentialHandler
 // by the route's bucket and the guild id, whose queueRequest lets the next
 // request start only when the previous one has finished), so a caller sends
@@ -116,6 +116,20 @@ export async function searchMembers(guild, query, limit, { signal } = {}) {
   }
 }
 
+/** One page of `channel`'s messages for `query` (`around` or `after`), normalized, oldest first; null and `failed` logged on a failure. */
+async function fetchPage(channel, query, limit, { selfId, embedTextChars, videoSites }, failed) {
+  try {
+    const size = Math.min(100, Math.max(1, Math.floor(Number(limit) || 1)));
+    const page = await channel.messages.fetch({ ...query, limit: size });
+    return [...page.values()]
+      .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+      .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites }));
+  } catch (err) {
+    log.warn(failed, { channel: channel?.id ?? null, status: err?.status ?? err?.statusCode ?? null, name: err?.name ?? null });
+    return null;
+  }
+}
+
 /**
  * Up to `limit` (1..100) messages of `channel` around `messageId` (Discord's
  * `around`), normalized with normalizeMessage, oldest first. A failure (the
@@ -127,15 +141,22 @@ export async function searchMembers(guild, query, limit, { signal } = {}) {
  * @param {{ selfId: string, embedTextChars?: number, videoSites?: string[] }} options
  * @returns {Promise<object[]|null>}
  */
-export async function fetchAround(channel, messageId, limit, { selfId, embedTextChars, videoSites } = {}) {
-  try {
-    const size = Math.min(100, Math.max(1, Math.floor(Number(limit) || 1)));
-    const page = await channel.messages.fetch({ around: messageId, limit: size });
-    return [...page.values()]
-      .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-      .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites }));
-  } catch (err) {
-    log.warn('search: around failed', { channel: channel?.id ?? null, status: err?.status ?? err?.statusCode ?? null, name: err?.name ?? null });
-    return null;
-  }
+export function fetchAround(channel, messageId, limit, options = {}) {
+  return fetchPage(channel, { around: messageId }, limit, options, 'search: around failed');
+}
+
+/**
+ * Up to `limit` (1..100) messages of `channel` right after `messageId`
+ * (Discord's `after`: the oldest ones following it), normalized with
+ * normalizeMessage, oldest first: what follows a recall window. A failure
+ * logs `search: after failed` (`channel`, `status`, `name`) and resolves
+ * null.
+ * @param {import('discord.js').TextBasedChannel} channel
+ * @param {string} messageId
+ * @param {number} limit
+ * @param {{ selfId: string, embedTextChars?: number, videoSites?: string[] }} options
+ * @returns {Promise<object[]|null>}
+ */
+export function fetchAfter(channel, messageId, limit, options = {}) {
+  return fetchPage(channel, { after: messageId }, limit, options, 'search: after failed');
 }

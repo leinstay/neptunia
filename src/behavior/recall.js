@@ -8,7 +8,10 @@
 // one form per query, so the server part becomes an ordered list of queries
 // (content forms round-robin, then authors, or a date range sampled when
 // nothing else is given); the hits are grouped into clusters by channel and
-// time, a window of messages around each is fetched, and one helper request
+// time, a window of messages around each is fetched and carried forward
+// along its conversation until it settles (followConversation: at most
+// `recall.followMessages` more lines, up to the first silence longer than
+// `recall.followGapMinutes`), and one helper request
 // (prompts/recall-summary.md) reads the windows and says what the history
 // answers, optionally singling out one stretch the persona then gets
 // verbatim. The same word and name forms are also matched against the
@@ -21,7 +24,8 @@
 // their reply chains and neighbours (matchRecord: a dated question its range,
 // any other the last `recall.recordDays` days, a dateless one keeping the
 // window of the earliest match so an origin question sees where a thing
-// started), as windows marked `source: record` beside the search's.
+// started; each window followed forward the same way), as windows marked
+// `source: record` beside the search's.
 // Hits the turn already shows in its chat are
 // dropped before clustering (dropChatHits); once the windows are fetched, a
 // window holding the persona's own line ranks higher (rankClusters), and the
@@ -52,6 +56,8 @@ export const RECALL_DEFAULTS = Object.freeze({
   keepOldest: 0,
   rareHits: 5,
   windowMessages: 16,
+  followMessages: 24,
+  followGapMinutes: 5,
   answerChars: 1200,
   stretchChars: 1500,
   maxPerDay: 100,
@@ -134,12 +140,15 @@ function numberAtLeast(value, fallback, min) {
  * for the persona's own stretches), `selfExtra` (no window beyond
  * `maxClusters`) and `contextMessages` (no `<context>` block);
  * `traceMaxLines` is at least 1; `windowMessages` is at most 100;
+ * `followMessages` is at most 100 (one Discord page) and may be 0 (a window
+ * is not followed past its end); `followGapMinutes` is a number of at least 0;
  * `memoryTokens` (no `<memory>` line fits), `recordDays` (the record is not
  * read), `recordContext` (no neighbours) and `archiveMonths` (the archive is
  * not searched without a `when:` range) may be 0 too.
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
- *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, answerChars: number, stretchChars: number, maxPerDay: number,
+ *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, followMessages: number,
+ *   followGapMinutes: number, answerChars: number, stretchChars: number, maxPerDay: number,
  *   timeoutMs: number, minSummaryMs: number, maxOutputTokens: number, memoryItems: number, selfBonus: number, selfExtra: number,
  *   contextMessages: number, traceMaxLines: number, memoryTokens: number, recordDays: number, recordContext: number,
  *   archiveMonths: number }|null}
@@ -157,6 +166,8 @@ export function recallSettings(config) {
     keepOldest: intAtLeast(r.keepOldest, d.keepOldest, 0),
     rareHits: intAtLeast(r.rareHits, d.rareHits, 0),
     windowMessages: Math.min(MAX_WINDOW_MESSAGES, intAtLeast(r.windowMessages, d.windowMessages, 1)),
+    followMessages: Math.min(MAX_WINDOW_MESSAGES, intAtLeast(r.followMessages, d.followMessages, 0)),
+    followGapMinutes: numberAtLeast(r.followGapMinutes, d.followGapMinutes, 0),
     answerChars: intAtLeast(r.answerChars, d.answerChars, 1),
     stretchChars: intAtLeast(r.stretchChars, d.stretchChars, 0),
     maxPerDay: intAtLeast(r.maxPerDay, d.maxPerDay, 0),
@@ -648,6 +659,35 @@ export function recallContext(history, question, count) {
   const n = intAtLeast(count, RECALL_DEFAULTS.contextMessages, 0);
   if (n === 0 || !Array.isArray(history)) return [];
   return history.filter((m) => m && (!question?.id || m.id !== question.id)).slice(-n);
+}
+
+/**
+ * The lines that carry a window's conversation on past its last line (at
+ * `lastTs`): of `after` (the same channel's lines following it, any order),
+ * oldest first, each taken while no more than `followGapMinutes` passed
+ * since the line before it (the window's last line for the first) and fewer
+ * than `followMessages` are taken; the first longer silence ends the
+ * conversation there. The caller filters what it shows (other bots, the
+ * turn's own chat) afterwards, so such a line still keeps the conversation
+ * going. `followMessages` 0 or a non-finite `lastTs` gives none.
+ * @param {number} lastTs
+ * @param {{ ts: number }[]} after
+ * @param {{ followMessages?: number, followGapMinutes?: number }} [options]  RECALL_DEFAULTS when unusable.
+ * @returns {object[]}
+ */
+export function followConversation(lastTs, after, { followMessages, followGapMinutes } = {}) {
+  const cap = intAtLeast(followMessages, RECALL_DEFAULTS.followMessages, 0);
+  const gap = numberAtLeast(followGapMinutes, RECALL_DEFAULTS.followGapMinutes, 0) * MINUTE_MS;
+  const out = [];
+  if (cap === 0 || !Number.isFinite(lastTs)) return out;
+  let previous = lastTs;
+  const list = (Array.isArray(after) ? after : []).filter((m) => m && Number.isFinite(m.ts)).sort((x, y) => x.ts - y.ts);
+  for (const message of list) {
+    if (out.length >= cap || message.ts - previous > gap) break;
+    out.push(message);
+    previous = message.ts;
+  }
+  return out;
 }
 
 /**
@@ -1327,7 +1367,9 @@ function recordMessage(line, { nameOf, selfName }) {
  * hits nor shown; a window that lost one is `overlapsChat`. Each hit's
  * window, in its channel: its reply chain (`replyTo` within the scanned
  * days, at most REPLY_CHAIN_MAX parents), the `recordContext` lines before
- * and after it, and the hit; windows sharing a line are merged
+ * and after it, and the hit, then followed past its last line along the
+ * channel's lines read (followConversation with `followMessages` and
+ * `followGapMinutes`, RECALL_DEFAULTS when missing); windows sharing a line are merged
  * (mergeWindows), every hit inside a window is in its `hitIds`. At most
  * `maxWindows` windows are kept: by their best score, then the newer last
  * line; with `recent` (isRecentCue) a window with a line of the persona
@@ -1341,13 +1383,14 @@ function recordMessage(line, { nameOf, selfName }) {
  * persona's own lines under `selfName`). Stops reading at an aborted `signal`.
  * @param {string} guildId
  * @param {{ record: { iterate: Function }, range?: { from?: number|null, to?: number|null }, participants?: string[],
- *   forms?: string[], aliases?: string[], recordDays?: number, recordContext?: number, now: number, maxWindows?: number,
+ *   forms?: string[], aliases?: string[], recordDays?: number, recordContext?: number, followMessages?: number,
+ *   followGapMinutes?: number, now: number, maxWindows?: number,
  *   allowLine?: (line: object) => boolean, exclude?: Set<string>|string[], recent?: boolean,
  *   nameOf?: (id: string) => (string|null|undefined), selfName?: string, channelNameOf?: (id: string) => (string|null|undefined),
  *   signal?: AbortSignal }} options
  * @returns {Promise<{ windows: object[], scanned: number, hits: number }>}
  */
-export async function matchRecord(guildId, { record, range = {}, participants = [], forms = [], aliases = [], recordDays, recordContext, now, maxWindows, allowLine, exclude, recent = false, nameOf, selfName = '', channelNameOf, signal } = {}) {
+export async function matchRecord(guildId, { record, range = {}, participants = [], forms = [], aliases = [], recordDays, recordContext, followMessages, followGapMinutes, now, maxWindows, allowLine, exclude, recent = false, nameOf, selfName = '', channelNameOf, signal } = {}) {
   const none = { windows: [], scanned: 0, hits: 0 };
   const days = intAtLeast(recordDays, RECALL_DEFAULTS.recordDays, 0);
   const around = intAtLeast(recordContext, RECALL_DEFAULTS.recordContext, 0);
@@ -1430,6 +1473,9 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
         parentId = parent.replyToId;
       }
       for (const neighbour of [...list.slice(Math.max(0, at - around), at), message, ...list.slice(at + 1, at + 1 + around)]) chosen.set(neighbour.id, neighbour);
+      // Carried forward from its last line while the conversation goes on (the chat's lines left out below).
+      const last = Math.max(...[...chosen.keys()].map((id) => position.get(id)));
+      for (const next of followConversation(list[last].ts, list.slice(last + 1, last + 1 + MAX_WINDOW_MESSAGES), { followMessages, followGapMinutes })) chosen.set(next.id, next);
       const all = [...chosen.values()];
       const messages = all.filter((m) => !excluded.has(m.id)).sort((x, y) => x.ts - y.ts || (x.id < y.id ? -1 : 1));
       return {

@@ -11,8 +11,11 @@
 // sending them together would only queue them there), the hits filtered
 // (other bots, channels the pull rail refuses for this destination, the
 // turn's own chat), clustered, the windows around the clusters fetched
-// together (channel routes, queued per channel), captioned from the media
-// cache only, then the summary. Rails: `features.recall`, server turns and
+// together (channel routes, queued per channel), each followed past its last
+// line while its conversation goes on (one more page of the channel, cut by
+// recall.js followConversation: `recall.followMessages` lines at most, up to
+// the first silence longer than `recall.followGapMinutes`), captioned from
+// the media cache only, then the summary. Rails: `features.recall`, server turns and
 // private chats run on behalf of their partner (the pull rail then keeps what
 // the partner can view), the daily request cap (`llm.capLeft`), `recall.maxPerDay` runs a day
 // (state.json `recallDay`/`recallCount`), and `recall.timeoutMs` for the
@@ -43,7 +46,7 @@
 import { log } from '../log.js';
 import { audienceOf } from '../discord/collect.js';
 import { audienceAllows, checkPull } from '../discord/pull-fetch.js';
-import { fetchAround, searchMembers, searchMessages } from '../discord/search.js';
+import { fetchAfter, fetchAround, searchMembers, searchMessages } from '../discord/search.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { oneLine } from '../memory/clamp.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
@@ -58,6 +61,7 @@ import {
   cutStretch,
   dropChatHits,
   fallbackWindow,
+  followConversation,
   isRecentCue,
   matchMemory,
   matchRecord,
@@ -430,6 +434,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         aliases,
         recordDays: settings.recordDays,
         recordContext: settings.recordContext,
+        followMessages: settings.followMessages,
+        followGapMinutes: settings.followGapMinutes,
         now: now(),
         maxWindows: settings.maxClusters,
         allowLine,
@@ -609,9 +615,11 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     }
 
     // 5. Clusters (a form whose search totals at most `recall.rareHits` is rare): `recall.selfExtra`
-    // more than will be kept, 6. a window around each (other bots and the turn's own chat left
-    // out; a window that reached into the chat is marked `overlapsChat`, one holding the persona's
-    // own line `self`), 7. the final `recall.maxClusters` re-ranked with `recall.selfBonus` for `self`.
+    // more than will be kept, 6. a window around each, followed past its last line while the
+    // conversation goes on (`recall.followMessages`, `recall.followGapMinutes`; a failed fetch keeps
+    // the window as it was; other bots and the turn's own chat left out; a window that reached into
+    // the chat is marked `overlapsChat`, one holding the persona's own line `self`), 7. the final
+    // `recall.maxClusters` re-ranked with `recall.selfBonus` for `self`.
     const candidates = clusterHits(kept, {
       gapMinutes: settings.clusterGapMinutes,
       maxClusters: settings.maxClusters + settings.selfExtra,
@@ -619,11 +627,20 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       rareForms: rareFormKeys(totals, settings.rareHits),
     });
     const normalizeOptions = { selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites };
+    // The lines after a window's last one that continue its conversation; none when the follow is off,
+    // the window already ends in the turn's own chat (what follows is that chat) or the fetch fails.
+    const followOf = async (source, messages) => {
+      const last = messages[messages.length - 1];
+      if (settings.followMessages <= 0 || !last || ownIds.has(last.id)) return [];
+      const after = await fetchAfter(source, last.id, settings.followMessages, normalizeOptions);
+      return after ? followConversation(last.ts, after, settings) : [];
+    };
     const fetched = await Promise.all(
       candidates.map(async (cluster) => {
         const source = judged.get(cluster.channelId);
-        const messages = await fetchAround(source, cluster.middleId, settings.windowMessages, normalizeOptions);
-        if (!messages) return null;
+        const around = await fetchAround(source, cluster.middleId, settings.windowMessages, normalizeOptions);
+        if (!around) return null;
+        const messages = [...around, ...(await followOf(source, around))];
         const shown = messages.filter((m) => !m.bot && !ownIds.has(m.id));
         const marked = { ...cluster, self: shown.some((m) => m.self === true), overlapsChat: messages.some((m) => ownIds.has(m.id)) };
         return {

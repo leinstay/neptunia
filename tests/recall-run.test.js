@@ -26,7 +26,7 @@ const GUILD = 'g1';
 const PROMPT = 'You are {{name}}; {{answerChars}}.';
 
 // The recall settings the runner tests rely on, pinned here instead of read from the shipped defaults.
-const RECALL_PIN = { maxForms: 8, maxPeople: 2, dateSamples: 4, clusterGapMinutes: 30, maxClusters: 8, rareHits: 0, windowMessages: 16, answerChars: 1200, stretchChars: 1500, maxPerDay: 100, timeoutMs: 30000, minSummaryMs: 2500, maxOutputTokens: 500, memoryItems: 6, selfBonus: 1, selfExtra: 0, contextMessages: 0, traceMaxLines: 500 };
+const RECALL_PIN = { maxForms: 8, maxPeople: 2, dateSamples: 4, clusterGapMinutes: 30, maxClusters: 8, rareHits: 0, windowMessages: 16, answerChars: 1200, stretchChars: 1500, maxPerDay: 100, timeoutMs: 30000, minSummaryMs: 2500, maxOutputTokens: 500, memoryItems: 6, selfBonus: 1, selfExtra: 0, contextMessages: 0, traceMaxLines: 500, followMessages: 24, followGapMinutes: 5 };
 
 /** The shipped config.json with the recall settings pinned and the given groups merged over a fresh copy (one level deep). */
 function config(overrides = {}) {
@@ -94,6 +94,7 @@ function scene({ lines = {}, answers = () => ({ total_results: 0, messages: [] }
     },
   };
   const fetches = [];
+  const follows = [];
   const addChannel = (id, name, { everyone = true } = {}) => {
     const stored = lines[id] ?? [];
     const channel = {
@@ -107,7 +108,12 @@ function scene({ lines = {}, answers = () => ({ total_results: 0, messages: [] }
       permissionsFor: (target) => ({ has: () => everyone || target?.id === 'self' }),
       permissionOverwrites: { cache: new Map() },
       messages: {
-        fetch: async ({ around, limit }) => {
+        fetch: async ({ around, after, limit }) => {
+          if (after !== undefined) {
+            follows.push({ channel: id, after, limit });
+            const from = stored.findIndex((l) => l.id === after) + 1;
+            return new Map(stored.slice(from, from + limit).map((l) => [l.id, djs(id, l)]));
+          }
           fetches.push({ channel: id, around, limit });
           const at = stored.findIndex((l) => l.id === around);
           const from = Math.max(0, at - Math.floor(limit / 2));
@@ -162,6 +168,7 @@ function scene({ lines = {}, answers = () => ({ total_results: 0, messages: [] }
     args,
     calls,
     fetches,
+    follows,
     llmCalls,
     data,
     hot,
@@ -1097,4 +1104,88 @@ test('recall-run: private entries match only for their owner', async () => {
   const server = await ask(null);
   assert.ok(server.includes('κουνέλι in the open'), server);
   assert.ok(!server.includes('whispered') && !server.includes('stray') && !server.includes('another') && !server.includes('in the dm'), 'a server turn reads no private entry');
+});
+
+// ---- a window follows its conversation -------------------------------------------------------
+
+/** #garden: a name question (n2) answered minutes after a short window around it, then a long silence. */
+const NAME_LINES = [
+  line('n0', RABBIT - 2 * MINUTE, { name: 'Éloïse', author: 'u3' }),
+  line('n1', RABBIT - MINUTE),
+  line('n2', RABBIT, { name: 'Éloïse', author: 'u3', content: 'είναι το όνομά μου Ίρις;' }),
+  line('n3', RABBIT + MINUTE, { name: 'Zoë', author: 'self', content: 'στοίχημα πως ναι' }),
+  line('n4', RABBIT + 2 * MINUTE),
+  line('n5', RABBIT + 4 * MINUTE, { name: 'Éloïse', author: 'u3' }),
+  line('n6', RABBIT + 5 * MINUTE, { name: 'Birthdays', author: 'bot1', content: 'birthday!', bot: true }),
+  line('n7', RABBIT + 8 * MINUTE, { content: 'κέρδισες, Ηλέκτρα' }),
+  line('n8', RABBIT + 20 * MINUTE, { content: 'αργότερα' }),
+];
+const NAME_SERVER = { forms: ['όνομά'], who: [], from: null, to: null };
+
+/** `όνομά` finds n2 in #garden. */
+function nameAnswers(route, query) {
+  if (route.endsWith('/members/search')) return [];
+  return query.content === 'όνομά' ? { total_results: 1, messages: [[rawHit('c2', NAME_LINES[2])]] } : { total_results: 0, messages: [] };
+}
+
+/** The ids of the name lines shown in <found>, in order. */
+function foundIds(s) {
+  const user = s.llmCalls[0].messages[1].content;
+  const found = user.slice(user.indexOf('<found>'), user.indexOf('</found>'));
+  return NAME_LINES.filter((l) => found.includes(`: ${l.content}`)).map((l) => l.id);
+}
+
+test('recall-run: a search window follows its conversation past its end until a silence longer than followGapMinutes', async () => {
+  const s = scene({ lines: { c2: NAME_LINES }, answers: nameAnswers, recall: { windowMessages: 4 } });
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: NAME_SERVER }));
+  assert.deepEqual(s.fetches.map((f) => f.around), ['n2']);
+  assert.deepEqual(s.follows, [{ channel: 'c2', after: 'n3', limit: 24 }], 'after the window\'s last line, in its own channel');
+  assert.deepEqual(foundIds(s), ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n7'], 'the other bot left out; the 12-minute silence stops it');
+});
+
+test('recall-run: followGapMinutes and followMessages stop the follow sooner, followMessages 0 keeps the window', async () => {
+  const gap = scene({ lines: { c2: NAME_LINES }, answers: nameAnswers, recall: { windowMessages: 4, followGapMinutes: 2 } });
+  await withCapturedLogs(() => gap.recaller.run({ ...gap.args, server: NAME_SERVER }));
+  assert.deepEqual(foundIds(gap), ['n0', 'n1', 'n2', 'n3', 'n4', 'n5'], 'n6 -> n7 is three minutes');
+  const capped = scene({ lines: { c2: NAME_LINES }, answers: nameAnswers, recall: { windowMessages: 4, followMessages: 2 } });
+  await withCapturedLogs(() => capped.recaller.run({ ...capped.args, server: NAME_SERVER }));
+  assert.deepEqual(capped.follows.map((f) => f.limit), [2]);
+  assert.deepEqual(foundIds(capped), ['n0', 'n1', 'n2', 'n3', 'n4', 'n5']);
+  const off = scene({ lines: { c2: NAME_LINES }, answers: nameAnswers, recall: { windowMessages: 4, followMessages: 0 } });
+  await withCapturedLogs(() => off.recaller.run({ ...off.args, server: NAME_SERVER }));
+  assert.equal(off.follows.length, 0, 'no request');
+  assert.deepEqual(foundIds(off), ['n0', 'n1', 'n2', 'n3']);
+});
+
+test('recall-run: a failing follow fetch keeps the window as it was', async () => {
+  const s = scene({ lines: { c2: NAME_LINES }, answers: nameAnswers, recall: { windowMessages: 4 } });
+  const messages = s.args.guild.channels.cache.get('c2').messages;
+  const fetch = messages.fetch;
+  messages.fetch = async (options) => {
+    if (options.after !== undefined) throw Object.assign(new Error('Missing Access'), { status: 403, name: 'DiscordAPIError' });
+    return fetch(options);
+  };
+  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: NAME_SERVER }));
+  assert.ok(logs.some((l) => l.msg === 'search: after failed'));
+  assert.deepEqual(foundIds(s), ['n0', 'n1', 'n2', 'n3']);
+  assert.equal(result.stats.windows, 1);
+});
+
+test('recall-run: a window that follows into the turn\'s chat is flagged and shows none of it', async () => {
+  const lines = {
+    c1: [
+      line('y1', NOW - 35 * MINUTE, { content: 'το κουνέλι πάλι' }),
+      line('y2', NOW - 33 * MINUTE, { content: 'ποιο κουνέλι' }),
+      line('h1', NOW - 30 * MINUTE, { name: 'Nikos', author: 'u9', content: 'τι έγινε με το κουνέλι;' }),
+      line('h2', NOW - MINUTE, { name: 'Nikos', author: 'u9', content: 'ποιος σκότωσε το κουνέλι;' }),
+    ],
+  };
+  const answers = (route, query) => (query.content === 'κουνέλι' ? { total_results: 1, messages: [[rawHit('c1', lines.c1[0])]] } : { total_results: 0, messages: [] });
+  const s = scene({ lines, answers, recall: { windowMessages: 2 } });
+  s.hot.prompts.labels = FLAGGED;
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.deepEqual(s.follows.map((f) => f.after), ['y2']);
+  const user = s.llmCalls[0].messages[1].content;
+  assert.deepEqual(user.split('\n').filter((l) => l.startsWith('## ')), ['## 1 | 2026-10-05 | #general [CURRENT]']);
+  assert.ok(!user.slice(user.indexOf('<found>'), user.indexOf('</found>')).includes('τι έγινε'), 'the chat line stays out');
 });

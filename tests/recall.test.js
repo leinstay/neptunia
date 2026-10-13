@@ -12,6 +12,7 @@ import {
   cutStretch,
   dropChatHits,
   fallbackWindow,
+  followConversation,
   isRecentCue,
   matchMemory,
   matchRecord,
@@ -971,7 +972,7 @@ test('recall: the record reader returns the matching lines with reply chain and 
   ];
   const record = fakeRecord(lines);
   const names = { [ANA]: 'Ana', [ELO]: 'Éloïse', [KITE]: 'Kitezu' };
-  const options = { record, range: { from: null, to: null }, participants: [], forms: ['κουνέλι'], aliases: [], recordDays: 2, recordContext: 3, now: NOW, maxWindows: 5, nameOf: (id) => names[id] ?? null, selfName: 'Zoë' };
+  const options = { record, range: { from: null, to: null }, participants: [], forms: ['κουνέλι'], aliases: [], recordDays: 2, recordContext: 3, followMessages: 0, now: NOW, maxWindows: 5, nameOf: (id) => names[id] ?? null, selfName: 'Zoë' };
   const { windows } = await matchRecord('g1', options);
   assert.equal(windows.length, 1, 'the line older than recordDays is not read');
   const [window] = windows;
@@ -1039,4 +1040,65 @@ test('recall: a record line outside the range is not scanned', async () => {
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+test('recallSettings: followMessages and followGapMinutes read like the rest, followMessages 0 is off', () => {
+  const s = recallSettings({ recall: { followMessages: 7.8, followGapMinutes: 2.5 } });
+  assert.deepEqual([s.followMessages, s.followGapMinutes], [7, 2.5]);
+  assert.equal(recallSettings({ recall: { followMessages: 0 } }).followMessages, 0, 'the follow off');
+  assert.equal(recallSettings({ recall: { followMessages: 500 } }).followMessages, 100, 'one Discord page at most');
+  assert.equal(recallSettings({ recall: { followMessages: -1 } }).followMessages, RECALL_DEFAULTS.followMessages);
+  assert.equal(recallSettings({ recall: { followGapMinutes: 'x' } }).followGapMinutes, RECALL_DEFAULTS.followGapMinutes);
+});
+
+test('followConversation: takes the following lines until a silence longer than the gap or the cap', () => {
+  const T = NOW - HOUR;
+  const after = [5, 1, 3, 9, 30].map((m) => ({ id: `a${m}`, ts: T + m * MINUTE }));
+  const ids = (list) => list.map((m) => m.id);
+  assert.deepEqual(ids(followConversation(T, after, { followMessages: 24, followGapMinutes: 5 })), ['a1', 'a3', 'a5', 'a9'], 'oldest first; 9 -> 30 is a silence');
+  assert.deepEqual(ids(followConversation(T, after, { followMessages: 2, followGapMinutes: 5 })), ['a1', 'a3'], 'the cap');
+  assert.deepEqual(ids(followConversation(T, after, { followMessages: 24, followGapMinutes: 1 })), ['a1'], 'a shorter gap stops sooner');
+  assert.deepEqual(followConversation(T - 10 * MINUTE, after, { followMessages: 24, followGapMinutes: 5 }), [], 'a silence right after the last line');
+  assert.deepEqual(followConversation(T, after, { followMessages: 0, followGapMinutes: 5 }), [], 'followMessages 0: off');
+});
+
+test('recall: a record window follows its conversation past recordContext until the gap, in its own channel only', async () => {
+  const T = NOW - 20 * HOUR;
+  const lines = [
+    rec('b1', T - MINUTE),
+    rec('h1', T, { text: 'είναι το όνομά μου Ίρις;' }),
+    rec('n1', T + MINUTE),
+    rec('x1', T + 2 * MINUTE, { channelId: 'c3', text: 'elsewhere' }),
+    rec('n2', T + 4 * MINUTE),
+    rec('n3', T + 8 * MINUTE),
+    rec('n4', T + 12 * MINUTE, { text: 'κέρδισες, Ηλέκτρα' }),
+    rec('late', T + 40 * MINUTE),
+  ];
+  const base = { range: { from: null, to: null }, participants: [], forms: ['όνομά'], aliases: [], recordDays: 2, recordContext: 1, now: NOW, maxWindows: 5 };
+  const followed = await matchRecord('g1', { ...base, record: fakeRecord(lines), followMessages: 24, followGapMinutes: 5 });
+  assert.deepEqual(followed.windows.map((w) => w.messages.map((m) => m.id)), [['b1', 'h1', 'n1', 'n2', 'n3', 'n4']], 'up to the 28-minute silence; the other channel stays out');
+  const capped = await matchRecord('g1', { ...base, record: fakeRecord(lines), followMessages: 2, followGapMinutes: 5 });
+  assert.deepEqual(capped.windows[0].messages.map((m) => m.id), ['b1', 'h1', 'n1', 'n2', 'n3'], 'two lines past the recordContext neighbour');
+  const gap = await matchRecord('g1', { ...base, record: fakeRecord(lines), followMessages: 24, followGapMinutes: 3 });
+  assert.deepEqual(gap.windows[0].messages.map((m) => m.id), ['b1', 'h1', 'n1', 'n2'], 'n2 -> n3 is four minutes: stops');
+  const off = await matchRecord('g1', { ...base, record: fakeRecord(lines), followMessages: 0, followGapMinutes: 5 });
+  assert.deepEqual(off.windows[0].messages.map((m) => m.id), ['b1', 'h1', 'n1']);
+  const chat = await matchRecord('g1', { ...base, record: fakeRecord(lines), followMessages: 24, followGapMinutes: 5, exclude: new Set(['n3']) });
+  assert.deepEqual(chat.windows[0].messages.map((m) => m.id), ['b1', 'h1', 'n1', 'n2', 'n4'], 'a chat line is left out');
+  assert.equal(chat.windows[0].overlapsChat, true);
+  const hidden = await matchRecord('g1', { ...base, record: fakeRecord(lines), followMessages: 24, followGapMinutes: 5, allowLine: (line) => line.messageId !== 'n2' });
+  assert.deepEqual(hidden.windows[0].messages.map((m) => m.id), ['b1', 'h1', 'n1'], 'a refused line is never read: n1 -> n3 is seven minutes');
+});
+
+test('recall: record windows that meet after following still merge into one', async () => {
+  const T = NOW - 20 * HOUR;
+  const lines = [
+    rec('h1', T, { text: 'όνομά one' }),
+    ...[1, 2, 3, 4, 5, 6].map((m) => rec(`n${m}`, T + m * MINUTE)),
+    rec('h2', T + 7 * MINUTE, { text: 'όνομά two' }),
+  ];
+  const { windows } = await matchRecord('g1', { record: fakeRecord(lines), range: { from: null, to: null }, participants: [], forms: ['όνομά'], aliases: [], recordDays: 2, recordContext: 1, followMessages: 24, followGapMinutes: 5, now: NOW, maxWindows: 5 });
+  assert.equal(windows.length, 1);
+  assert.deepEqual(windows[0].messages.map((m) => m.id), ['h1', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'h2']);
+  assert.deepEqual([...windows[0].hitIds].sort(), ['h1', 'h2']);
 });
