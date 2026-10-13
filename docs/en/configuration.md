@@ -289,6 +289,8 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `keepOldest` | `0` | Of the `maxClusters` kept, this many slots go to the oldest clusters with a topic score of at least 2. A cluster scoring below 2 never gets a reserved slot. `0` = ranked order only |
 | `rareHits` | `5` | A `server:` form whose search returned at most this many hits on the whole server counts double in a cluster's topic score. `0` = no rarity bonus |
 | `windowMessages` | `16` | Messages fetched around each cluster centre |
+| `followMessages` | `24` | At most this many lines after a stretch's last line are added while the conversation continues, so a stretch reaches where an exchange settled. `0` turns the extension off |
+| `followGapMinutes` | `5` | The extension stops at the first silence longer than this many minutes |
 | `selfExtra` | `2` | Extra clusters whose windows are fetched beyond `maxClusters`, so a window with the persona's own line can still win a slot once `selfBonus` applies. `0` = only `maxClusters` windows (the bonus then only reorders them) |
 | `selfBonus` | `1` | Added to the topic score of a cluster whose window holds at least one line of the persona. `0` = no bonus |
 | `contextMessages` | `6` | Chat lines before the question that the summary reads as `<context>` (the lines the search classifier read). `0` = no `<context>` block |

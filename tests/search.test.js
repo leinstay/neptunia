@@ -2,7 +2,7 @@
 // and the window around a message, over a fake REST client and channel.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchAround, searchMembers, searchMessages } from '../src/discord/search.js';
+import { fetchAfter, fetchAround, searchMembers, searchMessages } from '../src/discord/search.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 /** A guild whose REST client records each GET and answers with `answer(route, query)`. */
@@ -155,4 +155,39 @@ test('fetchAround: a failing fetch resolves null', async () => {
   const { result, logs } = await withCapturedLogs(() => fetchAround(channel, 'm2', 16, { selfId: 'self' }));
   assert.equal(result, null);
   assert.deepEqual(logs.map((l) => [l.msg, l.channel, l.status]), [['search: around failed', 'c1', 404]]);
+});
+
+test('fetchAfter: asks for the messages after an id and returns them normalized, oldest first', async () => {
+  const queries = [];
+  const channel = {
+    id: 'c1',
+    messages: {
+      fetch: async (query) => {
+        queries.push(query);
+        return new Map([
+          ['m6', djsMessage('m6', 6000)],
+          ['m5', djsMessage('m5', 5000)],
+        ]);
+      },
+    },
+  };
+  const messages = await fetchAfter(channel, 'm4', 24, { selfId: 'self' });
+  assert.deepEqual(queries, [{ after: 'm4', limit: 24 }]);
+  assert.deepEqual(messages.map((m) => [m.id, m.content]), [['m5', 'γραμμή m5'], ['m6', 'γραμμή m6']]);
+  await fetchAfter(channel, 'm4', 500, { selfId: 'self' });
+  assert.equal(queries[1].limit, 100, 'one page at most');
+});
+
+test('fetchAfter: a failing fetch resolves null', async () => {
+  const channel = {
+    id: 'c1',
+    messages: {
+      fetch: async () => {
+        throw Object.assign(new Error('Missing Access'), { status: 403, name: 'DiscordAPIError' });
+      },
+    },
+  };
+  const { result, logs } = await withCapturedLogs(() => fetchAfter(channel, 'm4', 24, { selfId: 'self' }));
+  assert.equal(result, null);
+  assert.deepEqual(logs.map((l) => [l.msg, l.channel, l.status]), [['search: after failed', 'c1', 403]]);
 });
