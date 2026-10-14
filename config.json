@@ -156,6 +156,7 @@
     "followUpMaxOutputTokens": 2000,
     "followUpNoStreak": 5,
     "followUpAliases": 5,
+    "failOpenMinutes": 3,
     "pauseNoticeMinutes": 10
   },
   "typing": {
