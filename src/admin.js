@@ -100,6 +100,9 @@ const ARCHIVE_CHOICES = 25;
  * `llm` — from createLlm() (src/llm/openrouter.js), optional: `complete()`, the probe the owner's
  *   `/nep status` card sends to each role's model, and `modelEndpoints()`, its free check of the
  *   drawing model. Absent -> the card names the models without probing them.
+ * `embedder` — from createEmbedder() (src/llm/embed.js), optional: `embed()`, the one-input
+ *   embedding request the owner's `/nep status` card probes the `classifier.embed` role with.
+ *   Absent -> that role is shown unchecked.
  * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing

@@ -29,7 +29,7 @@ import {
   parseAddressAnswer,
   followUpTriggerKind,
   isTaggedCall,
-  classifierTextModel,
+  helperModel,
   roomPreFilter,
 } from '../behavior/mention.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
@@ -774,7 +774,7 @@ export function createMessageHandler({
     let answer = 'no';
     if (llm) {
       // Read once: the request and its empty-answer warning name the same model.
-      const model = classifierTextModel(config);
+      const model = helperModel(config, { role: 'classifier.text', purpose: 'address' });
       try {
         // A classifier call skipped by the daily cap (DailyCapError, thrown
         // synchronously before any fetch) lands here exactly like any other
@@ -951,7 +951,7 @@ export function createMessageHandler({
     }
     if (!request) return null;
 
-    const model = classifierTextModel(config);
+    const model = helperModel(config, { role: 'classifier.text', purpose: 'room' });
     let completion;
     try {
       completion = await llm.complete(
@@ -1558,7 +1558,7 @@ export function createMessageHandler({
           { role: 'user', content: user },
         ],
         {
-          model: classifierTextModel(config),
+          model: helperModel(config, { role: 'classifier.text', purpose: 'merge' }),
           ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: config.mention?.followUpMaxOutputTokens, purpose: 'merge' }),
         },
       );

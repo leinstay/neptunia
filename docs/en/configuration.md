@@ -93,23 +93,23 @@ Every key in `config.json` with its default, grouped by section.
 | `providerByModel` | `{}` | Per-model provider routing; see below |
 | `cache.ttl` | `"1h"` | Cache TTL of the markers on the system message and on the reply's stable user prefix (`<self_facts>`, `<about_chat>`, `<gifs>`): `"1h"` or `"5m"` |
 | `cache.profilesTtl` | `"5m"` | Cache TTL of the separate marker on the reply's profiles (`<people>`): `"1h"` or `"5m"`; `null` or `false` = no marker there. Never longer than `cache.ttl` (a `"5m"` `cache.ttl` makes it `"5m"`) |
-| `cache.roles` | `["voice"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached |
+| `cache.roles` | `["voice"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached. Add `classifier.text` and `classifier.reason` to cache the helpers' stable parts too |
 | `cache.models` | `["anthropic/"]` | Model id prefixes (case-sensitive) whose provider accepts the `cache_control` marker. A request to a model outside the list is sent without one |
 | `cache.promptIncludesCached` | `true` | Whether the provider's reported `prompt_tokens` already includes cached and cache-write tokens. Set once from a probe; the token calibration and the per-request cap use the full count either way |
-| `hedge.roles` | `["classifier.text"]` | Request roles whose calls are hedged (two concurrent attempts, first to finish wins) |
+| `hedge.roles` | `["classifier.text", "classifier.reason"]` | Request roles whose calls are hedged (two concurrent attempts, first to finish wins) |
 | `hedge.afterMs` | `2500` | Milliseconds before the second attempt starts. `0` or below turns hedging off for all roles |
 | `hedge.timeoutMs` | `8000` | Milliseconds from the first attempt's start at which both are aborted if neither has returned |
 | `hedge.longTimeoutMs` | `20000` | Timeout used instead of `timeoutMs` when the caller marks the request `long: true` (the route classifier does this for a large channel list) |
 
 `llm.provider` sets a default OpenRouter provider routing on chat requests, for example `{ "ignore": ["some-provider"] }` or `{ "order": ["anthropic"], "allow_fallbacks": true }`. `llm.providerByModel` adds per-model overrides: each key is a model id prefix (matching any role) or `<prefix>@<role>` (matching one role only), and each value is an OpenRouter routing object sent verbatim.
 
-For one request the provider is resolved in order: a per-call pin (the video describer uses `media.video.provider` for the direct-URL path), then the longest matching prefix among `providerByModel` keys for the request's role, then the longest matching prefix among role-less keys, then `llm.provider` (for image requests `image.provider`), then nothing. A role-specific key always beats a role-less key for the same model. Role names: `voice`, `analyzer`, `classifier.text`, `classifier.media`, `classifier.video`, `image`. For compatibility, a route key or a roles list that still says `talk` is read as `voice` with one log line (`config: role talk is now voice`).
+For one request the provider is resolved in order: a per-call pin (the video describer uses `media.video.provider` for the direct-URL path), then the longest matching prefix among `providerByModel` keys for the request's role, then the longest matching prefix among role-less keys, then `llm.provider` (for image requests `image.provider`), then nothing. A role-specific key always beats a role-less key for the same model. Role names: `voice`, `analyzer`, `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`, `classifier.embed`, `image`. For compatibility, a route key or a roles list that still says `talk` is read as `voice` with one log line (`config: role talk is now voice`).
 
 Example: `"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` routes all Google models through Vertex, while `"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` sends the video classifier through AI Studio. Route keys that contain dots (e.g. `google/@classifier.video`) cannot be edited through `/nep set` because it splits on dots; use `/nep route set` and `/nep route remove`.
 
 If the OpenRouter account itself restricts allowed providers, ignoring the only one left makes every request fail with "No endpoints found". After changing provider settings, check `/nep status` to verify that every model role is reachable; each role follows its `llm.providerByModel` route, so the provider shown is the one that route selects.
 
-With `features.promptCache` on, the system message is marked for the provider's prompt cache on requests whose role is in `llm.cache.roles` and whose model starts with a prefix in `llm.cache.models`. On the reply, two more markers follow in the user message: one at the end of the stable prefix (`llm.cache.ttl`) and one at the end of the profiles (`llm.cache.profilesTtl`); three of the provider's four markers in all. See "Cache segments" in the [prompt contract](prompt-contract.md). Three helper requests send their user message in two parts so the provider can cache the bulk that repeats between calls: the GIF picker (the `<gifs>` library), the route classifier (the `<channels>` list) and the participation pick (the `<episodes>` list) tag that first part with the same `cacheSegment: 'stable'` (marker TTL `llm.cache.ttl`); the per-turn text follows untagged. The marker is placed only when the helper's role (`classifier.text`) is in `llm.cache.roles` and its model matches `llm.cache.models`; add `classifier.text` to `llm.cache.roles` to cache them. The markers go on after the token estimate, so the 50k per-request cap and the calibration are unaffected. `llm.cache.promptIncludesCached` tells the engine how the provider reports cached tokens; set it once from a real probe. The `llm: usage` log line gains `cache`: `write`, `read`, `none` or `off`.
+With `features.promptCache` on, the system message is marked for the provider's prompt cache on requests whose role is in `llm.cache.roles` and whose model starts with a prefix in `llm.cache.models`. On the reply, two more markers follow in the user message: one at the end of the stable prefix (`llm.cache.ttl`) and one at the end of the profiles (`llm.cache.profilesTtl`); three of the provider's four markers in all. See "Cache segments" in the [prompt contract](prompt-contract.md). Three helper requests send their user message in two parts so the provider can cache the bulk that repeats between calls: the GIF picker (the `<gifs>` library), the route classifier (the `<channels>` list) and the participation pick (the `<episodes>` list) tag that first part with the same `cacheSegment: 'stable'` (marker TTL `llm.cache.ttl`); the per-turn text follows untagged. The marker is placed only when the helper's role (`classifier.text`) is in `llm.cache.roles` and its model matches `llm.cache.models`; add `classifier.text` (and `classifier.reason` for the reasoning helpers) to `llm.cache.roles` to cache them. The markers go on after the token estimate, so the 50k per-request cap and the calibration are unaffected. `llm.cache.promptIncludesCached` tells the engine how the provider reports cached tokens; set it once from a real probe. The `llm: usage` log line gains `cache`: `write`, `read`, `none` or `off`.
 
 The `llm: usage` log line also carries `ms` (wall time of the request), `purpose` (a short string naming what the request was for, e.g. `route-channel`, `recall-summary`, `address`), `origin` (e.g. `replay` for the requests of `tools/replay.mjs`), `hedged` (true when the request was hedged) and `attempt` (1 or 2 for hedged requests, absent otherwise).
 
@@ -117,15 +117,24 @@ With `llm.hedge` configured, requests on the roles it lists are hedged: a second
 
 ## `classifier`
 
-The three helper model roles, grouped under one key. Each is set independently, so the helpers can stay on cheap models while the voice uses a premium one.
+Helper model roles, grouped under one key. Each is set independently, so the helpers can stay on cheap models while the voice uses a premium one.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `text` | `"anthropic/claude-sonnet-4.6"` | Runs the address classifier (`features.followUp`), the search classifier, the link reader, the search condenser and the recall summary (`features.webLookup`, `features.recall`), the re-watch classifier (`features.videoRewatch`), the room classifier (`spontaneous.roomQuestionChance`) and the channel route classifier (`features.channelRoute`) |
+| `text` | `"anthropic/claude-sonnet-4.6"` | Runs the address classifier (`features.followUp`), the re-watch classifier (`features.videoRewatch`), the room classifier (`spontaneous.roomQuestionChance`) and the channel route classifier (`features.channelRoute`) |
+| `reason` | `null` | The helpers that reason over content: the search classifier, the recall summary, the search condenser, the link reader and the diary planner. Unset (default) uses the `classifier.text` model; the status card shows the fallback. Its requests carry role `classifier.reason` |
+| `byPurpose` | `{}` | Per-purpose model override: an object whose keys are purpose strings (e.g. `lookup`, `recall-summary`, `diary-plan`) and whose values are model ids. A match on purpose wins over the role's model. Not probed by `/nep status` |
 | `media` | `"anthropic/claude-haiku-4.5"` | Picture describer (`features.mediaDescriptions`): one-line descriptions for pictures, GIF frames, video posters, stickers, custom emoji and link thumbnails |
 | `video` | `"google/gemini-3.8-flash"` | Video describer (`features.videoDescriptions`): watches short clips, re-watches on a question, retries on request. Must accept both video and audio input |
+| `embed` | `"openai/text-embedding-3-large"` | The embedding model (for meaning search). Its requests carry role `classifier.embed`; its `llm: usage` lines report `inputs` (the number of texts embedded) and `dimensions`. Probed by `/nep status` with a one-input embedding request; without an embedding client the line says it was not checked |
 
 **Migration from the old keys.** The deprecated keys `llm.classifierModel`, `mention.followUpModel`, `media.model` and `media.video.model` are no longer read. If any of them is present in `config.local.json`, the bot logs a startup warning (`index: deprecated model key ignored`) naming the key and its replacement. Move the value to `classifier.text`, `classifier.media` or `classifier.video` respectively.
+
+## `embed`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `dimensions` | `1024` | Dimensions requested from the embedding model. A smaller value is faster and cheaper when the model supports truncation |
 
 ## `context`
 
@@ -800,7 +809,7 @@ Before anything leaves hot memory (an episode, interest, detail, alias, real nam
 
 ## Models
 
-The engine uses seven model roles. Each is set independently, so the voice can use a premium model while the helpers stay cheap.
+The engine uses eight model roles. Each is set independently, so the voice can use a premium model while the helpers stay cheap.
 
 ### Voice (`llm.model`)
 
@@ -814,7 +823,15 @@ Role `analyzer`. Reasons over long transcripts and returns strict JSON. Needs th
 
 ### Text classifiers (`classifier.text`)
 
-The cheapest text model that can answer "yes" or "no" reliably. Runs the address classifier (`features.followUp`), the search classifier, the link reader, the search condenser and the recall summary (`features.webLookup`, `features.recall`), the re-watch classifier (`features.videoRewatch`), the room classifier (`spontaneous.roomQuestionChance`) and the channel route classifier (`features.channelRoute`). Default: `anthropic/claude-sonnet-4.6`.
+The cheapest text model that can answer "yes" or "no" reliably. Runs the address classifier (`features.followUp`), the re-watch classifier (`features.videoRewatch`), the room classifier (`spontaneous.roomQuestionChance`) and the channel route classifier (`features.channelRoute`). Default: `anthropic/claude-sonnet-4.6`.
+
+### Reasoning helpers (`classifier.reason`)
+
+Role `classifier.reason`. The helpers that reason over content rather than answering yes/no: the search classifier (`features.webLookup`), the recall summary, the search condenser, the link reader (`features.recall`) and the diary planner. Default: `null`, which uses the `classifier.text` model. A `llm.providerByModel` key matching `<prefix>@classifier.text` also applies to this role when it has no key of its own.
+
+### Embeddings (`classifier.embed`)
+
+Role `classifier.embed`. The embedding model, for meaning search. Default: `openai/text-embedding-3-large` with `embed.dimensions` 1024. Its requests go through the same transport, retries and daily cap as chat requests. The `/nep status` card probes it with a one-input embedding request; without an embedding client the line says it was not checked.
 
 ### Pictures (`classifier.media`)
 

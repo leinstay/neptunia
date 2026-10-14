@@ -226,7 +226,7 @@ test('diary turn: plans on the classifier model, then composes with the card', a
   for (const tag of ['now', 'world', 'diary', 'kinds', 'seeds']) assert.ok(planUser.includes(`<${tag}>`), `plan request: <${tag}>`);
   assert.ok(planUser.includes('WORLD of Bot'));
   assert.ok(planUser.includes('- a pier; fog'), 'one seed line per family');
-  assert.equal(llm.options[0].role, 'classifier.text');
+  assert.equal(llm.options[0].role, 'classifier.reason');
   assert.equal(llm.options[0].purpose, 'diary-plan');
   assert.equal(llm.options[0].maxOutputTokens, 250);
   assert.equal(llm.options[0].timeoutMs, 15000);
@@ -243,7 +243,7 @@ test('diary turn: plans on the classifier model, then composes with the card', a
 
 test('diary turn: a hedged plan request is limited by diary.planTimeoutMs, an unhedged one carries no hedge', async () => {
   const hedged = fakeHot({ diary: { planTimeoutMs: 120000 } });
-  hedged.config.llm.hedge = { roles: ['classifier.text'], afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 };
+  hedged.config.llm.hedge = { roles: ['classifier.reason'], afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 };
   const llmHedged = fakeLlm({ kind: 'status', brief: 'b', search: '', picture: false }, '<msg>x</msg>');
   await runner({ hot: hedged, llm: llmHedged }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
   assert.equal(llmHedged.options[0].purpose, 'diary-plan');

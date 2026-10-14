@@ -3597,12 +3597,12 @@ test('createTurnRunner: the text-only retry after a 4xx image error is requested
   assert.deepEqual(llm.optionCalls.map((o) => [o?.role, o?.purpose]), [['voice', 'reply'], ['voice', 'reply']]);
 });
 
-test('createTurnRunner: the rewatch and lookup classifiers are requested as classifier.text, the turn as voice', async () => {
+test('createTurnRunner: the rewatch classifier is requested as classifier.text, the lookup as classifier.reason, the turn as voice', async () => {
   const rewatch = await runRewatch();
   assert.equal(rewatch.llm.classifierCalls[0].options.role, 'classifier.text');
   assert.equal(rewatch.llm.turnCalls[0].options.role, 'voice');
   const lookup = await runLookupTurn();
-  assert.equal(lookup.llm.classifierCalls[0].options.role, 'classifier.text');
+  assert.equal(lookup.llm.classifierCalls[0].options.role, 'classifier.reason');
   assert.equal(lookup.llm.turnCalls[0].options.role, 'voice');
 });
 

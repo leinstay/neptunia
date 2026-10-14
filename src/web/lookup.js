@@ -9,7 +9,7 @@
 //   never a `web.links.skipSites` host, never a URL whose path ends
 //   with a picture/video/audio/archive/pdf extension) is fetched through the
 //   SSRF-guarded page fetcher (src/web/fetch-page.js; `web.acceptLanguage`
-//   sent as its Accept-Language) and condensed by the text classifier model through
+//   sent as its Accept-Language) and condensed by the reasoning helper model (`classifier.reason`) through
 //   prompts/read-link.md into one excerpt of at most `web.links.summaryChars`.
 // - search: one Brave Search request (src/web/brave.js) whose numbered
 //   results are condensed through prompts/search-summary.md, sources kept.
@@ -31,7 +31,7 @@
 
 import { isGifHostUrl, siteOf } from '../discord/media.js';
 import { videoSiteFor, safeLocation } from '../discord/video-sites.js';
-import { classifierTextModel } from '../behavior/mention.js';
+import { helperModel } from '../behavior/mention.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
 import { dailyCapOf, helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { clampText, oneLine } from '../memory/clamp.js';
@@ -281,8 +281,8 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
           { role: 'user', content: title ? `${title}\n\n${body}` : body },
         ],
         {
-          model: classifierTextModel(config),
-          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: linksCfg.maxOutputTokens, purpose: 'read-link', long: true }),
+          model: helperModel(config, { role: 'classifier.reason', purpose: 'read-link' }),
+          ...helperRequestOptions(config, { role: 'classifier.reason', maxOutputTokens: linksCfg.maxOutputTokens, purpose: 'read-link', long: true }),
         },
       );
     } catch (err) {
@@ -447,8 +447,8 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
             { role: 'user', content: renderResults(found.results) },
           ],
           {
-            model: classifierTextModel(config),
-            ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: searchCfg.maxOutputTokens, purpose: 'search-summary', long: true }),
+            model: helperModel(config, { role: 'classifier.reason', purpose: 'search-summary' }),
+            ...helperRequestOptions(config, { role: 'classifier.reason', maxOutputTokens: searchCfg.maxOutputTokens, purpose: 'search-summary', long: true }),
           },
         );
       } catch (err) {

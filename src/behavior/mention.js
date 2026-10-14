@@ -4,6 +4,7 @@
 // it, and almost always ignores tag spam. The model gets a second veto later
 // (<skip/>) for calls that are simply not interesting.
 
+import { isPlainObject } from '../config.js';
 import { ignoreAdjustment } from '../memory/affinity.js';
 import { occursAsWholeWord } from '../memory/mentions.js';
 import { MINUTE_MS } from '../time.js';
@@ -273,6 +274,59 @@ export function classifierMediaModel(config) {
  */
 export function classifierVideoModel(config) {
   return config?.classifier?.video || undefined;
+}
+
+/**
+ * The reasoning helper model (the helpers that reason over content: the search classifier, the
+ * recall summary, the search summary, the link reader, the diary planner -- `REASON_PURPOSES`):
+ * `classifier.reason`, else the text model (classifierTextModel), so while it is unset every one
+ * of them keeps the model it had. `undefined` when none is set.
+ * @param {object|undefined} config  the full hot config
+ * @returns {string|undefined}
+ */
+export function classifierReasonModel(config) {
+  return config?.classifier?.reason || classifierTextModel(config);
+}
+
+/**
+ * The embedding model (src/llm/embed.js): `classifier.embed`. No fallback: a chat model cannot
+ * embed. `undefined` when none is set.
+ * @param {object|undefined} config  the full hot config
+ * @returns {string|undefined}
+ */
+export function classifierEmbedModel(config) {
+  return config?.classifier?.embed || undefined;
+}
+
+/** The purposes whose requests go out on the role `classifier.reason`, in the order of the task. */
+export const REASON_PURPOSES = Object.freeze(['lookup', 'recall-summary', 'search-summary', 'read-link', 'diary-plan']);
+
+/** Each helper role's own resolver, with its fallback chain. */
+const ROLE_MODELS = Object.freeze({
+  'classifier.text': classifierTextModel,
+  'classifier.reason': classifierReasonModel,
+  'classifier.media': classifierMediaModel,
+  'classifier.video': classifierVideoModel,
+  'classifier.embed': classifierEmbedModel,
+});
+
+/**
+ * The model of one helper request, the one resolver every helper call site goes through: the
+ * `classifier.byPurpose` entry for `purpose` when it is a non-empty string (an own key of a plain
+ * object: a one-off move of a single helper, whatever its role), else the model of `role` with
+ * that role's fallback chain (classifierReasonModel falls back to the text model, the text model
+ * to the media one). `undefined` when nothing is set or the role is not a helper role.
+ * @param {object|undefined} config  the full hot config, read at the moment of use
+ * @param {{ role?: string, purpose?: string }} [request]
+ * @returns {string|undefined}
+ */
+export function helperModel(config, { role, purpose } = {}) {
+  const byPurpose = config?.classifier?.byPurpose;
+  if (typeof purpose === 'string' && isPlainObject(byPurpose) && Object.hasOwn(byPurpose, purpose)) {
+    const pinned = byPurpose[purpose];
+    if (typeof pinned === 'string' && pinned) return pinned;
+  }
+  return Object.hasOwn(ROLE_MODELS, role) ? ROLE_MODELS[role](config) : undefined;
 }
 
 const DEPRECATED_MODEL_KEYS = [

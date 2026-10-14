@@ -12,6 +12,10 @@ import {
   followUpPreFilter,
   classifierTextModel,
   classifierMediaModel,
+  classifierReasonModel,
+  classifierEmbedModel,
+  helperModel,
+  REASON_PURPOSES,
   deprecatedModelKeys,
   parseFollowUpVerdict,
   parseAddressAnswer,
@@ -489,6 +493,47 @@ test('classifierTextModel: the deprecated llm.classifierModel, mention.followUpM
   assert.equal(classifierTextModel(OLD_KEYS), undefined);
   assert.equal(classifierTextModel({}), undefined);
   assert.equal(classifierTextModel(undefined), undefined);
+});
+
+test('classifierReasonModel: classifier.reason, else the text model (classifier.text, then classifier.media)', () => {
+  assert.equal(classifierReasonModel({ classifier: { reason: 'x/reason', text: 'x/text', media: 'x/media' } }), 'x/reason');
+  assert.equal(classifierReasonModel({ classifier: { reason: null, text: 'x/text', media: 'x/media' } }), 'x/text', 'unset: the text model');
+  assert.equal(classifierReasonModel({ classifier: { reason: '', text: null, media: 'x/media' } }), 'x/media');
+  assert.equal(classifierReasonModel({}), undefined);
+  assert.equal(classifierReasonModel(undefined), undefined);
+});
+
+test('classifierEmbedModel: classifier.embed only, never a chat model', () => {
+  assert.equal(classifierEmbedModel({ classifier: { embed: 'x/embed', text: 'x/text' } }), 'x/embed');
+  assert.equal(classifierEmbedModel({ classifier: { embed: null, text: 'x/text', media: 'x/media' } }), undefined);
+  assert.equal(classifierEmbedModel(undefined), undefined);
+});
+
+test('helperModel: a classifier.byPurpose entry wins over the role, the role model over its fallback', () => {
+  const classifier = { text: 'x/text', media: 'x/media', video: 'x/video', reason: 'x/reason', embed: 'x/embed', byPurpose: { lookup: 'x/pinned' } };
+  assert.equal(helperModel({ classifier }, { role: 'classifier.reason', purpose: 'lookup' }), 'x/pinned', 'byPurpose first');
+  assert.equal(helperModel({ classifier }, { role: 'classifier.text', purpose: 'lookup' }), 'x/pinned', 'whatever the role');
+  assert.equal(helperModel({ classifier }, { role: 'classifier.reason', purpose: 'read-link' }), 'x/reason', 'no entry: the role model');
+  assert.equal(helperModel({ classifier }, { role: 'classifier.text', purpose: 'address' }), 'x/text');
+  assert.equal(helperModel({ classifier }, { role: 'classifier.media', purpose: 'describe' }), 'x/media');
+  assert.equal(helperModel({ classifier }, { role: 'classifier.video' }), 'x/video');
+  assert.equal(helperModel({ classifier }, { role: 'classifier.embed', purpose: 'search' }), 'x/embed');
+  const unsetReason = { classifier: { ...classifier, reason: null, byPurpose: {} } };
+  assert.equal(helperModel(unsetReason, { role: 'classifier.reason', purpose: 'lookup' }), 'x/text', 'then the role\'s fallback chain');
+  for (const byPurpose of [{ lookup: '' }, { lookup: null }, { lookup: 7 }, ['x/array'], 'x/string', null]) {
+    assert.equal(helperModel({ classifier: { ...classifier, byPurpose } }, { role: 'classifier.reason', purpose: 'lookup' }), 'x/reason', JSON.stringify(byPurpose));
+  }
+  assert.equal(helperModel({ classifier }, { role: 'classifier.unknown', purpose: 'other' }), undefined, 'an unknown role resolves to nothing');
+  assert.equal(helperModel({ classifier: { byPurpose: { toString: 'x/proto' } } }, { role: 'classifier.text', purpose: 'constructor' }), undefined, 'own keys only');
+  assert.equal(helperModel(undefined, { role: 'classifier.text', purpose: 'address' }), undefined);
+});
+
+test('helperModel: every reasoning purpose resolves through classifier.reason, and to the text model while it is unset', () => {
+  assert.deepEqual([...REASON_PURPOSES], ['lookup', 'recall-summary', 'search-summary', 'read-link', 'diary-plan']);
+  for (const purpose of REASON_PURPOSES) {
+    assert.equal(helperModel({ classifier: { text: 'x/text', reason: 'x/reason' } }, { role: 'classifier.reason', purpose }), 'x/reason', purpose);
+    assert.equal(helperModel({ classifier: { text: 'x/text', reason: null, byPurpose: {} } }, { role: 'classifier.reason', purpose }), 'x/text', purpose);
+  }
 });
 
 test('classifierMediaModel: classifier.media only; the deprecated media.model is ignored', () => {

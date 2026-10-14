@@ -3,9 +3,11 @@
 // most important field first, for a phone; `detail` adds the long text form (`cmdStatus`) below
 // it. A member (anyone not in `bot.owners`) gets the card without the memory and journal fields,
 // and never the long form. Every field lists one item per line. The owner's card probes on every
-// call: one minimal chat completion per role's model (`labels.status.probe`, `llm.probeTimeoutMs`,
-// never counted against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`) and one free
-// GET of the drawing model's provider listing; a member's card only names the models.
+// call: one minimal chat completion per distinct chat model and route (`labels.status.probe`,
+// `llm.probeTimeoutMs`, never counted against `llm.maxRequestsPerDay` nor calibrated,
+// `origin: 'status'`), one one-input embedding request for the embedding role, and one free
+// GET of the drawing model's provider listing; a member's card only names the models. A role
+// whose own key is unset is shown with the role it falls back to (`labels.status.fallback`).
 
 import fs from 'node:fs/promises';
 import { gifWatchesToday } from '../memory/gif-watch.js';
@@ -20,7 +22,10 @@ import { WEB_DAILY } from '../web/lookup.js';
 import { PORTRAIT_SLOTS, portraitSettings } from '../memory/portrait.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from '../discord/access.js';
-import { MODEL_ROLES } from '../discord/commands.js';
+import { MODEL_ROLES, MODEL_ROLE_PATHS } from '../discord/commands.js';
+import { EMBED_ROLE } from '../llm/embed.js';
+import { isPlainObject } from '../config.js';
+import { fill } from '../discord/format.js';
 import { log } from '../log.js';
 import { todayUtc, onOff, modelForRole } from './shared.js';
 import { defineOp, perEnv } from './registry.js';
@@ -32,7 +37,51 @@ export const STATUS_FIELDS = Object.freeze(['state', 'connection', 'long tasks',
 const OWNER_FIELDS = new Set(['memory', 'journal']);
 
 /** The roles the models field names after the voice, each only when its model differs. */
-const OTHER_ROLES = Object.freeze(['analyzer', 'classifier.text', 'classifier.media', 'classifier.video']);
+const OTHER_ROLES = Object.freeze(MODEL_ROLES.filter((role) => role !== 'voice'));
+
+/** The role whose model a role takes while its own key is unset (src/ops/shared.js#modelForRole). */
+const FALLBACK_ROLE = Object.freeze({ analyzer: 'voice', 'classifier.reason': 'classifier.text', 'classifier.text': 'classifier.media' });
+
+/** The config value at a dotted path, or undefined. */
+function valueAt(cfg, dotted) {
+  return dotted.split('.').reduce((node, key) => (isPlainObject(node) ? node[key] : undefined), cfg);
+}
+
+/**
+ * The role whose own key supplies `role`'s model now: `role` itself when its key is set, else
+ * the end of its fallback chain (e.g. `classifier.reason` unset -> `classifier.text`), or null
+ * when no key on the chain is set.
+ * @param {string} role
+ * @param {object|undefined} cfg  The whole live config.
+ * @returns {string|null}
+ */
+function modelSourceRole(role, cfg) {
+  let current = role;
+  for (let hops = 0; hops < 4 && current; hops += 1) {
+    const own = valueAt(cfg, MODEL_ROLE_PATHS[current] ?? '');
+    if (typeof own === 'string' && own) return current;
+    current = FALLBACK_ROLE[current];
+  }
+  return null;
+}
+
+/** `<role> <model>`, with `labels.status.fallback` (`{role}` = the role it falls back to) when
+ * the model comes from another role's key; no marker without the label. */
+function roleHead(role, model, cfg, labels) {
+  const source = modelSourceRole(role, cfg);
+  const template = labels?.status?.fallback;
+  const marker = source && source !== role && typeof template === 'string' && template ? ` ${fill(template, { role: source })}` : '';
+  return `${role} ${model}${marker}`;
+}
+
+/** The `classifier.byPurpose` overrides of the live config, one `byPurpose <purpose> <model>` line each. */
+function byPurposeLines(cfg) {
+  const byPurpose = cfg?.classifier?.byPurpose;
+  if (!isPlainObject(byPurpose)) return [];
+  return Object.entries(byPurpose)
+    .filter(([, model]) => typeof model === 'string' && model)
+    .map(([purpose, model]) => `byPurpose ${purpose} ${model}`);
+}
 
 /** `llm.probeTimeoutMs` when config.json lacks it (the same value). */
 const PROBE_TIMEOUT_MS = 30000;
@@ -88,13 +137,14 @@ function extractRoutingFunnel(rawBody) {
   return firstZero && firstZero !== last ? `${lastLine} (first hit 0 at ${describeFunnelStep(firstZero)})` : lastLine;
 }
 
-/** One role's probe lines: `<role> <model> · ok <ms> ms` with the provider and token counts
- * indented below, or `<role> <model> · error: <message>` with the routing funnel below. */
-function probeLines(role, model, outcome) {
+/** One role's probe lines: `<head> · ok <ms> ms` with the provider and token counts (or an
+ * embedding's dimensions) indented below, or `<head> · error: <message>` with the routing funnel
+ * below; `head` is `<role> <model>` with its fallback marker (roleHead). */
+function probeLines(head, outcome) {
   if (!outcome.ok) {
     const message = clampChars(oneLine(outcome.err?.message ?? outcome.err ?? 'error'), PROBE_ERROR_CHARS);
     const funnel = extractRoutingFunnel(outcome.err?.body);
-    return funnel ? [`${role} ${model} · error: ${message}`, `  ${funnel}`] : [`${role} ${model} · error: ${message}`];
+    return funnel ? [`${head} · error: ${message}`, `  ${funnel}`] : [`${head} · error: ${message}`];
   }
   const detail = [];
   if (outcome.result?.provider) detail.push(`provider=${outcome.result.provider}`);
@@ -102,8 +152,9 @@ function probeLines(role, model, outcome) {
   if (usage.prompt_tokens != null || usage.completion_tokens != null) {
     detail.push(`tokens ${usage.prompt_tokens ?? '?'}/${usage.completion_tokens ?? '?'}`);
   }
-  const head = `${role} ${model} · ok ${outcome.ms} ms`;
-  return detail.length > 0 ? [head, `  ${detail.join(', ')}`] : [head];
+  if (Number.isInteger(outcome.result?.dimensions)) detail.push(`dimensions=${outcome.result.dimensions}`);
+  const line = `${head} · ok ${outcome.ms} ms`;
+  return detail.length > 0 ? [line, `  ${detail.join(', ')}`] : [line];
 }
 
 /** `YYYY-MM-DD HH:MM UTC` for an epoch ms or an ISO string; `-` for anything else. */
@@ -130,7 +181,7 @@ function span(ms) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm } = env;
+  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder } = env;
 
   /** The next spontaneous turn of `guildId` as an ISO time: src/behavior/spontaneous.js#status
    * keeps `{ [guildId]: epochMs }`. Null when there is none (or no scheduler). */
@@ -252,17 +303,32 @@ const handlers = perEnv((env) => {
     return parts.length > 0 ? parts.join('\n') : 'none';
   }
 
-  /** The models field unprobed: the voice, then each other role (the drawing model last) whose model differs from it. */
+  /** The models field unprobed: the voice, then each other role (the drawing model last) whose model
+   * differs from it, each with its fallback marker, then the per-purpose overrides. */
   function modelsValue(cfg) {
+    const labels = hot.prompts?.labels;
     const voice = modelForRole('voice', cfg) ?? '-';
     const parts = [`voice ${voice}`];
     for (const role of OTHER_ROLES) {
       const model = modelForRole(role, cfg);
-      if (model && model !== voice) parts.push(`${role} ${model}`);
+      if (model && model !== voice) parts.push(roleHead(role, model, cfg, labels));
     }
     const image = cfg?.image?.model;
     if (image && image !== voice) parts.push(`${IMAGE_ROLE} ${imageModelLabel(cfg)}`);
+    parts.push(...byPurposeLines(cfg));
     return parts.join('\n');
+  }
+
+  /** The embedding role's probe: one embedding request of one input (the probe label), never
+   * counted against the daily cap. Never rejects. */
+  async function embedProbe(cfg, promptText, timeoutMs) {
+    const start = Date.now();
+    try {
+      const [vector] = await embedder.embed([promptText], { config: cfg, purpose: 'probe', origin: 'status', countAgainstDailyCap: false, timeoutMs });
+      return { ok: true, ms: Date.now() - start, result: { dimensions: vector?.length } };
+    } catch (err) {
+      return { ok: false, ms: Date.now() - start, err };
+    }
   }
 
   /** The drawing model's state from the provider's public listing: one free GET, no generation,
@@ -295,31 +361,41 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The owner's models field: every role's model probed with one minimal chat completion, in
-   * parallel, then the drawing model's listing. Roles sharing a model share a probe unless a
-   * role-specific `llm.providerByModel` key routes one of them elsewhere; each probe goes out as
-   * the first role that needs it. Never counted against the daily cap, never calibrated, never
-   * writes under data/. Logs `status: probed` with the counts.
+   * The owner's models field: every role's model, as resolved now, probed in parallel -- the chat
+   * roles with one minimal chat completion, the embedding role with one embedding request of one
+   * input -- then the per-purpose overrides (unprobed) and the drawing model's listing. Roles
+   * sharing a model and a provider route share a probe (a role-specific `llm.providerByModel` key
+   * routing one elsewhere makes it a probe of its own); each probe goes out as the first role that
+   * needs it. Never counted against the daily cap, never calibrated, never writes under data/.
+   * Logs `status: probed` with the counts.
    */
   async function probedModelsValue(cfg) {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+    const labels = hot.prompts?.labels;
     const image = imageProbeLine(cfg, timeoutMs);
     const roleModel = new Map(MODEL_ROLES.map((role) => [role, modelForRole(role, cfg)]));
+    // An embedding probe is another kind of request: never shared with a chat probe of the same model.
     const targetOf = (role) => {
       const model = roleModel.get(role);
       const route = resolveProvider(model, { byModel: cfg?.llm?.providerByModel, fallback: cfg?.llm?.provider, role });
-      return `${model}\n${JSON.stringify(route ?? null)}`;
+      return `${role === EMBED_ROLE ? 'embed' : 'chat'}\n${model}\n${JSON.stringify(route ?? null)}`;
     };
-    const promptText = hot.prompts?.labels?.status?.probe;
+    const promptText = labels?.status?.probe;
+    const canEmbed = typeof embedder?.embed === 'function';
     const results = new Map();
     if (promptText) {
       const targets = new Map();
       for (const role of MODEL_ROLES) {
         const model = roleModel.get(role);
+        if (role === EMBED_ROLE && !canEmbed) continue;
         if (model && !targets.has(targetOf(role))) targets.set(targetOf(role), { model, role });
       }
       await Promise.all(
         [...targets].map(async ([target, { model, role }]) => {
+          if (role === EMBED_ROLE) {
+            results.set(target, await embedProbe(cfg, promptText, timeoutMs));
+            return;
+          }
           const start = Date.now();
           try {
             const result = await llm.complete([{ role: 'user', content: promptText }], {
@@ -348,9 +424,12 @@ const handlers = perEnv((env) => {
     const lines = MODEL_ROLES.flatMap((role) => {
       const model = roleModel.get(role);
       if (!model) return [`${role} · no model configured`];
-      if (!promptText) return [`${role} ${model} · skipped: label missing`];
-      return probeLines(role, model, results.get(targetOf(role)));
+      const head = roleHead(role, model, cfg, labels);
+      if (!promptText) return [`${head} · skipped: label missing`];
+      if (role === EMBED_ROLE && !canEmbed) return [`${head} · not checked (no embedding client)`];
+      return probeLines(head, results.get(targetOf(role)));
     });
+    lines.push(...byPurposeLines(cfg));
     const imageLine = await image;
     if (imageLine) lines.push(imageLine);
     return lines.join('\n');

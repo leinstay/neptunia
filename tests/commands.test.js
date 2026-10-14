@@ -64,6 +64,7 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   assert.deepEqual(values(setRole), [...MODEL_ROLES, 'image'], 'the chat roles, then the drawing model');
   assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, 'image']);
   assert.ok(MODEL_ROLES.includes('voice') && !MODEL_ROLES.includes('talk') && !MODEL_ROLES.includes('image'));
+  assert.ok(MODEL_ROLES.includes('classifier.reason') && MODEL_ROLES.includes('classifier.embed'), 'the reasoning and the embedding roles are set and routed like the others');
   const route = findOption(command.options, 'route');
   for (const sub of ['set', 'remove']) {
     const role = findOption(findOption(route.options, sub).options, 'role');

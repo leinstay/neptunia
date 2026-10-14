@@ -18,7 +18,7 @@ import { formatDuration } from '../discord/format.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { oneLine } from '../memory/clamp.js';
 import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/participation.js';
-import { classifierTextModel } from './mention.js';
+import { helperModel } from './mention.js';
 import { block, fillPromptTemplate, stableThenTail } from './prompt.js';
 import { routeCandidate, routeContext } from './route.js';
 
@@ -232,7 +232,7 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now }) {
       let completion;
       try {
         completion = await llm.complete(messages, {
-          model: classifierTextModel(config),
+          model: helperModel(config, { role: 'classifier.text', purpose: 'participation-pick' }),
           ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: settings.maxOutputTokens, purpose: 'participation-pick' }),
         });
       } catch (err) {

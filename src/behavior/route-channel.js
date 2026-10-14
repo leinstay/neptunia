@@ -11,7 +11,7 @@
 import { log } from '../log.js';
 import { checkPull } from '../discord/pull-fetch.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
-import { classifierTextModel } from './mention.js';
+import { helperModel } from './mention.js';
 import {
   buildRouteRequest,
   parseRouteAnswer,
@@ -35,7 +35,7 @@ import {
  * 'no-candidate'`) without a message to judge (routeCandidate); nothing (no
  * call, no log) when no stored channel other than this one (and the
  * candidate's own) passes checkPull -- a check that throws drops that
- * channel. Else one request on classifierTextModel, its answer capped at
+ * channel. Else one request on the `classifier.text` helper model (helperModel), its answer capped at
  * `route.maxOutputTokens`, with the helper timeout, logged `route:
  * classified` (`kind`, `channels` = the list length, `pick` = the channel id
  * or null, `parse` = the parse code, `direction`, `ms`). Resolves `[id]` for a
@@ -103,7 +103,7 @@ export function createChannelRouter({ hot, store, llm, now = Date.now }) {
       let completion;
       try {
         completion = await llm.complete(messages, {
-          model: classifierTextModel(config),
+          model: helperModel(config, { role: 'classifier.text', purpose: 'route-channel' }),
           ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: settings.maxOutputTokens, purpose: 'route-channel' }),
         });
       } catch (err) {
