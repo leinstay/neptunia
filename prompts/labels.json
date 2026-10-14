@@ -17,6 +17,8 @@
     "replyTo": "(reply to {author}'s #{index}: {quote})",
     "replyToMemory": "(reply to {author}: {quote})",
     "replyToOld": "(replying to an older message)",
+    "triggeredBy": "(turn triggered by #{n})",
+    "triggeredByOlder": "(turn triggered by an older message)",
     "image": "[image]",
     "imageAttached": "[attached image {n}]",
     "imageAttachedDescribed": "[attached image {n}, note: {text}]",

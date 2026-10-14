@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createJournal, createOffPeriodsReader, offPeriods } from '../src/memory/journal.js';
+import { createJournal, createOffPeriodsReader, offPeriods, triggerLinksOf } from '../src/memory/journal.js';
 
 const DATA = path.join('fake-root', 'data');
 const DAY_D = Date.UTC(2026, 9, 13, 23, 59, 50);
@@ -159,6 +159,49 @@ test('journal: read returns the last n records of a kind, newest last', async ()
   assert.equal(all[0].turnId, startD.turnId);
   assert.equal(all[0].outcome, 'skip');
   assert.deepEqual(await journal.read('g1', { day: '2026-10-12' }), []);
+});
+
+test('triggerLinksOf: each posted message of a turn maps to the message that started it; a turn without one maps nothing', () => {
+  const start = (turnId, messageId) => ({ kind: 'turn.start', turnId, trigger: messageId === null ? null : { kind: 'mention', messageId, authorId: 'u1' } });
+  const turn = (turnId, ids) => ({ kind: 'turn', turnId, posted: ids.map((messageId) => ({ opId: `op-${messageId}`, messageId, replyTo: null })) });
+  const links = triggerLinksOf([
+    start('t1', 'm98'),
+    start('t2', 'm99'),
+    start('t3', null), // a spontaneous turn
+    turn('t1', ['p100', 'p101']),
+    { kind: 'system', event: 'start' },
+    turn('t3', ['p102']),
+    start('t1', 'm98'), // a second attempt of t1 keeps its trigger
+    turn('t1', ['p103']),
+    turn('t2', []),
+    turn('t9', ['p104']), // its start lies before the days read
+    { kind: 'turn', turnId: 't2', posted: [{ messageId: null }, null, { messageId: 'm99' }] },
+  ]);
+  assert.deepEqual(links, [
+    ['p100', 'm98'],
+    ['p101', 'm98'],
+    ['p103', 'm98'],
+  ]);
+  assert.deepEqual(triggerLinksOf(null), []);
+});
+
+test('journal: triggerLinks rebuilds the links of the days read, a turn closed the next day included', async () => {
+  const clock = { ms: DAY_D };
+  const { journal } = journalAt(clock);
+  const first = journal.start('g1', { channelId: 'c1', mode: 'reply', trigger: { kind: 'mention', messageId: 'm1', authorId: 'u1' } });
+  const spontaneous = journal.start('g1', { channelId: 'c1', mode: 'interject', trigger: null });
+  await journal.turn('g1', { ...spontaneous, channelId: 'c1', outcome: 'spoke', posted: [{ messageId: 'p0', replyTo: null }] });
+  clock.ms = DAY_D1;
+  await journal.turn('g1', { ...first, channelId: 'c1', outcome: 'spoke', posted: [{ messageId: 'p1', replyTo: null }, { messageId: 'p2', replyTo: 'm7' }] });
+  journal.start('g1', { channelId: 'c1', mode: 'reply', privateUserId: 'u2', trigger: { kind: 'private', messageId: 'd1', authorId: 'u2' }, turnId: 't-private' });
+  await journal.turn('g1', { turnId: 't-private', attemptId: 1, privateUserId: 'u2', outcome: 'spoke', posted: [{ messageId: 'd2' }] });
+
+  assert.deepEqual(await journal.triggerLinks('g1', { days: ['2026-10-13', '2026-10-14'] }), [
+    ['p1', 'm1'],
+    ['p2', 'm1'],
+  ]);
+  // The day the turn started not read: its posts have no known trigger.
+  assert.deepEqual(await journal.triggerLinks('g1', { days: ['2026-10-14'] }), []);
 });
 
 test('journal: a record missing participants or sourceMessageIds is written with empty arrays, never rejected', async () => {

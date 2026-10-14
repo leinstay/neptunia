@@ -8182,3 +8182,98 @@ test('turn planner: an invalid or missing block takes its default, a valid one s
   const classified = run.logs.find((l) => l.msg === 'planner: classified');
   assert.deepEqual(classified.states, { channel: 'invalid', episodes: 'ok', rewatch: 'missing', lookup: 'invalid' });
 });
+
+// ---------------------------------------------------------------------------
+// The persona's lines name the message that started the turn which posted them.
+
+/** A line of the persona as the channel holds it. */
+function selfRaw(id, ts, content) {
+  return rawMessage({ id, ts, content, authorId: 'self-id', authorName: 'Bot' });
+}
+
+/** Two questions 30 s apart, a runner over them; the LLM answers every request with two messages. */
+function triggerTurnScene(features = {}) {
+  const history = [
+    rawMessage({ id: 'm98', ts: NOW - 60_000, authorName: 'Alice', content: 'tu viens ce soir ?' }),
+    rawMessage({ id: 'm99', ts: NOW - 30_000, authorId: 'u2', authorName: 'Zoë', content: 'et le lapin ?' }),
+  ];
+  const channel = fakeTurnChannel({ historyMessages: history });
+  const llm = fakeLlm('<msg>ναι</msg><msg>έρχομαι</msg>');
+  const turns = createTurnRunner({ hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  return { history, channel, llm, turns };
+}
+
+/** The user text of the requests from call `from` on that show the chat. */
+function chatTexts(llm, from = 0) {
+  return llm.calls.slice(from).map((messages) => textOf(messages[1].content)).filter((text) => text.includes('<chat>'));
+}
+
+test('createTurnRunner: the lines a turn posted name its trigger in the next turn\'s transcript', async () => {
+  const { history, channel, llm, turns } = triggerTurnScene();
+  const first = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention' });
+  assert.equal(first.outcome, 'spoke');
+  assert.equal(channel.sent.length, 2);
+  // Both lines of the first turn reach the channel after the second question.
+  history.push(selfRaw('sent-1', NOW - 20_000, 'ναι'), selfRaw('sent-2', NOW - 19_000, 'έρχομαι'));
+  const from = llm.calls.length;
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
+  const [text] = chatTexts(llm, from);
+  assert.ok(text, 'the second turn sent its reply request');
+  assert.ok(text.includes('Bot (you) (turn triggered by #1): ναι'), text);
+  assert.ok(text.includes('Bot (you) (turn triggered by #1): έρχομαι'), 'every line of one turn carries the same trigger');
+});
+
+test('createTurnRunner: features.triggerMarkers=false renders her lines exactly as before', async () => {
+  const { history, channel, llm, turns } = triggerTurnScene({ triggerMarkers: false });
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention' });
+  history.push(selfRaw('sent-1', NOW - 20_000, 'ναι'));
+  const from = llm.calls.length;
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
+  const [text] = chatTexts(llm, from);
+  assert.ok(text.includes('Bot (you): ναι'), text);
+  assert.ok(!text.includes('triggered'), text);
+});
+
+test('createTurnRunner: a line posted by a spontaneous turn carries no trigger', async () => {
+  const { history, channel, llm, turns } = triggerTurnScene();
+  const first = await turns.runTurn({ channel, mode: 'interject' });
+  assert.equal(first.outcome, 'spoke');
+  history.push(selfRaw('sent-1', NOW - 20_000, 'ναι'));
+  const from = llm.calls.length;
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
+  const [text] = chatTexts(llm, from);
+  assert.ok(text.includes('Bot (you): ναι'), text);
+  assert.ok(!text.includes('triggered'), text);
+});
+
+test('createTurnRunner: links seeded at start (the journal\'s rebuild) survive a restart; a trigger out of the window is older', async () => {
+  const { history, channel, llm, turns } = triggerTurnScene();
+  history.unshift(selfRaw('sent-0', NOW - 90_000, 'πρωί'));
+  history.push(selfRaw('sent-1', NOW - 20_000, 'ναι'));
+  turns.seedTriggerLinks([
+    ['sent-0', 'm1'],
+    ['sent-1', 'm98'],
+    [null, 'm98'],
+    ['sent-9'],
+  ]);
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[2]), triggerKind: 'mention' });
+  const [text] = chatTexts(llm);
+  assert.ok(text.includes('Bot (you) (turn triggered by an older message): πρωί'), text);
+  assert.ok(text.includes('Bot (you) (turn triggered by #2): ναι'), text);
+});
+
+test('createTurnRunner: a helper\'s transcript names the trigger of her lines too', async () => {
+  const llm = lookupLlm('none');
+  const history = [
+    linkRaw('m1', NOW - 9000, [PAGE_EMBED]),
+    selfRaw('sent-1', NOW - 5000, 'ναι'),
+    rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' }),
+  ];
+  const channel = fakeTurnChannel({ historyMessages: history });
+  const turns = createTurnRunner({ hot: lookupHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup() });
+  turns.seedTriggerLinks([['sent-1', 'm1']]);
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[2]), triggerKind: 'mention' });
+  assert.equal(llm.classifierCalls.length, 1);
+  const user = textOf(llm.classifierCalls[0].messages[1].content);
+  assert.ok(user.includes('Bot (you) (turn triggered by #1): ναι'), user);
+});

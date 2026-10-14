@@ -66,7 +66,7 @@ import {
 } from '../discord/media.js';
 import { avatarReference, createImageFetcher } from '../discord/fetch-image.js';
 import { renderCustomEmoji, resolveReactionEmoji } from '../discord/emoji.js';
-import { fill, formatNow, replyMarker } from '../discord/format.js';
+import { fill, formatNow, replyMarker, withTriggers } from '../discord/format.js';
 import { log } from '../log.js';
 import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { gifPostsToday } from '../memory/gif-watch.js';
@@ -206,6 +206,10 @@ const TOO_SLOW = Symbol('too-slow');
 
 // Discord shows a typing indicator for about ten seconds: it is sent again before it fades.
 const PREPARE_TYPING_REFRESH_MS = 8000;
+
+// How many of the persona's posted messages keep the link to their turn's trigger in process
+// (far more than two days of her lines; the oldest go first).
+const TRIGGER_LINKS_MAX = 5000;
 
 /** The real timer behind createTurnRunner's `schedule`: `fn` once after `ms`; resolves a cancel function. */
 function scheduleTimer(fn, ms) {
@@ -1173,6 +1177,15 @@ function taskInput({ part, queued, added, labels, channelId }) {
  * (read at the moment of use), every message of the persona that reached the chat is appended
  * to it as a `said` line (recordSaid), with the turn's and the post operation's ids when the
  * journal follows the attempt.
+ *
+ * Trigger links: every message a turn with a trigger posts (a message, a GIF, a picture) is
+ * remembered in process with the id of that trigger (`seedTriggerLinks` adds the ones the journal
+ * kept from before a restart). With features.triggerMarkers on (a missing key counts as on, read
+ * per turn) the persona's own lines of the turn's history and of its pulled channels carry it
+ * (src/discord/format.js#withTriggers), so the request's `<chat>` and `<channel_view>` and every
+ * helper transcript built from that history name the message that started the turn which posted
+ * each line (`transcript.triggeredBy` / `triggeredByOlder`). The neighbours' lines show no `#n`
+ * and carry none. A spontaneous turn, a diary post or a dry run links nothing.
  */
 export function createTurnRunner({
   hot,
@@ -1218,6 +1231,28 @@ export function createTurnRunner({
   // The last view of each pulled channel shown in each channel, in process only: a channel
   // shown again says what of it is new since (createPullViews; `seenBefore` on the entry).
   const pullViews = createPullViews();
+  // Posted message id -> the id of the message that started the turn which posted it, in
+  // process (noteTrigger at each post, seedTriggerLinks at start from the journal); the oldest
+  // links go first past TRIGGER_LINKS_MAX. Her transcript lines read it (linkTriggers).
+  const triggerLinks = new Map();
+
+  /** Remember that `postedId` was posted by the turn `triggerId` started (a newer link wins). */
+  function noteTrigger(postedId, triggerId) {
+    if (typeof postedId !== 'string' || !postedId || typeof triggerId !== 'string' || !triggerId || postedId === triggerId) return;
+    triggerLinks.delete(postedId);
+    triggerLinks.set(postedId, triggerId);
+    while (triggerLinks.size > TRIGGER_LINKS_MAX) triggerLinks.delete(triggerLinks.keys().next().value);
+  }
+
+  /**
+   * `lines` with the persona's own lines carrying the message that started their turn
+   * (src/discord/format.js#withTriggers), so every transcript built from them names it;
+   * `lines` as they are with features.triggerMarkers off (a missing key counts as on, read now).
+   */
+  function linkTriggers(lines) {
+    if (hot.config.features?.triggerMarkers === false) return lines;
+    return withTriggers(lines, triggerLinks);
+  }
 
   /** Whether the journal is written now: one injected and features.journal exactly true (read now). */
   function journalOn() {
@@ -1990,8 +2025,12 @@ export function createTurnRunner({
     const posts = [];
     const reacted = [];
     const opField = (op) => (op?.opId ? { opId: op.opId } : {});
+    // Every post also remembers the message that started this turn (none on a turn without one).
     const notePost = (sent, replyTo = null, op = null) => {
-      if (typeof sent?.id === 'string' && sent.id) posts.push({ ...opField(op), messageId: sent.id, replyTo: replyTo ?? null });
+      if (typeof sent?.id === 'string' && sent.id) {
+        posts.push({ ...opField(op), messageId: sent.id, replyTo: replyTo ?? null });
+        noteTrigger(sent.id, trigger?.id);
+      }
     };
 
     for (const reaction of parsed.reactions) {
@@ -3864,17 +3903,20 @@ export function createTurnRunner({
       const historyStartedAt = clock();
       // The first part of a split message reuses the history its message's turn fetched.
       // Part of the history: the messages replies of the window answer from outside it
-      // (context.fetchReplyParents), prepended as its oldest lines (withReplyParents).
-      const rawHistory =
+      // (context.fetchReplyParents), prepended as its oldest lines (withReplyParents). The
+      // persona's own lines carry the message that started their turn (linkTriggers), so the
+      // request and every helper transcript built from this history name it.
+      const rawHistory = linkTriggers(
         reuseHistory ??
-        (await beforeBar(
-          fetchHistory(channel, {
-            limit: config.context.channelMessages,
-            selfId,
-            embedTextChars: config.media?.embedTextChars,
-            videoSites: config.media?.video?.sites,
-          }).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config })),
-        ));
+          (await beforeBar(
+            fetchHistory(channel, {
+              limit: config.context.channelMessages,
+              selfId,
+              embedTextChars: config.media?.embedTextChars,
+              videoSites: config.media?.video?.sites,
+            }).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config })),
+          )),
+      );
       const historyMs = clock() - historyStartedAt;
       const partner = await beforeBar(partnerPending);
       // A private chat on its partner's behalf: pulls and the server search from the served guild.
@@ -4589,7 +4631,12 @@ export function createTurnRunner({
           // `<channel_view>`: the channels pulled into this turn (each with the last view of it
           // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is
           // about, the chat line put to the room, where a call from a read-only channel is answered.
-          pulled: withSeenBefore(pulled, channel.id, now),
+          // The persona's lines there name the message that started their turn (linkTriggers).
+          pulled: withSeenBefore(
+            pulled.map((entry) => (Array.isArray(entry?.messages) ? { ...entry, messages: linkTriggers(entry.messages) } : entry)),
+            channel.id,
+            now,
+          ),
           source,
           focus,
           tasks: tasks.input,
@@ -4961,6 +5008,19 @@ export function createTurnRunner({
 
   return {
     runTurn,
+    /**
+     * Remember which message started the turn that posted each message of `pairs`
+     * (`[postedId, triggerId]`, oldest first: src/memory/journal.js#triggerLinks at start), so
+     * her lines posted before a restart name their trigger too. A malformed pair is skipped; a
+     * link noted since is kept over a seeded one.
+     * @param {Array<[string, string]>} pairs
+     */
+    seedTriggerLinks: (pairs) => {
+      for (const pair of Array.isArray(pairs) ? pairs : []) {
+        if (!Array.isArray(pair) || triggerLinks.has(pair[0])) continue;
+        noteTrigger(pair[0], pair[1]);
+      }
+    },
     /**
      * The parts of the chain running in `channelId` not started yet, when its message is
      * `authorId`'s: `{ index, text }` in order (1-based indices). Empty otherwise. Read only.

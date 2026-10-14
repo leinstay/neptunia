@@ -17,6 +17,7 @@
     "gifs": true,
     "embedUpdates": true,
     "seeReactions": true,
+    "triggerMarkers": true,
     "multiMessage": true,
     "vision": true,
     "mediaDescriptions": true,

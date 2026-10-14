@@ -17,6 +17,7 @@ import {
   renderTranscript,
   computeTempo,
   renderTempo,
+  withTriggers,
 } from '../src/discord/format.js';
 import { labels } from './fixtures/labels.js';
 
@@ -1329,4 +1330,90 @@ test('fillGifFields: a field the template names but the values lack is left out;
   assert.equal(fillGifFields('{id}: {reaction}; {action}; "{text}"', 'g1', { reaction: 'r', action: 'a', text: 't' }), 'g1: r; a; "t"');
   assert.equal(fillGifFields('{id}: {reaction}; "{screen}"', 'g1', { reaction: 'r' }), 'g1: r');
   assert.equal(fillGifFields('{id}', 'g1', { reaction: 'r' }), 'g1');
+});
+
+// --- the turn trigger of the persona's own lines -------------------------
+
+// Two questions, then the persona's lines: #3 posted by the turn #1 started, #4 a reply to #2
+// posted by the same turn, #5 a reply to #2 posted by the turn #2 started.
+function triggerScene(overrides = {}) {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  return [
+    msg('q1', t0, { authorName: 'Éloïse', content: 'tu viens ce soir ?' }),
+    msg('q2', t0 + 30_000, { authorName: 'Nick', content: 'et le lapin ?' }),
+    msg('a1', t0 + MIN, { self: true, authorName: 'Nept', content: 'ναι', triggerId: 'q1', ...overrides.a1 }),
+    msg('a2', t0 + 2 * MIN, { self: true, authorName: 'Nept', content: 'κοιμάται', replyToId: 'q2', triggerId: 'q1', ...overrides.a2 }),
+    msg('a3', t0 + 3 * MIN, { self: true, authorName: 'Nept', content: 'ακόμα', replyToId: 'q2', triggerId: 'q2', ...overrides.a3 }),
+  ];
+}
+
+test('formatTranscript: a plain line of the persona names the message that started its turn', () => {
+  const items = formatTranscript(triggerScene(), offsetOptions);
+  assert.equal(items[2].text, '#3 [13:01] Nept (you) (turn triggered by #1): ναι');
+});
+
+test('formatTranscript: a reply of the persona to another message than its trigger shows both', () => {
+  const items = formatTranscript(triggerScene(), offsetOptions);
+  assert.equal(items[3].text, '#4 [13:02] Nept (you) (turn triggered by #1): κοιμάται (replying to #2, Nick: "et le lapin ?")');
+});
+
+test('formatTranscript: a reply of the persona to its own trigger shows the reply marker only', () => {
+  const items = formatTranscript(triggerScene(), offsetOptions);
+  assert.equal(items[4].text, '#5 [13:03] Nept (you): ακόμα (replying to #2, Nick: "et le lapin ?")');
+});
+
+test('formatTranscript: a trigger outside the list renders triggeredByOlder, never a number', () => {
+  const items = formatTranscript(triggerScene().slice(2), offsetOptions);
+  assert.equal(items[0].text, '#1 [13:01] Nept (you) (turn triggered by an older message): ναι');
+  // The trigger equal to the reply target still shows the reply marker only.
+  assert.equal(items[2].text, '#3 [13:03] Nept (you): ακόμα (replying to an older message)');
+});
+
+test('formatTranscript: the trigger number follows indexOffset', () => {
+  const items = formatTranscript(triggerScene(), { ...offsetOptions, indexOffset: 40 });
+  assert.equal(items[2].text, '#43 [13:01] Nept (you) (turn triggered by #41): ναι');
+});
+
+test('formatTranscript: lines without a trigger render exactly as before', () => {
+  const linked = formatTranscript(triggerScene({ a1: { triggerId: undefined }, a2: { triggerId: null }, a3: { triggerId: undefined } }), offsetOptions);
+  const bare = formatTranscript(
+    triggerScene().map(({ triggerId, ...message }) => message),
+    offsetOptions,
+  );
+  assert.deepEqual(linked, bare);
+  assert.equal(bare[2].text, '#3 [13:01] Nept (you): ναι');
+});
+
+test('formatTranscript: a trigger on another member\'s line, in memory mode or with blanked labels shows no marker', () => {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const member = formatTranscript([msg('q1', t0), msg('b', t0 + MIN, { content: 'ok', triggerId: 'q1' })], offsetOptions);
+  assert.equal(member[1].text, '#2 [13:01] Nick: ok');
+  const memory = formatTranscript(triggerScene(), { ...offsetOptions, mode: 'memory' });
+  assert.ok(memory.every((item) => !item.text.includes('triggered')), memory.map((item) => item.text).join('\n'));
+  const blanked = { ...labels, transcript: { ...labels.transcript, triggeredBy: '', triggeredByOlder: '' } };
+  const quiet = formatTranscript(triggerScene(), { ...offsetOptions, labels: blanked });
+  assert.equal(quiet[2].text, '#3 [13:01] Nept (you): ναι');
+  const older = formatTranscript(triggerScene().slice(2), { ...offsetOptions, labels: blanked });
+  assert.equal(older[0].text, '#1 [13:01] Nept (you): ναι');
+});
+
+test('withTriggers: the persona\'s lines with a known link carry their trigger id; every other line is the same object', () => {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const lines = [msg('q1', t0), msg('a1', t0 + MIN, { self: true }), msg('a2', t0 + 2 * MIN, { self: true }), msg('x', t0 + 3 * MIN)];
+  const links = new Map([
+    ['a1', 'q1'],
+    ['x', 'q1'],
+  ]);
+  const out = withTriggers(lines, links);
+  assert.equal(out.length, 4);
+  assert.equal(out[1].triggerId, 'q1');
+  assert.notEqual(out[1], lines[1], 'a new object: the fetched line is never changed');
+  assert.equal(lines[1].triggerId, undefined);
+  assert.equal(out[0], lines[0]);
+  assert.equal(out[2], lines[2], 'a line of hers without a link is left alone');
+  assert.equal(out[3], lines[3], "a member's line never carries a trigger");
+  // A lookup function serves as well; no links or no list changes nothing.
+  assert.equal(withTriggers(lines, (id) => (id === 'a2' ? 'q1' : null))[2].triggerId, 'q1');
+  assert.equal(withTriggers(lines, null), lines);
+  assert.deepEqual(withTriggers(null, links), []);
 });

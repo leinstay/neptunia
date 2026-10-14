@@ -5,6 +5,7 @@
 // this module only knows the shape of a transcript line, e.g.:
 //   #87 [14:32] nick: text (replyTo marker) [image]
 //   #12 [13:43 · 2 h 58 min ago] nick: text   (chat mode, an old line with its age)
+//   #90 [14:33] self (triggeredBy marker): text   (the persona's line, the turn's trigger)
 //   --- {duration} passed ---
 // Time gaps and date changes are spelled out because the model must tell a
 // live conversation from a dead chat that somebody has just poked.
@@ -365,6 +366,42 @@ export function replyMarker(parent, index, { labels, selfName, replyQuoteChars, 
 }
 
 /**
+ * The persona's own lines with the message that started the turn which posted each:
+ * `links` (a Map, or a function, posted message id -> trigger message id; src/behavior/turn.js
+ * keeps it) read for every line of hers, and a line with a link comes back as a new object
+ * carrying `triggerId` (the fetched line is never changed); every other line is returned as it
+ * is. formatTranscript renders the field (`transcript.triggeredBy` / `triggeredByOlder`). No
+ * links: `messages` itself; not a list: []. Pure.
+ * @param {object[]} messages  Normalized messages.
+ * @param {Map<string, string>|((id: string) => string|null|undefined)|null} links
+ * @returns {object[]}
+ */
+export function withTriggers(messages, links) {
+  if (!Array.isArray(messages)) return [];
+  const lookup = typeof links === 'function' ? links : typeof links?.get === 'function' ? (id) => links.get(id) : null;
+  if (!lookup) return messages;
+  return messages.map((message) => {
+    if (!message?.self || typeof message.id !== 'string' || !message.id) return message;
+    const triggerId = lookup(message.id);
+    return typeof triggerId === 'string' && triggerId && triggerId !== message.id ? { ...message, triggerId } : message;
+  });
+}
+
+/**
+ * The marker naming the message that started the turn which posted the persona's `message`
+ * (chat mode only): `labels.transcript.triggeredBy` with `{n}`, the trigger's `#n` in this list,
+ * or `labels.transcript.triggeredByOlder` when the trigger is not in it (never a guessed
+ * number). '' for another member's line, a line without `triggerId`, a reply to its own trigger
+ * (its reply marker already names it) or a blanked key.
+ */
+function triggerMarker(message, indexById, labels) {
+  const triggerId = message.self ? message.triggerId : null;
+  if (typeof triggerId !== 'string' || !triggerId || triggerId === message.replyToId) return '';
+  const n = indexById.get(triggerId);
+  return n ? fill(labels.transcript.triggeredBy, { n }) : fill(labels.transcript.triggeredByOlder);
+}
+
+/**
  * One forwarded message-snapshot, wrapped in `labels.transcript.forwardedFrom`
  * when the source channel's name is known AND that key is set (a key blanked
  * in prompts.local/labels.json switches this form off); otherwise the plain
@@ -436,6 +473,11 @@ function renderForwarded(snapshot, labels, context, maxChars, channelName) {
  *   is numbered `indexOffset + 1`, and every index (the `#index`, a reply target inside the
  *   list, `item.index`) shifts by it, so a second block (another channel's lines) continues
  *   the numbering of the first and its indices never collide with it.
+ *   In `mode: 'chat'`, a line of the persona carrying `triggerId` (withTriggers) names the message
+ *   that started the turn which posted it after the author: `transcript.triggeredBy` with `{n}`
+ *   (the trigger's index, offset like the rest), `transcript.triggeredByOlder` when the trigger is
+ *   not in the list; nothing when its reply target is that same message (the reply marker names it)
+ *   or the key is blank. A line without `triggerId` renders exactly as it did before.
  * @param {number} [options.now]  The request's clock (epoch ms), the same moment as its `<now>` and
  *   `<tempo>`; never read here from the system clock. In `mode: 'chat'`, a line at least
  *   `ageMinutes` older than `now` renders its head time as `transcript.timeAged` with `{clock}`
@@ -502,7 +544,9 @@ export function formatTranscript(messages, options) {
     }
 
     const name = message.self ? selfLabel : message.authorName;
-    const who = mode === 'memory' && !message.self ? `${name} (id:${message.authorId})` : name;
+    // The persona's own line names the message that started its turn (chat mode; see withTriggers).
+    const triggered = mode === 'chat' ? triggerMarker(message, indexById, labels) : '';
+    const who = mode === 'memory' && !message.self ? `${name} (id:${message.authorId})` : triggered ? `${name} ${triggered}` : name;
     const clock = formatClock(message.ts, timezone, locale);
     const age = options.now - message.ts;
     const time = agesOn && age >= ageMs ? fill(agedTemplate, { clock, age: formatDuration(age, labels.units) }) : `[${clock}]`;

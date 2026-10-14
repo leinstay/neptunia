@@ -18,6 +18,7 @@ Every key in `config.json` with its default, grouped by section.
 | `lore` | `true` | Server-wide lorebook |
 | `reactions` | `true` | Emoji reactions (the persona places them) |
 | `seeReactions` | `true` | Show reactions on messages in the transcript. A missing key counts as on. Distinct from `reactions`, which controls whether the persona PLACES reactions; this one controls whether they SEE them |
+| `triggerMarkers` | `true` | In the transcripts the persona and her helpers read, each line she posted names the message that started the turn which posted it (`labels.transcript.triggeredBy`, or `triggeredByOlder` when that message is out of view), so a late answer is not taken for an answer to a newer question. A missing key counts as on |
 | `customEmoji` | `true` | List the server's custom emoji ranked by usage so the persona can use them by `:name:`. A missing key counts as on |
 | `gifs` | `true` | Build a GIF library from what members share and let the persona post from it by handle. A missing key counts as on |
 | `gifPicker` | `true` | When the persona's first message is at most `gifs.pick.maxChars` characters and she chose no GIF herself, a classifier picks a fitting GIF from the full library. On a match the GIF replaces that first message; the remaining messages follow as written. A missing key counts as on. Needs `features.gifs` on and a non-empty library |
