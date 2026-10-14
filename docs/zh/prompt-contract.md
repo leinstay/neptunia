@@ -96,7 +96,8 @@
 | `<other_channels>` | 每个相邻频道最多 `context.neighborMessages` 条消息，不超过 `context.neighborMaxAgeMinutes` 的时效。`features.mediaDescriptions` 开启时，相邻频道行中的图片在描述器缓存已有说明时携带说明；不为相邻频道发起新的描述请求。`<channel_view>` 中已显示其块的频道不再出现在 `<other_channels>` 中；如果预算丢弃了拉取的块，该频道重新作为普通相邻频道出现 |
 | `<channel_view>` | 拉入本轮的另一个频道（`features.channelPull`）。每个拉取的频道一个条目：标题行（`labels.pull.header`）、适用时的只读标记（`labels.server.readOnly`）、窗口被截断时的"更早的未显示"行、"图片未查看"计数、角色的早期呼叫（带已回复/未回复/已跳过标记），然后是窗口行。行使用与 `<chat>` 相同的对话记录格式，但编号在对话后继续（对话为 `#1`..`#N`，拉取块从 `#N+1` 开始），因此每个 `#n` 在块间唯一。图片仅以说明或盲标签形式出现，不作为附加图片。没有 `labels.pull.header` 时块为空 |
 | `<lookup>` | 角色本轮查询的内容。网络搜索（`features.webLookup`）携带 `labels.lookup.webHeader`、浓缩的答案、`labels.lookup.sources`，未找到时为 `labels.lookup.none`。服务器搜索（`features.recall`）携带 `labels.lookup.serverHeader`、摘要笔记，摘要指出一段时还有逐字原文。两者都运行时 `labels.lookup.bothNote` 位于两部分之间。`labels.lookup.stretch` 行引入一段逐字原文（`{date}` `{channel}`）。仅在搜索分类器触发且至少一项搜索完成后出现 |
-| `<skills>` | 完整技能列表，每个技能一行 `labels.skills.line`。仅在清单请求时显示（分类器或规划器回答 `skills: inventory`）。在尾部，`<chat>` 之前。开关 `features.skillsDiscovery`（默认开；`features.skills` 关闭时关闭） |
+| `<skills>` | 完整技能列表，每个技能一行 `labels.skills.line`。在清单请求时（分类器或规划器回答 `skills: inventory`）或分类器为消息提议了技能时显示。清单请求会列出所有技能及其访问状态。提议时只有被允许的技能显示 `skills.line`；不被允许的提议技能通过 `labels.skills.proposedOff`（`{names}`，逗号分隔）汇成一行。在尾部，`<chat>` 之前。开关 `features.skillsDiscovery`（默认开；`features.skills` 关闭时关闭） |
+| `<result>` | 角色发起的技能调用的结果。仅在角色的第一轮输出了 `<call>` 标签之后的后续请求中出现。由 `skillResultBlock`（`src/behavior/prompt.js`）渲染：`<result skill="NAME" status="STATUS">`、正文、`</result>`，放在用户消息最后一个文本部分的 `<task>` 之前（缓存部分被复用）。正文以第一轮已发布的每个动作（消息、反应、图片）各一行 `labels.skills.result.alreadyPosted` 开头（无此标签则省略），然后是 `labels.skills.result[status]` 的状态行（`{reason}` 由 `labels.skills.result.reasons[code]` 填充，回退到 `.reasons.other`，再到代码本身）。`ok` 状态时数据跟随其后：技能的文本，或与 `<skills>` 相同的技能目录，截断到 `skills.resultMaxChars`（默认 2000）。状态：`ok`（返回数据的读取）、`refused`（引擎在执行前拒绝）、`failed`（执行了但未成功）、`unknown`（调用是否成功未知）。当技能调用是成功完成的发送、编辑、删除或图片时，不显示 `<result>` 块 |
 | `<chat>` | 当前频道最新的 `context.channelMessages` 条消息。发出已满 `context.ageAfterMinutes`（默认 60）分钟的行还会显示距今多久（`transcript.timeAged`）。`context.fetchReplyParents` 开启时，触发消息和窗口末尾 `context.replyParentsFor` 条回复早于窗口之消息的行的父消息会被拉取并作为普通对话记录行放在窗口之前；触发消息的父消息还可拉取其自身的父消息。每轮最多 `context.replyParentsMax` 条。间隔标记和日期标题覆盖时间跳跃；回复行通过 `transcript.replyTo` 引用父消息；父消息的媒体与其他行同样处理，缓存的描述免费提供。已删除或不可访问的父消息被跳过并记录为 `collect: parent missing` |
 | `<tempo>` | 10 分钟 / 1 小时 / 1 天的消息计数，不同人数，沉默时长，一个判定（活跃 / 缓慢 / 沉寂） |
 | `<world>` | 角色的虚拟世界（`prompts/world.md`，`{{name}}` 已填充）。仅在日记帖子（`mode === 'diary'`）且 `diary.world === true` 时出现。预算压力下整体丢弃。无文件或开关关闭则不添加 |
@@ -321,6 +322,13 @@ task.added                               {added}: later messages from the author
 skills.protocol                          static text for the `<skills_protocol>` block: the persona has skills, the list is shown on request, the engine checks access
 skills.line                              {name} {title} {whenToUse} {access}: one skill in the `<skills>` list. {access} is one of skills.access.*
 skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denied    short access phrase for the five states: allowed; allowed through the reply; not switched on; safe mode; not for this person
+skills.proposedOff                       {names}: 在仅含提议的 `<skills>` 块末尾显示，列出不被允许的提议技能
+skills.result.alreadyPosted              OPTIONAL {text}: 第一轮已发布的每个动作（消息、反应、图片）各一行。无此标签时不列出已发布动作
+skills.result.ok                         返回数据的读取调用的状态行。数据在下一行跟随
+skills.result.refused                    {reason}: 引擎在执行前拒绝了调用
+skills.result.failed                     {reason}: 调用已执行但未成功
+skills.result.unknown                    {reason}: 调用是否成功未知。模型不应重试
+skills.result.reasons.not-allowed | safe-mode | owner-only | unknown-skill | invalid-args | target-not-allowed | target-ambiguous | conversation-not-allowed | unknown-message | not-own-message | unknown-member | requester-denied | daily-cap | no-budget | unsupported | timeout | other    原因代码对应的人类可读短语；映射中不存在的代码回退到 `other`，再到代码本身
 ```
 
 ## 输出
@@ -332,14 +340,17 @@ skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denie
 - `<react to="#87">💀</react>` 一个 unicode 表情或一个服务器自定义表情的 `:name:`；可单独使用，也可与 `<msg>` 一起使用。
 - `<gif reply="#87">g12</gif>` 从库中通过 handle 发布一个 GIF（内容 = `<gifs>` 列表或对话记录中的 handle，不是 URL）。每回合一个；`reply` 可选。可与 `<msg>`、`<react>`、`<draw>` 同时出现。未知 handle = 不发布。
 - `<draw self="yes" reply="#87">scene</draw>` 提交给绘画子进程的图片。每回合一个，首个非空优先，截断至 800 字符。`self="yes"` 添加角色外貌；`reply="#87"` 与 `<msg>` 用法相同。可与 `<msg>` 和 `<react>` 同时出现。
+- `<call skill="NAME" attr="value"…>BODY</call>` 或自闭合形式 `<call skill="NAME" attr="value"…/>`。每回合一次技能调用。仅在输出的顶层解析，不在 `<msg>`、`<draw>`、`<react>`、`<gif>`、`<think>`、代码块或引用行（`>`）内处理；第一个格式正确的调用生效，后续忽略。`skill` 指定技能名；其余属性为参数（双引号内纯文本）；正文是调用携带的消息或场景（读取或状态调用时为空）。各技能属性：`message.send` 接受 `conversation` 和可选 `replyTo`，正文为文本；`message.edit` 接受 `message`，正文为新文本；`message.delete` 接受 `message`；`memory.read` 接受 `member`；`status.show` 和 `skills.list` 无参数；`draw` 接受 `conversation`，正文为提示。引擎检查角色是否有权使用该技能。读取调用、被拒绝或失败的调用会在后续请求的 `<task>` 之前以 `<result skill="NAME" status="STATUS">` 块返回一次，供角色据此回复。成功的发送、编辑、删除或图片不需要后续处理。`unknown` 状态表示结果不确定，不再重试。`features.skills: false` 丢弃所有 `<call>`。
 - `<skip/>` 保持沉默。
 - `@nick` 与对话记录中完全一致时转换为真实的提及。
-- `#频道名` 为服务器频道时，`<msg>` 文本中会转换为真实的频道链接（`<#id>`）（`features.channelLinks` 开启时，默认 true，缺失 = 开）。名称按最长匹配。已有的链接保持不变。
+- `#频道名` 为服务器频道时，`<msg>` 文本中会转换为真实的频道链接（`<#id>`）（`features.channelLinks` 开启时，默认 true，缺失 = 开）。先查找完全匹配的全名，最长优先。无完全匹配时，按核心名匹配：去除首尾表情、符号和标点，折叠大小写和重音。核心仅对应一个频道时创建链接；两个或更多频道共享核心时不创建链接。已有的链接保持不变。
 
 `features.reactions: false` 移除 `<react>`，`features.multiMessage: false` 仅保留第一个 `<msg>`；
 `features.gifs: false` 或空库移除 `<gif>`；`features.imageGeneration: false` 或无图像客户端时移除 `<draw>`；`drawFailed` 回合中 `<draw>` 也被移除。提示无需知道这些。
 
 `format.stripDashes` 开启时（默认 true；缺失 = 开；仅 `false` 关闭），`<msg>` 文本中的所有全角破折号和半角破折号在发送前被删除，破折号及其周围的空格变为一个空格，且每个尖角引号（`«`、`»`）替换为普通 `"`。清除后变空的消息不发送。连字符保留。`<draw>`、`<react>`、`<gif>` 和回复 id 不受影响。日志记录为 `turn: dashes stripped`，包含 `channel` 和 `count`，文本本身不记录。
+
+`<call>` 标签将一个 `skill` 动作写入日志（`src/memory/journal.js#op`）。动作经历以下阶段：`proposed`（角色请求了调用，在检查之前）、`started`（调用通过检查并开始执行），然后是一个结束阶段：`succeeded`（效果已发生）、`failed`（执行了但未成功，带 `code`）或 `unknown`（无法确定结果）。未结束的 `started` 行在启动时被关闭（`journal.reconcile`）。每个阶段是日志文件中的一条 `action` 记录；`opId` 将它们关联在一起。
 
 ## 分析器
 
