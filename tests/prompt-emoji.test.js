@@ -63,9 +63,13 @@ function userText(request) {
   return contentText(request.messages[1].content);
 }
 
+/**
+ * The lines of the request's `<emoji>` blocks in order (the list in the stable part, then the
+ * emoji seen in the chat in the tail), as one block would hold them; null with no block.
+ */
 function emojiBlock(request) {
-  const match = /<emoji>\n([\s\S]*?)\n<\/emoji>/.exec(userText(request));
-  return match ? match[1].split('\n') : null;
+  const bodies = [...userText(request).matchAll(/<emoji>\n([\s\S]*?)\n<\/emoji>/g)].map((match) => match[1]);
+  return bodies.length > 0 ? bodies.join('\n').split('\n') : null;
 }
 
 function sensesOf(request) {
@@ -156,16 +160,20 @@ test('buildRequest: context.caps.emoji trims entries from the bottom, a cap belo
   assert.equal(emojiBlock(none), null);
 });
 
-test('buildRequest: <emoji> sits in the tail, right after <server>', () => {
+test('buildRequest: the <emoji> list closes the stable part; the emoji seen in the chat sit in the tail, right after <server>', () => {
   const guildMemory = { patterns: 'short lines' };
-  const history = [{ ...baseInput().history[0], channelId: 'c1', channelName: 'general' }];
-  const text = userText(buildRequest(baseInput({ customEmoji: INDEX, guildMemory, history, currentChannelId: 'c1' })));
-  const aboutIdx = text.indexOf('<about_chat>');
-  const emojiIdx = text.indexOf('<emoji>\n'); // the senses line names the block too
-  const serverIdx = text.indexOf('<server>');
-  assert.ok(aboutIdx !== -1 && emojiIdx !== -1 && serverIdx !== -1);
-  assert.ok(aboutIdx < serverIdx && serverIdx < emojiIdx);
-  assert.ok(text.indexOf('</server>\n\n<emoji>\n') !== -1);
+  const history = [{ ...baseInput().history[0], channelId: 'c1', channelName: 'general', content: 'ωραίο :pog:', emojis: [{ id: '9', name: 'pog' }] }];
+  const descriptions = new Map([['emoji:9', 'a surprised cat face']]);
+  const request = buildRequest(baseInput({ customEmoji: INDEX, guildMemory, history, currentChannelId: 'c1', descriptions }));
+  const [stable, tail] = request.messages[1].content;
+  assert.equal(stable.cacheSegment, 'stable');
+  assert.ok(stable.text.endsWith(`<emoji>\n${labels.emoji.header}\n:alpha:\n:beta:\n:gamma:\n:delta:\n</emoji>\n\n`), stable.text);
+  assert.ok(stable.text.indexOf('<about_chat>') < stable.text.indexOf('<emoji>\n'));
+  assert.ok(!('cacheSegment' in tail));
+  assert.ok(tail.text.includes(`</server>\n\n<emoji>\n${labels.emoji.seenInChat}\n:pog: -- a surprised cat face\n</emoji>\n\n`), tail.text);
+  // Without an emoji of the chat to describe, the tail carries no <emoji> at all.
+  const plain = buildRequest(baseInput({ customEmoji: INDEX, guildMemory, history: [{ ...history[0], content: 'hi', emojis: [] }], currentChannelId: 'c1' }));
+  assert.ok(!plain.messages[1].content.at(-1).text.includes('<emoji>\n'));
 });
 
 // ---- a custom emoji of the chat is described once, in <emoji> ----------------
