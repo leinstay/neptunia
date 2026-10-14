@@ -21,7 +21,7 @@
 import { canAttach, canSend, fetchHistory } from '../discord/collect.js';
 import { fill } from '../discord/format.js';
 import { log } from '../log.js';
-import { oneLine, clampText } from '../memory/clamp.js';
+import { oneLine, clampText, stripUrls } from '../memory/clamp.js';
 import { MINUTE_MS, countToday, zonedDay, zonedEpoch, utcDay } from '../time.js';
 /** The daily counter of diary posts in state.json (src/time.js dailyCounter / bumpDaily). */
 export const DIARY_DAILY = { dayKey: 'diaryDay', countKey: 'diaryPosts' };
@@ -48,7 +48,6 @@ const DEFAULT_SET_MIN_POSTED = 2; // diary.set.minPosted
 const DEFAULT_SET_SEED_SETS = 6; // diary.set.seedSets
 const DEFAULT_SET_MAX_MESSAGE_BYTES = 8000000; // diary.set.maxMessageBytes
 const DEFAULT_FAMILY = 'seed';
-const URL_RE = /https?:///iu;
 
 /**
  * The local date key (`YYYY-MM-DD`) of `nowMs` in `timezone` (UTC when missing).
@@ -527,23 +526,8 @@ export function renderTopicBlock(topic, labels) {
   return [labels?.diary?.topic, text].filter(Boolean).join('\n');
 }
 
-/**
- * `text` with every http(s) URL removed (an `<url>` wrapper included) and the
- * spaces the removal leaves collapsed; lines are kept. Text with no URL is
- * returned as it is.
- * @param {unknown} text
- * @returns {string}
- */
-export function stripUrls(text) {
-  const value = String(text ?? '');
-  if (!URL_RE.test(value)) return value;
-  return value
-    .replace(/<?https?:\/\/[^\s>]+>?/giu, '')
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/[ \t]+$/gm, '')
-    .replace(/^[ \t]+/gm, '')
-    .trim();
-}
+// A diary post's text loses its URLs through the one shared sanitizer (src/memory/clamp.js#stripUrls).
+export { stripUrls };
 
 /**
  * A post's one-line gist for diary.json: whitespace collapsed, then cut at a

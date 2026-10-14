@@ -593,6 +593,13 @@ of what is already stored, so facts are not degraded by being rewritten batch af
 - **Server-level notes are about the server.** What one person does in their own channel is not a `guild` pattern,
   starter or in-joke, and not `lore`; an in-joke is something several people use.
 - **Limits are enforced without cutting.** A prose field returned over its stated character limit is not stored: the previous text stays. Code never shortens a model's rewrite. The prompt tells the model the limit; the code holds it to the exact number (code points). Only the FIRST write of an empty field is cut to the limit with `memory.clampTolerance` (default 1.25), because there is nothing to lose yet; that cut lands on a sentence or word boundary, never inside a `<@id>` token. The stream analyzer does not retry: the overflowing field is left out of the batch's write and counted. The voice model, the portrait refresh and the notes refresh retry once (when `memory.overLimitRetries` is above 0): the model's own answer comes back as an assistant turn, followed by a user turn with an `<over_limit>` block listing each overflowing field's character count and limit. A second overflow keeps the previous text. A stored note or text that visibly breaks off mid-word (cut by an older version) is rewritten whole the next time its subject comes up.
+- **Links never reach memory.** Code removes every http(s) link from each text it stores in memory: profile and
+  private-layer prose, interests, details, aliases, the real name, episodes, attitude reasons, channel notes, server
+  notes, in-jokes, self facts, lessons, lore titles, keys and texts, recent notes and archive entries, whoever wrote
+  them (the analyzer, the voice model, the warmup, the notes refresh, an owner command or a skill). A Markdown link
+  keeps its label; the brackets, quotes and separators a link leaves behind are tidied. A text that was only links
+  counts as empty: an item or entry is not added, a stored text is not blanked. The record, the journal and the
+  meaning index keep links, because they record what was said.
 - **Output economy.** `"sure"` is written only when false; `affinity` is omitted when nothing changed.
 - **One home per fact.** An event goes to `episodes` or `lore`, a fact to `details`, a pastime to `interests`, a
   lesson addressed to the persona to `learned`; the same thing is never written into several fields.

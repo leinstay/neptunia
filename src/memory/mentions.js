@@ -42,6 +42,14 @@ import { foldText } from './recent.js';
  */
 export const ID_DIGITS = '\\d{17,20}';
 
+/**
+ * An http(s) URL as written in a text, as a regex source: from the scheme up to
+ * the next whitespace or angle bracket (a `<url>` keeps its brackets outside).
+ * The one pattern for URLs in a text; src/memory/clamp.js#stripUrls takes them
+ * out of every text the persona's memory stores.
+ */
+export const URL_PATTERN = 'https?:\\/\\/[^\\s<>]+';
+
 const TOKEN_RE = new RegExp(`<@(${ID_DIGITS})>`, 'g');
 const ID_MARKER_RE = new RegExp(`\\(id:(${ID_DIGITS})\\)`, 'g');
 

@@ -19,7 +19,7 @@
 // src/behavior/prompt.js: importing either would close an import cycle
 // (prompt.js imports this module, voice.js imports prompt.js).
 
-import { clampText } from './clamp.js';
+import { clampText, stripUrls } from './clamp.js';
 import { normalizeTopic } from './interests.js';
 import { utcDay } from '../time.js';
 
@@ -80,14 +80,15 @@ function clampWeight(raw) {
  * clamped tolerantly via src/memory/clamp.js; `quote` is the person's own
  * words verbatim, so it gets a hard cut (`tolerance: 1`) at a clean boundary
  * instead -- see docs/prompt-contract.md, "Limits are soft for the
- * model, clean in code". Limits: `EPISODE_CHARS`; date: `episodeDate`.
+ * model, clean in code". Limits: `EPISODE_CHARS`; date: `episodeDate`. All
+ * three lose their links first (src/memory/clamp.js#stripUrls).
  */
 function sanitizeEpisode(raw, nowMs, clampTolerance) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const what = typeof raw.what === 'string' ? clampText(raw.what, EPISODE_CHARS.what, { tolerance: clampTolerance }) : '';
+  const what = typeof raw.what === 'string' ? clampText(stripUrls(raw.what), EPISODE_CHARS.what, { tolerance: clampTolerance }) : '';
   if (!what) return null;
-  const quote = typeof raw.quote === 'string' ? clampText(raw.quote, EPISODE_CHARS.quote, { tolerance: 1 }) : '';
-  const feeling = typeof raw.feeling === 'string' ? clampText(raw.feeling, EPISODE_CHARS.feeling, { tolerance: clampTolerance }) : '';
+  const quote = typeof raw.quote === 'string' ? clampText(stripUrls(raw.quote), EPISODE_CHARS.quote, { tolerance: 1 }) : '';
+  const feeling = typeof raw.feeling === 'string' ? clampText(stripUrls(raw.feeling), EPISODE_CHARS.feeling, { tolerance: clampTolerance }) : '';
   const weight = clampWeight(raw.weight);
   const date = episodeDate(raw.date, nowMs);
   return { date, what, quote, feeling, weight };

@@ -12,7 +12,7 @@
 // (src/memory/voice.js) must apply as the store does: the reason's length
 // (`REASON_CHARS`) and the reading of the delta cap (`deltaCapOf`).
 
-import { clampText } from './clamp.js';
+import { clampText, stripUrls } from './clamp.js';
 import { DAY_MS } from '../time.js';
 import { sortByRank } from './ranking.js';
 import { attachDropped } from './interests.js';
@@ -298,7 +298,8 @@ export function roundScore(score) {
  *   and before it is applied.
  * @param {number} opts.historySize   History is trimmed to the last N entries.
  * @param {number} [opts.now]         Epoch ms for the history entry's timestamp.
- * @param {number} [opts.clampTolerance]  How far `reason` (free text) may run over its
+ * @param {number} [opts.clampTolerance]  `reason` loses its links first (src/memory/clamp.js#stripUrls).
+ *   How far `reason` (free text) may run over its
  *   `REASON_CHARS` limit before being cut, at a clean boundary -- see src/memory/clamp.js.
  * @param {boolean} [opts.damping=false]  `relationships.damping`. When true, `dampedDelta` above
  *   decides how much of the (already clamped) delta actually lands; when false (or omitted), the
@@ -335,7 +336,7 @@ export function applyDelta(
   const appliedDelta = round2(newScore - base.score);
   if (appliedDelta === 0) return affinity && typeof affinity === 'object' && !Array.isArray(affinity) ? affinity : base;
 
-  const trimmedReason = typeof reason === 'string' ? clampText(reason, REASON_CHARS, { tolerance: clampTolerance }) : '';
+  const trimmedReason = typeof reason === 'string' ? clampText(stripUrls(reason), REASON_CHARS, { tolerance: clampTolerance }) : '';
   const finalReason = trimmedReason || base.reason;
 
   // The entry is this move's own record: an earlier reason is never copied onto a move it did not cause.

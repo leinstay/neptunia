@@ -7,7 +7,7 @@
 // analyzer").
 
 import { createHash } from 'node:crypto';
-import { clampText } from './clamp.js';
+import { clampText, stripUrls } from './clamp.js';
 import { occursAsWholeWord } from './mentions.js';
 
 const MAX_TITLE = 80;
@@ -49,7 +49,7 @@ function normalizeKeys(rawKeys) {
   const out = [];
   for (const raw of rawKeys) {
     if (typeof raw !== 'string') continue;
-    const key = clampText(raw.trim().toLowerCase(), MAX_KEY, { tolerance: 1 });
+    const key = clampText(stripUrls(raw).trim().toLowerCase(), MAX_KEY, { tolerance: 1 });
     if (key.length < MIN_KEY) continue;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -128,6 +128,8 @@ function evictOverflow(entries, maxEntries) {
  * @param {unknown} incoming            Untrusted `{ title, keys, text, always? }[]`.
  * @param {{ source: 'analyzer'|'owner', now?: number, maxEntries?: number, textChars?: number,
  *   clampTolerance?: number }} opts
+ *   The title, every key and the text lose their links first (src/memory/clamp.js#stripUrls): an
+ *   entry left with no title, no key or no text is skipped like one sent without them.
  *   `title` is a hard identity clamp at MAX_TITLE; `text` is free prose: a first write (a new
  *   entry, or one with no text) is clamped tolerantly (see src/memory/clamp.js) to `textChars`
  *   (config.lore.textChars; DEFAULT_MAX_TEXT when absent); a rewrite is stored as given, never
@@ -150,9 +152,10 @@ export function upsertLore(entries, incoming, { source, now: nowMs = Date.now(),
 
   for (const raw of incoming) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
-    const title = typeof raw.title === 'string' ? clampText(raw.title, MAX_TITLE, { tolerance: 1 }) : '';
+    const title = typeof raw.title === 'string' ? clampText(stripUrls(raw.title), MAX_TITLE, { tolerance: 1 }) : '';
     const keys = normalizeKeys(raw.keys);
-    if (!title || keys.length === 0 || typeof raw.text !== 'string' || !raw.text.trim()) continue;
+    const rawText = typeof raw.text === 'string' ? stripUrls(raw.text) : '';
+    if (!title || keys.length === 0 || !rawText.trim()) continue;
 
     const normalized = normalizeTitle(title);
     const existingIndex = byTitle.get(normalized);
@@ -160,7 +163,7 @@ export function upsertLore(entries, incoming, { source, now: nowMs = Date.now(),
     // caller's to refuse (src/memory/prose.js#acceptProse), never cut here.
     const previousText = existingIndex === undefined ? '' : stored[existingIndex].text;
     const firstWrite = typeof previousText !== 'string' || previousText.trim() === '';
-    const text = firstWrite ? clampText(raw.text, effectiveTextChars, { tolerance: clampTolerance }) : raw.text.trim();
+    const text = firstWrite ? clampText(rawText, effectiveTextChars, { tolerance: clampTolerance }) : rawText.trim();
     if (!text) continue;
 
     if (existingIndex === undefined) {

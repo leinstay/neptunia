@@ -99,7 +99,7 @@ import { applyInterestOps, applyValidity, attachDropped, normalizeInterests, nor
 import { applyDetailOps, normalizeDetails } from './details.js';
 import { applyAliasOps } from './aliases.js';
 import { applyAddressUses, normalizeAddressedAs } from './addressed.js';
-import { clampText } from './clamp.js';
+import { clampText, stripUrls } from './clamp.js';
 import { feltLine, recordDrops } from './record.js';
 import { sortByRank } from './ranking.js';
 import { mergeEmojiUsage, normalizeEmojiUsage } from './emoji-usage.js';
@@ -123,6 +123,8 @@ const USER_PROSE = ['character', 'style', 'relationship'];
 const CHANNEL_PROSE = ['purpose', 'topics', 'tone'];
 /** The prose fields of the guild memory (kind `guild`, id `guild`). */
 const GUILD_PROSE = ['patterns', 'starters'];
+/** Every text field of the guild memory `updateGuild` writes, the lists included: none keeps a link. */
+const GUILD_TEXT = [...GUILD_PROSE, 'injokes', 'self'];
 
 /** `memory.maxClosedStored` when it is missing (config.json carries the same). */
 const DEFAULT_MAX_CLOSED_STORED = 40;
@@ -632,7 +634,7 @@ function normalizeRealName(value) {
 function applyRealName(stored, raw, { seenAt, now, mintId }) {
   const op = isPlainObject(raw) ? raw : { name: raw };
   if (typeof op.name !== 'string') return null;
-  const name = clampText(op.name, REAL_NAME_CHARS, { tolerance: 1 });
+  const name = clampText(stripUrls(op.name), REAL_NAME_CHARS, { tolerance: 1 });
   if (!name) return null;
   const batchDay = new Date(seenAt).toISOString().slice(0, 10);
   const recordedAt = new Date(Number.isFinite(now) ? now : seenAt).toISOString();
@@ -776,8 +778,9 @@ function relationshipScoreOf(opts, affinity) {
 
 /**
  * Write a `relationship` text onto a public profile or a private layer, in place, with its two
- * stamps -- the one writer of that field for `applyProfileOps` and `applyPrivateOps`. Only a
- * non-empty string is written (an absent or blank one never blanks the stored text). A first write
+ * stamps -- the one writer of that field for `applyProfileOps` and `applyPrivateOps`. The text
+ * loses its links first (`stripUrls`); only a non-empty string is written (an absent or blank one,
+ * or one that was only links, never blanks the stored text). A first write
  * (the stored text is empty) is clamped to `opts.relationshipChars` (`relationships.textChars`),
  * else `opts.fieldChars`; a rewrite is stored as given, never cut (`firstWriteText`). Stamped next to
  * it: `relationshipScore` (see `relationshipScoreOf`) and `relationshipWrittenAt`, the ISO time of
@@ -787,12 +790,13 @@ function relationshipScoreOf(opts, affinity) {
  * until its next text. A written text removes the forced-rewrite flag (`relationshipRewrite`,
  * see `markRelationshipRewrite`): the rewrite it asked for has happened.
  * @param {object} target  A normalised profile or private layer.
- * @param {unknown} text
+ * @param {unknown} raw
  * @param {object} opts    As for `applyProfileOps`.
  * @param {(previous: unknown, next: string) => void} [onWrite]  Called with the stored text and the
  *   one replacing it, before the write (the public profile records a version through it).
  */
-function writeRelationship(target, text, opts, onWrite) {
+function writeRelationship(target, raw, opts, onWrite) {
+  const text = typeof raw === 'string' ? stripUrls(raw) : raw;
   if (typeof text !== 'string' || !text.trim()) return;
   const next = firstWriteText(target.relationship, text, opts.relationshipChars ?? opts.fieldChars, opts.clampTolerance);
   onWrite?.(target.relationship, next);
@@ -815,6 +819,31 @@ function writeRelationship(target, text, opts, onWrite) {
 function firstWriteText(previous, text, limit, tolerance) {
   const first = typeof previous !== 'string' || previous.trim() === '';
   return first ? clampText(text, limit, { tolerance }) : text.trim();
+}
+
+/**
+ * `fields` with the links taken out (`stripUrls`) of every string or list of strings that `keys`
+ * names. A string that held only links is left out of the copy, and so is such an entry of a list,
+ * so it never blanks a stored text. Every other field is kept as given.
+ * @param {object} fields
+ * @param {string[]} keys
+ * @returns {object}  A shallow copy.
+ */
+function withoutLinks(fields, keys) {
+  const out = { ...fields };
+  const clean = (value) => (typeof value === 'string' ? stripUrls(value) : value);
+  const emptied = (value, cleaned) => typeof value === 'string' && value.trim() !== '' && cleaned === '';
+  for (const key of keys) {
+    const value = out[key];
+    if (Array.isArray(value)) {
+      out[key] = value.map(clean).filter((cleaned, i) => !emptied(value[i], cleaned));
+    } else if (typeof value === 'string') {
+      const cleaned = clean(value);
+      if (emptied(value, cleaned)) delete out[key];
+      else out[key] = cleaned;
+    }
+  }
+  return out;
 }
 
 /** The sighting time of one profile/private batch: `opts.seenAt`, else `opts.now`, else the wall clock. */
@@ -2331,12 +2360,14 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * appends and evicts instead of overwriting. `interests`/`details`
      * likewise only ever change through `applyProfileOps` below, which merges
      * incrementally instead of overwriting wholesale. A changed `character`/`style`/
-     * `relationship` keeps its previous text (`recordVersion`; `opts.by`, `opts.versions`).
+     * `relationship` keeps its previous text (`recordVersion`; `opts.by`, `opts.versions`), and
+     * loses its links first (`withoutLinks`: one that was only links is not written).
      * @param {{ by?: string, versions?: { enabled?: boolean, kept?: number } }} [opts]
      */
     updateUser(guildId, userId, fields, opts = {}) {
       const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
-      const { affinity, episodes, interests, details, detailsSeq, ...safeFields } = fields ?? {};
+      const { affinity, episodes, interests, details, detailsSeq, ...given } = fields ?? {};
+      const safeFields = withoutLinks(given, USER_PROSE);
       for (const key of USER_PROSE) {
         if (key in safeFields) recordVersion(guildId, 'users', userId, key, item.value[key], safeFields[key], opts);
       }
@@ -2351,7 +2382,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * `relationship` replace the stored text only when given as a non-empty
      * string, clamped to `opts.fieldChars` (`relationship` to
      * `opts.relationshipChars` when given) -- an absent or empty field never
-     * blanks what is already stored. `ops.interests` (`{ add, update, seen,
+     * blanks what is already stored. Every text of the batch (prose, items, aliases, the real
+     * name) loses its links before it is clamped (`stripUrls`); one that was only links counts as
+     * empty. `ops.interests` (`{ add, update, seen,
      * remove }`) merges via src/memory/interests.js#applyInterestOps;
      * `ops.details` (`{ add, seen, remove }`) merges via
      * src/memory/details.js#applyDetailOps, which also advances the
@@ -2399,7 +2432,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       const seenAt = seenAtOf(opts);
 
       for (const key of ['character', 'style']) {
-        const value = ops?.[key];
+        const value = typeof ops?.[key] === 'string' ? stripUrls(ops[key]) : undefined;
         if (typeof value === 'string' && value.trim()) {
           const next = firstWriteText(profile[key], value, opts.fieldChars, opts.clampTolerance);
           recordVersion(guildId, 'users', userId, key, profile[key], next, opts);
@@ -2708,7 +2741,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * Fill in the reason of one attitude move after the fact (the two-stage analyzer: stage A
      * moved the score with an empty reason, the voice run words it later): the
      * history entry stamped `at` (its `ts`) gets `reason`, and `affinity.reason` too while that
-     * entry is the newest. The score is never touched. `reason` is clamped as
+     * entry is the newest. The score is never touched. `reason` loses its links and is clamped as
      * src/memory/affinity.js#applyDelta clamps it (src/memory/voice.js#REASON_CHARS, the limit the
      * voice run words it to). Writing the same text again changes nothing, so a write applied
      * twice (a restart before the queue was saved) does no harm.
@@ -2724,7 +2757,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      */
     fillAffinityReason(guildId, userId, at, reason, opts = {}) {
       const item = memberEntry(guildId, userId, opts.layer);
-      const text = typeof reason === 'string' ? clampText(reason, REASON_CHARS, { tolerance: opts.clampTolerance }) : '';
+      const text = typeof reason === 'string' ? clampText(stripUrls(reason), REASON_CHARS, { tolerance: opts.clampTolerance }) : '';
       const affinity = item?.value.affinity;
       if (!text || typeof at !== 'string' || !at || !isPlainObject(affinity) || !Array.isArray(affinity.history)) return false;
       const index = affinity.history.findLastIndex((move) => move?.ts === at);
@@ -2742,7 +2775,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * stored it with an empty feeling; the voice run words it later, or the degraded path keeps
      * stage A's tone as the feeling): the
      * episode added at `episode.at` (its `addedAt`) whose `date` and `what` EQUAL the given ones.
-     * `feeling` is clamped as src/memory/episodes.js#sanitizeEpisode clamps it
+     * `feeling` loses its links and is clamped as src/memory/episodes.js#sanitizeEpisode clamps it
      * (src/memory/voice.js#FEELING_CHARS, the limit the voice run words it to). Writing the
      * same text again changes nothing; a new text is also appended to the record as a `felt`
      * line (recordFelt).
@@ -2757,7 +2790,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      */
     fillEpisodeFeeling(guildId, userId, episode, feeling, opts = {}) {
       const item = memberEntry(guildId, userId, opts.layer);
-      const text = typeof feeling === 'string' ? clampText(feeling, FEELING_CHARS, { tolerance: opts.clampTolerance }) : '';
+      const text = typeof feeling === 'string' ? clampText(stripUrls(feeling), FEELING_CHARS, { tolerance: opts.clampTolerance }) : '';
       const episodes = item?.value.episodes;
       if (!text || !isPlainObject(episode) || !Array.isArray(episodes)) return false;
       const { at, date, what } = episode;
@@ -3055,7 +3088,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * a write of `injokes` or `self` takes out of the stored list (by
      * src/memory/interests.js#normalizeTopic) is handed to `opts.onDropped` instead, as
      * `{ injokes, self }` lists of `{ itemId, text }` (`ij-`/`sf-`, minted here, see
-     * `ITEM_ID_PREFIX`), called once per write.
+     * `ITEM_ID_PREFIX`), called once per write. `patterns`, `starters` and every in-joke and self
+     * fact lose their links first (`withoutLinks`): a text that was only links is not written.
      * @param {{ by?: string, versions?: { enabled?: boolean, kept?: number },
      *   onDropped?: (dropped: { injokes: object[], self: object[] }) => void }} [opts]
      */
@@ -3070,8 +3104,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         pingsOff,
         notesUpdatedAt,
         notesCheckedAt,
-        ...safeFields
+        ...given
       } = fields ?? {};
+      const safeFields = withoutLinks(given, GUILD_TEXT);
       if (!changesStored(item.value, safeFields)) return item.value;
       const notes = Object.fromEntries(Object.entries(safeFields).filter(([key]) => NOTES_FIELDS.includes(key)));
       const stamp = new Date().toISOString();
@@ -3370,7 +3405,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * trimmed, whitespace collapsed, lower-cased -- the rule src/memory/voice.js tells a queued
      * self fact by); then `add`, each new claim clamped like the single-stage self list
      * (src/memory/voice.js#SELF_CHARS, `opts.clampTolerance`) and appended unless it is already
-     * stored; past `opts.maxSelfFacts` the oldest leave to make room (a cap of 0 adds nothing; a
+     * stored (a claim that was only links adds nothing: links go first, `stripUrls`); past `opts.maxSelfFacts` the oldest leave to make room (a cap of 0 adds nothing; a
      * call that adds nothing never cuts the list, even one stored above a lowered cap). The
      * single-stage analyzer still replaces the whole list through `updateGuild`. Like
      * `updateGuild`, the guild is marked dirty and `updatedAt` stamped (`opts.now`, else the wall
@@ -3411,7 +3446,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         const held = new Set(next.map(normalizeTopic));
         for (const claim of Array.isArray(ops.add) ? ops.add : []) {
           if (typeof claim !== 'string') continue;
-          const fact = clampText(claim, SELF_CHARS, { tolerance: opts.clampTolerance });
+          const fact = clampText(stripUrls(claim), SELF_CHARS, { tolerance: opts.clampTolerance });
           const key = normalizeTopic(fact);
           if (!key || held.has(key)) continue;
           held.add(key);
@@ -3549,16 +3584,18 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * only when one of them actually changes: an identical re-send is left
      * alone. Nothing else stamps a channel's `updatedAt`, so it is the notes'
      * own stamp (src/memory/update.js#notesStale reads it beside
-     * `notesCheckedAt`, see `markNotesChecked`). A changed field keeps its previous text
+     * `notesCheckedAt`, see `markNotesChecked`). Each field loses its links first (`withoutLinks`:
+     * one that was only links is not written). A changed field keeps its previous text
      * (`recordVersion`; `opts.by`, `opts.versions`).
      * @param {{ by?: string, versions?: { enabled?: boolean, kept?: number } }} [opts]
      */
     updateChannel(guildId, channelId, fields, opts = {}) {
       const item = channelEntry(guildId, channelId);
-      const patch = {};
+      const given = {};
       for (const key of CHANNEL_PROSE) {
-        if (typeof fields?.[key] === 'string') patch[key] = fields[key];
+        if (typeof fields?.[key] === 'string') given[key] = fields[key];
       }
+      const patch = withoutLinks(given, CHANNEL_PROSE);
       if (!changesStored(item.value, patch)) return item.value;
       for (const [key, value] of Object.entries(patch)) recordVersion(guildId, 'channels', channelId, key, item.value[key], value, opts);
       Object.assign(item.value, patch, { updatedAt: new Date().toISOString() });
@@ -4305,6 +4342,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * Put an archived item back into its hot list (`/nep memory restore`): the entry's text and
      * stored fields rebuild it under its own `itemId`, appended to the member's or the guild's
      * list without any cap (it is not pinned: the next write evicts it again by the usual rules).
+     * Its text fields come back without links (`withoutLinks`; a plain-string item that was only
+     * links is not restored, `kind`).
      * Kinds: episode, interest, detail, alias (a member's profile, or their private layer for a
      * private entry; no private aliases), lesson, selfFact, injoke, diary (the guild). Nothing
      * changes when the item is hot already (`hot`), the member has no profile or private layer
@@ -4322,14 +4361,16 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       if (!where) return { restored: false, reason: 'no-profile' };
       const list = Array.isArray(where.holder[where.key]) ? where.holder[where.key] : [];
       const strings = target.strings === true;
+      // An entry archived before links were kept out of memory loses them on the way back.
+      const text = isPlainObject(entry.text) ? withoutLinks(structuredClone(entry.text), Object.keys(entry.text)) : {};
       let value;
       if (strings) {
-        value = typeof entry.text?.text === 'string' && entry.text.text.trim() ? entry.text.text : null;
+        value = typeof text.text === 'string' && text.text.trim() ? text.text : null;
         if (value === null) return { restored: false, reason: 'kind' };
       } else {
         value = {
           ...(isPlainObject(entry.stored) ? structuredClone(entry.stored) : {}),
-          ...(isPlainObject(entry.text) ? structuredClone(entry.text) : {}),
+          ...text,
           ...(Number.isFinite(entry.weight) ? { weight: entry.weight } : {}),
           itemId: entry.itemId,
         };
