@@ -70,6 +70,44 @@ function prefillPerMessage(value, fallback) {
 }
 
 /**
+ * Whether a follow-up whose address classifier failed (threw or answered
+ * nothing) still belongs to an active one-to-one exchange, from the channel
+ * `history` its request fetched (normalized, oldest first, without the
+ * candidate): the persona's latest line before `candidate` was posted at most
+ * `minutes` before it; that line (with the lines of hers right before it, one
+ * multi-line answer) replied only to messages of the candidate's author, or -- no
+ * reply target found in `history` -- a message of that author directly
+ * preceded it; and nobody but that author wrote between it and `candidate`.
+ * False otherwise, and with `minutes` not above 0. Pure.
+ * @param {object[]} history
+ * @param {{ authorId: string, ts: number }} candidate
+ * @param {number} minutes
+ * @returns {boolean}
+ */
+function activeExchangeWith(history, candidate, minutes) {
+  if (!(minutes > 0) || !Array.isArray(history)) return false;
+  const before = history.filter((m) => m && Number.isFinite(m.ts) && m.ts <= candidate.ts);
+  let last = -1;
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    if (before[i].self) {
+      last = i;
+      break;
+    }
+  }
+  if (last < 0 || candidate.ts - before[last].ts > minutes * MINUTE_MS) return false;
+  if (before.slice(last + 1).some((m) => m.authorId !== candidate.authorId)) return false;
+  let first = last;
+  while (first > 0 && before[first - 1].self) first -= 1;
+  const byId = new Map(history.map((m) => [m?.id, m]));
+  const targets = before
+    .slice(first, last + 1)
+    .map((m) => (m.replyToId ? byId.get(m.replyToId) : null))
+    .filter((m) => m && !m.self);
+  if (targets.length > 0) return targets.every((m) => m.authorId === candidate.authorId);
+  return first > 0 && before[first - 1].authorId === candidate.authorId;
+}
+
+/**
  * How strongly a call asks for an answer: a tag (mention/reply) above the
  * persona's name, which rolls mention.nameTriggerChance. A settle wait never
  * trades a call for a weaker one.
@@ -481,7 +519,8 @@ export function createMessageHandler({
    * author has stored aliases (followUpAuthorLine), then the new message
    * wrapped in a `<candidate>` block (tags structural, not model-facing
    * wording). Pictures, stickers, emoji and videos carry the captions the
-   * describer already cached (cachedFollowUpMedia). `null` when `prompt` is
+   * describer already cached (cachedFollowUpMedia). Also `history`, the
+   * fetched lines without the candidate (never sent). `null` when `prompt` is
    * missing -- the caller treats that the same as a "no".
    */
   async function buildClassifierRequest({ prompt, config, prompts, channel, selfId, selfName, normalized, ownPrefill }) {
@@ -511,6 +550,8 @@ export function createMessageHandler({
     return {
       system: fillPromptTemplate(prompt, { name: selfName }),
       user: `${transcript}${authorBlock}\n<candidate>\n${candidateItem.text}\n</candidate>`,
+      // The fetched lines themselves (never sent): a failed address call decides from them (activeExchangeWith).
+      history,
     };
   }
 
@@ -741,7 +782,10 @@ export function createMessageHandler({
    * verdict and bumps the no-streak on a "no"; a "yes" or an "overheard"
    * leaves the streak alone (the persona is still part of the exchange).
    * Resolves to the answer (parseAddressAnswer); the caller starts the turn
-   * (settleFollowUp) and owns the in-flight slot.
+   * (settleFollowUp) and owns the in-flight slot. A call that threw or
+   * answered nothing is a "yes" while the message keeps an active one-to-one
+   * exchange (activeExchangeWith, within mention.failOpenMinutes read now;
+   * 0 = off), a "no" otherwise -- `follow-up: fail-open` says which.
    * @returns {Promise<'yes'|'overheard'|'no'>}
    */
   async function classifyFollowUp(message, normalized, selfId, { config, state }, ownPrefill = null) {
@@ -772,6 +816,7 @@ export function createMessageHandler({
     }
 
     let answer = 'no';
+    let failure = null; // 'classifier-failed' | 'empty' when the call gave no answer
     if (llm) {
       // Read once: the request and its empty-answer warning name the same model.
       const model = roleModel(config, 'analyzer', 'address');
@@ -798,11 +843,22 @@ export function createMessageHandler({
           // Nothing at all (typically a reasoning model that spent its whole
           // output cap thinking) is a failed call, not a silent "no".
           log.warn('follow-up: classifier failed', { channel: channelId, reason: 'empty', model: model ?? null });
+          failure = 'empty';
         }
       } catch (err) {
         answer = 'no';
         log.warn('follow-up: classifier failed', { channel: channelId, error: err });
+        failure = 'classifier-failed';
       }
+    }
+
+    // A failed call (provider slowness, a timeout) does not drop a line from
+    // the member the persona is talking with one to one right now.
+    const failOpenMinutes = mentionCfg.failOpenMinutes ?? 3;
+    if (failure && failOpenMinutes > 0) {
+      const open = activeExchangeWith(request.history, { authorId: normalized.authorId, ts: normalized.ts ?? now() }, failOpenMinutes);
+      log.info('follow-up: fail-open', { channel: channelId, author: normalized.authorId, reason: failure, open });
+      if (open) answer = 'yes';
     }
 
     // `verdict` is the two-way projection (overheard counts as yes), `answer` the word itself.

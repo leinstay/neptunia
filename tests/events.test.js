@@ -4576,6 +4576,121 @@ test('follow-up: a failed classifier call is logged with its error, not only as 
   }
 });
 
+// ---------------------------------------------------------------------------
+// mention.failOpenMinutes -- a failed classifier call (thrown or empty) keeps an
+// active one-to-one exchange: the facts are the channel history its request fetched.
+
+/**
+ * One classifier failure in channel c1 with Bob (u2) writing to the persona: a line by
+ * `preceding`, the persona's line `agoMs` before the candidate (a reply to that line, unless
+ * `reply` is false), then `between` (raw lines after hers), then Bob's candidate. `failure` is
+ * `'throw'`, `'empty'` or an answer word (a working classifier).
+ */
+async function failOpenScenario({ agoMs = 60_000, between = [], failure = 'throw', reply = true, preceding = 'u2', mention = {}, extra } = {}) {
+  const llm = fakeFollowUpLlm();
+  const turns = recordingTurns();
+  const spontaneous = fakeSpontaneous();
+  const config = baseConfig({ mention: { failOpenMinutes: 3, ...mention } });
+  const handler = makeHandler({ config, turns, spontaneous, llm, prompts: fakeAddressPrompts() });
+  const guild = fakeGuild();
+  const t0 = Date.now();
+  const herTs = t0 - agoMs;
+  const herLine = {
+    ...rawHistoryMessage({ id: 'h-her', authorId: 'self1', authorName: 'Ζωή', ts: herTs, content: 'her answer' }),
+    reference: reply ? { messageId: 'h-asked' } : null,
+  };
+  const history = [
+    rawHistoryMessage({ id: 'h-asked', authorId: preceding, authorName: preceding === 'u2' ? 'Bob' : 'Carla', ts: herTs - 20_000, content: 'a question' }),
+    herLine,
+    ...between,
+  ];
+  const channel = fakeChannelWithHistory('c1', guild, history);
+  await openFollowUpWindow(handler, { guild, channel, ts: herTs });
+
+  const { logs } = await withCapturedLogs(async () => {
+    const p = handler(plainFollowUpMessage({ id: 'm-candidate', guild, channel, content: 'and then?', ts: t0 }));
+    await tick();
+    if (failure === 'throw') llm.fail(new Error('timeout'));
+    else if (failure === 'empty') llm.respond('');
+    else llm.respond(failure);
+    await p;
+    await tick();
+    if (extra) await extra({ handler, llm, guild, channel, t0 });
+  });
+  return { turns, spontaneous, llm, logs };
+}
+
+test('follow-up: a thrown classifier call keeps a one-to-one exchange whose last line of hers answered this author a minute ago', async () => {
+  const { turns, logs, llm } = await failOpenScenario({
+    // With a no-streak limit of 1, a counted "no" would close the window before the next line.
+    mention: { followUpNoStreak: 1 },
+    extra: async ({ handler, llm, guild, channel, t0 }) => {
+      const p = handler(plainFollowUpMessage({ id: 'm-next', guild, channel, content: 'still there?', ts: t0 + 1000 }));
+      await tick();
+      llm.respond('no');
+      await p;
+    },
+  });
+  assert.equal(turns.calls.length, 1, 'a reply turn');
+  assert.equal(turns.calls[0].trigger.id, 'm-candidate');
+  assert.equal(turns.calls[0].triggerKind, 'followUp');
+  const open = logs.find((l) => l.msg === 'follow-up: fail-open');
+  assert.ok(open, 'logged');
+  assert.equal(open.channel, 'c1');
+  assert.equal(open.author, 'u2');
+  assert.equal(open.reason, 'classifier-failed');
+  assert.equal(open.open, true);
+  assert.ok(!JSON.stringify(open).includes('and then?'), 'no message contents');
+  assert.equal(logs.find((l) => l.msg === 'follow-up: verdict')?.verdict, 'yes');
+  assert.equal(llm.calls.length, 2, 'a fail-open "yes" leaves the no-streak alone: the window is still open');
+});
+
+test('follow-up: an empty classifier answer keeps the same one-to-one exchange', async () => {
+  const { turns, logs } = await failOpenScenario({ failure: 'empty' });
+  assert.equal(turns.calls.length, 1, 'a reply turn');
+  const open = logs.find((l) => l.msg === 'follow-up: fail-open');
+  assert.equal(open?.reason, 'empty');
+  assert.equal(open?.open, true);
+});
+
+test('follow-up: a failed classifier keeps the exchange when this author\'s line directly preceded hers', async () => {
+  const { turns } = await failOpenScenario({ reply: false });
+  assert.equal(turns.calls.length, 1);
+});
+
+test('follow-up: a failed classifier is a "no" when the exchange is not an active one-to-one', async () => {
+  const cases = [
+    {
+      label: 'another member wrote between her line and this message',
+      between: [rawHistoryMessage({ id: 'h-carla', authorId: 'u3', authorName: 'Carla', ts: Date.now() - 30_000, content: 'me too' })],
+    },
+    { label: 'her line is ten minutes old', agoMs: 10 * 60_000 },
+    { label: 'her line answered someone else', preceding: 'u3' },
+    { label: 'her line followed someone else', reply: false, preceding: 'u3' },
+    { label: 'mention.failOpenMinutes 0 switches it off', mention: { failOpenMinutes: 0 } },
+  ];
+  for (const failure of ['throw', 'empty']) {
+    for (const { label, ...scenario } of cases) {
+      const { turns, spontaneous, logs } = await failOpenScenario({ failure, ...scenario });
+      assert.equal(turns.calls.length, 0, `${failure}, ${label}: no reply turn`);
+      assert.equal(spontaneous.onMessageCalls.length, 0, `${failure}, ${label}: still handled`);
+      assert.equal(logs.find((l) => l.msg === 'follow-up: verdict')?.verdict, 'no', `${failure}, ${label}`);
+      const open = logs.find((l) => l.msg === 'follow-up: fail-open');
+      if (scenario.mention?.failOpenMinutes === 0) assert.equal(open, undefined, `${failure}, ${label}: switched off, not logged`);
+      else assert.equal(open?.open, false, `${failure}, ${label}`);
+    }
+  }
+});
+
+test('follow-up: a working classifier answer is never overridden by the fail-open facts', async () => {
+  for (const [answer, expectedTurns] of [['no', 0], ['yes', 1]]) {
+    const { turns, logs } = await failOpenScenario({ failure: answer });
+    assert.equal(turns.calls.length, expectedTurns, answer);
+    assert.equal(logs.find((l) => l.msg === 'follow-up: fail-open'), undefined, `${answer}: no fail-open`);
+    assert.equal(logs.find((l) => l.msg === 'follow-up: verdict')?.answer, answer);
+  }
+});
+
 test('events: a queued mention in a channel denied meanwhile is not answered at drain time', async () => {
   let busy = true;
   const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
