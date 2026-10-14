@@ -6,6 +6,7 @@
 // structured status; the `/nep message` operations go through a fake interface adapter.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { PermissionFlagsBits } from 'discord.js';
 
 import '../src/ops/index.js';
 import { createAdmin } from '../src/admin.js';
@@ -22,12 +23,46 @@ const SELF = 'self-1';
 const HERE = 'c-here';
 const NEWS = 'c-news';
 const ELSEWHERE = 'c-else';
+const READ_ONLY = 'c-read-only';
+const NO_FILES = 'c-no-files';
+const OTHER_GUILD = 'c-other-guild';
+const DM = 'c-dm';
+
+const { ViewChannel, SendMessages, ReadMessageHistory, AddReactions } = PermissionFlagsBits;
+
+/**
+ * A text channel the client knows: of the served guild g1 (`guildId` another, or a DM without a
+ * guild), the bot holding the permissions in `allowed` (every one when null).
+ */
+function textChannel(id, { guildId = 'g1', dm = false, allowed = null } = {}) {
+  return {
+    id,
+    guild: dm ? null : { id: guildId, members: { me: { id: SELF } } },
+    viewable: allowed === null || allowed.includes(ViewChannel),
+    isTextBased: () => true,
+    isDMBased: () => dm,
+    permissionsFor: () => ({ has: (flag) => allowed === null || allowed.includes(flag) }),
+  };
+}
+
+/** The client's channels: NEWS and 555 open, ELSEWHERE seen but no send, READ_ONLY readable, NO_FILES without Attach Files, one of another guild, a DM. */
+function clientChannels() {
+  return new Map([
+    [NEWS, textChannel(NEWS)],
+    ['555', textChannel('555')],
+    [ELSEWHERE, textChannel(ELSEWHERE, { allowed: [ViewChannel, ReadMessageHistory, AddReactions] })],
+    [READ_ONLY, textChannel(READ_ONLY, { allowed: [ViewChannel, SendMessages, ReadMessageHistory] })],
+    [NO_FILES, textChannel(NO_FILES, { allowed: [ViewChannel, SendMessages, ReadMessageHistory, AddReactions] })],
+    [OTHER_GUILD, textChannel(OTHER_GUILD, { guildId: 'g2' })],
+    [DM, textChannel(DM, { dm: true })],
+  ]);
+}
 
 /** A config with the settings these tests read, each set here. */
 function config({ features = {}, skills = {}, access = {}, diary = {} } = {}) {
   return {
     features: { skills: true, diary: true, ...features },
-    skills: { conversations: [NEWS], safeMode: false, ...skills },
+    skills: { safeMode: false, ...skills },
     bot: { owners: [OWNER], access },
     diary: { channelId: '', kinds: { photos: 1, thought: 1 }, ...diary },
   };
@@ -47,6 +82,7 @@ function view(overrides = {}) {
       { id: HERE, name: 'γενικά' },
       { id: NEWS, name: '💖νέα' },
       { id: ELSEWHERE, name: 'αλλού' },
+      { id: READ_ONLY, name: 'ανάγνωση' },
       { id: 'k1', name: '🍡κουζίνα' },
       { id: 'k2', name: '🍰κουζίνα' },
     ],
@@ -119,7 +155,7 @@ test('resolveCall: a transcript number names a message she saw and its channel; 
 function makeAdmin({ cfg = config(), diary = null, port = createFakeAdapter({ iface: 'fake', selfId: SELF, now: () => 1000 }), extra = {} } = {}) {
   const hot = { config: cfg, prompts: { labels: {} } };
   const store = { state: { data: {}, markDirty() {} }, getUser: () => null, getGuild: () => ({}), isPingsOff: (guildId, userId) => userId === '8' };
-  const admin = createAdmin({ hot, store, client: { user: { id: SELF } }, getGuildId: () => 'g1', diary, port, ...extra });
+  const admin = createAdmin({ hot, store, client: { user: { id: SELF }, channels: { cache: clientChannels() } }, getGuildId: () => 'g1', diary, port, ...extra });
   return { admin, hot, store, port };
 }
 
@@ -222,9 +258,10 @@ test('executeCall: message.create posts her own text where she may, the reply no
   const [posted] = port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
   assert.equal(posted.text, 'απάντηση');
   assert.deepEqual(posted.mentions, { users: [], repliedUser: true });
-  // a channel neither here nor listed: the operation's own rule
+  // a channel the bot may see but not send in: refused before anything is sent
   const away = await executeCall(resolve('message.create', { channel: '#αλλού' }, 'γεια'), deps(admin, port));
-  assert.deepEqual([away.status, away.code], ['invalid', 'conversation-not-allowed']);
+  assert.deepEqual([away.status, away.code], ['denied', 'channel-no-permission']);
+  assert.equal(port.messagesIn(ELSEWHERE).length, 0);
   // a port answer of unknown fate: unknown, never ok
   port.failNext('send', { status: 'unknown', error: { code: 'timeout', retryable: false } });
   const lost = await executeCall(resolve('message.create', {}, 'ξανά'), deps(admin, port));
@@ -307,7 +344,7 @@ test('resolveCall: a message link names the message and its channel; a raw id pa
 });
 
 test('executeCall: a message she posted elsewhere is deleted by its link', async () => {
-  const { admin, port } = makeAdmin({ cfg: config({ skills: { conversations: [NEWS, '555'] } }) });
+  const { admin, port } = makeAdmin();
   port.seed('555', { authorId: SELF, messageId: '1009', text: 'λάθος κανάλι' });
   const deleted = await executeCall(resolve('message.delete', { message: 'https://discord.com/channels/111/555/1009' }), deps(admin, port));
   assert.equal(deleted.status, 'ok', JSON.stringify(deleted));
@@ -331,6 +368,73 @@ test('executeCall: draw.create without a channel posts its picture here, once; w
   assert.equal(there.status, 'ok', JSON.stringify(there));
   assert.equal(port.calls.filter((call) => call.op === 'send')[1].args[0].conversationId, NEWS);
   assert.equal(generated.length, 2, 'one generation per call');
+});
+
+/** A call aimed at a raw channel id, as the server resolved it: `args` keyed by the command's options. */
+function direct(skill, args) {
+  return { ok: true, skill, args, command: skillRegistry().get(skill).command, repliedAuthorId: null };
+}
+
+test('executeCall: she may post in any text channel of the served guild where the bot may send -- no list; Discord permissions are the only limit', async () => {
+  const { admin, port } = makeAdmin();
+  const there = await executeCall(resolve('message.create', { channel: '#νέα' }, 'καλημέρα'), deps(admin, port));
+  assert.equal(there.status, 'ok', JSON.stringify(there));
+  assert.equal(port.messagesIn(NEWS).at(-1).text, 'καλημέρα');
+  // the current conversation needs no lookup at all, as before
+  const here = await executeCall(resolve('message.create', {}, 'εδώ'), deps(admin, port));
+  assert.equal(here.status, 'ok', JSON.stringify(here));
+  assert.equal(port.messagesIn(HERE).at(-1).text, 'εδώ');
+  // no permission to send, a DM, another guild's channel, a channel the bot cannot find: refused, nothing sent
+  for (const channel of [ELSEWHERE, DM, OTHER_GUILD, 'c-unknown']) {
+    const refused = await executeCall(direct('message.create', { channel, text: 'γεια' }), deps(admin, port));
+    assert.deepEqual([refused.status, refused.code], ['denied', 'channel-no-permission'], channel);
+    assert.equal(port.messagesIn(channel).length, 0, channel);
+  }
+});
+
+test('executeCall: a leftover skills.conversations is ignored -- it neither opens nor closes a channel', async () => {
+  const { admin, port } = makeAdmin({ cfg: config({ skills: { conversations: [ELSEWHERE] } }) });
+  const listed = await executeCall(resolve('message.create', { channel: '#αλλού' }, 'γεια'), deps(admin, port));
+  assert.deepEqual([listed.status, listed.code], ['denied', 'channel-no-permission']);
+  const unlisted = await executeCall(resolve('message.create', { channel: '#νέα' }, 'γεια'), deps(admin, port));
+  assert.equal(unlisted.status, 'ok', JSON.stringify(unlisted));
+});
+
+test('executeCall: each operation needs its own permissions there -- edit, delete and unreact read the history, a reaction adds one, a reply reads and sends', async () => {
+  const { admin, port } = makeAdmin();
+  port.seed(READ_ONLY, { authorId: SELF, messageId: '2001', text: 'λάθος' });
+  port.seed(ELSEWHERE, { authorId: SELF, messageId: '2002', text: 'παλιό' });
+  port.seed(ELSEWHERE, { authorId: MEMBER, messageId: '2003', text: 'ερώτηση' });
+  // READ_ONLY: no Add Reactions -- an edit and taking a reaction back pass, a new reaction does not
+  const edited = await executeCall(direct('message.edit', { message: '2001', channel: READ_ONLY, text: 'σωστό' }), deps(admin, port));
+  assert.equal(edited.status, 'ok', JSON.stringify(edited));
+  const reacted = await executeCall(direct('message.react.add', { message: '2001', channel: READ_ONLY, emoji: '🎉' }), deps(admin, port));
+  assert.deepEqual([reacted.status, reacted.code], ['denied', 'channel-no-permission']);
+  const unreacted = await executeCall(direct('message.react.remove', { message: '2001', channel: READ_ONLY, emoji: '🎉' }), deps(admin, port));
+  assert.equal(unreacted.status, 'ok', JSON.stringify(unreacted));
+  // ELSEWHERE: no Send Messages -- her old message may go and a reaction may land, a reply may not
+  const deleted = await executeCall(direct('message.delete', { message: '2002', channel: ELSEWHERE }), deps(admin, port));
+  assert.equal(deleted.status, 'ok', JSON.stringify(deleted));
+  const liked = await executeCall(direct('message.react.add', { message: '2003', channel: ELSEWHERE, emoji: '🎉' }), deps(admin, port));
+  assert.equal(liked.status, 'ok', JSON.stringify(liked));
+  const replied = await executeCall(direct('message.create', { reply: '2003', channel: ELSEWHERE, text: 'απάντηση' }), deps(admin, port));
+  assert.deepEqual([replied.status, replied.code], ['denied', 'channel-no-permission']);
+  // a DM is never a target, whatever it would allow
+  const dm = await executeCall(direct('message.delete', { message: '2002', channel: DM }), deps(admin, port));
+  assert.deepEqual([dm.status, dm.code], ['denied', 'channel-no-permission']);
+});
+
+test('executeCall: draw.create to a channel without Attach Files is refused before anything is generated', async () => {
+  const generated = [];
+  const images = {
+    familyOf: () => 'openai',
+    generate: async ({ prompt }) => { generated.push(prompt); return { buffer: Buffer.from('pic'), mediaType: 'image/png', model: 'm', seconds: 1, cost: 0.02 }; },
+    quota: () => ({ spent: false, userSpent: false }),
+  };
+  const { admin, port } = makeAdmin({ cfg: { ...config(), roles: { drawing: 'openai/gpt-image' } }, extra: { images } });
+  const refused = await executeCall(direct('draw.create', { channel: NO_FILES, text: 'a lighthouse' }), deps(admin, port));
+  assert.deepEqual([refused.status, refused.code], ['denied', 'channel-no-permission']);
+  assert.deepEqual([generated.length, port.calls.length], [0, 0]);
 });
 
 test('executeCall: an operation that does not answer in time is unknown, never retried', async () => {
@@ -376,7 +480,7 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   assert.deepEqual(of(resolve('message.delete', { message: '#1' })), { kind: 'not-own-message', code: 'not-own-message', arg: 'message' });
   assert.deepEqual(detail('unknown-member', 'ambiguous'), { kind: 'member-ambiguous', code: 'unknown-member', arg: null });
   // Any other code is its own kind; nothing without a code, nothing for an ok outcome.
-  assert.deepEqual(detail('conversation-not-allowed', '', 'invalid'), { kind: 'conversation-not-allowed', code: 'conversation-not-allowed', arg: null });
+  assert.deepEqual(detail('channel-no-permission', '', 'denied'), { kind: 'channel-no-permission', code: 'channel-no-permission', arg: null });
   assert.deepEqual(detail('timeout', undefined, 'unknown'), { kind: 'timeout', code: 'timeout', arg: null });
   assert.equal(outcomeDetail({ status: 'ok', code: 'ok' }), null);
   assert.equal(outcomeDetail({ status: 'failed' }), null);

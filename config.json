@@ -363,7 +363,6 @@
     "google": { "resolution": "1K" }
   },
   "skills": {
-    "conversations": [],
     "safeMode": false,
     "resultMaxChars": 4500,
     "markTextMaxChars": 200,

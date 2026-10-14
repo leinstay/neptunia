@@ -1519,11 +1519,11 @@ test('formatTranscript: a call that did not work says why: its argument, its mes
   // The live failure: a deletion without the message it should delete.
   assert.ok(ended({ kind: 'missing-arg', code: 'invalid-args', arg: 'message' }).endsWith(`[called message.edit on #2: ${withReason(fill(reasons['missing-arg'], { arg: 'message' }))}]`));
   // A channel she may not write in, named.
-  const channel = ended({ kind: 'conversation-not-allowed', code: 'conversation-not-allowed', arg: null }, { target: { messageId: null, channelId: 'c9' } });
-  assert.ok(channel.endsWith(`[called message.edit in #νέα: ${withReason(fill(reasons['conversation-not-allowed'], { channel: 'νέα' }))}]`), channel);
+  const channel = ended({ kind: 'channel-no-permission', code: 'channel-no-permission', arg: null }, { target: { messageId: null, channelId: 'c9' } });
+  assert.ok(channel.endsWith(`[called message.edit in #νέα: ${withReason(fill(reasons['channel-no-permission'], { channel: 'νέα' }))}]`), channel);
   // A phrase whose placeholder cannot be filled gives way to the code's reason in skills.result.reasons.
-  const unnamed = ended({ kind: 'conversation-not-allowed', code: 'conversation-not-allowed', arg: null }, { target: { messageId: null, channelId: 'c5' } });
-  assert.ok(unnamed.endsWith(`[called message.edit: ${withReason(labels.skills.result.reasons['conversation-not-allowed'])}]`), unnamed);
+  const unnamed = ended({ kind: 'channel-no-permission', code: 'channel-no-permission', arg: null }, { target: { messageId: null, channelId: 'c5' } });
+  assert.ok(unnamed.endsWith(`[called message.edit: ${withReason(labels.skills.result.reasons['channel-no-permission'])}]`), unnamed);
   // A kind without a phrase of its own: the code's reason, else reasons.other.
   assert.ok(ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null }).endsWith(`: ${withReason(labels.skills.result.reasons['target-ambiguous'])}]`));
   assert.ok(ended({ kind: 'strange', code: 'strange', arg: null }).endsWith(`: ${withReason(labels.skills.result.reasons.other)}]`));

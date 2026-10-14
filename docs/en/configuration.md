@@ -75,7 +75,6 @@ Every key in `config.json` with its default, grouped by section.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `conversations` | `[]` | Conversations the persona may act in besides the current one (channel ids). Empty means the current conversation only |
 | `safeMode` | `false` | Only the persona's carried-over reply effects pass (the tags of a normal reply: `<msg>`, `<react>`, `<draw>`, aimed at the current conversation). Every other skill is refused. Must be exactly `true` to enable |
 | `resultMaxChars` | `4500` | How many characters of a skill's returned data are shown in the `<result>` block. The text is cut at a word boundary with an ellipsis |
 | `markTextMaxChars` | `200` | When a skill call did not work and no specific label words its reason (a missing or wrong argument, a message not found or not hers, a channel she may not write in), the call's mark in the persona's transcript carries the operation's own message, ahead of the general reason phrase, because it says what exactly went wrong (for example a diary that has no channel set). On one line, cut to this many characters with an ellipsis. Kept in memory only: after a restart such a mark shows the general reason. `0` = never show the operation's message |

@@ -35,7 +35,7 @@ const audience = Object.freeze({ conversationId: HERE, memberIds: [MEMBER] });
 function config({ features = {}, skills = {}, access = {} } = {}) {
   return {
     features: { skills: true, journal: true, ...features },
-    skills: { conversations: [], safeMode: false, ...skills },
+    skills: { safeMode: false, ...skills },
     bot: { owners: [OWNER], access },
   };
 }
@@ -541,7 +541,7 @@ test('persona grants: she never changes her effective authority -- not herself, 
     }
     assert.deepEqual(t.stored(), {}, 'nothing was written');
     // the governed keys, one list: owners, rights, her kill switch and safe mode, her skills, the journal
-    for (const key of ['bot.owners', 'bot.access', 'features.skills', 'skills.safeMode', 'skills.conversations', 'features.journal', 'features.memberCommands', 'bot']) assert.ok(governsPersona(key), key);
+    for (const key of ['bot.owners', 'bot.access', 'features.skills', 'skills.safeMode', 'skills.callTimeoutMs', 'features.journal', 'features.memberCommands', 'bot']) assert.ok(governsPersona(key), key);
     for (const key of ['llm.maxRequestsPerDay', 'features.diary', 'bot.timezone']) assert.equal(governsPersona(key), false, key);
     assert.ok(PERSONA_GOVERNED_CONFIG.includes('features.skills'));
     const set = await runOp('config.set', { path: 'skills.safeMode', value: 'false' }, asPersona);

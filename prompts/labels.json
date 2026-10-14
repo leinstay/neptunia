@@ -47,7 +47,7 @@
       "message-elsewhere": "that message is in another channel",
       "not-own-message": "that {arg} is not yours",
       "member-ambiguous": "more than one member by that name",
-      "conversation-not-allowed": "you may not write in #{channel}"
+      "channel-no-permission": "no permission in #{channel}"
     },
     "postedFrom": "(posted from #{channel})",
     "image": "[image]",
@@ -372,9 +372,8 @@
         "owner-only": "only the owner can do that",
         "unknown-skill": "there is no such skill",
         "invalid-args": "the call was not written the way the skill takes it",
-        "target-not-allowed": "you may not write in that channel",
         "target-ambiguous": "more than one channel goes by that name",
-        "conversation-not-allowed": "you may not write in that channel",
+        "channel-no-permission": "you may not write in that channel",
         "unknown-message": "that message is not in the chat you were shown",
         "not-own-message": "that message is not yours",
         "unknown-member": "nobody by that name is in your memory",
