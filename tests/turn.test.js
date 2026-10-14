@@ -8186,6 +8186,131 @@ test('turn planner: an invalid or missing block takes its default, a valid one s
 });
 
 // ---------------------------------------------------------------------------
+// Skills discovery: the search classifier's or the planner's `skills:` line.
+
+const SKILL_TEXTS = {
+  'message.send': { title: 'Στείλε', whenToUse: 'σε άλλη συζήτηση', whenNotToUse: 'όχι εδώ' },
+  'message.edit': { title: 'Διόρθωσε', whenToUse: 'ένα δικό σου μήνυμα', whenNotToUse: 'όχι ξένο' },
+  'message.delete': { title: 'Σβήσε', whenToUse: 'ένα δικό σου μήνυμα', whenNotToUse: 'όχι ξένο' },
+};
+
+/** The interface skills, and an owner-only skill only a hand-built registry could hold. */
+function discoveryRegistry() {
+  const owner = Object.freeze({
+    name: 'x.owner',
+    family: 'x',
+    op: null,
+    kind: 'read',
+    ownerOnly: true,
+    argsSchema: { type: 'object' },
+    effects: 'read',
+    sharedState: false,
+    costClass: 'free',
+    targets: null,
+    interfaceCapability: null,
+  });
+  return new Map([...loadSkills(SKILL_DEFINITIONS.filter((definition) => definition.op === null)), ['x.owner', owner]]);
+}
+
+/** A mention asking what the persona can do; the search classifier answers `answer`. */
+async function runDiscoveryTurn({ answer, features = {}, journal = null, allowed = [] } = {}) {
+  const hot = lookupHot({ typingSimulation: false, journal: Boolean(journal), ...features });
+  hot.prompts.lookup = 'Decide whether {{name}} needs to look something up.\n{{skills}}';
+  hot.prompts.skills = SKILL_TEXTS;
+  const store = fakeStore();
+  store.state.data = { skills: { allowed: Object.fromEntries(allowed.map((name) => [name, { by: '42', at: 't' }])) } };
+  const llm = lookupLlm(answer);
+  const raw = rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'τι μπορείς να κάνεις;' });
+  const channel = fakeTurnChannel({ historyMessages: [raw] });
+  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), journal, skills: discoveryRegistry() });
+  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  const reply = llm.turnCalls.length > 0 ? llm.turnCalls.at(-1).messages[1].content : [];
+  return { result, logs, llm, reply, text: textOf(reply) };
+}
+
+/** The body of the `<tag>` block of `text`, or null. */
+function blockBody(text, tag) {
+  const match = new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text);
+  return match ? match[1] : null;
+}
+
+test('skills discovery: the classifier reads the registry; an inventory answer shows the catalogue with the access of this requester', async () => {
+  const { journal, lines } = journalOverMemory();
+  const run = await runDiscoveryTurn({ answer: 'none\nskills: inventory', allowed: ['message.edit'], journal });
+  assert.equal(run.result.outcome, 'spoke');
+
+  // The classifier's {{skills}}: one static line per persona skill, no access, no owner-only skill.
+  const system = run.llm.classifierCalls[0].messages[0].content;
+  assert.ok(system.includes('\nmessage.send | σε άλλη συζήτηση\nmessage.edit | ένα δικό σου μήνυμα\n'), system);
+  assert.ok(!system.includes('x.owner') && !system.includes('allowed'));
+
+  // The catalogue: in the tail, a line per persona skill with its access; never in the stable part.
+  const [stable] = run.reply;
+  assert.equal(stable.cacheSegment, 'stable');
+  assert.ok(stable.text.includes(`<skills_protocol>\n${labels.skills.protocol}\n</skills_protocol>`));
+  assert.ok(!stable.text.includes('<skills>\n'));
+  const rows = blockBody(run.reply.at(-1).text, 'skills').split('\n');
+  const line = (name, access) => fill(labels.skills.line, { name, title: SKILL_TEXTS[name]?.title ?? '', whenToUse: SKILL_TEXTS[name]?.whenToUse ?? '', access });
+  assert.equal(rows[0], line('message.send', labels.skills.access['carried-over']));
+  assert.equal(rows[1], line('message.edit', labels.skills.access.allowed));
+  assert.equal(rows[2], line('message.delete', labels.skills.access['not-allowed']));
+  assert.equal(rows.length, discoveryRegistry().size - 1, 'the owner-only skill is not listed');
+  assert.ok(!rows.some((row) => row.includes('x.owner')));
+
+  const shown = run.logs.find((l) => l.msg === 'skills: inventory');
+  assert.deepEqual([shown.listed, shown.allowed], [rows.length, rows.length - 4], 'message.delete, react.remove, skills.list, access.request closed');
+  assert.ok(!run.logs.some((l) => l.msg === 'skills: proposed'));
+  const turn = lines.find(({ record }) => record.kind === 'turn').record;
+  assert.equal('skillsProposed' in turn, false, 'an inventory proposes nothing');
+});
+
+test('skills discovery: the stable part is byte-identical with and without a grant; only the catalogue moves', async () => {
+  const closed = await runDiscoveryTurn({ answer: 'skills: inventory' });
+  const granted = await runDiscoveryTurn({ answer: 'skills: inventory', allowed: ['message.edit', 'message.delete'] });
+  assert.equal(granted.reply[0].text, closed.reply[0].text);
+  assert.notEqual(blockBody(granted.reply.at(-1).text, 'skills'), blockBody(closed.reply.at(-1).text, 'skills'));
+});
+
+test('skills discovery: named skills are logged and journaled with the gateway verdict, never rendered', async () => {
+  const { journal, lines } = journalOverMemory();
+  const run = await runDiscoveryTurn({ answer: 'none\nskills: message.edit, message.delete, x.owner, draw', allowed: ['message.edit'], journal });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.ok(!run.text.includes('<skills>\n'), 'nothing shown to the persona yet');
+  const proposed = run.logs.find((l) => l.msg === 'skills: proposed');
+  assert.equal(proposed.count, 2, 'an owner-only skill and one outside the registry are no proposal');
+  assert.deepEqual(proposed.proposals, [
+    { name: 'message.edit', allowed: true, reason: 'allowed' },
+    { name: 'message.delete', allowed: false, reason: 'not-allowed' },
+  ]);
+  assert.ok(!JSON.stringify(proposed).includes('μπορείς'), 'names and codes only');
+  const turn = lines.find(({ record }) => record.kind === 'turn').record;
+  assert.deepEqual(turn.skillsProposed, [
+    { name: 'message.edit', allowed: true },
+    { name: 'message.delete', allowed: false },
+  ]);
+});
+
+test('skills discovery: features.skillsDiscovery or features.skills false -- no list for the classifier, no catalogue, no protocol', async () => {
+  for (const features of [{ skillsDiscovery: false }, { skills: false }]) {
+    const run = await runDiscoveryTurn({ answer: 'skills: inventory', features });
+    const where = JSON.stringify(features);
+    assert.equal(run.llm.classifierCalls[0].messages[0].content, 'Decide whether Bot needs to look something up.\n', where);
+    assert.ok(!run.text.includes('<skills>\n') && !run.text.includes('<skills_protocol>'), where);
+    assert.ok(!run.logs.some((l) => l.msg === 'skills: inventory' || l.msg === 'skills: proposed'), where);
+  }
+});
+
+test('skills discovery: with the turn planner its skills line stands in for the search classifier\'s', async () => {
+  const run = await runPlannerTurn({ llm: plannerLlm((user) => `${fullPlan(user)}\nskills: inventory`) });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.equal(run.llm.calls.lookup.length, 0);
+  assert.ok(run.reply.includes('<skills>\nmessage.send: '), run.reply);
+  assert.equal(run.logs.filter((l) => l.msg === 'skills: inventory').length, 1);
+  const quiet = await runPlannerTurn();
+  assert.ok(!quiet.reply.includes('<skills>\n'), 'no skills line, no catalogue');
+});
+
+// ---------------------------------------------------------------------------
 // The persona's lines name the message that started the turn which posted them.
 
 /** A line of the persona as the channel holds it. */

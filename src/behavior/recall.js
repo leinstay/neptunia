@@ -45,6 +45,7 @@ import { episodeDate } from '../memory/episodes.js';
 import { TEACHER_TOKEN_RE, fromTokens, occursAsWordStem, tokenIds } from '../memory/mentions.js';
 import { foldText, memberIdOf } from '../memory/recent.js';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
+import { parseSkillsLines, takeSkillsLines } from '../skills/discovery.js';
 
 /** Defaults of the `recall` config group (config.json carries the same values). */
 export const RECALL_DEFAULTS = Object.freeze({
@@ -377,12 +378,26 @@ function parseRange(value, timezone, now) {
  * null. `reason`: `empty` (no text), `none` (an explicit none, or labelled
  * lines that all say none or nothing), `unparsed` (labelled lines with
  * content none of which is usable), `ok`.
+ * A `skills:` line (skills discovery, src/skills/discovery.js) is taken out
+ * before the rest is read, so the other lines read exactly as without it;
+ * with one, the result has `skills` (parseSkillsLines over `skillNames`:
+ * `inventory`, up to four known names, `none` or `invalid`) and an answer of
+ * nothing else is `none`. Without one there is no `skills` key (none).
  * @param {unknown} raw
- * @param {{ timezone?: string, now?: number, maxForms?: number }} [options]
+ * @param {{ timezone?: string, now?: number, maxForms?: number, skillNames?: string[] }} [options]
  * @returns {{ web: string|null, server: { forms: string[], who: string[], from: number|null, to: number|null, recent?: true }|null,
- *   reason: 'empty'|'none'|'unparsed'|'ok' }}
+ *   reason: 'empty'|'none'|'unparsed'|'ok', skills?: { state: string, inventory: boolean, names: string[] } }}
  */
-export function parseLookupAnswer(raw, { timezone = 'UTC', now, maxForms } = {}) {
+export function parseLookupAnswer(raw, { timezone = 'UTC', now, maxForms, skillNames } = {}) {
+  const { rest, values } = takeSkillsLines(raw);
+  const parsed = parseSearchLines(rest, { timezone, now, maxForms });
+  if (values.length === 0) return parsed;
+  const skills = parseSkillsLines(values, skillNames);
+  return parsed.reason === 'empty' ? { ...parsed, reason: 'none', skills } : { ...parsed, skills };
+}
+
+/** parseLookupAnswer's reading of every line but the `skills:` ones. */
+function parseSearchLines(raw, { timezone, now, maxForms }) {
   const lines = String(raw ?? '')
     .split(/\r?\n/)
     .map((line) => line.trim())

@@ -302,4 +302,15 @@ export const labels = {
     offPaused: 'Paused by the owner from {from} to {to} ({length}).',
     offStopped: 'Switched off from {from} to {to} ({length}).',
   },
+  skills: {
+    protocol: 'skills: listed in <skills> when relevant or asked for; rights checked by the engine',
+    line: '{name}: {title} -- {whenToUse} ({access})',
+    access: {
+      allowed: 'allowed',
+      'carried-over': 'allowed here',
+      'not-allowed': 'not allowed: the owner switches it on',
+      'safe-mode': 'not allowed: safe mode',
+      'requester-denied': 'not allowed for this member',
+    },
+  },
 };

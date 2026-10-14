@@ -59,6 +59,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'diaryChannel',
   'diary',
   'offPeriods',
+  'skillsInventory',
 ]);
 
 const KNOWN = new Set(TURN_INPUT_KEYS);

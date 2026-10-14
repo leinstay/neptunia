@@ -32,8 +32,8 @@
 //   9. the GIF library (`<gifs>`)
 // The rendered order is different, and laid out for the provider's prompt
 // cache: what changes least first, in three text parts -- the stable part
-// (the senses that read only the config, `<self_facts>`, `<about_chat>`,
-// `<gifs>`), the profiles (`<people>` with the interlocutor alone), then the
+// (the senses that read only the config, the skills protocol, `<self_facts>`,
+// `<about_chat>`, `<gifs>`), the profiles (`<people>` with the interlocutor alone), then the
 // tail that changes every turn, opening with a second `<people>` for everyone
 // else, with the chat, the clock, the per-turn senses, the
 // tempo and the task last, where the model attends best (see assembleUser and
@@ -75,6 +75,8 @@ import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/
 import { mergeProfiles } from './private.js';
 import { gifWatchBlocker } from '../memory/gif-watch.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
+import { discoveryOn } from '../skills/discovery.js';
+import { isPlainObject } from '../config.js';
 
 const TAG_OVERHEAD = 60;
 
@@ -1077,11 +1079,13 @@ function nowBlock(now, timezone, labels, periods) {
  * The user message's text parts from already-rendered blocks, in three cache
  * segments (see docs/prompt-contract.md, "Cache segments"): the stable part
  * (`cacheSegment: 'stable'`), what changes least first: the stable
- * `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`; the profiles
+ * `<senses>` lines, `<skills_protocol>` (`protocol`: static, the same for
+ * every grant), `<self_facts>`, `<about_chat>`, `<gifs>`; the profiles
  * (`cacheSegment: 'profiles'`: `<people>` with the interlocutor alone), then
  * the tail (no segment) with everything that changes from turn to turn -- a
  * second `<people>` with the other members first, `<emoji>` among it, its
- * ranking moves with use several times a day -- `<now>`, the per-turn
+ * ranking moves with use several times a day, `<skills>` (the catalogue, on
+ * a question about what the persona can do) right before `<chat>` -- `<now>`, the per-turn
  * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
  * renderSenses' two halves. A segment with no block is left
  * out; every part but the last ends with the blank line that separates
@@ -1098,9 +1102,11 @@ function nowBlock(now, timezone, labels, periods) {
  * the chat (see `textFallback`).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ nowText, timezone, labels, senses, kept, tempoText, task, chatItems, diary = null }) {
+function assembleUser({ nowText, timezone, labels, senses, protocol = '', kept, tempoText, task, chatItems, diary = null }) {
   const stable = [
     block('senses', senses.stable),
+    // How the persona's skills reach her: static text, so a grant never changes this part.
+    block('skills_protocol', protocol),
     block('self_facts', kept.self.join('\n')),
     block('about_chat', kept.aboutChat.join('\n')),
     // Own-marked entries last (ownMarkedLast).
@@ -1132,6 +1138,8 @@ function assembleUser({ nowText, timezone, labels, senses, kept, tempoText, task
     block('found', (kept.found ?? []).join('\n')),
     // Right before the chat it answers a question from.
     block('lookup', (kept.lookup ?? []).join('\n')),
+    // The persona's skills with her access here, when she was asked what she can do.
+    block('skills', (kept.skills ?? []).join('\n')),
     block('chat', renderTranscript(chatItems, timezone, labels)),
     // The present moment after the history it dates, with the persona's recent time away (nowBlock).
     block('now', nowText),
@@ -1555,6 +1563,40 @@ function renderSenses(
  */
 function sensesWhole(senses) {
   return [senses.stable, senses.turn].filter(Boolean).join('\n');
+}
+
+/**
+ * The `<skills_protocol>` body: `labels.skills.protocol` trimmed, '' when missing. Static on
+ * purpose (the skills design): no skill row and no grant, so the stable part it sits in stays
+ * byte-identical while the owner allows or denies skills.
+ * @param {object} labels
+ * @returns {string}
+ */
+function skillsProtocolText(labels) {
+  const text = labels.skills?.protocol;
+  return typeof text === 'string' ? text.trim() : '';
+}
+
+/**
+ * The `<skills>` body: one `labels.skills.line` per catalogue row (src/skills/gateway.js#listSkills
+ * for this requester and conversation), with `{name}`, `{title}`, `{whenToUse}` and `{access}`
+ * filled; `{access}` is `labels.skills.access[<the row's reason>]`, else
+ * `labels.skills.access.allowed` / `labels.skills.access['not-allowed']` by whether the row is
+ * allowed. An owner-only row is no persona skill and is left out. '' without rows or without
+ * `labels.skills.line`.
+ * @param {{ name: string, title?: string, whenToUse?: string, allowed: boolean, reason: string }[]|null|undefined} rows
+ * @param {object} labels
+ * @returns {string}
+ */
+function skillsInventoryText(rows, labels) {
+  const l = labels.skills;
+  if (!Array.isArray(rows) || rows.length === 0 || typeof l?.line !== 'string' || !l.line) return '';
+  const access = isPlainObject(l.access) ? l.access : {};
+  const word = (row) => access[row.reason] ?? access[row.allowed === true ? 'allowed' : 'not-allowed'] ?? '';
+  return rows
+    .filter((row) => row && typeof row.name === 'string' && row.reason !== 'owner-only')
+    .map((row) => fill(l.line, { name: row.name, title: row.title ?? '', whenToUse: row.whenToUse ?? '', access: word(row) }))
+    .join('\n');
 }
 
 const ASKED_ABOUT_SCAN_MESSAGES = 5;
@@ -2390,6 +2432,15 @@ function seenOf({ history, keptChat, pictures }) {
  *   persona's recent time away (src/memory/journal.js#offPeriods, newest first): with
  *   `features.offPeriods` on (a missing key counts as on), `<now>` gains `labels.journal.offLead`
  *   and one `offPaused` / `offStopped` line per period (nowBlock). Omitted, null or empty -> none.
+ * @param {{ name: string, title: string, whenToUse: string, allowed: boolean, reason: string }[]|null} [input.skillsInventory]
+ *   The persona's skills catalogue for this requester and conversation
+ *   (src/skills/gateway.js#listSkills), given on a turn whose question was what she can do (the
+ *   classifier's `skills: inventory`): `<skills>` in the tail right before `<chat>`, one
+ *   `labels.skills.line` per row (skillsInventoryText), budget section `skills` (one piece,
+ *   after `found`). Whatever the input, with `features.skills` and `features.skillsDiscovery`
+ *   on (a missing key counts as on) the stable part carries `<skills_protocol>`
+ *   (`labels.skills.protocol`, fixed, never cut, static: the same for every grant); with either
+ *   off neither block renders. Omitted or null -> no `<skills>`.
  * @returns {{ messages: object[], stats: object, segments: { segment: 'stable'|'profiles'|'tail', chars: number, hash: string }[],
  *   idByIndex: Map<number, string>, tempo: object,
  *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
@@ -2643,6 +2694,12 @@ export function buildRequest(input) {
     participation: participationOffered,
   };
   let senses = renderSenses(config, labels, sensesOptions);
+  // The persona's skills (features.skills and features.skillsDiscovery, read now): the protocol,
+  // static, in the stable part; the catalogue with her access only on a turn whose question was
+  // what she can do (`skillsInventory`), in the tail.
+  const skillsShown = discoveryOn(config);
+  const protocolText = skillsShown ? skillsProtocolText(labels) : '';
+  const inventoryText = skillsShown ? skillsInventoryText(input.skillsInventory, labels) : '';
 
   // A diary post (mode `diary`): the persona's world (under `diary.world`), its past posts, the
   // post's plan and what its search found. None of it in any other mode.
@@ -2700,7 +2757,7 @@ export function buildRequest(input) {
     name: 'fixed',
     required: true,
     // A diary post's plan, its seeds and its `<diary>` intro are never cut.
-    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[planText, seedsText, diaryIntro].filter(Boolean)],
+    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, planText, seedsText, diaryIntro].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -2723,6 +2780,8 @@ export function buildRequest(input) {
     { name: 'lookup', items: [lookupItem].filter(Boolean) },
     // A diary post's search result: one piece, bounded by web.search.summaryChars.
     { name: 'found', items: [foundText].filter(Boolean) },
+    // The skills catalogue, asked for: one piece, ahead of the chat like what was looked up.
+    { name: 'skills', items: [inventoryText].filter(Boolean) },
     {
       name: 'aboutChat',
       cap: caps.aboutChat,
@@ -3207,7 +3266,7 @@ export function buildRequest(input) {
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
   const seen = seenOf({ history, keptChat, pictures });
-  const user = assembleUser({ nowText, timezone, labels, senses, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
+  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
 
   // A provider that rejects the images (see src/behavior/turn.js's 4xx
   // retry) must never resend a <chat> claiming a picture is attached with
@@ -3224,7 +3283,7 @@ export function buildRequest(input) {
   if (pictures.length) {
     const chatItemsBlind = formatTranscript(history, { ...formatOptions, attachedIndex: undefined });
     const keptChatBlind = chatItemsBlind.slice(chatItemsBlind.length - kept.chat.length);
-    textFallback = assembleUser({ nowText, timezone, labels, senses, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
+    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
   }
 
   // A sticker's URL is already fully sized (see src/discord/media.js
