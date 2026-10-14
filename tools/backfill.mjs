@@ -177,7 +177,7 @@ function restSource({ root, token, log }) {
   return {
     async connect({ config, guildId }) {
       const discord = createRequire(path.join(root, 'package.json'))('discord.js');
-      const { canRead, channelAllowed, normalizeMessage } = await import('../src/discord/collect.js');
+      const { canRead, normalizeMessage } = await import('../src/discord/collect.js');
       const { Client, Routes } = discord;
       const client = new Client({ intents: [] });
       client.rest.setToken(token);
@@ -223,7 +223,6 @@ function restSource({ root, token, log }) {
         for (const channel of [...all, ...threads.values()]) {
           if (byId.has(channel.id) || (mirrorId && channel.id === mirrorId)) continue;
           const parent = channel.isThread?.() ? channel.parent : null;
-          if (!channelAllowed(parent ?? channel, config.bot ?? {})) continue;
           byId.set(channel.id, channel);
           channels.push({ id: channel.id, name: channel.name ?? null, parentId: parent?.id ?? null, thread: Boolean(parent), readable: canRead(channel) });
         }

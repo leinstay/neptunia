@@ -240,13 +240,13 @@ function fakeChannel(guild, id, name) {
   return channel;
 }
 
-/** A guild holding #general (c1, the turn's channel), #journal (c2), #jardin (c3) and #secret (c4). */
+/** A guild holding #general (c1, the turn's channel), #journal (c2), #jardin (c3) and #secret (c4, hidden from the bot). */
 function fakeGuild() {
   const guild = { id: GUILD, members: { me: { id: 'self' } }, roles: { everyone: { id: GUILD }, cache: new Map() }, channels: { cache: new Map() } };
   const channel = fakeChannel(guild, 'c1', 'general');
   fakeChannel(guild, 'c2', 'journal');
   fakeChannel(guild, 'c3', 'jardin');
-  fakeChannel(guild, 'c4', 'secret');
+  fakeChannel(guild, 'c4', 'secret').viewable = false;
   return { guild, channel };
 }
 
@@ -276,11 +276,11 @@ function fakeLlm(answer) {
   };
 }
 
-/** A router over the fake guild, the shipped config with #secret (c4) denied, and a stand-in prompt. */
+/** A router over the fake guild (#secret, c4, hidden from the bot), the shipped config and a stand-in prompt. */
 function routerScene({ answer = '1', features = {}, prompt = 'You are {{name}}.', channels } = {}) {
   const { guild, channel } = fakeGuild();
   const hot = {
-    config: config({ features, bot: { channels: { allow: [], deny: ['c4'] } }, llm: { helperTimeoutMs: 12345 } }),
+    config: config({ features, llm: { helperTimeoutMs: 12345 } }),
     prompts: { 'route-channel': prompt, labels },
   };
   const llm = fakeLlm(answer);
@@ -299,7 +299,7 @@ test('createChannelRouter: a pick returns its channel id; the request lists only
   const [system, user] = llm.calls[0].messages;
   assert.equal(system.content, 'You are Zoë.');
   assert.ok(userText(user.content).includes('<channels>\n1 | #journal | Éloïse (Élo) | a diary\n2 | #jardin |  | garden photos\n</channels>'), userText(user.content));
-  assert.ok(!userText(user.content).includes('#secret') && !userText(user.content).includes('#general'), 'the denied and the current channel are not listed');
+  assert.ok(!userText(user.content).includes('#secret') && !userText(user.content).includes('#general'), 'the hidden and the current channel are not listed');
   assert.ok(userText(user.content).startsWith('<channels>\n'), 'the stable channel list leads the request');
   assert.ok(userText(user.content).indexOf('<channels>') < userText(user.content).indexOf('<transcript>') && userText(user.content).endsWith('<candidate>\nNikos: στο ημερολόγιο\n</candidate>'));
   const classified = logs.find((l) => l.msg === 'route: classified');

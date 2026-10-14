@@ -475,13 +475,6 @@ export async function withTextPreviews(messages, maxChars, fetchImpl = fetch) {
   );
 }
 
-/** Whether the config lets the persona read/act in this channel at all. */
-export function channelAllowed(channel, botConfig) {
-  const { allow = [], deny = [] } = botConfig.channels ?? {};
-  if (deny.includes(channel.id)) return false;
-  return allow.length === 0 || allow.includes(channel.id);
-}
-
 /**
  * Whether the bot member holds permission `flag` in `channel`: no bot
  * member, an unviewable channel or no resolved permissions count as no. A
@@ -663,9 +656,9 @@ export async function fetchReplyParents(channel, history, { trigger = null, rece
 
 /**
  * Whether `channel` is one the persona may read: a text channel, not a
- * thread, allowed by `bot.channels` (channelAllowed), not the dry-run mirror
- * (`bot.dryRunChannelId`, the owner's rehearsal room, never real
- * conversation), and the bot can read its history (canRead).
+ * thread, not the dry-run mirror (`bot.dryRunChannelId`, the owner's
+ * rehearsal room, never real conversation), and the bot can read its history
+ * (canRead). Discord's permissions are the only limit on which channels.
  * @param {object} channel  A discord.js guild channel.
  * @param {object} botConfig  The live `config.bot`.
  * @returns {boolean}
@@ -676,15 +669,14 @@ export function isReadableChannel(channel, botConfig) {
     !(mirrorId && channel.id === mirrorId) &&
     channel.isTextBased() &&
     !channel.isThread() &&
-    channelAllowed(channel, botConfig) &&
     canRead(channel)
   );
 }
 
 /**
  * Whether the persona may speak in `channel`: one it may read
- * (isReadableChannel: a text channel, not a thread, allowed by `bot.channels`,
- * not the dry-run mirror, its history readable) where the bot can send
+ * (isReadableChannel: a text channel, not a thread, not the dry-run mirror,
+ * its history readable) where the bot can send
  * (canSend). The one rule for a channel words go to unasked or on someone's
  * behalf: a routed call's or a noticed comment's destination
  * (src/behavior/turn.js#usableDestination), a spontaneous turn's channel.

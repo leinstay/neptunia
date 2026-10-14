@@ -135,8 +135,8 @@ export function explicitChannelIds(messages) {
  * `isPullable(id)` is false. `isPullable` carries the caller's checks: same
  * guild, text based, not a thread, not the dry-run mirror
  * (`bot.dryRunChannelId`), and every check fetchPull
- * (src/discord/pull-fetch.js) can make before its fetch (readable,
- * channelAllowed, the audience rail), so a slot goes only to a channel the
+ * (src/discord/pull-fetch.js) can make before its fetch (readable, the
+ * audience rail), so a slot goes only to a channel the
  * fetch can serve and a refused newer mention never crowds out an older
  * usable one. It is asked in priority order, once per distinct id, and not
  * after the slots are full, so a counting predicate tells the caller how

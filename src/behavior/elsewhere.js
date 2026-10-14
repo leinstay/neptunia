@@ -494,8 +494,8 @@ export function audienceCovers(dest, source) {
 /**
  * The first id of `memory.mainChannelIds` (normalised by `mainChannelSet`,
  * in list order) for which `isUsable(id)` holds, else null. Usable is the
- * caller's check (a known text channel of the guild, not a thread, allowed
- * by `bot.channels`, the bot can send there, not the source).
+ * caller's check (a known text channel of the guild, not a thread, the bot
+ * can send there, not the source).
  * @param {unknown} mainChannelIds
  * @param {(id: string) => boolean} isUsable
  * @returns {string|null}

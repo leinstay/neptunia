@@ -16,7 +16,7 @@
 // src/discord/collect.js, so it can be driven with plain fake objects in
 // tests.
 
-import { normalizeMessage, channelAllowed, canSend, fetchHistory, fetchMessage } from './collect.js';
+import { normalizeMessage, canSend, fetchHistory, fetchMessage } from './collect.js';
 import { isOwnerId } from './access.js';
 import { collectPictures, collectEmojiItems, collectVideos, collectReadableLinks, isDescribable } from './media.js';
 import {
@@ -1734,8 +1734,7 @@ export function createMessageHandler({
    * call once the warmup run ends -- and while paused (`/nep pause` clears
    * the queue itself); a pause that lands during the switch pause drops the
    * ping in hand and ends the pass. A server ping is also dropped when its
-   * channel is no longer allowed (bot.channels) or its switch
-   * (features.mentions / features.replies / features.nameTriggers) was turned
+   * switch (features.mentions / features.replies / features.nameTriggers) was turned
    * off while it waited (callSwitchOff).
    *
    * A routed call (one with a `destination`) goes through the same checks in
@@ -1854,11 +1853,11 @@ export function createMessageHandler({
           continue;
         }
 
-        // The channel list and the ping's own switch are hot: either may have
-        // changed while the ping waited.
+        // The ping's own switch is hot: it may have changed while the ping
+        // waited.
         const switchOff = isDeferredFollowUp(ping) ? followUpOff(config) : callSwitchOff(ping.kind, features);
-        if (!channelAllowed(ping.channel, config.bot) || switchOff) {
-          logPending(ping, 'dropped', { reason: switchOff ? 'off' : 'channel' });
+        if (switchOff) {
+          logPending(ping, 'dropped', { reason: 'off' });
           continue;
         }
 
@@ -2180,9 +2179,8 @@ export function createMessageHandler({
    * (turns.spokeAfterSeeing -- a pulled block showed it and the persona
    * could answer it there; `mention: already answered`, and the call and the
    * other calls of its source that turn showed are stamped skipped in the
-   * ring: skipSeenCalls); when its channel is no longer allowed
-   * (bot.channels) or its kind's switch was turned off (`mention: dropped`,
-   * `channel` / `off`). The calls it carries (`superseded`) go with it to
+   * ring: skipSeenCalls); when its kind's switch was turned off
+   * (`mention: dropped`, `off`). The calls it carries (`superseded`) go with it to
    * answerCall. A noticed wait (no call) goes to fireNoticed instead once
    * the pause / warmup check passed. A timer whose wait already ended (or
    * was removed) does nothing. Never rejects: it runs from a timer.
@@ -2225,8 +2223,8 @@ export function createMessageHandler({
       const features = config.features ?? {};
       // The switch that let this call through in onMessage step 8.
       const switchOff = callSwitchOff(triggerKind, features);
-      if (switchOff || !channelAllowed(channel, config.bot)) {
-        log.info('mention: dropped', { channel: sourceId, kind: triggerKind, reason: switchOff ? 'off' : 'channel' });
+      if (switchOff) {
+        log.info('mention: dropped', { channel: sourceId, kind: triggerKind, reason: 'off' });
         return;
       }
       const route = routeFor(channel, config);
@@ -2312,8 +2310,8 @@ export function createMessageHandler({
    * How `message` (arriving while paused) called the persona directly, by the
    * rules of the live path without its model request: on the server a
    * mention, a reply to one of its messages or its name (each behind its
-   * switch) in the served guild, outside threads, in an allowed channel the
-   * bot can send in, not the dry-run mirror, from a human; in a private chat
+   * switch) in the served guild, outside threads, in a channel the bot can
+   * send in, not the dry-run mirror, from a human; in a private chat
    * (features.privateMessages) an author the private gate lets through, the
    * daily cap aside. `{ channel, trigger, kind }`, or null for anything else
    * (an untagged follow-up included: it would need the address classifier).
@@ -2336,7 +2334,6 @@ export function createMessageHandler({
 
     const channel = message.channel;
     if (message.guild.id !== getGuildId() || channel.isThread?.()) return null;
-    if (!channelAllowed(channel, config.bot)) return null;
     if (config.bot.dryRunChannelId && channel.id === config.bot.dryRunChannelId) return null;
     if (!canSend(channel)) return null;
     const normalized = normalize();
@@ -2438,10 +2435,10 @@ export function createMessageHandler({
         return;
       }
 
-      // 3. This instance serves exactly one guild; channel allowlist/denylist, no threads.
+      // 3. This instance serves exactly one guild; no threads. Which channels
+      // it sees is Discord's permissions alone.
       if (message.guild.id !== getGuildId()) return;
       if (message.channel.isThread?.()) return;
-      if (!channelAllowed(message.channel, config.bot)) return;
 
       // 3b. The dry-run mirror channel is the owner's private test room: it
       // carries the persona's own rehearsal output (src/behavior/turn.js),
@@ -2568,7 +2565,7 @@ export function createMessageHandler({
    * no eavesdrop, no counters, no channel map, no affinity. A message no longer buffered (the
    * analyzer took it) is an accepted miss, logged with counts only. Off with
    * features.embedUpdates (a missing key counts as on), with features.memory off and while
-   * paused. Only the served guild, an allowed channel outside threads and the dry-run mirror,
+   * paused. Only the served guild, a channel outside threads and the dry-run mirror,
    * and a human author's message with embeds. Config read now. Never throws.
    * @param {import('discord.js').Message|import('discord.js').PartialMessage} _oldMessage
    * @param {import('discord.js').Message|import('discord.js').PartialMessage} newMessage
@@ -2589,7 +2586,6 @@ export function createMessageHandler({
       const selfId = client.user.id;
       if (!message.author || message.author.bot || message.author.id === selfId) return;
       if (message.channel?.isThread?.()) return;
-      if (!channelAllowed(message.channel, config.bot)) return;
       const dryRunChannelId = config.bot.dryRunChannelId;
       if (dryRunChannelId && message.channel.id === dryRunChannelId) return;
       const embeds = message.embeds?.length ?? 0;
@@ -2618,8 +2614,8 @@ export function createMessageHandler({
 
   /**
    * Whether `message` may enter the record: a record injected and features.record exactly true
-   * (`config` read now), the served guild, no system or webhook message, no other bot's, an
-   * allowed channel outside threads and the dry-run mirror.
+   * (`config` read now), the served guild, no system or webhook message, no other bot's, a
+   * channel outside threads and the dry-run mirror.
    */
   function recordable(message, config) {
     if (!record || config.features?.record !== true) return false;
@@ -2628,7 +2624,6 @@ export function createMessageHandler({
     if (message.system || message.webhookId) return false;
     if (message.author?.bot && message.author.id !== client.user?.id) return false;
     if (!message.channel || message.channel.isThread?.()) return false;
-    if (!channelAllowed(message.channel, config.bot)) return false;
     const dryRunChannelId = config.bot?.dryRunChannelId;
     return !(dryRunChannelId && message.channel.id === dryRunChannelId);
   }

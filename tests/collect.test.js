@@ -1060,23 +1060,34 @@ test('fetchNeighbors: the dry-run mirror channel is never a neighbour', async ()
   assert.deepEqual(noMirror.map((n) => n.channelId), [MIRROR_ID, 'talk']);
 });
 
-test('readableChannels: threads, non-text, denied, unreadable channels and the dry-run mirror are left out', () => {
+test('readableChannels: threads, non-text, unreadable channels and the dry-run mirror are left out', () => {
   const guild = fakeGuild([
     { id: 'open', granted: [READ, SEND] },
     { id: 'diary', granted: [READ] },
     { id: 'thread', granted: [READ, SEND], thread: true },
     { id: 'voice', granted: [READ, SEND], text: false },
-    { id: 'denied', granted: [READ, SEND] },
     { id: 'hidden', granted: [SEND] },
     { id: 'unviewable', granted: [READ, SEND], viewable: false },
     { id: MIRROR_ID, granted: [READ, SEND] },
   ]);
-  const bot = { channels: { deny: ['denied'] }, dryRunChannelId: MIRROR_ID };
+  const bot = { dryRunChannelId: MIRROR_ID };
   assert.deepEqual(readableChannels(guild, bot).map((c) => c.id), ['open', 'diary']);
   assert.deepEqual(readableChannels(guild, bot, 'open').map((c) => c.id), ['diary']);
   assert.equal(isReadableChannel(guild.channels.cache.get('diary'), bot), true);
   assert.equal(isReadableChannel(guild.channels.cache.get(MIRROR_ID), bot), false);
-  assert.equal(isReadableChannel(guild.channels.cache.get(MIRROR_ID), { channels: {}, dryRunChannelId: '' }), true);
+  assert.equal(isReadableChannel(guild.channels.cache.get(MIRROR_ID), { dryRunChannelId: '' }), true);
+});
+
+test('readableChannels: a leftover bot.channels allow/deny key is ignored; Discord permissions alone decide', () => {
+  const guild = fakeGuild([
+    { id: 'open', granted: [READ, SEND] },
+    { id: 'listed', granted: [READ, SEND] },
+    { id: 'hidden', granted: [SEND] },
+  ]);
+  const bot = { channels: { allow: ['hidden'], deny: ['listed'] }, dryRunChannelId: '' };
+  assert.deepEqual(readableChannels(guild, bot).map((c) => c.id), ['open', 'listed']);
+  assert.equal(isWritableChannel(guild.channels.cache.get('listed'), bot), true);
+  assert.equal(isReadableChannel(guild.channels.cache.get('hidden'), bot), false, 'an allow entry opens no channel Discord closes');
 });
 
 // --- audienceOf: who can view a channel, in the shape audienceCovers takes ---
@@ -1322,19 +1333,18 @@ test('fetchMessage: a missing or empty id is null without a request', async () =
   assert.deepEqual(fetches, []);
 });
 
-test('isWritableChannel: readable and sendable; never the dry-run mirror, an unreadable or a denied channel', () => {
+test('isWritableChannel: readable and sendable; never the dry-run mirror or an unreadable channel', () => {
   const guild = fakeGuild([
     { id: 'open', granted: [READ, SEND] },
     { id: 'diary', granted: [READ] },
     { id: 'blind', granted: [SEND] },
     { id: 'thread', granted: [READ, SEND], thread: true },
-    { id: 'denied', granted: [READ, SEND] },
     { id: MIRROR_ID, granted: [READ, SEND] },
   ]);
-  const bot = { channels: { deny: ['denied'] }, dryRunChannelId: MIRROR_ID };
+  const bot = { dryRunChannelId: MIRROR_ID };
   const writable = [...guild.channels.cache.values()].filter((channel) => isWritableChannel(channel, bot)).map((channel) => channel.id);
   assert.deepEqual(writable, ['open']);
-  assert.equal(isWritableChannel(guild.channels.cache.get(MIRROR_ID), { channels: {}, dryRunChannelId: '' }), true, 'only the configured mirror is refused');
+  assert.equal(isWritableChannel(guild.channels.cache.get(MIRROR_ID), { dryRunChannelId: '' }), true, 'only the configured mirror is refused');
 });
 
 test('fetchNeighbors: accept is judged before the channel cap; a refused channel takes no slot and is never fetched', async () => {

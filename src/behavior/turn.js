@@ -926,8 +926,8 @@ function triggerBringsMedia(trigger, captionItems, videoItems) {
  * call: the first id of `memory.mainChannelIds`
  * (src/behavior/elsewhere.js#resolveDestination) that is a channel of
  * `guild` the persona may write in (src/discord/collect.js#isWritableChannel:
- * a text channel, not a thread, allowed by `bot.channels`, never the dry-run
- * mirror, its history readable, the bot can send) and not `exceptId` (the
+ * a text channel, not a thread, never the dry-run mirror, its history
+ * readable, the bot can send) and not `exceptId` (the
  * channel the words are about). The one copy of the rule: `<senses>` names
  * this channel, and whatever routes a call there asks the same function.
  * @param {object|null} guild  The discord.js guild; none (a private chat) has no destination.

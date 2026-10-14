@@ -248,7 +248,7 @@ function fakeGuild(id) {
 
 function baseConfig(spontaneousOverrides = {}, features = {}, mention) {
   return {
-    bot: { timezone: 'UTC', channels: { allow: [], deny: [] } },
+    bot: { timezone: 'UTC' },
     features,
     spontaneous: { ...SPONTANEOUS_CFG, ...spontaneousOverrides },
     ...(mention ? { mention } : {}),

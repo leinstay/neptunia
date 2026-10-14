@@ -72,7 +72,6 @@
     "nameTriggers": [],
     "guildId": "",
     "dryRunChannelId": "",
-    "channels": { "allow": [], "deny": [] },
     "access": {}
   },
   "roles": {

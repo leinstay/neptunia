@@ -35,7 +35,7 @@ const REACT = PermissionFlagsBits.AddReactions;
 function config({ pull = {}, features = {}, bot = {} } = {}) {
   return {
     features: { mediaDescriptions: true, channelPull: true, elsewhere: true, ...features },
-    bot: { channels: { allow: [], deny: [] }, dryRunChannelId: '', ...bot },
+    bot: { dryRunChannelId: '', ...bot },
     context: {
       pull: {
         windowMinutes: 60,
@@ -440,19 +440,17 @@ test('fetchPull: the bot permissions give readOnly', async () => {
 
 // ---- skips ------------------------------------------------------------------------
 
-test('fetchPull: an unknown, thread, unreadable or denied channel is skipped with its reason', async () => {
+test('fetchPull: an unknown, thread, unreadable or non-text channel is skipped with its reason', async () => {
   const guild = fakeGuild();
   mainChannel(guild);
   const thread = addChannel(guild, { id: '760000000000000011', thread: true, messages: [{ ts: LAST }] });
   const hidden = addChannel(guild, { id: '760000000000000012', granted: [SEND], messages: [{ ts: LAST }] });
-  const denied = addChannel(guild, { id: '760000000000000013', messages: [{ ts: LAST }] });
   const category = addChannel(guild, { id: '760000000000000014', text: false, messages: [{ ts: LAST }] });
-  const cfg = config({ bot: { channels: { allow: [], deny: [denied.id] } } });
+  const cfg = config();
   const cases = [
     ['760000000000000099', 'not-found'],
     [thread.id, 'thread'],
     [hidden.id, 'not-readable'],
-    [denied.id, 'denied'],
     [category.id, 'not-text'],
   ];
   for (const [channelId, code] of cases) {
@@ -464,7 +462,7 @@ test('fetchPull: an unknown, thread, unreadable or denied channel is skipped wit
       { channel: '750000000000000001', source: channelId, reason: code, pullReason: 'mention' },
     );
   }
-  for (const channel of [thread, hidden, denied, category]) assert.deepEqual(channel.fetchCalls, [], 'nothing fetched');
+  for (const channel of [thread, hidden, category]) assert.deepEqual(channel.fetchCalls, [], 'nothing fetched');
 });
 
 test('fetchPull: the dry-run channel is skipped with its own reason', async () => {
@@ -638,7 +636,7 @@ test('fetchPull: a private chat with its partner fetches a channel the partner c
 test('checkPull: refuses exactly the channels isReadableChannel refuses', () => {
   const guild = fakeGuild();
   const main = mainChannel(guild);
-  const bot = { channels: { allow: [], deny: ['760000000000000094'] }, dryRunChannelId: MIRROR_ID };
+  const bot = { dryRunChannelId: MIRROR_ID };
   const channels = [
     addChannel(guild, { id: '760000000000000091', messages: [{ ts: LAST }] }),
     addChannel(guild, { id: '760000000000000092', thread: true, messages: [{ ts: LAST }] }),
@@ -647,7 +645,7 @@ test('checkPull: refuses exactly the channels isReadableChannel refuses', () => 
     addChannel(guild, { id: MIRROR_ID, messages: [{ ts: LAST }] }),
     addChannel(guild, { id: '760000000000000095', text: false, messages: [{ ts: LAST }] }),
   ];
-  const readableCodes = new Set(['not-text', 'thread', 'dry-run-channel', 'denied', 'not-readable']);
+  const readableCodes = new Set(['not-text', 'thread', 'dry-run-channel', 'not-readable']);
   for (const channel of channels) {
     const { skip } = checkPull({ guild, channelId: channel.id, destination: main, config: config({ bot }), now: NOW });
     assert.equal(readableCodes.has(skip), !isReadableChannel(channel, bot), `${channel.id}: ${skip}`);

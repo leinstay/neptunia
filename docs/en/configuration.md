@@ -91,8 +91,6 @@ Every key in `config.json` with its default, grouped by section.
 | `nameTriggers` | `[]` | Extra trigger strings besides @mention |
 | `guildId` | `""` | Server to lock to; auto-detected if in exactly one |
 | `dryRunChannelId` | `""` | Channel for the dry-run mirror. See [Dry run](../../README.md#dry-run) |
-| `channels.allow` | `[]` | Allowed channels (empty = all visible) |
-| `channels.deny` | `[]` | Ignored channels |
 | `access` | `{}` | Who besides owners may run which commands (managed by `/nep access`) |
 
 ## `roles`
