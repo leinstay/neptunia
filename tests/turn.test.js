@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
 import {
   resolveMentions,
+  mentionDirectory,
   createTurnRunner,
   parseRewatchPickDetailed,
   usableDestination,
@@ -143,6 +144,73 @@ test('resolveMentions: the first member handed over keeps a stored name two shar
   const result = resolveMentions('@Zoé @ x', [], known);
   assert.equal(result.text, '<@z1> @ x');
   assert.deepEqual(result.userIds, ['z1']);
+});
+
+// The fallback directory: every member of the served guild the bot knows, behind the request's own sources.
+
+/** A discord.js-shaped GuildMember: `displayName` (the nickname, else the global name), `nickname`, `user`. */
+function cachedMember(id, { username, globalName = null, nickname = null, bot = false }) {
+  return { id, nickname, displayName: nickname ?? globalName ?? username, user: { id, username, globalName, bot } };
+}
+
+test('resolveMentions: a member the request never showed resolves through the fallback directory', () => {
+  const directory = [{ name: 'Ταξιάρχης', id: 'u9' }];
+  const result = resolveMentions('@Ταξιάρχης https://example.com/a', [historyMsg('Alice', 'u1')], [], directory);
+  assert.equal(result.text, '<@u9> https://example.com/a');
+  assert.deepEqual(result.userIds, ['u9']);
+});
+
+test('resolveMentions: a fallback name two members carry stays text, whatever its case', () => {
+  const directory = [{ name: 'Zoé', id: 'z1' }, { name: 'zoé', id: 'z2' }, { name: 'Zoé', id: 'z1' }];
+  const result = resolveMentions('@Zoé @ZOÉ ναι', [], [], directory);
+  assert.equal(result.text, '@Zoé @ZOÉ ναι');
+  assert.deepEqual(result.userIds, []);
+});
+
+test('resolveMentions: the request\'s own sources win a name the fallback directory also has', () => {
+  const history = [historyMsg('Bob', 'u2')];
+  const known = [{ name: 'Αλίκη', id: 'u1' }];
+  const directory = [{ name: 'Bob', id: 'u7' }, { name: 'bob', id: 'u8' }, { name: 'Αλίκη', id: 'u5' }];
+  const result = resolveMentions('@Bob @Αλίκη @bob', history, known, directory);
+  assert.equal(result.text, '<@u2> <@u1> <@u2>', 'a shown member keeps the name in any case; an ambiguous fallback never takes it');
+  assert.deepEqual(result.userIds, ['u1', 'u2']);
+});
+
+test('resolveMentions: the fallback matches case-insensitively, longest first and only as a whole name', () => {
+  const directory = [{ name: 'Anna María', id: 'long' }, { name: 'Anna', id: 'short' }, { name: 'Kai', id: 'k1' }];
+  const result = resolveMentions('@anna maría, @ANNA, @Kaiser', [], [], directory);
+  assert.equal(result.text, '<@long>, <@short>, @Kaiser');
+  assert.deepEqual(result.userIds, ['long', 'short']);
+});
+
+test('resolveMentions: the case-insensitive fallback is for the directory only, never a shown name', () => {
+  const result = resolveMentions('@alice', [historyMsg('Alice', 'u1')], [], []);
+  assert.equal(result.text, '@alice');
+  assert.deepEqual(result.userIds, []);
+});
+
+test('mentionDirectory: every name of the cached members and of the stored profiles, never a bot or the persona', () => {
+  const members = [
+    cachedMember('u1', { username: 'alice_01', globalName: 'Alice', nickname: 'Αλίκη' }),
+    cachedMember('b1', { username: 'HelperBot', bot: true }),
+    cachedMember('self-id', { username: 'persona', globalName: 'Persona' }),
+  ];
+  const profiles = [
+    { id: 'u2', names: ['Bob'], aliases: [{ name: 'Bobby' }, { name: '' }, null] },
+    { id: 'b1', names: ['HelperBot'], aliases: [] },
+    { id: 'self-id', names: ['Persona'], aliases: [] },
+    { id: 'u1', names: ['Alice'], aliases: [{ name: 'Lis' }] },
+  ];
+  const directory = mentionDirectory({ members, profiles, selfId: 'self-id' });
+  const byId = (id) => directory.filter((entry) => entry.id === id).map((entry) => entry.name).sort();
+  assert.deepEqual(byId('u1'), ['Alice', 'Lis', 'alice_01', 'Αλίκη']);
+  assert.deepEqual(byId('u2'), ['Bob', 'Bobby']);
+  assert.deepEqual(byId('b1'), []);
+  assert.deepEqual(byId('self-id'), []);
+});
+
+test('mentionDirectory: no sources give an empty directory', () => {
+  assert.deepEqual(mentionDirectory({}), []);
 });
 
 // ---------------------------------------------------------------------------
@@ -1292,6 +1360,34 @@ test('runTurn: with nobody in pingsOff the reply and the mentions notify as befo
 
   assert.deepEqual(channel.sent[0].reply, { messageReference: 'm1', failIfNotExists: false });
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u1', 'u2'], repliedUser: true });
+});
+
+/** One reply turn in c1 whose served guild's member cache holds `members` (the fallback directory). */
+async function runDirectoryTurn(store, answer, members) {
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
+  const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
+  channel.guild.members.cache = new Map(members.map((member) => [member.id, member]));
+  const turns = createTurnRunner({ hot: fakeHot(), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
+  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  assert.equal(result.outcome, 'spoke');
+  return channel;
+}
+
+test('runTurn: @name of a member nowhere in the request resolves through the guild\'s member cache and stored profiles', async () => {
+  const store = storeWithPingsOff([]);
+  store.listUserProfiles = () => [{ id: 'u5', names: ['Ταξιάρχης'], aliases: [] }];
+  const members = [cachedMember('u4', { username: 'zoe', globalName: 'Zoé' }), cachedMember('b1', { username: 'HelperBot', bot: true }), cachedMember('self-id', { username: 'Bot' })];
+  const channel = await runDirectoryTurn(store, '<msg>@zoé @Ταξιάρχης @HelperBot @Bot ναι</msg>', members);
+
+  assert.equal(channel.sent[0].content, '<@u4> <@u5> @HelperBot @Bot ναι');
+  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u4', 'u5'], repliedUser: true });
+});
+
+test('runTurn: a member resolved through the fallback directory with pings off is mentioned without a ping', async () => {
+  const channel = await runDirectoryTurn(storeWithPingsOff(['u4']), '<msg>@Zoé ναι</msg>', [cachedMember('u4', { username: 'zoe', globalName: 'Zoé' })]);
+
+  assert.equal(channel.sent[0].content, '<@u4> ναι');
+  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: [], repliedUser: true });
 });
 
 test('createTurnRunner: features.dryRun=true sends and reacts nowhere, only logs, and paces itself as if it had spoken', async () => {
@@ -4963,18 +5059,18 @@ test('runTurn: in dry-run the stored nickname of a pulled author resolves the sa
   assert.equal(logs.find((l) => l.msg === 'dry-run: would send').text, '<@u3> ωραίο μπλε');
 });
 
-test('runTurn: the stored name of a member the request did not show stays text', async () => {
+test('runTurn: the stored name of a member the request did not show resolves through the fallback directory', async () => {
   const store = nicknameStore({ u9: { id: 'u9', names: ['Ταξιάρχης Μέγας'], character: 'ήσυχος' } });
   const scene = pullScene({ features: { typingSimulation: false }, store, llm: fakeLlm('<msg>@Ταξιάρχης Μέγας γεια</msg>') });
 
   await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
 
   const [post] = scene.channel.sent;
-  assert.equal(post.content, '@Ταξιάρχης Μέγας γεια');
-  assert.deepEqual(post.allowedMentions.users, []);
+  assert.equal(post.content, '<@u9> γεια');
+  assert.deepEqual(post.allowedMentions.users, ['u9']);
 });
 
-test('runTurn: the stored nickname of an author whose pulled block the budget dropped stays text', async () => {
+test('runTurn: the stored nickname of an author whose pulled block the budget dropped resolves through the fallback directory', async () => {
   // Her profile holds names only, so `<people>` has nothing to show of her either.
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
   const scene = pullScene({ features: { typingSimulation: false }, context: { caps }, store: nicknameStore(), llm: fakeLlm('<msg>@Éloïse de Vaux γεια</msg>') });
@@ -4983,8 +5079,8 @@ test('runTurn: the stored nickname of an author whose pulled block the budget dr
 
   assert.equal(channelViewOf(scene.llm), null, 'the block was cut');
   const [post] = scene.channel.sent;
-  assert.equal(post.content, '@Éloïse de Vaux γεια');
-  assert.deepEqual(post.allowedMentions.users, []);
+  assert.equal(post.content, '<@u3> γεια');
+  assert.deepEqual(post.allowedMentions.users, ['u3']);
 });
 
 test('runTurn: @name resolves by a stored name of a member <people> shows', async () => {
