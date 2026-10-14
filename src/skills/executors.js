@@ -119,8 +119,8 @@ function memberOf(reference, members) {
 /**
  * One `<call>` (`{ skill, args, body }`, src/llm/parse.js) as the arguments of the command behind
  * the skill (`view.skills`: the registry), keyed by the command's option names, or the refusal:
- * `unknown-skill` (no such skill), `invalid-args` (an attribute the command does not take, a body
- * where it has no `text` option, the text given twice, a channel or role nobody has),
+ * `unknown-skill` (no such skill), `invalid-args` (an attribute the command does not take, the
+ * text given twice, a channel or role nobody has),
  * `target-ambiguous` (a channel name several share), `unknown-member` (no stored profile by that
  * name, or several), `unknown-message` (a `#N` not in this turn's transcript, or in another
  * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
@@ -128,13 +128,15 @@ function memberOf(reference, members) {
  * the command has a `channel` option the call left out, its channel; a reply records the replied
  * author. A Discord message link there (MESSAGE_LINK_RE, bare or in angle brackets) becomes its
  * message id and names its channel the same way (`unknown-message` when the call named another);
- * any other value -- a raw message id -- is passed on as written. Pure.
+ * any other value -- a raw message id -- is passed on as written. A non-empty body for a command
+ * without a body option (her comment on the call) is left out and the call goes on with its
+ * attributes; the result says so (`bodyIgnored: true`) for the caller to log. Pure.
  * @param {{ skill: string, args: Record<string, string>, body: string }} call
  * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[],
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
  *   selfId?: string|null }} view
- * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null }
+ * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyIgnored?: true }
  *   | { ok: false, code: string, reason: string }}
  */
 export function resolveCall(call, view) {
@@ -146,8 +148,9 @@ export function resolveCall(call, view) {
   const given = { ...(call?.args ?? {}) };
   for (const key of Object.keys(given)) if (!byName.has(key)) return refused('invalid-args', `args.${key}:unknown`);
   const body = typeof call?.body === 'string' ? call.body.trim() : '';
-  if (body) {
-    if (!command.body) return refused('invalid-args', 'args:body');
+  // A body where the command takes none is her comment on the call: left out, never a refusal.
+  const bodyIgnored = Boolean(body) && !command.body;
+  if (body && command.body) {
     if (Object.hasOwn(given, command.body)) return refused('invalid-args', `args.${command.body}:twice`);
     given[command.body] = body;
   }
@@ -228,7 +231,7 @@ export function resolveCall(call, view) {
     if (args.channel === undefined) args.channel = at;
     else if (String(args.channel) !== at) return refused('unknown-message', 'conversation');
   }
-  return { ok: true, skill: name, args, command, repliedAuthorId };
+  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyIgnored ? { bodyIgnored: true } : {}) };
 }
 
 /** The structured status of an operation's result (src/ops/index.js#runOp): `ok`; one that may
@@ -368,8 +371,7 @@ const ARG_RULE_KINDS = Object.freeze({
  * `labels.transcript.callReasons`, src/discord/format.js): `{ kind, code, arg }`. An
  * `invalid-args` refusal with a schema path (`args.<arg>[.<more>]:<rule>`) names the argument and
  * what was wrong with it (`missing-arg`, `unknown-arg`, `arg-twice`, `too-long`, `too-short`,
- * `unknown-channel`, `unknown-role`, else `wrong-arg`); a body the skill does not take is
- * `no-body`; `unknown-message` names the option (`message`, `reply`) whose message was not in view,
+ * `unknown-channel`, `unknown-role`, else `wrong-arg`); `unknown-message` names the option (`message`, `reply`) whose message was not in view,
  * or is `message-elsewhere` when that message lives in another channel than the one named;
  * `not-own-message` names `message`; `unknown-member` with several matches is `member-ambiguous`.
  * Any other code is its own kind without an argument. With `textChars` (a positive number) and
@@ -390,7 +392,7 @@ export function outcomeDetail(outcome, { textChars = 0 } = {}) {
   if (code === 'invalid-args') {
     const path = /^args\.([^.:]+)(?:\.[^:]*)?:(.+)$/.exec(reason);
     if (path) return of(ARG_RULE_KINDS[path[2]] ?? 'wrong-arg', path[1]);
-    return reason === 'args:body' ? of('no-body') : of(code);
+    return of(code);
   }
   if (code === 'unknown-message') {
     if (reason === 'conversation') return of('message-elsewhere');

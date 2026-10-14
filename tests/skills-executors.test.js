@@ -74,7 +74,11 @@ test('resolveCall: only a registry skill; its attributes are its command\'s opti
   assert.deepEqual([said.ok, said.skill, said.args], [true, 'message.create', { channel: NEWS, text: 'καλημέρα' }]);
   assert.deepEqual(resolve('message.create', { channel: '#νέα', who: 'x' }, 'γεια').reason, 'args.who:unknown');
   assert.deepEqual(resolve('message.create', { text: 'δύο' }, 'φορές').reason, 'args.text:twice');
-  assert.deepEqual(resolve('message.delete', { message: '#2' }, 'κείμενο').reason, 'args:body');
+  // A body where the command takes no text is her comment: left out, the call goes on with its attributes.
+  const commented = resolve('message.delete', { message: '#2' }, 'σβήνω το δοκιμαστικό');
+  assert.deepEqual([commented.ok, commented.bodyIgnored, commented.args], [true, true, { message: '1002', channel: HERE }]);
+  assert.equal('bodyIgnored' in resolve('message.delete', { message: '#2' }), false);
+  assert.equal('bodyIgnored' in said, false, 'a body the command takes is its text, as before');
   // whole numbers and yes/no are read strictly; anything else stays text for the schema to refuse
   assert.deepEqual(resolve('rule.remove', { number: '3' }).args, { number: 3 });
   assert.deepEqual(resolve('rule.remove', { number: 'τρία' }).args, { number: 'τρία' });
@@ -366,7 +370,6 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   const of = (refusal) => outcomeDetail({ status: refusalStatus(refusal.code), code: refusal.code, reason: refusal.reason });
   assert.deepEqual(of(resolve('message.create', { channel: '#νέα', who: 'x' }, 'γεια')), { kind: 'unknown-arg', code: 'invalid-args', arg: 'who' });
   assert.deepEqual(of(resolve('message.create', { text: 'δύο' }, 'φορές')), { kind: 'arg-twice', code: 'invalid-args', arg: 'text' });
-  assert.deepEqual(of(resolve('message.delete', { message: '#2' }, 'κείμενο')), { kind: 'no-body', code: 'invalid-args', arg: null });
   assert.deepEqual(of(resolve('message.create', { channel: '#πουθενά' }, 'x')), { kind: 'unknown-channel', code: 'invalid-args', arg: 'channel' });
   assert.deepEqual(of(resolve('message.delete', { message: '#7' })), { kind: 'unknown-message', code: 'unknown-message', arg: 'message' });
   assert.deepEqual(of(resolve('message.delete', { message: '#4', channel: '#γενικά' })), { kind: 'message-elsewhere', code: 'unknown-message', arg: null });

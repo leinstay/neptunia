@@ -8815,6 +8815,20 @@ test('skill call: edit and delete reach only her own message', async () => {
   }
 });
 
+test('skill call: a comment in the body of a skill that takes no text is left out -- the deletion runs with its attributes, logged without the text', async () => {
+  const run = await callTurn({ answers: ['<call skill="message.delete" message="#1">σβήνω το δοκιμαστικό</call>', '<skip/>'], allowed: ['message.delete'] });
+  assert.deepEqual(run.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId), ['m0']);
+  assert.equal(run.llm.calls.length, 1, 'a deletion that went through is its own answer');
+  const ignored = run.logs.filter((entry) => entry.msg === 'skills: body ignored');
+  assert.deepEqual(ignored.map((entry) => entry.skill), ['message.delete']);
+  assert.ok(!JSON.stringify(ignored).includes('δοκιμαστικό'), 'never the text');
+  assert.ok(!run.logs.some((entry) => entry.msg === 'skill: refused'));
+  // A skill that takes text keeps it as its text.
+  const created = await callTurn({ answers: ['<call skill="message.create" reply="#2">ναι</call>'] });
+  assert.deepEqual(created.sends.map((send) => send.text), ['ναι']);
+  assert.ok(!created.logs.some((entry) => entry.msg === 'skills: body ignored'));
+});
+
 test('skill call: a read brings the operation\'s answer back in one follow-up; a member without the right is refused before it runs', async () => {
   const store = fakeStore({ loreEntries: [] });
   const run = await callTurn({ answers: ['<call skill="lore.list"/>', '<msg>τίποτα</msg>'], allowed: ['lore.list'], store });

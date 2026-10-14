@@ -41,7 +41,6 @@
       "too-long": "{arg} was too long",
       "too-short": "{arg} was too short",
       "arg-twice": "{arg} was given twice",
-      "no-body": "the skill takes no text",
       "unknown-channel": "no channel goes by the name given in {arg}",
       "unknown-role": "no role goes by the name given in {arg}",
       "unknown-message": "the message given in {arg} is not in the chat you were shown",

@@ -45,7 +45,6 @@ export const labels = {
       'too-long': '{arg} too long',
       'too-short': '{arg} too short',
       'arg-twice': '{arg} twice',
-      'no-body': 'takes no body',
       'unknown-channel': 'no channel for {arg}',
       'unknown-role': 'no role for {arg}',
       'unknown-message': '{arg} not in view',
