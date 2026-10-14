@@ -4,7 +4,7 @@
 // their budget, and the plan request. Fake prompts/config/labels only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDiaryPlanRequest, buildDrawPrompt, buildRequest, worldText } from '../src/behavior/prompt.js';
+import { buildDiaryPlanRequest, buildDrawPrompt, buildRequest, userText as textOf, worldText } from '../src/behavior/prompt.js';
 import { fill } from '../src/discord/format.js';
 import { labels } from './fixtures/labels.js';
 
@@ -85,10 +85,8 @@ function baseInput(overrides = {}) {
   };
 }
 
-const userText = (request) => {
-  const content = request.messages[1].content;
-  return Array.isArray(content) ? content.find((part) => part.type === 'text').text : content;
-};
+// The whole user text, every cache part: the stable part always carries the static senses lines.
+const userText = (request) => textOf(request.messages[1].content);
 
 const post = (at, kind, gist, picture = null) => ({ at, kind, gist, picture, messageIds: [], search: null });
 

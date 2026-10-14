@@ -1041,7 +1041,7 @@ test('createTurnRunner: a 4xx image error (download succeeded, the provider itse
 
   const firstUser = llm.calls[0][1].content;
   assert.ok(firstUser.some((p) => p.type === 'image_url'), 'the first attempt carries image_url parts');
-  const firstText = firstUser.find((p) => p.type === 'text').text;
+  const firstText = textOf(firstUser);
   assert.ok(firstText.includes(labels.transcript.frameAttached.replace('{n}', '1')));
   const firstImage = firstUser.find((p) => p.type === 'image_url');
   assert.ok(firstImage.image_url.url.startsWith('data:'), 'the downloaded picture is sent as a data: URL, never the bare CDN URL');

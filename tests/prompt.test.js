@@ -349,14 +349,17 @@ test('buildRequest: blocks appear in the documented order', () => {
       neighbors: [{ channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN)] }],
       channels: [{ id: 'c1', name: 'general', lastMessageAt: NOW, days: {} }],
       currentChannelId: 'c1',
+      drawQuota: { spent: false, userSpent: false },
     }),
   );
   const user = contentText(request.messages[1].content);
-  const order = ['<self_facts>', '<about_chat>', '<people>', '<server>', '<other_channels>', '<chat>', '<now>', '<senses>', '<tempo>', '<task>'];
-  const positions = order.map((tag) => user.indexOf(tag));
-  assert.ok(positions.every((p) => p !== -1), `expected all tags present: ${JSON.stringify(positions)}`);
-  for (let i = 1; i < positions.length; i += 1) {
-    assert.ok(positions[i - 1] < positions[i], `expected ${order[i - 1]} before ${order[i]}`);
+  // `<senses>` twice: its stable lines lead the request, its per-turn ones (here the drawing line) follow `<now>`.
+  const order = ['<senses>', '<self_facts>', '<about_chat>', '<people>', '<server>', '<other_channels>', '<chat>', '<now>', '<senses>', '<tempo>', '<task>'];
+  let from = 0;
+  for (const tag of order) {
+    const at = user.indexOf(tag, from);
+    assert.ok(at !== -1, `expected ${tag} after position ${from}`);
+    from = at + 1;
   }
 });
 
@@ -417,7 +420,7 @@ test('buildRequest: the user content is the stable part, the profiles, the tail,
     content.map((part) => [part.type, part.cacheSegment ?? null]),
     [['text', 'stable'], ['text', 'profiles'], ['text', null], ['image_url', null]],
   );
-  assert.deepEqual(blockTags(content[0].text), ['self_facts', 'about_chat', 'gifs']);
+  assert.deepEqual(blockTags(content[0].text), ['senses', 'self_facts', 'about_chat', 'gifs']);
   assert.deepEqual(blockTags(content[1].text), ['people']);
   assert.ok(!('cacheSegment' in content[2]), 'the tail carries no segment');
   assert.ok(content[0].text.endsWith('</gifs>\n\n') && content[1].text.endsWith('</people>\n\n'), 'each part but the last ends with the block separator');
@@ -426,7 +429,7 @@ test('buildRequest: the user content is the stable part, the profiles, the tail,
 });
 
 test('buildRequest: the tail ends with <now>, <senses>, <tempo> and <task>, after the chat', () => {
-  const request = buildRequest(segmentScene({ lookup: { query: 'q', text: 'found it', sources: [] }, config: fakeConfig({ features: { webLookup: true } }) }));
+  const request = buildRequest(segmentScene({ lookup: { query: 'q', text: 'found it', sources: [] }, config: fakeConfig({ features: { webLookup: true } }), drawQuota: { spent: false, userSpent: false } }));
   const tags = blockTags(contentText(request.messages[1].content));
   assert.deepEqual(tags.slice(-6), ['lookup', 'chat', 'now', 'senses', 'tempo', 'task']);
   assert.equal(tags.at(-4), 'now');
@@ -445,13 +448,20 @@ test('buildRequest: without pictures the user content is still an array of text 
 });
 
 test('buildRequest: an empty segment is left out, never sent as an empty text part', () => {
-  const request = buildRequest(baseInput());
+  // No senses labels: nothing at all for the stable part.
+  const prompts = fakePrompts({ labels: { ...labels, senses: undefined } });
+  const request = buildRequest(baseInput({ prompts }));
   const content = request.messages[1].content;
-  assert.deepEqual(content.map((part) => part.cacheSegment ?? null), [null], 'no memory, no GIFs, no caller: the tail alone');
+  assert.deepEqual(content.map((part) => part.cacheSegment ?? null), [null], 'no senses, no memory, no GIFs, no caller: the tail alone');
   assert.ok(content[0].text.startsWith('<chat>'));
   assert.ok(!content[0].text.endsWith('\n'));
-  const callerOnly = buildRequest(segmentScene({ guildMemory: {}, gifs: null })).messages[1].content;
+  const callerOnly = buildRequest(segmentScene({ guildMemory: {}, gifs: null, prompts })).messages[1].content;
   assert.deepEqual(callerOnly.map((part) => part.cacheSegment ?? null), ['profiles', null]);
+  // With the senses labels the stable part is their stable lines alone, and no per-turn line leaves no tail block.
+  const sensesOnly = buildRequest(baseInput()).messages[1].content;
+  assert.deepEqual(sensesOnly.map((part) => part.cacheSegment ?? null), ['stable', null]);
+  assert.deepEqual(blockTags(sensesOnly[0].text), ['senses']);
+  assert.ok(!blockTags(sensesOnly[1].text).includes('senses'));
 });
 
 test('buildRequest: two builds a minute apart keep the stable and profiles parts byte-identical', () => {
@@ -469,6 +479,119 @@ test('buildRequest: two builds a minute apart keep the stable and profiles parts
   const nextHour = buildRequest(segmentScene({ now: NOW + 59 * MIN, messageCount: 49 })).messages[1].content;
   assert.equal(nextHour[0].text, first[0].text);
   assert.equal(nextHour[1].text, first[1].text);
+});
+
+// --- the stable part: the senses that read only the config --------------------------------
+
+const EMOJI_INDEX = [{ id: '1', name: 'alpha' }, { id: '2', name: 'beta' }, { id: '3', name: 'gamma' }];
+
+/**
+ * A turn with every senses line it can have on a server and a full `<emoji>` block: the
+ * ranked list and an emoji of the chat that is not on it.
+ */
+function cacheScene({ triggerFields, config: configOverrides = {}, ...overrides } = {}) {
+  return segmentScene({
+    config: fakeConfig({
+      memory: { interestStaleDays: 30, confirmAfter: 2 },
+      features: { webLookup: true, mediaDescriptions: true, privateMessages: true, ...configOverrides.features },
+      context: { customEmoji: { max: 2 } },
+    }),
+    triggerFields: { content: 'ωραίο :pog:', emojis: [{ id: '9', name: 'pog' }], ...triggerFields },
+    guildMemory: { patterns: 'talks fast', self: ['likes games'], emojiUsage: { 2: { name: 'beta', count: 5, last: NOW - HOUR } } },
+    customEmoji: EMOJI_INDEX,
+    mediaCache: { 'emoji:9': { text: 'a surprised cat face', ts: 1 }, 'emoji:2': { text: 'a dancing bean', ts: 1 } },
+    channels: [{ id: 'c1', name: 'κουζίνα', lastMessageAt: NOW - MIN, days: {} }],
+    drawQuota: { spent: false, userSpent: false },
+    recallAvailable: true,
+    searchAvailable: true,
+    elsewhereDestination: { name: 'général' },
+    diaryChannel: 'ημερολόγιο',
+    ...overrides,
+  });
+}
+
+/** The top-level blocks of `text` as `{ tag, body }`, in order. */
+function blocksOf(text) {
+  return [...text.matchAll(/^<([a-z_]+)>\n([\s\S]*?)\n<\/\1>$/gm)].map((match) => ({ tag: match[1], body: match[2] }));
+}
+
+test('buildRequest: the senses lines are the ones of one block, only moved; <emoji> stays whole in the tail; the stable part holds no per-turn value', (t) => {
+  const request = buildRequest(cacheScene());
+  const [stable, profiles, tail] = request.messages[1].content;
+  assert.deepEqual([stable.cacheSegment, profiles.cacheSegment, tail.cacheSegment], ['stable', 'profiles', undefined]);
+  const stableBlocks = blocksOf(stable.text);
+  const tailBlocks = blocksOf(tail.text);
+  // Most stable first; the emoji list, whose ranking moves with use several times a day, stays out.
+  assert.deepEqual(stableBlocks.map((b) => b.tag), ['senses', 'self_facts', 'about_chat', 'gifs']);
+  assert.deepEqual(blocksOf(profiles.text).map((b) => b.tag), ['people']);
+  const tailTags = tailBlocks.map((b) => b.tag);
+  assert.equal(tailTags[tailTags.indexOf('server') + 1], 'emoji', '<emoji> where it always stood');
+  assert.equal(tailTags[tailTags.indexOf('now') + 1], 'senses', 'the per-turn senses stay where <senses> stood');
+  // Every other block once in the whole request.
+  const all = [...stableBlocks, ...blocksOf(profiles.text), ...tailBlocks].map((b) => b.tag);
+  for (const tag of new Set(all)) assert.equal(all.filter((x) => x === tag).length, tag === 'senses' ? 2 : 1, tag);
+
+  // The lines of the one `<senses>` block this turn had before the split, in its order.
+  const S = labels.senses;
+  const oneBlock = [
+    S.imageSee, S.imageDescribed, S.gifDescribed, S.videoWatch, S.videoRewatch, S.stickerSee, S.stickerDescribed, S.lottie,
+    S.customEmoji, S.gifs, S.voice, S.linksWatch, S.linksRead, S.search, S.recall, S.draw, S.files, S.time, S.channels,
+    fill(S.elsewhere, { destination: 'général' }), fill(S.diary, { channel: 'ημερολόγιο' }), S.privateAware,
+  ];
+  const perTurn = new Set([S.recall, S.draw]);
+  const body = (blocks, tag) => blocks.find((b) => b.tag === tag).body.split('\n');
+  assert.deepEqual(body(stableBlocks, 'senses'), oneBlock.filter((line) => !perTurn.has(line)));
+  assert.deepEqual(body(tailBlocks, 'senses'), oneBlock.filter((line) => perTurn.has(line)));
+  // One `<emoji>` block: the list, then the emoji of the chat that are not on it.
+  const e = labels.emoji;
+  assert.deepEqual(
+    body(tailBlocks, 'emoji'),
+    [e.header, fill(e.entry, { name: 'beta', text: 'a dancing bean' }), fill(e.entryNoText, { name: 'alpha' }), e.seenInChat, fill(e.entry, { name: 'pog', text: 'a surprised cat face' })],
+  );
+  assert.equal(request.stats.emoji.kept, 5);
+
+  // Nothing of this turn in the cached part: its clock, tempo, channel, quotas, private flag, chat emoji.
+  const turnValues = [
+    tailBlocks.find((b) => b.tag === 'now').body,
+    tailBlocks.find((b) => b.tag === 'tempo').body,
+    'κουζίνα',
+    S.draw, S.drawSpent, S.drawSpentUser, S.recall, S.participation, S.privateChat,
+    e.header, e.seenInChat, ':beta:', ':pog:',
+  ];
+  for (const value of turnValues) assert.ok(!stable.text.includes(value), `the stable part carries ${value}`);
+
+  // The stable part before the move held only <self_facts>, <about_chat> and <gifs>.
+  const before = estimateTokens(stableBlocks.filter((b) => b.tag !== 'senses').map((b) => block(b.tag, b.body)).join('\n\n') + '\n\n');
+  const after = estimateTokens(stable.text);
+  t.diagnostic(`stable part on the fixture: ${before} -> ${after} estimated tokens`);
+  assert.ok(after > before);
+});
+
+test('buildRequest: the stable part is byte-identical across the turns of a day, whatever the turn brings', () => {
+  const base = buildRequest(cacheScene()).messages[1].content[0];
+  const variants = {
+    'three hours later': { now: NOW + 3 * HOUR },
+    'another author': { triggerFields: { authorId: 'author-7', authorName: 'Bob' } },
+    'another channel': { channels: [{ id: 'c2', name: 'κήπος', lastMessageAt: NOW - MIN, days: {} }], currentChannelId: 'c2' },
+    'the member quota spent': { drawQuota: { spent: false, userSpent: true } },
+    'the daily quota spent': { drawQuota: { spent: true, userSpent: true } },
+    'no server search left': { recallAvailable: false },
+    'no emoji in the chat': { triggerFields: { content: 'γεια', emojis: [] } },
+    'the emoji ranking moved': { guildMemory: { patterns: 'talks fast', self: ['likes games'], emojiUsage: { 3: { name: 'gamma', count: 9, last: NOW - MIN } } } },
+  };
+  for (const [name, overrides] of Object.entries(variants)) {
+    const content = buildRequest(cacheScene(overrides)).messages[1].content;
+    assert.equal(content[0].cacheSegment, 'stable', name);
+    assert.equal(content[0].text, base.text, name);
+  }
+});
+
+test('buildRequest: a private chat keeps its private line in the tail', () => {
+  const content = buildRequest(cacheScene({ privateChat: { userId: 'author-1' }, triggerKind: 'private', prompts: fakePrompts({ private: 'P' }) })).messages[1].content;
+  const stable = content.find((part) => part.cacheSegment === 'stable');
+  const tail = content.at(-1);
+  assert.ok(!stable.text.includes(labels.senses.privateChat));
+  assert.ok(blocksOf(tail.text).find((b) => b.tag === 'senses').body.split('\n').includes(labels.senses.privateChat));
 });
 
 test('renderProfile: the message count is rounded down, to tens below 100 and to hundreds from 100; below 10 no line', () => {
@@ -1418,20 +1541,30 @@ test('buildRequest: features.relationships=false hides the attitude line entirel
 
 // --- <senses> ------------------------------------------------------------
 
-function sensesOf(request) {
-  const user = contentText(request.messages[1].content);
-  const text = Array.isArray(user) ? user.find((part) => part.type === 'text').text : user;
-  const match = /<senses>\n([\s\S]*?)\n<\/senses>/.exec(text);
-  return match ? match[1] : null;
+/** The `<senses>` bodies of a request: the stable part's (`stable`) and the tail's (`turn`), '' when absent. */
+function sensesHalves(request) {
+  const parts = request.messages[1].content.filter((part) => part.type === 'text');
+  const bodyIn = (part) => (part ? (/<senses>\n([\s\S]*?)\n<\/senses>/.exec(part.text)?.[1] ?? '') : '');
+  return { stable: bodyIn(parts.find((part) => part.cacheSegment === 'stable')), turn: bodyIn(parts.find((part) => !part.cacheSegment)) };
 }
 
-test('buildRequest: <senses> sits right after <now>', () => {
-  const request = buildRequest(baseInput());
-  const user = contentText(request.messages[1].content);
-  const nowIdx = user.indexOf('<now>');
-  const sensesIdx = user.indexOf('<senses>');
-  assert.ok(sensesIdx !== -1 && sensesIdx > nowIdx);
-  assert.ok(sensesIdx < user.indexOf('</now>') + 20); // right after, not somewhere far down
+/** Every `<senses>` line of a request, the stable half first; null with no block at all. */
+function sensesOf(request) {
+  const { stable, turn } = sensesHalves(request);
+  return [stable, turn].filter(Boolean).join('\n') || null;
+}
+
+test('buildRequest: the stable <senses> lines lead the stable part, the per-turn ones sit right after <now>', () => {
+  const request = buildRequest(baseInput({ drawQuota: { spent: false, userSpent: false } }));
+  const [stable, tail] = request.messages[1].content;
+  assert.equal(stable.cacheSegment, 'stable');
+  assert.ok(stable.text.startsWith('<senses>\n'), stable.text);
+  assert.ok(!('cacheSegment' in tail));
+  const nowIdx = tail.text.indexOf('<now>');
+  const sensesIdx = tail.text.indexOf('<senses>');
+  assert.ok(nowIdx !== -1 && sensesIdx > nowIdx);
+  assert.ok(sensesIdx < tail.text.indexOf('</now>') + 20); // right after, not somewhere far down
+  assert.equal(sensesHalves(request).turn, labels.senses.draw);
 });
 
 test('buildRequest: vision on, mediaDescriptions off -> imageSee + blind forms', () => {
@@ -2389,7 +2522,7 @@ test('buildRequest: <lookup> sits right before <chat>, after the reference block
   const user = contentText(request.messages[1].content);
   const at = user.indexOf('\n<lookup>\n');
   assert.ok(at > user.indexOf('</self_facts>') && user.indexOf('</self_facts>') !== -1);
-  assert.ok(at < user.indexOf('<chat>') && user.indexOf('<chat>') < user.indexOf('<senses>'));
+  assert.ok(at < user.indexOf('<chat>') && user.indexOf('<chat>') < user.indexOf('<now>'));
   assert.ok(user.indexOf('</lookup>\n\n<chat>') !== -1);
 });
 
@@ -2547,17 +2680,21 @@ test('buildRequest: an older labels set without linksRead/search keeps only the 
   assert.equal(senses.length, withLabels.length - 2);
 });
 
-test('buildRequest: recallAvailable true -> the recall line follows the search line, whatever the web lookup does', () => {
-  const senses = sensesOf(buildRequest(baseInput({ config: webConfig({ mediaDescriptions: true }), searchAvailable: true, recallAvailable: true }))).split('\n');
-  const at = senses.indexOf(labels.senses.search);
+test('buildRequest: recallAvailable true -> the recall line leads the per-turn senses, before the drawing line, whatever the web lookup does', () => {
+  const request = buildRequest(
+    baseInput({ config: webConfig({ mediaDescriptions: true }), searchAvailable: true, recallAvailable: true, drawQuota: { spent: false, userSpent: false } }),
+  );
+  const { stable, turn } = sensesHalves(request);
+  const stableLines = stable.split('\n');
+  const at = stableLines.indexOf(labels.senses.search);
   assert.ok(at !== -1);
-  assert.equal(senses[at + 1], labels.senses.recall);
-  assert.equal(senses[at + 2], labels.senses.files);
+  assert.equal(stableLines[at + 1], labels.senses.files, 'the search line stays in the cached half');
+  assert.deepEqual(turn.split('\n'), [labels.senses.recall, labels.senses.draw]);
 
   // Its own switch: no web lookup at all, the recall line is still there.
-  const noWeb = sensesOf(buildRequest(baseInput({ config: fakeConfig({ features: { webLookup: false } }), recallAvailable: true }))).split('\n');
-  assert.ok(!noWeb.includes(labels.senses.search));
-  assert.equal(noWeb[noWeb.indexOf(labels.senses.links) + 1], labels.senses.recall);
+  const noWeb = sensesHalves(buildRequest(baseInput({ config: fakeConfig({ features: { webLookup: false } }), recallAvailable: true })));
+  assert.ok(!noWeb.stable.split('\n').includes(labels.senses.search));
+  assert.equal(noWeb.turn, labels.senses.recall);
 });
 
 test('buildRequest: no recall line unless recallAvailable is true -- false, omitted or null', () => {
@@ -2718,10 +2855,11 @@ const DRAW_OPEN = { spent: false, userSpent: false };
 
 test('renderSenses: draw line shows when the feature is on', () => {
   const config = fakeConfig({ features: { imageGeneration: true } });
-  const senses = sensesOf(buildRequest(baseInput({ config, drawQuota: DRAW_OPEN }))).split('\n');
-  const at = senses.indexOf(labels.senses.draw);
-  assert.ok(at !== -1);
-  assert.equal(senses[at + 1], labels.senses.files, 'the draw line sits right before the files line');
+  const { stable, turn } = sensesHalves(buildRequest(baseInput({ config, drawQuota: DRAW_OPEN })));
+  const senses = [...stable.split('\n'), ...turn.split('\n')];
+  assert.ok(turn.split('\n').includes(labels.senses.draw), 'the draw line is a per-turn line, in the tail');
+  assert.ok(!stable.includes(labels.senses.draw));
+  assert.ok(stable.split('\n').includes(labels.senses.files));
   assert.ok(!senses.includes(labels.senses.drawSpent));
   assert.ok(!senses.includes(labels.senses.drawSpentUser));
 });

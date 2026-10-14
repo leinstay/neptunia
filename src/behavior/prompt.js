@@ -32,8 +32,9 @@
 //   9. the GIF library (`<gifs>`)
 // The rendered order is different, and laid out for the provider's prompt
 // cache: what changes least first, in three text parts -- the stable part
-// (`<self_facts>`, `<about_chat>`, `<gifs>`), the profiles (`<people>`), then
-// the tail that changes every turn, with the chat, the clock, the senses, the
+// (the senses that read only the config, `<self_facts>`, `<about_chat>`,
+// `<gifs>`), the profiles (`<people>`), then the tail that changes every
+// turn, with the chat, the clock, the per-turn senses, the
 // tempo and the task last, where the model attends best (see assembleUser and
 // docs/prompt-contract.md, "Cache segments"). A private chat (`privateChat`)
 // drops the server map, the neighbouring channels and any pulled channel and
@@ -1074,10 +1075,13 @@ function nowBlock(now, timezone, labels, periods) {
 /**
  * The user message's text parts from already-rendered blocks, in three cache
  * segments (see docs/prompt-contract.md, "Cache segments"): the stable part
- * (`cacheSegment: 'stable'`: `<self_facts>`, `<about_chat>`, `<gifs>`), the
- * profiles (`cacheSegment: 'profiles'`: `<people>`), then the tail (no
- * segment) with everything that changes from turn to turn, `<now>`,
- * `<senses>`, `<tempo>` and `<task>` last. A segment with no block is left
+ * (`cacheSegment: 'stable'`), what changes least first: the stable
+ * `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`; the profiles
+ * (`cacheSegment: 'profiles'`: `<people>`), then the tail (no segment) with
+ * everything that changes from turn to turn -- `<emoji>` among it, its
+ * ranking moves with use several times a day -- `<now>`, the per-turn
+ * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
+ * renderSenses' two halves. A segment with no block is left
  * out; every part but the last ends with the blank line that separates
  * blocks, so the parts' texts joined with nothing (userText) are the whole
  * user text. `cacheSegment` is a neutral tag: src/llm/openrouter.js#withCacheMarker
@@ -1092,8 +1096,9 @@ function nowBlock(now, timezone, labels, periods) {
  * the chat (see `textFallback`).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ nowText, timezone, labels, sensesText, kept, tempoText, task, chatItems, diary = null }) {
+function assembleUser({ nowText, timezone, labels, senses, kept, tempoText, task, chatItems, diary = null }) {
   const stable = [
+    block('senses', senses.stable),
     block('self_facts', kept.self.join('\n')),
     block('about_chat', kept.aboutChat.join('\n')),
     // Own-marked entries last (ownMarkedLast).
@@ -1124,7 +1129,8 @@ function assembleUser({ nowText, timezone, labels, sensesText, kept, tempoText, 
     block('chat', renderTranscript(chatItems, timezone, labels)),
     // The present moment after the history it dates, with the persona's recent time away (nowBlock).
     block('now', nowText),
-    block('senses', sensesText),
+    // The per-turn senses lines (renderSenses' `turn` half); the rest lead the stable part.
+    block('senses', senses.turn),
     block('tempo', tempoText),
     block('task', task),
   ];
@@ -1407,9 +1413,15 @@ function lookupCandidates(lookup, labels, timezone) {
 }
 
 /**
- * Render the `<senses>` block from `labels.senses`: which lines are true
- * under the live config (see docs/prompt-contract.md, "`<senses>`").
- * Returns '' when `labels.senses` is missing entirely, so an older
+ * Render the `<senses>` lines from `labels.senses`: which lines are true
+ * under the live config (see docs/prompt-contract.md, "`<senses>`"), in two
+ * halves for the prompt cache: `stable`, the lines that read only the config,
+ * the prompts and the server's lists (the same on every turn of a day), and
+ * `turn`, the lines that depend on this turn -- `senses.recall` (the server
+ * search's daily caps), the drawing line (the quotas), `senses.participation`
+ * (whether `<participation>` is shown) and `senses.privateChat` (this turn is
+ * a private chat). Each half keeps the lines in the order described below.
+ * Both are '' when `labels.senses` is missing entirely, so an older
  * deployment's labels.json never breaks — the block is simply omitted.
  * `drawQuota` (`{ spent, userSpent }` from the image client's quota(), or
  * undefined when no image client is wired) picks the drawing line.
@@ -1429,6 +1441,7 @@ function lookupCandidates(lookup, labels, timezone) {
  * answered), `senses.elsewhere` with `{destination}`. With a `diaryChannel`
  * (the bare name of the diary channel; the label carries the `#`),
  * `senses.diary` with `{channel}` follows. A missing label adds nothing.
+ * @returns {{ stable: string, turn: string }}
  */
 function renderSenses(
   config,
@@ -1447,10 +1460,12 @@ function renderSenses(
   } = {},
 ) {
   const senses = labels.senses;
-  if (!senses) return '';
+  if (!senses) return { stable: '', turn: '' };
   const visionOn = config.features?.vision !== false;
   const describedOn = config.features?.mediaDescriptions === true;
   const lines = [];
+  // The lines that change from turn to turn: they stay out of the cached part.
+  const turnLines = [];
   if (visionOn) lines.push(senses.imageSee);
   lines.push(describedOn ? senses.imageDescribed : senses.imageBlind);
   // A watched GIF (its animation, not one frame); an older labels.json
@@ -1496,12 +1511,14 @@ function renderSenses(
   // The search of the server's own message history (`recallAvailable`: a server
   // turn where the runner is available; its own switch, not the web one); an
   // older labels.json without the line shows nothing.
-  if (recallAvailable === true && senses.recall) lines.push(senses.recall);
+  // Per turn: the runner's daily caps can close it within a day.
+  if (recallAvailable === true && senses.recall) turnLines.push(senses.recall);
   // Drawing (features.imageGeneration, a missing key counts as on) needs the
   // image client (`drawQuota` present): one line, the spent forms first. An
-  // older labels.json without senses.draw shows nothing.
+  // older labels.json without senses.draw shows nothing. Per turn: the quotas
+  // move within a day, and the member's one with the author.
   if (drawQuota && config.features?.imageGeneration !== false && senses.draw) {
-    lines.push(drawQuota.spent ? senses.drawSpent : drawQuota.userSpent ? senses.drawSpentUser : senses.draw);
+    turnLines.push(drawQuota.spent ? senses.drawSpent : drawQuota.userSpent ? senses.drawSpentUser : senses.draw);
   }
   lines.push(senses.files);
   // How to read clock times, line ages and gap markers; private chats too.
@@ -1509,18 +1526,29 @@ function renderSenses(
   // Which channels the persona sees, and where it answers a call from one it
   // cannot write in: a server turn only.
   if (!privateChat && senses.channels) lines.push(senses.channels);
-  // The persona's own exchanges on other channels (`<participation>`), only while the block is there.
-  if (!privateChat && participation === true && senses.participation) lines.push(senses.participation);
+  // The persona's own exchanges on other channels (`<participation>`), only while the block is
+  // there: per turn.
+  if (!privateChat && participation === true && senses.participation) turnLines.push(senses.participation);
   if (!privateChat && senses.elsewhere && typeof elsewhereDestination?.name === 'string' && elsewhereDestination.name) {
     lines.push(fill(senses.elsewhere, { destination: elsewhereDestination.name }));
   }
   // Where the persona keeps its diary, so it can speak of it anywhere.
   if (senses.diary && typeof diaryChannel === 'string' && diaryChannel) lines.push(fill(senses.diary, { channel: diaryChannel }));
-  // Private chat: the one line for this conversation, or -- on the server,
-  // with the feature on -- the rule about what was said in private.
-  if (privateChat) lines.push(senses.privateChat);
+  // Private chat: the one line for this conversation (per turn), or -- on the
+  // server, with the feature on -- the rule about what was said in private.
+  if (privateChat) turnLines.push(senses.privateChat);
   else if (config.features?.privateMessages === true) lines.push(senses.privateAware);
-  return lines.filter(Boolean).join('\n');
+  return { stable: lines.filter(Boolean).join('\n'), turn: turnLines.filter(Boolean).join('\n') };
+}
+
+/**
+ * The whole `<senses>` text of `senses` (renderSenses' halves), as the budget
+ * counts it: the same characters as one block of every line.
+ * @param {{ stable: string, turn: string }} senses
+ * @returns {string}
+ */
+function sensesWhole(senses) {
+  return [senses.stable, senses.turn].filter(Boolean).join('\n');
 }
 
 const ASKED_ABOUT_SCAN_MESSAGES = 5;
@@ -2608,7 +2636,7 @@ export function buildRequest(input) {
     // Fitted as if `<participation>` is shown; checked once the budget is spent.
     participation: participationOffered,
   };
-  let sensesText = renderSenses(config, labels, sensesOptions);
+  let senses = renderSenses(config, labels, sensesOptions);
 
   // A diary post (mode `diary`): the persona's world (under `diary.world`), its past posts, the
   // post's plan and what its search found. None of it in any other mode.
@@ -2666,7 +2694,7 @@ export function buildRequest(input) {
     name: 'fixed',
     required: true,
     // A diary post's plan, its seeds and its `<diary>` intro are never cut.
-    items: [system, fittedTask, nowText, sensesText, tempoText, ...[planText, seedsText, diaryIntro].filter(Boolean)],
+    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[planText, seedsText, diaryIntro].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -3125,9 +3153,9 @@ export function buildRequest(input) {
   // The senses line names `<participation>` only when the block is there. The request only gets
   // shorter, so the fit holds.
   if (participationOffered && (kept.participation ?? []).length === 0) {
-    const fitted = sensesText;
-    sensesText = renderSenses(config, labels, { ...sensesOptions, participation: false });
-    const saved = cost(fitted) - cost(sensesText);
+    const fitted = sensesWhole(senses);
+    senses = renderSenses(config, labels, { ...sensesOptions, participation: false });
+    const saved = cost(fitted) - cost(sensesWhole(senses));
     stats.fixed.used -= saved;
     used -= saved;
   }
@@ -3173,7 +3201,7 @@ export function buildRequest(input) {
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
   const seen = seenOf({ history, keptChat, pictures });
-  const user = assembleUser({ nowText, timezone, labels, sensesText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
+  const user = assembleUser({ nowText, timezone, labels, senses, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
 
   // A provider that rejects the images (see src/behavior/turn.js's 4xx
   // retry) must never resend a <chat> claiming a picture is attached with
@@ -3190,7 +3218,7 @@ export function buildRequest(input) {
   if (pictures.length) {
     const chatItemsBlind = formatTranscript(history, { ...formatOptions, attachedIndex: undefined });
     const keptChatBlind = chatItemsBlind.slice(chatItemsBlind.length - kept.chat.length);
-    textFallback = assembleUser({ nowText, timezone, labels, sensesText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
+    textFallback = assembleUser({ nowText, timezone, labels, senses, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
   }
 
   // A sticker's URL is already fully sized (see src/discord/media.js

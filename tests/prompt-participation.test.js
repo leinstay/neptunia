@@ -148,7 +148,10 @@ test('participation block: right after <recent>, before <other_channels>, in the
 
 test('participation block: the senses line is there with the block and gone without it', () => {
   const sense = labels.senses.participation;
-  assert.ok(blockOf(textOf(buildRequest(input())), 'senses').includes(sense));
+  // A per-turn line: in the tail's <senses>, never in a cached part.
+  const parts = buildRequest(input()).messages[1].content.filter((part) => part.type === 'text');
+  assert.ok(blockOf(parts.at(-1).text, 'senses').includes(sense));
+  assert.ok(parts.filter((part) => part.cacheSegment).every((part) => !part.text.includes(sense)));
   const off = textOf(buildRequest(input({ config: fakeConfig({ features: { participation: false } }) })));
   assert.equal(blockOf(off, 'participation'), null);
   assert.ok(!off.includes(sense));
