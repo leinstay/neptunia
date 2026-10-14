@@ -637,6 +637,11 @@ function renderForwarded(snapshot, labels, context, maxChars, channelName) {
  *   relative to this clock, so the items' text is for this request only and is never stored.
  * @param {number} [options.ageMinutes]  `context.ageAfterMinutes` (60 when omitted): how old a
  *   line must be, in minutes, to carry its age.
+ * @param {Map<string, string>} [options.handles]  Member id -> handle (src/behavior/handles.js,
+ *   features.mentionHandles). In `mode: 'chat'` with a non-empty `transcript.author` label, the
+ *   author of a line that is neither the persona's nor a bot's and has a handle renders as that
+ *   label with `{name}` and `{handle}` (the exact token to write, `@` included). Omitted, or
+ *   without the label: the bare name, as before.
  * @throws {RangeError} when `indexOffset` is given but is not an integer of at least 0.
  * @returns {{ id: string, index: number, ts: number, text: string }[]}
  *
@@ -668,6 +673,9 @@ export function formatTranscript(messages, options) {
   };
   // The persona's skill calls (withCalls): chat mode only, and only with `transcript.called` set.
   const callsOn = mode === 'chat' && typeof labels.transcript.called === 'string' && labels.transcript.called !== '';
+  // Each author's mention handle (chat mode only, and only with `transcript.author` set).
+  const authorLabel = labels.transcript.author;
+  const authorHandles = mode === 'chat' && options.handles instanceof Map && typeof authorLabel === 'string' && authorLabel !== '' ? options.handles : null;
   // A bad offset is a caller bug: counting it as 0 would renumber a second
   // block from #1 over the first block's indices, so a tag aimed at one line
   // would silently land on another.
@@ -702,7 +710,8 @@ export function formatTranscript(messages, options) {
       }
     }
 
-    const name = message.self ? selfLabel : message.authorName;
+    const handle = authorHandles && !message.self && !message.bot ? authorHandles.get(String(message.authorId)) : undefined;
+    const name = message.self ? selfLabel : handle ? fill(authorLabel, { name: message.authorName, handle: `@${handle}` }) : message.authorName;
     // The persona's own line names the message that started its turn (chat mode; see withTriggers)
     // and, posted from another channel's turn, that channel (withCalls).
     const triggered = mode === 'chat' ? triggerMarker(message, indexById, labels) : '';

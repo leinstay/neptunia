@@ -34,7 +34,7 @@
 // cache: what changes least first, in three text parts -- the stable part
 // (the senses that read only the config, the skills protocol, the names of the
 // skills granted to the persona, `<self_facts>`,
-// `<about_chat>`, `<gifs>`), the profiles (`<people>` with the interlocutor alone), then the
+// `<about_chat>`, `<gifs>`, the people directory `<directory>`), the profiles (`<people>` with the interlocutor alone), then the
 // tail that changes every turn, opening with a second `<people>` for everyone
 // else, with the chat, the clock, the per-turn senses, the
 // tempo and the task last, where the model attends best (see assembleUser and
@@ -74,6 +74,7 @@ import { channelActivity, renderChannel } from '../memory/channels.js';
 import { selectPictures, mediaProxyUrl, fitBox, mediaParts } from '../discord/media.js';
 import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { mergeProfiles } from './private.js';
+import { assignHandles, directoryEntries, renderDirectory } from './handles.js';
 import { gifWatchBlocker } from '../memory/gif-watch.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
@@ -1083,7 +1084,8 @@ function nowBlock(now, timezone, labels, periods) {
  * `<senses>` lines, `<skills_protocol>` (`protocol`: static, the same for
  * every grant), `<skills_granted>` (`granted`: the names of the skills granted
  * to the persona, changing only with a grant), `<self_facts>`, `<about_chat>`,
- * `<gifs>`; the profiles
+ * `<gifs>`, `<directory>` (`directory`: the people directory, changing only with a
+ * member's names or aliases); the profiles
  * (`cacheSegment: 'profiles'`: `<people>` with the interlocutor alone), then
  * the tail (no segment) with everything that changes from turn to turn -- a
  * second `<people>` with the other members first, `<emoji>` among it, its
@@ -1105,7 +1107,7 @@ function nowBlock(now, timezone, labels, periods) {
  * the chat (see `textFallback`).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', kept, tempoText, task, chatItems, diary = null }) {
+function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', directory = '', kept, tempoText, task, chatItems, diary = null }) {
   const stable = [
     block('senses', senses.stable),
     // How the persona's skills reach her: static text, so a grant never changes this part.
@@ -1116,6 +1118,8 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('about_chat', kept.aboutChat.join('\n')),
     // Own-marked entries last (ownMarkedLast).
     block('gifs', (kept.gifs ?? []).join('\n')),
+    // Who can be mentioned and by which handle: changes only when a member's names or aliases do.
+    block('directory', directory),
   ];
   // The interlocutor alone: constant while the same member talks to the persona.
   const profiles = [block('people', kept.interlocutor.join('\n\n'))];
@@ -2116,6 +2120,27 @@ function pingStateOf(pingState, id) {
 }
 
 /**
+ * The ids of the members who wrote the lines a request may show -- `history`, then every
+ * `messages` list of each of `sources` (the pulled channels, the neighbours) -- never the
+ * persona's own lines or a bot's, each once (src/behavior/handles.js#assignHandles' `inView`).
+ * @param {object[]} history
+ * @param {unknown[]} sources  Lists of `{ messages }` entries; anything else is skipped.
+ * @returns {string[]}
+ */
+function authorsInView(history, sources) {
+  const ids = new Set();
+  const add = (messages) => {
+    for (const message of Array.isArray(messages) ? messages : []) {
+      if (!message || message.self || message.bot || message.authorId === undefined || message.authorId === null) continue;
+      ids.add(String(message.authorId));
+    }
+  };
+  add(history);
+  for (const source of sources) for (const entry of Array.isArray(source) ? source : []) add(entry?.messages);
+  return [...ids];
+}
+
+/**
  * The pulled channels a request can show: entries with a channel id and at
  * least one message with an id and a time, one per channel (the first wins),
  * never the turn's own channel; each message once, oldest first.
@@ -2426,6 +2451,8 @@ function seenOf({ history, keptChat, pictures }) {
  *   expected outcome this time. Missing `prompts.forced` -> the task text is left as it is.
  * @param {number} input.now
  * @param {string} input.selfName
+ * @param {string|null} [input.selfId]  The persona's own user id: her stored profile, if any, is
+ *   never listed in `<directory>`. Omitted -> no profile is left out for being hers.
  * @param {object[]} input.history         Normalized channel messages, oldest first.
  * @param {{channelId?: string, channelName: string, messages: object[]}[]} input.neighbors
  *   `channelId` (see src/discord/collect.js#fetchNeighbors) is how `<server>` tells which
@@ -2633,7 +2660,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   for the turn, so the stable and profile parts stay the same. Omitted or null (or the label
  *   missing or blank) -> the task as usual.
  * @returns {{ messages: object[], stats: object, segments: { segment: 'stable'|'profiles'|'tail', chars: number, hash: string }[],
- *   idByIndex: Map<number, string>, tempo: object,
+ *   idByIndex: Map<number, string>, tempo: object, handles: Map<string, string>|null,
  *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
  *   pulledKept: { channelId: string, ids: string[], newestId: string, newestTs: number }[],
  *   pulledViews: { channelId: string, hashes: Map<string, string>, oldestTs: number, oldestId: string|number }[],
@@ -2655,7 +2682,16 @@ function seenOf({ history, keptChat, pictures }) {
  *   src/discord/pull-fetch.js#createPullViews). `peopleShown` lists the
  *   members whose profile the request shows (the interlocutor when its block was kept, then those
  *   `<people>` kept, in its order) with their stored names: whose `@name` the reply may resolve
- *   (src/behavior/turn.js#resolveMentions). `stats.pulled` is the
+ *   with features.mentionHandles off (src/behavior/turn.js#resolveMentions). `handles` maps
+ *   every mention handle of the request to its member id (src/behavior/turn.js#renderPost): with
+ *   features.mentionHandles on (a missing key counts as on) each member of `candidateProfiles`
+ *   (the stored profiles of the served guild, never `selfId`'s) that has a name or an open
+ *   alias gets one and is listed in `<directory>` -- `labels.directory.lead`, then one
+ *   `labels.directory.line` / `lineAliases` per member (src/behavior/handles.js#renderDirectory),
+ *   last in the stable part and never cut -- and every other author of the chat, the pulled
+ *   channels and the neighbours (never the persona, never a bot; a private chat: the chat only)
+ *   gets one from the same derivation, shown on their lines through `labels.transcript.author`
+ *   (src/discord/format.js#formatTranscript); null with the switch off. `stats.pulled` is the
  *   block's budget line: `used`, `kept` (channels shown), `dropped` (channels offered and not
  *   shown, the budget's cut or a missing header label), `lines` (lines offered) and `linesCut`
  *   (lines offered and not shown), plus `seenFresh` / `seenOlder` (summed over the channels shown
@@ -2679,6 +2715,14 @@ export function buildRequest(input) {
   const interlocutor = privateChat ? mergeProfiles(input.interlocutor, input.privateProfile) : input.interlocutor;
   const nameOf = typeof input.nameOf === 'function' ? input.nameOf : () => null;
   const { timezone } = config.bot;
+  // Mention handles (features.mentionHandles, a missing key counts as on): every member with a
+  // stored profile gets one in `<directory>` (the stable part), the authors in view on their lines.
+  const handlesOn = config.features?.mentionHandles !== false;
+  const directory = handlesOn ? directoryEntries(input.candidateProfiles ?? [], { selfId: input.selfId ?? null }) : [];
+  const handleById = handlesOn
+    ? assignHandles({ profiled: directory.map((entry) => entry.id), inView: authorsInView(history, privateChat ? [] : [input.pulled, neighbors]) })
+    : null;
+  const directoryText = handleById ? renderDirectory(directory, handleById, labels) : '';
   // `<now>`: the clock, then the persona's recent time away (features.offPeriods, read now).
   const nowText = nowBlock(now, timezone, labels, config.features?.offPeriods !== false ? input.offPeriods : null);
   const relationships = config.features?.relationships !== false;
@@ -2724,6 +2768,8 @@ export function buildRequest(input) {
     reads,
     // A picture's second look on a question renders under its tag.
     imageAnswers,
+    // Each author in view carries their mention handle (transcript.author).
+    handles: handleById ?? undefined,
     // A GIF the library knows carries its handle in the transcript.
     gifHandles: gifsOn ? gifHandleMap(gifLibrary) : undefined,
     // ...and its three caption fields, cut like the `<gifs>` list (transcript.gifKnownFields).
@@ -2955,8 +3001,8 @@ export function buildRequest(input) {
   const fixedSection = {
     name: 'fixed',
     required: true,
-    // The skills granted to her, a diary post's plan, its seeds and its `<diary>` intro are never cut.
-    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, planText, seedsText, diaryIntro].filter(Boolean)],
+    // The skills granted to her, the people directory, a diary post's plan, its seeds and its `<diary>` intro are never cut.
+    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, directoryText, planText, seedsText, diaryIntro].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -3465,7 +3511,7 @@ export function buildRequest(input) {
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
   const seen = seenOf({ history, keptChat, pictures });
-  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
+  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
 
   // A provider that rejects the images (see src/behavior/turn.js's 4xx
   // retry) must never resend a <chat> claiming a picture is attached with
@@ -3482,7 +3528,7 @@ export function buildRequest(input) {
   if (pictures.length) {
     const chatItemsBlind = formatTranscript(history, { ...formatOptions, attachedIndex: undefined });
     const keptChatBlind = chatItemsBlind.slice(chatItemsBlind.length - kept.chat.length);
-    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
+    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, directory: directoryText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
   }
 
   // A sticker's URL is already fully sized (see src/discord/media.js
@@ -3526,6 +3572,8 @@ export function buildRequest(input) {
     peopleShown,
     recent,
     seen,
+    // Handle -> member id, for the persona's `@handle` (null with features.mentionHandles off).
+    handles: handleById ? new Map([...handleById].map(([id, handle]) => [handle, id])) : null,
   };
 }
 

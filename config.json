@@ -53,6 +53,7 @@
     "turnPlanner": false,
     "channelLinks": true,
     "messageLinks": true,
+    "mentionHandles": true,
     "elsewhere": true,
     "diary": true,
     "typingSimulation": true,
