@@ -298,3 +298,40 @@ test('vectors: search time over 20 000 rows of 1024 dims (measured, not asserted
   t.diagnostic(message);
   console.log(message);
 });
+
+test('vectors: replace builds a month as a new generation, keeps the rows asked, and switches the manifest', async () => {
+  const { dataDir, vectors } = scene();
+  const rng = seeded(21);
+  const q = randomVector(rng, 16);
+  await vectors.append('g1', [
+    { meta: meta('old-1'), vector: randomVector(rng, 16) },
+    { meta: meta('live-2'), vector: randomVector(rng, 16) },
+  ], { model: 'm-a' });
+  const before = manifestOf(dataDir, '2026-10');
+  const result = await vectors.replace('g1', '2026-10', [{ meta: meta('old-1'), vector: near(q, rng, 0.01) }], {
+    model: 'm-a',
+    keep: (m) => m.id !== 'old-1',
+  });
+  assert.deepEqual(result, { written: 1, kept: 1, dropped: 1 });
+  const after = manifestOf(dataDir, '2026-10');
+  assert.equal(after.gen, before.gen + 1);
+  assert.equal(after.rows, 2);
+  assert.deepEqual(fs.readdirSync(monthDir(dataDir, '2026-10')).filter((n) => /^\d+\./.test(n)).sort(), [`${after.gen}.i8`, `${after.gen}.jsonl`]);
+  assert.deepEqual(ids(await vectors.search('g1', q, { k: 1 })), ['old-1']);
+  assert.deepEqual(ids(await vectors.search('g1', q, { k: 5 })).sort(), ['live-2', 'old-1']);
+});
+
+test('vectors: replace with another model or length keeps none of the old rows; a row of another month is refused', async () => {
+  const { dataDir, vectors } = scene();
+  const rng = seeded(22);
+  await vectors.append('g1', [{ meta: meta('a'), vector: randomVector(rng, 16) }], { model: 'm-a' });
+  const result = await vectors.replace('g1', '2026-10', [{ meta: meta('b'), vector: randomVector(rng, 8) }], { model: 'm-b', keep: () => true });
+  assert.deepEqual(result, { written: 1, kept: 0, dropped: 1 });
+  const manifest = manifestOf(dataDir, '2026-10');
+  assert.equal(manifest.dims, 8);
+  assert.equal(manifest.model, 'm-b');
+  await assert.rejects(
+    vectors.replace('g1', '2026-10', [{ meta: meta('c', { occurredAt: '2026-09-01T00:00:00.000Z' }), vector: randomVector(rng, 8) }]),
+    /a row of 2026-09/,
+  );
+});

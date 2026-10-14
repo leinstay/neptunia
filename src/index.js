@@ -15,6 +15,8 @@ import { createAppendStore } from './memory/append-store.js';
 import { createJournal } from './memory/journal.js';
 import { createRecord } from './memory/record.js';
 import { createArchive } from './memory/archive.js';
+import { createVectors } from './memory/vectors.js';
+import { createEmbedder as createEmbedQueue } from './memory/embedder.js';
 import { mirrorDryRun } from './behavior/limits.js';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
@@ -116,7 +118,29 @@ const recordAppendStore = createAppendStore({
   log,
 });
 // A forget holds the record's appends with the journal's writer lock (journal.withWriterLock).
-const record = createRecord({ appendStore: recordAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked() });
+const recordWriter = createRecord({ appendStore: recordAppendStore, dataDir, log, writerGate: () => journal.waitUnlocked() });
+// The meaning index (src/memory/vectors.js): its writers wait on the same writer lock.
+const vectors = createVectors({ dataDir, log, writerGate: () => journal.waitUnlocked() });
+// The live embedding queue (src/memory/embedder.js), set once the embedding client exists below.
+let embedQueue = null;
+// The one place the meaning index hears of new record lines: every writer (the analyzer's
+// batches, edits and deletions, the persona's own lines, feelings) appends through this record,
+// and once an append took lines they are queued for embedding (the queue keeps what it wants
+// and is off unless features.meaningSearch and features.embedIndex are both exactly true).
+const record = {
+  ...recordWriter,
+  async append(guildId, lines, opts) {
+    const result = await recordWriter.append(guildId, lines, opts);
+    if (embedQueue && result?.written > 0) {
+      try {
+        embedQueue.enqueue(guildId, lines, opts ?? {});
+      } catch (err) {
+        log.warn('index: embed enqueue failed', { guildId: String(guildId), code: err?.code ?? null });
+      }
+    }
+    return result;
+  },
+};
 // The archive (src/memory/archive.js): every memory item a write drops is copied here before any
 // hot file loses it, while features.archive is exactly true (read at each write). Its own append
 // store, so its counts tell whether an archive line is on disk.
@@ -135,12 +159,26 @@ const store = createStore({
   recordOn: () => hot.config.features?.record === true,
   archive,
   archiveOn: () => hot.config.features?.archive === true,
+  // A forget and the ledger take members' rows out of the meaning index too.
+  vectors,
 });
 
 const calibrator = createCalibrator(store.state.data.calibration);
 const llm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: store.state });
 // Embeddings (classifier.embed) on the same daily request count as the chat client.
 const embedder = createEmbedder({ apiKey: openrouterKey, state: store.state });
+// The meaning index kept current: record lines queued above, flushed on the tick below.
+embedQueue = createEmbedQueue({
+  hot,
+  vectors,
+  embed: embedder.embed,
+  record: recordWriter,
+  dataDir,
+  log,
+  nameOf: (guildId, userId) =>
+    store.getUser(guildId, userId)?.names?.[0] ?? client.guilds.cache.get(guildId)?.members?.cache?.get(userId)?.displayName ?? null,
+  selfName: (guildId) => getSelfName(guildId),
+});
 // The persona's drawings (features.imageGeneration): its own daily rails, counted on the same state.
 const images = createImageGen({ apiKey: openrouterKey, getConfig: () => hot.config, state: store.state });
 
@@ -476,6 +514,8 @@ client.once(Events.ClientReady, async () => {
   const notes = createNotesScheduler({ hot, store, refreshChannelNotes: warmup.refreshChannelNotes, refreshServerNotes: warmup.refreshServerNotes, isWarmingUp, getGuildId, now: Date.now });
   every(60_000, () => notes.tick(), 'notes.tick');
   every(3_600_000, sweepAffinityDecay, 'affinity decay');
+  // The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner).
+  every(30_000, () => embedQueue.tick(), 'embed.tick');
   scheduleArchiveDrain();
 
   if (!hot.config.bot.guildId) {

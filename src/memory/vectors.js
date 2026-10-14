@@ -154,6 +154,9 @@ function validManifest(value) {
  *     opts?: { privateUserId?: string|null, model?: string|null }): Promise<{ written: number }>,
  *   rewrite(guildId: string, month: string, keep: (meta: object) => boolean,
  *     opts?: { privateUserId?: string|null }): Promise<{ kept: number, dropped: number }>,
+ *   replace(guildId: string, month: string, rows: Array<{ meta: object, vector: ArrayLike<number> }>,
+ *     opts?: { privateUserId?: string|null, model?: string|null, keep?: ((meta: object) => boolean)|null }):
+ *     Promise<{ written: number, kept: number, dropped: number }>,
  *   forgetUser(guildId: string, userId: string, opts?: { before?: number|null,
  *     messageIds?: Iterable<string>|null }): Promise<{ dropped: number, privateDropped: number }>,
  *   search(guildId: string, query: ArrayLike<number>, opts?: { months?: string[]|null,
@@ -168,6 +171,10 @@ function validManifest(value) {
  *   line, then the manifest by rename); every vector of one call has the same length, and a month
  *   already holding rows refuses another length or model (`code: 'vectors-shape'`). `rewrite`
  *   keeps the rows `keep` accepts in a new generation and does nothing when it keeps them all.
+ *   `replace` builds a month anew (the index tool's build and rebuild): `rows` (every one of
+ *   `month`) plus the current rows `keep` accepts, when they share the new rows' length and model,
+ *   written whole as the next generation and switched in by the manifest's rename, so a reader
+ *   sees the old month or the new one, never half of it; nothing is written for no rows.
  *   `forgetUser` writes the forgetting marker unless one exists (and removes the one it wrote),
  *   rewrites every month of the guild and of every other private layer without the rows naming the
  *   member (by author, participants, or, with `messageIds`, a chunk line among those messages) and
@@ -534,6 +541,78 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     });
   }
 
+  /**
+   * One month built anew: `items` (quantised, all of `month`) plus the current generation's rows
+   * `keep` accepts (none when they are of another length or model), written as the next
+   * generation, the manifest switched by rename, the older generations deleted.
+   */
+  async function replaceMonth(base, month, items, dims, model, keep) {
+    const key = `${base}|${month}`;
+    const dir = path.join(base, month);
+    await fs.mkdir(dir, { recursive: true });
+    const manifest = await readManifest(dir);
+    const kept = [];
+    if (manifest && manifest.rows > 0 && typeof keep === 'function' && manifest.dims === dims && !(model && manifest.model && model !== manifest.model)) {
+      const data = await readBytes(genFile(dir, manifest.gen, 'i8'), 0, manifest.bytes);
+      const metas = parseLines(await readBytes(genFile(dir, manifest.gen, 'jsonl'), 0, manifest.metaBytes));
+      for (let row = 0; row < manifest.rows; row += 1) {
+        if (metas[row] && keep(metas[row])) kept.push({ meta: metas[row], bytes: data.subarray(row * dims, (row + 1) * dims) });
+      }
+    }
+    const gen = (manifest?.gen ?? 0) + 1;
+    const rows = items.length + kept.length;
+    const out = Buffer.alloc(rows * dims);
+    let lines = '';
+    items.forEach(({ quantized, meta, iso }, i) => {
+      out.set(quantized.bytes, i * dims);
+      lines += `${JSON.stringify(storedMeta(meta, i, iso, quantized.scale, quantized.norm))}\n`;
+    });
+    kept.forEach(({ meta, bytes }, j) => {
+      const row = items.length + j;
+      out.set(bytes, row * dims);
+      lines += `${JSON.stringify({ ...meta, row })}\n`;
+    });
+    const metaBuf = Buffer.from(lines, 'utf8');
+    await writeAtomic(genFile(dir, gen, 'i8'), out);
+    await writeAtomic(genFile(dir, gen, 'jsonl'), metaBuf);
+    await writeAtomic(path.join(dir, 'manifest.json'), JSON.stringify({
+      v: MANIFEST_VERSION,
+      gen,
+      rows,
+      bytes: out.length,
+      metaBytes: metaBuf.length,
+      model: model ?? manifest?.model ?? null,
+      dims,
+      checksum: checksumOf(fnv(FNV_OFFSET, out), fnv(FNV_OFFSET, metaBuf)),
+    }));
+    dropCached(key);
+    for (const name of await listDir(dir)) {
+      const match = name.match(GEN_FILE_RE);
+      if (match && Number(match[1]) !== gen) await fs.rm(path.join(dir, name), { force: true });
+    }
+    return { written: items.length, kept: kept.length, dropped: (manifest?.rows ?? 0) - kept.length };
+  }
+
+  async function replace(guildId, month, rows, { privateUserId = null, model = null, keep = null } = {}) {
+    if (!MONTH_RE.test(String(month))) throw new TypeError('vectors: month must be YYYY-MM');
+    if (typeof writerGate === 'function') await writerGate();
+    return serial(async () => {
+      const list = (Array.isArray(rows) ? rows : []).filter((row) => row && typeof row === 'object' && row.vector);
+      if (list.length === 0) return { written: 0, kept: 0, dropped: 0 };
+      const dims = list[0].vector.length;
+      if (!Number.isInteger(dims) || dims < 1) throw new TypeError('vectors: an empty vector');
+      const items = list.map((row) => {
+        if (row.vector.length !== dims) throw new TypeError('vectors: vectors of one replace differ in length');
+        const { iso, month: rowMonth } = placed(row.meta?.occurredAt);
+        if (rowMonth !== String(month)) throw new TypeError(`vectors: a row of ${rowMonth} in a replace of ${month}`);
+        return { quantized: quantize(row.vector), meta: row.meta, iso };
+      });
+      const result = await replaceMonth(baseDir(guildId, privateUserId), String(month), items, dims, model, keep);
+      log.info('vectors: replaced', { guildId: String(guildId), month: String(month), ...result });
+      return result;
+    });
+  }
+
   /** The user ids with a private layer in the guild. */
   async function privateUsers(guildId) {
     return listDir(path.join(guildDir(guildId), 'private'));
@@ -687,5 +766,5 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     return { months: count, rows, bytes };
   }
 
-  return { append, rewrite, forgetUser, search, stats };
+  return { append, rewrite, replace, forgetUser, search, stats };
 }

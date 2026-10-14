@@ -53,7 +53,8 @@
 // `/nep lore remove` and `/nep memory wipe` commands); `applyLedger` only repeats
 // finished forgets. A forget and a wipe copy what they remove into the vault first,
 // and a forget reaches every copy of the member: the archive, the record, the
-// journal, the diary, the request dumps and the snapshots (see `forgetUser`). A
+// journal, the diary, the request dumps, the snapshots and the meaning index's rows
+// (see `forgetUser`). A
 // forget also takes the member's items out of the voice queue, at once on disk; a wipe deletes the
 // queue. Nothing else clears it: the voice run takes out only the items it
 // applied, found gone or switched off, or sent down the degraded path (an
@@ -1057,8 +1058,11 @@ function normalizeChannel(channel) {
  *   write; src/index.js passes features.archive exactly true) nothing leaves a hot list on disk
  *   before its copy is in the archive -- see "The archive" inside, `settleArchive`,
  *   `drainArchive` and `trimArchived`.
+ *   `vectors` (src/memory/vectors.js#createVectors, optional): the meaning index a forget and the
+ *   ledger take the member's rows out of (`forgetUser`, `applyLedger`); without it they leave the
+ *   index alone (its search hides the ledger's members anyway).
  */
-export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive) }) {
+export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive), vectors = null }) {
   const entries = new Map(); // file path -> { value, dirty }
 
   // ---- The archive (src/memory/archive.js): nothing leaves a hot list without a copy ----
@@ -1979,6 +1983,18 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     return dropped;
   }
 
+  /** The message ids of the guild record's lines a forget of `userId` drops (src/memory/record.js#recordDrops). */
+  function memberMessageIds(guildId, userId) {
+    const ids = new Set();
+    for (const { file } of memberLineFiles(guildId).filter((entry) => entry.kind === 'record')) {
+      for (const line of jsonlOf(file).lines) {
+        const value = parseLine(line);
+        if (value && typeof value.messageId === 'string' && value.messageId && recordDrops(value, userId)) ids.add(value.messageId);
+      }
+    }
+    return ids;
+  }
+
   /** The ledger's direct path for a member's private directory: every line of `kind` that happened before `before` goes. */
   function dropPrivateEarlierSync(guildId, userId, kind, before) {
     const timeOf = (value) => {
@@ -2189,7 +2205,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * await, so a caller without a journal sees the profile gone at once.
    */
   async function runForget(guildId, marker, deps) {
-    const { journal = null, record: rec = record, archive: arc = archive, redaction = null, now = Date.now } = deps ?? {};
+    const { journal = null, record: rec = record, archive: arc = archive, vectors: vec = vectors, redaction = null, now = Date.now } = deps ?? {};
     const id = marker.userId;
     const token = typeof redaction === 'string' && redaction.trim() ? redaction : DEFAULT_REDACTION;
     const names = Array.isArray(marker.names) ? marker.names.filter((name) => typeof name === 'string') : [];
@@ -2204,6 +2220,12 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       if (!marker.steps.hot) done('hot', forgetHot(guildId, id, names));
       if (!marker.steps.diary) done('diary', { diary: redactDiaryNow(guildId, id, names, token) });
       if (!marker.steps.snapshots) done('snapshots', { snapshots: forgetInSnapshots(guildId, id, new Date(now()).toISOString()) });
+      // The meaning index before the record: a row is found by its chunk's members and by the
+      // record lines the forget is about to drop (their message ids, read while they are there).
+      if (vec && !marker.steps.vectors) {
+        const result = await vec.forgetUser(guildId, id, { messageIds: memberMessageIds(guildId, id) });
+        done('vectors', { vectors: (result?.dropped ?? 0) + (result?.privateDropped ?? 0) });
+      }
       if (!marker.steps.archive) done('archive', { archive: arc ? (await arc.forgetUser(guildId, id))?.dropped ?? 0 : dropLinesSync(guildId, id, 'archive') });
       if (!marker.steps.record) done('record', { record: rec ? (await rec.forgetUser(guildId, id))?.dropped ?? 0 : dropLinesSync(guildId, id, 'record') });
       if (!marker.steps.journal) done('journal', { journal: journal ? (await journal.forgetUser(guildId, id))?.dropped ?? 0 : dropLinesSync(guildId, id, 'journal') });
@@ -2540,6 +2562,9 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *      (`labels.memory.redaction`, default `someone`), the post kept;
      *   5. every snapshot under `data/snapshots/`: their profile, private layer and directory and
      *      versions deleted, `{ userId, at }` added to that snapshot's `forgotten.json`;
+     *   5b. with a meaning index (`deps.vectors`, else the store's own), its rows naming them by
+     *      their chunk's members or holding a record line this forget drops, the member's private
+     *      index whole (src/memory/vectors.js#forgetUser; counted as `vectors`);
      *   6. the archive, the record and the journal (`archive.forgetUser`, `record.forgetUser`,
      *      `journal.forgetUser`: the store's own archive and record unless `deps` names others; a
      *      missing module's files are rewritten directly by the same rule), the guild request
@@ -2553,8 +2578,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * files and run before the first await. Not archived: a forget is not an eviction.
      * @param {string} guildId
      * @param {string} userId
-     * @param {{ journal?: object|null, record?: object|null, archive?: object|null, vaultDir?: string,
-     *   redaction?: string, now?: () => number }} [deps]
+     * @param {{ journal?: object|null, record?: object|null, archive?: object|null, vectors?: object|null,
+     *   vaultDir?: string, redaction?: string, now?: () => number }} [deps]
      * @returns {Promise<{ vault: string, counts: { profile: number, private: number, voice: number,
      *   recent: number, participation: number, versions: number, diary: number, snapshots: number,
      *   archive: number, record: number, journal: number, requests: number, backfill: number } }>}  `vault`: the
@@ -2611,7 +2636,8 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * private layer whose `firstSeen` is earlier (with the rest of `forgetUser`'s hot part), their
      * archive entries archived earlier, record and journal lines that happened earlier (private
      * ones included; `forgetUser` with `before`), diary posts dated earlier (redacted again), the
-     * request dumps naming them recorded earlier. What they did after their forget stays: a forget
+     * request dumps naming them recorded earlier, and with a meaning index (`deps.vectors`, else
+     * the store's own) its earlier rows naming them (`vectors` in the counts, only then). What they did after their forget stays: a forget
      * is not a ban. No vault: what comes back came from a copy. Run at start after
      * `resumeForgets`, before the updater (src/index.js), and by the tools before they touch a
      * snapshot. Logs `memory: ledger applied` with the counts.
@@ -2622,7 +2648,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *   record: number, journal: number, diary: number, requests: number }>}
      */
     async applyLedger(guildId, deps = {}) {
-      const { journal = null, record: rec = record, archive: arc = archive, redaction = null, entries: extra = [] } = deps ?? {};
+      const { journal = null, record: rec = record, archive: arc = archive, vectors: vec = vectors, redaction = null, entries: extra = [] } = deps ?? {};
       const token = typeof redaction === 'string' && redaction.trim() ? redaction : DEFAULT_REDACTION;
       const latest = new Map();
       for (const entry of [...readLedger(dataDir, guildId), ...(Array.isArray(extra) ? extra : [])]) {
@@ -2652,6 +2678,10 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
             } else {
               counts[kind] += dropLinesSync(guildId, id, kind, at) + dropPrivateEarlierSync(guildId, id, kind, at);
             }
+          }
+          if (vec) {
+            const result = await vec.forgetUser(guildId, id, { before: at });
+            counts.vectors = (counts.vectors ?? 0) + (result?.dropped ?? 0) + (result?.privateDropped ?? 0);
           }
           counts.requests +=
             typeof journal?.forgetRequests === 'function' ? (await journal.forgetRequests(guildId, id, { before: at }))?.removed ?? 0 : dropRequestsSync(guildId, id, at);
@@ -3957,7 +3987,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * `touchUser`/`getGuild` works and persists), no restart required. Before anything goes, the
      * whole guild directory is copied into the vault (`vaultGuild`; `opts.vault`, a path an
      * earlier `vaultGuild` returned, skips the copy); the record (`record/`), the archive
-     * (`archive/`), the backfill tool's files (`backfill/`) and the deletion ledger
+     * (`archive/`), the backfill tool's files (`backfill/`), the meaning index (`vectors/`) and the deletion ledger
      * (`forgotten.json`) go with the rest, and the guild's directory inside every snapshot under
      * `data/snapshots/`.
      * @param {string} guildId
@@ -4059,10 +4089,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
       // The recall trace quotes members' messages: it goes with the rest.
       fs.rmSync(recallTraceFile(guildId), { force: true });
-      // The record and the archive are this guild's memory too, and the backfill tool's scratch
-      // files (tools/backfill.mjs) quote it: the vault holds their copy.
+      // The record and the archive are this guild's memory too, the backfill tool's scratch
+      // files (tools/backfill.mjs) quote it and the meaning index (`vectors/`) is built from it:
+      // the vault holds their copy.
       const files = {};
-      for (const name of ['record', 'archive', 'backfill']) {
+      for (const name of ['record', 'archive', 'backfill', 'vectors']) {
         files[name] = filesIn(path.join(guildDir(guildId), name));
         fs.rmSync(path.join(guildDir(guildId), name), { recursive: true, force: true });
       }
