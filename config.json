@@ -348,7 +348,8 @@
   },
   "skills": {
     "conversations": [],
-    "safeMode": false
+    "safeMode": false,
+    "resultMaxChars": 2000
   },
   "diary": {
     "channelId": "",

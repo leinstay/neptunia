@@ -281,6 +281,9 @@ const turns = createTurnRunner({
   record,
   port: iface,
   skills: skillRegistry(),
+  // The persona's read skills (memory.read, status.show) run their operation through the admin's
+  // environment; read at call time, the admin being created below.
+  runOp: (name, args, context) => admin.runOperation(name, args, context),
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).

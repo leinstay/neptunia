@@ -225,5 +225,17 @@ export function createAdmin(deps) {
     return choices;
   }
 
-  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, migrateAccess };
+  /**
+   * One operation by name for the persona's skills (src/skills/executors.js), WITHOUT the
+   * caller's rights check: the skill gateway and the executor made the check that applies to her
+   * call. Never throws: `{ status, code, summary, data }` (src/ops/index.js#runOpPrechecked).
+   * @param {string} name
+   * @param {object} [args]
+   * @param {{ guildId?: string, channelId?: string, userId?: string|null }} [context]
+   */
+  function runOperation(name, args = {}, context = {}) {
+    return runOpPrechecked(name, args, { ...context, env });
+  }
+
+  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, migrateAccess, runOperation };
 }

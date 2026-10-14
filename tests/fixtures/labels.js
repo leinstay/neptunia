@@ -312,5 +312,20 @@ export const labels = {
       'safe-mode': 'not allowed: safe mode',
       'requester-denied': 'not allowed for this member',
     },
+    proposedOff: 'proposed but off: {names}',
+    result: {
+      ok: 'skill ok, data:',
+      refused: 'skill refused: {reason}',
+      failed: 'skill failed: {reason}',
+      unknown: 'skill unknown: {reason}; not retried',
+      reasons: {
+        'not-allowed': 'not switched on',
+        'target-not-allowed': 'channel not allowed',
+        'target-ambiguous': 'channel name shared',
+        'not-own-message': 'not her message',
+        'requester-denied': 'asker may not',
+        other: 'other failure',
+      },
+    },
   },
 };

@@ -1582,21 +1582,91 @@ function skillsProtocolText(labels) {
  * for this requester and conversation), with `{name}`, `{title}`, `{whenToUse}` and `{access}`
  * filled; `{access}` is `labels.skills.access[<the row's reason>]`, else
  * `labels.skills.access.allowed` / `labels.skills.access['not-allowed']` by whether the row is
- * allowed. An owner-only row is no persona skill and is left out. '' without rows or without
- * `labels.skills.line`.
- * @param {{ name: string, title?: string, whenToUse?: string, allowed: boolean, reason: string }[]|null|undefined} rows
+ * allowed. An owner-only row is no persona skill and is left out. Rows marked `proposed` (the
+ * skills a classifier named for this turn, not the whole catalogue): a line only for each
+ * allowed one, then the names of the others in one `labels.skills.proposedOff` line (`{names}`;
+ * none without that label). '' without rows or without `labels.skills.line`.
+ * @param {{ name: string, title?: string, whenToUse?: string, allowed: boolean, reason: string, proposed?: boolean }[]|null|undefined} rows
  * @param {object} labels
  * @returns {string}
  */
-function skillsInventoryText(rows, labels) {
+export function skillsInventoryText(rows, labels) {
   const l = labels.skills;
   if (!Array.isArray(rows) || rows.length === 0 || typeof l?.line !== 'string' || !l.line) return '';
   const access = isPlainObject(l.access) ? l.access : {};
   const word = (row) => access[row.reason] ?? access[row.allowed === true ? 'allowed' : 'not-allowed'] ?? '';
-  return rows
-    .filter((row) => row && typeof row.name === 'string' && row.reason !== 'owner-only')
-    .map((row) => fill(l.line, { name: row.name, title: row.title ?? '', whenToUse: row.whenToUse ?? '', access: word(row) }))
-    .join('\n');
+  const persona = rows.filter((row) => row && typeof row.name === 'string' && row.reason !== 'owner-only');
+  const line = (row) => fill(l.line, { name: row.name, title: row.title ?? '', whenToUse: row.whenToUse ?? '', access: word(row) });
+  if (!persona.every((row) => row.proposed === true)) return persona.map(line).join('\n');
+  const off = persona.filter((row) => row.allowed !== true).map((row) => row.name);
+  const offLine = off.length > 0 && typeof l.proposedOff === 'string' && l.proposedOff ? fill(l.proposedOff, { names: off.join(', ') }) : '';
+  return [...persona.filter((row) => row.allowed === true).map(line), offLine].filter(Boolean).join('\n');
+}
+
+/** The status words of a `<result>` block (src/skills/executors.js's result statuses). */
+const RESULT_STATUSES = new Set(['ok', 'failed', 'refused', 'unknown']);
+
+/**
+ * The `<result skill="<name>" status="<status>">` block of the one follow-up request after a
+ * skill call (src/behavior/turn.js): `labels.skills.result[<status>]` with `{reason}` filled
+ * by `labels.skills.result.reasons[<code>]` (else `.reasons.other`, else the code itself), then
+ * for a read that worked its data -- `data.text`, or `data.rows` as skillsInventoryText renders
+ * the catalogue -- cut to `maxChars` (clampWithEllipsis). '' for no result. Every word from the
+ * labels; the skill name and status are protocol tokens.
+ * @param {{ skill: string, status: string, code?: string|null, data?: { text?: string, rows?: object[] }|null }} result
+ * @param {object} labels
+ * @param {{ maxChars?: number }} [options]
+ * @returns {string}
+ */
+export function skillResultBlock(result, labels, { maxChars = 2000 } = {}) {
+  if (!result || typeof result.skill !== 'string') return '';
+  const status = RESULT_STATUSES.has(result.status) ? result.status : 'failed';
+  const words = isPlainObject(labels?.skills?.result) ? labels.skills.result : {};
+  const reasons = isPlainObject(words.reasons) ? words.reasons : {};
+  const code = typeof result.code === 'string' && result.code ? result.code : '';
+  const reason = reasons[code] ?? reasons.other ?? code;
+  const lead = typeof words[status] === 'string' ? fill(words[status], { reason }) : '';
+  let data = '';
+  if (status === 'ok' && result.data) {
+    data = Array.isArray(result.data.rows) ? skillsInventoryText(result.data.rows, labels) : String(result.data.text ?? '');
+    if (Number.isFinite(maxChars) && maxChars > 0) data = clampWithEllipsis(data, maxChars);
+  }
+  const body = [lead, data].filter(Boolean).join('\n') || code;
+  return `<result skill="${result.skill}" status="${status}">\n${body}\n</result>`;
+}
+
+/**
+ * The reply request `messages` (system, user) once more with `resultBlock` in its tail: right
+ * before the `<task>` block of the user message's last text part, else at that part's end. The
+ * parts before it -- the cached ones -- are untouched, so the follow-up reuses the provider's
+ * prompt cache. A fresh array; `messages` is not changed.
+ * @param {{ role: string, content: string|object[] }[]} messages
+ * @param {string} resultBlock
+ * @returns {{ role: string, content: string|object[] }[]}
+ */
+export function withSkillResult(messages, resultBlock) {
+  if (!resultBlock || !Array.isArray(messages) || messages.length < 2) return messages;
+  const insert = (text) => {
+    const at = text.lastIndexOf('<task>\n');
+    return at === -1 ? `${text}\n\n${resultBlock}` : `${text.slice(0, at)}${resultBlock}\n\n${text.slice(at)}`;
+  };
+  const user = messages[1];
+  let content;
+  if (typeof user.content === 'string') content = insert(user.content);
+  else {
+    const parts = [...user.content];
+    let last = -1;
+    for (let i = parts.length - 1; i >= 0; i -= 1) {
+      if (parts[i]?.type === 'text') {
+        last = i;
+        break;
+      }
+    }
+    if (last === -1) parts.push({ type: 'text', text: resultBlock });
+    else parts[last] = { ...parts[last], text: insert(parts[last].text) };
+    content = parts;
+  }
+  return [messages[0], { ...user, content }, ...messages.slice(2)];
 }
 
 const ASKED_ABOUT_SCAN_MESSAGES = 5;
