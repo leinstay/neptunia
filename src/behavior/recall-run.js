@@ -38,6 +38,16 @@
 // channel refuses what the pull rail would (by the entry's `scope.channel`,
 // the line's channel), and a private entry or line passes only on a private
 // turn with its own member.
+// With `features.meaningSearch` exactly true (and `deps.vectors` / `deps.embed`
+// given) a run also searches by meaning: one embedding request of the asker's
+// message (recall.js meaningQuery; purpose `recall-query`), then the vector
+// index (src/memory/vectors.js search: the guild's, on a private turn the
+// partner's private layer and the guild's) within the asked range, else every
+// month, `recall.meaningCandidates` rows, the same audience rule applied to
+// each row and the visible chat's ids left out. Record rows join the record
+// windows and archive rows the stored-memory items, each fused with the word
+// hits by reciprocal rank (recall.js fuseRanks). A failed embedding or search
+// logs `recall: meaning failed` and the run goes on with words only.
 // Logs carry counts, ids and codes only: never a form, a name or a message.
 // What a run found and chose is diagnosed from the trace file instead
 // (`features.recallTrace`, data/guilds/<id>/recall-trace.jsonl, see traceLine):
@@ -65,6 +75,7 @@ import {
   isRecentCue,
   matchMemory,
   matchRecord,
+  meaningQuery,
   mergeWindows,
   parseRecallAnswer,
   queryKey,
@@ -117,7 +128,34 @@ function hitFrom(raw) {
 
 /** A fresh stats record of one run. */
 function emptyStats() {
-  return { memory: 0, archived: 0, record: 0, planned: 0, queries: 0, failed: 0, hits: 0, inChatDropped: 0, kept: 0, clusters: 0, selfClusters: 0, windows: 0, summary: null, ms: 0 };
+  return { memory: 0, archived: 0, record: 0, meaning: 0, meaningMs: 0, planned: 0, queries: 0, failed: 0, hits: 0, inChatDropped: 0, kept: 0, clusters: 0, selfClusters: 0, windows: 0, summary: null, ms: 0 };
+}
+
+/** A row's revision as a number, or null (an archive row's revision is an id). */
+function numericRevision(meta) {
+  return Number.isInteger(meta?.revision) ? meta.revision : null;
+}
+
+/**
+ * The rows of the meaning searches deduplicated by kind and `meta.id` -- the
+ * newest numeric revision wins, else the better score -- best score first, at
+ * most `k`.
+ */
+function dedupeRows(rows, k) {
+  const best = new Map();
+  for (const row of rows) {
+    const key = `${row.meta?.kind}:${row.meta?.id}`;
+    const known = best.get(key);
+    if (!known) {
+      best.set(key, row);
+      continue;
+    }
+    const mine = numericRevision(row.meta);
+    const theirs = numericRevision(known.meta);
+    const newer = mine !== null && theirs !== null && mine !== theirs ? mine > theirs : row.score > known.score;
+    if (newer) best.set(key, row);
+  }
+  return [...best.values()].sort((a, b) => b.score - a.score).slice(0, k);
 }
 
 /** The start (epoch ms, UTC) of the month `months - 1` months before the month of `ms`: the last `months` archive segments. */
@@ -158,6 +196,7 @@ function newTrace({ started, channelId, candidate, server }) {
     plan: [],
     memory: [],
     record: [],
+    meaning: null,
   };
 }
 
@@ -204,7 +243,13 @@ function traceRecordWindow(window) {
  * total }` per Discord search planned (`total` null while unsent or when it
  * failed). `memory`: the stored-memory items matched, the archive's included
  * (traceItem). `record`: `{ channelId, from, to, hitIds, kept }` per record
- * window, `kept` whether it joined the windows the summary reads.
+ * window, `kept` whether it joined the windows the summary reads. `meaning`:
+ * null unless the run searched by meaning, else `{ query, candidates, kept,
+ * ms }` -- `query` `question` | `question+reply` (what was embedded),
+ * `candidates` the rows the searches returned, `kept` `{ id, kind, score,
+ * rank }` per row left after deduplication (a message id or an archive
+ * itemId, `record` | `archive`, the cosine, the 1-based meaning rank), `ms`
+ * the time of the embedding and the searches.
  */
 function traceLine(trace, out) {
   const text = typeof out?.text === 'string' ? out.text : null;
@@ -231,6 +276,7 @@ function traceLine(trace, out) {
     plan: trace.plan,
     memory: trace.memory,
     record: trace.record,
+    meaning: trace.meaning,
   };
 }
 
@@ -261,6 +307,10 @@ function summaryFailure(err) {
  *   `iterate` is used (read only). Without it the archive is not searched.
  * @param {{ iterate: Function }|null} [deps.record]  From createRecord (src/memory/record.js): only
  *   `iterate` is used (read only). Without it the record is not read.
+ * @param {{ search: Function }|null} [deps.vectors]  From createVectors (src/memory/vectors.js): only
+ *   `search` is used. Without it (or `deps.embed`) no run searches by meaning.
+ * @param {((texts: string[], opts: object) => Promise<Float32Array[]>)|null} [deps.embed]  src/llm/embed.js's
+ *   `embed`: one call per run that searches by meaning.
  * @param {() => number} [deps.now]
  * @param {{ set: Function, clear: Function }} [deps.timers]  setTimeout / clearTimeout (tests inject fakes).
  * @returns {{ run: (args: { guild: object, guildId?: string, channel: object, partner?: object|null, selfId: string, selfName: string,
@@ -269,7 +319,7 @@ function summaryFailure(err) {
  *   people: { id: string, name: string, username: string, count: number, newestTs: number|null }[], stats: object }>,
  *   available: () => boolean }}
  */
-export function createRecall({ hot, store, llm, describer = null, archive = null, record = null, now = Date.now, timers = DEFAULT_TIMERS }) {
+export function createRecall({ hot, store, llm, describer = null, archive = null, record = null, vectors = null, embed = null, now = Date.now, timers = DEFAULT_TIMERS }) {
   /** Whether `llm.maxRequestsPerDay` is spent today: the summary would be refused. */
   function capSpent() {
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
@@ -390,33 +440,39 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * private turn the partner's own private archive is read too. An archive
    * read that throws logs `recall: archive failed` and costs only its items.
    * `recent` ranks as a vague "recently" (isRecentCue).
+   * `meaning`: the archive rows the meaning search kept, best first
+   * (`{ id, occurredAt }`): their entries are read from the archive (the
+   * months from the earliest row's on, the private archive too on a private
+   * turn; the newest recorded revision per itemId, through the same switches
+   * and `allowEntry`) and join matchMemory's items as its `meaning`.
    */
-  async function storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal }) {
+  async function storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal, meaning = [] }) {
     const none = { items: [], nameOf: () => null };
     const forms = Array.isArray(server.forms) ? server.forms : [];
     const who = Array.isArray(server.who) ? server.who : [];
-    if (settings.memoryItems <= 0 || config.features?.memory === false || (forms.length === 0 && who.length === 0)) return none;
+    if (settings.memoryItems <= 0 || config.features?.memory === false || (forms.length === 0 && who.length === 0 && meaning.length === 0)) return none;
     try {
       const features = config.features ?? {};
       const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
       const names = new Map(profiles.filter((p) => p?.id).map((p) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null]));
       const ranged = Number.isFinite(server.from) || Number.isFinite(server.to);
-      let archived = [];
-      if (typeof archive?.iterate === 'function' && (ranged || settings.archiveMonths > 0)) {
-        const from = Number.isFinite(server.from) ? server.from : monthsBack(now(), Math.max(1, settings.archiveMonths));
-        const query = { from: new Date(from).toISOString() };
-        // Entries are recorded after what they observed: the months from the range's start on.
-        const entries = (async function* () {
+      const switchedOff = new Set([
+        ...(features.episodes === false ? ['episode'] : []),
+        ...(features.recent === false ? ['recent'] : []),
+        ...(features.participation === false ? ['participation'] : []),
+      ]);
+      const allow = (entry) => !switchedOff.has(entry?.itemKind) && allowEntry(entry);
+      // Entries are recorded after what they observed: the months from `from` on, the private archive after the guild's.
+      const stream = (query) =>
+        (async function* () {
           yield* archive.iterate(guildId, query);
           if (privateUserId) yield* archive.iterate(guildId, { ...query, privateUserId });
         })();
-        const switchedOff = new Set([
-          ...(features.episodes === false ? ['episode'] : []),
-          ...(features.recent === false ? ['recent'] : []),
-          ...(features.participation === false ? ['participation'] : []),
-        ]);
+      let archived = [];
+      if (typeof archive?.iterate === 'function' && (ranged || settings.archiveMonths > 0)) {
+        const from = Number.isFinite(server.from) ? server.from : monthsBack(now(), Math.max(1, settings.archiveMonths));
         try {
-          archived = await scanArchive(entries, {
+          archived = await scanArchive(stream({ from: new Date(from).toISOString() }), {
             forms,
             who,
             profiles,
@@ -424,10 +480,27 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
             to: server.to ?? null,
             timezone: config.bot?.timezone,
             recent,
-            allow: (entry) => !switchedOff.has(entry?.itemKind) && allowEntry(entry),
+            allow,
             max: settings.memoryItems,
             signal,
           });
+        } catch (err) {
+          log.warn('recall: archive failed', { channel: channel.id, name: err?.name ?? null });
+        }
+      }
+      let meant = [];
+      if (typeof archive?.iterate === 'function' && meaning.length > 0) {
+        const rank = new Map(meaning.map((row, i) => [row.id, i]));
+        const times = meaning.map((row) => Date.parse(row.occurredAt)).filter(Number.isFinite);
+        const newest = new Map();
+        try {
+          for await (const entry of stream(times.length > 0 ? { from: new Date(Math.min(...times)).toISOString() } : {})) {
+            if (signal?.aborted) break;
+            if (!rank.has(entry?.itemId) || !allow(entry)) continue;
+            const known = newest.get(entry.itemId);
+            if (!known || String(entry.recordedAt ?? '') >= String(known.recordedAt ?? '')) newest.set(entry.itemId, entry);
+          }
+          meant = [...newest.values()].sort((a, b) => rank.get(a.itemId) - rank.get(b.itemId));
         } catch (err) {
           log.warn('recall: archive failed', { channel: channel.id, name: err?.name ?? null });
         }
@@ -440,6 +513,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         learned: typeof store.getGuild === 'function' ? (store.getGuild(guildId)?.learned ?? []) : [],
         recentLines: shownRecentLines(config, guild, guildId, channel, partner),
         archived,
+        meaning: meant,
         from: server.from ?? null,
         to: server.to ?? null,
         max: settings.memoryItems,
@@ -463,10 +537,12 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * through `allowLine` (the audience and private-owner rule) before
    * matching; on a private turn the partner's private record is read after
    * the guild's. At most `recall.maxClusters` windows. A read that throws
-   * logs `recall: record failed` and gives none.
+   * logs `recall: record failed` and gives none. `meaning`: the record rows
+   * the meaning search kept, best first, for matchRecord's `meaning` (read
+   * and fused there; with `recall.recordDays` 0 they alone are read).
    */
-  async function recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId }) {
-    if (typeof record?.iterate !== 'function' || settings.recordDays <= 0) return [];
+  async function recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId, meaning = [] }) {
+    if (typeof record?.iterate !== 'function' || (settings.recordDays <= 0 && meaning.length === 0)) return [];
     try {
       const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
       const ids = new Set(people.map((p) => String(p.id)));
@@ -503,6 +579,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         },
         selfName,
         channelNameOf: (id) => guild?.channels?.cache?.get?.(id)?.name ?? null,
+        meaning,
         signal,
       });
       return found.windows;
@@ -510,6 +587,66 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       log.warn('recall: record failed', { channel: channelId, name: err?.name ?? null });
       return [];
     }
+  }
+
+  /**
+   * The meaning search of a run, or null when it does not search by meaning
+   * (`features.meaningSearch` not exactly true, no `deps.vectors` /
+   * `deps.embed`, `recall.meaningCandidates` 0, or a message without text).
+   * One embedding of meaningQuery (the asker's message `candidate`, with
+   * `recall.meaningWithReply` the line it replies to among `lines` before it),
+   * then `vectors.search` within `server.from/to` (every month without a
+   * range), `recall.meaningCandidates` rows: the guild index, rows of a
+   * channel `sourceOf` refuses or of the visible chat (`ownIds`) left out (an
+   * archive row is judged by its entry later); on a private turn the
+   * partner's private layer too. The rows deduplicated (dedupeRows), split
+   * into `record` (`{ id, channelId, occurredAt, sourceIds }`) and `archive`
+   * (`{ id, occurredAt }`), best first. `trace` is the run's trace entry
+   * (see traceLine). A failed embedding or search logs `recall: meaning
+   * failed` (`stage` `embed` | `search`, counts and codes only) and gives no
+   * row.
+   */
+  async function meaningSearch({ config, settings, guild, guildId, channel, candidate, lines, server, privateUserId, sourceOf, ownIds, signal }) {
+    if (config.features?.meaningSearch !== true || typeof embed !== 'function' || typeof vectors?.search !== 'function' || settings.meaningCandidates <= 0) return null;
+    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+    const stored = new Map(profiles.filter((p) => p?.id).map((p) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null]));
+    const nameOf = (id) => stored.get(String(id)) ?? guild?.members?.cache?.get?.(id)?.displayName ?? null;
+    const query = meaningQuery({ candidate, lines, withReply: settings.meaningWithReply, nameOf });
+    if (!query) return null;
+    const started = now();
+    const trace = { query: query.form, candidates: 0, kept: [], ms: 0 };
+    const out = { record: [], archive: [], trace };
+    const failed = (stage, err) => {
+      log.warn('recall: meaning failed', { channel: channel.id, stage, reason: railReason(err, `${stage}-error`), status: err?.statusCode ?? null, name: err?.name ?? null });
+      trace.ms = now() - started;
+      return out;
+    };
+    let vector;
+    try {
+      [vector] = await embed([query.text], { config, purpose: 'recall-query', signal });
+    } catch (err) {
+      return failed('embed', err);
+    }
+    const range = { from: Number.isFinite(server.from) ? server.from : null, to: Number.isFinite(server.to) ? server.to : null };
+    const k = settings.meaningCandidates;
+    const unseen = (meta) => meta?.kind === 'archive' || !ownIds.has(meta?.id);
+    const shared = (meta) => unseen(meta) && (meta?.kind === 'archive' || (typeof meta?.channelId === 'string' && sourceOf(meta.channelId) !== null));
+    let rows;
+    try {
+      rows = await vectors.search(guildId, vector, { ...range, k, filter: shared });
+      if (privateUserId) rows = [...rows, ...(await vectors.search(guildId, vector, { ...range, k, filter: unseen, privateUserId }))];
+    } catch (err) {
+      return failed('search', err);
+    }
+    const kept = dedupeRows(Array.isArray(rows) ? rows : [], k);
+    trace.candidates = Array.isArray(rows) ? rows.length : 0;
+    trace.kept = kept.map((row, i) => ({ id: row.meta.id, kind: row.meta.kind, score: row.score, rank: i + 1 }));
+    trace.ms = now() - started;
+    for (const { meta } of kept) {
+      if (meta.kind === 'archive') out.archive.push({ id: meta.id, occurredAt: meta.occurredAt });
+      else out.record.push({ id: meta.id, channelId: meta.channelId, occurredAt: meta.occurredAt, sourceIds: Array.isArray(meta.sourceIds) ? meta.sourceIds : [] });
+    }
+    return out;
   }
 
   /**
@@ -586,9 +723,23 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const allowEntry = (entry) => allowScope(entry?.scope);
     const allowLine = (line) => (line?.scope?.private === true ? allowScope(line.scope) : typeof line?.scope?.channel === 'string' && allowScope(line.scope));
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
+    // The turn's own chat: its lines are dropped by id from every source (a private chat is not part of
+    // the server: it drops nothing).
+    const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id) : [];
+    const ownIds = new Set(own.map((m) => m.id));
+
+    // 0a. Meaning (features.meaningSearch): one embedding, the vector index; a failure leaves words only.
+    const chatLines = [...(Array.isArray(history) ? history : []), ...(Array.isArray(context) ? context : [])];
+    const meaning = await meaningSearch({ config, settings, guild, guildId, channel, candidate, lines: chatLines, server, privateUserId, sourceOf, ownIds, signal: searchSignal });
+    if (signal.aborted) return null;
+    if (meaning) {
+      stats.meaning = meaning.trace.kept.length;
+      stats.meaningMs = meaning.trace.ms;
+      if (trace) trace.meaning = meaning.trace;
+    }
 
     // 0. Stored memory (the archive included): no request, before the first Discord one so it always fits the budget.
-    const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal });
+    const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal, meaning: meaning?.archive ?? [] });
     if (signal.aborted) return null;
     stats.memory = memory.items.length;
     stats.archived = memory.items.filter((item) => item.kind.startsWith('archived ')).length;
@@ -601,10 +752,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     if (trace) trace.people = people.map((p) => ({ id: p.id, form: via.get(p.id)?.form ?? null, how: via.get(p.id)?.how ?? null }));
 
     // 2. The queries, over the whole server and the range asked: the turn's own chat bounds no
-    // query, its lines are dropped from the hits by id (step 4; a private chat is not part of
-    // the server: it drops nothing).
-    const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id) : [];
-    const ownIds = new Set(own.map((m) => m.id));
+    // query, its lines are dropped from the hits by id (step 4, `ownIds` above).
     const plan = searchPlan({
       forms: server.forms ?? [],
       who: server.who ?? [],
@@ -616,7 +764,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const peopleOut = () => people.map((p) => ({ count: 0, newestTs: null, ...p }));
 
     // 2b. The record of the last days, for a dated or "recently" question: no request.
-    const recordWindows = await recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId });
+    const recordWindows = await recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId, meaning: meaning?.record ?? [] });
     if (signal.aborted) return null;
     const recordTrace = new Map(recordWindows.map((window) => [window, traceRecordWindow(window)]));
     if (trace) trace.record = [...recordTrace.values()];
@@ -771,6 +919,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       memory: stats.memory,
       archived: stats.archived,
       record: stats.record,
+      meaning: stats.meaning,
+      meaningMs: stats.meaningMs,
       planned: stats.planned,
       queries: stats.queries,
       failed: stats.failed,
@@ -887,7 +1037,9 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * from the archive, also on `recall: searched`) and the record gave no
    * window (recordWindowsFor; `stats.record` the record windows that joined
    * the search's, also on `recall: searched`): matched memory or a record
-   * window alone still asks the summary. The first
+   * window alone still asks the summary. `stats.meaning` the rows the meaning
+   * search kept and `stats.meaningMs` its time (both 0 without it, also on
+   * `recall: searched`). The first
    * request of a run (a Discord one, or the summary of a run on memory
    * alone) bumps `recallDay`/`recallCount` once. Never rejects: a failure logs `recall:
    * failed` (`reason`: the rail code of a failed summary request, `timeout`

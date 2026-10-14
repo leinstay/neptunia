@@ -74,7 +74,12 @@ export const RECALL_DEFAULTS = Object.freeze({
   recordContext: 3,
   archiveMonths: 6,
   fallbackOnClassifierFailure: true,
+  meaningCandidates: 80,
+  meaningWithReply: false,
 });
+
+/** The `k` of reciprocal rank fusion (fuseRanks): an item at rank r of a list adds 1 / (k + r). */
+export const RRF_K = 60;
 
 /** How many of the newest windows the fallback stretch is chosen among (fallbackWindow). */
 export const FALLBACK_AMONG = 3;
@@ -147,13 +152,17 @@ function numberAtLeast(value, fallback, min) {
  * read), `recordContext` (no neighbours) and `archiveMonths` (the archive is
  * not searched without a `when:` range) may be 0 too. `fallbackOnClassifierFailure`
  * is on unless it is `false` (src/behavior/turn.js#fallbackLookupPlan).
+ * `meaningCandidates` (the rows one meaning search returns, see
+ * src/behavior/recall-run.js) may be 0 (none); `meaningWithReply` (the
+ * replied-to line joins the meaning query, meaningQuery) is on only when it
+ * is exactly `true`.
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
  *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, followMessages: number,
  *   followGapMinutes: number, answerChars: number, stretchChars: number, maxPerDay: number,
  *   timeoutMs: number, minSummaryMs: number, maxOutputTokens: number, memoryItems: number, selfBonus: number, selfExtra: number,
  *   contextMessages: number, traceMaxLines: number, memoryTokens: number, recordDays: number, recordContext: number,
- *   archiveMonths: number, fallbackOnClassifierFailure: boolean }|null}
+ *   archiveMonths: number, fallbackOnClassifierFailure: boolean, meaningCandidates: number, meaningWithReply: boolean }|null}
  */
 export function recallSettings(config) {
   if (config?.features?.recall === false) return null;
@@ -186,7 +195,67 @@ export function recallSettings(config) {
     recordContext: intAtLeast(r.recordContext, d.recordContext, 0),
     archiveMonths: intAtLeast(r.archiveMonths, d.archiveMonths, 0),
     fallbackOnClassifierFailure: r.fallbackOnClassifierFailure !== false,
+    meaningCandidates: intAtLeast(r.meaningCandidates, d.meaningCandidates, 0),
+    meaningWithReply: r.meaningWithReply === true,
   };
+}
+
+/**
+ * Reciprocal rank fusion of ranked lists: each item scores the sum over the
+ * lists holding it of 1 / (`k` + its 1-based rank there; a repeat keeps its
+ * first rank). Returned best first; on an equal score the item found by more
+ * lists first, then by its rank in the earlier list (an item it lacks after
+ * one it holds), and so on. Items are compared as Map keys (ids or objects).
+ * Pure.
+ * @param {Array<Array<unknown>>} lists
+ * @param {{ k?: number }} [options]
+ * @returns {{ id: unknown, score: number, ranks: (number|null)[] }[]}
+ */
+export function fuseRanks(lists, { k = RRF_K } = {}) {
+  const all = Array.isArray(lists) ? lists : [];
+  const fused = new Map();
+  all.forEach((list, at) => {
+    (Array.isArray(list) ? list : []).forEach((id, i) => {
+      if (!fused.has(id)) fused.set(id, { id, score: 0, ranks: all.map(() => null) });
+      const entry = fused.get(id);
+      if (entry.ranks[at] !== null) return;
+      entry.ranks[at] = i + 1;
+      entry.score += 1 / (k + i + 1);
+    });
+  });
+  const found = (entry) => entry.ranks.filter((rank) => rank !== null).length;
+  return [...fused.values()].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (found(b) !== found(a)) return found(b) - found(a);
+    for (let at = 0; at < all.length; at += 1) {
+      const x = a.ranks[at] ?? Infinity;
+      const y = b.ranks[at] ?? Infinity;
+      if (x !== y) return x - y;
+    }
+    return 0;
+  });
+}
+
+/**
+ * The text a recall run embeds for its meaning search: the asker's message
+ * (`candidate.content`) on one line with its `<@id>` tokens resolved through
+ * `nameOf` (as the index's chunks are, src/memory/chunks.js), `form`
+ * `question`; with `withReply`, the line it replies to (`candidate.replyToId`
+ * among `lines`), the same way, on the line before it, `form`
+ * `question+reply` (`question` when that line is not at hand). Null when the
+ * message has no text. Pure.
+ * @param {{ candidate?: { content?: string, replyToId?: string|null }|null, lines?: object[], withReply?: boolean,
+ *   nameOf?: (id: string) => (string|null|undefined) }} params
+ * @returns {{ text: string, form: 'question'|'question+reply' }|null}
+ */
+export function meaningQuery({ candidate = null, lines = [], withReply = false, nameOf = null } = {}) {
+  const flat = (message) => oneLine(fromTokens(typeof message?.content === 'string' ? message.content : '', nameOf, 'chat'));
+  const question = flat(candidate);
+  if (!question) return null;
+  const replyId = typeof candidate?.replyToId === 'string' && candidate.replyToId ? candidate.replyToId : null;
+  const parent = withReply && replyId ? (Array.isArray(lines) ? lines : []).find((line) => line?.id === replyId) : null;
+  const replied = parent ? flat(parent) : '';
+  return replied ? { text: `${replied}\n${question}`, form: 'question+reply' } : { text: question, form: 'question' };
 }
 
 /** `line` without surrounding quotes/backticks/whitespace and trailing punctuation (one pass each way). */
@@ -855,12 +924,12 @@ function byRecency(a, b) {
 /**
  * The matching context shared by matchMemory and scanArchive: the folded
  * forms, the members the name forms pick, the range tests and the scorer;
- * null when nothing is asked.
+ * null when nothing is asked (no form, and no meaning row with `anyway`).
  */
-function memoryContext({ forms, who, profiles, from, to, timezone }) {
+function memoryContext({ forms, who, profiles, from, to, timezone, anyway = false }) {
   const whoForms = foldedForms(who);
   const allForms = foldedForms([...(Array.isArray(forms) ? forms : []), ...(Array.isArray(who) ? who : [])]);
-  if (allForms.length === 0) return null;
+  if (allForms.length === 0 && !anyway) return null;
   const ranged = Number.isFinite(from) || Number.isFinite(to);
   const fromDay = Number.isFinite(from) ? zonedDay(from, timezone) : null;
   const toDay = Number.isFinite(to) ? zonedDay(to, timezone) : null;
@@ -901,8 +970,9 @@ function observedDay(observedAt, timezone) {
  * episode as `name: text` per message joined by ` / `; another kind its
  * string fields joined by `: `; the `neutral` text when those are empty.
  * `self` when it holds a line of the persona (a participation episode).
+ * With `matched` false (an entry the meaning search found) a score of 0 keeps it.
  */
-function archivedItem(entry, ctx) {
+function archivedItem(entry, ctx, { matched = true } = {}) {
   if (!isPlainObject(entry) || typeof entry.itemKind !== 'string' || !entry.itemKind) return null;
   const fields = isPlainObject(entry.text) ? entry.text : {};
   let texts;
@@ -932,7 +1002,7 @@ function archivedItem(entry, ctx) {
   const ids = [...(Array.isArray(entry.participants) ? entry.participants : []), ...(memberId ? [memberId] : [])];
   const searched = [...texts, neutral];
   const score = ctx.score(searched, ctx.namesPerson(searched, ids));
-  if (score <= 0) return null;
+  if (score <= 0 && matched) return null;
   const observed = isPlainObject(entry.observedAt) && typeof entry.observedAt.date === 'string' ? entry.observedAt.date : '';
   return {
     kind: `archived ${entry.itemKind}`,
@@ -989,17 +1059,24 @@ function archivedItem(entry, ctx) {
  * moment's own, a line's or an entry's local day in `timezone`; null for lore
  * and learned), `memberId` (the moment's member, a learned item's teacher, an
  * entry's scoped member, else null), `itemId` (or null), `self`, `score`. Pure.
+ * `meaning`: archive entries the meaning search found, best first (already
+ * allowed, one per itemId; no form needed): each joins as the item of its
+ * `itemId` among those matched (hot or archived), else as its own archived
+ * item (score 0 allowed, the range still applied), and the whole list is
+ * then ordered by fuseRanks over (meaning rank, the order above) before the
+ * `max` cut; without it the order above stands.
  * @param {{ forms?: string[], who?: string[], profiles?: object[], lore?: object[], learned?: object[],
- *   recentLines?: object[], archived?: object[], from?: number|null, to?: number|null, max?: number, timezone?: string,
- *   recent?: boolean }} params
+ *   recentLines?: object[], archived?: object[], meaning?: object[], from?: number|null, to?: number|null, max?: number,
+ *   timezone?: string, recent?: boolean }} params
  * @returns {{ kind: string, text: string, date: string|null, memberId: string|null, itemId: string|null, self: boolean,
  *   score: number }[]}
  */
-export function matchMemory({ forms = [], who = [], profiles = [], lore = [], learned = [], recentLines = [], archived = [], from = null, to = null, max, timezone = 'UTC', recent = false } = {}) {
+export function matchMemory({ forms = [], who = [], profiles = [], lore = [], learned = [], recentLines = [], archived = [], meaning = [], from = null, to = null, max, timezone = 'UTC', recent = false } = {}) {
   const limit = intAtLeast(max, RECALL_DEFAULTS.memoryItems, 0);
-  const ctx = memoryContext({ forms, who, profiles, from, to, timezone });
-  if (limit === 0 || ctx === null) return [];
   const list = (value) => (Array.isArray(value) ? value.filter((item) => item && typeof item === 'object') : []);
+  const meant = list(meaning);
+  const ctx = memoryContext({ forms, who, profiles, from, to, timezone, anyway: meant.length > 0 });
+  if (limit === 0 || ctx === null) return [];
   const { people, namesPerson, dayInside, atInside, ranged } = ctx;
   const itemIdOf = (value) => (typeof value?.itemId === 'string' && value.itemId ? value.itemId : null);
 
@@ -1073,8 +1150,21 @@ export function matchMemory({ forms = [], who = [], profiles = [], lore = [], le
   }
   for (const item of [...newest.values(), ...loose]) found.push({ ...item, order: found.length });
 
-  return found
-    .sort(recent ? byRecency : byScore)
+  const ordered = found.sort(recent ? byRecency : byScore);
+  let chosen = ordered;
+  if (meant.length > 0) {
+    // The meaning search's entries: the matched item of the same itemId, else their own archived item.
+    const byItemId = new Map();
+    for (const item of ordered) if (item.itemId && !byItemId.has(item.itemId)) byItemId.set(item.itemId, item);
+    const meaningItems = [];
+    for (const entry of meant) {
+      const itemId = itemIdOf(entry);
+      const item = (itemId && byItemId.get(itemId)) || archivedItem(entry, ctx, { matched: false });
+      if (item && !meaningItems.includes(item)) meaningItems.push(item);
+    }
+    chosen = fuseRanks([meaningItems, ordered]).map((entry) => entry.id);
+  }
+  return chosen
     .slice(0, limit)
     .map(({ kind, text, date, memberId, itemId, self, score }) => ({ kind, text, date, memberId, itemId, self, score }));
 }
@@ -1327,6 +1417,45 @@ export function cutStretch(lines, maxChars) {
 const REPLY_CHAIN_MAX = 10;
 /** How many record hits per kept window are turned into windows before the ranking. */
 const RECORD_HITS_PER_WINDOW = 4;
+/** How far before a meaning row's line the record is read for its reply chain and neighbours. */
+const MEANING_READ_BEFORE_MS = 6 * 60 * MINUTE_MS;
+/** How far after it: room for the neighbours and a whole followed conversation. */
+const MEANING_READ_AFTER_MS = 2 * 60 * MINUTE_MS;
+
+/**
+ * The record reads around the meaning rows not read yet: one time span per row
+ * (MEANING_READ_BEFORE_MS before its line, MEANING_READ_AFTER_MS after), spans
+ * that meet merged, each with the channels of its rows.
+ */
+function meaningSpans(rows) {
+  const spans = rows
+    .map((row) => ({ from: row.ts - MEANING_READ_BEFORE_MS, to: row.ts + MEANING_READ_AFTER_MS, channels: new Set([row.channelId]) }))
+    .sort((a, b) => a.from - b.from);
+  const merged = [];
+  for (const span of spans) {
+    const last = merged[merged.length - 1];
+    if (last && span.from <= last.to) {
+      last.to = Math.max(last.to, span.to);
+      for (const channel of span.channels) last.channels.add(channel);
+    } else {
+      merged.push(span);
+    }
+  }
+  return merged;
+}
+
+/** The usable meaning rows of matchRecord's `meaning`, in their order: `{ id, channelId, ts, sourceIds }`. */
+function meaningRows(meaning) {
+  const out = [];
+  const seen = new Set();
+  for (const row of Array.isArray(meaning) ? meaning : []) {
+    const ts = Date.parse(row?.occurredAt);
+    if (typeof row?.id !== 'string' || !row.id || seen.has(row.id) || typeof row.channelId !== 'string' || !row.channelId || !Number.isFinite(ts)) continue;
+    seen.add(row.id);
+    out.push({ id: row.id, channelId: row.channelId, ts, sourceIds: Array.isArray(row.sourceIds) ? row.sourceIds.filter((id) => typeof id === 'string') : [] });
+  }
+  return out;
+}
 
 /** A record line (src/memory/record.js) as a normalized chat message (the shape renderRecallWindows reads). */
 function recordMessage(line, { nameOf, selfName }) {
@@ -1384,47 +1513,87 @@ function recordMessage(line, { nameOf, selfName }) {
  * `{ source: 'record', channelId, channelName, messages, hitIds, overlapsChat }`
  * (`channelName` from `channelNameOf`; authors' names from `nameOf`, the
  * persona's own lines under `selfName`). Stops reading at an aborted `signal`.
+ * `meaning`: the record rows the meaning search found, best first
+ * (`{ id, channelId, occurredAt, sourceIds }`, any age). The record around
+ * each row not read yet is read too (MEANING_READ_BEFORE_MS before its line,
+ * MEANING_READ_AFTER_MS after, its channel only, through `allowLine`); a row
+ * whose line is not found, is deleted or excluded, or one of whose
+ * `sourceIds` lines `allowLine` refused, is dropped; the rest are hits by
+ * their meaning rank (with `recordDays` 0 the only ones). The hits are then
+ * ordered by fuseRanks over (meaning rank, word-hit rank in the order above),
+ * windows are built the same way around the fused best -- neighbours and the
+ * follow never crossing from one read stretch into another -- and kept by
+ * their best fused score (with `recent`: a persona's line first, then the
+ * newer, then that score), with no window reserved for the earliest word
+ * hit. Without a usable row nothing changes.
  * @param {string} guildId
  * @param {{ record: { iterate: Function }, range?: { from?: number|null, to?: number|null }, participants?: string[],
  *   forms?: string[], aliases?: string[], recordDays?: number, recordContext?: number, followMessages?: number,
  *   followGapMinutes?: number, now: number, maxWindows?: number,
  *   allowLine?: (line: object) => boolean, exclude?: Set<string>|string[], recent?: boolean,
  *   nameOf?: (id: string) => (string|null|undefined), selfName?: string, channelNameOf?: (id: string) => (string|null|undefined),
- *   signal?: AbortSignal }} options
- * @returns {Promise<{ windows: object[], scanned: number, hits: number }>}
+ *   meaning?: { id: string, channelId: string, occurredAt: string, sourceIds?: string[] }[], signal?: AbortSignal }} options
+ * @returns {Promise<{ windows: object[], scanned: number, hits: number, meaningHits: number }>}
  */
-export async function matchRecord(guildId, { record, range = {}, participants = [], forms = [], aliases = [], recordDays, recordContext, followMessages, followGapMinutes, now, maxWindows, allowLine, exclude, recent = false, nameOf, selfName = '', channelNameOf, signal } = {}) {
-  const none = { windows: [], scanned: 0, hits: 0 };
+export async function matchRecord(guildId, { record, range = {}, participants = [], forms = [], aliases = [], recordDays, recordContext, followMessages, followGapMinutes, now, maxWindows, allowLine, exclude, recent = false, nameOf, selfName = '', channelNameOf, meaning = [], signal } = {}) {
+  const none = { windows: [], scanned: 0, hits: 0, meaningHits: 0 };
   const days = intAtLeast(recordDays, RECALL_DEFAULTS.recordDays, 0);
   const around = intAtLeast(recordContext, RECALL_DEFAULTS.recordContext, 0);
   const keep = intAtLeast(maxWindows, RECALL_DEFAULTS.maxClusters, 1);
-  if (days === 0 || typeof record?.iterate !== 'function' || !Number.isFinite(now)) return none;
+  if (typeof record?.iterate !== 'function' || !Number.isFinite(now)) return none;
   const textForms = foldedForms([...(Array.isArray(forms) ? forms : []), ...(Array.isArray(aliases) ? aliases : [])]);
   const people = new Set((Array.isArray(participants) ? participants : []).filter((id) => typeof id === 'string' && id));
-  if (textForms.length === 0 && people.size === 0) return none;
+  const wanted = meaningRows(meaning);
   const to = Math.min(Number.isFinite(range?.to) ? range.to : now, now);
   const from = Math.max(Number.isFinite(range?.from) ? range.from : -Infinity, to - days * DAY_MS);
-  if (from > to) return none;
+  const words = days > 0 && (textForms.length > 0 || people.size > 0) && from <= to;
+  if (!words && wanted.length === 0) return none;
   const excluded = exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []);
 
   // The scanned days: the newest revision of each message; a deleted one is null.
   const latest = new Map();
+  // The ids of the word scan (only they are word hits) and of every line allowLine refused.
+  const scannedIds = new Set();
+  const refused = new Set();
+  // The stretches read, [from, to]: the word scan's, then those around the meaning rows.
+  const stretches = [];
   let scanned = 0;
-  const query = { from: new Date(from).toISOString(), to: new Date(to).toISOString() };
-  for await (const line of record.iterate(guildId, query)) {
-    if (signal?.aborted) break;
-    if (!isPlainObject(line) || typeof line.messageId !== 'string' || !line.messageId) continue;
-    if (typeof allowLine === 'function' && !allowLine(line)) continue;
-    scanned += 1;
+  const take = (line, main) => {
+    if (!isPlainObject(line) || typeof line.messageId !== 'string' || !line.messageId) return;
+    if (typeof allowLine === 'function' && !allowLine(line)) {
+      refused.add(line.messageId);
+      return;
+    }
+    if (main) {
+      scanned += 1;
+      scannedIds.add(line.messageId);
+    }
     if (line.kind === 'deleted') {
       latest.set(line.messageId, null);
-      continue;
+      return;
     }
-    if ((line.kind !== 'seen' && line.kind !== 'said') || typeof line.scope?.channel !== 'string' || !Number.isFinite(Date.parse(line.occurredAt))) continue;
+    if ((line.kind !== 'seen' && line.kind !== 'said') || typeof line.scope?.channel !== 'string' || !Number.isFinite(Date.parse(line.occurredAt))) return;
     const known = latest.get(line.messageId);
     const revision = Number.isInteger(line.revision) && line.revision > 0 ? line.revision : 1;
-    if (known === null || (known && known.revision >= revision)) continue;
+    if (known === null || (known && known.revision >= revision)) return;
     latest.set(line.messageId, { line, revision });
+  };
+  if (words) {
+    stretches.push({ from, to });
+    const query = { from: new Date(from).toISOString(), to: new Date(to).toISOString() };
+    for await (const line of record.iterate(guildId, query)) {
+      if (signal?.aborted) break;
+      take(line, true);
+    }
+  }
+  for (const span of meaningSpans(wanted.filter((row) => !latest.has(row.id)))) {
+    if (signal?.aborted) break;
+    stretches.push(span);
+    const query = { from: new Date(span.from).toISOString(), to: new Date(span.to).toISOString(), channelIds: [...span.channels] };
+    for await (const line of record.iterate(guildId, query)) {
+      if (signal?.aborted) break;
+      take(line, false);
+    }
   }
 
   const byId = new Map();
@@ -1439,34 +1608,57 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
     byChannel.get(message.channelId).push(message);
   }
   const position = new Map();
+  // Each line's run: the first and last index of the lines of its channel read in one stretch,
+  // so neighbours and the follow never join two stretches read apart (one run without meaning rows).
+  const runOf = new Map();
+  const stretchOf = (ts) => (stretches.length <= 1 ? 0 : stretches.findIndex((s) => ts >= s.from && ts <= s.to));
   for (const list of byChannel.values()) {
     list.sort((x, y) => x.ts - y.ts || (x.id < y.id ? -1 : 1));
     list.forEach((message, i) => position.set(message.id, i));
+    let start = 0;
+    for (let i = 1; i <= list.length; i += 1) {
+      if (i < list.length && stretchOf(list[i].ts) === stretchOf(list[start].ts)) continue;
+      const run = { first: start, last: i - 1 };
+      for (let j = start; j < i; j += 1) runOf.set(list[j].id, run);
+      start = i;
+    }
   }
 
   const hits = [];
   for (const message of byId.values()) {
-    if (excluded.has(message.id)) continue;
+    if (excluded.has(message.id) || !scannedIds.has(message.id)) continue;
     const person = (named.get(message.id) ?? []).some((id) => people.has(id));
     const score = formsMatched([message.content], textForms) + (person ? 1 : 0);
     if (score > 0) hits.push({ message, score });
   }
-  const hitScore = new Map(hits.map((hit) => [hit.message.id, hit.score]));
+  // The meaning rows that stand: found, not shown in the chat, every source line allowed.
+  const meant = wanted
+    .filter((row) => byId.has(row.id) && !excluded.has(row.id) && !row.sourceIds.some((id) => refused.has(id)))
+    .map((row) => byId.get(row.id));
   const hitOrder = recent
     ? (a, b) => Number(b.message.self) - Number(a.message.self) || b.message.ts - a.message.ts || b.score - a.score
     : (a, b) => b.score - a.score || b.message.ts - a.message.ts;
-  // A dateless, not-recent question: the earliest hit with the best score keeps a window of its own.
-  const dateless = !recent && !Number.isFinite(range?.from) && !Number.isFinite(range?.to);
+  // A dateless, not-recent question: the earliest hit with the best score keeps a window of its own
+  // (by words only: with meaning rows the fused order alone decides what is kept).
+  const dateless = !recent && !Number.isFinite(range?.from) && !Number.isFinite(range?.to) && meant.length === 0;
   const bestScore = Math.max(0, ...hits.map((hit) => hit.score));
   const earliest = dateless
     ? hits.filter((hit) => hit.score === bestScore).reduce((a, b) => (!a || b.message.ts < a.message.ts || (b.message.ts === a.message.ts && b.message.id < a.message.id) ? b : a), null)
     : null;
-  const chosenHits = hits.sort(hitOrder).slice(0, keep * RECORD_HITS_PER_WINDOW);
-  if (earliest && !chosenHits.includes(earliest)) chosenHits.push(earliest);
+  const wordOrdered = hits.sort(hitOrder);
+  // Without meaning rows the word order and scores; with them the fused ones (fuseRanks).
+  const ranked =
+    meant.length === 0
+      ? wordOrdered
+      : fuseRanks([meant.map((message) => message.id), wordOrdered.map((hit) => hit.message.id)]).map((entry) => ({ message: byId.get(entry.id), score: entry.score }));
+  const hitScore = new Map(ranked.map((hit) => [hit.message.id, hit.score]));
+  const chosenHits = ranked.slice(0, keep * RECORD_HITS_PER_WINDOW);
+  if (earliest && !chosenHits.some((hit) => hit.message.id === earliest.message.id)) chosenHits.push(earliest);
   const windows = chosenHits
     .map(({ message }) => {
       const list = byChannel.get(message.channelId);
       const at = position.get(message.id);
+      const run = runOf.get(message.id);
       const chosen = new Map();
       let parentId = message.replyToId;
       for (let depth = 0; parentId && depth < REPLY_CHAIN_MAX; depth += 1) {
@@ -1475,10 +1667,10 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
         chosen.set(parent.id, parent);
         parentId = parent.replyToId;
       }
-      for (const neighbour of [...list.slice(Math.max(0, at - around), at), message, ...list.slice(at + 1, at + 1 + around)]) chosen.set(neighbour.id, neighbour);
+      for (const neighbour of [...list.slice(Math.max(run.first, at - around), at), message, ...list.slice(at + 1, Math.min(run.last + 1, at + 1 + around))]) chosen.set(neighbour.id, neighbour);
       // Carried forward from its last line while the conversation goes on (the chat's lines left out below).
-      const last = Math.max(...[...chosen.keys()].map((id) => position.get(id)));
-      for (const next of followConversation(list[last].ts, list.slice(last + 1, last + 1 + MAX_WINDOW_MESSAGES), { followMessages, followGapMinutes })) chosen.set(next.id, next);
+      const last = Math.max(...[...chosen.keys()].filter((id) => runOf.get(id) === run).map((id) => position.get(id)));
+      for (const next of followConversation(list[last].ts, list.slice(last + 1, Math.min(run.last + 1, last + 1 + MAX_WINDOW_MESSAGES)), { followMessages, followGapMinutes })) chosen.set(next.id, next);
       const all = [...chosen.values()];
       const messages = all.filter((m) => !excluded.has(m.id)).sort((x, y) => x.ts - y.ts || (x.id < y.id ? -1 : 1));
       return {
@@ -1504,5 +1696,5 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   const kept = (origin >= keep ? [...ordered.slice(0, keep - 1), ordered[origin]] : ordered.slice(0, keep))
     .sort((a, b) => b.endTs - a.endTs)
     .map(({ score, self, endTs, ...window }) => window);
-  return { windows: kept, scanned, hits: hits.length };
+  return { windows: kept, scanned, hits: hits.length, meaningHits: meant.length };
 }
