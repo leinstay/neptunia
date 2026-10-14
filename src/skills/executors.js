@@ -15,6 +15,7 @@
 // never retried), `partial`, `failed`. Codes are kebab-case; no wording here: the persona reads a
 // result through `labels.skills.result`.
 
+import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { matchChannel, MESSAGE_LINK_RE } from '../memory/mentions.js';
 import { SELF_OWNED_OPS } from '../ops/effects.js';
 
@@ -371,16 +372,20 @@ const ARG_RULE_KINDS = Object.freeze({
  * `no-body`; `unknown-message` names the option (`message`, `reply`) whose message was not in view,
  * or is `message-elsewhere` when that message lives in another channel than the one named;
  * `not-own-message` names `message`; `unknown-member` with several matches is `member-ambiguous`.
- * Any other code is its own kind without an argument. Null for an `ok` outcome or one without a
- * code. Pure.
- * @param {{ status?: string, code?: string|null, reason?: string|null }|null|undefined} outcome
- * @returns {{ kind: string, code: string, arg: string|null }|null}
+ * Any other code is its own kind without an argument. With `textChars` (a positive number) and
+ * the operation's own message in `outcome.data.text`, that message rides along as `text`: one
+ * line, cut to `textChars` with an ellipsis (src/memory/clamp.js) -- what the mark says when no
+ * label words the code. Null for an `ok` outcome or one without a code. Pure.
+ * @param {{ status?: string, code?: string|null, reason?: string|null, data?: { text?: string }|null }|null|undefined} outcome
+ * @param {{ textChars?: number }} [options]
+ * @returns {{ kind: string, code: string, arg: string|null, text?: string }|null}
  */
-export function outcomeDetail(outcome) {
+export function outcomeDetail(outcome, { textChars = 0 } = {}) {
   const code = typeof outcome?.code === 'string' ? outcome.code : '';
   if (!code || outcome.status === 'ok') return null;
   const reason = typeof outcome.reason === 'string' ? outcome.reason : '';
-  const of = (kind, arg = null) => ({ kind, code, arg });
+  const said = Number.isFinite(textChars) && textChars > 0 ? clampWithEllipsis(oneLine(outcome.data?.text), textChars) : '';
+  const of = (kind, arg = null) => ({ kind, code, arg, ...(said ? { text: said } : {}) });
   if (code === 'invalid-args') {
     const path = /^args\.([^.:]+)(?:\.[^:]*)?:(.+)$/.exec(reason);
     if (path) return of(ARG_RULE_KINDS[path[2]] ?? 'wrong-arg', path[1]);

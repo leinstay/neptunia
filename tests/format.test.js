@@ -1527,6 +1527,9 @@ test('formatTranscript: a call that did not work says why: its argument, its mes
   // A kind without a phrase of its own: the code's reason, else reasons.other.
   assert.ok(ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null }).endsWith(`: ${withReason(labels.skills.result.reasons['target-ambiguous'])}]`));
   assert.ok(ended({ kind: 'strange', code: 'strange', arg: null }).endsWith(`: ${withReason(labels.skills.result.reasons.other)}]`));
+  // A code no label words: the operation's own message, before reasons.other; a labelled code keeps its phrase.
+  assert.ok(ended({ kind: 'strange', code: 'strange', arg: null, text: 'diary post photos: not-now (no-channel)' }).endsWith(`: ${withReason('diary post photos: not-now (no-channel)')}]`));
+  assert.ok(ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null, text: 'two channels' }).endsWith(`: ${withReason(labels.skills.result.reasons['target-ambiguous'])}]`));
   // No detail, or no callStatusReason label: the status word alone, as before.
   assert.ok(ended(null).endsWith(`[called message.edit on #2: ${status}]`));
   const plain = { ...labels, transcript: { ...labels.transcript, callStatusReason: '' } };

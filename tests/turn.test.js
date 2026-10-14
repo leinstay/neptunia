@@ -8848,6 +8848,20 @@ test('skill call: Alice asks her to post photos to the diary and the diary is no
   // A member who is not the owner: the diary is hers, the same answer.
   const member = await callTurn({ answers: ['<call skill="diary.post" kind="photos"/>', '<skip/>'], allowed: ['diary.post'], owners: [], diary, configExtra: { diary: { channelId: '', kinds: { photos: 1 } } }, features: { followUpContinuation: false } });
   assert.ok(requestText(member.llm, 1).includes('<result skill="diary.post" status="not_configured">'), requestText(member.llm, 1));
+  // The turn continued: no label words the diary's code, so her call's mark carries the diary's own
+  // words, and she says so.
+  const continued = await callTurn({
+    answers: ['<call skill="diary.post" kind="photos"/>', '<msg>δεν έχω ημερολόγιο ακόμα</msg>'],
+    allowed: ['diary.post'],
+    diary,
+    configExtra: { diary: { channelId: '', kinds: { photos: 1 } }, skills: { conversations: ['c9'], safeMode: false, resultMaxChars: 2000, markTextMaxChars: 200 } },
+  });
+  assert.equal(labels.skills.result.reasons['not-configured'], undefined, 'the fixture words no not-configured code');
+  const said = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.not_configured, reason: 'diary post photos: not-now (no-channel)' });
+  const continuedText = requestText(continued.llm, 1);
+  assert.ok(continuedText.includes(`Bot (you): [called diary.post: ${said}]`), continuedText);
+  assert.ok(!continuedText.includes('<result'), continuedText);
+  assert.deepEqual(continued.sends.map((send) => send.text), ['δεν έχω ημερολόγιο ακόμα']);
 });
 
 test('skill call: a turn answering several people runs no write', async () => {

@@ -959,6 +959,9 @@ export function skillScenarioRequest(input) {
 /** How far apart a scenario's continuation places her posts, the call and its request (ms). */
 const CONTINUATION_STEP_MS = 1000;
 
+/** The operation's own message on a call mark when `skills.markTextMaxChars` is not set (config.json's value). */
+const MARK_TEXT_MAX_CHARS = 200;
+
 /**
  * The follow-up of a skill scenario's run as a live turn continues it
  * (src/behavior/turn.js#continuationRequest): the moment's `history`, then her messages of the
@@ -983,7 +986,7 @@ function scenarioContinuation({ requestArgs, history, answer, outcome, labels, m
     at: callAt,
     skill: result.skill,
     status: result.status,
-    detail: outcomeDetail(result),
+    detail: outcomeDetail(result, { textChars: view.config.skills?.markTextMaxChars ?? MARK_TEXT_MAX_CHARS }),
     target: { messageId: idOf(args.message) ?? idOf(args.reply), channelId: idOf(args.channel) },
     postedId: null,
     posted: own.map((line) => line.id),

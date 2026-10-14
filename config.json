@@ -366,6 +366,7 @@
     "conversations": [],
     "safeMode": false,
     "resultMaxChars": 4500,
+    "markTextMaxChars": 200,
     "destructiveCooldownMinutes": 10,
     "callTimeoutMs": 120000
   },
