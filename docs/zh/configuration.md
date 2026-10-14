@@ -170,6 +170,7 @@
 | `neighborMaxChannels` | `8` | 最大相邻频道数 |
 | `neighborMessageChars` | `300` | 每条相邻频道消息保留的字符数（`<other_channels>`） |
 | `maxMessageChars` | `2000` | 超出此长度的消息会被截断（字符） |
+| `maxUrlChars` | `200` | 用户发送的链接 URL 原样保留在消息文本中，包括查询和追踪参数；超过此字符数的 URL 在该处截断并加省略号。附件、贴纸、自定义表情和 GIF 的 URL 不会显示。`0` 保留完整 URL |
 | `gapMarkerMinutes` | `20` | 时间间隔标记阈值（分钟） |
 | `ageAfterMinutes` | `60` | 角色读取聊天时，凡发出已满此分钟数的消息，时间旁还会显示距今多久，例如 `[14:32 · 2 h 58 min ago]`；更新的消息只显示 `[14:32]`。适用于当前频道以及拉取的频道和相邻频道。在 `prompts.local/labels.json` 中把 `transcript.timeAged` 设为空字符串即可关闭 |
 | `reactionsPerMessage` | `6` | 对话记录中每条消息列出的最大反应数，按频率降序 |

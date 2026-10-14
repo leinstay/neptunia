@@ -854,6 +854,7 @@ export async function backfillDiary({ store, channel, guildId, selfId, config, l
     selfId,
     embedTextChars: config?.media?.embedTextChars,
     videoSites: config?.media?.video?.sites,
+    maxUrlChars: config?.context?.maxUrlChars,
   });
   const posts = history
     .filter((message) => message.self === true)

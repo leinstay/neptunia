@@ -44,6 +44,7 @@ export async function readMemberHistory(guild, limit, { config, selfId, log = de
         selfId,
         embedTextChars: config.media?.embedTextChars,
         videoSites: config.media?.video?.sites,
+        maxUrlChars: config.context?.maxUrlChars,
       });
     } catch (err) {
       log.warn(`${prefix}: channel read failed`, { channelId: channel.id, error: err });

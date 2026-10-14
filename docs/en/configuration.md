@@ -179,6 +179,7 @@ Message text with author names is sent to the embedding provider (OpenAI through
 | `neighborMaxChannels` | `8` | Max neighbour channels |
 | `neighborMessageChars` | `300` | Characters kept per message from a neighbouring channel (`<other_channels>`) |
 | `maxMessageChars` | `2000` | Truncate messages beyond this (chars) |
+| `maxUrlChars` | `200` | A link someone posted stays in the message text as it was posted, query and tracking parameters included; a URL longer than this many characters is cut there with an ellipsis. URLs of attachments, stickers, custom emoji and GIFs are never shown. `0` keeps every URL whole |
 | `gapMarkerMinutes` | `20` | Time-gap marker threshold (min) |
 | `ageAfterMinutes` | `60` | When the persona reads a chat, every message at least this many minutes old shows how long ago it was posted next to its time, as in `[14:32 · 2 h 58 min ago]`; newer messages show only `[14:32]`. Applies to the current channel and to pulled and neighbour channels. An empty `transcript.timeAged` in `prompts.local/labels.json` turns ages off |
 | `reactionsPerMessage` | `6` | Max reactions listed per message in the transcript, most frequent first |

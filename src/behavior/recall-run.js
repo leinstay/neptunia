@@ -933,7 +933,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       rareForms: rareFormKeys(totals, settings.rareHits),
       locator,
     });
-    const normalizeOptions = { selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites };
+    const normalizeOptions = { selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites, maxUrlChars: config.context?.maxUrlChars };
     // The lines after a window's last one that continue its conversation; none when the follow is off,
     // the window already ends in the turn's own chat (what follows is that chat) or the fetch fails.
     const followOf = async (source, messages) => {

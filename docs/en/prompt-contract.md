@@ -137,7 +137,9 @@ described), or `videoNotWatched` (not watched, no frame). The reason code (`leng
 swapped for the human phrase from `transcript.videoReason.*` before it reaches the transcript. Links keep their base
 tag (`link` / `linkText`) and add a video extra: `linkWatched`, `linkNotWatchedFrame` or `linkNotWatched`. When a still
 frame is attached as a picture, `frameAttached` is added as well. Links use `link` / `linkText` built from Discord's
-embed (site, title, snippet); when `features.webLookup` is on and the link was read, `linkRead` is appended after the
+embed (site, title, snippet); the URL of a posted link stays in the message text where it was written (cut to
+`context.maxUrlChars`, default 200), while the URLs of attachments, Discord CDN files, GIFs, stickers and custom emoji never
+appear; when `features.webLookup` is on and the link was read, `linkRead` is appended after the
 link's other extras (video, thumbnail). Text files show their beginning via `filePreview`; a forwarded message is
 wrapped in `forwarded`. When `features.seeReactions` is on (the default), a reactions tag is appended at the very
 end of a line, after media tags and forwarded wrappers. It lists at most `context.reactionsPerMessage` reactions per

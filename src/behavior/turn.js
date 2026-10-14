@@ -71,7 +71,7 @@ import { fill, formatNow, replyMarker, withTriggers } from '../discord/format.js
 import { log } from '../log.js';
 import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { gifPostsToday } from '../memory/gif-watch.js';
-import { isWordChar, linkChannels, linkMessageNumbers, occursAsWholeWord } from '../memory/mentions.js';
+import { isWordChar, linkChannels, linkMessageNumbers, occursAsWholeWord, outsideUrls } from '../memory/mentions.js';
 import { rankGifs } from '../memory/gifs.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { participationSettings, recordOwnLine } from '../memory/participation.js';
@@ -422,7 +422,8 @@ export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfNam
  * whose profile the request showed, the authors of the pulled lines shown). A transcript
  * author wins a name a stored profile shares, the last author of a display name wins, and of
  * two stored profiles sharing a name the first handed over wins. Longer names are matched
- * first, so a multi-word name is never cut at a shorter one it starts with.
+ * first, so a multi-word name is never cut at a shorter one it starts with. A URL in the text
+ * is left exactly as written (src/memory/mentions.js#outsideUrls).
  * @param {string} text
  * @param {object[]} history  Normalized lines (`authorName`, `authorId`, `self`, `bot`).
  * @param {Iterable<{ name: string, id: string }>} [knownNames]
@@ -439,12 +440,16 @@ export function resolveMentions(text, history, knownNames = []) {
   }
   const names = [...people.keys()].sort((a, b) => b.length - a.length);
   const userIds = new Set();
-  let resolved = text;
-  for (const name of names) {
-    if (!resolved.includes(`@${name}`)) continue;
-    resolved = resolved.replaceAll(`@${name}`, `<@${people.get(name)}>`);
-    userIds.add(people.get(name));
-  }
+  // An `@name` inside a URL (a channel handle on a video site) is part of the address.
+  const resolved = outsideUrls(text, (part) => {
+    let out = part;
+    for (const name of names) {
+      if (!out.includes(`@${name}`)) continue;
+      out = out.replaceAll(`@${name}`, `<@${people.get(name)}>`);
+      userIds.add(people.get(name));
+    }
+    return out;
+  });
   return { text: resolved, userIds: [...userIds] };
 }
 
@@ -673,6 +678,7 @@ async function withReplyParents(channel, history, { trigger, selfId, config }) {
     selfId,
     embedTextChars: config.media?.embedTextChars,
     videoSites: config.media?.video?.sites,
+    maxUrlChars: config.context?.maxUrlChars,
   });
   // Marked, so the request can say which of its lines came from outside the window (the journal's `seen.parents`).
   return parents.length > 0 ? [...parents.map((parent) => ({ ...parent, replyParent: true })), ...history] : history;
@@ -4514,6 +4520,7 @@ export function createTurnRunner({
               selfId,
               embedTextChars: config.media?.embedTextChars,
               videoSites: config.media?.video?.sites,
+              maxUrlChars: config.context?.maxUrlChars,
             }).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config })),
           )),
       );

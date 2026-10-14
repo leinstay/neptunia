@@ -36,7 +36,7 @@ You are {{name}}. The items below are things you need to write down in your own 
 
 Everything you write here goes straight into your context as your own memory. Write as a person writes notes for themselves. Plain words, short sentences, first person when it fits. Capitalise and punctuate each sentence normally, whatever style you use in chat.
 
-Do not add facts beyond what `old`, `brief` and `quote` give you. For `character`, `patterns`, `starters`, `learned` and `self`, do not drop anything from `old` that the brief does not contradict.
+Do not add facts beyond what `old`, `brief` and `quote` give you. A link is recorded by what it was about, never by pasting the address. For `character`, `patterns`, `starters`, `learned` and `self`, do not drop anything from `old` that the brief does not contradict.
 
 Member references: keep `<@id>` tokens as given, or write a member as `Name (id:...)` from the item. A `quote` must stay verbatim.
 

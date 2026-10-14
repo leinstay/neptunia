@@ -117,13 +117,13 @@ export async function searchMembers(guild, query, limit, { signal } = {}) {
 }
 
 /** One page of `channel`'s messages for `query` (`around` or `after`), normalized, oldest first; null and `failed` logged on a failure. */
-async function fetchPage(channel, query, limit, { selfId, embedTextChars, videoSites }, failed) {
+async function fetchPage(channel, query, limit, { selfId, embedTextChars, videoSites, maxUrlChars }, failed) {
   try {
     const size = Math.min(100, Math.max(1, Math.floor(Number(limit) || 1)));
     const page = await channel.messages.fetch({ ...query, limit: size });
     return [...page.values()]
       .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-      .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites }));
+      .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
   } catch (err) {
     log.warn(failed, { channel: channel?.id ?? null, status: err?.status ?? err?.statusCode ?? null, name: err?.name ?? null });
     return null;
@@ -138,7 +138,7 @@ async function fetchPage(channel, query, limit, { selfId, embedTextChars, videoS
  * @param {import('discord.js').TextBasedChannel} channel
  * @param {string} messageId
  * @param {number} limit
- * @param {{ selfId: string, embedTextChars?: number, videoSites?: string[] }} options
+ * @param {{ selfId: string, embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} options
  * @returns {Promise<object[]|null>}
  */
 export function fetchAround(channel, messageId, limit, options = {}) {
@@ -154,7 +154,7 @@ export function fetchAround(channel, messageId, limit, options = {}) {
  * @param {import('discord.js').TextBasedChannel} channel
  * @param {string} messageId
  * @param {number} limit
- * @param {{ selfId: string, embedTextChars?: number, videoSites?: string[] }} options
+ * @param {{ selfId: string, embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} options
  * @returns {Promise<object[]|null>}
  */
 export function fetchAfter(channel, messageId, limit, options = {}) {

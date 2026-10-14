@@ -533,7 +533,7 @@ export function createMessageHandler({
     if (!prompt) return null;
     const labels = prompts.labels;
     const contextLines = Math.max(0, config.mention.followUpContext ?? 15);
-    const raw = contextLines > 0 ? await fetchHistory(channel, { limit: contextLines, selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites }) : [];
+    const raw = contextLines > 0 ? await fetchHistory(channel, { limit: contextLines, selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites, maxUrlChars: config.context?.maxUrlChars }) : [];
     const history = raw.filter((m) => m.id !== normalized.id);
     const messages = [...history, normalized];
     const { descriptions, videos } = await cachedFollowUpMedia(channel.guild.id, messages, config, ownPrefill);
@@ -2262,6 +2262,7 @@ export function createMessageHandler({
     const normalized = normalizeMessage(message, selfId, {
       embedTextChars: config.media?.embedTextChars,
       videoSites: config.media?.video?.sites,
+      maxUrlChars: config.context?.maxUrlChars,
     });
 
     // The persona's own DM message: bookkeeping, remembered under the
@@ -2322,7 +2323,7 @@ export function createMessageHandler({
     const selfId = client.user.id;
     if (message.author?.bot || message.author?.id === selfId) return null;
     const normalize = () =>
-      normalizeMessage(message, selfId, { embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites });
+      normalizeMessage(message, selfId, { embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites, maxUrlChars: config.context?.maxUrlChars });
 
     if (!message.guild) {
       if (features.privateMessages !== true) return null;
@@ -2460,6 +2461,7 @@ export function createMessageHandler({
       const normalized = normalizeMessage(message, selfId, {
         embedTextChars: config.media?.embedTextChars,
         videoSites: config.media?.video?.sites,
+        maxUrlChars: config.context?.maxUrlChars,
       });
       const guildId = message.guild.id;
 
@@ -2596,6 +2598,7 @@ export function createMessageHandler({
       const normalized = normalizeMessage(message, selfId, {
         embedTextChars: config.media?.embedTextChars,
         videoSites: config.media?.video?.sites,
+        maxUrlChars: config.context?.maxUrlChars,
       });
       const fields = { channelId: normalized.channelId, messageId: normalized.id, embeds };
       const buffered = store.getBuffer(guildId).find((m) => m?.id != null && String(m.id) === String(normalized.id));
@@ -2648,6 +2651,7 @@ export function createMessageHandler({
       const normalized = normalizeMessage(newMessage, client.user.id, {
         embedTextChars: config.media?.embedTextChars,
         videoSites: config.media?.video?.sites,
+        maxUrlChars: config.context?.maxUrlChars,
       });
       const buffered = typeof store?.getBuffer === 'function' ? store.getBuffer(guildId).find((m) => m?.id != null && String(m.id) === String(normalized.id)) : null;
       const day = utcDay(now());

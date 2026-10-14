@@ -70,7 +70,7 @@ const handlers = perEnv((env) => {
     const message = await channel.messages?.fetch?.(reply.messageId).catch(() => null);
     if (!message) throw invalid(`no message ${reply.messageId} in ${channel.id}`, 'unknown-message');
     const media = hot.config.media ?? {};
-    const trigger = normalizeMessage(message, client.user?.id, { embedTextChars: media.embedTextChars, videoSites: media.video?.sites });
+    const trigger = normalizeMessage(message, client.user?.id, { embedTextChars: media.embedTextChars, videoSites: media.video?.sites, maxUrlChars: hot.config.context?.maxUrlChars });
     const result = await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention', forced: true, ...(requester ? { requester } : {}) });
     return `message create on ${channel.id}: ${JSON.stringify(result) ?? 'ok'}`;
   }
