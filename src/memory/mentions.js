@@ -30,6 +30,10 @@
 // persona writes into the `<#id>` link the chat shows as a channel, and `linkMessageNumbers` turns a
 // transcript number `#93` into the jump link of that message. And a forget takes a member
 // out of a kept text (`redactUser`): their token and their names become a neutral word.
+// A written channel name is matched by its core too (`channelCore`, `matchChannel`): the name
+// without leading and trailing emoji or symbols, folded, since models copy those unreliably.
+
+import { foldText } from './recent.js';
 
 /**
  * The digits of a Discord member id, as a regex source: the one id range every
@@ -291,11 +295,79 @@ export function occursAsWordStem(text, form) {
   return false;
 }
 
+/** Leading or trailing characters that are no letter and no digit: emoji, symbols, punctuation, joiners. */
+const CORE_EDGES_RE = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
+/** One emoji-like character a written channel name may carry around its core (never punctuation or space). */
+const NAME_DECOR_RE = /[\p{So}\p{Sk}\p{Cf}\p{M}\p{Emoji_Presentation}]/u;
+
+/**
+ * The core of a channel name: folded (src/memory/recent.js#foldText: case and accents) with every
+ * leading and trailing character that is no letter and no digit cut off -- emoji, symbols,
+ * punctuation, variation selectors, joiners. '' when nothing is left. Models copy a leading emoji
+ * of a channel name unreliably; the core is what they keep.
+ * @param {unknown} name
+ * @returns {string}
+ */
+export function channelCore(name) {
+  return foldText(name).replace(CORE_EDGES_RE, '');
+}
+
+/**
+ * The channel a written name names among `channels` (`{ id, name }`): the one whose name is exactly
+ * `written`, else the one whose core (channelCore) equals its core; `'ambiguous'` when several
+ * share that name or core (never a guess), null when none or `written` has no core.
+ * @param {string} written  The name as written, without its `#`.
+ * @param {Iterable<{ id: string, name: string }>} channels
+ * @returns {{ id: string, name: string } | 'ambiguous' | null}
+ */
+export function matchChannel(written, channels) {
+  const list = [...(channels ?? [])].filter((channel) => channel && typeof channel.name === 'string' && channel.name && channel.id !== undefined && channel.id !== null);
+  const given = String(written ?? '');
+  const exact = list.filter((channel) => channel.name === given);
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return 'ambiguous';
+  const core = channelCore(given);
+  if (!core) return null;
+  const same = list.filter((channel) => channelCore(channel.name) === core);
+  if (same.length === 1) return same[0];
+  return same.length > 1 ? 'ambiguous' : null;
+}
+
+/**
+ * The channel whose core is written at `at` of `text` (after the `#`, with any emoji before it),
+ * and where the written name ends (its trailing emoji included), or null: the longest unambiguous
+ * core of `byCore` whose fold equals the text's run from the first word character, ending at a
+ * word boundary.
+ */
+function coreAt(text, at, byCore) {
+  let start = at;
+  while (start < text.length && !isWordChar(text[start]) && NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(start)))) {
+    start += String.fromCodePoint(text.codePointAt(start)).length;
+  }
+  if (!isWordChar(text[start])) return null;
+  for (const [core, channel] of byCore) {
+    // A fold keeps the length of a run or shortens it (combining marks go): try ends from the core's length on.
+    for (let end = start + 1; end <= Math.min(text.length, start + core.length * 2 + 2); end += 1) {
+      if (isWordChar(text[end])) continue;
+      if (foldText(text.slice(start, end)) !== core) continue;
+      let stop = end;
+      while (stop < text.length && !isWordChar(text[stop]) && NAME_DECOR_RE.test(String.fromCodePoint(text.codePointAt(stop)))) {
+        stop += String.fromCodePoint(text.codePointAt(stop)).length;
+      }
+      return { channel, end: stop };
+    }
+  }
+  return null;
+}
+
 /**
  * Turn every `#name` of a known channel in the persona's outgoing `text` into
  * the real channel link `<#id>` -- incoming `<#id>` mentions reach the model as
  * `#name` (src/discord/collect.js), so this is the way back out. Exact,
- * case-sensitive names, the longest first (a name may be a prefix of another);
+ * case-sensitive names first, the longest first (a name may be a prefix of another);
+ * then, failing that, the core (channelCore, matchChannel's rule): the written name with other or
+ * no leading emoji, in any case and accents, links to the one channel with that core, never to
+ * one of several sharing it, the longest core first, its trailing emoji taken along;
  * a match counts only when the character before `#` is not a word character
  * and the one after the name is not a word character either (or the end). An
  * existing `<#id>` link is left alone; text without `#` comes back unchanged.
@@ -311,6 +383,15 @@ export function linkChannels(text, channels) {
   }
   if (known.length === 0) return text;
   known.sort((a, b) => b.name.length - a.name.length);
+  // Each core shared by exactly one channel, the longest first.
+  const counts = new Map();
+  for (const channel of known) {
+    const core = channelCore(channel.name);
+    if (core) counts.set(core, [...(counts.get(core) ?? []), channel]);
+  }
+  const byCore = new Map(
+    [...counts.entries()].filter(([, channels]) => channels.length === 1).sort((a, b) => b[0].length - a[0].length).map(([core, [channel]]) => [core, channel]),
+  );
 
   let result = '';
   let index = 0;
@@ -321,11 +402,12 @@ export function linkChannels(text, channels) {
     const before = text[at - 1];
     let linked = null;
     if (before !== '<' && !isWordChar(before)) {
-      linked = known.find(({ name }) => text.startsWith(name, at + 1) && !isWordChar(text[at + 1 + name.length])) ?? null;
+      const exact = known.find(({ name }) => text.startsWith(name, at + 1) && !isWordChar(text[at + 1 + name.length])) ?? null;
+      linked = exact ? { channel: exact, end: at + 1 + exact.name.length } : coreAt(text, at + 1, byCore);
     }
     if (linked) {
-      result += `<#${linked.id}>`;
-      index = at + 1 + linked.name.length;
+      result += `<#${linked.channel.id}>`;
+      index = linked.end;
     } else {
       result += '#';
       index = at + 1;
