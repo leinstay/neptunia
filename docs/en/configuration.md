@@ -65,6 +65,8 @@ Every key in `config.json` with its default, grouped by section.
 | `memberCommands` | `true` | The `/nep pings` command, open to every member; `false` restricts it to owners |
 | `skills` | `true` | The persona's skill gateway. `false` refuses every skill call, which also silences carried-over reply effects (messages, reactions, drawing): a full stop. A missing key counts as on |
 | `skillsDiscovery` | `true` | The lookup classifier and the turn planner can name skills relevant to the message or request the full list on an inventory question. A `<skills_protocol>` block sits in the stable part, and a `<skills>` block with the full list is added on an inventory request. Off when `features.skills` is off. A missing key counts as on |
+| `missedAnswers` | `true` | Track messages that may have been left unanswered: a failed address classifier, a replaced deferred follow-up, a turn that errored, was dropped or ended not-now. Each becomes a candidate in a registry, journaled as kind `answer`. A missing key counts as on. See [`missed`](#missed) |
+| `missedRecovery` | `false` | When the sweep finds owed candidates, start one reply turn to pick them up (trigger kind `missed`, `labels.task.missed`). Off (the default), the sweep classifies and journals only (shadow mode). Must be exactly `true` to enable; a missing key counts as off |
 
 ## `skills`
 
@@ -486,6 +488,20 @@ At most one re-watch or retry per turn. Answers are cached for one hour per ques
 | `pauseNoticeMinutes` | `10` | Minimum minutes between pause notices in the same channel. `0` posts one for every call |
 
 Follow-up windows are persisted in `data/state.json` under `followUpWindows` and restored at startup; expired ones are dropped.
+
+## `missed`
+
+Settings for missed-answer recovery (`features.missedAnswers`). When a message may have been left unanswered (the address classifier failed, a deferred follow-up was replaced, a turn errored, was dropped or ended not-now), it becomes a candidate. After the channel goes quiet, a helper (`prompts/missed.md` on the `analyzer` role, purpose `missed`) reads the recent transcript and returns one verdict per candidate. With `features.missedRecovery` on, owed candidates start a reply turn; with it off, the verdicts are only journaled. State is persisted in `data/guilds/<id>/missed.json`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `sweepDelaySeconds` | `90` | Seconds after the last candidate in a channel before the sweep runs. Pushed back by every new message, never past `sweepMaxDelaySeconds` |
+| `sweepMaxDelaySeconds` | `240` | The sweep fires no later than this many seconds after the last candidate, whatever the traffic |
+| `expireMinutes` | `5` | Minutes before a candidate expires without a verdict. A message with a question mark uses `questionExpireMinutes` instead |
+| `questionExpireMinutes` | `15` | Expiry for a message that contains a question mark (ASCII or full-width) |
+| `channelCooldownMinutes` | `5` | Minimum minutes between recovery turns in the same channel |
+| `contextMessages` | `20` | Recent channel messages included in the helper's transcript |
+| `maxOutputTokens` | `2000` | Max output tokens for the helper |
 
 ## `typing`
 

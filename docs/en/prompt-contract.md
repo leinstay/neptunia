@@ -59,6 +59,7 @@ All instructions are English in both layers; a character's speech samples may be
 | `gif-pick.md` | no | Classifier: pick a GIF from the library to replace a short text reply (`features.gifPicker`). Receives the last `gifs.pick.contextMessages` chat lines with the answered message named, the persona's reply and the whole captioned library. The length gate is `gifs.pick.maxChars` (default 160); with several outgoing messages only the first is replaced. Output is one handle from the library or `none`. No character card | `{{name}}` |
 | `split.md` | no | Classifier: does a direct call hold several separate requests (`features.splitTasks`). Receives a short `<transcript>` and the new message as `<candidate>`. Output is the word `one`, or 2 to `{{maxTasks}}` lines each starting with `- ` and holding one part in the author's own words. No character card. Without this file the splitter is off | `{{name}}` `{{maxTasks}}` |
 | `merge.md` | no | Classifier: does a new message from an author with waiting items belong to one of them. Receives a numbered `<waiting>` list and the new message as `<candidate>`. Output is one line: a number from the list or the word `new`. No character card. Without this file a new call is always queued as its own item | `{{name}}` |
+| `missed.md` | no | Classifier: do earlier messages to the persona still need an answer (`features.missedAnswers`). Role `analyzer`, purpose `missed`. Receives a short transcript (`missed.contextMessages` lines, the persona's own lines marked with `labels.self`, trigger markers when on) and a `<candidates>` block of numbered messages with their transcript line and the reason they were flagged. Output is one `n: verdict` line per candidate: `owed`, `resolved`, `intentional-skip`, `stale` or `uncertain`. A failed call gives every candidate `unchecked`, never `owed`. No character card | `{{name}}` |
 | `backfill.md` | no | Out-of-character prompt of the backfill tool (`tools/backfill.mjs extract`, never the running bot): picks episodes worth months and lessons taught to the persona out of one window of old chat. Receives `<roster>` and `<window>`. Returns JSON. No character card. Without it the tool's extract step refuses | `{{name}}` |
 | `labels.json` | yes | Every string the CODE inserts into a prompt. Keys fixed below, values are the writer's | see below |
 | `skills.json` | yes | The persona's skill texts, keyed by skill name (`hot.prompts.skills`). Deep-merged like `labels.json`: a local file adds or overrides individual keys. Each key holds `title`, `whenToUse`, `whenNotToUse`. Code joins them with the structural definition from `src/skills/registry.js` at the moment of use (`describeSkill`) | none |
@@ -110,7 +111,7 @@ The blocks of the user message. Empty ones are omitted; the order in the reply r
 | `<now>` | Date, weekday, time in `config.bot.timezone`, formatted with `labels.locale`. When `features.offPeriods` is on, followed by `labels.journal.offLead` and up to 3 recent downtime periods (newest first, from the journal's system records over the last `journal.offWindowHours`): each uses `labels.journal.offPaused` or `labels.journal.offStopped` |
 | `<senses>` | What the persona can and cannot perceive RIGHT NOW, generated from the live config: which pictures they see themselves, which come as a helper's description, what they are blind and deaf to. So the persona never pretends to have watched a video and can joke about it in their own voice |
 | `<tempo>` | Counts for 10 min / hour / day, distinct people, silence, a verdict (live / slow / dead) |
-| `<task>` | `reply` / `follow-up` (when `follow-up.md` exists, for `followUp` and an untagged `reply`) / `interject` / `initiate` / `overheard` (when `overheard.md` exists) / `elsewhere` (when `elsewhere.md` exists, for a noticed comment) / `diary` (when `diary.md` exists, for a diary post), placeholders filled. After the mode prompt, up to three `task.*` labels are appended when their conditions hold (each separated by a blank line): `task.part` when the turn answers one part of a split message, or `task.queued` when the trigger author has other calls waiting; then `task.queuedOthers` when other members have calls waiting in the channel; then `task.added` when later messages were folded into this call. See `labels.task.*` below |
+| `<task>` | `reply` / `follow-up` (when `follow-up.md` exists, for `followUp` and an untagged `reply`) / `missed` (a recovery turn, `features.missedRecovery`) / `interject` / `initiate` / `overheard` (when `overheard.md` exists) / `elsewhere` (when `elsewhere.md` exists, for a noticed comment) / `diary` (when `diary.md` exists, for a diary post), placeholders filled. After the mode prompt, up to four `task.*` labels are appended when their conditions hold (each separated by a blank line): `task.missed` when the turn is a recovery for earlier unanswered messages; then `task.part` when the turn answers one part of a split message, or `task.queued` when the trigger author has other calls waiting; then `task.queuedOthers` when other members have calls waiting in the channel; then `task.added` when later messages were folded into this call. See `labels.task.*` below |
 
 Budget priority (sections are trimmed from the bottom of this list first): system + task + clock + tempo + senses
 (never cut) -> caller's profile with episodes -> lookup (kept or dropped whole; may hold a web part, a server part or both) -> about_chat -> self_facts -> lore -> server -> chat (newest first) ->
@@ -332,6 +333,7 @@ elsewhere.link                           {text} {link}: joins the jump link to t
 triggers.mention | reply | name | followUp | overheard   followUp = an untagged message the address classifier judged to be for the persona; overheard = talk about the persona, not to them. Both post plain, never as a Discord reply. overheard falls back to followUp, then reply
 triggers.private                         the trigger for a private (DM) message
 triggers.drawFailed                      {reason}: the drawing sub-process failed; reason is the human phrase from draw.reasons.*
+triggers.missed                          the trigger for a missed-answer recovery turn (features.missedRecovery)
 draw.when                                {when}: the local date and time shown to the image model so the light and season match. Filled for every picture (diary or not) when the time is known; empty otherwise
 draw.reasons.moderation | daily | userDaily | timeout | error    human phrases for the five failure reasons; daily and userDaily are reserved but no longer reached by triggers.drawFailed — an image cap now posts limits.notice instead of a follow-up turn
 diary.intro                              first line of the `<diary>` block
@@ -370,6 +372,7 @@ task.part                                {index} {total} {part} {others}: this t
 task.queued                              {others}: the trigger author has other calls waiting, listed as numbered items joined by `; `. Shown only when there is no `task.part` for this turn. Without this key the waiting calls are not named and the seen-in-history drop rule applies to them
 task.queuedOthers                        {others}: other members have calls waiting in this channel, listed as `<n>. <author>: <text>` items joined by `; `. Without this key those calls are not named
 task.added                               {added}: later messages from the author were folded into this call while it waited, joined by `; `. Without this key the folded messages are not named
+task.missed                              {missed}: on a recovery turn (trigger kind `missed`, `features.missedRecovery`), the earlier messages that got no answer, listed as `<n>. <author>: <text>` items joined by `; `. Appended before `task.part`. Without this key the messages are not named
 journal.offLead                          lead line before the persona's recent downtime periods in `<now>`
 journal.offPaused                        {from} {to} {length}: one period when the owner paused the persona
 journal.offStopped                       {from} {to} {length}: one period when the service was off
@@ -925,6 +928,40 @@ Without `prompts/split.md` the splitter is off (`split: skipped`, `no-prompt`). 
 ## Merge classifier
 
 When a call arrives from an author who already has items waiting in that channel (parts of a split message the chain has not reached, or queued calls in the pending list), a classifier (`prompts/merge.md` on the `analyzer` role, purpose `merge`) decides whether the new message belongs to one of them. The classifier reads a `<waiting>` block of numbered items (`1. <text>`, one per waiting item) and the new message as `<candidate>` (`<author name>: <text>`). Its answer is one line: a number from the waiting list or the word `new`. A folded message never gets a turn of its own; it appears in the turn of its item through `labels.task.added` (`{added}`). Routed calls are never folded into. Without the prompt file, every call is queued as its own item (`merge: failed`, `no-prompt`). Logged as `merge: verdict` or `merge: failed`. No config settings of its own; the output cap is `mention.followUpMaxOutputTokens`.
+
+## Missed-answer recovery
+
+When the persona may have left a message unanswered (the follow-up address gate failed, a deferred follow-up was replaced by a newer one, a turn errored, was dropped as too slow, or ended not-now), the message becomes a candidate. Switch `features.missedAnswers` (missing = on); `features.memory` off turns it off.
+
+`missed.sweepDelaySeconds` (default 90) after the channel goes quiet, a sweep runs. Code resolves what it can first: a candidate answered by a later turn of the persona in that channel, or expired after `missed.expireMinutes` (default 5, or `missed.questionExpireMinutes` 15 for a message with a question mark). What is left goes to one helper call per channel: `prompts/missed.md` on the `analyzer` role (purpose `missed`, output cap `missed.maxOutputTokens` 2000). System: the prompt with `{{name}}`. User: a transcript of the last `missed.contextMessages` (default 20) lines with the persona's own lines marked by `labels.self`, trigger markers when on, then a `<candidates>` block of numbered messages with their transcript line number and the reason code. Each new message in the channel pushes the sweep back, never past `missed.sweepMaxDelaySeconds` (default 240).
+
+Output is one `n: verdict` line per candidate (a period, a parenthesis or a dash may stand for the colon). Verdicts: `owed` (the message needs an answer and none came), `resolved` (a later line of the persona's covers it), `intentional-skip` (the message asks nothing of the persona), `stale` (the conversation moved on), `uncertain` (cannot tell). An empty or failed call gives `unchecked`, never `owed`.
+
+With `features.missedRecovery` exactly `true`, `owed` candidates of a channel start one ordinary reply turn together (trigger kind `missed`, the earliest candidate as the trigger, all listed under `labels.task.missed` with `{missed}` = `<n>. <author>: <text>` items joined by `; `). One attempt per candidate, at most one recovery turn per channel every `missed.channelCooldownMinutes` (default 5), never while paused or warming up. The turn posts nothing when the persona already spoke in that channel since the sweep started. With the switch off (the default), the sweep classifies and journals only (shadow mode).
+
+### Data file
+
+`data/guilds/<id>/missed.json`: the candidate registry, written whole through a `.tmp` file and a rename. Closed candidates and those older than a day are dropped at startup and on every write; the registry holds at most 500 entries. The file survives restarts; at start, candidates are reconciled with the journal of the last hour.
+
+### Journal
+
+Every candidate writes `answer` records to the journal:
+
+- `fact`: a candidate was registered (reason, message id, channel id, author id).
+- `verdict`: the helper returned a verdict (verdict code, message id).
+- `resolved`: code resolved the candidate before the helper ran (message id).
+- `expired`: the candidate expired without a verdict (message id).
+- `recovery`: a recovery turn started for this channel (message ids of the owed candidates).
+
+Records carry ids only, never message text. `/nep memory journal kind:answer` shows these records.
+
+### Status card
+
+The `/nep status` card carries a speed line: `missed: N candidates, M owed, K recovered`, where the counts are the day's totals.
+
+### Logs
+
+`missed: candidate` (channelId, reason, messageId), `missed: resolved` (channelId, messageId), `missed: expired` (channelId, messageId, reason), `missed: verdict` (channelId, verdict, messageId), `missed: helper failed` (channelId, reason or error), `missed: recovery` (channelId, candidates count), `missed: recovery held` (channelId, reason), `missed: sweep skipped` (channelId, reason). Ids and counts only, never message contents.
 
 ## Participation episodes
 
