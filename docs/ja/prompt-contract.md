@@ -86,7 +86,8 @@
 | `<about_chat>` | 人々がここでどう話すか、会話の始め方と割り込み方、内輪ネタ、人々がペルソナに教えたこと |
 | `<emoji>` | ペルソナが使えるカスタム絵文字（`features.customEmoji`）: 最大 `context.customEmoji.max` エントリ、メンバーの使用頻度でランク付け。各エントリは `:name:` とキャッシュ済みのヘルパーキャプション（ある場合）。`labels.emoji.seenInChat` がある場合、トランスクリプト・プルされたチャンネル・隣接チャンネルに出現したがトップリストに含まれない説明付きカスタム絵文字がそのサブ見出しの下に表示される。トランスクリプト行ではすべてのカスタム絵文字が素の `:name:` のまま残る。ラベルがない場合（またはブロックがない場合）はインラインの `transcript.emojiDescribed` タグがそのまま使用される |
 | `<gifs>` | ペルソナが投稿できる GIF（`features.gifs`）: 最大 `gifs.max`（デフォルト 40）エントリ、使用頻度と新しさでランク付け。各エントリはハンドル（`g1`、`g2`、...）とキャッシュ済みの説明 3 フィールド（ある場合）: リアクションラベル（`gifs.reactionChars` で制限、デフォルト 40）、可視アクション（`gifs.actionChars` で制限、デフォルト 70）、画面上のテキスト。フィールド付きエントリは `labels.gifs.entryFields`（`{id}`、`{reaction}`、`{action}`、`{text}`; コードが空フィールドとそのセパレータを除去）で表示; フィールドなしのエントリは `labels.gifs.entry`（`{id}`、`{text}`）でキャプションを単語境界でカット。各エントリはペルソナ自身の投稿時刻と回数も記録し（`ownLast`、`ownUses`）、`gifs.ownMarkHours`（デフォルト 24、`0` = オフ）以内に投稿されたものには `gifs.ownMark` が短い相対時間とともに付く |
-| `<skills_protocol>` | `labels.skills.protocol` の静的テキスト: ペルソナにはスキルがあり、リクエストに応じてフルリストが表示され、アクセスはエンジンが確認する。`features.skills` と `features.skillsDiscovery` の両方がオンの場合に表示。安定部分、`<senses>` の後 |
+| `<skills_protocol>` | `labels.skills.protocol` の静的テキスト: ペルソナにはスキルがあり、使えるものは名前で列挙、詳細はそのスキルが必要なメッセージか質問時に表示、呼び出しは `<call>` のみ、アクセスはエンジンが確認。`features.skills` と `features.skillsDiscovery` の両方がオンの場合に表示。安定部分、`<senses>` の後 |
+| `<skills_granted>` | ペルソナに付与されたスキルの名前。毎ターン表示し、分類器なしで何が使えるかわかるようにする: `labels.skills.granted.lead`（設定時）、次にファミリーごとに `labels.skills.granted.line`（`{family}` は名前の最初のドットまでの部分、`{names}` は各名前のそれ以降、カンマ区切り）。名前のみ; タイトル、使用条件、引数は `<skills>` にとどまる。ペルソナのグラント（`bot.access` のユーザー id エントリ）とレジストリから構築、名前順ソート。誰がどこで尋ねてもターン間でバイト同一、グラントが変わるまで。グラントのないスキルは除外、`skills.safeMode` でリストは空。引き継ぎリプライタグはグラント時のみ表示。リクエスタの権限はここに反映されない: エンジンは呼び出しごとに確認。カットなし。`features.skills`、`features.skillsDiscovery`、`features.skillsAlwaysListed` がすべてオンで少なくとも 1 つのスキルが付与されている場合に表示。安定部分、`<skills_protocol>` の直後 |
 | `<server>` | 現在のチャンネルの詳細（Discord カテゴリとトピック、目的、投稿内容、トーン、アクティビティ、最新メッセージ、トップライター。`labels.server.currentMark` でマーク）に加え、このターンで `<other_channels>` に供給した隣接チャンネルのみ。他のチャンネルは含まない |
 | `<lore>` | 直近のメッセージにキーが出現するサーバーのロアブックエントリ（常時表示マーク付きのエントリも含む）: イベント、繰り返し登場するキャラクター、長期にわたるストーリー。ロアブックのように数百エントリが存在できるが、該当する少数だけが表示される |
 | `<self_facts>` | ペルソナが自身について主張した内容 |
@@ -329,7 +330,7 @@ task.part                                {index} {total} {part} {others}: this t
 task.queued                              {others}: the trigger author has other calls waiting, listed as numbered items joined by `; `. Shown only when there is no `task.part` for this turn. Without this key the waiting calls are not named and the seen-in-history drop rule applies to them
 task.queuedOthers                        {others}: other members have calls waiting in this channel, listed as `<n>. <author>: <text>` items joined by `; `. Without this key those calls are not named
 task.added                               {added}: later messages from the author were folded into this call while it waited, joined by `; `. Without this key the folded messages are not named
-skills.protocol                          `<skills_protocol>` ブロックの静的テキスト: ペルソナにはスキルがあり、リクエストでフルリストが表示され、アクセスはエンジンが確認する
+skills.protocol                          `<skills_protocol>` ブロックの静的テキスト: ペルソナにはスキルがあり、使えるものは名前で列挙、詳細はそのスキルが必要なメッセージか質問時に表示、呼び出しは `<call>` のみ、アクセスはエンジンが確認
 skills.line                              {name} {title} {whenToUse} {access} {args}: `<skills>` リストの 1 スキル。{access} は skills.access.* のいずれか; {args} は skills.args.list、引数なしの場合は空
 skills.args.list                         {list}: 1 スキルの引数、skills.line の {args} を埋める（先頭のスペースや句読点はここに含める: 引数なしのスキルでは {args} が空のため）。{list} はコマンドのオプション順に「, 」で結合; このラベルがなければ引数は表示されない
 skills.args.required                     {arg}: 呼び出しに必須の引数をラップ
@@ -338,6 +339,8 @@ skills.args.range                        {arg} {min} {max}: 範囲付き数値�
 skills.args.body                         {arg}: `<call …>` と `</call>` の間のテキストが埋めるオプション（`text`）
 skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denied    5 状態の短いアクセスフレーズ: 許可; リプライ経由で許可; 未有効化; セーフモード; この人には不可
 skills.proposedOff                       {names}: 提案のみの `<skills>` ブロック末尾に表示され、許可されていない提案スキルを列挙する
+skills.granted.lead                      OPTIONAL: `<skills_granted>` の最初の行、ファミリー行の前。なければファミリー行のみ
+skills.granted.line                      {family} {names}: `<skills_granted>` 内のペルソナに付与されたスキルの 1 ファミリー。{names} はファミリーとドットの後の各名前の残り、「, 」で結合。このラベルがなければ `<skills_granted>` ブロックなし
 skills.result.alreadyPosted              OPTIONAL {text}: 最初のパスで既に投稿された各アクション（メッセージ、リアクション、画像）に対する 1 行。このラベルなしでは投稿済みアクションは列挙されない
 skills.result.ok                         データを返した読み取り呼び出しのステータス行。次の行にデータが続く
 skills.result.refused                    {reason}: 実行前にエンジンが呼び出しを拒否

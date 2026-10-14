@@ -303,7 +303,7 @@
     "offStopped": "Off, {from} to {to} ({length})"
   },
   "skills": {
-    "protocol": "You have skills described in a registry. When someone asks what you can do, <skills> shows the full list with whether you may use each one. The engine checks your rights. Do not reach for a skill unless the message needs one.",
+    "protocol": "You have skills; what you may use is listed by name. The full description of a skill arrives with the message that needs it, or when someone asks what you can do. A skill runs only through <call>; the engine checks your rights.",
     "line": "{name}: {title} — {whenToUse} ({access}){args}",
     "args": {
       "list": " Arguments: {list}.",
@@ -321,7 +321,7 @@
     },
     "proposedOff": "Might fit here but not switched on for you: {names}.",
     "granted": {
-      "lead": "Skills granted to you, by family (the details come when one fits the message or someone asks what you can do):",
+      "lead": "Your skills, by family (details come when a skill fits the message, or on request):",
       "line": "{family}: {names}"
     },
     "result": {
