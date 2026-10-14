@@ -113,7 +113,7 @@ Eight model roles. Each is set independently under `roles.<name>` with its own d
 | `provider` | `null` | OpenRouter `provider` routing object, passed verbatim; `null` sends nothing |
 | `providerByModel` | `{}` | Per-model provider routing; see below |
 | `cache.ttl` | `"1h"` | Cache TTL of the markers on the system message and on the reply's stable user prefix (the stable `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`): `"1h"` or `"5m"` |
-| `cache.profilesTtl` | `"5m"` | Cache TTL of the separate marker on the reply's profiles (`<people>`): `"1h"` or `"5m"`; `null` or `false` = no marker there. Never longer than `cache.ttl` (a `"5m"` `cache.ttl` makes it `"5m"`) |
+| `cache.profilesTtl` | `"1h"` | Cache TTL of the separate marker on the reply's profiles (`<people>`): `"1h"` or `"5m"`; `null` or `false` = no marker there. Never longer than `cache.ttl` (a `"5m"` `cache.ttl` makes it `"5m"`) |
 | `cache.roles` | `["voice"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached. Add `analyzer` and `reasoner` to cache the helpers' stable parts too |
 | `cache.models` | `["anthropic/"]` | Model id prefixes (case-sensitive) whose provider accepts the `cache_control` marker. A request to a model outside the list is sent without one |
 | `cache.promptIncludesCached` | `true` | Whether the provider's reported `prompt_tokens` already includes cached and cache-write tokens. Set once from a probe; the token calibration and the per-request cap use the full count either way |
