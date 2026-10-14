@@ -41,6 +41,10 @@
 // The persona's time away (`offPeriods`, `createOffPeriodsReader`): the owner's pauses and the
 // service's stops of the last hours, read from the system records (`timeline`), for her request.
 //
+// Which message started the turn that posted each of her messages (`triggerLinks`,
+// `triggerLinksOf`): read once at start, so her transcript lines keep naming their turn's trigger
+// across a restart (src/behavior/turn.js).
+//
 // Logs carry the kind and an error code, never the record's contents.
 
 import path from 'node:path';
@@ -286,6 +290,36 @@ export function createOffPeriodsReader({ journal, now = Date.now, log = defaultL
   };
 }
 
+/**
+ * Which message started the turn that posted each of the persona's messages, from journal
+ * records (parsed lines, any kinds, oldest first): a `turn.start` names its turn's trigger
+ * (`trigger.messageId`), a `turn` record its posts (`posted[].messageId`), joined by `turnId`.
+ * A turn without a trigger (a spontaneous turn, the diary) or whose `turn.start` is not among the
+ * records links nothing. `[postedId, triggerId]` pairs in the order of the posts. Pure.
+ * @param {unknown[]} records
+ * @returns {Array<[string, string]>}
+ */
+export function triggerLinksOf(records) {
+  const list = Array.isArray(records) ? records : [];
+  const triggers = new Map(); // turnId -> trigger messageId
+  for (const record of list) {
+    const triggerId = record?.trigger?.messageId;
+    if (record?.kind === 'turn.start' && typeof record.turnId === 'string' && typeof triggerId === 'string' && triggerId) {
+      triggers.set(record.turnId, triggerId);
+    }
+  }
+  const out = [];
+  for (const record of list) {
+    if (record?.kind !== 'turn' || !triggers.has(record.turnId) || !Array.isArray(record.posted)) continue;
+    const triggerId = triggers.get(record.turnId);
+    for (const post of record.posted) {
+      const postedId = post?.messageId;
+      if (typeof postedId === 'string' && postedId && postedId !== triggerId) out.push([postedId, triggerId]);
+    }
+  }
+  return out;
+}
+
 /** The record's scope: the partner's private layer, a channel, or the whole guild. */
 function scopeOf({ privateUserId = null, channelId = null } = {}) {
   if (typeof privateUserId === 'string' && privateUserId) return { user: privateUserId, private: true };
@@ -317,6 +351,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   system(guildId: string, record: object): Promise<void>,
  *   read(guildId: string, query: { day: string, kind?: string, n?: number, privateUserId?: string|null }): Promise<object[]>,
  *   timeline(guildId: string, query: { from: number }): Promise<Array<{ at: number, kind: string, event: string|null }>>,
+ *   triggerLinks(guildId: string, query: { days: string[] }): Promise<Array<[string, string]>>,
  *   dayFile(guildId: string, dateIso: string, privateUserId?: string|null): string,
  *   op(guildId: string, base: object): { opId: string, started(extra?: object): Promise<void>,
  *     succeeded(result?: object): Promise<void>, failed(code: string, result?: object): Promise<void>,
@@ -544,6 +579,21 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       }
     }
     return out.map((entry, i) => ({ entry, i })).sort((a, b) => a.entry.at - b.entry.at || a.i - b.i).map(({ entry }) => entry);
+  }
+
+  /**
+   * The guild journal's `[postedId, triggerId]` pairs of `days` (UTC day keys, oldest first;
+   * triggerLinksOf over their `turn.start` and `turn` records, read in that order, so a turn that
+   * closed the day after it started is joined). A private journal is not read.
+   */
+  async function triggerLinks(guildId, { days = [] } = {}) {
+    const records = [];
+    for (const day of Array.isArray(days) ? days : []) {
+      for (const record of await read(guildId, { day, n: Number.MAX_SAFE_INTEGER })) {
+        if (record.kind === 'turn.start' || record.kind === 'turn') records.push(record);
+      }
+    }
+    return triggerLinksOf(records);
   }
 
   function op(guildId, base = {}) {
@@ -962,6 +1012,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     system,
     read,
     timeline,
+    triggerLinks,
     dayFile,
     op,
     pending,

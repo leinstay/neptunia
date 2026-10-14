@@ -18,6 +18,7 @@
 | `lore` | `true` | 服务器级世界书 |
 | `reactions` | `true` | 表情反应（角色放置反应） |
 | `seeReactions` | `true` | 在对话记录中显示消息上的反应。缺失的键视为开启。与 `reactions`（控制角色是否放置反应）不同，此项控制角色是否看到它们 |
+| `triggerMarkers` | `true` | 在角色及其辅助模型读取的对话记录中，角色发出的每一行标注发起该回合的消息（`labels.transcript.triggeredBy`，超出视野时为 `triggeredByOlder`），使迟到的回答不会被当作对更新问题的回答。缺失的键视为开启 |
 | `customEmoji` | `true` | 列出服务器自定义表情（按使用率排名），使角色可以通过 `:name:` 使用它们。缺失的键视为开启 |
 | `gifs` | `true` | 从成员分享的内容构建 GIF 库，让角色通过 handle 发送。缺失的键视为开启 |
 | `gifPicker` | `true` | 当角色的第一条消息不超过 `gifs.pick.maxChars` 个字符且自己没选 GIF 时，分类器从完整库中挑选合适的 GIF。匹配时 GIF 替换第一条消息；其余消息照常发布。缺失的键视为开启。需要 `features.gifs` 开启且库非空 |

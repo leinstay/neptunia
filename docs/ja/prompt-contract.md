@@ -153,6 +153,8 @@ GIF ピッカー（`features.gifPicker`、デフォルトオン）。ペルソ�
 リクエストごとに計算され、保存されない。それ以外のトランスクリプト（分類器、サーバー検索の原文ストレッチ、アナライザー、
 ウォームアップ）は時刻のみ。
 
+`features.triggerMarkers` がオン（キー欠落 = オン）のとき、あるメッセージが起こしたターンでペルソナが投稿した行は、ペルソナ名のあとにそのメッセージを示す: `#100 [12:01] nick (you) (turn triggered by #98): text`（`labels.transcript.triggeredBy`、`{n}` は同ブロック内のトリガーの番号）、またはトリガーがブロックの行にないとき `labels.transcript.triggeredByOlder`（推測された番号は入らない）。マーカーはターンがどこから来たかを示すもので、そのメッセージに回答したという意味ではない。自身のトリガーへの Discord リプライである行はリプライマーカーだけを表示し、別のメッセージへのリプライは両方を表示する。1 つのターンが投稿した行はすべて同じトリガーを示す。自発ターン、日記投稿、アナライザーのトランスクリプトにはマーカーがない。紐付けは Discord message id で保持され（投稿ごとにプロセス内に記録、起動時にジャーナルの昨日と今日の `turn.start` と `turn` レコードから再構築）、トランスクリプトの描画時に番号が付く。`<chat>`、`<channel_view>` およびターンの履歴から構築されるすべてのヘルパートランスクリプトに表示される。隣接チャンネルの行は `#n` を持たず、マーカーもない。
+
 ## ラベル
 
 `labels.json` のキー。`{x}` はコードが挿入します。
@@ -167,6 +169,8 @@ transcript.gapWithDate                   {duration} {date}: 同上、2 行の間
 transcript.date | header                 {date}
 transcript.timeAged                      {clock} {age}: 投稿から `context.ageAfterMinutes` 分以上たった行の、角括弧を含む時刻部分全体を置き換える。age は `labels.units` 単位の時間。それより新しい行は `[{clock}]` のまま。キーがないか空の場合、経過時間は表示されない
 transcript.empty | replyToOld | image
+transcript.triggeredBy                   {n}: ペルソナの行のペルソナ名のあと、その行を投稿したターンを起こしたメッセージの番号（features.triggerMarkers）。空 = マーカーなし
+transcript.triggeredByOlder              同上、そのメッセージがブロックに含まれない場合。空 = マーカーなし
 transcript.replyTo                       {index} {author} {quote}: 親メッセージの番号、その著者（親がペルソナ自身の場合は self ラベル）、親テキストの引用（`context.replyQuoteChars`（デフォルト 80、`0` = 全文）で単語境界にカット。メディアのみの親はそのメディアラベルを引用する）
 transcript.file | sticker                {name}
 transcript.stickerDescribed              {name} {text}

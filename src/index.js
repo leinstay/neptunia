@@ -466,6 +466,19 @@ async function reconcileJournal(guildId) {
   log.info('journal: reconciled', { guildId, succeeded: counts.succeeded, unknown: counts.unknown });
 }
 
+/**
+ * Which message started the turn that posted each of the persona's messages of yesterday and
+ * today (the journal's turn records), handed to the turn runner so her lines posted before this
+ * start keep naming their trigger in the transcripts. Read whatever the switches: the runner
+ * renders the links only with features.triggerMarkers on, and a journal never written gives none.
+ */
+async function seedTriggerLinks(guildId) {
+  const at = Date.now();
+  const pairs = await journal.triggerLinks(guildId, { days: [utcDay(at - DAY_MS), utcDay(at)] });
+  turns.seedTriggerLinks(pairs);
+  log.info('journal: trigger links read', { guildId, links: pairs.length });
+}
+
 /** Whether the journal is written now (features.journal exactly true, read now). */
 const journalOn = () => hot.config.features?.journal === true;
 
@@ -554,6 +567,11 @@ client.once(Events.ClientReady, async () => {
   // The journal's start: unfinished forgets, an unclean stop, the start record. Awaited, so the
   // reconciliation below reads a journal that hides every member being forgotten.
   await startupStep('journal.start', () => startJournal(instance.guildId), { wait: true });
+
+  // The links of the persona's recent lines to the messages that started their turns, rebuilt
+  // from the journal once the forgets are settled. Fire-and-forget: a turn before it is done
+  // only lacks the older links.
+  await startupStep('journal.triggerLinks', () => seedTriggerLinks(instance.guildId));
 
   // The meaning index caught up with what the record took while the queue was down (the last
   // embed.catchUpHours), once the forgets are settled. Fire-and-forget; nothing while paused or

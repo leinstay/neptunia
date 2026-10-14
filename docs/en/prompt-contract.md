@@ -166,6 +166,17 @@ minutes old by the request's clock (the same moment as `<now>`) renders its time
 are computed for each request and never stored; every other transcript (classifiers, the verbatim stretches of a server
 search, the analyzer, the warmup) keeps the plain time.
 
+With `features.triggerMarkers` on (a missing key counts as on), a line the persona posted in a turn that a message
+started names that message after her name: `#100 [12:01] nick (you) (turn triggered by #98): text`
+(`labels.transcript.triggeredBy`, `{n}` the trigger's number in the same block), or `labels.transcript.triggeredByOlder`
+when the trigger is not among the block's lines (never a guessed number). It states where the turn came from, not that
+the message is answered. A line that is a Discord reply to its own trigger shows only its reply marker; a reply to
+another message shows both. Every line one turn posted names the same trigger; a spontaneous turn, a diary post or the
+analyzer's transcript shows none. The link is kept by Discord message id (in process at each post, rebuilt at start
+from the journal's `turn.start` and `turn` records of yesterday and today) and numbered when the transcript is
+rendered. It appears in `<chat>`, `<channel_view>` and every helper transcript built from the turn's history; the
+neighbours' lines show no `#n` and carry none.
+
 ## Labels
 
 The keys of `labels.json`; `{x}` is filled by code.
@@ -180,6 +191,8 @@ transcript.gapWithDate                   {duration} {date}: the same across a da
 transcript.date | header                 {date}
 transcript.timeAged                      {clock} {age}: replaces the whole bracketed time of a line at least `context.ageAfterMinutes` old; age is a duration in `labels.units`; younger lines keep `[{clock}]`; a missing or empty key shows no ages
 transcript.empty | replyToOld | image
+transcript.triggeredBy                   {n}: after the persona's name on her line, the number of the message that started the turn which posted it (features.triggerMarkers); blanked: no marker
+transcript.triggeredByOlder              the same when that message is not in the block; blanked: no marker
 transcript.replyTo                       {index} {author} {quote}: the parent message's number, its author (the self label when the parent is the persona's own) and a quote of the parent's text, cut at a word boundary to `context.replyQuoteChars` (default 80; `0` = whole); a parent with only media quotes its media labels
 transcript.replyToMemory                 {author} {quote}: appended to a line in the analyzer transcript; names the parent's author (the self label when the parent is the persona's own) and quotes its text. No `{index}`. A parent outside the batch renders `replyToOld`
 transcript.file | sticker                {name}

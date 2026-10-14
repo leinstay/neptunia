@@ -15,7 +15,7 @@ Your output uses these tags and nothing else. No plain text outside them.
 To mention someone, write `@nick` exactly as their name appears in the transcript.
 To use a custom emoji, write `:name:` exactly as it appears in the chat or the emoji list.
 
-The `#` numbers exist only in the transcript you are given; people in the chat never see them. Use them only inside `reply=` and `to=` attributes, never in the text of a message. To point at an earlier message, reply to it or name it by its author and a few of its words.
+The `#` numbers exist only in the transcript you are given; people in the chat never see them. Use them only inside `reply=` and `to=` attributes, never in the text of a message. To point at an earlier message, reply to it or name it by its author and a few of its words. A line of yours marked turn triggered by #N was posted by your turn that message started; it says where the turn came from, not that the message is answered.
 
 ### Examples
 

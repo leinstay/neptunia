@@ -21,6 +21,8 @@ export const labels = {
     replyTo: '(replying to #{index}, {author}: "{quote}")',
     replyToMemory: '(reply to {author}: {quote})',
     replyToOld: '(replying to an older message)',
+    triggeredBy: '(turn triggered by #{n})',
+    triggeredByOlder: '(turn triggered by an older message)',
     image: '[image]',
     imageAttached: '[picture #{n}, attached]',
     imageAttachedDescribed: '[picture #{n}, attached; helper caption: {text}]',

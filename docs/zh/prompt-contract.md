@@ -155,6 +155,8 @@ GIF 挑选器（`features.gifPicker`，默认开启）。当角色写了一条�
 `<channel_view>` 和 `<other_channels>` 的行显示距今时间，每次请求重新计算，从不存储；其他对话记录（分类器、服务器搜索的
 逐字原文、分析器、预热）只显示时间。
 
+`features.triggerMarkers` 开启时（缺失的键视为开启），角色在某消息发起的回合中发出的行会在角色名后标注该消息：`#100 [12:01] nick (you) (turn triggered by #98): text`（`labels.transcript.triggeredBy`，`{n}` 为同区块内触发消息的编号），或当触发消息不在区块行中时使用 `labels.transcript.triggeredByOlder`（从不猜测编号）。标记说明回合从哪来，不意味着该消息已被回复。如果某行是对其自身触发消息的 Discord 回复，则只显示回复标记；对其他消息的回复则同时显示两者。同一回合发出的所有行标注相同的触发消息；自发回合、日记帖和分析器的对话记录不显示标记。关联通过 Discord message id 保持（每次发送时记录在进程内，启动时从日志的昨天和今天的 `turn.start` 和 `turn` 记录重建），在渲染对话记录时编号。标记出现在 `<chat>`、`<channel_view>` 和从回合历史构建的所有辅助对话记录中；相邻频道的行没有 `#n`，也不带标记。
+
 ## 标签
 
 `labels.json` 的键；`{x}` 由代码填充。
@@ -169,6 +171,8 @@ transcript.gapWithDate                   {duration} {date}: 同上，两行之�
 transcript.date | header                 {date}
 transcript.timeAged                      {clock} {age}: 替换发出已满 `context.ageAfterMinutes` 分钟的行的整个方括号时间；age 是以 `labels.units` 表示的时长；较新的行保持 `[{clock}]`；键缺失或为空时不显示距今时间
 transcript.empty | replyToOld | image
+transcript.triggeredBy                   {n}: 角色自身行中角色名之后，发出该行的回合所由触发消息的编号（features.triggerMarkers）；值为空时不显示标记
+transcript.triggeredByOlder              同上，当触发消息不在该区块内时；值为空时不显示标记
 transcript.replyTo                       {index} {author} {quote}: 父消息的编号、其作者（父消息为角色自己的时使用 self 标签）和父文本的引用（在词边界截断至 `context.replyQuoteChars`（默认 80；`0` = 完整）；仅含媒体的父消息引用其媒体标签）
 transcript.file | sticker                {name}
 transcript.stickerDescribed              {name} {text}
