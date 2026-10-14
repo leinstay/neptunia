@@ -48,6 +48,7 @@ import { createBraveSearch } from './web/brave.js';
 import { createLookup } from './web/lookup.js';
 import { createAdmin } from './admin.js';
 import { skillRegistry } from './skills/registry.js';
+import { createDiscordAdapter } from './interface/discord.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './discord/events.js';
 import { resolveGuild } from './discord/guild.js';
@@ -257,6 +258,9 @@ const recall = createRecall({ hot, store, llm, describer, archive, record, vecto
 const activity = createActivity();
 // A warmup run ends a chain of parts (a message answered part by part) before its next part;
 // read through a closure, as the warmup is created just below.
+// The persona's interface (src/interface/port.js): every effect of her replies goes through it,
+// after the skill gateway (src/skills/gateway.js) let the call pass.
+const iface = createDiscordAdapter({ client });
 const turns = createTurnRunner({
   hot,
   store,
@@ -275,6 +279,8 @@ const turns = createTurnRunner({
   activity,
   journal,
   record,
+  port: iface,
+  skills: skillRegistry(),
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).

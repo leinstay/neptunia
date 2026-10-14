@@ -85,6 +85,10 @@ import { toRecordLine } from '../memory/record.js';
 import { createOffPeriodsReader } from '../memory/journal.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
+import { checkSkill } from '../skills/gateway.js';
+import { skillsOn } from '../skills/access.js';
+import { SKILL_DEFINITIONS, loadSkills } from '../skills/registry.js';
+import { createDiscordAdapter } from '../interface/discord.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -863,16 +867,43 @@ const NO_OP = Object.freeze({
 });
 
 /**
- * How a Discord call that threw closes its journal operation: refused by Discord (an HTTP 4xx
- * answer) is `failed` with `http-<status>`; anything else (a network error, a timeout, a 5xx)
- * may have taken effect anyway, so its outcome is `unknown` (the restart's reconciliation looks
- * for a post; nothing is ever sent again).
+ * How an interface port result that is not `ok` (src/interface/port.js) closes its journal
+ * operation: `unknown` (a network error, a timeout, a 5xx: it may have taken effect anyway) is
+ * `unknown` -- the restart's reconciliation looks for a post; nothing is ever sent again --, any
+ * other status is `failed` with the port's code (`http-<status>` for Discord's refusals).
  */
-function closeThrown(op, err) {
-  const status = err?.status ?? err?.statusCode;
-  if (Number.isInteger(status) && status >= 400 && status < 500) return op.failed(`http-${status}`);
-  return op.unknown();
+function closeResult(op, result) {
+  if (result?.status === 'unknown') return op.unknown();
+  return op.failed(result?.error?.code ?? result?.status ?? 'error');
 }
+
+/** What the logs show of a port result's error: the platform's own error when the adapter kept it. */
+function portError(result) {
+  return result?.error?.cause ?? result?.error ?? null;
+}
+
+/** A sent message as the turn notes it, from an `ok` port result: its id (null when unknown) and stamp. */
+function postedOf(result) {
+  return { id: result?.ref?.messageId ?? null, ...(Number.isFinite(result?.at) ? { createdTimestamp: result.at } : {}) };
+}
+
+/** The persona as the principal of her skill calls (src/skills/gateway.js). */
+const PERSONA = Object.freeze({ kind: 'persona' });
+
+/** The `message.send` arguments of a post: its text and/or media, the message it replies to. */
+function sendArgs({ text = null, media = null, replyId = null }) {
+  return { ...(text ? { text } : {}), ...(media ? { media } : {}), ...(replyId ? { replyTo: replyId } : {}) };
+}
+
+/** The interface skills (no operation behind them), loaded once: what a runner checks against when none is injected. */
+let interfaceSkills = null;
+function defaultSkills() {
+  interfaceSkills ??= loadSkills(SKILL_DEFINITIONS.filter((definition) => definition.op === null));
+  return interfaceSkills;
+}
+
+/** The most channels a runner's default adapter keeps a handle on (the oldest go first). */
+const HELD_CHANNELS_MAX = 500;
 
 /** The distinct hosts of `links` (`{ url }` items), in order; a URL that does not parse is left out. */
 function linkHosts(links) {
@@ -1186,6 +1217,22 @@ function taskInput({ part, queued, added, labels, channelId }) {
  * helper transcript built from that history name the message that started the turn which posted
  * each line (`transcript.triggeredBy` / `triggeredByOlder`). The neighbours' lines show no `#n`
  * and carry none. A spontaneous turn, a diary post or a dry run links nothing.
+ *
+ * Skills and the interface (the skills design, phase 0): every effect of a reply -- a message
+ * with its reply target and mentions, the GIF, the picture's publication after its generation,
+ * a diary set's pictures, a reaction, the typing indicator -- is a skill call checked by
+ * src/skills/gateway.js#checkSkill (the persona as principal, the trigger's author as requester,
+ * the turn's channel as the conversation; `message.send`, a picture or GIF being one with its
+ * media or URL, and `message.react.add`) right before it runs, then made through the interface
+ * port `port` (src/interface/port.js; default: the Discord adapter over `client`, holding the
+ * channels the turn hands it). Her reply tags are carried over in the current conversation, so
+ * a check refuses them only with features.skills false: the full stop, she goes silent -- each
+ * refusal logs `skill: refused` (`skill`, `code`, `reason`) and nothing is done; no picture or
+ * diary set is generated for a post the check already refuses, and no typing indicator shows.
+ * Nothing counts as posted (journal, record, stats, lastPostAt) unless the port answered `ok`;
+ * `unknown` is journaled as unknown and never sent again. `skills`: the skill registry checked
+ * against (src/skills/registry.js#skillRegistry from src/index.js; default: the interface
+ * skills alone, which are all a reply uses). A dry run calls neither the gateway nor the port.
  */
 export function createTurnRunner({
   hot,
@@ -1209,8 +1256,48 @@ export function createTurnRunner({
   activity = null,
   journal = null,
   record = null,
+  port = null,
+  skills = null,
 }) {
   const busy = new Set();
+  // The channels the default adapter may resolve by id without the client (the turn's own and a
+  // pulled line's), in process, the oldest dropped past HELD_CHANNELS_MAX.
+  const heldChannels = new Map();
+  const iface = port ?? createDiscordAdapter({ client, lookupChannel: (id) => heldChannels.get(id) ?? null });
+
+  /** The port reference of `channel` (the default adapter now holds that object). */
+  function conversationOf(channel) {
+    const id = String(channel.id);
+    heldChannels.delete(id);
+    heldChannels.set(id, channel);
+    while (heldChannels.size > HELD_CHANNELS_MAX) heldChannels.delete(heldChannels.keys().next().value);
+    return { iface: iface.iface, conversationId: id };
+  }
+
+  /** The port reference of message `messageId` in `channel`. */
+  function messageOf(channel, messageId) {
+    return { ...conversationOf(channel), messageId: String(messageId) };
+  }
+
+  /**
+   * The gateway's verdict on one skill call of the persona's reply in `channel`
+   * (src/skills/gateway.js#checkSkill, the live config and state read now): `trigger`'s author
+   * is the requester, `channel` the conversation. A refusal logs `skill: refused`.
+   * @returns {{ ok: boolean, code?: string, reason?: string }}
+   */
+  function checkEffect(skill, args, { channel, trigger = null }) {
+    const verdict = checkSkill({
+      skill,
+      args,
+      principal: PERSONA,
+      requester: trigger?.authorId ? { id: String(trigger.authorId) } : null,
+      audience: { conversationId: String(channel.id) },
+      context: { config: hot.config, state: store.state?.data ?? {}, selfId: client?.user?.id ?? null, registry: skills ?? defaultSkills() },
+    });
+    if (!verdict.ok) log.info('skill: refused', { skill, code: verdict.code, reason: verdict.reason, channel: channel.id });
+    return verdict;
+  }
+
   // channelId -> the chain of parts running there (runChain): its author, its parts, the part
   // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
   const chains = new Map();
@@ -1429,14 +1516,15 @@ export function createTurnRunner({
    * answering a direct call (DIRECT_CALLS: no unprompted turn, no overheard
    * line), with features.typingSimulation and pace.typingWhilePreparing on
    * (`config`, the turn's live config), never in a dry run (read now), never
-   * where the bot cannot send. A failed send logs `turn: typing failed` and
-   * changes nothing else.
+   * where the bot cannot send, never with features.skills off (read now: she
+   * is silent). Sent through the port; one that does not answer `ok` logs
+   * `turn: typing failed` and changes nothing else.
    * @returns {() => void}  Stops the indicator's refresh.
    */
   function typingWhilePreparing(channel, triggerKind, config) {
     const off = () => {};
     if (!DIRECT_CALLS.has(triggerKind) || config.features?.typingSimulation === false) return off;
-    if (!paceSettings(config).typingWhilePreparing || hot.config.features?.dryRun === true) return off;
+    if (!paceSettings(config).typingWhilePreparing || hot.config.features?.dryRun === true || !skillsOn(hot.config)) return off;
     let sendable = false;
     try {
       sendable = typeof channel.sendTyping === 'function' && canSend(channel);
@@ -1450,7 +1538,10 @@ export function createTurnRunner({
       cancel = null;
       if (stopped) return;
       Promise.resolve()
-        .then(() => channel.sendTyping())
+        .then(() => iface.typing(conversationOf(channel)))
+        .then((result) => {
+          if (result?.status !== 'ok') log.warn('turn: typing failed', { channel: channel.id, preparing: true, error: portError(result) });
+        })
         .catch((err) => log.warn('turn: typing failed', { channel: channel.id, preparing: true, error: err }));
       cancel = schedule(send, PREPARE_TYPING_REFRESH_MS);
     };
@@ -1628,7 +1719,7 @@ export function createTurnRunner({
    * reference for a picture the persona is in (`image.reference: 'avatar'`),
    * then one generation and one upload. No typing indicator while it works.
    * Resolves `{ posted: true, pulledId, message }` when posted (`pulledId`: the pulled
-   * line it answers, or null; `message`: what channel.send resolved), `{ drawFailed: reason }`
+   * line it answers, or null; `message`: postedOf the port's answer), `{ drawFailed: reason }`
    * otherwise (a generation failure keeps its reason, `empty` counts as
    * `error`; anything else, the upload included, is `error`). A refusal by an
    * image cap (`ImageCapError`) resolves `{}`: the senses line already told the
@@ -1640,15 +1731,22 @@ export function createTurnRunner({
    * turn about another channel (`sourceId`) the trigger, if any, is a call
    * written there: the limit notice is posted here as a plain message, never as
    * a Discord reply across channels. `plain`: the turn quotes no chat line (postsPlain).
+   * The publication is a `message.send` with the picture as its media (checkEffect): a
+   * check that refuses it before the generation draws nothing, one that refuses it after
+   * (the switch moved meanwhile) posts nothing; both resolve `{}`. The upload goes through
+   * the port: anything but `ok` is `{ drawFailed: 'error' }`, journaled by its status, and the
+   * picture is never generated again.
    */
   async function draw({ channel, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId = null, draft = null }) {
     const config = hot.config;
     const self = parsed.draw.self === true;
     const prompt = drawPromptFor(selfName, parsed.draw);
     const asked = askedFor(trigger, triggerKind);
+    const { replyId, pulledId } = replyTarget(parsed.draw.replyTo, { plain, idByIndex, pulledIds });
+    // Nothing is paid for a picture its publication may not have.
+    if (!checkEffect('message.send', sendArgs({ media: imageFileName(null), replyId }), { channel, trigger }).ok) return {};
     // The journal: the picture is one operation from its generation to its post.
     const op = journalOp(draft, 'draw', 'persona', { input: { self } });
-    let sending = false;
     if (op.opId) await op.started();
     try {
       let reference = null;
@@ -1658,17 +1756,26 @@ export function createTurnRunner({
       }
 
       const picture = await images.generate({ prompt, reference, userId: asked ? (trigger.authorId ?? null) : null });
-      const { replyId, pulledId } = replyTarget(parsed.draw.replyTo, { plain, idByIndex, pulledIds });
       const link = linkFor(pulledId);
-      sending = true;
-      const message = await channel.send({
-        ...(link ? { content: link } : {}),
-        files: [{ attachment: picture.buffer, name: imageFileName(picture.mediaType) }],
-        reply: replyId ? { messageReference: replyId, failIfNotExists: false } : undefined,
-        allowedMentions: { parse: [] },
+      const name = imageFileName(picture.mediaType);
+      // Checked again right before the publication: generated or not, a refused picture is not posted.
+      const verdict = checkEffect('message.send', sendArgs({ text: link, media: name, replyId }), { channel, trigger });
+      if (!verdict.ok) {
+        if (op.opId) await op.failed(verdict.code);
+        return {};
+      }
+      const result = await iface.send(conversationOf(channel), {
+        ...(link ? { text: link } : {}),
+        attachments: [{ name, data: picture.buffer, contentType: picture.mediaType }],
+        ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
       });
-      sending = false;
-      if (op.opId) await op.succeeded({ messageId: message?.id ?? null, bytes: picture.buffer?.length ?? 0 });
+      if (result.status !== 'ok') {
+        if (op.opId) await closeResult(op, result);
+        log.warn('turn: draw error', { channel: channel.id, error: portError(result) });
+        return { drawFailed: 'error' };
+      }
+      const message = postedOf(result);
+      if (op.opId) await op.succeeded({ messageId: message.id, bytes: picture.buffer?.length ?? 0 });
       lastPostAt.set(channel.id, clock());
       log.info('turn: drew', {
         channel: channel.id,
@@ -1680,10 +1787,7 @@ export function createTurnRunner({
       });
       return { posted: true, pulledId, replyId, message, op };
     } catch (err) {
-      if (op.opId) {
-        if (sending) await closeThrown(op, err);
-        else await op.failed(err instanceof ImageCapError ? 'image-cap' : err instanceof ImageGenError ? (err.reason ?? 'error') : 'error');
-      }
+      if (op.opId) await op.failed(err instanceof ImageCapError ? 'image-cap' : err instanceof ImageGenError ? (err.reason ?? 'error') : 'error');
       if (err instanceof ImageCapError) {
         const limit = limitOf(err);
         log.info('turn: draw refused by a limit', {
@@ -1829,33 +1933,41 @@ export function createTurnRunner({
    * its attachment, the stored one when that fails. Counted against
    * `gifs.maxPerDay` once sent, and stamped on its library entry of
    * `guildId` (store.recordOwnGif: `ownLast`/`ownUses`, the `<gifs>` list's
-   * own-post mark). Never throws; resolves what channel.send resolved (an
-   * object, `{}` when it resolved nothing) once sent, else null.
+   * own-post mark). Never throws; resolves `{ message, op }` once sent
+   * (`message`: postedOf the port's answer; `op`: its journal operation),
+   * else null. The post is a `message.send` with the URL as its text
+   * (checkEffect, right before it; a refusal posts nothing and resolves null),
+   * made through the port; its journal operation (`openOp()`, by sendGif)
+   * starts only once the check passed.
    * `replyId`: the chat line it quotes as a Discord reply (replyTarget), or
    * null; `link`: the jump link it carries after its URL (withLink, so the
-   * URL comes first and still embeds), or null.
-   * @returns {Promise<object|null>}
+   * URL comes first and still embeds), or null; `trigger`: the turn's (the requester).
+   * @returns {Promise<{ message: object, op: object }|null>}
    */
-  async function postGif(channel, guildId, gif, replyId, link, op = NO_OP) {
+  async function postGif(channel, guildId, gif, replyId, link, { openOp = () => NO_OP, trigger = null } = {}) {
     const { entry } = gif;
-    let sending = false;
+    let op = NO_OP;
     try {
       const fresh = entry.kind === 'attachment' ? await freshAttachmentUrl(channel, entry) : null;
-      sending = true;
-      const message = await channel.send({
-        content: withLink(fresh ?? entry.url, link, hot.prompts?.labels),
-        reply: replyId ? { messageReference: replyId, failIfNotExists: false } : undefined,
-        allowedMentions: { parse: [] },
-      });
-      sending = false;
-      if (op.opId) await op.succeeded({ messageId: message?.id ?? null });
+      const text = withLink(fresh ?? entry.url, link, hot.prompts?.labels);
+      if (!checkEffect('message.send', sendArgs({ text, replyId }), { channel, trigger }).ok) return null;
+      op = openOp();
+      if (op.opId) await op.started();
+      const result = await iface.send(conversationOf(channel), { text, ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}) });
+      if (result.status !== 'ok') {
+        if (op.opId) await closeResult(op, result);
+        log.warn('turn: gif failed', { channel: channel.id, gif: entry.id, error: portError(result) });
+        return null;
+      }
+      const message = postedOf(result);
+      if (op.opId) await op.succeeded({ messageId: message.id });
       countGif();
       if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(guildId, entry.key, clock());
       lastPostAt.set(channel.id, clock());
       log.info('turn: gif sent', { channel: channel.id, gif: entry.id, kind: entry.kind, fresh: Boolean(fresh), ...(link ? { link: true } : {}) });
-      return message ?? {};
+      return { message, op };
     } catch (err) {
-      if (op.opId) await (sending ? closeThrown(op, err) : op.failed('error'));
+      if (op.opId) await op.failed('error');
       log.warn('turn: gif failed', { channel: channel.id, gif: entry.id, error: err });
       return null;
     }
@@ -1971,7 +2083,10 @@ export function createTurnRunner({
    * A message whose send fails ends the posting: `turn: send failed`
    * (`channel`, `index` -- 0-based among the turn's messages --, `error`), no
    * later message, GIF or picture, and the turn resolves what reached the chat
-   * before it.
+   * before it. So does a message the skill gateway refuses (checkEffect, before
+   * its typing and again right before its send; `skill: refused`); a refused
+   * reaction or GIF is skipped alone. Every effect goes through the port
+   * (`iface`): a send it answers `unknown` is journaled so and never sent again.
    *
    * The messages are posted as the model wrote them: nothing rewrites them.
    * A member with pings off (store.isPingsOff) is mentioned and replied to
@@ -2011,11 +2126,15 @@ export function createTurnRunner({
     const cfg = hot.config.typing;
     const typingOn = hot.config.features?.typingSimulation !== false;
     // The typing imitation of one message: the indicator, then the time its text takes to type.
+    // Typed only once the message it precedes passed its check (checkEffect).
     const typeFor = async (spoken) => {
       // Only the indicator: a missing Send Messages shows up here first, so it is logged.
-      await channel.sendTyping().catch((err) => log.warn('turn: typing failed', { channel: channel.id, error: err }));
+      const typed = await iface.typing(conversationOf(channel));
+      if (typed.status !== 'ok') log.warn('turn: typing failed', { channel: channel.id, error: portError(typed) });
       await sleep(typingMs(spoken, cfg, rng));
     };
+    // Every effect's skill call names the turn's channel and its trigger's author.
+    const effect = { channel, trigger };
     // Whether anything reached the chat (the caller of a routed turn marks its call by it), and
     // the pulled lines it answered (the ring of calls marks them by it).
     let delivered = false;
@@ -2042,18 +2161,20 @@ export function createTurnRunner({
         continue;
       }
       if (typingOn) await sleep(between(cfg.reactionDelayMs, rng));
+      // A reaction on a pulled line is checked as one of this turn's carried-over tags: she saw
+      // that line in this turn's request.
+      if (!checkEffect('message.react.add', { messageId: targetId, emoji: reaction.emoji }, effect).ok) continue;
       const op = journalOp(draft, 'react', 'persona', { input: { to: targetId, emoji: reaction.emoji }, sourceMessageIds: [targetId] });
       if (op.opId) await op.started();
-      try {
-        const target = await route.target.messages.fetch(targetId);
-        await target.react(reaction.emoji);
+      const result = await iface.react(messageOf(route.target, targetId), reaction.emoji);
+      if (result.status === 'ok') {
         delivered = true;
         reacted.push({ ...opField(op), to: targetId, emoji: reaction.emoji });
         if (route.source) answered.add(targetId);
         if (op.opId) await op.succeeded({ to: targetId, emoji: reaction.emoji });
-      } catch (err) {
-        if (op.opId) await closeThrown(op, err);
-        log.warn('turn: reaction failed', { channel: channel.id, ...(route.source ? { source: route.source } : {}), emoji: reaction.emoji, error: err });
+      } else {
+        if (op.opId) await closeResult(op, result);
+        log.warn('turn: reaction failed', { channel: channel.id, ...(route.source ? { source: route.source } : {}), emoji: reaction.emoji, error: portError(result) });
       }
     }
 
@@ -2067,23 +2188,30 @@ export function createTurnRunner({
     const picking = gifPick
       ? pickGifSafely({ channelId: channel.id, guildId, messages: parsed.messages, gif: parsed.gif, history, selfName, idByIndex, trigger })
       : Promise.resolve(null);
+    // The first message's typing waits for its check, made on its text before any jump link
+    // (linkFor is asked once, when it is sent; no cut is told to the limits here). A refusal is
+    // not checked again below: that message ends the posting.
+    let firstRefused = false;
     if (typingOn && parsed.messages.length > 0) {
-      const first = renderCustomEmoji(resolveMentions(parsed.messages[0].text, lines, knownNames).text, emojiLookup());
-      await typeFor(first);
+      const head = parsed.messages[0];
+      const { replyId } = replyTarget(head.replyTo, { plain, idByIndex, pulledIds });
+      const first = renderCustomEmoji(resolveMentions(head.text, lines, knownNames).text, emojiLookup());
+      const firstText = withLink(withChannelLinks(channel, withMessageLinks(first, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds })), null, hot.prompts?.labels);
+      firstRefused = !checkEffect('message.send', sendArgs({ text: firstText, replyId }), effect).ok;
+      if (!firstRefused) await typeFor(first);
     }
     const picked = await picking;
     // One GIF post (the turn's own or the picked one), recorded like a message.
     const sendGif = async (gif) => {
       const { replyId, pulledId } = replyTarget(gif.replyTo, { plain, idByIndex, pulledIds });
-      const op = journalOp(draft, 'gif', 'persona', { input: { gif: gif.entry?.id ?? null }, sourceMessageIds: replyId ? [replyId] : [] });
-      if (op.opId) await op.started();
-      const sent = await postGif(channel, guildId, gif, replyId, linkFor(pulledId), op);
+      const openOp = () => journalOp(draft, 'gif', 'persona', { input: { gif: gif.entry?.id ?? null }, sourceMessageIds: replyId ? [replyId] : [] });
+      const sent = await postGif(channel, guildId, gif, replyId, linkFor(pulledId), { openOp, trigger });
       if (sent) {
         delivered = true;
         if (pulledId) answered.add(pulledId);
-        notePost(sent, replyId, op);
+        notePost(sent.message, replyId, sent.op);
       }
-      return sent;
+      return sent?.message ?? null;
     };
     // A picked GIF is posted in place of the first message (typed above); the rest follow as written.
     // When it fails to send (`turn: gif failed`), the first message goes as written after all.
@@ -2109,8 +2237,25 @@ export function createTurnRunner({
       const spoken = renderCustomEmoji(mentioned.text, emojiLookup());
       // Channel links on the text sent; the typing time stays on the text as written.
       const text = withLink(withChannelLinks(channel, withMessageLinks(spoken, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds })), link, hot.prompts?.labels, draft?.limits);
-      // The first message was typed alongside the GIF picker, above.
-      if (typingOn && !typedAbove(index)) await typeFor(spoken);
+      const args = sendArgs({ text, replyId });
+      // A first message refused before its typing above ends the posting (already logged).
+      if (typedAbove(index) && firstRefused) {
+        sendFailed = true;
+        break;
+      }
+      // The first message was typed alongside the GIF picker, above; any other is checked before its typing.
+      if (typingOn && !typedAbove(index)) {
+        if (!checkEffect('message.send', args, effect).ok) {
+          sendFailed = true;
+          break;
+        }
+        await typeFor(spoken);
+      }
+      // Checked (again) right before the send: the owner's switch may have moved while she typed.
+      if (!checkEffect('message.send', args, effect).ok) {
+        sendFailed = true;
+        break;
+      }
 
       // The journal: the post's operation, with what the reconciliation after a restart looks for.
       const op = journalOp(draft, 'post', 'persona', {
@@ -2119,20 +2264,19 @@ export function createTurnRunner({
         sourceMessageIds: replyId ? [replyId] : [],
       });
       if (op.opId) await op.started();
-      let posted;
-      try {
-        posted = await channel.send({
-          content: text,
-          reply: replyId ? { messageReference: replyId, failIfNotExists: false } : undefined,
-          allowedMentions: { parse: [], users: userIds.filter((id) => !pingsOff(id)), repliedUser: !pingsOff(repliedAuthorId) },
-        });
-      } catch (err) {
-        if (op.opId) await closeThrown(op, err);
-        log.warn('turn: send failed', { channel: channel.id, index: replaced ? index + 1 : index, error: err });
+      const result = await iface.send(conversationOf(channel), {
+        text,
+        ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
+        mentions: { users: userIds.filter((id) => !pingsOff(id)), repliedUser: !pingsOff(repliedAuthorId) },
+      });
+      if (result.status !== 'ok') {
+        if (op.opId) await closeResult(op, result);
+        log.warn('turn: send failed', { channel: channel.id, index: replaced ? index + 1 : index, error: portError(result) });
         sendFailed = true;
         break;
       }
-      if (op.opId) await op.succeeded({ messageId: posted?.id ?? null });
+      const posted = postedOf(result);
+      if (op.opId) await op.succeeded({ messageId: posted.id });
       recordSaid({ guildId, channel, privateChat, trigger, draft, op, posted, text: message.text, replyId, repliedAuthorId, userIds });
       delivered = true;
       if (pulledId) answered.add(pulledId);
@@ -2182,19 +2326,19 @@ export function createTurnRunner({
       for (const [index, chunk] of chunks.entries()) {
         let message;
         const bytes = chunk.reduce((sum, picture) => sum + (picture.buffer?.length ?? 0), 0);
+        const attachments = chunk.map((picture) => ({ name: imageFileName(picture.mediaType), data: picture.buffer, contentType: picture.mediaType }));
+        // A message of files is a `message.send` with them as its media, checked right before it.
+        if (!checkEffect('message.send', sendArgs({ media: attachments.map((attachment) => attachment.name).join(',') }), effect).ok) break;
         const op = journalOp(draft, 'draw', 'persona', { input: { set: true, pictures: chunk.length } });
         if (op.opId) await op.started();
-        try {
-          message = await channel.send({
-            files: chunk.map((picture) => ({ attachment: picture.buffer, name: imageFileName(picture.mediaType) })),
-            allowedMentions: { parse: [] },
-          });
-        } catch (err) {
-          if (op.opId) await closeThrown(op, err);
-          log.warn('turn: send failed', { channel: channel.id, index: messages.length + index, set: true, error: err });
+        const result = await iface.send(conversationOf(channel), { attachments });
+        if (result.status !== 'ok') {
+          if (op.opId) await closeResult(op, result);
+          log.warn('turn: send failed', { channel: channel.id, index: messages.length + index, set: true, error: portError(result) });
           break;
         }
-        if (op.opId) await op.succeeded({ messageId: message?.id ?? null, bytes });
+        message = postedOf(result);
+        if (op.opId) await op.succeeded({ messageId: message.id, bytes });
         delivered = true;
         lastPostAt.set(channel.id, clock());
         notePost(message, null, op);
@@ -4926,6 +5070,9 @@ export function createTurnRunner({
       // against the day's diary pictures as they were paid for, posted or not.
       let set = null;
       if (setDraws) {
+        // Nothing is paid for pictures their publication may not have (`message.send`, checkEffect).
+        const allowed = checkEffect('message.send', sendArgs({ media: imageFileName(null) }), { channel, trigger });
+        if (!allowed.ok) return { outcome: 'refused', mode: finalMode, reason: allowed.code };
         const pictures = await generateSet({ channel, draws: setDraws, selfName, minPosted: setMinPosted });
         if (pictures.length > 0) {
           bumpDaily(store.state.data, DIARY_PICTURES_DAILY, now, pictures.length);
