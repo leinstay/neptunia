@@ -47,6 +47,7 @@ import { createPageFetcher } from './web/fetch-page.js';
 import { createBraveSearch } from './web/brave.js';
 import { createLookup } from './web/lookup.js';
 import { createAdmin } from './admin.js';
+import { skillRegistry } from './skills/registry.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './discord/events.js';
 import { resolveGuild } from './discord/guild.js';
@@ -89,6 +90,14 @@ if (missingPrompts.length > 0) {
     `index: missing required prompt file(s): ${files.join(', ')} ` +
       '(prompts.local/ may override any of these, file by file).',
   );
+}
+
+// The persona's skills against the operations registered by the imports above: a skill on an
+// owner-only or unknown operation is a programming error and stops the start here.
+try {
+  skillRegistry();
+} catch (err) {
+  fail(`index: invalid skill registry: ${err.message}`);
 }
 
 if (!isValidCommandName(hot.config.bot.commandName)) {

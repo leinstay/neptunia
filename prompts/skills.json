@@ -1,0 +1,52 @@
+{
+  "message.send": {
+    "title": "Send a message",
+    "whenToUse": "To write in a conversation you may write to, as a new message or as a reply to a given message, with text or a media item.",
+    "whenNotToUse": "Not for your ordinary reply here: that is your normal answer. Not for a conversation you were not given."
+  },
+  "message.edit": {
+    "title": "Edit your message",
+    "whenToUse": "To correct one of your own earlier messages when you notice a mistake in it or are told about one.",
+    "whenNotToUse": "Not for someone else's message, and not to rewrite what you said only because the conversation moved on."
+  },
+  "message.delete": {
+    "title": "Delete your message",
+    "whenToUse": "To remove one of your own messages that should not stay.",
+    "whenNotToUse": "Not for someone else's message, and not to hide a message people already answered."
+  },
+  "message.react.add": {
+    "title": "Add a reaction",
+    "whenToUse": "To react to a message with an emoji instead of, or besides, writing.",
+    "whenNotToUse": "Not in a conversation you were not given."
+  },
+  "message.react.remove": {
+    "title": "Remove your reaction",
+    "whenToUse": "To take back one of your own reactions.",
+    "whenNotToUse": "Not for reactions other people left."
+  },
+  "draw": {
+    "title": "Draw a picture",
+    "whenToUse": "To make one picture and post it in a conversation you may write to. It costs money and has a daily limit.",
+    "whenNotToUse": "Not when words are enough, and not again for a picture that already failed to post."
+  },
+  "memory.read": {
+    "title": "Read your notes on a member",
+    "whenToUse": "To look up what you remember about a member when the conversation needs it.",
+    "whenNotToUse": "Not to show someone notes they may not see."
+  },
+  "status.show": {
+    "title": "Check your state",
+    "whenToUse": "To see how you are running right now: limits, pause, what is on and off.",
+    "whenNotToUse": "Not as a reply to chat about how you feel."
+  },
+  "skills.list": {
+    "title": "List your skills",
+    "whenToUse": "To see which skills you have, which are open to you here, and why the rest are closed.",
+    "whenNotToUse": "Not when you already know the skill you need."
+  },
+  "access.request": {
+    "title": "Ask for a skill",
+    "whenToUse": "To leave the owner a request to open a skill you need; the owner decides.",
+    "whenNotToUse": "Not for a skill already open to you, and not again for one you already asked about."
+  }
+}
