@@ -35,10 +35,10 @@
 
 每篇日记帖子由两个模型请求组成:
 
-1. `classifier.text` 模型上的计划请求: 选择种类、一行简述、是否搜索、是否绘画。
-2. 主模型（`llm.model`）上配合角色卡和所有记忆块的生成请求。
+1. `reasoner` 角色上的计划请求: 选择种类、一行简述、是否搜索、是否绘画。
+2. `voice` 角色上配合角色卡和所有记忆块的生成请求。
 
-当计划要求网络搜索时（仅限 `diary.searchKinds`，默认 `news` 和 `facts`），Brave 搜索先运行，增加第三个请求（`classifier.text` 上的浓缩器）。搜索计入 `web.maxPerDay`。
+当计划要求网络搜索时（仅限 `diary.searchKinds`，默认 `news` 和 `facts`），Brave 搜索先运行，增加第三个请求（`reasoner` 角色上的浓缩器）。搜索计入 `web.maxPerDay`。
 
 帖子包含图片时，图像模型按自身价格生成。日记图片同时计入 `image.maxPerDay` 和 `diary.maxPicturesPerDay`（2）。
 

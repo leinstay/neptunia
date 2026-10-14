@@ -10,13 +10,13 @@
 
 当 `features.imageRelook` 开启（默认）且有人向角色提出关于图片的问题或声称了某张图片的具体细节时，重看分类器会在视频旁边提供近期图片，视觉模型会带着该问题再看一次图片。回答出现在对话记录中图片行的下方。图片二次查看与视频重看共享每日 `media.video.rewatch.maxPerDay` 计数器。重试仅适用于视频。
 
-`features.mediaDescriptions`（默认开启）运行 `classifier.media` 模型为图片、GIF 帧、视频封面、贴纸、自定义表情和链接缩略图生成单行描述。每个附件只描述一次并缓存在 `data/guilds/<id>/media.json` 中。描述提供给对话记录、记忆分析器和预热。描述器的提示是 `prompts/describe.md`。
+`features.mediaDescriptions`（默认开启）运行 `vision` 角色的模型为图片、GIF 帧、视频封面、贴纸、自定义表情和链接缩略图生成单行描述。每个附件只描述一次并缓存在 `data/guilds/<id>/media.json` 中。描述提供给对话记录、记忆分析器和预热。描述器的提示是 `prompts/describe.md`。
 
 贴纸和自定义表情经常重复出现，因此按 id 缓存，首次描述后几乎没有开销。启用 `features.vision` 时，呼叫消息的贴纸会作为图片附加。Discord 内置的动态贴纸是 Lottie 动画而非图片，因此只能显示名称。
 
 当 Discord 在消息本体之后才附加嵌入内容时（Tenor 的 GIF 就是这样到达的），机器人会将其纳入缓冲区，使 GIF 库和分析器也能看到（`features.embedUpdates`，默认开启）。
 
-当 `media.gif.watch` 开启时（默认如此，需同时开启视频视觉），GIF 作为短无声片段被观看：动画被转换为不超过 `media.gif.maxSeconds`（默认 8）秒的 mp4，通过 `prompts/describe-gif.md` 发送给 `classifier.video` 模型（文件不存在时回退到 `describe-video.md`）。观看后的说明替代旧的单帧描述。无法观看的 GIF（无动画、每日 `media.gif.maxPerDay` 限额耗尽、转换或请求失败）保留单帧描述。`/nep media kind:gifs action:recache` 删除库外过时的单帧说明，并在后台从最旧的开始重新观看最多 `gifs.recachePerRun`（默认 50）个库条目。
+当 `media.gif.watch` 开启时（默认如此，需同时开启视频视觉），GIF 作为短无声片段被观看：动画被转换为不超过 `media.gif.maxSeconds`（默认 8）秒的 mp4，通过 `prompts/describe-gif.md` 发送给 `video` 角色的模型（文件不存在时回退到 `describe-video.md`）。观看后的说明替代旧的单帧描述。无法观看的 GIF（无动画、每日 `media.gif.maxPerDay` 限额耗尽、转换或请求失败）保留单帧描述。`/nep media kind:gifs action:recache` 删除库外过时的单帧说明，并在后台从最旧的开始重新观看最多 `gifs.recachePerRun`（默认 50）个库条目。
 
 当 `features.gifPicker` 开启时（默认如此，需要 `features.gifs` 开启且库非空），分类器从完整库中挑选 GIF 替代短的第一条消息。挑选器在角色的第一条发出消息不超过 `gifs.pick.maxChars`（默认 160）个字符且自己没选 GIF 时运行；它接收最近几行聊天、该第一条消息及每条库记录的说明。匹配时 GIF 替换第一条消息并以其原本的回复方式发送；其余消息按原顺序跟随。GIF 发送失败时，所有消息照常发布。
 
@@ -24,7 +24,7 @@
 
 ## 视频
 
-`features.videoDescriptions` 默认关闭；在 `config.local.json` 中开启，并同时开启 `mediaDescriptions`。开启后会添加 `classifier.video` 模型，可观看短视频片段：Discord 视频附件、从 Discord CDN 粘贴的视频链接以及已知视频站点的链接（YouTube、TikTok、VK、X、Reddit、Twitch）。模型必须通过 OpenRouter 同时接受视频和音频输入。
+`features.videoDescriptions` 默认关闭；在 `config.local.json` 中开启，并同时开启 `mediaDescriptions`。开启后会添加 `video` 角色的模型，可观看短视频片段：Discord 视频附件、从 Discord CDN 粘贴的视频链接以及已知视频站点的链接（YouTube、TikTok、VK、X、Reddit、Twitch）。模型必须通过 OpenRouter 同时接受视频和音频输入。
 
 ### 限制
 
@@ -36,7 +36,7 @@
 
 ### 重看
 
-当有人直接呼叫角色（非 `overheard` 或自发回合）并对角色已观看的视频提出问题时，分类器（`prompts/rewatch.md`，使用 `classifier.text` 角色）判断是否需要再看一遍。如果需要，视频模型使用 `prompts/rewatch-answer.md` 再次观看片段，回答与原始摘要一起出现在对话记录中。当有人再次询问未能加载的视频时，同一分类器也可以重试加载。每回合最多一次重看或重试；回答缓存一小时。开关 `features.videoRewatch`（默认开启）。
+当有人直接呼叫角色（非 `overheard` 或自发回合）并对角色已观看的视频提出问题时，分类器（`prompts/rewatch.md`，使用 `analyzer` 角色）判断是否需要再看一遍。如果需要，视频模型使用 `prompts/rewatch-answer.md` 再次观看片段，回答与原始摘要一起出现在对话记录中。当有人再次询问未能加载的视频时，同一分类器也可以重试加载。每回合最多一次重看或重试；回答缓存一小时。开关 `features.videoRewatch`（默认开启）。
 
 视频提示是 `prompts/describe-video.md`。设置位于 `media.video` 下。每个键和模型对比表请参阅[配置](configuration.md#mediavideo)。
 
@@ -44,7 +44,7 @@
 
 `features.webLookup`（默认关闭；与其他功能不同，缺失的键视为关闭）允许角色打开聊天中发布的链接并阅读它们。
 
-当功能开启且 `web.links.enabled` 不为 false 时，对话记录中的链接（仅 http/https，拒绝私有地址，排除视频站点链接，排除 `web.links.skipSites`）会通过 SSRF 防护的页面抓取器获取（大小限制 `web.links.maxBytes`，超时 `web.links.fetchTimeoutMs`，最多 3 次重定向，仅 html 和纯文本）。页面文本通过 `classifier.text` 模型经由 `prompts/read-link.md` 浓缩为不超过 `web.links.summaryChars` 字符的摘要。摘要以 `transcript.linkRead` 追加到链接的对话记录标签之后，显示为第一手信息：角色自己打开并阅读了页面，在该摘要的范围内。无法阅读的页面（付费墙、同意屏幕、登录门控、空内容）会被检测并缓存为未命中。URL 路径以图片、视频、音频或压缩文件扩展名（png、jpg、jpeg、gif、webp、avif、svg、mp4、webm、mov、mkv、mp3、ogg、wav、zip、rar、7z、pdf）结尾的链接不论主机一律不读取，`web.links.skipSites`（含子域名）默认排除 Discord CDN、Tenor、Giphy、Klipy、Imgur、Reddit 媒体和 Twitter 图片。
+当功能开启且 `web.links.enabled` 不为 false 时，对话记录中的链接（仅 http/https，拒绝私有地址，排除视频站点链接，排除 `web.links.skipSites`）会通过 SSRF 防护的页面抓取器获取（大小限制 `web.links.maxBytes`，超时 `web.links.fetchTimeoutMs`，最多 3 次重定向，仅 html 和纯文本）。页面文本通过 `reasoner` 角色的模型经由 `prompts/read-link.md` 浓缩为不超过 `web.links.summaryChars` 字符的摘要。摘要以 `transcript.linkRead` 追加到链接的对话记录标签之后，显示为第一手信息：角色自己打开并阅读了页面，在该摘要的范围内。无法阅读的页面（付费墙、同意屏幕、登录门控、空内容）会被检测并缓存为未命中。URL 路径以图片、视频、音频或压缩文件扩展名（png、jpg、jpeg、gif、webp、avif、svg、mp4、webm、mov、mkv、mp3、ogg、wav、zip、rar、7z、pdf）结尾的链接不论主机一律不读取，`web.links.skipSites`（含子域名）默认排除 Discord CDN、Tenor、Giphy、Klipy、Imgur、Reddit 媒体和 Twitter 图片。
 
 当 `web.links.prefill` 开启时（默认如此），链接在到达时立即被阅读，以便下次回合时已有缓存。预读按每个成员每天 `web.links.prefillPerUserPerDay`（默认 10）个限制；回合路径不受此限制。回合期间每次抓取尝试计入 `web.links.maxPerTurn`（默认 2）。链接阅读和搜索共享一个每日计数器，上限为 `web.maxPerDay`（默认 60）。`llm.maxRequestsPerDay` 耗尽后，不再下载新页面或缓存未命中。
 
@@ -52,7 +52,7 @@
 
 ## 搜索
 
-当角色被直接呼叫（非 `overheard` 或自发回合）且触发消息需要聊天之外的事实时，分类器（`prompts/lookup.md`，使用 `classifier.text` 角色）决定需要搜索什么。分类器可以要求网络搜索、服务器消息历史搜索，或两者兼有。
+当角色被直接呼叫（非 `overheard` 或自发回合）且触发消息需要聊天之外的事实时，分类器（`prompts/lookup.md`，使用 `reasoner` 角色）决定需要搜索什么。分类器可以要求网络搜索、服务器消息历史搜索，或两者兼有。
 
 分类器在 `lookup.md` 提示文件存在且 `features.webLookup` 或 `features.recall` 任一开启时触发。其回答至多四行标注行：`web:` 生成网络查询，`server:` 列出在服务器消息中搜索的词形，`who:` 列出找人的名称词形，`when:` 给出日期范围。单行无标注（旧格式）仍被读取为网络查询。
 
@@ -66,7 +66,7 @@
 
 ## 绘画
 
-`features.imageGeneration`（默认关闭，缺失的键视为开启）允许角色绘制图片。在 `config.local.json` 中启用。当模型输出 `<draw>` 标签时，引擎通过 OpenRouter Images API（`image.model`，默认 `openai/gpt-image-2.5-flare`）生成一张图片，并在角色的文本消息之后作为独立消息发布。是否绘画由模型自行决定，可以拒绝。在机器人没有附加文件权限的频道中，绘画感知行不会显示，`<draw>` 标签会被丢弃，因此不会生成任何图片，也不会产生费用。
+`features.imageGeneration`（默认关闭，缺失的键视为开启）允许角色绘制图片。在 `config.local.json` 中启用。当模型输出 `<draw>` 标签时，引擎通过 OpenRouter Images API（`roles.drawing`，默认 `openai/gpt-image-2.5-flare`）生成一张图片，并在角色的文本消息之后作为独立消息发布。是否绘画由模型自行决定，可以拒绝。在机器人没有附加文件权限的频道中，绘画感知行不会显示，`<draw>` 标签会被丢弃，因此不会生成任何图片，也不会产生费用。
 
 ### 限制
 
@@ -92,8 +92,8 @@
 
 ## 成本
 
-每个回合是一次 LLM 请求；记忆更新再增加一次。视频描述为每个观看的片段向 `classifier.video` 模型发送一次请求（`media.video.maxPerDay` 限制每日数量）；`yt-dlp` 和 `ffmpeg` 在本地运行，除带宽外不产生费用。链接阅读、网络搜索和服务器搜索向 `classifier.text` 模型发送请求，受 `web.maxPerDay`（共享，网络侧）、`recall.maxPerDay`（服务器侧）和 `llm.maxRequestsPerDay`（全局）限制。网络搜索还需要 Brave Search 密钥；免费层可以处理低流量的服务器。服务器搜索使用 Discord 内置的搜索 API，不花钱，只消耗分类器和摘要的 LLM 请求。图像生成通过 `image.model` 按输出 token 计费；`image.maxPerDay` 独立于聊天请求限制每日数量。
+每个回合是一次 LLM 请求；记忆更新再增加一次。视频描述为每个观看的片段向 `video` 角色发送一次请求（`media.video.maxPerDay` 限制每日数量）；`yt-dlp` 和 `ffmpeg` 在本地运行，除带宽外不产生费用。链接阅读、网络搜索和服务器搜索向 `analyzer` 和 `reasoner` 角色发送请求，受 `web.maxPerDay`（共享，网络侧）、`recall.maxPerDay`（服务器侧）和 `llm.maxRequestsPerDay`（全局）限制。网络搜索还需要 Brave Search 密钥；免费层可以处理低流量的服务器。服务器搜索使用 Discord 内置的搜索 API，不花钱，只消耗分类器和摘要的 LLM 请求。图像生成通过 `roles.drawing` 按输出 token 计费；`image.maxPerDay` 独立于聊天请求限制每日数量。
 
 ## 隐私
 
-启用 `features.webLookup` 后，机器人会发出出站 HTTP 请求以读取页面和访问 Brave Search API。页面直接从主机获取；私有地址（回环、链路本地、私有网段）会被拒绝。页面内容通过 LLM 端点发送给 `classifier.text` 模型进行浓缩；页面文本和搜索查询均不会被记录到日志中。`data/` 在你的机器上保存缓存的摘要和搜索结果，已加入 gitignore，仅作为上下文发送给 LLM。
+启用 `features.webLookup` 后，机器人会发出出站 HTTP 请求以读取页面和访问 Brave Search API。页面直接从主机获取；私有地址（回环、链路本地、私有网段）会被拒绝。页面内容通过 LLM 端点发送给 `reasoner` 角色的模型进行浓缩；页面文本和搜索查询均不会被记录到日志中。`data/` 在你的机器上保存缓存的摘要和搜索结果，已加入 gitignore，仅作为上下文发送给 LLM。

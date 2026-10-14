@@ -14,7 +14,7 @@
 
 ## 状态
 
-`/nep status` 显示一张包含最重要字段的卡片：机器人状态（运行中或从何时起暂停）、网关连接、长时间任务（回填、归档排空）、各角色的模型、今日每日限额（请求、图片、视频、recall、lookup）和运行时长。未自行设置模型的角色带有回退标记（`labels.status.fallback`），注明模型来源角色。按用途覆盖（`classifier.byPurpose`）以 `byPurpose <purpose> <model>` 行显示（不探测）。嵌入角色通过单输入嵌入请求（使用 `status.probe` 文本）探测；没有嵌入客户端时该行显示未检查。`/nep status detail` 在卡片下方添加详细文本：模型校准、预热进度、每个已加载提示及其来源、语音队列。被授予 `status.show` 的成员看到的卡片不含记忆和日志字段，也看不到详细文本。
+`/nep status` 显示一张包含最重要字段的卡片：机器人状态（运行中或从何时起暂停，加存储行）、网关连接、长时间任务（回填、归档排空）、按组分类的模型（voice, analyzer, reasoner, extractor, media = vision + video, embedding, drawing；每个角色一行：角色、模型、提供商、延迟；`roles.byPurpose` 覆盖显示在其角色下方）、每日限额、各记忆类型的覆盖率（record, index, archive, 档案, 服务器笔记, 频道, 最近消息, participation: 数量, 跨度, 百分比）、过去 24 小时速度（回复、recall、规划器、分析器批次、嵌入刷新的中位数、均值和计数；样本在 `data/metrics.json`）和运行时长。每个角色显示自身模型（永不使用其他角色的模型）。嵌入角色通过单输入嵌入请求（使用 `status.probe` 文本）探测；没有嵌入客户端时该行显示未检查。`/nep status detail` 在卡片下方添加详细文本：模型校准、预热进度、每个已加载提示及其来源、语音队列。被授予 `status.show` 的成员看到的卡片不含记忆和速度字段，也看不到详细文本。
 
 ## 命令表
 
@@ -29,10 +29,10 @@
 | `/nep talk <action:interject\|initiate> [channel]` | `talk.interject`, `talk.initiate` | ephemeral，延迟 | 让角色立即发言 |
 | `/nep media <kind:emoji\|gifs> <action:status\|rescan\|recache>` | `media.status`, `media.rescan`, `media.recache` | ephemeral，`media.rescan` 延迟 | 自定义表情排名和 GIF 库 |
 | `/nep model show` | `model.show` | ephemeral | 显示各角色的模型 |
-| `/nep model set <role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image> <id>` | `model.set` | ephemeral | 设置角色的模型；`id` 自动补全 |
+| `/nep model set <role:voice\|analyzer\|reasoner\|extractor\|vision\|video\|embedding\|drawing> <id>` | `model.set` | ephemeral | 设置角色的模型；`id` 自动补全 |
 | `/nep route list` | `route.list` | ephemeral | 所有路由，然后是各角色的当前模型和路由 |
-| `/nep route set <model> <providers> [role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image] [fallbacks]` | `route.set` | ephemeral | 将模型前缀路由到指定 provider；`model` 自动补全 |
-| `/nep route remove <model> [role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image]` | `route.remove` | ephemeral | 移除路由；`model` 自动补全 |
+| `/nep route set <model> <providers> [role:voice\|analyzer\|reasoner\|extractor\|vision\|video\|embedding\|drawing] [fallbacks]` | `route.set` | ephemeral | 将模型前缀路由到指定 provider；`model` 自动补全 |
+| `/nep route remove <model> [role:voice\|analyzer\|reasoner\|extractor\|vision\|video\|embedding\|drawing]` | `route.remove` | ephemeral | 移除路由；`model` 自动补全 |
 | `/nep rule add <text>` | `rule.add` | ephemeral | 添加规则 |
 | `/nep rule list` | `rule.list` | ephemeral | 列出编号的规则 |
 | `/nep rule remove <number>` | `rule.remove` | ephemeral | 按编号移除规则 |

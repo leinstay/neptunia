@@ -30,7 +30,7 @@ Every key in `config.json` with its default, grouped by section.
 | `videoRewatch` | `true` | When addressed, re-watch a video to answer a question about it; needs `videoDescriptions` on |
 | `imageRelook` | `true` | When addressed, look at a picture again to answer a question or check a claimed detail about it; needs `vision` on. Shares the daily `media.video.rewatch.maxPerDay` counter with video re-watches. A missing key counts as on |
 | `webLookup` | `false` | Read links posted in chat and search the web when asked a factual question. Unlike other features, a missing key counts as OFF. Needs `BRAVE_SEARCH_API_KEY` in `.env` for search; without it only link reading works. See [Media: Links and search](media.md#links) |
-| `imageGeneration` | `false` | Let the persona draw pictures through a drawing sub-process. A missing key counts as on. Turn on in `config.local.json`; needs an image-capable model in `image.model`. See [Media: Drawing](media.md#drawing) |
+| `imageGeneration` | `false` | Let the persona draw pictures through a drawing sub-process. A missing key counts as on. Turn on in `config.local.json`; needs an image-capable model in `roles.drawing`. See [Media: Drawing](media.md#drawing) |
 | `privateMessages` | `false` | Answer direct messages from guild members. Needs a stored public profile and `affinity.score >= private.minAffinity`. See [Messages and memory: Private layer](messages-and-memory.md#private-layer) |
 | `privateLikeServer` | `true` | A private chat works like a server channel: the route classifier, channel pull, server search (recall) and asked-about episodes all run in a DM. A pulled channel enters a DM only when the partner has View Channel permission on it. A missing key counts as on. `false` restores the old DM behaviour (no pull, no route, no recall, no asked-about episodes) |
 | `channelPull` | `true` | Pull another channel into a turn's request when the recent messages or the trigger contain a real channel mention. A missing key counts as on. See `context.pull.*` |
@@ -43,7 +43,7 @@ Every key in `config.json` with its default, grouped by section.
 | `promptCache` | `true` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
 | `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
-| `meaningSearch` | `false` | On each recall run, embed the asker's message and search the vector index by meaning. Record rows that match by meaning join the word-hit windows; archive rows join the memory items. Combined with word hits through reciprocal rank fusion. Must be exactly `true` to enable; a missing key counts as off. Needs `features.recall` on and the embedding model (`classifier.embed`) reachable. See `recall.meaningCandidates` |
+| `meaningSearch` | `false` | On each recall run, embed the asker's message and search the vector index by meaning. Record rows that match by meaning join the word-hit windows; archive rows join the memory items. Combined with word hits through reciprocal rank fusion. Must be exactly `true` to enable; a missing key counts as off. Needs `features.recall` on and the embedding model (`roles.embedding`) reachable. See `recall.meaningCandidates` |
 | `embedIndex` | `false` | Keep the vector index current while the bot runs: every message the record takes is queued, and a batch is embedded every `embed.flushSeconds` seconds or once `embed.batch` lines wait. Must be exactly `true` to enable; a missing key counts as off. Needs `features.meaningSearch` on. Without this switch, the index is built only by `tools/embed-index.mjs` |
 | `journal` | `true` | Keep the persona's journal: for every turn, one line when it starts and one when it ends (what of the chat went into the request, its hidden reasoning, what it posted and reacted to, token usage, the limits that cut something), in `data/guilds/<id>/journal/<YYYY-MM-DD>.jsonl` by UTC day; a private chat's turns go to `data/guilds/<id>/private/<userId>/journal/` instead. While on, the live log carries only the length of the hidden reasoning (`thinkChars`). Must be exactly `true` to enable; a missing key counts as off. See [`journal`](#journal) |
 | `offPeriods` | `true` | `<now>` lists the periods of the last `journal.offWindowHours` hours when the persona was paused by the owner or the service was off, newest first, at most 3, from the journal's system records. Nothing is posted to any channel. A missing key counts as on. Needs `features.journal` |
@@ -77,12 +77,29 @@ Every key in `config.json` with its default, grouped by section.
 | `channels.deny` | `[]` | Ignored channels |
 | `access` | `{}` | Who besides owners may run which commands (managed by `/nep access`) |
 
+## `roles`
+
+Eight model roles. Each is set independently under `roles.<name>` with its own default, so no role ever takes another role's model. `roles.byPurpose` pins a single purpose to a model of its own whatever its role.
+
+| Key | Default | What it does |
+|---|---|---|
+| `voice` | `"anthropic/claude-opus-4.6"` | Speaks as the persona: the reply and the memory texts worded in its voice (purposes `reply`, `memory-voice`) |
+| `analyzer` | `"openai/gpt-6.1-sol"` | Picks one of a few given options: address, room, merge, route-channel, participation-pick, rewatch, split, gif-pick |
+| `reasoner` | `"openai/gpt-6.1-sol"` | Plans a search and turns sources into notes: lookup, planner, recall-summary, search-summary, read-link, diary-plan |
+| `extractor` | `"openai/gpt-6.1-sol"` | Turns conversations into stored memory: analyzer batches, portraits, channel and server notes, warmup, backfill |
+| `vision` | `"google/gemini-3.8-flash"` | Describes a picture (describe, relook) |
+| `video` | `"google/gemini-3.8-flash"` | Watches a video and looks at it again |
+| `embedding` | `"openai/text-embedding-3-large"` | Turns text into vectors for search by meaning. `embed.dimensions` (default 1024) sets the width. Probed by `/nep status` with a one-input embedding request; without an embedding client the line says it was not checked |
+| `drawing` | `"openai/gpt-image-2.5-flare"` | Generates the persona's pictures through OpenRouter's Images API. Only `openai/*` and `google/*` families are supported |
+| `byPurpose` | `{}` | Per-purpose model override: an object whose keys are purpose strings (e.g. `lookup`, `recall-summary`, `diary-plan`, `planner`) and whose values are model ids. A match on purpose wins over the role's model. Not probed by `/nep status` |
+
+**Migration from old keys.** One release reads the deprecated keys `llm.model`, `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`, `classifier.embed`, `classifier.byPurpose`, `memory.model` and `image.model`. When any of them is present, the bot logs a startup warning naming the key and the `roles.*` entry it maps to. An old `classifier.text` maps to `roles.analyzer`; an old `classifier.reason` to `roles.reasoner`; `classifier.media` to `roles.vision`; `classifier.video` to `roles.video`; `classifier.embed` to `roles.embedding`; `classifier.byPurpose` to `roles.byPurpose`; `memory.model` to `roles.extractor`; `image.model` to `roles.drawing`; `llm.model` to `roles.voice`. An old `classifier.reason` entry that was `null` (the old "use classifier.text" fallback) maps to the `roles.reasoner` default instead. Move the values by hand and remove the old keys.
+
 ## `llm`
 
 | Key | Default | Meaning |
 |---|---|---|
 | `baseUrl` | `"https://openrouter.ai/api/v1"` | Chat completions endpoint |
-| `model` | `"anthropic/claude-opus-4.6"` | Model ID |
 | `temperature` | `1` | Sampling temperature |
 | `maxOutputTokens` | `2000` | Max output tokens |
 | `maxRequestTokens` | `50000` | Hard token cap per request |
@@ -96,42 +113,27 @@ Every key in `config.json` with its default, grouped by section.
 | `providerByModel` | `{}` | Per-model provider routing; see below |
 | `cache.ttl` | `"1h"` | Cache TTL of the markers on the system message and on the reply's stable user prefix (`<self_facts>`, `<about_chat>`, `<gifs>`): `"1h"` or `"5m"` |
 | `cache.profilesTtl` | `"5m"` | Cache TTL of the separate marker on the reply's profiles (`<people>`): `"1h"` or `"5m"`; `null` or `false` = no marker there. Never longer than `cache.ttl` (a `"5m"` `cache.ttl` makes it `"5m"`) |
-| `cache.roles` | `["voice"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached. Add `classifier.text` and `classifier.reason` to cache the helpers' stable parts too |
+| `cache.roles` | `["voice"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached. Add `analyzer` and `reasoner` to cache the helpers' stable parts too |
 | `cache.models` | `["anthropic/"]` | Model id prefixes (case-sensitive) whose provider accepts the `cache_control` marker. A request to a model outside the list is sent without one |
 | `cache.promptIncludesCached` | `true` | Whether the provider's reported `prompt_tokens` already includes cached and cache-write tokens. Set once from a probe; the token calibration and the per-request cap use the full count either way |
-| `hedge.roles` | `["classifier.text", "classifier.reason"]` | Request roles whose calls are hedged (two concurrent attempts, first to finish wins) |
+| `hedge.roles` | `["analyzer", "reasoner"]` | Request roles whose calls are hedged (two concurrent attempts, first to finish wins) |
 | `hedge.afterMs` | `2500` | Milliseconds before the second attempt starts. `0` or below turns hedging off for all roles |
 | `hedge.timeoutMs` | `8000` | Milliseconds from the first attempt's start at which both are aborted if neither has returned |
 | `hedge.longTimeoutMs` | `20000` | Timeout used instead of `timeoutMs` when the caller marks the request `long: true` (the route classifier does this for a large channel list) |
 
 `llm.provider` sets a default OpenRouter provider routing on chat requests, for example `{ "ignore": ["some-provider"] }` or `{ "order": ["anthropic"], "allow_fallbacks": true }`. `llm.providerByModel` adds per-model overrides: each key is a model id prefix (matching any role) or `<prefix>@<role>` (matching one role only), and each value is an OpenRouter routing object sent verbatim.
 
-For one request the provider is resolved in order: a per-call pin (the video describer uses `media.video.provider` for the direct-URL path), then the longest matching prefix among `providerByModel` keys for the request's role, then the longest matching prefix among role-less keys, then `llm.provider` (for image requests `image.provider`), then nothing. A role-specific key always beats a role-less key for the same model. Role names: `voice`, `analyzer`, `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`, `classifier.embed`, `image`. For compatibility, a route key or a roles list that still says `talk` is read as `voice` with one log line (`config: role talk is now voice`).
+For one request the provider is resolved in order: a per-call pin (the video describer uses `media.video.provider` for the direct-URL path), then the longest matching prefix among `providerByModel` keys for the request's role, then the longest matching prefix among role-less keys, then `llm.provider` (for image requests `image.provider`), then nothing. A role-specific key always beats a role-less key for the same model. Role names: `voice`, `analyzer`, `reasoner`, `extractor`, `vision`, `video`, `embedding`, `drawing`.
 
-Example: `"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` routes all Google models through Vertex, while `"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` sends the video classifier through AI Studio. Route keys that contain dots (e.g. `google/@classifier.video`) cannot be edited through `/nep set` because it splits on dots; use `/nep route set` and `/nep route remove`.
+Example: `"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` routes all Google models through Vertex, while `"google/@video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` sends the video role through AI Studio.
 
 If the OpenRouter account itself restricts allowed providers, ignoring the only one left makes every request fail with "No endpoints found". After changing provider settings, check `/nep status` to verify that every model role is reachable; each role follows its `llm.providerByModel` route, so the provider shown is the one that route selects.
 
-With `features.promptCache` on, the system message is marked for the provider's prompt cache on requests whose role is in `llm.cache.roles` and whose model starts with a prefix in `llm.cache.models`. On the reply, two more markers follow in the user message: one at the end of the stable prefix (`llm.cache.ttl`) and one at the end of the profiles (`llm.cache.profilesTtl`); three of the provider's four markers in all. See "Cache segments" in the [prompt contract](prompt-contract.md). Three helper requests send their user message in two parts so the provider can cache the bulk that repeats between calls: the GIF picker (the `<gifs>` library), the route classifier (the `<channels>` list) and the participation pick (the `<episodes>` list) tag that first part with the same `cacheSegment: 'stable'` (marker TTL `llm.cache.ttl`); the per-turn text follows untagged. The marker is placed only when the helper's role (`classifier.text`) is in `llm.cache.roles` and its model matches `llm.cache.models`; add `classifier.text` (and `classifier.reason` for the reasoning helpers) to `llm.cache.roles` to cache them. The markers go on after the token estimate, so the 50k per-request cap and the calibration are unaffected. `llm.cache.promptIncludesCached` tells the engine how the provider reports cached tokens; set it once from a real probe. The `llm: usage` log line gains `cache`: `write`, `read`, `none` or `off`.
+With `features.promptCache` on, the system message is marked for the provider's prompt cache on requests whose role is in `llm.cache.roles` and whose model starts with a prefix in `llm.cache.models`. On the reply, two more markers follow in the user message: one at the end of the stable prefix (`llm.cache.ttl`) and one at the end of the profiles (`llm.cache.profilesTtl`); three of the provider's four markers in all. See "Cache segments" in the [prompt contract](prompt-contract.md). Three helper requests send their user message in two parts so the provider can cache the bulk that repeats between calls: the GIF picker (the `<gifs>` library), the route classifier (the `<channels>` list) and the participation pick (the `<episodes>` list) tag that first part with the same `cacheSegment: 'stable'` (marker TTL `llm.cache.ttl`); the per-turn text follows untagged. The marker is placed only when the helper's role (`analyzer`) is in `llm.cache.roles` and its model matches `llm.cache.models`; add `analyzer` (and `reasoner` for the reasoning helpers) to `llm.cache.roles` to cache them. The markers go on after the token estimate, so the 50k per-request cap and the calibration are unaffected. `llm.cache.promptIncludesCached` tells the engine how the provider reports cached tokens; set it once from a real probe. The `llm: usage` log line gains `cache`: `write`, `read`, `none` or `off`.
 
 The `llm: usage` log line also carries `ms` (wall time of the request), `purpose` (a short string naming what the request was for, e.g. `route-channel`, `recall-summary`, `address`), `origin` (e.g. `replay` for the requests of `tools/replay.mjs`), `hedged` (true when the request was hedged) and `attempt` (1 or 2 for hedged requests, absent otherwise).
 
 With `llm.hedge` configured, requests on the roles it lists are hedged: a second attempt fires `llm.hedge.afterMs` after the first, and the first to finish wins. Both are aborted at `llm.hedge.timeoutMs` (or `longTimeoutMs` for a `long: true` request). This adds one extra request per hedged call that did not finish before the second started; both count against `llm.maxRequestsPerDay`.
-
-## `classifier`
-
-Helper model roles, grouped under one key. Each is set independently, so the helpers can stay on cheap models while the voice uses a premium one.
-
-| Key | Default | Meaning |
-|---|---|---|
-| `text` | `"anthropic/claude-sonnet-4.6"` | Runs the address classifier (`features.followUp`), the re-watch classifier (`features.videoRewatch`), the room classifier (`spontaneous.roomQuestionChance`) and the channel route classifier (`features.channelRoute`) |
-| `reason` | `null` | The helpers that reason over content: the search classifier, the recall summary, the search condenser, the link reader, the diary planner and the turn planner. Unset (default) uses the `classifier.text` model; the status card shows the fallback. Its requests carry role `classifier.reason` |
-| `byPurpose` | `{}` | Per-purpose model override: an object whose keys are purpose strings (e.g. `lookup`, `recall-summary`, `diary-plan`, `planner`) and whose values are model ids. A match on purpose wins over the role's model. Not probed by `/nep status` |
-| `media` | `"anthropic/claude-haiku-4.5"` | Picture describer (`features.mediaDescriptions`): one-line descriptions for pictures, GIF frames, video posters, stickers, custom emoji and link thumbnails |
-| `video` | `"google/gemini-3.8-flash"` | Video describer (`features.videoDescriptions`): watches short clips, re-watches on a question, retries on request. Must accept both video and audio input |
-| `embed` | `"openai/text-embedding-3-large"` | The embedding model (for meaning search). Its requests carry role `classifier.embed`; its `llm: usage` lines report `inputs` (the number of texts embedded) and `dimensions`. Probed by `/nep status` with a one-input embedding request; without an embedding client the line says it was not checked |
-
-**Migration from the old keys.** The deprecated keys `llm.classifierModel`, `mention.followUpModel`, `media.model` and `media.video.model` are no longer read. If any of them is present in `config.local.json`, the bot logs a startup warning (`index: deprecated model key ignored`) naming the key and its replacement. Move the value to `classifier.text`, `classifier.media` or `classifier.video` respectively.
 
 ## `embed`
 
@@ -141,6 +143,8 @@ Helper model roles, grouped under one key. Each is set independently, so the hel
 | `batch` | `64` | Lines flushed in one embedding request by the live queue (`features.embedIndex`) |
 | `flushSeconds` | `180` | Seconds between live queue flushes. A flush also runs when `embed.batch` lines are waiting |
 | `queueMax` | `2000` | Lines the live queue holds in memory. The oldest are dropped when the queue is full |
+| `catchUpHours` | `72` | At start, when the embedding switches turn on, on resume and hourly, the queue re-embeds anything from the last this many hours that the index is missing. An hourly `embedder: coverage` log line reports the count |
+| `catchUpEveryMinutes` | `60` | Minutes between catch-up sweeps while the bot runs. Each sweep covers the last `catchUpHours` |
 
 Each message the record takes is embedded with its two preceding lines of the same channel as context, so a short answer carries what it answers. Archive items (episodes, lessons, evicted details and interests) get one vector each. Vectors are stored per month in `data/guilds/<id>/vectors/<YYYY-MM>/` as int8 rows with a per-row scale, one manifest and one metadata file per generation. A private chat's vectors live under `data/guilds/<id>/private/<userId>/vectors/`. `/nep memory forget` drops every row that names the member (same rules as the record and the archive) by rewriting the month files; `/nep memory wipe` deletes the whole `vectors/` tree.
 
@@ -256,7 +260,7 @@ Post-processing applied to the model's output before it is sent to Discord. All 
 
 ## `route`
 
-Settings for the channel route classifier (`features.channelRoute`). When the conversation names or refers to another channel, a classifier (`prompts/route-channel.md` on the `classifier.text` role) picks the channel number from a list. The picked channel is pulled into the request as a `<channel_view>` block alongside any explicit channel mentions. Logged as `route: classified`, `route: skipped` or `route: failed`.
+Settings for the channel route classifier (`features.channelRoute`). When the conversation names or refers to another channel, a classifier (`prompts/route-channel.md` on the `analyzer` role) picks the channel number from a list. The picked channel is pulled into the request as a `<channel_view>` block alongside any explicit channel mentions. Logged as `route: classified`, `route: skipped` or `route: failed`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -267,7 +271,7 @@ Settings for the channel route classifier (`features.channelRoute`). When the co
 
 ## `participation`
 
-The persona's own exchanges on other channels (`features.participation`). Every message the persona sends in a server channel (not a private chat, not the diary channel, not a dry run) is saved with a few lines before it, the message it answered, and the lines that follow it, in `data/guilds/<id>/participation.json`. On a server turn the persona sees up to `shown` of these episodes from other channels in a `<participation>` block: the ones a classifier (`prompts/participation-pick.md` on the `classifier.text` role) picks as the ones the message refers to, then the newest. Only channels everyone in the current channel can also read are offered (the `context.pull.sameAudience` rule). Logged as `participation: recorded`, `participation: classified`, `participation: skipped` or `participation: failed`.
+The persona's own exchanges on other channels (`features.participation`). Every message the persona sends in a server channel (not a private chat, not the diary channel, not a dry run) is saved with a few lines before it, the message it answered, and the lines that follow it, in `data/guilds/<id>/participation.json`. On a server turn the persona sees up to `shown` of these episodes from other channels in a `<participation>` block: the ones a classifier (`prompts/participation-pick.md` on the `analyzer` role) picks as the ones the message refers to, then the newest. Only channels everyone in the current channel can also read are offered (the `context.pull.sameAudience` rule). Logged as `participation: recorded`, `participation: classified`, `participation: skipped` or `participation: failed`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -288,7 +292,7 @@ The persona's own exchanges on other channels (`features.participation`). Every 
 
 ## `split`
 
-Settings for the task splitter (`features.splitTasks`). When a direct call (mention, reply, name, follow-up, private message) is long enough and structured enough, a classifier (`prompts/split.md` on the `classifier.text` role) decides whether it holds several separate requests. Each part is answered in its own turn; the first replies to the message, the rest post plain. The splitter runs beside the turn's preparation and never slows a single request. Logged as `split: verdict`, `split: skipped` or `split: failed`; each part logs `turn: part`.
+Settings for the task splitter (`features.splitTasks`). When a direct call (mention, reply, name, follow-up, private message) is long enough and structured enough, a classifier (`prompts/split.md` on the `analyzer` role) decides whether it holds several separate requests. Each part is answered in its own turn; the first replies to the message, the rest post plain. The splitter runs beside the turn's preparation and never slows a single request. Logged as `split: verdict`, `split: skipped` or `split: failed`; each part logs `turn: part`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -300,7 +304,7 @@ Settings for the task splitter (`features.splitTasks`). When a direct call (ment
 
 ## `recall`
 
-Settings for the server-history search (`features.recall`). When the lookup classifier (`prompts/lookup.md`) answers with `server:` forms, `who:` name forms or `when:` date ranges, the engine searches the server's own message history through Discord's search API, groups the hits into clusters, fetches a window of messages around each, and asks a summary helper (`prompts/recall-summary.md` on the `classifier.text` role) what the history answers. The summary may single out one stretch that the persona then gets verbatim alongside the condensed note. Logged as `recall: searched`, `recall: summary`, `recall: skipped` or `recall: failed`.
+Settings for the server-history search (`features.recall`). When the lookup classifier (`prompts/lookup.md`) answers with `server:` forms, `who:` name forms or `when:` date ranges, the engine searches the server's own message history through Discord's search API, groups the hits into clusters, fetches a window of messages around each, and asks a summary helper (`prompts/recall-summary.md` on the `reasoner` role) what the history answers. The summary may single out one stretch that the persona then gets verbatim alongside the condensed note. Logged as `recall: searched`, `recall: summary`, `recall: skipped` or `recall: failed`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -352,7 +356,7 @@ Settings for the GIF library (`features.gifs`). Uses are counted as each message
 
 ### `gifs.pick`
 
-Settings for the GIF picker (`features.gifPicker`). When the persona's first outgoing message is short (at most `gifs.pick.maxChars` characters) and she chose no GIF herself, a classifier (`classifier.text`, prompt `prompts/gif-pick.md`) receives the last few chat lines with the answered message named, that first message, and the whole captioned library (every entry with its caption, each carrying the own-mark when applicable), and answers one handle or `none`. On a handle the GIF replaces the first message; the remaining messages follow in order. The classifier runs during the first message's typing simulation; the daily GIF rail `gifs.maxPerDay` applies.
+Settings for the GIF picker (`features.gifPicker`). When the persona's first outgoing message is short (at most `gifs.pick.maxChars` characters) and she chose no GIF herself, a classifier (`analyzer` role, prompt `prompts/gif-pick.md`) receives the last few chat lines with the answered message named, that first message, and the whole captioned library (every entry with its caption, each carrying the own-mark when applicable), and answers one handle or `none`. On a handle the GIF replaces the first message; the remaining messages follow in order. The classifier runs during the first message's typing simulation; the daily GIF rail `gifs.maxPerDay` applies.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -362,7 +366,7 @@ Settings for the GIF picker (`features.gifPicker`). When the persona's first out
 
 ## `media`
 
-Settings for the media describer (`features.mediaDescriptions`). The describer model is `classifier.media`.
+Settings for the media describer (`features.mediaDescriptions`). The describer model is `roles.vision`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -377,7 +381,7 @@ Settings for the media describer (`features.mediaDescriptions`). The describer m
 
 ### `media.gif`
 
-Settings for watching GIFs as short clips (`media.gif.watch`). When enabled, a GIF's animation is converted to a short mp4 and sent to the `classifier.video` model instead of describing a single frame. The watched caption replaces the one-frame description. A GIF that cannot be watched (no animation source, a failed conversion, a spent daily cap) falls back to the one-frame description.
+Settings for watching GIFs as short clips (`media.gif.watch`). When enabled, a GIF's animation is converted to a short mp4 and sent to the `video` role's model instead of describing a single frame. The watched caption replaces the one-frame description. A GIF that cannot be watched (no animation source, a failed conversion, a spent daily cap) falls back to the one-frame description.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -387,7 +391,7 @@ Settings for watching GIFs as short clips (`media.gif.watch`). When enabled, a G
 
 ### `media.video`
 
-Settings for the video describer (`features.videoDescriptions`). Video vision needs BOTH `features.mediaDescriptions` and `features.videoDescriptions` on. The video model is `classifier.video`. A separate video-capable model watches short clips: Discord video attachments and links to the sites in `media.video.sites`. Results are cached in the media cache alongside picture descriptions; a repost costs nothing.
+Settings for the video describer (`features.videoDescriptions`). Video vision needs BOTH `features.mediaDescriptions` and `features.videoDescriptions` on. The video model is `roles.video`. A separate video-capable model watches short clips: Discord video attachments and links to the sites in `media.video.sites`. Results are cached in the media cache alongside picture descriptions; a repost costs nothing.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -425,7 +429,7 @@ For YouTube links, the duration is learned through a chain: yt-dlp first, then t
 
 ### `media.video.rewatch`
 
-Settings for the re-watch classifier (`features.videoRewatch`). When the persona is addressed and a watched video sits in the recent transcript, a cheap classifier decides whether the message asks about one of those videos; if so, the video model watches the clip again and the answer is appended to the transcript. The classifier uses `classifier.text`. The second look always uses `classifier.video`.
+Settings for the re-watch classifier (`features.videoRewatch`). When the persona is addressed and a watched video sits in the recent transcript, a cheap classifier decides whether the message asks about one of those videos; if so, the video model watches the clip again and the answer is appended to the transcript. The classifier uses the `analyzer` role. The second look always uses the `video` role.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -456,7 +460,7 @@ At most one re-watch or retry per turn. Answers are cached for one hour per ques
 | `affinityLikeBonus` | `0.08` | Max reduced ignore at affinity +100 |
 | `oneAtATime` | `true` | One reply at a time across the server |
 | `pendingSameChannel` | `true` | Hold a direct ping in the same channel while a turn is running there; answered after the turn with the usual ignore chance. Missing key = on |
-| `classifyWhileBusy` | `true` | Classify a follow-up candidate while a turn is running. The candidate passes the same window, no-streak and pre-filter gates; at most one classifier call per channel at a time, newer candidate replaces the one waiting. A `yes` at a busy attention waits in the pending queue (one per channel); an `overheard` is dropped as `busy` unless `mention.pendingOverheard` is on. With the switch off, the candidate is skipped without a call. Also skipped when `mention.pendingSameChannel` is off and the candidate's own channel is busy. Each call is one `classifier.text` request under `llm.maxRequestsPerDay`. Missing key = on |
+| `classifyWhileBusy` | `true` | Classify a follow-up candidate while a turn is running. The candidate passes the same window, no-streak and pre-filter gates; at most one classifier call per channel at a time, newer candidate replaces the one waiting. A `yes` at a busy attention waits in the pending queue (one per channel); an `overheard` is dropped as `busy` unless `mention.pendingOverheard` is on. With the switch off, the candidate is skipped without a call. Also skipped when `mention.pendingSameChannel` is off and the candidate's own channel is busy. Each call is one `analyzer` request under `llm.maxRequestsPerDay`. Missing key = on |
 | `pendingOverheard` | `true` | Hold a line the classifier judges as talk about the persona (not to them) in the pending queue while the persona is busy. The persona reacts after the current turn. A waiting follow-up is never pushed out by a later overheard line; a waiting overheard line is pushed out by a later follow-up, a later overheard line, or a direct mention, reply or name call. A waiting overheard line is not counted toward the spam limit and is not reported to other turns as a call waiting in the channel. Off: the line is dropped while busy. Missing key = on |
 | `maxPending` | `6` | Total pending calls held across all channels and authors. The single oldest is evicted when full (`mention: dropped`, reason `full`) |
 | `pendingMinutes` | `10` | Minutes before a held ping expires |
@@ -508,8 +512,7 @@ Follow-up windows are persisted in `data/state.json` under `followUpWindows` and
 
 | Key | Default | Meaning |
 |---|---|---|
-| `model` | `null` | Analyzer model (`null` = llm.model) |
-| `temperature` | `0.3` | Sampling temperature of every analyzer-role request: stream analyzer batches (server and private), the warmup's channel, profile and server requests and the portrait refresh |
+| `temperature` | `0.3` | Sampling temperature of every extractor-role request: stream analyzer batches (server and private), the warmup's channel, profile and server requests and the portrait refresh |
 | `mainChannelIds` | `[]` | Channels where people talk to each other; the portrait of a member's character and style is drawn from them; empty means every channel counts. Also the destination for answers to calls from read-only channels (`features.elsewhere`): the first usable channel in the list is used |
 | `portraitRefreshHours` | `24` | Min hours between portrait refreshes triggered by the analyzer's cue per member |
 | `portraitRefreshMessages` | `300` | Own messages since the last portrait before a code-triggered refresh is due. Also the sample size for the refresh |
@@ -582,7 +585,7 @@ Follow-up windows are persisted in `data/state.json` under `followUpWindows` and
 
 The analyzer prompt reads these limits as placeholders, so raising a value takes effect on the next batch. Bigger profiles cost context tokens (`context.caps.people`, `context.caps.interlocutor`) and analyzer output (`memory.maxOutputTokens`).
 
-**Migration.** `memory.voiceModel` is no longer read; a config that still sets it logs one warning and the value is ignored. Replies and memory wording both use `llm.model`.
+**Migration.** `memory.voiceModel` is no longer read; a config that still sets it logs one warning and the value is ignored. Replies and memory wording both use `roles.voice`.
 
 ### `memory.voice`
 
@@ -632,7 +635,7 @@ With `decayPerDay` set, every stored affinity (public and private) drifts toward
 
 ## `web`
 
-Settings for the web lookup (`features.webLookup`). Both link reading and search share a daily counter (`web.maxPerDay`). Results are cached in the media cache (`data/guilds/<id>/media.json`). All model calls go through the `classifier.text` role.
+Settings for the web lookup (`features.webLookup`). Both link reading and search share a daily counter (`web.maxPerDay`). Results are cached in the media cache (`data/guilds/<id>/media.json`). Model calls go through the `analyzer` role (the classifier) and the `reasoner` role (the condenser, the link reader).
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -670,11 +673,10 @@ Settings for the web lookup (`features.webLookup`). Both link reading and search
 
 ## `image`
 
-Settings for the drawing sub-process (`features.imageGeneration`). The persona emits a `<draw>` tag; code generates one picture through OpenRouter's Images API and posts it as a separate message. Generation and daily counts are stored in `data/state.json` (`imageDay`, `imageCount`, `imageUsers`). All pictures go through `image.model`, not the chat or classifier models.
+Settings for the drawing sub-process (`features.imageGeneration`). The persona emits a `<draw>` tag; code generates one picture through OpenRouter's Images API and posts it as a separate message. Generation and daily counts are stored in `data/state.json` (`imageDay`, `imageCount`, `imageUsers`). All pictures go through `roles.drawing`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `model` | `"openai/gpt-image-2.5-flare"` | Image model ID. Only `openai/*` and `google/*` families are supported; anything else is refused before any request |
 | `maxPerDay` | `50` | Daily generation cap for the whole instance |
 | `maxPerUserPerDay` | `50` | Daily generation cap per member; spontaneous turns and `/nep draw` do not count against a member |
 | `maxPromptChars` | `1600` | Scene text from the `<draw>` tag is clamped to this length, cut at the last sentence or word boundary |
@@ -734,7 +736,7 @@ Settings for the diary channel (`features.diary`). The persona posts in one owne
 | `set.seedSets` | `6` | Random seed combinations shown in a `<seeds>` block of the compose request of a set post (the plan request keeps `seedSets`). `0` omits the block |
 | `set.maxMessageBytes` | `8000000` | The most picture bytes one Discord message carries. A set larger than this, or of more than 10 pictures, is split over several messages |
 | `planMaxOutputTokens` | `2000` | Max output tokens for the plan request |
-| `planTimeoutMs` | `60000` | Timeout for the plan request (ms). Also the limit of its hedged call when `llm.hedge.roles` includes `classifier.text`, in place of `llm.hedge.timeoutMs` |
+| `planTimeoutMs` | `60000` | Timeout for the plan request (ms). Also the limit of its hedged call when `llm.hedge.roles` includes `reasoner`, in place of `llm.hedge.timeoutMs` |
 
 Default `windows`:
 
@@ -821,37 +823,37 @@ Before anything leaves hot memory (an episode, interest, detail, alias, real nam
 
 ## Models
 
-The engine uses eight model roles. Each is set independently, so the voice can use a premium model while the helpers stay cheap.
+The engine uses eight model roles (`roles.*`). Each is set independently, so the voice can use a premium model while the helpers stay cheap. No role takes another role's model: an unset role keeps its own default.
 
-### Voice (`llm.model`)
+### Voice
 
-Role `voice`. The most capable model the budget allows. Roleplay quality, in-character consistency and natural conversation all depend on it. A smaller model breaks character, forgets context cues and sounds flat. In two-stage mode, the same model also words the persona's memory texts (stage B: relationship notes, attitude reasons, episode feelings, lessons, self-facts, server patterns, starters and the character portrait). Both kinds of request carry role `voice` in the usage log; they are told apart by purpose (`reply`, `memory-voice`).
+The most capable model the budget allows. Roleplay quality, in-character consistency and natural conversation all depend on it. A smaller model breaks character, forgets context cues and sounds flat. In two-stage mode, the same model also words the persona's memory texts (purposes `reply`, `memory-voice`).
 
 Default: `anthropic/claude-opus-4.6`. A cheaper option: `anthropic/claude-sonnet-4.6`.
 
-### Analyzer (`memory.model`)
+### Analyzer
 
-Role `analyzer`. Reasons over long transcripts and returns strict JSON. Needs the same tier of intelligence as the voice. `null` (default) uses the persona's model. The same examples apply. In two-stage mode (`features.memoryTwoStage`), this model runs stage A (neutral decisions).
+Picks one option from a short list: address, room, merge, route-channel, participation-pick, rewatch, split, gif-pick. The cheapest text model that can answer "yes" or "no" reliably. Default: `openai/gpt-6.1-sol`.
 
-### Text classifiers (`classifier.text`)
+### Reasoner
 
-The cheapest text model that can answer "yes" or "no" reliably. Runs the address classifier (`features.followUp`), the re-watch classifier (`features.videoRewatch`), the room classifier (`spontaneous.roomQuestionChance`) and the channel route classifier (`features.channelRoute`). Default: `anthropic/claude-sonnet-4.6`.
+Plans a search and turns sources into notes: lookup, planner, recall-summary, search-summary, read-link, diary-plan. Default: `openai/gpt-6.1-sol`.
 
-### Reasoning helpers (`classifier.reason`)
+### Extractor
 
-Role `classifier.reason`. The helpers that reason over content rather than answering yes/no: the search classifier (`features.webLookup`), the recall summary, the search condenser, the link reader (`features.recall`), the diary planner and the turn planner (`features.turnPlanner`). Default: `null`, which uses the `classifier.text` model. A `llm.providerByModel` key matching `<prefix>@classifier.text` also applies to this role when it has no key of its own.
+Turns conversations into stored memory: the memory analyzer's batches, portraits, channel and server notes, warmup, backfill. Reasons over long transcripts and returns strict JSON. In two-stage mode (`features.memoryTwoStage`), this model runs stage A (neutral decisions). Default: `openai/gpt-6.1-sol`.
 
-### Embeddings (`classifier.embed`)
+### Embedding
 
-Role `classifier.embed`. The embedding model, for meaning search. Default: `openai/text-embedding-3-large` with `embed.dimensions` 1024. Its requests go through the same transport, retries and daily cap as chat requests. The `/nep status` card probes it with a one-input embedding request; without an embedding client the line says it was not checked.
+The embedding model, for meaning search. Default: `openai/text-embedding-3-large` with `embed.dimensions` 1024. Its requests go through the same transport, retries and daily cap as chat requests. The `/nep status` card probes it with a one-input embedding request; without an embedding client the line says it was not checked.
 
-### Pictures (`classifier.media`)
+### Vision
 
 Any cheap vision model. Writes one-line descriptions, so reasoning power barely matters.
 
-Default: `anthropic/claude-haiku-4.5`. Cheapest alternative: `google/gemini-2.5-flash-lite`.
+Default: `google/gemini-3.8-flash`. Cheapest alternative: `google/gemini-2.5-flash-lite`.
 
-### Video (`classifier.video`)
+### Video
 
 Only models that accept BOTH video and audio input through OpenRouter work here. Models that take frames but no audio (Qwen VL, GLM, Seed, Gemma) do not hear speech and miss most of the point.
 
@@ -869,9 +871,9 @@ Cost per one-minute clip, USD, from OpenRouter prices on 2026-09-23:
 
 `qwen/qwen3.8-omni-flash` also accepts video and audio. Prices change; the table is a snapshot as of the date above.
 
-### Pictures out (`image.model`)
+### Drawing
 
-Separate from `classifier.media` (which describes pictures IN). This model generates pictures through OpenRouter's Images API (`POST /api/v1/images`). Only two families are supported: `openai/*` and `google/*`. An unsupported family is refused before any request or count.
+Generates pictures through OpenRouter's Images API (`POST /api/v1/images`). Only two families are supported: `openai/*` and `google/*`. An unsupported family is refused before any request or count.
 
 **OpenAI models.** Honour `image.openai.quality`, `image.openai.background`, `image.openai.moderation`, `image.aspectRatio`, `image.outputFormat` and `input_references`.
 
