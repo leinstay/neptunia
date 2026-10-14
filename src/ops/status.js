@@ -181,7 +181,7 @@ function span(ms) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder } = env;
+  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue } = env;
 
   /** The next spontaneous turn of `guildId` as an ISO time: src/behavior/spontaneous.js#status
    * keeps `{ [guildId]: epochMs }`. Null when there is none (or no scheduler). */
@@ -462,14 +462,33 @@ const handlers = perEnv((env) => {
     }
   }
 
-  /** The memory field: profiles, buffer lines, the archive's pending queue, the journal's last write. */
+  /** The meaning index line (`labels.status.index`: `{rows}` in the index, `{missing}` after the
+   * last catch-up pass, `-` before one), only while features.meaningSearch and features.embedIndex
+   * are both exactly true and the queue is wired; null otherwise, or when it cannot be read. */
+  async function indexLine(guildId, cfg) {
+    const template = hot.prompts?.labels?.status?.index;
+    if (typeof template !== 'string' || !template || typeof embedQueue?.indexSummary !== 'function') return null;
+    if (cfg?.features?.meaningSearch !== true || cfg?.features?.embedIndex !== true) return null;
+    try {
+      const { rows, missing } = await embedQueue.indexSummary(guildId);
+      return fill(template, { rows, missing: missing ?? '-' });
+    } catch (err) {
+      log.warn('admin: index summary failed', { code: err?.code ?? null, guildId });
+      return null;
+    }
+  }
+
+  /** The memory field: profiles, buffer lines, the archive's pending queue, the journal's last
+   * write, the meaning index. */
   async function memoryValue(guildId) {
     const last = await journalLastWrite(guildId);
+    const index = await indexLine(guildId, hot.config);
     return [
       `profiles ${store.countUsers(guildId)}`,
       `buffer ${store.getBuffer(guildId).length} lines`,
       `archive pending ${archivePending(guildId)}`,
       `journal last write ${last === null ? 'none today' : utcMinute(last)}`,
+      ...(index ? [index] : []),
     ].join('\n');
   }
 

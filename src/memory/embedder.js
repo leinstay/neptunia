@@ -15,15 +15,27 @@
 // (a wipe). A context line failing the same check is left out of the chunk. A failed request or
 // append keeps the batch for the next flush; the queue holds at most `embed.queueMax` jobs, the
 // oldest dropped with a warn. On shutdown `close` flushes once more, briefly, and stops the queue.
-// Logs carry counts and guild ids, never text.
+//
+// The catch-up keeps the index whole across every gap the queue cannot see (a stop, a crash, a
+// pause, the switches turned on late, a line the queue dropped): `catchUp` reads the record of the
+// last `embed.catchUpHours` in the guild and every private layer, takes each message's newest
+// revision, leaves out what the forgets leave out, and queues every message whose
+// `record:<id>:<revision>` the index does not hold (src/memory/vectors.js#has), with its channel
+// context from the same read, at most up to `embed.queueMax`; the rest goes on a later pass, run
+// once the queue has drained. A pass runs when the caller starts it (the start, `/nep resume`),
+// on the tick when the switches turn on, and every `embed.catchUpEveryMinutes`; never while the
+// bot is paused. Each pass logs its coverage (counts), and warns when a message the queue had
+// taken is missing with nothing left to send it (lost). Logs carry counts and guild ids, never text.
 
 import * as nodeFs from 'node:fs/promises';
+import path from 'node:path';
 import { log as defaultLog } from '../log.js';
 import { helperModel } from '../behavior/mention.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { railReason } from '../llm/openrouter.js';
 import { estimateTokens } from '../llm/tokens.js';
-import { CHUNK_CONTEXT_LINES, compareLines, contextFor, embeddableLine, layerChannelKey, recordChunk } from './chunks.js';
+import { HOUR_MS, MINUTE_MS } from '../time.js';
+import { CHUNK_CONTEXT_LINES, chunkKey, compareLines, contextFor, embeddableLine, layerChannelKey, newestRevisions, recordChunk } from './chunks.js';
 import { forgettingIds, isoOf, recordDrops } from './record.js';
 import { readLedger } from './store.js';
 
@@ -35,10 +47,14 @@ const FLUSH_SECONDS_FALLBACK = 180;
 const QUEUE_MAX_FALLBACK = 2000;
 /** `llm.maxRequestTokens` when missing: config.json's value. */
 const MAX_REQUEST_TOKENS_FALLBACK = 50000;
+/** `embed.catchUpHours` when missing or invalid: config.json's value. */
+const CATCH_UP_HOURS_FALLBACK = 72;
+/** `embed.catchUpEveryMinutes` when missing or invalid: config.json's value. */
+const CATCH_UP_EVERY_MINUTES_FALLBACK = 60;
 /** Lines kept per channel ring: enough context for a batch that arrives out of order. */
 const RING_SIZE = 16;
-/** How far back a ring is filled from the record on first use. */
-const WARM_MS = 24 * 60 * 60 * 1000;
+/** How far back a ring is filled from the record on first use (and a catch-up reads for context). */
+const WARM_MS = 24 * HOUR_MS;
 /** Message revisions remembered, so a line recorded twice is queued once. */
 const LATEST_MAX = 20000;
 /** How long `close` waits for its one flush on shutdown before it gives up. */
@@ -63,10 +79,14 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  * @param {object} [deps.fs]  A `node:fs/promises`-shaped API.
  * @param {(guildId: string, userId: string) => string|null} [deps.nameOf]  A member's display name now.
  * @param {(guildId: string) => string} [deps.selfName]  The persona's display name.
+ * @param {() => boolean} [deps.paused]  Whether the bot is paused (`/nep pause`): no catch-up then.
  * @returns {{
  *   enqueue(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): number,
  *   flush(): Promise<{ embedded: number, dropped: number, left: number }>,
- *   tick(): Promise<object>|null,
+ *   tick(guildId?: string|null): Promise<object>|null,
+ *   catchUp(guildId: string): Promise<object|null>,
+ *   coverage(guildId: string, opts?: { hours?: number }): Promise<{ messages: number, indexed: number, missing: number, oldestMissing: string|null }>,
+ *   indexSummary(guildId: string): Promise<{ rows: number, missing: number|null }>,
  *   close(opts?: { timeoutMs?: number }): Promise<{ embedded: number, dropped: number, left: number }|null>,
  *   stats(): { queued: number, rings: number },
  * }}
@@ -74,19 +94,41 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  *   older revision still waiting is replaced) and returns how many it queued; a full batch starts a
  *   flush in the background. `flush` sends at most one request (the oldest jobs, up to
  *   `embed.batch` and within `llm.maxRequestTokens`) and appends what survives the checks; one
- *   flush runs at a time. `tick` flushes once `embed.flushSeconds` have passed since the last one.
- *   `close` (shutdown) flushes once, waiting at most `timeoutMs` (default 5000), and resolves its
- *   counts, or null on the timeout, a failure or a second call; after it nothing is queued.
+ *   flush runs at a time. `tick` flushes once `embed.flushSeconds` have passed since the last one;
+ *   with `guildId` it first runs a catch-up pass when one is due (the switches just turned on, the
+ *   first tick, `embed.catchUpEveryMinutes` since the last pass, or a pass that left messages
+ *   behind and a drained queue); null when it did nothing. `catchUp` runs one pass (one at a time:
+ *   a second call shares the running one) and resolves `{ messages, indexed, missing, queued,
+ *   waiting, left, lost, oldestMissing }` (`waiting`: missing but already queued or in flight;
+ *   `left`: no room in the queue this pass; `lost`: missing although the queue had taken them),
+ *   or null when the index is off, the bot is paused, the queue closed or the index has no `has`.
+ *   `coverage` reads the same window (`hours`, default `embed.catchUpHours`) without queueing,
+ *   whatever the switches say. `indexSummary`: the rows of the guild's index and every private
+ *   layer's, and the missing count of the guild's last pass (null before one). `close` (shutdown)
+ *   flushes once, waiting at most `timeoutMs` (default 5000), and resolves its counts, or null on
+ *   the timeout, a failure or a second call; after it nothing is queued.
  */
-export function createEmbedder({ hot, vectors, embed, record, dataDir, log = defaultLog, now = Date.now, fs = nodeFs, nameOf = null, selfName = null }) {
+export function createEmbedder({ hot, vectors, embed, record, dataDir, log = defaultLog, now = Date.now, fs = nodeFs, nameOf = null, selfName = null, paused = () => false }) {
   let queue = [];
   const rings = new Map(); // `${guildId}|${layerChannelKey}` -> { lines, warmed }
   const latest = new Map(); // `${guildId}|${layer}|${messageId}` -> newest revision queued
   let lastFlushAt = now();
   let flushing = null;
   let closed = false;
+  // The catch-up: the pass running, when the last one ran, whether it left messages behind, the
+  // switches as the last tick saw them, the jobs of the flush in flight, the jobs appended while
+  // a pass ran, and each guild's last pass.
+  let catching = null;
+  let lastCatchUpAt = null;
+  let behind = false;
+  let wasOn = false;
+  let inFlight = new Set();
+  let appendedDuringPass = null;
+  const lastPass = new Map();
 
   const on = () => hot.config?.features?.meaningSearch === true && hot.config?.features?.embedIndex === true;
+  const isPaused = () => typeof paused === 'function' && paused() === true;
+  const jobKey = (idKey, revision) => `${idKey}#${revision}`;
 
   function settings() {
     const embedConfig = hot.config?.embed ?? {};
@@ -95,6 +137,8 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
       flushSeconds: positiveNumber(embedConfig.flushSeconds, FLUSH_SECONDS_FALLBACK),
       queueMax: positiveInt(embedConfig.queueMax, QUEUE_MAX_FALLBACK),
       maxTokens: positiveNumber(hot.config?.llm?.maxRequestTokens, MAX_REQUEST_TOKENS_FALLBACK),
+      catchUpHours: positiveNumber(embedConfig.catchUpHours, CATCH_UP_HOURS_FALLBACK),
+      catchUpEveryMinutes: positiveNumber(embedConfig.catchUpEveryMinutes, CATCH_UP_EVERY_MINUTES_FALLBACK),
     };
   }
 
@@ -151,16 +195,23 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
       queue.splice(0, dropped);
       log.warn('embedder: queue full', { dropped, queued: queue.length });
     }
+    kick(batch);
+    return added;
+  }
+
+  /** A full batch starts a flush in the background. */
+  function kick(batch) {
     if (queue.length >= batch && !flushing) {
       flush().catch((error) => log.warn('embedder: flush failed', { code: error?.code ?? null, name: error?.name ?? null }));
     }
-    return added;
   }
 
   /** Fill the rings of `jobs` not yet filled, from the record, one pass per guild and layer. */
   async function warm(jobs) {
     const groups = new Map();
     for (const job of jobs) {
+      // A catch-up job carries its context from the pass's own read.
+      if (job.context) continue;
       const ring = ringOf(job.ringKey);
       if (ring.warmed) continue;
       const key = `${job.guildId}|${job.privateUserId ?? ''}`;
@@ -251,7 +302,7 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
   /** The chunk of a job: its line with the context lines no forget leaves out. */
   async function chunkOf(job, caches) {
     const forgets = await forgetsOf(job.guildId, caches.forgets);
-    const context = contextFor(job.line, ringOf(job.ringKey).lines, RING_SIZE)
+    const context = contextFor(job.line, job.context ?? ringOf(job.ringKey).lines, RING_SIZE)
       .filter((line) => !forgotten(line, forgets))
       .slice(-CHUNK_CONTEXT_LINES);
     return recordChunk(job.line, context, {
@@ -301,6 +352,8 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
       return { embedded: 0, dropped: gone.size, left: queue.length };
     }
 
+    // What a catch-up pass must not queue again while this flush still holds it.
+    inFlight = new Set(jobs.map(({ job }) => jobKey(job.idKey, job.revision)));
     let vectorsOut;
     try {
       vectorsOut = await embed(jobs.map(({ chunk }) => chunk.text), { config });
@@ -332,6 +385,7 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
       try {
         await vectors.append(group.guildId, group.rows, { privateUserId: group.privateUserId, model });
         embedded += group.rows.length;
+        if (appendedDuringPass) for (const job of group.jobs) appendedDuringPass.add(jobKey(job.idKey, job.revision));
       } catch (error) {
         // Kept for the next flush: the jobs go back to the front of the queue.
         queue = [...group.jobs, ...queue];
@@ -346,13 +400,176 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
     if (!flushing) {
       flushing = runFlush().finally(() => {
         flushing = null;
+        inFlight = new Set();
       });
     }
     return flushing;
   }
 
-  function tick() {
-    if (now() - lastFlushAt < settings().flushSeconds * 1000) return null;
+  // ---- the catch-up ---------------------------------------------------------------------------
+
+  /** The members with a private layer in the guild (a directory under `private/`). */
+  async function privateLayers(guildId) {
+    try {
+      const entries = await fs.readdir(path.join(dataDir, 'guilds', String(guildId), 'private'), { withFileTypes: true });
+      return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+    } catch (error) {
+      if (error?.code === 'ENOENT') return [];
+      throw error;
+    }
+  }
+
+  /**
+   * The record of the last `hours` against the index: every message (its newest revision) a
+   * forget does not leave out, counted, and the missing ones, oldest first per layer, with their
+   * channel's earlier lines when `withContext` (read a day further back for that).
+   */
+  async function survey(guildId, hours, { withContext = false } = {}) {
+    const to = now();
+    const from = to - hours * HOUR_MS;
+    const forgets = await forgetsOf(guildId, new Map());
+    const out = { messages: 0, indexed: 0, missing: [] };
+    for (const layer of [null, ...(await privateLayers(guildId))]) {
+      if (layer && forgets.hidden.has(layer)) continue;
+      const raw = [];
+      const query = { from: new Date(from - (withContext ? WARM_MS : 0)).toISOString(), to: new Date(to).toISOString(), privateUserId: layer };
+      for await (const line of record.iterate(guildId, query)) raw.push(line);
+      const lines = newestRevisions(raw).filter((line) => !forgotten(line, forgets) && !layerForgotten({ privateUserId: layer, line }, forgets));
+      const channels = new Map();
+      const months = new Map();
+      for (const line of lines) {
+        const key = channelOf(line) ?? '';
+        if (!channels.has(key)) channels.set(key, []);
+        const channelLines = channels.get(key);
+        channelLines.push(line);
+        if (!(Date.parse(line.occurredAt) >= from)) continue;
+        out.messages += 1;
+        const month = isoOf(line.occurredAt).slice(0, 7);
+        if (!months.has(month)) months.set(month, await vectors.has(guildId, month, { privateUserId: layer }));
+        if (months.get(month).has(chunkKey({ kind: 'record', id: line.messageId, revision: revisionOf(line) }))) {
+          out.indexed += 1;
+          continue;
+        }
+        out.missing.push({ layer, line, context: withContext ? channelLines.slice(Math.max(0, channelLines.length - 1 - RING_SIZE), -1) : null });
+      }
+    }
+    return out;
+  }
+
+  async function coverage(guildId, { hours = null } = {}) {
+    const window = positiveNumber(hours, settings().catchUpHours);
+    const found = await survey(String(guildId), window);
+    return {
+      messages: found.messages,
+      indexed: found.indexed,
+      missing: found.missing.length,
+      oldestMissing: oldestOf(found.missing),
+    };
+  }
+
+  /** The earliest `occurredAt` among missing messages, or null. */
+  function oldestOf(missing) {
+    let oldest = null;
+    for (const { line } of missing) if (oldest === null || Date.parse(line.occurredAt) < Date.parse(oldest)) oldest = isoOf(line.occurredAt);
+    return oldest;
+  }
+
+  async function runCatchUp(guildId) {
+    if (closed || !on() || isPaused() || typeof vectors?.has !== 'function') return null;
+    lastCatchUpAt = now();
+    wasOn = true;
+    const { catchUpHours, queueMax, batch } = settings();
+    // A flush appending while the index is read: those messages are not queued again.
+    appendedDuringPass = new Set();
+    let found;
+    try {
+      found = await survey(guildId, catchUpHours, { withContext: true });
+    } catch (error) {
+      appendedDuringPass = null;
+      log.warn('embedder: catch-up failed', { guildId, code: error?.code ?? null });
+      return null;
+    }
+    const appendedMeanwhile = appendedDuringPass;
+    appendedDuringPass = null;
+    if (closed || !on() || isPaused()) return null;
+
+    const queuedNow = new Set(queue.map((job) => jobKey(job.idKey, job.revision)));
+    let room = Math.max(0, queueMax - queue.length);
+    const counts = { queued: 0, waiting: 0, left: 0, lost: 0 };
+    let indexed = found.indexed;
+    const missing = [];
+    for (const item of found.missing) {
+      const revision = revisionOf(item.line);
+      const idKey = `${guildId}|${item.layer ?? ''}|${item.line.messageId}`;
+      const key = jobKey(idKey, revision);
+      if (appendedMeanwhile.has(key)) {
+        indexed += 1;
+        continue;
+      }
+      missing.push(item);
+      const known = latest.get(idKey);
+      if (queuedNow.has(key) || inFlight.has(key) || known > revision) {
+        // Already on its way (or a newer revision is).
+        counts.waiting += 1;
+        continue;
+      }
+      if (known === revision) counts.lost += 1;
+      if (room === 0) {
+        counts.left += 1;
+        continue;
+      }
+      remember(idKey, revision);
+      queue = queue.filter((job) => job.idKey !== idKey);
+      const line = { ...item.line, occurredAt: isoOf(item.line.occurredAt) };
+      queue.push({ guildId, privateUserId: item.layer, line, revision, idKey, ringKey: ringKey(guildId, item.layer, channelOf(line)), context: item.context });
+      room -= 1;
+      counts.queued += 1;
+    }
+    behind = counts.left > 0;
+    const pass = { messages: found.messages, indexed, missing: missing.length, ...counts, oldestMissing: oldestOf(missing) };
+    lastPass.set(guildId, pass);
+    log.info('embedder: coverage', { guildId, ...pass });
+    if (counts.lost > 0) log.warn('embedder: coverage gap', { guildId, missing: pass.missing, lost: counts.lost, queued: counts.queued });
+    kick(batch);
+    return pass;
+  }
+
+  function catchUp(guildId) {
+    if (!catching) {
+      catching = runCatchUp(String(guildId)).finally(() => {
+        catching = null;
+      });
+    }
+    return catching;
+  }
+
+  /** Whether the tick should run a catch-up pass now (the switches read by the caller). */
+  function catchUpDue(isOn) {
+    if (!isOn || closed || catching || isPaused()) return false;
+    if (!wasOn || lastCatchUpAt === null) return true;
+    if (now() - lastCatchUpAt >= settings().catchUpEveryMinutes * MINUTE_MS) return true;
+    return behind && queue.length === 0 && !flushing;
+  }
+
+  async function indexSummary(guildId) {
+    const id = String(guildId);
+    let rows = 0;
+    if (typeof vectors?.stats === 'function') {
+      for (const layer of [null, ...(await privateLayers(id))]) rows += (await vectors.stats(id, { privateUserId: layer })).rows ?? 0;
+    }
+    return { rows, missing: lastPass.get(id)?.missing ?? null };
+  }
+
+  function tick(guildId = null) {
+    const isOn = on();
+    const pass = guildId && catchUpDue(isOn) ? catchUp(guildId) : null;
+    wasOn = isOn;
+    const flushDue = () => now() - lastFlushAt >= settings().flushSeconds * 1000;
+    if (pass) {
+      const logged = pass.catch((error) => log.warn('embedder: catch-up failed', { guildId: String(guildId), code: error?.code ?? null }));
+      return logged.then(() => (flushDue() ? flush() : null));
+    }
+    if (!flushDue()) return null;
     return flush();
   }
 
@@ -379,5 +596,5 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
     return { queued: queue.length, rings: rings.size };
   }
 
-  return { enqueue, flush, tick, close, stats };
+  return { enqueue, flush, tick, catchUp, coverage, indexSummary, close, stats };
 }

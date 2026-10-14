@@ -341,6 +341,7 @@ function makeAdmin(rootDir, extra = {}) {
     journal: extra.journal,
     llm: extra.llm,
     embedder: extra.embedder,
+    embedQueue: extra.embedQueue,
   });
   return { admin, hot, store };
 }
@@ -1966,6 +1967,26 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(member.text, '', 'a member never gets the long form');
 });
 
+test('status: the owner card ends the memory field with the meaning index line while both index switches are on', async () => {
+  const rootDir = makeRoot();
+  const journal = { dayFile: () => path.join(rootDir, 'none.jsonl'), stalled: () => false };
+  const asked = [];
+  const embedQueue = { async indexSummary(guildId) { asked.push(guildId); return { rows: 1234, missing: 5 }; } };
+  const { admin, hot } = makeAdmin(rootDir, { journal, embedQueue });
+  hot.prompts.labels.status = { index: labels.status.index };
+  const memoryLines = async () => (await admin.run('status', {}, { userId: '42' })).embeds[0].fields.find((f) => f.name === 'memory').value.split('\n');
+
+  hot.config.features = { meaningSearch: true, embedIndex: false };
+  assert.equal((await memoryLines()).length, 4, 'the index off: no line');
+  hot.config.features = { meaningSearch: true, embedIndex: true };
+  assert.equal((await memoryLines()).at(-1), 'index: 1234 rows, 5 missing');
+  assert.deepEqual(asked, ['g1']);
+  embedQueue.indexSummary = async () => ({ rows: 0, missing: null });
+  assert.equal((await memoryLines()).at(-1), 'index: 0 rows, - missing', 'before the first pass');
+  hot.prompts.labels.status = {};
+  assert.equal((await memoryLines()).length, 4, 'no label: no line');
+});
+
 /** A fake llm client for the status probes: `complete` answers each role through `answer` (a
  * function of the role, throwing to fail), recording every call; `modelEndpoints` returns `listing`. */
 function fakeProbeLlm(answer, listing = { ok: true, status: 200, json: { data: { architecture: { output_modalities: ['image'] }, endpoints: [{}, {}] } } }) {
@@ -2594,6 +2615,22 @@ test('run: resume clears the flags and reports plain confirmation', async () => 
   assert.equal(store.state.data.pausedAt, undefined);
   assert.equal(store.reloadStateCalls, 1);
   assert.equal(result, 'Resumed.');
+});
+
+test('run: resume starts a catch-up pass of the meaning index for the guild; pause and a refused resume do not', async () => {
+  const rootDir = makeRoot();
+  const passes = [];
+  const embedQueue = { catchUp: async (guildId) => { passes.push(guildId); return null; } };
+  const { admin, store } = makeAdmin(rootDir, { embedQueue });
+  await admin.run('pause', {}, { guildId: 'g1' });
+  store.validateResult = ['guilds/g1/users/u1.json'];
+  await admin.run('resume', {}, { guildId: 'g1' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(passes, [], 'still paused: no pass');
+  store.validateResult = [];
+  assert.equal(await admin.run('resume', {}, { guildId: 'g1' }), 'Resumed.');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(passes, ['g1']);
 });
 
 test('run: every command that writes data/ is refused while paused, with a hint to resume', async () => {

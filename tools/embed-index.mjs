@@ -12,7 +12,7 @@
 //            Per month: the record and archive chunks, their tokens (characters / 3.5) and the
 //            cost at `--usd-per-mtok` (USD per million tokens), and the rows already indexed.
 //            Reads only.
-//   build    --max-usd <n> [--from YYYY-MM] [--to YYYY-MM] [--rebuild] [--dry-run] [--usd-per-mtok 0.13]
+//   build    --max-usd <n> [--from YYYY-MM] [--to YYYY-MM] [--rebuild] [--include-live] [--dry-run] [--usd-per-mtok 0.13]
 //            Embeds the months in the range not indexed yet (every one with `--rebuild`), in
 //            batches of `embed.batch` within `llm.maxRequestTokens`, on the `classifier.embed`
 //            model. The estimate comes first; the run is refused (exit 2) when it exceeds
@@ -20,14 +20,23 @@
 //            a new generation of the index and switched in at its end (rows the live queue added
 //            meanwhile are kept), so the index never shows half a month. `--dry-run` prints the
 //            plan and the estimate and sends nothing.
-//   stats    The index per month: rows, bytes, model, dimensions; the private layers summed.
+//   stats    [--coverage [--hours N]]
+//            The index per month: rows, bytes, model, dimensions; the private layers summed.
+//            `--coverage` adds the record of the last `--hours` (default `embed.catchUpHours`)
+//            against the index, guild and private layers together: messages, indexed, missing,
+//            the oldest missing time.
 //
 // Range: `--from` / `--to` default to the first month the record or the archive holds and the
 // current month. Safe while the bot runs: refused while a forget is under way (a `forgetting/`
 // marker); lines of a member the deletion ledger forgot after them are never sent; and while the
 // bot runs with its live queue on, the current month (and the previous one during the first day)
-// is left to the queue. Requests keep the embedding client's rails (the per-request token cap,
-// the daily request cap counted from today's count without writing it back).
+// is left to the queue, whose catch-up covers the last `embed.catchUpHours` after any gap. For a
+// live month the queue's catch-up does not reach (the switches turned on mid-month),
+// `--include-live` embeds only its rows missing from the index (the record lines older than the
+// catch-up window, and the archive items) and appends them, never replacing the month, so it
+// cannot clash with the queue's appends. Requests keep the embedding client's rails (the
+// per-request token cap, the daily request cap counted from today's count without writing it
+// back).
 //
 // Output: counts, tokens and USD only, never a message's text.
 
@@ -41,6 +50,7 @@ import { EMBED_ROLE } from '../src/llm/embed.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createArchive } from '../src/memory/archive.js';
 import { archiveChunk, chunkKey, isEmbeddableArchive, recordChunks } from '../src/memory/chunks.js';
+import { createEmbedder as createEmbedQueue } from '../src/memory/embedder.js';
 import { createJournal } from '../src/memory/journal.js';
 import { createRecord, forgettingIds, recordDrops } from '../src/memory/record.js';
 import { readLedger } from '../src/memory/store.js';
@@ -49,11 +59,14 @@ import { createVectors } from '../src/memory/vectors.js';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const USAGE =
   'usage: node tools/embed-index.mjs estimate [--from YYYY-MM] [--to YYYY-MM] [--usd-per-mtok 0.13] [--guild <id>]\n' +
-  '       node tools/embed-index.mjs build --max-usd <n> [--from YYYY-MM] [--to YYYY-MM] [--rebuild] [--dry-run] [--usd-per-mtok 0.13] [--guild <id>]\n' +
-  '       node tools/embed-index.mjs stats [--guild <id>]   (cwd: the bot directory)';
+  '       node tools/embed-index.mjs build --max-usd <n> [--from YYYY-MM] [--to YYYY-MM] [--rebuild] [--include-live] [--dry-run] [--usd-per-mtok 0.13] [--guild <id>]\n' +
+  '       node tools/embed-index.mjs stats [--coverage [--hours N]] [--guild <id>]   (cwd: the bot directory)';
 const SUBCOMMANDS = ['estimate', 'build', 'stats'];
 const MONTH_RE = /^\d{4}-\d{2}$/;
+const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
+/** `embed.catchUpHours` when missing or invalid: config.json's value. */
+const CATCH_UP_HOURS_FALLBACK = 72;
 /** USD per million tokens of the embedding model (`--usd-per-mtok`): text-embedding-3-large's price. */
 const DEFAULT_USD_PER_MTOK = 0.13;
 /** Characters per token in the estimate. */
@@ -108,13 +121,16 @@ function previousMonth(month) {
  */
 export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: givenHot = null, embedClient = null, log = defaultLog, rootDir = ROOT } = {}) {
   const flags = parseFlags(argv, {
-    values: ['--guild', '--data', '--from', '--to', '--max-usd', '--usd-per-mtok'],
-    switches: ['--rebuild', '--dry-run'],
+    values: ['--guild', '--data', '--from', '--to', '--max-usd', '--usd-per-mtok', '--hours'],
+    switches: ['--rebuild', '--dry-run', '--include-live', '--coverage'],
     usage: USAGE,
   });
   const sub = flags._[0];
   if (!SUBCOMMANDS.includes(sub) || flags._.length > 1) throw new CliError(USAGE);
-  if ((flags['--rebuild'] || flags['--dry-run'] || flags['--max-usd'] !== undefined) && sub !== 'build') throw new CliError(USAGE);
+  if ((flags['--rebuild'] || flags['--dry-run'] || flags['--include-live'] || flags['--max-usd'] !== undefined) && sub !== 'build') throw new CliError(USAGE);
+  if ((flags['--coverage'] && sub !== 'stats') || (flags['--hours'] !== undefined && !flags['--coverage'])) throw new CliError(USAGE);
+  const hours = flags['--hours'] === undefined ? undefined : numberFlag(flags['--hours'], undefined);
+  if (hours === 0) throw new CliError(USAGE);
   for (const key of ['--from', '--to']) if (flags[key] !== undefined && (!MONTH_RE.test(flags[key]) || sub === 'stats')) throw new CliError(USAGE);
   if (flags['--from'] && flags['--to'] && flags['--from'] > flags['--to']) throw new CliError(USAGE);
   const usdPerMtok = numberFlag(flags['--usd-per-mtok'], DEFAULT_USD_PER_MTOK);
@@ -138,7 +154,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
   const archive = createArchive({ appendStore: archiveStore, dataDir, log, now, writerGate });
   journal = createJournal({ appendStore: journalStore, dataDir, config: () => ({}), now, log, lockStores: [recordStore, archiveStore] });
   const vectors = createVectors({ dataDir, log, now, writerGate });
-  const ctx = { flags, sub, hot, dataDir, guildId, guildDir, now, log, rootDir, record, archive, vectors, embedClient, usdPerMtok, maxUsd };
+  const ctx = { flags, sub, hot, dataDir, guildId, guildDir, now, log, rootDir, record, archive, vectors, embedClient, usdPerMtok, maxUsd, hours };
   try {
     if (sub === 'stats') return await cmdStats(ctx);
     if (sub === 'estimate') return await cmdEstimate(ctx);
@@ -371,6 +387,28 @@ function keepBeside(chunks) {
   };
 }
 
+/** `embed.catchUpHours` now: the window the live queue's catch-up covers. */
+function catchUpHoursOf(ctx) {
+  const value = ctx.hot.config.embed?.catchUpHours;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : CATCH_UP_HOURS_FALLBACK;
+}
+
+/**
+ * The live months' plan items cut to what the index misses: the record chunks older than the
+ * catch-up window and the archive chunks, neither held at their revision; items left empty go.
+ */
+async function missingOfLive(ctx, items) {
+  const cutoff = ctx.now() - catchUpHoursOf(ctx) * HOUR_MS;
+  const out = [];
+  for (const item of items) {
+    const held = await ctx.vectors.has(ctx.guildId, item.month, { privateUserId: item.privateUserId });
+    const records = item.records.filter((chunk) => Date.parse(chunk.meta.occurredAt) < cutoff && !held.has(chunkKey(chunk.meta)));
+    const archived = item.archived.filter((chunk) => !held.has(chunkKey(chunk.meta)));
+    if (records.length + archived.length > 0) out.push({ ...item, records, archived, append: true });
+  }
+  return out;
+}
+
 async function cmdBuild(ctx) {
   const marked = await forgettingIds(fs.promises, ctx.dataDir, ctx.guildId);
   if (marked.size > 0) throw new CliError(`embed-index: a forget is under way (${marked.size} forgetting marker(s)); run again once it has finished`);
@@ -384,12 +422,16 @@ async function cmdBuild(ctx) {
     if (new Date(ctx.now() - DAY_MS).toISOString().slice(0, 7) !== current) live.add(previousMonth(current));
   }
   const rebuild = ctx.flags['--rebuild'] === true;
+  const includeLive = ctx.flags['--include-live'] === true;
   const todo = plan.filter((item) => !live.has(item.month) && (rebuild || item.indexed === 0));
-  const skipped = { indexed: plan.filter((item) => !rebuild && item.indexed > 0).length, live: plan.filter((item) => live.has(item.month)).length };
+  const liveItems = plan.filter((item) => live.has(item.month));
+  if (includeLive) todo.push(...(await missingOfLive(ctx, liveItems)));
+  const skipped = { indexed: plan.filter((item) => !rebuild && item.indexed > 0).length, live: includeLive ? 0 : liveItems.length };
   const estimate = costOf(ctx, todo.flatMap((item) => [...item.records, ...item.archived]));
   const head = [
     ...planRows(ctx, todo),
     `plan: ${todo.length} month layer(s) to ${rebuild ? 'rebuild' : 'build'}, ${skipped.indexed} already indexed, ${skipped.live} left to the live queue`,
+    ...(includeLive && liveItems.length > 0 ? [`live months: only the rows missing from the index, the record before the last ${catchUpHoursOf(ctx)} h (the queue's catch-up has those), appended`] : []),
     `estimate: ${estimate.tokens} tokens, ~${estimate.usd.toFixed(4)} USD on ${model} (at ${ctx.usdPerMtok} USD per million tokens)`,
   ];
   if (ctx.flags['--dry-run'] === true) return [...head, 'dry run: nothing sent, nothing written', ''].join('\n');
@@ -417,6 +459,20 @@ async function cmdBuild(ctx) {
     }
     spentUsd += cost.usd;
     spentTokens += cost.tokens;
+    if (item.append) {
+      // A live month: appended beside the queue's rows, each checked against the index again.
+      const held = await ctx.vectors.has(ctx.guildId, item.month, { privateUserId: item.privateUserId });
+      const fresh = rows.filter((row) => !held.has(chunkKey(row.meta)));
+      try {
+        const { written } = await ctx.vectors.append(ctx.guildId, fresh, { privateUserId: item.privateUserId, model });
+        done.push({ month: item.month, layer: item.privateUserId ? 'private' : 'guild', written, kept: item.indexed, dropped: 0 });
+      } catch (error) {
+        if (error?.code !== 'vectors-shape') throw error;
+        stopped = `${item.month}: the index holds rows of another model or length; rebuild the month with the bot stopped`;
+        break;
+      }
+      continue;
+    }
     const result = await ctx.vectors.replace(ctx.guildId, item.month, rows, { privateUserId: item.privateUserId, model, keep: keepBeside(chunks) });
     done.push({ month: item.month, layer: item.privateUserId ? 'private' : 'guild', ...result });
   }
@@ -452,6 +508,13 @@ async function cmdStats(ctx) {
     bytes += stats.bytes;
   }
   lines.push(`private: ${layers} layer(s), ${rows} rows, ${bytes} bytes`);
+  if (ctx.flags['--coverage'] === true) {
+    // The live queue's own coverage check, read only: nothing is queued or sent.
+    const queue = createEmbedQueue({ hot: ctx.hot, vectors: ctx.vectors, embed: null, record: ctx.record, dataDir: ctx.dataDir, log: ctx.log, now: ctx.now });
+    const hours = ctx.hours ?? catchUpHoursOf(ctx);
+    const found = await queue.coverage(ctx.guildId, { hours });
+    lines.push(`coverage, last ${hours} h: ${found.messages} messages, ${found.indexed} indexed, ${found.missing} missing, oldest missing ${found.oldestMissing ?? 'none'}`);
+  }
   return [...lines, ''].join('\n');
 }
 

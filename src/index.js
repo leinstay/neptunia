@@ -178,6 +178,8 @@ embedQueue = createEmbedQueue({
   nameOf: (guildId, userId) =>
     store.getUser(guildId, userId)?.names?.[0] ?? client.guilds.cache.get(guildId)?.members?.cache?.get(userId)?.displayName ?? null,
   selfName: (guildId) => getSelfName(guildId),
+  // No catch-up pass while paused (the owner may be editing data/); /nep resume runs one.
+  paused: () => store.state.data.paused === true,
 });
 // The persona's drawings (features.imageGeneration): its own daily rails, counted on the same state.
 const images = createImageGen({ apiKey: openrouterKey, getConfig: () => hot.config, state: store.state });
@@ -355,6 +357,8 @@ const admin = createAdmin({
   llm,
   // /nep status: the embedding role's probe.
   embedder,
+  // /nep resume: a catch-up pass of the meaning index; /nep status: its index line.
+  embedQueue,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 
@@ -515,8 +519,9 @@ client.once(Events.ClientReady, async () => {
   const notes = createNotesScheduler({ hot, store, refreshChannelNotes: warmup.refreshChannelNotes, refreshServerNotes: warmup.refreshServerNotes, isWarmingUp, getGuildId, now: Date.now });
   every(60_000, () => notes.tick(), 'notes.tick');
   every(3_600_000, sweepAffinityDecay, 'affinity decay');
-  // The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner).
-  every(30_000, () => embedQueue.tick(), 'embed.tick');
+  // The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner);
+  // the same tick runs its catch-up pass when the switches turn on and every embed.catchUpEveryMinutes.
+  every(30_000, () => embedQueue.tick(instance.guildId), 'embed.tick');
   scheduleArchiveDrain();
 
   if (!hot.config.bot.guildId) {
@@ -538,6 +543,11 @@ client.once(Events.ClientReady, async () => {
   // The journal's start: unfinished forgets, an unclean stop, the start record. Awaited, so the
   // reconciliation below reads a journal that hides every member being forgotten.
   await startupStep('journal.start', () => startJournal(instance.guildId), { wait: true });
+
+  // The meaning index caught up with what the record took while the queue was down (the last
+  // embed.catchUpHours), once the forgets are settled. Fire-and-forget; nothing while paused or
+  // with the switches off.
+  await startupStep('embed.catchUp', () => embedQueue.catchUp(instance.guildId));
 
   // Once per guild after the deploy that keyed access by operation: the stored grants re-expanded
   // under the operation names, a journal record of what each covers now (src/ops/access.js).
