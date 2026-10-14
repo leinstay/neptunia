@@ -518,7 +518,8 @@ export async function main(argv, {
       counts.already += 1;
       continue;
     }
-    if (record.importMatch.unmatched && !includeUnmatched) {
+    // Only a turn matched to a posted message is known to be live; skips and turns with no text may be replays.
+    if (record.posted.length === 0 && !includeUnmatched) {
       counts.unmatchedLeftOut += 1;
       continue;
     }
