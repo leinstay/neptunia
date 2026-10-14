@@ -87,7 +87,7 @@ import { createOffPeriodsReader } from '../memory/journal.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
-import { discoveryOn, proposalVerdicts, skillsIndex } from '../skills/discovery.js';
+import { discoveryOn, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
 import { skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, refusalStatus, resolveCall } from '../skills/executors.js';
@@ -898,13 +898,87 @@ const PERSONA = Object.freeze({ kind: 'persona' });
 /**
  * The requester of a skill call: `trigger`'s author (`{ id, roleIds }`, the role ids from the
  * guild's member cache of `channel`, none when the member is not cached), or null when nobody
- * asked (a turn without a trigger author).
+ * asked (a turn without a trigger author). Exported for the replay's skill scenarios
+ * (tools/replay.mjs `--skills`), which build their requester exactly so.
+ * @param {{ authorId?: string }|null} trigger
+ * @param {object} channel
+ * @returns {{ id: string, roleIds: string[] }|null}
  */
-function requesterOf(trigger, channel) {
+export function requesterOf(trigger, channel) {
   if (!trigger?.authorId) return null;
   const id = String(trigger.authorId);
   const roles = channel?.guild?.members?.cache?.get?.(id)?.roles?.cache;
   return { id, roleIds: roles && typeof roles.keys === 'function' ? [...roles.keys()].map(String) : [] };
+}
+
+/**
+ * What a `<call>` of the persona is resolved against (src/skills/executors.js#resolveCall), read
+ * now: the turn's channel as the current conversation, `skills.conversations` (`config`, the live
+ * one) as the others she may act in, the channels she can name (the guild's text channels, then
+ * the stored channel notes, the turn's own channel), this turn's transcript numbers (`idByIndex`;
+ * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
+ * profiles (only with memory on), her own id (`selfId`), the guild's roles and the skill registry
+ * (`skills`: a derived skill's options are resolved by its command). Reads `store` only. Exported
+ * for the replay's skill scenarios, which resolve a call exactly as a live turn does.
+ * @returns {object}
+ */
+export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, config, selfId, skills }) {
+  const conversations = [];
+  const cache = channel?.guild?.channels?.cache;
+  if (cache && typeof cache.values === 'function') {
+    for (const ch of cache.values()) {
+      const textBased = typeof ch?.isTextBased === 'function' ? ch.isTextBased() : ch?.type === 0;
+      if (textBased && ch.id && typeof ch.name === 'string') conversations.push({ id: String(ch.id), name: ch.name });
+    }
+  }
+  if (guildId && typeof store?.listChannels === 'function') {
+    for (const note of store.listChannels(guildId) ?? []) if (note?.id && typeof note.name === 'string') conversations.push({ id: String(note.id), name: note.name });
+  }
+  if (typeof channel.name === 'string' && channel.name) conversations.push({ id: String(channel.id), name: channel.name });
+  const listed = config?.skills?.conversations;
+  // The guild's roles a derived skill's role option may name.
+  const roles = [];
+  const roleCache = channel?.guild?.roles?.cache;
+  if (roleCache && typeof roleCache.values === 'function') {
+    for (const role of roleCache.values()) if (role?.id && typeof role.name === 'string') roles.push({ id: String(role.id), name: role.name });
+  }
+  return {
+    currentConversationId: String(channel.id),
+    allowedConversationIds: Array.isArray(listed) ? listed.map(String) : [],
+    conversations,
+    messageAt: (n) => {
+      const id = idByIndex?.get(n);
+      if (!id) return null;
+      const line = (lines ?? []).find((entry) => entry.id === id);
+      return { id: String(id), conversationId: String(pulledIds?.get(id) ?? channel.id), authorId: line?.authorId ?? null, self: line?.self === true };
+    },
+    members: memoryOn && guildId && typeof store?.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [],
+    selfId: selfId ?? null,
+    roles,
+    skills,
+  };
+}
+
+/**
+ * What the first pass of a turn posted (`acted`, act's answer), one item each, for the
+ * follow-up's `<result>`: each reaction as the transcript shows hers
+ * (`labels.transcript.reactions` over `reactionMine`), each GIF as `labels.transcript.gif`
+ * with its handle, each message as she wrote it, the picture as `labels.transcript.image`. An
+ * item whose label is missing is left out. Pure; exported for the replay's skill scenarios.
+ * @param {{ reacted?: { emoji: string }[], gifs?: string[], texts?: string[], drew?: boolean }|null} acted
+ * @param {object} labels
+ * @returns {string[]}
+ */
+export function firstPass(acted, labels) {
+  const t = labels?.transcript ?? {};
+  const items = [];
+  if (typeof t.reactions === 'string' && typeof t.reactionMine === 'string') {
+    for (const reaction of acted?.reacted ?? []) items.push(fill(t.reactions, { list: fill(t.reactionMine, { emoji: reaction.emoji, count: 1 }) }));
+  }
+  if (typeof t.gif === 'string') for (const id of acted?.gifs ?? []) items.push(fill(t.gif, { name: id }));
+  items.push(...(acted?.texts ?? []));
+  if (acted?.drew === true && typeof t.image === 'string') items.push(t.image);
+  return items;
 }
 
 /**
@@ -1401,57 +1475,12 @@ export function createTurnRunner({
     const proposals = proposalVerdicts(named, rows);
     log.info('skills: proposed', { channel: channel.id, count: proposals.length, proposals });
     if (draft) draft.skillsProposed = proposals.map(({ name, allowed }) => ({ name, allowed }));
-    // The proposed skills of the catalogue, in the classifier's order: `<skills>` shows the
-    // allowed ones and names the others as not switched on (src/behavior/prompt.js#skillsInventoryText).
-    const byName = new Map(rows.map((row) => [row.name, row]));
-    const shown = proposals.filter(({ name }) => byName.has(name)).map(({ name }) => ({ ...byName.get(name), proposed: true }));
-    return shown.length > 0 ? shown : null;
+    return proposedRows(proposals, rows);
   }
 
-  /**
-   * What a `<call>` of the persona is resolved against (src/skills/executors.js#resolveCall), read
-   * now: the turn's channel as the current conversation, `skills.conversations` (live config) as
-   * the others she may act in, the channels she can name (the guild's text channels, then the
-   * stored channel notes, the turn's own channel), this turn's transcript numbers (`idByIndex`;
-   * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
-   * profiles (only with memory on), her own id, the guild's roles and the skill registry (a
-   * derived skill's options are resolved by its command).
-   */
+  /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, live config, id and registry. */
   function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn }) {
-    const conversations = [];
-    const cache = channel?.guild?.channels?.cache;
-    if (cache && typeof cache.values === 'function') {
-      for (const ch of cache.values()) {
-        const textBased = typeof ch?.isTextBased === 'function' ? ch.isTextBased() : ch?.type === 0;
-        if (textBased && ch.id && typeof ch.name === 'string') conversations.push({ id: String(ch.id), name: ch.name });
-      }
-    }
-    if (guildId && typeof store.listChannels === 'function') {
-      for (const note of store.listChannels(guildId) ?? []) if (note?.id && typeof note.name === 'string') conversations.push({ id: String(note.id), name: note.name });
-    }
-    if (typeof channel.name === 'string' && channel.name) conversations.push({ id: String(channel.id), name: channel.name });
-    const listed = hot.config.skills?.conversations;
-    // The guild's roles a derived skill's role option may name.
-    const roles = [];
-    const roleCache = channel?.guild?.roles?.cache;
-    if (roleCache && typeof roleCache.values === 'function') {
-      for (const role of roleCache.values()) if (role?.id && typeof role.name === 'string') roles.push({ id: String(role.id), name: role.name });
-    }
-    return {
-      currentConversationId: String(channel.id),
-      allowedConversationIds: Array.isArray(listed) ? listed.map(String) : [],
-      conversations,
-      messageAt: (n) => {
-        const id = idByIndex?.get(n);
-        if (!id) return null;
-        const line = (lines ?? []).find((entry) => entry.id === id);
-        return { id: String(id), conversationId: String(pulledIds?.get(id) ?? channel.id), authorId: line?.authorId ?? null, self: line?.self === true };
-      },
-      members: memoryOn && guildId && typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [],
-      selfId: client?.user?.id ?? null,
-      roles,
-      skills: skills ?? defaultSkills(),
-    };
+    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, config: hot.config, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills() });
   }
 
   /**
@@ -1563,25 +1592,6 @@ export function createTurnRunner({
     }
     log.info('skills: called', { channel: channel.id, skill, status: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' && result.error ? { error: portError(result) } : {}) });
     return { skill, ...result, followUp: needsFollowUp(skill, result) };
-  }
-
-  /**
-   * What the first pass of a turn posted (`acted`, act's answer), one item each, for the
-   * follow-up's `<result>`: each reaction as the transcript shows hers
-   * (`labels.transcript.reactions` over `reactionMine`), each GIF as `labels.transcript.gif`
-   * with its handle, each message as she wrote it, the picture as `labels.transcript.image`. An
-   * item whose label is missing is left out.
-   */
-  function firstPass(acted, labels) {
-    const t = labels?.transcript ?? {};
-    const items = [];
-    if (typeof t.reactions === 'string' && typeof t.reactionMine === 'string') {
-      for (const reaction of acted?.reacted ?? []) items.push(fill(t.reactions, { list: fill(t.reactionMine, { emoji: reaction.emoji, count: 1 }) }));
-    }
-    if (typeof t.gif === 'string') for (const id of acted?.gifs ?? []) items.push(fill(t.gif, { name: id }));
-    items.push(...(acted?.texts ?? []));
-    if (acted?.drew === true && typeof t.image === 'string') items.push(t.image);
-    return items;
   }
 
   /**

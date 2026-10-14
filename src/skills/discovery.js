@@ -134,3 +134,18 @@ export function proposalVerdicts(names, rows) {
     return row ? { name, allowed: row.allowed === true, reason: row.reason } : { name, allowed: false, reason: 'unknown-skill' };
   });
 }
+
+/**
+ * The catalogue rows a request's `<skills>` shows for the skills a classifier named
+ * (`proposals`: proposalVerdicts' answer, in the classifier's order): the row of each name the
+ * catalogue (`rows`, listSkills') has, marked `proposed` -- src/behavior/prompt.js#skillsInventoryText
+ * then shows the allowed ones and names the others as not switched on. Null when none is in it.
+ * @param {{ name: string }[]} proposals
+ * @param {{ name: string, allowed: boolean, reason: string }[]} rows
+ * @returns {object[]|null}
+ */
+export function proposedRows(proposals, rows) {
+  const byName = new Map((Array.isArray(rows) ? rows : []).map((row) => [row.name, row]));
+  const shown = (Array.isArray(proposals) ? proposals : []).filter(({ name }) => byName.has(name)).map(({ name }) => ({ ...byName.get(name), proposed: true }));
+  return shown.length > 0 ? shown : null;
+}

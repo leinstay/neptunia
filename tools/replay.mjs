@@ -2,13 +2,16 @@
 // Operations tool. One purpose: replay a real or a scheduled turn of the
 // engine without side effects, with the working tree's code, prompts and
 // memory, and print what the persona would do now and what her request looked
-// like. Three modes:
+// like. Four modes:
 // - a message: one real message answered again (or its splitter, its server
 //   search, or the request a journal turn sent);
 // - a pair of prompt layers (`--pair`): the same triggers answered with two
 //   prompt directories, on a blind sheet;
 // - a diary brief (`--diary`): the diary's scheduled turn run in the diary
-//   channel, its plan and drawing brief reported.
+//   channel, its plan and drawing brief reported;
+// - skill scenarios (`--skills`): an invented request put to the persona
+//   after a real chat, with her skills shown, to see whether she uses one or
+//   declines; her calls pass the real gateway and never run.
 // Exists so a prompt or profile change can be checked against real moments
 // before it is deployed.
 //
@@ -28,12 +31,53 @@
 //   cd /opt/neptunia-bot && node tools/replay.mjs --show-request <turnId> [--snapshot <dir>] [--before 40] [--as-of-moment]
 //   cd /opt/neptunia-bot && node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"]
 //        [--prompts <dir>] [--out <file>] [--spend <usd>]
+//   cd /opt/neptunia-bot && node tools/replay.mjs --skills <scenarios.json> [--out <dir>] [--before 40]
+//        [--as-of-moment] [--snapshot <dir>] [--dry] [--spend <usd>]
 //
 // The spend gate (tools/lib/cli.mjs#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
 // answer, a splitter sample, the recall classifier and its summary, a diary
-// brief's plan and compose requests) and refuses, exit code 2, without
-// `--spend <usd>` covering it.
+// brief's plan and compose requests, a skill run's answer and its possible
+// follow-up) and refuses, exit code 2, without `--spend <usd>` covering it.
+// `--skills` also stops once what the provider reports spent (`usage.cost`,
+// else the estimate per request) reaches `--spend`.
+//
+// `--skills <file>`: a JSON array of scenarios (tools/prompts/skill-scenarios.example.json
+// shows the shape; parseScenarios checks it), each `{ id, channelId, before?,
+// author, text, grants, runs?, result?, discovery? }`. For each one: the last
+// `--before` messages of the channel up to and including the message `before`
+// names (omitted: the newest ones), fetched and normalized as in the message
+// mode; then `text` as a new message by the member `author` (their real
+// profile and attitude), one minute after that message (now, without
+// `before`), calling the persona by a tag (a `mention`, no reply). The
+// persona's grants are exactly `grants` in a copy of the config (never
+// written; src/behavior/sandbox.js#personaGrantsConfig): skill names, groups
+// and `*` expanded as `/nep access grant` expands them for her
+// (src/ops/access.js#expandPersonaGrant: a group or `*` is its read skills); a
+// name no grant opens for her is kept, so the gateway refuses it as live.
+// Her `<skills>` block is the catalogue of that requester as the live turn
+// lists it (src/behavior/sandbox.js#scenarioInventory): whole, as after
+// `skills: inventory` (`discovery` "inventory", the default), the named ones
+// (`discovery` a list of up to four names, as after `skills: <names>`), or
+// none ("none"). Answered `runs` times (1..10, default 1) in the sandbox
+// (src/behavior/sandbox.js#answerSkillScenario). A `<call>` is resolved and
+// checked as live (#simulateCall: src/skills/executors.js#resolveCall over
+// the guild's channels, roles and stored members, src/skills/gateway.js#checkSkill
+// with the requester's real role ids, the image quota read from a copy of
+// the state); the operation never runs: a call that passed is recorded and
+// answered `ok` with `result` (the text an operation would have answered,
+// '' when omitted); a refusal is answered as live. When a live turn would
+// ask her again (any refusal; an `ok` of an operation other than a message,
+// a reaction or a picture) the follow-up request is sent too.
+// Written to `--out` (default ./replay-skills-<time>/, refused under data/
+// and when it exists and is not empty): `runs.jsonl` (one line per run:
+// decision `call` / `no-call` / `malformed-call`, the skill with the
+// arguments she wrote and the resolved ones, the gateway's verdict, her
+// visible messages of both passes, tokens and cost) and `report.md` (a table
+// per scenario: calls, runs without a call, refusals, then every run).
+// stdout: the summary. `--dry`: no model request and no key needed; the
+// first request of every scenario is built and its sizes printed.
+// THE FILES HOLD MESSAGE CONTENTS: the server's eyes only, like stdout.
 //
 // Prompt layers (tools/lib/prompt-layers.mjs#promptLayersHot, the one helper
 // for both modes that take a prompt directory): a scratch copy of the config
@@ -240,7 +284,8 @@ const USAGE =
   '       node tools/replay.mjs <channelId> <triggerMessageId> --recall [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]\n' +
   '       node tools/replay.mjs --pair <promptsDirA> <promptsDirB> (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --show-request <turnId> [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
-  '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--prompts <dir>] [--out <file>] [--spend <usd>]   (cwd: the bot directory)';
+  '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
+  '       node tools/replay.mjs --skills <scenarios.json> [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--spend <usd>]   (cwd: the bot directory)';
 /** The diary kinds a brief is asked of: the ones that draw. */
 const DIARY_KINDS = Object.freeze(['selfPicture', 'picture']);
 /** A diary brief's requests: the plan (classifier model) and the compose (voice model). */
@@ -361,14 +406,16 @@ function withoutSelfFacts(view, { all, needles }) {
  * `--diary <kind>` sets `diary` (one of DIARY_KINDS) and takes only `--count`
  * (`count`, 1 by default), `--topic` (`topic`, raw), `--prompts` (`prompts`),
  * `--out` (`outDir`: the briefs file) and `--spend`; those three take nothing
- * else.
+ * else. `--skills <file>` sets `skills` (the scenario file) and takes only
+ * `--out`, `--before`, `--as-of-moment`, `--snapshot`, `--spend` and `--dry`
+ * (`dry`, only with it); no positionals.
  * @param {string[]} argv
  */
 export function parseArgs(argv) {
   const out = {
     before: null, samples: null, showRequest: false, asOfMoment: false, hideSelf: [], hideSelfAll: false, split: false, recall: false, budget: null, text: null,
     pair: null, triggers: null, snapshot: null, outDir: null, spend: undefined, showRequestTurn: null,
-    diary: null, count: null, topic: null, prompts: null,
+    diary: null, count: null, topic: null, prompts: null, skills: null, dry: false,
   };
   const positional = [];
   const pathValue = (value) => {
@@ -386,6 +433,8 @@ export function parseArgs(argv) {
     else if (arg === '--snapshot') out.snapshot = pathValue(argv[(i += 1)]);
     else if (arg === '--out') out.outDir = pathValue(argv[(i += 1)]);
     else if (arg === '--spend') out.spend = pathValue(argv[(i += 1)]);
+    else if (arg === '--skills') out.skills = pathValue(argv[(i += 1)]);
+    else if (arg === '--dry') out.dry = true;
     else if (arg === '--as-of-moment') out.asOfMoment = true;
     else if (arg === '--hide-self-all') out.hideSelfAll = true;
     else if (arg === '--split') out.split = true;
@@ -417,6 +466,17 @@ export function parseArgs(argv) {
     else positional.push(arg);
   }
   const [channelId, triggerId, extra] = positional;
+  if (out.skills !== null) {
+    // The scenario file with the memory and output flags, --spend and --dry only; no positionals.
+    if (
+      positional.length > 0 || out.diary !== null || out.showRequestTurn !== null || out.showRequest || out.pair || out.triggers !== null || out.split || out.recall ||
+      out.samples !== null || out.text !== null || out.budget !== null || out.hideSelfAll || out.hideSelf.length > 0 || out.count !== null || out.topic !== null || out.prompts !== null
+    ) {
+      throw new CliError(USAGE);
+    }
+    return { ...out, samples: 1, channelId: null, triggerId: null };
+  }
+  if (out.dry) throw new CliError(USAGE);
   if (out.diary !== null) {
     // The diary flags, --out and --spend only; no positionals.
     if (
@@ -1079,7 +1139,22 @@ async function runRecall({ hot, mods, llm, store, guild, guildId, channel, self,
  * history, triggerLine, at }`.
  */
 async function readMoment({ client, guild, guildId, self, channelId, triggerId, before, config, fetchHistoryWindow, fetchMessage, log }) {
-  // The channel: from the guild's fetched channels, else one REST fetch (a thread is not in that list).
+  const channel = await readableChannel({ client, guild, guildId, channelId });
+
+  const trigger = await fetchMessage(channel, triggerId);
+  if (!trigger) throw new CliError('replay-cli: the trigger message was not found');
+  if (trigger.author?.id === self.id) throw new CliError("replay-cli: the trigger is the persona's own message; give the message she answered");
+
+  const history = await fetchWindow({ guild, channel, self, anchorId: triggerId, limit: before + 1, config, fetchHistoryWindow, log });
+  if (history.length === 0 || history[history.length - 1].id !== triggerId) {
+    throw new CliError('replay-cli: the chat up to the trigger cannot be read');
+  }
+  const triggerLine = history[history.length - 1];
+  return { channel, history, triggerLine, at: triggerLine.ts };
+}
+
+/** A channel of the served guild that can be read: from the guild's fetched channels, else one REST fetch (a thread is not in that list); else a CliError. */
+async function readableChannel({ client, guild, guildId, channelId }) {
   let channel = guild.channels.cache.get(channelId) ?? null;
   if (!channel) {
     try {
@@ -1090,21 +1165,25 @@ async function readMoment({ client, guild, guildId, self, channelId, triggerId, 
   }
   if (!channel || typeof channel.messages?.fetch !== 'function') throw new CliError('replay-cli: that channel cannot be read');
   if (String(channel.guildId ?? channel.guild?.id ?? '') !== String(guildId)) throw new CliError('replay-cli: that channel is not in the served guild');
+  return channel;
+}
 
-  const trigger = await fetchMessage(channel, triggerId);
-  if (!trigger) throw new CliError('replay-cli: the trigger message was not found');
-  if (trigger.author?.id === self.id) throw new CliError("replay-cli: the trigger is the persona's own message; give the message she answered");
-
+/**
+ * The last `limit` messages of `channel` up to and including `anchorId` (the newest ones when
+ * it is null), oldest first, normalized as a live history is: the authors and mentioned members
+ * (and the ids of `memberIds`) put into the member cache first, so their display names resolve.
+ */
+async function fetchWindow({ guild, channel, self, anchorId, limit, config, fetchHistoryWindow, log, memberIds = [] }) {
   const windowOptions = {
-    anchorId: triggerId,
-    limit: before + 1,
+    anchorId: anchorId ?? undefined,
+    limit,
     selfId: self.id,
     embedTextChars: config.media?.embedTextChars,
     videoSites: config.media?.video?.sites,
   };
   // Pass 1 learns who wrote and who is mentioned; their members are cached; pass 2 normalizes with their display names.
-  const first = await fetchHistoryWindow(channel, windowOptions);
-  const ids = new Set();
+  const first = limit > 0 ? await fetchHistoryWindow(channel, windowOptions) : [];
+  const ids = new Set(memberIds.filter((id) => id !== self.id));
   for (const message of first) {
     if (message.authorId !== self.id) ids.add(message.authorId);
     for (const id of message.mentionedUserIds ?? []) if (id !== self.id) ids.add(id);
@@ -1120,13 +1199,9 @@ async function readMoment({ client, guild, guildId, self, channelId, triggerId, 
   } catch (err) {
     log.warn('replay-cli: audience warm skipped', { error: String(err?.message ?? err).slice(0, 120) });
   }
-  const history = await fetchHistoryWindow(channel, windowOptions);
-  if (history.length === 0 || history[history.length - 1].id !== triggerId) {
-    throw new CliError('replay-cli: the chat up to the trigger cannot be read');
-  }
-  const triggerLine = history[history.length - 1];
+  const history = limit > 0 ? await fetchHistoryWindow(channel, windowOptions) : [];
   log.info('replay-cli: chat fetched', { channelId: channel.id, lines: history.length, members: members.fetched, membersMissing: members.missing });
-  return { channel, history, triggerLine, at: triggerLine.ts };
+  return history;
 }
 
 /**
@@ -1517,6 +1592,422 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   }
 }
 
+// ---- skill scenarios (--skills) ----------------------------------------------------
+
+/** The fields a scenario may have. */
+const SCENARIO_KEYS = Object.freeze(['id', 'channelId', 'before', 'author', 'text', 'grants', 'runs', 'result', 'discovery']);
+const SCENARIO_ID = /^[A-Za-z0-9._-]{1,64}$/;
+const MAX_RUNS = 10;
+/** Discord's longest message: the most a scenario's text or canned result may hold. */
+const MAX_SCENARIO_TEXT = 4000;
+/** The most skills a classifier's `skills:` line names (src/skills/discovery.js#MAX_PROPOSED). */
+const MAX_DISCOVERY_NAMES = 4;
+/** How long after the anchor message the invented one is written. */
+const SCENARIO_AFTER_MS = 60_000;
+/** Discord's epoch, for the invented message's id (a snowflake of its moment). */
+const DISCORD_EPOCH = 1420070400000n;
+/** A run's requests at most: her answer and the follow-up after a call. */
+const SKILL_REQUESTS_PER_RUN = 2;
+
+/**
+ * The scenarios of a `--skills` file (`text`, its content): a non-empty JSON array of
+ * `{ id, channelId, before?, author, text, grants, runs?, result?, discovery? }` -- `id` 1..64
+ * of `A-Z a-z 0-9 . _ -`, unique; `channelId`, `author` and `before` (optional) message, channel
+ * and member ids; `text` the invented message (1..4000 characters); `grants` a list of skill
+ * names, groups or `*` (may be empty); `runs` 1..10 (default 1); `result` the text the
+ * operation answers when a call passes (default ''); `discovery` `"inventory"` (default),
+ * `"none"` or a list of 1..4 skill names. Any other field, type or value is a CliError naming
+ * the scenario. Names are checked against the registry later (scenarioGrants, scenarioDiscovery).
+ * @param {string} text
+ * @returns {{ id: string, channelId: string, before: string|null, author: string, text: string, grants: string[],
+ *   runs: number, result: string, discovery: 'inventory'|'none'|string[] }[]}
+ */
+export function parseScenarios(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    throw new CliError(`replay-cli: the scenario file is not JSON (${err.message})`);
+  }
+  if (!Array.isArray(data) || data.length === 0) throw new CliError('replay-cli: the scenario file must be a non-empty JSON array');
+  const ids = new Set();
+  return data.map((raw, index) => {
+    const bad = (what) => new CliError(`replay-cli: scenario ${index + 1}${typeof raw?.id === 'string' ? ` (${raw.id})` : ''}: ${what}`);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw bad('not an object');
+    for (const key of Object.keys(raw)) if (!SCENARIO_KEYS.includes(key)) throw bad(`unknown field ${key}`);
+    if (typeof raw.id !== 'string' || !SCENARIO_ID.test(raw.id)) throw bad('id must be 1..64 characters of A-Z a-z 0-9 . _ -');
+    if (ids.has(raw.id)) throw bad('the id is used twice');
+    ids.add(raw.id);
+    if (typeof raw.channelId !== 'string' || !SNOWFLAKE.test(raw.channelId)) throw bad('channelId must be a channel id');
+    if (raw.before !== undefined && raw.before !== null && (typeof raw.before !== 'string' || !SNOWFLAKE.test(raw.before))) throw bad('before must be a message id or omitted');
+    if (typeof raw.author !== 'string' || !SNOWFLAKE.test(raw.author)) throw bad('author must be a member id');
+    if (typeof raw.text !== 'string' || !raw.text.trim() || raw.text.length > MAX_SCENARIO_TEXT) throw bad(`text must be 1..${MAX_SCENARIO_TEXT} characters`);
+    if (!Array.isArray(raw.grants) || raw.grants.some((g) => typeof g !== 'string' || !g.trim())) throw bad('grants must be a list of skill names, groups or "*"');
+    const runs = raw.runs ?? 1;
+    if (!Number.isInteger(runs) || runs < 1 || runs > MAX_RUNS) throw bad(`runs must be a whole number 1..${MAX_RUNS}`);
+    const result = raw.result ?? '';
+    if (typeof result !== 'string' || result.length > MAX_SCENARIO_TEXT) throw bad(`result must be text of at most ${MAX_SCENARIO_TEXT} characters`);
+    const discovery = raw.discovery ?? 'inventory';
+    const named = Array.isArray(discovery) && discovery.length >= 1 && discovery.length <= MAX_DISCOVERY_NAMES && discovery.every((n) => typeof n === 'string' && n.trim());
+    if (discovery !== 'inventory' && discovery !== 'none' && !named) throw bad(`discovery must be "inventory", "none" or a list of 1..${MAX_DISCOVERY_NAMES} skill names`);
+    return {
+      id: raw.id,
+      channelId: raw.channelId,
+      before: raw.before ?? null,
+      author: raw.author,
+      text: raw.text,
+      grants: raw.grants.map((g) => g.trim()),
+      runs,
+      result,
+      discovery: named ? discovery.map((n) => n.trim()) : discovery,
+    };
+  });
+}
+
+/**
+ * The skill names a scenario's `grants` store for the persona, in order, de-duplicated: each
+ * key expanded by `expand` (src/ops/access.js#expandPersonaGrant: a skill by name, a group or
+ * `*` as its read skills), a name no grant opens for her kept (`refused`) so the gateway
+ * refuses it as live. A key that names no skill is a CliError naming the scenario.
+ * @param {{ id: string, grants: string[] }} scenario
+ * @param {(key: string) => ({ names: string[], refused: string[] } | null)} expand
+ * @returns {string[]}
+ */
+export function scenarioGrants(scenario, expand) {
+  const names = [];
+  for (const key of scenario.grants) {
+    const expanded = expand(key);
+    if (!expanded) throw new CliError(`replay-cli: scenario ${scenario.id}: grants names no skill: ${key}`);
+    for (const name of [...expanded.names, ...expanded.refused]) if (!names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+/** A scenario's `discovery` against the registry's skill `names`: a CliError for a name it does not have. */
+export function scenarioDiscovery(scenario, names) {
+  if (!Array.isArray(scenario.discovery)) return scenario.discovery;
+  const unknown = scenario.discovery.filter((name) => !names.includes(name));
+  if (unknown.length > 0) throw new CliError(`replay-cli: scenario ${scenario.id}: discovery names no skill: ${unknown.join(', ')}`);
+  return scenario.discovery;
+}
+
+/**
+ * The invented message of a scenario as a normalized history line (src/discord/collect.js#normalizeMessage's
+ * shape): by `authorId` / `authorName` in `channel` at `at`, the text as given, tagging the
+ * persona (`mentionedUserIds`: `selfId`), replying to nothing, without media. Its id is the
+ * snowflake of its moment, so it sorts after every line before it. Pure.
+ * @param {{ text: string, authorId: string, authorName: string, channel: { id: string, name?: string|null,
+ *   category?: string|null, topic?: string|null }, selfId: string, at: number }} input
+ * @returns {object}
+ */
+export function scenarioTrigger({ text, authorId, authorName, channel, selfId, at }) {
+  return {
+    id: String((BigInt(Math.floor(at)) - DISCORD_EPOCH) << 22n),
+    channelId: String(channel.id),
+    channelName: channel.name ?? null,
+    channelCategory: channel.category ?? null,
+    channelTopic: channel.topic ?? null,
+    authorId: String(authorId),
+    authorName,
+    self: false,
+    bot: false,
+    content: text,
+    ts: at,
+    mentionedUserIds: [String(selfId)],
+    mentionedChannelIds: [],
+    replyToId: null,
+    replyPingUserId: null,
+    forwardedFrom: null,
+    attachments: [],
+    links: [],
+    forwarded: [],
+    stickers: [],
+    emojis: [],
+    reactions: [],
+  };
+}
+
+/** What she showed in one pass (a shaped answer): her messages, reactions, GIF, drawing, skip, and her think. */
+function visibleOf(answer) {
+  if (!answer) return null;
+  return {
+    messages: answer.messages.map((m) => m.text),
+    reactions: answer.reactions.map((r) => r.emoji),
+    gif: answer.gif?.id ?? null,
+    draw: answer.draw?.text ?? null,
+    skip: answer.skip,
+    think: answer.think ?? '',
+  };
+}
+
+/**
+ * One run of a scenario (answerSkillScenario's) as its JSONL line: the decision (`call`,
+ * `malformed-call`, `no-call`), the skill and the arguments she wrote (the body as `body`),
+ * the gateway's verdict, the call recorded when it passed (`executed`), the result she got, her
+ * visible messages of both passes, the tokens of both and their cost (`usage.cost` as the
+ * provider reported it; null when it reported none). Pure.
+ * @param {string} scenarioId
+ * @param {number} index  0-based.
+ * @param {object} run
+ * @returns {object}
+ */
+export function runRecord(scenarioId, index, run) {
+  const usages = [run.usage, run.followUp?.usage].filter(Boolean);
+  const sum = (key) => usages.reduce((total, u) => total + (Number(u?.[key]) || 0), 0);
+  const costs = usages.map((u) => Number(u?.cost)).filter(Number.isFinite);
+  const outcome = run.outcome ?? null;
+  const follow = run.followUp;
+  return {
+    scenario: scenarioId,
+    run: index + 1,
+    decision: run.call ? 'call' : run.callError ? 'malformed-call' : 'no-call',
+    skill: run.call?.skill ?? null,
+    args: run.call ? { ...run.call.args, ...(run.call.body ? { body: run.call.body } : {}) } : null,
+    extraCalls: run.extraCalls ?? 0,
+    verdict: outcome?.verdict ?? null,
+    executed: outcome?.executed ?? null,
+    result: outcome ? { status: outcome.result.status, code: outcome.result.code ?? null } : null,
+    first: visibleOf(run.answer),
+    followUp: follow ? (follow.error ? { error: follow.error } : { ...visibleOf(follow.answer), extraCall: follow.extraCall === true }) : null,
+    tokens: { prompt: sum('prompt_tokens'), completion: sum('completion_tokens') },
+    cost: costs.length > 0 ? costs.reduce((a, b) => a + b, 0) : null,
+  };
+}
+
+/**
+ * A scenario's counts over its run records: runs, calls (of which `passed` and `denied` by the
+ * resolution, the gateway or the command), `noCall` (she declined or deflected: no call),
+ * `malformed`, follow-ups answered, tokens and cost (null when no run reported one). Pure.
+ * @param {object[]} records  runRecord's.
+ */
+export function scenarioSummary(records) {
+  const calls = records.filter((r) => r.decision === 'call');
+  const costs = records.map((r) => r.cost).filter(Number.isFinite);
+  return {
+    runs: records.length,
+    calls: calls.length,
+    passed: calls.filter((r) => r.verdict?.ok === true).length,
+    denied: calls.filter((r) => r.verdict && r.verdict.ok !== true).length,
+    noCall: records.filter((r) => r.decision === 'no-call').length,
+    malformed: records.filter((r) => r.decision === 'malformed-call').length,
+    followUps: records.filter((r) => r.followUp && !r.followUp.error).length,
+    promptTokens: records.reduce((t, r) => t + r.tokens.prompt, 0),
+    completionTokens: records.reduce((t, r) => t + r.tokens.completion, 0),
+    cost: costs.length > 0 ? costs.reduce((a, b) => a + b, 0) : null,
+  };
+}
+
+/** One line of text for a markdown table cell. */
+function cell(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+}
+
+/** `text` as a markdown quote, line by line. */
+function quoted(text) {
+  return String(text ?? '').split('\n').map((line) => `> ${line}`).join('\n');
+}
+
+/** One pass of a run (visibleOf's) as markdown lines. */
+function passLines(pass) {
+  if (!pass) return [];
+  const out = [];
+  for (const message of pass.messages) out.push(quoted(message), '');
+  if (pass.reactions.length > 0) out.push(`reactions: ${pass.reactions.join(' ')}`, '');
+  if (pass.gif) out.push(`gif: ${pass.gif}`, '');
+  if (pass.draw) out.push(`draw: ${cell(pass.draw)}`, '');
+  if (pass.messages.length === 0 && pass.reactions.length === 0 && !pass.gif && !pass.draw) out.push(pass.skip ? '(skip)' : '(nothing)', '');
+  return out;
+}
+
+/**
+ * The markdown report of a `--skills` run: a table of every scenario's counts (scenarioSummary),
+ * then per scenario its message, grants and every run: the decision, the call with its
+ * arguments and the gateway's verdict, her messages of the first pass and of the follow-up.
+ * Tool output for the owner, not model-facing. Pure.
+ * @param {{ scenario: object, grantNames: string[], summary: object, records: object[], error?: string }[]} entries
+ * @returns {string}
+ */
+export function renderSkillsReport(entries) {
+  const lines = ['# Skill scenarios', '', '| scenario | runs | calls | passed | denied | no call | malformed | follow-ups | cost (USD) |', '|---|---|---|---|---|---|---|---|---|'];
+  for (const { scenario, summary, error } of entries) {
+    if (error) lines.push(`| ${cell(scenario.id)} | failed: ${cell(error)} | | | | | | | |`);
+    else lines.push(`| ${cell(scenario.id)} | ${summary.runs} | ${summary.calls} | ${summary.passed} | ${summary.denied} | ${summary.noCall} | ${summary.malformed} | ${summary.followUps} | ${summary.cost === null ? '-' : summary.cost.toFixed(4)} |`);
+  }
+  for (const { scenario, grantNames, records = [], error } of entries) {
+    lines.push('', `## ${scenario.id}`, '', quoted(scenario.text), '', `grants: ${grantNames?.length ? grantNames.join(', ') : '(none)'}; discovery: ${Array.isArray(scenario.discovery) ? scenario.discovery.join(', ') : scenario.discovery}`, '');
+    if (error) {
+      lines.push(`failed: ${cell(error)}`);
+      continue;
+    }
+    for (const record of records) {
+      lines.push(`### run ${record.run}: ${record.decision}`, '');
+      if (record.decision === 'call') {
+        const verdict = record.verdict?.ok ? 'passed' : `refused at ${record.verdict?.stage}: ${record.verdict?.code}${record.verdict?.reason ? ` (${record.verdict.reason})` : ''}`;
+        lines.push(`call: \`${cell(record.skill)}\` ${cell(JSON.stringify(record.args))}`, '', `gateway: ${verdict}`, '');
+      }
+      if (record.extraCalls > 0) lines.push(`extra calls ignored: ${record.extraCalls}`, '');
+      lines.push(...passLines(record.first));
+      if (record.followUp?.error) lines.push(`follow-up failed: ${cell(record.followUp.error)}`, '');
+      else if (record.followUp) lines.push(`after the result (${record.result?.status}${record.result?.code ? `, ${record.result.code}` : ''}):`, '', ...passLines(record.followUp));
+      lines.push(`tokens: ${record.tokens.prompt} in, ${record.tokens.completion} out; cost: ${record.cost === null ? '-' : record.cost.toFixed(4)}`, '');
+    }
+  }
+  return `${lines.join('\n').trimEnd()}\n`;
+}
+
+/**
+ * The `--skills` mode (see the header): every scenario of `scenarios` put to the persona after
+ * its channel's real chat, nothing posted, run or written but the output files. Returns
+ * `{ code, result }`: code 1 when a scenario failed or the runs were stopped.
+ */
+async function runSkills({ args, scenarios, root, liveData, mods, hot, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, before, log, signal, budget, viewMods, channelOf }) {
+  const {
+    answerSkillScenario, skillScenarioRequest, scenarioInventory, simulateCall, personaGrantsConfig, replayMedia,
+    fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen,
+  } = mods;
+  const registry = skillRegistry();
+  const names = [...registry.keys()];
+  // Every name is checked before anything is fetched or sent.
+  const plans = scenarios.map((scenario) => ({ scenario, grantNames: scenarioGrants(scenario, expandPersonaGrant), discovery: scenarioDiscovery(scenario, names) }));
+
+  let outDir = null;
+  if (!args.dry) {
+    outDir = path.resolve(root, args.outDir ?? `replay-skills-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    if (outDir === liveData || outDir.startsWith(`${liveData}${path.sep}`)) throw new CliError('replay-cli: --out may not be under data/');
+    if (fs.existsSync(outDir) && fs.readdirSync(outDir).length > 0) throw new CliError(`replay-cli: ${outDir} is not empty`);
+    fs.mkdirSync(outDir, { recursive: true });
+  }
+  const jsonl = outDir ? path.join(outDir, 'runs.jsonl') : null;
+
+  // The spend cap: what the provider reports spent (else the estimate per request) stops the runs at --spend.
+  let spent = 0;
+  const spendStop = new AbortController();
+  // Ctrl-C stops the runs too: one signal for both.
+  if (signal?.aborted) spendStop.abort();
+  else signal?.addEventListener?.('abort', () => spendStop.abort(), { once: true });
+  const runSignal = spendStop.signal;
+  if (jsonl) fs.writeFileSync(jsonl, '');
+  const capped = {
+    async complete(messages, options) {
+      if (budget !== null && spent >= budget) {
+        spendStop.abort();
+        throw new Error('replay-cli: --spend reached');
+      }
+      const completion = await llm.complete(messages, { ...options, signal: runSignal });
+      const cost = Number(completion?.usage?.cost);
+      spent += Number.isFinite(cost) ? cost : USD_PER_ANSWER;
+      if (budget !== null && spent >= budget) spendStop.abort();
+      return completion;
+    },
+  };
+  // The image quota a drawing's budget is read from: today's counters of the state copy, read only.
+  const refusing = async () => {
+    throw new Error('replay-cli: no request from the image client');
+  };
+  const frozenState = {
+    data: store.state.data,
+    markDirty() {
+      throw new Error('replay-cli: the state is read-only here');
+    },
+  };
+
+  const entries = [];
+  const dry = [];
+  let cut = false;
+  for (const { scenario, grantNames, discovery } of plans) {
+    if (runSignal.aborted) {
+      cut = true;
+      break;
+    }
+    try {
+      const channel = await readableChannel({ client, guild, guildId, channelId: scenario.channelId });
+      if (scenario.author === self.id) throw new CliError('replay-cli: the author is the persona');
+      const history = await fetchWindow({ guild, channel, self, anchorId: scenario.before, limit: Math.max(1, before), config: hot.config, fetchHistoryWindow, log, memberIds: [scenario.author] });
+      if (scenario.before && history[history.length - 1]?.id !== scenario.before) throw new CliError('replay-cli: the anchor message was not found in that channel');
+      const last = history[history.length - 1] ?? null;
+      const at = scenario.before && last ? last.ts + SCENARIO_AFTER_MS : Date.now();
+      const authorName = guild.members.cache.get(scenario.author)?.displayName ?? store.getUser(guildId, scenario.author)?.names?.[0] ?? scenario.author;
+      const trigger = scenarioTrigger({ text: scenario.text, authorId: scenario.author, authorName, channel: channelOf(channel), selfId: self.id, at });
+      const situation = { history: [...history, trigger], triggerId: trigger.id, kind: 'mention', mode: 'reply' };
+
+      // The config with her grants, read now and kept for the scenario; never written.
+      const scenarioConfig = personaGrantsConfig(hot.config, self.id, grantNames);
+      const hotLike = {
+        get prompts() {
+          return hot.prompts;
+        },
+        get config() {
+          return scenarioConfig;
+        },
+      };
+      const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at, args: { asOfMoment: args.asOfMoment, hideSelf: [], hideSelfAll: false }, mods: viewMods });
+      const requester = requesterOf(trigger, channel);
+      const inventory = scenarioInventory({ config: scenarioConfig, selfId: self.id, texts: hot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
+      const media = replayMedia(situation.history, { cache: mediaCache, sites: scenarioConfig.media?.video?.sites, before: null });
+      const input = {
+        view, situation, selfId: self.id, selfName: self.name, channel: channelOf(channel), at,
+        descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory,
+      };
+      const shown = { rows: inventory?.length ?? 0, allowed: (inventory ?? []).filter((row) => row.allowed).length };
+      if (args.dry) {
+        const request = skillScenarioRequest(input);
+        dry.push({
+          id: scenario.id, channelId: channel.id, lines: history.length, systemChars: request.system.length, userChars: request.user.length,
+          tokens: request.tokens, limit: request.limit, skillsBlock: blockOf(request.user, 'skills') !== null, skills: shown, runs: scenario.runs,
+        });
+        continue;
+      }
+      const images = { quota: createImageGen({ apiKey: '', getConfig: () => scenarioConfig, state: frozenState, fetchImpl: refusing }).quota };
+      const memoryOn = scenarioConfig.features?.memory !== false;
+      const answered = await answerSkillScenario({
+        ...input,
+        llm: capped,
+        runs: scenario.runs,
+        signal: runSignal,
+        onCall: (call, { idByIndex, history: lines }) =>
+          simulateCall({
+            call,
+            view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, config: scenarioConfig, selfId: self.id, skills: registry }),
+            config: scenarioConfig,
+            selfId: self.id,
+            requester,
+            conversationId: channel.id,
+            now: at,
+            images,
+            resultText: scenario.result,
+          }),
+      });
+      if (answered.stopped) cut = true;
+      const records = answered.runs.map((run, index) => runRecord(scenario.id, index, run));
+      if (records.length > 0) fs.appendFileSync(jsonl, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+      entries.push({ scenario, grantNames, records, summary: { ...scenarioSummary(records), skills: shown, tokensEstimate: answered.request.tokens } });
+      log.info('replay-cli: skill scenario', { runs: records.length, calls: records.filter((r) => r.decision === 'call').length });
+    } catch (err) {
+      const error = err instanceof CliError ? err.message : `${err?.name ?? 'Error'}`;
+      if (args.dry) dry.push({ id: scenario.id, error });
+      else entries.push({ scenario, grantNames, records: [], summary: null, error });
+    }
+  }
+  // Stopped only when something was left unanswered: by Ctrl-C, else by the spend cap.
+  const stoppedBy = !cut ? null : signal?.aborted ? 'signal' : 'spend';
+  if (args.dry) return { code: dry.some((d) => d.error) ? 1 : 0, result: { dry: true, scenarios: dry } };
+  const report = path.join(outDir, 'report.md');
+  fs.writeFileSync(report, renderSkillsReport(entries));
+  const failed = entries.filter((e) => e.error).map((e) => ({ id: e.scenario.id, error: e.error }));
+  return {
+    code: failed.length > 0 || stoppedBy !== null ? 1 : 0,
+    result: {
+      out: outDir,
+      runs: jsonl,
+      report,
+      scenarios: entries.filter((e) => !e.error).map((e) => ({ id: e.scenario.id, ...e.summary })),
+      failed,
+      stoppedBy,
+      spentUsd: Math.round(spent * 10000) / 10000,
+    },
+  };
+}
+
 /** One answer as the output and the sheet show it. */
 function answerOut(answer) {
   return answer
@@ -1547,12 +2038,28 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       if (pairTriggers.length === 0) throw new CliError(`replay-cli: ${args.triggers} names no trigger`);
     } else pairTriggers = [{ channelId: args.channelId, triggerId: args.triggerId, turnId: null }];
   }
+  // The scenarios of --skills, read before anything else too: their runs are the estimate.
+  let scenarios = null;
+  if (args.skills !== null) {
+    let text;
+    try {
+      text = fs.readFileSync(path.resolve(root, args.skills), 'utf8');
+    } catch (err) {
+      throw new CliError(`replay-cli: ${args.skills}: ${err?.code === 'ENOENT' ? 'not found' : err.message}`);
+    }
+    scenarios = parseScenarios(text);
+  }
   // The spend gate: the estimate first; nothing is sent without --spend covering it.
+  let spendBudget = null;
   if (args.showRequestTurn === null) {
-    const requests = args.diary ? DIARY_REQUESTS_PER_BRIEF * args.count : args.pair ? 2 * pairTriggers.length : args.recall ? RECALL_REQUESTS : args.samples;
-    const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}`;
+    const skillRuns = scenarios ? scenarios.reduce((total, s) => total + s.runs, 0) : 0;
+    const requests = args.dry
+      ? 0
+      : args.diary ? DIARY_REQUESTS_PER_BRIEF * args.count : args.pair ? 2 * pairTriggers.length : args.recall ? RECALL_REQUESTS : scenarios ? SKILL_REQUESTS_PER_RUN * skillRuns : args.samples;
+    const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? `, up to ${SKILL_REQUESTS_PER_RUN} per run: her answer and the follow-up after a call` : ''}`;
     const gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail });
     if (!gate.ok) throw new CliError(`replay-cli: ${gate.text}`, { exitCode: REFUSED_EXIT });
+    spendBudget = gate.budget;
     process.stderr.write(`replay-cli: ${gate.text}\n`);
   }
 
@@ -1601,7 +2108,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   const discordToken = process.env.DISCORD_TOKEN;
   const openrouterKey = process.env.OPENROUTER_API_KEY;
   if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
-  if (!openrouterKey && args.showRequestTurn === null) throw new CliError('replay-cli: OPENROUTER_API_KEY is not set (.env)');
+  if (!openrouterKey && args.showRequestTurn === null && !args.dry) throw new CliError('replay-cli: OPENROUTER_API_KEY is not set (.env)');
   const searchAvailable = typeof process.env.BRAVE_SEARCH_API_KEY === 'string' && process.env.BRAVE_SEARCH_API_KEY.trim().length > 0;
 
   const { createStore } = await load('memory/store.js');
@@ -1620,6 +2127,11 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     momentMode,
     isSpontaneous,
     replayMedia,
+    answerSkillScenario,
+    skillScenarioRequest,
+    scenarioInventory,
+    simulateCall,
+    personaGrantsConfig,
   } = await load('behavior/sandbox.js');
   const { fetchHistoryWindow, fetchMessage } = await load('discord/collect.js');
   const { createEmojiIndex } = await load('discord/emoji.js');
@@ -1634,6 +2146,22 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       }
     : null;
   const recallMods = args.recall ? await loadRecallMods(load) : null;
+  // --skills: the operations register themselves and the command tree the skills derive from (src/ops/index.js).
+  let skillMods = null;
+  if (scenarios) {
+    await load('ops/index.js');
+    const { skillRegistry } = await load('skills/registry.js');
+    const { expandPersonaGrant } = await load('ops/access.js');
+    const { requesterOf, callViewOf } = await load('behavior/turn.js');
+    const { createImageGen } = await load('llm/images.js');
+    skillMods = {
+      answerSkillScenario, skillScenarioRequest, scenarioInventory, simulateCall, personaGrantsConfig, replayMedia,
+      fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen,
+    };
+    for (const [name, fn] of Object.entries(skillMods)) {
+      if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--skills needs it)`);
+    }
+  }
   // --split reads the same context the splitter reads; --recall the live turn's whole history
   // (the trigger included: context.channelMessages lines); the reply mode its own window.
   const before =
@@ -1661,8 +2189,9 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     const calibrator = createCalibrator(stateData.calibration);
     const llmState = { data: { llmDay: stateData.llmDay, llmCount: stateData.llmCount }, markDirty() {} };
     const realLlm = openrouterKey ? createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: llmState }) : null;
-    // Every request is marked as this tool's own. One sample or the splitter: no cache marker.
-    const noCache = args.split || args.recall || args.samples === 1;
+    // Every request is marked as this tool's own. One sample or the splitter: no cache marker
+    // (a skill scenario's runs share their request: the sandbox marks it when it has several).
+    const noCache = args.split || args.recall || (args.samples === 1 && !scenarios);
     const llm = {
       complete: (messages, options) =>
         realLlm.complete(messages, { ...options, origin: 'replay', countAgainstDailyCap: false, skipCalibration: true, ...(noCache ? { cache: false } : {}) }),
@@ -1763,6 +2292,13 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
         code: failed.length > 0 || signal?.aborted ? 1 : 0,
         result: { sheet: path.join(outDir, 'sheet.html'), key: path.join(outDir, 'key.json'), pairs: sheet.length, failed, stopped: Boolean(signal?.aborted), usage },
       };
+    }
+
+    if (scenarios) {
+      return await runSkills({
+        args, scenarios, root, liveData, mods: skillMods, hot, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji,
+        searchAvailable, before, log, signal, budget: spendBudget, viewMods, channelOf,
+      });
     }
 
     const { channel, history, triggerLine, at } = await momentOf(args.channelId, args.triggerId);
