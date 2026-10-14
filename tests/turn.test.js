@@ -21,6 +21,7 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { ImageCapError, ImageGenError } from '../src/llm/images.js';
 import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.js';
+import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { pingStatus } from '../src/behavior/elsewhere.js';
 import { findGif } from '../src/memory/gifs.js';
 import { createJournal } from '../src/memory/journal.js';
@@ -1508,7 +1509,7 @@ function rewatchHot(features = {}, video = {}, config = {}) {
     { mediaDescriptions: true, videoDescriptions: true, vision: false, ...features },
     {},
     {
-      classifier: { media: 'x/haiku' },
+      roles: { analyzer: 'x/analyzer', vision: 'x/haiku' },
       media: {
         maxPerTurn: 6,
         filePreviewChars: 500,
@@ -1555,7 +1556,7 @@ test('createTurnRunner: rewatch -- the classifier gets the watched videos and th
     `<media>\n${videosPart}`,
     '<media>\n1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά\n</media>\n<candidate>\nZoë: τι χρώμα είναι το αυτοκίνητο;\n</candidate>',
   );
-  assert.equal(options.model, 'x/haiku', 'no text classifier model -> the media model');
+  assert.equal(options.model, 'x/analyzer', 'the analyzer model');
   assert.equal(options.maxOutputTokens, 120);
   assert.equal(options.timeoutMs, 25_000, 'a helper: llm.helperTimeoutMs, not the reply timeout');
   assert.equal(options.countAgainstDailyCap, true);
@@ -1571,19 +1572,17 @@ test('createTurnRunner: rewatch -- the classifier gets the watched videos and th
   assert.ok(userMessage.includes(`${watched} ${answered}`), 'the answer follows the watched tag');
 });
 
-test('createTurnRunner: rewatch -- the classifier model is classifierTextModel (classifier.text, then classifier.media); the deprecated keys and a stale rewatch.model are ignored', async () => {
-  const withText = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { classifier: { text: 'x/text' }, mention: { followUpModel: 'x/older' } });
+test('createTurnRunner: rewatch -- the classifier model is roles.analyzer, else its own default; the deprecated keys and a stale rewatch.model are ignored', async () => {
+  const withText = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { roles: { analyzer: 'x/text', vision: 'x/haiku' }, mention: { followUpModel: 'x/older' } });
   withText.config.llm.classifierModel = 'x/old';
   assert.equal((await runRewatch({ hot: withText })).llm.classifierCalls[0].options.model, 'x/text');
-  const withOld = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { mention: { followUpModel: 'x/older' } });
+  const withOld = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { roles: { vision: 'x/haiku' }, mention: { followUpModel: 'x/older' } });
   withOld.config.llm.classifierModel = 'x/old';
-  assert.equal((await runRewatch({ hot: withOld })).llm.classifierCalls[0].options.model, 'x/haiku', 'classifier.media, never a deprecated key');
-  const withMedia = await runRewatch({ hot: rewatchHot({}, { rewatch: { model: 'x/pick' } }, { classifier: { media: 'x/vision' } }) });
-  assert.equal(withMedia.llm.classifierCalls[0].options.model, 'x/vision');
-  const staleMedia = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { classifier: {} });
+  assert.equal((await runRewatch({ hot: withOld })).llm.classifierCalls[0].options.model, ROLE_DEFAULTS.analyzer, 'its own default: never the vision model or a deprecated key');
+  const staleMedia = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { roles: {} });
   staleMedia.config.media.model = 'x/old-media';
   const withNone = await runRewatch({ hot: staleMedia });
-  assert.equal(withNone.llm.classifierCalls[0].options.model, undefined, 'the deprecated media.model is no fallback');
+  assert.equal(withNone.llm.classifierCalls[0].options.model, ROLE_DEFAULTS.analyzer, 'the deprecated media.model is no fallback');
 });
 
 test('createTurnRunner: rewatch -- the classifier answer cap is media.video.rewatch.classifierMaxOutputTokens', async () => {
@@ -2176,7 +2175,7 @@ function lookupHot(features = {}, web = {}, config = {}) {
     { webLookup: true, vision: false, ...features },
     {},
     {
-      classifier: { text: 'x/text' },
+      roles: { analyzer: 'x/text', reasoner: 'x/reason' },
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
       web: {
         maxPerDay: 60,
@@ -2249,7 +2248,7 @@ test('createTurnRunner: lookup -- the classifier gets the transcript and the can
   assert.ok(user.includes('[page read: une recette]'), 'the classifier transcript carries the reads');
   assert.ok(user.endsWith('</transcript>\n<candidate>\nZoë: ποιος κέρδισε τον τελικό;\n</candidate>'), user);
   assert.ok(!user.split('<candidate>')[0].includes('ποιος κέρδισε'), 'the trigger only in <candidate>');
-  assert.equal(options.model, 'x/text');
+  assert.equal(options.model, 'x/reason', 'the lookup is a reasoner request');
   assert.equal(options.timeoutMs, 25_000, 'a helper: llm.helperTimeoutMs, not the reply timeout');
   assert.equal(options.skipCalibration, true);
   assert.equal(options.countAgainstDailyCap, true);
@@ -3579,7 +3578,7 @@ test('createTurnRunner: the persona turn is requested as role voice, purpose rep
   const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
   await turns.runTurn({ channel, mode: 'interject' });
   assert.equal(llm.optionCalls.length, 1);
-  assert.deepEqual(llm.optionCalls[0], { role: 'voice', purpose: 'reply' }, 'only the role and the purpose: llm.model and every other setting stay the defaults');
+  assert.deepEqual(llm.optionCalls[0], { role: 'voice', purpose: 'reply' }, 'only the role and the purpose: roles.voice and every other setting stay the defaults');
   assert.equal('cache' in llm.optionCalls[0], false, 'the cache policy decides: the reply is the request it marks');
 });
 
@@ -3598,12 +3597,12 @@ test('createTurnRunner: the text-only retry after a 4xx image error is requested
   assert.deepEqual(llm.optionCalls.map((o) => [o?.role, o?.purpose]), [['voice', 'reply'], ['voice', 'reply']]);
 });
 
-test('createTurnRunner: the rewatch classifier is requested as classifier.text, the lookup as classifier.reason, the turn as voice', async () => {
+test('createTurnRunner: the rewatch classifier is requested as analyzer, the lookup as reasoner, the turn as voice', async () => {
   const rewatch = await runRewatch();
-  assert.equal(rewatch.llm.classifierCalls[0].options.role, 'classifier.text');
+  assert.equal(rewatch.llm.classifierCalls[0].options.role, 'analyzer');
   assert.equal(rewatch.llm.turnCalls[0].options.role, 'voice');
   const lookup = await runLookupTurn();
-  assert.equal(lookup.llm.classifierCalls[0].options.role, 'classifier.reason');
+  assert.equal(lookup.llm.classifierCalls[0].options.role, 'reasoner');
   assert.equal(lookup.llm.turnCalls[0].options.role, 'voice');
 });
 
@@ -6795,7 +6794,7 @@ test('runTurn: the splitter request fills split.md and carries the transcript an
   assert.equal(call.messages[0].content, fillPromptTemplate(SPLIT_SYSTEM, { name: 'Bot', maxTasks: 4 }));
   assert.ok(textOf(call.messages[1].content).startsWith('<transcript>\n'));
   assert.equal(candidateOf(call), SPLIT_TEXT);
-  assert.deepEqual([call.options.role, call.options.purpose, call.options.maxOutputTokens, call.options.helper], ['classifier.text', 'split', 50, true]);
+  assert.deepEqual([call.options.role, call.options.purpose, call.options.maxOutputTokens, call.options.helper], ['analyzer', 'split', 50, true]);
 });
 
 test('runTurn: a failed, empty or unparsable splitter answer is one request', async () => {
@@ -7123,7 +7122,7 @@ function pickHot({ features = {}, prompts = {}, pickSettings = PICK_SETTINGS, ma
     {},
     {
       gifs: { maxPerDay, reactionChars: 40, actionChars: 70, ownMarkHours: 24, halfLifeDays: 30, pick: pickSettings },
-      classifier: { text: 'cheap/classifier' },
+      roles: { analyzer: 'cheap/classifier' },
       ...(typing ? { typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], ...typing } } : {}),
     },
   );
@@ -7171,7 +7170,7 @@ test('runTurn: a short reply is shown with the whole captioned library; a picked
   assert.equal(gifLines.length, PICK_LIBRARY_SIZE, 'the whole library, not a top slice');
   assert.deepEqual([gifLines[0], gifLines.at(-1)], ['g1 -- λεζάντα 1', 'g50 -- λεζάντα 50'], 'in rank order');
   const { options } = picks[0];
-  assert.deepEqual([options.role, options.purpose, options.maxOutputTokens, options.model, options.countAgainstDailyCap], ['classifier.text', 'gif-pick', 17, 'cheap/classifier', true]);
+  assert.deepEqual([options.role, options.purpose, options.maxOutputTokens, options.model, options.countAgainstDailyCap], ['analyzer', 'gif-pick', 17, 'cheap/classifier', true]);
 
   assert.deepEqual(sent(), ['https://tenor.com/view/gif-50'], 'the GIF, no text');
   assert.equal(channel.sent[0].reply.messageReference, 'm1', 'replying where the first message would have');
@@ -8074,7 +8073,7 @@ async function runPlannerTurn({ turnPlanner = true, llm = plannerLlm(), journal 
     {
       web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50, classifierMaxOutputTokens: 333 } },
       participation: { shown: 1 },
-      classifier: { media: 'x/haiku', reason: 'x/reason' },
+      roles: { vision: 'x/haiku', reasoner: 'x/reason' },
     },
   );
   Object.assign(hot.prompts, { planner: PLANNER_SYSTEM, lookup: LOOKUP_SYSTEM, 'route-channel': ROUTE_SYSTEM, 'participation-pick': PICK_SYSTEM });
@@ -8116,7 +8115,7 @@ test('turn planner: one request instead of four, and each consumer gets what the
   assert.equal(on.llm.helperCalls(), 1, 'none of the four old classifiers is asked');
   assert.equal(on.llm.calls.turn.length, 1);
   const { messages, options } = on.llm.calls.planner[0];
-  assert.equal(options.role, 'classifier.reason');
+  assert.equal(options.role, 'reasoner');
   assert.equal(options.purpose, 'planner');
   assert.equal(options.model, 'x/reason');
   assert.equal(options.maxOutputTokens, 333);

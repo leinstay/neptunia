@@ -8,6 +8,8 @@
 import path from 'node:path';
 import { fromTokens } from '../memory/mentions.js';
 import { familyOf as imageFamilyOf } from '../llm/images.js';
+import { roleModel } from '../llm/roles.js';
+import { adaptLegacyModelKeys } from '../config.js';
 import { log } from '../log.js';
 import { invalid } from './registry.js';
 import { NO_GUILD, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.js';
@@ -170,10 +172,11 @@ export function createOpsEnv({
 
   /** The value at `dottedPath` as of the last write: config.local.json's when it holds the path,
    * else the live config's -- so a read right after a write sees it even a moment before the
-   * reload lands. */
+   * reload lands. The local file is read as the live config reads it: its old model keys and
+   * role names under their new ones (src/config.js#adaptLegacyModelKeys). */
   function localOrLive(dottedPath) {
     const parts = splitPath(dottedPath);
-    const local = ownValueAt(readLocalConfig(localConfigFile()), parts);
+    const local = ownValueAt(adaptLegacyModelKeys(readLocalConfig(localConfigFile())).config, parts);
     return local.found ? local.value : ownValueAt(hot.config, parts).value;
   }
 
@@ -185,10 +188,10 @@ export function createOpsEnv({
     return profile;
   }
 
-  /** `image.model` for status and model show, `-` when unset, flagged when src/llm/images.js
+  /** The drawing model (`roles.drawing`) for status and model show, `-` when unset, flagged when src/llm/images.js
    * has no request mapping for its family (every generation would be refused). */
   function imageModelLabel(cfg) {
-    const model = cfg?.image?.model;
+    const model = roleModel(cfg, 'drawing');
     if (!model) return '-';
     const family = (images?.familyOf ?? imageFamilyOf)(model);
     return family ? model : `${model} (unsupported family)`;

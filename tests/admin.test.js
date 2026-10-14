@@ -24,6 +24,7 @@ import { createSpontaneous } from '../src/behavior/spontaneous.js';
 import { buildDrawPrompt } from '../src/behavior/prompt.js';
 import { familyOf, ImageGenError } from '../src/llm/images.js';
 import { createLlm } from '../src/llm/openrouter.js';
+import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { createMetrics } from '../src/ops/metrics.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -183,7 +184,8 @@ function makeHot(rootDir) {
   return {
     config: {
       bot: { owners: ['42'] },
-      llm: { model: 'anthropic/claude-opus-4.6', maxRequestsPerDay: 300 },
+      roles: { voice: 'anthropic/claude-opus-4.6' },
+      llm: { maxRequestsPerDay: 300 },
     },
     prompts: { persona: 'who she is', labels: { locale: 'en-US' } },
     promptSources: { persona: 'base', labels: 'base' },
@@ -443,19 +445,19 @@ test('run: set writes an override to config.local.json and reloads config', asyn
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
 
-  const result = await admin.run('set', { path: 'llm.model', value: '"openrouter/test-model"' }, {});
+  const result = await admin.run('set', { path: 'roles.voice', value: '"openrouter/test-model"' }, {});
 
-  assert.deepEqual(readLocal(rootDir), { llm: { model: 'openrouter/test-model' } });
+  assert.deepEqual(readLocal(rootDir), { roles: { voice: 'openrouter/test-model' } });
   assert.equal(hot.reloadConfigCalls, 1);
-  assert.ok(result.includes('Set llm.model'));
+  assert.ok(result.includes('Set roles.voice'));
 });
 
 test('run: set falls back to the raw string when the value is not valid JSON', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
 
-  await admin.run('set', { path: 'llm.model', value: 'plain-text-model' }, {});
-  assert.deepEqual(readLocal(rootDir), { llm: { model: 'plain-text-model' } });
+  await admin.run('set', { path: 'roles.voice', value: 'plain-text-model' }, {});
+  assert.deepEqual(readLocal(rootDir), { roles: { voice: 'plain-text-model' } });
 });
 
 test('run: set rejects an unknown config path and writes nothing', async () => {
@@ -473,8 +475,8 @@ test('run: unset removes a previously set override', async () => {
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
 
-  await admin.run('set', { path: 'llm.model', value: '"temp-model"' }, {});
-  await admin.run('unset', { path: 'llm.model' }, {});
+  await admin.run('set', { path: 'roles.voice', value: '"temp-model"' }, {});
+  await admin.run('unset', { path: 'roles.voice' }, {});
 
   assert.deepEqual(readLocal(rootDir), {});
   assert.equal(hot.reloadConfigCalls, 2);
@@ -505,7 +507,7 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
 test('set: accepts only an own leaf path of the live config and a value of the same JSON type', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
-  hot.config.memory = { model: null };
+  hot.config.roles = { ...hot.config.roles, extractor: null };
   hot.config.features = { dryRun: false };
   const { admin } = makeAdmin(rootDir, { hot });
   const owner = { userId: '42' };
@@ -520,12 +522,12 @@ test('set: accepts only an own leaf path of the live config and a value of the s
 
   await admin.run('set', { path: 'llm.maxRequestsPerDay', value: '250' }, owner);
   await admin.run('set', { path: 'features.dryRun', value: 'true' }, owner);
-  await admin.run('set', { path: 'memory.model', value: '"x/y"' }, owner); // the current value is null: any type
-  await admin.run('set', { path: 'llm.model', value: '123' }, owner); // a string setting keeps the text as typed
+  await admin.run('set', { path: 'roles.extractor', value: '"x/y"' }, owner); // the current value is null: any type
+  await admin.run('set', { path: 'roles.voice', value: '123' }, owner); // a string setting keeps the text as typed
   assert.deepEqual(readLocal(rootDir), {
-    llm: { maxRequestsPerDay: 250, model: '123' },
+    llm: { maxRequestsPerDay: 250 },
+    roles: { extractor: 'x/y', voice: '123' },
     features: { dryRun: true },
-    memory: { model: 'x/y' },
   });
 });
 
@@ -535,75 +537,80 @@ test('set: accepts only an own leaf path of the live config and a value of the s
 
 function makeHotWithMedia(rootDir) {
   const hot = makeHot(rootDir);
-  hot.config.memory = { model: null };
+  hot.config.memory = {};
   hot.config.media = {};
-  hot.config.classifier = { media: 'anthropic/claude-haiku-4.5' };
+  hot.config.roles = { ...hot.config.roles, vision: 'anthropic/claude-haiku-4.5' };
   hot.config.features = { mediaDescriptions: false };
   return hot;
 }
 
-test('run: model.show falls back to classifier.media for classifier.text when unset', async () => {
+test('run: model.show lists each role with its own model; an unset role shows its own default, never another role\'s', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
   const { admin } = makeAdmin(rootDir, { hot });
 
-  const result = await admin.run('model.show', {}, {});
-  assert.ok(result.split('\n').includes('classifier.text: anthropic/claude-haiku-4.5'));
+  const lines = (await admin.run('model.show', {}, {})).split('\n');
+  assert.ok(lines.includes('vision: anthropic/claude-haiku-4.5'));
+  assert.ok(lines.includes(`analyzer: ${ROLE_DEFAULTS.analyzer}`), 'the analyzer is not the vision model');
+  assert.ok(lines.includes(`reasoner: ${ROLE_DEFAULTS.reasoner}`));
+  assert.deepEqual(lines.slice(0, 8).map((line) => line.split(':')[0]), ['voice', 'analyzer', 'reasoner', 'extractor', 'vision', 'video', 'embedding', 'drawing']);
 });
 
 test('run: model.show ignores the deprecated keys of an old config.local.json', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
-  hot.config.classifier = {};
+  hot.config.roles = { voice: 'anthropic/claude-opus-4.6' };
   hot.config.llm.classifierModel = 'openrouter/old-classifier';
   hot.config.mention = { followUpModel: 'openrouter/older-classifier' };
   hot.config.media = { model: 'openrouter/old-media', video: { model: 'openrouter/old-video' } };
   const { admin } = makeAdmin(rootDir, { hot });
 
   const lines = (await admin.run('model.show', {}, {})).split('\n');
-  assert.ok(lines.includes('classifier.text: -'));
-  assert.ok(lines.includes('classifier.media: -'));
-  assert.ok(lines.includes('classifier.video: -'));
+  assert.ok(lines.includes(`analyzer: ${ROLE_DEFAULTS.analyzer}`));
+  assert.ok(lines.includes(`vision: ${ROLE_DEFAULTS.vision}`));
+  assert.ok(lines.includes(`video: ${ROLE_DEFAULTS.video}`));
   assert.ok(!lines.some((l) => l.includes('openrouter/old')), 'no deprecated key is shown');
-  assert.ok(!lines.some((l) => /^(followup|media|video|classifier):/.test(l)), 'the old role names are gone from the listing');
+  assert.ok(!lines.some((l) => /^(followup|media|classifier[.a-z]*|image):/.test(l)), 'the old role names are gone from the listing');
 });
 
-test('run: model.set writes the right config path for each role', async () => {
+test('run: model.set writes the roles path of each role', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
   const { admin } = makeAdmin(rootDir, { hot });
 
   await admin.run('model.set', { role: 'voice', id: 'anthropic/claude-opus-4.6' }, {});
-  assert.deepEqual(readLocal(rootDir), { llm: { model: 'anthropic/claude-opus-4.6' } });
+  assert.deepEqual(readLocal(rootDir), { roles: { voice: 'anthropic/claude-opus-4.6' } });
 
-  await admin.run('model.set', { role: 'analyzer', id: 'openrouter/cheap-model' }, {});
-  await admin.run('model.set', { role: 'classifier.text', id: 'openrouter/text-model' }, {});
-  await admin.run('model.set', { role: 'classifier.media', id: 'anthropic/claude-haiku-4.5' }, {});
-  await admin.run('model.set', { role: 'classifier.video', id: 'openrouter/video-model' }, {});
-  await admin.run('model.set', { role: 'classifier.reason', id: 'openrouter/reason-model' }, {});
-  await admin.run('model.set', { role: 'classifier.embed', id: 'openai/text-embedding-3-small' }, {});
+  await admin.run('model.set', { role: 'analyzer', id: 'openrouter/text-model' }, {});
+  await admin.run('model.set', { role: 'reasoner', id: 'openrouter/reason-model' }, {});
+  await admin.run('model.set', { role: 'extractor', id: 'openrouter/cheap-model' }, {});
+  await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5' }, {});
+  await admin.run('model.set', { role: 'video', id: 'openrouter/video-model' }, {});
+  await admin.run('model.set', { role: 'embedding', id: 'openai/text-embedding-3-small' }, {});
+  await admin.run('model.set', { role: 'drawing', id: 'openai/gpt-image-x' }, {});
   assert.deepEqual(readLocal(rootDir), {
-    llm: { model: 'anthropic/claude-opus-4.6' },
-    memory: { model: 'openrouter/cheap-model' },
-    classifier: {
-      text: 'openrouter/text-model',
-      media: 'anthropic/claude-haiku-4.5',
+    roles: {
+      voice: 'anthropic/claude-opus-4.6',
+      analyzer: 'openrouter/text-model',
+      reasoner: 'openrouter/reason-model',
+      extractor: 'openrouter/cheap-model',
+      vision: 'anthropic/claude-haiku-4.5',
       video: 'openrouter/video-model',
-      reason: 'openrouter/reason-model',
-      embed: 'openai/text-embedding-3-small',
+      embedding: 'openai/text-embedding-3-small',
+      drawing: 'openai/gpt-image-x',
     },
   });
-  assert.equal(hot.reloadConfigCalls, 7);
+  assert.equal(hot.reloadConfigCalls, 8);
 });
 
-test('run: model.set rejects an unknown role, the old role names and the classifier group, and writes nothing', async () => {
+test('run: model.set rejects an unknown role and the old role names, and writes nothing', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
 
-  for (const role of ['bogus', 'followup', 'media', 'video', 'classifier', 'talk']) {
+  for (const role of ['bogus', 'followup', 'media', 'classifier', 'classifier.text', 'classifier.media', 'image', 'talk']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
-      new RegExp(`unknown role: ${role} \\(voice, analyzer, classifier\\.text, classifier\\.reason, classifier\\.media, classifier\\.video, classifier\\.embed, image\\)`),
+      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(voice, analyzer, reasoner, extractor, vision, video, embedding, drawing\\)`),
       role,
     );
   }
@@ -615,7 +622,7 @@ test('run: model.set rejects an id that does not look like a model id', async ()
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
 
   await assert.rejects(() => admin.run('model.set', { role: 'voice', id: 'x' }, {}), /model id/);
-  await assert.rejects(() => admin.run('model.set', { role: 'image', id: 'has spaces here' }, {}), /model id/);
+  await assert.rejects(() => admin.run('model.set', { role: 'drawing', id: 'has spaces here' }, {}), /model id/);
   assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
 });
 
@@ -623,40 +630,40 @@ test('run: model.set accepts a loosely-valid id (letters, digits, dot, colon, sl
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
 
-  await admin.run('model.set', { role: 'classifier.media', id: 'anthropic/claude-haiku-4.5:beta' }, {});
-  assert.deepEqual(readLocal(rootDir), { classifier: { media: 'anthropic/claude-haiku-4.5:beta' } });
+  await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5:beta' }, {});
+  assert.deepEqual(readLocal(rootDir), { roles: { vision: 'anthropic/claude-haiku-4.5:beta' } });
 });
 
-test('model show: the voice role is llm.model, never memory.model or a stale memory.voiceModel; no talk line', async () => {
+test('model show: the voice role is roles.voice, never the extractor or a stale memory.voiceModel; no talk line', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
-  hot.config.memory.model = 'openai/analyzer-model';
+  hot.config.roles.extractor = 'openai/extractor-model';
   hot.config.memory.voiceModel = 'openrouter/stale-voice-model';
   const { admin } = makeAdmin(rootDir, { hot });
 
   const lines = (await admin.run('model.show', {}, {})).split('\n');
   assert.ok(lines.includes('voice: anthropic/claude-opus-4.6'));
-  assert.ok(lines.includes('analyzer: openai/analyzer-model'));
+  assert.ok(lines.includes('extractor: openai/extractor-model'));
   assert.ok(!lines.some((l) => l.startsWith('talk:')), 'no talk role');
   assert.ok(!lines.some((l) => l.includes('stale-voice-model')), 'memory.voiceModel is not read');
 });
 
-test('model set image: writes image.model to config.local.json, reloads, and model show lists it', async () => {
+test('model set drawing: writes roles.drawing to config.local.json, reloads, and model show lists it', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
   hot.reloadConfig = function reloadConfig() {
     this.reloadConfigCalls += 1;
-    this.config.image = { ...this.config.image, ...readLocal(rootDir).image };
+    this.config.roles = { ...this.config.roles, ...readLocal(rootDir).roles };
     return true;
   };
   const { admin } = makeAdmin(rootDir, { hot });
 
-  assert.ok((await admin.run('model.show', {}, {})).split('\n').includes('image: -'));
-  const reply = await admin.run('model.set', { role: 'image', id: 'openai/gpt-image-2.5-flare' }, {});
-  assert.match(reply, /^Set image model to openai\/gpt-image-2\.5-flare /);
-  assert.deepEqual(readLocal(rootDir), { image: { model: 'openai/gpt-image-2.5-flare' } });
+  assert.ok((await admin.run('model.show', {}, {})).split('\n').includes(`drawing: ${ROLE_DEFAULTS.drawing}`));
+  const reply = await admin.run('model.set', { role: 'drawing', id: 'openai/gpt-image-x' }, {});
+  assert.match(reply, /^Set drawing model to openai\/gpt-image-x /);
+  assert.deepEqual(readLocal(rootDir), { roles: { drawing: 'openai/gpt-image-x' } });
   assert.equal(hot.reloadConfigCalls, 1);
-  assert.ok((await admin.run('model.show', {}, {})).split('\n').includes('image: openai/gpt-image-2.5-flare'));
+  assert.ok((await admin.run('model.show', {}, {})).split('\n').includes('drawing: openai/gpt-image-x'));
 });
 
 // ---------------------------------------------------------------------------
@@ -1947,7 +1954,7 @@ test('status: the card carries the fields in order and the member variant drops 
   const archive = { stats: () => ({ pending: 3 }) };
   const client = { ws: { ping: 41.6 }, guilds: { cache: new Map() } };
   const { admin, hot, store } = makeAdmin(rootDir, { journal, archive, client, isWarmingUp: () => true });
-  hot.config.memory = { model: 'x/analyzer' };
+  hot.config.roles = { ...hot.config.roles, extractor: 'x/extractor' };
   hot.config.media = { video: { maxPerDay: 40 } };
   hot.config.recall = { maxPerDay: 100 };
   hot.config.web = { maxPerDay: 60 };
@@ -1969,20 +1976,21 @@ test('status: the card carries the fields in order and the member variant drops 
     [
       '**voice**',
       'voice · anthropic/claude-opus-4.6',
-      '**memory**',
-      'analyzer · x/analyzer',
-      '**helpers**',
-      'classifier.text · no model configured',
-      'classifier.reason · no model configured',
+      '**analyzer**',
+      `analyzer · ${ROLE_DEFAULTS.analyzer}`,
+      '**reasoner**',
+      `reasoner · ${ROLE_DEFAULTS.reasoner}`,
+      '**extractor**',
+      'extractor · x/extractor',
       '**media**',
-      'classifier.media · no model configured',
-      'classifier.video · no model configured',
-      '**embeddings**',
-      'classifier.embed · no model configured',
+      `vision · ${ROLE_DEFAULTS.vision}`,
+      `video · ${ROLE_DEFAULTS.video}`,
+      '**embedding**',
+      `embedding · ${ROLE_DEFAULTS.embedding}`,
       '**drawing**',
-      'image · no model configured',
+      `drawing · ${ROLE_DEFAULTS.drawing}`,
     ].join('\n'),
-    'no llm client: every role named by group, unprobed',
+    'no llm client: every role named by group with its own model, unprobed',
   );
   assert.match(value('limits'), /^requests \d+\/300\nvideos 0\/40\nrecall 0\/100\nlookups 0\/60\nresets 00:00 UTC$/);
   assert.deepEqual(
@@ -2176,13 +2184,20 @@ function fakeProbeLlm(answer, listing = { ok: true, status: 200, json: { data: {
   };
 }
 
-/** The probe tests' config: a model per role, the drawing model, the probe timeout and label. */
+/** The probe tests' config: a model per role (the drawing model included), the probe timeout and label. */
 function probeConfig(hot) {
-  hot.config.memory = { model: 'x/analyzer' };
-  hot.config.classifier = { text: 'x/text', media: 'x/media', video: 'x/video' };
-  hot.config.image = { model: 'openai/gpt-image-1' };
+  hot.config.roles = {
+    voice: 'anthropic/claude-opus-4.6',
+    analyzer: 'x/text',
+    reasoner: 'x/reason',
+    extractor: 'x/extractor',
+    vision: 'x/media',
+    video: 'x/video',
+    embedding: 'x/embed',
+    drawing: 'openai/gpt-image-1',
+  };
   hot.config.llm.probeTimeoutMs = 1234;
-  hot.prompts.labels.status = { probe: 'Answer with one word: Ωmega', fallback: '(= {role})' };
+  hot.prompts.labels.status = { probe: 'Answer with one word: Ωmega' };
 }
 
 /** The models field's lines without the group headers. */
@@ -2216,16 +2231,16 @@ test('status: the card lists one item per line in every field, the models groupe
     'lookups 0/60',
     'resets 00:00 UTC',
   ]);
-  assert.deepEqual(lines('models').filter((line) => line.startsWith('**')), ['**voice**', '**memory**', '**helpers**', '**media**', '**embeddings**', '**drawing**']);
+  assert.deepEqual(lines('models').filter((line) => line.startsWith('**')), ['**voice**', '**analyzer**', '**reasoner**', '**extractor**', '**media**', '**embedding**', '**drawing**']);
   assert.deepEqual(roleLinesOf(embeds[0].fields.find((f) => f.name === 'models').value).map((line) => line.split(' · ')[0]), [
     'voice',
     'analyzer',
-    'classifier.text',
-    'classifier.reason',
-    'classifier.media',
-    'classifier.video',
-    'classifier.embed',
-    'image',
+    'reasoner',
+    'extractor',
+    'vision',
+    'video',
+    'embedding',
+    'drawing',
   ]);
   assert.ok(!lines('models').some((line) => line.startsWith(' ')), 'no detail line under a role');
   for (const field of embeds[0].fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
@@ -2235,12 +2250,12 @@ test('status: the owner card probes every role\'s model and shows its provider a
   const rootDir = makeRoot();
   const funnel = JSON.stringify({ error: { metadata: { routing_funnel: [{ step: 'model', endpoint_count: 3 }, { step: 'provider', endpoint_count: 0 }] } } });
   const llm = fakeProbeLlm((role) => {
-    if (role === 'classifier.media') throw Object.assign(new Error('HTTP 503: upstream down'), { body: funnel });
+    if (role === 'vision') throw Object.assign(new Error('HTTP 503: upstream down'), { body: funnel });
     return { provider: 'Prov', usage: { prompt_tokens: 9, completion_tokens: 1 } };
   });
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 2, cap: 5 } }), llm });
   probeConfig(hot);
-  const modelOf = { voice: 'anthropic/claude-opus-4.6', analyzer: 'x/analyzer', 'classifier.text': 'x/text', 'classifier.media': 'x/media', 'classifier.video': 'x/video' };
+  const modelOf = { voice: 'anthropic/claude-opus-4.6', analyzer: 'x/text', reasoner: 'x/reason', extractor: 'x/extractor', vision: 'x/media', video: 'x/video' };
 
   const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
   const lines = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models').value);
@@ -2257,13 +2272,13 @@ test('status: the owner card probes every role\'s model and shows its provider a
   assert.deepEqual(llm.listings, [{ model: 'openai/gpt-image-1', options: { timeoutMs: 1234 } }]);
 
   assert.match(lines[0], /^voice · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
-  assert.match(lines[1], /^analyzer · x\/analyzer · Prov · ok \d+ ms$/);
-  assert.ok(lines.includes('classifier.media · x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
-  assert.match(lines.at(-1), /^image · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
+  assert.match(lines[1], /^analyzer · x\/text · Prov · ok \d+ ms$/);
+  assert.ok(lines.includes('vision · x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
+  assert.match(lines.at(-1), /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
 
   const probed = logs.filter((entry) => entry.msg === 'status: probed');
   assert.equal(probed.length, 1);
-  assert.equal(probed[0].ok, 4);
+  assert.equal(probed[0].ok, 5);
   assert.equal(probed[0].failed, 1);
 });
 
@@ -2281,25 +2296,26 @@ test('status: the member card shows the models by group without probing', async 
     [
       '**voice**',
       'voice · anthropic/claude-opus-4.6',
-      '**memory**',
-      'analyzer · x/analyzer',
-      '**helpers**',
-      'classifier.text · x/text',
-      'classifier.reason · x/text (= classifier.text)',
+      '**analyzer**',
+      'analyzer · x/text',
+      '**reasoner**',
+      'reasoner · x/reason',
+      '**extractor**',
+      'extractor · x/extractor',
       '**media**',
-      'classifier.media · x/media',
-      'classifier.video · x/video',
-      '**embeddings**',
-      'classifier.embed · no model configured',
+      'vision · x/media',
+      'video · x/video',
+      '**embedding**',
+      'embedding · x/embed',
       '**drawing**',
-      'image · openai/gpt-image-1',
+      'drawing · openai/gpt-image-1',
     ].join('\n'),
   );
   assert.equal(llm.calls.length, 0, 'no probe request');
   assert.equal(llm.listings.length, 0, 'no listing request');
 });
 
-test('status: identical probes are sent once, each role shows the model it resolves to, the embedding role gets an embedding probe', async () => {
+test('status: identical probes are sent once, each role shows its own model, the overrides close the group of their role, the embedding role gets an embedding probe', async () => {
   const rootDir = makeRoot();
   const llm = fakeProbeLlm(() => ({ provider: 'Prov', usage: { prompt_tokens: 9, completion_tokens: 1 } }));
   const embedCalls = [];
@@ -2311,20 +2327,20 @@ test('status: identical probes are sent once, each role shows the model it resol
   };
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 0, cap: 5 } }), llm, embedder });
   probeConfig(hot);
-  hot.config.memory = { model: null }; // the analyzer on the voice's model: one probe for both
-  hot.config.classifier = { text: 'x/text', reason: null, media: 'x/media', video: 'x/media', embed: 'x/embed', byPurpose: { lookup: 'x/pinned' } };
-  // A role-specific route keeps the video role's probe apart although its model is the media one.
-  hot.config.llm.providerByModel = { 'x/@classifier.video': { only: ['video-host'] } };
+  // The extractor on the voice's model and the reasoner on the analyzer's: one probe for each pair.
+  Object.assign(hot.config.roles, { reasoner: 'x/text', extractor: 'anthropic/claude-opus-4.6', video: 'x/media', byPurpose: { lookup: 'x/pinned', describe: 'x/seen' } });
+  // A role-specific route keeps the video role's probe apart although its model is the vision one.
+  hot.config.llm.providerByModel = { 'x/@video': { only: ['video-host'] } };
 
   const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
   const lines = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models').value);
 
   assert.deepEqual(llm.calls.map((call) => [call.options.role, call.options.model]).sort(), [
-    ['classifier.media', 'x/media'],
-    ['classifier.text', 'x/text'],
-    ['classifier.video', 'x/media'],
+    ['analyzer', 'x/text'],
+    ['video', 'x/media'],
+    ['vision', 'x/media'],
     ['voice', 'anthropic/claude-opus-4.6'],
-  ], 'one chat probe per (model, route); classifier.reason shares the text probe, the analyzer the voice one');
+  ], 'one chat probe per (model, route); the reasoner shares the analyzer probe, the extractor the voice one');
   assert.deepEqual(embedCalls.map((call) => call.texts), [['Answer with one word: Ωmega']], 'one embedding request of one input');
   assert.equal(embedCalls[0].options.countAgainstDailyCap, false);
   assert.equal(embedCalls[0].options.origin, 'status');
@@ -2332,10 +2348,11 @@ test('status: identical probes are sent once, each role shows the model it resol
   assert.equal(embedCalls[0].options.config, hot.config);
   assert.equal(llm.calls.some((call) => call.options.model === 'x/embed'), false, 'the embedding model is never sent a chat completion');
 
-  assert.match(lines[1], /^analyzer · anthropic\/claude-opus-4\.6 \(= voice\) · Prov · ok \d+ ms$/);
-  assert.match(lines[3], /^classifier\.reason · x\/text \(= classifier\.text\) · Prov · ok \d+ ms$/);
-  assert.equal(lines[4], 'byPurpose lookup · x/pinned', 'a per-purpose override closes the helpers');
-  assert.match(lines[7], /^classifier\.embed · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
+  assert.match(lines[2], /^reasoner · x\/text · Prov · ok \d+ ms$/, 'its own line, no marker of another role');
+  assert.equal(lines[3], 'byPurpose lookup · x/pinned', 'a reasoner override closes the reasoner group');
+  assert.match(lines[4], /^extractor · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
+  assert.equal(lines[7], 'byPurpose describe · x/seen', 'a vision override closes the media group');
+  assert.match(lines[8], /^embedding · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
   assert.equal(logs.find((entry) => entry.msg === 'status: probed').requests, 5);
 });
 
@@ -2344,16 +2361,14 @@ test('status: without an embedding client the embedding role is shown unchecked;
   const llm = fakeProbeLlm(() => ({ provider: 'Prov' }));
   const none = makeAdmin(rootDir, { llm });
   probeConfig(none.hot);
-  none.hot.config.classifier.embed = 'x/embed';
   const unchecked = await none.admin.run('status', {}, { userId: '42' });
-  assert.ok(unchecked.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('classifier.embed · x/embed · not checked (no embedding client)'));
+  assert.ok(unchecked.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('embedding · x/embed · not checked (no embedding client)'));
 
   const embedder = { embed: async () => { throw Object.assign(new Error('HTTP 404: no such model'), { statusCode: 404 }); } };
   const failing = makeAdmin(makeRoot(), { llm, embedder });
   probeConfig(failing.hot);
-  failing.hot.config.classifier.embed = 'x/embed';
   const { result } = await withCapturedLogs(() => failing.admin.run('status', {}, { userId: '42' }));
-  assert.ok(result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('classifier.embed · x/embed · failed: HTTP 404: no such model'));
+  assert.ok(result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('embedding · x/embed · failed: HTTP 404: no such model'));
 });
 
 // ---------------------------------------------------------------------------
@@ -2623,7 +2638,8 @@ test('run: pause waits for a portrait refresh in flight and nothing is written a
       config: {
         bot: { timezone: 'UTC' },
         context: { gapMarkerMinutes: 20, maxMessageChars: 800 },
-        llm: { model: 'x/y', maxRequestTokens: 50000, safetyMargin: 0.9 },
+        roles: { voice: 'x/y', extractor: 'x/y' },
+        llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
         memory: { fieldChars: 400, mainChannelIds: [] },
         warmup: { minMessages: 2, contextBefore: 1, maxChannelShare: 1 },
       },
@@ -2697,7 +2713,7 @@ test('run: pause waits for a voice run in flight and nothing is written after it
       },
     };
     const hot = minimalMemoryHot();
-    hot.config.llm.model = 'x/y';
+    hot.config.roles = { voice: 'x/y' };
     hot.config.features.memoryTwoStage = true;
     hot.config.memory.voice = { maxPerDay: 100 };
     hot.prompts['memory-voice'] = 'VOICE {{name}}';
@@ -2870,8 +2886,8 @@ test('run: read-only and config commands keep working while paused', async () =>
   await assert.doesNotReject(() => admin.run('lore.list', {}, { guildId: 'g1' }));
   await assert.doesNotReject(() => admin.run('model.show', {}, {}));
   await assert.doesNotReject(() => admin.run('rule.list', {}, {}));
-  await assert.doesNotReject(() => admin.run('set', { path: 'llm.model', value: '"x/y"' }, {}));
-  await assert.doesNotReject(() => admin.run('unset', { path: 'llm.model' }, {}));
+  await assert.doesNotReject(() => admin.run('set', { path: 'roles.voice', value: '"x/y"' }, {}));
+  await assert.doesNotReject(() => admin.run('unset', { path: 'roles.voice' }, {}));
   await assert.doesNotReject(() => admin.run('model.set', { role: 'voice', id: 'x/y' }, {}));
 });
 
@@ -3069,9 +3085,10 @@ function fakeImageFetcher(result = { dataUrl: 'data:image/png;base64,QUFB' }) {
   };
 }
 
-function hotForDraw(rootDir, image = {}) {
+function hotForDraw(rootDir, { model = 'openai/image-model', ...image } = {}) {
   const hot = makeHot(rootDir);
-  hot.config.image = { model: 'openai/image-model', maxPromptChars: 800, reference: 'avatar', referenceMaxBytes: 4000000, ...image };
+  hot.config.roles = { ...hot.config.roles, drawing: model };
+  hot.config.image = { maxPromptChars: 800, reference: 'avatar', referenceMaxBytes: 4000000, ...image };
   hot.config.context = { vision: { fetchTimeoutMs: 7000 } };
   hot.prompts = {
     ...hot.prompts,
@@ -3380,12 +3397,12 @@ test('run: route.set with a role writes "<prefix>@<role>"; a dotted model id sta
   const { admin } = makeAdmin(rootDir);
 
   await admin.run('route.set', { model: 'google/', providers: 'google-vertex' }, {});
-  await admin.run('route.set', { model: 'google/', providers: ' google-ai-studio , google-vertex ,', role: 'classifier.video' }, {});
+  await admin.run('route.set', { model: 'google/', providers: ' google-ai-studio , google-vertex ,', role: 'video' }, {});
   await admin.run('route.set', { model: 'anthropic/claude-sonnet-4.6', providers: 'amazon-bedrock', role: 'voice', fallbacks: true }, {});
 
   assert.deepEqual(readLocal(rootDir).llm.providerByModel, {
     'google/': { only: ['google-vertex'], allow_fallbacks: false },
-    'google/@classifier.video': { only: ['google-ai-studio', 'google-vertex'], allow_fallbacks: false },
+    'google/@video': { only: ['google-ai-studio', 'google-vertex'], allow_fallbacks: false },
     'anthropic/claude-sonnet-4.6@voice': { only: ['amazon-bedrock'], allow_fallbacks: true },
   });
 });
@@ -3418,10 +3435,10 @@ test('run: route.remove deletes only the named key; an unknown route is an error
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
   await admin.run('route.set', { model: 'google/', providers: 'google-vertex' }, {});
-  await admin.run('route.set', { model: 'google/', providers: 'google-ai-studio', role: 'classifier.video' }, {});
+  await admin.run('route.set', { model: 'google/', providers: 'google-ai-studio', role: 'video' }, {});
 
-  const result = await admin.run('route.remove', { model: 'google/', role: 'classifier.video' }, {});
-  assert.match(result, /google\/@classifier\.video/);
+  const result = await admin.run('route.remove', { model: 'google/', role: 'video' }, {});
+  assert.match(result, /google\/@video/);
   assert.deepEqual(readLocal(rootDir).llm.providerByModel, { 'google/': { only: ['google-vertex'], allow_fallbacks: false } });
   assert.equal(hot.reloadConfigCalls, 3);
 
@@ -3435,11 +3452,36 @@ test('run: route.remove deletes only the named key; an unknown route is an error
   assert.deepEqual(readLocal(rootDir), {}, 'the emptied map and llm object are pruned');
 });
 
+test('run: route.remove edits a route config.local.json still keeps under an old role name, written back under the new one', async () => {
+  const rootDir = makeRoot();
+  fs.writeFileSync(path.join(rootDir, 'config.local.json'), JSON.stringify({
+    classifier: { media: 'x/kept' },
+    llm: { providerByModel: { 'google/': { only: ['google-vertex'] }, 'google/@classifier.video': { only: ['google-ai-studio'] }, 'openai/@analyzer': { only: ['openai'] } } },
+  }));
+  const { admin } = makeAdmin(rootDir);
+
+  const result = await admin.run('route.remove', { model: 'google/', role: 'video' }, {});
+  assert.match(result, /google\/@video/);
+  assert.deepEqual(readLocal(rootDir), {
+    classifier: { media: 'x/kept' },
+    llm: { providerByModel: { 'google/': { only: ['google-vertex'] }, 'openai/@extractor': { only: ['openai'] } } },
+  }, 'the old memory analyzer route is the extractor one while the file still uses the old model keys');
+});
+
 function hotForRoutes(rootDir) {
   const hot = makeHotWithMedia(rootDir);
   hot.config.llm.provider = null;
-  hot.config.classifier = { text: null, media: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash' };
-  hot.config.image = { model: 'openai/gpt-image-x', provider: { only: ['openai'] } };
+  hot.config.roles = {
+    voice: 'anthropic/claude-opus-4.6',
+    analyzer: 'google/gemini-3.8-flash',
+    reasoner: 'google/gemini-3.8-flash',
+    extractor: 'anthropic/claude-opus-4.6',
+    vision: 'google/gemini-3.8-flash',
+    video: 'google/gemini-3.8-flash',
+    embedding: 'openai/text-embedding-x',
+    drawing: 'openai/gpt-image-x',
+  };
+  hot.config.image = { provider: { only: ['openai'] } };
   hot.config.media = { video: { provider: { order: ['google-ai-studio'], allow_fallbacks: false } } };
   return hot;
 }
@@ -3450,25 +3492,25 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
   hot.config.llm.provider = { ignore: ['some-provider'] };
   const { admin } = makeAdmin(rootDir, { hot });
   await admin.run('route.set', { model: 'google/', providers: 'google-vertex' }, {});
-  await admin.run('route.set', { model: 'google/', providers: 'google-ai-studio', role: 'classifier.video' }, {});
-  await admin.run('route.set', { model: 'anthropic/', providers: 'amazon-bedrock,anthropic', role: 'analyzer', fallbacks: true }, {});
+  await admin.run('route.set', { model: 'google/', providers: 'google-ai-studio', role: 'video' }, {});
+  await admin.run('route.set', { model: 'anthropic/', providers: 'amazon-bedrock,anthropic', role: 'extractor', fallbacks: true }, {});
 
   const lines = (await admin.run('route.list', {}, {})).split('\n');
 
   assert.deepEqual(lines, [
     'routes:',
-    '  anthropic/ | analyzer | only amazon-bedrock, anthropic | fallbacks: on',
+    '  anthropic/ | extractor | only amazon-bedrock, anthropic | fallbacks: on',
     '  google/ | any | only google-vertex | fallbacks: off',
-    '  google/ | classifier.video | only google-ai-studio | fallbacks: off',
+    '  google/ | video | only google-ai-studio | fallbacks: off',
     'by role:',
     '  voice: anthropic/claude-opus-4.6 -> llm.provider (ignore some-provider, fallbacks: on)',
-    '  analyzer: anthropic/claude-opus-4.6 -> anthropic/@analyzer (only amazon-bedrock, anthropic, fallbacks: on)',
-    '  classifier.text: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
-    '  classifier.reason: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
-    '  classifier.media: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
-    '  classifier.video: google/gemini-3.8-flash -> google/@classifier.video (only google-ai-studio, fallbacks: off); direct-URL videos: media.video.provider (order google-ai-studio, fallbacks: off)',
-    '  classifier.embed: (no model configured)',
-    '  image: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
+    '  analyzer: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
+    '  reasoner: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
+    '  extractor: anthropic/claude-opus-4.6 -> anthropic/@extractor (only amazon-bedrock, anthropic, fallbacks: on)',
+    '  vision: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
+    '  video: google/gemini-3.8-flash -> google/@video (only google-ai-studio, fallbacks: off); direct-URL videos: media.video.provider (order google-ai-studio, fallbacks: off)',
+    '  embedding: openai/text-embedding-x -> llm.provider (ignore some-provider, fallbacks: on)',
+    '  drawing: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
   ]);
 });
 
@@ -3480,7 +3522,7 @@ test('run: route.list shows a route key still written with the old role name tal
 
   const lines = (await admin.run('route.list', {}, {})).split('\n');
   assert.ok(lines.includes('  voice: anthropic/claude-opus-4.6 -> anthropic/@talk (only amazon-bedrock, fallbacks: off)'));
-  assert.ok(lines.includes('  analyzer: anthropic/claude-opus-4.6 -> none'), 'the old name is the voice role only');
+  assert.ok(lines.includes('  extractor: anthropic/claude-opus-4.6 -> none'), 'the old name is the voice role only');
 });
 
 test('access: route.list is read-only, route.set and route.remove open a write; none is open to a non-owner by default', async () => {

@@ -142,8 +142,8 @@
 // filled; user = the `<transcript>` of the last `split.contextMessages`
 // fetched messages before the trigger (src/behavior/prompt.js#classifierTranscript,
 // the describer's cached captions when features.mediaDescriptions is on)
-// and the `<candidate>` line; on classifierTextModel with
-// helperRequestOptions (role `classifier.text`, `split.maxOutputTokens`,
+// and the `<candidate>` line; on the analyzer model (roleModel) with
+// helperRequestOptions (role `analyzer`, `split.maxOutputTokens`,
 // purpose `split`); each answer parsed by src/behavior/split.js#parseSplitAnswer.
 // `--text "<candidate text>"` replaces the trigger's content (same author,
 // same time, same lines before it), so an invented message is tested in the
@@ -162,8 +162,8 @@
 //    messages before the trigger (cached captions with
 //    features.mediaDescriptions on, cached video states with video vision on,
 //    cached link reads with features.webLookup and web.links on) and the
-//    `<candidate>` line; on classifierTextModel with helperRequestOptions
-//    (role `classifier.text`, `web.search.classifierMaxOutputTokens`, purpose
+//    `<candidate>` line; on the reasoner model (roleModel) with helperRequestOptions
+//    (role `reasoner`, `web.search.classifierMaxOutputTokens`, purpose
 //    `lookup`); the answer parsed by src/behavior/recall.js#parseLookupAnswer
 //    at the trigger's time;
 // 2. when the answer has a server part, the `run()` of
@@ -551,7 +551,7 @@ async function cacheMembers(guild, ids) {
  * stop makes the code 1. Returns `{ code, result }`.
  */
 async function runSplit({ hot, mods, llm, history, trigger, triggerKind, kindFrom, selfName, descriptions, samples, signal }) {
-  const { splitSettings, splitCandidate, mayHaveParts, parseSplitAnswer, fillPromptTemplate, classifierTranscript, classifierTextModel, helperRequestOptions, railReason } = mods;
+  const { splitSettings, splitCandidate, mayHaveParts, parseSplitAnswer, fillPromptTemplate, classifierTranscript, roleModel, helperRequestOptions, railReason } = mods;
   const config = hot.config;
   const prompt = hot.prompts?.split;
   if (!prompt) throw new CliError('replay-cli: prompts.split is missing (prompts/split.md or prompts.local/split.md)');
@@ -565,7 +565,7 @@ async function runSplit({ hot, mods, llm, history, trigger, triggerKind, kindFro
     context.length === 0 ? '' : `<transcript>\n${classifierTranscript(context, { config, selfName, labels, descriptions })}\n</transcript>\n`;
   const system = fillPromptTemplate(prompt, { name: selfName ?? '', maxTasks: settings.maxTasks });
   const user = `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
-  const model = classifierTextModel(config);
+  const model = roleModel(config, 'analyzer', 'split');
 
   // Whether a live turn would ask at all (the gate in runTurnOnce), with the reasons when not.
   const candidate = splitCandidate(trigger, triggerKind, config);
@@ -596,7 +596,7 @@ async function runSplit({ hot, mods, llm, history, trigger, triggerKind, kindFro
         ],
         {
           model,
-          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: settings.maxOutputTokens, purpose: 'split', signal }),
+          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: settings.maxOutputTokens, purpose: 'split', signal }),
         },
       );
       const u = completion?.usage;
@@ -666,7 +666,7 @@ async function loadRecallMods(load) {
   const recall = await load('behavior/recall.js');
   const runner = await load('behavior/recall-run.js');
   const prompt = await load('behavior/prompt.js');
-  const mention = await load('behavior/mention.js');
+  const roles = await load('llm/roles.js');
   const openrouter = await load('llm/openrouter.js');
   const time = await load('time.js');
   const turn = await load('behavior/turn.js');
@@ -682,7 +682,7 @@ async function loadRecallMods(load) {
     createRecall: runner.createRecall,
     classifierTranscript: prompt.classifierTranscript,
     fillPromptTemplate: prompt.fillPromptTemplate,
-    classifierTextModel: mention.classifierTextModel,
+    roleModel: roles.roleModel,
     helperRequestOptions: openrouter.helperRequestOptions,
     railReason: openrouter.railReason,
     zonedDay: time.zonedDay,
@@ -774,7 +774,7 @@ async function runRecall({ hot, mods, llm, store, guild, guildId, channel, self,
     createRecall,
     classifierTranscript,
     fillPromptTemplate,
-    classifierTextModel,
+    roleModel,
     helperRequestOptions,
     railReason,
     zonedDay,
@@ -854,7 +854,7 @@ async function runRecall({ hot, mods, llm, store, guild, guildId, channel, self,
     context.length === 0 ? '' : `<transcript>\n${classifierTranscript(context, { config, selfName, labels, descriptions, videos, reads })}\n</transcript>\n`;
   const lookupSystem = fillPromptTemplate(prompt, { today: zonedDay(at, timezone), name: selfName ?? '' });
   const lookupUser = `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
-  const model = classifierTextModel(config);
+  const model = roleModel(config, 'reasoner', 'lookup');
   let classifierRaw = null;
   let classifierError = null;
   try {
@@ -863,7 +863,7 @@ async function runRecall({ hot, mods, llm, store, guild, guildId, channel, self,
         { role: 'system', content: lookupSystem },
         { role: 'user', content: lookupUser },
       ],
-      { model, ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 200, purpose: 'lookup', signal }) },
+      { model, ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 200, purpose: 'lookup', signal }) },
     );
     classifierRaw = completion?.text ?? null;
   } catch (err) {
@@ -1628,7 +1628,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     ? {
         ...(await load('behavior/split.js')),
         ...(await load('behavior/prompt.js')),
-        ...(await load('behavior/mention.js')),
+        ...(await load('llm/roles.js')),
         ...(await load('llm/openrouter.js')),
       }
     : null;

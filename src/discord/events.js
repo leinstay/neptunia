@@ -29,10 +29,10 @@ import {
   parseAddressAnswer,
   followUpTriggerKind,
   isTaggedCall,
-  helperModel,
   roomPreFilter,
 } from '../behavior/mention.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fill, formatTranscript, renderTranscript } from './format.js';
 import { topByRank } from '../memory/ranking.js';
@@ -774,7 +774,7 @@ export function createMessageHandler({
     let answer = 'no';
     if (llm) {
       // Read once: the request and its empty-answer warning name the same model.
-      const model = helperModel(config, { role: 'classifier.text', purpose: 'address' });
+      const model = roleModel(config, 'analyzer', 'address');
       try {
         // A classifier call skipped by the daily cap (DailyCapError, thrown
         // synchronously before any fetch) lands here exactly like any other
@@ -789,7 +789,7 @@ export function createMessageHandler({
             // A helper's request: on llm.helperTimeoutMs, never the turn-length llm.timeoutMs, and
             // hedged (llm.hedge) -- while this call is in flight it holds the channel's follow-up
             // slot, and every untagged line there is only held.
-            ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: mentionCfg.followUpMaxOutputTokens, purpose: 'address' }),
+            ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: mentionCfg.followUpMaxOutputTokens, purpose: 'address' }),
           },
         );
         if (String(completion.text ?? '').trim()) {
@@ -928,7 +928,7 @@ export function createMessageHandler({
   /**
    * One room classifier call for `normalized` in `channel`: the request from
    * buildClassifierRequest with `prompt` (room.md), sent with the helper
-   * request options (classifier.text, mention.followUpMaxOutputTokens, the
+   * request options (role analyzer, mention.followUpMaxOutputTokens, the
    * daily cap, llm.helperTimeoutMs, purpose `room`). Resolves to `'yes'` or
    * `'no'` (`room: verdict`; the first word, read as the address
    * classifier's answer is: anything but a yes is a no), or null when no
@@ -951,7 +951,7 @@ export function createMessageHandler({
     }
     if (!request) return null;
 
-    const model = helperModel(config, { role: 'classifier.text', purpose: 'room' });
+    const model = roleModel(config, 'analyzer', 'room');
     let completion;
     try {
       completion = await llm.complete(
@@ -961,7 +961,7 @@ export function createMessageHandler({
         ],
         {
           model,
-          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: config.mention?.followUpMaxOutputTokens, purpose: 'room' }),
+          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: config.mention?.followUpMaxOutputTokens, purpose: 'room' }),
         },
       );
     } catch (err) {
@@ -1530,7 +1530,7 @@ export function createMessageHandler({
    * One merge classifier call: is `trigger` (a call of an author with `items`
    * waiting) about one of them? System = prompts.merge with `{{name}}`; user
    * = `<waiting>` (the items as `<n>. <text>` lines from 1) then
-   * `<candidate>` (`<author>: <text>`). A helper's request (classifier.text,
+   * `<candidate>` (`<author>: <text>`). A helper's request (role analyzer,
    * mention.followUpMaxOutputTokens, purpose `merge`). Resolves the item's
    * 1-based index (`merge: verdict`, `answer: 'item'`), or null for `new`
    * (`answer: 'new'`) and for every other outcome, logged as `merge: failed`
@@ -1558,8 +1558,8 @@ export function createMessageHandler({
           { role: 'user', content: user },
         ],
         {
-          model: helperModel(config, { role: 'classifier.text', purpose: 'merge' }),
-          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: config.mention?.followUpMaxOutputTokens, purpose: 'merge' }),
+          model: roleModel(config, 'analyzer', 'merge'),
+          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: config.mention?.followUpMaxOutputTokens, purpose: 'merge' }),
         },
       );
     } catch (err) {

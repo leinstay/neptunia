@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createEmbedder, normalizeVector, EMBED_ROLE } from '../src/llm/embed.js';
+import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { DailyCapError, TokenLimitError, llmCountToday } from '../src/llm/openrouter.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
@@ -16,10 +17,10 @@ function config(overrides = {}) {
       maxRequestsPerDay: 10,
       helperTimeoutMs: 4000,
       retries: 2,
-      providerByModel: { 'openai/@classifier.embed': { only: ['openai'] } },
+      providerByModel: { 'openai/@embedding': { only: ['openai'] } },
       ...overrides.llm,
     },
-    classifier: { text: 'x/text', embed: 'openai/text-embedding-3-large', byPurpose: {}, ...overrides.classifier },
+    roles: { analyzer: 'x/text', embedding: 'openai/text-embedding-3-large', byPurpose: {}, ...overrides.roles },
     embed: { dimensions: 4, ...overrides.embed },
   };
 }
@@ -81,9 +82,9 @@ test('embed: one POST to /embeddings with model, input and dimensions, routed by
   assert.deepEqual([...vectors[1]], [0, 0, 0, 1]);
 });
 
-test('embed: a classifier.byPurpose entry picks the model; the vectors come back in input order', async () => {
+test('embed: a roles.byPurpose entry picks the model; the vectors come back in input order', async () => {
   const { embedder, sent } = makeEmbedder([jsonResponse(200, { data: [{ index: 1, embedding: [0, 1] }, { index: 0, embedding: [1, 0] }] })]);
-  const vectors = await embedder.embed(['a', 'b'], { config: config({ classifier: { byPurpose: { search: 'other/embed' } }, embed: { dimensions: 2 } }), purpose: 'search' });
+  const vectors = await embedder.embed(['a', 'b'], { config: config({ roles: { byPurpose: { search: 'other/embed' } }, embed: { dimensions: 2 } }), purpose: 'search' });
   assert.equal(sent[0].body.model, 'other/embed');
   assert.equal('provider' in sent[0].body, false, 'no route for that model');
   assert.deepEqual(vectors.map((vector) => [...vector]), [[1, 0], [0, 1]]);
@@ -109,7 +110,7 @@ test('embed: a 5xx or a network failure is retried after the backoff, up to llm.
   assert.equal(sent.length, 3);
   assert.deepEqual(sleeps, [1500, 3000]);
   assert.equal(llmCountToday(state.data, DAY), 1, 'one request against llm.maxRequestsPerDay');
-  assert.deepEqual(logs.filter((l) => l.msg === 'llm: retry').map((l) => [l.role, l.attempt, l.status]), [['classifier.embed', 1, 502], ['classifier.embed', 2, null]]);
+  assert.deepEqual(logs.filter((l) => l.msg === 'llm: retry').map((l) => [l.role, l.attempt, l.status]), [['embedding', 1, 502], ['embedding', 2, null]]);
 });
 
 test('embed: a 4xx is thrown at once; the last retryable error is thrown when the retries run out', async () => {
@@ -149,23 +150,28 @@ test('embed: the token cap refuses an input over llm.maxRequestTokens before any
   assert.equal(llmCountToday(state.data, DAY), 0);
 });
 
-test('embed: nothing to embed sends nothing; no embedding model is an error before any request', async () => {
+test('embed: nothing to embed sends nothing; an empty text is an error before any request', async () => {
   const { embedder, sent, state } = makeEmbedder([]);
   assert.deepEqual(await embedder.embed([], { config: config() }), []);
-  await assert.rejects(embedder.embed(['a'], { config: config({ classifier: { embed: null } }) }), /no embedding model/);
   await assert.rejects(embedder.embed(['a', ''], { config: config() }), /non-empty strings/);
   assert.equal(sent.length, 0);
   assert.equal(llmCountToday(state.data, DAY), 0);
 });
 
-test('embed: one llm: usage line with role classifier.embed, counts and cost, never the input text', async () => {
+test('embed: an unset roles.embedding goes out on the role default, never on another role\'s model', async () => {
+  const { embedder, sent } = makeEmbedder([embeddingsOf([[1, 0, 0, 0]])]);
+  await embedder.embed(['a'], { config: config({ roles: { analyzer: 'x/text', embedding: null } }), purpose: 'search' });
+  assert.equal(sent[0].body.model, ROLE_DEFAULTS.embedding);
+});
+
+test('embed: one llm: usage line with role embedding, counts and cost, never the input text', async () => {
   const { embedder } = makeEmbedder([embeddingsOf([[1, 0]])]);
   const { logs } = await withCapturedLogs(() => embedder.embed(['Ωmega secret'], { config: config(), purpose: 'search', origin: 'status' }));
   const usage = logs.filter((l) => l.msg === 'llm: usage');
   assert.equal(usage.length, 1);
   const { level, msg, time, ts, ...fields } = usage[0];
   assert.deepEqual(fields, {
-    role: 'classifier.embed',
+    role: 'embedding',
     purpose: 'search',
     origin: 'status',
     model: 'openai/text-embedding-3-large',
@@ -179,7 +185,7 @@ test('embed: one llm: usage line with role classifier.embed, counts and cost, ne
     ms: 0,
   });
   assert.ok(!JSON.stringify(logs).includes('secret'), 'no input text in any log line');
-  assert.equal(EMBED_ROLE, 'classifier.embed');
+  assert.equal(EMBED_ROLE, 'embedding');
 });
 
 test('embed: the attempt is cut at llm.helperTimeoutMs; an external abort is never retried', async () => {

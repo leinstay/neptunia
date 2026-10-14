@@ -14,7 +14,7 @@
 //            Reads only.
 //   build    --max-usd <n> [--from YYYY-MM] [--to YYYY-MM] [--rebuild] [--include-live] [--dry-run] [--usd-per-mtok 0.13]
 //            Embeds the months in the range not indexed yet (every one with `--rebuild`), in
-//            batches of `embed.batch` within `llm.maxRequestTokens`, on the `classifier.embed`
+//            batches of `embed.batch` within `llm.maxRequestTokens`, on the `embedding`
 //            model. The estimate comes first; the run is refused (exit 2) when it exceeds
 //            `--max-usd`, and stops before a month that would pass it. A month is written whole as
 //            a new generation of the index and switched in at its end (rows the live queue added
@@ -45,7 +45,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CliError, REFUSED_EXIT, parseFlags, resolveGuildId, runCli } from './lib/cli.mjs';
 import { log as defaultLog } from '../src/log.js';
-import { helperModel } from '../src/behavior/mention.js';
+import { roleModel } from '../src/llm/roles.js';
 import { EMBED_ROLE } from '../src/llm/embed.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createArchive } from '../src/memory/archive.js';
@@ -412,8 +412,8 @@ async function missingOfLive(ctx, items) {
 async function cmdBuild(ctx) {
   const marked = await forgettingIds(fs.promises, ctx.dataDir, ctx.guildId);
   if (marked.size > 0) throw new CliError(`embed-index: a forget is under way (${marked.size} forgetting marker(s)); run again once it has finished`);
-  const model = helperModel(ctx.hot.config, { role: EMBED_ROLE });
-  if (!model) throw new CliError('embed-index: no embedding model is configured (classifier.embed)');
+  const model = roleModel(ctx.hot.config, EMBED_ROLE);
+  if (!model) throw new CliError('embed-index: no embedding model is configured (roles.embedding)');
   const plan = await planOf(ctx);
   const current = new Date(ctx.now()).toISOString().slice(0, 7);
   const live = new Set();

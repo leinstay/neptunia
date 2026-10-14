@@ -36,7 +36,7 @@ function fakeHot({ features = {}, web = {}, config = {}, prompts = {} } = {}) {
     config: {
       features: { webLookup: true, ...features },
       llm: { timeoutMs: 300_000 },
-      classifier: { text: 'x/text', media: 'x/media' },
+      roles: { analyzer: 'x/text', reasoner: 'x/reason', vision: 'x/media' },
       media: { cacheEntries: 100, video: { sites: ['youtube.com', 'youtu.be'] } },
       web: {
         maxPerDay: 60,
@@ -116,7 +116,7 @@ async function readOne(lookup, link, guildId = 'g1') {
 
 // --- readLinks: one link ----------------------------------------------------
 
-test('readLinks: fetches the page, condenses it on the text classifier model and caches the excerpt', async () => {
+test('readLinks: fetches the page, condenses it on the reasoner model and caches the excerpt', async () => {
   const { lookup, llm, pageFetcher, store } = setup();
   const result = await readOne(lookup, LINK);
 
@@ -128,8 +128,8 @@ test('readLinks: fetches the page, condenses it on the text classifier model and
   const { messages, options } = llm.calls[0];
   assert.equal(messages[0].content, 'Condense this page, up to 700 characters.');
   assert.equal(messages[1].content, 'Ricetta\n\nUna ricetta semplice con tre uova e farina.');
-  assert.equal(options.model, 'x/text', 'classifier.reason unset: the text model');
-  assert.equal(options.role, 'classifier.reason', 'routed as the reasoning helper');
+  assert.equal(options.model, 'x/reason', 'the reasoner role, its own model');
+  assert.equal(options.role, 'reasoner', 'routed as the reasoning helper');
   assert.equal(options.maxOutputTokens, 300);
   assert.equal(options.skipCalibration, true);
   assert.equal(options.countAgainstDailyCap, true);
@@ -415,7 +415,7 @@ test('cachedReads: the feature off or no read-link prompt gives an empty map', (
 
 // --- search -----------------------------------------------------------------
 
-test('search: Brave results are condensed on the text classifier model; sources carry the site', async () => {
+test('search: Brave results are condensed on the reasoner model; sources carry the site', async () => {
   const { lookup, braveSearch, llm, store } = setup({ llmText: 'Two sources agree (example.com).' });
   const result = await lookup.search('g1', 'Qui a gagné  la finale ?');
 
@@ -436,8 +436,8 @@ test('search: Brave results are condensed on the text classifier model; sources 
     messages[1].content,
     '1. Résultat un\nhttps://www.example.com/one\npremier extrait\n2 days ago\n\n2. Résultat deux\nhttps://news.example.org/two\nsecond extrait',
   );
-  assert.equal(options.model, 'x/text', 'classifier.reason unset: the text model');
-  assert.equal(options.role, 'classifier.reason', 'routed as the reasoning helper');
+  assert.equal(options.model, 'x/reason', 'the reasoner role, its own model');
+  assert.equal(options.role, 'reasoner', 'routed as the reasoning helper');
   assert.equal(options.maxOutputTokens, 400);
   assert.equal(options.skipCalibration, true);
   const key = Object.keys(store.getMediaCache('g1')).find((k) => k.startsWith('search:'));

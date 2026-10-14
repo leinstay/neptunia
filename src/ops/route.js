@@ -2,10 +2,10 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { isPlainObject } from '../config.js';
+import { adaptLegacyModelKeys, isPlainObject } from '../config.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { matchRoute } from '../llm/openrouter.js';
-import { NONE, onOff, reloadNote, readLocalConfig, ROUTE_ROLES, PROVIDER_SLUG_RE, modelForRouteRole, describeProviders, fallbacksText, routingSummary, routePrefixArg, routeRoleArg } from './shared.js';
+import { NONE, onOff, reloadNote, readLocalConfig, ROUTE_ROLES, PROVIDER_SLUG_RE, modelForRole, describeProviders, fallbacksText, routingSummary, routePrefixArg, routeRoleArg } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 const handlers = perEnv((env) => {
@@ -18,12 +18,15 @@ const handlers = perEnv((env) => {
   }
 
   /** config.local.json with `llm.providerByModel` replaced by `edit(copyOfTheLocalMap)`'s result;
-   * an emptied map, then an emptied `llm`, are pruned. Reloads the config; the reload's outcome. */
+   * an emptied map, then an emptied `llm`, are pruned. The local map is read, and so written
+   * back, under the current role names (src/config.js#adaptLegacyModelKeys), so a route kept
+   * under an old role name is edited, not shadowed. Reloads the config; the reload's outcome. */
   function writeRoutes(edit) {
     return editLocalConfig((local) => {
       const next = structuredClone(local);
       const llmCfg = isPlainObject(next.llm) ? next.llm : {};
-      const map = edit(isPlainObject(llmCfg.providerByModel) ? { ...llmCfg.providerByModel } : {});
+      const current = adaptLegacyModelKeys(local).config?.llm?.providerByModel;
+      const map = edit(isPlainObject(current) ? { ...current } : {});
       if (Object.keys(map).length > 0) llmCfg.providerByModel = map;
       else delete llmCfg.providerByModel;
       if (Object.keys(llmCfg).length > 0) next.llm = llmCfg;
@@ -34,7 +37,7 @@ const handlers = perEnv((env) => {
 
   /** One by-role line of `/nep route list`: the model and the routing it gets now. */
   function routeRoleLine(role, cfg, byModel) {
-    const model = modelForRouteRole(role, cfg);
+    const model = modelForRole(role, cfg);
     if (!model) return `  ${role}: (no model configured)`;
     const match = matchRoute(model, byModel, role);
     const fallbackName = role === IMAGE_ROLE ? 'image.provider' : 'llm.provider';
@@ -43,7 +46,7 @@ const handlers = perEnv((env) => {
     if (match) applied = `${match.key} ${routingSummary(match.value)}`;
     else if (isPlainObject(fallback)) applied = `${fallbackName} ${routingSummary(fallback)}`;
     const pin = cfg?.media?.video?.provider;
-    const pinned = role === 'classifier.video' && isPlainObject(pin) ? `; direct-URL videos: media.video.provider ${routingSummary(pin)}` : '';
+    const pinned = role === 'video' && isPlainObject(pin) ? `; direct-URL videos: media.video.provider ${routingSummary(pin)}` : '';
     return `  ${role}: ${model} -> ${applied}${pinned}`;
   }
 
@@ -83,12 +86,13 @@ const handlers = perEnv((env) => {
     return `Route ${key} (${role ?? 'any role'}): only ${providers.join(', ')}, fallbacks: ${onOff(allowFallbacks)} ${reloadNote(ok)}`;
   }
 
-  /** `/nep route remove`: drops the `<prefix>` or `<prefix>@<role>` key from config.local.json. */
+  /** `/nep route remove`: drops the `<prefix>` or `<prefix>@<role>` key from config.local.json
+   * (a key kept under an old role name counts as its new one, see `writeRoutes`). */
   function cmdRouteRemove(args) {
     const prefix = routePrefixArg(args);
     const role = routeRoleArg(args);
     const key = role ? `${prefix}@${role}` : prefix;
-    const local = readLocalConfig(localConfigFile());
+    const local = adaptLegacyModelKeys(readLocalConfig(localConfigFile())).config;
     const localMap = isPlainObject(local?.llm?.providerByModel) ? local.llm.providerByModel : {};
     if (!Object.hasOwn(localMap, key)) {
       const live = hot.config?.llm?.providerByModel;

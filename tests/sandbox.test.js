@@ -47,9 +47,9 @@ function fakeConfig(featureOverrides = {}) {
       caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
       vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
     },
-    llm: { model: 'x/chat', maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
+    roles: { voice: 'x/chat', extractor: 'x/memory' },
+    llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     memory: {
-      model: 'x/memory',
       maxOutputTokens: 4000,
       timeoutMs: 9000,
       fieldChars: 400,
@@ -573,7 +573,7 @@ test('answerReply: the sandbox never runs the server search, so <senses> never o
 test('answerReply: with the prompt cache on, samples 1 and 2 carry the same marked user part', async () => {
   const cachedHot = () => {
     const hot = fakeHot({ promptCache: true });
-    hot.config.llm.model = 'anthropic/claude-test';
+    hot.config.roles.voice = 'anthropic/claude-test';
     return hot;
   };
   const view = liveView({ hot: cachedHot(), store: fakeStore(), guildId: 'g1' });

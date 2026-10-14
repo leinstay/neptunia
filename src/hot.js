@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { readConfig, deepMerge, isPlainObject } from './config.js';
+import { loadConfig, deepMerge, isPlainObject } from './config.js';
 import { log } from './log.js';
 
 const DEBOUNCE_MS = 250;
@@ -30,10 +30,10 @@ const LOCAL_PROMPTS_DIRNAME = 'prompts.local';
 
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
- * instead: `memory.voiceModel` (the memory wording runs on `llm.model`, the one voice model).
+ * instead: `memory.voiceModel` (the memory wording runs on `roles.voice`, the one voice model).
  */
 const RETIRED_CONFIG_KEYS = Object.freeze([
-  { key: 'memory.voiceModel', use: 'llm.model', read: (config) => config?.memory?.voiceModel },
+  { key: 'memory.voiceModel', use: 'roles.voice', read: (config) => config?.memory?.voiceModel },
 ]);
 
 /** How many hex characters of the sha256 `hot.hashes` keeps. */
@@ -154,7 +154,19 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
   const timers = new Map();
   let localWatcher = null;
 
-  hot.config = readConfig(rootDir);
+  let loaded = loadConfig(rootDir);
+  hot.config = loaded.config;
+  // The old model keys and role names config.local.json still carries (src/config.js#adaptLegacyModelKeys,
+  // read under their new names): one warning listing them, key names only, at startup and again
+  // at a reload that changes the list.
+  let reportedLegacy = '';
+  const reportLegacyKeys = (renamed) => {
+    const listed = JSON.stringify(renamed);
+    if (listed === reportedLegacy) return;
+    reportedLegacy = listed;
+    if (renamed.length > 0) log.warn('config: old model keys read under their new names', { keys: renamed });
+  };
+  reportLegacyKeys(loaded.renamed);
   // The retired keys reported for the config now live: one warning when a key appears (at
   // startup or on a reload), none while it stays, another once it was removed and set again.
   const reportedRetired = new Set();
@@ -193,9 +205,11 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
 
   hot.reloadConfig = () => {
     try {
-      hot.config = readConfig(rootDir);
+      loaded = loadConfig(rootDir);
+      hot.config = loaded.config;
       hot.hashes = { ...hot.hashes, configHash: shortHash(hot.config) };
       log.info('hot: config reloaded');
+      reportLegacyKeys(loaded.renamed);
       reportRetiredKeys();
       hot.emit('change', { what: 'config' });
       return true;

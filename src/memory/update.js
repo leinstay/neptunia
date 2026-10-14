@@ -17,7 +17,7 @@
 // is stored at once through the same apply functions, the briefs go into the
 // guild's voice queue (src/memory/voice.js) for the voice model to word later.
 // That is the voice run (`runVoice`, stage B): one request per run on
-// `llm.model` (the role `voice`), right after a stage A batch and from the tick while
+// `roles.voice` (the role `voice`), right after a stage A batch and from the tick while
 // queued items are due, its texts written by id into what stage A stored.
 // A guild batch also sees the live lines of the recent store (src/memory/recent.js,
 // `<recent_notes>`) only so it does not write one moment twice, and its `recent`
@@ -32,6 +32,7 @@ import { fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } fr
 import { formatClock, formatDate, formatTranscript, renderTranscript } from '../discord/format.js';
 import { parseJsonObject } from '../llm/parse.js';
 import { DailyCapError, MEMORY_VOICE_REQUEST, TokenLimitError, dailyCapOf, railReason } from '../llm/openrouter.js';
+import { roleModel } from '../llm/roles.js';
 import { createLimits } from '../llm/limits.js';
 import { isDescribable, mediaParts, stickerUrl } from '../discord/media.js';
 import { log } from '../log.js';
@@ -125,29 +126,29 @@ export function analyzerMode(config, prompts) {
 
 /**
  * Whether a request's provider-counted prompt tokens may feed the shared calibration ratio
- * (src/llm/tokens.js): only when the request goes out on the voice model (`llm.model`), the
+ * (src/llm/tokens.js): only when the request goes out on the voice model (`roles.voice`), the
  * model whose tokenizer the ratio tracks; a request on any other model passes
  * `skipCalibration: true`. Its budget is still checked against the same calibrated estimate.
  * @param {object} [config]  The live config.
  * @param {string|null} [model]  The model the request names; empty, null or undefined = the
- *   request goes out on `llm.model`.
+ *   request goes out on `roles.voice`.
  * @returns {boolean}
  */
 export function feedsCalibration(config, model) {
-  const voice = config?.llm?.model;
+  const voice = roleModel(config, 'voice');
   return (model || voice) === voice;
 }
 
 /**
  * The `llm.complete` options of one analyzer batch (`analyze` / `analyzePrivate`), from the live
  * config at the moment of use. With `features.memoryTwoStage` off the request goes out as it
- * always did: on `memory.model`, without `skipCalibration` or `reasoning`. With it on:
- * - `two` (stage A, the neutral decisions): on `memory.model`, plus `memory.reasoning` when that
+ * always did: on `roles.extractor`, without `skipCalibration` or `reasoning`. With it on:
+ * - `two` (stage A, the neutral decisions): on `roles.extractor`, plus `memory.reasoning` when that
  *   is a plain object (sent verbatim, src/llm/openrouter.js; a reasoning model otherwise spends
  *   the output budget on reasoning);
  * - `single` (a two-stage prompt is missing, see `analyzerMode`): today's request words every
  *   text in the persona's voice, which two-stage mode keeps on the voice model, so it goes out on
- *   `llm.model`, never on `memory.model`, as a memory-wording request
+ *   `roles.voice`, never on `roles.extractor`, as a memory-wording request
  *   (src/llm/openrouter.js#MEMORY_VOICE_REQUEST: role `voice`, purpose `memory-voice`, no
  *   cache marker) like the voice run's (`voiceRequestOptions`), so the voice role's provider
  *   route (`/nep route`, src/llm/openrouter.js#matchRoute) covers it, and under the same daily
@@ -163,8 +164,8 @@ function batchRequestOptions(config, stage) {
   const twoStageOn = config.features?.memoryTwoStage === true;
   const onVoiceModel = twoStageOn && stage !== 'two';
   const options = {
-    // On the voice model: no `model`, so the request goes out on `llm.model`.
-    ...(onVoiceModel ? MEMORY_VOICE_REQUEST : { model: cfg.model || undefined, role: 'analyzer' }),
+    // On the voice model: no `model`, so the request goes out on `roles.voice`.
+    ...(onVoiceModel ? MEMORY_VOICE_REQUEST : { model: roleModel(config, 'extractor'), role: 'extractor' }),
     maxOutputTokens: cfg.maxOutputTokens,
     temperature: analyzerTemperature(config),
     // A 150-message batch with an 8000-token answer on a large model can
@@ -182,14 +183,14 @@ function batchRequestOptions(config, stage) {
 
 /**
  * The `llm.complete` options of one voice request (stage B, `runVoice`), from the live config at
- * the moment of use: on `llm.model` (never `memory.model`), as a memory-wording request
+ * the moment of use: on `roles.voice` (never `roles.extractor`), as a memory-wording request
  * (src/llm/openrouter.js#MEMORY_VOICE_REQUEST: role `voice`, the `/nep model` role, so a
  * `<prefix>@voice` provider route applies; purpose `memory-voice`; no cache marker), at most
  * `memory.voice.maxOutputTokens` (src/memory/voice.js#voiceSettings, the budget
  * buildVoiceRequest fitted the items to), the analyzer's temperature, its own timeout
  * `memory.voice.timeoutMs` (a number above 0, else config.json's 120000; never the batch's much
  * larger `memory.timeoutMs`, so a hung voice request cannot hold the guild for its retries x
- * 15 minutes), and the calibration fed (`llm.model` is the model it tracks). No
+ * 15 minutes), and the calibration fed (`roles.voice` is the model it tracks). No
  * `reasoning`: that setting is stage A's.
  * @param {object} config  The live config.
  * @returns {object}
@@ -201,7 +202,7 @@ function voiceRequestOptions(config) {
     maxOutputTokens: voiceSettings(config).maxOutputTokens,
     temperature: analyzerTemperature(config),
     timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120000,
-    // On `llm.model`, the model the calibration tracks.
+    // On `roles.voice`, the model the calibration tracks.
     skipCalibration: false,
   };
 }
@@ -3535,7 +3536,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
    * refused it) -- the same in both stages, so a failed stage A batch is halved or backed off
    * exactly as today.
    * With `features.memoryTwoStage` on, every outcome carries `stage`, and the request goes out
-   * on the model `batchRequestOptions` names: stage A on `memory.model`, the single-stage
+   * on the model `batchRequestOptions` names: stage A on `roles.extractor`, the single-stage
    * fallback (a two-stage prompt missing) on the voice model as a memory-wording request
    * (purpose `memory-voice`), which counts
    * against `memory.voice.maxPerDay` like a voice run's request (`countVoiceRequest`): with
@@ -4307,7 +4308,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
 
   /**
    * The voice run of one guild (stage B of the two-stage analyzer): ONE request on
-   * `llm.model` (never `memory.model`; role `voice`, purpose `memory-voice`) that words the
+   * `roles.voice` (never `roles.extractor`; role `voice`, purpose `memory-voice`) that words the
    * guild's due queued items (src/memory/voice.js#dueItems: oldest first, one audience -- the
    * server's items, or one member's private ones -- at most `memory.voice.maxItems`), built from
    * prompts/memory-voice.md (#buildVoiceRequest) and applied by id through the store

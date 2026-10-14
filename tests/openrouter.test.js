@@ -31,11 +31,12 @@ import {
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createLimits } from '../src/llm/limits.js';
 
-function baseConfig(overrides = {}) {
+/** `model` is the voice model (`roles.voice`), the one a request without a model goes out on. */
+function baseConfig({ model = 'test-model', ...overrides } = {}) {
   return {
+    roles: { voice: model },
     llm: {
       baseUrl: 'https://openrouter.ai/api/v1',
-      model: 'test-model',
       temperature: 1,
       maxOutputTokens: 100,
       maxRequestTokens: 1000,
@@ -333,8 +334,8 @@ test('railReason: daily-cap for a DailyCapError, token-limit for a TokenLimitErr
 
 test('helperRequestOptions: counted, never calibrated, on llm.helperTimeoutMs unless the caller says otherwise', () => {
   const config = { llm: { timeoutMs: 300000, helperTimeoutMs: 12000 } };
-  assert.deepEqual(helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: 60, purpose: 'lookup' }), {
-    role: 'classifier.text',
+  assert.deepEqual(helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'lookup' }), {
+    role: 'analyzer',
     maxOutputTokens: 60,
     countAgainstDailyCap: true,
     skipCalibration: true,
@@ -345,16 +346,16 @@ test('helperRequestOptions: counted, never calibrated, on llm.helperTimeoutMs un
   });
 
   config.llm.helperTimeoutMs = 7000; // a hot edit between two calls: nothing is remembered
-  assert.equal(helperRequestOptions(config, { role: 'classifier.media' }).timeoutMs, 7000);
+  assert.equal(helperRequestOptions(config, { role: 'vision' }).timeoutMs, 7000);
 
   // A helper with its own clock passes it, with its abort signal.
   const controller = new AbortController();
-  const own = helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: 500, purpose: 'lookup', signal: controller.signal, timeoutMs: 8000 });
+  const own = helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: 500, purpose: 'lookup', signal: controller.signal, timeoutMs: 8000 });
   assert.equal(own.timeoutMs, 8000);
   assert.equal(own.signal, controller.signal);
 
   // The two rails a helper must never opt out of are not the caller's to set.
-  const forced = helperRequestOptions(config, { role: 'classifier.text', countAgainstDailyCap: false, skipCalibration: false, model: 'x/y' });
+  const forced = helperRequestOptions(config, { role: 'analyzer', countAgainstDailyCap: false, skipCalibration: false, model: 'x/y' });
   assert.deepEqual([forced.countAgainstDailyCap, forced.skipCalibration], [true, true]);
   assert.equal('model' in forced, false, 'the model stays the caller\'s own option');
 });
@@ -362,7 +363,7 @@ test('helperRequestOptions: counted, never calibrated, on llm.helperTimeoutMs un
 test('code fallbacks: the defaults the code applies when a setting is missing equal config.json', () => {
   const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
   for (const bare of [undefined, null, {}, { llm: null }, { llm: {} }, { llm: { helperTimeoutMs: null } }]) {
-    assert.equal(helperRequestOptions(bare, { role: 'classifier.text' }).timeoutMs, shipped.llm.helperTimeoutMs, JSON.stringify(bare));
+    assert.equal(helperRequestOptions(bare, { role: 'analyzer' }).timeoutMs, shipped.llm.helperTimeoutMs, JSON.stringify(bare));
   }
   assert.equal(VIDEO_TOKENS_PER_SECOND_FALLBACK, shipped.media.video.tokensPerSecond);
   const noCacheBlock = { ...baseConfig(), features: { promptCache: true } };
@@ -385,7 +386,7 @@ test('helperRequestOptions: complete takes the set as it is -- counted, uncalibr
     },
   });
   const { result, logs } = await withCapturedLogs(() =>
-    llm.complete([{ role: 'user', content: 'hi' }], { model: 'small/model', ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: 60, purpose: 'address' }) }),
+    llm.complete([{ role: 'user', content: 'hi' }], { model: 'small/model', ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: 60, purpose: 'address' }) }),
   );
   assert.equal(result.text, 'yes');
   assert.equal(state.data.llmCount, 1, 'a helper counts against the daily cap');
@@ -393,7 +394,7 @@ test('helperRequestOptions: complete takes the set as it is -- counted, uncalibr
   assert.deepEqual(Object.keys(sent[0].body).sort(), ['max_tokens', 'messages', 'model', 'temperature']);
   assert.deepEqual([sent[0].body.model, sent[0].body.max_tokens], ['small/model', 60]);
   const [line] = logs.filter((l) => l.msg === 'llm: usage');
-  assert.deepEqual([line.role, line.purpose, line.model], ['classifier.text', 'address', 'small/model']);
+  assert.deepEqual([line.role, line.purpose, line.model], ['analyzer', 'address', 'small/model']);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(sent[0].signal.aborted, true, 'the request signal is cut at llm.helperTimeoutMs, not at llm.timeoutMs');
 });
@@ -1180,12 +1181,12 @@ test('complete: an answered request logs exactly one llm: usage line filled from
     }),
   });
   const { result, logs } = await withCapturedLogs(() =>
-    llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'analyzer', model: 'google/gemini-x' }),
+    llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'extractor', model: 'google/gemini-x' }),
   );
   assert.equal(result.text, 'the answer itself');
   assert.equal(result.provider, 'Google AI Studio');
   assert.deepEqual(usageFields(logs), [{
-    role: 'analyzer',
+    role: 'extractor',
     purpose: null, // none was named for this request
     origin: null,
     model: 'google/gemini-x',
@@ -1256,7 +1257,7 @@ test('complete: llm: usage carries the request\'s duration, its purpose and its 
   });
   const ask = (options) => llm.complete([{ role: 'user', content: 'the prompt itself' }], options);
   const { logs } = await withCapturedLogs(async () => {
-    await ask({ role: 'classifier.text', purpose: 'rewatch' });
+    await ask({ role: 'analyzer', purpose: 'rewatch' });
     await ask({ role: 'voice', origin: 'replay', countAgainstDailyCap: false });
     await ask({ role: 'voice' });
     await ask({ purpose: 7, origin: { text: 'not a code' } });
@@ -1266,7 +1267,7 @@ test('complete: llm: usage carries the request\'s duration, its purpose and its 
   assert.deepEqual(
     usageLines(logs).map(({ role, purpose, origin, ms }) => ({ role, purpose, origin, ms })),
     [
-      { role: 'classifier.text', purpose: 'rewatch', origin: null, ms: 1234 },
+      { role: 'analyzer', purpose: 'rewatch', origin: null, ms: 1234 },
       { role: 'voice', purpose: null, origin: 'replay', ms: 1234 },
       { role: 'voice', purpose: null, origin: null, ms: 1234 },
       { role: null, purpose: null, origin: null, ms: 1234 },
@@ -1385,28 +1386,28 @@ test('complete: llm.providerByModel is read fresh on every call (hot-reloadable)
 const STUDIO = { only: ['google-ai-studio'], allow_fallbacks: false };
 
 test('resolveProvider: a role key beats a role-less key, even when the role-less prefix is longer', () => {
-  const byModel = { 'google/gemini-3.8-flash': VERTEX, 'google/@classifier.video': STUDIO };
-  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'classifier.video' }), STUDIO);
+  const byModel = { 'google/gemini-3.8-flash': VERTEX, 'google/@video': STUDIO };
+  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'video' }), STUDIO);
   assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'voice' }), VERTEX);
 });
 
 test('resolveProvider: a key for another role never applies; the fallback does', () => {
   const fallback = { ignore: ['some-provider'] };
-  const byModel = { 'google/@classifier.video': STUDIO };
+  const byModel = { 'google/@video': STUDIO };
   assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'voice', fallback }), fallback);
   assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'voice' }), undefined);
 });
 
 test('resolveProvider: an empty prefix with a role matches every model for that role', () => {
-  const byModel = { '@classifier.video': STUDIO, 'google/': VERTEX };
-  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'classifier.video' }), STUDIO);
-  assert.equal(resolveProvider('openai/gpt-x', { byModel, role: 'classifier.video' }), STUDIO);
+  const byModel = { '@video': STUDIO, 'google/': VERTEX };
+  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'video' }), STUDIO);
+  assert.equal(resolveProvider('openai/gpt-x', { byModel, role: 'video' }), STUDIO);
 });
 
 test('matchRoute: names the matching key and its role, or null', () => {
-  const byModel = { 'google/': VERTEX, 'google/@classifier.video': STUDIO };
-  assert.deepEqual(matchRoute('google/gemini-3.8-flash', byModel, 'classifier.video'), {
-    key: 'google/@classifier.video', prefix: 'google/', role: 'classifier.video', value: STUDIO,
+  const byModel = { 'google/': VERTEX, 'google/@video': STUDIO };
+  assert.deepEqual(matchRoute('google/gemini-3.8-flash', byModel, 'video'), {
+    key: 'google/@video', prefix: 'google/', role: 'video', value: STUDIO,
   });
   assert.deepEqual(matchRoute('google/gemini-3.8-flash', byModel, 'voice'), { key: 'google/', prefix: 'google/', role: null, value: VERTEX });
   assert.equal(matchRoute('openai/gpt-x', byModel, 'voice'), null);
@@ -1414,15 +1415,15 @@ test('matchRoute: names the matching key and its role, or null', () => {
   assert.deepEqual(matchRoute('a@b/model-x', { 'a@b@voice': STUDIO }, 'voice'), { key: 'a@b@voice', prefix: 'a@b', role: 'voice', value: STUDIO });
 });
 
-test('matchRoute: classifier.reason takes a key of its own, else a classifier.text key, before a role-less one', () => {
+test('matchRoute: a role never takes another role\'s key: the reasoner skips an analyzer key for a role-less one', () => {
   const REASON = { only: ['reason-provider'] };
-  const byModel = { 'x/': VERTEX, 'x/@classifier.text': STUDIO };
-  assert.deepEqual(matchRoute('x/model', byModel, 'classifier.reason'), { key: 'x/@classifier.text', prefix: 'x/', role: 'classifier.text', value: STUDIO }, 'the text route still applies');
-  assert.deepEqual(matchRoute('x/model', { ...byModel, 'x/@classifier.reason': REASON }, 'classifier.reason')?.value, REASON, 'its own key wins');
-  assert.deepEqual(matchRoute('x/model', { 'x/model@classifier.text': STUDIO, 'x/@classifier.reason': REASON }, 'classifier.reason')?.value, REASON, 'its own key wins whatever the lengths');
-  assert.deepEqual(matchRoute('x/model', { 'x/': VERTEX }, 'classifier.reason')?.value, VERTEX);
-  assert.equal(matchRoute('x/model', { 'x/@classifier.reason': REASON }, 'classifier.text')?.value, undefined, 'never the other way round');
-  assert.equal(resolveProvider('x/model', { byModel, role: 'classifier.reason' }), STUDIO);
+  const byModel = { 'x/': VERTEX, 'x/@analyzer': STUDIO };
+  assert.deepEqual(matchRoute('x/model', byModel, 'reasoner'), { key: 'x/', prefix: 'x/', role: null, value: VERTEX }, 'the analyzer route is not the reasoner\'s');
+  assert.equal(matchRoute('x/model', { 'x/@analyzer': STUDIO }, 'reasoner'), null);
+  assert.deepEqual(matchRoute('x/model', { ...byModel, 'x/@reasoner': REASON }, 'reasoner')?.value, REASON, 'its own key wins');
+  assert.deepEqual(matchRoute('x/model', { 'x/model@analyzer': STUDIO, 'x/@reasoner': REASON }, 'reasoner')?.value, REASON, 'its own key wins whatever the lengths');
+  assert.equal(matchRoute('x/model', { 'x/@reasoner': REASON }, 'analyzer'), null, 'nor the other way round');
+  assert.equal(resolveProvider('x/model', { byModel, role: 'reasoner' }), VERTEX);
 });
 
 test('countLlmRequest: counts one request of the day on the shared counter, refuses at the cap without counting', () => {
@@ -1444,13 +1445,13 @@ test('complete: options.role selects the role key; a call without a role uses th
   const { llm, bodies } = capturingLlm(() => baseConfig({
     model: 'google/gemini-3.8-flash',
     provider: fallback,
-    providerByModel: { 'google/gemini-3.8-flash': VERTEX, 'google/@classifier.video': STUDIO },
+    providerByModel: { 'google/gemini-3.8-flash': VERTEX, 'google/@video': STUDIO },
   }));
   const msgs = [{ role: 'user', content: 'hi' }];
-  await llm.complete(msgs, { role: 'classifier.video' });
+  await llm.complete(msgs, { role: 'video' });
   await llm.complete(msgs, { role: 'voice' });
   await llm.complete(msgs);
-  await llm.complete(msgs, { role: 'classifier.video', provider: { order: ['x'] } });
+  await llm.complete(msgs, { role: 'video', provider: { order: ['x'] } });
   await llm.complete(msgs, { role: 'voice', model: 'openai/gpt-x' });
   assert.deepEqual(bodies[0].provider, STUDIO);
   assert.deepEqual(bodies[1].provider, VERTEX);
@@ -1527,15 +1528,15 @@ test('cacheTtlFor: no marker unless features.promptCache is exactly true', () =>
 });
 
 test('cacheTtlFor: a role outside llm.cache.roles gets none; a non-array roles reads as voice only', () => {
-  for (const role of ['analyzer', 'classifier.text', 'classifier.video', undefined, null, 7]) {
+  for (const role of ['extractor', 'analyzer', 'video', undefined, null, 7]) {
     assert.equal(cacheTtlFor(cachingConfig(), role, LISTED_MODEL), null, String(role));
   }
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: ['voice', 'analyzer'] } }), 'analyzer', LISTED_MODEL), '1h');
+  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: ['voice', 'extractor'] } }), 'extractor', LISTED_MODEL), '1h');
   assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: [] } }), 'voice', LISTED_MODEL), null, 'an empty list marks nothing');
-  for (const roles of [undefined, null, 'analyzer', { analyzer: true }]) {
+  for (const roles of [undefined, null, 'extractor', { analyzer: true }]) {
     const config = cachingConfig({ cache: { ...CACHE, roles } });
     assert.equal(cacheTtlFor(config, 'voice', LISTED_MODEL), '1h', JSON.stringify(roles));
-    assert.equal(cacheTtlFor(config, 'analyzer', LISTED_MODEL), null, JSON.stringify(roles));
+    assert.equal(cacheTtlFor(config, 'extractor', LISTED_MODEL), null, JSON.stringify(roles));
   }
 });
 
@@ -1556,7 +1557,7 @@ test('cacheTtlFor: a model outside llm.cache.models gets no marker; a non-array 
   assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [] } }), 'voice', LISTED_MODEL), null);
   assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [null, 7, { a: 1 }] } }), 'voice', LISTED_MODEL), null);
   // the role gate still applies to a listed model
-  assert.equal(cacheTtlFor(cachingConfig(), 'analyzer', LISTED_MODEL), null);
+  assert.equal(cacheTtlFor(cachingConfig(), 'extractor', LISTED_MODEL), null);
 });
 
 test('cacheTtlFor: an unknown ttl reads as 1h; force true and false override the policy', () => {
@@ -1565,7 +1566,7 @@ test('cacheTtlFor: an unknown ttl reads as 1h; force true and false override the
     assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, ttl } }), 'voice', LISTED_MODEL), '1h', String(ttl));
   }
   // true marks whatever the switch, the role list and the model list say (the cache probe sends it with the switch off)
-  assert.equal(cacheTtlFor(baseConfig(), 'classifier.video', 'test-model', true), '1h');
+  assert.equal(cacheTtlFor(baseConfig(), 'video', 'test-model', true), '1h');
   assert.equal(cacheTtlFor({ llm: { cache: { ttl: '5m' } } }, undefined, undefined, true), '5m');
   assert.equal(cacheTtlFor(cachingConfig({ promptCache: false }), 'voice', LISTED_MODEL, true), '1h');
   assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [] } }), 'voice', UNLISTED_MODEL, true), '1h');
@@ -1574,7 +1575,7 @@ test('cacheTtlFor: an unknown ttl reads as 1h; force true and false override the
   // anything else leaves the policy in charge
   for (const force of [undefined, null, 'true', 1]) {
     assert.equal(cacheTtlFor(cachingConfig(), 'voice', LISTED_MODEL, force), '1h', String(force));
-    assert.equal(cacheTtlFor(cachingConfig(), 'analyzer', LISTED_MODEL, force), null, String(force));
+    assert.equal(cacheTtlFor(cachingConfig(), 'extractor', LISTED_MODEL, force), null, String(force));
     assert.equal(cacheTtlFor(cachingConfig(), 'voice', UNLISTED_MODEL, force), null, String(force));
   }
 });
@@ -1812,7 +1813,7 @@ test('complete: a segmented reply is sent with the system, stable and profiles m
   config = cachingConfig({ model: UNLISTED_MODEL });
   await llm.complete(segmentedMessages(), { role: 'voice' });
   config = cachingConfig();
-  await llm.complete(segmentedMessages(), { role: 'analyzer' });
+  await llm.complete(segmentedMessages(), { role: 'extractor' });
   await llm.complete(segmentedMessages(), { role: 'voice' });
   const [on, noProfiles, off, unlisted, otherRole, defaulted] = bodies();
   assert.deepEqual(markedParts(on.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_5M]);
@@ -1876,11 +1877,11 @@ test("complete: with promptCache off or the role not listed the body is byte-ide
   ];
   for (const config of configs) {
     const { llm, sent } = cachingLlm(() => config);
-    for (const role of ['voice', 'analyzer', 'classifier.text', 'classifier.video', undefined]) await llm.complete(messages, { role });
-    for (const body of sent) assert.equal(body, today(config.llm.model));
+    for (const role of ['voice', 'extractor', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });
+    for (const body of sent) assert.equal(body, today(config.roles.voice));
   }
   const { llm, sent } = cachingLlm(() => cachingConfig());
-  for (const role of ['analyzer', 'classifier.text', 'classifier.media', 'classifier.video', undefined]) await llm.complete(messages, { role });
+  for (const role of ['extractor', 'analyzer', 'vision', 'video', undefined]) await llm.complete(messages, { role });
   for (const body of sent) assert.equal(body, today(LISTED_MODEL));
 });
 
@@ -1909,7 +1910,7 @@ test('complete: options.cache false forbids the marker and true forces it', asyn
   await llm.complete(replyMessages(), { role: 'voice', cache: false });
   // no features.promptCache at all, and a model outside llm.cache.models: the force wins over both
   config = baseConfig({ maxRequestTokens: 50000, cache: { ...CACHE, ttl: '5m' } });
-  await llm.complete(replyMessages(), { role: 'classifier.text', cache: true });
+  await llm.complete(replyMessages(), { role: 'analyzer', cache: true });
   await llm.complete(replyMessages(), { role: 'voice' });
   const [forbidden, forced, policy] = bodies();
   assert.deepEqual(forbidden.messages, replyMessages());
@@ -1923,7 +1924,7 @@ test('complete: the cache policy is read from the live config on every call', as
   await llm.complete(replyMessages(), { role: 'voice' });
   config = cachingConfig();
   await llm.complete(replyMessages(), { role: 'voice' });
-  config = cachingConfig({ cache: { ...CACHE, roles: ['analyzer'] } });
+  config = cachingConfig({ cache: { ...CACHE, roles: ['extractor'] } });
   await llm.complete(replyMessages(), { role: 'voice' });
   assert.deepEqual(bodies().map((b) => markedParts(b.messages).length), [0, 1, 0]);
 });
@@ -1966,7 +1967,7 @@ test('complete: llm: usage carries cache read, write, none or off from the usage
   const { llm } = cachingLlm(() => config, { usage: (call) => usages[order[call]] ?? usages.read });
   const { logs } = await withCapturedLogs(async () => {
     for (let i = 0; i < order.length; i += 1) await llm.complete(replyMessages(), { role: 'voice' });
-    await llm.complete(replyMessages(), { role: 'classifier.text' }); // a read reported, no marker sent
+    await llm.complete(replyMessages(), { role: 'analyzer' }); // a read reported, no marker sent
     await llm.complete([{ role: 'user', content: 'Γεια σου' }], { role: 'voice' }); // nothing to mark
     config = cachingConfig({ promptCache: false });
     await llm.complete(replyMessages(), { role: 'voice' });
@@ -2011,7 +2012,7 @@ test('complete: an unmarked request reporting cached tokens feeds prompt_tokens 
   const usage = { prompt_tokens: 20000, prompt_tokens_details: { cached_tokens: 5000, cache_write_tokens: 0 } };
   const net = { ...CACHE, promptIncludesCached: false };
   const cases = [
-    [cachingConfig({ cache: net }), { role: 'analyzer' }],
+    [cachingConfig({ cache: net }), { role: 'extractor' }],
     [cachingConfig({ cache: net, model: UNLISTED_MODEL }), { role: 'voice' }],
     [cachingConfig({ cache: net }), { role: 'voice', cache: false }],
     [cachingConfig({ cache: net, promptCache: false }), { role: 'voice' }],
@@ -2148,9 +2149,9 @@ test('complete: the usage line keeps numbers, booleans and ids only; a value of 
   assert.deepEqual(usageFields(logs), [{ role: null, model: 'test-model', ...NO_USAGE }]);
 });
 
-test('complete: a classifier.text request carries no marker even with promptCache on', async () => {
+test('complete: a analyzer request carries no marker even with promptCache on', async () => {
   const { llm, sent } = cachingLlm(() => cachingConfig());
-  for (const role of ['classifier.text', 'analyzer', 'classifier.video', undefined]) {
+  for (const role of ['analyzer', 'extractor', 'video', undefined]) {
     await llm.complete(replyMessages(), { role });
   }
   assert.equal(sent.length, 4);
@@ -2164,7 +2165,7 @@ test('complete: a classifier.text request carries no marker even with promptCach
 // The clock and the hedge's timers are injected; the transport answers when a test says so.
 // Each test sets the hedge it needs in its own config.
 
-const HEDGE = { roles: ['classifier.text'], afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 };
+const HEDGE = { roles: ['analyzer'], afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 };
 
 /** Lets every settled promise run its handlers (no wall-clock wait). */
 const drain = () => new Promise((resolve) => setImmediate(resolve));
@@ -2234,7 +2235,7 @@ function hedgedLlm({ hedge = HEDGE, llm = {}, transport = deferredTransport(), s
     clearTimer: clock.clearTimer,
   });
   // A helper's request, as every in-turn helper spells it.
-  const ask = ({ role = 'classifier.text', signal, long, extra = {} } = {}) =>
+  const ask = ({ role = 'analyzer', signal, long, extra = {} } = {}) =>
     client.complete([{ role: 'user', content: 'Ναι ή όχι;' }], {
       model: 'small/model',
       ...helperRequestOptions(config, { role, maxOutputTokens: 5, purpose: 'address', signal, long }),
@@ -2297,7 +2298,7 @@ test('hedge: a slow first attempt gets a second at afterMs with the same body; t
     assert.equal(calls[winner - 1].signal.aborted, false, 'the winner is left alone');
     assert.equal(calls[2 - winner].signal.aborted, true, 'the loser is aborted');
     assert.equal(state.data.llmCount, 2, 'both attempts were sent and counted');
-    assert.deepEqual(linesOf(logs, 'llm: hedge'), [{ role: 'classifier.text', purpose: 'address', model: 'small/model', afterMs: HEDGE.afterMs }]);
+    assert.deepEqual(linesOf(logs, 'llm: hedge'), [{ role: 'analyzer', purpose: 'address', model: 'small/model', afterMs: HEDGE.afterMs }]);
     const usage = linesOf(logs, 'llm: usage');
     assert.equal(usage.length, 1, 'one answer, one usage line');
     assert.deepEqual([usage[0].hedged, usage[0].attempt, usage[0].ms], [true, winner, HEDGE.afterMs + 300], 'ms from the first attempt\'s start');
@@ -2464,7 +2465,7 @@ test('hedge: the caller\'s signal aborts both attempts', async () => {
 test('hedge: no helper mark, a role not listed, afterMs 0 or no llm.hedge object -- one attempt, today\'s usage line', async () => {
   const cases = [
     { name: 'no helper mark', extra: { helper: undefined } },
-    { name: 'role not listed', role: 'classifier.media' },
+    { name: 'role not listed', role: 'vision' },
     { name: 'afterMs 0', hedge: { ...HEDGE, afterMs: 0 } },
     { name: 'no group', hedge: 'none' },
     { name: 'group not an object', hedge: true },
@@ -2490,7 +2491,7 @@ test('hedgeSettings: null without an llm.hedge object; inside the group a missin
   for (const config of [undefined, null, {}, { llm: {} }, { llm: { hedge: null } }, { llm: { hedge: [] } }]) {
     assert.equal(hedgeSettings(config), null, JSON.stringify(config));
   }
-  for (const hedge of [{}, { roles: 'classifier.text', afterMs: -1, timeoutMs: 0 }, { afterMs: '1', timeoutMs: Infinity, longTimeoutMs: -5 }]) {
+  for (const hedge of [{}, { roles: 'analyzer', afterMs: -1, timeoutMs: 0 }, { afterMs: '1', timeoutMs: Infinity, longTimeoutMs: -5 }]) {
     assert.deepEqual(hedgeSettings({ llm: { hedge } }), shipped.llm.hedge, JSON.stringify(hedge));
   }
   assert.deepEqual(hedgeSettings({ llm: { hedge: { roles: [], afterMs: 0 } } }), { ...shipped.llm.hedge, roles: [], afterMs: 0 });
@@ -2498,9 +2499,9 @@ test('hedgeSettings: null without an llm.hedge object; inside the group a missin
 
 test('helperRequestOptions: long true marks the set, anything else leaves the key out', () => {
   const config = { llm: { helperTimeoutMs: 12000 } };
-  assert.equal(helperRequestOptions(config, { role: 'classifier.text', long: true }).long, true);
+  assert.equal(helperRequestOptions(config, { role: 'analyzer', long: true }).long, true);
   for (const long of [undefined, false, 1, 'yes']) {
-    assert.equal('long' in helperRequestOptions(config, { role: 'classifier.text', long }), false, String(long));
+    assert.equal('long' in helperRequestOptions(config, { role: 'analyzer', long }), false, String(long));
   }
 });
 
@@ -2675,7 +2676,7 @@ test('cacheTtlFor: llm.cache.roles listing the old name talk still marks the voi
   const config = cachingConfig({ cache: { ...CACHE, roles: ['talk'] } });
   assert.equal(cacheTtlFor(config, 'voice', LISTED_MODEL), '1h');
   assert.equal(cacheTtlFor(config, 'talk', LISTED_MODEL), null, 'a request never carries the old name');
-  assert.equal(cacheTtlFor(config, 'analyzer', LISTED_MODEL), null);
+  assert.equal(cacheTtlFor(config, 'extractor', LISTED_MODEL), null);
 });
 
 test('complete: a "<prefix>@talk" route key still routes the reply; no request role talk is accepted', async () => {
@@ -2687,7 +2688,7 @@ test('complete: a "<prefix>@talk" route key still routes the reply; no request r
   await withCapturedLogs(async () => {
     await llm.complete(msgs, { ...REPLY_REQUEST });
     await llm.complete(msgs, { ...MEMORY_VOICE_REQUEST });
-    await llm.complete(msgs, { role: 'analyzer' });
+    await llm.complete(msgs, { role: 'extractor' });
     await llm.complete(msgs, { role: 'talk' });
   });
   assert.deepEqual(bodies.map((b) => b.provider), [BEDROCK, BEDROCK, { only: ['anthropic'] }, { only: ['anthropic'] }]);
@@ -2696,8 +2697,8 @@ test('complete: a "<prefix>@talk" route key still routes the reply; no request r
 });
 
 test('hedgeSettings: llm.hedge.roles listing talk reads as voice', async () => {
-  const { result } = await withCapturedLogs(() => hedgeSettings({ llm: { hedge: { roles: ['talk', 'classifier.text'] } } }));
-  assert.deepEqual(result.roles, ['voice', 'classifier.text']);
+  const { result } = await withCapturedLogs(() => hedgeSettings({ llm: { hedge: { roles: ['talk', 'analyzer'] } } }));
+  assert.deepEqual(result.roles, ['voice', 'analyzer']);
 });
 
 test('currentRoleName: talk reads as voice and says so once per process; any other value passes through', async () => {
@@ -2707,15 +2708,15 @@ test('currentRoleName: talk reads as voice and says so once per process; any oth
     fresh.currentRoleName('talk'),
     fresh.currentRoleName('talk'),
     fresh.currentRoleName('voice'),
-    fresh.currentRoleName('analyzer'),
+    fresh.currentRoleName('extractor'),
     fresh.currentRoleName(undefined),
     fresh.currentRoleName(7),
     fresh.matchRoute('x/model', { 'x/@talk': BEDROCK }, 'voice')?.role,
     fresh.cacheTtlFor({ features: { promptCache: true }, llm: { cache: { roles: ['talk'] } } }, 'voice', 'anthropic/m'),
   ]);
-  assert.deepEqual(result, ['voice', 'voice', 'voice', 'analyzer', undefined, 7, 'voice', '1h']);
+  assert.deepEqual(result, ['voice', 'voice', 'voice', 'extractor', undefined, 7, 'voice', '1h']);
   assert.equal(logs.filter((line) => line.msg === 'config: role talk is now voice').length, 1);
-  assert.equal(currentRoleName('classifier.video'), 'classifier.video');
+  assert.equal(currentRoleName('video'), 'video');
 });
 
 // --- a choice-level provider error inside a 200 ---
@@ -2750,7 +2751,7 @@ test('complete: a 200 with a choice-level error rejects with the provider messag
     },
   });
   const { result: err, logs } = await withCapturedLogs(() =>
-    llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'classifier.video', purpose: 'video', model: 'google/gemini-x' })
+    llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'video', purpose: 'video', model: 'google/gemini-x' })
       .then(() => assert.fail('expected a rejection'), (e) => e),
   );
   assert.ok(err instanceof Error);
@@ -2769,7 +2770,7 @@ test('complete: a 200 with a choice-level error rejects with the provider messag
   assert.equal(level, 'warn');
   assert.ok(Number.isInteger(ms) && ms >= 0);
   assert.deepEqual(fields, {
-    role: 'classifier.video',
+    role: 'video',
     purpose: 'video',
     model: 'google/gemini-x',
     status: 400,

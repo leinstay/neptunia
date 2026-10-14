@@ -108,7 +108,7 @@ import {
   VIDEO_TOKENS_PER_SECOND_FALLBACK as STATIC_TOKENS_PER_SECOND_FALLBACK,
 } from '../llm/openrouter.js';
 import { clampText, oneLine } from './clamp.js';
-import { classifierMediaModel, classifierVideoModel } from '../behavior/mention.js';
+import { roleModel } from '../llm/roles.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
 import { createYoutubeCheck, isVideoVisionOn } from './youtube-check.js';
 import { gifWatchBlocker as gifWatchBlockerOf, gifWatchCap, gifWatchPrompt } from './gif-watch.js';
@@ -510,8 +510,8 @@ export function createDescriber({
         // picture is estimated at a flat context.vision.tokensPerImage while the
         // vision model counts far more).
         {
-          model: classifierMediaModel(hot.config),
-          ...helperRequestOptions(hot.config, { role: 'classifier.media', maxOutputTokens: mediaCfg.maxOutputTokens, purpose: 'describe' }),
+          model: roleModel(hot.config, 'vision', 'describe'),
+          ...helperRequestOptions(hot.config, { role: 'vision', maxOutputTokens: mediaCfg.maxOutputTokens, purpose: 'describe' }),
         },
       );
     } catch (err) {
@@ -932,8 +932,8 @@ export function createDescriber({
    */
   function videoRequestOptions(videoCfg, media, { maxOutputTokens }) {
     return {
-      model: classifierVideoModel(hot.config),
-      role: 'classifier.video',
+      model: roleModel(hot.config, 'video'),
+      role: 'video',
       maxOutputTokens,
       timeoutMs: videoCfg.timeoutMs,
       videoSeconds: media.seconds ?? videoCfg.maxSeconds,
@@ -1305,7 +1305,7 @@ export function createDescriber({
    * The second look at a picture on a question (features.imageRelook and
    * features.vision, a missing key counts as on): download `item` the way a
    * caption does (pictureImageUrl, `context.vision.maxBytes`) and ask the
-   * media model (`classifier.media`, a helper request, `purpose: 'relook'`,
+   * media model (`vision`, a helper request, `purpose: 'relook'`,
    * output capped at `media.video.rewatch.maxOutputTokens`) `question`: the
    * `rewatch-answer` prompt is the system message (`{{maxChars}}` =
    * `media.video.rewatch.answerChars`; a `{{question}}` still in it is filled
@@ -1388,8 +1388,8 @@ export function createDescriber({
           { role: 'user', content: [{ type: 'text', text: asked }, { type: 'image_url', image_url: { url: downloaded.dataUrl } }] },
         ],
         {
-          model: classifierMediaModel(hot.config),
-          ...helperRequestOptions(hot.config, { role: 'classifier.media', maxOutputTokens: rewatchCfg.maxOutputTokens, purpose: 'relook' }),
+          model: roleModel(hot.config, 'vision', 'relook'),
+          ...helperRequestOptions(hot.config, { role: 'vision', maxOutputTokens: rewatchCfg.maxOutputTokens, purpose: 'relook' }),
         },
       );
     } catch (err) {

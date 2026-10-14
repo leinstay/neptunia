@@ -199,8 +199,8 @@ test('createParticipationPicker: the request options carry the classifier model,
   const { picker, llm, args, hot } = pickerScene();
   await withCapturedLogs(() => picker(args));
   const { options } = llm.calls[0];
-  assert.equal(options.model, hot.config.classifier.text);
-  assert.equal(options.role, 'classifier.text');
+  assert.equal(options.model, hot.config.roles.analyzer);
+  assert.equal(options.role, 'analyzer');
   assert.equal(options.purpose, 'participation-pick');
   assert.equal(options.maxOutputTokens, 60);
   assert.equal(options.timeoutMs, 4321);

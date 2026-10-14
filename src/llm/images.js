@@ -12,12 +12,13 @@ import { log } from '../log.js';
 import { isPlainObject } from '../config.js';
 import { bumpDaily, countToday, dailyCounter } from '../time.js';
 import { RETRY_STATUS, apiUrl, backoffMs, dailyCapOf, openRouterHeaders, resolveProvider, sleep } from './openrouter.js';
+import { roleModel } from './roles.js';
 
 const MODERATION_STATUS = new Set([400, 403]);
 const MODERATION_MARKERS = /moderation|content_policy|safety/i;
 
-/** The role a generation routes as: `"<prefix>@image"` keys of `llm.providerByModel` apply to it. */
-export const IMAGE_ROLE = 'image';
+/** The role a generation routes as: `"<prefix>@drawing"` keys of `llm.providerByModel` apply to it. */
+export const IMAGE_ROLE = 'drawing';
 /** The state.json fields of the instance-wide daily picture counter. */
 const IMAGE_DAILY = { dayKey: 'imageDay', countKey: 'imageCount' };
 /** One member's slot of `state.data.imageUsers` (`{ day, counts }`) laid out as a counter pair, for a read. */
@@ -58,7 +59,7 @@ export class ImageCapError extends Error {
   }
 }
 
-/** `image.model` belongs to no supported family; refused before any request or count. */
+/** `roles.drawing` belongs to no supported family; refused before any request or count. */
 export class UnsupportedImageModelError extends Error {
   constructor(model) {
     super(`unsupported image model: ${model}`);
@@ -82,16 +83,16 @@ export function familyOf(model) {
  * The request body for one generation; `null`/undefined config values omit their fields.
  * `byModel` is `llm.providerByModel`, read by the caller at the moment of use.
  */
-function buildBody({ cfg, byModel, family, prompt, reference }) {
-  const body = { model: cfg.model, prompt };
+function buildBody({ cfg, model, byModel, family, prompt, reference }) {
+  const body = { model, prompt };
   if (cfg.outputFormat != null) body.output_format = cfg.outputFormat;
   if (cfg.aspectRatio != null && !(family === 'google' && cfg.aspectRatio === 'auto')) {
     body.aspect_ratio = cfg.aspectRatio;
   }
-  // Routing first (the `llm.providerByModel` entry for the model and the `image` role, see
+  // Routing first (the `llm.providerByModel` entry for the model and the `drawing` role, see
   // `matchRoute`, else `image.provider`; copied, never mutated), then the family's own
   // provider options over it.
-  const routing = resolveProvider(cfg.model, { byModel, fallback: cfg.provider, role: IMAGE_ROLE });
+  const routing = resolveProvider(model, { byModel, fallback: cfg.provider, role: IMAGE_ROLE });
   const provider = routing ? { ...routing } : {};
   if (family === 'openai') {
     const openai = cfg.openai ?? {};
@@ -174,7 +175,7 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
   async function generate({ prompt, reference = null, userId = null }) {
     const cfg = getConfig().image ?? {};
     const baseUrl = getConfig().llm.baseUrl;
-    const model = cfg.model;
+    const model = roleModel(getConfig(), 'drawing');
     const family = familyOf(model);
     if (!family) {
       log.warn('images: unsupported model', { model });
@@ -188,7 +189,7 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
     }
 
     const byModel = getConfig().llm?.providerByModel;
-    const body = JSON.stringify(buildBody({ cfg, byModel, family, prompt, reference }));
+    const body = JSON.stringify(buildBody({ cfg, model, byModel, family, prompt, reference }));
     // Normalised so a negative, NaN or non-numeric value still sends one request.
     const retries = Math.max(0, Math.floor(Number(cfg.retries ?? 1)) || 0);
     const timeoutMs = cfg.timeoutMs ?? 120000;

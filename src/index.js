@@ -170,7 +170,7 @@ const store = createStore({
 
 const calibrator = createCalibrator(store.state.data.calibration);
 const llm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: store.state });
-// Embeddings (classifier.embed) on the same daily request count as the chat client.
+// Embeddings (role embedding) on the same daily request count as the chat client.
 const embedder = createEmbedder({ apiKey: openrouterKey, state: store.state });
 // The meaning index kept current: record lines queued above, flushed on the tick below.
 embedQueue = createEmbedQueue({

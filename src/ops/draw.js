@@ -6,6 +6,7 @@ import { avatarReference } from '../discord/fetch-image.js';
 import { buildDrawPrompt } from '../behavior/prompt.js';
 import { imageFileName } from '../behavior/turn.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
+import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
 import { clampAtBoundary } from '../memory/clamp.js';
 import { defineOp, perEnv, invalid } from './registry.js';
@@ -29,8 +30,9 @@ const handlers = perEnv((env) => {
     if (!request) throw invalid('text is required');
 
     const imageCfg = hot.config.image ?? {};
-    if (!images.familyOf(imageCfg.model)) {
-      return `unsupported image model: ${imageCfg.model ?? '-'} (no supported family); nothing was generated`;
+    const model = roleModel(hot.config, 'drawing');
+    if (!images.familyOf(model)) {
+      return `unsupported image model: ${model ?? '-'} (no supported family); nothing was generated`;
     }
 
     const self = args?.self === true;

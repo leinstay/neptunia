@@ -29,6 +29,7 @@ import { safetyMarginOf } from './budget.js';
 import { isPlainObject } from '../config.js';
 import { bumpDaily, countToday, dailyCounter } from '../time.js';
 import { log } from '../log.js';
+import { roleModel } from './roles.js';
 
 // ---- transport shared with the images client (src/llm/images.js) ----------
 
@@ -124,7 +125,7 @@ const HELPER_TIMEOUT_MS_FALLBACK = 30000;
 
 /**
  * The options of one in-turn helper request -- a short call made on the way to
- * a reply (the `classifier.text` passes: address, re-watch, search,
+ * a reply (the `analyzer` and `reasoner` passes: address, re-watch, search,
  * link read, search summary; the picture describer) -- so every helper is
  * spelled the same way: counted against `llm.maxRequestsPerDay`, never fed to
  * the calibration (a short or a vision prompt says nothing about the text
@@ -135,12 +136,12 @@ const HELPER_TIMEOUT_MS_FALLBACK = 30000;
  * (`{ model, ...helperRequestOptions(config, { ... }) }`). The set carries the
  * helper mark `helper: true` (never sent): only a marked request on a role
  * `llm.hedge.roles` lists is hedged by `complete` (see `hedgeSettings`), so the
- * memory wording, the analyzer, the describers never are; the
+ * memory wording, the memory extractor, the describers never are; the
  * reply only through an explicit `options.hedge` (see `complete`).
  * Pure; `config` is the live config read at the moment of use.
  * @param {object|null|undefined} config  The whole live config.
  * @param {object} [request]
- * @param {string} [request.role]             The subprocess, e.g. `classifier.text` (see `complete`).
+ * @param {string} [request.role]             The subprocess, e.g. `analyzer` (see `complete`).
  * @param {number} [request.maxOutputTokens]  Undefined leaves `llm.maxOutputTokens` in charge.
  * @param {string} [request.purpose]          What the request is for, a kebab-case code for the
  *   `llm: usage` line (`address`, `rewatch`, `lookup`, `read-link`, `search-summary`, `route-channel`,
@@ -171,13 +172,13 @@ export function helperRequestOptions(config, { role, maxOutputTokens, purpose, s
 }
 
 /** `llm.hedge`, key by key, when the group is there but a key is missing or invalid: config.json's values. */
-const HEDGE_FALLBACK = Object.freeze({ roles: Object.freeze(['classifier.text', 'classifier.reason']), afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 });
+const HEDGE_FALLBACK = Object.freeze({ roles: Object.freeze(['analyzer', 'reasoner']), afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 });
 
 /**
  * The hedge settings of the live config, or null when `llm.hedge` is not an object (no hedge at
  * all, every request as without it). Inside the group a key that is missing or invalid reads as
  * config.json's: `roles` (the `options.role` values whose helper requests are hedged, each read
- * through `currentRoleName`; not an array -> `['classifier.text', 'classifier.reason']`), `afterMs` (how long the first attempt is given before a second one is
+ * through `currentRoleName`; not an array -> `['analyzer', 'reasoner']`), `afterMs` (how long the first attempt is given before a second one is
  * sent; a finite number >= 0, 0 = no hedge; else 2500), `timeoutMs` (the limit of the whole
  * hedged call, both attempts included; a finite number > 0, else 8000) and `longTimeoutMs` (the
  * same limit for a helper marked `long`, whose answer is a summary of several hundred tokens; a
@@ -270,7 +271,7 @@ export function dailyCapOf(value, key) {
 
 /**
  * The `llm.complete` options that name the persona's reply (src/behavior/turn.js, and its replay
- * in src/behavior/sandbox.js): role `voice`, the one role on `llm.model`, purpose `reply`. Spread
+ * in src/behavior/sandbox.js): role `voice`, the one role on `roles.voice`, purpose `reply`. Spread
  * into a request's own options, never mutated.
  */
 export const REPLY_REQUEST = Object.freeze({ role: 'voice', purpose: 'reply' });
@@ -278,14 +279,14 @@ export const REPLY_REQUEST = Object.freeze({ role: 'voice', purpose: 'reply' });
 /**
  * The `llm.complete` options that name a request wording memory in the persona's voice (the
  * two-stage analyzer's voice run, its single-stage fallback, the warmup's and the portrait
- * refresh's wording requests): role `voice` on `llm.model` like the reply, purpose
+ * refresh's wording requests): role `voice` on `roles.voice` like the reply, purpose
  * `memory-voice`, and `cache: false`, so the prompt-cache marker stays on the reply only (a
  * cache write costs more than a plain prompt, and this system text is not the reply's).
  * Spread into a request's own options, never mutated.
  */
 export const MEMORY_VOICE_REQUEST = Object.freeze({ role: 'voice', purpose: 'memory-voice', cache: false });
 
-/** The former name of the role `voice` (the model that speaks as the persona, `llm.model`). */
+/** The former name of the role `voice` (the model that speaks as the persona, `roles.voice`). */
 const RETIRED_ROLE = 'talk';
 /** The role it is read as. */
 const VOICE_ROLE = 'voice';
@@ -314,13 +315,6 @@ export function currentRoleName(role) {
 }
 
 /**
- * The role whose role-specific routes a role inherits while no key names it: the reasoning
- * helpers (`classifier.reason`) were `classifier.text` requests before the role existed, so a
- * deployment's `"<prefix>@classifier.text"` route keeps routing them until a key of their own is set.
- */
-const ROUTE_PARENT_ROLE = Object.freeze({ 'classifier.reason': 'classifier.text' });
-
-/**
  * One `llm.providerByModel` key split into its model prefix and its role:
  * `"<prefix>@<role>"` applies to that role only, a key without `@` to any
  * role (`role: null`). Split at the last `@`; model ids carry none.
@@ -338,9 +332,8 @@ export function parseRouteKey(key) {
  * for exactly this role, the longest case-sensitive prefix of `model` (an
  * exact id is simply the longest prefix); when none matches, the same among
  * the role-less keys. A role-specific key beats a role-less one whatever their
- * lengths. A role with a parent (`classifier.reason` -> `classifier.text`) with no key of
- * its own matching takes the parent's keys the same way, before the role-less ones; its entry's
- * `role` names the key's role. A non-string or empty `role` matches role-less keys only. A key's
+ * lengths; a role never takes another role's keys. A non-string or empty `role` matches
+ * role-less keys only. A key's
  * role is read through `currentRoleName` (`"<prefix>@talk"` is a key for the
  * role `voice`, and its entry's `role` says `voice`); `role` itself is taken as given.
  * Non-object entries and maps are ignored.
@@ -352,9 +345,7 @@ export function parseRouteKey(key) {
 export function matchRoute(model, byModel, role) {
   if (typeof model !== 'string' || !isPlainObject(byModel)) return null;
   const wanted = typeof role === 'string' && role ? role : null;
-  const parent = wanted !== null && Object.hasOwn(ROUTE_PARENT_ROLE, wanted) ? ROUTE_PARENT_ROLE[wanted] : null;
   let bestRole = null;
-  let bestParent = null;
   let bestAny = null;
   for (const [key, value] of Object.entries(byModel)) {
     if (!isPlainObject(value)) continue;
@@ -366,11 +357,9 @@ export function matchRoute(model, byModel, role) {
       if (bestAny === null || parsed.prefix.length > bestAny.prefix.length) bestAny = entry;
     } else if (wanted !== null && keyRole === wanted) {
       if (bestRole === null || parsed.prefix.length > bestRole.prefix.length) bestRole = entry;
-    } else if (parent !== null && keyRole === parent) {
-      if (bestParent === null || parsed.prefix.length > bestParent.prefix.length) bestParent = entry;
     }
   }
-  return bestRole ?? bestParent ?? bestAny;
+  return bestRole ?? bestAny;
 }
 
 /**
@@ -937,7 +926,7 @@ export function createLlm({
    * bad answer. `provider` is OpenRouter's name for the upstream provider that
    * served the request (`json.provider`), or `undefined` when the response omits it.
    * `options.model` / `options.maxOutputTokens` / `options.temperature`
-   * override the config defaults (`llm.model`, `llm.maxOutputTokens`, `llm.temperature`).
+   * override the config defaults (`roles.voice`, `llm.maxOutputTokens`, `llm.temperature`).
    *
    * Retries (`llm.retries`): a network failure, a timed-out attempt and an
    * HTTP status in `RETRY_STATUS` are retried after `backoffMs`, each retried
@@ -1044,8 +1033,8 @@ export function createLlm({
    * configured routing in charge. Exists for the video describer, which pins
    * the provider that can fetch a public video URL.
    * `options.role` — which subprocess makes the request (`voice`, `analyzer`,
-   * `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`; the
-   * names of `/nep model`), so a `"<prefix>@<role>"` key of
+   * `reasoner`, `extractor`, `vision`, `video`; the roles of src/llm/roles.js and
+   * `/nep model`), so a `"<prefix>@<role>"` key of
    * `llm.providerByModel` can route it; never sent. A call without a role
    * matches only role-less keys.
    * `options.reasoning` — OpenRouter's reasoning settings for this one call
@@ -1107,7 +1096,8 @@ export function createLlm({
       countRequest(cfg.maxRequestsPerDay);
     }
 
-    const model = options.model ?? cfg.model;
+    // No model of its own: the voice model (`roles.voice`, or a `roles.byPurpose` entry for the purpose).
+    const model = options.model ?? roleModel(getConfig(), 'voice', options.purpose);
     const body = {
       model,
       // The cache marker goes on only now: `raw` above was estimated from the caller's own

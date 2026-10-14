@@ -62,7 +62,7 @@ import { clampChars, oneLine } from '../memory/clamp.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { bumpDaily, countToday } from '../time.js';
 import { audienceCovers } from './elsewhere.js';
-import { helperModel } from './mention.js';
+import { roleModel } from '../llm/roles.js';
 import { pullPictures } from './pull.js';
 import {
   buildRecallRequest,
@@ -1010,9 +1010,9 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     let completion;
     try {
       completion = await llm.complete(messages, {
-        model: helperModel(config, { role: 'classifier.reason', purpose: 'recall-summary' }),
+        model: roleModel(config, 'reasoner', 'recall-summary'),
         ...helperRequestOptions(config, {
-          role: 'classifier.reason',
+          role: 'reasoner',
           maxOutputTokens: settings.maxOutputTokens,
           purpose: 'recall-summary',
           signal,

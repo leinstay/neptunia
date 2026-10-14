@@ -15,11 +15,11 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 
-function baseConfig(overrides = {}) {
+function baseConfig({ model = 'openai/test-image', ...overrides } = {}) {
   return {
     llm: { baseUrl: 'https://openrouter.ai/api/v1/' },
+    roles: { drawing: model },
     image: {
-      model: 'openai/test-image',
       maxPerDay: 50,
       maxPerUserPerDay: 50,
       outputFormat: 'png',
@@ -423,17 +423,17 @@ test('images: llm.providerByModel is read fresh on every generation', async () =
   assert.deepEqual(fetchImpl.calls[1].body.provider, { only: ['google-vertex'] });
 });
 
-test('images: a generation routes as the image role; an @image key beats a longer role-less one, other roles never apply', async () => {
+test('images: a generation routes as the drawing role; an @drawing key beats a longer role-less one, other roles never apply', async () => {
   const config = baseConfig({ model: 'google/test-image', provider: { ignore: ['some-provider'] } });
   config.llm.providerByModel = {
     'google/test-image': { only: ['google-vertex'] },
-    'google/@image': { only: ['google-ai-studio'], allow_fallbacks: false },
+    'google/@drawing': { only: ['google-ai-studio'], allow_fallbacks: false },
     'google/test-image@voice': { only: ['other'] },
   };
   const { gen, fetchImpl } = makeGen({ config });
   await gen.generate({ prompt: 'a small boat' });
   assert.deepEqual(fetchImpl.calls[0].body.provider, { only: ['google-ai-studio'], allow_fallbacks: false });
-  delete config.llm.providerByModel['google/@image'];
+  delete config.llm.providerByModel['google/@drawing'];
   await gen.generate({ prompt: 'a small boat' });
   assert.deepEqual(fetchImpl.calls[1].body.provider, { only: ['google-vertex'] });
   config.llm.providerByModel = { 'google/@voice': { only: ['other'] } };

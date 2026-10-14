@@ -30,7 +30,7 @@
 import * as nodeFs from 'node:fs/promises';
 import path from 'node:path';
 import { log as defaultLog } from '../log.js';
-import { helperModel } from '../behavior/mention.js';
+import { roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { railReason } from '../llm/openrouter.js';
 import { estimateTokens } from '../llm/tokens.js';
@@ -380,7 +380,7 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
       groups.get(key).rows.push({ meta: chunk.meta, vector: vectorsOut[i] });
       groups.get(key).jobs.push(job);
     }
-    const model = helperModel(config, { role: EMBED_ROLE }) ?? null;
+    const model = roleModel(config, EMBED_ROLE) ?? null;
     let embedded = 0;
     for (const group of groups.values()) {
       try {

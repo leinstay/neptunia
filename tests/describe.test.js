@@ -16,6 +16,7 @@ import { createStore } from '../src/memory/store.js';
 import { createDescriber, parseGifDescription, videoStateFromCache } from '../src/memory/describe.js';
 import { createHash } from 'node:crypto';
 import { createLlm, helperRequestOptions, TokenLimitError, DailyCapError, VIDEO_TOKENS_PER_SECOND_FALLBACK } from '../src/llm/openrouter.js';
+import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 // One directory under the system temp dir per run, removed when the process exits; every call gets its own
@@ -45,7 +46,7 @@ function fakeHot(overrides = {}) {
   return {
     config: {
       features: { mediaDescriptions: true },
-      classifier: { media: 'x/haiku' },
+      roles: { vision: 'x/haiku' },
       media: { maxOutputTokens: 120, imageSize: 512, cacheEntries: 5000, maxPerTurn: 6 },
       context: { vision: { maxBytes: 1_500_000, fetchTimeoutMs: 10_000 } },
       ...overrides.config,
@@ -456,13 +457,13 @@ test('describe: a helper request -- llm.helperTimeoutMs, never llm.timeoutMs, co
   assert.equal(tuned.timeoutMs, 12345);
   assert.equal(tuned.countAgainstDailyCap, true);
   assert.equal(tuned.purpose, 'describe');
-  assert.equal(tuned.role, 'classifier.media');
+  assert.equal(tuned.role, 'vision');
   assert.equal(tuned.maxOutputTokens, 120);
   const unset = await run({ timeoutMs: 90000 });
   assert.equal(unset.timeoutMs, helperRequestOptions({}).timeoutMs, 'the helper fallback, not the reply timeout');
 });
 
-test('describe: the picture model is classifier.media; the deprecated media.model is ignored', async () => {
+test('describe: the picture model is roles.vision; the deprecated media.model is ignored', async () => {
   const run = async (config) => {
     const hot = fakeHot({ config });
     const llm = fakeLlm({ text: 'a cat' });
@@ -470,9 +471,9 @@ test('describe: the picture model is classifier.media; the deprecated media.mode
     await describer.describe('g1', pictureItem('a1'));
     return llm.calls[0].options.model;
   };
-  assert.equal(await run({ classifier: { media: 'x/vision' } }), 'x/vision');
-  const stale = { classifier: { media: null }, media: { model: 'x/old-media', maxOutputTokens: 120, imageSize: 512, cacheEntries: 5000, maxPerTurn: 6 } };
-  assert.equal(await run(stale), undefined, 'an old config.local.json media.model never takes effect');
+  assert.equal(await run({ roles: { vision: 'x/vision' } }), 'x/vision');
+  const stale = { roles: { vision: null }, media: { model: 'x/old-media', maxOutputTokens: 120, imageSize: 512, cacheEntries: 5000, maxPerTurn: 6 } };
+  assert.equal(await run(stale), ROLE_DEFAULTS.vision, 'the role default: an old config.local.json media.model never takes effect');
 });
 
 test('describe: a picture request of every kind (image, gif frame, video poster, link, sticker, emoji) skips the text calibration', async () => {
@@ -499,7 +500,6 @@ test('describe: a picture describe through the real client never reaches the cal
     config: {
       llm: {
         baseUrl: 'https://openrouter.test/api/v1',
-        model: 'x/chat',
         temperature: 1,
         maxOutputTokens: 100,
         maxRequestTokens: 50_000,
@@ -708,7 +708,7 @@ function videoHot({ features = {}, video = {}, prompts = {} } = {}) {
   return {
     config: {
       features: { mediaDescriptions: true, videoDescriptions: true, ...features },
-      classifier: { media: 'x/haiku', video: 'x/video-model' },
+      roles: { vision: 'x/haiku', video: 'x/video-model' },
       media: { maxOutputTokens: 120, cacheEntries: 5000, video: { ...VIDEO_CFG, ...video } },
       context: { vision: { maxBytes: 1_500_000, fetchTimeoutMs: 10_000 } },
     },
@@ -841,18 +841,18 @@ test('describeVideo: attachment is watched through a data URL with the video set
   assert.equal(state.data.videoCount, 1);
 });
 
-test('describeVideo: the video model is classifier.video; the deprecated media.video.model is ignored', async () => {
+test('describeVideo: the video model is roles.video; the deprecated media.video.model is ignored', async () => {
   const withNew = videoHot();
-  withNew.config.classifier = { video: 'x/new-video', media: 'x/vision' };
+  withNew.config.roles = { video: 'x/new-video', vision: 'x/vision' };
   const fresh = videoDescriber({ hot: withNew });
   await fresh.describer.describeVideo('g1', videoAttachment());
   assert.equal(fresh.llm.calls[0].options.model, 'x/new-video');
 
   const withOld = videoHot({ video: { model: 'x/old-video' } });
-  withOld.config.classifier = { video: null, media: 'x/vision' };
+  withOld.config.roles = { video: null, vision: 'x/vision' };
   const old = videoDescriber({ hot: withOld });
   await old.describer.describeVideo('g1', videoAttachment());
-  assert.equal(old.llm.calls[0].options.model, undefined, 'an old config.local.json media.video.model never takes effect');
+  assert.equal(old.llm.calls[0].options.model, ROLE_DEFAULTS.video, 'the role default: an old config.local.json media.video.model never takes effect');
 });
 
 test('describeVideo: a direct-URL site within maxSeconds sends the public URL with the pinned provider', async () => {
@@ -1083,7 +1083,6 @@ test('describeVideo: the request body carries media.video.reasoning (shipped def
     const hot = videoHot({ video: { reasoning } });
     hot.config.llm = {
       baseUrl: 'https://openrouter.test/api/v1',
-      model: 'x/chat',
       temperature: 1,
       maxOutputTokens: 100,
       maxRequestTokens: 50_000,
@@ -1610,7 +1609,6 @@ test('describeVideo: a 180 s direct-URL video passes the video cap through the r
   hot.config.media.video.tokensPerSecond = 300;
   hot.config.llm = {
     baseUrl: 'https://openrouter.test/api/v1',
-    model: 'x/chat',
     temperature: 1,
     maxOutputTokens: 100,
     maxRequestTokens: 50_000,
@@ -1667,7 +1665,6 @@ const LONG_URL_VIDEO = { directUrlMaxSeconds: 3600, directUrlTokensPerSecond: 10
 function realVideoLlm(hot) {
   hot.config.llm = {
     baseUrl: 'https://openrouter.test/api/v1',
-    model: 'x/chat',
     temperature: 1,
     maxOutputTokens: 100,
     maxRequestTokens: 50_000,
@@ -1998,7 +1995,7 @@ test('rewatchVideo: one fetch and one video request with the question and answer
     { type: 'video_url', video_url: { url: CLIP_DATA_URL } },
   ]);
   const options = llm.calls[0].options;
-  assert.equal(options.model, 'x/video-model', 'the second look uses the video model (classifier.video)');
+  assert.equal(options.model, 'x/video-model', 'the second look uses the video model (roles.video)');
   assert.equal(options.maxOutputTokens, 600);
   assert.equal(options.maxRequestTokens, 60_000);
   assert.equal(options.videoSeconds, 12);
@@ -2135,8 +2132,8 @@ test('relookImage: one download and one vision request with the question; the an
     { type: 'image_url', image_url: { url: SUCCESSFUL_DOWNLOAD.dataUrl } },
   ]);
   const options = llm.calls[0].options;
-  assert.equal(options.model, 'x/haiku', 'the picture is looked at by the media model (classifier.media)');
-  assert.equal(options.role, 'classifier.media');
+  assert.equal(options.model, 'x/haiku', 'the picture is looked at by the vision model (roles.vision)');
+  assert.equal(options.role, 'vision');
   assert.equal(options.purpose, 'relook');
   assert.equal(options.maxOutputTokens, 600, 'media.video.rewatch.maxOutputTokens');
   assert.equal(options.countAgainstDailyCap, true);
@@ -2373,7 +2370,7 @@ test('describe: a gifv embed is watched from its mp4 by the video model, cached 
   assert.deepEqual(system, { role: 'system', content: 'Account of this clip, up to 200 characters.' });
   assert.deepEqual(user.content, [{ type: 'video_url', video_url: { url: GIF_CLIP_URL } }]);
   const options = llm.calls[0].options;
-  assert.equal(options.role, 'classifier.video');
+  assert.equal(options.role, 'video');
   assert.equal(options.model, 'x/video-model');
   assert.equal(options.maxOutputTokens, 400);
   assert.equal(options.maxRequestTokens, 60_000, 'the video token cap applies');
@@ -2403,7 +2400,7 @@ test('describe: an attached .gif is downloaded and converted by the fetcher, the
   assert.equal(result.text, 'a man pulls a child back as a train rushes past');
   assert.equal(videoFetcher.calls[0].fn, 'fetchGif');
   assert.equal(videoFetcher.calls[0].url, 'https://cdn.discordapp.com/attachments/1/2/anim.gif?ex=secret', 'the file itself, never the proxy still');
-  assert.equal(llm.calls[0].options.role, 'classifier.video');
+  assert.equal(llm.calls[0].options.role, 'video');
   assert.equal(store.getMediaCache('g1').a9.watched, true);
 });
 
@@ -2433,7 +2430,7 @@ function assertOneFrame({ imageFetcher, llm, store }, itemId, { watchFailed = fa
   assert.equal(imageFetcher.calls.length, 1, 'the still frame is fetched');
   assert.equal(new URL(imageFetcher.calls[0].url).searchParams.get('animated'), 'false');
   const last = llm.calls[llm.calls.length - 1];
-  assert.equal(last.options.role, 'classifier.media');
+  assert.equal(last.options.role, 'vision');
   assert.equal(last.messages[1].content[0].type, 'image_url');
   const entry = store.getMediaCache('g1')[itemId];
   assert.equal(typeof entry.text, 'string');
@@ -2527,7 +2524,7 @@ test('describe: pictures and videos are untouched by the GIF watch', async () =>
   assert.equal(run.imageFetcher.calls.length, 2);
   assert.deepEqual(Object.keys(run.store.getMediaCache('g1').p1).sort(), ['text', 'ts']);
   assert.deepEqual(Object.keys(run.store.getMediaCache('g1').v1).sort(), ['text', 'ts']);
-  assert.ok(run.llm.calls.every((c) => c.options.role === 'classifier.media'));
+  assert.ok(run.llm.calls.every((c) => c.options.role === 'vision'));
 
   const video = await run.describer.describeVideo('g1', videoAttachment());
   assert.equal(video.state, 'watched');
@@ -2663,7 +2660,7 @@ test('describe: a GIF watch uses describe-gif when present, with {{maxChars}} an
   const run = gifDescriber({ hot, now: () => Date.parse('2026-10-01T12:00:00Z') });
   await run.describer.describe('g1', gifEmbedItem());
   assert.deepEqual(run.llm.calls[0].messages[0], { role: 'system', content: 'Silent loop of 6 s, caption up to 200, 2026-10-01.' });
-  assert.equal(run.llm.calls[0].options.role, 'classifier.video');
+  assert.equal(run.llm.calls[0].options.role, 'video');
 });
 
 test('describe: describe-gif alone (no describe-video) is enough to watch GIFs', async () => {
@@ -2786,7 +2783,7 @@ test('rewatchGif: one GIF clip fetch and one video request with the question; th
   assert.equal(system.content, 'Question: Qui est dans le miroir ?. At most 1200 characters.');
   assert.deepEqual(user.content, [{ type: 'video_url', video_url: { url: GIF_CLIP_URL } }]);
   const options = run.llm.calls[0].options;
-  assert.equal(options.role, 'classifier.video');
+  assert.equal(options.role, 'video');
   assert.equal(options.maxOutputTokens, 600);
   assert.equal(options.videoSeconds, 6);
   assert.equal(state.data.rewatchCount, 1);

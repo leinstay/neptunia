@@ -31,7 +31,7 @@
 //            Windows of connected lines (tools/lib/backfill.mjs#windowsOf: reply chains and
 //            `recall.clusterGapMinutes` gaps, at most `--window-max` lines), each sent with the
 //            roster of its members (stored names and aliases only) and prompts/backfill.md to the
-//            analyzer model (`memory.model`, else `llm.model`). The answers' items go to
+//            extractor model (`roles.extractor`). The answers' items go to
 //            data/guilds/<id>/backfill/candidates.jsonl (quotes checked against their message,
 //            items citing a line outside the window dropped; tools/lib/backfill.mjs
 //            #readExtractAnswer). The estimate is printed first; the run is refused (exit 2) when
@@ -80,6 +80,7 @@ import {
 import { isPlainObject } from '../src/config.js';
 import { log as defaultLog } from '../src/log.js';
 import { MEMORY_VOICE_REQUEST } from '../src/llm/openrouter.js';
+import { roleModel } from '../src/llm/roles.js';
 import { estimateTokens } from '../src/llm/tokens.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { archiveDrops, archiveEntry, createArchive } from '../src/memory/archive.js';
@@ -693,8 +694,8 @@ async function cmdExtract(ctx) {
   const llm = await modelClient(ctx);
   const cfg = config.memory ?? {};
   const options = {
-    model: cfg.model || undefined,
-    role: 'analyzer',
+    model: roleModel(config, 'extractor', 'backfill'),
+    role: 'extractor',
     purpose: 'backfill',
     origin: 'backfill',
     maxOutputTokens: cfg.maxOutputTokens,

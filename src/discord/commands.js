@@ -21,6 +21,7 @@
 
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { isPlainObject } from '../config.js';
+import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
 import { MINUTE_MS } from '../time.js';
 
@@ -67,22 +68,20 @@ export const DEFERRED_OPS = Object.freeze(new Set([
 ]));
 
 /**
- * The model roles, each with the config path of its model (src/ops/model.js):
- * the roles `/nep model` and `/nep route` list, plus `image` (`MODEL_SET_PATHS`);
- * every role choice list is derived from this one. `voice` is the one model that
- * speaks as the persona: its replies and every memory text worded in its voice
- * (src/memory/update.js#runVoice). `classifier.reason` serves the helpers that reason
- * over content (src/behavior/mention.js#REASON_PURPOSES; unset = `classifier.text`'s model),
- * `classifier.embed` the embeddings (src/llm/embed.js), which take no chat completion.
+ * The model roles (src/llm/roles.js), each with the config path of its model (src/ops/model.js):
+ * the roles the status card probes, plus `drawing` (`MODEL_SET_PATHS`); every role choice list
+ * is derived from this one. `voice` is the one model that speaks as the persona: its replies and
+ * every memory text worded in its voice (src/memory/update.js#runVoice). `embedding` serves the
+ * embeddings (src/llm/embed.js), which take no chat completion.
  */
 export const MODEL_ROLE_PATHS = Object.freeze({
-  voice: 'llm.model',
-  analyzer: 'memory.model',
-  'classifier.text': 'classifier.text',
-  'classifier.reason': 'classifier.reason',
-  'classifier.media': 'classifier.media',
-  'classifier.video': 'classifier.video',
-  'classifier.embed': 'classifier.embed',
+  voice: 'roles.voice',
+  analyzer: 'roles.analyzer',
+  reasoner: 'roles.reasoner',
+  extractor: 'roles.extractor',
+  vision: 'roles.vision',
+  video: 'roles.video',
+  embedding: 'roles.embedding',
 });
 
 /** The roles of `MODEL_ROLE_PATHS`, in order. */
@@ -90,10 +89,10 @@ export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
 
 /**
  * The roles whose model `/nep model show|set` lists and changes, each with the config path
- * `set` writes: the chat roles, then the drawing model (`image`, src/llm/images.js#IMAGE_ROLE),
- * which takes no chat completion.
+ * `set` writes: the chat and embedding roles, then the drawing model (`drawing`,
+ * src/llm/images.js#IMAGE_ROLE), which takes no chat completion.
  */
-export const MODEL_SET_PATHS = Object.freeze({ ...MODEL_ROLE_PATHS, image: 'image.model' });
+export const MODEL_SET_PATHS = Object.freeze({ ...MODEL_ROLE_PATHS, drawing: 'roles.drawing' });
 
 /** The roles of `MODEL_SET_PATHS`, in order: the choices of `/nep model set` and `/nep route`. */
 export const MODEL_SET_ROLES = Object.freeze(Object.keys(MODEL_SET_PATHS));
@@ -750,9 +749,7 @@ function routeModelChoices(config, typed) {
   const prefixes = byModel && typeof byModel === 'object' && !Array.isArray(byModel)
     ? Object.keys(byModel).map((key) => (key.includes('@') ? key.slice(0, key.lastIndexOf('@')) : key))
     : [];
-  const models = Object.values(MODEL_SET_PATHS).map((dotted) =>
-    dotted.split('.').reduce((node, key) => (isPlainObject(node) ? node[key] : undefined), config),
-  );
+  const models = MODEL_SET_ROLES.map((role) => roleModel(config, role));
   const all = [...new Set([...prefixes, ...models].filter((value) => typeof value === 'string' && value))];
   return all
     .filter((value) => value.toLowerCase().includes(typed))
