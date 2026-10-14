@@ -13,6 +13,7 @@ import { ImageCapError, ImageGenError } from '../src/llm/images.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { fill, formatNow } from '../src/discord/format.js';
 import { countToday, utcDay } from '../src/time.js';
+import { userText } from '../src/behavior/prompt.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
@@ -208,7 +209,8 @@ function runner({ hot = fakeHot(), store = fakeStore(), llm, images = fakeImages
   });
 }
 
-const userOf = (messages) => (typeof messages[1].content === 'string' ? messages[1].content : messages[1].content.find((p) => p.type === 'text').text);
+// The whole user text, every cache part: the stable part always carries the static senses lines.
+const userOf = (messages) => userText(messages[1].content);
 
 test('diary turn: plans on the reasoner model, then composes with the card', async () => {
   const posts = [{ at: NOW - DAY, kind: 'status', gist: 'une journée grise', picture: null, messageIds: ['m0'], search: null }];
