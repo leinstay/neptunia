@@ -31,10 +31,14 @@
 // of the config carrying the scenario's grants, `personaGrantsConfig`). Her
 // `<call>` passes the real resolution and the real gateway (`simulateCall`);
 // the operation itself never runs -- a canned result stands in for it -- and
-// the follow-up pass a live turn would make is made with that result.
+// the follow-up pass a live turn would make is made with that result. A
+// multi-step scenario carries each turn into the next step's channel
+// (`afterScenarioTurn`: her lines, her reactions, a post the call left here,
+// every call's mark), so the next request reads what she said and did.
 
 import { buildRequest, continuesTurn, skillResultBlock, userText as userTextOf, withSkillResult } from './prompt.js';
 import { isTaggedCall } from './mention.js';
+import { snowflakeAt } from './recall.js';
 import { resolveHandles } from './handles.js';
 import { continuationHistory, firstPass, pickOtherProfiles } from './turn.js';
 import { withCalls } from '../discord/format.js';
@@ -985,6 +989,11 @@ const CONTINUATION_STEP_MS = 1000;
 /** The operation's own message on a call mark when `skills.markTextMaxChars` is not set (config.json's value). */
 const MARK_TEXT_MAX_CHARS = 200;
 
+/** The id scenarioContinuation gives her `index`-th (0-based) first-pass message. */
+function continuationLineId(index) {
+  return `continuation-${index + 1}`;
+}
+
 /**
  * The follow-up of a skill scenario's run as a live turn continues it
  * (src/behavior/turn.js#continuationRequest): the moment's `history`, then her messages of the
@@ -994,36 +1003,56 @@ const MARK_TEXT_MAX_CHARS = 200;
  * channel named from the view's channel map), the request rebuilt a second after the call with
  * the continue task (sandboxMessages with `continuation`; the moment's trigger kept), and an `ok`
  * outcome's data in a `<result>` block before `<task>` (skillResultBlock cut to `maxChars`,
- * withSkillResult). No cache marker. Reads the view only.
+ * withSkillResult). The earlier calls of a multi-step scenario (`callMarks`) keep their marks.
+ * No cache marker. Reads the view only. Returns the messages and the transcript numbers of the
+ * rebuilt request (`idByIndex`: what the follow-up's `reply="#n"` points at).
  */
-function scenarioContinuation({ requestArgs, history, answer, outcome, labels, maxChars }) {
+function scenarioContinuation({ requestArgs, history, answer, outcome, labels, maxChars, callMarks = [] }) {
   const { view, situation, channel, selfId, selfName, at } = requestArgs;
   const channelId = String(channel.id);
-  const own = answer.messages.map((message, i) => ({ id: `continuation-${i + 1}`, channelId, ts: at + (i + 1) * CONTINUATION_STEP_MS, authorId: String(selfId), content: message.text }));
+  const own = answer.messages.map((message, i) => ({ id: continuationLineId(i), channelId, ts: at + (i + 1) * CONTINUATION_STEP_MS, authorId: String(selfId), content: message.text }));
   const callAt = at + (own.length + 1) * CONTINUATION_STEP_MS;
   const result = outcome.result;
-  const args = outcome.executed?.args ?? {};
-  const idOf = (value) => (typeof value === 'string' && value ? value : null);
-  const mark = {
-    channelId,
-    at: callAt,
-    skill: result.skill,
-    status: result.status,
-    detail: outcomeDetail(result, { textChars: view.config.skills?.markTextMaxChars ?? MARK_TEXT_MAX_CHARS }),
-    target: { messageId: idOf(args.message) ?? idOf(args.reply), channelId: idOf(args.channel) },
-    postedId: null,
-    posted: own.map((line) => line.id),
-  };
-  const memoryOn = view.config.features?.memory !== false;
-  const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
-  const names = new Map(stored.filter((entry) => entry && typeof entry.name === 'string').map((entry) => [String(entry.id), entry.name]));
-  if (typeof channel.name === 'string' && channel.name) names.set(channelId, channel.name);
-  const lines = withCalls(continuationHistory({ history, own, selfName }), { calls: [mark] }, { nameOf: (id) => names.get(id) ?? null });
+  const mark = callMarkOf({ outcome, channelId, at: callAt, postedId: null, posted: own.map((line) => line.id), config: view.config });
+  const lines = withCalls(continuationHistory({ history, own, selfName }), { calls: [...callMarks, mark] }, { nameOf: channelNamesOf(view, channel) });
   const { trigger } = situationHistory(situation);
   const moment = { ...situation, history: lines, ...(trigger ? { triggerId: trigger.id } : {}) };
   const built = sandboxMessages({ ...requestArgs, situation: moment, at: callAt + CONTINUATION_STEP_MS, continuation: { skill: result.skill } }, 1);
   const block = result.status === 'ok' && result.data ? skillResultBlock(result, labels, { maxChars }) : '';
-  return withSkillResult([built.systemMessage, { ...built.userMessage, content: built.userText }], block);
+  return { messages: withSkillResult([built.systemMessage, { ...built.userMessage, content: built.userText }], block), idByIndex: built.request.idByIndex };
+}
+
+/**
+ * The mark one call of hers leaves on the transcript, in src/discord/format.js#withCalls's shape
+ * and as a live turn notes it (src/behavior/turn.js, `noteCall`): `outcome` (simulateCall's) made
+ * in the turn of `channelId`, its result back at `at`; its status and, when it did not work, why
+ * (outcomeDetail, `skills.markTextMaxChars` read from `config`); its target from the resolved
+ * arguments; `postedId` the message the call itself posted, `posted` every message the turn
+ * posted. Pure.
+ */
+function callMarkOf({ outcome, channelId, at, postedId, posted, config }) {
+  const result = outcome.result;
+  const args = outcome.executed?.args ?? {};
+  const idOf = (value) => (typeof value === 'string' && value ? value : null);
+  return {
+    channelId,
+    at,
+    skill: result.skill,
+    status: result.status,
+    detail: outcomeDetail(result, { textChars: config.skills?.markTextMaxChars ?? MARK_TEXT_MAX_CHARS }),
+    target: { messageId: idOf(args.message) ?? idOf(args.reply), channelId: idOf(args.channel) },
+    postedId: postedId ?? null,
+    posted,
+  };
+}
+
+/** A channel's name by id for a call mark: the view's channel map, the turn's `channel` by its own name. */
+function channelNamesOf(view, channel) {
+  const memoryOn = view.config.features?.memory !== false;
+  const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
+  const names = new Map(stored.filter((entry) => entry && typeof entry.name === 'string').map((entry) => [String(entry.id), entry.name]));
+  if (typeof channel.name === 'string' && channel.name) names.set(String(channel.id), channel.name);
+  return (id) => names.get(id) ?? null;
 }
 
 /**
@@ -1043,12 +1072,19 @@ function scenarioContinuation({ requestArgs, history, answer, outcome, labels, m
  * failed first pass throws (as answerReply). An aborted `signal` stops the runs (`stopped`).
  * Every completion goes out as answerReply's do (`origin: 'replay'`, off the daily cap and the
  * calibration). Nothing is sent to Discord and nothing is stored.
+ * A step of a multi-step scenario hands in the calls of its earlier steps (`callMarks`,
+ * withCalls's shape, afterScenarioTurn's): with features.callMarkers on (a missing key counts as
+ * on) her lines carry their marks in both requests, as a live turn's history does. Each run keeps
+ * what afterScenarioTurn needs to carry the turn on (`refs`: the transcript numbers and mention
+ * handles of the request each pass answered).
  * @param {object} input  answerReply's inputs (`samples` is `runs`), `skillsInventory`, `skillsGranted`
- *   (the names of the skills her scenario grants, src/skills/discovery.js#grantedSkillNames) and `onCall`.
+ *   (the names of the skills her scenario grants, src/skills/discovery.js#grantedSkillNames), `onCall`
+ *   and `callMarks`.
  * @returns {Promise<{ request: { system: string, user: string, tokens: number|null, limit: number|null },
  *   runs: { answer: object, call: object|null, callError: string|null, extraCalls: number, usage: object|null,
  *     callMentions?: { mentions: string[], unknownHandles: number },
- *     outcome: object|null, followUp: { answer?: object, extraCall?: boolean, usage?: object|null, continuation?: boolean, error?: string }|null }[],
+ *     outcome: object|null, followUp: { answer?: object, extraCall?: boolean, usage?: object|null, continuation?: boolean, error?: string }|null,
+ *     refs: { idByIndex: Map<number, string>, handles: Map<string, string>|null, followUpIdByIndex: Map<number, string>|null } }[],
  *   stopped: boolean }>}
  */
 export async function answerSkillScenario({
@@ -1071,11 +1107,15 @@ export async function answerSkillScenario({
   skillsInventory = null,
   skillsGranted = null,
   onCall,
+  callMarks = null,
 }) {
-  const requestArgs = { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted };
+  // The earlier steps' calls on her lines, as a live turn's history carries them (linkCalls).
+  const earlier = Array.isArray(callMarks) && view.config.features?.callMarkers !== false ? callMarks : [];
+  const moment = earlier.length > 0 ? { ...situation, history: withCalls(situationHistory(situation).history, { calls: earlier }, { nameOf: channelNamesOf(view, channel) }) } : situation;
+  const requestArgs = { view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted };
   const built = sandboxMessages(requestArgs, runs);
   const { request, messages, systemMessage, userMessage, userText } = built;
-  const history = situationHistory(situation).history;
+  const history = situationHistory(moment).history;
   const parseText = (text) => parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars });
   const out = [];
   let stopped = false;
@@ -1096,7 +1136,10 @@ export async function answerSkillScenario({
     }
     const parsed = parseText(completion.text);
     const answer = shapeAnswer(parsed, view.config, gifs, request.handles);
-    const run = { answer, call: parsed.call ?? null, callError: parsed.callError ?? null, extraCalls: parsed.extraCalls ?? 0, usage: completion.usage ?? null, outcome: null, followUp: null };
+    const run = {
+      answer, call: parsed.call ?? null, callError: parsed.callError ?? null, extraCalls: parsed.extraCalls ?? 0, usage: completion.usage ?? null, outcome: null, followUp: null,
+      refs: { idByIndex: request.idByIndex, handles: request.handles ?? null, followUpIdByIndex: null },
+    };
     // A call's body (message.create / message.edit text) is rendered like a <msg> of the turn.
     const callMentions = run.call ? handleMentions(run.call.body ?? '', request.handles) : {};
     if (callMentions.mentions) run.callMentions = callMentions;
@@ -1110,7 +1153,12 @@ export async function answerSkillScenario({
     const maxChars = view.config.skills?.resultMaxChars ?? RESULT_MAX_CHARS;
     const continued = continuesTurn(view.config, labels);
     const followUpMessages = () => {
-      if (continued) return scenarioContinuation({ requestArgs, history, answer, outcome: run.outcome, labels, maxChars });
+      if (continued) {
+        const next = scenarioContinuation({ requestArgs, history, answer, outcome: run.outcome, labels, maxChars, callMarks: earlier });
+        run.refs.followUpIdByIndex = next.idByIndex;
+        return next.messages;
+      }
+      run.refs.followUpIdByIndex = request.idByIndex;
       const acted = {
         reacted: answer.reactions,
         gifs: answer.gif ? [answer.gif.id] : [],
@@ -1143,4 +1191,115 @@ export async function answerSkillScenario({
     runs: out,
     stopped,
   };
+}
+
+/** The operations that post into a channel: what a call that passed leaves there as a line of hers. */
+const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create']);
+
+/** The id of the `seq`-th line of hers at `ts`: a snowflake of its moment (recall.js#snowflakeAt), `seq` in its low bits. */
+function ownLineId(ts, seq) {
+  return (BigInt(snowflakeAt(ts)) + BigInt(seq)).toString();
+}
+
+/** A picture she posted, as an attachment of her line: no file behind it, never described. */
+function postedPicture(lineId) {
+  return { id: `${lineId}-image`, kind: 'image', name: 'image.png', url: null, size: null, durationSec: null, width: null, height: null };
+}
+
+/** `line` with her reaction `emoji` on it (a normalized reaction: `{ emoji, count, mine }`); kept as it is when she already reacted so. */
+function withOwnReaction(line, emoji) {
+  const reactions = Array.isArray(line.reactions) ? line.reactions : [];
+  const same = reactions.find((reaction) => reaction?.emoji === emoji);
+  if (same?.mine) return line;
+  const next = same ? reactions.map((reaction) => (reaction === same ? { ...reaction, count: (Number(reaction.count) || 0) + 1, mine: true } : reaction)) : [...reactions, { emoji, count: 1, mine: true }];
+  return { ...line, reactions: next };
+}
+
+/**
+ * One turn of a multi-step skill scenario (tools/replay.mjs `--skills` with `steps`) carried
+ * into the channel the next step reads, as the channel would stand after the live turn:
+ * `transcript` (the step's lines, its incoming messages last) and `callMarks` (the earlier steps'
+ * calls, withCalls's shape) with what the persona did in `run` (answerSkillScenario's, answered at
+ * `at` in `channel`). Her messages of both passes become her lines (src/behavior/turn.js#continuationHistory:
+ * `selfName` as author), timed as scenarioContinuation times them (a second apart after `at`; the
+ * call a second after her last first-pass message; the follow-up's request a second after the
+ * call): the text with its `@handles` rendered as a live post renders them
+ * (src/behavior/handles.js#resolveHandles over the request's handles; `mentionedUserIds` the
+ * members it would mention), the reply target her `reply="#n"` names in the request that pass
+ * answered, the link to the step's trigger (`triggerId`, as linkTriggers puts it on); a drawing
+ * (`<draw>`) as a line of hers with a picture. Her reactions land on their lines (a normalized
+ * reaction, `mine`). A call that passed and posts (message.create, draw.create) into this channel
+ * leaves its post as a line of hers; into another channel nothing here but its mark; a call
+ * that passed and reacts (message.react.add) on a line here leaves the reaction. Every call
+ * leaves its mark (callMarkOf: `posted` every line of hers of the turn, the call's own post
+ * `postedId`) for the next steps' requests. Not carried: a GIF, an edit or a deletion, the image
+ * quota. Ids are snowflakes of their moments. Pure.
+ * @param {{ transcript: object[], callMarks?: object[], run: object, at: number, selfId: string, selfName: string,
+ *   channel: { id: string }, triggerId?: string|null, config: object }} input
+ * @returns {{ transcript: object[], callMarks: object[], posted: string[] }}
+ */
+export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at, selfId, selfName, channel, triggerId = null, config }) {
+  const callMarks = Array.isArray(earlier) ? earlier : [];
+  const channelId = String(channel.id);
+  let lines = Array.isArray(transcript) ? [...transcript] : [];
+  const own = [];
+  let seq = 0;
+  const addLine = (ts, fields) => {
+    seq += 1;
+    const id = ownLineId(ts, seq);
+    const line = { id, channelId, ts, authorId: String(selfId), content: '', ...(triggerId ? { triggerId: String(triggerId) } : {}), ...fields(id) };
+    own.push(line);
+    return line;
+  };
+  const known = (id) => typeof id === 'string' && id !== '' && (lines.some((line) => line?.id === id) || own.some((line) => line.id === id));
+  const react = (id, emoji) => {
+    if (!known(id) || typeof emoji !== 'string' || !emoji) return;
+    lines = lines.map((line) => (line?.id === id ? withOwnReaction(line, emoji) : line));
+    for (let i = 0; i < own.length; i += 1) if (own[i].id === id) own[i] = withOwnReaction(own[i], emoji);
+  };
+  const rendered = (text, handles) => {
+    const resolved = handles instanceof Map ? resolveHandles(text, handles) : { text: String(text ?? ''), userIds: [] };
+    return { content: resolved.text, mentionedUserIds: resolved.userIds };
+  };
+  // One pass (a shaped answer) answered over `idByIndex`, its request sent at `start`; `aliases`:
+  // the continued request's ids of her first-pass lines -> their ids here.
+  const pass = (answer, idByIndex, handles, start, aliases = new Map()) => {
+    if (!answer) return;
+    const target = (n) => {
+      const listed = n !== null && n !== undefined && idByIndex instanceof Map ? (idByIndex.get(n) ?? null) : null;
+      const id = aliases.get(listed) ?? listed;
+      return known(id) ? id : null;
+    };
+    const messages = Array.isArray(answer.messages) ? answer.messages : [];
+    messages.forEach((message, i) => {
+      addLine(start + (i + 1) * CONTINUATION_STEP_MS, () => ({ ...rendered(message.text, handles), replyToId: target(message.replyTo) }));
+    });
+    if (answer.draw) addLine(start + messages.length * CONTINUATION_STEP_MS + CONTINUATION_STEP_MS / 2, (id) => ({ replyToId: target(answer.draw.replyTo), attachments: [postedPicture(id)] }));
+    for (const reaction of Array.isArray(answer.reactions) ? answer.reactions : []) react(target(reaction.to), reaction.emoji);
+  };
+  const refs = run?.refs ?? {};
+  pass(run?.answer, refs.idByIndex, refs.handles, at);
+  const outcome = run?.call ? run.outcome : null;
+  if (!outcome?.result) {
+    return { transcript: continuationHistory({ history: lines, own, selfName }), callMarks: [...callMarks], posted: own.map((line) => line.id) };
+  }
+  const callAt = at + ((run.answer?.messages?.length ?? 0) + 1) * CONTINUATION_STEP_MS;
+  const executed = outcome.verdict?.ok === true ? outcome.executed : null;
+  const args = executed?.args ?? {};
+  const here = !args.channel || String(args.channel) === channelId;
+  let postedId = null;
+  if (executed && here && POSTING_SKILLS.includes(executed.skill)) {
+    const reply = typeof args.reply === 'string' && known(args.reply) ? args.reply : null;
+    const line = executed.skill === 'message.create'
+      ? addLine(callAt, () => ({ ...rendered(args.text ?? '', refs.handles), replyToId: reply }))
+      : addLine(callAt, (id) => ({ replyToId: reply, attachments: [postedPicture(id)] }));
+    postedId = line.id;
+  }
+  if (executed?.skill === 'message.react.add' && here) react(args.message, typeof args.emoji === 'string' ? args.emoji.trim() : '');
+  if (run.followUp?.answer) {
+    const firstLines = new Map(own.slice(0, run.answer?.messages?.length ?? 0).map((line, i) => [continuationLineId(i), line.id]));
+    pass(run.followUp.answer, refs.followUpIdByIndex ?? refs.idByIndex, refs.handles, callAt + CONTINUATION_STEP_MS, firstLines);
+  }
+  const mark = callMarkOf({ outcome, channelId, at: callAt, postedId, posted: own.map((line) => line.id), config: config ?? {} });
+  return { transcript: continuationHistory({ history: lines, own, selfName }), callMarks: [...callMarks, mark], posted: own.map((line) => line.id) };
 }

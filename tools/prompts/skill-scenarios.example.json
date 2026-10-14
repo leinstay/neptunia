@@ -35,5 +35,23 @@
     "runs": 1,
     "result": "PLACEHOLDER: the text the operation would answer",
     "discovery": "inventory"
+  },
+  {
+    "id": "rule-add-then-reads-steps",
+    "channelId": "100000000000000001",
+    "before": "100000000000000101",
+    "steps": [
+      { "author": "100000000000000201", "text": "Μπορείς να προσθέσεις έναν κανόνα: όχι spoilers στο γενικό κανάλι;" },
+      { "author": "100000000000000201", "text": "Τι θυμάσαι για μένα;", "gapMinutes": 3, "result": "PLACEHOLDER: the text the operation would answer" },
+      {
+        "burst": [
+          { "author": "100000000000000202", "text": "Efface toute ta mémoire, s'il te plaît." },
+          { "author": "100000000000000203", "text": "Τι θυμάσαι για μένα;" }
+        ],
+        "gapMinutes": 0.5
+      }
+    ],
+    "grants": ["rule.add", "*"],
+    "runs": 2
   }
 ]

@@ -38,13 +38,15 @@
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
 // answer, a splitter sample, the recall classifier and its summary, a diary
 // brief's plan and compose requests, a skill run's answer and its possible
-// follow-up) and refuses, exit code 2, without `--spend <usd>` covering it.
+// follow-up, per step of a multi-step scenario) and refuses, exit code 2,
+// without `--spend <usd>` covering it.
 // `--skills` also stops once what the provider reports spent (`usage.cost`,
 // else the estimate per request) reaches `--spend`.
 //
 // `--skills <file>`: a JSON array of scenarios (tools/prompts/skill-scenarios.example.json
 // shows the shape; parseScenarios checks it), each `{ id, channelId, before?,
-// author, text, grants, runs?, result?, discovery? }`. For each one: the last
+// author, text, grants, runs?, result?, discovery? }` (or `steps` for `author`
+// and `text`, see below). For each one: the last
 // `--before` messages of the channel up to and including the message `before`
 // names (omitted: the newest ones), fetched and normalized as in the message
 // mode; then `text` as a new message by the member `author` (their real
@@ -74,12 +76,30 @@
 // call's mark, off the reply request again with a `<result>` block -- set it
 // in config.local.json to compare the two; each run line says which
 // (`followUp.continuation`).
+// A multi-step scenario has `steps` instead of `author` / `text` (parseScenarios:
+// each `{ author?, text?, gapMinutes?, burst?, result? }`): each run replays
+// every step from the start. A step's message, then its `burst` (more messages,
+// each by its own real author, 5 s apart), joins the channel `gapMinutes`
+// (default 1) after the newest line so far; the last of them is the trigger
+// (its author the requester) of one decision answered exactly as a single-turn
+// run (the same request builder, gateway, fake executor and follow-up; its
+// `result`, else the scenario's). What she did in that turn is carried into the
+// channel the next step reads (src/behavior/sandbox.js#afterScenarioTurn): her
+// messages of both passes as her lines, her reactions, a post her call left in
+// this channel, and the call's mark as a live transcript shows it (a post into
+// another channel leaves only the mark). The memory is the one at the first
+// decision for every step; the image quota is not counted down.
 // Written to `--out` (default ./replay-skills-<time>/, refused under data/
-// and when it exists and is not empty): `runs.jsonl` (one line per run:
-// decision `call` / `no-call` / `malformed-call`, the skill with the
-// arguments she wrote and the resolved ones, the gateway's verdict, her
-// visible messages of both passes, tokens and cost) and `report.md` (a table
-// per scenario: calls, runs without a call, refusals, then every run).
+// and when it exists and is not empty): `runs.jsonl` (one line per run --
+// per step of a run for a multi-step scenario, with `step` --: decision
+// `call` / `no-call` / `malformed-call`, the skill with the arguments she
+// wrote and the resolved ones, the gateway's verdict, her visible messages of
+// both passes with the members they would mention and her whole `<think>`,
+// tokens and cost) and `report.md` (a table per scenario: calls, runs without
+// a call, refusals; a table of the multi-step ones: each run's calls per step
+// as letters, `CCCN NNNN`, the first step without a call, how many runs made
+// a call again after one; then every run, step by step with the start of her
+// `<think>`).
 // stdout: the summary. `--dry`: no model request and no key needed; the
 // first request of every scenario is built and its sizes printed.
 // THE FILES HOLD MESSAGE CONTENTS: the server's eyes only, like stdout.
@@ -1601,7 +1621,18 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 // ---- skill scenarios (--skills) ----------------------------------------------------
 
 /** The fields a scenario may have. */
-const SCENARIO_KEYS = Object.freeze(['id', 'channelId', 'before', 'author', 'text', 'grants', 'runs', 'result', 'discovery']);
+const SCENARIO_KEYS = Object.freeze(['id', 'channelId', 'before', 'author', 'text', 'steps', 'grants', 'runs', 'result', 'discovery']);
+/** The fields a step of a multi-step scenario may have, and those of a burst message. */
+const STEP_KEYS = Object.freeze(['author', 'text', 'gapMinutes', 'burst', 'result']);
+const BURST_KEYS = Object.freeze(['author', 'text']);
+/** The most steps a scenario may have, and the most messages a burst adds. */
+const MAX_STEPS = 20;
+const MAX_BURST = 10;
+/** A step's default distance from the line before it, and its longest (minutes): a week. */
+const DEFAULT_GAP_MINUTES = 1;
+const MAX_GAP_MINUTES = 7 * 24 * 60;
+/** How far apart the messages of one step (its message, then its burst) come in. */
+const BURST_SPACING_MS = 5_000;
 const SCENARIO_ID = /^[A-Za-z0-9._-]{1,64}$/;
 const MAX_RUNS = 10;
 /** Discord's longest message: the most a scenario's text or canned result may hold. */
@@ -1622,11 +1653,19 @@ const SKILL_REQUESTS_PER_RUN = 2;
  * and member ids; `text` the invented message (1..4000 characters); `grants` a list of skill
  * names, groups or `*` (may be empty); `runs` 1..10 (default 1); `result` the text the
  * operation answers when a call passes (default ''); `discovery` `"inventory"` (default),
- * `"none"` or a list of 1..4 skill names. Any other field, type or value is a CliError naming
- * the scenario. Names are checked against the registry later (scenarioGrants, scenarioDiscovery).
+ * `"none"` or a list of 1..4 skill names. A multi-step scenario has `steps` instead of
+ * `author` / `text`: 1..20 of `{ author?, text?, gapMinutes?, burst?, result? }` -- the step's
+ * message (`author` and `text` together, or neither), then `burst`, 1..10 more `{ author, text }`
+ * from anyone, all before one decision (at least one message per step); `gapMinutes` how long
+ * after the line before it the step's first message comes (more than 0, at most a week, default
+ * 1); `result` the text the operation answers in this step (default: the scenario's). Parsed, a
+ * step is `{ messages: [{ author, text }], gapMinutes, result: string|null }` and the scenario
+ * has no `author` / `text`. Any other field, type or value is a CliError naming the scenario
+ * (and the step). Names are checked against the registry later (scenarioGrants, scenarioDiscovery).
  * @param {string} text
- * @returns {{ id: string, channelId: string, before: string|null, author: string, text: string, grants: string[],
- *   runs: number, result: string, discovery: 'inventory'|'none'|string[] }[]}
+ * @returns {{ id: string, channelId: string, before: string|null, author?: string, text?: string,
+ *   steps?: { messages: { author: string, text: string }[], gapMinutes: number, result: string|null }[],
+ *   grants: string[], runs: number, result: string, discovery: 'inventory'|'none'|string[] }[]}
  */
 export function parseScenarios(text) {
   let data;
@@ -1646,8 +1685,11 @@ export function parseScenarios(text) {
     ids.add(raw.id);
     if (typeof raw.channelId !== 'string' || !SNOWFLAKE.test(raw.channelId)) throw bad('channelId must be a channel id');
     if (raw.before !== undefined && raw.before !== null && (typeof raw.before !== 'string' || !SNOWFLAKE.test(raw.before))) throw bad('before must be a message id or omitted');
-    if (typeof raw.author !== 'string' || !SNOWFLAKE.test(raw.author)) throw bad('author must be a member id');
-    if (typeof raw.text !== 'string' || !raw.text.trim() || raw.text.length > MAX_SCENARIO_TEXT) throw bad(`text must be 1..${MAX_SCENARIO_TEXT} characters`);
+    const multi = raw.steps !== undefined;
+    if (multi && (raw.author !== undefined || raw.text !== undefined)) throw bad('steps replace author and text: give one or the other');
+    const steps = multi ? parseSteps(raw.steps, bad) : null;
+    if (!multi && (typeof raw.author !== 'string' || !SNOWFLAKE.test(raw.author))) throw bad('author must be a member id');
+    if (!multi && !isScenarioText(raw.text)) throw bad(`text must be 1..${MAX_SCENARIO_TEXT} characters`);
     if (!Array.isArray(raw.grants) || raw.grants.some((g) => typeof g !== 'string' || !g.trim())) throw bad('grants must be a list of skill names, groups or "*"');
     const runs = raw.runs ?? 1;
     if (!Number.isInteger(runs) || runs < 1 || runs > MAX_RUNS) throw bad(`runs must be a whole number 1..${MAX_RUNS}`);
@@ -1660,14 +1702,57 @@ export function parseScenarios(text) {
       id: raw.id,
       channelId: raw.channelId,
       before: raw.before ?? null,
-      author: raw.author,
-      text: raw.text,
+      ...(multi ? { steps } : { author: raw.author, text: raw.text }),
       grants: raw.grants.map((g) => g.trim()),
       runs,
       result,
       discovery: named ? discovery.map((n) => n.trim()) : discovery,
     };
   });
+}
+
+/** Whether `value` is an invented message's text: 1..MAX_SCENARIO_TEXT characters, not blank. */
+function isScenarioText(value) {
+  return typeof value === 'string' && value.trim() !== '' && value.length <= MAX_SCENARIO_TEXT;
+}
+
+/** The `steps` of a multi-step scenario (see parseScenarios), each a CliError made by `bad` when wrong. */
+function parseSteps(steps, bad) {
+  if (!Array.isArray(steps) || steps.length === 0 || steps.length > MAX_STEPS) throw bad(`steps must be a list of 1..${MAX_STEPS} steps`);
+  return steps.map((step, index) => {
+    const wrong = (what) => bad(`step ${index + 1}: ${what}`);
+    if (!step || typeof step !== 'object' || Array.isArray(step)) throw wrong('not an object');
+    for (const key of Object.keys(step)) if (!STEP_KEYS.includes(key)) throw wrong(`unknown field ${key}`);
+    const message = (item, where) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) throw wrong(`${where} is not an object`);
+      for (const key of Object.keys(item)) if (!BURST_KEYS.includes(key)) throw wrong(`${where}: unknown field ${key}`);
+      if (typeof item.author !== 'string' || !SNOWFLAKE.test(item.author)) throw wrong(`${where}: author must be a member id`);
+      if (!isScenarioText(item.text)) throw wrong(`${where}: text must be 1..${MAX_SCENARIO_TEXT} characters`);
+      return { author: item.author, text: item.text };
+    };
+    const own = step.author !== undefined || step.text !== undefined;
+    const messages = own ? [message({ author: step.author, text: step.text }, 'the message')] : [];
+    if (step.burst !== undefined) {
+      if (!Array.isArray(step.burst) || step.burst.length === 0 || step.burst.length > MAX_BURST) throw wrong(`burst must be a list of 1..${MAX_BURST} messages`);
+      step.burst.forEach((item, i) => messages.push(message(item, `burst ${i + 1}`)));
+    }
+    if (messages.length === 0) throw wrong('needs author and text, or a burst');
+    const gapMinutes = step.gapMinutes ?? DEFAULT_GAP_MINUTES;
+    if (typeof gapMinutes !== 'number' || !Number.isFinite(gapMinutes) || gapMinutes <= 0 || gapMinutes > MAX_GAP_MINUTES) throw wrong(`gapMinutes must be more than 0 and at most ${MAX_GAP_MINUTES}`);
+    if (step.result !== undefined && (typeof step.result !== 'string' || step.result.length > MAX_SCENARIO_TEXT)) throw wrong(`result must be text of at most ${MAX_SCENARIO_TEXT} characters`);
+    return { messages, gapMinutes, result: step.result ?? null };
+  });
+}
+
+/**
+ * The model requests a `--skills` file may send at most (the spend gate's estimate): up to
+ * SKILL_REQUESTS_PER_RUN per decision -- her answer and the follow-up after a call -- and a
+ * run is one decision, or one per step of a multi-step scenario (each run replays every step).
+ * @param {{ runs: number, steps?: object[] }[]} scenarios  parseScenarios's.
+ * @returns {number}
+ */
+export function skillRequestEstimate(scenarios) {
+  return scenarios.reduce((total, scenario) => total + SKILL_REQUESTS_PER_RUN * scenario.runs * (Array.isArray(scenario.steps) ? scenario.steps.length : 1), 0);
 }
 
 /**
@@ -1819,6 +1904,85 @@ export function scenarioSummary(records) {
   };
 }
 
+/** A step record's letter in a run's pattern: C a call, N no call, M a malformed call. */
+const DECISION_LETTERS = Object.freeze({ call: 'C', 'no-call': 'N', 'malformed-call': 'M' });
+
+/**
+ * A multi-step scenario's counts over its step records (runRecord's with `step`, 1-based):
+ * scenarioSummary's over every decision, with `runs` the runs (not the decisions), `steps` the
+ * scenario's steps, `decisions` the step records, and per run its `pattern` (one letter per
+ * step answered, in order: `C` a call, `N` no call, `M` a malformed call), `firstDecline` (the
+ * first step she made no call in; null when she made one in every step), `resumed` (whether she
+ * made a call in a later step after that decline; null without one) and `complete` (every step
+ * answered: a run stopped by --spend or Ctrl-C is cut short). `pattern` is every run's pattern,
+ * space-separated (`CCCN NNNN`). Pure.
+ * @param {object[]} records  runRecord's, each with `step`.
+ * @param {number} steps  The scenario's step count.
+ */
+export function sequenceSummary(records, steps) {
+  const byRun = new Map();
+  for (const record of records) {
+    if (!byRun.has(record.run)) byRun.set(record.run, []);
+    byRun.get(record.run).push(record);
+  }
+  const sequences = [...byRun.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([run, list]) => {
+      const ordered = [...list].sort((a, b) => a.step - b.step);
+      const decline = ordered.find((record) => record.decision === 'no-call') ?? null;
+      const firstDecline = decline ? decline.step : null;
+      return {
+        run,
+        pattern: ordered.map((record) => DECISION_LETTERS[record.decision] ?? '?').join(''),
+        firstDecline,
+        resumed: firstDecline === null ? null : ordered.some((record) => record.step > firstDecline && record.decision === 'call'),
+        complete: ordered.length === steps,
+      };
+    });
+  return { ...scenarioSummary(records), runs: sequences.length, steps, decisions: records.length, pattern: sequences.map((s) => s.pattern).join(' '), sequences };
+}
+
+/**
+ * One run of a multi-step scenario, every step from the start: before each step its messages
+ * join the channel (`lineOf(message, at)`: a normalized line by the message's own author at
+ * `at`) -- the first `gapMinutes` after the newest line so far (the first step's at `firstAt`),
+ * a burst's next ones BURST_SPACING_MS apart -- and the last of them is the trigger of one
+ * decision: `answerStep({ situation, trigger, at, callMarks, result, step })` (her turn at the
+ * trigger's time over the channel so far and the earlier steps' call marks, the step's `result`
+ * else the scenario's; resolves `{ run, stopped }`), its run recorded (runRecord with `step`,
+ * 1-based, handed to `onRecord` as it comes), then carried into the channel the next step reads by
+ * `afterTurn({ transcript, callMarks, run, at, triggerId })` (src/behavior/sandbox.js#afterScenarioTurn:
+ * her lines and the call's mark). A stopped answer ends the run (`stopped`). Nothing here sends
+ * or writes; `answerStep` and `afterTurn` do what they do.
+ * @param {{ scenario: { id: string, result: string, steps: object[] }, history: object[], firstAt: number, runIndex: number,
+ *   lineOf: Function, answerStep: Function, afterTurn: Function, onRecord?: Function }} input
+ * @returns {Promise<{ records: object[], stopped: boolean, transcript: object[] }>}
+ */
+export async function playSteps({ scenario, history, firstAt, runIndex, lineOf, answerStep, afterTurn, onRecord }) {
+  let transcript = [...history];
+  let callMarks = [];
+  const records = [];
+  for (const [index, step] of scenario.steps.entries()) {
+    const times = transcript.map((line) => line?.ts).filter(Number.isFinite);
+    const start = index === 0 || times.length === 0 ? firstAt : Math.max(...times) + step.gapMinutes * 60_000;
+    const incoming = step.messages.map((message, i) => lineOf(message, start + i * BURST_SPACING_MS));
+    const trigger = incoming[incoming.length - 1];
+    const lines = [...transcript, ...incoming];
+    const situation = { history: lines, triggerId: trigger.id, kind: 'mention', mode: 'reply' };
+    const answered = await answerStep({ situation, trigger, at: trigger.ts, callMarks, result: step.result ?? scenario.result, step: index + 1 });
+    if (answered?.stopped || !answered?.run) return { records, stopped: true, transcript: lines };
+    const { scenario: id, run, ...rest } = runRecord(scenario.id, runIndex, answered.run);
+    const record = { scenario: id, run, step: index + 1, ...rest };
+    records.push(record);
+    if (typeof onRecord === 'function') onRecord(record);
+    ({ transcript, callMarks } = afterTurn({ transcript: lines, callMarks, run: answered.run, at: trigger.ts, triggerId: trigger.id }));
+  }
+  return { records, stopped: false, transcript };
+}
+
+/** At most THINK_EXCERPT_CHARS of her `<think>` for the report, on one line; the whole stays in runs.jsonl. */
+const THINK_EXCERPT_CHARS = 300;
+
 /** One line of text for a markdown table cell. */
 function cell(value) {
   return String(value ?? '').replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
@@ -1829,8 +1993,11 @@ function quoted(text) {
   return String(text ?? '').split('\n').map((line) => `> ${line}`).join('\n');
 }
 
-/** One pass of a run (visibleOf's) as markdown lines. */
-function passLines(pass) {
+/**
+ * One pass of a run (visibleOf's) as markdown lines; with `detail` (a step of a multi-step
+ * scenario) the members her messages would mention and the start of her `<think>` too.
+ */
+function passLines(pass, { detail = false } = {}) {
   if (!pass) return [];
   const out = [];
   for (const message of pass.messages) out.push(quoted(message), '');
@@ -1838,14 +2005,48 @@ function passLines(pass) {
   if (pass.gif) out.push(`gif: ${pass.gif}`, '');
   if (pass.draw) out.push(`draw: ${cell(pass.draw)}`, '');
   if (pass.messages.length === 0 && pass.reactions.length === 0 && !pass.gif && !pass.draw) out.push(pass.skip ? '(skip)' : '(nothing)', '');
+  if (detail && Array.isArray(pass.mentions)) out.push(`mentions: ${pass.mentions.length > 0 ? pass.mentions.join(', ') : '(none)'}; unknown handles: ${pass.unknownHandles ?? 0}`, '');
+  if (detail && pass.think) {
+    const think = cell(pass.think);
+    out.push(`think: ${think.length > THINK_EXCERPT_CHARS ? `${think.slice(0, THINK_EXCERPT_CHARS)}...` : think}`, '');
+  }
   return out;
 }
 
+/** One decision (a run, or a step of one) as markdown lines under `heading`; `detail` as passLines. */
+function recordLines(record, heading, { detail = false } = {}) {
+  const lines = [heading, ''];
+  if (record.decision === 'call') {
+    const verdict = record.verdict?.ok ? 'passed' : `refused at ${record.verdict?.stage}: ${record.verdict?.code}${record.verdict?.reason ? ` (${record.verdict.reason})` : ''}`;
+    lines.push(`call: \`${cell(record.skill)}\` ${cell(JSON.stringify(record.args))}`, '', `gateway: ${verdict}`, '');
+    if (detail && record.callMentions) lines.push(`call mentions: ${record.callMentions.mentions.join(', ') || '(none)'}; unknown handles: ${record.callMentions.unknownHandles ?? 0}`, '');
+  }
+  if (record.extraCalls > 0) lines.push(`extra calls ignored: ${record.extraCalls}`, '');
+  lines.push(...passLines(record.first, { detail }));
+  if (record.followUp?.error) lines.push(`follow-up failed: ${cell(record.followUp.error)}`, '');
+  else if (record.followUp) lines.push(`after the result (${record.result?.status}${record.result?.code ? `, ${record.result.code}` : ''}):`, '', ...passLines(record.followUp, { detail }));
+  lines.push(`tokens: ${record.tokens.prompt} in, ${record.tokens.completion} out; cost: ${record.cost === null ? '-' : record.cost.toFixed(4)}`, '');
+  return lines;
+}
+
+/** A multi-step scenario's steps as markdown lines: each message by its author, the gap before it. */
+function stepsLines(steps) {
+  const lines = [];
+  steps.forEach((step, index) => {
+    lines.push(`step ${index + 1} (+${step.gapMinutes} min${step.messages.length > 1 ? `, a burst of ${step.messages.length}` : ''}):`, '');
+    for (const message of step.messages) lines.push(quoted(`${message.author}: ${message.text}`), '');
+  });
+  return lines;
+}
+
 /**
- * The markdown report of a `--skills` run: a table of every scenario's counts (scenarioSummary),
- * then per scenario its message, grants and every run: the decision, the call with its
- * arguments and the gateway's verdict, her messages of the first pass and of the follow-up.
- * Tool output for the owner, not model-facing. Pure.
+ * The markdown report of a `--skills` run: a table of every scenario's counts (scenarioSummary;
+ * a multi-step scenario's over every decision, its runs counted as runs), a table of the
+ * multi-step ones (sequenceSummary: each run's pattern, its first decline, how many resumed
+ * after one), then per scenario its message (or steps), grants and every run: the decision, the
+ * call with its arguments and the gateway's verdict, her messages of the first pass and of the
+ * follow-up -- step by step for a multi-step one, with the members her messages would mention
+ * and the start of her `<think>`. Tool output for the owner, not model-facing. Pure.
  * @param {{ scenario: object, grantNames: string[], summary: object, records: object[], error?: string }[]} entries
  * @returns {string}
  */
@@ -1855,23 +2056,33 @@ export function renderSkillsReport(entries) {
     if (error) lines.push(`| ${cell(scenario.id)} | failed: ${cell(error)} | | | | | | | |`);
     else lines.push(`| ${cell(scenario.id)} | ${summary.runs} | ${summary.calls} | ${summary.passed} | ${summary.denied} | ${summary.noCall} | ${summary.malformed} | ${summary.followUps} | ${summary.cost === null ? '-' : summary.cost.toFixed(4)} |`);
   }
+  const sequences = entries.filter((entry) => !entry.error && entry.scenario.steps && Array.isArray(entry.summary?.sequences));
+  if (sequences.length > 0) {
+    lines.push('', '| scenario | steps | runs | calls per step (C call, N none, M malformed) | first decline | resumed after a decline |', '|---|---|---|---|---|---|');
+    for (const { scenario, summary } of sequences) {
+      const declined = summary.sequences.filter((s) => s.firstDecline !== null);
+      const firsts = summary.sequences.map((s) => (s.firstDecline === null ? '-' : String(s.firstDecline))).join(' ');
+      const resumed = `${declined.filter((s) => s.resumed).length}/${declined.length}`;
+      const cut = summary.sequences.some((s) => !s.complete) ? ' (cut short)' : '';
+      lines.push(`| ${cell(scenario.id)} | ${summary.steps} | ${summary.runs} | \`${cell(summary.pattern)}\`${cut} | ${firsts} | ${resumed} |`);
+    }
+  }
   for (const { scenario, grantNames, records = [], error } of entries) {
-    lines.push('', `## ${scenario.id}`, '', quoted(scenario.text), '', `grants: ${grantNames?.length ? grantNames.join(', ') : '(none)'}; discovery: ${Array.isArray(scenario.discovery) ? scenario.discovery.join(', ') : scenario.discovery}`, '');
+    const stimulus = scenario.steps ? stepsLines(scenario.steps) : [quoted(scenario.text), ''];
+    lines.push('', `## ${scenario.id}`, '', ...stimulus, `grants: ${grantNames?.length ? grantNames.join(', ') : '(none)'}; discovery: ${Array.isArray(scenario.discovery) ? scenario.discovery.join(', ') : scenario.discovery}`, '');
     if (error) {
       lines.push(`failed: ${cell(error)}`);
       continue;
     }
-    for (const record of records) {
-      lines.push(`### run ${record.run}: ${record.decision}`, '');
-      if (record.decision === 'call') {
-        const verdict = record.verdict?.ok ? 'passed' : `refused at ${record.verdict?.stage}: ${record.verdict?.code}${record.verdict?.reason ? ` (${record.verdict.reason})` : ''}`;
-        lines.push(`call: \`${cell(record.skill)}\` ${cell(JSON.stringify(record.args))}`, '', `gateway: ${verdict}`, '');
-      }
-      if (record.extraCalls > 0) lines.push(`extra calls ignored: ${record.extraCalls}`, '');
-      lines.push(...passLines(record.first));
-      if (record.followUp?.error) lines.push(`follow-up failed: ${cell(record.followUp.error)}`, '');
-      else if (record.followUp) lines.push(`after the result (${record.result?.status}${record.result?.code ? `, ${record.result.code}` : ''}):`, '', ...passLines(record.followUp));
-      lines.push(`tokens: ${record.tokens.prompt} in, ${record.tokens.completion} out; cost: ${record.cost === null ? '-' : record.cost.toFixed(4)}`, '');
+    if (!scenario.steps) {
+      for (const record of records) lines.push(...recordLines(record, `### run ${record.run}: ${record.decision}`));
+      continue;
+    }
+    const runs = [...new Set(records.map((record) => record.run))].sort((a, b) => a - b);
+    for (const run of runs) {
+      const steps = records.filter((record) => record.run === run).sort((a, b) => a.step - b.step);
+      lines.push(`### run ${run}: ${steps.map((record) => DECISION_LETTERS[record.decision] ?? '?').join('')}`, '');
+      for (const record of steps) lines.push(...recordLines(record, `#### step ${record.step}: ${record.decision}`, { detail: true }));
     }
   }
   return `${lines.join('\n').trimEnd()}\n`;
@@ -1943,14 +2154,20 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, store, gu
     }
     try {
       const channel = await readableChannel({ client, guild, guildId, channelId: scenario.channelId });
-      if (scenario.author === self.id) throw new CliError('replay-cli: the author is the persona');
-      const history = await fetchWindow({ guild, channel, self, anchorId: scenario.before, limit: Math.max(1, before), config: hot.config, fetchHistoryWindow, log, memberIds: [scenario.author] });
+      // Every member who writes in the scenario: one, or each step's authors.
+      const authors = scenario.steps ? [...new Set(scenario.steps.flatMap((step) => step.messages.map((message) => message.author)))] : [scenario.author];
+      if (authors.includes(self.id)) throw new CliError('replay-cli: the author is the persona');
+      const history = await fetchWindow({ guild, channel, self, anchorId: scenario.before, limit: Math.max(1, before), config: hot.config, fetchHistoryWindow, log, memberIds: authors });
       if (scenario.before && history[history.length - 1]?.id !== scenario.before) throw new CliError('replay-cli: the anchor message was not found in that channel');
       const last = history[history.length - 1] ?? null;
-      const at = scenario.before && last ? last.ts + SCENARIO_AFTER_MS : Date.now();
-      const authorName = guild.members.cache.get(scenario.author)?.displayName ?? store.getUser(guildId, scenario.author)?.names?.[0] ?? scenario.author;
-      const trigger = scenarioTrigger({ text: scenario.text, authorId: scenario.author, authorName, channel: channelOf(channel), selfId: self.id, at });
-      const situation = { history: [...history, trigger], triggerId: trigger.id, kind: 'mention', mode: 'reply' };
+      const firstGapMs = scenario.steps ? scenario.steps[0].gapMinutes * 60_000 : SCENARIO_AFTER_MS;
+      const at = scenario.before && last ? last.ts + firstGapMs : Date.now();
+      const nameOf = (id) => guild.members.cache.get(id)?.displayName ?? store.getUser(guildId, id)?.names?.[0] ?? id;
+      const lineOf = (message, ts) => scenarioTrigger({ text: message.text, authorId: message.author, authorName: nameOf(message.author), channel: channelOf(channel), selfId: self.id, at: ts });
+      // A single-turn scenario's message, or the first step's messages (a burst's 5 s apart, the last one the trigger).
+      const firstLines = scenario.steps ? scenario.steps[0].messages.map((message, i) => lineOf(message, at + i * BURST_SPACING_MS)) : [lineOf(scenario, at)];
+      const trigger = firstLines[firstLines.length - 1];
+      const situation = { history: [...history, ...firstLines], triggerId: trigger.id, kind: 'mention', mode: 'reply' };
 
       // The config with her grants, read now and kept for the scenario; never written.
       const scenarioConfig = personaGrantsConfig(hot.config, self.id, grantNames);
@@ -1962,44 +2179,85 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, store, gu
           return scenarioConfig;
         },
       };
-      const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at, args: { asOfMoment: args.asOfMoment, hideSelf: [], hideSelfAll: false }, mods: viewMods });
-      const requester = requesterOf(trigger, channel);
-      const inventory = scenarioInventory({ config: scenarioConfig, selfId: self.id, texts: hot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
+      // The memory as it stands at the scenario's first decision, for every step: nothing is learned in between.
+      const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at: trigger.ts, args: { asOfMoment: args.asOfMoment, hideSelf: [], hideSelfAll: false }, mods: viewMods });
       // `<skills_granted>`: the names of the skills the scenario grants her, as a live turn lists them.
       const skillsGranted = grantedSkillNames({ config: scenarioConfig, selfId: self.id, registry });
-      const media = replayMedia(situation.history, { cache: mediaCache, sites: scenarioConfig.media?.video?.sites, before: null });
-      const input = {
-        view, situation, selfId: self.id, selfName: self.name, channel: channelOf(channel), at,
-        descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory, skillsGranted,
+      // One decision's request inputs: the requester's catalogue (the trigger's author), the media of the channel so far.
+      const turnInput = (moment, turnAt, turnTrigger) => {
+        const requester = requesterOf(turnTrigger, channel);
+        const inventory = scenarioInventory({ config: scenarioConfig, selfId: self.id, texts: hot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
+        const media = replayMedia(moment.history, { cache: mediaCache, sites: scenarioConfig.media?.video?.sites, before: null });
+        const input = {
+          view, situation: moment, selfId: self.id, selfName: self.name, channel: channelOf(channel), at: turnAt,
+          descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory, skillsGranted,
+        };
+        return { input, requester, shown: { rows: inventory?.length ?? 0, allowed: (inventory ?? []).filter((row) => row.allowed).length } };
       };
-      const shown = { rows: inventory?.length ?? 0, allowed: (inventory ?? []).filter((row) => row.allowed).length };
+      const { input, requester, shown } = turnInput(situation, trigger.ts, trigger);
       if (args.dry) {
         const request = skillScenarioRequest(input);
         dry.push({
           id: scenario.id, channelId: channel.id, lines: history.length, systemChars: request.system.length, userChars: request.user.length,
           tokens: request.tokens, limit: request.limit, skillsBlock: blockOf(request.user, 'skills') !== null, skills: shown, runs: scenario.runs,
+          ...(scenario.steps ? { steps: scenario.steps.length } : {}),
         });
         continue;
       }
       const images = { quota: createImageGen({ apiKey: '', getConfig: () => scenarioConfig, state: frozenState, fetchImpl: refusing }).quota };
       const memoryOn = scenarioConfig.features?.memory !== false;
+      // Her call taken through the real resolution and gateway at `now`, never run: answered with `resultText`.
+      const onCallOf = (callRequester, now, resultText) => (call, { idByIndex, history: lines }) =>
+        simulateCall({
+          call,
+          view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, selfId: self.id, skills: registry }),
+          config: scenarioConfig,
+          selfId: self.id,
+          requester: callRequester,
+          conversationId: channel.id,
+          now,
+          images,
+          resultText,
+        });
+      if (scenario.steps) {
+        // Each run replays every step from the start: her turns carried into the channel the next step reads.
+        const { afterScenarioTurn } = mods;
+        const records = [];
+        let tokensEstimate = null;
+        for (let runIndex = 0; runIndex < scenario.runs; runIndex += 1) {
+          if (runSignal.aborted) {
+            cut = true;
+            break;
+          }
+          const played = await playSteps({
+            scenario, history, firstAt: at, runIndex, lineOf,
+            answerStep: async ({ situation: moment, trigger: stepTrigger, at: stepAt, callMarks, result }) => {
+              const step = turnInput(moment, stepAt, stepTrigger);
+              const answered = await answerSkillScenario({ ...step.input, llm: capped, runs: 1, signal: runSignal, callMarks, onCall: onCallOf(step.requester, stepAt, result) });
+              tokensEstimate ??= answered.request.tokens;
+              return { run: answered.runs[0] ?? null, stopped: answered.stopped };
+            },
+            afterTurn: ({ transcript, callMarks, run, at: turnAt, triggerId }) =>
+              afterScenarioTurn({ transcript, callMarks, run, at: turnAt, selfId: self.id, selfName: self.name, channel: channelOf(channel), triggerId, config: scenarioConfig }),
+            onRecord: (record) => fs.appendFileSync(jsonl, `${JSON.stringify(record)}\n`),
+          });
+          records.push(...played.records);
+          if (played.stopped) {
+            cut = true;
+            break;
+          }
+        }
+        const summary = sequenceSummary(records, scenario.steps.length);
+        entries.push({ scenario, grantNames, records, summary: { ...summary, skills: shown, tokensEstimate } });
+        log.info('replay-cli: skill scenario', { runs: summary.runs, steps: summary.steps, calls: summary.calls });
+        continue;
+      }
       const answered = await answerSkillScenario({
         ...input,
         llm: capped,
         runs: scenario.runs,
         signal: runSignal,
-        onCall: (call, { idByIndex, history: lines }) =>
-          simulateCall({
-            call,
-            view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, selfId: self.id, skills: registry }),
-            config: scenarioConfig,
-            selfId: self.id,
-            requester,
-            conversationId: channel.id,
-            now: at,
-            images,
-            resultText: scenario.result,
-          }),
+        onCall: onCallOf(requester, trigger.ts, scenario.result),
       });
       if (answered.stopped) cut = true;
       const records = answered.runs.map((run, index) => runRecord(scenario.id, index, run));
@@ -2076,11 +2334,10 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   // The spend gate: the estimate first; nothing is sent without --spend covering it.
   let spendBudget = null;
   if (args.showRequestTurn === null) {
-    const skillRuns = scenarios ? scenarios.reduce((total, s) => total + s.runs, 0) : 0;
     const requests = args.dry
       ? 0
-      : args.diary ? DIARY_REQUESTS_PER_BRIEF * args.count : args.pair ? 2 * pairTriggers.length : args.recall ? RECALL_REQUESTS : scenarios ? SKILL_REQUESTS_PER_RUN * skillRuns : args.samples;
-    const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? `, up to ${SKILL_REQUESTS_PER_RUN} per run: her answer and the follow-up after a call` : ''}`;
+      : args.diary ? DIARY_REQUESTS_PER_BRIEF * args.count : args.pair ? 2 * pairTriggers.length : args.recall ? RECALL_REQUESTS : scenarios ? skillRequestEstimate(scenarios) : args.samples;
+    const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? `, up to ${SKILL_REQUESTS_PER_RUN} per decision (a run, or each step of a run): her answer and the follow-up after a call` : ''}`;
     const gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail });
     if (!gate.ok) throw new CliError(`replay-cli: ${gate.text}`, { exitCode: REFUSED_EXIT });
     spendBudget = gate.budget;
@@ -2156,6 +2413,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     scenarioInventory,
     simulateCall,
     personaGrantsConfig,
+    afterScenarioTurn,
   } = await load('behavior/sandbox.js');
   const { fetchHistoryWindow, fetchMessage } = await load('discord/collect.js');
   const { createEmojiIndex } = await load('discord/emoji.js');
@@ -2182,6 +2440,8 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     skillMods = {
       answerSkillScenario, skillScenarioRequest, scenarioInventory, simulateCall, personaGrantsConfig, replayMedia,
       fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen, grantedSkillNames,
+      // Only a multi-step scenario carries a turn into the next step.
+      ...(scenarios.some((scenario) => scenario.steps) ? { afterScenarioTurn } : {}),
     };
     for (const [name, fn] of Object.entries(skillMods)) {
       if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--skills needs it)`);

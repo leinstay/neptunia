@@ -1,7 +1,9 @@
 // Tests for the skill scenarios of tools/replay.mjs (`--skills`): the scenario loader, the
 // persona's grants laid over a copy of the config, and her `<call>` taken through the real
 // resolution and the real gateway with the operation never run
-// (src/behavior/sandbox.js#simulateCall), all against fakes: no network, no data/.
+// (src/behavior/sandbox.js#simulateCall), and multi-step scenarios played step by step with her
+// turns carried into the next step (playSteps, afterScenarioTurn), all against fakes: no
+// network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,8 +13,12 @@ import { expandPersonaGrant } from '../src/ops/access.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/skills/access.js';
 import { callViewOf, requesterOf } from '../src/behavior/turn.js';
-import { personaGrantsConfig, scenarioInventory, simulateCall } from '../src/behavior/sandbox.js';
-import { parseArgs, parseScenarios, renderSkillsReport, runRecord, scenarioDiscovery, scenarioGrants, scenarioSummary, scenarioTrigger } from '../tools/replay.mjs';
+import { fill } from '../src/discord/format.js';
+import { afterScenarioTurn, answerSkillScenario, liveView, personaGrantsConfig, scenarioInventory, simulateCall } from '../src/behavior/sandbox.js';
+import {
+  parseArgs, parseScenarios, playSteps, renderSkillsReport, runRecord, scenarioDiscovery, scenarioGrants, scenarioSummary, scenarioTrigger, sequenceSummary, skillRequestEstimate,
+} from '../tools/replay.mjs';
+import { labels } from './fixtures/labels.js';
 
 const OWNER = '100000000000000042';
 const MEMBER = '100000000000000007';
@@ -227,4 +233,246 @@ test('replay --skills: the flags it takes; the invented message; a run as its JS
   const report = renderSkillsReport([{ scenario: { id: 's', text: 'Γεια | σου', discovery: 'inventory' }, grantNames: [], summary, records: [called, declined] }]);
   assert.ok(report.includes('| s | 2 | 1 | 0 | 1 | 1 | 0 | 1 |'));
   assert.ok(report.includes('refused at gateway: not-allowed') && report.includes('> δεν μπορώ'));
+});
+
+// ---- multi-step scenarios ---------------------------------------------------------
+
+const OTHER = '100000000000000009';
+const NAMES = { [OWNER]: 'Élodie', [MEMBER]: 'Zoë', [OTHER]: 'Νίκος' };
+
+/** The config of a sequence's view: what buildRequest reads, skills on, the owner, her grants laid over it. */
+function sequenceConfig(grants, features = {}) {
+  return personaGrantsConfig({
+    bot: { owners: [OWNER], timezone: 'UTC', access: {} },
+    context: {
+      channelMessages: 100, maxMessageChars: 800, gapMarkerMinutes: 20, otherProfiles: 6,
+      caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
+      vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
+    },
+    roles: { voice: 'x/chat' },
+    llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
+    skills: { safeMode: false },
+    features: { skills: true, followUpContinuation: true, ...features },
+  }, SELF, grants);
+}
+
+/** A model that answers `texts` in order and keeps every request it got. */
+function scriptedLlm(texts) {
+  const calls = [];
+  return {
+    calls,
+    complete: async (messages, options) => {
+      calls.push({ messages, options });
+      return { text: texts[calls.length - 1] ?? '<skip/>', usage: { prompt_tokens: 100, completion_tokens: 10 } };
+    },
+  };
+}
+
+/** The user text of one recorded request. */
+function userOf(call) {
+  const content = call.messages[1].content;
+  return typeof content === 'string' ? content : content.map((part) => part.text ?? '').join('');
+}
+
+/**
+ * One run of a multi-step scenario as the replay plays it (playSteps over answerSkillScenario,
+ * simulateCall and afterScenarioTurn), against fakes: the channel γενικά with νέα beside it.
+ */
+async function playSequence(rawSteps, texts, { grants = ['message.create', 'rule.add'], history = [] } = {}) {
+  const [scenario] = load([{ id: 'seq', channelId: HERE, steps: rawSteps, grants: [], result: 'SCENARIO_RESULT' }]);
+  const config = sequenceConfig(grants);
+  const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
+  const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [{ id: NEWS, name: 'νέα' }], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
+  const view = liveView({ hot, store, guildId: 'g1' });
+  const channel = fakeChannel();
+  const here = { id: HERE, name: 'γενικά' };
+  const llm = scriptedLlm(texts);
+  const steps = [];
+  const records = [];
+  const lineOf = (message, at) => scenarioTrigger({ text: message.text, authorId: message.author, authorName: NAMES[message.author], channel: here, selfId: SELF, at });
+  const played = await playSteps({
+    scenario, history, firstAt: NOW, runIndex: 0, lineOf,
+    answerStep: async ({ situation, trigger, at, callMarks, result }) => {
+      const requester = requesterOf(trigger, channel);
+      const answered = await answerSkillScenario({
+        view, situation, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at, callMarks,
+        onCall: (call, { idByIndex, history: lines }) =>
+          simulateCall({
+            call,
+            view: callViewOf({ channel, guildId: 'g1', idByIndex, lines, pulledIds: new Map(), memoryOn: false, store: null, selfId: SELF, skills: skillRegistry() }),
+            config, selfId: SELF, requester, conversationId: HERE, now: at, resultText: result,
+          }),
+      });
+      steps.push({ situation, trigger, at, callMarks, requests: llm.calls.length });
+      return { run: answered.runs[0] ?? null, stopped: answered.stopped };
+    },
+    afterTurn: ({ transcript, callMarks, run, at, triggerId }) => afterScenarioTurn({ transcript, callMarks, run, at, selfId: SELF, selfName: 'Persona', channel: here, triggerId, config }),
+    onRecord: (record) => records.push(record),
+  });
+  return { played, steps, records, llm };
+}
+
+/** Her call mark as the transcript words it with the test labels: done, in `channel`. */
+const marked = (skill, channel) => fill(labels.transcript.called, { skill, target: fill(labels.transcript.calledTargetChannel, { channel }), status: labels.transcript.callStatus.ok, posted: '' });
+
+test('parseScenarios: steps take the place of author and text; a burst adds messages by their own authors; defaults and refusals', () => {
+  const [scenario] = load([{ id: 'seq', channelId: HERE, grants: [], steps: [
+    { author: OWNER, text: 'α' },
+    { author: MEMBER, text: 'β', gapMinutes: 2.5, result: 'Résultat', burst: [{ author: OTHER, text: 'γ' }] },
+    { burst: [{ author: MEMBER, text: 'δ' }, { author: OWNER, text: 'ε' }] },
+  ] }]);
+  assert.deepEqual(scenario, {
+    id: 'seq', channelId: HERE, before: null, grants: [], runs: 1, result: '', discovery: 'inventory',
+    steps: [
+      { messages: [{ author: OWNER, text: 'α' }], gapMinutes: 1, result: null },
+      { messages: [{ author: MEMBER, text: 'β' }, { author: OTHER, text: 'γ' }], gapMinutes: 2.5, result: 'Résultat' },
+      { messages: [{ author: MEMBER, text: 'δ' }, { author: OWNER, text: 'ε' }], gapMinutes: 1, result: null },
+    ],
+  });
+  const step = (overrides) => ({ id: 's', channelId: HERE, grants: [], steps: [{ author: OWNER, text: 'α', ...overrides }] });
+  const refused = [
+    [{ ...step({}), author: OWNER }, /steps replace author and text/],
+    [{ id: 's', channelId: HERE, grants: [], steps: [] }, /steps must be a list of 1\.\.20/],
+    [{ id: 's', channelId: HERE, grants: [], steps: Array.from({ length: 21 }, () => ({ author: OWNER, text: 'α' })) }, /steps must be/],
+    [step({ extra: 1 }), /step 1: unknown field extra/],
+    [step({ author: 'x' }), /step 1: the message: author must be a member id/],
+    [{ id: 's', channelId: HERE, grants: [], steps: [{ gapMinutes: 2 }] }, /step 1: needs author and text, or a burst/],
+    [step({ burst: [] }), /burst must be a list of 1\.\.10/],
+    [step({ burst: [{ author: OTHER, text: 'γ', gapMinutes: 1 }] }), /burst 1: unknown field gapMinutes/],
+    [step({ burst: [{ author: 'x', text: 'γ' }] }), /burst 1: author/],
+    [step({ gapMinutes: 0 }), /gapMinutes/],
+    [step({ gapMinutes: '1' }), /gapMinutes/],
+    [step({ result: 3 }), /step 1: result/],
+  ];
+  for (const [scenarioRaw, message] of refused) assert.throws(() => load([scenarioRaw]), message);
+});
+
+test('replay --skills steps: three steps keep her lines and her call marks between steps; a post into another channel leaves only its mark', async () => {
+  const { played, steps, records, llm } = await playSequence(
+    [{ author: OWNER, text: 'πρώτο' }, { author: OWNER, text: 'δεύτερο', gapMinutes: 2, result: 'RULE_RESULT' }, { author: OWNER, text: 'τρίτο' }],
+    [
+      '<think>θα το στείλω</think><msg>μια στιγμή</msg><call skill="message.create" channel="#νέα">καλημέρα</call>',
+      '<msg>εντάξει</msg><call skill="rule.add">όχι spoilers</call>',
+      '<msg>έγινε</msg>',
+      '<msg>όχι</msg>',
+    ],
+  );
+  assert.equal(played.stopped, false);
+  assert.equal(llm.calls.length, 4, 'step 1 (a post needs no follow-up), step 2 and its follow-up, step 3');
+  assert.deepEqual(steps.map((s) => s.requests), [1, 3, 4]);
+
+  // Step 2 reads her step-1 line with the call's mark; the post went to νέα, so its text is not here.
+  const second = userOf(llm.calls[1]);
+  const createLine = second.split('\n').find((line) => line.includes('μια στιγμή'));
+  assert.ok(createLine && createLine.includes(marked('message.create', 'νέα')), second);
+  assert.ok(!second.includes('καλημέρα'), 'a post into another channel is not a line here');
+  assert.ok(second.indexOf('πρώτο') < second.indexOf('μια στιγμή') && second.indexOf('μια στιγμή') < second.indexOf('δεύτερο'));
+  assert.equal(steps[1].callMarks.length, 1);
+  assert.equal(steps[1].at, NOW + 1000 + 2 * 60_000, 'two minutes after the newest line: hers, a second after the trigger');
+
+  // The follow-up of step 2 keeps step 1's mark too.
+  const followUp = userOf(llm.calls[2]);
+  assert.ok(followUp.split('\n').find((line) => line.includes('μια στιγμή'))?.includes(marked('message.create', 'νέα')), followUp);
+  assert.ok(followUp.split('\n').find((line) => line.includes('εντάξει'))?.includes(marked('rule.add', 'γενικά')), followUp);
+
+  // Step 3 reads both turns: every line of hers, the rule.add mark on the follow-up's line (the turn's last).
+  const third = userOf(llm.calls[3]);
+  for (const text of ['μια στιγμή', 'εντάξει', 'έγινε', 'δεύτερο']) assert.ok(third.includes(text), text);
+  assert.ok(third.split('\n').find((line) => line.includes('έγινε'))?.includes(marked('rule.add', 'γενικά')), third);
+  assert.ok(!third.split('\n').find((line) => line.includes('εντάξει'))?.includes('rule.add'), 'the mark moved to the last line of the turn');
+  assert.equal(steps[2].callMarks.length, 2);
+
+  const hers = played.transcript.filter((line) => line.self);
+  assert.deepEqual(hers.map((line) => line.content), ['μια στιγμή', 'εντάξει', 'έγινε', 'όχι']);
+  assert.ok(hers.every((line) => line.authorId === SELF && /^\d+$/.test(line.id)));
+  assert.equal(hers[0].triggerId, steps[0].trigger.id, 'linked to the message that started her turn');
+  const times = played.transcript.map((line) => line.ts);
+  assert.deepEqual(times, [...times].sort((a, b) => a - b), 'the channel stays in time order');
+
+  // One record per step, the step number after the run, her whole think kept.
+  assert.deepEqual(records.map((r) => [r.run, r.step, r.decision, r.skill]), [[1, 1, 'call', 'message.create'], [1, 2, 'call', 'rule.add'], [1, 3, 'no-call', null]]);
+  assert.deepEqual(Object.keys(records[0]).slice(0, 3), ['scenario', 'run', 'step']);
+  assert.equal(records[0].first.think, 'θα το στείλω');
+  assert.deepEqual([records[0].verdict.ok, records[0].executed.args.channel, records[0].followUp], [true, NEWS, null]);
+  assert.deepEqual(records[1].followUp.messages, ['έγινε']);
+  assert.deepEqual(played.records, records);
+});
+
+test('replay --skills steps: a burst puts every author\'s message in before one decision; its last author is the requester', async () => {
+  const { steps, records, llm } = await playSequence(
+    [{ burst: [{ author: OWNER, text: 'πρόσθεσε κανόνα' }, { author: MEMBER, text: 'κι εμένα έναν' }] }],
+    ['<call skill="rule.add">όχι spoilers</call>', '<msg>όχι από σένα</msg>'],
+  );
+  assert.equal(steps.length, 1);
+  const lines = steps[0].situation.history;
+  assert.deepEqual(lines.slice(-2).map((line) => [line.authorId, line.content]), [[OWNER, 'πρόσθεσε κανόνα'], [MEMBER, 'κι εμένα έναν']]);
+  assert.equal(lines.at(-1).ts - lines.at(-2).ts, 5000);
+  assert.equal(steps[0].trigger.authorId, MEMBER);
+  const user = userOf(llm.calls[0]);
+  assert.ok(user.includes('Élodie') && user.includes('Zoë') && user.indexOf('πρόσθεσε κανόνα') < user.indexOf('κι εμένα έναν'), user);
+  assert.deepEqual([records[0].verdict.code, records[0].verdict.reason], ['requester-denied', 'not-granted'], 'the member who asked last lacks the right');
+  assert.deepEqual(records[0].followUp.messages, ['όχι από σένα']);
+});
+
+test('afterScenarioTurn: a post the call left here is her line hosting the mark; her reactions and drawing land; the transcript handed in is untouched', () => {
+  const here = { id: HERE, name: 'γενικά' };
+  const trigger = scenarioTrigger({ text: 'Γεια σου', authorId: MEMBER, authorName: 'Zoë', channel: here, selfId: SELF, at: NOW });
+  const answer = { messages: [{ text: 'γεια', replyTo: 1 }], reactions: [{ to: 1, emoji: '👍' }], gif: null, draw: { text: 'un chat', self: false, replyTo: null }, skip: false, think: '' };
+  const run = {
+    answer, call: { skill: 'message.create', args: {}, body: 'δεύτερο' }, followUp: null,
+    outcome: { verdict: { stage: 'gateway', ok: true }, executed: { skill: 'message.create', args: { text: 'δεύτερο' } }, result: { skill: 'message.create', status: 'ok', data: { text: '' } }, followUp: false },
+    refs: { idByIndex: new Map([[1, trigger.id]]), handles: null, followUpIdByIndex: null },
+  };
+  const before = structuredClone(trigger);
+  const out = afterScenarioTurn({ transcript: [trigger], callMarks: [], run, at: NOW, selfId: SELF, selfName: 'Persona', channel: here, triggerId: trigger.id, config: {} });
+  assert.deepEqual(trigger, before);
+  const [first, mine, drawn, posted] = out.transcript;
+  assert.deepEqual(first.reactions, [{ emoji: '👍', count: 1, mine: true }]);
+  assert.deepEqual([mine.content, mine.replyToId, mine.ts], ['γεια', trigger.id, NOW + 1000]);
+  assert.equal(drawn.attachments[0].kind, 'image');
+  assert.deepEqual([posted.content, posted.ts, posted.self], ['δεύτερο', NOW + 2000, true]);
+  assert.equal(out.callMarks.length, 1);
+  assert.deepEqual([out.callMarks[0].postedId, out.callMarks[0].posted], [posted.id, [mine.id, drawn.id, posted.id]]);
+  // No call: her lines only, the earlier marks kept, no new one.
+  const quiet = afterScenarioTurn({ transcript: [trigger], callMarks: out.callMarks, run: { ...run, call: null, outcome: null }, at: NOW, selfId: SELF, selfName: 'Persona', channel: here, triggerId: trigger.id, config: {} });
+  assert.equal(quiet.transcript.length, 3);
+  assert.equal(quiet.callMarks.length, 1);
+});
+
+test('sequenceSummary: each run\'s calls per step as letters, its first decline, whether she called again after it; the report\'s sequence table', () => {
+  const step = (run, n, decision) => ({
+    scenario: 'seq', run, step: n, decision, skill: decision === 'call' ? 'rule.add' : null, args: null, extraCalls: 0,
+    verdict: decision === 'call' ? { stage: 'gateway', ok: true } : null, followUp: null,
+    first: { messages: [], reactions: [], gif: null, draw: null, skip: true, think: 'σκέψη '.repeat(80) }, tokens: { prompt: 10, completion: 1 }, cost: null,
+  });
+  const records = [
+    ...['call', 'call', 'call', 'no-call'].map((d, i) => step(1, i + 1, d)),
+    ...['no-call', 'call', 'malformed-call', 'no-call'].map((d, i) => step(2, i + 1, d)),
+    step(3, 1, 'call'),
+  ];
+  const summary = sequenceSummary(records, 4);
+  assert.deepEqual([summary.runs, summary.steps, summary.decisions, summary.calls, summary.noCall, summary.malformed], [3, 4, 9, 5, 3, 1]);
+  assert.equal(summary.pattern, 'CCCN NCMN C');
+  assert.deepEqual(summary.sequences, [
+    { run: 1, pattern: 'CCCN', firstDecline: 4, resumed: false, complete: true },
+    { run: 2, pattern: 'NCMN', firstDecline: 1, resumed: true, complete: true },
+    { run: 3, pattern: 'C', firstDecline: null, resumed: null, complete: false },
+  ]);
+  const scenario = { id: 'seq', steps: [{ messages: [{ author: OWNER, text: 'α' }], gapMinutes: 1, result: null }], discovery: 'inventory' };
+  const report = renderSkillsReport([{ scenario, grantNames: ['rule.add'], summary, records }]);
+  assert.ok(report.includes('| seq | 4 | 3 | `CCCN NCMN C` (cut short) | 4 1 - | 1/2 |'), report);
+  assert.ok(report.includes('### run 2: NCMN') && report.includes('#### step 3: malformed-call'));
+  assert.ok(report.includes(`> ${OWNER}: α`));
+  const think = report.split('\n').find((line) => line.startsWith('think: '));
+  assert.ok(think.endsWith('...') && think.length <= 'think: '.length + 303, 'the start of her think only');
+});
+
+test('skillRequestEstimate: up to two requests per decision -- a run, or every step of every run', () => {
+  const [single, multi] = load([
+    raw({ id: 'one', runs: 3 }),
+    { id: 'seq', channelId: HERE, grants: [], runs: 2, steps: [{ author: OWNER, text: 'α' }, { author: OWNER, text: 'β' }, { burst: [{ author: MEMBER, text: 'γ' }, { author: OTHER, text: 'δ' }] }] },
+  ]);
+  assert.equal(skillRequestEstimate([single]), 6);
+  assert.equal(skillRequestEstimate([multi]), 12, 'three steps x two runs x two requests; a burst is one decision');
+  assert.equal(skillRequestEstimate([single, multi]), 18);
 });
