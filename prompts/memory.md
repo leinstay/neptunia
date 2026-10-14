@@ -261,7 +261,7 @@ Fields: `text` one plain line, ≤ {{recentChars}} chars, members as `<@id>`, wr
 
 All other prose fields (detail text, guild notes, channel notes) ≤ {{fieldChars}} chars each. Any prose field returned over its stated limit is discarded whole and the stored text stays, so keep within the limits.
 
-Write notes in the language the chat speaks. Record observed facts only. A first name or nickname that people openly use in chat is not sensitive. Never store sensitive information: addresses, phone numbers, identity documents, health conditions, financial details, real full names.
+Write notes in the language the chat speaks. Record observed facts only. A link in the chat is recorded by what it was about, never by pasting the address. A first name or nickname that people openly use in chat is not sensitive. Never store sensitive information: addresses, phone numbers, identity documents, health conditions, financial details, real full names.
 
 ## When nothing happened
 

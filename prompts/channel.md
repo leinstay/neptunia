@@ -28,4 +28,4 @@ Each field ≤ {{fieldChars}} chars.
 
 Everything you write is shown to the persona as its memory. Write as a person writes notes for themselves. One fact per sentence, plain words, few commas. No "not X but Y" contrasts, no groups of three for completeness, no sentence restating the one before it, no heavy vocabulary (pivotal, crucial, testament, showcase, underscore, or equivalents in whatever language the notes use), no trailing clauses about significance. No dash or semicolon between clauses, no ellipsis, no guillemets, no parenthetical asides.
 
-Write notes in the language the chat speaks. Record observed facts only. Never store sensitive information: addresses, phone numbers, identity documents, health conditions, financial details, real full names.
+Write notes in the language the chat speaks. Record observed facts only. A link in the chat is recorded by what it was about, never by pasting the address. Never store sensitive information: addresses, phone numbers, identity documents, health conditions, financial details, real full names.

@@ -129,7 +129,7 @@ GIF ピッカー（`features.gifPicker`、デフォルトオン）。ペルソ�
 `transcript.videoReason.*` の人間向けフレーズに置換されます。リンクはベースタグ（`link` / `linkText`）を維持し、動画のエクストラ
 （`linkWatched`、`linkNotWatchedFrame`、`linkNotWatched`）を追加します。静止フレームが画像として添付されている場合、
 `frameAttached` も追加されます。リンクは Discord の埋め込みから構築された `link` / `linkText`（サイト、タイトル、スニペット）を
-使用。`features.webLookup` が有効でリンクが読み取られた場合、リンクの他のエクストラ（動画、サムネイル）の後に `linkRead` が追加されます。テキストファイルは冒頭を `filePreview` で表示。転送されたメッセージは `forwarded` でラップ。`features.seeReactions` が有効（デフォルト）の場合、リアクションタグがメディアタグおよび転送ラッパーの後、行の末尾に追加されます。1 メッセージあたり最大 `context.reactionsPerMessage` 件のリアクションが頻度降順で表示されます。各項目は `transcript.reactionItem` または `transcript.reactionMine`（ペルソナがリアクションした場合）を使用し、", " で結合され `transcript.reactions` でラップされます。`transcript.reactions` キーのないラベルファイルでは何も表示されません。
+使用。投稿されたリンクの URL はメッセージテキスト内の元の位置に残ります（`context.maxUrlChars`、デフォルト 200 で切り詰め）。添付ファイル、Discord CDN ファイル、GIF、スタンプ、カスタム絵文字の URL は表示されません。`features.webLookup` が有効でリンクが読み取られた場合、リンクの他のエクストラ（動画、サムネイル）の後に `linkRead` が追加されます。テキストファイルは冒頭を `filePreview` で表示。転送されたメッセージは `forwarded` でラップ。`features.seeReactions` が有効（デフォルト）の場合、リアクションタグがメディアタグおよび転送ラッパーの後、行の末尾に追加されます。1 メッセージあたり最大 `context.reactionsPerMessage` 件のリアクションが頻度降順で表示されます。各項目は `transcript.reactionItem` または `transcript.reactionMine`（ペルソナがリアクションした場合）を使用し、", " で結合され `transcript.reactions` でラップされます。`transcript.reactions` キーのないラベルファイルでは何も表示されません。
 
 動画の結果は添付ファイルごとまたはリンクごとに `data/guilds/<id>/media.json` にキー
 `video:<itemId>`（添付ファイル ID、またはリンク URL の安定ハッシュ）で保存されます。キャッシュエントリ:

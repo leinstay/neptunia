@@ -128,7 +128,7 @@ GIF 挑选器（`features.gifPicker`，默认开启）。当角色写了一条�
 `videoNotWatched`（未观看，无帧）。原因代码（`length` / `size` / `daily` / `error` / `pending`）在进入对话记录前会被替换
 为 `transcript.videoReason.*` 中的人类可读短语。链接保留其基础标签（`link` / `linkText`）并添加视频附加标签：
 `linkWatched`、`linkNotWatchedFrame` 或 `linkNotWatched`。当静帧作为图片附加时，还会添加 `frameAttached`。
-链接使用 `link` / `linkText`，取自 Discord 的嵌入（站点、标题、摘要）；当 `features.webLookup` 开启且链接已被阅读时，`linkRead` 追加在链接的其他附加标签（视频、缩略图）之后。文本文件通过 `filePreview` 显示开头
+链接使用 `link` / `linkText`，取自 Discord 的嵌入（站点、标题、摘要）；用户发送的链接 URL 保留在消息文本的原始位置（截断至 `context.maxUrlChars`，默认 200），而附件、Discord CDN 文件、GIF、贴纸和自定义表情的 URL 不会出现；当 `features.webLookup` 开启且链接已被阅读时，`linkRead` 追加在链接的其他附加标签（视频、缩略图）之后。文本文件通过 `filePreview` 显示开头
 内容；转发消息用 `forwarded` 包裹。当 `features.seeReactions` 开启（默认）时，反应标签追加在行的
 最末尾，位于媒体标签和转发包裹之后。每条消息最多列出 `context.reactionsPerMessage` 个反应，按频率降序排列；
 每个条目使用 `transcript.reactionItem` 或 `transcript.reactionMine`（当角色是反应者之一时），以 ", " 连接

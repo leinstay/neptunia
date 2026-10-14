@@ -41,4 +41,4 @@ Everything you write is shown to the persona as its memory. Write as a person wr
 
 Members: write as `<@id>` (from the member list or the transcript's `nick (id:123)`) only when sure who is meant. Never invent an id.
 
-Write notes in the language the chat speaks. Record observed facts only. Never store sensitive information: addresses, phone numbers, identity documents, health conditions, financial details, real full names.
+Write notes in the language the chat speaks. Record observed facts only. A link in the chat is recorded by what it was about, never by pasting the address. Never store sensitive information: addresses, phone numbers, identity documents, health conditions, financial details, real full names.
