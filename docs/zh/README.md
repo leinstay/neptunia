@@ -114,7 +114,7 @@ Neptunia 在被呼叫时回答: 通过 @提及、回复它的消息、或在文�
 提示从两个目录加载：
 
 - `prompts/`：附带可用示例角色的引擎默认值（随仓库追踪）。
-- `prompts.local/`：你的角色定义（已加入 gitignore）。此目录下的文件会替换 `prompts/` 中的同名文件。`labels.json` 采用深度合并，只需覆盖需要更改的键即可。
+- `prompts.local/`：你的角色定义（已加入 gitignore）。此目录下的文件会替换 `prompts/` 中的同名文件。`labels.json` 和 `skills.json` 采用深度合并，只需覆盖需要更改的键即可。
 
 两者均支持热重载。
 
@@ -140,7 +140,7 @@ Neptunia 在被呼叫时回答: 通过 @提及、回复它的消息、或在文�
 
 Discord 斜杠命令只有一个：`/nep`（名称来自 `bot.commandName`），注册为服务器命令。所有回复仅调用者可见（ephemeral），不论在哪个频道。
 
-18 个顶层条目：
+19 个顶层条目：
 
 - `status` 显示机器人状态、连接、模型、限额和记忆计数器的卡片
 - `set` / `unset` 覆盖或移除 config.local.json 中的配置值
@@ -153,6 +153,7 @@ Discord 斜杠命令只有一个：`/nep`（名称来自 `bot.commandName`），
 - `route` 按模型前缀和角色管理 provider 路由
 - `rule` 添加、列出或移除 `prompts.local/rules.md` 中的修正
 - `access` 为身份组和用户授予或撤销操作
+- `skill` 允许、禁止或列出角色的技能
 - `diary` 设置、查看或关闭日记，发布条目
 - `alias` 添加或移除成员昵称
 - `learning` 添加或移除所学内容
@@ -259,6 +260,7 @@ prompts/
   channel.md               预热：从消息样本生成频道笔记
   server.md                预热：从频道笔记和成员摘要生成服务器级笔记
   labels.json              代码插入提示中的所有字符串
+  skills.json              角色的技能文本（title、whenToUse、whenNotToUse）
 prompts.local/             你的角色定义（已加入 gitignore）
 docs/
   en/

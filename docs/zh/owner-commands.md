@@ -1,6 +1,6 @@
 # 命令
 
-一个斜杠命令 `/nep`，含 18 个顶层条目。所有回复均为 ephemeral（仅调用者可见）。频道、身份组和用户从 Discord 自带的选择器中选取。部分选项支持自动补全：`set`/`unset` 自动补全 `path`，`access grant`/`access revoke` 自动补全 `command`，`model set` 自动补全 `id`（当前使用的模型 ID），`route set`/`route remove` 自动补全 `model`，`memory restore` 自动补全 `id`（最新的归档条目）。
+一个斜杠命令 `/nep`，含 19 个顶层条目。所有回复均为 ephemeral（仅调用者可见）。频道、身份组和用户从 Discord 自带的选择器中选取。部分选项支持自动补全：`set`/`unset` 自动补全 `path`，`access grant`/`access revoke` 自动补全 `command`，`model set` 自动补全 `id`（当前使用的模型 ID），`route set`/`route remove` 自动补全 `model`，`memory restore` 自动补全 `id`（最新的归档条目）。
 
 ## 访问控制
 
@@ -8,7 +8,7 @@
 
 所有者（`bot.owners`）始终可以执行一切。其他人需要对确切操作的授权。`/nep access grant <operation> [role] [user]` 将一个操作（如 `memory.profile.read`）开放给所有人（不指定身份组/用户）、某个身份组或某个用户。可以指定组名（如 `memory`）或 `*`，但授权会记录为该时刻存在的各个读取操作，每个单独一条：它不会开放写入操作，后续新增的操作在按名称授权前保持关闭。`/nep access revoke` 从一个操作中移除目标，或从组或 `*` 下的所有已记录操作中移除。`/nep access list` 显示每个操作、持有者以及授权的来源（当它是组或 `*` 展开的一部分时）。没有授权的非所有者会收到 ephemeral 回复 "Not allowed"。
 
-仅所有者操作（`access.*`、`diary.*`、`memory.private.*`、`memory.journal.read`、`memory.snapshot`、`memory.forget`、`memory.wipe`、`memory.archive.read`、`memory.restore`）不会被任何授权（包括 `*`）开放。
+仅所有者操作（`access.*`、`skill.*`、`diary.*`、`memory.private.*`、`memory.journal.read`、`memory.snapshot`、`memory.forget`、`memory.wipe`、`memory.archive.read`、`memory.restore`）不会被任何授权（包括 `*`）开放。
 
 **从旧命令键迁移。** 在引入操作式访问控制后的首次启动时，所有已存储的授权会一次性转换：旧命令键变为它所执行的操作；旧组或 `*` 展开为它所覆盖的读取操作；仅所有者操作被移除。日志中的 `system` 记录 `access-migrated` 列出了每个旧授权现在覆盖的内容。迁移后执行：`/nep access revoke * everyone`，然后 `/nep access grant memory.profile.read everyone`，再按名称重新授权其他需要的操作（用 `/nep access list` 检查）。
 
@@ -39,6 +39,9 @@
 | `/nep access grant <command> [role] [user]` | `access.grant` | ephemeral | 将操作、组或 * 开放给所有人、身份组或用户；`command` 自动补全 |
 | `/nep access revoke <command> [role] [user]` | `access.revoke` | ephemeral | 从所有人、身份组或用户撤销操作、组或 *；`command` 自动补全 |
 | `/nep access list` | `access.list` | ephemeral | 列出所有访问授权 |
+| `/nep skill allow <name>` | `skill.allow` | ephemeral | 允许角色一个技能；`name` 自动补全 |
+| `/nep skill deny <name>` | `skill.deny` | ephemeral | 收回角色的一个技能；`name` 自动补全 |
+| `/nep skill list` | `skill.list` | ephemeral | 所有技能：已允许或未允许及原因 |
 | `/nep diary set <channel>` | `diary.set` | ephemeral，延迟 | 设置日记频道 |
 | `/nep diary show` | `diary.show` | ephemeral | 今日日记状态 |
 | `/nep diary off` | `diary.off` | ephemeral | 停止日记 |
@@ -64,6 +67,16 @@
 | `/nep memory restore <id>` | `memory.restore` | ephemeral，延迟 | 恢复一个归档条目；`id` 自动补全 |
 | `/nep memory snapshot` | `memory.snapshot` | ephemeral，延迟 | 为工具做 data/ 快照 |
 | `/nep memory private <action:show\|forget\|purge> <user>` | `memory.private.read`, `memory.private.forget`, `memory.private.purge` | ephemeral，`memory.private.forget`、`memory.private.purge` 延迟 | 成员的私有记忆：在私信中说过什么 |
+
+## 技能命令
+
+`/nep skill allow` 和 `/nep skill deny` 切换角色的单个技能。只有两个级别：允许或不允许。聊天中的同意永远不会授予技能：只有经 Discord 认证的所有者命令才能更改访问权限。角色可以用言语请求技能，`access.request` 技能可以为所有者留下请求记录，但决定权在所有者手中。
+
+`/nep skill list` 显示每个已注册技能及其当前状态：已允许（谁在何时允许）、继承（仅当前会话）或未允许。当 `features.skills` 关闭时列表会注明。当 `skills.safeMode` 开启时列表会注明。
+
+**继承（仅当前会话）** 表示角色的普通回复标签（`<msg>`、`<react>`、`<draw>`）在当前会话中无需允许记录即视为 `message.send`、`message.react.add` 和 `draw`。这是角色继续对话的方式：回复是一批通过网关的技能调用，因为它们指向当前回合所属的会话。允许记录会将技能扩展到其他会话。
+
+三个操作（`skill.allow`、`skill.deny`、`skill.list`）均为仅所有者。每次访问变更都作为 `system` 记录 `skill-access` 写入日志。
 
 ## 记忆命令
 

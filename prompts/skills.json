@@ -1,52 +1,52 @@
 {
   "message.send": {
     "title": "Send a message",
-    "whenToUse": "To write in a conversation you may write to, as a new message or as a reply to a given message, with text or a media item.",
-    "whenNotToUse": "Not for your ordinary reply here: that is your normal answer. Not for a conversation you were not given."
+    "whenToUse": "Write in another conversation you have access to: a new message, a reply to a specific message, text or a media item.",
+    "whenNotToUse": "Your ordinary reply in the current conversation is not this skill. Only conversations you were given."
   },
   "message.edit": {
     "title": "Edit your message",
-    "whenToUse": "To correct one of your own earlier messages when you notice a mistake in it or are told about one.",
-    "whenNotToUse": "Not for someone else's message, and not to rewrite what you said only because the conversation moved on."
+    "whenToUse": "Fix one of your own earlier messages: a factual mistake, a typo, something you were told is wrong.",
+    "whenNotToUse": "Only your own messages. Do not rewrite a message just because the conversation moved past it."
   },
   "message.delete": {
     "title": "Delete your message",
-    "whenToUse": "To remove one of your own messages that should not stay.",
-    "whenNotToUse": "Not for someone else's message, and not to hide a message people already answered."
+    "whenToUse": "Remove one of your own messages that should no longer be there.",
+    "whenNotToUse": "Only your own messages. Do not delete a message people already responded to."
   },
   "message.react.add": {
     "title": "Add a reaction",
-    "whenToUse": "To react to a message with an emoji instead of, or besides, writing.",
-    "whenNotToUse": "Not in a conversation you were not given."
+    "whenToUse": "Place an emoji reaction on a message, with or without a written reply.",
+    "whenNotToUse": "Only in conversations you have access to."
   },
   "message.react.remove": {
     "title": "Remove your reaction",
-    "whenToUse": "To take back one of your own reactions.",
-    "whenNotToUse": "Not for reactions other people left."
+    "whenToUse": "Take back one of your own reactions from a message.",
+    "whenNotToUse": "Only your own reactions."
   },
   "draw": {
     "title": "Draw a picture",
-    "whenToUse": "To make one picture and post it in a conversation you may write to. It costs money and has a daily limit.",
-    "whenNotToUse": "Not when words are enough, and not again for a picture that already failed to post."
+    "whenToUse": "Generate one picture and post it in a conversation you have access to. Costs money, daily limit applies.",
+    "whenNotToUse": "Do not retry a picture that already failed to post."
   },
   "memory.read": {
     "title": "Read your notes on a member",
-    "whenToUse": "To look up what you remember about a member when the conversation needs it.",
-    "whenNotToUse": "Not to show someone notes they may not see."
+    "whenToUse": "Look up what you remember about a member when the conversation calls for it and the asker may see it.",
+    "whenNotToUse": "Do not surface notes the asker or the audience should not see."
   },
   "status.show": {
     "title": "Check your state",
-    "whenToUse": "To see how you are running right now: limits, pause, what is on and off.",
-    "whenNotToUse": "Not as a reply to chat about how you feel."
+    "whenToUse": "See your runtime state: limits, pause, what is on and off.",
+    "whenNotToUse": "This is operational data, not a way to talk about how you feel."
   },
   "skills.list": {
     "title": "List your skills",
-    "whenToUse": "To see which skills you have, which are open to you here, and why the rest are closed.",
-    "whenNotToUse": "Not when you already know the skill you need."
+    "whenToUse": "See which skills exist, which are open to you here, and why the rest are closed.",
+    "whenNotToUse": "Skip when you already know which skill you need."
   },
   "access.request": {
     "title": "Ask for a skill",
-    "whenToUse": "To leave the owner a request to open a skill you need; the owner decides.",
-    "whenNotToUse": "Not for a skill already open to you, and not again for one you already asked about."
+    "whenToUse": "Leave the owner a request to open a skill you need. The owner decides.",
+    "whenNotToUse": "A skill already open to you does not need a request. Do not repeat a request you already made."
   }
 }

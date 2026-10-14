@@ -1,6 +1,6 @@
 # Commands
 
-One slash command, `/nep`, with 18 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
+One slash command, `/nep`, with 19 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, `skill allow`/`skill deny` autocomplete `name` (the persona's skill names), and `memory restore` autocompletes `id` (the newest archive entries).
 
 ## Access
 
@@ -8,7 +8,7 @@ One slash command, `/nep`, with 18 top-level entries. Every reply is ephemeral (
 
 Owners (`bot.owners`) can always run everything. Everyone else needs a grant on the exact operation. `/nep access grant <operation> [role] [user]` opens one operation (e.g. `memory.profile.read`) to everyone (no role or user given), to a role, or to a user. A group name (e.g. `memory`) or `*` is accepted, but the grant is stored as the individual read operations that exist at that moment, one entry each: it never opens a write, and an operation added later stays closed until it is granted by name. `/nep access revoke` removes the target from one operation, or from every stored operation under a group or `*`. `/nep access list` shows each operation, who holds it, and where each grant came from when it was part of a group or `*` expansion. Without a grant, a non-owner gets an ephemeral "Not allowed" reply.
 
-Owner-only operations (`access.*`, `diary.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.forget`, `memory.wipe`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
+Owner-only operations (`access.*`, `skill.*`, `diary.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.forget`, `memory.wipe`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
 
 **Migration from the old command keys.** On the first start after the deploy that keyed access by operation, every stored grant is converted once: an old command key becomes the operation it ran; an old group or `*` becomes the read operations it covered; owner-only operations are dropped. A journal `system` record `access-migrated` lists what each old grant covers now. After the migration: `/nep access revoke * everyone`, then `/nep access grant memory.profile.read everyone`, and re-grant any other operation by name (check `/nep access list`).
 
@@ -41,6 +41,9 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep access grant <command> [role] [user]` | `access.grant` | ephemeral | Open an operation, group or * to everyone, a role or a user; `command` autocompletes |
 | `/nep access revoke <command> [role] [user]` | `access.revoke` | ephemeral | Revoke an operation, group or * from everyone, a role or a user; `command` autocompletes |
 | `/nep access list` | `access.list` | ephemeral | List every access grant |
+| `/nep skill allow <name>` | `skill.allow` | ephemeral | Allow the persona one skill; `name` autocompletes |
+| `/nep skill deny <name>` | `skill.deny` | ephemeral | Take one skill back from the persona; `name` autocompletes |
+| `/nep skill list` | `skill.list` | ephemeral | Every skill, allowed or not, and why |
 | `/nep diary set <channel>` | `diary.set` | ephemeral, deferred | Set the diary channel |
 | `/nep diary show` | `diary.show` | ephemeral | Diary state today |
 | `/nep diary off` | `diary.off` | ephemeral | Stop the diary |
@@ -66,6 +69,16 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep memory restore <id>` | `memory.restore` | ephemeral, deferred | Restore an archived item; `id` autocompletes |
 | `/nep memory snapshot` | `memory.snapshot` | ephemeral, deferred | Snapshot data/ for the tools |
 | `/nep memory private <action:show\|forget\|purge> <user>` | `memory.private.read`, `memory.private.forget`, `memory.private.purge` | ephemeral, deferred for `memory.private.forget`, `memory.private.purge` | A member's private memory: what they said in DMs |
+
+## Skill commands
+
+`/nep skill allow` and `/nep skill deny` toggle individual skills for the persona. Each skill is either allowed or not; two levels, no middle ground. A "yes" in chat never grants a skill: only the owner's command, authenticated by Discord, changes access. The persona may ask for a skill in words, and the `access.request` skill can leave a record for the owner, but the owner decides with the command.
+
+`/nep skill list` shows every registered skill with its current state: allowed (by whom and when), carried over (the current conversation only), or not allowed. When `features.skills` is off, the list says so. When `skills.safeMode` is on, the list says so.
+
+**Carried over (current conversation only)** means the persona's normal reply tags (`<msg>`, `<react>`, `<draw>`) count as `message.send`, `message.react.add` and `draw` in the current conversation without an allow record. This is how the persona keeps talking: its reply is a batch of skill calls that pass the gateway because they are in the conversation the turn belongs to. An allow record opens the skill for other conversations too.
+
+All three operations (`skill.allow`, `skill.deny`, `skill.list`) are owner-only. Every access change is journaled as a `system` record `skill-access`.
 
 ## Memory commands
 

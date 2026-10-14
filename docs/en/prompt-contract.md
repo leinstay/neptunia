@@ -9,7 +9,7 @@ other. See `CONTRIBUTING.md` for the workflow around changes.
 | Directory | Tracked | Content |
 |---|---|---|
 | `prompts/` | yes | English engine defaults + a neutral example character. Works out of the box |
-| `prompts.local/` | no | A deployment's overrides: a file replaces the default of the same name; `labels.json` is deep-merged |
+| `prompts.local/` | no | A deployment's overrides: a file replaces the default of the same name; `labels.json` and `skills.json` are deep-merged |
 
 Both hot-reloaded. `/nep rule add` writes to `prompts.local/rules.md` (seeded from the default), never to `prompts/`.
 All instructions are English in both layers; a character's speech samples may be in the language it speaks.
@@ -61,6 +61,7 @@ All instructions are English in both layers; a character's speech samples may be
 | `merge.md` | no | Classifier: does a new message from an author with waiting items belong to one of them. Receives a numbered `<waiting>` list and the new message as `<candidate>`. Output is one line: a number from the list or the word `new`. No character card. Without this file a new call is always queued as its own item | `{{name}}` |
 | `backfill.md` | no | Out-of-character prompt of the backfill tool (`tools/backfill.mjs extract`, never the running bot): picks episodes worth months and lessons taught to the persona out of one window of old chat. Receives `<roster>` and `<window>`. Returns JSON. No character card. Without it the tool's extract step refuses | `{{name}}` |
 | `labels.json` | yes | Every string the CODE inserts into a prompt. Keys fixed below, values are the writer's | see below |
+| `skills.json` | yes | The persona's skill texts, keyed by skill name (`hot.prompts.skills`). Deep-merged like `labels.json`: a local file adds or overrides individual keys. Each key holds `title`, `whenToUse`, `whenNotToUse`. Code joins them with the structural definition from `src/skills/registry.js` at the moment of use (`describeSkill`) | none |
 
 `{{name}}` bot's display name · `{{author}}` caller's display name · `{{trigger}}` one of `labels.triggers.*` ·
 `{{target}}` index of the calling message (`#87`).

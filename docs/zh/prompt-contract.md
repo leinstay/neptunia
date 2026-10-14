@@ -9,7 +9,7 @@
 | 目录 | 受版本控制 | 内容 |
 |---|---|---|
 | `prompts/` | 是 | 英文引擎默认值 + 一个中性的示例角色。开箱即用 |
-| `prompts.local/` | 否 | 部署的覆盖文件：一个文件替换同名的默认文件；`labels.json` 采用深度合并 |
+| `prompts.local/` | 否 | 部署的覆盖文件：一个文件替换同名的默认文件；`labels.json` 和 `skills.json` 采用深度合并 |
 
 两者均支持热重载。`/nep rule add` 写入 `prompts.local/rules.md`（从默认文件初始化），永远不写入 `prompts/`。
 两层中的所有指令均为英文；角色的语音示例可以使用角色所说的语言。
@@ -59,6 +59,7 @@
 | `split.md` | 否 | 分类器：直接呼叫是否包含多个独立请求（`features.splitTasks`）。接收一段短 `<transcript>` 和新消息作为 `<candidate>`。输出为 `one`，或 2 到 `{{maxTasks}}` 行，每行以 `- ` 开头，用作者自己的话表述一个部分。不接收角色卡。没有此文件时分拆器关闭 | `{{name}}` `{{maxTasks}}` |
 | `merge.md` | 否 | 分类器：已有等候条目的作者的新消息是否属于其中一个。接收编号的 `<waiting>` 列表和新消息作为 `<candidate>`。输出为一行：列表中的一个编号或 `new`。不接收角色卡。没有此文件时新呼叫始终作为独立条目排队 | `{{name}}` |
 | `labels.json` | 是 | 代码插入提示中的所有字符串。键在下方固定，值由编写者决定 | 见下文 |
+| `skills.json` | 是 | 角色的技能文本，以技能名称为键（`hot.prompts.skills`）。与 `labels.json` 一样深度合并：本地文件可添加或覆盖单个键。每个键包含 `title`、`whenToUse`、`whenNotToUse`。代码在使用时将其与 `src/skills/registry.js` 的结构定义结合（`describeSkill`） | 无 |
 
 `{{name}}` 机器人的显示名称 · `{{author}}` 呼叫者的显示名称 · `{{trigger}}` `labels.triggers.*` 之一 ·
 `{{target}}` 呼叫消息的索引（`#87`）。

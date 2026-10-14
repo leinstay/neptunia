@@ -58,6 +58,14 @@
 | `typingSimulation` | `true` | 模拟输入速度 |
 | `adminCommands` | `true` | 所有者斜杠命令；设为 `false` 时注销命令 |
 | `memberCommands` | `true` | `/nep pings` 命令，所有成员可用；`false` 仅限所有者 |
+| `skills` | `true` | 角色的技能网关。`false` 拒绝所有技能调用，也会停止继承的回复效果（消息、反应、绘图）：完全停止。缺失的键视为开启 |
+
+## `skills`
+
+| 键 | 默认值 | 说明 |
+|---|---|---|
+| `conversations` | `[]` | 角色可以操作的其他会话（频道 ID）。空列表表示仅当前会话 |
+| `safeMode` | `false` | 仅角色继承的回复效果通过（普通回复的标签：`<msg>`、`<react>`、`<draw>`，仅针对当前会话）。所有其他技能被拒绝。必须为 `true` 才能启用 |
 
 ## `bot`
 

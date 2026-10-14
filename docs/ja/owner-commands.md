@@ -1,6 +1,6 @@
 # コマンド
 
-スラッシュコマンド `/nep` 1 つに 18 のトップレベルエントリ。すべての応答はエフェメラル（実行者のみに表示）。チャンネル、ロール、ユーザーは Discord 標準のピッカーから選択します。一部のオプションはオートコンプリート対応: `set`/`unset` は `path`、`access grant`/`access revoke` は `command`、`model set` は `id`（使用中のモデル ID）、`route set`/`route remove` は `model`、`memory restore` は `id`（最新のアーカイブエントリ）をオートコンプリートします。
+スラッシュコマンド `/nep` 1 つに 19 のトップレベルエントリ。すべての応答はエフェメラル（実行者のみに表示）。チャンネル、ロール、ユーザーは Discord 標準のピッカーから選択します。一部のオプションはオートコンプリート対応: `set`/`unset` は `path`、`access grant`/`access revoke` は `command`、`model set` は `id`（使用中のモデル ID）、`route set`/`route remove` は `model`、`memory restore` は `id`（最新のアーカイブエントリ）をオートコンプリートします。
 
 ## アクセス
 
@@ -8,7 +8,7 @@
 
 オーナー（`bot.owners`）はすべてを常に実行できます。それ以外のユーザーには正確なオペレーションへのグラントが必要です。`/nep access grant <operation> [role] [user]` で 1 つのオペレーション（例: `memory.profile.read`）を全員（ロール/ユーザー指定なし）、ロール、またはユーザーに開放します。グループ名（例: `memory`）や `*` も指定できますが、グラントはその時点で存在する読み取りオペレーションとして個別に記録されます。書き込みは開放されず、後で追加されたオペレーションは名前で明示的にグラントするまで閉じたままです。`/nep access revoke` は対象を 1 つのオペレーションから、またはグループや `*` 配下のすべてのオペレーションから削除します。`/nep access list` は各オペレーション、その保持者、およびグループや `*` 展開の一部だったグラントの出所を表示します。グラントがなければ、オーナー以外のメンバーはエフェメラルな "Not allowed" の応答を受け取ります。
 
-オーナー専用オペレーション（`access.*`、`diary.*`、`memory.private.*`、`memory.journal.read`、`memory.snapshot`、`memory.forget`、`memory.wipe`、`memory.archive.read`、`memory.restore`）は `*` を含むいかなるグラントでも開放されません。
+オーナー専用オペレーション（`access.*`、`skill.*`、`diary.*`、`memory.private.*`、`memory.journal.read`、`memory.snapshot`、`memory.forget`、`memory.wipe`、`memory.archive.read`、`memory.restore`）は `*` を含むいかなるグラントでも開放されません。
 
 **旧コマンドキーからの移行。** オペレーションベースのアクセスを導入したデプロイ後の初回起動時に、すべての保存済みグラントが一度変換されます: 旧コマンドキーはそれが実行していたオペレーションに、旧グループや `*` はカバーしていた読み取りオペレーションに展開され、オーナー専用オペレーションは除外されます。ジャーナルの `system` レコード `access-migrated` に、各旧グラントが現在カバーする内容が記録されます。移行後: `/nep access revoke * everyone`、次に `/nep access grant memory.profile.read everyone` を実行し、他の必要なオペレーションを名前で再グラントしてください（`/nep access list` で確認）。
 
@@ -39,6 +39,9 @@
 | `/nep access grant <command> [role] [user]` | `access.grant` | エフェメラル | オペレーション、グループ、または * を全員、ロール、またはユーザーに開放; `command` はオートコンプリート |
 | `/nep access revoke <command> [role] [user]` | `access.revoke` | エフェメラル | オペレーション、グループ、または * を全員、ロール、またはユーザーから取り消し; `command` はオートコンプリート |
 | `/nep access list` | `access.list` | エフェメラル | すべてのアクセスグラントを表示 |
+| `/nep skill allow <name>` | `skill.allow` | エフェメラル | ペルソナにスキルを 1 つ許可; `name` はオートコンプリート |
+| `/nep skill deny <name>` | `skill.deny` | エフェメラル | ペルソナからスキルを 1 つ取り消し; `name` はオートコンプリート |
+| `/nep skill list` | `skill.list` | エフェメラル | すべてのスキル: 許可/不許可とその理由 |
 | `/nep diary set <channel>` | `diary.set` | エフェメラル、遅延 | 日記チャンネルを設定 |
 | `/nep diary show` | `diary.show` | エフェメラル | 今日の日記の状態 |
 | `/nep diary off` | `diary.off` | エフェメラル | 日記を停止 |
@@ -64,6 +67,16 @@
 | `/nep memory restore <id>` | `memory.restore` | エフェメラル、遅延 | アーカイブされたアイテムを復元; `id` はオートコンプリート |
 | `/nep memory snapshot` | `memory.snapshot` | エフェメラル、遅延 | data/ をツール用にスナップショット |
 | `/nep memory private <action:show\|forget\|purge> <user>` | `memory.private.read`, `memory.private.forget`, `memory.private.purge` | エフェメラル、`memory.private.forget`・`memory.private.purge` は遅延 | メンバーのプライベートメモリ: DM で話した内容 |
+
+## スキルコマンド
+
+`/nep skill allow` と `/nep skill deny` はペルソナの個別のスキルを切り替えます。2 レベルのみ: 許可か不許可か。チャットでの「はい」はスキルを開放しません: Discord が認証したオーナーのコマンドのみがアクセスを変更します。ペルソナは言葉でスキルを要求でき、`access.request` スキルはオーナーへのリクエスト記録を残せますが、決定はオーナーがコマンドで行います。
+
+`/nep skill list` は登録済みのすべてのスキルとその現在の状態を表示します: 許可（誰がいつ）、引き継ぎ（現在の会話のみ）、または不許可。`features.skills` がオフの場合、リストにその旨が表示されます。`skills.safeMode` がオンの場合、リストにその旨が表示されます。
+
+**引き継ぎ（現在の会話のみ）** とは、ペルソナの通常リプライタグ（`<msg>`、`<react>`、`<draw>`）が許可レコードなしに現在の会話で `message.send`、`message.react.add`、`draw` として扱われることを意味します。これによりペルソナは会話を続けます: リプライはターンが属する会話で通過するスキル呼び出しのバッチです。許可レコードは他の会話にもスキルを開放します。
+
+3 つのオペレーション（`skill.allow`、`skill.deny`、`skill.list`）はすべてオーナー専用です。すべてのアクセス変更は `system` レコード `skill-access` としてジャーナルに記録されます。
 
 ## メモリコマンド
 

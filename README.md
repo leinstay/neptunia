@@ -114,7 +114,7 @@ Neptunia answers when called: by a mention, a reply to their message, or just th
 Prompts load from two directories:
 
 - `prompts/`: tracked engine defaults shipping a working example character.
-- `prompts.local/`: your personality (gitignored). A file here replaces the same-named file in `prompts/`. `labels.json` is deep-merged, so only overridden keys are needed.
+- `prompts.local/`: your personality (gitignored). A file here replaces the same-named file in `prompts/`. `labels.json` and `skills.json` are deep-merged, so only overridden keys are needed.
 
 Both are hot-reloaded.
 
@@ -138,9 +138,9 @@ First run on a new server: enable `features.dryRun`, watch the mirror or `journa
 
 ## Commands
 
-One Discord slash command, `/nep` (the name comes from `bot.commandName`), registered as a guild command for the served server. Every reply is ephemeral: only the caller sees it, in whatever channel it was typed.
+One Discord slash command, `/nep` (the name comes from `bot.commandName`), registered as a guild command for the served server. Every reply is ephemeral: only the caller sees it, in whatever channel it was typed. Skill commands (`/nep skill allow`, `deny`, `list`) toggle the persona's own skills; owner-only, journaled.
 
-The 18 top-level entries:
+The 19 top-level entries:
 
 - `status` shows a card with the bot's state, connection, models, limits and memory counters
 - `set` / `unset` override or remove a config value in `config.local.json`
@@ -153,6 +153,7 @@ The 18 top-level entries:
 - `route` manages provider routing per model prefix and role
 - `rule` appends, lists or removes live corrections in `prompts.local/rules.md`
 - `access` grants or revokes operations for roles and users
+- `skill` allows, denies or lists the persona's own skills
 - `diary` sets, shows or stops the diary and posts an entry
 - `alias` adds or removes a member's nickname
 - `learning` adds or removes a taught lesson
@@ -262,6 +263,7 @@ prompts/
   channel.md               warmup: channel notes from a message sample
   server.md                warmup: server-level notes from channel notes and member summaries
   labels.json              every code-inserted string in prompts
+  skills.json              the persona's skill texts (title, whenToUse, whenNotToUse)
 prompts.local/             your personality (gitignored)
 docs/
   en/
@@ -327,6 +329,12 @@ src/
     learning.js            /nep learning (add, remove)
     lore.js                /nep lore (add, list, show, remove)
     memory.js              /nep memory (show, channel, server, recent, refresh user/channel/server, forget, affinity, wipe, journal, archive, restore, snapshot, private)
+    skill.js               /nep skill (allow, deny, list)
+  skills/
+    registry.js            skill definitions: names, families, effects, cost classes, argument schemas
+    access.js              two-level access: allowed or not, carried-over tags, safe mode
+    gateway.js             rights check before a skill runs
+    schema.js              argument validation against the skill's JSON schema
   llm/
     tokens.js              token estimation with self-calibration
     budget.js              priority-ordered section trimming

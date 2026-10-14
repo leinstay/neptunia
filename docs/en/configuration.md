@@ -63,6 +63,14 @@ Every key in `config.json` with its default, grouped by section.
 | `typingSimulation` | `true` | Simulate typing speed |
 | `adminCommands` | `true` | Owner slash commands; `false` unregisters them |
 | `memberCommands` | `true` | The `/nep pings` command, open to every member; `false` restricts it to owners |
+| `skills` | `true` | The persona's skill gateway. `false` refuses every skill call, which also silences carried-over reply effects (messages, reactions, drawing): a full stop. A missing key counts as on |
+
+## `skills`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `conversations` | `[]` | Conversations the persona may act in besides the current one (channel ids). Empty means the current conversation only |
+| `safeMode` | `false` | Only the persona's carried-over reply effects pass (the tags of a normal reply: `<msg>`, `<react>`, `<draw>`, aimed at the current conversation). Every other skill is refused. Must be exactly `true` to enable |
 
 ## `bot`
 
