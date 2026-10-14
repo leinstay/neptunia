@@ -44,13 +44,13 @@
 | `recall-summary.md` | 否 | 角色外提示，用于 recall 摘要（`features.recall`）：读取服务器搜索找到的旧聊天片段并回答问题，可选择指出一段供角色逐字看到的原文。不接收角色卡 | `{{name}}` `{{answerChars}}` |
 | `room.md` | 否 | 分类器：这条消息是面向所有人还是面向特定人（`spontaneous.roomQuestionChance`）。接收一段短对话记录、作者的别名和一个 `<candidate>` 块。输出为一个词：`yes` 或 `no` | `{{name}}` |
 | `route-channel.md` | 否 | 分类器：回答这条消息是否需要角色看另一个频道（`features.channelRoute`）。接收一段短对话记录、一个 `<channels>` 列表和一个 `<candidate>` 块。输出为一行：列表中的一个编号、`<n> earlier`（该频道上次展示之前的页面）或 `none`。在 `context.pull.seenTtlMinutes` 内没有上次展示时，earlier 显示最新页面 | `{{name}}` |
-| `planner.md` | 否 | 回合规划器（`features.turnPlanner`）：回复前的一次辅助调用，取代频道路由、情节选择、搜索分类器和重看分类器。接收 `<channels>`、`<episodes>`、`<media>`、短对话记录（`web.search.contextMessages` 行）和 `<candidate>` 块。输出为四个标签块（`channel`、`episodes`、`rewatch`、`lookup`）。角色 `classifier.reason`，purpose `planner`；输出上限 `web.search.classifierMaxOutputTokens`。不接收角色卡 | `{{name}}` `{{today}}` |
+| `planner.md` | 否 | 回合规划器（`features.turnPlanner`）：回复前的一次辅助调用，取代频道路由、情节选择、搜索分类器和重看分类器。接收 `<channels>`、`<episodes>`、`<media>`、短对话记录（`web.search.contextMessages` 行）和 `<candidate>` 块。输出为四个标签块（`channel`、`episodes`、`rewatch`、`lookup`）。角色 `reasoner`，purpose `planner`；输出上限 `web.search.classifierMaxOutputTokens`。不接收角色卡 | `{{name}}` `{{today}}` |
 | `elsewhere.md` | 否 | 任务：角色读了一个无法发言的频道，可以在主频道评论（`features.elsewhere`）。用作 noticed 回合的任务文本。`<skip/>` 是正常结果 | `{{name}}` `{{channel}}` `{{destination}}` |
 | `read-link.md` | 否 | 角色外提示，用于链接阅读器（`features.webLookup`，`web.links.enabled`）：将获取的页面浓缩为一个段落。接收页面标题和正文。不接收角色卡 | `{{today}}` `{{maxChars}}` |
 | `search-summary.md` | 否 | 角色外提示，用于搜索浓缩器（`features.webLookup`，`web.search.enabled`）：将编号的搜索结果浓缩为带内联来源的笔记。不接收角色卡 | `{{today}}` `{{query}}` `{{maxChars}}` |
 | `private.md` | 否 | 追加在模式提示（`reply.md`）之后、`forced.md` 之前，仅在 DM 中使用（`features.privateMessages`）。这是一段私聊：此处所说的一切留在此处；角色保留其公共知识。文件不存在则不追加任何内容 | `{{name}}` `{{author}}` |
 | `diary.md` | 是 | 任务：写日记帖子。角色自己的频道，无人请求。计划的种类和概要、过去的帖子、可选的世界和搜索结果在用户消息块中。输出：`<msg>`（1 至 `diary.maxMessages`）、`<draw>` 或 `<skip/>`；`<react>` 和 `<gif>` 被丢弃。无回复属性，无链接 | `{{name}}` |
-| `diary-plan.md` | 是 | 计划器：选择种类、概要、是否搜索和绘画。在 `classifier.text` 上运行，无角色卡。接收 `<now>`、`<server>`、`<about_chat>`、`<recent>`、`<lore>`、`<world>`、`<diary>`、`<kinds>`、`<seeds>`、`<topic>`。回答一个 JSON 对象 | `{{name}}` |
+| `diary-plan.md` | 是 | 计划器：选择种类、概要、是否搜索和绘画。在 `reasoner` 角色上运行，无角色卡。接收 `<now>`、`<server>`、`<about_chat>`、`<recent>`、`<lore>`、`<world>`、`<diary>`、`<kinds>`、`<seeds>`、`<topic>`。回答一个 JSON 对象 | `{{name}}` |
 | `world.md` | 否 | 角色的虚拟世界：聊天之外的场所和日常。仅在日记的计划和生成请求中渲染为 `<world>` 块，且仅当 `diary.world === true`。普通回合中不使用。无文件或开关关闭则无块 | `{{name}}` |
 | `diary-seeds.md` | 否 | 日记计划器的随机种子族。`# name` 标题开始一个族；代码从每族选一行，组成 `diary.seedSets` 个组合。文件不存在或 `seedSets` = 0 时省略 | 无 |
 | `draw.md` | 是 | 绘画子进程的角色外提示（`features.imageGeneration`）：根据场景描述生成一张图片。仅接收外貌和请求，不接收角色卡 | `{{name}}` `{{appearance}}` `{{request}}` `{{when}}` |
@@ -113,7 +113,7 @@
 仅日记模式：`<found>`（紧随 `<lookup>` 之后）、`<world>`（整体，attitudes 之后）、`<diary>`（最旧的行先被截断）、`<plan>` + `<kinds>` + `<seeds>` + `<topic>`（不会被截断）->
 相邻频道 -> 表情符号（从底部删除条目，然后删除整个块；`context.caps.emoji`）-> GIF（同样的裁剪；`context.caps.gifs`）。
 
-GIF 挑选器（`features.gifPicker`，默认开启）。当角色写了一条短回复（不超过 `gifs.pick.maxChars` 个字符，默认 160）且自己没选 GIF 时，分类器（`classifier.text`，purpose `gif-pick`，`gifs.pick.maxOutputTokens` 60，提示 `prompts/gif-pick.md`）接收最近 `gifs.pick.contextMessages`（默认 4）行聊天（标明所回复的消息）、角色的第一条消息及带说明的完整库（每条记录附说明，角色最近发送过的附自用标记）。分类器返回一个 handle 或 `none`。返回 handle 时 GIF 替换第一条发出消息并以其原本的回复方式发送；其余消息按原顺序跟随。GIF 发送失败时，所有消息照常发布。分类器在第一条消息的打字模拟期间运行；每日 GIF 限额 `gifs.maxPerDay` 生效。日志：`gifs: picked`（handle true/false，库大小）或 `gifs: pick failed`。
+GIF 挑选器（`features.gifPicker`，默认开启）。当角色写了一条短回复（不超过 `gifs.pick.maxChars` 个字符，默认 160）且自己没选 GIF 时，分类器（`analyzer` 角色，purpose `gif-pick`，`gifs.pick.maxOutputTokens` 60，提示 `prompts/gif-pick.md`）接收最近 `gifs.pick.contextMessages`（默认 4）行聊天（标明所回复的消息）、角色的第一条消息及带说明的完整库（每条记录附说明，角色最近发送过的附自用标记）。分类器返回一个 handle 或 `none`。返回 handle 时 GIF 替换第一条发出消息并以其原本的回复方式发送；其余消息按原顺序跟随。GIF 发送失败时，所有消息照常发布。分类器在第一条消息的打字模拟期间运行；每日 GIF 限额 `gifs.maxPerDay` 生效。日志：`gifs: picked`（handle true/false，库大小）或 `gifs: pick failed`。
 
 对话记录行中的媒体，使用可用的最具信息量的形式：附加在当前请求上的图片 →
 `transcript.imageAttached`（按图片在文本后的顺序编号）；已描述的 →
@@ -161,8 +161,7 @@ GIF 挑选器（`features.gifPicker`，默认开启）。当角色写了一条�
 
 ```
 locale                                   BCP-47 tag for dates
-status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word. The embedding role (`classifier.embed`) is probed with a one-input embedding request of this text instead of a chat completion; when no embedding client is wired the embed line says it was not checked
-status.fallback                          {role}: shown next to a role whose own key is unset, marking that its model comes from another role's key; `{role}` is the role it falls back to. Without this label, no fallback marker is shown
+status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word. The embedding role is probed with a one-input embedding request of this text instead of a chat completion; when no embedding client is wired the embed line says it was not checked
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: 相隔至少 `context.gapMarkerMinutes` 分钟的两条相邻行之间的时间；措辞不能让人把它当成消息的距今时间
@@ -563,13 +562,13 @@ task.added                               {added}: later messages from the author
 角色回复某人后，该频道内打开一个对话窗口（`mention.followUpMinutes`，每次进一步回复时延长）。窗口内不
 携带触发信号（无提及、无对角色消息的回复、无名字）的消息不会被盲目回复：代码将频道最近的
 `mention.followUpContext`（默认 15）行发送给 `address.md`，角色自身的行以 `labels.self` 标记，加上以
-`<candidate>` 标记的新消息，使用 `classifier.text` 模型角色（默认 `anthropic/claude-sonnet-4.6`）。输出
+`<candidate>` 标记的新消息，使用 `analyzer` 角色的模型。输出
 为一个词：当候选消息是在对角色说话或延续与角色的对话时为 `yes`，当人们在对别人或整个房间谈论角色时为 `overheard`，当对话与角色无关时为 `no`。
 对另一成员的显式 @提及在询问模型之前即为 `no`；Discord 为被回复作者自动添加的隐式提醒不算作此类提及。当
 `mention.followUpClassifyReplies` 开启（默认 `true`，缺失键 = 开启）时，对另一成员消息的回复会像普通文本一样发送给
 分类器。关闭该开关时，对另一成员的任何回复自动为 `no`。
 
-当 `mention.classifyWhileBusy` 开启（默认 `true`，缺失键 = 开启）时，回合执行期间到达的后续候选仍通过相同的窗口、no-streak 和预过滤检查后发送给分类器；每个频道同时最多一个分类器调用，较新的保留行替换较早的。关闭该开关时，或 `mention.pendingSameChannel` 关闭且候选自身频道繁忙时，候选不会被分类（`yes` 无论如何都会被丢弃）。每次调用计为 `llm.maxRequestsPerDay` 下的一次 `classifier.text` 请求。遇到繁忙回合的 `yes` 在挂起队列中等候（记录 `follow-up: deferred`）。队列中每个频道保留一个延迟跟进，较新的替换较早的（记录 `follow-up: dropped`，原因 `newer`）。注意力空闲后通过与提及相同的检查（过期、开关、暂停、发送权限、消息仍存在）以及两个自有检查来拾取（`follow-up: picked up`）：该频道和作者的跟进窗口仍然开启（`mention.followUpMinutes` 和 no-streak），否则丢弃 `closed`；以及该行未出现在该频道中已应答回合的历史记录中，否则丢弃 `answered`。通过这些检查后，延迟跟进与即时跟进一样计为一次呼叫，并按 `mention.followUpIgnoreChance` 进行忽略概率判定。当 `mention.pendingOverheard` 开启（默认 `true`，缺失键 = 开启）时，遇到繁忙回合的 `overheard` 在挂起队列中等候，角色在当前回合结束后做出反应。等候中的跟进不会被后来的 overheard 行挤出；等候中的 overheard 行会被后来的跟进、后来的 overheard 行或直接提及、回复或名字呼叫挤出。等候中的 overheard 行不计入垃圾消息限制，也不作为频道中等候的呼叫报告给其他回合。关闭该开关时，`overheard` 在繁忙回合中被丢弃（`busy`）。
+当 `mention.classifyWhileBusy` 开启（默认 `true`，缺失键 = 开启）时，回合执行期间到达的后续候选仍通过相同的窗口、no-streak 和预过滤检查后发送给分类器；每个频道同时最多一个分类器调用，较新的保留行替换较早的。关闭该开关时，或 `mention.pendingSameChannel` 关闭且候选自身频道繁忙时，候选不会被分类（`yes` 无论如何都会被丢弃）。每次调用计为 `llm.maxRequestsPerDay` 下的一次 `analyzer` 请求。遇到繁忙回合的 `yes` 在挂起队列中等候（记录 `follow-up: deferred`）。队列中每个频道保留一个延迟跟进，较新的替换较早的（记录 `follow-up: dropped`，原因 `newer`）。注意力空闲后通过与提及相同的检查（过期、开关、暂停、发送权限、消息仍存在）以及两个自有检查来拾取（`follow-up: picked up`）：该频道和作者的跟进窗口仍然开启（`mention.followUpMinutes` 和 no-streak），否则丢弃 `closed`；以及该行未出现在该频道中已应答回合的历史记录中，否则丢弃 `answered`。通过这些检查后，延迟跟进与即时跟进一样计为一次呼叫，并按 `mention.followUpIgnoreChance` 进行忽略概率判定。当 `mention.pendingOverheard` 开启（默认 `true`，缺失键 = 开启）时，遇到繁忙回合的 `overheard` 在挂起队列中等候，角色在当前回合结束后做出反应。等候中的跟进不会被后来的 overheard 行挤出；等候中的 overheard 行会被后来的跟进、后来的 overheard 行或直接提及、回复或名字呼叫挤出。等候中的 overheard 行不计入垃圾消息限制，也不作为频道中等候的呼叫报告给其他回合。关闭该开关时，`overheard` 在繁忙回合中被丢弃（`busy`）。
 
 `yes` 先经过忽略概率判定，未被忽略时启动触发类型为 `followUp` 的回复模式回合：任务文本来自 `prompts/follow-up.md`（缺失时回退到 `reply.md`），因此 `yes` 并不保证会有回答。跟进与提及一样计为作者的一次呼叫，判定以 `mention.followUpIgnoreChance`（默认 `0`）代替 `mention.ignoreChance` 作为起点；重复惩罚、垃圾消息判定和态度修正与其他呼叫一样适用。被忽略的跟进记录为 `mention: decided`，原因 `ignored:follow-up`（作者近期的呼叫算作重复或垃圾消息时为 `ignored:repeat` 或 `ignored:spam`），窗口及其 no-streak 保持不变。`overheard` 触发触发类型为 `overheard` 的回复模式回合：任务文本来自 `prompts/overheard.md`（缺失时回退到模式提示），作者档案标题无 `interlocutorMark`，纯文本发布，不计入重复惩罚，不进行忽略概率判定，限制拒绝时无通知，无搜索或重看分类器，绘画视为未请求（无图片配额通知，无用户级图片计数，无 `drawFailed` 后续）。`mention.followUpOverheard` 关闭时，`overheard` 回答启动普通跟进回合（日志中仍记录 `answer: 'overheard'`）。当 `overheard` 判定时分类器调用期间有更新的消息被搁置，先分类搁置消息：`yes` 则为其启动跟进回合，`overheard` 则为搁置消息启动 `overheard` 回合，`no` 则为原始候选启动 `overheard` 回合。
 
@@ -580,7 +579,7 @@ task.added                               {added}: later messages from the author
 
 当角色被直接呼叫（回复回合，非 `overheard` 或自发回合）且频道最近 `media.video.rewatch.recentMessages`（默认 60）条消息中有视频或图片时，分类器判断
 该消息是否在询问其中某个项目、声称了某张图片的具体细节，或请求重试一个未加载的视频。候选包括已观看视频、错误状态视频和已描述图片（附件图片，包括角色自己的上传；粘贴的图片链接不在范围内）。图片仅在 `features.vision` 开启时提供。分类器最多收到 `media.video.rewatch.maxCandidates`（默认 6）个项目，视频在前图片在后，各类型内按最新
-消息优先排列。代码将 `rewatch.md` 作为系统提示发送到 `classifier.text` 模型角色（默认 `anthropic/claude-sonnet-4.6`），
+消息优先排列。代码将 `rewatch.md` 作为系统提示发送到 `analyzer` 角色的模型，
 用户消息包含三个块：一个短的 `<transcript>` 包含频道最近几条消息，角色自身的行以 `labels.self` 标记（使分类器能看到候选消息回复的对象），然后是媒体列表和候选：
 
 ```
@@ -607,7 +606,7 @@ task.added                               {added}: later messages from the author
 视频的问题命中时，视频模型使用 `rewatch-answer.md`（`{{question}}` 和 `{{maxChars}}` = `rewatch.answerChars`，默认
 1200）再次观看片段，回答以 `transcript.videoAnswered`（`{question}`、`{text}`）的形式追加在已观看标签之后。
 
-图片的问题命中时，视觉模型（`classifier.media`，`purpose: relook`，提示 `rewatch-answer.md`，类型无关）带着该问题再次查看图片。回答不存储为说明（缓存一小时），对话记录在图片行下方携带 `transcript.imageAnswered`（`{question}`、`{text}`）。
+图片的问题命中时，视觉模型（`vision` 角色，`purpose: relook`，提示 `rewatch-answer.md`，类型无关）带着该问题再次查看图片。回答不存储为说明（缓存一小时），对话记录在图片行下方携带 `transcript.imageAnswered`（`{question}`、`{text}`）。
 
 当功能开启时，`<senses>` 块包含 `senses.videoRewatch`。
 
@@ -621,7 +620,7 @@ task.added                               {added}: later messages from the author
 
 ## 搜索与 recall 分类器
 
-当角色被直接呼叫（回复回合，非 `overheard` 或自发回合）且 `lookup.md` 提示文件存在时，分类器判断触发消息是否需要网络搜索、服务器历史搜索或两者兼有。代码将 `lookup.md` 作为系统提示，使用 `classifier.text` 模型角色，用户消息包含一个短的 `<transcript>`（与重看分类器相同，角色自身的行以 `labels.self` 标记）和一个 `<candidate>` 块：
+当角色被直接呼叫（回复回合，非 `overheard` 或自发回合）且 `lookup.md` 提示文件存在时，分类器判断触发消息是否需要网络搜索、服务器历史搜索或两者兼有。代码将 `lookup.md` 作为系统提示，使用 `reasoner` 角色的模型，用户消息包含一个短的 `<transcript>`（与重看分类器相同，角色自身的行以 `labels.self` 标记）和一个 `<candidate>` 块：
 
 ```
 <transcript>
@@ -641,13 +640,13 @@ task.added                               {added}: later messages from the author
 
 单行无标注（旧格式）仍被读取为网络查询。空白或空的回答为失败调用（`reason: empty`），不是安静的 `none`。
 
-`web:` 命中时，Brave Search 运行查询（`web.search.results` 个结果，默认 5），编号的结果通过 `classifier.text` 经 `search-summary.md`（`{{today}}`、`{{query}}`、`{{maxChars}}` = `web.search.summaryChars`，默认 900）浓缩，网络部分渲染在 `<lookup>` 块中：`labels.lookup.header` 附带查询词，浓缩文本，以及 `labels.lookup.sources` 附带不同的站点名称。搜索无结果或浓缩器未找到有用内容时，显示 `labels.lookup.none`。
+`web:` 命中时，Brave Search 运行查询（`web.search.results` 个结果，默认 5），编号的结果通过 `reasoner` 角色经 `search-summary.md`（`{{today}}`、`{{query}}`、`{{maxChars}}` = `web.search.summaryChars`，默认 900）浓缩，网络部分渲染在 `<lookup>` 块中：`labels.lookup.header` 附带查询词，浓缩文本，以及 `labels.lookup.sources` 附带不同的站点名称。搜索无结果或浓缩器未找到有用内容时，显示 `labels.lookup.none`。
 
 `server:` 命中（可附带 `who:` 和 `when:` 行）时，引擎通过 Discord 搜索 API 搜索服务器消息历史。词形成为有序的搜索查询列表（内容词形轮转，然后作者名），仅有 `when:` 时为日期范围采样。命中项经过过滤（排除其他机器人和受众规则拒绝的频道），按频道和时间分组为聚类（`recall.clusterGapMinutes`），按主题得分排名（聚类中每个有命中的不同 `server:` 词形，若其在整个服务器上的命中数不超过 `recall.rareHits` 则计 2，否则计 1），其次按所有不同查询的命中数，再按最新优先，保留排名前 `recall.maxClusters` 个聚类。仅有名称或作者命中的聚类排在任何有主题命中的聚类之后。`recall.keepOldest` 为主题得分至少为 2 的最旧聚类保留槽位。每个保留的聚类获取 `recall.windowMessages` 条消息的窗口。分类器的词形和名称词形还会与已存储记忆匹配（不含私有层）：成员的回忆、世界书条目、所学内容和近期行。每个匹配的条目成为 `<memory>` 块中的一行：`kind | date | name | text`，kind 为 `episode`、`lore`、`learned`、`recent`。`when:` 日期范围排除无日期的种类（lore、learned）。最多 `recall.memoryItems`（默认 6）条，按匹配的词形数和权重排名。`<memory>` 块在 `<people>` 之后、`<found>` 之前；其条目不能被指定为 `stretch`。有记忆匹配但无聊天命中的运行仍会询问摘要。日志记录在 `recall: searched` 行的 `stats.memory` 上。
 
-当 `features.meaningSearch` 严格为 `true` 时，recall 运行还按语义搜索。提问者的消息被嵌入（向 `classifier.embed` 模型发一个请求，purpose `recall-query`）；`recall.meaningWithReply` 时将被回复的行也包含在查询文本中。在请求的 `when:` 范围内搜索向量索引（`src/memory/vectors.js`）（无范围时搜索所有月份），在受众规则和可见聊天 id 应用后返回 `recall.meaningCandidates`（默认 80）行。语义搜索找到的记录行加入记录窗口；归档行加入记忆条目。同时被关键词和语义找到的行排名最先（倒数排名融合，k = 60）；仅语义找到的按余弦排序；仅关键词找到的排最后。嵌入或向量搜索失败时，运行记录 `recall: meaning failed`（`stage` 为 `embed` 或 `search`）并仅按关键词继续。
+当 `features.meaningSearch` 严格为 `true` 时，recall 运行还按语义搜索。提问者的消息被嵌入（向 `embedding` 角色发一个请求，purpose `recall-query`）；`recall.meaningWithReply` 时将被回复的行也包含在查询文本中。在请求的 `when:` 范围内搜索向量索引（`src/memory/vectors.js`）（无范围时搜索所有月份），在受众规则和可见聊天 id 应用后返回 `recall.meaningCandidates`（默认 80）行。语义搜索找到的记录行加入记录窗口；归档行加入记忆条目。同时被关键词和语义找到的行排名最先（倒数排名融合，k = 60）；仅语义找到的按余弦排序；仅关键词找到的排最后。嵌入或向量搜索失败时，运行记录 `recall: meaning failed`（`stage` 为 `embed` 或 `search`）并仅按关键词继续。
 
-摘要辅助（`recall-summary.md`，使用 `classifier.text`，块 `<people>`、`<memory>`、`<found>`、`<question>`）读取窗口、已存储记忆和问题并写出笔记。摘要可以指出最佳回答问题的一段原文（`stretch: <n>`）；如果是，该段的逐字内容（上限 `recall.stretchChars`）与笔记一起出现。摘要说 `nothing` 时，`<lookup>` 块无服务器部分。摘要失败或超时时回退到排名最高窗口的逐字原文段，不附笔记。
+摘要辅助（`recall-summary.md`，使用 `reasoner` 角色，块 `<people>`、`<memory>`、`<found>`、`<question>`）读取窗口、已存储记忆和问题并写出笔记。摘要可以指出最佳回答问题的一段原文（`stretch: <n>`）；如果是，该段的逐字内容（上限 `recall.stretchChars`）与笔记一起出现。摘要说 `nothing` 时，`<lookup>` 块无服务器部分。摘要失败或超时时回退到排名最高窗口的逐字原文段，不附笔记。
 
 两者都运行时，`<lookup>` 块在网络部分上方携带 `labels.lookup.webHeader`，服务器部分上方携带 `labels.lookup.serverHeader`，两者之间携带 `labels.lookup.bothNote`。
 
@@ -657,7 +656,7 @@ task.added                               {added}: later messages from the author
 
 ## 任务分拆器
 
-足够长且有结构的直接呼叫（提及、回复、名字、跟进、私信）（`split.minChars` 字符，排除链接和 Discord token，至少两段分隔符）会在回合准备过程中一并交给分类器（`prompts/split.md`，使用 `classifier.text`，用途标记 `split`）。分类器读取最近 `split.contextMessages` 条消息的短 `<transcript>`（角色自身的行以 `labels.self` 标记），然后是新消息作为 `<candidate>`（`<作者名>: <文本>`）。回答为 `one`，或 2 到 `split.maxTasks`（默认 4）行，每行以 `- ` 开头，用作者自己的话表述一个部分。解析后，短于 `split.minPartChars`（默认 20）字符的部分（排除链接和 Discord token，与 `minChars` 相同）折叠到下一个部分（最后一个折叠到前一个）；当剩余不足两个部分时视为单个请求（`folded`）。空白、无法解析或迟到的回答（回合准备先完成）视为单个请求，记录 `split: failed`。开关 `features.splitTasks`（缺失 = 开启）。
+足够长且有结构的直接呼叫（提及、回复、名字、跟进、私信）（`split.minChars` 字符，排除链接和 Discord token，至少两段分隔符）会在回合准备过程中一并交给分类器（`prompts/split.md`，使用 `analyzer` 角色，用途标记 `split`）。分类器读取最近 `split.contextMessages` 条消息的短 `<transcript>`（角色自身的行以 `labels.self` 标记），然后是新消息作为 `<candidate>`（`<作者名>: <文本>`）。回答为 `one`，或 2 到 `split.maxTasks`（默认 4）行，每行以 `- ` 开头，用作者自己的话表述一个部分。解析后，短于 `split.minPartChars`（默认 20）字符的部分（排除链接和 Discord token，与 `minChars` 相同）折叠到下一个部分（最后一个折叠到前一个）；当剩余不足两个部分时视为单个请求（`folded`）。空白、无法解析或迟到的回答（回合准备先完成）视为单个请求，记录 `split: failed`。开关 `features.splitTasks`（缺失 = 开启）。
 
 各部分成为同一消息上的普通回合链（`turn: part`）。每个部分的辅助（搜索分类器、recall、路由、重看）以该部分的文本为判断对象，请求中指出正在回答的部分和其余部分（`labels.task.part`，含 `{index}`、`{total}`、`{part}`、`{others}`）。第一个部分复用整条消息的回合已获取的历史记录并回复消息；后续部分重新获取历史记录并发布为普通消息。每个部分有自己的截止时间和丢弃限制；失败或被拒绝的部分不会阻止下一个。忽略概率、私聊每日上限和环标记在每条消息上只计一次。暂停或预热在下一个部分前结束链（`turn: chain stopped`）。链运行期间，未开始的部分是作者的等候条目（回合执行器上的 `waitingParts`）；作者稍后的消息折叠进其中一个（`addToPart`）会通过 `tasks.added` 到达该部分的请求。注意力从第一个回合到结束一直保持；空闲通知在结束时只触发一次。
 
@@ -665,7 +664,7 @@ task.added                               {added}: later messages from the author
 
 ## 合并分类器
 
-当有呼叫来自在该频道已有等候条目的作者时（分拆消息中尚未处理的部分，或待处理列表中排队的呼叫），分类器（`prompts/merge.md`，使用 `classifier.text`，用途标记 `merge`）判断新消息是否属于其中一个。分类器读取编号条目的 `<waiting>` 块（`1. <文本>`，每个等候条目一行）和新消息作为 `<candidate>`（`<作者名>: <文本>`）。回答为一行：等候列表中的一个编号或 `new`。被折叠的消息不会获得自己的回合；它通过 `labels.task.added`（`{added}`）出现在其条目的回合中。被路由的呼叫不会被折叠。没有提示文件时，每个呼叫都作为独立条目排队（`merge: failed`，`no-prompt`）。记录为 `merge: verdict` 或 `merge: failed`。无自己的配置设置；输出上限为 `mention.followUpMaxOutputTokens`。
+当有呼叫来自在该频道已有等候条目的作者时（分拆消息中尚未处理的部分，或待处理列表中排队的呼叫），分类器（`prompts/merge.md`，使用 `analyzer` 角色，用途标记 `merge`）判断新消息是否属于其中一个。分类器读取编号条目的 `<waiting>` 块（`1. <文本>`，每个等候条目一行）和新消息作为 `<candidate>`（`<作者名>: <文本>`）。回答为一行：等候列表中的一个编号或 `new`。被折叠的消息不会获得自己的回合；它通过 `labels.task.added`（`{added}`）出现在其条目的回合中。被路由的呼叫不会被折叠。没有提示文件时，每个呼叫都作为独立条目排队（`merge: failed`，`no-prompt`）。记录为 `merge: verdict` 或 `merge: failed`。无自己的配置设置；输出上限为 `mention.followUpMaxOutputTokens`。
 
 ## 绘画
 

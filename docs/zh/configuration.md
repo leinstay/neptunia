@@ -30,7 +30,7 @@
 | `videoRewatch` | `true` | 被呼叫时重看视频以回答相关问题；需要 `videoDescriptions` |
 | `imageRelook` | `true` | 被呼叫时再看一次图片以回答问题或核实被声称的细节；需要 `vision`。与视频重看共享每日 `media.video.rewatch.maxPerDay` 计数器。缺失的键视为开启 |
 | `webLookup` | `false` | 阅读聊天中发布的链接并在被问到事实性问题时搜索网络。与其他功能不同，缺失的键视为关闭。搜索需要 `.env` 中的 `BRAVE_SEARCH_API_KEY`；没有密钥时只有链接阅读可用。参见[媒体：链接与搜索](media.md#链接) |
-| `imageGeneration` | `false` | 允许角色通过绘画子进程绘制图片。缺失的键视为开启。在 `config.local.json` 中启用；需要 `image.model` 中配置支持图像生成的模型。参见[媒体：绘画](media.md#绘画) |
+| `imageGeneration` | `false` | 允许角色通过绘画子进程绘制图片。缺失的键视为开启。在 `config.local.json` 中启用；需要 `roles.drawing` 中配置支持图像生成的模型。参见[媒体：绘画](media.md#绘画) |
 | `privateMessages` | `false` | 回复公会成员的私信。需要已存储的公共档案且 `affinity.score >= private.minAffinity`。参见[消息与记忆：私有层](messages-and-memory.md#私有层) |
 | `privateLikeServer` | `true` | 私聊像服务器频道一样运作：路由分类器、频道拉取、服务器搜索（recall）和被问及成员的回忆均在 DM 中运行。仅当伙伴拥有该频道的 View Channel 权限时才拉取。缺失键 = 开。`false` 恢复旧的 DM 行为（无拉取、路由、recall 和回忆） |
 | `channelPull` | `true` | 当最近的消息或触发器包含真实的频道提及时，将该频道拉入回合请求。缺失键 = 开。参见 `context.pull.*` |
@@ -41,12 +41,15 @@
 | `memoryTwoStage` | `false` | 将记忆分析器拆分为两个阶段：中性 GPT 模型判定变更（阶段 A），然后语音模型撰写角色文本（阶段 B）。必须严格为 `true` 才能启用；缺失键 = 关。参见 `memory.voice.*` |
 | `promptCache` | `true` | 为系统消息添加提供商的提示缓存标记。缓存读取仅为正常输入成本的一小部分；某些提供商不将缓存读取计入 token 配额。必须严格为 `true` 才能启用；缺失的键视为关闭。参见 `llm.cache.*` |
 | `recall` | `true` | 当问题需要时，在网络搜索之外同时搜索服务器自身的消息历史。缺失的键视为开启。参见[媒体：搜索](media.md#搜索)和 `recall.*` |
-| `meaningSearch` | `false` | 每次 recall 运行时，嵌入提问者的消息并在向量索引中按语义搜索。按语义找到的记录行加入关键词命中窗口；归档行加入记忆条目。通过倒数排名融合与关键词命中组合。必须为 `true` 才能启用；缺失的键视为关闭。需要 `features.recall` 开启且嵌入模型（`classifier.embed`）可达。参见 `recall.meaningCandidates` |
+| `meaningSearch` | `false` | 每次 recall 运行时，嵌入提问者的消息并在向量索引中按语义搜索。按语义找到的记录行加入关键词命中窗口；归档行加入记忆条目。通过倒数排名融合与关键词命中组合。必须为 `true` 才能启用；缺失的键视为关闭。需要 `features.recall` 开启且嵌入模型（`roles.embedding`）可达。参见 `recall.meaningCandidates` |
 | `embedIndex` | `false` | 机器人运行时保持向量索引最新：记录接收的每条消息入队，每 `embed.flushSeconds` 秒或队列积累 `embed.batch` 行时发送一批嵌入。必须为 `true` 才能启用；缺失的键视为关闭。需要 `features.meaningSearch`。没有此开关时索引仅通过 `tools/embed-index.mjs` 构建 |
 | `recent` | `true` | 在请求中显示一个 `<recent>` 块，呈现服务器最近几天发生的事情。缺失的键视为开启。参见 `memory.recentHours` 和 `context.caps.recent` |
+| `participation` | `true` | 角色记住最近几天在其他频道的交流，在服务器回合中会在 `<participation>` 块中看到其中一些。缺失的键视为开启。参见 [`participation`](#participation) 和 `context.caps.participation` |
 | `channelRoute` | `true` | 分类器在回合前选出对话中提及的频道，以便将其拉入请求。缺失的键视为开启。参见 `route.*` |
 | `turnPlanner` | `false` | 回复前的一次辅助调用取代频道路由、情节选择、搜索分类器和重看分类器；地址分类器和 GIF 选择器独立运行。仅 `true` 时启用；缺失的键视为关闭。需要 `prompts/planner.md` |
+| `pullSeenMarker` | `true` | 在拉取频道视图的标题下显示一行，说明自上次在此目标中展示该频道以来有多少消息是新的、其中多少比上次看到的更早，或者消息相同且未加载更早的。消息按 id 和内容比较；编辑过的消息视为新消息。比较仅保存在进程内存中，重启后重置。缺失的键视为开启。参见 `context.pull.seenTtlMinutes` |
 | `channelLinks` | `true` | 角色在消息中写服务器频道的 `#频道名` 时，发送的消息包含真实的频道链接而非文字。名称按最长匹配；已有的链接保持不变。关闭时文本原样发送。缺失的键视为开启 |
+| `messageLinks` | `true` | 角色在消息中写下对话记录行号（如 `#93`）且该号码与回合对话记录的某行匹配时，发布的文本包含指向该消息的 Discord 消息链接（Discord 显示为可点击的跳转标签）。不在回合对话记录中的号码保持原样；代码段和已有 URL 不受影响。DM 中链接使用 `@me`。缺失的键视为开启 |
 | `pauseNotice` | `true` | 角色在暂停时被呼叫会发布一条简短通知。缺失的键视为开启。参见 `mention.pauseNoticeMinutes` 和 `labels.limits.paused` |
 | `diary` | `true` | 角色在拥有者选择的频道中按随机时间表自发发帖。缺失的键视为开启。未设置 `diary.channelId` 时不生效。参见[日记](diary.md) |
 | `splitTasks` | `true` | 将长且有结构的直接呼叫拆分为多个部分，每个部分在自己的回合中回答。缺失的键视为开启。需要 `prompts/split.md` 和 `labels.task.part` |
@@ -74,7 +77,6 @@
 | 键 | 默认值 | 说明 |
 |---|---|---|
 | `baseUrl` | `"https://openrouter.ai/api/v1"` | 聊天补全端点 |
-| `model` | `"anthropic/claude-opus-4.6"` | 模型 ID |
 | `temperature` | `1` | 采样温度 |
 | `maxOutputTokens` | `2000` | 最大输出 token 数 |
 | `maxRequestTokens` | `50000` | 每请求硬性 token 上限 |
@@ -87,19 +89,20 @@
 | `provider` | `null` | OpenRouter `provider` 路由对象，原样传递；`null` 表示不发送该字段 |
 | `providerByModel` | `{}` | 按模型路由 provider；详见下文 |
 | `cache.ttl` | `"1h"` | 标记上发送的缓存 TTL: `"1h"` 或 `"5m"` |
-| `cache.roles` | `["voice"]` | 系统消息会获得缓存标记的请求角色。记忆语音请求不参与，因此只有回复被缓存。添加 `classifier.text` 和 `classifier.reason` 可同时缓存辅助工具的稳定部分 |
+| `cache.profilesTtl` | `"5m"` | 回复用户消息中档案（`<people>`）独立标记的缓存 TTL：`"1h"` 或 `"5m"`。`null` 或 `false` = 无标记。不得超过 `cache.ttl`（`cache.ttl` 为 `"5m"` 则此处也为 `"5m"`） |
+| `cache.roles` | `["voice"]` | 系统消息（回复中也包括用户消息的稳定前缀和档案）会获得缓存标记的请求角色。记忆语音请求不参与，因此只有回复被缓存。添加 `analyzer` 和 `reasoner` 可同时缓存辅助工具的稳定部分 |
 | `cache.models` | `["anthropic/"]` | 提供商接受 `cache_control` 标记的模型 id 前缀（区分大小写）。列表外的模型发送时不带标记 |
 | `cache.promptIncludesCached` | `true` | 提供商报告的 `prompt_tokens` 是否已包含缓存读取和缓存写入的 token。通过一次实际探测设定。token 校准和每请求上限始终使用完整计数 |
-| `hedge.roles` | `["classifier.text", "classifier.reason"]` | 对冲的请求角色（两个并发尝试，先完成的获胜） |
+| `hedge.roles` | `["analyzer", "reasoner"]` | 对冲的请求角色（两个并发尝试，先完成的获胜） |
 | `hedge.afterMs` | `2500` | 第二次尝试在第一次之后多少毫秒启动。`0` 或以下对所有角色关闭对冲 |
 | `hedge.timeoutMs` | `8000` | 从第一次尝试开始，两者均未返回时中止的毫秒数 |
 | `hedge.longTimeoutMs` | `20000` | 当调用方标记请求为 `long: true` 时使用的超时（路由分类器在频道列表较大时使用此值） |
 
 `llm.provider` 为聊天请求设置默认的 OpenRouter provider 路由字段，例如 `{ "ignore": ["some-provider"] }` 或 `{ "order": ["anthropic"], "allow_fallbacks": true }`。`llm.providerByModel` 按模型添加覆盖：每个键是模型 id 前缀（匹配任意角色）或 `<prefix>@<role>`（仅匹配一个角色），值为原样传递的 OpenRouter 路由对象。
 
-单个请求的 provider 按以下顺序解析：每次调用的固定路由（视频描述器的直接 URL 路径使用 `media.video.provider`），然后是 `providerByModel` 中与该请求角色匹配的最长前缀，然后是无角色键中匹配的最长前缀，然后是 `llm.provider`（图像请求使用 `image.provider`），最后是无路由（由 OpenRouter 选择）。角色专用键始终优先于同一模型的无角色键。角色名称：`voice`、`analyzer`、`classifier.text`、`classifier.reason`、`classifier.media`、`classifier.video`、`classifier.embed`、`image`。为兼容性，路由键或角色列表中仍写 `talk` 的会被读取为 `voice`，附带一条日志（`config: role talk is now voice`）。
+单个请求的 provider 按以下顺序解析：每次调用的固定路由（视频描述器的直接 URL 路径使用 `media.video.provider`），然后是 `providerByModel` 中与该请求角色匹配的最长前缀，然后是无角色键中匹配的最长前缀，然后是 `llm.provider`（图像请求使用 `image.provider`），最后是无路由（由 OpenRouter 选择）。角色专用键始终优先于同一模型的无角色键。角色名称：`voice`、`analyzer`、`reasoner`、`extractor`、`vision`、`video`、`embedding`、`drawing`。
 
-示例：`"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` 将所有 Google 模型路由到 Vertex，而 `"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` 将视频分类器发送到 AI Studio。包含点号的路由键（如 `google/@classifier.video`）无法通过 `/nep set` 编辑，因为它会按点号拆分路径；请使用 `/nep route set` 和 `/nep route remove`。
+示例：`"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` 将所有 Google 模型路由到 Vertex，而 `"google/@video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` 将视频角色发送到 AI Studio。
 
 如果 OpenRouter 账户本身限制了允许的 provider，忽略仅剩的那个会导致每个请求失败并报错 "No endpoints found"。更改 provider 设置后，检查 `/nep status` 验证每个模型角色是否可达；每个角色遵循其 `llm.providerByModel` 路由，因此显示的 provider 就是该路由选定的。
 
@@ -109,20 +112,23 @@
 
 配置了 `llm.hedge` 后，其列出的角色的请求会被对冲：第二次尝试在第一次之后 `llm.hedge.afterMs` 启动，先完成的获胜。两者在 `llm.hedge.timeoutMs`（`long: true` 请求使用 `longTimeoutMs`）时中止。这为每个在第二次启动前未完成的对冲调用增加一次额外请求；两者都计入 `llm.maxRequestsPerDay`。
 
-## `classifier`
+## `roles`
 
-辅助模型角色，统一归入一个键下。每个独立设置，因此辅助工具可以使用低成本模型，而语音使用高端模型。
+八个模型角色。每个角色通过 `roles.<name>` 独立配置，有各自的默认值，因此没有角色会使用另一个角色的模型。`roles.byPurpose` 将单个用途固定到自己的模型，不论其角色。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
-| `text` | `"anthropic/claude-sonnet-4.6"` | 文本分类器：地址分类器（`features.followUp`）、重看分类器（`features.videoRewatch`）、房间分类器（`spontaneous.roomQuestionChance`）和频道路由分类器（`features.channelRoute`） |
-| `reason` | `null` | 对内容进行推理的辅助工具：搜索分类器、recall 摘要、搜索浓缩器、链接阅读器、日记规划器和回合规划器。未设置（默认）时使用 `classifier.text` 的模型；状态卡片会标注回退来源。请求以角色 `classifier.reason` 发送 |
+| `voice` | `"anthropic/claude-opus-4.6"` | 以角色身份说话：回复和以角色语气撰写的记忆文本（用途 `reply`、`memory-voice`） |
+| `analyzer` | `"openai/gpt-6.1-sol"` | 从短候选列表中选一个：address, room, merge, route-channel, participation-pick, rewatch, split, gif-pick |
+| `reasoner` | `"openai/gpt-6.1-sol"` | 规划搜索并将来源转化为笔记：lookup, planner, recall-summary, search-summary, read-link, diary-plan |
+| `extractor` | `"openai/gpt-6.1-sol"` | 将对话转化为存储的记忆：分析器批次、画像、频道和服务器笔记、预热、回填 |
+| `vision` | `"google/gemini-3.8-flash"` | 描述图片（describe, relook） |
+| `video` | `"google/gemini-3.8-flash"` | 观看视频并重看 |
+| `embedding` | `"openai/text-embedding-3-large"` | 将文本转为向量用于语义搜索。`embed.dimensions`（默认 1024）设定维度。`/nep status` 通过单输入嵌入请求探测；没有嵌入客户端时该行显示未检查 |
+| `drawing` | `"openai/gpt-image-2.5-flare"` | 通过 OpenRouter Images API 生成角色的图片。仅支持 `openai/*` 和 `google/*` 系列 |
 | `byPurpose` | `{}` | 按用途覆盖模型：键为用途字符串（如 `lookup`、`recall-summary`、`diary-plan`、`planner`），值为模型 ID。用途匹配优先于角色的模型。`/nep status` 不会探测 |
-| `media` | `"anthropic/claude-haiku-4.5"` | 图片描述器（`features.mediaDescriptions`）：为图片、GIF 帧、视频封面、贴纸、自定义表情和链接缩略图生成单行描述 |
-| `video` | `"google/gemini-3.8-flash"` | 视频描述器（`features.videoDescriptions`）：观看短片段，基于问题重看，按请求重试。必须同时接受视频和音频输入 |
-| `embed` | `"openai/text-embedding-3-large"` | 嵌入模型（用于语义搜索）。请求以角色 `classifier.embed` 发送；`llm: usage` 日志行包含 `inputs`（文本数量）和 `dimensions`。`/nep status` 通过单输入嵌入请求探测；没有嵌入客户端时该行显示未检查 |
 
-**从旧键迁移。**已废弃的键 `llm.classifierModel`、`mention.followUpModel`、`media.model` 和 `media.video.model` 不再读取。如果 `config.local.json` 中存在这些键，机器人会在启动时记录一条警告（`index: deprecated model key ignored`），指出该键及其替代键。请将值分别移至 `classifier.text`、`classifier.media` 或 `classifier.video`。
+**从旧键迁移。**一个版本内仍读取已废弃的键 `llm.model`、`classifier.text`、`classifier.reason`、`classifier.media`、`classifier.video`、`classifier.embed`、`classifier.byPurpose`、`memory.model` 和 `image.model`。存在任何一个时，机器人在启动时记录警告，指出该键及其映射到的 `roles.*` 条目。旧 `classifier.text` → `roles.analyzer`、`classifier.reason` → `roles.reasoner`、`classifier.media` → `roles.vision`、`classifier.video` → `roles.video`、`classifier.embed` → `roles.embedding`、`classifier.byPurpose` → `roles.byPurpose`、`memory.model` → `roles.extractor`、`image.model` → `roles.drawing`、`llm.model` → `roles.voice`。旧 `classifier.reason` 值为 `null`（旧的"使用 classifier.text"回退）时映射为 `roles.reasoner` 的默认值。请手动迁移值并删除旧键。
 
 ## `embed`
 
@@ -132,6 +138,8 @@
 | `batch` | `64` | 实时队列（`features.embedIndex`）每次嵌入请求刷新的行数 |
 | `flushSeconds` | `180` | 实时队列刷新间隔（秒）。队列积累 `embed.batch` 行时也会触发刷新 |
 | `queueMax` | `2000` | 实时队列在内存中保持的行数。队列满时丢弃最旧的 |
+| `catchUpHours` | `72` | 启动时、嵌入开关打开时、恢复时及每小时，队列重新嵌入最近此小时数内索引中缺失的内容。每小时日志行 `embedder: coverage` 报告数量 |
+| `catchUpEveryMinutes` | `60` | 机器人运行期间追赶扫描之间的分钟数。每次扫描覆盖最近 `catchUpHours` |
 
 记录中的每条消息与同频道的前 2 行一起嵌入作为上下文，使简短回答包含其所回答的内容。归档条目（回忆、教训、被挤出的细节和兴趣）各获得一个向量。向量按月存储在 `data/guilds/<id>/vectors/<YYYY-MM>/` 中。私聊的向量存储在 `data/guilds/<id>/private/<userId>/vectors/` 下。`/nep memory forget` 删除相关行，`/nep memory wipe` 删除整个 `vectors/` 树。
 
@@ -170,6 +178,7 @@
 | `caps.emoji` | `800` | Token 上限：自定义表情 |
 | `caps.gifs` | `900` | Token 上限：GIF 库 |
 | `caps.pulled` | `4000` | Token 上限：拉取的频道块（`<channel_view>`） |
+| `caps.participation` | `6000` | Token 上限：角色在其他频道的交流（`<participation>`）；按整个情节删除，分类器选中的最后删除 |
 | `channelActivity.liveMessagesPerDay` | `20` | 每日消息数 = “活跃”频道 |
 | `channelActivity.deadAfterDays` | `7` | 无消息天数 = “沉寂”频道 |
 | `vision.maxImages` | `4` | 每请求最大图片数 |
@@ -207,6 +216,7 @@
 | `maxChannels` | `1` | 每回合可拉取的频道数 |
 | `maxAgeDays` | `0` | 当频道最新消息超过此天数时拒绝拉取。`0` = 无限制 |
 | `sameAudience` | `true` | 检查目标频道的所有可查看角色是否也能查看来源频道。同时控制 `<other_channels>` 中显示哪些相邻频道，以及 recall 运行保留哪些服务器搜索窗口。关闭时，受限频道的内容可能到达更广泛的受众 |
+| `seenTtlMinutes` | `120` | 同一目标中同频道的上次视图过期前的分钟数。超过此时间的以前视图在比较新消息时被忽略。`0` = 每次视图视为首次 |
 
 ## `elsewhere`
 
@@ -243,7 +253,7 @@
 
 ## `route`
 
-频道路由分类器（`features.channelRoute`）的设置。当对话提到或引用了另一个频道时，分类器（`prompts/route-channel.md`，使用 `classifier.text` 角色）从列表中选出频道号。选中的频道作为 `<channel_view>` 块拉入请求，与显式频道提及并列。记录为 `route: classified`、`route: skipped` 或 `route: failed`。
+频道路由分类器（`features.channelRoute`）的设置。当对话提到或引用了另一个频道时，分类器（`prompts/route-channel.md`，使用 `analyzer` 角色）从列表中选出频道号。选中的频道作为 `<channel_view>` 块拉入请求，与显式频道提及并列。记录为 `route: classified`、`route: skipped` 或 `route: failed`。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
@@ -254,7 +264,7 @@
 
 ## `split`
 
-任务分拆器（`features.splitTasks`）的设置。当直接呼叫（提及、回复、名字、跟进、私信）足够长且有结构（`split.minChars`，至少两个分隔符）时，分类器（`prompts/split.md`，使用 `classifier.text` 角色）判断其中是否包含多个独立请求。每个部分在自己的回合中回答；第一个回复消息，其余发布为普通消息。分拆器与回合的准备过程并行运行，不会延迟单个请求。记录为 `split: verdict`、`split: skipped` 或 `split: failed`；每个部分记录 `turn: part`。
+任务分拆器（`features.splitTasks`）的设置。当直接呼叫（提及、回复、名字、跟进、私信）足够长且有结构（`split.minChars`，至少两个分隔符）时，分类器（`prompts/split.md`，使用 `analyzer` 角色）判断其中是否包含多个独立请求。每个部分在自己的回合中回答；第一个回复消息，其余发布为普通消息。分拆器与回合的准备过程并行运行，不会延迟单个请求。记录为 `split: verdict`、`split: skipped` 或 `split: failed`；每个部分记录 `turn: part`。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
@@ -266,7 +276,7 @@
 
 ## `recall`
 
-服务器消息历史搜索（`features.recall`）的设置。当查询分类器（`prompts/lookup.md`）回答 `server:` 词形、`who:` 名称词形或 `when:` 日期范围时，引擎通过 Discord 搜索 API 搜索服务器消息历史，将命中项分组为聚类，获取每个聚类周围的消息窗口，并让摘要辅助（`prompts/recall-summary.md`，使用 `classifier.text` 角色）回答历史中的答案。摘要可能指出一段最佳回答问题的原文；如果是，角色将在 `<lookup>` 块中看到该段原文和浓缩笔记。记录为 `recall: searched`、`recall: summary`、`recall: skipped` 或 `recall: failed`。
+服务器消息历史搜索（`features.recall`）的设置。当查询分类器（`prompts/lookup.md`）回答 `server:` 词形、`who:` 名称词形或 `when:` 日期范围时，引擎通过 Discord 搜索 API 搜索服务器消息历史，将命中项分组为聚类，获取每个聚类周围的消息窗口，并让摘要辅助（`prompts/recall-summary.md`，使用 `reasoner` 角色）回答历史中的答案。摘要可能指出一段最佳回答问题的原文；如果是，角色将在 `<lookup>` 块中看到该段原文和浓缩笔记。记录为 `recall: searched`、`recall: summary`、`recall: skipped` 或 `recall: failed`。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
@@ -307,7 +317,7 @@ GIF 库（`features.gifs`）的设置。使用次数在每条消息到达时统�
 
 ### `gifs.pick`
 
-GIF 挑选器（`features.gifPicker`）的设置。当角色的第一条发出消息较短（不超过 `gifs.pick.maxChars` 个字符）且自己没选 GIF 时，分类器（`classifier.text`，提示 `prompts/gif-pick.md`）接收最近几行聊天（标明所回复的消息）、该第一条消息以及带说明的完整库（每条记录附说明，适用时附自用标记），返回一个 handle 或 `none`。返回 handle 时 GIF 替换第一条消息；其余消息按原顺序跟随。分类器在第一条消息的打字模拟期间运行；每日 GIF 限额 `gifs.maxPerDay` 生效。
+GIF 挑选器（`features.gifPicker`）的设置。当角色的第一条发出消息较短（不超过 `gifs.pick.maxChars` 个字符）且自己没选 GIF 时，分类器（`analyzer` 角色，提示 `prompts/gif-pick.md`）接收最近几行聊天（标明所回复的消息）、该第一条消息以及带说明的完整库（每条记录附说明，适用时附自用标记），返回一个 handle 或 `none`。返回 handle 时 GIF 替换第一条消息；其余消息按原顺序跟随。分类器在第一条消息的打字模拟期间运行；每日 GIF 限额 `gifs.maxPerDay` 生效。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
@@ -317,7 +327,7 @@ GIF 挑选器（`features.gifPicker`）的设置。当角色的第一条发出�
 
 ## `media`
 
-媒体描述器（`features.mediaDescriptions`）的设置。描述器模型为 `classifier.media`。
+媒体描述器（`features.mediaDescriptions`）的设置。描述器模型为 `roles.vision`。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
@@ -332,7 +342,7 @@ GIF 挑选器（`features.gifPicker`）的设置。当角色的第一条发出�
 
 ### `media.gif`
 
-将 GIF 作为短视频片段观看（`media.gif.watch`）的设置。启用后，GIF 的动画被转换为短 mp4 并发送给 `classifier.video` 模型，而非描述单帧。观看后的说明替代单帧描述。无法观看的 GIF（无动画来源、日限额耗尽、转换失败）回退到单帧描述。
+将 GIF 作为短视频片段观看（`media.gif.watch`）的设置。启用后，GIF 的动画被转换为短 mp4 并发送给 `video` 角色的模型，而非描述单帧。观看后的说明替代单帧描述。无法观看的 GIF（无动画来源、日限额耗尽、转换失败）回退到单帧描述。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
@@ -342,7 +352,7 @@ GIF 挑选器（`features.gifPicker`）的设置。当角色的第一条发出�
 
 ### `media.video`
 
-视频描述器（`features.videoDescriptions`）的设置。视频视觉需要同时开启 `features.mediaDescriptions` 和 `features.videoDescriptions`。视频模型为 `classifier.video`。一个独立的支持视频的模型观看短视频片段：Discord 视频附件和 `media.video.sites` 中站点的链接。结果与图片描述一起缓存在媒体缓存中；重复发布不产生额外开销。
+视频描述器（`features.videoDescriptions`）的设置。视频视觉需要同时开启 `features.mediaDescriptions` 和 `features.videoDescriptions`。视频模型为 `roles.video`。一个独立的支持视频的模型观看短视频片段：Discord 视频附件和 `media.video.sites` 中站点的链接。结果与图片描述一起缓存在媒体缓存中；重复发布不产生额外开销。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
@@ -380,7 +390,7 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 
 ### `media.video.rewatch`
 
-重看分类器（`features.videoRewatch`）的设置。当角色被呼叫且近期对话记录中有已观看的视频时，一个低成本分类器判断消息是否在询问其中某个视频；如果是，视频模型再次观看片段，回答追加到对话记录中。分类器使用 `classifier.text`。重看始终使用 `classifier.video`。
+重看分类器（`features.videoRewatch`）的设置。当角色被呼叫且近期对话记录中有已观看的视频时，一个低成本分类器判断消息是否在询问其中某个视频；如果是，视频模型再次观看片段，回答追加到对话记录中。分类器使用 `analyzer` 角色。重看始终使用 `video` 角色。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
@@ -411,7 +421,7 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 | `affinityLikeBonus` | `0.08` | 态度 +100 时减少的最大忽略概率 |
 | `oneAtATime` | `true` | 全服务器同一时间只处理一条回复 |
 | `pendingSameChannel` | `true` | 当同一频道中正在执行回合时挂起该频道的直接提及；回合结束后以通常的忽略概率回复。缺失键 = 开启 |
-| `classifyWhileBusy` | `true` | 在回合执行期间仍将后续候选发送给地址分类器。候选通过相同的窗口、no-streak 和预过滤检查；每个频道同时最多一个分类器调用，较新的候选替换等候中的。遇到繁忙注意力的 `yes` 在挂起队列中等候（每频道一个）；`overheard` 在 `mention.pendingOverheard` 未开启时作为 `busy` 丢弃。关闭该开关时，候选跳过分类器调用。当 `mention.pendingSameChannel` 关闭且候选自身频道繁忙时也跳过。每次调用计为 `llm.maxRequestsPerDay` 下的一次 `classifier.text` 请求。缺失键 = 开启 |
+| `classifyWhileBusy` | `true` | 在回合执行期间仍将后续候选发送给地址分类器。候选通过相同的窗口、no-streak 和预过滤检查；每个频道同时最多一个分类器调用，较新的候选替换等候中的。遇到繁忙注意力的 `yes` 在挂起队列中等候（每频道一个）；`overheard` 在 `mention.pendingOverheard` 未开启时作为 `busy` 丢弃。关闭该开关时，候选跳过分类器调用。当 `mention.pendingSameChannel` 关闭且候选自身频道繁忙时也跳过。每次调用计为 `llm.maxRequestsPerDay` 下的一次 `analyzer` 请求。缺失键 = 开启 |
 | `pendingOverheard` | `true` | 角色繁忙时，将分类器判断为谈论角色（而非对角色说话）的行挂起到等候队列中。角色在当前回合结束后做出反应。等候中的跟进不会被后来的 overheard 行挤出；等候中的 overheard 行会被后来的跟进、后来的 overheard 行或直接提及、回复或名字呼叫挤出。等候中的 overheard 行不计入垃圾消息限制，也不作为频道中等候的呼叫报告给其他回合。关闭时：繁忙期间的行被丢弃。缺失键 = 开启 |
 | `maxPending` | `6` | 跨所有频道和作者挂起的呼叫总数。满员时淘汰最早的一个（`mention: dropped`，原因 `full`） |
 | `pendingMinutes` | `10` | 挂起的提及过期时间（分钟） |
@@ -463,7 +473,6 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
-| `model` | `null` | 分析器模型（`null` = `llm.model`） |
 | `temperature` | `0.3` | 所有 analyzer 角色请求的采样温度：流分析器批次（服务器和私有）、预热的频道/档案/服务器请求和画像刷新 |
 | `mainChannelIds` | `[]` | 人们相互交流的频道；成员性格和风格的画像取自这些频道；为空表示所有频道均计入。也是只读频道呼叫响应的目标频道（`features.elsewhere`）：使用列表中第一个可用的频道 |
 | `portraitRefreshHours` | `24` | 每成员画像刷新最短间隔（小时） |
@@ -533,7 +542,7 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 
 分析器提示通过占位符读取这些限制，因此调高某个值会在下一批次生效。更大的档案会消耗更多上下文 token（`context.caps.people`、`context.caps.interlocutor`）和分析器输出（`memory.maxOutputTokens`）。
 
-**迁移。**`memory.voiceModel` 不再读取；仍然设置它的配置会记录一条警告，值被忽略。回复和记忆撰写都使用 `llm.model`。
+**迁移。**`memory.voiceModel` 不再读取；仍然设置它的配置会记录一条警告，值被忽略。回复和记忆撰写都使用 `roles.voice`。
 
 ### `memory.voice`
 
@@ -583,7 +592,7 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 
 ## `web`
 
-网络查询（`features.webLookup`）的设置。链接阅读和搜索共享一个每日计数器（`web.maxPerDay`）。结果缓存在媒体缓存（`data/guilds/<id>/media.json`）中。所有模型调用通过 `classifier.text` 角色。
+网络查询（`features.webLookup`）的设置。链接阅读和搜索共享一个每日计数器（`web.maxPerDay`）。结果缓存在媒体缓存（`data/guilds/<id>/media.json`）中。模型调用通过 `analyzer` 角色（分类器）和 `reasoner` 角色（浓缩器、链接阅读器）。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
@@ -621,14 +630,13 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 
 ## `image`
 
-绘画子进程（`features.imageGeneration`）的设置。角色输出 `<draw>` 标签后，代码通过 OpenRouter Images API 生成一张图片并作为独立消息发布。生成次数和每日计数器存储在 `data/state.json`（`imageDay`、`imageCount`、`imageUsers`）中。所有图片使用 `image.model`，不使用聊天模型或分类器模型。
+绘画子进程（`features.imageGeneration`）的设置。角色输出 `<draw>` 标签后，代码通过 OpenRouter Images API 生成一张图片并作为独立消息发布。生成次数和每日计数器存储在 `data/state.json`（`imageDay`、`imageCount`、`imageUsers`）中。所有图片使用 `roles.drawing`。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
-| `model` | `"openai/gpt-image-2.5-flare"` | 图像模型 ID。仅支持 `openai/*` 和 `google/*` 系列；其他系列在发送请求前即被拒绝 |
 | `maxPerDay` | `50` | 整个实例的每日生成上限 |
 | `maxPerUserPerDay` | `50` | 每个成员的每日生成上限；自发回合和 `/nep draw` 不计入成员配额 |
-| `maxPromptChars` | `800` | `<draw>` 标签的场景文本截断至此长度 |
+| `maxPromptChars` | `1600` | `<draw>` 标签的场景文本截断至此长度，在最后一个句子或单词边界处截断 |
 | `reference` | `"avatar"` | 角色出现在图片中（`self="yes"`）时发送的视觉参考。`"avatar"` 下载机器人的 Discord 头像；其他值或 `null` 不发送 |
 | `referenceMaxBytes` | `4000000` | 头像最大文件大小（字节）；超过则跳过 |
 | `outputFormat` | `"png"` | 请求的输出格式（`png`、`jpeg`、`webp`） |
@@ -734,29 +742,37 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 
 ## 模型
 
-引擎使用七个模型角色。每个独立设置，因此语音可以使用高端模型，而辅助工具保持低成本。
+引擎使用八个模型角色（`roles.*`）。每个独立设置，因此语音可以使用高端模型，而辅助工具保持低成本。未设置的角色保持自己的默认值，不使用其他角色的模型。
 
-### 声音（`llm.model`）
+### 声音
 
-`voice` 角色。预算允许范围内最强的模型。角色扮演质量、角色一致性和自然对话均依赖于此。较小的模型会破坏角色、忽略上下文线索且语气平淡。在两阶段模式下，同一模型还负责为角色的记忆文本撰写措辞（阶段 B：关系笔记、态度原因、回忆感受、所学、自述事实、服务器规律、开场白和性格画像）。两类请求在使用日志中都携带 `voice` 角色；通过 purpose（`reply`、`memory-voice`）区分。
+预算允许范围内最强的模型。角色扮演质量、角色一致性和自然对话均依赖于此。较小的模型会破坏角色、忽略上下文线索且语气平淡。在两阶段模式下，同一模型还负责为角色的记忆文本撰写措辞（用途 `reply`、`memory-voice`）。
 
 默认：`anthropic/claude-opus-4.6`。更便宜的选择：`anthropic/claude-sonnet-4.6`。
 
-### 分析器（`memory.model`）
+### 分析器
 
-`analyzer` 角色。在长对话记录上进行推理并返回严格的 JSON。需要与语音相同级别的智能。`null`（默认）使用角色的模型。适用相同的示例。在两阶段模式（`features.memoryTwoStage`）下，此模型运行阶段 A（中性判定）。
+从短候选列表中选一个：address, room, merge, route-channel, participation-pick, rewatch, split, gif-pick。能可靠回答 "yes" 或 "no" 的最便宜的文本模型。默认：`openai/gpt-6.1-sol`。
 
-### 文本分类器（`classifier.text`）
+### 推理器
 
-能可靠回答 "yes" 或 "no" 的最便宜的文本模型。运行地址分类器（`features.followUp`）、搜索分类器、链接阅读器、搜索浓缩器和 recall 摘要（`features.webLookup`、`features.recall`）、重看分类器（`features.videoRewatch`）、房间分类器（`spontaneous.roomQuestionChance`）和频道路由分类器（`features.channelRoute`）。默认：`anthropic/claude-sonnet-4.6`。
+规划搜索并将来源转化为笔记：lookup, planner, recall-summary, search-summary, read-link, diary-plan。默认：`openai/gpt-6.1-sol`。
 
-### 图片（`classifier.media`）
+### 提取器
+
+将对话转化为存储的记忆：记忆分析器批次、画像、频道和服务器笔记、预热、回填。在长对话记录上进行推理并返回严格的 JSON。在两阶段模式（`features.memoryTwoStage`）下，此模型运行阶段 A（中性判定）。默认：`openai/gpt-6.1-sol`。
+
+### 嵌入
+
+嵌入模型，用于语义搜索。默认：`openai/text-embedding-3-large`，`embed.dimensions` 1024。其请求使用与聊天请求相同的传输、重试和每日上限。`/nep status` 卡片通过单输入嵌入请求探测；没有嵌入客户端时该行显示未检查。
+
+### 视觉
 
 任何低成本的视觉模型。只需写一行描述，推理能力几乎不重要。
 
-默认：`anthropic/claude-haiku-4.5`。最便宜的替代：`google/gemini-2.5-flash-lite`。
+默认：`google/gemini-3.8-flash`。最便宜的替代：`google/gemini-2.5-flash-lite`。
 
-### 视频（`classifier.video`）
+### 视频
 
 只有通过 OpenRouter 同时接受视频和音频输入的模型才能在此工作。接受帧但不接受音频的模型（Qwen VL、GLM、Seed、Gemma）无法听到语音，会遗漏大部分要点。
 
@@ -774,9 +790,9 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 
 `qwen/qwen3.8-omni-flash` 同样接受视频和音频。价格会变化；上表是截至上述日期的快照。
 
-### 图片输出（`image.model`）
+### 绘图
 
-与 `classifier.media`（描述输入图片的模型）分开。此模型通过 OpenRouter Images API（`POST /api/v1/images`）生成图片。仅支持两个系列：`openai/*` 和 `google/*`。不支持的系列在发送请求或计数前即被拒绝。
+通过 OpenRouter Images API（`POST /api/v1/images`）生成图片。仅支持两个系列：`openai/*` 和 `google/*`。不支持的系列在发送请求或计数前即被拒绝。
 
 **OpenAI 模型。** 使用 `image.openai.quality`、`image.openai.background`、`image.openai.moderation`、`image.aspectRatio`、`image.outputFormat` 和 `input_references`。
 
