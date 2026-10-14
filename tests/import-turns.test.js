@@ -208,8 +208,9 @@ test('import-turns dry run: counts only, no journal write, no message text; a re
   assert.match(out, /unmatched: 1/);
   assert.match(out, /skip: 1/);
   assert.match(out, /^ {2}key persona: 5$/m);
-  assert.match(out, /unmatched left out: 1/);
-  assert.match(out, /would write: 3/);
+  // A skip has no posted message to prove it was live: left out with the unmatched turn.
+  assert.match(out, /unmatched left out: 2/);
+  assert.match(out, /would write: 2/);
   assert.match(out, /^2026-10-01 /m);
   assert.match(out, /gen-1 -> 1002, 1003/);
   for (const text of ['φεγγάρι', 'είδα', 'café', 'τεράστιο', 'κανείς']) assert.equal(out.includes(text), false, text);
@@ -228,12 +229,12 @@ test('import-turns dry run: counts only, no journal write, no message text; a re
 test('import-turns write: imported turn records the message lookup finds; unmatched only on request; nothing twice', async () => {
   const kit = await fixture();
   const out = await kit.run(['--write']);
-  assert.match(out, /written: 3/);
-  assert.match(out, /unmatched left out: 1/);
+  assert.match(out, /written: 2/);
+  assert.match(out, /unmatched left out: 2/);
   assert.equal(kit.readDay('2026-10-02').some((record) => record.sourceGenerationId === 'gen-5'), false);
   assert.deepEqual(kit.journalFiles(), ['2026-10-01.jsonl', '2026-10-02.jsonl', '2026-10-13.jsonl']);
   const day1 = kit.readDay('2026-10-01');
-  assert.equal(day1.length, 2);
+  assert.equal(day1.length, 1);
   const spoke = day1.find((record) => record.sourceGenerationId === 'gen-1');
   assert.equal(spoke.kind, 'turn');
   assert.equal(spoke.origin, 'imported');
@@ -246,9 +247,7 @@ test('import-turns write: imported turn records the message lookup finds; unmatc
   // Capped like a live record (journal.thinkChars).
   assert.equal(spoke.thinkTruncated, true);
   assert.ok(Array.from(spoke.think).length <= 11);
-  const skipped = day1.find((record) => record.sourceGenerationId === 'gen-2');
-  assert.equal(skipped.outcome, 'skip');
-  assert.deepEqual(skipped.posted, []);
+  assert.equal(day1.some((record) => record.sourceGenerationId === 'gen-2'), false);
 
   // The owner's lookup by message reads them.
   const store = createAppendStore({ fsyncMs: 0, log: quiet });
@@ -262,11 +261,14 @@ test('import-turns write: imported turn records the message lookup finds; unmatc
 
   const again = await kit.run(['--write']);
   assert.match(again, /written: 0/);
-  assert.match(again, /already imported: 3/);
-  assert.equal(kit.readDay('2026-10-01').length, 2);
+  assert.match(again, /already imported: 2/);
+  assert.equal(kit.readDay('2026-10-01').length, 1);
 
   const withUnmatched = await kit.run(['--write', '--include-unmatched']);
-  assert.match(withUnmatched, /written: 1/);
+  assert.match(withUnmatched, /written: 2/);
+  const skipped = kit.readDay('2026-10-01').find((record) => record.sourceGenerationId === 'gen-2');
+  assert.equal(skipped.outcome, 'skip');
+  assert.deepEqual(skipped.posted, []);
   const unmatched = kit.readDay('2026-10-02').find((record) => record.sourceGenerationId === 'gen-5');
   assert.equal(unmatched.outcome, 'spoke');
   assert.deepEqual(unmatched.posted, []);
