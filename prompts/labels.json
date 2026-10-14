@@ -163,7 +163,8 @@
     "bothNote": "A web search and a server search both ran. They may answer different things; which one fits is yours to call.",
     "stretch": "{date} in #{channel}:",
     "stretchSelf": " [your lines]",
-    "stretchCurrent": " [current conversation]"
+    "stretchCurrent": " [current conversation]",
+    "timeEstimate": "The asker's time cue, read as {range}, is an estimate to help find the event, not a fact: the matching event may be on another date. If it is, say so and give its real date."
   },
   "affinity": {
     "bands": {

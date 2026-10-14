@@ -1503,3 +1503,102 @@ test('recall-run: a private turn searches its partner\'s private layer and the g
   const user = s.llmCalls[0].messages[1].content;
   assert.ok(user.includes('the dm memory') && user.includes('he made the whole story up'), user);
 });
+
+// ---- a when: that only locates (when-role) ---------------------------------------------------
+
+const CUE_DAY = { from: Date.UTC(2026, 9, 3), to: Date.UTC(2026, 9, 4) - 1 };
+/** The event three days before the day the asker named: a hit and the persona's own answer. */
+const CUE_EVENT = [
+  line('e1', Date.UTC(2026, 8, 30, 18, 0), { name: 'Ana', content: 'βγάλε το κουνέλι από τη λίστα' }),
+  line('e2', Date.UTC(2026, 8, 30, 18, 1), { name: 'Zoë', author: 'self', content: 'όχι, το κουνέλι μένει' }),
+];
+const CUE_D1 = line('d1', Date.UTC(2026, 9, 3, 10, 0), { name: 'Éloïse', author: 'u3', content: 'ένα κουνέλι στο παράθυρο' });
+const CUE_D2 = line('d2', Date.UTC(2026, 9, 3, 14, 0), { name: 'Éloïse', author: 'u3', content: 'πάλι κουνέλι' });
+
+/** Search answers: a query bounded below finds the two lines of the named day, the broad page the old event. */
+function cueAnswers(route, query) {
+  if (!route.endsWith('/messages/search')) return [];
+  if (query.min_id) return { total_results: 2, messages: [[rawHit('c1', CUE_D2)], [rawHit('c2', CUE_D1)]] };
+  return { total_results: 1, messages: [[rawHit('c2', CUE_EVENT[0])]] };
+}
+
+/** A scene for the locator runs: maxClusters 2, one more window fetched, one-line windows, the locator numbers set here. */
+function cueScene({ recall = {}, features = {}, memory = {}, archive = null } = {}) {
+  const record = fakeSource({ guild: [] });
+  const s = scene({
+    lines: { c1: [CUE_D2], c2: [...CUE_EVENT, CUE_D1] },
+    answers: cueAnswers,
+    features,
+    memory,
+    archive,
+    record,
+    recall: { maxClusters: 2, selfExtra: 1, selfBonus: 1, windowMessages: 1, recordDays: 3, locatorBonus: 2, locatorDecayDays: 7, locatorBroadShare: 0.5, ...recall },
+  });
+  return { ...s, record };
+}
+
+const CUE_SERVER = { forms: ['κουνέλι'], who: [], ...CUE_DAY };
+
+test('recall-run: a locator searches the named day plus one broad page; the off-date event keeps a reserved slot and the summary reads the cue', async () => {
+  const t = tempStore();
+  try {
+    const s = cueScene({ features: { recallTrace: true }, memory: { appendRecallTrace: (...args) => t.store.appendRecallTrace(...args) } });
+    const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { ...CUE_SERVER, locator: true } }));
+    const sent = searches(s.calls);
+    assert.equal(sent.length, 2, 'the dated query and one broad page');
+    assert.deepEqual([sent[0].query.min_id, sent[0].query.max_id], [snowflakeAt(CUE_DAY.from), snowflakeAt(CUE_DAY.to + 1)], 'the named day first, as before');
+    assert.deepEqual([sent[1].query.content, sent[1].query.min_id, sent[1].query.max_id], ['κουνέλι', undefined, snowflakeAt(NOW - 3 * DAY)], 'the past the record does not hold');
+
+    const user = s.llmCalls[0].messages[1].content;
+    assert.ok(user.includes('| 2026-09-30 | #garden') && user.includes('όχι, το κουνέλι μένει'), user);
+    assert.ok(user.includes('| 2026-10-03 | #general'), 'the named day keeps its dated slot');
+    assert.ok(!user.includes('ένα κουνέλι στο παράθυρο'), 'the weaker line of the named day gave way');
+    assert.ok(user.endsWith('<time_cue>\n[time cue 2026-10-03, an estimate]\n</time_cue>\n<question>\nNikos: ποιος σκότωσε το κουνέλι;\n</question>'), user);
+    assert.equal(result.text, 'Ana did it on October 1.');
+
+    const [traced] = t.lines();
+    assert.deepEqual(traced.when, { from: new Date(CUE_DAY.from).toISOString(), to: new Date(CUE_DAY.to).toISOString(), role: 'locator' });
+    assert.deepEqual(traced.plan.map((entry) => entry.broad === true), [false, true]);
+    assert.deepEqual(
+      traced.clusters.map((c) => [c.from.slice(0, 13), c.kept, c.share]),
+      [['2026-10-03T14', true, 'dated'], ['2026-10-03T10', false, null], ['2026-09-30T18', true, 'broad']],
+    );
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('recall-run: the same range marked scope searches inside it alone, with no cue and no shares', async () => {
+  const t = tempStore();
+  try {
+    const archive = fakeSource({ guild: [] });
+    const s = cueScene({ features: { recallTrace: true }, memory: { appendRecallTrace: (...args) => t.store.appendRecallTrace(...args) }, archive });
+    await withCapturedLogs(() => s.recaller.run({ ...s.args, server: CUE_SERVER }));
+    const sent = searches(s.calls);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].query.min_id, snowflakeAt(CUE_DAY.from));
+    const user = s.llmCalls[0].messages[1].content;
+    assert.ok(!user.includes('2026-09-30') && !user.includes('<time_cue>'), user);
+    assert.ok(user.includes('ένα κουνέλι στο παράθυρο') && user.includes('πάλι κουνέλι'));
+    assert.equal(archive.queries[0].from, new Date(CUE_DAY.from).toISOString(), 'the archive from the range');
+    const [traced] = t.lines();
+    assert.equal(traced.when.role, 'scope');
+    assert.ok(traced.clusters.every((c) => !('share' in c)) && traced.plan.every((entry) => !('broad' in entry)));
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('recall-run: a locator whose record reaches past the decay margin sends no broad page; the local sources read past the date', async () => {
+  const archive = fakeSource({ guild: [] });
+  const s = cueScene({ recall: { recordDays: 10, archiveMonths: 6 }, archive });
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { ...CUE_SERVER, locator: true } }));
+  assert.equal(searches(s.calls).length, 1, 'the record covers everything the date could point near');
+  assert.equal(archive.queries[0].from, new Date(Date.UTC(2026, 4, 1)).toISOString(), 'the archive over its usual months');
+  assert.deepEqual(s.record.queries.map((q) => [q.from, q.to]), [[new Date(NOW - 10 * DAY).toISOString(), new Date(NOW).toISOString()]], 'the record over its days, the named day among them');
+
+  const meant = meaningScene({});
+  await withCapturedLogs(() => meant.recaller.run({ ...meant.args, server: { ...MEANING_SERVER, ...CUE_DAY, locator: true } }));
+  assert.deepEqual([meant.vectors.calls[0].opts.from, meant.vectors.calls[0].opts.to], [null, null], 'every month of the index');
+  assert.deepEqual(meant.record.queries.filter((q) => !q.channelIds).map((q) => [q.from, q.to]), [[new Date(NOW - 3 * DAY).toISOString(), new Date(NOW).toISOString()]], 'the record over its last days, the named day among them');
+});

@@ -107,9 +107,15 @@ export function buildPlannerRequest({ prompt, selfName, today, skills = '', chan
 }
 
 /** A labelled line of the answer: a list bullet or bold marks around the label are tolerated. */
-const LINE_RE = /^(?:[-*•>]\s*)*\**\s*(channel|episodes|rewatch|lookup|web|server|who|when|recent|skills)\s*\**\s*:\s*\**\s*(.*)$/i;
+const LINE_RE = /^(?:[-*•>]\s*)*\**\s*(channel|episodes|rewatch|lookup|web|server|who|when[-_ ]?role|when|recent|skills)\s*\**\s*:\s*\**\s*(.*)$/i;
 /** The labels of the lookup block's own lines (src/behavior/recall.js#parseLookupAnswer). */
-const LOOKUP_LABELS = new Set(['web', 'server', 'who', 'when', 'recent']);
+const LOOKUP_LABELS = new Set(['web', 'server', 'who', 'when', 'when-role', 'recent']);
+
+/** A line's label in its one spelling: lower case, `when_role` / `when role` / `whenrole` as `when-role`. */
+function labelOf(raw) {
+  const label = raw.toLowerCase();
+  return /^when.?role$/.test(label) ? 'when-role' : label;
+}
 const NONE_RE = /^none\b/i;
 /** `<n> retry` and `<n> question: <text>`: the planner's re-watch forms. */
 const REWATCH_RETRY_FORM = /^(#?\s*\d+\.?)\s+retry\s*$/i;
@@ -164,7 +170,7 @@ function rewatchBlock(values, count) {
 
 /**
  * The lookup block: either one `lookup: none` line, or its labelled lines
- * (`web:`, `server:`, `who:`, `when:`, `recent:`, each at most once; a
+ * (`web:`, `server:`, `who:`, `when:`, `when-role:`, `recent:`, each at most once; a
  * `lookup:` line with nothing after it may head them, and a labelled line may
  * follow `lookup:` on the same line) read by parseLookupAnswer. Two `lookup:`
  * lines, a repeated label or `none` beside labelled lines is invalid.
@@ -216,11 +222,11 @@ export function parsePlannerAnswer(raw, { counts = {}, timezone = 'UTC', now, ma
   const take = (line) => {
     const match = LINE_RE.exec(line);
     if (!match) return false;
-    const label = match[1].toLowerCase();
+    const label = labelOf(match[1]);
     const value = match[2].replace(/\*+$/u, '').trim();
     if (LOOKUP_LABELS.has(label)) {
       labelled.push({ label, value });
-    } else if (label === 'lookup' && LINE_RE.test(value) && LOOKUP_LABELS.has(LINE_RE.exec(value)[1].toLowerCase())) {
+    } else if (label === 'lookup' && LINE_RE.test(value) && LOOKUP_LABELS.has(labelOf(LINE_RE.exec(value)[1]))) {
       // `lookup: web: ...` on one line: the head with its first labelled line.
       values.lookup.push('');
       take(value);
