@@ -229,7 +229,7 @@ test('buildRequest: with gifs.actionChars the same context.caps.gifs holds more 
   assert.ok(clamped > full, `clamped ${clamped} vs full ${full}`);
 });
 
-test('buildRequest: <gifs> follows <about_chat> in the stable part, the <emoji> list closes it; <server> opens the tail', () => {
+test('buildRequest: <gifs> closes the stable part, right after <about_chat>; <server> and <emoji> follow in the tail', () => {
   const guildMemory = { patterns: 'short lines' };
   const history = [{ ...baseInput().history[0], channelId: 'c1', channelName: 'general' }];
   const customEmoji = [{ id: '1', name: 'alpha' }];
@@ -240,12 +240,10 @@ test('buildRequest: <gifs> follows <about_chat> in the stable part, the <emoji> 
   const serverIdx = text.indexOf('<server>');
   const emojiIdx = text.indexOf('<emoji>\n');
   assert.ok(aboutIdx !== -1 && emojiIdx !== -1 && gifsIdx !== -1 && serverIdx !== -1);
-  assert.ok(aboutIdx < gifsIdx && gifsIdx < emojiIdx && emojiIdx < serverIdx);
+  assert.ok(aboutIdx < gifsIdx && gifsIdx < serverIdx && serverIdx < emojiIdx);
   const stable = request.messages[1].content[0];
   assert.equal(stable.cacheSegment, 'stable');
-  assert.ok(stable.text.includes('</gifs>\n\n<emoji>\n'), stable.text);
-  assert.ok(stable.text.endsWith('</emoji>\n\n'), stable.text);
-  assert.ok(request.messages[1].content.at(-1).text.startsWith('<server>'));
+  assert.ok(stable.text.endsWith('</gifs>\n\n'), stable.text);
 });
 
 test('buildRequest: a library gif in the chat carries its handle; a reposted link is matched by its url', () => {

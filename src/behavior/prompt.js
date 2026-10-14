@@ -33,8 +33,8 @@
 // The rendered order is different, and laid out for the provider's prompt
 // cache: what changes least first, in three text parts -- the stable part
 // (the senses that read only the config, `<self_facts>`, `<about_chat>`,
-// `<gifs>`, the `<emoji>` list), the profiles (`<people>`), then the tail
-// that changes every turn, with the chat, the clock, the per-turn senses, the
+// `<gifs>`), the profiles (`<people>`), then the tail that changes every
+// turn, with the chat, the clock, the per-turn senses, the
 // tempo and the task last, where the model attends best (see assembleUser and
 // docs/prompt-contract.md, "Cache segments"). A private chat (`privateChat`)
 // drops the server map, the neighbouring channels and any pulled channel and
@@ -1076,12 +1076,11 @@ function nowBlock(now, timezone, labels, periods) {
  * The user message's text parts from already-rendered blocks, in three cache
  * segments (see docs/prompt-contract.md, "Cache segments"): the stable part
  * (`cacheSegment: 'stable'`), what changes least first: the stable
- * `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`, then the
- * `<emoji>` list (its ranking moves with use); the profiles
+ * `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`; the profiles
  * (`cacheSegment: 'profiles'`: `<people>`), then the tail (no segment) with
- * everything that changes from turn to turn: the emoji seen in this
- * conversation (a second `<emoji>`, where the block stood before), `<now>`,
- * the per-turn `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
+ * everything that changes from turn to turn -- `<emoji>` among it, its
+ * ranking moves with use several times a day -- `<now>`, the per-turn
+ * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
  * renderSenses' two halves. A segment with no block is left
  * out; every part but the last ends with the blank line that separates
  * blocks, so the parts' texts joined with nothing (userText) are the whole
@@ -1098,24 +1097,17 @@ function nowBlock(now, timezone, labels, periods) {
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
 function assembleUser({ nowText, timezone, labels, senses, kept, tempoText, task, chatItems, diary = null }) {
-  // The emoji list (header and entries) is the same for every turn; the ones seen in this
-  // conversation (`labels.emoji.seenInChat` and its entries, last in the kept items) are not.
-  const emojiKept = kept.emoji ?? [];
-  const seenAt = labels.emoji?.seenInChat ? emojiKept.indexOf(labels.emoji.seenInChat, 1) : -1;
-  const emojiListed = seenAt === -1 ? emojiKept : emojiKept.slice(0, seenAt);
-  const emojiSeen = seenAt === -1 ? [] : emojiKept.slice(seenAt);
   const stable = [
     block('senses', senses.stable),
     block('self_facts', kept.self.join('\n')),
     block('about_chat', kept.aboutChat.join('\n')),
     // Own-marked entries last (ownMarkedLast).
     block('gifs', (kept.gifs ?? []).join('\n')),
-    block('emoji', emojiListed.join('\n')),
   ];
   const profiles = [block('people', [...kept.interlocutor, ...kept.people].join('\n\n'))];
   const tail = [
     block('server', kept.server.join('\n\n')),
-    block('emoji', emojiSeen.join('\n')),
+    block('emoji', (kept.emoji ?? []).join('\n')),
     block('lore', kept.lore.join('\n\n')),
     // The last hours: one item, the header with the kept lines and moments, oldest first.
     block('recent', (kept.recent ?? []).join('\n')),

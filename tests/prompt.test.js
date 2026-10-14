@@ -481,12 +481,12 @@ test('buildRequest: two builds a minute apart keep the stable and profiles parts
   assert.equal(nextHour[1].text, first[1].text);
 });
 
-// --- the stable part: the senses that read only the config, and the emoji list ---------------
+// --- the stable part: the senses that read only the config --------------------------------
 
 const EMOJI_INDEX = [{ id: '1', name: 'alpha' }, { id: '2', name: 'beta' }, { id: '3', name: 'gamma' }];
 
 /**
- * A turn with every senses line it can have on a server and both halves of `<emoji>`: the
+ * A turn with every senses line it can have on a server and a full `<emoji>` block: the
  * ranked list and an emoji of the chat that is not on it.
  */
 function cacheScene({ triggerFields, config: configOverrides = {}, ...overrides } = {}) {
@@ -515,21 +515,21 @@ function blocksOf(text) {
   return [...text.matchAll(/^<([a-z_]+)>\n([\s\S]*?)\n<\/\1>$/gm)].map((match) => ({ tag: match[1], body: match[2] }));
 }
 
-test('buildRequest: the senses and emoji lines are the ones of one block each, only moved; the stable part holds no per-turn value', (t) => {
+test('buildRequest: the senses lines are the ones of one block, only moved; <emoji> stays whole in the tail; the stable part holds no per-turn value', (t) => {
   const request = buildRequest(cacheScene());
   const [stable, profiles, tail] = request.messages[1].content;
   assert.deepEqual([stable.cacheSegment, profiles.cacheSegment, tail.cacheSegment], ['stable', 'profiles', undefined]);
   const stableBlocks = blocksOf(stable.text);
   const tailBlocks = blocksOf(tail.text);
-  // Most stable first; the emoji list, whose ranking moves with use, closes the stable part.
-  assert.deepEqual(stableBlocks.map((b) => b.tag), ['senses', 'self_facts', 'about_chat', 'gifs', 'emoji']);
+  // Most stable first; the emoji list, whose ranking moves with use several times a day, stays out.
+  assert.deepEqual(stableBlocks.map((b) => b.tag), ['senses', 'self_facts', 'about_chat', 'gifs']);
   assert.deepEqual(blocksOf(profiles.text).map((b) => b.tag), ['people']);
   const tailTags = tailBlocks.map((b) => b.tag);
-  assert.equal(tailTags[tailTags.indexOf('server') + 1], 'emoji', 'the emoji seen in the chat stay where <emoji> stood');
+  assert.equal(tailTags[tailTags.indexOf('server') + 1], 'emoji', '<emoji> where it always stood');
   assert.equal(tailTags[tailTags.indexOf('now') + 1], 'senses', 'the per-turn senses stay where <senses> stood');
   // Every other block once in the whole request.
   const all = [...stableBlocks, ...blocksOf(profiles.text), ...tailBlocks].map((b) => b.tag);
-  for (const tag of new Set(all)) assert.equal(all.filter((x) => x === tag).length, ['senses', 'emoji'].includes(tag) ? 2 : 1, tag);
+  for (const tag of new Set(all)) assert.equal(all.filter((x) => x === tag).length, tag === 'senses' ? 2 : 1, tag);
 
   // The lines of the one `<senses>` block this turn had before the split, in its order.
   const S = labels.senses;
@@ -542,13 +542,13 @@ test('buildRequest: the senses and emoji lines are the ones of one block each, o
   const body = (blocks, tag) => blocks.find((b) => b.tag === tag).body.split('\n');
   assert.deepEqual(body(stableBlocks, 'senses'), oneBlock.filter((line) => !perTurn.has(line)));
   assert.deepEqual(body(tailBlocks, 'senses'), oneBlock.filter((line) => perTurn.has(line)));
-  // The one `<emoji>` block: the list, then the emoji of the chat that are not on it.
+  // One `<emoji>` block: the list, then the emoji of the chat that are not on it.
   const e = labels.emoji;
   assert.deepEqual(
-    [...body(stableBlocks, 'emoji'), ...body(tailBlocks, 'emoji')],
+    body(tailBlocks, 'emoji'),
     [e.header, fill(e.entry, { name: 'beta', text: 'a dancing bean' }), fill(e.entryNoText, { name: 'alpha' }), e.seenInChat, fill(e.entry, { name: 'pog', text: 'a surprised cat face' })],
   );
-  assert.equal(request.stats.emoji.kept, 5, 'one budget section for both halves');
+  assert.equal(request.stats.emoji.kept, 5);
 
   // Nothing of this turn in the cached part: its clock, tempo, channel, quotas, private flag, chat emoji.
   const turnValues = [
@@ -556,12 +556,12 @@ test('buildRequest: the senses and emoji lines are the ones of one block each, o
     tailBlocks.find((b) => b.tag === 'tempo').body,
     'κουζίνα',
     S.draw, S.drawSpent, S.drawSpentUser, S.recall, S.participation, S.privateChat,
-    e.seenInChat, ':pog:',
+    e.header, e.seenInChat, ':beta:', ':pog:',
   ];
   for (const value of turnValues) assert.ok(!stable.text.includes(value), `the stable part carries ${value}`);
 
   // The stable part before the move held only <self_facts>, <about_chat> and <gifs>.
-  const before = estimateTokens(stableBlocks.filter((b) => !['senses', 'emoji'].includes(b.tag)).map((b) => block(b.tag, b.body)).join('\n\n') + '\n\n');
+  const before = estimateTokens(stableBlocks.filter((b) => b.tag !== 'senses').map((b) => block(b.tag, b.body)).join('\n\n') + '\n\n');
   const after = estimateTokens(stable.text);
   t.diagnostic(`stable part on the fixture: ${before} -> ${after} estimated tokens`);
   assert.ok(after > before);
@@ -577,6 +577,7 @@ test('buildRequest: the stable part is byte-identical across the turns of a day,
     'the daily quota spent': { drawQuota: { spent: true, userSpent: true } },
     'no server search left': { recallAvailable: false },
     'no emoji in the chat': { triggerFields: { content: 'γεια', emojis: [] } },
+    'the emoji ranking moved': { guildMemory: { patterns: 'talks fast', self: ['likes games'], emojiUsage: { 3: { name: 'gamma', count: 9, last: NOW - MIN } } } },
   };
   for (const [name, overrides] of Object.entries(variants)) {
     const content = buildRequest(cacheScene(overrides)).messages[1].content;
