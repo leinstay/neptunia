@@ -253,6 +253,7 @@ prompts/
   recall-summary.md        condense server-history search results
   room.md                  classifier: is this message for everyone in the room
   route-channel.md         classifier: does answering need another channel
+  planner.md               turn planner: one helper call before the reply (features.turnPlanner)
   elsewhere.md             task: comment on a read-only channel in the main channel
   split.md                 classifier: does a direct call hold several separate requests
   merge.md                 classifier: does a new message belong to something already waiting

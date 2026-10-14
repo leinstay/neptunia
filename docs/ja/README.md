@@ -251,6 +251,7 @@ prompts/
   recall-summary.md        サーバー履歴検索結果の要約
   room.md                  分類器: メッセージが全員向けか
   route-channel.md         分類器: 応答に別のチャンネルが必要か
+  planner.md               ターンプランナー: リプライ前の 1 回のヘルパー呼び出し (features.turnPlanner)
   elsewhere.md             タスク: 読み取り専用チャンネルの内容をメインチャンネルでコメント
   split.md                 分類器: 直接呼びかけに複数の独立したリクエストが含まれるか
   merge.md                 分類器: 新しいメッセージが待機中の項目に属するか

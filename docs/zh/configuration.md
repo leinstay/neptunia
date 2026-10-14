@@ -45,6 +45,7 @@
 | `embedIndex` | `false` | 机器人运行时保持向量索引最新：记录接收的每条消息入队，每 `embed.flushSeconds` 秒或队列积累 `embed.batch` 行时发送一批嵌入。必须为 `true` 才能启用；缺失的键视为关闭。需要 `features.meaningSearch`。没有此开关时索引仅通过 `tools/embed-index.mjs` 构建 |
 | `recent` | `true` | 在请求中显示一个 `<recent>` 块，呈现服务器最近几天发生的事情。缺失的键视为开启。参见 `memory.recentHours` 和 `context.caps.recent` |
 | `channelRoute` | `true` | 分类器在回合前选出对话中提及的频道，以便将其拉入请求。缺失的键视为开启。参见 `route.*` |
+| `turnPlanner` | `false` | 回复前的一次辅助调用取代频道路由、情节选择、搜索分类器和重看分类器；地址分类器和 GIF 选择器独立运行。仅 `true` 时启用；缺失的键视为关闭。需要 `prompts/planner.md` |
 | `channelLinks` | `true` | 角色在消息中写服务器频道的 `#频道名` 时，发送的消息包含真实的频道链接而非文字。名称按最长匹配；已有的链接保持不变。关闭时文本原样发送。缺失的键视为开启 |
 | `pauseNotice` | `true` | 角色在暂停时被呼叫会发布一条简短通知。缺失的键视为开启。参见 `mention.pauseNoticeMinutes` 和 `labels.limits.paused` |
 | `diary` | `true` | 角色在拥有者选择的频道中按随机时间表自发发帖。缺失的键视为开启。未设置 `diary.channelId` 时不生效。参见[日记](diary.md) |
@@ -115,8 +116,8 @@
 | 键 | 默认值 | 说明 |
 |---|---|---|
 | `text` | `"anthropic/claude-sonnet-4.6"` | 文本分类器：地址分类器（`features.followUp`）、重看分类器（`features.videoRewatch`）、房间分类器（`spontaneous.roomQuestionChance`）和频道路由分类器（`features.channelRoute`） |
-| `reason` | `null` | 对内容进行推理的辅助工具：搜索分类器、recall 摘要、搜索浓缩器、链接阅读器和日记规划器。未设置（默认）时使用 `classifier.text` 的模型；状态卡片会标注回退来源。请求以角色 `classifier.reason` 发送 |
-| `byPurpose` | `{}` | 按用途覆盖模型：键为用途字符串（如 `lookup`、`recall-summary`、`diary-plan`），值为模型 ID。用途匹配优先于角色的模型。`/nep status` 不会探测 |
+| `reason` | `null` | 对内容进行推理的辅助工具：搜索分类器、recall 摘要、搜索浓缩器、链接阅读器、日记规划器和回合规划器。未设置（默认）时使用 `classifier.text` 的模型；状态卡片会标注回退来源。请求以角色 `classifier.reason` 发送 |
+| `byPurpose` | `{}` | 按用途覆盖模型：键为用途字符串（如 `lookup`、`recall-summary`、`diary-plan`、`planner`），值为模型 ID。用途匹配优先于角色的模型。`/nep status` 不会探测 |
 | `media` | `"anthropic/claude-haiku-4.5"` | 图片描述器（`features.mediaDescriptions`）：为图片、GIF 帧、视频封面、贴纸、自定义表情和链接缩略图生成单行描述 |
 | `video` | `"google/gemini-3.8-flash"` | 视频描述器（`features.videoDescriptions`）：观看短片段，基于问题重看，按请求重试。必须同时接受视频和音频输入 |
 | `embed` | `"openai/text-embedding-3-large"` | 嵌入模型（用于语义搜索）。请求以角色 `classifier.embed` 发送；`llm: usage` 日志行包含 `inputs`（文本数量）和 `dimensions`。`/nep status` 通过单输入嵌入请求探测；没有嵌入客户端时该行显示未检查 |
@@ -613,7 +614,7 @@ YouTube 链接的时长通过以下链式探测获取：首先尝试 yt-dlp，�
 | `results` | `5` | 请求的 Brave Search 结果数 |
 | `summaryChars` | `900` | 浓缩答案的最大字符数；填充 `search-summary.md` 中的 `{{maxChars}}` |
 | `maxOutputTokens` | `4000` | 浓缩器的最大输出 token 数 |
-| `classifierMaxOutputTokens` | `2000` | 搜索分类器的最大输出 token 数。提高以适应多行回答格式（`web:`、`server:`、`who:`、`when:`）。推理型模型需要更大的上限 |
+| `classifierMaxOutputTokens` | `2000` | 搜索分类器和回合规划器的最大输出 token 数。提高以适应多行回答格式（`web:`、`server:`、`who:`、`when:`）。推理型模型需要更大的上限 |
 | `cacheHours` | `24` | 缓存的搜索结果在重新搜索前服务的小时数 |
 | `contextMessages` | `50` | 为搜索分类器渲染为 `<transcript>` 的近期频道消息数 |
 | `timeoutMs` | `10000` | Brave Search 请求超时（毫秒） |

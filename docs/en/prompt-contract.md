@@ -45,6 +45,7 @@ All instructions are English in both layers; a character's speech samples may be
 | `room.md` | no | Classifier: is this message put to everyone in the room, or aimed at one person (`spontaneous.roomQuestionChance`). Receives a short transcript, the author's aliases and a `<candidate>` block. Output is ONE word: `yes` or `no` | `{{name}}` |
 | `route-channel.md` | no | Classifier: does answering this message need the persona to see another channel (`features.channelRoute`). Receives a short transcript, a `<channels>` list and a `<candidate>` block. Output is ONE line: a number from the list, `<n> earlier` (the page before the last view of that channel) or `none`. With no previous view within `context.pull.seenTtlMinutes` the earlier form shows the newest page | `{{name}}` |
 | `participation-pick.md` | no | Classifier: which of the persona's stored exchanges on other channels the new message refers to (`features.participation`). Receives a numbered `<episodes>` list first (the cache-stable part), then a short `<transcript>` (own lines marked with `labels.self`) and a `<candidate>` block. Output is ONE line: up to 4 numbers from the list, comma-separated, most relevant first, or `none`. No character card. Without this file the newest episodes are shown | `{{name}}` |
+| `planner.md` | no | The turn planner (`features.turnPlanner`): one pre-reply helper call that replaces the channel router, the episode pick, the search classifier and the re-watch classifier. Receives `<channels>`, `<episodes>`, `<media>`, a short transcript (`web.search.contextMessages` lines) and a `<candidate>` block. Output is four labelled blocks (`channel`, `episodes`, `rewatch`, `lookup`). Role `classifier.reason`, purpose `planner`; output cap `web.search.classifierMaxOutputTokens`. No character card | `{{name}}` `{{today}}` |
 | `elsewhere.md` | no | Task: the persona read a channel where they cannot write and may comment on it in the main channel (`features.elsewhere`). Used as the task text for a noticed turn. `<skip/>` is the normal outcome | `{{name}}` `{{channel}}` `{{destination}}` |
 | `read-link.md` | no | Out-of-character prompt for the link reader (`features.webLookup`, `web.links.enabled`): condense a fetched page into one paragraph. Receives the page title and body. No character card | `{{today}}` `{{maxChars}}` |
 | `search-summary.md` | no | Out-of-character prompt for the search condenser (`features.webLookup`, `web.search.enabled`): condense numbered search results into one note with inline sources. No character card | `{{today}}` `{{query}}` `{{maxChars}}` |
@@ -69,7 +70,7 @@ On a forced turn (`/nep talk interject`, `/nep talk initiate`), `forced.md` is a
 On an `overheard` turn, `overheard.md` REPLACES the mode prompt (it is the task text, not an append). When `overheard.md` is missing or blank, the mode prompt is used instead (degraded: the mode prompt frames the line as said to the persona, which is not what happened).
 In a private chat, `private.md` is appended after the mode prompt (before `forced.md`) with the same `{{name}}` and `{{author}}` placeholders.
 The analyzer and the warmup's `profile.md` and `server.md` receive the character card and `rules.md` as a
-`<character>` block in the user message. `channel.md`, `describe.md`, `describe-video.md`, `describe-gif.md`, `draw.md`, `rewatch.md`, `rewatch-answer.md`, `address.md`, `lookup.md`, `read-link.md`, `search-summary.md`, `recall-summary.md`, `room.md`, `route-channel.md`, `participation-pick.md` and `elsewhere.md` do not receive the card.
+`<character>` block in the user message. `channel.md`, `describe.md`, `describe-video.md`, `describe-gif.md`, `draw.md`, `rewatch.md`, `rewatch-answer.md`, `address.md`, `lookup.md`, `read-link.md`, `search-summary.md`, `recall-summary.md`, `room.md`, `route-channel.md`, `participation-pick.md`, `planner.md` and `elsewhere.md` do not receive the card.
 
 `{{guildFieldChars}}` is `fieldChars * 2`, the limit code clamps guild-level patterns and starters to.
 `{{maxEpisodes}}` is the total episodes kept per person. Both are filled from config but not used by the default
@@ -905,6 +906,60 @@ The classifier. On a server turn that builds a reply request (a reply of any tri
 Selection, cutting, dedup. The request shows at most `participation.shown` episodes, `participation.perChannel` per channel: the picked ones in the classifier's order, then the newest. Only channels that pass the audience rule of `<other_channels>` and `<channel_view>` are offered (`context.pull.sameAudience`: everyone who can read the current channel can read that one); never the current channel. A line already shown in `<chat>`, `<other_channels>` or `<channel_view>` is left out; an episode left without a line of the persona is dropped. An episode longer than `participation.episodeChars` characters keeps, in order, the persona's lines with the lines they answer, the lines that share a word of 4+ letters with the new message (and one neighbour on each side), the first and last two lines, then the rest while it fits; a run of cut lines is marked with `labels.participation.skipped`. The budget section `participation` drops whole episodes, the picked ones last. The block sits right after `<recent>`.
 
 Logs (counts and codes only): `participation: recorded` (`channel`, `episodes`; `following: true` for a line after the persona's), `participation: classified` (`channel`, `kind`, `offered`, `picked`, `parse`, `ms`), `participation: skipped` (`no-prompt`, `no-candidate`), `participation: failed` (`reason`: a rail code, `error`, `record-error`, `following-error`). The reply's `turn: model answered` carries `budget.participation` (`used`, `kept`, `dropped`, `offered`, `shown`, `cut`, `deduped`).
+
+## Turn planner
+
+When `features.turnPlanner` is exactly `true`, one helper call replaces four classifiers that otherwise run separately before a reply: the channel router (`route-channel.md`), the episode pick (`participation-pick.md`), the re-watch classifier (`rewatch.md`) and the search classifier (`lookup.md`). The address classifier and the GIF picker stay separate.
+
+`planner.md` runs on `classifier.reason` (purpose `planner`), output capped at `web.search.classifierMaxOutputTokens` (default 2000). Placeholders: `{{name}}` (the persona's display name), `{{today}}` (the date in `bot.timezone`, `YYYY-MM-DD`).
+
+### Input
+
+The user message carries the same lists the old classifiers received, in this order: `<channels>` (channel lines from the route classifier), `<episodes>` (episode lines from the participation pick), `<media>` (video and picture lines from the re-watch classifier), then a short transcript of the last `web.search.contextMessages` lines, then `<candidate>` (the new message: `<author name>: <text>`). A block whose list is empty is left out. The `<channels>` and `<episodes>` blocks are tagged `cacheSegment: 'stable'` (they change only when a channel or an episode does); the `<media>` list, the transcript and the candidate are the per-turn tail.
+
+### Output
+
+Four labelled blocks, each present exactly once, in any order:
+
+```
+channel: <n> | channel: <n> earlier | channel: none
+episodes: <n>, <n>, ... | episodes: none
+rewatch: <n> retry | rewatch: <n> question: <text> | rewatch: none
+lookup: none
+```
+
+When a search is needed, the `lookup` block carries one or more labelled lines instead of `none`:
+
+```
+web: <query>
+server: <form>, <form>, ...
+who: <name form>, <name form>, ...
+when: <from> .. <to>
+recent: yes | no
+```
+
+Each lookup label may appear at most once. The grammar of each block matches the output format of the classifier it replaces: `channel` is read by `parseRouteAnswer`, `episodes` by `parseParticipationPick`, `rewatch` by `parseRewatchPickDetailed`, and the lookup lines by `parseLookupAnswer`.
+
+### Block states
+
+Each block in the parsed answer carries a state:
+
+- `ok`: a usable pick.
+- `none`: the model answered `none`.
+- `invalid`: present but unparsable (a number outside its list, a duplicate line, conflicting content such as `lookup: none` alongside labelled lines).
+- `missing`: not answered at all.
+
+An `invalid` or `missing` block takes its safe default: no channel routed, no episodes picked, no second look. The lookup block falls back to the words recall (`recall.fallbackOnClassifierFailure`). On a whole failure (the request threw, timed out or returned a blank answer), every offered block records its fallback and the lookup fallback runs alone. The old classifiers are never re-run.
+
+### Fallback journal entries
+
+Every offered block that ends up `invalid` or `missing`, and every offered block of a failed call, records a `helper-fallback` limit entry: `where: 'planner:<block>'` (e.g. `planner:channel`, `planner:lookup`), `detail`: the state or the failure code.
+
+### Logs
+
+- `planner: classified`: each block's state, the offered counts, the picked counts. Codes and counts only, never a line, a query or a question.
+- `planner: failed`: the request threw, timed out or returned a blank answer. Fields: `reason` (`classifier-failed` or `empty`), `rail` (the rail code when applicable).
+- `planner: skipped`: the planner had nothing to decide (`reason`: `no-prompt`, `nothing`, `no-candidate`). No request, no fallback recorded.
 
 ## Drawing
 
