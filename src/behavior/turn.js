@@ -1637,7 +1637,7 @@ export function createTurnRunner({
    */
   async function followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted = null, act: actOn }) {
     const labels = hot.prompts?.labels ?? {};
-    const block = skillResultBlock(called, labels, { maxChars: hot.config.skills?.resultMaxChars ?? 2000, posted: firstPass(acted, labels) });
+    const block = skillResultBlock(called, labels, { maxChars: hot.config.skills?.resultMaxChars ?? 4500, posted: firstPass(acted, labels) });
     const messages = withSkillResult(sentMessages, block);
     let completion;
     try {

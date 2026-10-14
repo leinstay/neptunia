@@ -52,6 +52,9 @@
 // `triggerLinksOf`): read once at start, so her transcript lines keep naming their turn's trigger
 // across a restart (src/behavior/turn.js).
 //
+// Which turn posted one of her messages (`findTurn`, `turnOfMessage`, shown by `turnView`): for
+// `/nep memory journal message:`, the turn record whole, its think included.
+//
 // Logs carry the kind and an error code, never the record's contents.
 
 import path from 'node:path';
@@ -330,6 +333,104 @@ export function triggerLinksOf(records) {
   return out;
 }
 
+/** The message id of one `posted` item: `{ messageId }`, or a bare id string as an old record may hold; else null. */
+function postedIdOf(post) {
+  const id = typeof post === 'string' ? post : post?.messageId;
+  return typeof id === 'string' && id ? id : null;
+}
+
+/** The `messageId` a `succeeded` action line's result names, else null. */
+function succeededIdOf(record) {
+  const id = record?.kind === 'action' && record.phase === 'succeeded' ? record.result?.messageId : null;
+  return typeof id === 'string' && id ? id : null;
+}
+
+/**
+ * The turn that posted message `messageId`, from journal records (parsed lines, any kinds, oldest
+ * first): the `turn` record whose `posted` names it, else -- an old record without the ids, or a
+ * message her skill call posted -- the `turn` record of the turn whose operation closed
+ * `succeeded` with that `messageId` (the attempt whose `actions` list that operation, else the
+ * turn's last). With it: its `turn.start` (the same attempt, else the turn's last; null when not
+ * among the records), every message id the attempt posted (its `posted`, then its succeeded
+ * operations', once each) and its skill calls (`skill` operations: `{ skill, args, target,
+ * phase, code, messageId }`, `args` the attribute names, `phase` the last one written). Null when
+ * no turn among the records posted it. Pure.
+ * @param {unknown[]} records
+ * @param {string} messageId
+ * @returns {{ turn: object, start: object|null, posted: string[], calls: object[] }|null}
+ */
+export function turnOfMessage(records, messageId) {
+  const list = Array.isArray(records) ? records.filter((record) => record && typeof record === 'object') : [];
+  const id = String(messageId ?? '');
+  if (!id) return null;
+  const turns = list.filter((record) => record.kind === 'turn' && typeof record.turnId === 'string');
+  let turn = turns.find((record) => Array.isArray(record.posted) && record.posted.some((post) => postedIdOf(post) === id)) ?? null;
+  if (!turn) {
+    const op = list.find((record) => succeededIdOf(record) === id && typeof record.turnId === 'string');
+    if (!op) return null;
+    const ofTurn = turns.filter((record) => record.turnId === op.turnId);
+    turn = ofTurn.find((record) => Array.isArray(record.actions) && record.actions.includes(op.opId)) ?? ofTurn.at(-1) ?? null;
+    if (!turn) return null;
+  }
+  const starts = list.filter((record) => record.kind === 'turn.start' && record.turnId === turn.turnId);
+  const start = starts.find((record) => record.attemptId === turn.attemptId) ?? starts.at(-1) ?? null;
+  // The attempt's operations: those its `actions` lists, else every one of the turn.
+  const mine = (record) => record.kind === 'action' && record.turnId === turn.turnId && (!Array.isArray(turn.actions) || turn.actions.includes(record.opId));
+  const ops = list.filter(mine);
+  const posted = [];
+  const add = (postedId) => {
+    if (postedId && !posted.includes(postedId)) posted.push(postedId);
+  };
+  for (const post of Array.isArray(turn.posted) ? turn.posted : []) add(postedIdOf(post));
+  for (const record of ops) add(succeededIdOf(record));
+  const calls = new Map(); // opId -> call
+  for (const record of ops) {
+    if (record.name !== 'skill' || typeof record.opId !== 'string') continue;
+    const call = calls.get(record.opId) ?? { skill: null, args: [], target: null, phase: null, code: null, messageId: null };
+    if (typeof record.input?.skill === 'string') call.skill = record.input.skill;
+    if (Array.isArray(record.input?.args)) call.args = record.input.args.filter((name) => typeof name === 'string');
+    if (record.target && typeof record.target === 'object') call.target = record.target;
+    if (typeof record.phase === 'string') call.phase = record.phase;
+    if (typeof record.result?.code === 'string') call.code = record.result.code;
+    if (succeededIdOf(record)) call.messageId = succeededIdOf(record);
+    calls.set(record.opId, call);
+  }
+  return { turn, start, posted, calls: [...calls.values()] };
+}
+
+/**
+ * One turn as `turnOfMessage` found it, for the owner (`/nep memory journal message:`): its id
+ * and attempt, start and end time, channel, mode, trigger kind and message id, outcome and
+ * reason, the message ids it posted, its skill calls, then the stored `think` whole (saying so
+ * when it was cut at `journal.thinkChars` on the way in). Multi-line text. Pure.
+ * @param {{ turn: object, start?: object|null, posted?: string[], calls?: object[] }} found
+ * @returns {string}
+ */
+export function turnView({ turn, start = null, posted = [], calls = [] }) {
+  const text = (value) => (typeof value === 'string' && value ? value : '-');
+  const channel = turn.scope?.channel ?? (turn.scope?.private ? 'private' : null);
+  const trigger = start?.trigger ?? null;
+  const callText = (call) => {
+    const target = call.target ? Object.entries(call.target).map(([key, value]) => `${key}=${value}`).join(' ') : '';
+    return [text(call.skill), text(call.phase), call.code, call.args.length > 0 ? `args: ${call.args.join(', ')}` : '', target ? `target: ${target}` : '', call.messageId ? `posted: ${call.messageId}` : '']
+      .filter(Boolean)
+      .join(' ');
+  };
+  const think = typeof turn.think === 'string' && turn.think.trim() ? turn.think : null;
+  return [
+    `turn ${text(turn.turnId)} (attempt ${Number.isInteger(turn.attemptId) ? turn.attemptId : '-'})`,
+    `time: ${text(turn.startedAt ?? start?.occurredAt)} -> ${text(turn.occurredAt)}`,
+    `channel: ${text(channel)}`,
+    `mode: ${text(turn.mode)}`,
+    `trigger: ${trigger ? `${text(trigger.kind)} ${text(trigger.messageId)}` : 'none'}`,
+    `outcome: ${text(turn.outcome)}, reason: ${text(turn.reason)}`,
+    `posted: ${posted.length > 0 ? posted.join(', ') : 'none'}`,
+    ...(calls.length > 0 ? calls.map((call) => `call: ${callText(call)}`) : ['call: none']),
+    think ? `think (${Array.from(think).length} chars${turn.thinkTruncated === true ? ', cut when stored' : ''}):` : 'think: none',
+    ...(think ? [think] : []),
+  ].join('\n');
+}
+
 /** The record's scope: the partner's private layer, a channel, or the whole guild. */
 function scopeOf({ privateUserId = null, channelId = null } = {}) {
   if (typeof privateUserId === 'string' && privateUserId) return { user: privateUserId, private: true };
@@ -363,6 +464,8 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   read(guildId: string, query: { day: string, kind?: string, n?: number, privateUserId?: string|null }): Promise<object[]>,
  *   timeline(guildId: string, query: { from: number }): Promise<Array<{ at: number, kind: string, event: string|null }>>,
  *   triggerLinks(guildId: string, query: { days: string[] }): Promise<Array<[string, string]>>,
+ *   findTurn(guildId: string, query: { messageId: string, at: number }): Promise<{ turn: object, start: object|null,
+ *     posted: string[], calls: object[] }|null>,
  *   dayFile(guildId: string, dateIso: string, privateUserId?: string|null): string,
  *   op(guildId: string, base: object): { opId: string, proposed(extra?: object): Promise<void>, started(extra?: object): Promise<void>,
  *     succeeded(result?: object): Promise<void>, failed(code: string, result?: object): Promise<void>,
@@ -608,6 +711,28 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       }
     }
     return triggerLinksOf(records);
+  }
+
+  /**
+   * The turn that posted message `messageId` (turnOfMessage), sent at `at` (epoch ms, its
+   * snowflake's time): searched in the guild journal's UTC day of `at` and the next (a turn
+   * record is written when the turn ends, maybe after midnight); a turn found without its
+   * `turn.start` there (one that started before midnight) has it looked for in the day before.
+   * Null when none posted it. A private journal is not read.
+   */
+  async function findTurn(guildId, { messageId, at } = {}) {
+    const id = typeof messageId === 'string' ? messageId : '';
+    if (!id || !Number.isFinite(at)) return null;
+    const records = [];
+    for (const day of [utcDay(at), utcDay(at + DAY_MS)]) {
+      for (const record of await read(guildId, { day, n: Number.MAX_SAFE_INTEGER })) {
+        if (record.kind === 'turn.start' || record.kind === 'turn' || record.kind === 'action') records.push(record);
+      }
+    }
+    const found = turnOfMessage(records, id);
+    if (!found || found.start) return found;
+    const before = await read(guildId, { day: utcDay(at - DAY_MS), kind: 'turn.start', n: Number.MAX_SAFE_INTEGER });
+    return turnOfMessage([...before, ...records], id);
   }
 
   function op(guildId, base = {}) {
@@ -1029,6 +1154,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     read,
     timeline,
     triggerLinks,
+    findTurn,
     dayFile,
     op,
     pending,

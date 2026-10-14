@@ -62,7 +62,7 @@
 | `/nep memory forget <user>` | `memory.forget` | エフェメラル、遅延 | メンバーのプロファイルとプライベートメモリを削除 |
 | `/nep memory affinity <user>` | `memory.affinity.read` | エフェメラル | 態度スコアと履歴の表示 |
 | `/nep memory wipe <confirm>` | `memory.wipe` | エフェメラル、遅延 | サーバーのすべてのメモリを削除（プロファイル、プライベートメモリ、傾向、チャンネル、ロア） |
-| `/nep memory journal [day] [kind:turn\|action\|memory\|system\|all] [n]` | `memory.journal.read` | エフェメラル | ジャーナルレコード |
+| `/nep memory journal [day] [kind:turn\|action\|memory\|system\|all] [n] [message]` | `memory.journal.read` | エフェメラル | ジャーナルレコード |
 | `/nep memory archive [user] [kind] [n]` | `memory.archive.read` | エフェメラル、遅延 | アーカイブされたアイテム |
 | `/nep memory restore <id>` | `memory.restore` | エフェメラル、遅延 | アーカイブされたアイテムを復元; `id` はオートコンプリート |
 | `/nep memory snapshot` | `memory.snapshot` | エフェメラル、遅延 | data/ をツール用にスナップショット |
@@ -84,7 +84,7 @@
 
 `/nep memory forget` はメンバーの公開プロファイル、プライベート DM ファイル、ボイスキューアイテム、バージョン履歴、レコードおよびアーカイブのエントリを削除します。削除前に、すべてを保管庫ディレクトリ（`memory.vaultDir`、デフォルト `data/vault/`）にコピーし、メンバーの ID を `data/guilds/<id>/forgotten.json` に書き込みます。エンジンは保管庫を読み戻すことはありません。メンバーを復元するには、ファイルを手動でコピーし `forgotten.json` からエントリを削除してください。`/nep memory wipe` はサーバー全体に同じことを行います: ギルドディレクトリ配下のすべてを保管庫にコピーし、プロファイル、プライベートファイル、チャンネル、傾向、ロア、ジャーナル、レコード、アーカイブ、ボイスキュー、バージョン、日記履歴、recall トレースを削除します。
 
-`/nep memory journal` はペルソナのジャーナルレコードを UTC 日で表示し、種類（turn、action、memory、system）でフィルターできます。`/nep memory archive` はアーカイブされたアイテムを表示し、メンバーや種類でフィルターできます。`/nep memory restore` はアーカイブされたアイテムをホットメモリに戻します（`id` は最新エントリからオートコンプリート）。`/nep memory snapshot` は `data/` をタイムスタンプ付きディレクトリにコピーします。
+`/nep memory journal` はペルソナのジャーナルレコードを UTC 日で表示し、種類（turn、action、memory、system）でフィルターできます。`message`（メッセージ ID またはリンク）を指定すると、そのメッセージを投稿したターンの完全な記録を表示します: トリガー、結果、投稿されたメッセージ ID、スキル呼び出し、保存された think。`message` 指定時は他のオプションは無視されます。`/nep memory archive` はアーカイブされたアイテムを表示し、メンバーや種類でフィルターできます。`/nep memory restore` はアーカイブされたアイテムをホットメモリに戻します（`id` は最新エントリからオートコンプリート）。`/nep memory snapshot` は `data/` をタイムスタンプ付きディレクトリにコピーします。
 
 `/nep memory private show` はメンバーのプライベート DM メモリを表示します。`/nep memory private forget` はプライベートファイルのみを削除し、公開プロファイルは保持します。`/nep memory private purge` はプライベートファイルを削除し、そのメンバーへのボットの DM メッセージも一括削除します（最大 `private.purgeMaxMessages`）。
 

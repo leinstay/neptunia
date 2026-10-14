@@ -64,7 +64,7 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep memory forget <user>` | `memory.forget` | ephemeral, deferred | Delete a member's profile and private memory |
 | `/nep memory affinity <user>` | `memory.affinity.read` | ephemeral | Show a member's attitude score and its history |
 | `/nep memory wipe <confirm>` | `memory.wipe` | ephemeral, deferred | Delete ALL server memory (profiles, private memory, habits, channels, lore) |
-| `/nep memory journal [day] [kind:turn\|action\|memory\|system\|all] [n]` | `memory.journal.read` | ephemeral | Journal records |
+| `/nep memory journal [day] [kind:turn\|action\|memory\|system\|all] [n] [message]` | `memory.journal.read` | ephemeral | Journal records |
 | `/nep memory archive [user] [kind] [n]` | `memory.archive.read` | ephemeral, deferred | Archived items |
 | `/nep memory restore <id>` | `memory.restore` | ephemeral, deferred | Restore an archived item; `id` autocompletes |
 | `/nep memory snapshot` | `memory.snapshot` | ephemeral, deferred | Snapshot data/ for the tools |
@@ -90,7 +90,7 @@ A group name or `*` stores the read operations under it, one entry each, the sam
 
 `/nep memory forget` deletes a member's public profile, their private DM file, their voice queue items, their version history and their record and archive entries. Before deleting, it copies everything into a vault directory (`memory.vaultDir`, default `data/vault/`) and writes the member's id to `data/guilds/<id>/forgotten.json`. The engine never reads the vault back; to restore a member, copy their files by hand and remove the entry from `forgotten.json`. `/nep memory wipe` does the same for the entire server: it copies everything under the guild directory into the vault, then deletes all profiles, private files, channels, habits, lore, the journal, the record, the archive, the voice queue, versions, diary history and the recall trace.
 
-`/nep memory journal` shows the persona's journal records for a UTC day, optionally filtered by kind (turn, action, memory, system). `/nep memory archive` shows archived items, optionally for one member or one kind. `/nep memory restore` puts an archived item back into hot memory (the `id` autocompletes from the newest entries). `/nep memory snapshot` copies `data/` to a timestamped directory for the measurement tools.
+`/nep memory journal` shows the persona's journal records for a UTC day, optionally filtered by kind (turn, action, memory, system). With `message` (a message id or link), it shows the full record of the turn that posted that message: trigger, outcome, posted ids, skill calls and the stored think. The other options are ignored when `message` is given. `/nep memory archive` shows archived items, optionally for one member or one kind. `/nep memory restore` puts an archived item back into hot memory (the `id` autocompletes from the newest entries). `/nep memory snapshot` copies `data/` to a timestamped directory for the measurement tools.
 
 `/nep memory private show` reads a member's private DM memory. `/nep memory private forget` deletes only the private file; the public profile stays. `/nep memory private purge` deletes the private file and also bulk-deletes the bot's DM messages to that member (up to `private.purgeMaxMessages`).
 

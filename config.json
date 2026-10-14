@@ -363,7 +363,7 @@
   "skills": {
     "conversations": [],
     "safeMode": false,
-    "resultMaxChars": 2000,
+    "resultMaxChars": 4500,
     "destructiveCooldownMinutes": 10,
     "callTimeoutMs": 120000
   },
