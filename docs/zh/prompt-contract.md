@@ -85,7 +85,8 @@
 | `<senses>` | 角色此刻能感知和不能感知的内容，根据实时配置生成：哪些图片由角色自己看到，哪些通过辅助描述获得，对什么视而不见、听而不闻。使角色不会假装看过视频，并能用自己的语气开玩笑 |
 | `<emoji>` | 角色可以使用的自定义表情（`features.customEmoji`）：最多 `context.customEmoji.max` 条，按成员使用率排名。每条包含 `:name:` 和辅助已缓存的说明。当 `labels.emoji.seenInChat` 存在时，出现在对话记录、拉取频道或相邻频道中但不在排名列表内的已描述自定义表情会列在该小标题下；对话记录行中所有自定义表情保留为裸 `:name:`。没有该标签（或没有该块）时，行内标签 `transcript.emojiDescribed` 照旧使用 |
 | `<gifs>` | 角色可以发送的 GIF（`features.gifs`）：最多 `gifs.max`（默认 40）条，按近期加权使用排名。每条包含 handle（`g1`、`g2`、…）和描述器缓存的三个字段（如有）：反应标签（受 `gifs.reactionChars` 限制，默认 40）、可见动作（受 `gifs.actionChars` 限制，默认 70）和屏幕文字。有字段的条目通过 `labels.gifs.entryFields`（`{id}`、`{reaction}`、`{action}`、`{text}`；代码去除空字段及其分隔符）渲染；无字段的条目使用 `labels.gifs.entry`（`{id}`、`{text}`），说明在词边界截断。每条还记录角色自己的发送时间和次数（`ownLast`、`ownUses`）；在 `gifs.ownMarkHours`（默认 24；`0` = 关）内发送的条目带有 `gifs.ownMark` 和简短的相对时间 |
-| `<skills_protocol>` | 来自 `labels.skills.protocol` 的静态文本：角色拥有技能，应请求显示完整列表，引擎检查访问权限。`features.skills` 和 `features.skillsDiscovery` 均开启时显示。在稳定部分，`<senses>` 之后 |
+| `<skills_protocol>` | 来自 `labels.skills.protocol` 的静态文本：角色拥有技能，可用的按名称列出，详情随需要的消息或应请求出现，调用通过 `<call>`，引擎检查访问权限。`features.skills` 和 `features.skillsDiscovery` 均开启时显示。在稳定部分，`<senses>` 之后 |
+| `<skills_granted>` | 角色被授权的技能名称，每回合显示，使角色无需分类器即可知道自己能用什么：`labels.skills.granted.lead`（如已设置），然后每个族一行 `labels.skills.granted.line`（`{family}` 为名称中第一个点之前的部分，`{names}` 为各名称的其余部分，逗号分隔）。仅名称；标题、使用条件和参数保留在 `<skills>` 中。根据角色的授权（`bot.access` 中指向其 user id 的条目）和注册表构建，按名称排序，因此在不同回合、不同请求者、不同位置之间字节相同，直到授权变更；未授权的技能不显示，`skills.safeMode` 下列表为空。继承的回复标签仅在授权时列出。请求者自身的权限不在此反映：引擎在每次调用时仍会检查。永不裁剪。`features.skills`、`features.skillsDiscovery` 和 `features.skillsAlwaysListed` 均开启且至少有一个技能被授权时显示。在稳定部分，紧接 `<skills_protocol>` 之后 |
 | `<about_chat>` | 人们在这里如何交谈，如何发起和插入对话，内部梗，人们教给角色的东西 |
 | `<server>` | 当前频道的完整信息（Discord 分类和话题、用途、人们写什么、氛围、活跃度、最后一条消息、最活跃作者；以 `labels.server.currentMark` 标记），加上仅限本轮向 `<other_channels>` 提供了消息的相邻频道；不包含其他频道 |
 | `<lore>` | 关键词出现在近期消息中的服务器世界书条目（加上标记为 always 的条目）：事件、常驻角色、长期故事。如同世界书：可存在数百个，仅显示相关的少数 |
@@ -318,7 +319,7 @@ task.part                                {index} {total} {part} {others}: this t
 task.queued                              {others}: the trigger author has other calls waiting, listed as numbered items joined by `; `. Shown only when there is no `task.part` for this turn. Without this key the waiting calls are not named and the seen-in-history drop rule applies to them
 task.queuedOthers                        {others}: other members have calls waiting in this channel, listed as `<n>. <author>: <text>` items joined by `; `. Without this key those calls are not named
 task.added                               {added}: later messages from the author were folded into this call while it waited, joined by `; `. Without this key the folded messages are not named
-skills.protocol                          `<skills_protocol>` 块的静态文本: 角色拥有技能，应请求显示完整列表，引擎检查访问权限
+skills.protocol                          `<skills_protocol>` 块的静态文本: 角色拥有技能，可用的按名称列出，详情随需要的消息或应请求出现，调用通过 `<call>`，引擎检查访问权限
 skills.line                              {name} {title} {whenToUse} {access} {args}: `<skills>` 列表中的一个技能。{access} 是 skills.access.* 之一; {args} 是 skills.args.list，技能无参数时为空
 skills.args.list                         {list}: 一个技能的参数，填充 skills.line 的 {args}（前导空格或标点写在这里，因为无参数的技能 {args} 为空）。{list} 是按命令选项顺序用「, 」连接的参数; 没有此标签则不显示参数
 skills.args.required                     {arg}: 包裹调用必须提供的参数
@@ -327,6 +328,8 @@ skills.args.range                        {arg} {min} {max}: 带范围的数值�
 skills.args.body                         {arg}: `<call …>` 与 `</call>` 之间的文本所填充的选项（`text`）
 skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denied    五种状态的简短访问短语: 已允许; 通过回复允许; 未开启; 安全模式; 此人不可用
 skills.proposedOff                       {names}: 在仅含提议的 `<skills>` 块末尾显示，列出不被允许的提议技能
+skills.granted.lead                      OPTIONAL：`<skills_granted>` 的第一行，在族行之前。无此标签时族行独立显示
+skills.granted.line                      {family} {names}：`<skills_granted>` 中角色被授权的技能的一个族；{names} 是各名称去掉族和点后的部分，用「, 」连接。无此标签则不显示 `<skills_granted>` 块
 skills.result.alreadyPosted              OPTIONAL {text}: 第一轮已发布的每个动作（消息、反应、图片）各一行。无此标签时不列出已发布动作
 skills.result.ok                         返回数据的读取调用的状态行。数据在下一行跟随
 skills.result.refused                    {reason}: 引擎在执行前拒绝了调用

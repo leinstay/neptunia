@@ -1863,7 +1863,7 @@ export function renderSkillsReport(entries) {
 async function runSkills({ args, scenarios, root, liveData, mods, hot, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, before, log, signal, budget, viewMods, channelOf }) {
   const {
     answerSkillScenario, skillScenarioRequest, scenarioInventory, simulateCall, personaGrantsConfig, replayMedia,
-    fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen,
+    fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen, grantedSkillNames,
   } = mods;
   const registry = skillRegistry();
   const names = [...registry.keys()];
@@ -1943,10 +1943,12 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, store, gu
       const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at, args: { asOfMoment: args.asOfMoment, hideSelf: [], hideSelfAll: false }, mods: viewMods });
       const requester = requesterOf(trigger, channel);
       const inventory = scenarioInventory({ config: scenarioConfig, selfId: self.id, texts: hot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
+      // `<skills_granted>`: the names of the skills the scenario grants her, as a live turn lists them.
+      const skillsGranted = grantedSkillNames({ config: scenarioConfig, selfId: self.id, registry });
       const media = replayMedia(situation.history, { cache: mediaCache, sites: scenarioConfig.media?.video?.sites, before: null });
       const input = {
         view, situation, selfId: self.id, selfName: self.name, channel: channelOf(channel), at,
-        descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory,
+        descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory, skillsGranted,
       };
       const shown = { rows: inventory?.length ?? 0, allowed: (inventory ?? []).filter((row) => row.allowed).length };
       if (args.dry) {
@@ -2154,9 +2156,10 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     const { expandPersonaGrant } = await load('ops/access.js');
     const { requesterOf, callViewOf } = await load('behavior/turn.js');
     const { createImageGen } = await load('llm/images.js');
+    const { grantedSkillNames } = await load('skills/discovery.js');
     skillMods = {
       answerSkillScenario, skillScenarioRequest, scenarioInventory, simulateCall, personaGrantsConfig, replayMedia,
-      fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen,
+      fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen, grantedSkillNames,
     };
     for (const [name, fn] of Object.entries(skillMods)) {
       if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--skills needs it)`);

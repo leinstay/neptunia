@@ -315,6 +315,10 @@ export const labels = {
       'requester-denied': 'not allowed for this member',
     },
     proposedOff: 'proposed but off: {names}',
+    granted: {
+      lead: 'skills granted to you, by family:',
+      line: '{family}: {names}',
+    },
     result: {
       alreadyPosted: 'already posted: {text}',
       ok: 'skill ok, data:',

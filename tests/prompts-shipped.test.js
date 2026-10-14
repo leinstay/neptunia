@@ -597,6 +597,25 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
   assert.ok(text.includes(fill(LABELS.skills.line, { name: 'message.edit', title: texts['message.edit'].title, whenToUse: texts['message.edit'].whenToUse, access: LABELS.skills.access.allowed, args })), 'the arguments through labels.skills.args');
 });
 
+test('buildRequest: the skills granted to the persona fill labels.skills.granted in the stable part, the same for another requester', async () => {
+  const names = ['lore.list', 'memory.profile.read', 'message.delete', 'message.edit', 'message.react.remove'];
+  const request = buildRequest(await turnInput({ skillsGranted: names }));
+  assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'skills_protocol', 'skills_granted'] }, 'reply (granted skills)');
+  const stable = request.messages[1].content[0];
+  assert.equal(stable.cacheSegment, 'stable');
+  const granted = LABELS.skills.granted;
+  const body = [
+    granted.lead,
+    fill(granted.line, { family: 'lore', names: 'list' }),
+    fill(granted.line, { family: 'memory', names: 'profile.read' }),
+    fill(granted.line, { family: 'message', names: 'delete, edit, react.remove' }),
+  ].filter(Boolean).join('\n');
+  assert.ok(stable.text.includes(`</skills_protocol>\n\n<skills_granted>\n${body}\n</skills_granted>`), stable.text);
+  // Another member asking in another channel: the cached part does not move.
+  const other = buildRequest(await turnInput({ skillsGranted: [...names], interlocutor: PROFILES[NIKOS], currentChannelId: DIARY }));
+  assert.equal(other.messages[1].content[0].text, stable.text);
+});
+
 test('buildRequest: an overheard line fills overheard.md in place of the reply task', async () => {
   const request = buildRequest(await turnInput({ triggerKind: 'overheard' }));
   const text = assertFilled(request.messages, { files: LOADS.overheard, blocks: TURN_BLOCKS }, 'overheard');

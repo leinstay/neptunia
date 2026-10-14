@@ -60,6 +60,7 @@
 | `memberCommands` | `true` | `/nep pings` コマンド。全メンバーが使用可能。`false` でオーナーのみに制限 |
 | `skills` | `true` | ペルソナのスキルゲートウェイ。`false` ですべてのスキル呼び出しが拒否され、引き継がれたリプライエフェクト（メッセージ、リアクション、描画）も停止する。キー欠落 = オン |
 | `skillsDiscovery` | `true` | 検索分類器とターンプランナーがメッセージに関連するスキルを指定、またはインベントリの質問時にフルリストを要求できる。`<skills_protocol>` ブロックが安定部分に配置され、インベントリリクエスト時にフルリストの `<skills>` ブロックが追加される。`features.skills` がオフの場合はオフ。キー欠落 = オン |
+| `skillsAlwaysListed` | `true` | 各リプライリクエストでペルソナに付与されたスキル名をキャッシュ部分に列挙（`<skills_granted>`、ファミリー別）し、常に何が使えるかわかるようにする。`features.skills` または `features.skillsDiscovery` がオフの場合はオフ。キー欠落 = オン |
 
 ## `skills`
 

@@ -4648,6 +4648,75 @@ test('buildRequest: skills -- the skills proposed for this turn show the allowed
   assert.equal(blockTags(contentText(closed)).includes('skills'), false);
 });
 
+// --- the skills granted to her, always listed in the stable part ------------------------------
+
+/** Skill names as src/skills/discovery.js#grantedSkillNames gives them: sorted by name. */
+const GRANTED = ['lore.list', 'memory.profile.read', 'message.create', 'message.edit', 'message.react.add', 'status.show'];
+
+test('buildRequest: skills -- the granted skills render in the stable part right after the protocol, names only, one line per family', () => {
+  const content = buildRequest(segmentScene({ skillsGranted: GRANTED })).messages[1].content;
+  assert.equal(content[0].cacheSegment, 'stable');
+  const stable = content[0].text;
+  const tags = blockTags(stable);
+  assert.equal(tags[tags.indexOf('skills_protocol') + 1], 'skills_granted', stable);
+  const body = blocksOf(stable).find((b) => b.tag === 'skills_granted').body;
+  const line = (family, names) => fill(labels.skills.granted.line, { family, names });
+  assert.equal(body, [
+    labels.skills.granted.lead,
+    line('lore', 'list'),
+    line('memory', 'profile.read'),
+    line('message', 'create, edit, react.add'),
+    line('status', 'show'),
+  ].join('\n'));
+  assert.equal(blockTags(content.at(-1).text).includes('skills_granted'), false, 'never in the tail');
+  // No lead label: the family lines alone.
+  const prompts = fakePrompts({ labels: { ...labels, skills: { ...labels.skills, granted: { line: labels.skills.granted.line } } } });
+  const bare = buildRequest(segmentScene({ prompts, skillsGranted: ['lore.list'] })).messages[1].content[0].text;
+  assert.equal(blocksOf(bare).find((b) => b.tag === 'skills_granted').body, line('lore', 'list'));
+});
+
+test('buildRequest: skills -- the stable part with the granted skills is byte-identical for another requester, channel, catalogue and minute', () => {
+  const asAlice = buildRequest(segmentScene({ skillsGranted: GRANTED })).messages[1].content;
+  const asBerenice = buildRequest(
+    segmentScene({
+      skillsGranted: [...GRANTED],
+      interlocutor: BERENICE,
+      otherProfiles: [segmentScene().interlocutor],
+      triggerFields: { authorId: 'author-2', authorName: 'Bérénice', channelId: 'chan-other' },
+      currentChannelId: 'chan-other',
+      skillsInventory: SKILL_ROWS,
+      now: NOW + 7 * MIN,
+    }),
+  ).messages[1].content;
+  assert.equal(asAlice[0].cacheSegment, 'stable');
+  assert.equal(asBerenice[0].cacheSegment, 'stable');
+  assert.ok(asAlice[0].text.includes('<skills_granted>'), asAlice[0].text);
+  assert.equal(asBerenice[0].text, asAlice[0].text);
+  assert.notEqual(asBerenice[1].text, asAlice[1].text, 'the profiles part did move');
+});
+
+test('buildRequest: skills -- another grant changes the list; none granted, the switch, discovery or skills off, or no line label: no block', () => {
+  const stableOf = (overrides) => buildRequest(segmentScene(overrides)).messages[1].content[0].text;
+  const before = stableOf({ skillsGranted: GRANTED });
+  const after = stableOf({ skillsGranted: [...GRANTED, 'message.delete'].sort() });
+  assert.notEqual(after, before);
+  assert.ok(blocksOf(after).find((b) => b.tag === 'skills_granted').body.includes(fill(labels.skills.granted.line, { family: 'message', names: 'create, delete, edit, react.add' })));
+  for (const overrides of [
+    { skillsGranted: [] },
+    { skillsGranted: null },
+    {},
+    { skillsGranted: GRANTED, config: fakeConfig({ features: { skillsAlwaysListed: false } }) },
+    { skillsGranted: GRANTED, config: fakeConfig({ features: { skillsDiscovery: false } }) },
+    { skillsGranted: GRANTED, config: fakeConfig({ features: { skills: false } }) },
+    { skillsGranted: GRANTED, prompts: fakePrompts({ labels: { ...labels, skills: { ...labels.skills, granted: undefined } } }) },
+  ]) {
+    const text = contentText(buildRequest(segmentScene(overrides)).messages[1].content);
+    assert.ok(!text.includes('<skills_granted>'), JSON.stringify(Object.keys(overrides)));
+  }
+  // The switch off leaves the protocol where it was.
+  assert.ok(stableOf({ skillsGranted: GRANTED, config: fakeConfig({ features: { skillsAlwaysListed: false } }) }).includes('<skills_protocol>'));
+});
+
 test('skillsInventoryText: each line lists the skill\'s arguments -- required marked, enum values with the cut shown, a range, the body option -- in a stable order', () => {
   const argLabels = {
     ...labels,

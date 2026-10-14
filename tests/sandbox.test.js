@@ -697,14 +697,16 @@ test('sandboxRequestInput: names every input buildRequest reads; what it leaves 
   }
 });
 
-test('sandboxRequestInput: a skill scenario passes its inventory; everything else SANDBOX_OMITS leaves out stays out', () => {
+test('sandboxRequestInput: a skill scenario passes its inventory and her granted skills; everything else SANDBOX_OMITS leaves out stays out', () => {
   const { SKILL_SCENARIO_OMITS } = sandbox;
-  assert.deepEqual(Object.keys(SKILL_SCENARIO_OMITS).sort(), Object.keys(SANDBOX_OMITS).filter((key) => key !== 'skillsInventory').sort());
+  assert.deepEqual(Object.keys(SKILL_SCENARIO_OMITS).sort(), Object.keys(SANDBOX_OMITS).filter((key) => key !== 'skillsInventory' && key !== 'skillsGranted').sort());
   const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
   const wanted = buildRequestInputs();
   const rows = [{ name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed' }];
-  const input = sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsInventory: rows });
+  const granted = ['rule.add'];
+  const input = sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsInventory: rows, skillsGranted: granted });
   assert.equal(input.skillsInventory, rows);
+  assert.equal(input.skillsGranted, granted);
   const passed = Object.keys(input).filter((key) => !Object.hasOwn(SKILL_SCENARIO_OMITS, key));
   assert.deepEqual(new Set([...passed, ...Object.keys(SKILL_SCENARIO_OMITS)]), wanted);
   for (const key of passed) assert.notEqual(input[key], undefined, `${key} is named`);
@@ -714,6 +716,8 @@ test('sandboxRequestInput: a skill scenario passes its inventory; everything els
   }
   // An empty catalogue is no block, as in any other sandbox turn.
   assert.equal(sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsInventory: [] }).skillsInventory, null);
+  // No grant: no list, as in any other sandbox turn.
+  assert.equal(sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsGranted: [] }).skillsGranted, null);
 });
 
 test('answerSkillScenario: her skills are shown; a call goes to onCall and its result comes back before <task>; nothing else runs', async () => {

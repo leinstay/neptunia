@@ -6,10 +6,13 @@
 // skills relevant to the message: shadow only, logged and journaled, never rendered yet). The
 // classifiers read the registry's names through `{{skills}}` (skillsIndex: static texts only, no
 // grants). Behind `features.skills` and `features.skillsDiscovery` (a missing key counts as on).
+// Apart from both, every turn shows her the names of the skills granted to her (grantedSkillNames,
+// rendered in the request's cached stable part, src/behavior/prompt.js), so she knows what she
+// can do without a classifier naming it; behind `features.skillsAlwaysListed` as well.
 // Pure; the texts are `hot.prompts.skills`, read by the caller at the moment of use.
 
 import { isPlainObject } from '../config.js';
-import { skillsOn } from './access.js';
+import { NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn, skillsOn } from './access.js';
 import { describeSkill, skillNames } from './registry.js';
 
 /** The most skills one answer may name. */
@@ -32,6 +35,35 @@ const WRAPPING = /^[\s"'`“”‘’«»*]+|[\s"'`“”‘’«»*.!?…]+$/gu
  */
 export function discoveryOn(config) {
   return skillsOn(config) && config?.features?.skillsDiscovery !== false;
+}
+
+/**
+ * Whether every turn lists the skills granted to the persona: discovery on (discoveryOn) and
+ * `features.skillsAlwaysListed` not false (a missing key counts as on), read from the live config
+ * at the moment of use.
+ * @param {object|null|undefined} config
+ * @returns {boolean}
+ */
+export function alwaysListedOn(config) {
+  return discoveryOn(config) && config?.features?.skillsAlwaysListed !== false;
+}
+
+/**
+ * The names of the registry skills granted to the persona (src/skills/access.js#grantedToPersona:
+ * a `bot.access` entry naming her user id `selfId`), sorted by name (code-unit order, so the same
+ * grants give the same list whatever the order they were stored or registered in). Only her
+ * grants and the registry decide it -- never a requester, a channel or the time -- so the cached
+ * part of the request it fills stays byte-identical until a grant changes. Left out: a skill no
+ * grant opens for her (NOT_GRANTABLE_TO_PERSONA); everything under safe mode or with
+ * `features.skills` off. A carried-over skill is listed only when granted. Pure.
+ * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null }} input
+ * @returns {string[]}
+ */
+export function grantedSkillNames({ config, selfId = null, registry = null }) {
+  if (!skillsOn(config) || safeModeOn(config) || !(registry instanceof Map)) return [];
+  return [...registry.keys()]
+    .filter((name) => typeof name === 'string' && !NOT_GRANTABLE_TO_PERSONA.includes(name) && grantedToPersona(config, selfId, name))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /** No `skills:` line at all: what an answer without one means (none). */

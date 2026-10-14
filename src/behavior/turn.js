@@ -87,7 +87,7 @@ import { createOffPeriodsReader } from '../memory/journal.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
-import { discoveryOn, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
+import { discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
 import { skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, refusalStatus, resolveCall } from '../skills/executors.js';
@@ -5252,6 +5252,9 @@ export function createTurnRunner({
           diary: diaryPrep ? { posts: diaryPrep.posts, plan: diaryPrep.plan, found: diaryPrep.found, seeds: diaryPrep.seeds ?? '' } : null,
           offPeriods,
           skillsInventory,
+          // `<skills_granted>`: the names of the skills granted to her, on every turn -- her grants
+          // (the config read now) and the registry only, never this requester or channel.
+          skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
         }),
       );
       // What `<recent>` showed, held back or cut: counts only.

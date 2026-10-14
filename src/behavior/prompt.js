@@ -32,7 +32,8 @@
 //   9. the GIF library (`<gifs>`)
 // The rendered order is different, and laid out for the provider's prompt
 // cache: what changes least first, in three text parts -- the stable part
-// (the senses that read only the config, the skills protocol, `<self_facts>`,
+// (the senses that read only the config, the skills protocol, the names of the
+// skills granted to the persona, `<self_facts>`,
 // `<about_chat>`, `<gifs>`), the profiles (`<people>` with the interlocutor alone), then the
 // tail that changes every turn, opening with a second `<people>` for everyone
 // else, with the chat, the clock, the per-turn senses, the
@@ -75,7 +76,7 @@ import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/
 import { mergeProfiles } from './private.js';
 import { gifWatchBlocker } from '../memory/gif-watch.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
-import { byFamily, discoveryOn } from '../skills/discovery.js';
+import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
 
 const TAG_OVERHEAD = 60;
@@ -1080,7 +1081,9 @@ function nowBlock(now, timezone, labels, periods) {
  * segments (see docs/prompt-contract.md, "Cache segments"): the stable part
  * (`cacheSegment: 'stable'`), what changes least first: the stable
  * `<senses>` lines, `<skills_protocol>` (`protocol`: static, the same for
- * every grant), `<self_facts>`, `<about_chat>`, `<gifs>`; the profiles
+ * every grant), `<skills_granted>` (`granted`: the names of the skills granted
+ * to the persona, changing only with a grant), `<self_facts>`, `<about_chat>`,
+ * `<gifs>`; the profiles
  * (`cacheSegment: 'profiles'`: `<people>` with the interlocutor alone), then
  * the tail (no segment) with everything that changes from turn to turn -- a
  * second `<people>` with the other members first, `<emoji>` among it, its
@@ -1102,11 +1105,13 @@ function nowBlock(now, timezone, labels, periods) {
  * the chat (see `textFallback`).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ nowText, timezone, labels, senses, protocol = '', kept, tempoText, task, chatItems, diary = null }) {
+function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', kept, tempoText, task, chatItems, diary = null }) {
   const stable = [
     block('senses', senses.stable),
     // How the persona's skills reach her: static text, so a grant never changes this part.
     block('skills_protocol', protocol),
+    // The names of the skills granted to her: changes only when a grant does.
+    block('skills_granted', granted),
     block('self_facts', kept.self.join('\n')),
     block('about_chat', kept.aboutChat.join('\n')),
     // Own-marked entries last (ownMarkedLast).
@@ -1583,6 +1588,35 @@ function sensesWhole(senses) {
 function skillsProtocolText(labels) {
   const text = labels.skills?.protocol;
   return typeof text === 'string' ? text.trim() : '';
+}
+
+// Notation of `<skills_granted>`: how the names of one family are joined.
+const GRANTED_NAME_SEPARATOR = ', ';
+
+/**
+ * The `<skills_granted>` body: `labels.skills.granted.lead` (when set), then one
+ * `labels.skills.granted.line` per family -- `{family}` the part of the name before its first dot,
+ * `{names}` the rest of each name joined by ', ' (a name without a dot stands whole) -- the
+ * families and names in the order given (src/skills/discovery.js#grantedSkillNames: sorted by
+ * name). Names only: the detailed rows stay in `<skills>`. '' without a name or without
+ * `labels.skills.granted.line`. Depends on nothing but `names` and the labels, so the stable part
+ * it sits in stays byte-identical between turns until a grant changes.
+ * @param {string[]|null|undefined} names
+ * @param {object} labels
+ * @returns {string}
+ */
+function skillsGrantedText(names, labels) {
+  const l = labels.skills?.granted;
+  if (!Array.isArray(names) || !isPlainObject(l) || typeof l.line !== 'string' || !l.line) return '';
+  const groups = byFamily(names.filter((name) => typeof name === 'string' && name).map((name) => ({ name })));
+  if (groups.length === 0) return '';
+  const lines = groups.map((group) => {
+    const family = group[0].name.split('.')[0];
+    const rest = group.map(({ name }) => (name.includes('.') ? name.slice(name.indexOf('.') + 1) : name));
+    return fill(l.line, { family, names: rest.join(GRANTED_NAME_SEPARATOR) });
+  });
+  const lead = typeof l.lead === 'string' ? l.lead.trim() : '';
+  return [lead, ...lines].filter(Boolean).join('\n');
 }
 
 // Notation of an argument's allowed values in `<skills>`: separator, and the mark of a cut list.
@@ -2565,6 +2599,13 @@ function seenOf({ history, keptChat, pictures }) {
  *   on (a missing key counts as on) the stable part carries `<skills_protocol>`
  *   (`labels.skills.protocol`, fixed, never cut, static: the same for every grant); with either
  *   off neither block renders. Omitted or null -> no `<skills>`.
+ * @param {string[]|null} [input.skillsGranted]  The names of the skills granted to the persona
+ *   (src/skills/discovery.js#grantedSkillNames: her grants and the registry only, sorted), on
+ *   every turn: with `features.skillsAlwaysListed` on as well (a missing key counts as on;
+ *   src/skills/discovery.js#alwaysListedOn) `<skills_granted>` in the stable part right after
+ *   `<skills_protocol>`, one `labels.skills.granted.line` per family after
+ *   `labels.skills.granted.lead` (skillsGrantedText), fixed, never cut. Omitted, null or empty
+ *   -> no block.
  * @returns {{ messages: object[], stats: object, segments: { segment: 'stable'|'profiles'|'tail', chars: number, hash: string }[],
  *   idByIndex: Map<number, string>, tempo: object,
  *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
@@ -2823,6 +2864,9 @@ export function buildRequest(input) {
   // what she can do (`skillsInventory`), in the tail.
   const skillsShown = discoveryOn(config);
   const protocolText = skillsShown ? skillsProtocolText(labels) : '';
+  // The names of the skills granted to her, on every turn (features.skillsAlwaysListed): in the
+  // stable part, so they hang on her grants only.
+  const grantedText = alwaysListedOn(config) ? skillsGrantedText(input.skillsGranted, labels) : '';
   const inventoryText = skillsShown ? skillsInventoryText(input.skillsInventory, labels) : '';
 
   // A diary post (mode `diary`): the persona's world (under `diary.world`), its past posts, the
@@ -2880,8 +2924,8 @@ export function buildRequest(input) {
   const fixedSection = {
     name: 'fixed',
     required: true,
-    // A diary post's plan, its seeds and its `<diary>` intro are never cut.
-    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, planText, seedsText, diaryIntro].filter(Boolean)],
+    // The skills granted to her, a diary post's plan, its seeds and its `<diary>` intro are never cut.
+    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, planText, seedsText, diaryIntro].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -3390,7 +3434,7 @@ export function buildRequest(input) {
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
   const seen = seenOf({ history, keptChat, pictures });
-  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
+  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
 
   // A provider that rejects the images (see src/behavior/turn.js's 4xx
   // retry) must never resend a <chat> claiming a picture is attached with
@@ -3407,7 +3451,7 @@ export function buildRequest(input) {
   if (pictures.length) {
     const chatItemsBlind = formatTranscript(history, { ...formatOptions, attachedIndex: undefined });
     const keptChatBlind = chatItemsBlind.slice(chatItemsBlind.length - kept.chat.length);
-    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
+    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
   }
 
   // A sticker's URL is already fully sized (see src/discord/media.js
