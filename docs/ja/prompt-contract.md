@@ -182,6 +182,11 @@ transcript.calledTargetLink              {link}: 呼び出しがメッセージ�
 transcript.calledTargetChannel           {channel}: 呼び出しがチャンネルを対象にした場合、{target} を埋める
 transcript.calledPosted                  {link}: 呼び出しが別チャンネルに投稿した場合、{posted} を埋める
 transcript.callStatus.ok | invalid | denied | failed | unknown | partial | not_configured    7つの結果コードの短いフレーズ。失敗または不明な呼び出しが完了と読まれてはならない
+transcript.callStatusReason              OPTIONAL {status} {reason}: 失敗した呼び出しの {status} と理由; キーが空または未設定ならステータス語のみ
+transcript.callReasons.missing-arg | unknown-arg | wrong-arg | too-long | too-short | arg-twice | unknown-channel | unknown-role   {arg}: 呼び出しの引数が正しくなかった理由、引数名を含む
+transcript.callReasons.message-elsewhere | member-ambiguous   呼び出しが通らなかった理由: メッセージが別チャンネルにある; 複数のメンバーが該当する
+transcript.callReasons.unknown-message | not-own-message   {arg}: そのオプションで指定されたメッセージが表示内にない、またはペルソナのものでない
+transcript.callReasons.conversation-not-allowed   {channel}: 書き込めないチャンネル。ここにフレーズのないコードは skills.result.reasons[code]、次に .other にフォールバック
 transcript.postedFrom                    {channel}: ペルソナが別チャンネルから投稿した行に付加される
 transcript.replyTo                       {index} {author} {quote}: 親メッセージの番号、その著者（親がペルソナ自身の場合は self ラベル）、親テキストの引用（`context.replyQuoteChars`（デフォルト 80、`0` = 全文）で単語境界にカット。メディアのみの親はそのメディアラベルを引用する）
 transcript.file | sticker                {name}
@@ -337,6 +342,8 @@ task.part                                {index} {total} {part} {others}: this t
 task.queued                              {others}: the trigger author has other calls waiting, listed as numbered items joined by `; `. Shown only when there is no `task.part` for this turn. Without this key the waiting calls are not named and the seen-in-history drop rule applies to them
 task.queuedOthers                        {others}: other members have calls waiting in this channel, listed as `<n>. <author>: <text>` items joined by `; `. Without this key those calls are not named
 task.added                               {added}: later messages from the author were folded into this call while it waited, joined by `; `. Without this key the folded messages are not named
+task.missed                              {missed}: リカバリターン（トリガー種類 `missed`、`features.missedRecovery`）で、答えが返されなかった以前のメッセージ、`<n>. <author>: <text>` の形式で `; ` で結合。`task.part` の前に追加。このキーがなければメッセージは名前なし
+task.continue                            {skill}: スキル呼び出し後にターンを継続する follow-up のタスク全文（`features.followUpContinuation`）: 同じターンの続き; メッセージは配信済み; トリガーに再度答えない; 追加の呼び出しなし; 後から届いたメッセージはコンテキスト; 結果が人々に知らせるべきことを変える場合のみ発言、それ以外は `<skip/>`。このキーがなければ従来の follow-up フレーミングを使用
 skills.protocol                          `<skills_protocol>` ブロックの静的テキスト: ペルソナにはスキルがあり、使えるものは名前で列挙、詳細はそのスキルが必要なメッセージか質問時に表示、呼び出しは `<call>` のみ、アクセスはエンジンが確認
 skills.line                              {name} {title} {whenToUse} {access} {args}: `<skills>` リストの 1 スキル。{access} は skills.access.* のいずれか; {args} は skills.args.list、引数なしの場合は空
 skills.args.list                         {list}: 1 スキルの引数、skills.line の {args} を埋める（先頭のスペースや句読点はここに含める: 引数なしのスキルでは {args} が空のため）。{list} はコマンドのオプション順に「, 」で結合; このラベルがなければ引数は表示されない
@@ -348,7 +355,7 @@ skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denie
 skills.proposedOff                       {names}: 提案のみの `<skills>` ブロック末尾に表示され、許可されていない提案スキルを列挙する
 skills.granted.lead                      OPTIONAL: `<skills_granted>` の最初の行、ファミリー行の前。なければファミリー行のみ
 skills.granted.line                      {family} {names}: `<skills_granted>` 内のペルソナに付与されたスキルの 1 ファミリー。{names} はファミリーとドットの後の各名前の残り、「, 」で結合。このラベルがなければ `<skills_granted>` ブロックなし
-skills.result.alreadyPosted              OPTIONAL {text}: 最初のパスで既に投稿された各アクション（メッセージ、リアクション、画像）に対する 1 行。このラベルなしでは投稿済みアクションは列挙されない
+skills.result.alreadyPosted              OPTIONAL {text}: 最初のパスで既に投稿された各アクション（メッセージ、リアクション、画像）に対する 1 行。`features.followUpContinuation` オフ時のみ。このラベルなしでは投稿済みアクションは列挙されない
 skills.result.ok                         データを返した読み取り呼び出しのステータス行。次の行にデータが続く
 skills.result.refused                    {reason}: 実行前にエンジンが呼び出しを拒否
 skills.result.failed                     {reason}: 呼び出しは実行されたが成功しなかった

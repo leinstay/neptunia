@@ -148,11 +148,11 @@ test('executeCall: a member asks her to post photos to the diary and the diary i
 
   // The owner asked: the operation runs and answers it has no channel -- not_configured, its line as data.
   const result = await executeCall(resolved, deps(admin, port));
-  assert.deepEqual(result, { status: 'not_configured', code: 'not-configured', data: { text: 'diary post photos: not-now (no-channel)' } });
+  assert.deepEqual(result, { status: 'not_configured', code: 'not-configured', data: { text: 'the diary has no channel set' } });
   assert.equal(needsFollowUp('diary.post', result), true, 'she hears it in the follow-up');
   const block = skillResultBlock({ skill: 'diary.post', ...result }, labels);
   assert.ok(block.startsWith('<result skill="diary.post" status="not_configured">\n'), block);
-  assert.ok(block.includes('diary post photos: not-now (no-channel)'), block);
+  assert.ok(block.includes('the diary has no channel set'), block);
   assert.ok(block.includes(labels.skills.result.failed.split('{reason}')[0]), 'told with the nearest label the labels have');
 
   // Without a running diary at all: the same, its own text.

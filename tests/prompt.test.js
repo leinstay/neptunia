@@ -4782,8 +4782,8 @@ test('skillResultBlock: the status and the reason in words, a read\'s data cut t
   // Without the labels the code is all the block says.
   assert.equal(skillResultBlock({ skill: 'draw.create', status: 'failed', code: 'error' }, {}), '<result skill="draw.create" status="failed">\nerror\n</result>');
   // An operation's own answer follows whatever the status: an error or a refusal is a result too.
-  const notConfigured = skillResultBlock({ skill: 'diary.post', status: 'not_configured', code: 'not-configured', data: { text: 'diary post: not-now (no-channel)' } }, labels);
-  assert.equal(notConfigured, `<result skill="diary.post" status="not_configured">\n${fill(labels.skills.result.failed, { reason: labels.skills.result.reasons.other })}\ndiary post: not-now (no-channel)\n</result>`);
+  const notConfigured = skillResultBlock({ skill: 'diary.post', status: 'not_configured', code: 'not-configured', data: { text: 'the diary has no channel set' } }, labels);
+  assert.equal(notConfigured, `<result skill="diary.post" status="not_configured">\n${fill(labels.skills.result.failed, { reason: labels.skills.result.reasons.other })}\nthe diary has no channel set\n</result>`);
   // A structured status without its own label is told with the nearest one.
   assert.ok(skillResultBlock({ skill: 'lore.add', status: 'denied', code: 'not-allowed' }, labels).includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })));
   assert.ok(skillResultBlock({ skill: 'lore.add', status: 'invalid', code: 'invalid-args' }, labels).includes('status="invalid"'));

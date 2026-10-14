@@ -8858,7 +8858,7 @@ test('skill call: Alice asks her to post photos to the diary and the diary is no
   });
   const text = requestText(run.llm, 1);
   assert.ok(text.includes('<result skill="diary.post" status="not_configured">'), text);
-  assert.ok(text.includes('diary post photos: not-now (no-channel)'), text);
+  assert.ok(text.includes('the diary has no channel set'), text);
   assert.ok(!text.includes(labels.skills.result.ok), 'never told it went out');
   assert.deepEqual(run.sends.map((send) => send.text), ['δεν έχω ημερολόγιο ακόμα']);
   // A member who is not the owner: the diary is hers, the same answer.
@@ -8875,7 +8875,7 @@ test('skill call: Alice asks her to post photos to the diary and the diary is no
     labelSet: generic,
   });
   assert.ok(!requestText(continued.llm, 1).includes('GENERIC_NOT_SET_UP'), 'the generic phrase gives way');
-  const said = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.not_configured, reason: 'diary post photos: not-now (no-channel)' });
+  const said = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.not_configured, reason: 'the diary has no channel set' });
   const continuedText = requestText(continued.llm, 1);
   assert.ok(continuedText.includes(`Bot (you): [called diary.post: ${said}]`), continuedText);
   assert.ok(!continuedText.includes('<result'), continuedText);

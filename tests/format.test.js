@@ -1528,7 +1528,7 @@ test('formatTranscript: a call that did not work says why: its argument, its mes
   assert.ok(ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null }).endsWith(`: ${withReason(labels.skills.result.reasons['target-ambiguous'])}]`));
   assert.ok(ended({ kind: 'strange', code: 'strange', arg: null }).endsWith(`: ${withReason(labels.skills.result.reasons.other)}]`));
   // The operation's own message: after the specific phrase, before the generic phrase of the code and reasons.other.
-  assert.ok(ended({ kind: 'strange', code: 'strange', arg: null, text: 'diary post photos: not-now (no-channel)' }).endsWith(`: ${withReason('diary post photos: not-now (no-channel)')}]`));
+  assert.ok(ended({ kind: 'strange', code: 'strange', arg: null, text: 'the diary has no channel set' }).endsWith(`: ${withReason('the diary has no channel set')}]`));
   assert.ok(ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null, text: 'two channels' }).endsWith(`: ${withReason('two channels')}]`));
   assert.ok(ended({ kind: 'missing-arg', code: 'invalid-args', arg: 'message', text: 'Invalid arguments' }).endsWith(`: ${withReason(fill(reasons['missing-arg'], { arg: 'message' }))}]`));
   // No detail, or no callStatusReason label: the status word alone, as before.
