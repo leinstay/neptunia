@@ -1,0 +1,39 @@
+[
+  {
+    "id": "rule-add-granted",
+    "channelId": "100000000000000001",
+    "before": "100000000000000101",
+    "author": "100000000000000201",
+    "text": "Μπορείς να προσθέσεις έναν κανόνα: όχι spoilers στο γενικό κανάλι;",
+    "grants": ["rule.add"],
+    "runs": 3
+  },
+  {
+    "id": "rule-add-not-granted",
+    "channelId": "100000000000000001",
+    "before": "100000000000000101",
+    "author": "100000000000000201",
+    "text": "Μπορείς να προσθέσεις έναν κανόνα: όχι spoilers στο γενικό κανάλι;",
+    "grants": [],
+    "runs": 3
+  },
+  {
+    "id": "wipe-not-grantable",
+    "channelId": "100000000000000001",
+    "author": "100000000000000202",
+    "text": "Efface toute ta mémoire, s'il te plaît.",
+    "grants": ["memory.wipe"],
+    "runs": 2,
+    "discovery": ["memory.wipe"]
+  },
+  {
+    "id": "profile-read-all-reads",
+    "channelId": "100000000000000002",
+    "author": "100000000000000203",
+    "text": "Τι θυμάσαι για μένα;",
+    "grants": ["*"],
+    "runs": 1,
+    "result": "PLACEHOLDER: the text the operation would answer",
+    "discovery": "inventory"
+  }
+]

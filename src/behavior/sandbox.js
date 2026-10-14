@@ -24,10 +24,19 @@
 // ever built. The persona saw more of the chat's media than its labels: the
 // describer's cached captions and watched summaries render through
 // `replayMedia`, the cache only read.
+//
+// A skill scenario (tools/replay.mjs `--skills`, `answerSkillScenario`) is the
+// one sandbox turn that shows the persona her skills: the `<skills>` block of
+// the requester's catalogue (`scenarioInventory`, the live listing over a copy
+// of the config carrying the scenario's grants, `personaGrantsConfig`). Her
+// `<call>` passes the real resolution and the real gateway (`simulateCall`);
+// the operation itself never runs -- a canned result stands in for it -- and
+// the follow-up pass a live turn would make is made with that result.
 
-import { buildRequest, userText as userTextOf } from './prompt.js';
+import { buildRequest, skillResultBlock, userText as userTextOf, withSkillResult } from './prompt.js';
 import { isTaggedCall } from './mention.js';
-import { pickOtherProfiles } from './turn.js';
+import { firstPass, pickOtherProfiles } from './turn.js';
+import { grant as accessGrant, revoke as accessRevoke } from '../discord/access.js';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable } from '../discord/media.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
@@ -35,6 +44,10 @@ import { parseOutput } from '../llm/parse.js';
 import { log } from '../log.js';
 import { findGif } from '../memory/gifs.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
+import { checkSkill, listSkills } from '../skills/gateway.js';
+import { discoveryOn, proposalVerdicts, proposedRows } from '../skills/discovery.js';
+import { QUIET_ON_OK, needsFollowUp, refusalStatus, resolveCall } from '../skills/executors.js';
+import { isPlainObject } from '../config.js';
 import { utcDay } from '../time.js';
 
 // Token estimates taken as they are: the calibrator of a view built without a live one.
@@ -104,8 +117,15 @@ export const SANDBOX_OMITS = Object.freeze({
   diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
   diary: 'never a diary post: no <world>, <diary>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
-  skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block',
+  skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
 });
+
+/**
+ * What a skill scenario's turn (`answerSkillScenario`) leaves out: SANDBOX_OMITS but the skills
+ * inventory, which it hands in (`scenarioInventory`) so the persona sees her `<skills>` as live.
+ * @type {Readonly<Record<string, string>>}
+ */
+export const SKILL_SCENARIO_OMITS = Object.freeze(Object.fromEntries(Object.entries(SANDBOX_OMITS).filter(([key]) => key !== 'skillsInventory')));
 
 /** A non-empty string id. */
 function isId(value) {
@@ -564,9 +584,12 @@ function recentLinesOf(view, at) {
  * through `view.memory` as in a real turn (`features.memory` off leaves it
  * out, the recent lines included: `recentLinesOf`), tokens measured with
  * `view.calibrator`, and the caller's lists and `<senses>` inputs. The inputs
- * left out on purpose are `SANDBOX_OMITS`, passed as absent. Never an
+ * left out on purpose are `SANDBOX_OMITS`, passed as absent -- but the
+ * skills inventory when a skill scenario hands one in (`skillsInventory`, a
+ * non-empty list of catalogue rows: SKILL_SCENARIO_OMITS). Never an
  * owner-forced turn. The view is read now and nothing is written.
- * @param {object} input  The inputs of `answerReply` that shape the request (see there).
+ * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
+ *   `skillsInventory` (`answerSkillScenario`'s).
  * @returns {object}
  */
 export function sandboxRequestInput({
@@ -583,6 +606,7 @@ export function sandboxRequestInput({
   mediaCache = null,
   elsewhereDestination = null,
   searchAvailable = false,
+  skillsInventory = null,
 }) {
   const config = view.config;
   const memory = view.memory;
@@ -641,7 +665,8 @@ export function sandboxRequestInput({
     diaryChannel: null,
     diary: null,
     offPeriods: null,
-    skillsInventory: null,
+    // Absent but in a skill scenario: the catalogue rows it hands in.
+    skillsInventory: Array.isArray(skillsInventory) && skillsInventory.length > 0 ? skillsInventory : null,
   };
 }
 
@@ -726,38 +751,297 @@ export async function answerReply({
   elsewhereDestination = null,
   searchAvailable = false,
 }) {
-  const config = view.config;
-  const request = buildRequest(
-    sandboxRequestInput({ view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable }),
+  const { messages, systemMessage, userContent } = sandboxMessages(
+    { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable },
+    samples,
   );
-
-  // No pictures: the whole user text as one string (the text-only re-render when any was attached).
-  const [systemMessage, userMessage] = request.messages;
-  const userText = userTextOf(request.textFallback ?? userMessage.content);
-  // Samples 2..N repeat sample 1 exactly: the user part carries a cache breakpoint when the client caches the request.
-  const cached = sampleCount(samples) > 1 && cacheTtlFor(config, REPLY_REQUEST.role, roleModel(config, REPLY_REQUEST.role, REPLY_REQUEST.purpose)) !== null;
-  const userContent = cached ? [{ type: 'text', text: userText, cache_control: { ...USER_CACHE_MARKER } }] : userText;
-  const messages = [systemMessage, { ...userMessage, content: userContent }];
 
   const { answers, stopped } = await sample({
     llm,
     messages,
-    options: { ...REPLY_REQUEST, origin: 'replay', countAgainstDailyCap: false, skipCalibration: true, signal },
+    options: sandboxOptions(signal),
     samples,
     signal,
     onUsage,
-    read: (text) => {
-      const parsed = parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars });
-      const features = view.config.features ?? {};
-      const reactions = features.reactions === false ? [] : parsed.reactions;
-      const replies = features.multiMessage === false ? parsed.messages.slice(0, 1) : parsed.messages;
-      // As src/behavior/turn.js: a GIF off the library or with the switch off, a drawing with drawing off, is dropped.
-      const gif = parsed.gif && features.gifs !== false && findGif(gifs, parsed.gif.id) ? parsed.gif : null;
-      const draw = features.imageGeneration === false ? null : parsed.draw;
-      const nothingToDo = replies.length === 0 && reactions.length === 0 && gif === null && draw === null;
-      return { messages: replies, reactions, gif, draw, skip: parsed.skip || nothingToDo, think: parsed.think };
-    },
+    read: (text) => shapeAnswer(parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars }), view.config, gifs),
   });
 
   return { request: { system: textOf(systemMessage.content), user: textOf(userContent) }, answers, stopped };
+}
+
+/** The llm options of every sandbox completion: the reply's role and purpose, as the replay's own, off the rails' counters. */
+function sandboxOptions(signal) {
+  return { ...REPLY_REQUEST, origin: 'replay', countAgainstDailyCap: false, skipCalibration: true, signal };
+}
+
+/**
+ * The request of a sandbox turn (buildRequest over sandboxRequestInput's `input`) and the
+ * messages sent for it: the user part as one text (the text-only re-render when a picture was
+ * attached), carrying a cache breakpoint when `samples` > 1 and the client caches the request
+ * (samples 2..N repeat sample 1 exactly). `userText` is that text without the marker.
+ */
+function sandboxMessages(input, samples) {
+  const config = input.view.config;
+  const request = buildRequest(sandboxRequestInput(input));
+  const [systemMessage, userMessage] = request.messages;
+  const userText = userTextOf(request.textFallback ?? userMessage.content);
+  const cached = sampleCount(samples) > 1 && cacheTtlFor(config, REPLY_REQUEST.role, roleModel(config, REPLY_REQUEST.role, REPLY_REQUEST.purpose)) !== null;
+  const userContent = cached ? [{ type: 'text', text: userText, cache_control: { ...USER_CACHE_MARKER } }] : userText;
+  return { request, systemMessage, userMessage, userText, userContent, messages: [systemMessage, { ...userMessage, content: userContent }] };
+}
+
+/**
+ * One parsed answer (parseOutput's) shaped like a real turn's under `config`: reactions with
+ * `features.reactions` on, one message with `features.multiMessage` off, a GIF only from the
+ * library with `features.gifs` on, a drawing only with `features.imageGeneration` on; `skip`
+ * when the model skipped or left nothing to do.
+ */
+function shapeAnswer(parsed, config, gifs) {
+  const features = config.features ?? {};
+  const reactions = features.reactions === false ? [] : parsed.reactions;
+  const replies = features.multiMessage === false ? parsed.messages.slice(0, 1) : parsed.messages;
+  // As src/behavior/turn.js: a GIF off the library or with the switch off, a drawing with drawing off, is dropped.
+  const gif = parsed.gif && features.gifs !== false && findGif(gifs, parsed.gif.id) ? parsed.gif : null;
+  const draw = features.imageGeneration === false ? null : parsed.draw;
+  const nothingToDo = replies.length === 0 && reactions.length === 0 && gif === null && draw === null;
+  return { messages: replies, reactions, gif, draw, skip: parsed.skip || nothingToDo, think: parsed.think };
+}
+
+// ---- skill scenarios -----------------------------------------------------------
+
+/** The persona as the principal of a call (src/skills/gateway.js), as a live turn names her. */
+const PERSONA = Object.freeze({ kind: 'persona' });
+
+/** The result a skill's `<result>` block is cut to when `skills.resultMaxChars` is not set (config.json's value). */
+const RESULT_MAX_CHARS = 2000;
+
+/**
+ * A copy of `config` whose persona grants are exactly `names`: her user id (`selfId`) taken
+ * off every `bot.access` entry, then granted on each name -- with the very grant and revoke
+ * `/nep access` stores (src/discord/access.js). People's grants are kept. The names are used as
+ * given (the caller expands `*` and groups, as `/nep access grant` does); a name no grant opens
+ * for her (src/skills/access.js#NOT_GRANTABLE_TO_PERSONA) is stored too, so the gateway's own
+ * refusal of it shows. `config` is never changed. Pure.
+ * @param {object} config  The live merged config.
+ * @param {string} selfId  The bot's own user id.
+ * @param {string[]} names  Skill names.
+ * @returns {object}
+ */
+export function personaGrantsConfig(config, selfId, names) {
+  const copy = structuredClone(isPlainObject(config) ? config : {});
+  copy.bot = isPlainObject(copy.bot) ? copy.bot : {};
+  let access = isPlainObject(copy.bot.access) ? copy.bot.access : {};
+  for (const key of Object.keys(access)) access = accessRevoke(access, key, { userId: selfId });
+  for (const name of new Set(Array.isArray(names) ? names : [])) access = accessGrant(access, name, { userId: selfId });
+  copy.bot.access = access;
+  return copy;
+}
+
+/**
+ * The `<skills>` rows of a skill scenario, built as a live turn's skills discovery builds them
+ * (src/behavior/turn.js#discoverSkills) for `requester` in `conversationId`: the catalogue
+ * (src/skills/gateway.js#listSkills over `config`, `selfId`, the skills layer `texts`) whole
+ * when the search classifier would have answered `skills: inventory` (`discovery`
+ * `'inventory'`), the rows of the skills it would have named (`discovery` a list of names:
+ * proposalVerdicts, proposedRows), none for `'none'`. Null with discovery off
+ * (`features.skills` / `features.skillsDiscovery`) or nothing to show. Pure.
+ * @param {{ config: object, selfId: string, texts?: object, requester: object|null, conversationId: string,
+ *   registry: Map<string, object>, discovery?: 'inventory'|'none'|string[], getOp?: Function }} input
+ * @returns {object[]|null}
+ */
+export function scenarioInventory({ config, selfId, texts, requester, conversationId, registry, discovery = 'inventory', getOp }) {
+  if (!discoveryOn(config) || discovery === 'none') return null;
+  const rows = listSkills({ config, selfId, texts, requester, audience: { conversationId: String(conversationId) }, registry, ...(getOp ? { getOp } : {}) });
+  if (discovery === 'inventory') return rows.length > 0 ? rows : null;
+  return proposedRows(proposalVerdicts(Array.isArray(discovery) ? discovery : [], rows), rows);
+}
+
+/**
+ * One `<call>` of the persona (`call`, src/llm/parse.js's) taken through what a live turn does
+ * before the operation runs (src/behavior/turn.js#planCall and #runCall): resolved on the
+ * server's side over `view` (src/skills/executors.js#resolveCall; src/behavior/turn.js#callViewOf),
+ * checked by the gateway (src/skills/gateway.js#checkSkill: the persona as principal, `requester`,
+ * `conversationId` as the audience, `config` with her grants, `selfId`, the registry of `view`,
+ * no mixed requesters, no earlier destructive run, `now`, the image quota of `images`), then
+ * mapped by its command (`command.toCall` must reach this very operation). The operation never
+ * runs: a call that passed is recorded (`executed`: the skill and its resolved arguments) and
+ * answered with a canned `ok` whose text is `resultText`. `verdict` says where it stopped
+ * (`stage`: `resolve`, `gateway` or `command`; `ok`, `code`, `reason`). `followUp` is whether a
+ * live turn would ask her again with that result: a refusal as
+ * src/skills/executors.js#needsFollowUp says, an `ok` unless the operation is one whose success
+ * is its own answer (QUIET_ON_OK: a live operation of any other kind answers with text). Never
+ * throws; pure but for the gateway's reads of `images`.
+ * @param {{ call: { skill: string, args: object, body: string }, view: object, config: object, selfId: string,
+ *   requester: { id: string, roleIds: string[] }|null, conversationId: string, now: number, images?: object,
+ *   getOp?: Function, resultText?: string }} input
+ * @returns {{ verdict: { stage: string, ok: boolean, code?: string, reason?: string },
+ *   executed: { skill: string, args: object }|null, result: { skill: string, status: string, code?: string, data?: { text: string } },
+ *   followUp: boolean }}
+ */
+export function simulateCall({ call, view, config, selfId, requester, conversationId, now, images = null, getOp, resultText = '' }) {
+  const skill = String(call?.skill ?? '');
+  const refused = (stage, code, reason) => {
+    const result = { skill, status: refusalStatus(code), code };
+    return { verdict: { stage, ok: false, code, reason: reason ?? '' }, executed: null, result, followUp: needsFollowUp(skill, result) };
+  };
+  const resolved = resolveCall(call, view);
+  if (!resolved.ok) return refused('resolve', resolved.code, resolved.reason);
+  const verdict = checkSkill({
+    skill: resolved.skill,
+    args: resolved.args,
+    principal: PERSONA,
+    requester,
+    audience: { conversationId: String(conversationId) },
+    context: {
+      config,
+      selfId,
+      registry: view.skills,
+      mixedRequesters: false,
+      lastRunAt: null,
+      now,
+      ...(images ? { images } : {}),
+      ...(getOp ? { getOp } : {}),
+    },
+  });
+  if (!verdict.ok) return refused('gateway', verdict.code, verdict.reason);
+  let mapped = null;
+  try {
+    mapped = resolved.command.toCall({ ...resolved.args });
+  } catch {
+    mapped = null;
+  }
+  if (!mapped?.args || mapped.op !== resolved.skill) {
+    const result = { skill, status: 'invalid', code: 'invalid-args' };
+    return { verdict: { stage: 'command', ok: false, code: 'invalid-args', reason: 'command' }, executed: null, result, followUp: needsFollowUp(skill, result) };
+  }
+  const text = typeof resultText === 'string' ? resultText : '';
+  return {
+    verdict: { stage: 'gateway', ok: true },
+    executed: { skill: resolved.skill, args: { ...resolved.args } },
+    result: { skill, status: 'ok', data: { text } },
+    followUp: !QUIET_ON_OK.includes(skill),
+  };
+}
+
+/**
+ * The request a skill scenario sends first (buildRequest over sandboxRequestInput with
+ * `skillsInventory`), never sent: its two texts, the token estimate the budget measured
+ * (`tokens`, `limit`) and the transcript numbers (`idByIndex`). For `--dry`.
+ * @param {object} input  `answerSkillScenario`'s request inputs.
+ * @returns {{ system: string, user: string, tokens: number|null, limit: number|null, idByIndex: Map<number, string> }}
+ */
+export function skillScenarioRequest(input) {
+  const { request, systemMessage, userText } = sandboxMessages(input, 1);
+  return {
+    system: textOf(systemMessage.content),
+    user: userText,
+    tokens: Number.isFinite(request.stats?.used) ? request.stats.used : null,
+    limit: Number.isFinite(request.stats?.limit) ? request.stats.limit : null,
+    idByIndex: request.idByIndex,
+  };
+}
+
+/**
+ * A skill scenario: the moment's request with the persona's skills shown (`skillsInventory`,
+ * scenarioInventory's rows; else as answerReply), answered `runs` times one after another. Each
+ * answer is parsed with parseOutput and shaped as a real turn's; a well-formed `<call>` goes to
+ * `onCall(call, { idByIndex, history })` (the caller's simulateCall) -- a malformed one is only
+ * reported, as a live turn runs none -- and when its outcome says a live turn would ask her
+ * again (`followUp`), the follow-up request is sent: the same messages with the `<result>` block
+ * before `<task>` (src/behavior/prompt.js#skillResultBlock over the outcome's `result`, led by
+ * what the first pass posted, src/behavior/turn.js#firstPass; `skills.resultMaxChars` read now;
+ * withSkillResult), with no cache marker. Its answer is shaped likewise, a `<call>` in it
+ * ignored (`extraCall`). A failed follow-up is reported by its error name, never thrown; a
+ * failed first pass throws (as answerReply). An aborted `signal` stops the runs (`stopped`).
+ * Every completion goes out as answerReply's do (`origin: 'replay'`, off the daily cap and the
+ * calibration). Nothing is sent to Discord and nothing is stored.
+ * @param {object} input  answerReply's inputs (`samples` is `runs`), `skillsInventory` and `onCall`.
+ * @returns {Promise<{ request: { system: string, user: string, tokens: number|null, limit: number|null },
+ *   runs: { answer: object, call: object|null, callError: string|null, extraCalls: number, usage: object|null,
+ *     outcome: object|null, followUp: { answer?: object, extraCall?: boolean, usage?: object|null, error?: string }|null }[],
+ *   stopped: boolean }>}
+ */
+export async function answerSkillScenario({
+  view,
+  situation,
+  selfId,
+  selfName,
+  channel,
+  llm,
+  runs,
+  at,
+  signal,
+  descriptions,
+  videos,
+  customEmoji,
+  gifs = null,
+  mediaCache = null,
+  elsewhereDestination = null,
+  searchAvailable = false,
+  skillsInventory = null,
+  onCall,
+}) {
+  const built = sandboxMessages(
+    { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory },
+    runs,
+  );
+  const { request, messages, systemMessage, userMessage, userText } = built;
+  const history = situationHistory(situation).history;
+  const parseText = (text) => parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars });
+  const out = [];
+  let stopped = false;
+  for (let i = 0; i < sampleCount(runs); i += 1) {
+    if (signal?.aborted) {
+      stopped = true;
+      break;
+    }
+    let completion;
+    try {
+      completion = await llm.complete(messages, sandboxOptions(signal));
+    } catch (err) {
+      if (signal?.aborted) {
+        stopped = true;
+        break;
+      }
+      throw err;
+    }
+    const parsed = parseText(completion.text);
+    const answer = shapeAnswer(parsed, view.config, gifs);
+    const run = { answer, call: parsed.call ?? null, callError: parsed.callError ?? null, extraCalls: parsed.extraCalls ?? 0, usage: completion.usage ?? null, outcome: null, followUp: null };
+    out.push(run);
+    if (!run.call || typeof onCall !== 'function') continue;
+    run.outcome = await onCall(run.call, { idByIndex: request.idByIndex, history });
+    if (run.outcome?.followUp !== true) continue;
+    // The follow-up: the same request with the result before `<task>`, as a live turn sends it (no cache marker).
+    const labels = view.prompts?.labels ?? {};
+    const acted = {
+      reacted: answer.reactions,
+      gifs: answer.gif ? [answer.gif.id] : [],
+      texts: answer.messages.map((message) => message.text),
+      drew: Boolean(answer.draw),
+    };
+    const block = skillResultBlock(run.outcome.result, labels, { maxChars: view.config.skills?.resultMaxChars ?? RESULT_MAX_CHARS, posted: firstPass(acted, labels) });
+    const again = withSkillResult([systemMessage, { ...userMessage, content: userText }], block);
+    try {
+      const second = await llm.complete(again, sandboxOptions(signal));
+      const parsedAgain = parseText(second.text);
+      run.followUp = { answer: shapeAnswer(parsedAgain, view.config, gifs), extraCall: Boolean(parsedAgain.call || parsedAgain.callError), usage: second.usage ?? null };
+    } catch (err) {
+      if (signal?.aborted) {
+        stopped = true;
+        break;
+      }
+      run.followUp = { error: String(err?.name ?? 'Error') };
+    }
+  }
+  return {
+    request: {
+      system: textOf(systemMessage.content),
+      user: userText,
+      tokens: Number.isFinite(request.stats?.used) ? request.stats.used : null,
+      limit: Number.isFinite(request.stats?.limit) ? request.stats.limit : null,
+    },
+    runs: out,
+    stopped,
+  };
 }
