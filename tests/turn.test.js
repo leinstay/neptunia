@@ -26,6 +26,8 @@ import { pingStatus } from '../src/behavior/elsewhere.js';
 import { findGif } from '../src/memory/gifs.js';
 import { createJournal } from '../src/memory/journal.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';
+import { createFakeAdapter } from '../src/interface/fake.js';
+import { SKILL_DEFINITIONS, loadSkills } from '../src/skills/registry.js';
 
 function rngReturning(value) {
   return () => value;
@@ -8276,4 +8278,141 @@ test('createTurnRunner: a helper\'s transcript names the trigger of her lines to
   assert.equal(llm.classifierCalls.length, 1);
   const user = textOf(llm.classifierCalls[0].messages[1].content);
   assert.ok(user.includes('Bot (you) (turn triggered by #1): ναι'), user);
+});
+
+// ---------------------------------------------------------------------------
+// The skill gateway and the interface port (src/skills/gateway.js, src/interface/*): every
+// effect of a reply is a checked skill call made through the port.
+
+/** The interface skills as a registry that records every name the gateway looks up. */
+function spyingSkills(definitions = SKILL_DEFINITIONS.filter((definition) => definition.op === null)) {
+  const registry = loadSkills(definitions);
+  const asked = [];
+  const get = registry.get.bind(registry);
+  registry.get = (name) => {
+    asked.push(name);
+    return get(name);
+  };
+  return { registry, asked };
+}
+
+/** One mention turn answered with `answer`, through `port` (the default Discord adapter when null). */
+async function gatewayTurn({ answer, features = {}, port = null, skills = null, journal = null, record = null, store = fakeStore() }) {
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
+  const channel = fakeTurnChannel({ historyMessages: [raw] });
+  const turns = createTurnRunner({
+    hot: fakeHot(features),
+    store,
+    llm: fakeLlm(answer),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    now: () => NOW,
+    port,
+    skills,
+    journal,
+    record,
+  });
+  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  return { result, logs, channel };
+}
+
+test('skills gateway: a normal reply is checked as message.send and posted through the port exactly as before', async () => {
+  const { registry, asked } = spyingSkills();
+  const { result, channel } = await gatewayTurn({ answer: '<msg reply="#1">γεια σου @Alice</msg>', skills: registry });
+  assert.equal(result.outcome, 'spoke');
+  assert.ok(asked.includes('message.send'), 'the gateway was asked');
+  assert.deepEqual(channel.sent, [
+    {
+      content: 'γεια σου <@u1>',
+      reply: { messageReference: 'm1', failIfNotExists: false },
+      allowedMentions: { parse: [], users: ['u1'], repliedUser: true },
+    },
+  ]);
+  assert.equal(channel.typingCalls.length, 1, 'typed once, through the port');
+
+  // The same reply through another interface: the same text, reply target and mentions.
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
+  const other = await gatewayTurn({ answer: '<msg reply="#1">γεια σου @Alice</msg>', port });
+  assert.equal(other.result.outcome, 'spoke');
+  assert.deepEqual(port.calls.map((call) => call.op), ['typing', 'send']);
+  assert.deepEqual(port.calls[1].args, [
+    { iface: 'fake', conversationId: 'c1' },
+    { text: 'γεια σου <@u1>', replyTo: { iface: 'fake', conversationId: 'c1', messageId: 'm1' }, mentions: { users: ['u1'], repliedUser: true } },
+  ]);
+  assert.equal(other.channel.sent.length, 0, 'nothing went around the port');
+});
+
+test('skills gateway: a refused check posts, types and reacts nothing and logs skill: refused', async () => {
+  const { registry } = spyingSkills([]);
+  const { result, channel, logs } = await gatewayTurn({ answer: '<msg>γεια</msg><react to="#1">\u{1F389}</react>', skills: registry });
+  assert.deepEqual([result.outcome, result.delivered], ['spoke', false]);
+  assert.deepEqual([channel.sent, channel.reactCalls, channel.typingCalls], [[], [], []]);
+  const refused = logs.filter((entry) => entry.msg === 'skill: refused');
+  assert.deepEqual(refused.map((entry) => [entry.skill, entry.code]).sort(), [['message.react.add', 'unknown-skill'], ['message.send', 'unknown-skill']]);
+  assert.equal(logs.some((entry) => entry.msg === 'turn: sent' || entry.msg === 'turn: send failed'), false);
+});
+
+test('skills gateway: features.skills off silences the whole reply', async () => {
+  const { result, channel, logs } = await gatewayTurn({ answer: '<msg>ένα</msg><msg>δύο</msg><react to="#1">\u{1F389}</react>', features: { skills: false } });
+  assert.deepEqual([result.outcome, result.delivered], ['spoke', false]);
+  assert.deepEqual([channel.sent, channel.reactCalls, channel.typingCalls], [[], [], []]);
+  assert.ok(logs.filter((entry) => entry.msg === 'skill: refused').every((entry) => entry.code === 'skills-off'));
+
+  // A picture its publication may not have is never generated.
+  const drawn = await runDrawTurn({ answers: ['<draw reply="#1">a cat</draw>'], hot: drawHot({ skills: false }) });
+  assert.equal(drawn.images.generateCalls.length, 0);
+  assert.deepEqual(drawn.channel.sent, []);
+  assert.ok(drawn.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'skills-off'));
+});
+
+test('skills gateway: a send the port answers unknown is journaled unknown, never retried and never counted as posted', async () => {
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
+  port.failNext('send', { status: 'unknown', error: { code: 'timeout', retryable: false } });
+  const { journal, lines } = journalOverMemory();
+  const said = [];
+  const record = { append: async (...args) => said.push(args) };
+  const { result, logs } = await gatewayTurn({ answer: '<msg>ένα</msg><msg>δύο</msg>', features: { journal: true, record: true, typingSimulation: false }, port, journal, record });
+  assert.deepEqual([result.outcome, result.delivered], ['spoke', false]);
+  assert.equal(port.calls.filter((call) => call.op === 'send').length, 1, 'neither that message nor the next one was sent again');
+  const posts = actionsNamed(lines, 'post');
+  assert.deepEqual(posts.map((r) => r.phase), ['started', 'unknown']);
+  const turn = lines.map(({ record: r }) => r).find((r) => r.kind === 'turn');
+  assert.deepEqual(turn.posted, []);
+  assert.deepEqual(said, [], 'no said line');
+  assert.ok(logs.some((entry) => entry.msg === 'turn: send failed'));
+  assert.equal(logs.some((entry) => entry.msg === 'turn: sent'), false);
+});
+
+test('skills gateway: the GIF and the drawing are published through the port', async () => {
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', content: 'draw me a cat' });
+  const channel = fakeTurnChannel({ historyMessages: [raw] });
+  const images = fakeImages();
+  const { registry, asked } = spyingSkills();
+  const turns = createTurnRunner({
+    hot: drawHot(),
+    store: gifStore(),
+    llm: sequenceLlm(['<gif>g1</gif><draw reply="#1">a cat on a roof</draw>']),
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    images,
+    imageFetcher: fakeImageFetcher(),
+    port,
+    skills: registry,
+  });
+  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  assert.deepEqual([result.outcome, result.delivered], ['spoke', true]);
+  assert.equal(channel.sent.length, 0, 'nothing went around the port');
+  const sends = port.calls.filter((call) => call.op === 'send').map((call) => call.args[1]);
+  assert.equal(sends.length, 2);
+  assert.deepEqual(sends[0], { text: 'https://tenor.com/view/chat-qui-danse-1' }, 'the GIF as its URL, mentions none');
+  assert.equal(sends[1].attachments.length, 1);
+  assert.equal(sends[1].attachments[0].name, 'image.png');
+  assert.ok(Buffer.isBuffer(sends[1].attachments[0].data));
+  assert.deepEqual(sends[1].replyTo, { iface: 'fake', conversationId: 'c1', messageId: 'm1' });
+  assert.equal('mentions' in sends[1], false);
+  assert.equal(images.generateCalls.length, 1);
+  assert.ok(asked.filter((name) => name === 'message.send').length >= 3, 'the GIF, and the picture before and after its generation');
+  assert.ok(logs.some((entry) => entry.msg === 'turn: gif sent'));
+  assert.ok(logs.some((entry) => entry.msg === 'turn: drew'));
 });
