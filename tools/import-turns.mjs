@@ -16,7 +16,9 @@
 //   3. matches its `<msg>` texts to her posted messages in the record (`said` lines, and `seen`
 //      lines by her own id when the backfill saved it), every channel and private record, posted
 //      within [created_at, created_at + generation time + --slack-min] (tools/lib/import-turns.mjs
-//      #matchTurns); a turn with no match is still imported, with `importMatch.unmatched`;
+//      #matchTurns); a turn whose messages match nothing is only counted, unless
+//      `--include-unmatched` imports it too, with `importMatch.unmatched` (off by default: a mentor
+//      replay or a private chat's turn would land in the guild journal with no participants);
 //   4. with `--write`, appends one `turn` record per turn through the journal's own writer
 //      (`journal.turn`: `origin: 'imported'`, `sourceGenerationId`, `mode: 'reply'`, the think
 //      capped at `journal.thinkChars`, the posted message ids), so `/nep memory journal message:`
@@ -26,7 +28,10 @@
 //   cd /opt/neptunia-bot && node tools/import-turns.mjs --csv <file> [--from <day|iso>] [--to <day|iso>]
 //     [--cache <dir>] [--concurrency 3] [--rate 5] [--reply-prefix <text>] [--name <name>]
 //     [--key-name <api key name>] [--min-similarity 0.6] [--slack-min 3] [--self-id <id>]
-//     [--guild <id>] [--data <dir>] [--write]
+//     [--guild <id>] [--data <dir>] [--include-unmatched] [--write]
+//
+// `--key-name` keeps only the CSV rows of that `api_key_name` (the live persona's key); without it
+// every key's rows are read, and the summary counts the generations per key name.
 //
 // A dry run is the default (`--dry` says so explicitly): it fetches into the cache and prints the
 // counts, writing nothing under data/. `--write` refuses while the bot runs (the journal's
@@ -59,7 +64,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const USAGE =
   'usage: node tools/import-turns.mjs --csv <file> [--from <day|iso>] [--to <day|iso>] [--cache <dir>] [--concurrency 3] [--rate 5]\n' +
   '       [--reply-prefix <text>] [--name <name>] [--key-name <name>] [--min-similarity 0.6] [--slack-min 3] [--self-id <id>]\n' +
-  '       [--guild <id>] [--data <dir>] [--dry | --write]   (cwd: the bot directory)';
+  '       [--guild <id>] [--data <dir>] [--include-unmatched] [--dry | --write]   (cwd: the bot directory)';
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_RATE = 5;
 const DEFAULT_MIN_SIMILARITY = 0.6;
@@ -396,11 +401,12 @@ export async function main(argv, {
 } = {}) {
   const flags = parseFlags(argv, {
     values: ['--csv', '--from', '--to', '--cache', '--concurrency', '--rate', '--reply-prefix', '--name', '--key-name', '--min-similarity', '--slack-min', '--self-id', '--guild', '--data'],
-    switches: ['--write', '--dry'],
+    switches: ['--write', '--dry', '--include-unmatched'],
     usage: USAGE,
   });
   if (flags._.length > 0 || typeof flags['--csv'] !== 'string' || (flags['--write'] && flags['--dry'])) throw new CliError(USAGE);
   const write = flags['--write'] === true;
+  const includeUnmatched = flags['--include-unmatched'] === true;
   const concurrency = numberFlag(flags['--concurrency'], DEFAULT_CONCURRENCY, { min: 1, max: 16, integer: true });
   const rate = numberFlag(flags['--rate'], DEFAULT_RATE, { min: 0.1, max: 50 });
   const minSimilarity = numberFlag(flags['--min-similarity'], DEFAULT_MIN_SIMILARITY, { min: 0, max: 1 });
@@ -484,7 +490,7 @@ export async function main(argv, {
 
   // The records, counted per day; written with --write.
   const ledger = readLedger(dataDir, guildId);
-  const counts = { matched: 0, unmatched: 0, noText: 0, skip: 0, already: 0, forgotten: 0, toWrite: 0 };
+  const counts = { matched: 0, unmatched: 0, noText: 0, skip: 0, already: 0, forgotten: 0, unmatchedLeftOut: 0, toWrite: 0 };
   const days = new Map();
   const records = [];
   const samples = [];
@@ -510,6 +516,10 @@ export async function main(argv, {
     days.set(day, row);
     if (imported.has(gen.id)) {
       counts.already += 1;
+      continue;
+    }
+    if (record.importMatch.unmatched && !includeUnmatched) {
+      counts.unmatchedLeftOut += 1;
       continue;
     }
     const at = Date.parse(record.occurredAt);
@@ -538,17 +548,20 @@ export async function main(argv, {
     if (failedWrites > 0) log.warn('import-turns: journal writes failed', { failed: failedWrites });
   }
 
+  const keyCounts = new Map();
+  for (const gen of gens) keyCounts.set(gen.keyName ?? '(none)', (keyCounts.get(gen.keyName ?? '(none)') ?? 0) + 1);
   const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : '-');
   const lines = [
     write ? 'import-turns: write' : 'import-turns: dry run (nothing written; --write imports)',
     `range: ${iso(fromFlag)} .. ${iso(toMs)} (the journal's first live record: ${iso(firstLiveMs)})`,
     `generations: ${gens.length}`,
+    ...[...keyCounts].sort((a, b) => b[1] - a[1]).map(([keyName, n]) => `  key ${keyName}: ${n}`),
     `fetched: ${fetchCounts.fetched}, cached: ${cachedBefore.length}, missing: ${fetchCounts.missing}, failed: ${fetchCounts.failed}, unreadable: ${fetchCounts.unreadable}${fetchCounts.stopped ? `, stopped: ${fetchCounts.stopped}` : ''}`,
     `reply turns: ${replies.length}`,
     `other kinds: ${[...otherKinds.values()].reduce((sum, n) => sum + n, 0)}`,
     ...[...otherKinds].sort((a, b) => b[1] - a[1]).slice(0, OTHER_KINDS_SHOWN).map(([kind, n]) => `  ${String(n).padStart(6)}  ${kind}`),
     `matched: ${counts.matched}, unmatched: ${counts.unmatched}, no text: ${counts.noText}, skip: ${counts.skip}`,
-    `already imported: ${counts.already}, left out by the deletion ledger: ${counts.forgotten}`,
+    `already imported: ${counts.already}, left out by the deletion ledger: ${counts.forgotten}, unmatched left out: ${counts.unmatchedLeftOut}${includeUnmatched ? '' : ' (--include-unmatched imports them)'}`,
     write ? `written: ${written}` : `would write: ${counts.toWrite}`,
     '',
     'day         reply  matched  unmatched  skip',
