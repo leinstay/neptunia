@@ -185,6 +185,13 @@ transcript.timeAged                      {clock} {age}: заменяет всё 
 transcript.empty | replyToOld | image
 transcript.triggeredBy                   {n}: после имени персонажа в его строке — номер сообщения, запустившего ход, который эту строку опубликовал (features.triggerMarkers); пустое значение: маркер не показывается
 transcript.triggeredByOlder              то же, когда это сообщение не входит в блок; пустое значение: маркер не показывается
+transcript.called                        {skill} {target} {status} {posted}: добавляется к последней строке персонажа в ходе, вызвавшем навык, или как отдельная строка, если ход не содержал сообщений; {target} — один из calledTargetMessage, calledTargetLink, calledTargetChannel или пустой; {status} — один из callStatus.*; {posted} — calledPosted или пустой. Запись о том, что персонаж реально сделал
+transcript.calledTargetMessage           {n}: заполняет {target}, когда вызов был направлен на сообщение из транскрипта
+transcript.calledTargetLink              {link}: заполняет {target}, когда вызов был направлен по ссылке на сообщение
+transcript.calledTargetChannel           {channel}: заполняет {target}, когда вызов был направлен на канал
+transcript.calledPosted                  {link}: заполняет {posted}, когда вызов опубликовал сообщение в другом канале
+transcript.callStatus.ok | invalid | denied | failed | unknown | partial | not_configured    короткие фразы для семи кодов результата; неудавшийся или неизвестный вызов никогда не читается как выполненный
+transcript.postedFrom                    {channel}: добавляется к строке, которую персонаж опубликовал из другого канала
 transcript.replyTo                       {index} {author} {quote}: номер родительского сообщения, его автор (self-лейбл, если родительское сообщение от самого персонажа) и цитата текста, обрезанная по границе слова до `context.replyQuoteChars` (по умолчанию 80; `0` = целиком); родитель с одним медиа цитирует свои медиа-лейблы
 transcript.replyToMemory                 {author} {quote}: добавляется после текста строки в транскрипте анализатора; указывает автора родительского сообщения (self-лейбл, если родитель от самого персонажа) и цитирует его текст. Без `{index}`. Родитель за пределами батча рендерится как `replyToOld`
 transcript.file | sticker                {name}

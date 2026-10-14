@@ -25,7 +25,7 @@ import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { pingStatus } from '../src/behavior/elsewhere.js';
 import { findGif } from '../src/memory/gifs.js';
-import { createJournal } from '../src/memory/journal.js';
+import { callMarksOf, createJournal } from '../src/memory/journal.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import '../src/ops/index.js';
@@ -8904,6 +8904,139 @@ test('skill call: the follow-up lists what the first pass already posted, before
   const second = run.llm.calls[1][1].content;
   for (let i = 0; i < first.length - 1; i += 1) assert.deepEqual(second[i], first[i], 'the cached parts are the same');
   assert.deepEqual(run.sends.map((send) => send.text), ['μια στιγμή', 'κοιτάζω', 'βρήκα']);
+});
+
+// ---------------------------------------------------------------------------
+// Call marks (src/discord/format.js#withCalls): a later turn's transcript shows the skill calls
+// she made on her lines of the turn that made them, in the channel where she made them.
+
+/**
+ * callTurn's scene on one runner kept across turns: #general (c1) with Alice's mention, #💖νέα
+ * (c9); the clock settable; `run(channel, raw)` runs one mention turn; `runner()` a fresh runner
+ * on the same port, as after a restart.
+ */
+function callMarkScene({ answers, allowed = ['message.create'], features = {}, journal = null }) {
+  const history = [
+    rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'self-id', authorName: 'Bot', content: 'πρώτη' }),
+    rawMessage({ id: 'm1', ts: NOW - 1000, authorId: 'u1', authorName: 'Alice', content: 'γράψε στο #νέα' }),
+  ];
+  const named = (channel) => {
+    channel.guild.channels.cache.set('c1', { id: 'c1', name: 'general', isTextBased: () => true });
+    channel.guild.channels.cache.set('c9', { id: 'c9', name: '💖νέα', isTextBased: () => true });
+    return channel;
+  };
+  const channel = named(fakeTurnChannel({ historyMessages: history }));
+  const news = named(fakeTurnChannel({ id: 'c9', name: '💖νέα', historyMessages: [] }));
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
+  port.seed('c1', { authorId: 'self-id', messageId: 'm0', text: 'πρώτη' });
+  port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'γράψε' });
+  const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners: ['u1'], access: personaGrants(allowed) }, { skills: { conversations: ['c9'], safeMode: false, resultMaxChars: 2000 } });
+  const store = fakeStore();
+  const client = fakeClient();
+  const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', port });
+  const llm = sequenceLlm(answers);
+  const clock = { ms: NOW };
+  const runner = () => createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, now: () => clock.ms, port, skills: skillRegistry(), journal, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand });
+  const turns = runner();
+  const run = (where, raw, on = turns) => withCapturedLogs(() => on.runTurn({ channel: where, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+  return { history, channel, news, port, llm, clock, turns, runner, run };
+}
+
+/** Her own line of `c` as the fake port holds it, as a raw message of that channel. */
+function ownRaw(port, channelId, ts) {
+  const [message] = port.messagesIn(channelId).filter((m) => m.authorId === 'self-id' && !['m0'].includes(m.ref.messageId));
+  return { ...rawMessage({ id: message.ref.messageId, ts, authorId: 'self-id', authorName: 'Bot', content: message.text }), channelId };
+}
+
+/** The `<chat>` block of the LLM's last request. */
+function lastChat(llm) {
+  const text = textOf(llm.calls.at(-1)[1].content);
+  return text.slice(text.indexOf('<chat>'), text.indexOf('</chat>'));
+}
+
+test('call marks: a later turn shows the call on her last line of the turn that made it, the post elsewhere linked; the post there names where it came from', async () => {
+  const scene = callMarkScene({ answers: ['<msg reply="#2">εντάξει</msg>\n<call skill="message.create" channel="#🍡νέα">καλημέρα</call>', '<skip/>'] });
+  const first = await scene.run(scene.channel, scene.history[1]);
+  assert.equal(first.result.outcome, 'spoke');
+  const [, posted] = scene.port.calls.filter((call) => call.op === 'send');
+  assert.equal(posted.args[0].conversationId, 'c9');
+  const here = ownRaw(scene.port, 'c1', NOW);
+  const there = ownRaw(scene.port, 'c9', NOW);
+  scene.clock.ms = NOW + 60_000;
+  const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
+  scene.history.push(here, m2);
+  await scene.run(scene.channel, m2);
+  const chat = lastChat(scene.llm);
+  const line = chat.split('\n').find((text) => text.includes('εντάξει'));
+  assert.ok(line.endsWith(`[called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`), chat);
+  assert.equal(chat.match(/\[called /g).length, 1, chat);
+
+  // In #💖νέα her post says which channel's turn posted it; the call itself is not shown there.
+  const n1 = { ...rawMessage({ id: 'n1', ts: NOW + 30_000, authorName: 'Alice', content: 'γεια' }), channelId: 'c9' };
+  scene.news.messages.fetch = async () => new Map([there, n1].map((m) => [m.id, m]));
+  await scene.run(scene.news, n1);
+  const newsChat = lastChat(scene.llm);
+  assert.ok(newsChat.includes('Bot (you) (posted from #general) (turn triggered by an older message): καλημέρα'), newsChat);
+  assert.ok(!newsChat.includes('[called '), newsChat);
+});
+
+test('call marks: a turn that only called shows the call as a line of hers at its time, after the last line before it', async () => {
+  const scene = callMarkScene({ answers: ['<call skill="message.create" channel="#🍡νέα">γεια</call>', '<skip/>'] });
+  await scene.run(scene.channel, scene.history[1]);
+  const there = ownRaw(scene.port, 'c9', NOW);
+  scene.clock.ms = NOW + 60_000;
+  const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
+  scene.history.push(m2);
+  await scene.run(scene.channel, m2);
+  const chat = lastChat(scene.llm);
+  const standalone = `[12:00] Bot (you): [called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`;
+  const lines = chat.split('\n');
+  const at = lines.indexOf(standalone);
+  assert.ok(at > 0, chat);
+  assert.ok(lines[at - 1].includes('γράψε στο #νέα'), 'right after the last line before the call');
+  assert.ok(lines[at + 1].includes('και;'));
+});
+
+test('call marks: a refused call shows its status on the line its turn posted', async () => {
+  const scene = callMarkScene({ answers: ['<msg>μια στιγμή</msg><call skill="message.create" channel="#🍡νέα">γεια</call>', '<skip/>'], allowed: [] });
+  await scene.run(scene.channel, scene.history[1]);
+  scene.history.push(ownRaw(scene.port, 'c1', NOW));
+  scene.clock.ms = NOW + 60_000;
+  const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
+  scene.history.push(m2);
+  await scene.run(scene.channel, m2);
+  const line = lastChat(scene.llm).split('\n').find((text) => text.includes('μια στιγμή'));
+  assert.ok(line.endsWith('[called message.create in #general: denied]'), line);
+});
+
+test('call marks: seeded from the journal after a restart, the calls show as they did; with features.callMarkers off nothing shows', async () => {
+  const { journal, lines } = journalOverMemory();
+  const scene = callMarkScene({ answers: ['<msg reply="#2">εντάξει</msg>\n<call skill="message.create" channel="#🍡νέα">καλημέρα</call>', '<skip/>'], features: { journal: true }, journal });
+  await scene.run(scene.channel, scene.history[1]);
+  const there = ownRaw(scene.port, 'c9', NOW);
+  scene.history.push(ownRaw(scene.port, 'c1', NOW));
+  const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
+  scene.history.push(m2);
+  scene.clock.ms = NOW + 60_000;
+
+  const restarted = scene.runner();
+  restarted.seedCallMarks(callMarksOf(lines.map(({ record }) => record)));
+  await scene.run(scene.channel, m2, restarted);
+  const line = lastChat(scene.llm).split('\n').find((text) => text.includes('εντάξει'));
+  assert.ok(line.endsWith(`[called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`), line);
+
+  const unseeded = scene.runner();
+  await scene.run(scene.channel, m2, unseeded);
+  assert.ok(!lastChat(scene.llm).includes('[called '), 'nothing seeded, nothing shown');
+
+  const off = callMarkScene({ answers: ['<msg reply="#2">εντάξει</msg>\n<call skill="message.create" channel="#🍡νέα">καλημέρα</call>', '<skip/>'], features: { callMarkers: false } });
+  await off.run(off.channel, off.history[1]);
+  off.history.push(ownRaw(off.port, 'c1', NOW));
+  off.clock.ms = NOW + 60_000;
+  const m3 = rawMessage({ id: 'm3', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
+  off.history.push(m3);
+  await off.run(off.channel, m3);
+  assert.ok(!lastChat(off.llm).includes('[called '), lastChat(off.llm));
 });
 
 // ---------------------------------------------------------------------------

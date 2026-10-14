@@ -18,6 +18,7 @@
     "embedUpdates": true,
     "seeReactions": true,
     "triggerMarkers": true,
+    "callMarkers": true,
     "multiMessage": true,
     "vision": true,
     "mediaDescriptions": true,

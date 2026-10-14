@@ -18,6 +18,7 @@ import {
   computeTempo,
   renderTempo,
   withTriggers,
+  withCalls,
 } from '../src/discord/format.js';
 import { labels } from './fixtures/labels.js';
 
@@ -1416,4 +1417,128 @@ test('withTriggers: the persona\'s lines with a known link carry their trigger i
   assert.equal(withTriggers(lines, (id) => (id === 'a2' ? 'q1' : null))[2].triggerId, 'q1');
   assert.equal(withTriggers(lines, null), lines);
   assert.deepEqual(withTriggers(null, links), []);
+});
+
+// --- the persona's skill calls on her own lines ---------------------------
+
+// #1 a question in c1, #2 and #3 her lines of one turn (p1, p2), #4 a later member line. The
+// turn also made a call; `posted` lists every message that turn posted (any channel).
+const CALL_T0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+function callScene() {
+  return [
+    msg('q1', CALL_T0, { authorName: 'Éloïse', content: 'tu peux corriger ?' }),
+    msg('p1', CALL_T0 + MIN, { self: true, authorName: 'Nept', content: 'ναι' }),
+    msg('p2', CALL_T0 + 2 * MIN, { self: true, authorName: 'Nept', content: 'μια στιγμή' }),
+    msg('q2', CALL_T0 + 5 * MIN, { authorName: 'Nick', content: 'alors ?' }),
+  ];
+}
+const channelNames = new Map([
+  ['c1', 'général'],
+  ['c9', 'νέα'],
+]);
+const LINK = (channelId, messageId) => `https://discord.com/channels/g1/${channelId}/${messageId}`;
+const resolvers = { nameOf: (id) => channelNames.get(id) ?? null, linkOf: LINK };
+const call = (overrides = {}) => ({
+  channelId: 'c1',
+  at: CALL_T0 + 2 * MIN + 10_000,
+  skill: 'message.edit',
+  status: 'ok',
+  target: { messageId: 'p1', channelId: 'c1' },
+  postedId: null,
+  posted: ['p1', 'p2'],
+  ...overrides,
+});
+
+test('withCalls: a call rides on the last line its turn posted in the channel where it was made', () => {
+  const lines = callScene();
+  const out = withCalls(lines, { calls: [call()] }, resolvers);
+  assert.equal(out[1], lines[1], 'an earlier line of the same turn is left alone');
+  assert.deepEqual(out[2].calls, [
+    { skill: 'message.edit', status: 'ok', targetId: 'p1', targetLink: LINK('c1', 'p1'), targetChannel: 'général', postedLink: null, ts: CALL_T0 + 2 * MIN + 10_000 },
+  ]);
+  assert.notEqual(out[2], lines[2], 'a new object: the fetched line is never changed');
+  assert.equal(lines[2].calls, undefined);
+  const items = formatTranscript(out, offsetOptions);
+  assert.equal(items[2].text, '#3 [13:02] Nept (you): μια στιγμή [called message.edit on #2: done]');
+  assert.equal(items[1].text, '#2 [13:01] Nept (you): ναι');
+});
+
+test('withCalls: a turn that posted nothing here shows the call as a standalone line of hers at the call time, without a number', () => {
+  const lines = callScene();
+  const out = withCalls(lines, { calls: [call({ posted: [], at: CALL_T0 + 3 * MIN, skill: 'lore.list', target: { messageId: null, channelId: null } })] }, resolvers);
+  assert.equal(out[2].calls, undefined);
+  assert.equal(out[2].callsAfter.length, 1, 'after the last line at or before the call');
+  const items = formatTranscript(out, offsetOptions);
+  assert.equal(items.length, 4, 'no item and no number of its own');
+  assert.equal(items[2].text, '#3 [13:02] Nept (you): μια στιγμή\n[13:03] Nept (you): [called lore.list in #général: done]');
+  assert.equal(items[3].text, '#4 [13:05] Nick: alors ?');
+  // A call made before the first line in view is out of view.
+  const early = withCalls(lines, { calls: [call({ posted: [], at: CALL_T0 - MIN })] }, resolvers);
+  assert.ok(early.every((message, i) => message === lines[i]));
+  // A call made in another channel never lands here.
+  const elsewhere = withCalls(lines, { calls: [call({ channelId: 'c7', posted: [] })] }, resolvers);
+  assert.ok(elsewhere.every((message, i) => message === lines[i]));
+});
+
+test('withCalls: a call that posted in another channel names it and links the post where it was made; the post there says where it came from', () => {
+  const here = callScene();
+  const there = [
+    msg('z1', CALL_T0 + MIN, { channelId: 'c9', channelName: 'νέα', content: 'salut' }),
+    msg('x1', CALL_T0 + 2 * MIN + 5000, { channelId: 'c9', channelName: 'νέα', self: true, authorName: 'Nept', content: 'καλημέρα' }),
+  ];
+  const marks = {
+    calls: [call({ skill: 'message.create', target: { messageId: null, channelId: 'c9' }, postedId: 'x1', posted: ['p1', 'p2', 'x1'] })],
+    postedFrom: new Map([['x1', 'c1']]),
+  };
+  const inA = formatTranscript(withCalls(here, marks, resolvers), offsetOptions);
+  assert.equal(inA[2].text, `#3 [13:02] Nept (you): μια στιγμή [called message.create in #νέα: done, posted as ${LINK('c9', 'x1')}]`);
+  const inB = withCalls(there, marks, resolvers);
+  assert.equal(inB[1].calls, undefined, 'the call itself shows only where it was made');
+  assert.equal(inB[1].callsAfter, undefined);
+  const items = formatTranscript(inB, offsetOptions);
+  assert.equal(items[1].text, '#2 [13:02] Nept (you) (posted from #général): καλημέρα');
+  // A lookup function serves as well; a post in its own channel says nothing.
+  const own = withCalls(here, { calls: [], postedFrom: (id) => (id === 'p1' ? 'c1' : null) }, resolvers);
+  assert.ok(own.every((message, i) => message === here[i]));
+});
+
+test('formatTranscript: a call status renders through transcript.callStatus, an unlisted one as its code', () => {
+  for (const status of ['ok', 'denied', 'invalid', 'not_configured', 'unknown', 'partial', 'failed']) {
+    const items = formatTranscript(withCalls(callScene(), { calls: [call({ status })] }, resolvers), offsetOptions);
+    assert.ok(items[2].text.endsWith(`[called message.edit on #2: ${labels.transcript.callStatus[status]}]`), items[2].text);
+  }
+  const odd = formatTranscript(withCalls(callScene(), { calls: [call({ status: 'strange' })] }, resolvers), offsetOptions);
+  assert.ok(odd[2].text.endsWith('[called message.edit on #2: strange]'), odd[2].text);
+});
+
+test('formatTranscript: a call target out of view renders as its link, else its channel, else nothing', () => {
+  const gone = formatTranscript(withCalls(callScene(), { calls: [call({ target: { messageId: 'old', channelId: 'c9' } })] }, resolvers), offsetOptions);
+  assert.ok(gone[2].text.endsWith(`[called message.edit on ${LINK('c9', 'old')}: done]`), gone[2].text);
+  const unlinked = formatTranscript(withCalls(callScene(), { calls: [call({ target: { messageId: 'old', channelId: 'c9' } })] }, { ...resolvers, linkOf: () => null }), offsetOptions);
+  assert.ok(unlinked[2].text.endsWith('[called message.edit in #νέα: done]'), unlinked[2].text);
+  const nameless = formatTranscript(withCalls(callScene(), { calls: [call({ target: { messageId: null, channelId: 'c5' } })] }, resolvers), offsetOptions);
+  assert.ok(nameless[2].text.endsWith('[called message.edit: done]'), nameless[2].text);
+});
+
+test('formatTranscript: blanked call labels, memory mode and no marks render the lines as before', () => {
+  const marked = withCalls(callScene(), { calls: [call(), call({ posted: [], at: CALL_T0 + 3 * MIN })], postedFrom: new Map() }, resolvers);
+  const bare = formatTranscript(callScene(), offsetOptions);
+  const blanked = { ...labels, transcript: { ...labels.transcript, called: '' } };
+  assert.deepEqual(formatTranscript(marked, { ...offsetOptions, labels: blanked }), bare);
+  const memory = formatTranscript(marked, { ...offsetOptions, mode: 'memory' });
+  assert.ok(memory.every((item) => !item.text.includes('called')), memory.map((item) => item.text).join('\n'));
+  assert.equal(withCalls(callScene(), null, resolvers).length, 4);
+  assert.deepEqual(withCalls(null, { calls: [call()] }, resolvers), []);
+});
+
+test('withCalls: marking lines again replaces the marks, never doubles them', () => {
+  const marks = { calls: [call(), call({ posted: [], at: CALL_T0 + 3 * MIN, skill: 'lore.list' })] };
+  const once = withCalls(callScene(), marks, resolvers);
+  const twice = withCalls(once, marks, resolvers);
+  assert.deepEqual(formatTranscript(twice, offsetOptions), formatTranscript(once, offsetOptions));
+  assert.equal(twice[2].calls.length, 1);
+  assert.equal(twice[2].callsAfter.length, 1);
+  // No marks any more: the old ones are dropped.
+  const cleared = withCalls(once, { calls: [] }, resolvers);
+  assert.deepEqual(formatTranscript(cleared, offsetOptions), formatTranscript(callScene(), offsetOptions));
 });

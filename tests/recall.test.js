@@ -484,6 +484,22 @@ test('renderRecallWindows: hit lines carry the mark; captions render; unindexed 
   assert.equal(plain.lines[1].text, `${HIT_MARK}[18:44] Βασίλης: τον πυροβόλησες`);
 });
 
+test('renderRecallWindows: her call marks name their target by number when indexed, by link in a stretch', () => {
+  const t = Date.UTC(2026, 9, 1, 18, 40);
+  const mark = { skill: 'message.edit', status: 'ok', targetId: 'm1', targetLink: 'https://discord.com/channels/g1/c1/m1', targetChannel: 'general', postedLink: null, ts: t + MINUTE };
+  const window = {
+    channelId: 'c1',
+    channelName: 'general',
+    messages: [msg('m1', t, { self: true }), msg('m2', t + MINUTE, { self: true, content: 'διόρθωσα', calls: [mark] })],
+    hitIds: [],
+  };
+  const [indexed] = renderRecallWindows([window], { labels, timezone: 'UTC', selfName: 'Zoë', indexed: true });
+  assert.ok(indexed.lines[1].text.endsWith('[called message.edit on #1: done]'), indexed.lines[1].text);
+  const [plain] = renderRecallWindows([window], { labels, timezone: 'UTC', selfName: 'Zoë', indexed: false });
+  assert.ok(plain.lines[1].text.endsWith('[called message.edit on https://discord.com/channels/g1/c1/m1: done]'), plain.lines[1].text);
+  assert.equal(window.messages[1].calls[0].targetId, 'm1', 'the window is left as it was');
+});
+
 test('renderRecallWindows: a matched message with a line break is marked on its first line, after a gap marker', () => {
   const t = Date.UTC(2026, 9, 1, 18, 40);
   const window = {
