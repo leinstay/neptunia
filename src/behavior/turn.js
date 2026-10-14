@@ -424,12 +424,18 @@ export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfNam
  * two stored profiles sharing a name the first handed over wins. Longer names are matched
  * first, so a multi-word name is never cut at a shorter one it starts with. A URL in the text
  * is left exactly as written (src/memory/mentions.js#outsideUrls).
+ * What is left falls back to `directory` (mentionDirectory: every member of the served guild
+ * the bot knows): matched case-insensitively, longest first, only as a whole name (no letter,
+ * digit or underscore right after it); a name one of the request's own sources gives in any
+ * case keeps that member, any other resolves only when exactly one member carries it, and a
+ * name two or more members share stays text.
  * @param {string} text
  * @param {object[]} history  Normalized lines (`authorName`, `authorId`, `self`, `bot`).
  * @param {Iterable<{ name: string, id: string }>} [knownNames]
+ * @param {Iterable<{ name: string, id: string }>} [directory]
  * @returns {{ text: string, userIds: string[] }}  `userIds`: the members pinged (allowedMentions).
  */
-export function resolveMentions(text, history, knownNames = []) {
+export function resolveMentions(text, history, knownNames = [], directory = []) {
   const people = new Map();
   for (const { name, id } of knownNames) {
     if (typeof name !== 'string' || !name.trim() || id === undefined || id === null || people.has(name)) continue;
@@ -439,6 +445,7 @@ export function resolveMentions(text, history, knownNames = []) {
     if (!message.self && !message.bot && message.authorName) people.set(message.authorName, message.authorId);
   }
   const names = [...people.keys()].sort((a, b) => b.length - a.length);
+  const fallback = fallbackNames(people, directory);
   const userIds = new Set();
   // An `@name` inside a URL (a channel handle on a video site) is part of the address.
   const resolved = outsideUrls(text, (part) => {
@@ -448,9 +455,101 @@ export function resolveMentions(text, history, knownNames = []) {
       out = out.replaceAll(`@${name}`, `<@${people.get(name)}>`);
       userIds.add(people.get(name));
     }
-    return out;
+    return fallback.size > 0 ? resolveFallback(out, fallback, userIds) : out;
   });
   return { text: resolved, userIds: [...userIds] };
+}
+
+/**
+ * The fallback's case-folded names (resolveMentions) → the one member each resolves to, or
+ * null when it stays text: a name the request's own sources (`people`) give in any case keeps
+ * their member (null when they give it to two), else the one directory member carrying it
+ * (null when two or more do).
+ * @param {Map<string, string>} people  The request's own names → member ids.
+ * @param {Iterable<{ name: string, id: string }>} directory
+ * @returns {Map<string, string|null>}
+ */
+function fallbackNames(people, directory) {
+  const idsOf = (pairs) => {
+    const byKey = new Map();
+    for (const [name, id] of pairs) {
+      if (typeof name !== 'string' || !name.trim() || id === undefined || id === null) continue;
+      const key = name.toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, new Set());
+      byKey.get(key).add(String(id));
+    }
+    return byKey;
+  };
+  const listed = idsOf([...directory].map((entry) => [entry?.name, entry?.id]));
+  if (listed.size === 0) return new Map();
+  const shown = idsOf(people);
+  const fallback = new Map();
+  for (const [key, ids] of listed) {
+    const owners = shown.get(key) ?? ids;
+    fallback.set(key, owners.size === 1 ? [...owners][0] : null);
+  }
+  return fallback;
+}
+
+/**
+ * `part` (outside URLs, after the exact pass) with every whole `@name` of `fallback` that
+ * resolves turned into a mention, longest first; the members mentioned are added to `userIds`.
+ * A mention already made (`<@id>`) is never matched again.
+ */
+function resolveFallback(part, fallback, userIds) {
+  const lower = part.toLowerCase();
+  const candidates = [...fallback.keys()].filter((key) => fallback.get(key) !== null && lower.includes(`@${key}`));
+  if (candidates.length === 0) return part;
+  candidates.sort((a, b) => b.length - a.length);
+  const escaped = candidates.map((key) => key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`(?<!<)@(?:${escaped.join('|')})(?![\\p{L}\\p{N}_])`, 'giu');
+  return part.replace(pattern, (match) => {
+    const id = fallback.get(match.slice(1).toLowerCase());
+    if (!id) return match;
+    userIds.add(id);
+    return `<@${id}>`;
+  });
+}
+
+/**
+ * The fallback directory `@name` resolves by after the request's own sources (resolveMentions):
+ * every name of every member of the served guild the bot knows without asking Discord -- the
+ * guild's member cache (`members`: display name, nickname, global name, username) and the
+ * stored profiles (`profiles`: names and aliases). Never a bot (by the cache) nor the persona
+ * herself (`selfId`).
+ * @param {{ members?: Iterable<object>, profiles?: Iterable<object>, selfId?: string|null }} [sources]
+ *   `members`: discord.js GuildMembers; `profiles`: stored member profiles (store.listUserProfiles).
+ * @returns {{ name: string, id: string }[]}
+ */
+export function mentionDirectory({ members = [], profiles = [], selfId = null } = {}) {
+  const entries = [];
+  const seen = new Set();
+  const bots = new Set();
+  const self = selfId === null || selfId === undefined ? null : String(selfId);
+  const add = (name, id) => {
+    if (typeof name !== 'string' || !name.trim()) return;
+    const key = `${id}\u0000${name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    entries.push({ name, id });
+  };
+  const cached = [...members].filter((member) => member && typeof member === 'object');
+  for (const member of cached) {
+    const id = member.id ?? member.user?.id;
+    if (id !== undefined && id !== null && member.user?.bot === true) bots.add(String(id));
+  }
+  const counts = (id) => id !== undefined && id !== null && String(id) !== self && !bots.has(String(id));
+  for (const member of cached) {
+    const id = member.id ?? member.user?.id;
+    if (!counts(id)) continue;
+    for (const name of [member.displayName, member.nickname, member.user?.globalName, member.user?.username]) add(name, String(id));
+  }
+  for (const profile of profiles) {
+    if (!profile || typeof profile !== 'object' || !counts(profile.id)) continue;
+    for (const name of Array.isArray(profile.names) ? profile.names : []) add(name, String(profile.id));
+    for (const alias of Array.isArray(profile.aliases) ? profile.aliases : []) add(alias?.name, String(profile.id));
+  }
+  return entries;
 }
 
 /**
@@ -1568,7 +1667,7 @@ export function createTurnRunner({
    * cooldown, and src/skills/executors.js#executeCall runs it on the envelope through
    * `runCommand` (`skills.callTimeoutMs`, read now); her written text (`message.create`,
    * `message.edit`) is rendered first exactly as a `<msg>` of this turn (renderPost over the
-   * turn's `lines`, `knownNames`, `idByIndex`, `pulledIds`), its mentions the only members
+   * turn's `lines`, `knownNames`, `directory`, `idByIndex`, `pulledIds`), its mentions the only members
    * notified. The operation closes `succeeded` (with the
    * message id), `unknown` (never retried) or `failed` with the code. A message or picture that reached another conversation
    * stamps its lastPostAt, links its trigger, and a message is a `said` line of the record.
@@ -1576,12 +1675,12 @@ export function createTurnRunner({
    * `followUp` (src/skills/executors.js#needsFollowUp). Never throws.
    * @returns {Promise<{ skill: string, status: string, code?: string, data?: object, followUp: boolean }>}
    */
-  async function runCall(plan, { channel, trigger, guildId, draft, privateChat = false, idByIndex = null, pulledIds = null, lines = [], knownNames = [] }) {
+  async function runCall(plan, { channel, trigger, guildId, draft, privateChat = false, idByIndex = null, pulledIds = null, lines = [], knownNames = [], directory = null }) {
     const { call, op, envelope } = plan;
     const skill = call.skill;
     // Her written text (message.create / message.edit) rendered as a `<msg>` of this turn is.
     let rendered = null;
-    const renderText = (text) => (rendered = renderPost(text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, limits: draft?.limits ?? null }));
+    const renderText = (text) => (rendered = renderPost(text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory, limits: draft?.limits ?? null }));
     let result;
     if (plan.refusal) result = { status: refusalStatus(plan.refusal.code), code: plan.refusal.code };
     else {
@@ -1846,7 +1945,8 @@ export function createTurnRunner({
 
   /**
    * The persona's `text` as it is posted -- a `<msg>`, or the text of her `message.create` /
-   * `message.edit` call: `@name` resolved over `lines`, then `knownNames` (resolveMentions), custom
+   * `message.edit` call: `@name` resolved over `lines`, then `knownNames`, then the fallback
+   * `directory` (a thunk, only called when the text has an `@`; resolveMentions), custom
    * emoji after the mentions (`<@id>` has no `:name:` in it to break), transcript numbers into jump
    * links (withMessageLinks), channel names into channel links (withChannelLinks), then `link`
    * joined and the whole cut to one Discord message (withLink; `limits` told a cut). Resolves
@@ -1854,8 +1954,9 @@ export function createTurnRunner({
    * `userIds` (the members it mentions: the only ones a send may notify, allowedMentions).
    * @returns {{ text: string, spoken: string, userIds: string[] }}
    */
-  function renderPost(written, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, link = null, limits = null }) {
-    const mentioned = resolveMentions(written, lines ?? [], knownNames ?? []);
+  function renderPost(written, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory = null, link = null, limits = null }) {
+    const fallback = typeof directory === 'function' && String(written ?? '').includes('@') ? directory() : [];
+    const mentioned = resolveMentions(written, lines ?? [], knownNames ?? [], fallback);
     const spoken = renderCustomEmoji(mentioned.text, emojiLookup());
     const text = withLink(withChannelLinks(channel, withMessageLinks(spoken, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds })), link, hot.prompts?.labels, limits);
     return { text, spoken, userIds: mentioned.userIds };
@@ -1972,15 +2073,15 @@ export function createTurnRunner({
    * reads; `trigger`: the message the turn answers (the picker's answered line).
    * @param {{ channel: object, guildId: string, parsed: object, idByIndex: Map<number, string>,
    *   history?: object[], mode: string, triggerKind: TriggerKind|null, trigger?: object|null, plain: boolean, selfName: string, pulledIds: Map<string, string>,
-   *   lines: object[], knownNames: { name: string, id: string }[], linkFor: (pulledId: string|null) => string|null,
-   *   part?: { index: number, total: number }|null, setDraws?: object[]|null }} args
+   *   lines: object[], knownNames: { name: string, id: string }[], directory?: (() => { name: string, id: string }[])|null,
+   *   linkFor: (pulledId: string|null) => string|null, part?: { index: number, total: number }|null, setDraws?: object[]|null }} args
    *   `setDraws`: a diary set's drawings (in place of `parsed.draw`), each logged
    *   `dry-run: would draw` with `set: true` and mirrored with its place in the set.
    *   `plain`: the turn quotes no chat line (postsPlain); `lines`: the lines shown of the pulled
    *   channels, then this chat's history (names and authors); `knownNames`: the stored names
-   *   `@name` resolves by too (storedNames).
+   *   `@name` resolves by too (storedNames); `directory`: the fallback behind them (mentionDirectory).
    */
-  async function dryAct({ channel, guildId, parsed, idByIndex, history = [], mode, triggerKind, trigger = null, plain, selfName, pulledIds, lines, knownNames, linkFor, part = null, gifPick = true, setDraws = null, draft = null }) {
+  async function dryAct({ channel, guildId, parsed, idByIndex, history = [], mode, triggerKind, trigger = null, plain, selfName, pulledIds, lines, knownNames, directory = null, linkFor, part = null, gifPick = true, setDraws = null, draft = null }) {
     const channelName = channel.name ?? null;
     const where = mirrorChannelLabel(channel);
     // Every triggered turn shares the mode `reply`: the header names its
@@ -2036,7 +2137,7 @@ export function createTurnRunner({
       const to = answeredId ? ` · to ${authorNameFor(lines, answeredId) ?? '—'}` : '';
       const link = linkFor(pulledId);
       // Same deliberate exception as above: the persona's own output, dry-run only.
-      const { text } = renderPost(message.text, { channel, guildId, privateChat: false, idByIndex, pulledIds, lines, knownNames, link, limits: draft?.limits });
+      const { text } = renderPost(message.text, { channel, guildId, privateChat: false, idByIndex, pulledIds, lines, knownNames, directory, link, limits: draft?.limits });
       await rehearse('post', { intent: { replyTo: replyId, text }, sourceMessageIds: replyId ? [replyId] : [] });
       log.info('dry-run: would send', { channel: channel.id, channelName, mode, trigger: triggerKind ?? null, replyTo: replyId, link, text });
       // The mirror shows @name as the model wrote it: resolving it to a real
@@ -2502,7 +2603,8 @@ export function createTurnRunner({
    *   linkFor: (pulledId: string|null) => string|null, sourceId: string|null }} args
    *   `plain`: the turn quotes no chat line (postsPlain); `lines`: the lines shown of the
    *   pulled channels, then `history` (a chat author wins a display name both share);
-   *   `knownNames`: the stored names `@name` resolves by too (storedNames);
+   *   `knownNames`: the stored names `@name` resolves by too (storedNames); `directory`: the
+   *   fallback behind them (mentionDirectory, a thunk);
    *   `sourceId`: the channel the turn is about (its `source`), logged on every message sent;
    *   with it a refused drawing's limit notice quotes nothing (the trigger of a routed turn
    *   lives in that channel); `gifPick`: false keeps the GIF picker from replacing the first
@@ -2520,7 +2622,7 @@ export function createTurnRunner({
    * picture was posted) and `drawFailed` when the picture failed; with a `set`, `setPictures`
    * (the pictures posted) and `setScene` (the scene of the first one posted).
    */
-  async function act({ channel, guildId, privateChat, parsed, idByIndex, history, startedAt, mode, triggerKind, plain, trigger, selfName, pulledIds, lines, knownNames, linkFor, sourceId, gifPick = true, participation = null, set = null, draft = null }) {
+  async function act({ channel, guildId, privateChat, parsed, idByIndex, history, startedAt, mode, triggerKind, plain, trigger, selfName, pulledIds, lines, knownNames, directory = null, linkFor, sourceId, gifPick = true, participation = null, set = null, draft = null }) {
     const cfg = hot.config.typing;
     const typingOn = hot.config.features?.typingSimulation !== false;
     // The typing imitation of one message: the indicator, then the time its text takes to type.
@@ -2594,7 +2696,7 @@ export function createTurnRunner({
     if (typingOn && parsed.messages.length > 0) {
       const head = parsed.messages[0];
       const { replyId } = replyTarget(head.replyTo, { plain, idByIndex, pulledIds });
-      const { spoken: first, text: firstText } = renderPost(head.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames });
+      const { spoken: first, text: firstText } = renderPost(head.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory });
       firstRefused = !checkEffect('message.create', sendArgs({ text: firstText, replyId }), effect).ok;
       if (!firstRefused) await typeFor(first);
     }
@@ -2631,7 +2733,7 @@ export function createTurnRunner({
       const link = linkFor(pulledId);
       const repliedAuthorId = replyId ? (lines.find((line) => line.id === replyId)?.authorId ?? (trigger?.id === replyId ? trigger.authorId : null)) : null;
       // Links on the text sent; the typing time stays on the text before them.
-      const { text, spoken, userIds } = renderPost(message.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, link, limits: draft?.limits });
+      const { text, spoken, userIds } = renderPost(message.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory, link, limits: draft?.limits });
       const args = sendArgs({ text, replyId });
       // A first message refused before its typing above ends the posting (already logged).
       if (typedAbove(index) && firstRefused) {
@@ -3018,6 +3120,30 @@ export function createTurnRunner({
     } catch {
       return false;
     }
+  }
+
+  /**
+   * The fallback directory of one turn (mentionDirectory) as a thunk, built on its first call
+   * and kept for the turn: the served guild's member cache (the client's guild, else the
+   * channel's; only the members Discord already sent, no fetch) and, with memory on, the stored
+   * profiles. A failure to build it logs `turn: directory failed` and gives an empty one.
+   * @returns {() => { name: string, id: string }[]}
+   */
+  function turnDirectory({ guildId, channel, memoryOn }) {
+    let built = null;
+    return () => {
+      if (built) return built;
+      try {
+        const cache = (client.guilds?.cache?.get?.(guildId) ?? channel?.guild)?.members?.cache;
+        const members = cache && typeof cache.values === 'function' ? [...cache.values()] : [];
+        const profiles = memoryOn && typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+        built = mentionDirectory({ members, profiles, selfId: client?.user?.id ?? null });
+      } catch (err) {
+        log.warn('turn: directory failed', { guildId, error: err });
+        built = [];
+      }
+      return built;
+    };
   }
 
   /**
@@ -5507,11 +5633,12 @@ export function createTurnRunner({
       // The output side of the pulled channels: which line lives where, whose @name resolves,
       // which post carries a jump link (one rule for act and dryAct). Names resolve over the
       // pulled lines the request showed, then this chat's history: resolveMentions keeps the
-      // last author of a display name, so a chat author wins a name both share, and nobody the
-      // model was not shown (a block the budget dropped) is pinged. The stored names of the
-      // members whose profile the request kept and of the pulled lines' authors resolve too,
-      // behind every display name: a pulled line fetched without its member carries the global
-      // name while `<people>` reads the server nickname.
+      // last author of a display name, so a chat author wins a name both share. The stored names
+      // of the members whose profile the request kept and of the pulled lines' authors resolve
+      // too, behind every display name: a pulled line fetched without its member carries the
+      // global name while `<people>` reads the server nickname. Only then the fallback directory:
+      // a member the model was not shown (another channel, a block the budget dropped) is
+      // mentioned by a name nobody else in the served guild carries.
       const pulledIds = request.pulledIds ?? new Map();
       const shownLines = shownPulled.flatMap(({ channelId, ids }) => {
         const shownIds = new Set(ids);
@@ -5519,6 +5646,8 @@ export function createTurnRunner({
       });
       const lines = shownLines.length > 0 ? [...shownLines, ...history] : history;
       const knownNames = memoryOn ? storedNames(request.peopleShown, shownLines, (userId) => store.getUser(guildId, userId)) : [];
+      // Behind those, every member of the served guild the bot knows (built once, on the first `@`).
+      const directory = turnDirectory({ guildId, channel, memoryOn });
       const linkFor = createLinker({
         guildId,
         pulledIds,
@@ -5528,7 +5657,7 @@ export function createTurnRunner({
       // model's reply="#n" quotes nothing --, nor does the drawFailed turn after one.
       // A later part of a split message posts plain too: the first part replied to the message.
       const plain = postsPlain(triggerKind) || postsPlain(drawFailedAfter) || plainPosts;
-      const routing = { pulledIds, lines, knownNames, linkFor, plain };
+      const routing = { pulledIds, lines, knownNames, directory, linkFor, plain };
       // Read fresh right here, not from the `features` snapshot taken at the
       // top of this turn: unlike the other switches this one defaults to OFF,
       // and whether to actually post is the very last decision of a turn.
@@ -5614,7 +5743,7 @@ export function createTurnRunner({
       let followed = null;
       let called = null;
       if (callPlan) {
-        called = await runCall(callPlan, { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames });
+        called = await runCall(callPlan, { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory });
         if (called.followUp) {
           followed = await followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted, act: (parsedAgain) => act({ ...actArgs, parsed: parsedAgain, set: null }) });
         }
