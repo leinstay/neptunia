@@ -408,6 +408,8 @@ Only these tags are acted on:
 - `#93` (a transcript line number) in `<msg>` text becomes a Discord message link to that message when `features.messageLinks` is on (default true, missing = on). A number outside the turn's transcript stays as written; code spans and existing URLs are untouched. In a DM the link uses `@me`.
 - `:name:` of a known server custom emoji becomes the real emoji in `<msg>` and `<react>`; an unknown name stays as plain text.
 
+An answer cut off at the output cap (the provider's finish reason `length`, on the reply and on the skill follow-up) is never read as silence. Its complete tags are acted on as usual and only an unfinished one is lost. With no complete `<msg>`, `<react>`, `<gif>`, `<draw>` or `<call>` (an unclosed `<think>`, or only untagged text, which would be a fragment), nothing is posted and the turn ends `error` with reason `cut-off`; a follow-up cut off that way ends the turn so only when nothing of it reached the chat. Logged as `turn: cut off` (`channel`, `completionTokens`, `kept`, `followUp`); the think written so far goes to the journal's turn record.
+
 `features.reactions: false` drops `<react>`, `features.multiMessage: false` keeps the first `<msg>`;
 `features.gifs: false` or an empty library drops `<gif>`; `features.imageGeneration: false` or no image client drops `<draw>`; on a `drawFailed` turn `<draw>` is dropped too. Prompts need not know.
 
@@ -938,7 +940,7 @@ When a call arrives from an author who already has items waiting in that channel
 
 ## Missed-answer recovery
 
-When the persona may have left a message unanswered (the follow-up address gate failed, a deferred follow-up was replaced by a newer one, a turn errored, was dropped as too slow, or ended not-now), the message becomes a candidate. Switch `features.missedAnswers` (missing = on); `features.memory` off turns it off.
+When the persona may have left a message unanswered (the follow-up address gate failed, a deferred follow-up was replaced by a newer one, a turn errored, was dropped as too slow, or ended not-now), the message becomes a candidate. The fact of an errored turn carries the turn's reason as its `failure` (e.g. `cut-off`). Switch `features.missedAnswers` (missing = on); `features.memory` off turns it off.
 
 `missed.sweepDelaySeconds` (default 90) after the channel goes quiet, a sweep runs. Code resolves what it can first: a candidate answered by a later turn of the persona in that channel, or expired after `missed.expireMinutes` (default 5, or `missed.questionExpireMinutes` 15 for a message with a question mark). What is left goes to one helper call per channel: `prompts/missed.md` on the `analyzer` role (purpose `missed`, output cap `missed.maxOutputTokens` 2000). System: the prompt with `{{name}}`. User: a transcript of the last `missed.contextMessages` (default 20) lines with the persona's own lines marked by `labels.self`, trigger markers when on, then a `<candidates>` block of numbered messages with their transcript line number and the reason code. Each new message in the channel pushes the sweep back, never past `missed.sweepMaxDelaySeconds` (default 240).
 

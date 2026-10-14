@@ -13,7 +13,8 @@
 //                              tag's body, a code span or block, or a quoted (`>`) line. The
 //                              first one is `call`, any later one is only counted (`extraCalls`).
 // The parser is forgiving: a missing tag wrapper falls back to a single plain
-// message, an unterminated <think> (output cut by max_tokens) means silence.
+// message (`untagged`), an unterminated <think> (output cut by max_tokens) means
+// silence (`thinkOpen`, its text so far kept in `think` for the journal).
 
 import { clampAtBoundary } from '../memory/clamp.js';
 
@@ -128,21 +129,27 @@ function parseIndex(value) {
  *             draws: {text: string, self: boolean, replyTo: number|null}[],
  *             gif: {id: string, replyTo: number|null}|null,
  *             call: {skill: string, args: Record<string, string>, body: string}|null,
- *             extraCalls: number, callError: 'malformed'|null }}
+ *             extraCalls: number, callError: 'malformed'|null, thinkOpen: boolean, untagged: boolean }}
  *   `call`: the first top-level `<call>` (its attributes but `skill` as string `args`, its body
  *   trimmed, '' when self-closing or empty); `extraCalls`: how many top-level `<call>` tags
  *   followed it, ignored; `callError`: `malformed` when the first one is not well formed (then
- *   `call` is null and no later one stands in).
+ *   `call` is null and no later one stands in). `thinkOpen`: a `<think>` was never closed --
+ *   silence, with what it held so far appended to `think`. `untagged`: the one message is the
+ *   plain text of an answer with no tag (the fallback), not a `<msg>`.
  */
 export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits = null } = {}) {
-  const result = { skip: false, messages: [], reactions: [], think: '', draw: null, draws: [], gif: null, call: null, extraCalls: 0, callError: null };
+  const result = { skip: false, messages: [], reactions: [], think: '', draw: null, draws: [], gif: null, call: null, extraCalls: 0, callError: null, thinkOpen: false, untagged: false };
   let text = String(raw ?? '');
 
   text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (all, inner) => {
     result.think += inner.trim();
     return '';
   });
-  if (/<think>/i.test(text)) {
+  const open = /<think>([\s\S]*)$/i.exec(text);
+  if (open) {
+    const sofar = open[1].trim();
+    result.think = [result.think, sofar].filter(Boolean).join('\n');
+    result.thinkOpen = true;
     result.skip = true;
     return result;
   }
@@ -206,6 +213,7 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
     const hasTags = calls.length > 0 || /<\/?(msg|react|skip|draw|gif|call)\b/i.test(text);
     if (!hasTags && leftover && leftover.length <= MAX_FALLBACK_CHARS) {
       result.messages.push({ text: leftover, replyTo: null });
+      result.untagged = true;
     } else {
       result.skip = true;
     }

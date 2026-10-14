@@ -691,3 +691,14 @@ test('createMissed: a broken missed.json is moved aside, never overwritten in pl
 test('missed: every reason code is kebab-case', () => {
   for (const reason of MISSED_REASONS) assert.match(reason, /^[a-z]+(-[a-z]+)*$/);
 });
+
+test('createMissed: a turn that ended in an error keeps its reason as the fact\'s failure; one without a reason has none', async () => {
+  const { missed, journal } = scene();
+  const trigger = (id) => ({ id, authorId: 'u1', channelId: 'c1', ts: T0, content: 'ναι' });
+  missed.onTurnEnd({ channelId: 'c1', trigger: trigger('m1'), triggerKind: 'mention', outcome: 'error', reason: 'cut-off', turnId: 't-1' });
+  missed.onTurnEnd({ channelId: 'c1', trigger: trigger('m2'), triggerKind: 'reply', outcome: 'error', reason: null });
+  assert.deepEqual(missed.candidates().map((c) => [c.messageId, c.reason, c.state]), [['m1', 'turn-error', 'pending'], ['m2', 'turn-error', 'pending']]);
+  await flush();
+  const facts = journal.answers.filter((record) => record.event === 'fact');
+  assert.deepEqual(facts.map((record) => [record.messageId, record.reason, record.failure ?? null, record.turnId ?? null]), [['m1', 'turn-error', 'cut-off', 't-1'], ['m2', 'turn-error', null, null]]);
+});

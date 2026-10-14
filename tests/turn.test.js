@@ -2722,13 +2722,15 @@ function fakeImages({ error = null, mediaType = 'image/png', quota = { used: 0, 
 }
 
 /** A fake LLM answering each call with the next text of `answers` (the last one repeats). */
+/** An LLM answering `answers` in turn (the last one repeats); an answer is its text, or the completion's fields over the defaults. */
 function sequenceLlm(answers) {
   const calls = [];
   return {
     calls,
     complete: async (messages) => {
       calls.push(messages);
-      return { text: answers[Math.min(calls.length - 1, answers.length - 1)], usage: {}, estimated: 10 };
+      const answer = answers[Math.min(calls.length - 1, answers.length - 1)];
+      return typeof answer === 'string' ? { text: answer, usage: {}, estimated: 10 } : { usage: {}, estimated: 10, ...answer };
     },
   };
 }
@@ -8874,4 +8876,88 @@ test('runTurn: a missed turn whose messages no longer wait posts nothing and end
   assert.deepEqual([result.outcome, result.reason], ['not-now', 'answered-meanwhile']);
   assert.equal(channel.sent.length, 0);
   assert.ok(logs.some((l) => l.msg === 'turn: dropped' && l.reason === 'answered-meanwhile'));
+});
+
+// ---------------------------------------------------------------------------
+// A voice answer cut off at its output cap (finish_reason `length`): with no complete action it
+// is an error with reason `cut-off`, never a skip, and nothing of it is posted; complete actions
+// written before the cut are kept. A `stop` answer is read as before.
+
+/** A completion cut off at the cap after 2000 tokens. */
+const cut = (text) => ({ text, finishReason: 'length', usage: { prompt_tokens: 900, completion_tokens: 2000 }, promptTokens: 900, estimated: 900 });
+
+/** A runner with the journal on over one call of Alice in c1, answering `answers` in turn. */
+function cutScene(answers) {
+  const history = [rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000, content: 'tu viens ce soir ?' })];
+  const channel = fakeTurnChannel({ historyMessages: history });
+  const { journal, lines } = journalOverMemory();
+  const turns = createTurnRunner({ hot: fakeHot({ journal: true, typingSimulation: false }), store: fakeStore(), llm: sequenceLlm(answers), calibrator: identityCalibrator(), client: fakeClient(), journal });
+  const ends = [];
+  turns.setOnTurnEnd((end) => ends.push(end));
+  const run = async () => {
+    const out = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention' }));
+    await new Promise((resolve) => setImmediate(resolve));
+    return { ...out, turn: lines.map(({ record }) => record).find((record) => record.kind === 'turn') };
+  };
+  return { channel, ends, run };
+}
+
+test('turn: a reply cut off inside its <think> ends error with reason cut-off, posts nothing, journals the think so far', async () => {
+  const { channel, ends, run } = cutScene([cut('<think>Η Αλίκη ρωτά για απόψε. Θα της πω ότι')]);
+  const { result, logs, turn } = await run();
+  assert.deepEqual([result.outcome, result.reason], ['error', 'cut-off']);
+  assert.equal(channel.sent.length, 0);
+  const line = logs.find((entry) => entry.msg === 'turn: cut off');
+  assert.deepEqual([line.completionTokens, line.kept, line.followUp], [2000, false, false]);
+  assert.deepEqual([turn.outcome, turn.reason, turn.think, turn.usage.completion], ['error', 'cut-off', 'Η Αλίκη ρωτά για απόψε. Θα της πω ότι', 2000]);
+  assert.deepEqual(ends.map((end) => [end.outcome, end.reason, end.trigger.id]), [['error', 'cut-off', 'm1']], 'the end hook makes it a turn-error candidate');
+});
+
+test('turn: a cut-off answer with no tag after its think is a fragment: error cut-off, nothing posted', async () => {
+  const { channel, run } = cutScene([cut('<think>σχέδιο</think>ναι, θα έρθω αλλά')]);
+  const { result, turn } = await run();
+  assert.deepEqual([result.outcome, result.reason], ['error', 'cut-off']);
+  assert.equal(channel.sent.length, 0);
+  assert.equal(turn.think, 'σχέδιο');
+});
+
+test('turn: a cut-off answer keeps its complete messages, drops the open one and logs the cut', async () => {
+  const { channel, ends, run } = cutScene([cut('<think>σχέδιο</think><msg>ναι</msg><msg>θα έρθω αλ')]);
+  const { result, logs, turn } = await run();
+  assert.equal(result.outcome, 'spoke');
+  assert.deepEqual(channel.sent.map((sent) => sent.content), ['ναι']);
+  const line = logs.find((entry) => entry.msg === 'turn: cut off');
+  assert.deepEqual([line.completionTokens, line.kept], [2000, true]);
+  assert.deepEqual([turn.outcome, turn.reason], ['spoke', null]);
+  assert.deepEqual(ends.map((end) => [end.outcome, end.reason]), [['spoke', null]]);
+});
+
+test('turn: an answer that stopped on its own is read as before: an open think is a skip, no cut-off', async () => {
+  for (const finishReason of ['stop', undefined]) {
+    const { channel, run } = cutScene([{ text: '<think>σχέδιο χωρίς τέλος', finishReason, usage: {}, estimated: 10 }]);
+    const { result, logs } = await run();
+    assert.equal(result.outcome, 'skip', String(finishReason));
+    assert.equal(channel.sent.length, 0);
+    assert.ok(!logs.some((entry) => entry.msg === 'turn: cut off'));
+  }
+});
+
+test('turn: a skill follow-up cut off with nothing complete ends error cut-off when the first pass posted nothing', async () => {
+  const lone = await callTurn({ answers: ['<call skill="lore.list"/>', cut('<think>δεν βρήκα τίποτα, θα')], allowed: ['lore.list'] });
+  assert.deepEqual([lone.result.outcome, lone.result.reason], ['error', 'cut-off']);
+  assert.deepEqual(lone.sends, []);
+  const line = lone.logs.find((entry) => entry.msg === 'turn: cut off');
+  assert.deepEqual([line.completionTokens, line.kept, line.followUp], [2000, false, true]);
+
+  // What the first pass posted stands: the turn spoke.
+  const after = await callTurn({ answers: ['<msg>μια στιγμή</msg><call skill="lore.list"/>', cut('<think>δεν βρήκα')], allowed: ['lore.list'] });
+  assert.equal(after.result.outcome, 'spoke');
+  assert.deepEqual(after.sends.map((send) => send.text), ['μια στιγμή']);
+  assert.ok(after.logs.some((entry) => entry.msg === 'turn: cut off' && entry.followUp === true && entry.kept === false));
+
+  // A follow-up cut after a complete message: the message is posted.
+  const kept = await callTurn({ answers: ['<call skill="lore.list"/>', cut('<msg>τίποτα</msg><msg>κι αυτό')], allowed: ['lore.list'] });
+  assert.equal(kept.result.outcome, 'spoke');
+  assert.deepEqual(kept.sends.map((send) => send.text), ['τίποτα']);
+  assert.ok(kept.logs.some((entry) => entry.msg === 'turn: cut off' && entry.followUp === true && entry.kept === true));
 });
