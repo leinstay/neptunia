@@ -48,7 +48,8 @@ export const ID_DIGITS = '\\d{17,20}';
  * An http(s) URL as written in a text, as a regex source: from the scheme up to
  * the next whitespace or angle bracket (a `<url>` keeps its brackets outside).
  * The one pattern for the URLs the persona reads (src/discord/collect.js caps
- * their length) and the ones she writes (left alone on the way out).
+ * their length), the ones she writes (left alone on the way out), and the ones
+ * src/memory/clamp.js#stripUrls takes out of every text her memory stores.
  */
 export const URL_PATTERN = 'https?:\\/\\/[^\\s<>]+';
 

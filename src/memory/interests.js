@@ -24,7 +24,7 @@
 // correct dates.
 
 import { topByRank } from './ranking.js';
-import { clampText } from './clamp.js';
+import { clampText, stripUrls } from './clamp.js';
 import { HOUR_MS } from '../time.js';
 
 /** `memory.confirmGapHours` when it is missing (config.json carries the same). */
@@ -274,8 +274,9 @@ export function isStale(item, nowMs, staleDays) {
  * - An op (`add`/`update`) with `sure: false` on an EXISTING item changes
  *   nothing at all, not even the note or the dates.
  * - `remove` deletes the item matching that identity, if any.
- * - The identity is clamped to `identityChars`, the note (if any) to
- *   `noteChars`; an item whose identity is empty after trimming is rejected
+ * - The identity and the note lose their links (src/memory/clamp.js#stripUrls),
+ *   then the identity is clamped to `identityChars`, the note (if any) to
+ *   `noteChars`; an item whose identity is empty after that is rejected
  *   outright.
  * - Once over `opts.cap`, the lowest-RANKED items are evicted first (see
  *   src/memory/ranking.js#rank, driven by `halfLifeDays`) -- this runs on
@@ -326,12 +327,12 @@ export function applyRankedOps(
     let sure = true;
     if (noteField) {
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
-      identity = typeof raw[identityField] === 'string' ? clampText(raw[identityField], identityChars, { tolerance: 1 }) : '';
-      note = typeof raw[noteField] === 'string' ? clampText(raw[noteField], noteChars, { tolerance: clampTolerance }) : '';
+      identity = typeof raw[identityField] === 'string' ? clampText(stripUrls(raw[identityField]), identityChars, { tolerance: 1 }) : '';
+      note = typeof raw[noteField] === 'string' ? clampText(stripUrls(raw[noteField]), noteChars, { tolerance: clampTolerance }) : '';
       sure = raw.sure !== false;
     } else {
       const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw[identityField] : raw;
-      identity = typeof value === 'string' ? clampText(value, identityChars, { tolerance: 1 }) : '';
+      identity = typeof value === 'string' ? clampText(stripUrls(value), identityChars, { tolerance: 1 }) : '';
     }
     if (!identity) return;
     const index = findIndex(identity);

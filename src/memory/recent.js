@@ -41,7 +41,7 @@
 
 import { isPlainObject } from '../config.js';
 import { DAY_MS, HOUR_MS } from '../time.js';
-import { clampText, oneLine } from './clamp.js';
+import { clampText, oneLine, stripUrls } from './clamp.js';
 import { topEpisodes } from './episodes.js';
 import { isWordChar, occursAsWholeWord, tokenIds } from './mentions.js';
 
@@ -220,7 +220,7 @@ function evictionOrder(a, b) {
  *   2. the stored lines whose ids `removeIds` lists are dropped (`removed`; an id
  *      not stored, or given to a line by this same call, removes nothing);
  *   3. each incoming item `{ text, at, channelId, weight }` is sanitized:
- *      `text` kept on one line and cut to `chars` at a clean boundary
+ *      `text` without its links (src/memory/clamp.js#stripUrls), kept on one line and cut to `chars` at a clean boundary
  *      (src/memory/clamp.js#clampText with `clampTolerance`), `weight` an integer
  *      clamped to 1..3 (else 2), `at` a finite number (else `now`). An item that
  *      is not an object or whose text comes out empty is dropped (`invalid`),
@@ -276,7 +276,7 @@ export function mergeRecent(stored, incoming, opts = {}) {
   const fresh = [];
   const why = { invalid: 0, noChannel: 0, stale: 0, duplicate: 0, overCap: 0 };
   for (const raw of items) {
-    const text = isPlainObject(raw) && typeof raw.text === 'string' ? clampText(oneLine(raw.text), chars, { tolerance: options.clampTolerance }) : '';
+    const text = isPlainObject(raw) && typeof raw.text === 'string' ? clampText(oneLine(stripUrls(raw.text)), chars, { tolerance: options.clampTolerance }) : '';
     const channelId = isPlainObject(raw) ? channelIdOf(raw.channelId) : null;
     const at = isPlainObject(raw) && Number.isFinite(raw.at) ? raw.at : now;
     const key = foldText(text);

@@ -7,7 +7,8 @@
 //
 // An entry carries three ids: `itemId` (the item's stable identity, src/memory/store.js stamps it
 // on write), `revisionId` (a hash of the item's text, so two versions of one item tell apart) and
-// `id` (the event). `text` holds the item's text fields verbatim, `stored` its other stored fields
+// `id` (the event). `text` holds the item's text fields verbatim but for their links (never stored
+// in memory, src/memory/clamp.js#stripUrls), `stored` its other stored fields
 // (dates, counts, ids), so an owner restore rebuilds it as it was. `sourceRefs` lists the messages
 // the item came from only when the item names them; it is never guessed.
 //
@@ -26,6 +27,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isPlainObject } from '../config.js';
 import { log as defaultLog } from '../log.js';
+import { stripUrls } from './clamp.js';
 import { TEACHER_TOKEN_RE, tokenIds } from './mentions.js';
 import { forgettingIds, isoOf, revisionOf } from './record.js';
 
@@ -121,16 +123,26 @@ export function archiveText(itemKind, item) {
   return text;
 }
 
+/** `archiveText` as an entry stores it: every string field without its links
+ * (src/memory/clamp.js#stripUrls); a participation episode's messages stay whole. */
+function storedText(itemKind, item) {
+  const text = archiveText(itemKind, item);
+  for (const [field, value] of Object.entries(text)) {
+    if (typeof value === 'string') text[field] = stripUrls(value);
+  }
+  return text;
+}
+
 /**
  * The revision id of `item`'s content: `rv-` and 12 hex digits of the sha256 of its text fields
- * (src/memory/record.js#revisionOf over `archiveText`). Two items with the same text share it,
- * whatever their weights or dates.
+ * as an entry stores them (src/memory/record.js#revisionOf over `archiveText`, links taken out).
+ * Two items with the same text share it, whatever their weights or dates.
  * @param {string} itemKind
  * @param {unknown} item
  * @returns {string}
  */
 export function archiveRevision(itemKind, item) {
-  return revisionOf(JSON.stringify(archiveText(itemKind, item)));
+  return revisionOf(JSON.stringify(storedText(itemKind, item)));
 }
 
 /** The item's own time: a stored day (`day`), else the first time field it holds (`time`), else `approx` today. */
@@ -179,7 +191,7 @@ function participantsOf(value, text, scope, given) {
  * One archive entry for `item` (a stored item, or a plain string for a self fact or an in-joke).
  * Pure apart from `now` and `uuid`. `itemId` is the item's own (a string item, or an object
  * without one, gets `ITEM_ID_PREFIX[itemKind]` + `uuid()`), `revisionId` hashes its text fields,
- * `id` is `uuid()`. `text` holds the text fields verbatim; `stored` the item's other fields
+ * `id` is `uuid()`. `text` holds the text fields verbatim but for their links (`storedText`); `stored` the item's other fields
  * (without `itemId` and `weight`); `observedAt` the item's own time with its precision (`day`,
  * `time`, or `approx`: today, when the item holds none); `lastSeen` its last sighting or null;
  * `sourceRefs` the messages it names itself (`sourceRefs` given, else its own `sourceRefs`, its
@@ -198,7 +210,7 @@ export function archiveEntry(item, { itemKind, event, scope = { guild: true }, o
   if (!TEXT_FIELDS[itemKind]) throw new TypeError(`archiveEntry: unknown item kind ${itemKind}`);
   if (!ARCHIVE_EVENTS.includes(event)) throw new TypeError(`archiveEntry: unknown event ${event}`);
   const value = itemValue(item);
-  const text = archiveText(itemKind, value);
+  const text = storedText(itemKind, value);
   const recordedAt = new Date(now()).toISOString();
   const textFields = new Set(TEXT_FIELDS[itemKind]);
   const stored = {};

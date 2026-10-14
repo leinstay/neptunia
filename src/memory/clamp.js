@@ -27,6 +27,15 @@
 // `clampChars` (a plain code-point cut, no boundary search); `clampAtBoundary`
 // is the same limit with a sentence/word-boundary cut for free text sent on. `stripDashes` /
 // `countDashes` clean em and en dashes out of the persona's outgoing text.
+//
+// `stripUrls` takes every http(s) link out of a text (the owner's rule: links
+// are never stored in the persona's memory). Every write point of a memory
+// store runs it before its clamp: profiles and the private layer, server and
+// channel notes, lessons, self facts, the lorebook, recent notes and the
+// archive. The record, the journal and the meaning index keep links: they are
+// the record of what was said.
+
+import { URL_PATTERN } from './mentions.js';
 
 const SENTENCE_ENDERS = new Set(['.', '!', '?', '…']);
 const SENTENCE_CLOSERS = new Set(['"', "'", '’', '”', ')', ']', '»']);
@@ -273,4 +282,78 @@ export function clampAtBoundary(text, max) {
 export function clampChars(text, max) {
   const value = String(text ?? '');
   return Number.isFinite(max) && max >= 0 ? [...value].slice(0, Math.floor(max)).join('') : value;
+}
+
+// A Markdown link `[label](url)`: the label stays, the link goes.
+const MARKDOWN_LINK_PREFIX = '\\[([^\\]\\n]*)\\]\\(\\s*<?';
+const MARKDOWN_LINK_SUFFIX = '>?\\s*\\)';
+// Trailing characters of a matched URL that belong to the sentence, not the link.
+const URL_TAIL = new Set(['.', ',', ';', ':', '!', '?', '"', "'", '’', '”', '»']);
+// A closing bracket that ends a matched URL belongs to the sentence when the URL holds fewer openers.
+const URL_CLOSERS = { ')': '(', ']': '[', '}': '{' };
+// A bracket or quote pair a removed link left empty.
+const EMPTY_PAIR = /\(\s*\)|\[\s*\]|\{\s*\}|<\s*>|«\s*»|“\s*”|""/gu;
+
+/** A fresh URL regex, built at the moment of use: mentions.js reaches this module back through recent.js. */
+function urlRegex() {
+  return new RegExp(URL_PATTERN, 'giu');
+}
+
+/** The characters at the end of a matched `url` that stay in the text (see URL_TAIL, URL_CLOSERS). */
+function urlTail(url) {
+  let end = url.length;
+  while (end > 0) {
+    const ch = url[end - 1];
+    const opener = URL_CLOSERS[ch];
+    const body = url.slice(0, end);
+    if (URL_TAIL.has(ch) || (opener && body.split(ch).length > body.split(opener).length)) {
+      end -= 1;
+      continue;
+    }
+    break;
+  }
+  return url.slice(end);
+}
+
+/** One line a link was taken out of, tidied: empty pairs, doubled spaces and separators, a dangling end. */
+function tidyLine(line) {
+  const tidy = line
+    .replace(EMPTY_PAIR, '')
+    .replace(EMPTY_PAIR, '')
+    .replace(/[ \t]{2,}/gu, ' ')
+    .replace(/[ \t]+([,.;:!?)\]}»”])/gu, '$1')
+    .replace(/([([{«“])[ \t]+/gu, '$1')
+    .replace(/([,;:])(?:[ \t]*[,;:])+/gu, '$1')
+    .replace(/[,;:]+(?=[.!?])/gu, '')
+    .trim()
+    .replace(/^[,;:.!?]+[ \t]*/u, '');
+  return stripTrailing(Array.from(tidy));
+}
+
+/**
+ * `text` without its http(s) links (src/memory/mentions.js#URL_PATTERN, any
+ * letter case): a Markdown link keeps its label, a `<url>` goes with its
+ * brackets, and punctuation that ends the sentence right after a link stays.
+ * Each line that held a link is tidied (brackets and quotes left empty,
+ * doubled spaces, a separator left hanging before punctuation or at either
+ * end), a line left empty goes, and the whole text is trimmed. Text with no
+ * link comes back exactly as given; a text that was only links becomes ''.
+ * Non-string reads as ''. For every text a memory store writes.
+ * @param {unknown} text
+ * @returns {string}
+ */
+export function stripUrls(text) {
+  const value = String(text ?? '');
+  if (!urlRegex().test(value)) return value;
+  const markdown = new RegExp(`${MARKDOWN_LINK_PREFIX}(?:${URL_PATTERN})${MARKDOWN_LINK_SUFFIX}`, 'giu');
+  const lines = [];
+  for (const line of value.split('\n')) {
+    if (!urlRegex().test(line)) {
+      lines.push(line);
+      continue;
+    }
+    const tidy = tidyLine(line.replace(markdown, '$1').replace(urlRegex(), urlTail));
+    if (tidy) lines.push(tidy);
+  }
+  return lines.join('\n').trim();
 }

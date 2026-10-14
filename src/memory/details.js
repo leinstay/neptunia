@@ -23,7 +23,7 @@ import {
   minIso,
   normalizeTopic,
 } from './interests.js';
-import { clampText } from './clamp.js';
+import { clampText, stripUrls } from './clamp.js';
 import { HOUR_MS } from '../time.js';
 
 function normalizedNextId(startId) {
@@ -77,7 +77,8 @@ function teacherOf(from) {
  *   seenAt?: number, nextId?: number, halfLifeDays?: number, clampTolerance?: number,
  *   mintId?: () => string, now?: number, validity?: boolean }} [opts]
  *   `validity: false` (the guild's lessons) stamps no `recordedAt` and ignores the validity fields.
- *   `text` is free prose, clamped tolerantly (see src/memory/clamp.js) with `clampTolerance`.
+ *   `text` is free prose: its links go (src/memory/clamp.js#stripUrls), then it is clamped
+ *   tolerantly (see src/memory/clamp.js) with `clampTolerance`; a text left empty adds nothing.
  * @returns {{ items: object[], nextId: number, dropped: object[], closed: object[] }}
  */
 export function applyDetailOps(
@@ -117,7 +118,8 @@ export function applyDetailOps(
   function add(raw) {
     const isObj = raw && typeof raw === 'object' && !Array.isArray(raw);
     if (!isObj && typeof raw !== 'string') return;
-    const text = clampText(isObj ? raw.text : raw, fieldChars, { tolerance: clampTolerance });
+    const value = isObj ? raw.text : raw;
+    const text = clampText(typeof value === 'string' ? stripUrls(value) : value, fieldChars, { tolerance: clampTolerance });
     if (!text) return;
     const sure = isObj ? raw.sure !== false : true;
     const from = isObj ? teacherOf(raw.from) : undefined;
