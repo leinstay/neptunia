@@ -40,7 +40,7 @@ which writes hot memory and so runs with the bot stopped.
 | `memory-sim.mjs --snapshot <dir> --since <day> [...]` | Replays the analyzer batches the journal recorded after a snapshot (`memory` records: message ids, prompt and config hashes) on a scratch copy of the snapshot, and reports per member: fields that moved, fields that stood still while the member kept writing (`--min-messages`, default 30), words per sentence of the rewritten text (under 8 is flagged), a judge's lost facts and relations (`--judge <model>`), and refusals over a field's limit. `--from-dump <chat-*.jsonl>...` builds the batches from chat dumps when the journal has none, with the limits of that path in the report | yes, estimate per batch and per judge request |
 | `warmup.mjs run\|users\|channels\|server\|people\|status\|reset [--guild <id>] [--user <id>] [--channel <id>] [--spend <usd>] [--max-usd <n>] [--dry-run]` | The memory warmup (src/memory/warmup.js), with the bot stopped: channel notes, member profiles, the server notes and lore from a sample of recent history, its progress in `data/state.json`. See "The warmup" below | `run`, `users`, `channels`, `server` |
 | `backfill.mjs fetch\|merge\|extract\|dedupe\|voice\|report` | Fills the persona's past before the live record started: old messages into the record (`origin: backfill`), episodes and lessons the model finds in them into the archive (`event: backfill`), optionally a present-day feeling for the weighty episodes. See "The backfill" below | `extract` and `voice` only |
-| `embed-index.mjs estimate\|build\|stats [--guild <id>]` | Builds or inspects the meaning-search vector index (`src/memory/vectors.js`). See "The embedding index" below | `build` only |
+| `embed-index.mjs estimate\|build\|stats [--guild <id>]` | Builds or inspects the meaning-search vector index (`src/memory/vectors.js`). `stats --coverage [--hours N]` checks the record of the last N hours (default `embed.catchUpHours`) against the index. `build --include-live` embeds only the rows missing from a month the live queue manages. See "The embedding index" below | `build` only |
 
 Pure helpers live in `tools/lib/` and are tested by `tests/tools-*.test.js`. The judge's system prompt of
 `memory-sim.mjs` is `tools/prompts/memory-judge.md`; while that file is a placeholder no judge request is sent.
@@ -106,17 +106,17 @@ them are dropped. The candidates file and `report` hold what members said: for t
 
 ## The embedding index
 
-`embed-index.mjs` builds the vector index that `features.meaningSearch` uses for recall by meaning. Each record message is embedded with its two preceding lines of the same channel (one vector per message); archive items get one vector each. The tool reads the record and the archive, sends the chunks to the `classifier.embed` model in batches of `embed.batch` within `llm.maxRequestTokens`, and writes the index as a new generation per month.
+`embed-index.mjs` builds the vector index that `features.meaningSearch` uses for recall by meaning. Each record message is embedded with its two preceding lines of the same channel (one vector per message); archive items get one vector each. The tool reads the record and the archive, sends the chunks to the `embedding` role's model in batches of `embed.batch` within `llm.maxRequestTokens`, and writes the index as a new generation per month.
 
 **Subcommands.**
 
 - `estimate [--from YYYY-MM] [--to YYYY-MM] [--usd-per-mtok 0.13]`: per month, the record and archive chunks, their tokens, the cost at `--usd-per-mtok` (default 0.13, the price of `text-embedding-3-large`) and the rows already indexed. Reads only.
-- `build --max-usd <n> [--from YYYY-MM] [--to YYYY-MM] [--rebuild] [--dry-run] [--usd-per-mtok 0.13]`: embeds the months not indexed yet (every one with `--rebuild`). The estimate comes first; the run is refused (exit 2) when it exceeds `--max-usd` and stops before a month that would pass it. `--dry-run` prints the plan and sends nothing.
-- `stats`: the index per month (rows, bytes, model, dimensions) and the private layers summed.
+- `build --max-usd <n> [--from YYYY-MM] [--to YYYY-MM] [--rebuild] [--include-live] [--dry-run] [--usd-per-mtok 0.13]`: embeds the months not indexed yet (every one with `--rebuild`). The estimate comes first; the run is refused (exit 2) when it exceeds `--max-usd` and stops before a month that would pass it. `--include-live` embeds only the rows missing from a month the live queue manages (the record lines older than the catch-up window and the archive items), appended without replacing the month, so it cannot clash with the queue's writes. `--dry-run` prints the plan and sends nothing.
+- `stats [--coverage [--hours N]]`: the index per month (rows, bytes, model, dimensions) and the private layers summed. `--coverage` adds the record of the last `--hours` (default `embed.catchUpHours`, 72) against the index: messages, indexed, missing, the oldest missing time.
 
 **Range.** `--from` and `--to` default to the first month the record or archive holds and the current month.
 
-**Safe while the bot runs.** Refused while a forget is under way (a `forgetting/` marker). Lines of a member the deletion ledger forgot after them are never sent. While the bot runs with its live queue on (`features.embedIndex`), the current month (and the previous one during the first day of a month) is left to the queue, so the tool and the queue never write the same month.
+**Safe while the bot runs.** Refused while a forget is under way (a `forgetting/` marker). Lines of a member the deletion ledger forgot after them are never sent. While the bot runs with its live queue on (`features.embedIndex`), the current month (and the previous one during the first day of a month) is left to the queue, whose catch-up covers the last `embed.catchUpHours` after any gap. For a live month the queue's catch-up does not reach (the switches turned on mid-month), `--include-live` embeds only its rows missing from the index and appends them, so it cannot clash with the queue's writes.
 
 **Output.** Counts, tokens and USD only, never a message's text.
 

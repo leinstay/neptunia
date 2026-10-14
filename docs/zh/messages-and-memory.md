@@ -6,7 +6,7 @@
 
 消息经过服务器、频道和自身消息过滤。如果角色被呼叫（@提及、回复或名字触发），忽略启发式会根据基础概率进行判定，该概率会因空提及、重复标记、垃圾消息和呼叫者的关系分数而调整。@提及和正文 @提及角色的回复以 `mention.ignoreChance` 为基础概率，其他对角色的回复以及下文分类器判定为 `yes` 的跟进以 `mention.followUpIgnoreChance` 为基础概率；名字触发只按 `mention.nameTriggerChance` 判定。判定失败时消息会被忽略；被忽略的消息仍会出现在下次回复构建的对话记录中。
 
-角色回复某人后，该频道内接下来 `mention.followUpMinutes` 分钟的未标记消息会被发送到 `classifier.text` 角色上的分类器，回答 `yes`、`overheard` 或 `no`。`yes` 延续对话；`overheard`（谈论角色而非对它说话）在 `mention.followUpOverheard` 开启（默认）时启动使用 `prompts/overheard.md` 的独立回合，否则视为普通跟进。连续三个 `no` 判定（`mention.followUpNoStreak`）关闭窗口；`overheard` 在连续判定中视为 `yes`。后续窗口在重启后保留。`features.followUp` 可关闭此功能。
+角色回复某人后，该频道内接下来 `mention.followUpMinutes` 分钟的未标记消息会被发送到 `analyzer` 角色上的分类器，回答 `yes`、`overheard` 或 `no`。`yes` 延续对话；`overheard`（谈论角色而非对它说话）在 `mention.followUpOverheard` 开启（默认）时启动使用 `prompts/overheard.md` 的独立回合，否则视为普通跟进。连续三个 `no` 判定（`mention.followUpNoStreak`）关闭窗口；`overheard` 在连续判定中视为 `yes`。后续窗口在重启后保留。`features.followUp` 可关闭此功能。
 
 自发回合由混沌定时器或逐消息窃听概率（`spontaneous.eavesdropChance`）触发。面向全体（而非面向特定人）的消息有概率（`spontaneous.roomQuestionChance`，默认 0.04）被角色接听，经分类器（`prompts/room.md`）确认后回合聚焦于该消息。`spontaneous.deadAfterMinutes` 的沉默后，即使角色自己的消息是频道中的最后一条，角色也可以发起话题；角色永远不会在自己的最后一条消息上插话。角色不会在沉默超过 `spontaneous.maxChannelSilenceHours` 小时的频道中主动发言；但该频道中的直接提及仍会回复。
 
@@ -14,7 +14,7 @@
 
 角色在整个服务器范围内同一时间只写一条回复（`mention.oneAtATime`）。当 `mention.pendingSameChannel` 开启（默认 `true`，缺失键 = 开启）时，同一频道中在回合执行期间到达的直接提及（@提及、对角色消息的回复或名字呼叫）会被挂起，回合结束后以 `mention.switchDelayMs` 的暂停回复，忽略概率在那时判定。如果正在执行的回合已经在历史记录中处理了该提及，则不会重复回复。关闭该开关时，提及会被错过，仅出现在下次回复的对话记录中。来自其他频道的直接提及以相同方式挂起。每个呼叫按到达顺序等候，有一个例外：延迟跟进（遇到繁忙回合的分类器 `yes`）每个频道保留一个，较新的替换较早的。当 `mention.classifyWhileBusy` 开启（默认）时，角色繁忙期间到达的后续候选仍被发送给分类器，因此也可以产生延迟跟进；关闭该开关时，候选不经分类器调用直接跳过。拾取时，延迟跟进通过与提及相同的检查，外加两个自有检查：该频道的跟进窗口仍然开启，以及该行未出现在该频道中已应答回合的历史记录中。之后按 `mention.followUpIgnoreChance` 进行忽略概率判定。当 `mention.pendingOverheard` 开启（默认如此）时，繁忙回合中的分类器 `overheard` 也在挂起队列中等候，角色在当前回合结束后做出反应。等候中的跟进不会被后来的 overheard 行挤出；等候中的 overheard 行会被后来的跟进、后来的 overheard 行或直接提及、回复或名字呼叫挤出。等候中的 overheard 行不计入垃圾消息限制，也不作为频道中等候的呼叫报告给其他回合。跨所有频道和作者最多挂起 `mention.maxPending`（默认 6）个呼叫；超出时淘汰最早的一个（`mention: dropped`，原因 `full`）。呼叫在 `mention.pendingMinutes` 分钟后过期。当前回复完成后，角色在短暂停顿（`mention.switchDelayMs`）后切换频道，基于当前对话状态回复最早的挂起呼叫；通常的忽略概率仍然适用。挂起的呼叫在机器人暂停时不会被回复。繁忙期间到达的窃听命中会被跳过。设置 `mention.oneAtATime: false` 后，每个频道独立处理。角色不会在缺少发送消息权限的频道中发言；此类频道仍会被读取和记忆。
 
-当有呼叫来自在该频道已有等候条目的作者时（分拆消息中尚未处理的部分，或之前排队的呼叫），合并分类器（`prompts/merge.md`，使用 `classifier.text`，用途标记 `merge`）判断新消息是否属于其中某个条目。如果是，新消息被折叠进该条目而非作为独立呼叫排队；该条目的回合通过 `labels.task.added` 看到它。没有提示文件时，每个呼叫都单独排队。记录为 `merge: verdict` 或 `merge: failed`。
+当有呼叫来自在该频道已有等候条目的作者时（分拆消息中尚未处理的部分，或之前排队的呼叫），合并分类器（`prompts/merge.md`，使用 `analyzer` 角色，用途标记 `merge`）判断新消息是否属于其中某个条目。如果是，新消息被折叠进该条目而非作为独立呼叫排队；该条目的回合通过 `labels.task.added` 看到它。没有提示文件时，每个呼叫都单独排队。记录为 `merge: verdict` 或 `merge: failed`。
 
 回答呼叫的回合会通过 `labels.task.queued` 列出同一作者的其他等候呼叫（在分拆回合中作为 `labels.task.part` 的 `{others}` 的一部分），通过 `labels.task.queuedOthers` 列出频道中其他成员的等候呼叫。以这种方式列出的呼叫不会因为已出现在回合的历史记录中而被丢弃。没有这些标签时使用旧规则，等候呼叫不被列出。
 
@@ -22,7 +22,7 @@
 
 ### 分拆消息
 
-当 `features.splitTasks` 开启（默认如此）且一个直接呼叫（提及、回复、名字、跟进、私信）足够长且有结构（`split.minChars`，至少两个分隔符），分类器（`prompts/split.md`，使用 `classifier.text`，用途标记 `split`）判断其中是否包含多个独立的请求。分类器与回合的准备过程并行运行，不会延迟单个请求。回答为 `one`（一个请求）或 2 到 `split.maxTasks` 行，每行以 `- ` 开头，用作者自己的话表述一个部分。
+当 `features.splitTasks` 开启（默认如此）且一个直接呼叫（提及、回复、名字、跟进、私信）足够长且有结构（`split.minChars`，至少两个分隔符），分类器（`prompts/split.md`，使用 `analyzer` 角色，用途标记 `split`）判断其中是否包含多个独立的请求。分类器与回合的准备过程并行运行，不会延迟单个请求。回答为 `one`（一个请求）或 2 到 `split.maxTasks` 行，每行以 `- ` 开头，用作者自己的话表述一个部分。
 
 各部分成为同一消息上的普通回合链。每个部分是其自身回合的查询、频道路由和 recall 辅助的候选，角色的请求会指出正在回答的部分和其余部分（`labels.task.part`）。第一个部分回复消息，其余的发布为普通消息。每个部分有自己的截止时间和丢弃限制。角色以沉默、失败或拒绝回答的部分不会阻止下一个。暂停或预热会提前结束链（`turn: chain stopped`）。忽略概率、私聊每日上限和环标记在每条消息上只计一次。链运行期间，挂起呼叫继续排队；注意力在链结束时才释放。
 
@@ -34,7 +34,7 @@
 
 voice 请求之前运行的所有任务（历史、说明、路由和搜索分类器）有一个截止时间：`pace.prepareMs`（默认 6 秒），搜索分类器决策期间以及搜索执行期间延长到 `pace.prepareSearchMs`（默认 12 秒）（「无需搜索」的判定立即释放持有），当触发消息包含描述器或视频阶段将处理的媒体时延长到 `pace.prepareMediaMs`（默认 20 秒）；两者同时适用时取较大值。超时的辅助任务被丢弃，回合在没有其结果的情况下继续（记录为 `turn: stage late` 或 `turn: stage failed`）。完成的回答本身必须在回合开始后 `pace.dropAfterMs`（默认 60 秒）内到达；超时后回合被丢弃不发布（记录为 `turn: dropped`）。每个回合在 `turn: timings` 中记录各阶段的耗时。
 
-`llm.hedge.roles`（默认 `classifier.text`）中列出的角色的请求会被对冲：第二次尝试在第一次之后 `llm.hedge.afterMs`（默认 2.5 秒）启动，先完成的获胜。两者在 `llm.hedge.timeoutMs`（默认 8 秒）后中止。`llm.helperTimeoutMs`（默认 30 秒）分别限制路由分类器、搜索分类器和 recall 摘要。
+`llm.hedge.roles`（默认 `analyzer`、`reasoner`）中列出的角色的请求会被对冲：第二次尝试在第一次之后 `llm.hedge.afterMs`（默认 2.5 秒）启动，先完成的获胜。两者在 `llm.hedge.timeoutMs`（默认 8 秒）后中止。`llm.helperTimeoutMs`（默认 30 秒）分别限制路由分类器、搜索分类器和 recall 摘要。
 
 当 `pace.typingWhilePreparing` 开启（默认关闭）时，输入指示器从回答直接呼叫的回合开始显示，而非仅在完成的回答打字阶段显示。
 

@@ -179,7 +179,7 @@ Discord 斜杠命令只有一个：`/nep`（名称来自 `bot.commandName`），
 
 ## 成本
 
-每个回合消耗一次 LLM 请求；记忆更新再加一次。分拆消息分类器和合并分类器在条件满足时各可增加一次 `classifier.text` 模型请求。成本取决于模型和端点；`llm.model` 和 `llm.baseUrl` 接受任何兼容值。每日上限（`llm.maxRequestsPerDay`）防止超支。视频描述每个片段向更便宜的独立模型发一次请求（`media.video.maxPerDay` 限制每日数量）；`yt-dlp` 和 `ffmpeg` 在本地运行，只消耗带宽。链接阅读和网络搜索（`features.webLookup`，默认关闭）向文本分类器发请求，受 `web.maxPerDay` 限制；网络搜索还需要 Brave Search API 密钥（免费层：每月 2,000 次查询）。服务器消息历史搜索（`features.recall`，默认开启）使用 Discord 内置的搜索 API，只增加分类器和摘要请求。图像生成（`features.imageGeneration`，默认关闭）通过 `image.model` 按输出 token 计费；`image.maxPerDay` 独立于聊天请求限制每日数量。私聊（`features.privateMessages`，默认关闭）使用同样的 LLM 和上限；每条 DM 回复是一次请求，每个私有分析器批次是另一次。启用 `features.webLookup` 后，机器人会发出 HTTP 请求获取页面和访问 Brave Search API；私有地址拒绝访问。
+每个回合消耗一次 LLM 请求；记忆更新再加一次。分拆消息分类器和合并分类器在条件满足时各可增加一次 `analyzer` 角色请求。成本取决于模型和端点；`roles.*` 和 `llm.baseUrl` 接受任何兼容值。每日上限（`llm.maxRequestsPerDay`）防止超支。视频描述每个片段向更便宜的独立模型发一次请求（`media.video.maxPerDay` 限制每日数量）；`yt-dlp` 和 `ffmpeg` 在本地运行，只消耗带宽。链接阅读和网络搜索（`features.webLookup`，默认关闭）向文本分类器发请求，受 `web.maxPerDay` 限制；网络搜索还需要 Brave Search API 密钥（免费层：每月 2,000 次查询）。服务器消息历史搜索（`features.recall`，默认开启）使用 Discord 内置的搜索 API，只增加分类器和摘要请求。图像生成（`features.imageGeneration`，默认关闭）通过 `image.model` 按输出 token 计费；`image.maxPerDay` 独立于聊天请求限制每日数量。私聊（`features.privateMessages`，默认关闭）使用同样的 LLM 和上限；每条 DM 回复是一次请求，每个私有分析器批次是另一次。启用 `features.webLookup` 后，机器人会发出 HTTP 请求获取页面和访问 Brave Search API；私有地址拒绝访问。
 
 `data/` 存储成员档案、关系分数、频道观察、服务器规律、媒体描述和网页摘要的缓存。全部保留在你的机器上，已加入 gitignore，仅作为上下文发送给 LLM。分析器被指示不存储敏感信息。`/nep memory forget` 可完全删除某人的档案。
 

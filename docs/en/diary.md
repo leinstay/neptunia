@@ -37,10 +37,10 @@ A slot missed by more than `diary.slotGraceMinutes` (30) while the bot was down 
 
 Each diary post is two model requests:
 
-1. A plan request on the `classifier.text` model: picks the kind, a one-line brief, whether to search, and whether to draw.
-2. A compose request on the main model (`llm.model`) with the character card and the full set of memory blocks.
+1. A plan request on the `reasoner` role: picks the kind, a one-line brief, whether to search, and whether to draw.
+2. A compose request on the `voice` role with the character card and the full set of memory blocks.
 
-When the plan asks for a web search (only for `diary.searchKinds`, by default `news` and `facts`), a Brave search runs first and adds a third request (the condenser on `classifier.text`). The search counts against `web.maxPerDay`.
+When the plan asks for a web search (only for `diary.searchKinds`, by default `news` and `facts`), a Brave search runs first and adds a third request (the condenser on the `reasoner` role). The search counts against `web.maxPerDay`.
 
 When the post includes a picture, the image model generates it at its own price. Diary pictures count against both `image.maxPerDay` and `diary.maxPicturesPerDay` (2).
 
