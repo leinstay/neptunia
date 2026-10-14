@@ -52,6 +52,9 @@ When `bot.guildId` is empty and the bot is in exactly one server, it locks to th
 
 ## Features and changes
 
+**14.10.2026**  
+Recall can search by meaning, not only by words (`features.meaningSearch`, off by default). Each message in the record is embedded with its context lines and stored in a per-month vector index. When someone asks a question, the asker's message is embedded and the closest record lines join the word-hit windows through reciprocal rank fusion. Archive items found by meaning join the memory block. The index is built with `tools/embed-index.mjs` and optionally kept current by a live queue (`features.embedIndex`). Message text with author names goes to the embedding provider.
+
 **13.10.2026**  
 Every message the persona hears and every one it posts are written to a permanent record on disk. When hot memory is full and an episode, an interest or a detail is pushed out, the evicted item goes to an archive file before it leaves. On a server search, the engine reads the archive and the last few days of the record alongside Discord's own search results, so the persona can find things it witnessed even after they left the in-memory profiles. Facts that change over time (someone's current game, a nickname, a "birthday today" joke) carry dates: when the claim was true, when it stopped being true, and what replaced it. Two contradictory open claims are shown together instead of one silently overwriting the other. `/nep memory forget` copies everything it will delete into a vault directory under `data/` and records the deletion in a ledger (`forgotten.json`), so nothing is irreversibly lost.
 
@@ -327,6 +330,7 @@ src/
     budget.js              priority-ordered section trimming
     openrouter.js          chat completions, safety rails
     parse.js               output tags to actions
+    embed.js               OpenRouter embeddings client (classifier.embed role)
   discord/
     guild.js               single-guild resolution
     commands.js            slash commands, registration, interaction adapter
@@ -385,9 +389,13 @@ src/
     record.js              the witnessed record: every message heard and posted, by UTC day
     archive.js             the archive: items evicted from hot memory, by month
     warmup.js              sample-based memory warmup
+    vectors.js             vector index: int8 rows per month, append, search, forget rewrite
+    chunks.js              pure: what one vector holds (a message with context, or an archive item)
+    embedder.js            live embedding queue: queues record lines, flushes batches to the index
 tools/
   backfill.mjs             fill the persona's past from old messages (fetch, merge, extract, dedupe, voice, report)
   warmup.mjs               the memory warmup, run with the bot stopped (run, users, channels, server, people, status, reset)
+  embed-index.mjs          build or inspect the meaning-search vector index (estimate, build, stats)
   journal-report.mjs       per-day numbers from the journal: turns, outcomes, tokens, limits
   request-report.mjs       the same numbers from the operational log, for days before the journal
   replay.mjs               answer a real message again, or compare two prompt layers on the same triggers

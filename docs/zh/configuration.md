@@ -41,6 +41,8 @@
 | `memoryTwoStage` | `false` | 将记忆分析器拆分为两个阶段：中性 GPT 模型判定变更（阶段 A），然后语音模型撰写角色文本（阶段 B）。必须严格为 `true` 才能启用；缺失键 = 关。参见 `memory.voice.*` |
 | `promptCache` | `true` | 为系统消息添加提供商的提示缓存标记。缓存读取仅为正常输入成本的一小部分；某些提供商不将缓存读取计入 token 配额。必须严格为 `true` 才能启用；缺失的键视为关闭。参见 `llm.cache.*` |
 | `recall` | `true` | 当问题需要时，在网络搜索之外同时搜索服务器自身的消息历史。缺失的键视为开启。参见[媒体：搜索](media.md#搜索)和 `recall.*` |
+| `meaningSearch` | `false` | 每次 recall 运行时，嵌入提问者的消息并在向量索引中按语义搜索。按语义找到的记录行加入关键词命中窗口；归档行加入记忆条目。通过倒数排名融合与关键词命中组合。必须为 `true` 才能启用；缺失的键视为关闭。需要 `features.recall` 开启且嵌入模型（`classifier.embed`）可达。参见 `recall.meaningCandidates` |
+| `embedIndex` | `false` | 机器人运行时保持向量索引最新：记录接收的每条消息入队，每 `embed.flushSeconds` 秒或队列积累 `embed.batch` 行时发送一批嵌入。必须为 `true` 才能启用；缺失的键视为关闭。需要 `features.meaningSearch`。没有此开关时索引仅通过 `tools/embed-index.mjs` 构建 |
 | `recent` | `true` | 在请求中显示一个 `<recent>` 块，呈现服务器最近几天发生的事情。缺失的键视为开启。参见 `memory.recentHours` 和 `context.caps.recent` |
 | `channelRoute` | `true` | 分类器在回合前选出对话中提及的频道，以便将其拉入请求。缺失的键视为开启。参见 `route.*` |
 | `channelLinks` | `true` | 角色在消息中写服务器频道的 `#频道名` 时，发送的消息包含真实的频道链接而非文字。名称按最长匹配；已有的链接保持不变。关闭时文本原样发送。缺失的键视为开启 |
@@ -126,6 +128,13 @@
 | 键 | 默认值 | 说明 |
 |---|---|---|
 | `dimensions` | `1024` | 请求嵌入模型返回的维度数。模型支持截断时，较小的值更快、更便宜 |
+| `batch` | `64` | 实时队列（`features.embedIndex`）每次嵌入请求刷新的行数 |
+| `flushSeconds` | `180` | 实时队列刷新间隔（秒）。队列积累 `embed.batch` 行时也会触发刷新 |
+| `queueMax` | `2000` | 实时队列在内存中保持的行数。队列满时丢弃最旧的 |
+
+记录中的每条消息与同频道的前 2 行一起嵌入作为上下文，使简短回答包含其所回答的内容。归档条目（回忆、教训、被挤出的细节和兴趣）各获得一个向量。向量按月存储在 `data/guilds/<id>/vectors/<YYYY-MM>/` 中。私聊的向量存储在 `data/guilds/<id>/private/<userId>/vectors/` 下。`/nep memory forget` 删除相关行，`/nep memory wipe` 删除整个 `vectors/` 树。
+
+消息文本（含作者名）发送给嵌入提供商（通过 OpenRouter 的 OpenAI）。本地删除从索引中移除行，但不会删除提供商持有的文本副本。
 
 ## `context`
 
@@ -275,6 +284,8 @@
 | `minSummaryMs` | `2500` | 询问摘要辅助的最低剩余时间。不足时返回排名最高窗口的原文段，不附笔记 |
 | `memoryItems` | `6` | 将分类器的词形和名称词形与已存储记忆（回忆、世界书、所学、近期行，不含私有层）匹配的条目数，作为 `<memory>` 块发送给摘要。`0` 关闭匹配 |
 | `maxOutputTokens` | `500` | 摘要辅助的最大输出 token 数 |
+| `meaningCandidates` | `80` | 每次语义搜索从向量索引返回的行数。这些候选项与关键词命中融合，然后经过相同的窗口构建和聚类排名。`0` 即使 `features.meaningSearch` 开启也关闭语义搜索 |
+| `meaningWithReply` | `false` | 当触发消息是回复且被回复的消息在最近行中时，将触发消息与该行一起嵌入（提问者的问题在上下文中）。否则仅嵌入触发消息 |
 
 ## `gifs`
 
