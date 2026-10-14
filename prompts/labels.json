@@ -309,7 +309,7 @@
       "required": "{arg} (required)",
       "values": "{arg} = {values}",
       "range": "{arg} = {min}..{max}",
-      "body": "{arg} (between the tags)"
+      "body": "{arg} (body)"
     },
     "access": {
       "allowed": "allowed",
