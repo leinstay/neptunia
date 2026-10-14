@@ -61,6 +61,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'offPeriods',
   'skillsInventory',
   'skillsGranted',
+  'continuation',
 ]);
 
 const KNOWN = new Set(TURN_INPUT_KEYS);

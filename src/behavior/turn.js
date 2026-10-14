@@ -25,7 +25,7 @@ import {
   withTextPreviews,
 } from '../discord/collect.js';
 import { audienceAllows, captionPulled, checkPull, createPullViews, fetchPull } from '../discord/pull-fetch.js';
-import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, fillPromptTemplate, gifFieldChars, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
+import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, continuesTurn, fillPromptTemplate, gifFieldChars, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
 import {
   DIARY_DAILY,
   DIARY_PICTURES_DAILY,
@@ -90,7 +90,7 @@ import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
 import { discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
 import { skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
-import { executeCall, needsFollowUp, refusalStatus, resolveCall } from '../skills/executors.js';
+import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
 import { createDiscordAdapter } from '../interface/discord.js';
 
 /**
@@ -1092,6 +1092,41 @@ export function firstPass(acted, labels) {
   return items;
 }
 
+/** The list fields of a normalized message (src/discord/collect.js#normalizeMessage), empty on a line built here. */
+const EMPTY_LINE_LISTS = Object.freeze(['mentionedUserIds', 'mentionedChannelIds', 'attachments', 'links', 'forwarded', 'stickers', 'emojis', 'reactions']);
+
+/**
+ * The turn's channel as it stands when the turn continues after the persona's skill call
+ * (followUp): the turn's `history` as it was (its lines, previews and order untouched), then the
+ * lines it did not hold yet, oldest first -- those of a fresh fetch (`fetched`: her own posts of
+ * the turn as Discord gives them, and what others wrote meanwhile), then her posts of the turn the
+ * fetch did not return (`own`, act's `lines`: id, time and text as written; `selfName` as their
+ * author's name, the missing list fields empty). A line without an id is left out; an id is kept
+ * once, the first time it comes. The call marks and trigger links are the caller's to put on.
+ * Pure; exported for the tests and the replay's skill scenarios.
+ * @param {{ history: object[], fetched?: object[]|null, own?: object[]|null, selfName?: string|null }} input
+ * @returns {object[]}
+ */
+export function continuationHistory({ history, fetched = [], own = [], selfName = null }) {
+  const base = Array.isArray(history) ? history : [];
+  const seen = new Set(base.map((line) => line?.id).filter((id) => typeof id === 'string' && id));
+  const asLine = (line) => {
+    const out = { channelName: null, authorName: selfName ?? '', bot: false, replyToId: null, replyPingUserId: null, forwardedFrom: null, ...line, self: true };
+    for (const key of EMPTY_LINE_LISTS) if (!Array.isArray(out[key])) out[key] = [];
+    return out;
+  };
+  const later = [];
+  const add = (line) => {
+    if (!line || typeof line.id !== 'string' || !line.id || seen.has(line.id)) return;
+    seen.add(line.id);
+    later.push(line);
+  };
+  for (const line of Array.isArray(fetched) ? fetched : []) add(line);
+  for (const line of Array.isArray(own) ? own : []) if (line && !seen.has(line.id)) add(asLine(line));
+  later.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+  return [...base, ...later];
+}
+
 /**
  * The immutable envelope of the persona's skill call, built by code from the turn, never from
  * what the model wrote: the actor (the persona), the requester (the person who asked for the
@@ -1499,8 +1534,13 @@ function taskInput({ part, queued, added, missed = null, labels, channelId }) {
  * again; absent, a call is `not_configured`; her own expressive operations through
  * `runOwnCommand`, src/admin.js#runOwnCommand, her grant alone). An operation's answer -- an error or a refusal
  * included -- or any call that did not succeed (never under features.skills off) brings one
- * follow-up request: the reply request again with a `<result>` block before `<task>`
- * (followUp); its answer is acted on like the reply, a `<call>` in it ignored. A message or a
+ * follow-up request that continues the turn (followUp, features.followUpContinuation; a missing
+ * key counts as on): the turn's request rebuilt over the channel as it stands then -- her posts of
+ * the turn as her lines, this call's mark (how it went and why) on her line, what others wrote
+ * meanwhile as later lines --, a read's data in a `<result>` block before `<task>`, and the
+ * continue task; with the switch off, the reply request again with a `<result>` block (what she
+ * already posted, then the outcome) before `<task>`. Its answer is acted on like the reply, a
+ * `<call>` in it dropped and logged, never a second follow-up. A message or a
  * picture that went out is its own answer. A dry run only logs the call (`dry-run: would
  * call`).
  */
@@ -1695,10 +1735,12 @@ export function createTurnRunner({
     let rendered = null;
     const renderText = (text) => (rendered = renderPost(text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory, limits: draft?.limits ?? null }));
     let result;
-    if (plan.refusal) result = { status: refusalStatus(plan.refusal.code), code: plan.refusal.code };
+    // A refusal keeps its machine reason (a schema path, an option name): the call mark says why (outcomeDetail).
+    const refusedWith = (refusal) => ({ status: refusalStatus(refusal.code), code: refusal.code, ...(refusal.reason ? { reason: refusal.reason } : {}) });
+    if (plan.refusal) result = refusedWith(plan.refusal);
     else {
       const verdict = checkCall(plan.resolved, { channel, envelope });
-      if (!verdict.ok) result = { status: refusalStatus(verdict.code), code: verdict.code };
+      if (!verdict.ok) result = refusedWith(verdict);
       else {
         if (op.opId) await op.started({ target: callTarget(plan.resolved.args) });
         // A destructive call counts from its dispatch, whatever comes back.
@@ -1718,7 +1760,7 @@ export function createTurnRunner({
     if (op.opId) {
       if (result.status === 'ok') await op.succeeded(result.ref?.messageId ? { messageId: result.ref.messageId } : {});
       else if (result.status === 'unknown') await op.unknown({ code: result.code ?? null });
-      else await op.failed(result.code ?? 'error', { status: result.status });
+      else await op.failed(result.code ?? 'error', { status: result.status, ...(typeof result.reason === 'string' && result.reason ? { reason: result.reason } : {}) });
     }
     const args = plan.resolved?.args ?? {};
     const posted = result.status === 'ok' && (skill === 'message.create' || skill === 'draw.create') && result.ref ? postedOf(result) : null;
@@ -1740,6 +1782,8 @@ export function createTurnRunner({
       at: clock(),
       skill,
       status: result.status,
+      // Why it did not work, when it did not (the mark words it through labels.transcript.callReasons).
+      detail: outcomeDetail(result),
       target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },
       postedId: posted?.id ?? null,
       posted: turnPosts,
@@ -1748,38 +1792,128 @@ export function createTurnRunner({
     return { skill, ...result, followUp: needsFollowUp(skill, result) };
   }
 
+  /** The options of a turn's history fetch (src/discord/collect.js#fetchHistory) under `config`. */
+  function historyOptions(config) {
+    return {
+      limit: config.context.channelMessages,
+      selfId: client.user.id,
+      embedTextChars: config.media?.embedTextChars,
+      videoSites: config.media?.video?.sites,
+      maxUrlChars: config.context?.maxUrlChars,
+    };
+  }
+
   /**
-   * The one follow-up request after a skill call (runCall's `called`, whose `followUp` is true):
-   * the reply request as it was sent (`sentMessages`) with the `<result>` block -- led by what
-   * the first pass (`acted`, act's answer) already posted, one line each (firstPass) --
-   * (src/behavior/prompt.js#skillResultBlock: labels read now, the data cut to
-   * `skills.resultMaxChars`, read now) right before its `<task>` (withSkillResult), so the cached
-   * parts are reused. The answer is parsed and shaped like the reply (`shapeOutput`); a `<call>`
-   * in it is ignored (`skills: extra-call` with `followUp: true`): no chains. What is left is
-   * acted on through `act`. The request goes through the same client and rails as the reply;
-   * a failure (a rail, the provider) logs `skills: follow-up failed` and posts nothing. An answer
-   * cut off at its output cap keeps its complete actions; with none (cutOffOf) nothing is posted
-   * and it resolves `{ cutOff: true }`. Resolves act's answer, or null.
+   * The user content of a continuation request (`request`, buildRequest's): its pictures as the
+   * turn's first request sent them (`pictures.urls`: each picture's URL -> the data: URL it was
+   * downloaded as), a picture it did not attach downloaded now (context.vision, read now); the
+   * text-only re-render when the first request went without pictures (`pictures.off`) or a
+   * download fails. The content as it is without pictures.
    */
-  async function followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted = null, act: actOn }) {
-    const labels = hot.prompts?.labels ?? {};
-    const block = skillResultBlock(called, labels, { maxChars: hot.config.skills?.resultMaxChars ?? 4500, posted: firstPass(acted, labels) });
-    const messages = withSkillResult(sentMessages, block);
+  async function continuationContent(request, pictures) {
+    const content = request.messages[1].content;
+    if (!Array.isArray(content) || !content.some((part) => part?.type === 'image_url')) return content;
+    if (pictures.off) return request.textFallback;
+    const visionCfg = hot.config.context?.vision ?? {};
+    const out = [];
+    for (const part of content) {
+      if (part?.type !== 'image_url') {
+        out.push(part);
+        continue;
+      }
+      const url = part.image_url.url;
+      let dataUrl = pictures.urls.get(url);
+      if (!dataUrl) {
+        const downloaded = await imageFetcher.fetchAsDataUrl(url, { maxBytes: visionCfg.maxBytes, timeoutMs: visionCfg.fetchTimeoutMs });
+        if (!downloaded) return request.textFallback;
+        dataUrl = downloaded.dataUrl;
+        pictures.urls.set(url, dataUrl);
+      }
+      out.push({ type: 'image_url', image_url: { url: dataUrl } });
+    }
+    return out;
+  }
+
+  /**
+   * The request that continues the turn after the persona's skill call (`called`, runCall's):
+   * the turn's own request (`continuation.input`, buildRequest's input as the turn built it)
+   * rebuilt over the channel as it stands now -- the turn's history, then a fresh fetch and her
+   * posts of the turn (continuationHistory over act's `lines`), with her trigger links and call
+   * marks put on again (linkTriggers, linkCalls: this call's mark, why it did not work included,
+   * on her last line of the turn here, or a line of its own) -- at the clock's time, with
+   * `labels.task.continue` as its task (buildRequest's `continuation`). An `ok` call's data (a
+   * read's answer) comes apart from the transcript in a `<result>` block right before `<task>`
+   * (skillResultBlock, cut to `skills.resultMaxChars`, read now; withSkillResult); a call that
+   * did not work has none: its mark says how it went. A failed fetch logs `skills: continuation
+   * fetch failed` and goes on with the turn's history and her posts. Resolves the messages and
+   * what act needs to act on the answer over the new transcript (`idByIndex`, `history`,
+   * `lines` with the pulled lines shown, `pulledIds`).
+   */
+  async function continuationRequest({ called, channel, guildId, acted, continuation }) {
+    const { input, history, shownLines = [], pictures } = continuation;
+    let fetched = [];
+    try {
+      fetched = await fetchHistory(channel, historyOptions(hot.config));
+    } catch (err) {
+      log.warn('skills: continuation fetch failed', { channel: channel.id, error: err });
+    }
+    const lines = linkCalls(linkTriggers(continuationHistory({ history, fetched, own: acted?.lines ?? [], selfName: input.selfName })), { channel, guildId });
+    const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: called.skill } });
+    const labels = input.prompts?.labels ?? {};
+    const resultBlock = called.status === 'ok' && called.data ? skillResultBlock(called, labels, { maxChars: hot.config.skills?.resultMaxChars ?? 4500 }) : '';
+    const content = await continuationContent(request, pictures);
+    return {
+      messages: withSkillResult([request.messages[0], { ...request.messages[1], content }], resultBlock),
+      routing: { idByIndex: request.idByIndex, history: lines, lines: [...shownLines, ...lines], pulledIds: request.pulledIds ?? new Map() },
+    };
+  }
+
+  /**
+   * The one follow-up request after a skill call (runCall's `called`, whose `followUp` is true).
+   * With continuesTurn (features.followUpContinuation and the call marks on, read now; the
+   * labels the turn's request was built with) and a `continuation` (the turn's request input,
+   * its history, the pulled lines it showed and its pictures) it continues the turn:
+   * continuationRequest -- the channel as it stands now with this call's mark on her line, the
+   * continue task, an `ok` call's data in `<result>` -- and act answers over that transcript.
+   * Otherwise (the switch off: the earlier framing, kept to compare) the reply request as it was
+   * sent (`sentMessages`) with the `<result>` block -- led by what the first pass (`acted`, act's
+   * answer) already posted, one line each (firstPass) -- (src/behavior/prompt.js#skillResultBlock:
+   * labels read now, the data cut to `skills.resultMaxChars`, read now) right before its `<task>`
+   * (withSkillResult). Either way the parts before the tail are the reply's, so the cached parts
+   * are reused. The answer is parsed and shaped like the reply (`shapeOutput`); a `<call>` in it
+   * is dropped and logged (`skills: extra-call` with `followUp: true`, `continuation` when it
+   * continued): no chains, never a second follow-up. What is left is acted on through `act`. The
+   * request goes through the same client and rails as the reply; a failure (a rail, the
+   * provider, the rebuild) logs `skills: follow-up failed` and posts nothing. An answer cut off at
+   * its output cap keeps its complete actions; with none (cutOffOf) nothing is posted and it
+   * resolves `{ cutOff: true }`. Resolves act's answer, or null.
+   */
+  async function followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted = null, act: actOn, continuation = null }) {
+    const continued = continuation !== null && continuesTurn(hot.config, continuation.input?.prompts?.labels);
+    let messages = null;
+    let routing = null;
     let completion;
     try {
+      if (continued) ({ messages, routing } = await continuationRequest({ called, channel, guildId, acted, continuation }));
+      else {
+        const labels = hot.prompts?.labels ?? {};
+        const block = skillResultBlock(called, labels, { maxChars: hot.config.skills?.resultMaxChars ?? 4500, posted: firstPass(acted, labels) });
+        messages = withSkillResult(sentMessages, block);
+      }
       completion = await llm.complete(messages, { ...REPLY_REQUEST, ...(draft?.started ? { limits: draft.limits } : {}) });
     } catch (err) {
       log.warn('skills: follow-up failed', { channel: channel.id, skill: called.skill, error: err });
       return null;
     }
     const parsed = shapeOutput(parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft?.limits ?? null }));
-    if (parsed.call || parsed.callError) log.info('skills: extra-call', { channel: channel.id, count: 1, followUp: true });
+    if (parsed.call || parsed.callError) log.info('skills: extra-call', { channel: channel.id, count: 1, followUp: true, ...(continued ? { continuation: true } : {}) });
     parsed.call = null;
     parsed.gif = resolveGif(guildId, parsed.gif, channel.id, draft?.limits ?? null);
     log.info('skills: follow-up answered', {
       channel: channel.id,
       skill: called.skill,
       status: called.status,
+      continuation: continued,
       usage: completion.usage,
       messages: parsed.messages.length,
       reactions: parsed.reactions.length,
@@ -1790,7 +1924,7 @@ export function createTurnRunner({
     const cutOff = cutOffOf(completion, parsed, { channelId: channel.id, empty, followUp: true });
     if (cutOff && !cutOff.kept) return { cutOff: true };
     if (empty) return null;
-    return actOn(parsed);
+    return actOn(parsed, routing);
   }
 
   // channelId -> the chain of parts running there (runChain): its author, its parts, the part
@@ -2685,7 +2819,8 @@ export function createTurnRunner({
    *   then `turn: set posted` (`pictures`, `messages`: the file messages sent). A file message that
    *   fails to send ends the set (`turn: send failed` with `set: true`).
    * Resolves `delivered`, `answered`, `messageIds` (the ids of the messages and the picture
-   * posted, in order), `texts` (the messages posted, as the persona wrote them), `gifs` (the
+   * posted, in order), `texts` (the messages posted, as the persona wrote them), `lines` (each
+   * message posted as a transcript line of hers: its id, time and text as written), `gifs` (the
    * handles of the GIFs posted), `drew` (the
    * picture was posted) and `drawFailed` when the picture failed; with a `set`, `setPictures`
    * (the pictures posted) and `setScene` (the scene of the first one posted).
@@ -2874,7 +3009,7 @@ export function createTurnRunner({
       });
     }
     const messageIds = ownPosted.map((line) => line.id).filter((id) => typeof id === 'string' && id);
-    const posted = { messageIds, texts: postedTexts, gifs: postedGifs, drew: false, posts, reacted };
+    const posted = { messageIds, texts: postedTexts, lines: ownPosted, gifs: postedGifs, drew: false, posts, reacted };
     if (sendFailed) return { delivered, answered, ...posted };
 
     // The turn's own GIF right after the messages.
@@ -4714,13 +4849,7 @@ export function createTurnRunner({
         linkTriggers(
           reuseHistory ??
             (await beforeBar(
-              fetchHistory(channel, {
-                limit: config.context.channelMessages,
-                selfId,
-                embedTextChars: config.media?.embedTextChars,
-                videoSites: config.media?.video?.sites,
-                maxUrlChars: config.context?.maxUrlChars,
-              }).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config })),
+              fetchHistory(channel, historyOptions(config)).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config })),
             )),
         ),
         { channel, guildId },
@@ -5401,89 +5530,91 @@ export function createTurnRunner({
       // persona can do; named skills only logged and journaled (shadow).
       const skillsInventory = asked && !answersDrawFailure ? discoverSkills({ config, channel, trigger, answer: skillsAnswer, draft }) : null;
       // Every input named (turnRequestInput throws on one left undefined); null marks an absent one.
-      const request = buildRequest(
-        turnRequestInput({
-          config,
-          prompts,
-          calibrator,
-          mode: finalMode,
-          forced: forced || (diaryPrep !== null && diaryParams?.forced === true),
+      // Kept: a skill call's follow-up rebuilds this very request over the channel as it stands then.
+      const requestInput = turnRequestInput({
+        config,
+        prompts,
+        calibrator,
+        mode: finalMode,
+        forced: forced || (diaryPrep !== null && diaryParams?.forced === true),
+        now,
+        selfName,
+        history,
+        neighbors,
+        trigger,
+        triggerKind,
+        taggedCall,
+        guildMemory: guildMemory ?? {},
+        interlocutor: memoryOn && trigger ? (store.getUser(guildId, trigger.authorId) ?? null) : null,
+        // A private chat: the partner's private layer joins their public profile (only there).
+        privateChat: isPrivate ? { userId: trigger?.authorId ?? null } : null,
+        privateProfile: isPrivate && memoryOn && trigger ? (store.getPrivate(guildId, trigger.authorId) ?? null) : null,
+        otherProfiles: memoryOn
+          ? pickOtherProfiles(store, guildId, history, trigger?.authorId, config.context.otherProfiles)
+          : [],
+        candidateProfiles: memoryOn ? store.listUserProfiles(guildId) : [],
+        nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
+        channels: memoryOn ? store.listChannels(guildId) : [],
+        loreEntries: memoryOn ? store.getLore(guildId) : [],
+        currentChannelId: channel.id,
+        descriptions: descriptions ?? null,
+        neighborDescriptions: neighborDescriptions ?? null,
+        videos: videos ?? null,
+        imageAnswers,
+        reads: reads ?? null,
+        lookup: lookupResult ?? null,
+        searchAvailable: features.webLookup === true && typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
+        // The search of the server's own history: the value the lookup stage used.
+        recallAvailable: serverOn,
+        drawQuota: drawQuota ?? null,
+        drawReason,
+        // The `<emoji>` block: the index's emoji (ranked by guildMemory.emojiUsage) and their cached captions.
+        customEmoji: emoji ? (emoji.list() ?? []) : [],
+        // The `<gifs>` block and the transcript's GIF handles: the guild's library (features.gifs).
+        gifs: features.gifs !== false && typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null,
+        // The cached captions of both lists.
+        mediaCache:
+          emoji || (features.gifs !== false && typeof store.getGifs === 'function') ? (store.getMediaCache(guildId) ?? null) : null,
+        // `<channel_view>`: the channels pulled into this turn (each with the last view of it
+        // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is
+        // about, the chat line put to the room, where a call from a read-only channel is answered.
+        // The persona's lines there name the message that started their turn (linkTriggers) and
+        // the skill calls she made there (linkCalls).
+        pulled: withSeenBefore(
+          pulled.map((entry) => (Array.isArray(entry?.messages) ? { ...entry, messages: linkCalls(linkTriggers(entry.messages), { channel, guildId }) } : entry)),
+          channel.id,
           now,
-          selfName,
-          history,
-          neighbors,
-          trigger,
-          triggerKind,
-          taggedCall,
-          guildMemory: guildMemory ?? {},
-          interlocutor: memoryOn && trigger ? (store.getUser(guildId, trigger.authorId) ?? null) : null,
-          // A private chat: the partner's private layer joins their public profile (only there).
-          privateChat: isPrivate ? { userId: trigger?.authorId ?? null } : null,
-          privateProfile: isPrivate && memoryOn && trigger ? (store.getPrivate(guildId, trigger.authorId) ?? null) : null,
-          otherProfiles: memoryOn
-            ? pickOtherProfiles(store, guildId, history, trigger?.authorId, config.context.otherProfiles)
-            : [],
-          candidateProfiles: memoryOn ? store.listUserProfiles(guildId) : [],
-          nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
-          channels: memoryOn ? store.listChannels(guildId) : [],
-          loreEntries: memoryOn ? store.getLore(guildId) : [],
-          currentChannelId: channel.id,
-          descriptions: descriptions ?? null,
-          neighborDescriptions: neighborDescriptions ?? null,
-          videos: videos ?? null,
-          imageAnswers,
-          reads: reads ?? null,
-          lookup: lookupResult ?? null,
-          searchAvailable: features.webLookup === true && typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
-          // The search of the server's own history: the value the lookup stage used.
-          recallAvailable: serverOn,
-          drawQuota: drawQuota ?? null,
-          drawReason,
-          // The `<emoji>` block: the index's emoji (ranked by guildMemory.emojiUsage) and their cached captions.
-          customEmoji: emoji ? (emoji.list() ?? []) : [],
-          // The `<gifs>` block and the transcript's GIF handles: the guild's library (features.gifs).
-          gifs: features.gifs !== false && typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null,
-          // The cached captions of both lists.
-          mediaCache:
-            emoji || (features.gifs !== false && typeof store.getGifs === 'function') ? (store.getMediaCache(guildId) ?? null) : null,
-          // `<channel_view>`: the channels pulled into this turn (each with the last view of it
-          // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is
-          // about, the chat line put to the room, where a call from a read-only channel is answered.
-          // The persona's lines there name the message that started their turn (linkTriggers) and
-          // the skill calls she made there (linkCalls).
-          pulled: withSeenBefore(
-            pulled.map((entry) => (Array.isArray(entry?.messages) ? { ...entry, messages: linkCalls(linkTriggers(entry.messages), { channel, guildId }) } : entry)),
-            channel.id,
-            now,
-          ),
-          source,
-          focus,
-          tasks: tasks.input,
-          elsewhereDestination: destination?.name ? { name: destination.name } : null,
-          readOnlyIds,
-          // `<recent>`: the last hours, its live lines and the members' moments (no block without the store).
-          recentLines: recent.lines ?? null,
-          recentAudience: recent.audience ?? null,
-          // `<participation>`: the store read now, the classifier's picks when they came in time.
-          participation: participationShown
-            ? {
-                state: store.getParticipation(guildId),
-                pickedIds: participationStage?.done && Array.isArray(participationStage.value) ? participationStage.value : [],
-                audience: participationAudienceOf,
-                channelName: liveChannelName(channel),
-              }
-            : null,
-          // `<senses>`: where the persona keeps its diary, when one is set.
-          diaryChannel: diaryChannelName(guildId, config),
-          // A diary post: its past posts, its plan and what its search found.
-          diary: diaryPrep ? { posts: diaryPrep.posts, plan: diaryPrep.plan, found: diaryPrep.found, seeds: diaryPrep.seeds ?? '' } : null,
-          offPeriods,
-          skillsInventory,
-          // `<skills_granted>`: the names of the skills granted to her, on every turn -- her grants
-          // (the config read now) and the registry only, never this requester or channel.
-          skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
-        }),
-      );
+        ),
+        source,
+        focus,
+        tasks: tasks.input,
+        elsewhereDestination: destination?.name ? { name: destination.name } : null,
+        readOnlyIds,
+        // `<recent>`: the last hours, its live lines and the members' moments (no block without the store).
+        recentLines: recent.lines ?? null,
+        recentAudience: recent.audience ?? null,
+        // `<participation>`: the store read now, the classifier's picks when they came in time.
+        participation: participationShown
+          ? {
+              state: store.getParticipation(guildId),
+              pickedIds: participationStage?.done && Array.isArray(participationStage.value) ? participationStage.value : [],
+              audience: participationAudienceOf,
+              channelName: liveChannelName(channel),
+            }
+          : null,
+        // `<senses>`: where the persona keeps its diary, when one is set.
+        diaryChannel: diaryChannelName(guildId, config),
+        // A diary post: its past posts, its plan and what its search found.
+        diary: diaryPrep ? { posts: diaryPrep.posts, plan: diaryPrep.plan, found: diaryPrep.found, seeds: diaryPrep.seeds ?? '' } : null,
+        offPeriods,
+        skillsInventory,
+        // `<skills_granted>`: the names of the skills granted to her, on every turn -- her grants
+        // (the config read now) and the registry only, never this requester or channel.
+        skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
+        // The turn itself; its continuation after a skill call sets it (continuationRequest).
+        continuation: null,
+      });
+      const request = buildRequest(requestInput);
       // What `<recent>` showed, held back or cut: counts only.
       if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
       // The journal: what of the window went in, whose lines they were, what the budget dropped.
@@ -5510,6 +5641,8 @@ export function createTurnRunner({
       // consistent, rather than renumbering around a gap.
       let messages = request.messages;
       const userMessage = messages[1];
+      // What this request sent of its pictures, for a skill call's continuation (continuationContent).
+      const sentPictures = { urls: new Map(), off: false };
       if (Array.isArray(userMessage?.content)) {
         const visionCfg = config.context.vision ?? {};
         let allDownloaded = true;
@@ -5525,10 +5658,12 @@ export function createTurnRunner({
                 allDownloaded = false;
                 return part;
               }
+              sentPictures.urls.set(part.image_url.url, downloaded.dataUrl);
               return { type: 'image_url', image_url: { url: downloaded.dataUrl } };
             }),
           ),
         );
+        sentPictures.off = !allDownloaded;
         messages = [messages[0], { ...userMessage, content: allDownloaded ? resolvedContent : request.textFallback }];
         if (!allDownloaded && draft.seen) draft.seen = { ...draft.seen, parts: { ...draft.seen.parts, images: [] } };
       }
@@ -5557,6 +5692,7 @@ export function createTurnRunner({
         if (Array.isArray(request.textFallback) && aboutThePictures) {
           const textOnly = messages.map((m) => (Array.isArray(m.content) ? { ...m, content: request.textFallback } : m));
           if (draft.seen) draft.seen = { ...draft.seen, parts: { ...draft.seen.parts, images: [] } };
+          sentPictures.off = true;
           sentMessages = textOnly;
           completion = await beforeBar(llm.complete(textOnly, replyOptions()));
         } else {
@@ -5814,14 +5950,25 @@ export function createTurnRunner({
       };
       const acted = await act(actArgs);
       // The skill call, after the reply's own effects; its result comes back to the persona in
-      // one more request when she needs it (a read, a failure): what she answers then is acted on
-      // like her reply, with no further call.
+      // one more request when she needs it (a read, a failure): the same turn continued over the
+      // channel as it stands then (followUp). What she answers is acted on like her reply -- over
+      // that transcript's numbers when it continued -- with no further call.
       let followed = null;
       let called = null;
       if (callPlan) {
         called = await runCall(callPlan, { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory });
         if (called.followUp) {
-          followed = await followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted, act: (parsedAgain) => act({ ...actArgs, parsed: parsedAgain, set: null }) });
+          followed = await followUp({
+            called,
+            channel,
+            guildId,
+            draft,
+            sentMessages,
+            shapeOutput,
+            acted,
+            act: (parsedAgain, again = null) => act({ ...actArgs, parsed: parsedAgain, set: null, ...(again ?? {}) }),
+            continuation: { input: requestInput, history, shownLines, pictures: sentPictures },
+          });
         }
       }
       // The follow-up was cut off with nothing complete and nothing of the turn reached the chat: a lost answer.
@@ -5903,12 +6050,16 @@ export function createTurnRunner({
     },
     /**
      * Remember the persona's skill calls from before a restart (src/memory/journal.js#callMarks at
-     * start: `calls` oldest first, `postedFrom` pairs), so her lines keep showing them. They go
+     * start: `calls` oldest first, `postedFrom` pairs), so her lines keep showing them -- a call
+     * that did not work with why (its `code` and `reason` through outcomeDetail). They go
      * before the calls noted since; a post noted since keeps its channel.
      * @param {{ calls?: object[], postedFrom?: Array<[string, string]> }} marks
      */
     seedCallMarks: (marks) => {
-      const seeded = (Array.isArray(marks?.calls) ? marks.calls : []).filter((mark) => mark && typeof mark === 'object');
+      // A call that did not work keeps why (its journaled code and reason, outcomeDetail).
+      const seeded = (Array.isArray(marks?.calls) ? marks.calls : [])
+        .filter((mark) => mark && typeof mark === 'object')
+        .map((mark) => (mark.detail ? mark : { ...mark, detail: outcomeDetail(mark) }));
       callMarks.unshift(...seeded.slice(-CALL_MARKS_MAX));
       if (callMarks.length > CALL_MARKS_MAX) callMarks.splice(0, callMarks.length - CALL_MARKS_MAX);
       for (const pair of Array.isArray(marks?.postedFrom) ? marks.postedFrom : []) {

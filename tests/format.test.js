@@ -1511,6 +1511,29 @@ test('formatTranscript: a call status renders through transcript.callStatus, an 
   assert.ok(odd[2].text.endsWith('[called message.edit on #2: strange]'), odd[2].text);
 });
 
+test('formatTranscript: a call that did not work says why: its argument, its message or its channel, else the code\'s reason, else the status alone', () => {
+  const reasons = labels.transcript.callReasons;
+  const ended = (detail, extra = {}) => formatTranscript(withCalls(callScene(), { calls: [call({ status: 'invalid', detail, ...extra })] }, resolvers), offsetOptions)[2].text;
+  const status = labels.transcript.callStatus.invalid;
+  const withReason = (reason) => fill(labels.transcript.callStatusReason, { status, reason });
+  // The live failure: a deletion without the message it should delete.
+  assert.ok(ended({ kind: 'missing-arg', code: 'invalid-args', arg: 'message' }).endsWith(`[called message.edit on #2: ${withReason(fill(reasons['missing-arg'], { arg: 'message' }))}]`));
+  // A channel she may not write in, named.
+  const channel = ended({ kind: 'conversation-not-allowed', code: 'conversation-not-allowed', arg: null }, { target: { messageId: null, channelId: 'c9' } });
+  assert.ok(channel.endsWith(`[called message.edit in #νέα: ${withReason(fill(reasons['conversation-not-allowed'], { channel: 'νέα' }))}]`), channel);
+  // A phrase whose placeholder cannot be filled gives way to the code's reason in skills.result.reasons.
+  const unnamed = ended({ kind: 'conversation-not-allowed', code: 'conversation-not-allowed', arg: null }, { target: { messageId: null, channelId: 'c5' } });
+  assert.ok(unnamed.endsWith(`[called message.edit: ${withReason(labels.skills.result.reasons['conversation-not-allowed'])}]`), unnamed);
+  // A kind without a phrase of its own: the code's reason, else reasons.other.
+  assert.ok(ended({ kind: 'target-ambiguous', code: 'target-ambiguous', arg: null }).endsWith(`: ${withReason(labels.skills.result.reasons['target-ambiguous'])}]`));
+  assert.ok(ended({ kind: 'strange', code: 'strange', arg: null }).endsWith(`: ${withReason(labels.skills.result.reasons.other)}]`));
+  // No detail, or no callStatusReason label: the status word alone, as before.
+  assert.ok(ended(null).endsWith(`[called message.edit on #2: ${status}]`));
+  const plain = { ...labels, transcript: { ...labels.transcript, callStatusReason: '' } };
+  const marked = withCalls(callScene(), { calls: [call({ status: 'invalid', detail: { kind: 'missing-arg', code: 'invalid-args', arg: 'message' } })] }, resolvers);
+  assert.ok(formatTranscript(marked, { ...offsetOptions, labels: plain })[2].text.endsWith(`[called message.edit on #2: ${status}]`));
+});
+
 test('formatTranscript: a call target out of view renders as its link, else its channel, else nothing', () => {
   const gone = formatTranscript(withCalls(callScene(), { calls: [call({ target: { messageId: 'old', channelId: 'c9' } })] }, resolvers), offsetOptions);
   assert.ok(gone[2].text.endsWith(`[called message.edit on ${LINK('c9', 'old')}: done]`), gone[2].text);

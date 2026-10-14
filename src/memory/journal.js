@@ -356,7 +356,9 @@ const CALL_STATUS_RE = /^[a-z_]{1,32}$/;
  * `channelId` the channel of its turn (the operation's scope), `at` the time of its last line
  * (epoch ms), `skill` its `input.skill`, `status` the closing line's: `ok` for `succeeded`,
  * `unknown` for `unknown`, a `failed` line's `result.status` (`failed` when it has none: an older
- * line), `unknown` with no closing line; `target` its `started` line's ids (`{ messageId, channelId
+ * line), `unknown` with no closing line; `code` and `reason` of a `failed` or `unknown` closing
+ * line's `result`, each only when that line has it (src/skills/executors.js#outcomeDetail reads
+ * them); `target` its `started` line's ids (`{ messageId, channelId
  * }`: `message`, else `reply`; null fields when unknown), `postedId` the message it posted
  * (`succeeded` with a `messageId`), `posted` every message its turn posted (its `turn` records'
  * `posted` and its operations' succeeded ids, once each, in order). `postedFrom`: `[postedId,
@@ -381,7 +383,7 @@ export function callMarksOf(records) {
   const ops = new Map(); // opId -> what its lines said
   for (const record of list) {
     if (record.kind !== 'action' || record.name !== 'skill' || !text(record.opId)) continue;
-    const op = ops.get(record.opId) ?? { turnId: null, channelId: null, skill: null, target: null, status: null, postedId: null, at: null };
+    const op = ops.get(record.opId) ?? { turnId: null, channelId: null, skill: null, target: null, status: null, code: null, reason: null, postedId: null, at: null };
     op.turnId = text(record.turnId) ?? op.turnId;
     op.channelId = text(record.scope?.channel) ?? op.channelId;
     op.skill = text(record.input?.skill) ?? op.skill;
@@ -389,6 +391,11 @@ export function callMarksOf(records) {
     if (record.phase === 'succeeded') op.status = 'ok';
     else if (record.phase === 'unknown') op.status = 'unknown';
     else if (record.phase === 'failed') op.status = CALL_STATUS_RE.test(String(record.result?.status ?? '')) ? record.result.status : 'failed';
+    // Why a call that did not work did not: its code and the machine reason (a schema path, an option name).
+    if (record.phase === 'failed' || record.phase === 'unknown') {
+      op.code = text(record.result?.code);
+      op.reason = text(record.result?.reason);
+    }
     op.postedId = succeededIdOf(record) ?? op.postedId;
     const at = Date.parse(record.occurredAt);
     if (Number.isFinite(at)) op.at = at;
@@ -399,7 +406,17 @@ export function callMarksOf(records) {
   for (const op of ops.values()) {
     if (!op.channelId || !op.skill) continue;
     const target = { messageId: text(op.target?.message) ?? text(op.target?.reply), channelId: text(op.target?.channel) };
-    calls.push({ channelId: op.channelId, at: op.at, skill: op.skill, status: op.status ?? 'unknown', target, postedId: op.postedId, posted: [...(postedByTurn.get(op.turnId) ?? [])] });
+    calls.push({
+      channelId: op.channelId,
+      at: op.at,
+      skill: op.skill,
+      status: op.status ?? 'unknown',
+      ...(op.code ? { code: op.code } : {}),
+      ...(op.reason ? { reason: op.reason } : {}),
+      target,
+      postedId: op.postedId,
+      posted: [...(postedByTurn.get(op.turnId) ?? [])],
+    });
     if (op.postedId && target.channelId && target.channelId !== op.channelId) postedFrom.push([op.postedId, op.channelId]);
   }
   return { calls, postedFrom };

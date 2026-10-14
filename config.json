@@ -19,6 +19,7 @@
     "seeReactions": true,
     "triggerMarkers": true,
     "callMarkers": true,
+    "followUpContinuation": true,
     "multiMessage": true,
     "vision": true,
     "mediaDescriptions": true,

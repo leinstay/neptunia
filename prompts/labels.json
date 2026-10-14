@@ -33,6 +33,23 @@
       "partial": "partly worked",
       "failed": "did not work"
     },
+    "callStatusReason": "{status}: {reason}",
+    "callReasons": {
+      "missing-arg": "{arg} was not given",
+      "unknown-arg": "the skill takes no {arg}",
+      "wrong-arg": "{arg} was not right",
+      "too-long": "{arg} was too long",
+      "too-short": "{arg} was too short",
+      "arg-twice": "{arg} was given twice",
+      "no-body": "the skill takes no text",
+      "unknown-channel": "no channel goes by the name given in {arg}",
+      "unknown-role": "no role goes by the name given in {arg}",
+      "unknown-message": "the message given in {arg} is not in the chat you were shown",
+      "message-elsewhere": "that message is in another channel than the one named",
+      "not-own-message": "the message given in {arg} is not yours",
+      "member-ambiguous": "more than one member goes by that name",
+      "conversation-not-allowed": "you may not write in #{channel}"
+    },
     "postedFrom": "(posted from #{channel})",
     "image": "[image]",
     "imageAttached": "[attached image {n}]",
@@ -310,7 +327,8 @@
     "queued": "This person has other messages waiting ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "queuedOthers": "Other people have messages waiting for you too ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "added": "While this was waiting, the person came back to it ({added}); answer once with that in view.",
-    "missed": "Earlier messages to you got no answer from you ({missed}). You can answer them now, briefly and together in one reply, or let them pass."
+    "missed": "Earlier messages to you got no answer from you ({missed}). You can answer them now, briefly and together in one reply, or let them pass.",
+    "continue": "This is the same turn, continued after your {skill} call. Your messages above were delivered, and how the call went is marked on your line. Do not answer the message that started this turn again, and make no more calls this turn. Messages that came in after it are context, not new requests. Write only if the outcome changes what people need to know: a correction of what you said, an answer they asked for, or a clarification. Otherwise <skip/>."
   },
   "journal": {
     "offLead": "You were away:",

@@ -2365,6 +2365,25 @@ export function usesFollowUpTask({ mode, triggerKind, taggedCall = null, routed 
 }
 
 /**
+ * Whether the one request after a skill call continues the turn (buildRequest's `continuation`:
+ * the turn's history as it stands now with the call's mark on her line, `labels.task.continue`)
+ * rather than repeating the reply request with a `<result>` block that lists what she already
+ * posted: `features.followUpContinuation` on (a missing key counts as on), the call marks on
+ * (`features.callMarkers`, a missing key counts as on; `labels.transcript.called` set: the mark is
+ * how she reads the outcome) and `labels.task.continue` set. Pure.
+ * @param {object} config  The live config, read by the caller now.
+ * @param {object} labels  The labels the request is built with.
+ * @returns {boolean}
+ */
+export function continuesTurn(config, labels) {
+  const features = config?.features ?? {};
+  if (features.followUpContinuation === false || features.callMarkers === false) return false;
+  const task = labels?.task?.continue;
+  const called = labels?.transcript?.called;
+  return typeof task === 'string' && task.trim() !== '' && typeof called === 'string' && called !== '';
+}
+
+/**
  * What of the chat window entered a turn's request, for the journal: the ids of the kept
  * transcript lines (oldest first), of the reply parents among them (prepended to the window
  * from outside it, `replyParent: true`), of the messages whose pictures went in as image parts
@@ -2606,6 +2625,13 @@ function seenOf({ history, keptChat, pictures }) {
  *   `<skills_protocol>`, one `labels.skills.granted.line` per family after
  *   `labels.skills.granted.lead` (skillsGrantedText), fixed, never cut. Omitted, null or empty
  *   -> no block.
+ * @param {{ skill: string }|null} [input.continuation]  The same turn continued after the
+ *   persona's skill call (src/behavior/turn.js#followUp under continuesTurn): the request is the
+ *   turn's own, rebuilt over the turn's history as it stands now (her lines of the turn with the
+ *   call's mark), and its task text is `labels.task.continue` with `{skill}` filled, alone -- no
+ *   mode prompt, no `task.*`, private, forced, routed or room text. Every other block is built as
+ *   for the turn, so the stable and profile parts stay the same. Omitted or null (or the label
+ *   missing or blank) -> the task as usual.
  * @returns {{ messages: object[], stats: object, segments: { segment: 'stable'|'profiles'|'tail', chars: number, hash: string }[],
  *   idByIndex: Map<number, string>, tempo: object,
  *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
@@ -2813,9 +2839,14 @@ export function buildRequest(input) {
   // What else the author waits for: the part answered now and the rest, their queued calls, and
   // their later messages about this call.
   const tasksText = renderTasks(input.tasks, labels);
+  // The same turn continued after the persona's skill call: its own task text, alone.
+  const continueLabel = labels.task?.continue;
+  const continueTask =
+    input.continuation && typeof continueLabel === 'string' && continueLabel.trim() ? fill(continueLabel, { skill: input.continuation.skill ?? '' }) : '';
   // The task text. `callShown`: whether the pulled trigger's line made it into
   // `<channel_view>` -- a task never points at a line the request does not show.
   const composeTask = (callShown) => {
+    if (continueTask) return continueTask;
     const callItem = chatTrigger ?? (callShown ? pulledTrigger : null);
     const taskValues = {
       name: selfName,

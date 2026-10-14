@@ -204,7 +204,7 @@ test('journal: triggerLinks rebuilds the links of the days read, a turn closed t
   assert.deepEqual(await journal.triggerLinks('g1', { days: ['2026-10-14'] }), []);
 });
 
-test('callMarksOf: each skill call of the records with its channel, time, status, target and the posts of its turn', () => {
+test('callMarksOf: each skill call of the records with its channel, time, status (and why it did not work), target and the posts of its turn', () => {
   const at = (s) => `2026-10-14T10:00:${String(s).padStart(2, '0')}.000Z`;
   const skill = (opId, phase, extra = {}) => ({ kind: 'action', name: 'skill', opId, turnId: 't1', phase, scope: { channel: 'c1' }, occurredAt: at(extra.s ?? 0), ...extra });
   const marks = callMarksOf([
@@ -222,15 +222,18 @@ test('callMarksOf: each skill call of the records with its channel, time, status
     skill('op-4', 'unknown', { result: { code: 'timeout' }, s: 10 }),
     skill('op-5', 'proposed', { input: { skill: 'lore.list' }, s: 11 }), // never closed
     { kind: 'action', name: 'skill', opId: 'op-6', turnId: 't2', phase: 'proposed', scope: { user: 'u2', private: true }, input: { skill: 'lore.list' }, occurredAt: at(12) },
+    skill('op-7', 'proposed', { input: { skill: 'message.delete' }, s: 13 }),
+    skill('op-7', 'failed', { result: { code: 'invalid-args', status: 'invalid', reason: 'args.message:required' }, s: 14 }),
     { kind: 'turn', turnId: 't1', posted: [{ messageId: 'p1' }, 'p2'] },
   ]);
   const posted = ['p1', 'x1', 'p2'];
   assert.deepEqual(marks.calls, [
     { channelId: 'c1', at: Date.parse(at(3)), skill: 'message.create', status: 'ok', target: { messageId: null, channelId: 'c9' }, postedId: 'x1', posted },
-    { channelId: 'c1', at: Date.parse(at(5)), skill: 'message.delete', status: 'denied', target: { messageId: null, channelId: null }, postedId: null, posted },
-    { channelId: 'c1', at: Date.parse(at(8)), skill: 'message.edit', status: 'failed', target: { messageId: 'p0', channelId: 'c1' }, postedId: null, posted },
-    { channelId: 'c1', at: Date.parse(at(10)), skill: 'lore.list', status: 'unknown', target: { messageId: null, channelId: null }, postedId: null, posted },
+    { channelId: 'c1', at: Date.parse(at(5)), skill: 'message.delete', status: 'denied', code: 'not-allowed', target: { messageId: null, channelId: null }, postedId: null, posted },
+    { channelId: 'c1', at: Date.parse(at(8)), skill: 'message.edit', status: 'failed', code: 'error', target: { messageId: 'p0', channelId: 'c1' }, postedId: null, posted },
+    { channelId: 'c1', at: Date.parse(at(10)), skill: 'lore.list', status: 'unknown', code: 'timeout', target: { messageId: null, channelId: null }, postedId: null, posted },
     { channelId: 'c1', at: Date.parse(at(11)), skill: 'lore.list', status: 'unknown', target: { messageId: null, channelId: null }, postedId: null, posted },
+    { channelId: 'c1', at: Date.parse(at(14)), skill: 'message.delete', status: 'invalid', code: 'invalid-args', reason: 'args.message:required', target: { messageId: null, channelId: null }, postedId: null, posted },
   ]);
   assert.deepEqual(marks.postedFrom, [['x1', 'c1']], 'a post the call made in another channel names the channel of its turn');
   assert.deepEqual(callMarksOf(null), { calls: [], postedFrom: [] });

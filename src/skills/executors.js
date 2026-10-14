@@ -349,3 +349,48 @@ export function needsFollowUp(skill, result) {
   if (result?.status === 'ok') return !QUIET_ON_OK.includes(skill) && Boolean(result.data?.text);
   return true;
 }
+
+/** The rule of a schema path (src/skills/schema.js#schemaError, resolveCall) -> the kind of its detail. */
+const ARG_RULE_KINDS = Object.freeze({
+  required: 'missing-arg',
+  unknown: 'unknown-arg',
+  twice: 'arg-twice',
+  'max-length': 'too-long',
+  'min-length': 'too-short',
+  'unknown-channel': 'unknown-channel',
+  'unknown-role': 'unknown-role',
+});
+
+/**
+ * The concrete detail of a call's outcome that is not `ok`, from its code and the machine reason
+ * the resolution or the gateway gave (never wording; the transcript words it through
+ * `labels.transcript.callReasons`, src/discord/format.js): `{ kind, code, arg }`. An
+ * `invalid-args` refusal with a schema path (`args.<arg>[.<more>]:<rule>`) names the argument and
+ * what was wrong with it (`missing-arg`, `unknown-arg`, `arg-twice`, `too-long`, `too-short`,
+ * `unknown-channel`, `unknown-role`, else `wrong-arg`); a body the skill does not take is
+ * `no-body`; `unknown-message` names the option (`message`, `reply`) whose message was not in view,
+ * or is `message-elsewhere` when that message lives in another channel than the one named;
+ * `not-own-message` names `message`; `unknown-member` with several matches is `member-ambiguous`.
+ * Any other code is its own kind without an argument. Null for an `ok` outcome or one without a
+ * code. Pure.
+ * @param {{ status?: string, code?: string|null, reason?: string|null }|null|undefined} outcome
+ * @returns {{ kind: string, code: string, arg: string|null }|null}
+ */
+export function outcomeDetail(outcome) {
+  const code = typeof outcome?.code === 'string' ? outcome.code : '';
+  if (!code || outcome.status === 'ok') return null;
+  const reason = typeof outcome.reason === 'string' ? outcome.reason : '';
+  const of = (kind, arg = null) => ({ kind, code, arg });
+  if (code === 'invalid-args') {
+    const path = /^args\.([^.:]+)(?:\.[^:]*)?:(.+)$/.exec(reason);
+    if (path) return of(ARG_RULE_KINDS[path[2]] ?? 'wrong-arg', path[1]);
+    return reason === 'args:body' ? of('no-body') : of(code);
+  }
+  if (code === 'unknown-message') {
+    if (reason === 'conversation') return of('message-elsewhere');
+    return MESSAGE_OPTIONS.includes(reason) ? of(code, reason) : of(code);
+  }
+  if (code === 'not-own-message') return of(code, 'message');
+  if (code === 'unknown-member' && reason === 'ambiguous') return of('member-ambiguous');
+  return of(code);
+}

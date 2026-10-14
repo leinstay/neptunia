@@ -33,9 +33,10 @@
 // the operation itself never runs -- a canned result stands in for it -- and
 // the follow-up pass a live turn would make is made with that result.
 
-import { buildRequest, skillResultBlock, userText as userTextOf, withSkillResult } from './prompt.js';
+import { buildRequest, continuesTurn, skillResultBlock, userText as userTextOf, withSkillResult } from './prompt.js';
 import { isTaggedCall } from './mention.js';
-import { firstPass, pickOtherProfiles } from './turn.js';
+import { continuationHistory, firstPass, pickOtherProfiles } from './turn.js';
+import { withCalls } from '../discord/format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../discord/access.js';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable } from '../discord/media.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
@@ -46,7 +47,7 @@ import { findGif } from '../memory/gifs.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { checkSkill, listSkills } from '../skills/gateway.js';
 import { discoveryOn, proposalVerdicts, proposedRows } from '../skills/discovery.js';
-import { QUIET_ON_OK, needsFollowUp, refusalStatus, resolveCall } from '../skills/executors.js';
+import { QUIET_ON_OK, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
 import { isPlainObject } from '../config.js';
 import { utcDay } from '../time.js';
 
@@ -592,10 +593,11 @@ function recentLinesOf(view, at) {
  * left out on purpose are `SANDBOX_OMITS`, passed as absent -- but the
  * skills inventory and her granted skills when a skill scenario hands them in
  * (`skillsInventory`, a non-empty list of catalogue rows; `skillsGranted`, a
- * non-empty list of skill names: SKILL_SCENARIO_OMITS). Never an
+ * non-empty list of skill names: SKILL_SCENARIO_OMITS). `continuation` is
+ * null but on a skill scenario's continued turn (`{ skill }`, scenarioContinuation). Never an
  * owner-forced turn. The view is read now and nothing is written.
  * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
- *   `skillsInventory` and `skillsGranted` (`answerSkillScenario`'s).
+ *   `skillsInventory`, `skillsGranted` and `continuation` (`answerSkillScenario`'s).
  * @returns {object}
  */
 export function sandboxRequestInput({
@@ -614,6 +616,7 @@ export function sandboxRequestInput({
   searchAvailable = false,
   skillsInventory = null,
   skillsGranted = null,
+  continuation = null,
 }) {
   const config = view.config;
   const memory = view.memory;
@@ -676,6 +679,8 @@ export function sandboxRequestInput({
     skillsInventory: Array.isArray(skillsInventory) && skillsInventory.length > 0 ? skillsInventory : null,
     // Absent but in a skill scenario: the names of her granted skills it hands in.
     skillsGranted: Array.isArray(skillsGranted) && skillsGranted.length > 0 ? skillsGranted : null,
+    // A skill scenario's turn continued after her call (answerSkillScenario); null otherwise.
+    continuation: continuation && typeof continuation.skill === 'string' ? { skill: continuation.skill } : null,
   };
 }
 
@@ -890,7 +895,8 @@ export function scenarioInventory({ config, selfId, texts, requester, conversati
 export function simulateCall({ call, view, config, selfId, requester, conversationId, now, images = null, getOp, resultText = '' }) {
   const skill = String(call?.skill ?? '');
   const refused = (stage, code, reason) => {
-    const result = { skill, status: refusalStatus(code), code };
+    // The machine reason rides along, as a live call keeps it for its mark (outcomeDetail).
+    const result = { skill, status: refusalStatus(code), code, ...(reason ? { reason } : {}) };
     return { verdict: { stage, ok: false, code, reason: reason ?? '' }, executed: null, result, followUp: needsFollowUp(skill, result) };
   };
   const resolved = resolveCall(call, view);
@@ -920,7 +926,7 @@ export function simulateCall({ call, view, config, selfId, requester, conversati
     mapped = null;
   }
   if (!mapped?.args || mapped.op !== resolved.skill) {
-    const result = { skill, status: 'invalid', code: 'invalid-args' };
+    const result = { skill, status: 'invalid', code: 'invalid-args', reason: 'command' };
     return { verdict: { stage: 'command', ok: false, code: 'invalid-args', reason: 'command' }, executed: null, result, followUp: needsFollowUp(skill, result) };
   }
   const text = typeof resultText === 'string' ? resultText : '';
@@ -950,16 +956,63 @@ export function skillScenarioRequest(input) {
   };
 }
 
+/** How far apart a scenario's continuation places her posts, the call and its request (ms). */
+const CONTINUATION_STEP_MS = 1000;
+
+/**
+ * The follow-up of a skill scenario's run as a live turn continues it
+ * (src/behavior/turn.js#continuationRequest): the moment's `history`, then her messages of the
+ * first pass (`answer`) as her lines a second apart after `at` (ids `continuation-<n>`), the
+ * call's mark on the last of them, else as a line of its own (withCalls: the outcome's status
+ * and, when it did not work, why -- outcomeDetail --, its target from the resolved arguments, a
+ * channel named from the view's channel map), the request rebuilt a second after the call with
+ * the continue task (sandboxMessages with `continuation`; the moment's trigger kept), and an `ok`
+ * outcome's data in a `<result>` block before `<task>` (skillResultBlock cut to `maxChars`,
+ * withSkillResult). No cache marker. Reads the view only.
+ */
+function scenarioContinuation({ requestArgs, history, answer, outcome, labels, maxChars }) {
+  const { view, situation, channel, selfId, selfName, at } = requestArgs;
+  const channelId = String(channel.id);
+  const own = answer.messages.map((message, i) => ({ id: `continuation-${i + 1}`, channelId, ts: at + (i + 1) * CONTINUATION_STEP_MS, authorId: String(selfId), content: message.text }));
+  const callAt = at + (own.length + 1) * CONTINUATION_STEP_MS;
+  const result = outcome.result;
+  const args = outcome.executed?.args ?? {};
+  const idOf = (value) => (typeof value === 'string' && value ? value : null);
+  const mark = {
+    channelId,
+    at: callAt,
+    skill: result.skill,
+    status: result.status,
+    detail: outcomeDetail(result),
+    target: { messageId: idOf(args.message) ?? idOf(args.reply), channelId: idOf(args.channel) },
+    postedId: null,
+    posted: own.map((line) => line.id),
+  };
+  const memoryOn = view.config.features?.memory !== false;
+  const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
+  const names = new Map(stored.filter((entry) => entry && typeof entry.name === 'string').map((entry) => [String(entry.id), entry.name]));
+  if (typeof channel.name === 'string' && channel.name) names.set(channelId, channel.name);
+  const lines = withCalls(continuationHistory({ history, own, selfName }), { calls: [mark] }, { nameOf: (id) => names.get(id) ?? null });
+  const { trigger } = situationHistory(situation);
+  const moment = { ...situation, history: lines, ...(trigger ? { triggerId: trigger.id } : {}) };
+  const built = sandboxMessages({ ...requestArgs, situation: moment, at: callAt + CONTINUATION_STEP_MS, continuation: { skill: result.skill } }, 1);
+  const block = result.status === 'ok' && result.data ? skillResultBlock(result, labels, { maxChars }) : '';
+  return withSkillResult([built.systemMessage, { ...built.userMessage, content: built.userText }], block);
+}
+
 /**
  * A skill scenario: the moment's request with the persona's skills shown (`skillsInventory`,
  * scenarioInventory's rows; else as answerReply), answered `runs` times one after another. Each
  * answer is parsed with parseOutput and shaped as a real turn's; a well-formed `<call>` goes to
  * `onCall(call, { idByIndex, history })` (the caller's simulateCall) -- a malformed one is only
  * reported, as a live turn runs none -- and when its outcome says a live turn would ask her
- * again (`followUp`), the follow-up request is sent: the same messages with the `<result>` block
- * before `<task>` (src/behavior/prompt.js#skillResultBlock over the outcome's `result`, led by
- * what the first pass posted, src/behavior/turn.js#firstPass; `skills.resultMaxChars` read now;
- * withSkillResult), with no cache marker. Its answer is shaped likewise, a `<call>` in it
+ * again (`followUp`), the follow-up request is sent as a live turn sends it, with no cache
+ * marker: under src/behavior/prompt.js#continuesTurn (the view's config: the scenario's, so
+ * `features.followUpContinuation` decides) the turn continued (scenarioContinuation); otherwise
+ * the same messages with the `<result>` block before `<task>` (src/behavior/prompt.js#skillResultBlock
+ * over the outcome's `result`, led by what the first pass posted, src/behavior/turn.js#firstPass;
+ * `skills.resultMaxChars` read now; withSkillResult). The run's `followUp.continuation` says
+ * which. Its answer is shaped likewise, a `<call>` in it
  * ignored (`extraCall`). A failed follow-up is reported by its error name, never thrown; a
  * failed first pass throws (as answerReply). An aborted `signal` stops the runs (`stopped`).
  * Every completion goes out as answerReply's do (`origin: 'replay'`, off the daily cap and the
@@ -968,7 +1021,7 @@ export function skillScenarioRequest(input) {
  *   (the names of the skills her scenario grants, src/skills/discovery.js#grantedSkillNames) and `onCall`.
  * @returns {Promise<{ request: { system: string, user: string, tokens: number|null, limit: number|null },
  *   runs: { answer: object, call: object|null, callError: string|null, extraCalls: number, usage: object|null,
- *     outcome: object|null, followUp: { answer?: object, extraCall?: boolean, usage?: object|null, error?: string }|null }[],
+ *     outcome: object|null, followUp: { answer?: object, extraCall?: boolean, usage?: object|null, continuation?: boolean, error?: string }|null }[],
  *   stopped: boolean }>}
  */
 export async function answerSkillScenario({
@@ -992,10 +1045,8 @@ export async function answerSkillScenario({
   skillsGranted = null,
   onCall,
 }) {
-  const built = sandboxMessages(
-    { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted },
-    runs,
-  );
+  const requestArgs = { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted };
+  const built = sandboxMessages(requestArgs, runs);
   const { request, messages, systemMessage, userMessage, userText } = built;
   const history = situationHistory(situation).history;
   const parseText = (text) => parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars });
@@ -1023,20 +1074,26 @@ export async function answerSkillScenario({
     if (!run.call || typeof onCall !== 'function') continue;
     run.outcome = await onCall(run.call, { idByIndex: request.idByIndex, history });
     if (run.outcome?.followUp !== true) continue;
-    // The follow-up: the same request with the result before `<task>`, as a live turn sends it (no cache marker).
+    // The follow-up as a live turn sends it (no cache marker): the turn continued over her lines
+    // with the call's mark (continuesTurn), else the same request with the result before `<task>`.
     const labels = view.prompts?.labels ?? {};
-    const acted = {
-      reacted: answer.reactions,
-      gifs: answer.gif ? [answer.gif.id] : [],
-      texts: answer.messages.map((message) => message.text),
-      drew: Boolean(answer.draw),
+    const maxChars = view.config.skills?.resultMaxChars ?? RESULT_MAX_CHARS;
+    const continued = continuesTurn(view.config, labels);
+    const followUpMessages = () => {
+      if (continued) return scenarioContinuation({ requestArgs, history, answer, outcome: run.outcome, labels, maxChars });
+      const acted = {
+        reacted: answer.reactions,
+        gifs: answer.gif ? [answer.gif.id] : [],
+        texts: answer.messages.map((message) => message.text),
+        drew: Boolean(answer.draw),
+      };
+      const block = skillResultBlock(run.outcome.result, labels, { maxChars, posted: firstPass(acted, labels) });
+      return withSkillResult([systemMessage, { ...userMessage, content: userText }], block);
     };
-    const block = skillResultBlock(run.outcome.result, labels, { maxChars: view.config.skills?.resultMaxChars ?? RESULT_MAX_CHARS, posted: firstPass(acted, labels) });
-    const again = withSkillResult([systemMessage, { ...userMessage, content: userText }], block);
     try {
-      const second = await llm.complete(again, sandboxOptions(signal));
+      const second = await llm.complete(followUpMessages(), sandboxOptions(signal));
       const parsedAgain = parseText(second.text);
-      run.followUp = { answer: shapeAnswer(parsedAgain, view.config, gifs), extraCall: Boolean(parsedAgain.call || parsedAgain.callError), usage: second.usage ?? null };
+      run.followUp = { answer: shapeAnswer(parsedAgain, view.config, gifs), extraCall: Boolean(parsedAgain.call || parsedAgain.callError), usage: second.usage ?? null, continuation: continued };
     } catch (err) {
       if (signal?.aborted) {
         stopped = true;
