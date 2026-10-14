@@ -295,7 +295,7 @@
     "queued": "This person has other messages waiting ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "queuedOthers": "Other people have messages waiting for you too ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "added": "While this was waiting, the person came back to it ({added}); answer once with that in view.",
-    "missed": "Earlier messages to you got no answer from you ({missed}). You may answer them now, briefly, several together in one reply, or let them pass."
+    "missed": "Earlier messages to you got no answer from you ({missed}). You can answer them now, briefly and together in one reply, or let them pass."
   },
   "journal": {
     "offLead": "You were away:",

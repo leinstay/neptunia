@@ -258,6 +258,7 @@ prompts/
   elsewhere.md             task: comment on a read-only channel in the main channel
   split.md                 classifier: does a direct call hold several separate requests
   merge.md                 classifier: does a new message belong to something already waiting
+  missed.md                classifier: do earlier messages to the persona still need an answer
   backfill.md              extract episodes and lessons from old chat (tools/backfill.mjs)
   profile.md               warmup: one member's profile from a message sample
   channel.md               warmup: channel notes from a message sample
@@ -368,6 +369,7 @@ src/
     spontaneous.js         chaotic timer, eavesdrop, room questions
     split.js               pure: task splitter pre-filter and answer parse
     pending.js             pending calls, merge answer parse, fold-into
+    missed.js              missed-answer candidate registry, sweep and recovery
     private.js             pure: DM gate, merged profiles, effective affinity
     limits.js              pure: limit and pause notices from labels
     recall.js              pure: server-history search decisions
@@ -424,6 +426,7 @@ data/                      persistent state (gitignored, created at runtime)
   guilds/<id>/gifs.json    GIF library: handles, URLs, use counts
   guilds/<id>/recent.json  recent notes from the analyzer
   guilds/<id>/participation.json  the persona's own exchanges on other channels
+  guilds/<id>/missed.json  missed-answer candidate registry
   guilds/<id>/users/       per-member profiles and relationships
   guilds/<id>/private/     per-member private DM memory
   guilds/<id>/channels/    channel observations from the analyzer

@@ -58,6 +58,7 @@
 | `gif-pick.md` | нет | Классификатор: подобрать GIF из библиотеки для замены короткого текстового ответа (`features.gifPicker`). Получает последние `gifs.pick.contextMessages` строк чата с указанием отвечаемого сообщения, ответ персонажа и полную библиотеку с подписями. Порог длины: `gifs.pick.maxChars` (по умолчанию 160); при нескольких исходящих сообщениях заменяется только первое. Выход: один хэндл из библиотеки или `none`. Без карточки персонажа | `{{name}}` |
 | `split.md` | нет | Классификатор: содержит ли прямой вызов несколько отдельных просьб (`features.splitTasks`). Получает короткий `<transcript>` и новое сообщение как `<candidate>`. Выход: слово `one` или от 2 до `{{maxTasks}}` строк, каждая начинается с `- ` и содержит одну часть словами автора. Без карточки персонажа. Без этого файла разделитель выключен | `{{name}}` `{{maxTasks}}` |
 | `merge.md` | нет | Классификатор: относится ли новое сообщение от автора с ожидающими элементами к одному из них. Получает нумерованный список `<waiting>` и новое сообщение как `<candidate>`. Выход: одна строка: номер из списка или слово `new`. Без карточки персонажа. Без этого файла новый вызов всегда ставится в очередь как собственный элемент | `{{name}}` |
+| `missed.md` | нет | Классификатор: нуждаются ли более ранние сообщения к персонажу в ответе (`features.missedAnswers`). Роль `analyzer`, purpose `missed`. Получает короткий транскрипт (`missed.contextMessages` строк, собственные строки персонажа отмечены `labels.self`, маркеры триггеров при включении) и блок `<candidates>` с нумерованными сообщениями, их строкой транскрипта и причиной попадания в список. Выход: одна строка `n: verdict` на кандидата: `owed`, `resolved`, `intentional-skip`, `stale` или `uncertain`. Сбой вызова даёт каждому кандидату `unchecked`, никогда `owed`. Без карточки персонажа | `{{name}}` |
 | `labels.json` | да | Все строки, которые КОД вставляет в промпт. Ключи фиксированы ниже, формулировки определяет автор текстов | см. ниже |
 | `skills.json` | да | Тексты навыков персонажа, с ключами по имени навыка (`hot.prompts.skills`). Объединяется глубоким слиянием как `labels.json`: локальный файл добавляет или переопределяет отдельные ключи. Каждый ключ содержит `title`, `whenToUse`, `whenNotToUse`. Код объединяет их со структурным определением из `src/skills/registry.js` в момент использования (`describeSkill`) | нет |
 
@@ -107,7 +108,7 @@
 | `<kinds>` | Виды постов с весами и счётчиками использования: `labels.diary.kinds`, затем `labels.diary.kindLine` на вид с положительным весом; когда пост не может содержать картинку, виды из `diary.pictureKinds` исключаются. Никогда не обрезается |
 | `<seeds>` | Случайные комбинации сидов: `labels.diary.seeds`, затем `- a; b; c` на набор. В запросе плана — `diary.seedSets` комбинаций. В запросе составления — только для поста-набора (запланированный вид в `diary.setKinds`), `diary.set.seedSets` комбинаций, сразу после `<plan>`. Пропускается при отсутствии файла или нулевом числе. Никогда не обрезается |
 | `<topic>` | Тема владельца для принудительного поста (`/nep diary post [kind] [topic]`): `labels.diary.topic`, затем тема в одну строку, не более 1000 символов. Только в запросе плана, сразу после `<seeds>`, только при указании темы. Никогда не обрезается |
-| `<task>` | `reply` / `follow-up` (при наличии `follow-up.md`, для `followUp` и `reply` без @упоминания) / `interject` / `initiate` / `overheard` (при наличии `overheard.md`) / `elsewhere` (при наличии `elsewhere.md`, для замеченного комментария) / `diary` (при наличии `diary.md`, для поста дневника) с заполненными плейсхолдерами. После промпта режима добавляются до трёх меток `task.*`, когда их условия выполнены (каждая через пустую строку): `task.part`, когда ход отвечает на одну часть разделённого сообщения, или `task.queued`, когда у автора триггера есть другие ожидающие вызовы; затем `task.queuedOthers`, когда у других участников есть ожидающие вызовы в канале; затем `task.added`, когда поздние сообщения были вложены в этот вызов. См. `labels.task.*` ниже |
+| `<task>` | `reply` / `follow-up` (при наличии `follow-up.md`, для `followUp` и `reply` без @упоминания) / `missed` (ход подбора, `features.missedRecovery`) / `interject` / `initiate` / `overheard` (при наличии `overheard.md`) / `elsewhere` (при наличии `elsewhere.md`, для замеченного комментария) / `diary` (при наличии `diary.md`, для поста дневника) с заполненными плейсхолдерами. После промпта режима добавляются до четырёх меток `task.*`, когда их условия выполнены (каждая через пустую строку): `task.missed`, когда ход подбирает ранее неотвеченные сообщения; затем `task.part`, когда ход отвечает на одну часть разделённого сообщения, или `task.queued`, когда у автора триггера есть другие ожидающие вызовы; затем `task.queuedOthers`, когда у других участников есть ожидающие вызовы в канале; затем `task.added`, когда поздние сообщения были вложены в этот вызов. См. `labels.task.*` ниже |
 
 Приоритет бюджета (секции обрезаются с конца этого списка): системный промпт + задача + часы + темп + восприятие
 (никогда не обрезаются) -> профиль вызвавшего с эпизодами -> lookup (сохраняется или отбрасывается целиком; может содержать веб-часть, серверную часть или обе) -> серверные привычки -> факты о себе -> лорбук -> карта каналов -> транскрипт (новейшие сначала) ->
@@ -308,6 +309,7 @@ elsewhere.link                           {text} {link}: joins the jump link to t
 triggers.mention | reply | name | followUp | overheard   followUp = an untagged message the address classifier judged to be for the persona; overheard = talk about the persona, not to them. Both post plain, never as a Discord reply. overheard falls back to followUp, then reply
 triggers.private                         the trigger for a private (DM) message
 triggers.drawFailed                      {reason}: the drawing sub-process failed; reason is the human phrase from draw.reasons.*
+triggers.missed                          триггер для хода подбора пропущенных ответов (features.missedRecovery)
 draw.when                                {when}: локальные дата и время для модели изображений, чтобы свет и сезон совпадали. Заполняется для каждой картинки (дневник и не только), когда время известно; пусто иначе
 draw.reasons.moderation | daily | userDaily | timeout | error    human phrases for the five failure reasons; daily and userDaily are reserved but no longer reached by triggers.drawFailed — an image cap now posts limits.notice instead of a follow-up turn
 diary.intro                              первая строка блока `<diary>`
@@ -340,6 +342,7 @@ task.part                                {index} {total} {part} {others}: this t
 task.queued                              {others}: the trigger author has other calls waiting, listed as numbered items joined by `; `. Shown only when there is no `task.part` for this turn. Without this key the waiting calls are not named and the seen-in-history drop rule applies to them
 task.queuedOthers                        {others}: other members have calls waiting in this channel, listed as `<n>. <author>: <text>` items joined by `; `. Without this key those calls are not named
 task.added                               {added}: later messages from the author were folded into this call while it waited, joined by `; `. Without this key the folded messages are not named
+task.missed                              {missed}: на ходе подбора (вид триггера `missed`, `features.missedRecovery`), более ранние сообщения, оставшиеся без ответа, перечисленные как `<n>. <author>: <text>`, объединённые через `; `. Добавляется перед `task.part`. Без этого ключа сообщения не названы
 skills.protocol                          static text for the `<skills_protocol>` block: the persona has skills, the list is shown on request, the engine checks access
 skills.line                              {name} {title} {whenToUse} {access}: one skill in the `<skills>` list. {access} is one of skills.access.*
 skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denied    short access phrase for the five states: allowed; allowed through the reply; not switched on; safe mode; not for this person
@@ -754,6 +757,40 @@ skills.result.reasons.not-allowed | safe-mode | owner-only | unknown-skill | inv
 ## Классификатор объединения
 
 Когда приходит вызов от автора, у которого уже есть ожидающие элементы в этом канале (части разделённого сообщения, до которых цепочка не дошла, или вызовы в очереди отложенных), классификатор (`prompts/merge.md` на роли `analyzer`, назначение `merge`) определяет, относится ли новое сообщение к одному из них. Классификатор читает блок `<waiting>` из нумерованных элементов (`1. <текст>`, по одному на ожидающий элемент) и новое сообщение как `<candidate>` (`<имя автора>: <текст>`). Ответ: одна строка: номер из списка или слово `new`. Вложенное сообщение никогда не получает собственного хода; оно появляется в ходе своего элемента через `labels.task.added` (`{added}`). Маршрутизированные вызовы никогда не вкладываются. Без файла промпта каждый вызов ставится в очередь как собственный элемент (`merge: failed`, `no-prompt`). Логируется как `merge: verdict` или `merge: failed`. Собственных настроек нет; лимит вывода берётся из `mention.followUpMaxOutputTokens`.
+
+## Подбор пропущенных ответов
+
+Когда персонаж мог оставить сообщение без ответа (классификатор обращений не смог решить, отложенное продолжение заменено более новым, ход завершился ошибкой, был сброшен как слишком медленный или закончился с исходом not-now), сообщение становится кандидатом. Переключатель `features.missedAnswers` (отсутствующий ключ считается включённым); `features.memory` выключает это тоже.
+
+Через `missed.sweepDelaySeconds` (по умолчанию 90) после затишья в канале запускается подчистка. Сначала код обрабатывает то, что может сам: кандидата, на которого ответил более поздний ход персонажа в этом канале, или истёкшего через `missed.expireMinutes` (по умолчанию 5, или `missed.questionExpireMinutes` 15 для сообщения со знаком вопроса). Остальное уходит в один вызов хелпера на канал: `prompts/missed.md` на роли `analyzer` (purpose `missed`, лимит вывода `missed.maxOutputTokens` 2000). Системный промпт: файл промпта с `{{name}}`. Пользовательское сообщение: транскрипт из последних `missed.contextMessages` (по умолчанию 20) строк, собственные строки персонажа отмечены `labels.self`, маркеры триггеров при включении, затем блок `<candidates>` с нумерованными сообщениями, их номером строки в транскрипте и кодом причины. Каждое новое сообщение в канале сдвигает подчистку, но не дальше `missed.sweepMaxDelaySeconds` (по умолчанию 240).
+
+Выход: одна строка `n: verdict` на кандидата (точка, скобка или тире вместо двоеточия допускаются). Вердикты: `owed` (сообщение нуждается в ответе, и его не было), `resolved` (более поздняя строка персонажа покрывает его), `intentional-skip` (сообщение ничего от персонажа не просит), `stale` (разговор ушёл дальше), `uncertain` (нельзя определить). Пустой или сбойный вызов даёт `unchecked`, никогда `owed`.
+
+При `features.missedRecovery` строго `true` кандидаты с вердиктом `owed` в канале запускают один обычный ход ответа (вид триггера `missed`, самый ранний кандидат как триггер, все перечислены в `labels.task.missed`, `{missed}` = элементы `<n>. <author>: <text>`, объединённые через `; `). Одна попытка на кандидата, не чаще одного хода подбора на канал каждые `missed.channelCooldownMinutes` (по умолчанию 5), никогда при паузе или прогреве. Ход ничего не отправляет, если персонаж уже говорил в этом канале с начала подчистки. При выключенном переключателе (по умолчанию) подчистка только классифицирует и записывает в журнал (теневой режим).
+
+### Файл данных
+
+`data/guilds/<id>/missed.json`: реестр кандидатов, записывается целиком через файл `.tmp` и переименование. Закрытые кандидаты и старше суток удаляются при запуске и при каждой записи; реестр вмещает не более 500 записей. Файл переживает перезапуск; при старте кандидаты согласуются с журналом за последний час.
+
+### Журнал
+
+Каждый кандидат записывает в журнал записи вида `answer`:
+
+- `fact`: кандидат зарегистрирован (причина, id сообщения, id канала, id автора).
+- `verdict`: хелпер вернул вердикт (код вердикта, id сообщения).
+- `resolved`: код разрешил кандидата до хелпера (id сообщения).
+- `expired`: кандидат истёк без вердикта (id сообщения).
+- `recovery`: ход подбора запущен для этого канала (id сообщений owed-кандидатов).
+
+Записи содержат только id, без текста сообщений. `/nep memory journal kind:answer` показывает эти записи.
+
+### Карточка статуса
+
+Карточка `/nep status` содержит строку: `missed: N candidates, M owed, K recovered`, где значения — итоги за день.
+
+### Логи
+
+`missed: candidate` (channelId, reason, messageId), `missed: resolved` (channelId, messageId), `missed: expired` (channelId, messageId, reason), `missed: verdict` (channelId, verdict, messageId), `missed: helper failed` (channelId, reason или error), `missed: recovery` (channelId, количество кандидатов), `missed: recovery held` (channelId, reason), `missed: sweep skipped` (channelId, reason). Только id и счётчики, без текста сообщений.
 
 ## Рисование
 
