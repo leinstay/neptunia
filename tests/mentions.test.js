@@ -2,7 +2,7 @@
 // id-token round trip) and teacherToken (the lesson teacher rule). Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TEACHER_TOKEN_RE, isWordChar, linkChannels, linkMessageNumbers, toTokens, fromTokens, occursAsWholeWord, occursAsWordStem, teacherToken } from '../src/memory/mentions.js';
+import { TEACHER_TOKEN_RE, channelCore, isWordChar, linkChannels, linkMessageNumbers, matchChannel, toTokens, fromTokens, occursAsWholeWord, occursAsWordStem, teacherToken } from '../src/memory/mentions.js';
 
 const ID_A = '123456789012345678';
 const ID_B = '223456789012345678';
@@ -218,6 +218,35 @@ test('linkChannels: names with emoji and Greek letters link; an existing <#id> i
   const channels = [{ id: CHANNEL_A, name: '🎮παιχνίδια' }, { id: CHANNEL_C, name: 'μουσική' }];
   assert.equal(linkChannels('#🎮παιχνίδια ή <#999999999999999999>', channels), `<#${CHANNEL_A}> ή <#999999999999999999>`);
   assert.equal(linkChannels(`<#${CHANNEL_C}> #μουσική`, channels), `<#${CHANNEL_C}> <#${CHANNEL_C}>`);
+});
+
+test('linkChannels: a name written with other or no leading emoji links by its core', () => {
+  const channels = [{ id: CHANNEL_A, name: '💖ανιμε' }, { id: CHANNEL_C, name: 'μουσική' }];
+  assert.equal(linkChannels('δες #🍡ανιμε τώρα', channels), `δες <#${CHANNEL_A}> τώρα`);
+  assert.equal(linkChannels('δες #ανιμε, ναι', channels), `δες <#${CHANNEL_A}>, ναι`);
+  assert.equal(linkChannels('#💖ανιμε', channels), `<#${CHANNEL_A}>`);
+  // Case and accents fold; trailing emoji of the written name go with it; punctuation stays.
+  assert.equal(linkChannels('#🎵ΜΟΥΣΙΚΗ🎶!', channels), `<#${CHANNEL_C}>!`);
+  // The core still ends at a word boundary, and nothing links after a word character or '<'.
+  assert.equal(linkChannels('#ανιμες a#ανιμε', channels), '#ανιμες a#ανιμε');
+});
+
+test('linkChannels: two channels sharing a core link neither by it; an exact name still wins', () => {
+  const channels = [{ id: CHANNEL_A, name: '💖ανιμε' }, { id: CHANNEL_B, name: '🍡ανιμε' }];
+  assert.equal(linkChannels('#🎀ανιμε και #ανιμε', channels), '#🎀ανιμε και #ανιμε');
+  assert.equal(linkChannels('#🍡ανιμε', channels), `<#${CHANNEL_B}>`);
+});
+
+test('matchChannel: exact name first, then the one channel with the same core; several -> ambiguous', () => {
+  const channels = [{ id: 'a', name: '💖ανιμε' }, { id: 'b', name: 'γενικά' }, { id: 'c', name: '🍡κουζίνα' }, { id: 'd', name: '🍰κουζίνα' }];
+  assert.equal(matchChannel('💖ανιμε', channels).id, 'a');
+  assert.equal(matchChannel('🍡Ανιμέ', channels).id, 'a');
+  assert.equal(matchChannel('ΓΕΝΙΚΑ', channels).id, 'b');
+  assert.equal(matchChannel('🍡κουζίνα', channels).id, 'c', 'the exact name wins over a shared core');
+  assert.equal(matchChannel('κουζίνα', channels), 'ambiguous');
+  assert.equal(matchChannel('τίποτα', channels), null);
+  assert.equal(matchChannel('🍡', channels), null, 'no core, no match');
+  assert.equal(channelCore('  💖Ανιμέ✨‍ '), 'ανιμε');
 });
 
 test('linkChannels: text without # comes back unchanged', () => {

@@ -7,6 +7,11 @@
 //                              set post draws several, every other turn only the first)
 //   <gif reply="#87">g12</gif> a GIF from the library by its handle (first valid one only)
 //   <skip/>                    stay silent
+//   <call skill="name" key="value">text</call>  one skill call (src/skills/executors.js), or
+//                              self-closing `<call skill="name" key="value"/>`; parsed strictly
+//                              and only at the top level of the output: never inside another
+//                              tag's body, a code span or block, or a quoted (`>`) line. The
+//                              first one is `call`, any later one is only counted (`extraCalls`).
 // The parser is forgiving: a missing tag wrapper falls back to a single plain
 // message, an unterminated <think> (output cut by max_tokens) means silence.
 
@@ -25,6 +30,82 @@ const MAX_REACTION_CHARS = 16;
 const CUSTOM_REACTION_RE = /^(?::[A-Za-z0-9_]{2,32}:|<a?:[A-Za-z0-9_]{2,32}:\d{1,25}>)$/;
 // A GIF handle (src/memory/gifs.js): `g` and digits, any case.
 const GIF_HANDLE_RE = /^g(\d{1,9})$/i;
+
+// A skill name: lowercase dotted words (src/skills/registry.js).
+const SKILL_NAME_RE = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/;
+// One attribute of a <call>: a name and a double-quoted value, nothing else.
+const CALL_ATTR_RE = /\s+([A-Za-z][A-Za-z0-9_]*)="([^"]*)"/y;
+// A <call> opening (self-closing or not) in the masked top-level text.
+const CALL_OPEN_RE = /<call\b([^>]*?)(\/?)>/gi;
+// What is no top level: the body of a closed tag, a tag left open (to the end), code, a quoted line.
+const NOT_TOP_LEVEL = [
+  /<(msg|draw|react|gif)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+  /<(?:msg|draw|react|gif)\b[\s\S]*$/i,
+  /```[\s\S]*?(?:```|$)/g,
+  /`[^`\n]*`/g,
+  /^[ \t]*>.*$/gm,
+];
+
+/** `text` with every part that is no top level blanked out, position for position. */
+function maskNested(text) {
+  let masked = text;
+  for (const re of NOT_TOP_LEVEL) masked = masked.replace(re, (all) => ' '.repeat(all.length));
+  return masked;
+}
+
+/** The attributes of a <call> (`raw`: what follows its name), or null unless every one is `name="value"`, each once. */
+function callAttributes(raw) {
+  const rest = raw.replace(/\s+$/, '');
+  const attrs = {};
+  CALL_ATTR_RE.lastIndex = 0;
+  let at = 0;
+  while (at < rest.length) {
+    CALL_ATTR_RE.lastIndex = at;
+    const match = CALL_ATTR_RE.exec(rest);
+    if (!match) return null;
+    if (Object.hasOwn(attrs, match[1])) return null;
+    attrs[match[1]] = match[2];
+    at = CALL_ATTR_RE.lastIndex;
+  }
+  return attrs;
+}
+
+/**
+ * The top-level <call> tags of `text`: `{ calls: [{ start, end, call }] }` in order, `call` null
+ * for a malformed one (bad attributes, no or a bad `skill`, never closed). Every tag's span is
+ * where it sits in `text`, its body included.
+ */
+function findCalls(text) {
+  const masked = maskNested(text);
+  const found = [];
+  CALL_OPEN_RE.lastIndex = 0;
+  for (let match = CALL_OPEN_RE.exec(masked); match; match = CALL_OPEN_RE.exec(masked)) {
+    const start = match.index;
+    let end = start + match[0].length;
+    let body = '';
+    let closed = match[2] === '/';
+    if (!closed) {
+      const close = /<\/call\s*>/gi;
+      close.lastIndex = end;
+      const closing = close.exec(masked);
+      if (closing) {
+        body = text.slice(end, closing.index);
+        end = closing.index + closing[0].length;
+        closed = true;
+        CALL_OPEN_RE.lastIndex = end;
+      }
+    }
+    const attrs = closed ? callAttributes(match[1]) : null;
+    const skill = attrs?.skill;
+    let call = null;
+    if (attrs && typeof skill === 'string' && SKILL_NAME_RE.test(skill)) {
+      const { skill: _name, ...args } = attrs;
+      call = { skill, args, body: body.trim() };
+    }
+    found.push({ start, end, call });
+  }
+  return found;
+}
 
 function parseIndex(value) {
   const match = /(\d+)/.exec(value ?? '');
@@ -45,10 +126,16 @@ function parseIndex(value) {
  *             reactions: {to: number, emoji: string}[], think: string,
  *             draw: {text: string, self: boolean, replyTo: number|null}|null,
  *             draws: {text: string, self: boolean, replyTo: number|null}[],
- *             gif: {id: string, replyTo: number|null}|null }}
+ *             gif: {id: string, replyTo: number|null}|null,
+ *             call: {skill: string, args: Record<string, string>, body: string}|null,
+ *             extraCalls: number, callError: 'malformed'|null }}
+ *   `call`: the first top-level `<call>` (its attributes but `skill` as string `args`, its body
+ *   trimmed, '' when self-closing or empty); `extraCalls`: how many top-level `<call>` tags
+ *   followed it, ignored; `callError`: `malformed` when the first one is not well formed (then
+ *   `call` is null and no later one stands in).
  */
 export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits = null } = {}) {
-  const result = { skip: false, messages: [], reactions: [], think: '', draw: null, draws: [], gif: null };
+  const result = { skip: false, messages: [], reactions: [], think: '', draw: null, draws: [], gif: null, call: null, extraCalls: 0, callError: null };
   let text = String(raw ?? '');
 
   text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (all, inner) => {
@@ -58,6 +145,15 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
   if (/<think>/i.test(text)) {
     result.skip = true;
     return result;
+  }
+
+  // The top-level <call> tags come out first: their bodies are their own, never a message here.
+  const calls = findCalls(text);
+  if (calls.length > 0) {
+    result.call = calls[0].call;
+    result.callError = calls[0].call ? null : 'malformed';
+    result.extraCalls = calls.length - 1;
+    for (const { start, end } of [...calls].reverse()) text = `${text.slice(0, start)}${text.slice(end)}`;
   }
 
   for (const match of text.matchAll(/<msg(\s[^>]*)?>([\s\S]*?)<\/msg>/gi)) {
@@ -105,9 +201,9 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
 
   result.messages = result.messages.slice(0, MAX_MESSAGES);
 
-  if (result.messages.length === 0 && result.reactions.length === 0 && !result.draw && !result.gif) {
+  if (result.messages.length === 0 && result.reactions.length === 0 && !result.draw && !result.gif && !result.call) {
     const leftover = text.replace(/<skip\s*\/?>/gi, '').trim();
-    const hasTags = /<\/?(msg|react|skip|draw|gif)\b/i.test(text);
+    const hasTags = calls.length > 0 || /<\/?(msg|react|skip|draw|gif|call)\b/i.test(text);
     if (!hasTags && leftover && leftover.length <= MAX_FALLBACK_CHARS) {
       result.messages.push({ text: leftover, replyTo: null });
     } else {

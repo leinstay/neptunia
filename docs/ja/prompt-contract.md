@@ -96,7 +96,8 @@
 | `<other_channels>` | 隣接チャンネルごとに最大 `context.neighborMessages` 件のメッセージ。`context.neighborMaxAgeMinutes` より古いものは含まない。`features.mediaDescriptions` がオンの場合、隣接チャンネルの行内の画像はキャッシュ済みキャプションを持つ場合にそれを付加。隣接チャンネルに対して新規の説明リクエストは行われない。`<channel_view>` にブロックが表示されているチャンネルは `<other_channels>` から除外。バジェットがプルされたブロックを落とした場合、そのチャンネルは通常の隣接チャンネルとしてここに再表示 |
 | `<channel_view>` | このターンにプルされた別のチャンネル（`features.channelPull`）。プルされたチャンネルごとにヘッダー行（`labels.pull.header`）、該当時の読み取り専用マーク（`labels.server.readOnly`）、ウィンドウがカットされた場合の「古いものは非表示」行、「画像は未確認」カウント、ペルソナへの過去の呼びかけ（応答済み/未応答/スキップマーク付き）、ウィンドウの行。行は `<chat>` と同じトランスクリプト形式だが、チャットの後に番号が続く（チャットは `#1`..`#N`、プルブロックは `#N+1` から）ため、すべての `#n` がブロック間で一意。画像はキャプションまたはブラインドタグのみ、添付画像としては含まない。`labels.pull.header` がない場合ブロックは空 |
 | `<lookup>` | ペルソナがこのターンで調べた内容。ウェブ検索（`features.webLookup`）は `labels.lookup.webHeader`、要約された回答、`labels.lookup.sources`。何も見つからなかった場合は `labels.lookup.none`。サーバー検索（`features.recall`）は `labels.lookup.serverHeader`、サマリーノート。サマリーがストレッチを指定した場合はそのストレッチの原文行。両方実行された場合は `labels.lookup.bothNote` がその間に配置。`labels.lookup.stretch` 行が原文ストレッチを導入（`{date}` `{channel}`）。検索分類器が発火し少なくとも 1 つの検索が完了した場合にのみ表示 |
-| `<skills>` | フルスキルリスト、スキルごとに `labels.skills.line` 1 行。インベントリリクエスト時のみ表示（分類器またはプランナーが `skills: inventory` と回答した場合）。テール部分、`<chat>` の前。スイッチ `features.skillsDiscovery`（デフォルトオン。`features.skills` オフ時はオフ） |
+| `<skills>` | フルスキルリスト、スキルごとに `labels.skills.line` 1 行。インベントリリクエスト時（分類器またはプランナーが `skills: inventory` と回答）またはメッセージにスキルが提案された場合に表示。インベントリではすべてのスキルがアクセス状態付きでリストされる。提案時は許可されたスキルのみ `skills.line` で表示され、許可されていない提案スキルは `labels.skills.proposedOff`（`{names}`、カンマ区切り）で 1 行にまとめられる。テール部分、`<chat>` の前。スイッチ `features.skillsDiscovery`（デフォルトオン。`features.skills` オフ時はオフ） |
+| `<result>` | ペルソナが行ったスキル呼び出しの結果。ペルソナの最初のパスが `<call>` タグを出力した後のフォローアップリクエストにのみ存在。`skillResultBlock`（`src/behavior/prompt.js`）でレンダリング: `<result skill="NAME" status="STATUS">`、本文、`</result>`、ユーザーメッセージの最後のテキストパートの `<task>` 直前に配置（キャッシュ済みパートは再利用）。本文は最初のパスで既に投稿された各アクション（メッセージ、リアクション、画像）に対する `labels.skills.result.alreadyPosted` 行で始まり（ラベルがなければ省略）、次に `labels.skills.result[status]` のステータス行（`{reason}` は `labels.skills.result.reasons[code]` から、フォールバックは `.reasons.other`、次にコード自体）。`ok` ステータスではデータが続く: スキルのテキスト、または `<skills>` と同様のスキルカタログ、`skills.resultMaxChars`（デフォルト 2000）でカット。ステータス: `ok`（データを返した読み取り）、`refused`（実行前にエンジンが拒否）、`failed`（実行されたが成功しなかった）、`unknown`（呼び出しが成功したかどうか不明）。スキル呼び出しが成功した送信、編集、削除、または画像の場合、`<result>` ブロックは表示されない |
 | `<chat>` | 現在のチャンネルの最新 `context.channelMessages` 件のメッセージ。投稿から `context.ageAfterMinutes`（デフォルト 60）分以上たった行には、どれだけ前の投稿かも表示される（`transcript.timeAged`）。`context.fetchReplyParents` がオンの場合、トリガーメッセージとウィンドウ末尾の `context.replyParentsFor` 件の返信行（ウィンドウより古いメッセージへの返信）の親が取得され、通常のトランスクリプト行としてウィンドウの前に配置される。トリガーの親はさらにその親も取得可能。ターンあたり最大 `context.replyParentsMax` 件。ギャップマーカーと日付ヘッダーが時間の飛びをカバーし、リプライ行は `transcript.replyTo` で親を引用する。親のメディアは他の行と同様に扱われ、キャッシュ済みの説明はコストなしで提供される。削除済みまたはアクセス不能な親はスキップされ `collect: parent missing` としてログ出力 |
 | `<tempo>` | 10 分 / 1 時間 / 1 日のカウント、参加人数、沈黙時間、判定（live / slow / dead） |
 | `<world>` | ペルソナの仮想世界（`prompts/world.md`、`{{name}}` 補完済み）。日記投稿（`mode === 'diary'`）かつ `diary.world === true` の場合のみ。予算圧迫で丸ごと削除。ファイルなしまたはスイッチオフは何も追加しない |
@@ -332,6 +333,13 @@ task.added                               {added}: later messages from the author
 skills.protocol                          static text for the `<skills_protocol>` block: the persona has skills, the list is shown on request, the engine checks access
 skills.line                              {name} {title} {whenToUse} {access}: one skill in the `<skills>` list. {access} is one of skills.access.*
 skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denied    short access phrase for the five states: allowed; allowed through the reply; not switched on; safe mode; not for this person
+skills.proposedOff                       {names}: 提案のみの `<skills>` ブロック末尾に表示され、許可されていない提案スキルを列挙する
+skills.result.alreadyPosted              OPTIONAL {text}: 最初のパスで既に投稿された各アクション（メッセージ、リアクション、画像）に対する 1 行。このラベルなしでは投稿済みアクションは列挙されない
+skills.result.ok                         データを返した読み取り呼び出しのステータス行。次の行にデータが続く
+skills.result.refused                    {reason}: 実行前にエンジンが呼び出しを拒否
+skills.result.failed                     {reason}: 呼び出しは実行されたが成功しなかった
+skills.result.unknown                    {reason}: 呼び出しが成功したか不明。モデルは再試行すべきでない
+skills.result.reasons.not-allowed | safe-mode | owner-only | unknown-skill | invalid-args | target-not-allowed | target-ambiguous | conversation-not-allowed | unknown-message | not-own-message | unknown-member | requester-denied | daily-cap | no-budget | unsupported | timeout | other    理由コードに対する人間向けフレーズ。マップにないコードは `other` にフォールバック、次にコード自体
 ```
 
 ## 出力
@@ -342,14 +350,17 @@ skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denie
 - `<msg>text</msg>` チャットメッセージ 1 件、最大 3 件連続可能。`reply="#87"` で Discord リプライになる。
 - `<react to="#87">💀</react>` Unicode 絵文字 1 つ。`<msg>` と単独でも併用でも可。
 - `<draw self="yes" reply="#87">scene</draw>` 描画サブプロセスへの画像。ターンにつき 1 つ、最初の非空が優先、800 文字でクランプ。`self="yes"` でペルソナの外見が追加。`reply="#87"` は `<msg>` と同じ。`<msg>` や `<react>` と併用可。
+- `<call skill="NAME" attr="value"…>BODY</call>` または自己終了形式 `<call skill="NAME" attr="value"…/>`。ターンにつきスキル呼び出し 1 回。出力のトップレベルでのみパースされ、`<msg>`、`<draw>`、`<react>`、`<gif>`、`<think>`、コードスパン/ブロック、引用行（`>`）内では処理されない。最初の正しい形式の呼び出しが使われ、後続は無視される。`skill` でスキル名を指定し、他の属性は引数（二重引用符内のテキスト）、本文は呼び出しが運ぶメッセージまたはシーン（読み取りやステータス呼び出しでは空）。スキル別属性: `message.send` は `conversation` と任意の `replyTo`、本文はテキスト。`message.edit` は `message`、本文は新しいテキスト。`message.delete` は `message`。`memory.read` は `member`。`status.show` と `skills.list` は引数なし。`draw` は `conversation`、本文はプロンプト。エンジンがペルソナの権限を確認する。読み取り呼び出し、拒否された呼び出し、失敗した呼び出しはフォローアップリクエストの `<task>` 直前に `<result skill="NAME" status="STATUS">` ブロックとして 1 回だけ返され、ペルソナがデータで応答できる。成功した送信、編集、削除、画像にはフォローアップ不要。`unknown` ステータスは結果が不確定で、再試行しない。`features.skills: false` ですべての `<call>` が無効化される。
 - `<skip/>` 沈黙。
 - `@nick` トランスクリプトと同一の表記が実際のメンションになる。
-- `#チャンネル名` がサーバーチャンネルの場合、`<msg>` テキスト内で本物のチャンネルリンク（`<#id>`）に変換される（`features.channelLinks` オン時、デフォルト true、未設定 = オン）。名前は最長一致。既存のリンクはそのまま。
+- `#チャンネル名` がサーバーチャンネルの場合、`<msg>` テキスト内で本物のチャンネルリンク（`<#id>`）に変換される（`features.channelLinks` オン時、デフォルト true、未設定 = オン）。まず完全一致する名前を最長優先で検索する。完全一致しない場合、書かれた名前はコアで照合される: 先頭・末尾の絵文字、記号、句読点を除去し、大文字小文字とアクセントを正規化する。コアが 1 つのチャンネルに一意であればリンクが作成される。2 つ以上のチャンネルが同じコアを持つ場合、リンクは作成されない。既存のリンクはそのまま。
 
 `features.reactions: false` は `<react>` を無効化、`features.multiMessage: false` は最初の `<msg>` のみを保持。
 `features.imageGeneration: false` またはイメージクライアントなしの場合は `<draw>` を無効化。`drawFailed` ターンでも `<draw>` は無効化されます。プロンプトが知る必要はありません。
 
 `format.stripDashes` がオン（デフォルト true、未設定 = オン、`false` のみオフにする）の場合、`<msg>` テキストのすべてのエムダッシュとエンダッシュが投稿前に除去される。ダッシュとその周囲のスペースは 1 つのスペースになり、ギュメ（`«`、`»`）はプレーンな `"` に置換される。除去後に空になったメッセージは送信されない。ハイフンはそのまま残る。`<draw>`、`<react>`、`<gif>` とリプライ id は影響を受けない。`turn: dashes stripped` として `channel` と `count` でログされ、テキスト自体はログされない。
+
+`<call>` タグはジャーナルに `skill` アクションを書き込む（`src/memory/journal.js#op`）。アクションはフェーズを経る: `proposed`（ペルソナが呼び出しを要求、チェック前）、`started`（呼び出しがチェックを通過し実行開始）、次に終了フェーズ 1 つ: `succeeded`（効果が発生）、`failed`（実行されたが失敗、`code` 付き）、または `unknown`（結果を確認できなかった）。未終了の `started` 行は起動時にクローズされる（`journal.reconcile`）。各フェーズはジャーナルファイル内の 1 行の `action` レコードで、`opId` がそれらを紐付ける。
 
 ## アナライザー
 

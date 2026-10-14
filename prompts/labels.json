@@ -309,6 +309,33 @@
       "not-allowed": "not switched on",
       "safe-mode": "safe mode",
       "requester-denied": "not for this person"
+    },
+    "proposedOff": "Might fit here but not switched on for you: {names}.",
+    "result": {
+      "alreadyPosted": "You already posted this turn: {text}",
+      "ok": "Your skill worked. What it gave back:",
+      "refused": "Your skill did not run: {reason}.",
+      "failed": "Your skill did not work: {reason}.",
+      "unknown": "It is unclear whether your skill went through ({reason}); do not try it again.",
+      "reasons": {
+        "not-allowed": "the owner has not switched it on",
+        "safe-mode": "only ordinary replies pass right now",
+        "owner-only": "only the owner can do that",
+        "unknown-skill": "there is no such skill",
+        "invalid-args": "the call was not written the way the skill takes it",
+        "target-not-allowed": "you may not write in that channel",
+        "target-ambiguous": "more than one channel goes by that name",
+        "conversation-not-allowed": "you may not write in that channel",
+        "unknown-message": "that message is not in the chat you were shown",
+        "not-own-message": "that message is not yours",
+        "unknown-member": "nobody by that name is in your memory",
+        "requester-denied": "the person asking may not see or do this",
+        "daily-cap": "the limit for today is used up",
+        "no-budget": "there is no budget for it now",
+        "unsupported": "this chat cannot do that",
+        "timeout": "the chat did not answer in time",
+        "other": "something went wrong"
+      }
     }
   }
 }

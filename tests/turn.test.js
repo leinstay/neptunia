@@ -28,6 +28,7 @@ import { createJournal } from '../src/memory/journal.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { SKILL_DEFINITIONS, loadSkills } from '../src/skills/registry.js';
+import { denySkill } from '../src/skills/access.js';
 
 function rngReturning(value) {
   return () => value;
@@ -8271,11 +8272,13 @@ test('skills discovery: the stable part is byte-identical with and without a gra
   assert.notEqual(blockBody(granted.reply.at(-1).text, 'skills'), blockBody(closed.reply.at(-1).text, 'skills'));
 });
 
-test('skills discovery: named skills are logged and journaled with the gateway verdict, never rendered', async () => {
+test('skills discovery: named skills are logged and journaled with the gateway verdict; <skills> shows the allowed ones and names the others', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await runDiscoveryTurn({ answer: 'none\nskills: message.edit, message.delete, x.owner, draw', allowed: ['message.edit'], journal });
   assert.equal(run.result.outcome, 'spoke');
-  assert.ok(!run.text.includes('<skills>\n'), 'nothing shown to the persona yet');
+  const line = fill(labels.skills.line, { name: 'message.edit', title: SKILL_TEXTS['message.edit'].title, whenToUse: SKILL_TEXTS['message.edit'].whenToUse, access: labels.skills.access.allowed });
+  assert.deepEqual(blockBody(run.reply.at(-1).text, 'skills').split('\n'), [line, fill(labels.skills.proposedOff, { names: 'message.delete' })]);
+  assert.ok(!run.reply[0].text.includes('message.edit'), 'never in the stable part');
   const proposed = run.logs.find((l) => l.msg === 'skills: proposed');
   assert.equal(proposed.count, 2, 'an owner-only skill and one outside the registry are no proposal');
   assert.deepEqual(proposed.proposals, [
@@ -8540,4 +8543,225 @@ test('skills gateway: the GIF and the drawing are published through the port', a
   assert.ok(asked.filter((name) => name === 'message.send').length >= 3, 'the GIF, and the picture before and after its generation');
   assert.ok(logs.some((entry) => entry.msg === 'turn: gif sent'));
   assert.ok(logs.some((entry) => entry.msg === 'turn: drew'));
+});
+
+// ---------------------------------------------------------------------------
+// Skill calls (src/skills/executors.js): one `<call>` per turn, checked, run after the reply's
+// own effects, and one follow-up request with its result when she needs it.
+
+/** Every skill of phases 0-1, against stand-in operations. */
+function callSkills() {
+  return loadSkills(SKILL_DEFINITIONS, { getOp: (name) => ({ name, rights: { kind: 'read' } }) });
+}
+
+/** The actions of the journal named `skill`, their phases in order. */
+function skillPhases(lines) {
+  return actionsNamed(lines, 'skill').map((record) => record.phase);
+}
+
+/**
+ * A mention by Alice (u1, #2) after a line of the persona (#1) in #general (c1), with #νέα (c9,
+ * listed in skills.conversations) and #αλλού (c8) in the guild; the LLM answers `answers` in
+ * order; `allowed` skills carry an allow record; the port is a fake adapter.
+ */
+async function callTurn({ answers, allowed = [], features = {}, skills = {}, owners = [], runOp = null, images = null, journal = null, store = fakeStore(), beforeSend = null, failNext = null }) {
+  const history = [
+    rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'self-id', authorName: 'Bot', content: 'πρώτη' }),
+    rawMessage({ id: 'm1', ts: NOW - 1000, authorId: 'u1', authorName: 'Alice', content: 'γράψε στο #νέα' }),
+  ];
+  const channel = fakeTurnChannel({ historyMessages: history });
+  channel.guild.channels.cache.set('c9', { id: 'c9', name: '💖νέα', isTextBased: () => true });
+  channel.guild.channels.cache.set('c8', { id: 'c8', name: 'αλλού', isTextBased: () => true });
+  store.state.data = { skills: { allowed: Object.fromEntries(allowed.map((name) => [name, { by: '42', at: 't' }])) } };
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
+  port.seed('c1', { authorId: 'self-id', messageId: 'm0', text: 'πρώτη' });
+  port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'γράψε' });
+  if (failNext) port.failNext(...failNext);
+  if (beforeSend) {
+    const send = port.send.bind(port);
+    port.send = async (...args) => {
+      await beforeSend(store, args);
+      return send(...args);
+    };
+  }
+  const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners }, { skills: { conversations: ['c9'], safeMode: false, resultMaxChars: 2000, ...skills } });
+  hot.prompts.draw = 'Drawing for {{name}}.\n\n{{request}}';
+  const llm = sequenceLlm(answers);
+  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, port, skills: callSkills(), journal, runOp, images });
+  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' }));
+  const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
+  return { result, logs, llm, port, sends, channel, store };
+}
+
+/** The user text of the LLM's call `i`. */
+function requestText(llm, i) {
+  return textOf(llm.calls[i][1].content);
+}
+
+test('skill call: message.send to a listed conversation runs after the reply, journaled proposed, started, succeeded; no follow-up', async () => {
+  const { journal, lines } = journalOverMemory();
+  const run = await callTurn({ answers: ['<msg reply="#2">εντάξει</msg>\n<call skill="message.send" conversation="#🍡νέα">καλημέρα :wave:</call>'], allowed: ['message.send'], journal });
+  assert.deepEqual([run.result.outcome, run.result.delivered], ['spoke', true]);
+  assert.deepEqual(run.sends.map((send) => [send.to, send.text]), [['c1', 'εντάξει'], ['c9', 'καλημέρα :wave:']]);
+  assert.deepEqual(run.sends[1].mentions, { users: [], repliedUser: false }, 'nobody is notified');
+  assert.equal(run.llm.calls.length, 1, 'the message is its own answer');
+  assert.deepEqual(skillPhases(lines), ['proposed', 'started', 'succeeded']);
+  const started = actionsNamed(lines, 'skill').find((record) => record.phase === 'started');
+  assert.equal(started.target.conversationId, 'c9');
+  assert.ok(!JSON.stringify(actionsNamed(lines, 'skill')).includes('καλημέρα'), 'the journal names ids, never the text');
+  const turn = lines.map(({ record }) => record).find((record) => record.kind === 'turn');
+  assert.ok(turn.actions.includes(started.opId));
+  assert.ok(run.logs.some((entry) => entry.msg === 'skills: called' && entry.skill === 'message.send' && entry.status === 'ok'));
+});
+
+test('skill call: a call alone is no skip; it replies there only to a line of that conversation', async () => {
+  const here = await callTurn({ answers: ['<call skill="message.send" replyTo="#2">ναι</call>'] });
+  assert.equal(here.result.outcome, 'spoke');
+  // The current conversation: the reply tag's skill is carried over, the replied author notified.
+  assert.deepEqual(here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions.repliedUser]), [['c1', 'ναι', 'm1', true]]);
+  const across = await callTurn({ answers: ['<call skill="message.send" conversation="#νέα" replyTo="#2">ναι</call>', '<msg>όχι τελικά</msg>'], allowed: ['message.send'] });
+  assert.deepEqual(across.sends.map((send) => send.to), ['c1'], 'refused: only the follow-up answer is posted, here');
+  assert.ok(requestText(across.llm, 1).includes(`<result skill="message.send" status="refused">\n${fill(labels.skills.result.refused, { reason: labels.skills.result.reasons.other })}\n</result>`));
+});
+
+test('skill call: not allowed, or a conversation not listed -- refused, one follow-up with the reason, its own call ignored', async () => {
+  const { journal, lines } = journalOverMemory();
+  const run = await callTurn({
+    answers: ['<msg>μισό</msg><call skill="message.send" conversation="#νέα">γεια</call>', '<msg>δεν μπορώ εκεί</msg><call skill="message.send">ξανά</call>'],
+    journal,
+  });
+  assert.deepEqual(run.sends.map((send) => [send.to, send.text]), [['c1', 'μισό'], ['c1', 'δεν μπορώ εκεί']]);
+  assert.equal(run.llm.calls.length, 2, 'one follow-up, no second call');
+  const followUp = run.llm.calls[1];
+  const first = run.llm.calls[0];
+  assert.deepEqual(followUp[0], first[0], 'the same system prompt');
+  for (let i = 0; i < first[1].content.length - 1; i += 1) assert.deepEqual(followUp[1].content[i], first[1].content[i], 'the cached parts are the same');
+  const posted = fill(labels.skills.result.alreadyPosted, { text: 'μισό' });
+  const block = `<result skill="message.send" status="refused">\n${posted}\n${fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })}\n</result>`;
+  assert.ok(requestText(run.llm, 1).includes(`${block}\n\n<task>\n`), requestText(run.llm, 1));
+  assert.ok(run.logs.some((entry) => entry.msg === 'skills: extra-call' && entry.followUp === true));
+  assert.deepEqual(skillPhases(lines), ['proposed', 'failed']);
+  assert.equal(actionsNamed(lines, 'skill').at(-1).result.code, 'not-allowed');
+
+  const unlisted = await callTurn({ answers: ['<call skill="message.send" conversation="#αλλού">γεια</call>', '<skip/>'], allowed: ['message.send'] });
+  assert.deepEqual(unlisted.sends, []);
+  assert.ok(requestText(unlisted.llm, 1).includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['target-not-allowed'] })));
+});
+
+test('skill call: edit and delete reach only her own message', async () => {
+  const edited = await callTurn({ answers: ['<call skill="message.edit" message="#1">πρώτη, διορθωμένη</call>'], allowed: ['message.edit'] });
+  assert.deepEqual(edited.port.calls.filter((call) => call.op === 'edit').map((call) => [call.args[0].messageId, call.args[1].text]), [['m0', 'πρώτη, διορθωμένη']]);
+  assert.equal(edited.llm.calls.length, 1);
+  const deleted = await callTurn({ answers: ['<call skill="message.delete" message="#1"/>'], allowed: ['message.delete'] });
+  assert.deepEqual(deleted.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId), ['m0']);
+  for (const answer of ['<call skill="message.edit" message="#2">όχι</call>', '<call skill="message.delete" message="#2"/>']) {
+    const run = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.edit', 'message.delete'] });
+    assert.deepEqual(run.port.calls.filter((call) => call.op === 'edit' || call.op === 'delete'), [], answer);
+    assert.ok(requestText(run.llm, 1).includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-own-message'] })), answer);
+  }
+});
+
+test('skill call: memory.read brings the summary back in one follow-up; nothing is posted for the call', async () => {
+  const asked = [];
+  const runOp = async (name, args, context) => {
+    asked.push({ name, args, context });
+    return { status: 'ok', code: 'ok', summary: 'name: Zoë\ncharacter: λατρεύει τα βουνά', data: { text: 'name: Zoë' } };
+  };
+  const store = fakeStore({ userProfiles: { u7: { id: 'u7', names: ['Zoë'], aliases: [] } } });
+  const { journal, lines } = journalOverMemory();
+  const run = await callTurn({ answers: ['<call skill="memory.read" member="@Zoë"/>', '<msg>τα βουνά</msg>'], allowed: ['memory.read'], owners: ['u1'], runOp, store, journal });
+  assert.deepEqual(asked, [{ name: 'memory.profile.read', args: { userId: 'u7', section: 'summary' }, context: { guildId: 'g1', channelId: 'c1', userId: 'u1' } }]);
+  assert.equal(run.llm.calls.length, 2);
+  assert.ok(requestText(run.llm, 1).includes(`<result skill="memory.read" status="ok">\n${labels.skills.result.ok}\nname: Zoë\ncharacter: λατρεύει τα βουνά\n</result>`));
+  assert.ok(!requestText(run.llm, 0).includes('<result'), 'the first request carries no result');
+  assert.ok(!requestText(run.llm, 1).includes(fill(labels.skills.result.alreadyPosted, { text: '' })), 'nothing posted first: no such line');
+  assert.deepEqual(run.sends.map((send) => send.text), ['τα βουνά']);
+  assert.deepEqual(skillPhases(lines), ['proposed', 'started', 'succeeded']);
+
+  // A member asker without the right: refused before anything is read, and told so.
+  const denied = await callTurn({ answers: ['<call skill="memory.read" member="Zoë"/>', '<skip/>'], allowed: ['memory.read'], runOp, store: fakeStore({ userProfiles: { u7: { id: 'u7', names: ['Zoë'], aliases: [] } } }) });
+  assert.equal(asked.length, 1);
+  assert.ok(requestText(denied.llm, 1).includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['requester-denied'] })));
+});
+
+test('skill call: status.show and skills.list answer in the follow-up', async () => {
+  const runOp = async () => ({ status: 'ok', code: 'ok', summary: '', data: { text: '', embeds: [{ fields: [{ name: 'uptime', value: '2 h' }] }] } });
+  const status = await callTurn({ answers: ['<call skill="status.show"/>', '<msg>δύο ώρες</msg>'], allowed: ['status.show'], runOp });
+  assert.ok(requestText(status.llm, 1).includes(`<result skill="status.show" status="ok">\n${labels.skills.result.ok}\nuptime: 2 h\n</result>`));
+  const list = await callTurn({ answers: ['<call skill="skills.list"/>', '<skip/>'], allowed: ['skills.list'] });
+  assert.ok(requestText(list.llm, 1).includes('<result skill="skills.list" status="ok">'));
+  assert.ok(requestText(list.llm, 1).includes('skills.list: '), 'the catalogue rows');
+});
+
+test('skill call: features.skills off does nothing at all; safe mode lets only the carried-over reply through', async () => {
+  const off = await callTurn({ answers: ['<msg>γεια</msg><call skill="message.send" conversation="#νέα">γεια</call>'], allowed: ['message.send'], features: { skills: false } });
+  assert.deepEqual(off.port.calls, []);
+  assert.equal(off.llm.calls.length, 1, 'no follow-up under the full stop');
+  const safe = await callTurn({ answers: ['<msg>γεια</msg><call skill="message.send" conversation="#νέα">γεια</call>', '<skip/>'], allowed: ['message.send'], skills: { safeMode: true } });
+  assert.deepEqual(safe.sends.map((send) => send.to), ['c1']);
+  assert.ok(safe.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'safe-mode'));
+});
+
+test('skill call: revoked between the plan and the execution -- refused, never run', async () => {
+  const { journal, lines } = journalOverMemory();
+  // The owner denies the skill while her reply is being sent.
+  const beforeSend = async (store, [conversation]) => {
+    if (conversation.conversationId === 'c1') denySkill(store.state.data, 'message.send');
+  };
+  const run = await callTurn({ answers: ['<msg>ναι</msg><call skill="message.send" conversation="#νέα">γεια</call>', '<skip/>'], allowed: ['message.send'], journal, beforeSend });
+  assert.deepEqual(run.sends.map((send) => send.to), ['c1']);
+  assert.deepEqual(skillPhases(lines), ['proposed', 'failed']);
+  assert.equal(actionsNamed(lines, 'skill').at(-1).result.code, 'not-allowed');
+  assert.equal(run.llm.calls.length, 2, 'she hears it did not run');
+});
+
+test('skill call: draw elsewhere generates once; a publication of unknown fate is journaled unknown, never redone', async () => {
+  const images = fakeImages();
+  const { journal, lines } = journalOverMemory();
+  const run = await callTurn({
+    answers: ['<call skill="draw" conversation="#νέα">a lighthouse at dusk</call>', '<msg>δεν ξέρω αν βγήκε</msg>'],
+    allowed: ['draw'],
+    images,
+    journal,
+    failNext: ['send', { status: 'unknown', error: { code: 'timeout', retryable: false } }],
+  });
+  assert.equal(images.generateCalls.length, 1);
+  assert.equal(images.quotaCalls.length > 0, true, 'the budget was checked before the generation');
+  assert.deepEqual(skillPhases(lines), ['proposed', 'started', 'unknown']);
+  assert.equal(run.port.calls.filter((call) => call.op === 'send').length, 2, 'the picture once, then the follow-up answer here');
+  assert.ok(requestText(run.llm, 1).includes(`<result skill="draw" status="unknown">\n${fill(labels.skills.result.unknown, { reason: labels.skills.result.reasons.other })}\n</result>`));
+
+  const delivered = await callTurn({ answers: ['<call skill="draw" conversation="#νέα">a lighthouse</call>'], allowed: ['draw'], images: fakeImages() });
+  assert.deepEqual(delivered.sends.map((send) => [send.to, send.attachments.length]), [['c9', 1]]);
+  assert.equal(delivered.llm.calls.length, 1, 'a picture that went through is its own answer');
+  const capped = await callTurn({ answers: ['<call skill="draw" conversation="#νέα">x</call>', '<skip/>'], allowed: ['draw'], images: fakeImages({ quota: { spent: true, userSpent: false } }) });
+  assert.deepEqual(capped.sends, []);
+  assert.ok(capped.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'daily-cap'));
+});
+
+test('skill call: a dry run only logs the call', async () => {
+  const run = await callTurn({ answers: ['<msg>ναι</msg><call skill="message.send" conversation="#νέα">γεια</call>'], allowed: ['message.send'], features: { dryRun: true } });
+  assert.deepEqual(run.port.calls, []);
+  assert.equal(run.llm.calls.length, 1);
+  assert.ok(run.logs.some((entry) => entry.msg === 'dry-run: would call' && entry.skill === 'message.send'));
+});
+
+test('skill call: the follow-up lists what the first pass already posted, before the result', async () => {
+  const runOp = async () => ({ status: 'ok', code: 'ok', summary: 'name: Zoë', data: { text: 'name: Zoë' } });
+  const store = fakeStore({ userProfiles: { u7: { id: 'u7', names: ['Zoë'], aliases: [] } } });
+  const run = await callTurn({
+    answers: ['<react to="#2">\u{1F389}</react><msg>μια στιγμή</msg><msg>κοιτάζω</msg><call skill="memory.read" member="Zoë"/>', '<msg>βρήκα</msg>'],
+    allowed: ['memory.read'],
+    owners: ['u1'],
+    runOp,
+    store,
+  });
+  const said = (text) => fill(labels.skills.result.alreadyPosted, { text });
+  const reaction = fill(labels.transcript.reactions, { list: fill(labels.transcript.reactionMine, { emoji: '\u{1F389}', count: 1 }) });
+  const block = `<result skill="memory.read" status="ok">\n${said(reaction)}\n${said('μια στιγμή')}\n${said('κοιτάζω')}\n${labels.skills.result.ok}\nname: Zoë\n</result>`;
+  assert.ok(requestText(run.llm, 1).includes(`${block}\n\n<task>\n`), requestText(run.llm, 1));
+  const first = run.llm.calls[0][1].content;
+  const second = run.llm.calls[1][1].content;
+  for (let i = 0; i < first.length - 1; i += 1) assert.deepEqual(second[i], first[i], 'the cached parts are the same');
+  assert.deepEqual(run.sends.map((send) => send.text), ['μια στιγμή', 'κοιτάζω', 'βρήκα']);
 });

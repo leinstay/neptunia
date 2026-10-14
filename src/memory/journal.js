@@ -353,7 +353,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   timeline(guildId: string, query: { from: number }): Promise<Array<{ at: number, kind: string, event: string|null }>>,
  *   triggerLinks(guildId: string, query: { days: string[] }): Promise<Array<[string, string]>>,
  *   dayFile(guildId: string, dateIso: string, privateUserId?: string|null): string,
- *   op(guildId: string, base: object): { opId: string, started(extra?: object): Promise<void>,
+ *   op(guildId: string, base: object): { opId: string, proposed(extra?: object): Promise<void>, started(extra?: object): Promise<void>,
  *     succeeded(result?: object): Promise<void>, failed(code: string, result?: object): Promise<void>,
  *     unknown(result?: object): Promise<void> },
  *   pending(guildId: string, query: { day?: string, days?: string[], before?: number }): Promise<Array<{ opId: string,
@@ -383,7 +383,9 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   `op` allots an operation's `opId` (`op-<uuid>`) for one side effect; `base` holds its
  *   `turnId`, `name`, `by` (`persona` | `engine`), `channelId`, `privateUserId`,
  *   `participants`, `sourceMessageIds`, `input`, `intent` (a post's `{ replyTo, text }`, the
- *   text cut to INTENT_CHARS) and `dryRun`. `started(extra)` writes the `started` line (`extra`
+ *   text cut to INTENT_CHARS) and `dryRun`. `proposed(extra)` writes a `proposed` line (a skill
+ *   call the persona asked for, before its checks; never pending without a `started` line);
+ *   `started(extra)` writes the `started` line (`extra`
  *   adds fields known only then); the first of `succeeded(result)`, `failed(code, result)`
  *   (`result.code`) or `unknown(result)` writes the closing line, any later one is ignored.
  *   `pending` lists the guild journal's operations of `day` (or of every day of `days`) whose
@@ -613,6 +615,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     };
     return {
       opId,
+      proposed: (extra = {}) => write(guildId, 'action', { ...common, ...extra, opId, phase: 'proposed' }),
       started: (extra = {}) => write(guildId, 'action', { ...common, ...extra, opId, phase: 'started' }),
       succeeded: (result = {}) => close('succeeded', result),
       failed: (code, result = {}) => close('failed', { ...result, code: typeof code === 'string' && code ? code : 'error' }),

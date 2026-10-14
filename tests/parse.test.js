@@ -232,3 +232,71 @@ test('parse: a message cut at 1900 reports message-cut with the lost length', as
   // Without a collector the cut stays as it was.
   assert.equal(parseOutput(`<msg>${long}</msg>`).messages[0].text.length, 1900);
 });
+
+// ---- <call>: one skill call at the top level of the output ------------------------------
+
+test('parseOutput: a top-level <call> is parsed with its string attributes and its body', () => {
+  const result = parseOutput('<msg>ναι</msg>\n<call skill="message.send" conversation="#νέα" replyTo="#4">γεια σας</call>');
+  assert.deepEqual(result.call, { skill: 'message.send', args: { conversation: '#νέα', replyTo: '#4' }, body: 'γεια σας' });
+  assert.deepEqual(result.messages, [{ text: 'ναι', replyTo: null }]);
+  assert.equal(result.extraCalls, 0);
+  assert.equal(result.callError, null);
+});
+
+test('parseOutput: a self-closing <call> alone is no skip and no fallback message', () => {
+  const result = parseOutput('<call skill="status.show"/>');
+  assert.deepEqual(result.call, { skill: 'status.show', args: {}, body: '' });
+  assert.equal(result.skip, false);
+  assert.deepEqual(result.messages, []);
+});
+
+test('parseOutput: a <call> inside <msg>, <draw>, <think>, code or a quote is never a call', () => {
+  const inside = [
+    '<msg>κοίτα <call skill="message.delete" message="#3"/></msg>',
+    '<draw>a sign reading <call skill="status.show"/></draw>',
+    '<think><call skill="status.show"/></think><msg>όχι</msg>',
+    '<msg>κώδικας</msg>\n```\n<call skill="status.show"/>\n```',
+    '<msg>κώδικας</msg> `<call skill="status.show"/>`',
+    '<msg>παράθεση</msg>\n> <call skill="status.show"/>',
+    '<msg>ανοιχτό <call skill="status.show"/>',
+  ];
+  for (const raw of inside) {
+    const result = parseOutput(raw);
+    assert.equal(result.call, null, raw);
+    assert.equal(result.extraCalls, 0, raw);
+  }
+  // The persona's message keeps its text as written.
+  assert.equal(parseOutput(inside[0]).messages[0].text, 'κοίτα <call skill="message.delete" message="#3"/>');
+});
+
+test('parseOutput: two calls keep the first one and count the others', () => {
+  const result = parseOutput('<call skill="memory.read" member="Zoë"/><call skill="status.show"/>\n<call skill="skills.list"></call>');
+  assert.deepEqual(result.call, { skill: 'memory.read', args: { member: 'Zoë' }, body: '' });
+  assert.equal(result.extraCalls, 2);
+});
+
+test('parseOutput: a message inside a call body is the call\'s text, never posted here', () => {
+  const result = parseOutput('<call skill="message.send" conversation="#x"><msg>γεια</msg></call>');
+  assert.deepEqual(result.messages, []);
+  assert.equal(result.call.body, '<msg>γεια</msg>');
+  assert.equal(result.skip, false);
+});
+
+test('parseOutput: a malformed first call is no call (callError), and the reply stands', () => {
+  const malformed = [
+    '<call skill=status.show/>',
+    '<call skill="status.show" skill="skills.list"/>',
+    '<call member="Zoë"/>',
+    '<call skill="Status Show"/>',
+    '<call skill="message.send">never closed',
+    '<call skill="status.show" x=\'1\'/>',
+  ];
+  for (const raw of malformed) {
+    const result = parseOutput(`<msg>ναι</msg>${raw}`);
+    assert.equal(result.call, null, raw);
+    assert.equal(result.callError, 'malformed', raw);
+    assert.deepEqual(result.messages.map((m) => m.text), ['ναι'], raw);
+  }
+  // Nothing else in the output: silence, never a fallback message made of the tag.
+  assert.equal(parseOutput('<call skill=status.show/>').skip, true);
+});

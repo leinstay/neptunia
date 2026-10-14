@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, renderProfile, stableThenTail, fillPromptTemplate, userText as contentText, usesFollowUpTask } from '../src/behavior/prompt.js';
+import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, renderProfile, skillResultBlock, stableThenTail, fillPromptTemplate, userText as contentText, usesFollowUpTask, withSkillResult } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
 import { fill, formatClock, formatDate, formatDuration } from '../src/discord/format.js';
 import { zonedDay } from '../src/time.js';
@@ -4624,4 +4624,52 @@ test('buildRequest: skills -- features.skills or features.skillsDiscovery false:
   const prompts = fakePrompts({ labels: { ...labels, skills: undefined } });
   const bare = contentText(buildRequest(segmentScene({ prompts, skillsInventory: SKILL_ROWS })).messages[1].content);
   assert.ok(!bare.includes('<skills_protocol>') && !blockTags(bare).includes('skills'));
+});
+
+test('buildRequest: skills -- the skills proposed for this turn show the allowed ones and one line naming the others', () => {
+  const proposed = SKILL_ROWS.map((row) => ({ ...row, proposed: true }));
+  const tail = buildRequest(segmentScene({ skillsInventory: proposed })).messages[1].content.at(-1).text;
+  const body = blocksOf(tail).find((b) => b.tag === 'skills').body;
+  const line = (row, access) => fill(labels.skills.line, { name: row.name, title: row.title, whenToUse: row.whenToUse, access });
+  assert.deepEqual(body.split('\n'), [
+    line(SKILL_ROWS[0], labels.skills.access['carried-over']),
+    line(SKILL_ROWS[1], labels.skills.access.allowed),
+    fill(labels.skills.proposedOff, { names: 'memory.read' }),
+  ]);
+  // Nothing allowed and no note label: no block.
+  const prompts = fakePrompts({ labels: { ...labels, skills: { ...labels.skills, proposedOff: undefined } } });
+  const closed = buildRequest(segmentScene({ prompts, skillsInventory: [{ ...SKILL_ROWS[2], proposed: true }] })).messages[1].content;
+  assert.equal(blockTags(contentText(closed)).includes('skills'), false);
+});
+
+test('skillResultBlock: the status and the reason in words, a read\'s data cut to its cap, rows as the catalogue', () => {
+  assert.equal(
+    skillResultBlock({ skill: 'message.edit', status: 'refused', code: 'not-allowed' }, labels),
+    `<result skill="message.edit" status="refused">\n${fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })}\n</result>`,
+  );
+  const unknownCode = skillResultBlock({ skill: 'message.send', status: 'unknown', code: 'http-503' }, labels);
+  assert.ok(unknownCode.includes(fill(labels.skills.result.unknown, { reason: labels.skills.result.reasons.other })), unknownCode);
+  const read = skillResultBlock({ skill: 'memory.read', status: 'ok', data: { text: 'όνομα: Ζωή\n' + 'λ'.repeat(50) } }, labels, { maxChars: 20 });
+  const [, lead, data] = read.split('\n');
+  assert.equal(lead, labels.skills.result.ok);
+  assert.ok(data.length <= 20 && data.endsWith('…'), data);
+  const rows = skillResultBlock({ skill: 'skills.list', status: 'ok', data: { rows: SKILL_ROWS.slice(1, 2) } }, labels);
+  assert.ok(rows.includes(fill(labels.skills.line, { name: 'message.edit', title: 'Διόρθωσε', whenToUse: 'ένα δικό σου μήνυμα', access: labels.skills.access.allowed })), rows);
+  // Without the labels the code is all the block says.
+  assert.equal(skillResultBlock({ skill: 'draw', status: 'failed', code: 'error' }, {}), '<result skill="draw" status="failed">\nerror\n</result>');
+});
+
+test('withSkillResult: the block goes into the tail right before <task>; the cached parts are untouched', () => {
+  const messages = buildRequest(segmentScene()).messages;
+  const block = '<result skill="status.show" status="ok">\nok\n</result>';
+  const next = withSkillResult(messages, block);
+  assert.notEqual(next, messages);
+  const before = messages[1].content;
+  const after = next[1].content;
+  assert.equal(after.length, before.length);
+  for (let i = 0; i < before.length - 1; i += 1) assert.deepEqual(after[i], before[i], `part ${i}`);
+  assert.ok(after.at(-1).text.includes(`${block}\n\n<task>\n`), 'right before <task>');
+  assert.equal(blockTags(after.at(-1).text).at(-1), 'task', '<task> stays last');
+  assert.equal(after.at(-1).text.replace(`${block}\n\n`, ''), before.at(-1).text, 'nothing else moved');
+  assert.equal(messages[1].content, before, 'the request is not changed');
 });
