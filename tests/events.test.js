@@ -207,6 +207,7 @@ function makeHandler({
   timers,
   activity,
   record,
+  missed,
 } = {}) {
   return createMessageHandler({
     hot: prompts !== undefined ? { config: config ?? baseConfig(), prompts } : { config: config ?? baseConfig() },
@@ -227,6 +228,7 @@ function makeHandler({
     timers,
     activity,
     record,
+    missed,
   });
 }
 
@@ -3766,11 +3768,11 @@ const FOLLOW_UP_T0 = 1_000_000;
  * attention is free when the message arrives and taken before the verdict comes back.
  * `beforeAnswer` runs right before each answer.
  */
-async function deferredFollowUps({ answers = ['yes'], busyIn = 'c9', config = baseConfig(), beforeAnswer, tagHistory } = {}) {
+async function deferredFollowUps({ answers = ['yes'], busyIn = 'c9', config = baseConfig(), beforeAnswer, tagHistory, missed } = {}) {
   const clock = mutableNow(FOLLOW_UP_T0);
   const llm = fakeFollowUpLlm();
   const turns = attentionTurns(busyIn);
-  const handler = makeHandler({ config, turns, llm, tagHistory, now: clock, sleep: async () => {}, rng: () => 0.5, prompts: fakeAddressPrompts() });
+  const handler = makeHandler({ config, turns, llm, tagHistory, now: clock, sleep: async () => {}, rng: () => 0.5, prompts: fakeAddressPrompts(), missed });
   const guild = fakeGuild();
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: FOLLOW_UP_T0 });
@@ -3918,6 +3920,13 @@ test('follow-up: a deferred "yes" is dropped when its window closed while it wai
   const logs = await endTurnAndDrain(scene);
   assert.equal(scene.turns.calls.length, 0);
   assert.deepEqual(followUpDropped(logs), [['m1', 'closed']]);
+});
+
+test('follow-up: a deferred "yes" replaced by a newer one is a replaced-deferred fact with both ids', async () => {
+  const missed = recordingMissed();
+  await deferredFollowUps({ answers: ['yes', 'yes'], missed });
+  assert.deepEqual(missed.facts.map((f) => [f.reason, f.message.id, f.replacedBy]), [['replaced-deferred', 'm1', 'm2']]);
+  assert.equal(missed.facts[0].message.authorId, 'u1');
 });
 
 test('follow-up: a newer deferred "yes" in the same channel replaces the older one', async () => {
@@ -4586,12 +4595,12 @@ test('follow-up: a failed classifier call is logged with its error, not only as 
  * `reply` is false), then `between` (raw lines after hers), then Bob's candidate. `failure` is
  * `'throw'`, `'empty'` or an answer word (a working classifier).
  */
-async function failOpenScenario({ agoMs = 60_000, between = [], failure = 'throw', reply = true, preceding = 'u2', mention = {}, extra } = {}) {
+async function failOpenScenario({ agoMs = 60_000, between = [], failure = 'throw', reply = true, preceding = 'u2', mention = {}, extra, missed } = {}) {
   const llm = fakeFollowUpLlm();
   const turns = recordingTurns();
   const spontaneous = fakeSpontaneous();
   const config = baseConfig({ mention: { failOpenMinutes: 3, ...mention } });
-  const handler = makeHandler({ config, turns, spontaneous, llm, prompts: fakeAddressPrompts() });
+  const handler = makeHandler({ config, turns, spontaneous, llm, prompts: fakeAddressPrompts(), missed });
   const guild = fakeGuild();
   const t0 = Date.now();
   const herTs = t0 - agoMs;
@@ -4679,6 +4688,39 @@ test('follow-up: a failed classifier is a "no" when the exchange is not an activ
       if (scenario.mention?.failOpenMinutes === 0) assert.equal(open, undefined, `${failure}, ${label}: switched off, not logged`);
       else assert.equal(open?.open, false, `${failure}, ${label}`);
     }
+  }
+});
+
+/** A src/behavior/missed.js stand-in recording the facts and the activity it is told of. */
+function recordingMissed() {
+  const facts = [];
+  const activity = [];
+  return {
+    facts,
+    activity,
+    noteFact: (fact) => facts.push(fact),
+    noteActivity: (channelId, at) => activity.push([channelId, at]),
+  };
+}
+
+test('follow-up: a failed classifier is a missed-answer fact, gate-failopen when it keeps the exchange, gate-failed otherwise', async () => {
+  const kept = recordingMissed();
+  await failOpenScenario({ failure: 'throw', missed: kept });
+  assert.deepEqual(kept.facts.map((f) => [f.reason, f.message.id, f.failure]), [['gate-failopen', 'm-candidate', 'classifier-failed']]);
+  assert.ok(kept.activity.some(([channelId]) => channelId === 'c1'), 'the message is activity in its channel');
+
+  const dropped = recordingMissed();
+  await failOpenScenario({ failure: 'empty', preceding: 'u3', missed: dropped });
+  assert.deepEqual(dropped.facts.map((f) => [f.reason, f.message.id, f.failure]), [['gate-failed', 'm-candidate', 'empty']]);
+
+  const off = recordingMissed();
+  await failOpenScenario({ failure: 'throw', mention: { failOpenMinutes: 0 }, missed: off });
+  assert.deepEqual(off.facts.map((f) => f.reason), ['gate-failed'], 'fail-open switched off: still a failed gate');
+
+  for (const answer of ['no', 'yes']) {
+    const working = recordingMissed();
+    await failOpenScenario({ failure: answer, missed: working });
+    assert.deepEqual(working.facts, [], `${answer}: a working classifier is no fact`);
   }
 });
 

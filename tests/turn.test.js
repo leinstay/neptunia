@@ -8765,3 +8765,110 @@ test('skill call: the follow-up lists what the first pass already posted, before
   for (let i = 0; i < first.length - 1; i += 1) assert.deepEqual(second[i], first[i], 'the cached parts are the same');
   assert.deepEqual(run.sends.map((send) => send.text), ['μια στιγμή', 'κοιτάζω', 'βρήκα']);
 });
+
+// ---------------------------------------------------------------------------
+// The end hook and the recovery turn (src/behavior/missed.js): every runTurn reports how it
+// ended; a `missed` turn names its messages under labels.task.missed and posts nothing once
+// they no longer wait (stillDue).
+
+/** A runner over two lines of c1 whose reply is `answer`, with every end it reports. */
+function endHookScene(answer = '<msg reply="#1">ναι</msg>') {
+  const history = [
+    rawMessage({ id: 'm98', ts: NOW - 60_000, authorName: 'Alice', content: 'tu viens ce soir ?' }),
+    rawMessage({ id: 'm99', ts: NOW - 30_000, authorId: 'u2', authorName: 'Zoë', content: 'et le lapin ?' }),
+  ];
+  const channel = fakeTurnChannel({ historyMessages: history });
+  const llm = fakeLlm(answer);
+  const store = fakeStore();
+  const turns = createTurnRunner({ hot: fakeHot({ typingSimulation: false }), store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const ends = [];
+  turns.setOnTurnEnd((end) => ends.push(end));
+  return { history, channel, llm, store, turns, ends };
+}
+
+test('createTurnRunner: the end hook hears every turn\'s outcome, its trigger and what its posts replied to', async () => {
+  const { history, channel, store, turns, ends } = endHookScene();
+  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(ends.length, 1);
+  const [end] = ends;
+  assert.deepEqual(
+    [end.guildId, end.channelId, end.privateChat, end.routed, end.mode, end.triggerKind, end.outcome, end.reason, end.dryRun],
+    ['g1', 'c1', false, false, 'reply', 'mention', 'spoke', null, false],
+  );
+  assert.deepEqual([end.trigger.id, end.trigger.authorId, end.trigger.ts], ['m99', 'u2', NOW - 30_000]);
+  assert.deepEqual(end.replyTargets, ['m98']);
+  assert.equal(channel.sent.length, 1);
+  assert.equal(turns.triggerOf('sent-1'), 'm99', 'the read accessor of the trigger links');
+  assert.equal(turns.triggerOf('nope'), null);
+
+  store.state.data.paused = true;
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual([ends[1].outcome, ends[1].trigger.id], ['paused', 'm98']);
+});
+
+test('createTurnRunner: a turn dropped at its bar reaches the end hook as an error with reason too-slow', async () => {
+  // The scene of 'no text-only resend is made once no time is left before pace.dropAfterMs'.
+  let t = NOW;
+  const raw = rawMessage({
+    id: 'm1',
+    attachments: new Map([
+      ['v1', { id: 'v1', contentType: 'video/mp4', name: 'clip.mp4', url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4', duration: 34 }],
+    ]),
+  });
+  const channel = fakeTurnChannel({ historyMessages: [raw] });
+  const llm = barLlm(async () => {
+    t = NOW + BAR_MS;
+    const err = new Error('bad request');
+    err.statusCode = 400;
+    throw err;
+  });
+  const hot = fakeHot({});
+  hot.config.pace = { ...TEST_PACE, dropAfterMs: BAR_MS };
+  const timers = fakeSchedule();
+  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => t, schedule: timers.schedule });
+  const ends = [];
+  turns.setOnTurnEnd((end) => ends.push(end));
+  await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(ends.map((end) => [end.outcome, end.reason, end.trigger.id]), [['error', 'too-slow', 'm1']]);
+});
+
+test('runTurn: a missed turn names its messages under labels.task.missed and posts', async () => {
+  const { history, channel, llm, turns, ends } = endHookScene('<msg>me voilà</msg>');
+  const missed = [
+    { id: 'm98', author: 'Alice', text: 'tu viens ce soir ?' },
+    { id: 'm99', author: 'Zoë', text: 'et le lapin ?' },
+  ];
+  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'missed', missed, stillDue: () => true });
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(channel.sent.length, 1);
+  const task = taskOf({ messages: llm.calls[0] });
+  assert.ok(task.includes(fill(labels.task.missed, { missed: '1. Alice: tu viens ce soir ?; 2. Zoë: et le lapin ?' })), task);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(ends[0].triggerKind, 'missed');
+});
+
+test('runTurn: a missed turn whose messages no longer wait posts nothing and ends not-now', async () => {
+  const { history, channel, turns } = endHookScene('<msg>me voilà</msg>');
+  let asked = 0;
+  const { result, logs } = await withCapturedLogs(() =>
+    turns.runTurn({
+      channel,
+      mode: 'reply',
+      trigger: normalizedTrigger(history[0]),
+      triggerKind: 'missed',
+      missed: [{ id: 'm98', author: 'Alice', text: 'tu viens ce soir ?' }],
+      stillDue: () => {
+        asked += 1;
+        return false;
+      },
+    }),
+  );
+  assert.equal(asked, 1);
+  assert.deepEqual([result.outcome, result.reason], ['not-now', 'answered-meanwhile']);
+  assert.equal(channel.sent.length, 0);
+  assert.ok(logs.some((l) => l.msg === 'turn: dropped' && l.reason === 'answered-meanwhile'));
+});

@@ -216,6 +216,7 @@ export const labels = {
     overheard: 'talked about you to someone else, not to you',
     drawFailed: 'asked for a picture, the drawing failed: {reason}',
     private: 'wrote to you privately',
+    missed: 'wrote to you earlier, unanswered',
   },
   draw: {
     reasons: {
@@ -269,6 +270,7 @@ export const labels = {
     queued: 'the same person has more calls waiting, each gets its own turn later:\n{others}',
     queuedOthers: 'other people have calls waiting here too, each gets its own turn later: {others}',
     added: 'they asked about this again meanwhile:\n{added}',
+    missed: 'unanswered earlier, answer now or let pass: {missed}',
   },
   recent: {
     header: 'what you remember from the last {hours} hours, oldest first:',

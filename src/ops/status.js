@@ -11,7 +11,8 @@
 // member's card only names the models. Each role shows its own model (never another role's), and
 // each group ends with the `roles.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
 // memory) is computed at most once a minute: directory listings and the record's month indexes,
-// never its day files. The speed field reads src/ops/metrics.js (the last 24 h).
+// never its day files. The speed field reads src/ops/metrics.js (the last 24 h), then today's
+// missed-answer figures from the journal (src/behavior/missed.js).
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -32,6 +33,7 @@ import { PURPOSE_ROLES, roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { ARCHIVE_EVENTS } from '../memory/archive.js';
 import { plannerOn } from '../behavior/planner.js';
+import { missedCounts, missedStatusLine } from '../behavior/missed.js';
 import { SPEED_METRICS } from './metrics.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
@@ -717,6 +719,22 @@ const handlers = perEnv((env) => {
   }
 
   /**
+   * The speed field's last line: today's missed-answer figures from the journal's `answer`
+   * records (src/behavior/missed.js#missedCounts). Null -- no line -- without a journal that
+   * reads, without a guild, or with features.journal off; `missed: unreadable` when the read fails.
+   */
+  async function missedLine(guildId, cfg) {
+    if (!guildId || typeof journal?.read !== 'function' || cfg.features?.journal !== true) return null;
+    try {
+      const records = await journal.read(guildId, { day: utcDay(clock()), kind: 'answer', n: Number.MAX_SAFE_INTEGER });
+      return missedStatusLine(missedCounts(records));
+    } catch (err) {
+      log.warn('status: missed unread', { code: err?.code ?? null });
+      return 'missed: unreadable';
+    }
+  }
+
+  /**
    * The status card as plain embed data (`{ fields: [{ name, value, inline }] }`), the fields in
    * STATUS_FIELDS order, one item per line in each; `owner` false leaves out the memory and
    * speed fields and the storage line, and names the models without probing them. Reads the
@@ -728,6 +746,7 @@ const handlers = perEnv((env) => {
     const data = store.state.data ?? {};
     const guildId = getGuildId?.() ?? null;
     const unresolved = 'guild not resolved yet';
+    const missed = owner ? await missedLine(guildId, cfg) : null;
     const values = {
       state: owner ? `${stateValue(data)}\n${await storageLine(guildId, cfg)}` : stateValue(data),
       connection: connectionValue(),
@@ -736,7 +755,7 @@ const handlers = perEnv((env) => {
       models: owner && typeof llm?.complete === 'function' ? await probedModelsValue(cfg) : modelsValue(cfg),
       limits: limitsValue(cfg, data),
       memory: owner && guildId ? await memoryValue(guildId) : unresolved,
-      speed: owner ? speedValue(cfg) : '',
+      speed: owner ? [speedValue(cfg), missed].filter(Boolean).join('\n') : '',
       uptime: span(process.uptime() * 1000),
     };
     const fields = STATUS_FIELDS

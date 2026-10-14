@@ -107,9 +107,10 @@ import { createDiscordAdapter } from '../interface/discord.js';
  * Why a reply turn runs: a `@mention`, a Discord reply to the persona, a
  * name trigger, a follow-up the address classifier said "yes" to, a line the
  * address classifier found to be about the persona but said to someone else
- * or to the room (`overheard`), a private chat message, or the second turn
- * after a drawing that failed. Each has a `labels.triggers` entry.
- * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'drawFailed'} TriggerKind
+ * or to the room (`overheard`), a private chat message, the second turn
+ * after a drawing that failed, or a message to the persona left unanswered
+ * earlier (`missed`, src/behavior/missed.js). Each has a `labels.triggers` entry.
+ * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'drawFailed'|'missed'} TriggerKind
  */
 
 /**
@@ -1062,12 +1063,14 @@ function journalTurnRecord(draft, result) {
  * when the request can render them: in `labels.task.part`'s others on a part,
  * else under `labels.task.queued`; another member's under
  * `labels.task.queuedOthers`. A call the labels cannot name is not deferred:
- * the seen-in-history rule holds for it, as before. `input` is null when
- * there is nothing to say.
+ * the seen-in-history rule holds for it, as before. `missed`: a recovery
+ * turn's earlier messages left unanswered (src/behavior/missed.js), `{ author,
+ * text }` each, named under `labels.task.missed`. `input` is null when there
+ * is nothing to say.
  * @returns {{ input: { part: object|null, queued: string[], queuedOthers: { author: string, text: string }[],
- *   added: string[] }|null, deferred: Set<string> }}
+ *   added: string[], missed: { author: string, text: string }[] }|null, deferred: Set<string> }}
  */
-function taskInput({ part, queued, added, labels, channelId }) {
+function taskInput({ part, queued, added, missed = null, labels, channelId }) {
   let waiting = [];
   if (typeof queued === 'function') {
     try {
@@ -1083,13 +1086,17 @@ function taskInput({ part, queued, added, labels, channelId }) {
   const ownNamed = own.length > 0 && Boolean(part ? labels?.task?.part : labels?.task?.queued);
   const othersNamed = others.length > 0 && Boolean(labels?.task?.queuedOthers);
   const deferred = new Set([...(ownNamed ? own : []), ...(othersNamed ? others : [])].map((call) => call.id).filter(Boolean));
-  if (!part && waiting.length === 0 && addedTexts.length === 0) return { input: null, deferred };
+  const missedItems = Array.isArray(missed)
+    ? missed.filter((item) => item && typeof item.text === 'string' && item.text).map((item) => ({ author: typeof item.author === 'string' ? item.author : '', text: item.text }))
+    : [];
+  if (!part && waiting.length === 0 && addedTexts.length === 0 && missedItems.length === 0) return { input: null, deferred };
   return {
     input: {
       part: part ?? null,
       queued: own.map((call) => call.text),
       queuedOthers: others.map((call) => ({ author: call.author, text: call.text })),
       added: addedTexts,
+      missed: missedItems,
     },
     deferred,
   };
@@ -1586,6 +1593,7 @@ export function createTurnRunner({
   const chains = new Map();
   const lastPostAt = new Map(); // channelId -> ts of the persona's last message
   let onIdle = null; // set via setOnIdle(); see the finally block of runTurn below
+  let onTurnEnd = null; // set via setOnTurnEnd(); see noteTurnEnd
   let idleWaiters = []; // resolvers for waitIdle() (/nep pause), notified once busy.size hits 0
   // channelId -> ids of the messages in the history of the last turn that spoke there; for a
   // channel the bot cannot write in, the lines its `<channel_view>` block showed in the last
@@ -3946,6 +3954,11 @@ export function createTurnRunner({
    *   named and the old rule holds for it.
    * @param {{ id: string, text: string, ts: number }[]|null} [params.added]  Later messages of the
    *   author folded into this call (src/discord/events.js): `labels.task.added` names them.
+   * @param {{ author: string, text: string }[]|null} [params.missed]  A recovery turn's messages
+   *   (trigger kind `missed`, src/behavior/missed.js), the trigger first: `labels.task.missed`
+   *   names them.
+   * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
+   *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
    * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.diary]  With `mode: 'diary'`
    *   (src/behavior/diary.js, in the diary channel, no trigger): the post is planned first
    *   (prepareDiary: the plan request, then the search it asks for; `kind` forces the kind --
@@ -3991,14 +4004,50 @@ export function createTurnRunner({
   async function runTurn(params) {
     // Every attempt that started in the journal (runTurnOnce), closed here, at the one exit.
     const attempts = [];
-    const tracked = { ...params, journalAttempts: attempts };
+    // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
+    const ends = { replyTargets: [], reasons: [] };
+    const tracked = { ...params, journalAttempts: attempts, turnEnds: ends };
+    let result;
     try {
       const first = await runTurnOnce({ ...tracked, maySplit: true });
-      if (first.outcome === 'split') return await runChain(tracked, first);
-      return await answerDrawFailure(tracked, first);
+      result = first.outcome === 'split' ? await runChain(tracked, first) : await answerDrawFailure(tracked, first);
+      return result;
     } finally {
       if (attempts.length > 0) await writeTurnRecords(attempts);
+      noteTurnEnd(params, result, ends);
     }
+  }
+
+  /**
+   * Tell the end hook (setOnTurnEnd; src/behavior/missed.js) how a turn ended, never awaited
+   * and never thrown into the turn: its channel and guild, whether it was a private chat or
+   * about another channel (`routed`), its trigger (`{ id, authorId, channelId, ts, content }`,
+   * in process only) and kind, its outcome (`error` when it threw), its reason (the result's,
+   * or `too-slow` for one dropped at its bar), the messages its posts replied to, whether it
+   * was a rehearsal and its journal id.
+   */
+  function noteTurnEnd(params, result, ends) {
+    if (typeof onTurnEnd !== 'function') return;
+    const { channel, trigger = null, triggerKind = null, mode = null, source = null } = params ?? {};
+    const outcome = result?.outcome ?? 'error';
+    const reason = typeof result?.reason === 'string' ? result.reason : outcome === 'error' && ends.reasons.includes('too-slow') ? 'too-slow' : null;
+    const end = {
+      guildId: channel?.guild?.id ?? params?.guildId ?? null,
+      channelId: channel?.id ?? null,
+      privateChat: !channel?.guild,
+      routed: Boolean(source),
+      mode,
+      trigger: trigger ? { id: trigger.id ?? null, authorId: trigger.authorId ?? null, channelId: trigger.channelId ?? channel?.id ?? null, ts: trigger.ts ?? null, content: trigger.content ?? '' } : null,
+      triggerKind,
+      outcome,
+      reason,
+      replyTargets: [...new Set(ends.replyTargets)],
+      dryRun: result?.dryRun === true,
+      turnId: result?.turnId ?? null,
+    };
+    Promise.resolve()
+      .then(() => onTurnEnd(end))
+      .catch((err) => log.warn('turn: onTurnEnd failed', { error: err }));
   }
 
   /**
@@ -4037,6 +4086,7 @@ export function createTurnRunner({
           plainPosts,
           // The journal: the same turn, its next attempt.
           journalAttempts: params.journalAttempts,
+          turnEnds: params.turnEnds,
           journalTurn: first.turnId ? { turnId: first.turnId, attemptId: (first.attemptId ?? 1) + 1 } : null,
         });
         log.info('turn: draw failure answered', { channel: channel.id, reason: first.drawFailed, outcome: second.outcome });
@@ -4189,6 +4239,10 @@ export function createTurnRunner({
       // An attempt whose turn.start was written closes with its turn record at runTurn's exit,
       // whatever it returned (a throw counts as `error`).
       if (draft.started) args.journalAttempts?.push({ draft, result: result ?? { outcome: 'error' } });
+      if (args.turnEnds) {
+        args.turnEnds.replyTargets.push(...(draft.replyTargets ?? []));
+        if (typeof draft.reason === 'string') args.turnEnds.reasons.push(draft.reason);
+      }
     }
     return draft.started ? { ...result, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : result;
   }
@@ -4216,6 +4270,8 @@ export function createTurnRunner({
     plainPosts = false,
     diary: diaryParams = null,
     journalTurn = null,
+    missed = null,
+    stillDue = null,
   }, draft = {}) {
     // A server channel carries its guild; a private chat is served on behalf of the pinned one.
     const guildId = channel.guild?.id ?? guildIdParam;
@@ -5020,7 +5076,7 @@ export function createTurnRunner({
       // The prompts this request is built from, read once: the task labels below decide what it names.
       const prompts = hot.prompts;
       // A part of a split message, the author's other calls still queued, the messages folded into this one.
-      const tasks = taskInput({ part, queued, added, labels: prompts?.labels, channelId: channel.id });
+      const tasks = taskInput({ part, queued, added, missed, labels: prompts?.labels, channelId: channel.id });
       // What this turn had in view yet does not answer (spokeAfterSeeing): the queued calls it
       // named, and on a part of a split message every line after the message -- a call that came
       // while the chain ran waits for its own turn after the chain.
@@ -5372,6 +5428,14 @@ export function createTurnRunner({
         log.info('turn: set short', { channel: channel.id, pictures, wanted: setMinPosted, ...extra });
         return { outcome: 'refused', mode: finalMode, reason: 'set-short', ...extra };
       };
+      // A recovery turn (src/behavior/missed.js) asks right before anything is posted whether
+      // its messages still wait for an answer (`stillDue`): the persona spoke in the channel
+      // since it started, or another turn answered one of them -- nothing is posted.
+      if (typeof stillDue === 'function' && !stillDue()) {
+        log.info('turn: dropped', { channel: channel.id, mode: finalMode, triggerKind: triggerKind ?? null, reason: 'answered-meanwhile' });
+        draft.reason = 'answered-meanwhile';
+        return { outcome: 'not-now', mode: finalMode, reason: 'answered-meanwhile' };
+      }
       if (hot.config.features?.dryRun === true) {
         // Nothing is generated: a set with fewer drawings than it needs would be short.
         if (setDraws && setDraws.length < setMinPosted) return setShort(setDraws.length, { dryRun: true });
@@ -5452,6 +5516,8 @@ export function createTurnRunner({
         draft.posted = [...(acted.posts ?? []), ...(followed?.posts ?? [])];
         draft.reactions = [...(acted.reacted ?? []), ...(followed?.reacted ?? [])];
       }
+      // The messages its posts replied to, for the end hook (noteTurnEnd), journal or not.
+      draft.replyTargets = [...(acted.posts ?? []), ...(followed?.posts ?? [])].map((post) => post?.replyTo).filter((id) => typeof id === 'string' && id);
       // A diary post that reached the chat is recorded and counted.
       const recorded =
         diaryPrep && acted.delivered === true
@@ -5568,5 +5634,20 @@ export function createTurnRunner({
     setOnIdle: (fn) => {
       onIdle = fn;
     },
+    /**
+     * Called (never awaited, never thrown into the turn) once every runTurn has ended, with how
+     * it ended (noteTurnEnd): src/behavior/missed.js resolves and records from it.
+     * @param {(end: object) => void} fn
+     */
+    setOnTurnEnd: (fn) => {
+      onTurnEnd = fn;
+    },
+    /**
+     * The id of the message that started the turn which posted `postedId` (this process, or
+     * seeded from the journal at start), or null.
+     * @param {string} postedId
+     * @returns {string|null}
+     */
+    triggerOf: (postedId) => triggerLinks.get(postedId) ?? null,
   };
 }

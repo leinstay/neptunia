@@ -411,6 +411,34 @@ test('journal: stalled follows the append store and a private memory record goes
   assert.equal(record.kind, 'memory');
 });
 
+test('journal: an answer record is scoped to its channel, named by its participants and read by kind', async () => {
+  const clock = { ms: DAY_D };
+  const { journal, appendStore } = journalAt(clock);
+  await journal.answer('g1', {
+    event: 'fact',
+    reason: 'replaced-deferred',
+    messageId: 'm1',
+    authorId: 'u7',
+    channelId: 'c1',
+    at: '2026-10-13T23:59:40.000Z',
+    replacedBy: 'm2',
+    participants: ['u7'],
+    sourceMessageIds: ['m1', 'm2'],
+  });
+  const [{ file, record }] = records(appendStore);
+  assert.equal(file, journal.dayFile('g1', '2026-10-13'));
+  assert.equal(record.kind, 'answer');
+  assert.deepEqual(record.scope, { channel: 'c1' });
+  assert.deepEqual(record.participants, ['u7']);
+  assert.deepEqual(record.sourceMessageIds, ['m1', 'm2']);
+  assert.equal(record.channelId, undefined, 'the channel is the scope, not stored twice');
+  assert.deepEqual((await journal.read('g1', { day: '2026-10-13', kind: 'answer' })).map((r) => r.messageId), ['m1']);
+  const { journalLine } = await import('../src/memory/journal.js');
+  assert.equal(journalLine({ ...record, occurredAt: '2026-10-13T08:09:10.000Z' }), '08:09:10 answer fact replaced-deferred');
+  assert.equal(journalLine({ kind: 'answer', occurredAt: '2026-10-13T08:09:10.000Z', event: 'verdict', reason: 'gate-failed', verdict: 'owed' }), '08:09:10 answer verdict gate-failed owed');
+  assert.equal(journalLine({ kind: 'answer', occurredAt: '2026-10-13T08:09:10.000Z', event: 'recovery', outcome: 'spoke' }), '08:09:10 answer recovery spoke');
+});
+
 // ---- forget and the run marker: a real append store on a temp dir --------------------------
 
 async function realJournal(clock) {
