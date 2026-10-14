@@ -106,6 +106,12 @@ const ARCHIVE_CHOICES = 25;
  * `embedQueue` — from src/memory/embedder.js#createEmbedder, optional: `catchUp(guildId)`, the
  *   meaning index's catch-up pass `/nep resume` starts (never awaited), and `indexSummary(guildId)`,
  *   the owner card's index line. Absent -> no pass on resume and no index line.
+ * `record` — from createRecord() (src/memory/record.js), optional: `dayFile`, where the owner's
+ *   `/nep status` card finds the record's month indexes for its memory coverage. Absent -> the
+ *   record line says it is not available.
+ * `metrics` — from src/ops/metrics.js#createMetrics, optional: `summary`, the owner card's speed
+ *   field, and the turns of the last hour its storage line weighs. Absent -> no speed figures.
+ * `now` — the clock of the status card's coverage cache (default `Date.now`).
  * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing

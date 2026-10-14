@@ -211,8 +211,7 @@
   },
   "status": {
     "probe": "Reply with the single word pong.",
-    "fallback": "(= {role})",
-    "index": "index {rows} rows, {missing} missing"
+    "fallback": "(= {role})"
   },
   "warmup": {
     "ownMark": ">> ",

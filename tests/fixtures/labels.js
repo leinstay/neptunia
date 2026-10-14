@@ -233,7 +233,6 @@ export const labels = {
   status: {
     probe: 'Reply with one word: pong',
     fallback: '(same as {role})',
-    index: 'index: {rows} rows, {missing} missing',
   },
   warmup: {
     ownMark: '[own] ',

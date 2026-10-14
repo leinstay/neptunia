@@ -322,7 +322,8 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
   }
 
   async function runFlush() {
-    lastFlushAt = now();
+    const startedAt = now();
+    lastFlushAt = startedAt;
     if (!on() || queue.length === 0) return { embedded: 0, dropped: 0, left: queue.length };
     const { batch, maxTokens } = settings();
     const config = hot.config;
@@ -348,7 +349,7 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
     }
     queue = queue.filter((job) => !gone.has(job));
     if (jobs.length === 0) {
-      if (gone.size > 0) log.info('embedder: flushed', { embedded: 0, dropped: gone.size, left: queue.length });
+      if (gone.size > 0) log.info('embedder: flushed', { embedded: 0, dropped: gone.size, left: queue.length, ms: now() - startedAt });
       return { embedded: 0, dropped: gone.size, left: queue.length };
     }
 
@@ -392,7 +393,7 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
         log.warn('embedder: append failed', { guildId: group.guildId, rows: group.rows.length, code: error?.code ?? null });
       }
     }
-    log.info('embedder: flushed', { embedded, dropped, left: queue.length });
+    log.info('embedder: flushed', { embedded, dropped, left: queue.length, ms: now() - startedAt });
     return { embedded, dropped, left: queue.length };
   }
 
