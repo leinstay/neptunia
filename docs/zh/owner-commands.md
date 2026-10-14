@@ -62,7 +62,7 @@
 | `/nep memory forget <user>` | `memory.forget` | ephemeral，延迟 | 删除成员的档案和私有记忆 |
 | `/nep memory affinity <user>` | `memory.affinity.read` | ephemeral | 查看态度分数和历史 |
 | `/nep memory wipe <confirm>` | `memory.wipe` | ephemeral，延迟 | 删除服务器的所有记忆（档案、私有记忆、习惯、频道、世界书） |
-| `/nep memory journal [day] [kind:turn\|action\|memory\|system\|all] [n]` | `memory.journal.read` | ephemeral | 日志记录 |
+| `/nep memory journal [day] [kind:turn\|action\|memory\|system\|all] [n] [message]` | `memory.journal.read` | ephemeral | 日志记录 |
 | `/nep memory archive [user] [kind] [n]` | `memory.archive.read` | ephemeral，延迟 | 归档的条目 |
 | `/nep memory restore <id>` | `memory.restore` | ephemeral，延迟 | 恢复一个归档条目；`id` 自动补全 |
 | `/nep memory snapshot` | `memory.snapshot` | ephemeral，延迟 | 为工具做 data/ 快照 |
@@ -84,7 +84,7 @@
 
 `/nep memory forget` 删除成员的公共档案、私有私信文件、语音队列条目、版本历史、记录和归档条目。删除前将所有内容复制到保险库目录（`memory.vaultDir`，默认 `data/vault/`），并将成员 ID 写入 `data/guilds/<id>/forgotten.json`。引擎不会读取保险库；要恢复成员，请手动复制文件并从 `forgotten.json` 中移除条目。`/nep memory wipe` 对整个服务器记忆做同样的事：将公会目录下的所有内容复制到保险库，然后删除档案、私有文件、频道、习惯、世界书、日志、记录、归档、语音队列、版本、日记历史和 recall 追踪。
 
-`/nep memory journal` 显示角色按 UTC 天的日志记录，可按种类筛选（turn、action、memory、system）。`/nep memory archive` 显示归档条目，可按成员或种类筛选。`/nep memory restore` 将归档条目放回热记忆（`id` 从最新条目自动补全）。`/nep memory snapshot` 将 `data/` 复制到带时间戳的目录供测量工具使用。
+`/nep memory journal` 显示角色按 UTC 天的日志记录，可按种类筛选（turn、action、memory、system）。指定 `message`（消息 ID 或链接）时，显示发布该消息的回合的完整记录：触发器、结果、已发布消息 ID、技能调用和存储的 think。指定 `message` 时其他选项被忽略。`/nep memory archive` 显示归档条目，可按成员或种类筛选。`/nep memory restore` 将归档条目放回热记忆（`id` 从最新条目自动补全）。`/nep memory snapshot` 将 `data/` 复制到带时间戳的目录供测量工具使用。
 
 `/nep memory private show` 显示成员的私有私信记忆。`/nep memory private forget` 仅删除私有文件，公共档案保留。`/nep memory private purge` 删除私有文件，并批量删除机器人发给该成员的私信（最多 `private.purgeMaxMessages` 条）。
 

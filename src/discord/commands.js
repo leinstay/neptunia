@@ -502,7 +502,6 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'day', description: 'UTC day (default: today).', required: false },
           { type: STRING, name: 'kind', description: 'Kind (default: all).', required: false, choices: choicesOf(JOURNAL_KINDS) },
           { type: INTEGER, name: 'n', description: 'How many (default 20).', required: false, min_value: 1, max_value: 50 },
-          // PLACEHOLDER wording (NEEDS REVIEW by nep-writer).
           { type: STRING, name: 'message', description: 'Message id or link: the turn that posted it, in full.', required: false },
         ],
         args: (options) => ({

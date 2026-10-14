@@ -221,7 +221,7 @@
   },
   "memory.journal.read": {
     "title": "Read journal",
-    "whenToUse": "Read your journal records for a day, optionally filtered by kind.",
+    "whenToUse": "Read your journal records for a day, optionally filtered by kind, or the full record of the turn behind one of your messages.",
     "whenNotToUse": "Does not change any record."
   },
   "memory.archive.read": {
