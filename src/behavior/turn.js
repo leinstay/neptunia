@@ -1133,6 +1133,22 @@ function journalUsage(completion) {
 }
 
 /**
+ * Whether a voice completion (`completion`, parsed and shaped as `parsed`) was cut off at its
+ * output cap (finish reason `length`): null when it stopped on its own. A cut-off one logs `turn:
+ * cut off` with the completion tokens, whether it came from the skill follow-up and whether
+ * complete actions are kept (`kept`). Nothing is kept when the think never closed, the answer
+ * left nothing to do (`empty`), or its one message is the untagged fallback text -- a fragment:
+ * the caller then ends the turn `error` with reason `cut-off`, never a skip, and posts nothing.
+ * @returns {{ kept: boolean }|null}
+ */
+function cutOffOf(completion, parsed, { channelId, empty, followUp }) {
+  if (completion?.finishReason !== 'length') return null;
+  const kept = !parsed.thinkOpen && !parsed.untagged && !empty;
+  log.warn('turn: cut off', { channel: channelId, completionTokens: journalUsage(completion).completion, kept, followUp });
+  return { kept };
+}
+
+/**
  * One attempt's `turn` record (src/memory/journal.js) from what the attempt noted in its
  * draft and the result it returned: `reason` is the attempt's skip or refusal code, else null.
  */
@@ -1603,8 +1619,9 @@ export function createTurnRunner({
    * parts are reused. The answer is parsed and shaped like the reply (`shapeOutput`); a `<call>`
    * in it is ignored (`skills: extra-call` with `followUp: true`): no chains. What is left is
    * acted on through `act`. The request goes through the same client and rails as the reply;
-   * a failure (a rail, the provider) logs `skills: follow-up failed` and posts nothing. Resolves
-   * act's answer, or null.
+   * a failure (a rail, the provider) logs `skills: follow-up failed` and posts nothing. An answer
+   * cut off at its output cap keeps its complete actions; with none (cutOffOf) nothing is posted
+   * and it resolves `{ cutOff: true }`. Resolves act's answer, or null.
    */
   async function followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted = null, act: actOn }) {
     const labels = hot.prompts?.labels ?? {};
@@ -1631,7 +1648,10 @@ export function createTurnRunner({
       draw: Boolean(parsed.draw),
       gif: Boolean(parsed.gif),
     });
-    if (parsed.skip || (parsed.messages.length === 0 && parsed.reactions.length === 0 && !parsed.draw && !parsed.gif)) return null;
+    const empty = parsed.skip || (parsed.messages.length === 0 && parsed.reactions.length === 0 && !parsed.draw && !parsed.gif);
+    const cutOff = cutOffOf(completion, parsed, { channelId: channel.id, empty, followUp: true });
+    if (cutOff && !cutOff.kept) return { cutOff: true };
+    if (empty) return null;
     return actOn(parsed);
   }
 
@@ -4048,7 +4068,9 @@ export function createTurnRunner({
    *   posting and the turn still ends `spoke` with what reached the chat); `limit` on `outcome:
    *   'refused'` (a request or token cap; a diary picture gate with `reason: 'pictures'`; a diary
    *   set short of `diary.set.minPosted` pictures has `reason: 'set-short'` and no `limit`), for
-   *   the caller's limit notice. With the journal on (createTurnRunner's `journal`), a turn that
+   *   the caller's limit notice. An answer of hers cut off at its output cap before any complete
+   *   action (cutOffOf; the skill follow-up's too, when nothing of the turn reached the chat)
+   *   ends `error` with `reason: 'cut-off'`, nothing of it posted. With the journal on (createTurnRunner's `journal`), a turn that
    *   started there carries its `turnId` and `attemptId` (not a message answered part by part,
    *   whose parts are journalled each as its own turn). A `skip`, or a `spoke`
    *   turn posted for real, stamps the calls of the ring it showed (stampShownCalls) -- every
@@ -5442,6 +5464,12 @@ export function createTurnRunner({
       // routed turn's own call: its caller stamps that one.
       const ownCallId = source?.reason === 'routed' ? (trigger?.id ?? null) : null;
 
+      // Cut off at the output cap before any complete action: a lost answer, not her silence.
+      const cutOff = cutOffOf(completion, parsed, { channelId: channel.id, empty: parsed.skip || nothingToDo, followUp: false });
+      if (cutOff && !cutOff.kept) {
+        draft.reason = 'cut-off';
+        return { outcome: 'error', mode: finalMode, reason: 'cut-off' };
+      }
       if (parsed.skip || nothingToDo) {
         stampShownCalls({ shown: serverShown, pulled, answered: new Set(), exceptId: ownCallId });
         return { outcome: 'skip', mode: finalMode };
@@ -5562,6 +5590,11 @@ export function createTurnRunner({
         if (called.followUp) {
           followed = await followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted, act: (parsedAgain) => act({ ...actArgs, parsed: parsedAgain, set: null }) });
         }
+      }
+      // The follow-up was cut off with nothing complete and nothing of the turn reached the chat: a lost answer.
+      if (followed?.cutOff === true && acted.delivered !== true) {
+        draft.reason = 'cut-off';
+        return { outcome: 'error', mode: finalMode, reason: 'cut-off' };
       }
       noteSpokeSaw(channel, history, serverShown, pulled, notAnswered);
       const answeredAll = new Set([...(acted.answered ?? []), ...(followed?.answered ?? [])]);

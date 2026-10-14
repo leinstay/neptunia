@@ -698,7 +698,8 @@ export function createMissed({
 
   /**
    * A turn ended (src/behavior/turn.js#setOnTurnEnd): what it answered is resolved; a failed
-   * turn of a call (`error`, `not-now`) is a fact about its trigger. Private chats, routed calls,
+   * turn of a call (`error`, `not-now`) is a fact about its trigger -- a `turn-error` one carries
+   * the turn's reason (e.g. `cut-off`) as its `failure`. Private chats, routed calls,
    * overheard lines and the recovery turns themselves make no candidate. Never throws.
    */
   function onTurnEnd(end) {
@@ -725,7 +726,9 @@ export function createMissed({
       let reason = null;
       if (end.outcome === 'error') reason = end.reason === 'too-slow' ? 'turn-dropped' : 'turn-error';
       else if (end.outcome === 'not-now') reason = 'not-now';
-      if (reason) noteFact({ reason, message: { ...trigger, channelId: trigger.channelId ?? end.channelId }, turnId: end.turnId ?? null });
+      // A failed turn's own reason (`cut-off`, ...) rides along as the fact's `failure`.
+      const failure = reason === 'turn-error' && typeof end.reason === 'string' ? end.reason : null;
+      if (reason) noteFact({ reason, message: { ...trigger, channelId: trigger.channelId ?? end.channelId }, turnId: end.turnId ?? null, failure });
     } catch (error) {
       log.warn('missed: turn end failed', { error });
     }

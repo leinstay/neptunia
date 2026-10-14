@@ -300,3 +300,16 @@ test('parseOutput: a malformed first call is no call (callError), and the reply 
   // Nothing else in the output: silence, never a fallback message made of the tag.
   assert.equal(parseOutput('<call skill=status.show/>').skip, true);
 });
+
+test('parseOutput: an unclosed <think> keeps what it held so far in think and says it stayed open', () => {
+  const result = parseOutput('<think>πρώτο</think><think> σχέδιο χωρίς τέλος ');
+  assert.deepEqual([result.skip, result.thinkOpen, result.think], [true, true, 'πρώτο\nσχέδιο χωρίς τέλος']);
+  assert.equal(parseOutput('<think>σχέδιο</think><msg>ναι</msg>').thinkOpen, false);
+});
+
+test('parseOutput: untagged marks the plain-text fallback message only', () => {
+  const plain = parseOutput('<think>σχέδιο</think>ναι, θα έρθω');
+  assert.deepEqual([plain.untagged, plain.messages], [true, [{ text: 'ναι, θα έρθω', replyTo: null }]]);
+  assert.equal(parseOutput('<msg>ναι</msg>').untagged, false);
+  assert.equal(parseOutput('<skip/>').untagged, false);
+});
