@@ -14,7 +14,8 @@
 // the line, when its private layer's member is, or when the record no longer holds its day file
 // (a wipe). A context line failing the same check is left out of the chunk. A failed request or
 // append keeps the batch for the next flush; the queue holds at most `embed.queueMax` jobs, the
-// oldest dropped with a warn. Logs carry counts and guild ids, never text.
+// oldest dropped with a warn. On shutdown `close` flushes once more, briefly, and stops the queue.
+// Logs carry counts and guild ids, never text.
 
 import * as nodeFs from 'node:fs/promises';
 import { log as defaultLog } from '../log.js';
@@ -40,6 +41,8 @@ const RING_SIZE = 16;
 const WARM_MS = 24 * 60 * 60 * 1000;
 /** Message revisions remembered, so a line recorded twice is queued once. */
 const LATEST_MAX = 20000;
+/** How long `close` waits for its one flush on shutdown before it gives up. */
+const CLOSE_TIMEOUT_MS = 5000;
 
 const positiveInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);
 const positiveNumber = (value, fallback) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback);
@@ -64,6 +67,7 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  *   enqueue(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): number,
  *   flush(): Promise<{ embedded: number, dropped: number, left: number }>,
  *   tick(): Promise<object>|null,
+ *   close(opts?: { timeoutMs?: number }): Promise<{ embedded: number, dropped: number, left: number }|null>,
  *   stats(): { queued: number, rings: number },
  * }}
  *   `enqueue` (synchronous) queues each embeddable line not queued before at its revision (an
@@ -71,6 +75,8 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  *   flush in the background. `flush` sends at most one request (the oldest jobs, up to
  *   `embed.batch` and within `llm.maxRequestTokens`) and appends what survives the checks; one
  *   flush runs at a time. `tick` flushes once `embed.flushSeconds` have passed since the last one.
+ *   `close` (shutdown) flushes once, waiting at most `timeoutMs` (default 5000), and resolves its
+ *   counts, or null on the timeout, a failure or a second call; after it nothing is queued.
  */
 export function createEmbedder({ hot, vectors, embed, record, dataDir, log = defaultLog, now = Date.now, fs = nodeFs, nameOf = null, selfName = null }) {
   let queue = [];
@@ -78,6 +84,7 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
   const latest = new Map(); // `${guildId}|${layer}|${messageId}` -> newest revision queued
   let lastFlushAt = now();
   let flushing = null;
+  let closed = false;
 
   const on = () => hot.config?.features?.meaningSearch === true && hot.config?.features?.embedIndex === true;
 
@@ -122,7 +129,7 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
   }
 
   function enqueue(guildId, lines, { privateUserId = null } = {}) {
-    if (!on()) return 0;
+    if (closed || !on()) return 0;
     const { batch, queueMax } = settings();
     const layer = layerOf(privateUserId);
     let added = 0;
@@ -349,9 +356,28 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
     return flush();
   }
 
+  async function close({ timeoutMs = CLOSE_TIMEOUT_MS } = {}) {
+    if (closed) return null;
+    closed = true;
+    let timer = null;
+    // Not unref'd: the wait itself holds the process until the flush or the timeout (cleared below).
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    });
+    const flushed = flush().catch((error) => {
+      log.warn('embedder: flush failed', { code: error?.code ?? null, name: error?.name ?? null });
+      return null;
+    });
+    try {
+      return await Promise.race([flushed, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   function stats() {
     return { queued: queue.length, rings: rings.size };
   }
 
-  return { enqueue, flush, tick, stats };
+  return { enqueue, flush, tick, close, stats };
 }

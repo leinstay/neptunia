@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {
   HIT_MARK,
   RECALL_DEFAULTS,
+  RRF_K,
   buildRecallRequest,
   clusterHits,
   clusterScore,
@@ -13,9 +14,11 @@ import {
   dropChatHits,
   fallbackWindow,
   followConversation,
+  fuseRanks,
   isRecentCue,
   matchMemory,
   matchRecord,
+  meaningQuery,
   mergeWindows,
   parseLookupAnswer,
   parseRecallAnswer,
@@ -1108,4 +1111,105 @@ test('recall: record windows that meet after following still merge into one', as
   assert.equal(windows.length, 1);
   assert.deepEqual(windows[0].messages.map((m) => m.id), ['h1', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'h2']);
   assert.deepEqual([...windows[0].hitIds].sort(), ['h1', 'h2']);
+});
+
+// ---- meaning search: the query, the fusion, the record and memory joins ------------------------
+
+test('recallSettings: meaningCandidates and meaningWithReply fall back to config.json; the reply only exactly true', () => {
+  assert.equal(recallSettings({}).meaningCandidates, SHIPPED_CONFIG.recall.meaningCandidates);
+  assert.equal(recallSettings({}).meaningWithReply, SHIPPED_CONFIG.recall.meaningWithReply);
+  assert.equal(recallSettings({ recall: { meaningCandidates: 12.7 } }).meaningCandidates, 12);
+  assert.equal(recallSettings({ recall: { meaningCandidates: 0 } }).meaningCandidates, 0, 'no candidate asked');
+  assert.equal(recallSettings({ recall: { meaningWithReply: 'yes' } }).meaningWithReply, false);
+  assert.equal(recallSettings({ recall: { meaningWithReply: true } }).meaningWithReply, true);
+});
+
+test('fuseRanks: reciprocal rank fusion with k = 60; an item of both lists leads, a tie goes to the earlier list', () => {
+  assert.equal(RRF_K, 60);
+  const fused = fuseRanks([['m1', 'both', 'm3'], ['both', 'w2']]);
+  assert.deepEqual(fused.map((f) => f.id), ['both', 'm1', 'w2', 'm3']);
+  assert.equal(fused[0].score, 1 / 62 + 1 / 61);
+  assert.deepEqual(fused[0].ranks, [2, 1]);
+  assert.deepEqual(fused[2].ranks, [null, 2]);
+  assert.deepEqual(fuseRanks([['a'], ['b']]).map((f) => f.id), ['a', 'b'], 'equal ranks: the earlier list first');
+  assert.deepEqual(fuseRanks([[], ['x', 'y']]).map((f) => f.id), ['x', 'y'], 'one list alone keeps its order');
+  assert.deepEqual(fuseRanks([['a', 'a', 'b']]).map((f) => [f.id, f.ranks[0]]), [['a', 1], ['b', 3]], 'a repeat keeps its first rank');
+});
+
+test('meaningQuery: the question as written with its tokens resolved; with the reply option the replied line first', () => {
+  const parent = { id: 'p1', content: 'ποιος έφερε το κέικ της <@411111111111111111>;' };
+  const question = { id: 'q1', content: '  και ποιος\nτο έφτιαξε;  ', replyToId: 'p1' };
+  const nameOf = (id) => (id === ANA ? 'Ana' : null);
+  assert.deepEqual(meaningQuery({ candidate: question, lines: [parent], nameOf }), { text: 'και ποιος το έφτιαξε;', form: 'question' });
+  assert.deepEqual(meaningQuery({ candidate: question, lines: [parent], withReply: true, nameOf }), {
+    text: 'ποιος έφερε το κέικ της Ana;\nκαι ποιος το έφτιαξε;',
+    form: 'question+reply',
+  });
+  assert.equal(meaningQuery({ candidate: { ...question, replyToId: 'gone' }, lines: [parent], withReply: true }).form, 'question', 'the replied line not at hand');
+  assert.equal(meaningQuery({ candidate: { id: 'q2', content: '   ' } }), null);
+  assert.equal(meaningQuery({ candidate: null }), null);
+});
+
+/** A vector row of the record as the run hands it to matchRecord. */
+function meantRow(id, ts, { channelId = 'c2', sourceIds = [id] } = {}) {
+  return { id, channelId, occurredAt: new Date(ts).toISOString(), sourceIds };
+}
+
+test('recall: record rows found by meaning are read around their time, fused with the word hits and built into windows', async () => {
+  const D = 24 * HOUR;
+  const M = NOW - 20 * D;
+  const S = NOW - 30 * D;
+  const lines = [
+    rec('w1', NOW - 5 * HOUR, { text: 'κουνέλι και καρότο' }),
+    rec('w2', NOW - 10 * HOUR, { channelId: 'c1', text: 'ένα καρότο' }),
+    rec('p0', M - 3 * HOUR, { by: ELO, text: 'who made the rabbit up?' }),
+    rec('b1', M - MINUTE),
+    rec('m1', M, { by: KITE, text: 'he did, back then', replyTo: 'p0' }),
+    rec('a1', M + MINUTE),
+    rec('far', M + 5 * HOUR),
+    rec('s-secret', S - MINUTE, { channelId: 'c4' }),
+    rec('m2', S, { channelId: 'c4', text: 'hidden context' }),
+  ];
+  const base = { range: { from: null, to: null }, participants: [], forms: ['κουνέλι', 'καρότο'], aliases: [], recordDays: 2, recordContext: 1, followMessages: 0, now: NOW, maxWindows: 2 };
+  const ids = (result) => result.windows.map((w) => [...w.hitIds]);
+
+  const words = await matchRecord('g1', { ...base, record: fakeRecord(lines) });
+  assert.deepEqual(ids(words), [['w1'], ['w2']]);
+  const empty = await matchRecord('g1', { ...base, record: fakeRecord(lines), meaning: [] });
+  assert.deepEqual(empty, words, 'no meaning row: the word result unchanged');
+
+  const record = fakeRecord(lines);
+  const allowLine = (line) => line.messageId !== 's-secret';
+  const fused = await matchRecord('g1', { ...base, record, allowLine, meaning: [meantRow('m2', S, { channelId: 'c4', sourceIds: ['s-secret', 'm2'] }), meantRow('m1', M)] });
+  assert.deepEqual(ids(fused), [['w1'], ['m1']], 'the meaning hit ranks ahead of the weaker word hit; a row with a refused source line is dropped');
+  assert.deepEqual(fused.windows[1].messages.map((m) => m.id), ['p0', 'b1', 'm1', 'a1'], 'its reply chain and recordContext neighbours');
+  assert.equal(fused.windows[1].source, 'record');
+  assert.ok(
+    record.queries.some((q) => q.from === new Date(M - 6 * HOUR).toISOString() && q.to === new Date(M + 2 * HOUR).toISOString() && q.channelIds?.includes('c2')),
+    JSON.stringify(record.queries),
+  );
+
+  const both = await matchRecord('g1', { ...base, record: fakeRecord(lines), maxWindows: 3, meaning: [meantRow('m1', M), meantRow('w2', NOW - 10 * HOUR, { channelId: 'c1' })] });
+  assert.deepEqual(ids(both), [['w1'], ['w2'], ['m1']], 'all three kept, newest first');
+
+  const visible = await matchRecord('g1', { ...base, record: fakeRecord(lines), exclude: new Set(['m1']), meaning: [meantRow('m1', M)] });
+  assert.deepEqual(ids(visible), [['w1'], ['w2']], 'a row the chat shows is never a hit');
+
+  const noDays = await matchRecord('g1', { ...base, record: fakeRecord(lines), recordDays: 0, meaning: [meantRow('m1', M)] });
+  assert.deepEqual(ids(noDays), [['m1']], 'recordDays 0 reads no word hit, the meaning rows still');
+});
+
+test('matchMemory: archive rows found by meaning join the items by reciprocal rank fusion within max', () => {
+  const lore = [{ title: 'κουνέλι', keys: ['καρότο'], text: 'the rabbit and the carrot' }];
+  const word = archived('episode', 'ep-word', { what: 'fed the κουνέλι' });
+  const meant = archived('episode', 'ep-meant', { what: 'he made the whole story up' });
+  const base = { forms: ['κουνέλι', 'καρότο'], lore, archived: [word], max: 2, timezone: 'UTC' };
+  const keys = (items) => items.map((i) => i.itemId ?? i.kind);
+  assert.deepEqual(keys(matchMemory(base)), ['lore', 'ep-word']);
+  assert.deepEqual(matchMemory({ ...base, meaning: [] }), matchMemory(base), 'no meaning row: unchanged');
+  const joined = matchMemory({ ...base, meaning: [meant] });
+  assert.deepEqual(keys(joined), ['ep-meant', 'lore'], 'ahead of the word-only items of its rank');
+  assert.deepEqual([joined[0].kind, joined[0].text, joined[0].date, joined[0].memberId], ['archived episode', 'he made the whole story up', '2026-08-01', ANA]);
+  assert.deepEqual(keys(matchMemory({ ...base, max: 3, meaning: [meant, word] })), ['ep-word', 'ep-meant', 'lore'], 'found both ways first');
+  assert.deepEqual(keys(matchMemory({ forms: [], meaning: [meant], max: 2, timezone: 'UTC' })), ['ep-meant'], 'no word form: meaning alone');
 });

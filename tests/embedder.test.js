@@ -216,3 +216,30 @@ test('embedder: a wiped record (its day file gone) sends nothing', async () => {
   assert.deepEqual(result, { embedded: 0, dropped: 1, left: 0 });
   assert.equal(kit.calls.length, 0);
 });
+
+test('embedder: close flushes what waits once, then queues nothing more', async () => {
+  const kit = scene();
+  await kit.write([line('m1', 0, 'a'), line('m2', 1, 'b')]);
+  assert.equal(kit.calls.length, 0, 'under the batch: nothing sent yet');
+  assert.deepEqual(await kit.embedder.close(), { embedded: 2, dropped: 0, left: 0 });
+  assert.equal(kit.calls.length, 1);
+  assert.equal(kit.appended[0].rows.length, 2);
+  assert.equal(await kit.embedder.close(), null, 'a second close does nothing');
+  assert.equal(await kit.write([line('m3', 2, 'c')]), 0, 'nothing is queued after close');
+  assert.equal(kit.calls.length, 1);
+  await kit.close();
+});
+
+test('embedder: close gives up after its timeout without waiting for a hung request', async () => {
+  let release;
+  const hung = new Promise((resolve) => {
+    release = resolve;
+  });
+  const kit = scene({ embedImpl: () => hung });
+  await kit.write([line('m1', 0, 'a')]);
+  assert.equal(await kit.embedder.close({ timeoutMs: 20 }), null);
+  release([Float32Array.from([1, 0, 0, 0])]);
+  await kit.embedder.flush();
+  assert.equal(kit.calls.length, 1, 'the one flush, finished after close gave up');
+  await kit.close();
+});

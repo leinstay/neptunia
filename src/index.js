@@ -233,8 +233,9 @@ const getSelfName = (guildId) => client.guilds.cache.get(guildId)?.members.me?.d
 // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
 const routeChannels = createChannelRouter({ hot, store, llm });
 // The search of the server's own history beside the web search (features.recall): the lookup's server part.
-// It reads the archive and the record too (read only).
-const recall = createRecall({ hot, store, llm, describer, archive, record });
+// It reads the archive and the record too (read only), and with features.meaningSearch the meaning
+// index (one embedding of the question per run).
+const recall = createRecall({ hot, store, llm, describer, archive, record, vectors, embed: embedder.embed });
 // When each person last wrote in each channel (fed by the message handler): a turn answering
 // someone waits until they stop writing (pace.settleMs).
 const activity = createActivity();
@@ -625,6 +626,8 @@ async function shutdown(signal) {
   spontaneous.stop();
   diary.stop();
   onMessage.stop();
+  // The embedding queue flushes what waits once (a short wait at most), before the stores close.
+  await embedQueue.close().catch((err) => log.warn('index: embed queue close failed', { error: err }));
   // archive.holdMaxMs: how long a file held for the archive may wait before it is written anyway.
   const holdMaxMs = hot.config.archive?.holdMaxMs ?? 5000;
   hot.close();

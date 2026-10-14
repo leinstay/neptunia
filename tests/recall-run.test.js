@@ -71,7 +71,7 @@ function rawHit(channelId, l) {
  * A scene: a guild with #general (c1, the turn's channel), #garden (c2) and #private (c4, which @everyone cannot
  * view, so the audience rail refuses it here); `lines` per channel id; `answers(route, query)` gives the REST body.
  */
-function scene({ lines = {}, answers = () => ({ total_results: 0, messages: [] }), answer = 'stretch: 1\nAna did it on October 1.', features = {}, recall = {}, state = {}, capLeft = 100, describer = null, profiles = [], memory = {}, timers, now = () => NOW, archive = null, record = null } = {}) {
+function scene({ lines = {}, answers = () => ({ total_results: 0, messages: [] }), answer = 'stretch: 1\nAna did it on October 1.', features = {}, recall = {}, state = {}, capLeft = 100, describer = null, profiles = [], memory = {}, timers, now = () => NOW, archive = null, record = null, vectors = null, embed = null } = {}) {
   const calls = [];
   let inFlight = 0;
   let maxInFlight = 0;
@@ -157,7 +157,7 @@ function scene({ lines = {}, answers = () => ({ total_results: 0, messages: [] }
     config: config({ features, recall: { ...recall }, llm: { helperTimeoutMs: 30000 } }),
     prompts: { 'recall-summary': PROMPT, labels },
   };
-  const recaller = createRecall({ hot, store, llm, describer, now, archive, record, ...(timers ? { timers } : {}) });
+  const recaller = createRecall({ hot, store, llm, describer, now, archive, record, vectors, embed, ...(timers ? { timers } : {}) });
   const history = [
     { id: 'h1', channelId: 'c1', ts: NOW - 30 * MINUTE, self: false, bot: false, authorName: 'Nikos', content: 'τι έγινε με το κουνέλι;' },
     { id: 'h2', channelId: 'c1', ts: NOW - MINUTE, self: false, bot: false, authorName: 'Nikos', content: 'ποιος σκότωσε το κουνέλι;' },
@@ -943,7 +943,8 @@ test('recall: with features.recallTrace on every run appends one trace line with
     const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
     const [record, ...rest] = t.lines();
     assert.equal(rest.length, 0);
-    assert.deepEqual(Object.keys(record), ['at', 'channelId', 'triggerId', 'forms', 'who', 'when', 'hits', 'inChatDropped', 'clusters', 'summary', 'lookupChars', 'skipped', 'people', 'plan', 'memory', 'record']);
+    assert.deepEqual(Object.keys(record), ['at', 'channelId', 'triggerId', 'forms', 'who', 'when', 'hits', 'inChatDropped', 'clusters', 'summary', 'lookupChars', 'skipped', 'people', 'plan', 'memory', 'record', 'meaning']);
+    assert.equal(record.meaning, null, 'no meaning search with features.meaningSearch off');
     assert.equal(record.at, new Date(NOW).toISOString());
     assert.deepEqual([record.channelId, record.triggerId, record.forms, record.who, record.when], ['c1', 'h2', RABBIT_SERVER.forms, [], null]);
     assert.deepEqual([record.hits, record.inChatDropped], [3, 1]);
@@ -1322,4 +1323,183 @@ test('recall-run: the persona\'s own stored profile never joins the people', asy
   const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { forms: [], who: ['zoë'], from: Date.UTC(2026, 9, 5), to: NOW } }));
   assert.deepEqual(result.people, []);
   assert.ok(!searches(s.calls).some((c) => c.query.author_id === 'self'));
+});
+
+// ---- meaning search ---------------------------------------------------------------------------
+
+const DAY = 24 * HOUR;
+const MEANT_AT = NOW - 20 * DAY;
+
+/** A fake record that honours the query's [from, to], `channelIds` and base, and notes each query. */
+function rangedSource(byBase) {
+  const queries = [];
+  return {
+    queries,
+    async *iterate(guildId, query = {}) {
+      queries.push(query);
+      const from = query.from ? Date.parse(query.from) : -Infinity;
+      const to = query.to ? Date.parse(query.to) : Infinity;
+      for (const line of byBase[query.privateUserId ?? 'guild'] ?? []) {
+        const at = Date.parse(line.occurredAt);
+        if (at < from || at > to) continue;
+        if (Array.isArray(query.channelIds) && !query.channelIds.includes(line.scope?.channel)) continue;
+        yield line;
+      }
+    },
+  };
+}
+
+/** A row of the vector index as src/memory/vectors.js#search returns it. */
+function vrow(id, ts, score, { kind = 'record', channelId = 'c2', revision = 1, sourceIds = [id] } = {}) {
+  return { meta: { kind, id, revision, occurredAt: new Date(ts).toISOString(), channelId: kind === 'archive' ? null : channelId, by: null, participants: [], sourceIds }, score };
+}
+
+/** A fake index: `search` applies the caller's filter to the rows of the base asked and notes each call. */
+function fakeVectors(byBase, { fail = null } = {}) {
+  const calls = [];
+  return {
+    calls,
+    async search(guildId, query, opts = {}) {
+      calls.push({ guildId, query, opts });
+      if (fail) throw fail;
+      const rows = (byBase[opts.privateUserId ?? 'guild'] ?? []).filter((row) => typeof opts.filter !== 'function' || opts.filter(row.meta));
+      return [...rows].sort((a, b) => b.score - a.score).slice(0, opts.k);
+    },
+  };
+}
+
+/** A fake embedding call: one unit vector per text, or `impl`'s answer. */
+function fakeEmbed(impl = null) {
+  const calls = [];
+  const embed = async (texts, opts) => {
+    calls.push({ texts, opts });
+    if (impl) return impl(texts, opts);
+    return texts.map(() => Float32Array.from([1, 0, 0, 0]));
+  };
+  embed.calls = calls;
+  return embed;
+}
+
+/** The record of the meaning tests: two word hits of today, an old exchange only meaning finds, one line @everyone cannot see. */
+const MEANING_RECORD = {
+  guild: [
+    recLine('m-ctx', MEANT_AT - MINUTE, 'who invented it?', { by: ELO_ID }),
+    recLine('m-old', MEANT_AT, 'he made the whole story up'),
+    recLine('m-hidden', MEANT_AT - 5 * DAY, 'secret meaning', { channelId: 'c4' }),
+    recLine('r-word2', NOW - 30 * HOUR, 'κουνέλι again', { channelId: 'c1' }),
+    recLine('r-word', NOW - 2 * HOUR, 'κουνέλι στον κήπο σήμερα'),
+  ],
+};
+/** The index rows: the old line twice (two revisions), the hidden channel's, the visible chat's, an archived episode. */
+const MEANING_ROWS = {
+  guild: [
+    vrow('m-old', MEANT_AT, 0.85, { sourceIds: ['m-ctx', 'm-old'] }),
+    vrow('m-old', MEANT_AT, 0.8, { revision: 2, sourceIds: ['m-ctx', 'm-old'] }),
+    vrow('m-hidden', MEANT_AT - 5 * DAY, 0.9, { channelId: 'c4' }),
+    vrow('h1', NOW - 30 * MINUTE, 0.95, { channelId: 'c1' }),
+    vrow('ep-meant', Date.UTC(2026, 9, 4), 0.7, { kind: 'archive', revision: 'rv-1', sourceIds: [] }),
+  ],
+};
+const MEANING_ARCHIVE = { guild: [archEntry('ep-meant', 'episode', { what: 'the story was made up' }, { user: ANA_ID })] };
+const MEANING_SERVER = { forms: ['κουνέλι'], who: [], from: null, to: null };
+
+/** A scene for the meaning tests: the record, the archive, the index and the embedding call above. */
+function meaningScene({ features = {}, recall = {}, vectors = fakeVectors(MEANING_ROWS), embed = fakeEmbed(), memory = {} } = {}) {
+  const record = rangedSource(MEANING_RECORD);
+  const archive = fakeSource(MEANING_ARCHIVE);
+  const s = scene({ features: { meaningSearch: true, ...features }, recall: { recordDays: 3, recordContext: 1, maxClusters: 2, ...recall }, profiles: MEMORY_PROFILES, record, archive, vectors, embed, memory });
+  return { ...s, record, vectors, embed };
+}
+
+test('recall-run: with features.meaningSearch off no embedding is asked and the result is today\'s', async () => {
+  const off = meaningScene({ features: { meaningSearch: false } });
+  const { result: offResult } = await withCapturedLogs(() => off.recaller.run({ ...off.args, server: MEANING_SERVER }));
+  const plain = scene({ recall: { recordDays: 3, recordContext: 1, maxClusters: 2 }, profiles: MEMORY_PROFILES, record: rangedSource(MEANING_RECORD), archive: fakeSource(MEANING_ARCHIVE) });
+  const { result: plainResult } = await withCapturedLogs(() => plain.recaller.run({ ...plain.args, server: MEANING_SERVER }));
+  assert.equal(off.embed.calls.length, 0);
+  assert.equal(off.vectors.calls.length, 0);
+  assert.deepEqual(offResult, plainResult);
+  assert.deepEqual(off.llmCalls[0].messages, plain.llmCalls[0].messages);
+  assert.equal(offResult.stats.meaning, 0);
+});
+
+test('recall-run: one embedding of the question; meaning rows fused ahead of a weaker word hit, windows built around them, archive rows joined', async () => {
+  const t = tempStore();
+  try {
+    const s = meaningScene({ features: { recallTrace: true }, recall: { meaningCandidates: 7 }, memory: { appendRecallTrace: (...args) => t.store.appendRecallTrace(...args) } });
+    const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: MEANING_SERVER }));
+    assert.equal(s.embed.calls.length, 1);
+    assert.deepEqual(s.embed.calls[0].texts, ['ποιος σκότωσε το κουνέλι;']);
+    assert.equal(s.embed.calls[0].opts.purpose, 'recall-query');
+    assert.equal(s.vectors.calls.length, 1, 'the guild index only on a server turn');
+    assert.deepEqual([s.vectors.calls[0].guildId, s.vectors.calls[0].opts.from, s.vectors.calls[0].opts.to, s.vectors.calls[0].opts.k], [GUILD, null, null, 7], 'no range asked: every month');
+
+    const user = s.llmCalls[0].messages[1].content;
+    assert.ok(user.includes('who invented it?') && user.includes('he made the whole story up'), 'the old exchange with its neighbour');
+    assert.ok(user.includes('κουνέλι στον κήπο σήμερα'), 'the best word hit stays');
+    assert.ok(!user.includes('κουνέλι again'), 'the weaker word hit gives way to the meaning hit (recall.maxClusters 2)');
+    assert.ok(!user.includes('secret meaning'), 'a row of a channel @everyone cannot see is dropped');
+    assert.ok(user.includes('archived episode | 2026-10-04 | Ana | the story was made up'), user);
+    assert.equal(result.stats.record, 2);
+    assert.equal(result.stats.meaning, 2);
+
+    const [line] = t.lines();
+    assert.deepEqual(line.meaning, {
+      query: 'question',
+      candidates: 3,
+      kept: [
+        { id: 'm-old', kind: 'record', score: 0.8, rank: 1 },
+        { id: 'ep-meant', kind: 'archive', score: 0.7, rank: 2 },
+      ],
+      ms: 0,
+    });
+    assert.ok(line.record.some((w) => w.hitIds.includes('m-old') && w.kept), JSON.stringify(line.record));
+    const searched = logs.find((l) => l.msg === 'recall: searched');
+    assert.deepEqual([searched.meaning, searched.meaningMs], [2, 0]);
+    const all = JSON.stringify(logs);
+    for (const text of ['story', 'κουνέλι', 'm-old', 'ep-meant']) assert.ok(!all.includes(text), `the service log has counts only: ${text}`);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('recall-run: the asked range bounds the meaning search; recall.meaningWithReply embeds the replied line first', async () => {
+  const s = meaningScene({ recall: { meaningWithReply: true } });
+  const from = NOW - 30 * DAY;
+  const to = NOW - 10 * DAY;
+  const candidate = { ...s.args.candidate, replyToId: 'h1' };
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, candidate, server: { ...MEANING_SERVER, from, to } }));
+  assert.deepEqual([s.vectors.calls[0].opts.from, s.vectors.calls[0].opts.to], [from, to]);
+  assert.deepEqual(s.embed.calls[0].texts, ['τι έγινε με το κουνέλι;\nποιος σκότωσε το κουνέλι;']);
+});
+
+test('recall-run: a failed embedding or search logs a warn and the run goes on with words only', async () => {
+  for (const [stage, kit] of [
+    ['embed', { embed: fakeEmbed(() => Promise.reject(Object.assign(new Error('boom'), { statusCode: 500 }))) }],
+    ['search', { vectors: fakeVectors(MEANING_ROWS, { fail: new Error('disk') }) }],
+  ]) {
+    const s = meaningScene({ ...kit });
+    const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: MEANING_SERVER }));
+    const warn = logs.find((l) => l.msg === 'recall: meaning failed');
+    assert.equal(warn?.stage, stage);
+    assert.equal(warn.level, 'warn');
+    if (stage === 'embed') assert.equal(s.vectors.calls.length, 0, 'no search without a vector');
+    const user = s.llmCalls[0].messages[1].content;
+    assert.ok(user.includes('κουνέλι στον κήπο σήμερα') && user.includes('κουνέλι again'), 'the word hits as without meaning');
+    assert.ok(!user.includes('he made the whole story up'));
+    assert.equal(result.stats.meaning, 0);
+  }
+});
+
+test('recall-run: a private turn searches its partner\'s private layer and the guild index', async () => {
+  const record = rangedSource({ ...MEANING_RECORD, u5: [recLine('d-old', MEANT_AT, 'the dm memory', { channelId: 'dm1', by: 'u5', owner: 'u5' })] });
+  const vectors = fakeVectors({ ...MEANING_ROWS, u5: [vrow('d-old', MEANT_AT, 0.9, { channelId: 'dm1' })] });
+  const embed = fakeEmbed();
+  const s = scene({ features: { meaningSearch: true }, recall: { recordDays: 3, recordContext: 1, maxClusters: 4 }, profiles: MEMORY_PROFILES, record, archive: fakeSource(MEANING_ARCHIVE), vectors, embed });
+  const dm = { id: 'dm1', guild: null };
+  const history = [{ id: 'p1', channelId: 'dm1', ts: NOW - MINUTE, self: false, bot: false, authorName: 'Nikos', content: 'what did he make up?' }];
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, channel: dm, partner: { id: 'u5', guild: s.args.guild }, history, candidate: history[0], server: MEANING_SERVER }));
+  assert.deepEqual(vectors.calls.map((c) => c.opts.privateUserId ?? null), [null, 'u5']);
+  const user = s.llmCalls[0].messages[1].content;
+  assert.ok(user.includes('the dm memory') && user.includes('he made the whole story up'), user);
 });
