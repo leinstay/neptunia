@@ -529,7 +529,7 @@ test('helperModel: a classifier.byPurpose entry wins over the role, the role mod
 });
 
 test('helperModel: every reasoning purpose resolves through classifier.reason, and to the text model while it is unset', () => {
-  assert.deepEqual([...REASON_PURPOSES], ['lookup', 'recall-summary', 'search-summary', 'read-link', 'diary-plan']);
+  assert.deepEqual([...REASON_PURPOSES], ['lookup', 'planner', 'recall-summary', 'search-summary', 'read-link', 'diary-plan']);
   for (const purpose of REASON_PURPOSES) {
     assert.equal(helperModel({ classifier: { text: 'x/text', reason: 'x/reason' } }, { role: 'classifier.reason', purpose }), 'x/reason', purpose);
     assert.equal(helperModel({ classifier: { text: 'x/text', reason: null, byPurpose: {} } }, { role: 'classifier.reason', purpose }), 'x/text', purpose);
