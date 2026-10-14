@@ -1,0 +1,98 @@
+// What each operation does to the world, by its actual effect, in one table: `read` (changes
+// nothing), `write` (adds or changes something that can be changed back), `destructive` (deletes
+// or overwrites what cannot simply be put back), `administrative` (changes how the bot is run or
+// who may do what), `paid` (spends balance). The persona's skills read it (src/skills/derive.js):
+// a paid skill needs its budget, a destructive one has a cooldown per channel
+// (src/skills/gateway.js), and it will decide which calls need the owner's confirmation later.
+// Pure; every registered operation must have its row (a test holds it).
+
+/** The effect classes, from the mildest. */
+export const EFFECT_CLASSES = Object.freeze(['read', 'write', 'destructive', 'administrative', 'paid']);
+
+/** Operation name -> effect class. */
+export const OP_EFFECTS = Object.freeze({
+  'status.show': 'read',
+  'config.set': 'administrative',
+  'config.unset': 'administrative',
+  'bot.pause': 'administrative',
+  'bot.resume': 'administrative',
+  'draw.create': 'paid',
+  'pings.get': 'read',
+  'pings.set': 'write',
+  'media.status': 'read',
+  'media.rescan': 'write',
+  'media.recache': 'write',
+  'model.show': 'read',
+  'model.set': 'administrative',
+  'route.list': 'read',
+  'route.set': 'administrative',
+  'route.remove': 'administrative',
+  'rule.add': 'write',
+  'rule.list': 'read',
+  'rule.remove': 'destructive',
+  'access.grant': 'administrative',
+  'access.revoke': 'administrative',
+  'access.list': 'read',
+  'diary.set': 'administrative',
+  'diary.show': 'read',
+  'diary.off': 'administrative',
+  'diary.post': 'write',
+  'alias.add': 'write',
+  'alias.remove': 'destructive',
+  'learning.add': 'write',
+  'learning.remove': 'destructive',
+  'lore.add': 'write',
+  'lore.list': 'read',
+  'lore.show': 'read',
+  'lore.remove': 'destructive',
+  'memory.profile.read': 'read',
+  'memory.channel.read': 'read',
+  'memory.server.read': 'read',
+  'memory.recent.read': 'read',
+  'memory.refresh.user': 'write',
+  'memory.refresh.channel': 'write',
+  'memory.refresh.server': 'write',
+  'memory.forget': 'destructive',
+  'memory.affinity.read': 'read',
+  'memory.wipe': 'destructive',
+  'memory.journal.read': 'read',
+  'memory.archive.read': 'read',
+  'memory.restore': 'destructive',
+  'memory.snapshot': 'write',
+  'memory.private.read': 'read',
+  'memory.private.forget': 'destructive',
+  'memory.private.purge': 'destructive',
+  'message.create': 'write',
+  'message.edit': 'write',
+  'message.delete': 'destructive',
+  'message.react.add': 'write',
+  'message.react.remove': 'write',
+});
+
+/**
+ * The persona's own expressive operations -- her messages, reactions, drawings, diary: run for
+ * her on her own grant alone, whoever asked (the owner's decision: "messages and drawings are
+ * hers"); every other operation also needs the right of the person who asked
+ * (src/skills/gateway.js). Their own rules still hold (edit and delete only her own messages, a
+ * post only where she may write), and so do the rules on who asked: no write when a turn answers
+ * several people, only a read when nobody asked.
+ */
+export const SELF_OWNED_OPS = Object.freeze([
+  'message.create',
+  'message.edit',
+  'message.delete',
+  'message.react.add',
+  'message.react.remove',
+  'draw.create',
+  'diary.post',
+  'diary.show',
+]);
+
+/**
+ * The effect class of operation `name`, or null when the table has no row for it.
+ * @param {string} name
+ * @returns {'read'|'write'|'destructive'|'administrative'|'paid'|null}
+ */
+export function effectOf(name) {
+  return Object.hasOwn(OP_EFFECTS, name) ? OP_EFFECTS[name] : null;
+}

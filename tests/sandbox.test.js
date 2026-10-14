@@ -697,6 +697,72 @@ test('sandboxRequestInput: names every input buildRequest reads; what it leaves 
   }
 });
 
+test('sandboxRequestInput: a skill scenario passes its inventory; everything else SANDBOX_OMITS leaves out stays out', () => {
+  const { SKILL_SCENARIO_OMITS } = sandbox;
+  assert.deepEqual(Object.keys(SKILL_SCENARIO_OMITS).sort(), Object.keys(SANDBOX_OMITS).filter((key) => key !== 'skillsInventory').sort());
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const wanted = buildRequestInputs();
+  const rows = [{ name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed' }];
+  const input = sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsInventory: rows });
+  assert.equal(input.skillsInventory, rows);
+  const passed = Object.keys(input).filter((key) => !Object.hasOwn(SKILL_SCENARIO_OMITS, key));
+  assert.deepEqual(new Set([...passed, ...Object.keys(SKILL_SCENARIO_OMITS)]), wanted);
+  for (const key of passed) assert.notEqual(input[key], undefined, `${key} is named`);
+  for (const key of Object.keys(SKILL_SCENARIO_OMITS)) {
+    const absent = input[key] === null || (Array.isArray(input[key]) && input[key].length === 0);
+    assert.ok(absent, `${key} is left out`);
+  }
+  // An empty catalogue is no block, as in any other sandbox turn.
+  assert.equal(sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsInventory: [] }).skillsInventory, null);
+});
+
+test('answerSkillScenario: her skills are shown; a call goes to onCall and its result comes back before <task>; nothing else runs', async () => {
+  const { answerSkillScenario } = sandbox;
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const rows = [{ name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed' }];
+  const llm = fakeLlm([
+    '<msg>μια στιγμή</msg><call skill="rule.add">όχι spoilers</call>',
+    '<msg>έγινε</msg><call skill="rule.add">ξανά</call>',
+    '<msg>όχι τώρα</msg>',
+    '<call skill="rule.add">πάλι</call>',
+  ]);
+  const seen = [];
+  const outcomes = [
+    { verdict: { stage: 'gateway', ok: true }, executed: { skill: 'rule.add', args: { text: 'όχι spoilers' } }, result: { skill: 'rule.add', status: 'ok', data: { text: 'RESULT_MARKER' } }, followUp: true },
+    { verdict: { stage: 'gateway', ok: false, code: 'skills-off' }, executed: null, result: { skill: 'rule.add', status: 'denied', code: 'skills-off' }, followUp: false },
+  ];
+  const result = await answerSkillScenario({
+    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 3, at: NOW, skillsInventory: rows,
+    onCall: (call, context) => {
+      seen.push({ call, context });
+      return outcomes[seen.length - 1];
+    },
+  });
+  assert.ok(result.request.user.includes('rule.add: Add a rule -- when asked (allowed)'), 'the <skills> block lists her catalogue');
+  assert.equal(llm.calls.length, 4, 'run 1 and its follow-up, run 2, run 3 without a follow-up');
+  for (const { options } of llm.calls) assert.deepEqual([options.origin, options.countAgainstDailyCap, options.skipCalibration, options.purpose], ['replay', false, true, 'reply']);
+
+  // Run 1: the call reached onCall with the turn's transcript numbers and history (the trigger last).
+  assert.deepEqual(seen[0].call, { skill: 'rule.add', args: {}, body: 'όχι spoilers' });
+  assert.ok(seen[0].context.idByIndex instanceof Map);
+  assert.equal(seen[0].context.history.at(-1).authorId, ALICE);
+  const followUser = llm.calls[1].messages[1].content;
+  assert.equal(typeof followUser, 'string', 'the follow-up carries no cache marker');
+  const at = followUser.indexOf('<result skill="rule.add" status="ok">');
+  assert.ok(at > 0 && at < followUser.lastIndexOf('<task>'), 'the result sits before <task>');
+  assert.ok(followUser.includes('already posted: μια στιγμή') && followUser.includes('RESULT_MARKER'));
+  const [first, second, third] = result.runs;
+  assert.deepEqual(first.answer.messages.map((m) => m.text), ['μια στιγμή']);
+  assert.deepEqual(first.followUp.answer.messages.map((m) => m.text), ['έγινε']);
+  assert.equal(first.followUp.extraCall, true, 'a call in the follow-up is only reported');
+  // Run 2: no call, nothing asked of onCall. Run 3: a call whose outcome needs no follow-up.
+  assert.deepEqual([second.call, second.outcome, second.followUp], [null, null, null]);
+  assert.equal(third.outcome.verdict.code, 'skills-off');
+  assert.equal(third.followUp, null);
+  assert.equal(seen.length, 2);
+  assert.equal(result.stopped, false);
+});
+
 // ---- the memory as it stood at the moment: momentView, momentCutoff, hiddenLater ---------------
 
 const CUTOFF = Date.UTC(2026, 8, 29, 18, 2, 0);

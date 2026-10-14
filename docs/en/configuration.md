@@ -75,6 +75,8 @@ Every key in `config.json` with its default, grouped by section.
 | `conversations` | `[]` | Conversations the persona may act in besides the current one (channel ids). Empty means the current conversation only |
 | `safeMode` | `false` | Only the persona's carried-over reply effects pass (the tags of a normal reply: `<msg>`, `<react>`, `<draw>`, aimed at the current conversation). Every other skill is refused. Must be exactly `true` to enable |
 | `resultMaxChars` | `2000` | How many characters of a skill's returned data are shown in the `<result>` block. The text is cut at a word boundary with an ellipsis |
+| `destructiveCooldownMinutes` | `10` | Minutes between two destructive skill calls from the same channel. A destructive skill (one whose effect is `destructive` in `src/ops/effects.js`) called sooner is refused with reason `cooldown` |
+| `callTimeoutMs` | `120000` | How long a skill call may run before its outcome is reported as `unknown` and the call is never retried |
 
 ## `bot`
 
@@ -650,7 +652,7 @@ Settings for stage B of the two-stage analyzer (`features.memoryTwoStage`). Stag
 | `bandHysteresis` | `2` | Points past the old band's edge before a band change is counted as a rewrite cause. Prevents rewrites from scores that hover near a band boundary |
 | `textChars` | `800` | Max characters for the relationship text. Fills `{{relationshipChars}}` in the analyzer prompt. A rewrite over the limit is refused and the stored text stays; only the first write of an empty field is cut |
 
-With `damping` on, a change that pushes the score further from zero is scaled by `(1 - |score| / 100) ^ dampingPower`, so extremes take sustained effort; a change back toward zero applies at full strength. The score is stored with fractional precision and shown as a whole number; `/nep memory affinity` sets it directly without damping.
+With `damping` on, a change that pushes the score further from zero is scaled by `(1 - |score| / 100) ^ dampingPower`, so extremes take sustained effort; a change back toward zero applies at full strength. The score is stored with fractional precision and shown as a whole number.
 
 With `decayPerDay` set, every stored affinity (public and private) drifts toward zero once a day. At score 100 with the default settings, the daily loss is 4; at 64 about 1.6; at 30 about 0.36. The sweep runs at startup and hourly, applying whole days from a per-profile stamp (`affinity.decayedAt`), so downtime is caught up. Never runs while paused or during the warmup. No attitude history entry is written.
 

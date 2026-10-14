@@ -4,6 +4,7 @@
 
 import { leafPaths } from '../discord/commands.js';
 import { isOwnerId } from '../discord/access.js';
+import { governsPersona } from './rights.js';
 import { splitPath, unsetPath, ownValueAt, jsonTypeOf, withArticle, touchesOwnerOnlyConfig, reloadNote } from './shared.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';
 
@@ -11,8 +12,13 @@ const handlers = perEnv((env) => {
   const { hot, editLocalConfig, writeLocalPath } = env;
 
   /** Refuses a change under `bot.owners` / `bot.access` (see OWNER_ONLY_CONFIG_PATHS) unless the
-   * caller is an owner: a member granted `set` must never make themselves one. */
+   * caller is an owner: a member granted `set` must never make themselves one. Made by the persona
+   * (`context.actor`, her skills) a change of any key that governs authorization or her own
+   * controls (src/ops/rights.js#governsPersona) is refused whoever asked. */
   function assertMayChangeConfig(parts, context) {
+    if (context?.actor === 'persona' && governsPersona(parts.join('.'))) {
+      throw denied(`the persona never changes ${parts.join('.')}`, 'self-grant');
+    }
     if (touchesOwnerOnlyConfig(parts) && !isOwnerId(hot.config, context?.userId)) {
       throw denied(`only an owner may change ${parts.join('.')}`);
     }

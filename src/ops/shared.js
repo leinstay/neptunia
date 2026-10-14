@@ -645,3 +645,55 @@ export function learnedLine(item, resolve) {
   const last = String(item.lastSeen ?? item.firstSeen ?? '-').slice(0, 10);
   return `#${item.id} ${resolve(item.text)}${from} · seen ${item.weight} · last ${last}`;
 }
+
+/**
+ * The conversation an operation posting as the persona aims at (`/nep message`, `/nep draw
+ * channel:`): `channelId`, else the one the command runs in; an `invalid` error unless it is the
+ * one it runs in or one of `skills.conversations` (`config`, read by the caller now).
+ * @param {object} config
+ * @param {string|null|undefined} channelId
+ * @param {{ channelId?: string }} context
+ * @returns {string}
+ */
+export function postingConversation(config, channelId, context) {
+  const id = channelId ? String(channelId) : context?.channelId ? String(context.channelId) : null;
+  if (!id) throw invalid('a channel is required');
+  const listed = Array.isArray(config?.skills?.conversations) ? config.skills.conversations.map(String) : [];
+  if (id !== String(context?.channelId ?? '') && !listed.includes(id)) {
+    throw invalid(`channel ${id} is neither this one nor in skills.conversations`, 'conversation-not-allowed');
+  }
+  return id;
+}
+
+/** A message link: `https://discord.com/channels/<guild>/<channel>/<message>` (ptb, canary, discordapp too). */
+const MESSAGE_LINK_RE = /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
+
+/**
+ * `{ channelId, messageId }` of a message id (`channelId` null) or a message link; an `invalid`
+ * error (`unknown-message`) for anything else.
+ * @param {unknown} value
+ * @returns {{ channelId: string|null, messageId: string }}
+ */
+export function messageRefOf(value) {
+  const text = String(value ?? '').trim();
+  const link = MESSAGE_LINK_RE.exec(text);
+  if (link) return { channelId: link[1], messageId: link[2] };
+  if (/^[\w-]{1,64}$/.test(text)) return { channelId: null, messageId: text };
+  throw invalid('a message id or link is required', 'unknown-message');
+}
+
+/**
+ * An interface port's answer (src/interface/port.js) as an operation's: `{ text, ref, at }` when
+ * it went out, else a `failed` result with the port's code and `data.unknown` true when it may
+ * have taken effect anyway (never retried).
+ * @param {string} name  The operation's name, for the summary.
+ * @param {object} result
+ * @param {string} text  The answer when it went out.
+ * @returns {object}
+ */
+export function portAnswer(name, result, text) {
+  if (result?.status === 'ok') return { text, ref: result.ref ?? null, at: result.at };
+  const code = String(result?.error?.code ?? result?.status ?? 'error');
+  const unknown = result?.status === 'unknown';
+  return { status: 'failed', code, summary: `${name}: ${unknown ? 'unclear whether it went through' : 'failed'} (${code})`, data: { unknown, portStatus: result?.status ?? null } };
+}

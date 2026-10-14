@@ -38,9 +38,8 @@ import { createStore } from '../src/memory/store.js';
 import { createDescriber } from '../src/memory/describe.js';
 import { createLookup } from '../src/web/lookup.js';
 import { buildExtractRequest, rosterOf, windowsOf } from '../tools/lib/backfill.mjs';
-import { SKILL_DEFINITIONS, loadSkills } from '../src/skills/registry.js';
+import { loadSkills } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
-import { allowSkill } from '../src/skills/access.js';
 import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
@@ -559,15 +558,21 @@ test('buildRequest: a reply fills system-prompt, character-card, rules, format a
 
 test('buildRequest: the skills protocol and an asked-for catalogue fill labels.skills from the shipped skill texts', async () => {
   const texts = JSON.parse(fs.readFileSync(path.join(PROMPTS_DIR, 'skills.json'), 'utf8'));
-  const config = shippedConfig();
-  const state = {};
-  allowSkill(state, 'message.edit', { by: ANA, at: iso(NOW) });
-  const registry = loadSkills(SKILL_DEFINITIONS.filter((definition) => definition.op === null));
-  const rows = listSkills({ config, state, texts, requester: { id: ANA }, audience: { conversationId: GENERAL }, registry });
+  const shipped = shippedConfig();
+  // message.edit granted to the persona (the bot's user, as `/nep access grant` stores it).
+  const self = '799999999999999999';
+  const config = { ...shipped, bot: { ...shipped.bot, access: { 'message.edit': { everyone: false, roles: [], users: [self] } } } };
+  // Stand-ins named as the operations, with no operation behind them: the shipped texts are keyed by those names.
+  const registry = loadSkills(['message.create', 'message.edit', 'message.delete'].map((name) => ({ name, op: null, argsSchema: { type: 'object' }, effects: 'write', costClass: 'free', targets: null })));
+  const rows = listSkills({ config, selfId: self, texts, requester: { id: ANA }, audience: { conversationId: GENERAL }, registry });
   const request = buildRequest(await turnInput({ skillsInventory: rows }));
   const text = assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'skills_protocol', 'skills'] }, 'reply (skills catalogue)');
   assert.ok(request.messages[1].content[0].text.includes(`<skills_protocol>\n${LABELS.skills.protocol}\n</skills_protocol>`), 'the protocol in the stable part');
-  for (const reason of ['carried-over', 'allowed', 'not-allowed']) assert.ok(text.includes(`(${LABELS.skills.access[reason]})`), `labels.skills.access.${reason}`);
+  // Only what she may use now: carried over and allowed; a closed skill is not listed.
+  assert.ok(text.includes(`(${LABELS.skills.access.allowed})`), 'labels.skills.access.allowed');
+  // message.create, carried over, has no shipped texts yet: listed by its name alone.
+  assert.ok(texts['message.create'] !== undefined || text.includes('\nmessage.create\n'), 'a skill without texts by its name');
+  assert.ok(!text.includes('message.delete'), 'a closed skill is not listed');
   assert.ok(text.includes(fill(LABELS.skills.line, { name: 'message.edit', title: texts['message.edit'].title, whenToUse: texts['message.edit'].whenToUse, access: LABELS.skills.access.allowed })));
 });
 

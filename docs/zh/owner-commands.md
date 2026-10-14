@@ -4,7 +4,7 @@
 
 ## 访问控制
 
-`/nep` 从一开始就对所有成员可见。访问权限在命令执行时按操作逐一检查，不通过 Discord 的命令可见性控制。每个命令执行一个命名操作。读取和修改是分离的：`/nep memory show` 执行 `memory.profile.read`，`/nep memory affinity <user>` 执行 `memory.affinity.read`，而 `/nep memory affinity <user> <score>` 执行 `memory.affinity.set`。
+`/nep` 从一开始就对所有成员可见。访问权限在命令执行时按操作逐一检查，不通过 Discord 的命令可见性控制。每个命令执行一个命名操作。读取和修改是分离的：`/nep memory show` 执行 `memory.profile.read`，`/nep memory affinity <user>` 执行 `memory.affinity.read`。
 
 所有者（`bot.owners`）始终可以执行一切。其他人需要对确切操作的授权。`/nep access grant <operation> [role] [user]` 将一个操作（如 `memory.profile.read`）开放给所有人（不指定身份组/用户）、某个身份组或某个用户。可以指定组名（如 `memory`）或 `*`，但授权会记录为该时刻存在的各个读取操作，每个单独一条：它不会开放写入操作，后续新增的操作在按名称授权前保持关闭。`/nep access revoke` 从一个操作中移除目标，或从组或 `*` 下的所有已记录操作中移除。`/nep access list` 显示每个操作、持有者以及授权的来源（当它是组或 `*` 展开的一部分时）。没有授权的非所有者会收到 ephemeral 回复 "Not allowed"。
 
@@ -60,7 +60,7 @@
 | `/nep memory recent` | `memory.recent.read` | ephemeral | 实时近期记事行（从新到旧） |
 | `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | ephemeral，延迟 | 从新鲜样本重写成员画像、频道笔记或服务器笔记 |
 | `/nep memory forget <user>` | `memory.forget` | ephemeral，延迟 | 删除成员的档案和私有记忆 |
-| `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | ephemeral | 查看或设置态度分数 |
+| `/nep memory affinity <user>` | `memory.affinity.read` | ephemeral | 查看态度分数和历史 |
 | `/nep memory wipe <confirm>` | `memory.wipe` | ephemeral，延迟 | 删除服务器的所有记忆（档案、私有记忆、习惯、频道、世界书） |
 | `/nep memory journal [day] [kind:turn\|action\|memory\|system\|all] [n]` | `memory.journal.read` | ephemeral | 日志记录 |
 | `/nep memory archive [user] [kind] [n]` | `memory.archive.read` | ephemeral，延迟 | 归档的条目 |

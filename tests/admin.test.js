@@ -26,6 +26,8 @@ import { familyOf, ImageGenError } from '../src/llm/images.js';
 import { createLlm } from '../src/llm/openrouter.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { createMetrics } from '../src/ops/metrics.js';
+import { resolveCommand } from '../src/ops/index.js';
+import { getOp } from '../src/ops/registry.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
@@ -698,18 +700,18 @@ test('isAllowed: the commands the tree dropped (ping, reload, learned list) run 
   }
 });
 
-test('runCommand: the full rights check -- a member granted memory.affinity.read reads, but setting a score is denied', async () => {
+test('runCommand: the full rights check -- a member granted memory.affinity.read reads, another is denied', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
   hot.config.bot.access = { 'memory.affinity.read': { everyone: false, roles: [], users: ['7'] } };
   const { admin } = makeAdmin(rootDir, { hot });
   const member = { guildId: 'g1', userId: '7', roleIds: [] };
 
-  const set = await admin.runCommand('memory.affinity', { userId: '5', score: 40, reason: 'r' }, member);
-  assert.equal(set.status, 'denied');
-  assert.equal(set.code, 'not-granted');
+  const other = await admin.runCommand('memory.affinity', { userId: '5' }, { guildId: 'g1', userId: '8', roleIds: [] });
+  assert.equal(other.status, 'denied');
+  assert.equal(other.code, 'not-granted');
   assert.equal(admin.isAllowed('memory.affinity', { userId: '7' }, {}), true);
-  assert.equal(admin.isAllowed('memory.affinity', { userId: '7' }, { score: 40 }), false);
+  assert.equal(admin.isAllowed('memory.affinity', { userId: '8' }, {}), false);
   const unknown = await admin.runCommand('nonsense', {}, member);
   assert.equal(unknown.status, 'invalid');
 });
@@ -966,7 +968,7 @@ test('access.grant: a write operation gets the write note; a read operation none
     ['media.status', 'staff', []],
     ['media.rescan', 'staff', [writes]],
     ['media.recache', 'staff', [writes]],
-    ['memory.affinity.set', 'staff', [writes]],
+    ['memory.refresh.user', 'staff', [writes]],
   ]) {
     const target = roleId ? `role id:${roleId}` : 'everyone';
     assert.equal(await admin.run('access.grant', { command, roleId }, {}), [`Granted ${command} to ${target} (reload ok)`, ...notes].join('\n'), command);
@@ -976,7 +978,7 @@ test('access.grant: a write operation gets the write note; a read operation none
   assert.match(star[0], /^Granted \* to role id:mods as status\.show, /);
   assert.equal(star[1], readsOnly);
   const access = readLocal(rootDir).bot.access;
-  for (const name of ['draw.create', 'config.set', 'memory.refresh.user', 'memory.affinity.set', 'memory.journal.read', 'memory.wipe', 'pings.get', 'access.list']) {
+  for (const name of ['draw.create', 'config.set', 'lore.add', 'memory.journal.read', 'memory.wipe', 'pings.get', 'access.list']) {
     assert.ok(!(access[name]?.roles ?? []).includes('mods'), `* never covers ${name}`);
   }
   assert.ok(access['memory.profile.read'].roles.includes('mods'));
@@ -999,72 +1001,17 @@ test('run: memory.forget calls store.forgetUser, clears the profile and says the
   assert.match(result, /private memory/i, 'the reply says the private memory went too');
 });
 
-test('run: memory.affinity with a score sets it exactly, bypassing maxDeltaPerUpdate', async () => {
-  const rootDir = makeRoot();
-  const { admin, hot, store } = makeAdmin(rootDir);
-  hot.config.relationships = { maxDeltaPerUpdate: 15, historySize: 10 };
-  store.profiles.set('g1:123', { id: '123', affinity: emptyAffinity() });
-
-  const result = await admin.run(
-    'memory.affinity',
-    { userId: '123', score: 77, reason: 'owner really likes them' },
-    { guildId: 'g1' },
-  );
-
-  const affinity = store.getUser('g1', '123').affinity;
-  assert.equal(affinity.score, 77, 'the score is set exactly, well beyond maxDeltaPerUpdate of 15');
-  assert.equal(affinity.reason, 'owner really likes them');
-  assert.ok(result.includes('77'));
-});
-
-test('run: memory.affinity with a score sets it exactly even from a fractional (damped) current score, with no damping', async () => {
+test('run: memory.affinity only reads -- the attitude changes through the memory analyzer alone, never by hand', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', { id: '123', affinity: { score: 60.4, reason: 'was doing fine', history: [] } });
+  store.profiles.set('g1:123', { id: '123', affinity: { score: 12, reason: 'kind words', history: [] } });
 
-  const result = await admin.run('memory.affinity', { userId: '123', score: 70, reason: 'owner override' }, { guildId: 'g1' });
-
-  const affinity = store.getUser('g1', '123').affinity;
-  assert.equal(affinity.score, 70, 'truncating the gap to 70 - 60.4 = 9.6 -> 9 would have stranded this at 69.4');
-  assert.equal(affinity.reason, 'owner override');
-  assert.ok(result.includes('70'));
-});
-
-test('memory.affinity: a score with no reason stores no text of its own (nothing model-facing comes from src/)', async () => {
-  const rootDir = makeRoot();
-  const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', { id: '123', affinity: emptyAffinity() });
-
-  await admin.run('memory.affinity', { userId: '123', score: -30 }, { guildId: 'g1' });
-
-  const affinity = store.getUser('g1', '123').affinity;
-  assert.equal(affinity.score, -30);
-  assert.equal(affinity.reason, '');
-  assert.equal(affinity.history.at(-1).reason, '');
-  const shown = await admin.run('memory.affinity', { userId: '123' }, { guildId: 'g1' });
-  assert.ok(shown.split('\n').includes('reason: -'), shown);
-});
-
-test('memory.affinity: a score with no reason stores labels.affinity.ownerSet, read at the moment of use; a given reason wins', async () => {
-  const rootDir = makeRoot();
-  const { admin, hot, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', { id: '123', affinity: emptyAffinity() });
-
-  hot.prompts = { ...hot.prompts, labels: { ...hot.prompts.labels, affinity: { ownerSet: labels.affinity.ownerSet } } };
-  await admin.run('memory.affinity', { userId: '123', score: 20 }, { guildId: 'g1' });
-  let affinity = store.getUser('g1', '123').affinity;
-  assert.equal(affinity.score, 20);
-  assert.equal(affinity.reason, labels.affinity.ownerSet);
-  assert.equal(affinity.history.at(-1).reason, labels.affinity.ownerSet);
-
-  // A live edit of the label is read by the next set.
-  hot.prompts = { ...hot.prompts, labels: { ...hot.prompts.labels, affinity: { ownerSet: 'Ζωή set it' } } };
-  await admin.run('memory.affinity', { userId: '123', score: 25, reason: '   ' }, { guildId: 'g1' });
-  assert.equal(store.getUser('g1', '123').affinity.reason, 'Ζωή set it');
-
-  await admin.run('memory.affinity', { userId: '123', score: 30, reason: 'owner override' }, { guildId: 'g1' });
-  affinity = store.getUser('g1', '123').affinity;
-  assert.equal(affinity.reason, 'owner override');
+  // a score in the arguments (an old caller) reaches no write: the view, the score as it was
+  const result = await admin.run('memory.affinity', { userId: '123', score: 77, reason: 'by hand' }, { guildId: 'g1' });
+  assert.ok(result.includes('score: 12'), result);
+  assert.equal(store.getUser('g1', '123').affinity.score, 12);
+  assert.equal(resolveCommand('memory.affinity', { userId: '123', score: 77 }).op, 'memory.affinity.read');
+  assert.equal(getOp('memory.affinity.set'), null, 'no operation sets it');
 });
 
 test('memory.affinity / alias.add / alias.remove: a member with no profile is refused and none is created', async () => {
@@ -1083,17 +1030,6 @@ test('memory.affinity / alias.add / alias.remove: a member with no profile is re
   await assert.rejects(() => admin.run('alias.remove', { userId: '555', name: 'Ari' }, { guildId: 'g1' }), /^Error: no profile for 555$/);
   assert.deepEqual(writes, []);
   assert.equal(store.getUser('g1', '555'), null);
-});
-
-test('run: memory.affinity rejects an out-of-range score and writes nothing', async () => {
-  const rootDir = makeRoot();
-  const { admin, store } = makeAdmin(rootDir);
-
-  await assert.rejects(
-    () => admin.run('memory.affinity', { userId: '123', score: 150 }, { guildId: 'g1' }),
-    /-100 and 100/,
-  );
-  assert.equal(store.getUser('g1', '123'), null);
 });
 
 test('run: memory.affinity falls back to the single served guild when context.guildId is absent', async () => {
@@ -2406,36 +2342,36 @@ function fakeSpontaneous(forceResult) {
   const calls = [];
   return {
     calls,
-    force: async (channel, mode) => {
-      calls.push([channel.id, mode]);
+    force: async (channel, mode, options) => {
+      calls.push([channel.id, mode, options]);
       return forceResult ?? { ok: true };
     },
   };
 }
 
-test('run: talk action:interject and action:initiate use the context channel when no channel argument is given', async () => {
-  for (const mode of ['interject', 'initiate']) {
-    const rootDir = makeRoot();
-    const spontaneous = fakeSpontaneous();
-    const client = { channels: { fetch: async (id) => ({ id }) } };
-    const { admin } = makeAdmin(rootDir, { spontaneous, client });
-
-    const result = await admin.run('talk', { action: mode }, { channelId: 'c1' });
-
-    assert.deepEqual(spontaneous.calls, [['c1', mode]], mode);
-    assert.ok(result.includes(`${mode} on c1`), `${mode}: ${result}`);
-  }
-});
-
-test('run: talk action:interject uses the channel argument when given, overriding the context channel', async () => {
+test('run: message create gives the persona a turn in the context channel, the one who asked its requester', async () => {
   const rootDir = makeRoot();
   const spontaneous = fakeSpontaneous();
   const client = { channels: { fetch: async (id) => ({ id }) } };
   const { admin } = makeAdmin(rootDir, { spontaneous, client });
 
-  await admin.run('talk', { action: 'interject', channelId: 'other' }, { channelId: 'c1' });
+  const result = await admin.run('message.create', {}, { channelId: 'c1', userId: '42', roleIds: ['r1'] });
 
-  assert.deepEqual(spontaneous.calls, [['other', 'interject']]);
+  // No mode: the turn reads the channel and joins it or starts a topic itself.
+  assert.deepEqual(spontaneous.calls, [['c1', null, { requester: { id: '42', roleIds: ['r1'] } }]]);
+  assert.ok(result.includes('message create on c1'), result);
+});
+
+test('run: message create uses the channel argument when given, overriding the context channel; a text from a person changes nothing', async () => {
+  const rootDir = makeRoot();
+  const spontaneous = fakeSpontaneous();
+  const client = { channels: { fetch: async (id) => ({ id }) } };
+  const { admin } = makeAdmin(rootDir, { spontaneous, client });
+
+  // The mode is the server's: a person always gets her turn, whatever text the arguments carry.
+  await admin.run('message.create', { channelId: 'other', text: 'Σ' }, { channelId: 'c1' });
+
+  assert.deepEqual(spontaneous.calls, [['other', null, { requester: null }]]);
 });
 
 // ---------------------------------------------------------------------------
@@ -2879,12 +2815,10 @@ test('run: every command that writes data/ is refused while paused, with a hint 
 
   const attempts = [
     ['memory.forget', { userId: '123' }],
-    ['memory.affinity', { userId: '123', score: 5 }],
     ['memory.wipe', { confirm: 'The Server' }],
     ['lore.add', { title: 'Y', keys: 'y', text: 'z' }],
     ['lore.remove', { id: loreId }],
-    ['talk', { action: 'interject' }],
-    ['talk', { action: 'initiate' }],
+    ['message.create', {}],
   ];
   for (const [key, args] of attempts) {
     await assert.rejects(

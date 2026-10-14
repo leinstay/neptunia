@@ -178,7 +178,6 @@ export const labels = {
       fond: 'fond',
       devoted: 'devoted',
     },
-    ownerSet: 'set without a reason',
   },
   attitudes: {
     header: 'members you feel strongly about, not described above:',

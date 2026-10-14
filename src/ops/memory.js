@@ -605,41 +605,15 @@ const handlers = perEnv((env) => {
     ].join('\n');
   }
 
-  /** `/nep memory affinity`: without a score, the attitude view (`affinityView`); with one, sets
-   * it exactly for a member who has a profile (refused while paused). The owner's `reason` is
-   * stored as given; none given stores `labels.affinity.ownerSet` (read at the moment of use), or an
-   * empty one when that label is missing (src/memory/affinity.js#applyDelta then keeps the previous
-   * reason). */
+  /** `/nep memory affinity`: the attitude view (`affinityView`) of a member who has a profile.
+   * Read only: the attitude changes only through the memory analyzer, for nobody by hand. */
   function cmdMemoryAffinity(args, context) {
     const userId = args?.userId;
     if (!userId) throw invalid('a user is required');
     const guildId = requireGuildId(context);
-
-    const score = args?.score;
-    if (score === undefined || score === null) {
-      freshenIfPaused();
-      const profile = requireProfile(guildId, userId);
-      return affinityView(profile.affinity, tokenResolver(guildId).resolve);
-    }
-
-    assertNotPaused();
-    if (!Number.isInteger(score) || score < -100 || score > 100) {
-      throw invalid('score must be an integer between -100 and 100');
-    }
-
+    freshenIfPaused();
     const profile = requireProfile(guildId, userId);
-    // No reason given: the stored reason says the owner set it (`labels.affinity.ownerSet`, read now).
-    const reason = String(args?.reason ?? '').trim() || (hot.prompts.labels?.affinity?.ownerSet ?? '');
-    const current = profile.affinity?.score ?? 0;
-    const relCfg = hot.config?.relationships ?? {};
-    const affinity = store.adjustAffinity(guildId, userId, score - current, reason, {
-      maxDelta: Infinity, // the owner's explicit override bypasses maxDeltaPerUpdate
-      historySize: relCfg.historySize ?? 10,
-      now: Date.now(),
-      damping: false, // an absolute set is never damped
-      truncate: false, // `current` may carry two decimals (a damped score); land on `score` exactly
-    });
-    return `Set affinity for ${userId} to ${roundScore(affinity.score)} (${affinityBand(affinity.score)}).`;
+    return affinityView(profile.affinity, tokenResolver(guildId).resolve);
   }
 
   /** `/nep memory refresh kind:user user:<member>`: forces a portrait refresh (character/style
@@ -758,15 +732,6 @@ defineOp({
   name: 'memory.affinity.read',
   rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdMemoryAffinity({ userId: args?.userId }, ctx),
-});
-defineOp({
-  name: 'memory.affinity.set',
-  rights: { kind: 'write' },
-  run: (args, ctx) => {
-    // A set always carries a score: without one it would fall back to the read view.
-    if (args?.score === undefined || args?.score === null) throw invalid('score must be an integer between -100 and 100');
-    return handlers(ctx.env).cmdMemoryAffinity(args, ctx);
-  },
 });
 defineOp({
   name: 'memory.wipe',

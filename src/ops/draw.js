@@ -9,10 +9,11 @@ import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
 import { clampAtBoundary } from '../memory/clamp.js';
+import { postingConversation } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 const handlers = perEnv((env) => {
-  const { hot, client, images, imageFetcher, assertNotPaused, resolvedGuildId } = env;
+  const { hot, client, images, imageFetcher, port, assertNotPaused, resolvedGuildId } = env;
 
   /**
    * `/nep draw`: one picture through the same prompt a turn builds (prompts
@@ -21,13 +22,19 @@ const handlers = perEnv((env) => {
    * against `image.maxPerDay` only (no member). Answers `{ text, files }`:
    * one line with the model, seconds and cost, plus the picture. A rail or
    * generation failure throws with its reason and HTTP status; the prompt is
-   * never logged.
+   * never logged. With `channelId` the picture is posted there as the persona, through her
+   * interface (`env.port`), the channel being the one the command runs in or one of
+   * `skills.conversations` (src/ops/shared.js#postingConversation, checked before anything is
+   * generated); the answer is then the line alone, or a `failed` result when the post did not go
+   * through (`data.unknown` when it may have: never generated again).
    */
   async function cmdDraw(args, context) {
     if (!images) return 'image generation is not available';
     assertNotPaused();
     const request = String(args?.text ?? '').trim();
     if (!request) throw invalid('text is required');
+    const postTo = args?.channelId ? postingConversation(hot.config, args.channelId, context) : null;
+    if (postTo && (!port || typeof port.send !== 'function')) throw Object.assign(new Error('the persona\'s interface is not available'), { code: 'not-configured' });
 
     const imageCfg = hot.config.image ?? {};
     const model = roleModel(hot.config, 'drawing');
@@ -66,10 +73,13 @@ const handlers = perEnv((env) => {
     const cost = picture.cost == null ? 'cost unknown' : `cost ${picture.cost}`;
     const parts = [picture.model, `${picture.seconds}s`, cost];
     if (referenceMissing) parts.push('no avatar reference');
-    return {
-      text: parts.join(' · '),
-      files: [{ attachment: picture.buffer, name: imageFileName(picture.mediaType) }],
-    };
+    const file = { attachment: picture.buffer, name: imageFileName(picture.mediaType) };
+    if (!postTo) return { text: parts.join(' · '), files: [file] };
+    const sent = await port.send({ iface: port.iface, conversationId: postTo }, { attachments: [{ name: file.name, data: file.attachment, contentType: picture.mediaType }] });
+    if (sent?.status === 'ok') return { text: `${parts.join(' · ')} · posted in ${postTo}`, ref: sent.ref ?? null, at: sent.at };
+    const code = String(sent?.error?.code ?? sent?.status ?? 'error');
+    const unknown = sent?.status === 'unknown';
+    return { status: 'failed', code, summary: `draw: ${unknown ? 'unclear whether the picture was posted' : 'the picture was not posted'} (${code})`, data: { unknown, portStatus: sent?.status ?? null } };
   }
 
   return { cmdDraw };

@@ -4579,10 +4579,11 @@ test('buildRequest: another interlocutor changes the profiles part', () => {
 
 /** Catalogue rows as src/skills/gateway.js#listSkills gives them. */
 const SKILL_ROWS = [
-  { name: 'message.send', title: 'Στείλε', whenToUse: 'σε άλλη συζήτηση', allowed: true, reason: 'carried-over' },
+  { name: 'message.create', title: 'Στείλε', whenToUse: 'σε άλλη συζήτηση', allowed: true, reason: 'carried-over' },
+  { name: 'lore.list', title: '', whenToUse: '', allowed: true, reason: 'allowed' },
   { name: 'message.edit', title: 'Διόρθωσε', whenToUse: 'ένα δικό σου μήνυμα', allowed: true, reason: 'allowed' },
-  { name: 'memory.read', title: 'Θυμήσου', whenToUse: 'τις σημειώσεις σου', allowed: false, reason: 'not-allowed' },
-  { name: 'x.owner', title: 'Owner', whenToUse: 'never', allowed: false, reason: 'owner-only' },
+  { name: 'memory.profile.read', title: 'Θυμήσου', whenToUse: 'τις σημειώσεις σου', allowed: false, reason: 'not-allowed' },
+  { name: 'memory.wipe', title: 'Σβήσε', whenToUse: 'ποτέ', allowed: false, reason: 'not-grantable' },
 ];
 
 test('buildRequest: skills -- the protocol is in the stable part, byte-identical whatever the grants and the catalogue', () => {
@@ -4594,26 +4595,29 @@ test('buildRequest: skills -- the protocol is in the stable part, byte-identical
   assert.ok(plain[0].text.includes(protocolBlock), plain[0].text);
   assert.equal(shown[0].text, plain[0].text, 'the catalogue never touches the stable part');
   assert.equal(regranted[0].text, plain[0].text, 'a grant never touches the stable part');
-  assert.ok(!plain[0].text.includes('message.send') && !shown[0].text.includes('message.send'), 'no skill row in the stable part');
+  assert.ok(!plain[0].text.includes('message.create') && !shown[0].text.includes('message.create'), 'no skill row in the stable part');
   assert.equal(blockTags(contentText(plain)).includes('skills'), false, 'no catalogue without the question');
 });
 
-test('buildRequest: skills -- the catalogue renders in the tail before <chat>, one line per persona skill with its access', () => {
+test('buildRequest: skills -- the catalogue renders in the tail before <chat>: only what she may use now, grouped by family, a skill without texts by its name', () => {
   const content = buildRequest(segmentScene({ skillsInventory: SKILL_ROWS })).messages[1].content;
   const tail = content.at(-1).text;
   const tags = blockTags(tail);
   assert.equal(tags[tags.indexOf('skills') + 1], 'chat');
   const body = blocksOf(tail).find((b) => b.tag === 'skills').body;
   const line = (row, access) => fill(labels.skills.line, { name: row.name, title: row.title, whenToUse: row.whenToUse, access });
-  assert.deepEqual(body.split('\n'), [
-    line(SKILL_ROWS[0], labels.skills.access['carried-over']),
-    line(SKILL_ROWS[1], labels.skills.access.allowed),
-    line(SKILL_ROWS[2], labels.skills.access['not-allowed']),
-  ]);
-  assert.ok(!body.includes('x.owner'), 'an owner-only skill is no persona skill');
-  // A reason without its own label falls back to allowed / not allowed.
+  // the message family together, an empty line, then the lore family; the closed ones left out
+  assert.equal(body, [
+    [line(SKILL_ROWS[0], labels.skills.access['carried-over']), line(SKILL_ROWS[2], labels.skills.access.allowed)].join('\n'),
+    'lore.list',
+  ].join('\n\n'));
+  assert.ok(!body.includes('memory.'), 'nothing she may not use');
+  // A reason without its own label reads as allowed.
   const other = buildRequest(segmentScene({ skillsInventory: [{ ...SKILL_ROWS[2], reason: 'something-else' }] })).messages[1].content;
-  assert.ok(contentText(other).includes(line(SKILL_ROWS[2], labels.skills.access['not-allowed'])));
+  assert.ok(contentText(other).includes(line(SKILL_ROWS[2], labels.skills.access.allowed)));
+  // Nothing open: no block.
+  const closed = buildRequest(segmentScene({ skillsInventory: SKILL_ROWS.slice(3) })).messages[1].content;
+  assert.equal(blockTags(contentText(closed)).includes('skills'), false);
 });
 
 test('buildRequest: skills -- features.skills or features.skillsDiscovery false: neither block; no labels: no block', () => {
@@ -4633,12 +4637,14 @@ test('buildRequest: skills -- the skills proposed for this turn show the allowed
   const line = (row, access) => fill(labels.skills.line, { name: row.name, title: row.title, whenToUse: row.whenToUse, access });
   assert.deepEqual(body.split('\n'), [
     line(SKILL_ROWS[0], labels.skills.access['carried-over']),
-    line(SKILL_ROWS[1], labels.skills.access.allowed),
-    fill(labels.skills.proposedOff, { names: 'memory.read' }),
+    line(SKILL_ROWS[2], labels.skills.access.allowed),
+    '',
+    'lore.list',
+    fill(labels.skills.proposedOff, { names: 'memory.profile.read, memory.wipe' }),
   ]);
   // Nothing allowed and no note label: no block.
   const prompts = fakePrompts({ labels: { ...labels, skills: { ...labels.skills, proposedOff: undefined } } });
-  const closed = buildRequest(segmentScene({ prompts, skillsInventory: [{ ...SKILL_ROWS[2], proposed: true }] })).messages[1].content;
+  const closed = buildRequest(segmentScene({ prompts, skillsInventory: [{ ...SKILL_ROWS[3], proposed: true }] })).messages[1].content;
   assert.equal(blockTags(contentText(closed)).includes('skills'), false);
 });
 
@@ -4647,16 +4653,22 @@ test('skillResultBlock: the status and the reason in words, a read\'s data cut t
     skillResultBlock({ skill: 'message.edit', status: 'refused', code: 'not-allowed' }, labels),
     `<result skill="message.edit" status="refused">\n${fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })}\n</result>`,
   );
-  const unknownCode = skillResultBlock({ skill: 'message.send', status: 'unknown', code: 'http-503' }, labels);
+  const unknownCode = skillResultBlock({ skill: 'message.create', status: 'unknown', code: 'http-503' }, labels);
   assert.ok(unknownCode.includes(fill(labels.skills.result.unknown, { reason: labels.skills.result.reasons.other })), unknownCode);
-  const read = skillResultBlock({ skill: 'memory.read', status: 'ok', data: { text: 'όνομα: Ζωή\n' + 'λ'.repeat(50) } }, labels, { maxChars: 20 });
+  const read = skillResultBlock({ skill: 'memory.profile.read', status: 'ok', data: { text: 'όνομα: Ζωή\n' + 'λ'.repeat(50) } }, labels, { maxChars: 20 });
   const [, lead, data] = read.split('\n');
   assert.equal(lead, labels.skills.result.ok);
   assert.ok(data.length <= 20 && data.endsWith('…'), data);
-  const rows = skillResultBlock({ skill: 'skills.list', status: 'ok', data: { rows: SKILL_ROWS.slice(1, 2) } }, labels);
+  const rows = skillResultBlock({ skill: 'lore.list', status: 'ok', data: { rows: SKILL_ROWS.slice(2, 3) } }, labels);
   assert.ok(rows.includes(fill(labels.skills.line, { name: 'message.edit', title: 'Διόρθωσε', whenToUse: 'ένα δικό σου μήνυμα', access: labels.skills.access.allowed })), rows);
   // Without the labels the code is all the block says.
-  assert.equal(skillResultBlock({ skill: 'draw', status: 'failed', code: 'error' }, {}), '<result skill="draw" status="failed">\nerror\n</result>');
+  assert.equal(skillResultBlock({ skill: 'draw.create', status: 'failed', code: 'error' }, {}), '<result skill="draw.create" status="failed">\nerror\n</result>');
+  // An operation's own answer follows whatever the status: an error or a refusal is a result too.
+  const notConfigured = skillResultBlock({ skill: 'diary.post', status: 'not_configured', code: 'not-configured', data: { text: 'diary post: not-now (no-channel)' } }, labels);
+  assert.equal(notConfigured, `<result skill="diary.post" status="not_configured">\n${fill(labels.skills.result.failed, { reason: labels.skills.result.reasons.other })}\ndiary post: not-now (no-channel)\n</result>`);
+  // A structured status without its own label is told with the nearest one.
+  assert.ok(skillResultBlock({ skill: 'lore.add', status: 'denied', code: 'not-allowed' }, labels).includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })));
+  assert.ok(skillResultBlock({ skill: 'lore.add', status: 'invalid', code: 'invalid-args' }, labels).includes('status="invalid"'));
 });
 
 test('withSkillResult: the block goes into the tail right before <task>; the cached parts are untouched', () => {
