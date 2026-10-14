@@ -52,6 +52,7 @@ Every key in `config.json` with its default, grouped by section.
 | `recent` | `true` | Show a `<recent>` block of what happened on the server in the last few days. A missing key counts as on. See `memory.recentHours` and `context.caps.recent` |
 | `participation` | `true` | The persona remembers its own exchanges on other channels over the last few days and, on a server turn, sees a few of them in a `<participation>` block. A missing key counts as on. See [`participation`](#participation) and `context.caps.participation` |
 | `channelRoute` | `true` | A classifier picks a channel the conversation is about before a turn, so the channel can be pulled into the request. A missing key counts as on. See `route.*` |
+| `turnPlanner` | `false` | One helper call before the reply replaces the channel router, the episode pick, the search classifier and the re-watch classifier; the address classifier and the GIF pick stay separate. Must be exactly `true` to enable; a missing key counts as off. Needs `prompts/planner.md` |
 | `channelLinks` | `true` | When the persona writes `#channel-name` of a server channel in a message, the sent message carries a real channel link instead of the literal text. Names are matched longest first; an existing link stays. Off: text goes as written. A missing key counts as on |
 | `messageLinks` | `true` | When the persona writes a transcript number like `#93` in a message and that number matches a line of the turn's transcript, the posted text carries a Discord message link to that message (Discord renders it as a clickable jump pill). A number that does not match a transcript line stays as written; code spans and existing URLs are untouched. In a DM the link uses `@me`. A missing key counts as on |
 | `pauseNotice` | `true` | Post a short notice when the persona is called while paused. A missing key counts as on. See `mention.pauseNoticeMinutes` and `labels.limits.paused` |
@@ -124,8 +125,8 @@ Helper model roles, grouped under one key. Each is set independently, so the hel
 | Key | Default | Meaning |
 |---|---|---|
 | `text` | `"anthropic/claude-sonnet-4.6"` | Runs the address classifier (`features.followUp`), the re-watch classifier (`features.videoRewatch`), the room classifier (`spontaneous.roomQuestionChance`) and the channel route classifier (`features.channelRoute`) |
-| `reason` | `null` | The helpers that reason over content: the search classifier, the recall summary, the search condenser, the link reader and the diary planner. Unset (default) uses the `classifier.text` model; the status card shows the fallback. Its requests carry role `classifier.reason` |
-| `byPurpose` | `{}` | Per-purpose model override: an object whose keys are purpose strings (e.g. `lookup`, `recall-summary`, `diary-plan`) and whose values are model ids. A match on purpose wins over the role's model. Not probed by `/nep status` |
+| `reason` | `null` | The helpers that reason over content: the search classifier, the recall summary, the search condenser, the link reader, the diary planner and the turn planner. Unset (default) uses the `classifier.text` model; the status card shows the fallback. Its requests carry role `classifier.reason` |
+| `byPurpose` | `{}` | Per-purpose model override: an object whose keys are purpose strings (e.g. `lookup`, `recall-summary`, `diary-plan`, `planner`) and whose values are model ids. A match on purpose wins over the role's model. Not probed by `/nep status` |
 | `media` | `"anthropic/claude-haiku-4.5"` | Picture describer (`features.mediaDescriptions`): one-line descriptions for pictures, GIF frames, video posters, stickers, custom emoji and link thumbnails |
 | `video` | `"google/gemini-3.8-flash"` | Video describer (`features.videoDescriptions`): watches short clips, re-watches on a question, retries on request. Must accept both video and audio input |
 | `embed` | `"openai/text-embedding-3-large"` | The embedding model (for meaning search). Its requests carry role `classifier.embed`; its `llm: usage` lines report `inputs` (the number of texts embedded) and `dimensions`. Probed by `/nep status` with a one-input embedding request; without an embedding client the line says it was not checked |
@@ -662,7 +663,7 @@ Settings for the web lookup (`features.webLookup`). Both link reading and search
 | `results` | `5` | Number of Brave Search results requested |
 | `summaryChars` | `900` | Max characters for the condensed answer; fills `{{maxChars}}` in `search-summary.md` |
 | `maxOutputTokens` | `4000` | Max output tokens for the condenser |
-| `classifierMaxOutputTokens` | `2000` | Max output tokens for the search classifier. Raised to fit the multi-line answer format (`web:`, `server:`, `who:`, `when:`). A reasoning model that thinks before answering needs a larger cap |
+| `classifierMaxOutputTokens` | `2000` | Max output tokens for the search classifier and the turn planner. Raised to fit the multi-line answer format (`web:`, `server:`, `who:`, `when:`). A reasoning model that thinks before answering needs a larger cap |
 | `cacheHours` | `24` | Hours a cached search result is served before re-searching |
 | `contextMessages` | `50` | Recent channel messages rendered as a `<transcript>` for the search classifier |
 | `timeoutMs` | `10000` | Brave Search request timeout (ms) |
@@ -838,7 +839,7 @@ The cheapest text model that can answer "yes" or "no" reliably. Runs the address
 
 ### Reasoning helpers (`classifier.reason`)
 
-Role `classifier.reason`. The helpers that reason over content rather than answering yes/no: the search classifier (`features.webLookup`), the recall summary, the search condenser, the link reader (`features.recall`) and the diary planner. Default: `null`, which uses the `classifier.text` model. A `llm.providerByModel` key matching `<prefix>@classifier.text` also applies to this role when it has no key of its own.
+Role `classifier.reason`. The helpers that reason over content rather than answering yes/no: the search classifier (`features.webLookup`), the recall summary, the search condenser, the link reader (`features.recall`), the diary planner and the turn planner (`features.turnPlanner`). Default: `null`, which uses the `classifier.text` model. A `llm.providerByModel` key matching `<prefix>@classifier.text` also applies to this role when it has no key of its own.
 
 ### Embeddings (`classifier.embed`)
 

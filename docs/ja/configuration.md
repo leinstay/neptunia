@@ -45,6 +45,7 @@
 | `embedIndex` | `false` | ボット稼働中にベクトルインデックスを最新に保つ: レコードに取り込まれたメッセージがキューに入り、`embed.flushSeconds` 秒ごとまたは `embed.batch` 行溜まるとバッチがエンベディングされる。`true` のみで有効。キー欠落 = オフ。`features.meaningSearch` が必要。このスイッチなしではインデックスは `tools/embed-index.mjs` でのみ構築 |
 | `recent` | `true` | サーバーで直近数日間に何が起きたかを `<recent>` ブロックとして表示する。キー欠落 = オン。`memory.recentHours` と `context.caps.recent` 参照 |
 | `channelRoute` | `true` | ターン前に分類器が会話の話題になっているチャンネルを特定し、リクエストに取り込めるようにする。キー欠落 = オン。`route.*` 参照 |
+| `turnPlanner` | `false` | リプライ前に 1 回のヘルパー呼び出しでチャンネルルーター、エピソード選択、検索分類器、再視聴分類器を置き換える。アドレス分類器と GIF ピッカーは別のまま。`true` のみ有効化。キー欠落 = オフ。`prompts/planner.md` が必要 |
 | `channelLinks` | `true` | ペルソナがメッセージ内にサーバーチャンネルの `#チャンネル名` を書いた場合、送信メッセージにはテキストの代わりに本物のチャンネルリンクが入る。名前は最長一致で照合。既存のリンクはそのまま。オフ: テキストがそのまま送信される。キー欠落 = オン |
 | `pauseNotice` | `true` | ペルソナが一時停止中に呼ばれた場合、短い通知を投稿する。キー欠落 = オン。`mention.pauseNoticeMinutes` と `labels.limits.paused` 参照 |
 | `diary` | `true` | ペルソナがオーナーの選んだチャンネルにランダムなスケジュールで自発的に投稿する。キーが存在しない場合はオン。`diary.channelId` が設定されていなければ何も起きない。[日記](diary.md)を参照 |
@@ -115,8 +116,8 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 | キー | デフォルト | 説明 |
 |---|---|---|
 | `text` | `"anthropic/claude-sonnet-4.6"` | テキスト分類器: アドレス分類器（`features.followUp`）、再視聴分類器（`features.videoRewatch`）、ルーム分類器（`spontaneous.roomQuestionChance`）、チャンネルルート分類器（`features.channelRoute`） |
-| `reason` | `null` | 内容を推論するヘルパー: 検索分類器、リコールサマリー、検索要約、リンク読み取り、日記プランナー。未設定（デフォルト）の場合は `classifier.text` のモデルを使用し、ステータスカードにフォールバック元が表示される。リクエストはロール `classifier.reason` で送信される |
-| `byPurpose` | `{}` | 用途ごとのモデル上書き: キーは用途文字列（例: `lookup`、`recall-summary`、`diary-plan`）、値はモデル ID。用途の一致はロールのモデルより優先される。`/nep status` ではプローブされない |
+| `reason` | `null` | 内容を推論するヘルパー: 検索分類器、リコールサマリー、検索要約、リンク読み取り、日記プランナー、ターンプランナー。未設定（デフォルト）の場合は `classifier.text` のモデルを使用し、ステータスカードにフォールバック元が表示される。リクエストはロール `classifier.reason` で送信される |
+| `byPurpose` | `{}` | 用途ごとのモデル上書き: キーは用途文字列（例: `lookup`、`recall-summary`、`diary-plan`、`planner`）、値はモデル ID。用途の一致はロールのモデルより優先される。`/nep status` ではプローブされない |
 | `media` | `"anthropic/claude-haiku-4.5"` | 画像説明モデル（`features.mediaDescriptions`）: 画像、GIF フレーム、動画ポスター、スティッカー、カスタム絵文字、リンクサムネイルの一行説明文 |
 | `video` | `"google/gemini-3.8-flash"` | 動画説明モデル（`features.videoDescriptions`）: 短いクリップの視聴、質問に対する再視聴、リクエストに応じたリトライ。動画と音声の両方の入力を受け付ける必要がある |
 | `embed` | `"openai/text-embedding-3-large"` | エンベディングモデル（意味検索用）。リクエストはロール `classifier.embed` で送信される。`llm: usage` ログ行に `inputs`（テキスト数）と `dimensions` が記録される。`/nep status` は 1 入力のエンベディングリクエストでプローブする。エンベディングクライアントがない場合はチェックされなかったと表示される |
@@ -613,7 +614,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `results` | `5` | Brave Search に要求する結果数 |
 | `summaryChars` | `900` | 要約回答の最大文字数。`search-summary.md` の `{{maxChars}}` に使用 |
 | `maxOutputTokens` | `4000` | 要約モデルの最大出力トークン数 |
-| `classifierMaxOutputTokens` | `2000` | 検索分類器の最大出力トークン数。複数行回答形式（`web:`、`server:`、`who:`、`when:`）に合わせて増加。推論する前に考えるモデルはより大きな上限が必要 |
+| `classifierMaxOutputTokens` | `2000` | 検索分類器とターンプランナーの最大出力トークン数。複数行回答形式（`web:`、`server:`、`who:`、`when:`）に合わせて増加。推論する前に考えるモデルはより大きな上限が必要 |
 | `cacheHours` | `24` | キャッシュされた検索結果が再検索されるまでの時間 |
 | `contextMessages` | `50` | 検索分類器に `<transcript>` として渡す直近のチャンネルメッセージ数 |
 | `timeoutMs` | `10000` | Brave Search リクエストのタイムアウト（ミリ秒） |

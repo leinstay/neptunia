@@ -251,6 +251,7 @@ prompts/
   recall-summary.md        浓缩服务器消息历史搜索结果
   room.md                  分类器：这条消息是面向所有人还是面向特定人
   route-channel.md         分类器：回答是否需要查看另一个频道
+  planner.md               回合规划器：回复前的一次辅助调用 (features.turnPlanner)
   elsewhere.md             任务：在主频道评论只读频道中的内容
   split.md                 分类器：直接呼叫是否包含多个独立请求
   merge.md                 分类器：新消息是否属于已在等候的条目
