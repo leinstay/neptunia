@@ -71,6 +71,25 @@ export const OP_EFFECTS = Object.freeze({
 });
 
 /**
+ * The persona's own expressive operations -- her messages, reactions, drawings, diary: run for
+ * her on her own grant alone, whoever asked (the owner's decision: "messages and drawings are
+ * hers"); every other operation also needs the right of the person who asked
+ * (src/skills/gateway.js). Their own rules still hold (edit and delete only her own messages, a
+ * post only where she may write), and so do the rules on who asked: no write when a turn answers
+ * several people, only a read when nobody asked.
+ */
+export const SELF_OWNED_OPS = Object.freeze([
+  'message.create',
+  'message.edit',
+  'message.delete',
+  'message.react.add',
+  'message.react.remove',
+  'draw.create',
+  'diary.post',
+  'diary.show',
+]);
+
+/**
  * The effect class of operation `name`, or null when the table has no row for it.
  * @param {string} name
  * @returns {'read'|'write'|'destructive'|'administrative'|'paid'|null}

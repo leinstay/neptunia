@@ -16,6 +16,7 @@
 // result through `labels.skills.result`.
 
 import { matchChannel } from '../memory/mentions.js';
+import { SELF_OWNED_OPS } from '../ops/effects.js';
 
 /** The options whose value may be a transcript number `#N`: a message she can see. */
 const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
@@ -257,7 +258,9 @@ function fromPort(result) {
  * own option mapper (`command.toCall`), must reach this very operation (else `invalid`); her own
  * writing (`message.create`, `message.edit`) is first rendered as it is posted
  * (`deps.renderText`: custom emoji). Then `deps.runCommand(key, args, context)`
- * (src/admin.js#runCommand) on the call's envelope (`deps.envelope`, built by the turn, never by
+ * (src/admin.js#runCommand) -- for her own expressive operations (src/ops/effects.js#SELF_OWNED_OPS)
+ * `deps.runOwnCommand` (src/admin.js#runOwnCommand: her grant alone, no requester's right) -- on
+ * the call's envelope (`deps.envelope`, built by the turn, never by
  * the model: the requester's `userId` and `roleIds`, null with nobody; the invocation id) in the
  * turn's context (`deps.opContext`: `guildId`, `channelId`), the persona as the actor, the replied
  * author for a reply's notification; not back within `deps.timeoutMs` (`skills.callTimeoutMs`)
@@ -275,10 +278,12 @@ export async function executeCall(resolved, deps) {
     if (WRITTEN.includes(resolved.skill) && typeof args.text === 'string' && typeof deps.renderText === 'function') args.text = deps.renderText(args.text);
     const call = resolved.command.toCall(args);
     if (!call.args || call.op !== resolved.skill) return { status: 'invalid', code: 'invalid-args', reason: 'command' };
-    if (typeof deps.runCommand !== 'function') return { status: 'not_configured', code: 'unsupported' };
+    // Her own expressive operations run on her grant alone; any other on the requester's right too.
+    const run = SELF_OWNED_OPS.includes(resolved.skill) ? deps.runOwnCommand : deps.runCommand;
+    if (typeof run !== 'function') return { status: 'not_configured', code: 'unsupported' };
     const envelope = deps.envelope ?? {};
     const requester = envelope.requester ?? null;
-    const result = await withTimeout(deps.runCommand(call.key, call.args, {
+    const result = await withTimeout(run(call.key, call.args, {
       ...deps.opContext,
       userId: requester?.id ?? null,
       roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],

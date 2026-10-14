@@ -127,6 +127,7 @@ function deps(admin, port, { requester = { id: OWNER, roleIds: [] }, ...over } =
     renderText: (text) => text,
     envelope: Object.freeze({ actor: 'persona', requester, mixed: false, invocationId: 'inv-1', originChannelId: HERE }),
     runCommand: admin.runCommand,
+    runOwnCommand: admin.runOwnCommand,
     opContext: { guildId: 'g1', channelId: HERE },
     ...over,
   };
@@ -155,9 +156,43 @@ test('executeCall: a member asks her to post photos to the diary and the diary i
   const none = await executeCall(resolved, deps(bare.admin, bare.port));
   assert.deepEqual(none, { status: 'not_configured', code: 'not-configured', data: { text: 'diary not running' } });
 
-  // A member who asked: diary.post is owner-only, refused again on the command's own path, its text too.
+  // A member who asked: her diary is hers (a self-owned operation), the same answer.
   const member = await executeCall(resolved, deps(admin, port, { requester: { id: MEMBER, roleIds: [] } }));
-  assert.deepEqual(member, { status: 'denied', code: 'owner-only', data: { text: 'diary.post is owner-only' } });
+  assert.deepEqual(member, result);
+});
+
+test('executeCall: her diary post inside her own turn is queued for right after it, once per invocation; its outcome journaled', async () => {
+  const forced = [];
+  let idle;
+  const turns = { waitIdle: () => new Promise((resolve) => { idle = resolve; }) };
+  const diary = { force: async (request) => { forced.push(request); return { outcome: 'spoke' }; } };
+  const records = [];
+  const journal = { system: async (guildId, record) => records.push({ guildId, ...record }) };
+  const cfg = { ...config({ diary: { channelId: 'd1' } }), features: { skills: true, diary: true, journal: true } };
+  const { admin, port } = makeAdmin({ cfg, diary, extra: { turns, journal } });
+  const resolved = resolve('diary.post', { kind: 'photos' });
+  const first = await executeCall(resolved, deps(admin, port));
+  assert.deepEqual(first, { status: 'ok', data: { text: 'diary post photos: queued, posts right after this turn' } });
+  assert.equal(needsFollowUp('diary.post', first), true, 'she hears it is queued');
+  // the same invocation again: queued once
+  await executeCall(resolved, deps(admin, port));
+  assert.deepEqual(forced, [], 'nothing runs while her turn holds the attention');
+  idle();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(forced, [{ kind: 'photos' }]);
+  assert.deepEqual(records, [{ guildId: 'g1', event: 'skill-deferred', op: 'diary.post', invocationId: 'inv-1', outcome: 'spoke', reason: null }]);
+  // a person's own command is not queued: it waits and posts as before
+  const person = await admin.runCommand('diary.post', { kind: 'photos' }, { guildId: 'g1', channelId: HERE, userId: OWNER, roleIds: [] });
+  assert.deepEqual([person.status, person.summary], ['ok', 'diary post photos: spoke']);
+});
+
+test('runOwnCommand: only her own expressive operations, without the requester\'s right', async () => {
+  const { admin } = makeAdmin({ diary: { force: async () => ({ outcome: 'spoke' }), status: () => ({ slots: [], history: 0 }) } });
+  const other = await admin.runOwnCommand('lore.list', {}, { guildId: 'g1', userId: MEMBER });
+  assert.deepEqual([other.status, other.code], ['denied', 'not-self-owned']);
+  const own = await admin.runOwnCommand('diary.show', {}, { guildId: 'g1', userId: MEMBER, actor: 'persona' });
+  assert.equal(own.status, 'ok', 'an owner-only diary read, for her, whoever asked');
 });
 
 test('executeCall: the result she reads is cut to skills.resultMaxChars; ok is said only when the operation answered ok', async () => {

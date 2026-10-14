@@ -8577,7 +8577,7 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
   const client = fakeClient();
   const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', port, ...(images ? { images } : {}), ...(diary ? { diary: diary(hot) } : {}) });
   const llm = sequenceLlm(answers);
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runCommand: admin.runCommand });
+  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention', ...turnExtra }));
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
   return { result, logs, llm, port, sends, channel, store, hot };
@@ -8683,9 +8683,9 @@ test('skill call: Alice asks her to post photos to the diary and the diary is no
   assert.ok(text.includes('diary post photos: not-now (no-channel)'), text);
   assert.ok(!text.includes(labels.skills.result.ok), 'never told it went out');
   assert.deepEqual(run.sends.map((send) => send.text), ['δεν έχω ημερολόγιο ακόμα']);
-  // A member who is not the owner: diary.post is owner-only, refused before it runs.
+  // A member who is not the owner: the diary is hers, the same answer.
   const member = await callTurn({ answers: ['<call skill="diary.post" kind="photos"/>', '<skip/>'], allowed: ['diary.post'], owners: [], diary, configExtra: { diary: { channelId: '', kinds: { photos: 1 } } } });
-  assert.ok(requestText(member.llm, 1).includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['requester-denied'] })));
+  assert.ok(requestText(member.llm, 1).includes('<result skill="diary.post" status="not_configured">'), requestText(member.llm, 1));
 });
 
 test('skill call: a turn answering several people runs no write', async () => {

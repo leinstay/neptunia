@@ -37,6 +37,7 @@ import { resolveCommand, runOp, runOpPrechecked, legacyGrantOps } from './ops/in
 import { getOp, listOps } from './ops/registry.js';
 import { grantKeys, migrateStoredGrants } from './ops/access.js';
 import { skillNames } from './skills/registry.js';
+import { SELF_OWNED_OPS } from './ops/effects.js';
 
 export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from './ops/shared.js';
 
@@ -194,6 +195,21 @@ export function createAdmin(deps) {
     return runOp(target.op, target.args, { ...context, env });
   }
 
+  /**
+   * One of the persona's own expressive operations (src/ops/effects.js#SELF_OWNED_OPS) run for
+   * her through its command, WITHOUT the requester's rights check: her grant, checked by the skill
+   * gateway, alone decides (src/skills/executors.js). Any other operation is refused
+   * (`not-self-owned`): it goes through `runCommand`. Never throws.
+   * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
+   */
+  async function runOwnCommand(commandKey, args = {}, context = {}) {
+    const target = resolveCommand(commandKey, args);
+    if (!target) return { status: 'invalid', code: 'unknown-command', summary: `unknown command: ${commandKey}`, data: null };
+    if (target.invalid) return { status: 'invalid', code: 'invalid-args', summary: target.invalid, data: null };
+    if (!SELF_OWNED_OPS.includes(target.op)) return { status: 'denied', code: 'not-self-owned', summary: `${target.op} is not the persona's own`, data: null };
+    return runOpPrechecked(target.op, target.args, { ...context, env });
+  }
+
   /** Once per guild at start: the stored grants re-expanded under the operation names
    * (src/ops/access.js#migrateStoredGrants). */
   function migrateAccess(guildId) {
@@ -230,5 +246,5 @@ export function createAdmin(deps) {
     return choices;
   }
 
-  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, migrateAccess };
+  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, runOwnCommand, migrateAccess };
 }

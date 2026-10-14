@@ -287,6 +287,8 @@ const turns = createTurnRunner({
   // requester's rights checked again (src/admin.js#runCommand); read at call time, the admin
   // being created below.
   runCommand: (key, args, context) => admin.runCommand(key, args, context),
+  // Her own messages, drawings and diary run on her grant alone (src/ops/effects.js#SELF_OWNED_OPS).
+  runOwnCommand: (key, args, context) => admin.runOwnCommand(key, args, context),
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).

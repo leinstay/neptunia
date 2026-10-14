@@ -1288,7 +1288,8 @@ function taskInput({ part, queued, added, missed = null, labels, channelId }) {
  * invocation id, resolved on the server's side, checked) and made after it (runCall: checked
  * again right before, then run by src/skills/executors.js through `runCommand(key, args,
  * context)` -- src/admin.js#runCommand, the command's own path, the requester's rights checked
- * again; absent, a call is `not_configured`). An operation's answer -- an error or a refusal
+ * again; absent, a call is `not_configured`; her own expressive operations through
+ * `runOwnCommand`, src/admin.js#runOwnCommand, her grant alone). An operation's answer -- an error or a refusal
  * included -- or any call that did not succeed (never under features.skills off) brings one
  * follow-up request: the reply request again with a `<result>` block before `<task>`
  * (followUp); its answer is acted on like the reply, a `<call>` in it ignored. A message or a
@@ -1320,6 +1321,7 @@ export function createTurnRunner({
   port = null,
   skills = null,
   runCommand = null,
+  runOwnCommand = null,
 }) {
   const busy = new Set();
   // The channels the default adapter may resolve by id without the client (the turn's own and a
@@ -1538,6 +1540,7 @@ export function createTurnRunner({
           renderText: (text) => renderCustomEmoji(text, emojiLookup()),
           envelope,
           runCommand,
+          runOwnCommand,
           opContext: { guildId, channelId: String(channel.id) },
           timeoutMs: hot.config.skills?.callTimeoutMs ?? 120000,
         });

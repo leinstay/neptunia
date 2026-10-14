@@ -1,4 +1,4 @@
-// Operations: `/nep diary`: the channel where the persona posts on its own (src/behavior/diary.js). Owner-only, as the diary group has always been (rights.ownerOnly below).
+// Operations: `/nep diary`: the channel where the persona posts on its own (src/behavior/diary.js). Owner-only, as the diary group has always been (rights.ownerOnly below); `diary.post` asked by the persona herself is queued for right after her turn.
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -10,7 +10,10 @@ import { unsetPath, reloadNote } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, diary, assertNotPaused, freshenIfPaused, resolvedGuildId, requireGuildId, editLocalConfig, writeLocalPath } = env;
+  const { hot, store, client, diary, turns, assertNotPaused, freshenIfPaused, resolvedGuildId, requireGuildId, editLocalConfig, writeLocalPath, journalSystem } = env;
+
+  // Invocation ids of the persona's posts queued for after her turn: each is queued once.
+  const queued = new Set();
 
   /** The post kinds the diary may use: the keys of `diary.kinds` with a weight above zero, read now. */
   function diaryKindKeys() {
@@ -98,8 +101,15 @@ const handlers = perEnv((env) => {
    * same line, its code `not-configured` when the diary has no channel or is switched off (or is
    * not running at all), `daily-cap` for a cap, else the outcome itself -- so nobody, the persona
    * included (her skills), is told a post went out when it did not.
+   *
+   * Asked by the persona herself (`context.actor`, her skills: always inside a turn of hers), the
+   * post cannot run now -- the diary waits for the one attention, which her own turn holds -- so,
+   * once the diary is known to be set up, it is queued to run right after her turn ends (the turn
+   * runner's `waitIdle`), once per invocation id, and the answer is an `ok` line saying so. Its
+   * outcome is journaled then (a `system` record `skill-deferred`) and logged; a failure then
+   * does nothing more.
    */
-  async function cmdDiaryPost(args) {
+  async function cmdDiaryPost(args, context = {}) {
     assertNotPaused();
     if (typeof diary?.force !== 'function') throw Object.assign(new Error('diary not running'), { code: 'not-configured' });
     const kind = String(args?.kind ?? '').trim() || undefined;
@@ -109,7 +119,40 @@ const handlers = perEnv((env) => {
     }
     // The owner's topic nudges the post's subject; blank is none (src/behavior/diary.js#diaryTopic clamps it).
     const topic = String(args?.topic ?? '').trim();
-    const outcome = await diary.force(topic ? { kind, topic } : { kind });
+    const request = topic ? { kind, topic } : { kind };
+    if (context?.actor === 'persona') return queueAfterTurn(kind, request, context);
+    return postLine(kind, await diary.force(request));
+  }
+
+  /**
+   * The persona's post, queued for right after her turn (see cmdDiaryPost): a diary off or without
+   * a channel is said at once, as the post itself would say it (`not-configured`).
+   */
+  function queueAfterTurn(kind, request, context) {
+    const label = `diary post${kind ? ` ${kind}` : ''}`;
+    const off = hot.config.features?.diary === false ? 'off' : !hot.config.diary?.channelId ? 'no-channel' : null;
+    if (off) return { status: 'failed', code: 'not-configured', summary: `${label}: not-now (${off})`, data: null };
+    const invocationId = String(context?.invocationId ?? '');
+    const answer = `${label}: queued, posts right after this turn`;
+    if (invocationId && queued.has(invocationId)) return answer;
+    if (invocationId) queued.add(invocationId);
+    const guildId = resolvedGuildId(context);
+    const afterTurn = typeof turns?.waitIdle === 'function' ? turns.waitIdle() : Promise.resolve();
+    afterTurn
+      .then(() => diary.force(request))
+      .then(async (outcome) => {
+        const result = outcome && typeof outcome === 'object' ? outcome.outcome : outcome;
+        const reason = outcome && typeof outcome === 'object' ? (outcome.reason ?? null) : null;
+        log.info('diary: deferred post', { outcome: result ?? null, reason });
+        await journalSystem(guildId, { event: 'skill-deferred', op: 'diary.post', invocationId: invocationId || null, outcome: result ?? null, reason });
+      })
+      .catch((err) => log.warn('diary: deferred post failed', { error: err }))
+      .finally(() => queued.delete(invocationId));
+    return answer;
+  }
+
+  /** The reply to a forced post's outcome: `ok` only when it went out, else a failure with its code. */
+  function postLine(kind, outcome) {
     const text = typeof outcome === 'string' ? outcome : (outcome?.outcome ?? JSON.stringify(outcome) ?? 'ok');
     // A refusal by a cap names the setting and the day's counts; any other reason is shown as its code.
     const limit = outcome && typeof outcome === 'object' ? outcome.limit : null;
@@ -145,5 +188,5 @@ defineOp({
 defineOp({
   name: 'diary.post',
   rights: { kind: 'write', ownerOnly: true },
-  run: (args, ctx) => handlers(ctx.env).cmdDiaryPost(args),
+  run: (args, ctx) => handlers(ctx.env).cmdDiaryPost(args, ctx),
 });

@@ -15,6 +15,7 @@ import { skillRegistry, describeSkill } from './registry.js';
 import { CARRIED_OVER, skillAccess, skillsOn } from './access.js';
 import { schemaError } from './schema.js';
 import { MINUTE_MS } from '../time.js';
+import { SELF_OWNED_OPS } from '../ops/effects.js';
 
 /** A refusal. */
 function refused(code, reason) {
@@ -43,8 +44,10 @@ function noRequesterRefusal(skill) {
  * themselves (src/ops/rights.js, the owner commands' own check: an owner passes everything, an
  * owner-only operation only an owner, a member as their grants say); with no requester (nobody
  * asked: a spontaneous turn, the diary) only a read, and only one open to everyone (`no-requester`
- * for a write). Any other shared-state skill checks a requester's right on its operation; with
- * none the persona acts on her own.
+ * for a write). Her own expressive operations (src/ops/effects.js#SELF_OWNED_OPS) skip the
+ * requester's right -- hers alone decides -- but not the two rules on who asked: no write for
+ * several people, only a read for nobody. Any other shared-state skill checks a requester's right
+ * on its operation; with none the persona acts on her own.
  */
 function requesterRefusal(skill, requester, context) {
   // A turn answering several people at once: no write runs on their mixed authority.
@@ -53,6 +56,7 @@ function requesterRefusal(skill, requester, context) {
   if (!owners && (!skill.sharedState || !requester)) return null;
   const unasked = owners && !requester ? noRequesterRefusal(skill) : null;
   if (unasked) return unasked;
+  if (SELF_OWNED_OPS.includes(skill.op)) return null;
   const getOp = context?.getOp ?? registryGetOp;
   const op = skill.op ? getOp(skill.op) : null;
   if (!op) return refused('requester-denied', 'no-operation');
