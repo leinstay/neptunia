@@ -164,7 +164,7 @@
     "stretch": "{date} in #{channel}:",
     "stretchSelf": " [your lines]",
     "stretchCurrent": " [current conversation]",
-    "timeEstimate": "The asker's time cue, read as {range}, is an estimate to help find the event, not a fact: the matching event may be on another date. If it is, say so and give its real date."
+    "timeEstimate": "The asker placed this around {range}. That date is a rough guide to finding the event, not the event's known date. If the match sits on a different date, say so and give the real one."
   },
   "affinity": {
     "bands": {
