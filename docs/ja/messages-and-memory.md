@@ -135,7 +135,7 @@ DM ではペルソナは公開とプライベートデータの結合を見ま�
 | `/nep memory server` | サーバー全体の傾向、内輪ネタ、自己言及 |
 | `/nep memory refresh <user>` | メンバーのポートレートリフレッシュを強制実行 |
 | `/nep memory forget <user>` | 保存されたプロファイルとプライベートメモリを削除 |
-| `/nep memory affinity <user>` | 態度の表示または設定 |
+| `/nep memory affinity <user>` | 態度スコアと履歴の表示 |
 | `/nep memory wipe` | サーバーのアナライザーメモリをすべて消去（プライベートファイル含む） |
 | `/nep memory private show <user>` | メンバーのプライベートメモリを表示 |
 | `/nep memory private forget <user>` | プライベートファイルのみを削除。公開プロファイルは保持 |

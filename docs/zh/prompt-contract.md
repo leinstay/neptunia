@@ -273,7 +273,6 @@ gifs.entryNoText                         {id}: 无说明的 GIF 一条
 gifs.ownMark                             {ago}: appended to an entry the persona posted within gifs.ownMarkHours
 affinity.bands.hostile | dislike | cool | neutral | warm | fond | devoted
                                          thresholds in code: ≤-60 · ≤-25 · ≤-8 · <8 · <25 · <60 · ≥60
-affinity.ownerSet                        reason shown when the owner set a score by hand without giving one
 aboutChat.patterns | starters | injokes  {text}
 aboutChat.learned                        {text}: things people taught the persona, joined by `; ` by code
 aboutChat.learnedItem                    {text} {who}: one lesson with a teacher

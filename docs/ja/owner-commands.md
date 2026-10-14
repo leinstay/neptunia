@@ -4,7 +4,7 @@
 
 ## アクセス
 
-`/nep` は最初からすべてのメンバーに表示されます。アクセスはコマンド実行時にオペレーション単位でゲートされ、Discord のコマンド表示設定は使いません。各コマンドは 1 つの名前付きオペレーションを実行します。読み取りと変更は分離されています: `/nep memory show` は `memory.profile.read`、`/nep memory affinity <user>` は `memory.affinity.read`、`/nep memory affinity <user> <score>` は `memory.affinity.set` を実行します。
+`/nep` は最初からすべてのメンバーに表示されます。アクセスはコマンド実行時にオペレーション単位でゲートされ、Discord のコマンド表示設定は使いません。各コマンドは 1 つの名前付きオペレーションを実行します。読み取りと変更は分離されています: `/nep memory show` は `memory.profile.read`、`/nep memory affinity <user>` は `memory.affinity.read` を実行します。
 
 オーナー（`bot.owners`）はすべてを常に実行できます。それ以外のユーザーには正確なオペレーションへのグラントが必要です。`/nep access grant <operation> [role] [user]` で 1 つのオペレーション（例: `memory.profile.read`）を全員（ロール/ユーザー指定なし）、ロール、またはユーザーに開放します。グループ名（例: `memory`）や `*` も指定できますが、グラントはその時点で存在する読み取りオペレーションとして個別に記録されます。書き込みは開放されず、後で追加されたオペレーションは名前で明示的にグラントするまで閉じたままです。`/nep access revoke` は対象を 1 つのオペレーションから、またはグループや `*` 配下のすべてのオペレーションから削除します。`/nep access list` は各オペレーション、その保持者、およびグループや `*` 展開の一部だったグラントの出所を表示します。グラントがなければ、オーナー以外のメンバーはエフェメラルな "Not allowed" の応答を受け取ります。
 
@@ -60,7 +60,7 @@
 | `/nep memory recent` | `memory.recent.read` | エフェメラル | ライブの最近のラインを新しい順に表示 |
 | `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | エフェメラル、遅延 | メンバーのポートレート、チャンネルやサーバーのノートを新しいサンプルから書き換える |
 | `/nep memory forget <user>` | `memory.forget` | エフェメラル、遅延 | メンバーのプロファイルとプライベートメモリを削除 |
-| `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | エフェメラル | 態度スコアの表示または設定 |
+| `/nep memory affinity <user>` | `memory.affinity.read` | エフェメラル | 態度スコアと履歴の表示 |
 | `/nep memory wipe <confirm>` | `memory.wipe` | エフェメラル、遅延 | サーバーのすべてのメモリを削除（プロファイル、プライベートメモリ、傾向、チャンネル、ロア） |
 | `/nep memory journal [day] [kind:turn\|action\|memory\|system\|all] [n]` | `memory.journal.read` | エフェメラル | ジャーナルレコード |
 | `/nep memory archive [user] [kind] [n]` | `memory.archive.read` | エフェメラル、遅延 | アーカイブされたアイテム |

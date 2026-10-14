@@ -4,7 +4,7 @@ One slash command, `/nep`, with 18 top-level entries. Every reply is ephemeral (
 
 ## Access
 
-`/nep` is visible to every member from the start. Access is gated per operation at the moment a command runs, not through Discord's command visibility. Each command runs one named operation. Reading and changing are separate: `/nep memory show` runs `memory.profile.read`, `/nep memory affinity <user>` runs `memory.affinity.read`, and `/nep memory affinity <user> <score>` runs `memory.affinity.set`.
+`/nep` is visible to every member from the start. Access is gated per operation at the moment a command runs, not through Discord's command visibility. Each command runs one named operation. Reading and changing are separate: `/nep memory show` runs `memory.profile.read`, `/nep memory affinity <user>` runs `memory.affinity.read`.
 
 Owners (`bot.owners`) can always run everything. Everyone else needs a grant on the exact operation. `/nep access grant <operation> [role] [user]` opens one operation (e.g. `memory.profile.read`) to everyone (no role or user given), to a role, or to a user. A group name (e.g. `memory`) or `*` is accepted, but the grant is stored as the individual read operations that exist at that moment, one entry each: it never opens a write, and an operation added later stays closed until it is granted by name. `/nep access revoke` removes the target from one operation, or from every stored operation under a group or `*`. `/nep access list` shows each operation, who holds it, and where each grant came from when it was part of a group or `*` expansion. Without a grant, a non-owner gets an ephemeral "Not allowed" reply.
 
@@ -62,7 +62,7 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep memory recent` | `memory.recent.read` | ephemeral | Show the live recent lines, newest first |
 | `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | ephemeral, deferred | Rewrite a member's portrait, or a channel's or the server notes from a fresh sample |
 | `/nep memory forget <user>` | `memory.forget` | ephemeral, deferred | Delete a member's profile and private memory |
-| `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | ephemeral | Show or set a member's attitude score |
+| `/nep memory affinity <user>` | `memory.affinity.read` | ephemeral | Show a member's attitude score and its history |
 | `/nep memory wipe <confirm>` | `memory.wipe` | ephemeral, deferred | Delete ALL server memory (profiles, private memory, habits, channels, lore) |
 | `/nep memory journal [day] [kind:turn\|action\|memory\|system\|all] [n]` | `memory.journal.read` | ephemeral | Journal records |
 | `/nep memory archive [user] [kind] [n]` | `memory.archive.read` | ephemeral, deferred | Archived items |
