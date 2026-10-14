@@ -11,6 +11,8 @@ import { formatTranscript } from '../src/discord/format.js';
 import { videoUrlCacheKey } from '../src/discord/video-sites.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { fill } from '../src/discord/format.js';
+import { buildRequest } from '../src/behavior/prompt.js';
+import { handleOf } from '../src/behavior/handles.js';
 
 const { liveView, situationHistory, answerReply, sandboxRequestInput, SANDBOX_OMITS, momentView, momentCutoff, hiddenLater, replayMedia } = sandbox;
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -1165,4 +1167,61 @@ test('tools/replay.mjs: replays through src/behavior/sandbox.js, every name it t
   assert.ok(names.length >= 10);
   for (const name of names) assert.notEqual(sandbox[name], undefined, name);
   assert.deepEqual([...sandbox.SANDBOX_STORE_READS].sort(), ['getGifs', 'getGuild', 'getLore', 'getMediaCache', 'getRecent', 'getUser', 'listChannels', 'listUserProfiles']);
+});
+
+// ---- mention handles (features.mentionHandles) -------------------------------------------
+
+const ZOE_ID = '333333333333333333';
+const DIRECTORY_LABELS = { ...labels, transcript: { ...labels.transcript, author: '{name} [{handle}]' }, directory: { lead: 'DIRECTORY', line: '{handle} {names}', lineAliases: '{handle} {names} aka {aliases}' } };
+
+/** A view whose labels render the directory and the author handles, with Zoé's stored profile (not in the moment). */
+function handlesView(features = {}) {
+  const hot = fakeHot(features);
+  hot.prompts.labels = DIRECTORY_LABELS;
+  const store = fakeStore({ userProfiles: { [ZOE_ID]: { id: ZOE_ID, names: ['Zoé'], aliases: [{ name: 'Zo', weight: 3 }] }, [SELF_ID]: { id: SELF_ID, names: ['Zoë'], aliases: [] } } });
+  return liveView({ hot, store, guildId: 'g1' });
+}
+
+test('answerReply: the replay shows the live turn\'s <directory> and author handles, and resolves @handle as a live turn would', async () => {
+  const view = handlesView();
+  const zoe = `@${handleOf(ZOE_ID)}`;
+  const alice = `@${handleOf(ALICE)}`;
+  const unknown = [zoe, alice].includes('@uzzzz') ? '@u0000' : '@uzzzz';
+  const llm = fakeLlm(`<msg>${zoe} ${alice} @Alice ${unknown}</msg><msg>ναι</msg>`);
+  const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW });
+
+  const live = buildRequest(sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW }));
+  const directory = /<directory>\n[\s\S]*?\n<\/directory>/.exec(result.request.user)?.[0];
+  assert.equal(directory, `<directory>\nDIRECTORY\n${zoe} "Zoé" aka "Zo"\n</directory>`, 'the persona\'s own profile is never listed');
+  assert.ok(live.messages[1].content.find((part) => part.cacheSegment === 'stable').text.includes(directory));
+  assert.ok(result.request.user.includes(`Alice [${alice}]: what do you think about chess?`), result.request.user);
+  assert.ok(result.request.user.includes(`Bruno [@${handleOf(BRUNO)}]: καλημέρα`));
+  assert.deepEqual(result.answers[0].messages, [
+    { text: `${zoe} ${alice} @Alice ${unknown}`, replyTo: null, mentions: [ZOE_ID, ALICE], unknownHandles: 1 },
+    { text: 'ναι', replyTo: null },
+  ]);
+});
+
+test('answerReply: features.mentionHandles off -- no directory, no handles, nothing resolved', async () => {
+  const view = handlesView({ mentionHandles: false });
+  const llm = fakeLlm(`<msg>@${handleOf(ZOE_ID)}</msg>`);
+  const result = await answerReply({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, samples: 1, at: NOW });
+  assert.equal(result.request.user.includes('<directory>'), false);
+  assert.ok(result.request.user.includes('Alice: what do you think about chess?'));
+  assert.deepEqual(result.answers[0].messages, [{ text: `@${handleOf(ZOE_ID)}`, replyTo: null }]);
+});
+
+test('answerSkillScenario: a message.create body is resolved like a <msg> (callMentions); the answers carry their mentions', async () => {
+  const { answerSkillScenario } = sandbox;
+  const view = handlesView();
+  const zoe = `@${handleOf(ZOE_ID)}`;
+  const llm = fakeLlm([`<msg>${zoe}</msg><call skill="message.create" channel="#general">${zoe} @Zo</call>`, '<msg>ok</msg>']);
+  const result = await answerSkillScenario({
+    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 2, at: NOW,
+    onCall: () => ({ verdict: { stage: 'gateway', ok: true }, executed: null, result: { skill: 'message.create', status: 'ok' }, followUp: false }),
+  });
+  const [first, second] = result.runs;
+  assert.deepEqual(first.callMentions, { mentions: [ZOE_ID], unknownHandles: 0 });
+  assert.deepEqual(first.answer.messages[0].mentions, [ZOE_ID]);
+  assert.equal('callMentions' in second, false, 'a run without a call has none');
 });
