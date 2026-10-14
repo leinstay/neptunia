@@ -563,7 +563,19 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
   const self = '799999999999999999';
   const config = { ...shipped, bot: { ...shipped.bot, access: { 'message.edit': { everyone: false, roles: [], users: [self] } } } };
   // Stand-ins named as the operations, with no operation behind them: the shipped texts are keyed by those names.
-  const registry = loadSkills(['message.create', 'message.edit', 'message.delete'].map((name) => ({ name, op: null, argsSchema: { type: 'object' }, effects: 'write', costClass: 'free', targets: null })));
+  const registry = loadSkills(['message.create', 'message.edit', 'message.delete'].map((name) => ({ name, op: null, argsSchema: { type: 'object' }, effects: 'write', costClass: 'free', targets: null })).map((definition) => (definition.name !== 'message.edit' ? definition : {
+    ...definition,
+    // Every form of an argument: required, the body option, a range, an enum. A command makes it a
+    // derived skill, so an operation stands behind it (message.edit is her own: no requester right).
+    op: 'message.edit',
+    argsSchema: {
+      type: 'object',
+      properties: { message: { type: 'string' }, text: { type: 'string' }, n: { type: 'integer', minimum: 1, maximum: 50 }, kind: { type: 'string', enum: ['turn', 'all'] } },
+      required: ['message', 'text'],
+      additionalProperties: false,
+    },
+    command: { key: 'message edit', toCall: () => ({}), body: 'text' },
+  })), { getOp: (name) => ({ name, rights: { kind: 'write' } }) });
   const rows = listSkills({ config, selfId: self, texts, requester: { id: ANA }, audience: { conversationId: GENERAL }, registry });
   const request = buildRequest(await turnInput({ skillsInventory: rows }));
   const text = assertFilled(request.messages, { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'skills_protocol', 'skills'] }, 'reply (skills catalogue)');
@@ -573,7 +585,16 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.s
   // message.create, carried over, has no shipped texts yet: listed by its name alone.
   assert.ok(texts['message.create'] !== undefined || text.includes('\nmessage.create\n'), 'a skill without texts by its name');
   assert.ok(!text.includes('message.delete'), 'a closed skill is not listed');
-  assert.ok(text.includes(fill(LABELS.skills.line, { name: 'message.edit', title: texts['message.edit'].title, whenToUse: texts['message.edit'].whenToUse, access: LABELS.skills.access.allowed })));
+  const forms = LABELS.skills.args;
+  const args = fill(forms.list, {
+    list: [
+      fill(forms.required, { arg: 'message' }),
+      fill(forms.required, { arg: fill(forms.body, { arg: 'text' }) }),
+      fill(forms.range, { arg: 'n', min: 1, max: 50 }),
+      fill(forms.values, { arg: 'kind', values: 'turn|all' }),
+    ].join(', '),
+  });
+  assert.ok(text.includes(fill(LABELS.skills.line, { name: 'message.edit', title: texts['message.edit'].title, whenToUse: texts['message.edit'].whenToUse, access: LABELS.skills.access.allowed, args })), 'the arguments through labels.skills.args');
 });
 
 test('buildRequest: an overheard line fills overheard.md in place of the reply task', async () => {

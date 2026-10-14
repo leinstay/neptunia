@@ -8,6 +8,7 @@
 // grants). Behind `features.skills` and `features.skillsDiscovery` (a missing key counts as on).
 // Pure; the texts are `hot.prompts.skills`, read by the caller at the moment of use.
 
+import { isPlainObject } from '../config.js';
 import { skillsOn } from './access.js';
 import { describeSkill, skillNames } from './registry.js';
 
@@ -117,6 +118,40 @@ export function skillsIndex(registry, texts) {
       return whenToUse ? `${skill.name} | ${whenToUse}` : skill.name;
     })
     .join('\n');
+}
+
+/** The most allowed values one argument lists in `<skills>`; a longer list is marked `more`. */
+export const MAX_ARG_VALUES = 12;
+
+/**
+ * The arguments of `skill` as `<skills>` lists them (src/behavior/prompt.js#skillsInventoryText),
+ * read off its argument schema (src/skills/derive.js#optionsSchema: the command's option names)
+ * in the schema's order, so the list is the same on every call: `{ name, required }` each, plus
+ * `body: true` for the option a `<call>` body fills (`skill.command.body`), `values` (strings) for
+ * an enum -- its first MAX_ARG_VALUES, `more: true` when it has more -- or a boolean (`true`,
+ * `false`, the words a call's attribute is read as), and `minimum` / `maximum` for a number's
+ * bounds the schema sets. [] without a schema or properties. Pure.
+ * @param {{ argsSchema?: object, command?: { body?: string|null } }|null|undefined} skill
+ * @returns {{ name: string, required: boolean, body?: true, values?: string[], more?: true, minimum?: number, maximum?: number }[]}
+ */
+export function skillArgs(skill) {
+  const schema = skill?.argsSchema;
+  const properties = isPlainObject(schema?.properties) ? schema.properties : {};
+  const required = new Set(Array.isArray(schema?.required) ? schema.required : []);
+  const body = typeof skill?.command?.body === 'string' ? skill.command.body : null;
+  return Object.entries(properties).map(([name, property]) => {
+    const arg = { name, required: required.has(name) };
+    if (name === body) arg.body = true;
+    const values = Array.isArray(property?.enum) ? property.enum : property?.type === 'boolean' ? [true, false] : null;
+    if (values) {
+      arg.values = values.slice(0, MAX_ARG_VALUES).map(String);
+      if (values.length > MAX_ARG_VALUES) arg.more = true;
+    } else if (property?.type === 'integer' || property?.type === 'number') {
+      if (Number.isFinite(property.minimum)) arg.minimum = property.minimum;
+      if (Number.isFinite(property.maximum)) arg.maximum = property.maximum;
+    }
+    return arg;
+  });
 }
 
 /**
