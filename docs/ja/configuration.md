@@ -30,7 +30,7 @@
 | `videoRewatch` | `true` | 話しかけられた時に動画を再視聴して質問に回答。`videoDescriptions` が必要 |
 | `imageRelook` | `true` | 話しかけられた時に画像をもう一度見て質問に回答、または主張された詳細を確認。`vision` が必要。日次 `media.video.rewatch.maxPerDay` カウンターを動画再視聴と共有。未設定 = オン |
 | `webLookup` | `false` | チャットに投稿されたリンクを読み取り、事実に関する質問にウェブ検索で回答。他の機能と異なり、キーが存在しない場合はオフとして扱われる。検索には `.env` に `BRAVE_SEARCH_API_KEY` が必要。キーがない場合はリンク読み取りのみ動作する。[メディア: リンクと検索](media.md#リンク)を参照 |
-| `imageGeneration` | `false` | ペルソナが描画サブプロセスを通じて画像を描くことを許可。キーが存在しない場合はオンとして扱われる。`config.local.json` で有効化。`image.model` に画像生成対応モデルが必要。[メディア: 描画](media.md#描画)を参照 |
+| `imageGeneration` | `false` | ペルソナが描画サブプロセスを通じて画像を描くことを許可。キーが存在しない場合はオンとして扱われる。`config.local.json` で有効化。`roles.drawing` に画像生成対応モデルが必要。[メディア: 描画](media.md#描画)を参照 |
 | `privateMessages` | `false` | ギルドメンバーのダイレクトメッセージに応答。保存された公開プロファイルと `affinity.score >= private.minAffinity` が必要。[メッセージとメモリ: プライベートレイヤー](messages-and-memory.md#プライベートレイヤー)を参照 |
 | `privateLikeServer` | `true` | プライベートチャットがサーバーチャンネルのように動作する: ルート分類器、チャンネルプル、サーバー検索（recall）、言及メンバーのエピソードが DM で機能する。チャンネルはパートナーが View Channel 権限を持つ場合のみプルされる。キー欠落 = オン。`false` で従来の DM 動作に戻る（プル、ルート、recall、エピソードなし） |
 | `channelPull` | `true` | 最近のメッセージやトリガーにチャンネルメンションが含まれている場合、そのチャンネルをリクエストに取り込む。キー欠落 = オン。`context.pull.*` 参照 |
@@ -41,12 +41,15 @@
 | `memoryTwoStage` | `false` | メモリアナライザーを 2 段階に分割: ニュートラルな GPT モデルが変更を判定（ステージ A）、次にボイスモデルがペルソナのテキストを執筆（ステージ B）。厳密に `true` で有効。キー欠落 = オフ。`memory.voice.*` 参照 |
 | `promptCache` | `true` | システムメッセージにプロバイダーのプロンプトキャッシュマーカーを付与する。キャッシュ読み取りは通常入力の数分の一のコストで、プロバイダーによってはトークンクォータにカウントされない。厳密に `true` で有効。キーが存在しない場合はオフ。`llm.cache.*` を参照 |
 | `recall` | `true` | 質問に応じてウェブ検索と並行してサーバー自身のメッセージ履歴を検索する。キー欠落 = オン。[メディア: 検索](media.md#検索) と `recall.*` 参照 |
-| `meaningSearch` | `false` | 各リコール実行時に質問者のメッセージをエンベディングし、ベクトルインデックスで意味検索する。意味で見つかったレコード行はワードヒットのウィンドウに合流し、アーカイブ行はメモリ項目に合流する。ワードヒットと逆順位融合で結合。`true` のみで有効。キー欠落 = オフ。`features.recall` オンおよびエンベディングモデル（`classifier.embed`）到達可能が必要。`recall.meaningCandidates` 参照 |
+| `meaningSearch` | `false` | 各リコール実行時に質問者のメッセージをエンベディングし、ベクトルインデックスで意味検索する。意味で見つかったレコード行はワードヒットのウィンドウに合流し、アーカイブ行はメモリ項目に合流する。ワードヒットと逆順位融合で結合。`true` のみで有効。キー欠落 = オフ。`features.recall` オンおよびエンベディングモデル（`roles.embedding`）到達可能が必要。`recall.meaningCandidates` 参照 |
 | `embedIndex` | `false` | ボット稼働中にベクトルインデックスを最新に保つ: レコードに取り込まれたメッセージがキューに入り、`embed.flushSeconds` 秒ごとまたは `embed.batch` 行溜まるとバッチがエンベディングされる。`true` のみで有効。キー欠落 = オフ。`features.meaningSearch` が必要。このスイッチなしではインデックスは `tools/embed-index.mjs` でのみ構築 |
 | `recent` | `true` | サーバーで直近数日間に何が起きたかを `<recent>` ブロックとして表示する。キー欠落 = オン。`memory.recentHours` と `context.caps.recent` 参照 |
+| `participation` | `true` | ペルソナは直近数日間の他チャンネルでのやり取りを記憶し、サーバーターンでそのうちいくつかを `<participation>` ブロックとして見る。キー欠落 = オン。[`participation`](#participation) と `context.caps.participation` 参照 |
 | `channelRoute` | `true` | ターン前に分類器が会話の話題になっているチャンネルを特定し、リクエストに取り込めるようにする。キー欠落 = オン。`route.*` 参照 |
 | `turnPlanner` | `false` | リプライ前に 1 回のヘルパー呼び出しでチャンネルルーター、エピソード選択、検索分類器、再視聴分類器を置き換える。アドレス分類器と GIF ピッカーは別のまま。`true` のみ有効化。キー欠落 = オフ。`prompts/planner.md` が必要 |
+| `pullSeenMarker` | `true` | プルしたチャンネルビューのヘッダー下に、前回そのチャンネルをこの宛先で見せた時からの新着メッセージ数、そのうちいくつが前回より古いか、またはメッセージが同じで古いものがロードされなかったかを示す行を表示。メッセージは id と内容で比較される。編集されたメッセージは新着扱い。比較はプロセスメモリ内のみで保持され、再起動後はリセットされる。キー欠落 = オン。`context.pull.seenTtlMinutes` 参照 |
 | `channelLinks` | `true` | ペルソナがメッセージ内にサーバーチャンネルの `#チャンネル名` を書いた場合、送信メッセージにはテキストの代わりに本物のチャンネルリンクが入る。名前は最長一致で照合。既存のリンクはそのまま。オフ: テキストがそのまま送信される。キー欠落 = オン |
+| `messageLinks` | `true` | ペルソナがメッセージ内にトランスクリプト番号（例: `#93`）を書き、その番号がターンのトランスクリプトの行に一致する場合、投稿テキストにはそのメッセージへの Discord メッセージリンクが入る（Discord がクリック可能なジャンプピルとして表示）。トランスクリプト行に一致しない番号はそのまま。コードスパンと既存 URL は変更されない。DM ではリンクに `@me` が使われる。キー欠落 = オン |
 | `pauseNotice` | `true` | ペルソナが一時停止中に呼ばれた場合、短い通知を投稿する。キー欠落 = オン。`mention.pauseNoticeMinutes` と `labels.limits.paused` 参照 |
 | `diary` | `true` | ペルソナがオーナーの選んだチャンネルにランダムなスケジュールで自発的に投稿する。キーが存在しない場合はオン。`diary.channelId` が設定されていなければ何も起きない。[日記](diary.md)を参照 |
 | `splitTasks` | `true` | 長く構造化された直接呼びかけを個別のパートに分割し、それぞれ独自のターンで回答。キー欠落 = オン。`prompts/split.md` と `labels.task.part` が必要 |
@@ -74,7 +77,6 @@
 | キー | デフォルト | 説明 |
 |---|---|---|
 | `baseUrl` | `"https://openrouter.ai/api/v1"` | チャットコンプリーションのエンドポイント |
-| `model` | `"anthropic/claude-opus-4.6"` | モデル ID |
 | `temperature` | `1` | サンプリング温度 |
 | `maxOutputTokens` | `2000` | 最大出力トークン数 |
 | `maxRequestTokens` | `50000` | リクエストあたりのハードトークン上限 |
@@ -87,19 +89,20 @@
 | `provider` | `null` | OpenRouter の `provider` ルーティングオブジェクト（そのまま渡される）。`null` の場合は送信しない |
 | `providerByModel` | `{}` | モデルごとのプロバイダールーティング。詳細は下記 |
 | `cache.ttl` | `"1h"` | マーカーに付与するキャッシュ TTL: `"1h"` または `"5m"` |
-| `cache.roles` | `["voice"]` | システムメッセージにキャッシュマーカーを付与するリクエストロール。メモリボイスリクエストはオプトアウトするため、リプライのみがキャッシュされる。ヘルパーの安定部分もキャッシュするには `classifier.text` と `classifier.reason` を追加 |
+| `cache.profilesTtl` | `"5m"` | リプライのユーザーメッセージ内プロファイル（`<people>`）の独立マーカーのキャッシュ TTL: `"1h"` または `"5m"`。`null` または `false` = マーカーなし。`cache.ttl` より長くできない（`cache.ttl` が `"5m"` ならこれも `"5m"` になる） |
+| `cache.roles` | `["voice"]` | システムメッセージ（リプライではユーザーメッセージの安定プレフィックスとプロファイルも）にキャッシュマーカーを付与するリクエストロール。メモリボイスリクエストはオプトアウトするため、リプライのみがキャッシュされる。ヘルパーの安定部分もキャッシュするには `analyzer` と `reasoner` を追加 |
 | `cache.models` | `["anthropic/"]` | `cache_control` マーカーを受け入れるプロバイダーのモデル id プレフィックス（大文字小文字区別）。リスト外のモデルへのリクエストにはマーカーが付かない |
 | `cache.promptIncludesCached` | `true` | プロバイダーが報告する `prompt_tokens` にキャッシュ読み取りとキャッシュ書き込みのトークンが含まれているかどうか。実際のプローブから一度設定する。トークンキャリブレーションとリクエスト上限は常にフルカウントを使用する |
-| `hedge.roles` | `["classifier.text", "classifier.reason"]` | 呼び出しをヘッジするリクエストロール（2 つ同時に試行し、先に完了した方を採用） |
+| `hedge.roles` | `["analyzer", "reasoner"]` | 呼び出しをヘッジするリクエストロール（2 つ同時に試行し、先に完了した方を採用） |
 | `hedge.afterMs` | `2500` | 2 回目の試行を開始するまでのミリ秒。`0` 以下ですべてのロールのヘッジをオフ |
 | `hedge.timeoutMs` | `8000` | 1 回目の試行開始からこのミリ秒でどちらも返っていない場合、両方を打ち切り |
 | `hedge.longTimeoutMs` | `20000` | 呼び出し元がリクエストに `long: true` を付けた場合に `timeoutMs` の代わりに使用するタイムアウト（ルート分類器が大きなチャンネルリストで使用） |
 
 `llm.provider` はチャットリクエストに対するデフォルトの OpenRouter プロバイダールーティングを設定します。例: `{ "ignore": ["some-provider"] }` や `{ "order": ["anthropic"], "allow_fallbacks": true }`。`llm.providerByModel` はモデルごとのオーバーライドを追加します。キーはモデル id のプレフィックス（任意のロールに一致）または `<prefix>@<role>`（1 つのロールのみ一致）で、値はそのまま渡される OpenRouter ルーティングオブジェクトです。
 
-1 つのリクエストに対するプロバイダーの解決順序: 呼び出しごとの固定ルート（動画説明モデルのダイレクト URL パスでは `media.video.provider`）、次にリクエストのロールに一致する `providerByModel` キーのうち最長プレフィックス、次にロールなしキーのうち最長プレフィックス、次に `llm.provider`（画像リクエストでは `image.provider`）、最後にルーティングなし。同じモデルに対してロール指定キーはロールなしキーより常に優先されます。ロール名: `voice`、`analyzer`、`classifier.text`、`classifier.reason`、`classifier.media`、`classifier.video`、`classifier.embed`、`image`。互換性のため、ルートキーやロールリストで `talk` と記載されたものは `voice` として読み取られ、1 回のログ行が出力されます（`config: role talk is now voice`）。
+1 つのリクエストに対するプロバイダーの解決順序: 呼び出しごとの固定ルート（動画説明モデルのダイレクト URL パスでは `media.video.provider`）、次にリクエストのロールに一致する `providerByModel` キーのうち最長プレフィックス、次にロールなしキーのうち最長プレフィックス、次に `llm.provider`（画像リクエストでは `image.provider`）、最後にルーティングなし。同じモデルに対してロール指定キーはロールなしキーより常に優先されます。ロール名: `voice`、`analyzer`、`reasoner`、`extractor`、`vision`、`video`、`embedding`、`drawing`。
 
-例: `"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` はすべての Google モデルを Vertex 経由にし、`"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` は動画分類器を AI Studio 経由にします。ドットを含むルートキー（例: `google/@classifier.video`）は `/nep set` では編集できません（ドットでパスを分割するため）。`/nep route set` と `/nep route remove` を使用してください。
+例: `"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` はすべての Google モデルを Vertex 経由にし、`"google/@video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` は動画ロールを AI Studio 経由にします。
 
 OpenRouter アカウント自体が許可プロバイダーを制限している場合、唯一残ったプロバイダーを除外するとすべてのリクエストが "No endpoints found" で失敗します。プロバイダー設定を変更した後は `/nep status` を確認してすべてのモデルロールが到達可能か確認してください。各ロールは `llm.providerByModel` のルートに従うため、表示されるプロバイダーはそのルートが選択したものです。
 
@@ -109,20 +112,23 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 
 `llm.hedge` が設定されている場合、リストされたロールのリクエストはヘッジされます: 1 回目の `llm.hedge.afterMs` 後に 2 回目の試行が発火し、先に完了した方が採用されます。どちらも `llm.hedge.timeoutMs`（`long: true` リクエストでは `longTimeoutMs`）で打ち切られます。2 回目が開始される前に完了しなかったヘッジ呼び出しは追加のリクエストを 1 件発生させ、両方が `llm.maxRequestsPerDay` にカウントされます。
 
-## `classifier`
+## `roles`
 
-ヘルパーモデルロールを 1 つのキーにまとめています。それぞれ独立して設定できるため、ペルソナの声にはプレミアムモデルを使い、ヘルパーには安価なモデルを使うことができます。
+8 つのモデルロール。各ロールは `roles.<name>` で独自のデフォルト値を持ち独立して設定されるため、他のロールのモデルを使うことはありません。`roles.byPurpose` は用途を個別のモデルに固定します。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
-| `text` | `"anthropic/claude-sonnet-4.6"` | テキスト分類器: アドレス分類器（`features.followUp`）、再視聴分類器（`features.videoRewatch`）、ルーム分類器（`spontaneous.roomQuestionChance`）、チャンネルルート分類器（`features.channelRoute`） |
-| `reason` | `null` | 内容を推論するヘルパー: 検索分類器、リコールサマリー、検索要約、リンク読み取り、日記プランナー、ターンプランナー。未設定（デフォルト）の場合は `classifier.text` のモデルを使用し、ステータスカードにフォールバック元が表示される。リクエストはロール `classifier.reason` で送信される |
-| `byPurpose` | `{}` | 用途ごとのモデル上書き: キーは用途文字列（例: `lookup`、`recall-summary`、`diary-plan`、`planner`）、値はモデル ID。用途の一致はロールのモデルより優先される。`/nep status` ではプローブされない |
-| `media` | `"anthropic/claude-haiku-4.5"` | 画像説明モデル（`features.mediaDescriptions`）: 画像、GIF フレーム、動画ポスター、スティッカー、カスタム絵文字、リンクサムネイルの一行説明文 |
-| `video` | `"google/gemini-3.8-flash"` | 動画説明モデル（`features.videoDescriptions`）: 短いクリップの視聴、質問に対する再視聴、リクエストに応じたリトライ。動画と音声の両方の入力を受け付ける必要がある |
-| `embed` | `"openai/text-embedding-3-large"` | エンベディングモデル（意味検索用）。リクエストはロール `classifier.embed` で送信される。`llm: usage` ログ行に `inputs`（テキスト数）と `dimensions` が記録される。`/nep status` は 1 入力のエンベディングリクエストでプローブする。エンベディングクライアントがない場合はチェックされなかったと表示される |
+| `voice` | `"anthropic/claude-opus-4.6"` | ペルソナとして発話: リプライとペルソナの声で書かれたメモリテキスト（用途 `reply`、`memory-voice`） |
+| `analyzer` | `"openai/gpt-6.1-sol"` | 短い候補リストから 1 つを選択: address, room, merge, route-channel, participation-pick, rewatch, split, gif-pick |
+| `reasoner` | `"openai/gpt-6.1-sol"` | 検索を計画しソースをノートに変換: lookup, planner, recall-summary, search-summary, read-link, diary-plan |
+| `extractor` | `"openai/gpt-6.1-sol"` | 会話を記憶に変換: アナライザーバッチ、ポートレート、チャンネル/サーバーノート、ウォームアップ、バックフィル |
+| `vision` | `"google/gemini-3.8-flash"` | 画像を説明（describe, relook） |
+| `video` | `"google/gemini-3.8-flash"` | 動画を視聴し再視聴 |
+| `embedding` | `"openai/text-embedding-3-large"` | テキストを意味検索用のベクトルに変換。`embed.dimensions`（デフォルト 1024）で次元数を設定。`/nep status` は 1 入力のエンベディングリクエストでプローブ。エンベディングクライアントがない場合はチェックされなかったと表示 |
+| `drawing` | `"openai/gpt-image-2.5-flare"` | OpenRouter Images API でペルソナの画像を生成。`openai/*` と `google/*` ファミリーのみ対応 |
+| `byPurpose` | `{}` | 用途ごとのモデル上書き: キーは用途文字列（例: `lookup`、`recall-summary`、`diary-plan`、`planner`）、値はモデル ID。用途の一致はロールのモデルより優先。`/nep status` ではプローブされない |
 
-**旧キーからの移行。** 非推奨のキー `llm.classifierModel`、`mention.followUpModel`、`media.model`、`media.video.model` は読み取られなくなりました。これらのいずれかが `config.local.json` に存在する場合、ボットは起動時に警告をログに記録し（`index: deprecated model key ignored`）、キー名とその置き換え先を示します。値を `classifier.text`、`classifier.media`、`classifier.video` にそれぞれ移行してください。
+**旧キーからの移行。** 1 リリースの間、非推奨キー `llm.model`、`classifier.text`、`classifier.reason`、`classifier.media`、`classifier.video`、`classifier.embed`、`classifier.byPurpose`、`memory.model`、`image.model` が読み取られます。いずれかが存在すると、ボットはキー名とマッピング先の `roles.*` エントリを示す警告を起動時にログ出力します。旧 `classifier.text` → `roles.analyzer`、`classifier.reason` → `roles.reasoner`、`classifier.media` → `roles.vision`、`classifier.video` → `roles.video`、`classifier.embed` → `roles.embedding`、`classifier.byPurpose` → `roles.byPurpose`、`memory.model` → `roles.extractor`、`image.model` → `roles.drawing`、`llm.model` → `roles.voice`。旧 `classifier.reason` が `null`（旧来の `classifier.text` フォールバック）の場合は `roles.reasoner` のデフォルト値にマッピングされます。値を手動で移行し、旧キーを削除してください。
 
 ## `embed`
 
@@ -132,6 +138,8 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 | `batch` | `64` | ライブキュー（`features.embedIndex`）が 1 回のエンベディングリクエストでフラッシュする行数 |
 | `flushSeconds` | `180` | ライブキューのフラッシュ間隔（秒）。`embed.batch` 行が溜まった時点でもフラッシュされる |
 | `queueMax` | `2000` | ライブキューがメモリに保持する行数。キューが満杯になると最も古いものが破棄される |
+| `catchUpHours` | `72` | 起動時、エンベディングスイッチがオンになった時、再開時、および 1 時間ごとに、キューはインデックスに欠けている直近この時間分を再エンベディングする。1 時間ごとのログ行 `embedder: coverage` がカウントを報告する |
+| `catchUpEveryMinutes` | `60` | ボット稼働中のキャッチアップスイープの間隔（分）。各スイープは直近 `catchUpHours` をカバーする |
 
 レコードの各メッセージは同チャンネルの前 2 行をコンテキストとしてエンベディングされる（短い返答にはその返答先が含まれる）。アーカイブ項目（エピソード、レッスン、排出された詳細や関心）はそれぞれ 1 ベクトル。ベクトルは月ごとに `data/guilds/<id>/vectors/<YYYY-MM>/` に格納される。プライベートチャットのベクトルは `data/guilds/<id>/private/<userId>/vectors/` に格納される。`/nep memory forget` は該当行を削除し、`/nep memory wipe` は `vectors/` ツリー全体を削除する。
 
@@ -170,6 +178,7 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 | `caps.emoji` | `800` | トークン上限: カスタム絵文字 |
 | `caps.gifs` | `900` | トークン上限: GIF ライブラリ |
 | `caps.pulled` | `4000` | トークン上限: プルされたチャンネルブロック（`<channel_view>`） |
+| `caps.participation` | `6000` | トークン上限: ペルソナの他チャンネルでのやり取り（`<participation>`）。エピソード単位で削除され、分類器が選んだものが最後 |
 | `channelActivity.liveMessagesPerDay` | `20` | 1 日あたりのメッセージ数がこの値で「アクティブ」チャンネル |
 | `channelActivity.deadAfterDays` | `7` | メッセージがないまま経過した日数で「デッド」チャンネル |
 | `vision.maxImages` | `4` | リクエストあたりの最大画像数 |
@@ -207,6 +216,7 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 | `maxChannels` | `1` | ターンあたりに取り込めるチャンネル数 |
 | `maxAgeDays` | `0` | チャンネルの最新メッセージがこの日数より古い場合、取り込みを拒否。`0` = 制限なし |
 | `sameAudience` | `true` | 送信先チャンネルを閲覧できるすべてのロールがソースも閲覧できるかチェック。`<other_channels>` に表示される隣接チャンネルとリコール検索で保持されるウィンドウにも適用。false にすると制限チャンネルのコンテンツがより広い範囲に届く可能性がある |
+| `seenTtlMinutes` | `120` | 同じ宛先で同チャンネルの前回ビューが期限切れになるまでの分数。この時間を超えた以前のビューは新着比較時に無視される。`0` = 毎回初回扱い |
 
 ## `elsewhere`
 
@@ -243,7 +253,7 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 
 ## `route`
 
-チャンネルルート分類器（`features.channelRoute`）の設定。会話が別のチャンネルに名前で言及したり参照したりする場合、分類器（`prompts/route-channel.md`、`classifier.text` ロール）がリストからチャンネル番号を選択します。選択されたチャンネルは明示的なチャンネルメンションと並んで `<channel_view>` ブロックとしてリクエストに取り込まれます。ログ: `route: classified`、`route: skipped`、`route: failed`。
+チャンネルルート分類器（`features.channelRoute`）の設定。会話が別のチャンネルに名前で言及したり参照したりする場合、分類器（`prompts/route-channel.md`、`analyzer` ロール）がリストからチャンネル番号を選択します。選択されたチャンネルは明示的なチャンネルメンションと並んで `<channel_view>` ブロックとしてリクエストに取り込まれます。ログ: `route: classified`、`route: skipped`、`route: failed`。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
@@ -254,7 +264,7 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 
 ## `split`
 
-タスクスプリッター（`features.splitTasks`）の設定。直接呼びかけ（メンション、リプライ、名前、フォローアップ、プライベートメッセージ）が十分に長く構造化されている場合、分類器（`prompts/split.md`、`classifier.text` ロール）がそこに複数の独立したリクエストが含まれるかを判定します。各パートは独自のターンで回答されます。最初のパートはメッセージへのリプライ、残りはプレーンで投稿されます。スプリッターはターンの準備と並行して実行されるため、単一リクエストが遅延することはありません。ログ: `split: verdict`、`split: skipped`、`split: failed`。各パートは `turn: part` をログ。
+タスクスプリッター（`features.splitTasks`）の設定。直接呼びかけ（メンション、リプライ、名前、フォローアップ、プライベートメッセージ）が十分に長く構造化されている場合、分類器（`prompts/split.md`、`analyzer` ロール）がそこに複数の独立したリクエストが含まれるかを判定します。各パートは独自のターンで回答されます。最初のパートはメッセージへのリプライ、残りはプレーンで投稿されます。スプリッターはターンの準備と並行して実行されるため、単一リクエストが遅延することはありません。ログ: `split: verdict`、`split: skipped`、`split: failed`。各パートは `turn: part` をログ。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
@@ -266,7 +276,7 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 
 ## `recall`
 
-サーバー履歴検索（`features.recall`）の設定。ルックアップ分類器（`prompts/lookup.md`）が `server:` フォーム、`who:` 名前フォーム、`when:` 日付範囲で応答した場合、エンジンは Discord の検索 API でサーバーのメッセージ履歴を検索し、ヒットをクラスターに分類、各クラスターの周辺のメッセージウィンドウをフェッチし、サマリーヘルパー（`prompts/recall-summary.md`、`classifier.text` ロール）に回答を求めます。サマリーが特定のストレッチを指定した場合、そのストレッチの原文が要約ノートと共に表示されます。ログ: `recall: searched`、`recall: summary`、`recall: skipped`、`recall: failed`。
+サーバー履歴検索（`features.recall`）の設定。ルックアップ分類器（`prompts/lookup.md`）が `server:` フォーム、`who:` 名前フォーム、`when:` 日付範囲で応答した場合、エンジンは Discord の検索 API でサーバーのメッセージ履歴を検索し、ヒットをクラスターに分類、各クラスターの周辺のメッセージウィンドウをフェッチし、サマリーヘルパー（`prompts/recall-summary.md`、`reasoner` ロール）に回答を求めます。サマリーが特定のストレッチを指定した場合、そのストレッチの原文が要約ノートと共に表示されます。ログ: `recall: searched`、`recall: summary`、`recall: skipped`、`recall: failed`。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
@@ -307,7 +317,7 @@ GIF ライブラリ（`features.gifs`）の設定です。メッセージ到着�
 
 ### `gifs.pick`
 
-GIF ピッカー（`features.gifPicker`）の設定です。ペルソナの最初の送信メッセージが短い場合（`gifs.pick.maxChars` 文字以下）で、自分で GIF を選ばなかった場合、分類器（`classifier.text`、プロンプト `prompts/gif-pick.md`）が直近のチャット行（応答先メッセージを明示）、その最初のメッセージ、キャプション付きのフルライブラリ（各エントリにキャプションと、該当する場合は自分マーク付き）を受け取り、ハンドル 1 つまたは `none` を返します。ハンドルが返されると GIF が最初のメッセージを置換し、残りのメッセージは順番に続きます。分類器は最初のメッセージのタイピングシミュレーション中に実行され、日次 GIF 制限 `gifs.maxPerDay` が適用されます。
+GIF ピッカー（`features.gifPicker`）の設定です。ペルソナの最初の送信メッセージが短い場合（`gifs.pick.maxChars` 文字以下）で、自分で GIF を選ばなかった場合、分類器（`analyzer` ロール、プロンプト `prompts/gif-pick.md`）が直近のチャット行（応答先メッセージを明示）、その最初のメッセージ、キャプション付きのフルライブラリ（各エントリにキャプションと、該当する場合は自分マーク付き）を受け取り、ハンドル 1 つまたは `none` を返します。ハンドルが返されると GIF が最初のメッセージを置換し、残りのメッセージは順番に続きます。分類器は最初のメッセージのタイピングシミュレーション中に実行され、日次 GIF 制限 `gifs.maxPerDay` が適用されます。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
@@ -317,7 +327,7 @@ GIF ピッカー（`features.gifPicker`）の設定です。ペルソナの最�
 
 ## `media`
 
-メディア説明モデル（`features.mediaDescriptions`）の設定です。説明モデルは `classifier.media` です。
+メディア説明モデル（`features.mediaDescriptions`）の設定です。説明モデルは `roles.vision` です。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
@@ -332,7 +342,7 @@ GIF ピッカー（`features.gifPicker`）の設定です。ペルソナの最�
 
 ### `media.gif`
 
-GIF を短いクリップとして視聴する機能（`media.gif.watch`）の設定です。有効な場合、GIF のアニメーションは短い mp4 に変換されて `classifier.video` モデルに送信され、単一フレームの記述の代わりになります。視聴できない GIF（アニメーションソースなし、日次上限到達、変換失敗）は単一フレームの記述にフォールバックします。
+GIF を短いクリップとして視聴する機能（`media.gif.watch`）の設定です。有効な場合、GIF のアニメーションは短い mp4 に変換されて `video` ロールのモデルに送信され、単一フレームの記述の代わりになります。視聴できない GIF（アニメーションソースなし、日次上限到達、変換失敗）は単一フレームの記述にフォールバックします。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
@@ -342,7 +352,7 @@ GIF を短いクリップとして視聴する機能（`media.gif.watch`）の�
 
 ### `media.video`
 
-動画説明モデル（`features.videoDescriptions`）の設定です。動画ビジョンは `features.mediaDescriptions` と `features.videoDescriptions` の両方が有効である必要があります。動画モデルは `classifier.video` です。動画対応の別モデルが短いクリップを視聴します。対象は Discord の動画添付ファイルと `media.video.sites` に含まれるサイトへのリンクです。結果は画像の説明文と同じメディアキャッシュに保存されるため、再投稿のコストはかかりません。
+動画説明モデル（`features.videoDescriptions`）の設定です。動画ビジョンは `features.mediaDescriptions` と `features.videoDescriptions` の両方が有効である必要があります。動画モデルは `roles.video` です。動画対応の別モデルが短いクリップを視聴します。対象は Discord の動画添付ファイルと `media.video.sites` に含まれるサイトへのリンクです。結果は画像の説明文と同じメディアキャッシュに保存されるため、再投稿のコストはかかりません。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
@@ -380,7 +390,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 
 ### `media.video.rewatch`
 
-再視聴分類器（`features.videoRewatch`）の設定です。ペルソナに話しかけられた時に直近のトランスクリプトに視聴済み動画がある場合、安価な分類器がメッセージがそれらの動画について質問しているかを判定します。ヒットすると動画モデルがクリップを再度視聴し、回答がトランスクリプトに追加されます。分類器は `classifier.text` を使用します。再視聴は常に `classifier.video` を使用します。
+再視聴分類器（`features.videoRewatch`）の設定です。ペルソナに話しかけられた時に直近のトランスクリプトに視聴済み動画がある場合、安価な分類器がメッセージがそれらの動画について質問しているかを判定します。ヒットすると動画モデルがクリップを再度視聴し、回答がトランスクリプトに追加されます。分類器は `analyzer` ロールを使用します。再視聴は常に `video` ロールを使用します。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
@@ -411,7 +421,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 | `affinityLikeBonus` | `0.08` | 態度 +100 時に減少する最大無視率 |
 | `oneAtATime` | `true` | サーバー全体で一度に一つのリプライ |
 | `pendingSameChannel` | `true` | ターン実行中の同一チャンネルでの直接ピングを保持する。ターン終了後に通常の無視確率で応答。キー欠落 = オン |
-| `classifyWhileBusy` | `true` | ターン実行中でもフォローアップ候補をアドレス分類器に送信する。候補は同じウィンドウ、no-streak、プレフィルターのチェックを受ける。チャンネルあたり同時に最大 1 件の分類器呼び出し、より新しい候補が待機中のものを置き換える。ビジー状態のアテンションで `yes` は保留キューで待機（チャンネルあたり 1 件）、`overheard` は `mention.pendingOverheard` がオンでない限り `busy` としてドロップ。スイッチオフの場合、候補は呼び出しなしでスキップ。`mention.pendingSameChannel` がオフで候補自身のチャンネルがビジーの場合もスキップ。各呼び出しは `llm.maxRequestsPerDay` の `classifier.text` リクエスト 1 件。キー欠落 = オン |
+| `classifyWhileBusy` | `true` | ターン実行中でもフォローアップ候補をアドレス分類器に送信する。候補は同じウィンドウ、no-streak、プレフィルターのチェックを受ける。チャンネルあたり同時に最大 1 件の分類器呼び出し、より新しい候補が待機中のものを置き換える。ビジー状態のアテンションで `yes` は保留キューで待機（チャンネルあたり 1 件）、`overheard` は `mention.pendingOverheard` がオンでない限り `busy` としてドロップ。スイッチオフの場合、候補は呼び出しなしでスキップ。`mention.pendingSameChannel` がオフで候補自身のチャンネルがビジーの場合もスキップ。各呼び出しは `llm.maxRequestsPerDay` の `analyzer` リクエスト 1 件。キー欠落 = オン |
 | `pendingOverheard` | `true` | ペルソナがビジー中に、分類器がペルソナについての話（ペルソナに話しかけているのではない）と判断した行を保留キューに保持する。ペルソナは現在のターン終了後に反応する。待機中のフォローアップは後の overheard 行に押し出されない。待機中の overheard 行は後のフォローアップ、後の overheard 行、または直接メンション、リプライまたは名前呼びかけに押し出される。待機中の overheard 行はスパム上限にカウントされず、チャンネルで待機中の呼びかけとして他のターンに報告されない。オフ: ビジー中の行はドロップされる。キー欠落 = オン |
 | `maxPending` | `6` | すべてのチャンネルと著者にわたって保持する保留中の呼びかけの総数。一杯になると最も古い 1 件が淘汰される（`mention: dropped`、reason `full`） |
 | `pendingMinutes` | `10` | 保持されたピングが期限切れになるまでの分数 |
@@ -463,7 +473,6 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 
 | キー | デフォルト | 説明 |
 |---|---|---|
-| `model` | `null` | アナライザーモデル（`null` = `llm.model`） |
 | `temperature` | `null` | アナライザーのサンプリング温度。`null` は `llm.temperature` を使用 |
 | `mainChannelIds` | `[]` | メンバー同士が会話するチャンネル。キャラクターとスタイルのポートレートはここから作成される。空の場合はすべてのチャンネルが対象。読み取り専用チャンネルからの呼びかけへの応答先でもある（`features.elsewhere`）: リストの最初の利用可能なチャンネルが使用される |
 | `portraitRefreshHours` | `24` | メンバーごとのポートレートリフレッシュの最小間隔（時間） |
@@ -533,7 +542,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 
 アナライザープロンプトはこれらの上限をプレースホルダーとして読み取るため、値を上げると次のバッチから反映されます。プロファイルを大きくするとコンテキストトークン（`context.caps.people`、`context.caps.interlocutor`）とアナライザー出力（`memory.maxOutputTokens`）のコストが増加します。
 
-**移行。** `memory.voiceModel` は読み取られなくなりました。まだ設定されている場合は警告がログに記録され、値は無視されます。リプライとメモリの記述は共に `llm.model` を使用します。
+**移行。** `memory.voiceModel` は読み取られなくなりました。まだ設定されている場合は警告がログに記録され、値は無視されます。リプライとメモリの記述は共に `roles.voice` を使用します。
 
 ### `memory.voice`
 
@@ -583,7 +592,7 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 
 ## `web`
 
-ウェブルックアップ（`features.webLookup`）の設定です。リンク読み取りと検索は日次カウンター（`web.maxPerDay`）を共有します。結果はメディアキャッシュ（`data/guilds/<id>/media.json`）に保存されます。すべてのモデル呼び出しは `classifier.text` ロールを使用します。
+ウェブルックアップ（`features.webLookup`）の設定です。リンク読み取りと検索は日次カウンター（`web.maxPerDay`）を共有します。結果はメディアキャッシュ（`data/guilds/<id>/media.json`）に保存されます。モデル呼び出しは `analyzer` ロール（分類器）と `reasoner` ロール（要約、リンク読み取り）を使用します。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
@@ -621,14 +630,13 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 
 ## `image`
 
-描画サブプロセス（`features.imageGeneration`）の設定。ペルソナが `<draw>` タグを出力すると、コードが OpenRouter Images API を通じて 1 枚の画像を生成し、別のメッセージとして投稿します。生成回数と日次カウンターは `data/state.json`（`imageDay`、`imageCount`、`imageUsers`）に保存されます。すべての画像は `image.model` を使用し、チャットモデルや分類器モデルは使用しません。
+描画サブプロセス（`features.imageGeneration`）の設定。ペルソナが `<draw>` タグを出力すると、コードが OpenRouter Images API を通じて 1 枚の画像を生成し、別のメッセージとして投稿します。生成回数と日次カウンターは `data/state.json`（`imageDay`、`imageCount`、`imageUsers`）に保存されます。すべての画像は `roles.drawing` を使用します。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
-| `model` | `"openai/gpt-image-2.5-flare"` | 画像モデル ID。`openai/*` と `google/*` ファミリーのみサポート。それ以外はリクエスト前に拒否 |
 | `maxPerDay` | `50` | インスタンス全体の日次生成上限 |
 | `maxPerUserPerDay` | `50` | メンバーあたりの日次生成上限。自発的ターンと `/nep draw` はメンバーのカウントに含まれない |
-| `maxPromptChars` | `800` | `<draw>` タグのシーンテキストはこの長さにクランプされる |
+| `maxPromptChars` | `1600` | `<draw>` タグのシーンテキストはこの長さで、最後の文または単語境界でクランプされる |
 | `reference` | `"avatar"` | ペルソナが画像に含まれるとき（`self="yes"`）に送信するビジュアルリファレンス。`"avatar"` はボットの Discord アバターをダウンロード。他の値や `null` は何も送信しない |
 | `referenceMaxBytes` | `4000000` | アバターの最大ファイルサイズ（バイト）。超過するとスキップ |
 | `outputFormat` | `"png"` | 要求する出力フォーマット（`png`、`jpeg`、`webp`） |
@@ -734,29 +742,37 @@ YouTube リンクの再生時間は次の順序で取得されます: まず yt-
 
 ## モデル
 
-エンジンは 7 つのモデルロールを使用します。それぞれ独立して設定できるため、ペルソナの声にはプレミアムモデルを使い、ヘルパーには安価なモデルを使うことができます。
+エンジンは 8 つのモデルロール（`roles.*`）を使用します。各ロールは独立して設定されるため、声にはプレミアムモデルを使い、ヘルパーには安価なモデルを使えます。未設定のロールは独自のデフォルトを保持し、他のロールのモデルを使いません。
 
-### 声（`llm.model`）
+### 声
 
-ロール `voice`。バジェットが許す最も高性能なモデルを選びます。ロールプレイの品質、キャラクターの一貫性、自然な会話のすべてがこのモデルに依存します。小さなモデルはキャラクターが崩れ、コンテキストの手がかりを忘れ、平坦に聞こえます。2 段階モードでは、同じモデルがペルソナのメモリテキスト（ステージ B: リレーションシップノート、態度の理由、エピソードの感想、レッスン、自己言及、サーバーパターン、スターター、キャラクターポートレート）も記述します。両方のリクエストは使用ログでロール `voice` を持ちます。目的（`reply`、`memory-voice`）で区別されます。
+バジェットが許す最も高性能なモデル。ロールプレイの品質、キャラクターの一貫性、自然な会話のすべてがこれに依存します。小さなモデルはキャラクターが崩れ、コンテキストの手がかりを忘れ、平坦に聞こえます。2 段階モードでは、同じモデルがペルソナのメモリテキストも記述します（用途 `reply`、`memory-voice`）。
 
 デフォルト: `anthropic/claude-opus-4.6`。より安価な選択肢: `anthropic/claude-sonnet-4.6`。
 
-### アナライザー（`memory.model`）
+### アナライザー
 
-ロール `analyzer`。長いトランスクリプトを推論し、厳密な JSON を返します。ペルソナの声と同じティアの知性が必要です。`null`（デフォルト）はペルソナのモデルを使用します。同じ例が適用されます。2 段階モード（`features.memoryTwoStage`）では、このモデルがステージ A（ニュートラルな判定）を実行します。
+短い候補リストから 1 つを選択: address, room, merge, route-channel, participation-pick, rewatch, split, gif-pick。「yes」または「no」を確実に回答できる最も安価なテキストモデル。デフォルト: `openai/gpt-6.1-sol`。
 
-### テキスト分類器（`classifier.text`）
+### リーズナー
 
-「yes」または「no」を確実に回答できる最も安価なテキストモデルです。アドレス分類器（`features.followUp`）、検索分類器・リンク読み取り・検索要約・リコールサマリー（`features.webLookup`、`features.recall`）、再視聴分類器（`features.videoRewatch`）、ルーム分類器（`spontaneous.roomQuestionChance`）、チャンネルルート分類器（`features.channelRoute`）を実行します。デフォルト: `anthropic/claude-sonnet-4.6`。
+検索を計画しソースをノートに変換: lookup, planner, recall-summary, search-summary, read-link, diary-plan。デフォルト: `openai/gpt-6.1-sol`。
 
-### 画像（`classifier.media`）
+### エクストラクター
+
+会話を保存メモリに変換: メモリアナライザーのバッチ、ポートレート、チャンネル/サーバーノート、ウォームアップ、バックフィル。長いトランスクリプトを推論し厳密な JSON を返します。2 段階モード（`features.memoryTwoStage`）では、このモデルがステージ A（ニュートラルな判定）を実行します。デフォルト: `openai/gpt-6.1-sol`。
+
+### エンベディング
+
+意味検索用のエンベディングモデル。デフォルト: `openai/text-embedding-3-large`（`embed.dimensions` 1024）。リクエストはチャットリクエストと同じトランスポート、リトライ、日次上限を使用します。`/nep status` カードは 1 入力のエンベディングリクエストでプローブ。エンベディングクライアントがない場合はチェックされなかったと表示します。
+
+### 画像
 
 安価なビジョンモデルであれば何でも使えます。一行の説明文を書くだけなので、推論能力はほとんど問題になりません。
 
-デフォルト: `anthropic/claude-haiku-4.5`。最も安価な代替: `google/gemini-2.5-flash-lite`。
+デフォルト: `google/gemini-3.8-flash`。最も安価な代替: `google/gemini-2.5-flash-lite`。
 
-### 動画（`classifier.video`）
+### 動画
 
 OpenRouter を通じて動画と音声の両方の入力を受け付けるモデルのみがここで動作します。フレームは受け付けるが音声は受け付けないモデル（Qwen VL、GLM、Seed、Gemma）は音声を聞き取れず、重要な情報の大部分を逃します。
 
@@ -774,9 +790,9 @@ OpenRouter を通じて動画と音声の両方の入力を受け付けるモデ
 
 `qwen/qwen3.8-omni-flash` も動画と音声を受け付けます。価格は変動します。上の表は記載日時点のスナップショットです。
 
-### 画像出力（`image.model`）
+### 画像生成
 
-`classifier.media`（画像の説明を書くモデル）とは別です。このモデルは OpenRouter Images API（`POST /api/v1/images`）を通じて画像を生成します。サポートされるファミリーは `openai/*` と `google/*` の 2 つのみ。サポートされないファミリーはリクエストやカウントの前に拒否されます。
+OpenRouter Images API（`POST /api/v1/images`）を通じて画像を生成します。サポートされるファミリーは `openai/*` と `google/*` の 2 つのみ。サポートされないファミリーはリクエストやカウントの前に拒否されます。
 
 **OpenAI モデル。** `image.openai.quality`、`image.openai.background`、`image.openai.moderation`、`image.aspectRatio`、`image.outputFormat`、`input_references` を使用。
 

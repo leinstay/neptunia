@@ -44,13 +44,13 @@
 | `recall-summary.md` | いいえ | リコールサマリーのアウトオブキャラクタープロンプト（`features.recall`）: サーバー検索で見つかった古いチャットのストレッチを読み、質問に回答。ペルソナに原文で届けるストレッチを任意に指定。キャラクターカードなし | `{{name}}` `{{answerChars}}` |
 | `room.md` | いいえ | 分類器: メッセージが全員に向けたものか、特定の一人に向けたものか（`spontaneous.roomQuestionChance`）。短いトランスクリプト、発話者のエイリアス、`<candidate>` ブロックを受け取る。出力は 1 語: `yes` または `no` | `{{name}}` |
 | `route-channel.md` | いいえ | 分類器: このメッセージに応答するにはペルソナが別のチャンネルを見る必要があるか（`features.channelRoute`）。短いトランスクリプト、`<channels>` リスト、`<candidate>` ブロックを受け取る。出力は 1 行: リストの番号、`<n> earlier`（そのチャンネルの前回表示より前のページ）、または `none`。`context.pull.seenTtlMinutes` 内に前回表示がない場合、earlier は最新ページを表示する | `{{name}}` |
-| `planner.md` | いいえ | ターンプランナー（`features.turnPlanner`）: リプライ前の 1 回のヘルパー呼び出しでチャンネルルーター、エピソード選択、検索分類器、再視聴分類器を置き換える。`<channels>`、`<episodes>`、`<media>`、短いトランスクリプト（`web.search.contextMessages` 行）、`<candidate>` ブロックを受け取る。出力は 4 つのラベル付きブロック（`channel`、`episodes`、`rewatch`、`lookup`）。ロール `classifier.reason`、purpose `planner`。出力上限 `web.search.classifierMaxOutputTokens`。カードなし | `{{name}}` `{{today}}` |
+| `planner.md` | いいえ | ターンプランナー（`features.turnPlanner`）: リプライ前の 1 回のヘルパー呼び出しでチャンネルルーター、エピソード選択、検索分類器、再視聴分類器を置き換える。`<channels>`、`<episodes>`、`<media>`、短いトランスクリプト（`web.search.contextMessages` 行）、`<candidate>` ブロックを受け取る。出力は 4 つのラベル付きブロック（`channel`、`episodes`、`rewatch`、`lookup`）。ロール `reasoner`、purpose `planner`。出力上限 `web.search.classifierMaxOutputTokens`。カードなし | `{{name}}` `{{today}}` |
 | `elsewhere.md` | いいえ | タスク: ペルソナが書き込めないチャンネルを読み、メインチャンネルでコメントする可能性がある（`features.elsewhere`）。注目ターンのタスクテキストとして使用。`<skip/>` が通常の結果 | `{{name}}` `{{channel}}` `{{destination}}` |
 | `read-link.md` | いいえ | リンク読み取りのアウトオブキャラクタープロンプト（`features.webLookup`、`web.links.enabled`）: フェッチしたページを 1 段落に要約する。ページのタイトルと本文を受け取る。キャラクターカードなし | `{{today}}` `{{maxChars}}` |
 | `search-summary.md` | いいえ | 検索要約のアウトオブキャラクタープロンプト（`features.webLookup`、`web.search.enabled`）: 番号付き検索結果をインラインソース付きの 1 つのノートに要約する。キャラクターカードなし | `{{today}}` `{{query}}` `{{maxChars}}` |
 | `private.md` | いいえ | モードプロンプト（`reply.md`）の後、`forced.md` の前に追加。DM（`features.privateMessages`）のみ。プライベートな会話: ここで話されたことはここに留まる。ペルソナは公開知識を保持する。ファイルがなければ何も追加されない | `{{name}}` `{{author}}` |
 | `diary.md` | はい | タスク: 日記投稿を書く。ペルソナ自身のチャンネル、誰にも頼まれていない。計画の種類と概要、過去の投稿、オプションのワールドと検索結果がユーザーメッセージブロックに含まれる。出力: `<msg>`（1〜`diary.maxMessages`）、`<draw>`、または `<skip/>`。`<react>` と `<gif>` は削除。返信属性なし、リンクなし | `{{name}}` |
-| `diary-plan.md` | はい | プランナー: 種類、概要、検索と描画の有無を選択。`classifier.text` で動作、キャラクターカードなし。`<now>`、`<server>`、`<about_chat>`、`<recent>`、`<lore>`、`<world>`、`<diary>`、`<kinds>`、`<seeds>`、`<topic>` を受け取る。JSON オブジェクト 1 つで回答 | `{{name}}` |
+| `diary-plan.md` | はい | プランナー: 種類、概要、検索と描画の有無を選択。`reasoner` ロールで動作、キャラクターカードなし。`<now>`、`<server>`、`<about_chat>`、`<recent>`、`<lore>`、`<world>`、`<diary>`、`<kinds>`、`<seeds>`、`<topic>` を受け取る。JSON オブジェクト 1 つで回答 | `{{name}}` |
 | `world.md` | いいえ | ペルソナの仮想世界: チャット外の場所と日常。日記の計画・生成リクエストでのみ `<world>` ブロックとしてレンダリング、`diary.world === true` の場合のみ。通常のターンでは使用されない。ファイルなしまたはスイッチオフはブロックなし | `{{name}}` |
 | `diary-seeds.md` | いいえ | 日記プランナー用ランダムシードファミリー。`# name` ヘッダーがファミリーを開始。コードが各ファミリーから 1 行選び `diary.seedSets` 組み合わせを作成。ファイルなしまたは `seedSets` = 0 で省略 | なし |
 | `draw.md` | はい | 描画サブプロセスのアウトオブキャラクタープロンプト（`features.imageGeneration`）: シーン説明から画像 1 枚を生成する。外見とリクエストのみを受け取り、キャラクターカードは受け取らない | `{{name}}` `{{appearance}}` `{{request}}` `{{when}}` |
@@ -113,7 +113,7 @@ recent（`context.caps.recent` で制限）->
 日記モードのみ: `<found>`（`<lookup>` の直後）、`<world>`（丸ごと、attitudes の後）、`<diary>`（古い行から先にカット）、`<plan>` + `<kinds>` + `<seeds>` + `<topic>`（カットされない）->
 other channels -> 絵文字（下からエントリを削除、次にブロック全体; `context.caps.emoji`）-> GIF（同じトリム; `context.caps.gifs`）。
 
-GIF ピッカー（`features.gifPicker`、デフォルトオン）。ペルソナが短い返答（最大 `gifs.pick.maxChars` 文字、デフォルト 160）を書き、自分で GIF を選ばなかった場合、分類器（`classifier.text`、purpose `gif-pick`、`gifs.pick.maxOutputTokens` 60、プロンプト `prompts/gif-pick.md`）が直近の `gifs.pick.contextMessages`（デフォルト 4）チャット行（応答先メッセージを明示）、ペルソナの最初のメッセージ、キャプション付きのフルライブラリ（各エントリにキャプション、ペルソナが最近投稿した場合は自分マーク付き）を受け取ります。分類器はハンドル 1 つまたは `none` を返します。ハンドルが返されると GIF が最初の送信メッセージを置換し、元のメッセージと同じ送信先にリプライします。残りのメッセージは順番に続きます。GIF の送信に失敗した場合、すべてのメッセージがそのまま投稿されます。分類器は最初のメッセージのタイピングシミュレーション中に実行され、日次 GIF 制限 `gifs.maxPerDay` が適用されます。ログ: `gifs: picked`（handle true/false、ライブラリサイズ）または `gifs: pick failed`。
+GIF ピッカー（`features.gifPicker`、デフォルトオン）。ペルソナが短い返答（最大 `gifs.pick.maxChars` 文字、デフォルト 160）を書き、自分で GIF を選ばなかった場合、分類器（`analyzer` ロール、purpose `gif-pick`、`gifs.pick.maxOutputTokens` 60、プロンプト `prompts/gif-pick.md`）が直近の `gifs.pick.contextMessages`（デフォルト 4）チャット行（応答先メッセージを明示）、ペルソナの最初のメッセージ、キャプション付きのフルライブラリ（各エントリにキャプション、ペルソナが最近投稿した場合は自分マーク付き）を受け取ります。分類器はハンドル 1 つまたは `none` を返します。ハンドルが返されると GIF が最初の送信メッセージを置換し、元のメッセージと同じ送信先にリプライします。残りのメッセージは順番に続きます。GIF の送信に失敗した場合、すべてのメッセージがそのまま投稿されます。分類器は最初のメッセージのタイピングシミュレーション中に実行され、日次 GIF 制限 `gifs.maxPerDay` が適用されます。ログ: `gifs: picked`（handle true/false、ライブラリサイズ）または `gifs: pick failed`。
 
 トランスクリプト行のメディア（利用可能な最も情報量の多い形式）: このリクエストに添付された画像 →
 `transcript.imageAttached`（画像がテキストの後に並ぶ順にナンバリング）、説明済み →
@@ -159,8 +159,7 @@ GIF ピッカー（`features.gifPicker`、デフォルトオン）。ペルソ�
 
 ```
 locale                                   BCP-47 tag for dates
-status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word. The embedding role (`classifier.embed`) is probed with a one-input embedding request of this text instead of a chat completion; when no embedding client is wired the embed line says it was not checked
-status.fallback                          {role}: shown next to a role whose own key is unset, marking that its model comes from another role's key; `{role}` is the role it falls back to. Without this label, no fallback marker is shown
+status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word. The embedding role is probed with a one-input embedding request of this text instead of a chat completion; when no embedding client is wired the embed line says it was not checked
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: `context.gapMarkerMinutes` 分以上離れた隣り合う 2 行の間の時間。メッセージの経過時間と読まれない書き方にする
@@ -461,7 +460,7 @@ task.added                               {added}: later messages from the author
 
 ## アドレス分類器
 
-ペルソナが誰かに応答した後、そのチャンネルで会話ウィンドウが開きます（`mention.followUpMinutes`、応答ごとに延長）。ウィンドウ内でトリガー（メンション、ペルソナへのリプライ、名前）を持たないメッセージは無条件には応答されません。コードはチャンネルの直近 `mention.followUpContext`（デフォルト 15）行を送信します。ペルソナ自身の行は `labels.self` でマーク、新しいメッセージは `<candidate>` としてマークされ、`address.md` に `classifier.text` モデルロール（デフォルト `anthropic/claude-sonnet-4.6`）で送信されます。出力は 1 語: 候補がペルソナに話しかけているか、ペルソナとのやり取りを続けている場合は `yes`、人々がペルソナについて他の相手や部屋に向かって話している場合は `overheard`、会話がペルソナに無関係な場合は `no`。別のメンバーへの明示的な @メンションは、モデルに尋ねる前に常に `no`。返信先の著者に Discord が付加する暗黙のピングはそのようなメンションとして扱いません。`mention.followUpClassifyReplies` がオン（デフォルト `true`、キー欠落 = オン）のとき、別のメンバーのメッセージへのリプライは通常のテキストと同様に分類器に送られます。スイッチオフの場合、別のメンバーへのリプライは自動的に `no` です。`mention.classifyWhileBusy` がオン（デフォルト `true`、キー欠落 = オン）のとき、ターン実行中に届いたフォローアップ候補は同じウィンドウ、no-streak、プレフィルターのチェックを経て分類器に送られます。チャンネルあたり同時に最大 1 件の分類器呼び出しで、より新しい保留行が古いものを置き換えます。スイッチオフの場合、または `mention.pendingSameChannel` がオフで候補自身のチャンネルがビジーの場合、候補は分類されません（`yes` はどのみちドロップされます）。各呼び出しは `llm.maxRequestsPerDay` の `classifier.text` リクエスト 1 件です。ビジー状態のターンに出くわした `yes` は保留キューで待機します（ログ `follow-up: deferred`）。キューにはチャンネルごとに 1 件の保留フォローアップが保持され、より新しいものが古いものを置き換えます（ログ `follow-up: dropped`、reason `newer`）。アテンションが空くとメンションと同じチェック（期限切れ、スイッチ、一時停止、送信権限、メッセージの存在）に加え 2 つの独自チェックを経てピックアップされます（`follow-up: picked up`）: そのチャンネルと著者のフォローアップウィンドウがまだ開いていること（`mention.followUpMinutes` と no-streak）、さもなくばドロップ `closed`、およびその行がそのチャンネルで応答済みのターンの履歴に含まれていないこと、さもなくばドロップ `answered`。これらのチェックを通過した保留フォローアップも、即時のフォローアップと同じく呼びかけとしてカウントされ、`mention.followUpIgnoreChance` で無視確率のロールを受けます。`mention.pendingOverheard` がオン（デフォルト `true`、キー欠落 = オン）の場合、ビジー状態のターンに出くわした `overheard` はドロップされず保留キューで待機し、現在のターン終了後にペルソナが反応します。待機中のフォローアップは後の overheard 行に押し出されません。待機中の overheard 行は後のフォローアップ、後の overheard 行、または直接メンション、リプライまたは名前呼びかけに押し出されます。待機中の overheard 行はスパム上限にカウントされず、チャンネルで待機中の呼びかけとして他のターンに報告されません。スイッチオフの場合、`overheard` はドロップされます（`busy`）。
+ペルソナが誰かに応答した後、そのチャンネルで会話ウィンドウが開きます（`mention.followUpMinutes`、応答ごとに延長）。ウィンドウ内でトリガー（メンション、ペルソナへのリプライ、名前）を持たないメッセージは無条件には応答されません。コードはチャンネルの直近 `mention.followUpContext`（デフォルト 15）行を送信します。ペルソナ自身の行は `labels.self` でマーク、新しいメッセージは `<candidate>` としてマークされ、`address.md` に `analyzer` ロールのモデルで送信されます。出力は 1 語: 候補がペルソナに話しかけているか、ペルソナとのやり取りを続けている場合は `yes`、人々がペルソナについて他の相手や部屋に向かって話している場合は `overheard`、会話がペルソナに無関係な場合は `no`。別のメンバーへの明示的な @メンションは、モデルに尋ねる前に常に `no`。返信先の著者に Discord が付加する暗黙のピングはそのようなメンションとして扱いません。`mention.followUpClassifyReplies` がオン（デフォルト `true`、キー欠落 = オン）のとき、別のメンバーのメッセージへのリプライは通常のテキストと同様に分類器に送られます。スイッチオフの場合、別のメンバーへのリプライは自動的に `no` です。`mention.classifyWhileBusy` がオン（デフォルト `true`、キー欠落 = オン）のとき、ターン実行中に届いたフォローアップ候補は同じウィンドウ、no-streak、プレフィルターのチェックを経て分類器に送られます。チャンネルあたり同時に最大 1 件の分類器呼び出しで、より新しい保留行が古いものを置き換えます。スイッチオフの場合、または `mention.pendingSameChannel` がオフで候補自身のチャンネルがビジーの場合、候補は分類されません（`yes` はどのみちドロップされます）。各呼び出しは `llm.maxRequestsPerDay` の `analyzer` リクエスト 1 件です。ビジー状態のターンに出くわした `yes` は保留キューで待機します（ログ `follow-up: deferred`）。キューにはチャンネルごとに 1 件の保留フォローアップが保持され、より新しいものが古いものを置き換えます（ログ `follow-up: dropped`、reason `newer`）。アテンションが空くとメンションと同じチェック（期限切れ、スイッチ、一時停止、送信権限、メッセージの存在）に加え 2 つの独自チェックを経てピックアップされます（`follow-up: picked up`）: そのチャンネルと著者のフォローアップウィンドウがまだ開いていること（`mention.followUpMinutes` と no-streak）、さもなくばドロップ `closed`、およびその行がそのチャンネルで応答済みのターンの履歴に含まれていないこと、さもなくばドロップ `answered`。これらのチェックを通過した保留フォローアップも、即時のフォローアップと同じく呼びかけとしてカウントされ、`mention.followUpIgnoreChance` で無視確率のロールを受けます。`mention.pendingOverheard` がオン（デフォルト `true`、キー欠落 = オン）の場合、ビジー状態のターンに出くわした `overheard` はドロップされず保留キューで待機し、現在のターン終了後にペルソナが反応します。待機中のフォローアップは後の overheard 行に押し出されません。待機中の overheard 行は後のフォローアップ、後の overheard 行、または直接メンション、リプライまたは名前呼びかけに押し出されます。待機中の overheard 行はスパム上限にカウントされず、チャンネルで待機中の呼びかけとして他のターンに報告されません。スイッチオフの場合、`overheard` はドロップされます（`busy`）。
 
 `yes` は、無視確率のロールで無視されなければ、トリガー種別 `followUp` のリプライモードターンを実行します。タスクテキストは `prompts/follow-up.md`（存在しない場合は `reply.md` にフォールバック）で、`yes` が出ても応答するとは限りません。フォローアップはメンションと同じく著者の呼びかけとしてカウントされ、ロールは `mention.ignoreChance` の代わりに `mention.followUpIgnoreChance`（デフォルト `0`）から始まります。リピートペナルティ、スパム判定、態度による補正は他の呼びかけと同様に適用されます。無視されたフォローアップはログ `mention: decided`、reason `ignored:follow-up` で記録され（著者の直近の呼びかけがリピートやスパムに当たる場合は `ignored:repeat` または `ignored:spam`）、ウィンドウとその no-streak は変わりません。`overheard` はトリガー種別 `overheard` のリプライモードターンを実行します。タスクテキストは `prompts/overheard.md`（存在しない場合はモードプロンプトにフォールバック）、発話者のプロファイル見出しに `interlocutorMark` なし、プレーン投稿、リピートペナルティ非対象、無視確率のロールなし、レール拒否時のリミット通知なし、検索・再視聴分類器なし、描画は非リクエスト扱い（画像上限通知なし、ユーザー別画像カウントなし、`drawFailed` フォローアップなし）。`mention.followUpOverheard` がオフの場合、`overheard` 回答は通常のフォローアップターンとして開始されます（ログには `answer: 'overheard'` が記録されます）。`overheard` 判定時にクラシファイアコール中に新しいメッセージが保留されていた場合、保留メッセージが先に分類されます: `yes` ならそのためのフォローアップターン、`overheard` なら保留メッセージの `overheard` ターン、`no` なら元の候補の `overheard` ターンが開始されます。
 
@@ -474,7 +473,7 @@ task.added                               {added}: later messages from the author
 60）件のメッセージに動画や画像がある場合、分類器がそのメッセージがそれらのアイテムについて質問しているか、画像の具体的な詳細を主張しているか、または読み込めなかった
 動画のリトライを求めているかを判定します。候補: 視聴済み動画、エラー状態の動画、説明済み画像（添付画像、ペルソナ自身のアップロードを含む。貼り付けられた画像リンクは除外）。画像は `features.vision` がオンの場合のみ提供されます。分類器には最大
 `media.video.rewatch.maxCandidates`（デフォルト 6）件のアイテムが渡されます。動画が先、画像が後、各種類内で新しい順です。コードは `rewatch.md` を
-システムプロンプトとして `classifier.text` モデルロール（デフォルト `anthropic/claude-sonnet-4.6`）に送信し、
+システムプロンプトとして `analyzer` ロールのモデルに送信し、
 ユーザーメッセージに 3 つのブロックを含めます: チャンネルの直近数件のメッセージを含む短い `<transcript>`（ペルソナ自身の行は `labels.self` でマーク、分類器が候補の返信先を把握できるようにする）、続いてメディアリストと候補:
 
 ```
@@ -502,7 +501,7 @@ task.added                               {added}: later messages from the author
 `rewatch.answerChars`、デフォルト 1200）でクリップを再度視聴し、回答は `transcript.videoAnswered`（`{question}`、
 `{text}`）として視聴済みタグの後にトランスクリプトに追加されます。
 
-画像の質問でヒットした場合、ビジョンモデル（`classifier.media`、`purpose: relook`、プロンプト `rewatch-answer.md`、種類を問わず共用）がその質問で画像をもう一度見ます。回答はキャプションとして保存されず（1 時間キャッシュ）、トランスクリプトは画像の行の下に `transcript.imageAnswered`（`{question}`、`{text}`）を運びます。
+画像の質問でヒットした場合、ビジョンモデル（`vision` ロール、`purpose: relook`、プロンプト `rewatch-answer.md`、種類を問わず共用）がその質問で画像をもう一度見ます。回答はキャプションとして保存されず（1 時間キャッシュ）、トランスクリプトは画像の行の下に `transcript.imageAnswered`（`{question}`、`{text}`）を運びます。
 
 `<senses>` ブロックには機能が有効な場合に `senses.videoRewatch` が含まれます。
 
@@ -518,7 +517,7 @@ task.added                               {added}: later messages from the author
 
 ## 検索およびリコール分類器
 
-ペルソナに直接話しかけられた（リプライターン、`overheard` や自発的ターンではない）とき、`lookup.md` プロンプトが存在する場合、分類器がトリガーにウェブ検索、サーバー履歴検索、またはその両方が必要かを判定します。コードは `lookup.md` をシステムプロンプトとして `classifier.text` モデルに送信し、ユーザーメッセージに短い `<transcript>`（再視聴分類器と同じもの、ペルソナ自身の行は `labels.self` でマーク）と `<candidate>` ブロックを含めます:
+ペルソナに直接話しかけられた（リプライターン、`overheard` や自発的ターンではない）とき、`lookup.md` プロンプトが存在する場合、分類器がトリガーにウェブ検索、サーバー履歴検索、またはその両方が必要かを判定します。コードは `lookup.md` をシステムプロンプトとして `reasoner` ロールのモデルに送信し、ユーザーメッセージに短い `<transcript>`（再視聴分類器と同じもの、ペルソナ自身の行は `labels.self` でマーク）と `<candidate>` ブロックを含めます:
 
 ```
 <transcript>
@@ -538,13 +537,13 @@ task.added                               {added}: later messages from the author
 
 ラベルなしの 1 行（旧フォーマット）はウェブクエリとして読み取られます。空白の回答は失敗した呼び出し（`reason: empty`）であり、`none` ではありません。
 
-`web:` ヒット時、Brave Search がクエリを実行し（`web.search.results` 件の結果、デフォルト 5）、番号付きの結果が `classifier.text` を通じて `search-summary.md`（`{{today}}`、`{{query}}`、`{{maxChars}}` = `web.search.summaryChars`、デフォルト 900）で要約され、ウェブパートが `<lookup>` ブロックに描画されます: `labels.lookup.header` にクエリ、要約テキスト、`labels.lookup.sources` にサイト名（重複排除済み）。検索が何も返さなかった場合、または要約が有用な内容を見つけなかった場合は `labels.lookup.none` が代わりに表示されます。
+`web:` ヒット時、Brave Search がクエリを実行し（`web.search.results` 件の結果、デフォルト 5）、番号付きの結果が `reasoner` ロールを通じて `search-summary.md`（`{{today}}`、`{{query}}`、`{{maxChars}}` = `web.search.summaryChars`、デフォルト 900）で要約され、ウェブパートが `<lookup>` ブロックに描画されます: `labels.lookup.header` にクエリ、要約テキスト、`labels.lookup.sources` にサイト名（重複排除済み）。検索が何も返さなかった場合、または要約が有用な内容を見つけなかった場合は `labels.lookup.none` が代わりに表示されます。
 
 `server:` ヒット時（オプションの `who:` と `when:` 行付き）、エンジンは Discord の検索 API でサーバーのメッセージ履歴を検索します。フォームは順序付きの検索クエリリストになり（コンテンツフォームのラウンドロビン、次に著者名）、`when:` のみの場合は日付範囲のサンプルになります。ヒットはフィルター（他のボットとオーディエンスルールが拒否するチャンネルは除外）され、チャンネルと時間（`recall.clusterGapMinutes`）でクラスター化され、トピックスコア（クラスターにヒットがある各 `server:` フォーム、サーバー全体で `recall.rareHits` 以下のヒット数なら 2、それ以外は 1 を加算）、次に全異なるクエリ数、次に新しい順でランク付けされ、上位 `recall.maxClusters` が保持されます。名前・著者のヒットのみのクラスターはトピックヒットが 1 つでもあるクラスターより下位です。`recall.keepOldest` はトピックスコアが 2 以上の最古のクラスターにスロットを予約。保持された各クラスターの周辺で `recall.windowMessages` 件のメッセージがフェッチされます。分類器のワードフォームとネームフォームは保存済みメモリ（プライベートレイヤーは対象外）とも照合: メンバーのエピソード、ロアエントリ、学んだレッスン、最近の行。一致する各項目は `<memory>` ブロックの 1 行になります: `kind | date | name | text`、種類は `episode`、`lore`、`learned`、`recent`。`when:` の日付範囲は日付のない種類（lore、learned）を除外。最大 `recall.memoryItems`（デフォルト 6）項目、一致するフォーム数と重みでランク付け。`<memory>` ブロックは `<people>` の後 `<found>` の前に配置。メモリのマッチがあってチャットヒットがない場合でもサマリーに問い合わせます。`recall: searched` 行の `stats.memory` としてログ。
 
-`features.meaningSearch` が厳密に `true` の場合、リコール実行時に意味でも検索します。質問者のメッセージをエンベディングし（`classifier.embed` モデルへの 1 リクエスト、purpose `recall-query`）、`recall.meaningWithReply` ではリプライ先の行もクエリテキストに含めます。ベクトルインデックス（`src/memory/vectors.js`）を要求された `when:` 範囲内で検索し（範囲なしでは全月）、オーディエンスルールと可視チャットの id の適用後に `recall.meaningCandidates`（デフォルト 80）行を返します。意味検索で見つかったレコード行はレコードウィンドウに合流し、アーカイブ行はメモリ項目に合流します。ワードと意味の両方で見つかった行が最初にランク付けされ（逆順位融合、k = 60）、意味のみの行がコサインで続き、ワードのみの行が最後になります。エンベディングまたはベクトル検索が失敗した場合、`recall: meaning failed`（`stage` `embed` または `search`）をログし、ワードのみで続行します。
+`features.meaningSearch` が厳密に `true` の場合、リコール実行時に意味でも検索します。質問者のメッセージをエンベディングし（`embedding` ロールへの 1 リクエスト、purpose `recall-query`）、`recall.meaningWithReply` ではリプライ先の行もクエリテキストに含めます。ベクトルインデックス（`src/memory/vectors.js`）を要求された `when:` 範囲内で検索し（範囲なしでは全月）、オーディエンスルールと可視チャットの id の適用後に `recall.meaningCandidates`（デフォルト 80）行を返します。意味検索で見つかったレコード行はレコードウィンドウに合流し、アーカイブ行はメモリ項目に合流します。ワードと意味の両方で見つかった行が最初にランク付けされ（逆順位融合、k = 60）、意味のみの行がコサインで続き、ワードのみの行が最後になります。エンベディングまたはベクトル検索が失敗した場合、`recall: meaning failed`（`stage` `embed` または `search`）をログし、ワードのみで続行します。
 
-サマリーヘルパー（`recall-summary.md`、`classifier.text`、ブロック `<people>`、`<memory>`、`<found>`、`<question>`）がウィンドウ、保存済みメモリ、質問を読み、ノートを書きます。サマリーが 1 つのストレッチを指定した場合（`stretch: <n>`）、そのストレッチの原文行（`recall.stretchChars` で制限）がノートと共に表示されます。サマリーが `nothing` の場合、`<lookup>` ブロックにサーバーパートは含まれません。サマリーの失敗またはタイムアウトの場合、上位ウィンドウの原文ストレッチがノートなしでフォールバックとして返されます。
+サマリーヘルパー（`recall-summary.md`、`reasoner` ロール、ブロック `<people>`、`<memory>`、`<found>`、`<question>`）がウィンドウ、保存済みメモリ、質問を読み、ノートを書きます。サマリーが 1 つのストレッチを指定した場合（`stretch: <n>`）、そのストレッチの原文行（`recall.stretchChars` で制限）がノートと共に表示されます。サマリーが `nothing` の場合、`<lookup>` ブロックにサーバーパートは含まれません。サマリーの失敗またはタイムアウトの場合、上位ウィンドウの原文ストレッチがノートなしでフォールバックとして返されます。
 
 両方のウェブとサーバー検索が実行された場合、`<lookup>` ブロックには `labels.lookup.webHeader`（ウェブパートの上）、`labels.lookup.serverHeader`（サーバーパートの上）、`labels.lookup.bothNote`（その間）が含まれます。
 
@@ -554,7 +553,7 @@ task.added                               {added}: later messages from the author
 
 ## タスクスプリッター
 
-直接呼びかけ（メンション、リプライ、名前、フォローアップ、プライベートメッセージ）が十分に長く構造化されている場合（`split.minChars` 文字、リンクと Discord トークンを除外、少なくとも 2 つのセパレーター区間）、ターンの準備と並行して分類器（`prompts/split.md`、`classifier.text`、目的 `split`）に渡されます。分類器は直近 `split.contextMessages` 件のメッセージの短い `<transcript>`（ペルソナ自身の行は `labels.self` でマーク）を読み、新しいメッセージを `<candidate>`（`<著者名>: <テキスト>`）として受け取ります。回答は `one` という語、または 2 行から `split.maxTasks`（デフォルト 4）行で各行 `- ` で始まり著者自身の言葉でパートを示します。パース後、`split.minPartChars`（デフォルト 20）文字より短いパート（リンクと Discord トークンを除外、`minChars` と同様）は次のパートに統合されます（最後のパートは前のパートに統合）。残りが 2 未満になると 1 つのリクエストとして扱われます（`folded`）。空、パースできない、または遅延した回答（ターンの準備が先に完了）は 1 つのリクエストとして扱われ `split: failed` としてログされます。スイッチ `features.splitTasks`（未設定 = オン）。
+直接呼びかけ（メンション、リプライ、名前、フォローアップ、プライベートメッセージ）が十分に長く構造化されている場合（`split.minChars` 文字、リンクと Discord トークンを除外、少なくとも 2 つのセパレーター区間）、ターンの準備と並行して分類器（`prompts/split.md`、`analyzer` ロール、目的 `split`）に渡されます。分類器は直近 `split.contextMessages` 件のメッセージの短い `<transcript>`（ペルソナ自身の行は `labels.self` でマーク）を読み、新しいメッセージを `<candidate>`（`<著者名>: <テキスト>`）として受け取ります。回答は `one` という語、または 2 行から `split.maxTasks`（デフォルト 4）行で各行 `- ` で始まり著者自身の言葉でパートを示します。パース後、`split.minPartChars`（デフォルト 20）文字より短いパート（リンクと Discord トークンを除外、`minChars` と同様）は次のパートに統合されます（最後のパートは前のパートに統合）。残りが 2 未満になると 1 つのリクエストとして扱われます（`folded`）。空、パースできない、または遅延した回答（ターンの準備が先に完了）は 1 つのリクエストとして扱われ `split: failed` としてログされます。スイッチ `features.splitTasks`（未設定 = オン）。
 
 パートは同じメッセージに対する通常のターンのチェーン（`turn: part`）となります。各パートのヘルパー（検索分類器、リコール、ルートフック、再視聴）はそのパートのテキストを判定し、リクエストにはパートと残りが示されます（`labels.task.part`、`{index}`、`{total}`、`{part}`、`{others}`）。最初のパートはメッセージ全体のターンが取得した履歴を再利用しメッセージにリプライ。後のパートは履歴を新たにフェッチしプレーンで投稿。各パートには独自の期限とドロップバーがあります。失敗または拒否されたパートは次のパートを止めません。無視ロール、プライベートの日次上限、リングのスタンプはメッセージごとに 1 回カウント。一時停止またはウォームアップはチェーンの次のパートの前に終了します（`turn: chain stopped`）。チェーン実行中、未開始のパートはその著者の待機中の項目（ターンランナーの `waitingParts`）です。後のメッセージがそのいずれかに統合（`addToPart`）された場合、そのパートのリクエストに `tasks.added` で届きます。アテンションは最初のターンから最後まで保持され、アイドル通知は最後に 1 回発火します。
 
@@ -562,7 +561,7 @@ task.added                               {added}: later messages from the author
 
 ## マージ分類器
 
-呼びかけが届いた著者がそのチャンネルに待機中の項目をすでに持っている場合（分割メッセージのチェーンがまだ到達していないパート、または保留リストのキューされた呼びかけ）、分類器（`prompts/merge.md`、`classifier.text`、目的 `merge`）が新しいメッセージがそのいずれかに属するかを判定します。分類器は番号付きの `<waiting>` ブロック（`1. <テキスト>`、待機中の項目ごとに 1 行）と新しいメッセージを `<candidate>`（`<著者名>: <テキスト>`）として読み取ります。回答は 1 行: 待機リストの番号または `new` という語。統合されたメッセージは独自のターンを持ちません。その項目のターンで `labels.task.added`（`{added}`）を通じて表示されます。ルーティングされた呼びかけには統合されません。プロンプトファイルがない場合、すべての呼びかけは独自の項目としてキューされます（`merge: failed`、`no-prompt`）。ログ: `merge: verdict`、`merge: failed`。独自の設定はなく、出力上限は `mention.followUpMaxOutputTokens`。
+呼びかけが届いた著者がそのチャンネルに待機中の項目をすでに持っている場合（分割メッセージのチェーンがまだ到達していないパート、または保留リストのキューされた呼びかけ）、分類器（`prompts/merge.md`、`analyzer` ロール、目的 `merge`）が新しいメッセージがそのいずれかに属するかを判定します。分類器は番号付きの `<waiting>` ブロック（`1. <テキスト>`、待機中の項目ごとに 1 行）と新しいメッセージを `<candidate>`（`<著者名>: <テキスト>`）として読み取ります。回答は 1 行: 待機リストの番号または `new` という語。統合されたメッセージは独自のターンを持ちません。その項目のターンで `labels.task.added`（`{added}`）を通じて表示されます。ルーティングされた呼びかけには統合されません。プロンプトファイルがない場合、すべての呼びかけは独自の項目としてキューされます（`merge: failed`、`no-prompt`）。ログ: `merge: verdict`、`merge: failed`。独自の設定はなく、出力上限は `mention.followUpMaxOutputTokens`。
 
 ## 描画
 
