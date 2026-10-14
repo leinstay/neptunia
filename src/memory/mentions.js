@@ -32,6 +32,8 @@
 // out of a kept text (`redactUser`): their token and their names become a neutral word.
 // A written channel name is matched by its core too (`channelCore`, `matchChannel`): the name
 // without leading and trailing emoji or symbols, folded, since models copy those unreliably.
+// A URL the persona writes is never rewritten on the way out (`URL_PATTERN`, `outsideUrls`):
+// a `#name` or `@name` inside it is part of the address.
 
 import { foldText } from './recent.js';
 
@@ -41,6 +43,31 @@ import { foldText } from './recent.js';
  * `(id:...)` markers, a taught item's `from`).
  */
 export const ID_DIGITS = '\\d{17,20}';
+
+/**
+ * An http(s) URL as written in a text, as a regex source: from the scheme up to
+ * the next whitespace or angle bracket (a `<url>` keeps its brackets outside).
+ * The one pattern for the URLs the persona reads (src/discord/collect.js caps
+ * their length) and the ones she writes (left alone on the way out).
+ */
+export const URL_PATTERN = 'https?:\\/\\/[^\\s<>]+';
+
+/**
+ * `text` with `convert` applied to every stretch outside its URLs
+ * (URL_PATTERN), the URLs kept exactly as written. `convert` may get ''. Pure.
+ * @param {string} text
+ * @param {(part: string) => string} convert
+ * @returns {string}
+ */
+export function outsideUrls(text, convert) {
+  let result = '';
+  let index = 0;
+  for (const match of text.matchAll(new RegExp(URL_PATTERN, 'g'))) {
+    result += convert(text.slice(index, match.index)) + match[0];
+    index = match.index + match[0].length;
+  }
+  return result + convert(text.slice(index));
+}
 
 const TOKEN_RE = new RegExp(`<@(${ID_DIGITS})>`, 'g');
 const ID_MARKER_RE = new RegExp(`\\(id:(${ID_DIGITS})\\)`, 'g');
@@ -370,7 +397,8 @@ function coreAt(text, at, byCore) {
  * one of several sharing it, the longest core first, its trailing emoji taken along;
  * a match counts only when the character before `#` is not a word character
  * and the one after the name is not a word character either (or the end). An
- * existing `<#id>` link is left alone; text without `#` comes back unchanged.
+ * existing `<#id>` link and a `#` inside a URL (outsideUrls) are left alone;
+ * text without `#` comes back unchanged.
  * @param {string} text
  * @param {Iterable<{ id: string, name: string }>} channels  The served guild's text channels.
  * @returns {string}
@@ -393,6 +421,11 @@ export function linkChannels(text, channels) {
     [...counts.entries()].filter(([, channels]) => channels.length === 1).sort((a, b) => b[0].length - a[0].length).map(([core, [channel]]) => [core, channel]),
   );
 
+  return outsideUrls(text, (part) => linkChannelsIn(part, known, byCore));
+}
+
+/** linkChannels over one stretch of text holding no URL. */
+function linkChannelsIn(text, known, byCore) {
   let result = '';
   let index = 0;
   while (index < text.length) {

@@ -1180,6 +1180,7 @@ async function fetchWindow({ guild, channel, self, anchorId, limit, config, fetc
     selfId: self.id,
     embedTextChars: config.media?.embedTextChars,
     videoSites: config.media?.video?.sites,
+    maxUrlChars: config.context?.maxUrlChars,
   };
   // Pass 1 learns who wrote and who is mentioned; their members are cached; pass 2 normalizes with their display names.
   const first = limit > 0 ? await fetchHistoryWindow(channel, windowOptions) : [];

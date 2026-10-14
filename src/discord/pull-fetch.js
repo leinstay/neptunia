@@ -208,7 +208,7 @@ export function checkPull({ guild, channelId, destination = null, partner = null
  * (exclusive), one request (`{ before, limit }`), normalized the same way;
  * a failed request is null too.
  */
-async function fetchPage(channel, { anchorId, beforeId = null, limit, selfId, embedTextChars, videoSites }, logIds) {
+async function fetchPage(channel, { anchorId, beforeId = null, limit, selfId, embedTextChars, videoSites, maxUrlChars }, logIds) {
   if (beforeId) {
     let fetched;
     try {
@@ -220,7 +220,7 @@ async function fetchPage(channel, { anchorId, beforeId = null, limit, selfId, em
     try {
       return [...fetched.values()]
         .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-        .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites }));
+        .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
     } catch (err) {
       log.warn('pull: page unreadable', { ...logIds, error: err });
       return null;
@@ -241,7 +241,7 @@ async function fetchPage(channel, { anchorId, beforeId = null, limit, selfId, em
     },
   };
   try {
-    const page = await fetchHistoryWindow(watched, { anchorId, limit, selfId, embedTextChars, videoSites });
+    const page = await fetchHistoryWindow(watched, { anchorId, limit, selfId, embedTextChars, videoSites, maxUrlChars });
     return failed ? null : page;
   } catch (err) {
     log.warn('pull: page unreadable', { ...logIds, error: err });
@@ -521,7 +521,7 @@ export async function fetchPull({
     if (isTooOld(anchorTs, { maxAgeDays: settings.maxAgeDays, now: nowMs })) return skipWith('too-old');
   }
 
-  const normalizeOptions = { embedTextChars: config?.media?.embedTextChars, videoSites: config?.media?.video?.sites };
+  const normalizeOptions = { embedTextChars: config?.media?.embedTextChars, videoSites: config?.media?.video?.sites, maxUrlChars: config?.context?.maxUrlChars };
   const limit = Math.min(PAGE, Math.max(settings.maxMessages, settings.minMessages) + 1);
   const earlierPull = direction === 'earlier';
   const before = earlierPull && anchor === null && typeof beforeId === 'string' && beforeId !== '' ? beforeId : null;

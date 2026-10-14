@@ -6,7 +6,7 @@
 
 import { PermissionFlagsBits, SnowflakeUtil, MessageReferenceType, OverwriteType } from 'discord.js';
 import { log } from '../log.js';
-import { ID_DIGITS } from '../memory/mentions.js';
+import { ID_DIGITS, URL_PATTERN } from '../memory/mentions.js';
 import { MINUTE_MS } from '../time.js';
 import {
   classifyAttachment,
@@ -18,6 +18,7 @@ import {
   DISCORD_CDN_SITES,
   siteOf,
   positiveDimension,
+  clipWithEllipsis,
 } from './media.js';
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from './video-sites.js';
 import { CUSTOM_EMOJI_MARKUP } from './emoji.js';
@@ -31,6 +32,9 @@ const CUSTOM_EMOJI_RE = new RegExp(CUSTOM_EMOJI_MARKUP, 'g');
 const MAX_CHANNEL_MENTIONS = 5;
 // A raw channel mention `<#id>`; the group is the id.
 const CHANNEL_MENTION_RE = new RegExp(`<#(${ID_DIGITS})>`, 'g');
+// config.json's context.maxUrlChars: the longest a URL in a message's text reads.
+const DEFAULT_MAX_URL_CHARS = 200;
+const URL_IN_TEXT_RE = new RegExp(URL_PATTERN, 'g');
 
 /**
  * Custom emoji markup `<:name:id>` / `<a:name:id>` reads better as `:name:`.
@@ -181,8 +185,8 @@ function normalizeEmbedLinks(idPrefix, embeds, embedTextChars, videoSites) {
  * src/discord/video-sites.js) that no embed already carries -- compared by the
  * exact URL and by its canonical `videoUrlCacheKey`, so a video Discord did
  * embed is never listed twice. A synthetic link's id IS that cache key.
- * `embedLinks` is returned apart because only those URLs are stripped from
- * the message text: a typed video link stays readable where the person put it.
+ * `embedLinks` is returned apart for normalizeMedia, which decides which of
+ * those URLs leave the message text.
  */
 function normalizeLinks(idPrefix, embeds, embedTextChars, cleanText, videoSites) {
   const embedLinks = normalizeEmbedLinks(idPrefix, embeds, embedTextChars, videoSites);
@@ -235,12 +239,35 @@ function cdnVideoAttachments(embeds, cleanText, attachments) {
 }
 
 /**
+ * Whether an embed's URL leaves the message text: a GIF's (the chat shows the
+ * animation, not its address) or a file on the Discord CDN (an attachment
+ * reads as its label, never as a URL). Any other link's URL stays where it
+ * was posted -- the people in the chat see it, and the persona may post it again.
+ */
+function hidesUrl(link) {
+  return link.kind === 'gif' || videoSiteFor(link.url, DISCORD_CDN_SITES) !== null;
+}
+
+/**
+ * Every URL in `text` cut to `maxUrlChars` code points with an ellipsis
+ * (clipWithEllipsis); query and tracking parameters stay as posted up to the
+ * cut. `0` (or anything not a positive number) keeps every URL whole.
+ */
+function capUrls(text, maxUrlChars) {
+  const limit = Math.floor(Number(maxUrlChars));
+  if (!Number.isFinite(limit) || limit <= 0) return text;
+  return text.replace(URL_IN_TEXT_RE, (url) => clipWithEllipsis(url, limit));
+}
+
+/**
  * The media of a message or a snapshot: its real attachments followed by the
  * Discord CDN video links (see cdnVideoAttachments), the links without the
- * embeds of those videos, and the text with every rendered embed URL and
- * every CDN video URL stripped (an `<url>` form included).
+ * embeds of those videos, and the text with the URL of every GIF embed and
+ * Discord CDN file embed (hidesUrl) and every CDN video URL stripped (an
+ * `<url>` form included). A posted link's URL stays in the text, every URL
+ * left there cut to `maxUrlChars` (capUrls).
  */
-function normalizeMedia(idPrefix, source, isVoice, cleanText, embedTextChars, videoSites) {
+function normalizeMedia(idPrefix, source, isVoice, cleanText, embedTextChars, videoSites, maxUrlChars) {
   const real = normalizeAttachments(source.attachments, isVoice);
   const { embedLinks, links } = normalizeLinks(idPrefix, source.embeds, embedTextChars, cleanText, videoSites);
   const cdn = cdnVideoAttachments(source.embeds, cleanText, real);
@@ -248,11 +275,11 @@ function normalizeMedia(idPrefix, source, isVoice, cleanText, embedTextChars, vi
   return {
     attachments: [...real, ...cdn.videos],
     links: links.filter((link) => !cdn.embedUrls.has(link.url)),
-    content: stripEmbedUrls(cleanText, [...stripped, ...embedLinks]),
+    content: capUrls(stripEmbedUrls(cleanText, [...stripped, ...embedLinks.filter(hidesUrl)]), maxUrlChars),
   };
 }
 
-/** Remove the raw URL of every rendered link/gif embed from the message text, so it never appears twice. */
+/** Remove the raw URL of every given embed from the message text, so it never appears twice. */
 function stripEmbedUrls(content, links) {
   let result = content;
   for (const link of links) {
@@ -265,15 +292,15 @@ function stripEmbedUrls(content, links) {
 /**
  * A forwarded message (message snapshot): its own content, media and stickers,
  * no id/channel/author. A Discord CDN video link in it becomes a video
- * attachment, as in the message itself (see normalizeMedia).
+ * attachment and its URLs read as in the message itself (see normalizeMedia).
  */
-function normalizeSnapshot(snapshot, embedTextChars, videoSites) {
+function normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars) {
   const isVoice = isVoiceMessageFlag(snapshot);
   const cleanContent = snapshot.cleanContent ?? snapshot.content ?? '';
   const emojis = extractEmojis(snapshot.content ?? cleanContent);
   const cleanText = cleanEmoji(cleanContent).trim();
   const { attachments, links, content } = normalizeMedia(
-    snapshot.id ?? 'fwd', snapshot, isVoice, cleanText, embedTextChars, videoSites,
+    snapshot.id ?? 'fwd', snapshot, isVoice, cleanText, embedTextChars, videoSites, maxUrlChars,
   );
   return {
     content,
@@ -312,23 +339,28 @@ function replyPingUserId(message, mentionedUserIds) {
  * when it has none. `mentionedChannelIds` lists the channel ids of the raw
  * channel mentions `<#id>` in the message's own text (see
  * extractChannelIds; `[]` when there are none; forwarded snapshots are not
- * scanned), while `content` keeps reading `#name`.
+ * scanned), while `content` keeps reading `#name`. A posted link's URL stays
+ * in `content` where it was written; a GIF's or a Discord CDN file's does not
+ * (see normalizeMedia). `options.maxUrlChars` cuts every URL left in the text
+ * (default `config.context.maxUrlChars`, see config.json; `0` keeps them whole);
+ * the link items keep the whole URL.
  * @param {object} message  A discord.js Message.
  * @param {string} selfId
- * @param {{ embedTextChars?: number, videoSites?: string[] }} [options]
+ * @param {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} [options]
  */
 export function normalizeMessage(message, selfId, options = {}) {
   const embedTextChars = options.embedTextChars ?? 200;
   const videoSites = options.videoSites ?? [];
+  const maxUrlChars = options.maxUrlChars ?? DEFAULT_MAX_URL_CHARS;
   const isVoice = isVoiceMessageFlag(message);
   const cleanContent = message.cleanContent ?? '';
   const emojis = extractEmojis(message.content ?? cleanContent);
   const cleanText = cleanEmoji(cleanContent).trim();
   const { attachments, links, content } = normalizeMedia(
-    message.id, message, isVoice, cleanText, embedTextChars, videoSites,
+    message.id, message, isVoice, cleanText, embedTextChars, videoSites, maxUrlChars,
   );
   const forwarded = [...(message.messageSnapshots?.values?.() ?? [])].map((snapshot) =>
-    normalizeSnapshot(snapshot, embedTextChars, videoSites),
+    normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars),
   );
 
   // A forward's `message.reference.messageId` is the ORIGINAL message, not
@@ -505,16 +537,17 @@ export function canAttach(channel) {
  * Last `limit` messages of a channel (at most one page), oldest first,
  * normalized. `embedTextChars` caps link/gif embed title+description
  * (config.media.embedTextChars); `videoSites` lists the video-site hosts
- * whose typed URLs become link items (config.media.video.sites).
+ * whose typed URLs become link items (config.media.video.sites); `maxUrlChars`
+ * cuts the URLs left in the text (config.context.maxUrlChars).
  * @param {import('discord.js').TextBasedChannel} channel
- * @param {{ limit: number, selfId: string, embedTextChars?: number, videoSites?: string[] }} options
+ * @param {{ limit: number, selfId: string, embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} options
  * @returns {Promise<object[]>}
  */
-export async function fetchHistory(channel, { limit, selfId, embedTextChars, videoSites }) {
+export async function fetchHistory(channel, { limit, selfId, embedTextChars, videoSites, maxUrlChars }) {
   const fetched = await channel.messages.fetch({ limit: Math.min(PAGE, limit) });
   return [...fetched.values()]
     .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-    .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites }));
+    .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
 }
 
 /** A Discord snowflake string one greater than `id`, so `before: bump(id)` includes `id` itself. */
@@ -532,10 +565,10 @@ function bumpSnowflake(id) {
  * was collected so far; it is logged, never thrown.
  * @param {import('discord.js').TextBasedChannel} channel
  * @param {{ anchorId?: string|null, limit: number, minTs?: number, selfId: string, embedTextChars?: number,
- *   videoSites?: string[] }} options
+ *   videoSites?: string[], maxUrlChars?: number }} options
  * @returns {Promise<object[]>}
  */
-export async function fetchHistoryWindow(channel, { anchorId, limit, minTs = 0, selfId, embedTextChars, videoSites }) {
+export async function fetchHistoryWindow(channel, { anchorId, limit, minTs = 0, selfId, embedTextChars, videoSites, maxUrlChars }) {
   const collected = []; // newest first while accumulating; reversed at the end
   let before = anchorId ? bumpSnowflake(anchorId) : undefined;
 
@@ -556,7 +589,7 @@ export async function fetchHistoryWindow(channel, { anchorId, limit, minTs = 0, 
         hitFloor = true;
         break;
       }
-      collected.push(normalizeMessage(message, selfId, { embedTextChars, videoSites }));
+      collected.push(normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
       if (collected.length >= limit) break;
     }
 
@@ -599,10 +632,10 @@ export async function fetchMessage(channel, id) {
  * @param {import('discord.js').TextBasedChannel} channel
  * @param {object[]} history  Normalized lines, oldest first.
  * @param {{ trigger?: { id: string, replyToId?: string|null }|null, recent: number, max: number, selfId: string,
- *   embedTextChars?: number, videoSites?: string[] }} options
+ *   embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} options
  * @returns {Promise<object[]>}
  */
-export async function fetchReplyParents(channel, history, { trigger = null, recent, max, selfId, embedTextChars, videoSites }) {
+export async function fetchReplyParents(channel, history, { trigger = null, recent, max, selfId, embedTextChars, videoSites, maxUrlChars }) {
   const found = [];
   if (!(max > 0)) return found;
   const asked = new Set(history.map((m) => m.id));
@@ -615,7 +648,7 @@ export async function fetchReplyParents(channel, history, { trigger = null, rece
       log.info('collect: parent missing', { channel: channel.id, messageId: id });
       return null;
     }
-    const parent = normalizeMessage(raw, selfId, { embedTextChars, videoSites });
+    const parent = normalizeMessage(raw, selfId, { embedTextChars, videoSites, maxUrlChars });
     found.push(parent);
     return parent;
   };
@@ -709,7 +742,7 @@ export async function fetchNeighbors(channel, config, selfId, now = Date.now(), 
       const readOnly = !canSend(other);
       try {
         const messages = (
-          await fetchHistory(other, { limit: neighborMessages, selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites })
+          await fetchHistory(other, { limit: neighborMessages, selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites, maxUrlChars: config.context?.maxUrlChars })
         ).filter((m) => m.ts >= minTs);
         return { channelId: other.id, channelName: other.name, readOnly, messages };
       } catch (err) {

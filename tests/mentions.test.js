@@ -203,6 +203,13 @@ test('linkChannels: #name of a known channel becomes its <#id> link, every occur
   assert.equal(linkChannels('δες στο #γενικά, ναι #γενικά', channels), `δες στο <#${CHANNEL_A}>, ναι <#${CHANNEL_A}>`);
 });
 
+test('linkChannels: a #name inside a URL stays as written; the same name after it is linked', () => {
+  const channels = [{ id: CHANNEL_A, name: 'art' }];
+  const url = 'https://example.org/gallery/#art?ref=x';
+  assert.equal(linkChannels(`δες ${url} στο #art`, channels), `δες ${url} στο <#${CHANNEL_A}>`);
+  assert.equal(linkChannels(`<${url}> #art`, channels), `<${url}> <#${CHANNEL_A}>`);
+});
+
 test('linkChannels: a longer name is matched before a name that is its prefix', () => {
   const channels = [{ id: CHANNEL_A, name: 'art' }, { id: CHANNEL_B, name: 'art-τέχνη' }];
   assert.equal(linkChannels('#art-τέχνη και #art', channels), `<#${CHANNEL_B}> και <#${CHANNEL_A}>`);

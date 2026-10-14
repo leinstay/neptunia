@@ -1131,6 +1131,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
           selfId,
           embedTextChars: hot.config.media?.embedTextChars,
           videoSites: hot.config.media?.video?.sites,
+          maxUrlChars: hot.config.context?.maxUrlChars,
         });
       } catch (err) {
         log.warn('warmup: channel fetch failed, skipping it for this round', { channelId: channel.id, error: err });
@@ -1603,7 +1604,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
     const wanted = cfg.messagesPerChannel ?? 200;
     if (!refresh && source.length < wanted && window.channel) {
       try {
-        source = await fetchHistoryWindow(window.channel, { limit: wanted, minTs: 0, selfId: client.user?.id, embedTextChars: hot.config.media?.embedTextChars, videoSites: hot.config.media?.video?.sites });
+        source = await fetchHistoryWindow(window.channel, { limit: wanted, minTs: 0, selfId: client.user?.id, embedTextChars: hot.config.media?.embedTextChars, videoSites: hot.config.media?.video?.sites, maxUrlChars: hot.config.context?.maxUrlChars });
         log.info('warmup: quiet channel fetched deeper', { channelId: window.id, messages: source.length });
       } catch (err) {
         log.warn('warmup: deeper fetch failed, describing from the window', { channelId: window.id, error: err });
@@ -2134,6 +2135,7 @@ export function createWarmup({ hot, store, client, llm, calibrator, getSelfName,
       selfId: client.user?.id,
       embedTextChars: hot.config.media?.embedTextChars,
       videoSites: hot.config.media?.video?.sites,
+      maxUrlChars: hot.config.context?.maxUrlChars,
     });
     return messages.filter((m) => !m.self && !m.bot);
   }

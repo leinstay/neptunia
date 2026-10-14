@@ -158,7 +158,7 @@ export function createGifRecache({ hot, store, client, describer = null, isWarmi
       const channel = await client.channels.fetch(entry.channelId);
       const message = await channel?.messages?.fetch(entry.messageId);
       if (!message) return null;
-      const normalized = normalizeMessage(message, client.user?.id, { embedTextChars: hot.config.media?.embedTextChars, videoSites: hot.config.media?.video?.sites });
+      const normalized = normalizeMessage(message, client.user?.id, { embedTextChars: hot.config.media?.embedTextChars, videoSites: hot.config.media?.video?.sites, maxUrlChars: hot.config.context?.maxUrlChars });
       const gifs = collectGifItems(normalized);
       const found =
         gifs.find((gif) => gif.key === entry.itemId || gif.key === entry.key) ??

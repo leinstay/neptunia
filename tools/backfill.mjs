@@ -227,7 +227,7 @@ function restSource({ root, token, log }) {
           byId.set(channel.id, channel);
           channels.push({ id: channel.id, name: channel.name ?? null, parentId: parent?.id ?? null, thread: Boolean(parent), readable: canRead(channel) });
         }
-        const options = { embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites ?? [] };
+        const options = { embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites ?? [], maxUrlChars: config.context?.maxUrlChars };
         return {
           guildId,
           self,

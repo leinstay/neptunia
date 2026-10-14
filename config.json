@@ -118,6 +118,7 @@
     "neighborMaxAgeMinutes": 60,
     "neighborMaxChannels": 8,
     "maxMessageChars": 2000,
+    "maxUrlChars": 200,
     "gapMarkerMinutes": 20,
     "ageAfterMinutes": 60,
     "reactionsPerMessage": 6,

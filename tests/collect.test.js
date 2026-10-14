@@ -28,6 +28,8 @@ import { collectPictures, collectVideos } from '../src/discord/media.js';
 import { audienceCovers } from '../src/behavior/elsewhere.js';
 import { emptyGifs, mergeGifs } from '../src/memory/gifs.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { formatTranscript } from '../src/discord/format.js';
+import { labels } from './fixtures/labels.js';
 
 function flagsWith(names) {
   const set = new Set(names);
@@ -114,7 +116,7 @@ test('normalizeMessage: the voice-message flag reclassifies an audio attachment 
   }
 });
 
-test('normalizeMessage: an embed becomes a link item and its raw URL is removed from the content', () => {
+test('normalizeMessage: an embed becomes a link item and its URL stays in the content where it was posted', () => {
   const raw = rawMessage({
     cleanContent: 'check this out https://example.com/page cool right',
     embeds: [{ url: 'https://example.com/page', title: 'A page', description: 'desc', provider: null }],
@@ -123,8 +125,7 @@ test('normalizeMessage: an embed becomes a link item and its raw URL is removed 
   assert.equal(m.links.length, 1);
   assert.equal(m.links[0].kind, 'link');
   assert.equal(m.links[0].site, 'example.com');
-  assert.ok(!m.content.includes('https://example.com/page'));
-  assert.equal(m.content, 'check this out cool right');
+  assert.equal(m.content, 'check this out https://example.com/page cool right');
 });
 
 test('normalizeMessage: a tenor gifv embed keeps its mp4 as animationUrl, in the message and in a forward', () => {
@@ -449,7 +450,7 @@ test('normalizeMessage: a typed URL that an embed already carries is added once 
   assert.equal(m.links.length, 1);
   assert.equal(m.links[0].id, videoUrlCacheKey(url));
   assert.equal(m.links[0].title, 'Cool video');
-  assert.equal(m.content, 'look');
+  assert.equal(m.content, `look ${url}`);
 });
 
 test('normalizeMessage: a typed youtu.be link and a watch?v= embed of one video are one link with the canonical key', () => {
@@ -1368,4 +1369,67 @@ test('normalizeMessage: a reaction whose emoji getter throws (a REST-only client
   });
   const m = normalizeMessage(raw, 'self');
   assert.deepEqual(m.reactions, [{ emoji: '👍', count: 1, mine: false }]);
+});
+
+// --- normalizeMessage: a posted link's URL stays readable ---------------------
+
+/** The chat-mode transcript line of the last of `messages`, as the persona reads it. */
+function lineOf(messages) {
+  return formatTranscript(messages, { timezone: 'UTC', gapMinutes: 20, maxChars: 2000, selfName: 'Bot', labels }).at(-1).text;
+}
+
+test('normalizeMessage: a posted link keeps its URL, tracking parameters included, before its link tag in the transcript', () => {
+  const url = 'https://www.youtube.com/watch?v=ID42&si=Ab_Cd-9xYz&t=31';
+  const raw = rawMessage({
+    cleanContent: `δες ${url} τώρα`,
+    embeds: [{ url, provider: { name: 'YouTube' }, title: 'Clip', thumbnail: { url: 'https://i.ytimg.com/vi/ID42/hq.jpg' } }],
+  });
+  const m = normalizeMessage(raw, 'self', { videoSites: VIDEO_SITES, maxUrlChars: 200 });
+  assert.equal(m.content, `δες ${url} τώρα`);
+  assert.equal(m.links.length, 1);
+  assert.ok(lineOf([m]).endsWith(`Alice: δες ${url} τώρα [link: YouTube — Clip]`), lineOf([m]));
+});
+
+test('normalizeMessage: attachment, sticker, emoji and Discord CDN file URLs never reach the text or the transcript line', () => {
+  const pasted = 'https://media.discordapp.net/attachments/111/333/photo.png?ex=aa&is=bb&hm=cc';
+  const raw = rawMessage({
+    content: `voilà <:pog:111> ${pasted}`,
+    cleanContent: `voilà :pog: ${pasted}`,
+    attachments: new Map([['a1', { id: 'a1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn.discordapp.com/attachments/1/9/pic.png', size: 1 }]]),
+    embeds: [{ url: pasted, thumbnail: { url: pasted } }],
+    stickers: new Map([['s1', { id: 's1', name: 'pepe', format: 1 }]]),
+  });
+  const m = normalizeMessage(raw, 'self', { maxUrlChars: 200 });
+  assert.equal(m.content, 'voilà :pog:');
+  const line = lineOf([m]);
+  assert.ok(!line.includes('https://'), line);
+});
+
+test('normalizeMessage: a URL longer than maxUrlChars is cut there with an ellipsis, in a message and a forward; the link item keeps it whole', () => {
+  const url = `https://example.com/search?q=${'κ'.repeat(10)}&utm_source=${'x'.repeat(80)}`;
+  const cut = `${[...url].slice(0, 40).join('')}…`;
+  const raw = rawMessage({
+    cleanContent: `δες ${url} ok`,
+    embeds: [{ url, title: 'Search' }],
+    messageSnapshots: new Map([['snap1', { id: 'snap1', cleanContent: `και ${url}`, attachments: new Map(), embeds: [], stickers: new Map(), flags: flagsWith([]) }]]),
+  });
+  const m = normalizeMessage(raw, 'self', { maxUrlChars: 40 });
+  assert.equal(m.content, `δες ${cut} ok`);
+  assert.equal(m.forwarded[0].content, `και ${cut}`);
+  assert.equal(m.links[0].url, url, 'the web lookup still reads the whole page address');
+  assert.equal(normalizeMessage(raw, 'self', { maxUrlChars: 0 }).content, `δες ${url} ok`, '0 keeps every URL whole');
+});
+
+test("normalizeMessage: the persona's own posted link reads in her line like anyone's, URL as she wrote it", () => {
+  const url = 'https://www.youtube.com/watch?v=xyz&list=PL1';
+  const raw = rawMessage({
+    author: { id: 'self', bot: true, globalName: 'Bot', username: 'bot' },
+    member: { displayName: 'Bot' },
+    cleanContent: `να το ${url}`,
+    embeds: [{ url, provider: { name: 'YouTube' }, title: 'Cool video' }],
+  });
+  const m = normalizeMessage(raw, 'self', { videoSites: VIDEO_SITES, maxUrlChars: 200 });
+  assert.equal(m.self, true);
+  assert.equal(m.content, `να το ${url}`);
+  assert.ok(lineOf([m]).endsWith(`Bot (you): να το ${url} [link: YouTube — Cool video]`), lineOf([m]));
 });
