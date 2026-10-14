@@ -27,7 +27,6 @@ import {
   PAGE,
   audienceOf,
   canSend,
-  channelAllowed,
   fetchHistoryWindow,
   fetchMessage,
   isReadableChannel,
@@ -160,7 +159,6 @@ function readableRefusal(channel, bot) {
   if (channel.isThread?.()) return 'thread';
   const mirrorId = bot.dryRunChannelId;
   if (mirrorId && channel.id === mirrorId) return 'dry-run-channel';
-  if (!channelAllowed(channel, bot)) return 'denied';
   return 'not-readable';
 }
 
@@ -171,8 +169,8 @@ function readableRefusal(channel, bot) {
  * whatever the audience rail says); the id is a channel of `guild` (`not-found`); the channel is one the
  * persona may read (src/discord/collect.js#isReadableChannel, the rule
  * neighbours obey too), the refusal named `not-text` (not a text channel),
- * `thread`, `dry-run-channel` (`bot.dryRunChannelId`), `denied` (not allowed
- * by `bot.channels`) or else `not-readable` (the bot cannot read its history);
+ * `thread`, `dry-run-channel` (`bot.dryRunChannelId`) or else `not-readable`
+ * (the bot cannot read its history);
  * the audience rail toward `destination` (`audience`, see audienceAllows: in
  * a private chat, the partner's View Channel on it);
  * and its newest message not older than a positive `context.pull.maxAgeDays`

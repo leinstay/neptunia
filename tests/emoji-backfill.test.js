@@ -70,7 +70,7 @@ function fakeClient(channels, guildId = 'g1') {
 function fakeHot({ customEmoji = {}, features = {} } = {}) {
   return {
     config: {
-      bot: { channels: { allow: [], deny: [] } },
+      bot: {},
       features,
       media: { embedTextChars: 200 },
       context: { customEmoji: { max: 30, storeMax: 200, halfLifeDays: 30, backfillMessages: 500, ...customEmoji } },

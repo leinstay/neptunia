@@ -82,7 +82,7 @@ function fakeClient(channels, guildId = 'g1') {
 function fakeHot({ gifs = {}, features = {} } = {}) {
   return {
     config: {
-      bot: { channels: { allow: [], deny: [] } },
+      bot: {},
       features,
       media: { embedTextChars: 200 },
       gifs: { max: 20, storeMax: 300, halfLifeDays: 30, maxPerDay: 40, backfillMessages: 500, backfillDescribe: 20, ...gifs },

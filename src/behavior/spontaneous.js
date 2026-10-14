@@ -24,7 +24,7 @@
 // runner.
 
 import { localHour } from '../discord/format.js';
-import { readableChannels, canSend, lastActivity, channelAllowed, isWritableChannel } from '../discord/collect.js';
+import { readableChannels, canSend, lastActivity, isWritableChannel } from '../discord/collect.js';
 import { routeFor } from './turn.js';
 import { chooseElsewhereMode, elsewhereSettings, hasUnseen, mayBeLive } from './elsewhere.js';
 import { between } from './random.js';
@@ -308,14 +308,13 @@ export function createSpontaneous({
 
   /**
    * Why the persona may not speak unprompted in `dest` (the channel the words
-   * go to) now, or null when it may: `channel` (not allowed by bot.channels,
-   * or not in a non-empty spontaneous.channels), `cannot-send`, `gap` (its
+   * go to) now, or null when it may: `cannot-send`, `channel` (not in a
+   * non-empty spontaneous.channels), `gap` (its
    * own last post there is younger than spontaneous.minGapMinutes) or `busy`
    * (a turn runs there or, with one attention, anywhere). A writable channel
    * is its own destination; a read-only source speaks in the main channel.
    */
   function destinationBlock(dest, config, cfg, t) {
-    if (!channelAllowed(dest, config.bot)) return 'channel';
     if (!canSend(dest)) return 'cannot-send';
     if (cfg.channels.length > 0 && !cfg.channels.includes(dest.id)) return 'channel';
     if (t - turns.lastPostAt(dest.id) < cfg.minGapMinutes * MINUTE_MS) return 'gap';
@@ -346,13 +345,13 @@ export function createSpontaneous({
   /**
    * Where a noticed comment on `source` would be spoken now, every rail of
    * the words checked on that destination: `{ destination, reason: null }`,
-   * or `{ destination: null, reason }`: `channel` (the source is not allowed
-   * or the bot can send there), routeFor's codes (`off`, `no-destination`,
+   * or `{ destination: null, reason }`: `channel` (the bot can send in the
+   * source), routeFor's codes (`off`, `no-destination`,
    * `audience`), `no-prompt` (prompts.elsewhere missing or empty) or
    * destinationBlock's codes for the destination.
    */
   function noticedRoute(source, config, cfg, t) {
-    if (!channelAllowed(source, config.bot) || canSend(source)) return { destination: null, reason: 'channel' };
+    if (canSend(source)) return { destination: null, reason: 'channel' };
     const route = routeFor(source, config);
     if (!route.destination) return route;
     if (!hasElsewherePrompt(hot.prompts)) return { destination: null, reason: 'no-prompt' };

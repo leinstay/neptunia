@@ -606,7 +606,7 @@ function rawMessage(ts, { authorId = 'a', bot = false, content = 'hi', replyToId
 function fakeHot(overrides = {}) {
   return {
     config: {
-      bot: { timezone: 'UTC', channels: { allow: [], deny: [] } },
+      bot: { timezone: 'UTC' },
       context: { gapMarkerMinutes: 20, maxMessageChars: 800 },
       roles: { voice: 'talk/model', extractor: 'talk/model' },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
@@ -683,18 +683,19 @@ function fakeLlm(script) {
   };
 }
 
-test('createWarmup: peopleReport respects bot.channels.deny and reports totals', async () => {
+test('createWarmup: peopleReport reads only channels the bot can view and reports totals', async () => {
   const c1 = fakeChannel('c1', [rawMessage(1000, { authorId: 'a' }), rawMessage(2000, { authorId: 'a' }), rawMessage(3000, { authorId: 'b' })]);
-  const denied = fakeChannel('c2', [rawMessage(1000, { authorId: 'a' })]);
-  const guild = fakeGuild('g1', [c1, denied]);
+  const hidden = fakeChannel('c2', [rawMessage(1000, { authorId: 'a' })]);
+  hidden.viewable = false;
+  const guild = fakeGuild('g1', [c1, hidden]);
   const client = fakeClient(guild);
-  const hot = fakeHot({ config: { bot: { timezone: 'UTC', channels: { allow: [], deny: ['c2'] } } } });
+  const hot = fakeHot();
   hot.config.warmup.minMessages = 2;
   const warmup = createWarmup({ hot, client, llm: fakeLlm(() => ({})), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const report = await warmup.peopleReport('g1');
   assert.equal(report.ok, true);
-  assert.equal(report.totals.channelsRead, 1); // c2 denied, never fetched
+  assert.equal(report.totals.channelsRead, 1); // c2 hidden from the bot, never fetched
   assert.equal(report.totals.messagesRead, 3);
   assert.deepEqual(report.people.map((p) => p.id), ['a']); // b has only 1 message, below minMessages
   assert.equal(report.totals.belowThreshold, 1);

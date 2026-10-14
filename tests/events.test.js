@@ -552,17 +552,17 @@ test('events: a name trigger respects config.mention.nameTriggerChance', async (
   assert.equal(calls, 1, 'rng above nameTriggerChance should not respond');
 });
 
-test('events: a denied channel is ignored before anything else runs', async () => {
+test('events: a leftover bot.channels deny key is ignored; the message is observed as anywhere else', async () => {
   const memory = fakeMemory();
   const spontaneous = fakeSpontaneous();
-  const config = baseConfig({ bot: { channels: { deny: ['c1'] } } });
+  const config = baseConfig({ bot: { channels: { allow: ['elsewhere'], deny: ['c1'] } } });
   const handler = makeHandler({ config, memory, spontaneous });
 
   const message = fakeMessage({ cleanContent: 'just chatting' });
   await handler(message);
 
-  assert.equal(memory.observeCalls.length, 0);
-  assert.equal(spontaneous.onMessageCalls.length, 0);
+  assert.equal(memory.observeCalls.length, 1);
+  assert.equal(spontaneous.onMessageCalls.length, 1);
 });
 
 test('events: a message from a guild other than the one this instance serves is ignored entirely', async () => {
@@ -4733,7 +4733,7 @@ test('follow-up: a working classifier answer is never overridden by the fail-ope
   }
 });
 
-test('events: a queued mention in a channel denied meanwhile is not answered at drain time', async () => {
+test('events: a bot.channels deny key added while a mention waits is ignored at drain time', async () => {
   let busy = true;
   const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
   const config = baseConfig();
@@ -4745,7 +4745,7 @@ test('events: a queued mention in a channel denied meanwhile is not answered at 
   config.bot.channels = { allow: [], deny: ['c1'] };
   busy = false;
   await handler.drainPending();
-  assert.equal(turns.calls.length, 0);
+  assert.equal(turns.calls.length, 1);
 });
 
 test('events: a queued mention or reply whose switch was turned off meanwhile is not answered at drain time', async () => {
@@ -5400,7 +5400,6 @@ for (const [when, config, mainCanSend] of [
   ['the main channel is the source itself', { memory: { mainChannelIds: ['s1'] } }, true],
   ['the main channel is unknown', { memory: { mainChannelIds: ['d9'] } }, true],
   ['the bot cannot send in the main channel', {}, false],
-  ['bot.channels denies the main channel', { bot: { channels: { allow: [], deny: ['d1'] } } }, true],
 ]) {
   test(`events: no usable main channel drops with route no-destination (${when})`, async () => {
     const scene = routeScene({ config, mainCanSend });
@@ -5484,7 +5483,7 @@ for (const [reason, change] of [
   });
 }
 
-test('events: a routed call whose switch or channel was turned off during the settle is not answered', async () => {
+test('events: a routed call whose switch was turned off during the settle is not answered', async () => {
   const mention = { id: 'm1' };
   // A reply to the persona's own line in s1 (cached as hers), not a mention.
   const reply = { id: 'm1', mention: false, replyTo: 'm0', content: 'έχεις δίκιο' };
@@ -5493,7 +5492,6 @@ test('events: a routed call whose switch or channel was turned off during the se
     ['mentions off', mention, 'mention', 'off', (config) => (config.features.mentions = false)],
     ['replies off', reply, 'reply', 'off', (config) => (config.features.replies = false)],
     ['nameTriggers off', name, 'name', 'off', (config) => (config.features.nameTriggers = false)],
-    ['channel denied', mention, 'mention', 'channel', (config) => (config.bot.channels = { allow: [], deny: ['s1'] })],
   ]) {
     const scene = routeScene();
     scene.source.messages.cache.set('m0', { id: 'm0', author: { id: 'self1' } });
@@ -6801,7 +6799,6 @@ test('pause notice: a line that is not a direct call stays silent', async () => 
 test('pause notice: a call where the bot may not answer stays silent', async () => {
   const cases = [
     { label: 'cannot send', config: pauseConfig(), overrides: { permissionsFor: () => ({ has: () => false }) } },
-    { label: 'denied channel', config: pauseConfig({ bot: { channels: { allow: [], deny: ['c1'] } } }), overrides: {} },
     { label: 'dry-run mirror', config: pauseConfig({ bot: { dryRunChannelId: 'c1' } }), overrides: {} },
     { label: 'thread', config: pauseConfig(), overrides: { isThread: () => true } },
     { label: 'mentions off', config: pauseConfig({ features: { mentions: false } }), overrides: {} },

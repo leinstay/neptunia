@@ -83,8 +83,6 @@
 | `nameTriggers` | `[]` | 除 @提及外的额外触发字符串 |
 | `guildId` | `""` | 锁定的服务器；若只在一个服务器中则自动检测 |
 | `dryRunChannelId` | `""` | 试运行镜像频道。见[试运行](README.md#试运行) |
-| `channels.allow` | `[]` | 允许的频道（空 = 所有可见频道） |
-| `channels.deny` | `[]` | 忽略的频道 |
 | `access` | `{}` | 除所有者外谁可运行哪些命令（由 `/nep access` 管理） |
 
 ## `llm`

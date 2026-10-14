@@ -4269,12 +4269,12 @@ test('runTurn: a failed, refused or throwing pull never fails the turn', async (
   assert.equal(channelViewOf(failing.llm), null);
   assert.ok(failed.logs.some((l) => l.msg === 'pull: skipped' && l.source === DIARY && l.reason === 'fetch-failed'));
 
-  const denied = pullScene({ bot: { channels: { deny: [DIARY] } } });
+  const denied = pullScene({ bot: { dryRunChannelId: DIARY } });
   const refused = await withCapturedLogs(() => denied.turns.runTurn({ channel: denied.channel, mode: 'reply', trigger: denied.trigger, triggerKind: 'mention' }));
   assert.equal(refused.result.outcome, 'spoke');
   assert.equal(denied.other.fetches.length, 0, 'a refused channel is never fetched');
   const skipped = refused.logs.find((l) => l.msg === 'pull: skipped');
-  assert.deepEqual([skipped.channel, skipped.source, skipped.reason, skipped.pullReason], ['c1', DIARY, 'denied', 'mention']);
+  assert.deepEqual([skipped.channel, skipped.source, skipped.reason, skipped.pullReason], ['c1', DIARY, 'dry-run-channel', 'mention']);
 
   const throwing = pullScene({
     mention: false,
@@ -4588,7 +4588,6 @@ test('runTurn: senses name only a usable main channel, the first one in list ord
   const cases = [
     { name: 'cannot send', main: ['c5'], add: (scene) => addChannel(scene.channel, { id: 'c5', name: 'lounge', readOnly: true }), expected: null },
     { name: 'thread', main: ['c5'], add: (scene) => Object.assign(addChannel(scene.channel, { id: 'c5', name: 'lounge' }), { isThread: () => true }), expected: null },
-    { name: 'denied', main: ['c5'], bot: { channels: { deny: ['c5'] } }, add: (scene) => addChannel(scene.channel, { id: 'c5', name: 'lounge' }), expected: null },
     {
       name: 'first usable',
       main: ['c5', 'c6'],
