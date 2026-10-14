@@ -184,6 +184,11 @@ transcript.calledTargetLink              {link}: 当调用以消息链接为目�
 transcript.calledTargetChannel           {channel}: 当调用以频道为目标时填充 {target}
 transcript.calledPosted                  {link}: 当调用在其他频道发布消息时填充 {posted}
 transcript.callStatus.ok | invalid | denied | failed | unknown | partial | not_configured    七个结果代码的简短措辞；失败或未知的调用不得读作已完成
+transcript.callStatusReason              OPTIONAL {status} {reason}: 未成功的调用的 {status} 及原因；键为空或缺失时只显示状态词
+transcript.callReasons.missing-arg | unknown-arg | wrong-arg | too-long | too-short | arg-twice | unknown-channel | unknown-role   {arg}: 调用参数不正确的原因，标明具体参数
+transcript.callReasons.message-elsewhere | member-ambiguous   调用未通过的原因：消息在另一个频道；多个成员匹配该名称
+transcript.callReasons.unknown-message | not-own-message   {arg}: 该选项指定的消息不在视野中，或不属于她
+transcript.callReasons.conversation-not-allowed   {channel}: 她不能写入的频道。此处没有措辞的代码回退到 skills.result.reasons[code]，然后到 .other
 transcript.postedFrom                    {channel}: 附加在角色从其他频道发布的行上
 transcript.replyTo                       {index} {author} {quote}: 父消息的编号、其作者（父消息为角色自己的时使用 self 标签）和父文本的引用（在词边界截断至 `context.replyQuoteChars`（默认 80；`0` = 完整）；仅含媒体的父消息引用其媒体标签）
 transcript.file | sticker                {name}
@@ -326,6 +331,8 @@ task.part                                {index} {total} {part} {others}: this t
 task.queued                              {others}: the trigger author has other calls waiting, listed as numbered items joined by `; `. Shown only when there is no `task.part` for this turn. Without this key the waiting calls are not named and the seen-in-history drop rule applies to them
 task.queuedOthers                        {others}: other members have calls waiting in this channel, listed as `<n>. <author>: <text>` items joined by `; `. Without this key those calls are not named
 task.added                               {added}: later messages from the author were folded into this call while it waited, joined by `; `. Without this key the folded messages are not named
+task.missed                              {missed}: 在恢复回合（触发类型 `missed`，`features.missedRecovery`）中，未获得回答的早期消息，以 `<n>. <author>: <text>` 格式用 `; ` 连接。追加在 `task.part` 前。缺少此键则消息不被列出
+task.continue                            {skill}: 技能调用后继续回合的 follow-up 的完整任务文本（`features.followUpContinuation`）: 同一回合继续; 消息已送达; 不再回答触发消息; 不再调用; 之后到达的消息是上下文; 仅当结果改变了人们需要知道的内容时才发言，否则 `<skip/>`。缺少此键则使用先前的 follow-up 框架
 skills.protocol                          `<skills_protocol>` 块的静态文本: 角色拥有技能，可用的按名称列出，详情随需要的消息或应请求出现，调用通过 `<call>`，引擎检查访问权限
 skills.line                              {name} {title} {whenToUse} {access} {args}: `<skills>` 列表中的一个技能。{access} 是 skills.access.* 之一; {args} 是 skills.args.list，技能无参数时为空
 skills.args.list                         {list}: 一个技能的参数，填充 skills.line 的 {args}（前导空格或标点写在这里，因为无参数的技能 {args} 为空）。{list} 是按命令选项顺序用「, 」连接的参数; 没有此标签则不显示参数
@@ -337,7 +344,7 @@ skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denie
 skills.proposedOff                       {names}: 在仅含提议的 `<skills>` 块末尾显示，列出不被允许的提议技能
 skills.granted.lead                      OPTIONAL：`<skills_granted>` 的第一行，在族行之前。无此标签时族行独立显示
 skills.granted.line                      {family} {names}：`<skills_granted>` 中角色被授权的技能的一个族；{names} 是各名称去掉族和点后的部分，用「, 」连接。无此标签则不显示 `<skills_granted>` 块
-skills.result.alreadyPosted              OPTIONAL {text}: 第一轮已发布的每个动作（消息、反应、图片）各一行。无此标签时不列出已发布动作
+skills.result.alreadyPosted              OPTIONAL {text}: 第一轮已发布的每个动作（消息、反应、图片）各一行；仅在 `features.followUpContinuation` 关闭时。无此标签时不列出已发布动作
 skills.result.ok                         返回数据的读取调用的状态行。数据在下一行跟随
 skills.result.refused                    {reason}: 引擎在执行前拒绝了调用
 skills.result.failed                     {reason}: 调用已执行但未成功
