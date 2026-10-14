@@ -16,12 +16,14 @@ import {
   followConversation,
   fuseRanks,
   isRecentCue,
+  locatorKeep,
   matchMemory,
   matchRecord,
   meaningQuery,
   mergeWindows,
   parseLookupAnswer,
   parseRecallAnswer,
+  proximityBonus,
   queryKey,
   rankClusters,
   rareFormKeys,
@@ -1212,4 +1214,184 @@ test('matchMemory: archive rows found by meaning join the items by reciprocal ra
   assert.deepEqual([joined[0].kind, joined[0].text, joined[0].date, joined[0].memberId], ['archived episode', 'he made the whole story up', '2026-08-01', ANA]);
   assert.deepEqual(keys(matchMemory({ ...base, max: 3, meaning: [meant, word] })), ['ep-word', 'ep-meant', 'lore'], 'found both ways first');
   assert.deepEqual(keys(matchMemory({ forms: [], meaning: [meant], max: 2, timezone: 'UTC' })), ['ep-meant'], 'no word form: meaning alone');
+});
+
+// ---- the time cue as a locator (when-role) ---------------------------------------------------
+
+const DAY = 24 * HOUR;
+/** "Now" of the locator tests: a week after the dated day the cue points at. */
+const LATER = Date.UTC(2026, 9, 14, 12, 0);
+const OCT_7 = { from: Date.UTC(2026, 9, 7), to: Date.UTC(2026, 9, 8) - 1 };
+/** The forms of the asker's question: accented Latin, matched by their stems. */
+const CUE_FORMS = ['censure', 'retirer', 'résisté'];
+/** The locator settings the tests set themselves (never the shipped defaults). */
+const LOCATE = { bonus: 2, decayDays: 7, broadShare: 0.5 };
+
+test('parseLookupAnswer: a when: beside forms locates by default; when-role: scope keeps it a hard bound', () => {
+  const lines = 'server: censure, retirer\nwhen: 2026-10-07';
+  const located = parseLookupAnswer(lines, { timezone: 'UTC', now: LATER });
+  assert.deepEqual(located.server, { forms: ['censure', 'retirer'], who: [], from: OCT_7.from, to: OCT_7.to, locator: true }, 'no role: a locator');
+  const explicit = parseLookupAnswer(`${lines}\nWhen-Role: **locator**`, { timezone: 'UTC', now: LATER });
+  assert.equal(explicit.server.locator, true);
+  for (const role of ['when-role: scope', 'WHEN_ROLE: Scope.', '- when role: scope']) {
+    const scoped = parseLookupAnswer(`${role}\n${lines}`, { timezone: 'UTC', now: LATER });
+    assert.deepEqual(scoped.server, { forms: ['censure', 'retirer'], who: [], from: OCT_7.from, to: OCT_7.to }, `${role}: today's shape, no locator key`);
+  }
+  const unknown = parseLookupAnswer(`${lines}\nwhen-role: maybe`, { timezone: 'UTC', now: LATER });
+  assert.equal(unknown.server.locator, true, 'an unusable role is the safe default');
+  const who = parseLookupAnswer('who: Éloïse\nwhen: 2026-10-07', { timezone: 'UTC', now: LATER });
+  assert.equal(who.server.locator, true, 'a name form locates too');
+});
+
+test('parseLookupAnswer: a question only about a time is always scope; the role line alone or without a range asks nothing', () => {
+  for (const raw of ['when: 2026-10-07', 'when: 2026-10-07\nwhen-role: locator', 'when-role: locator\nwhen: 2026-10-07\nrecent: yes']) {
+    const parsed = parseLookupAnswer(raw, { timezone: 'UTC', now: LATER });
+    assert.equal(parsed.reason, 'ok', raw);
+    assert.equal('locator' in parsed.server, false, raw);
+    assert.deepEqual([parsed.server.from, parsed.server.to], [OCT_7.from, OCT_7.to], raw);
+  }
+  const dateless = parseLookupAnswer('server: censure\nwhen-role: locator', { timezone: 'UTC', now: LATER });
+  assert.deepEqual(dateless.server, { forms: ['censure'], who: [], from: null, to: null }, 'no range: nothing to locate');
+  assert.deepEqual(parseLookupAnswer('when-role: locator', { now: LATER }), { web: null, server: null, reason: 'none' });
+});
+
+test('recallSettings: the locator numbers are read as set, unusable ones fall back', () => {
+  const s = recallSettings({ recall: { locatorBonus: 1.5, locatorDecayDays: 3, locatorBroadShare: 0.25 } });
+  assert.deepEqual([s.locatorBonus, s.locatorDecayDays, s.locatorBroadShare], [1.5, 3, 0.25]);
+  const zero = recallSettings({ recall: { locatorBonus: 0, locatorDecayDays: 0, locatorBroadShare: 0 } });
+  assert.deepEqual([zero.locatorBonus, zero.locatorDecayDays, zero.locatorBroadShare], [0, 0, 0], 'no bonus, only inside the range, no reserved share');
+  const bad = recallSettings({ recall: { locatorBonus: -1, locatorDecayDays: 'x', locatorBroadShare: 1.5 } });
+  assert.deepEqual([bad.locatorBonus, bad.locatorDecayDays, bad.locatorBroadShare], [RECALL_DEFAULTS.locatorBonus, RECALL_DEFAULTS.locatorDecayDays, RECALL_DEFAULTS.locatorBroadShare]);
+});
+
+test('proximityBonus: full inside the range, falling linearly to 0 at decayDays away, never outside [0, bonus]', () => {
+  const near = { ...OCT_7, bonus: 2, decayDays: 4 };
+  assert.equal(proximityBonus(OCT_7.from + HOUR, OCT_7.from + 2 * HOUR, near), 2, 'inside');
+  assert.equal(proximityBonus(OCT_7.from - HOUR, OCT_7.from + HOUR, near), 2, 'a span that reaches into the range');
+  assert.equal(proximityBonus(OCT_7.from - 2 * DAY, OCT_7.from - DAY, near), 1.5, 'one day before');
+  assert.equal(proximityBonus(OCT_7.to + 2 * DAY, OCT_7.to + 2 * DAY, near), 1, 'two days after');
+  assert.equal(proximityBonus(OCT_7.from - 4 * DAY, OCT_7.from - 4 * DAY, near), 0, 'decayDays away');
+  assert.equal(proximityBonus(OCT_7.from - 40 * DAY, OCT_7.from - 40 * DAY, near), 0);
+  let previous = Infinity;
+  for (let days = 0; days <= 10; days += 0.5) {
+    const b = proximityBonus(OCT_7.from - days * DAY, OCT_7.from - days * DAY, near);
+    assert.ok(b >= 0 && b <= 2 && b <= previous, `${days} days: ${b}`);
+    previous = b;
+  }
+  assert.equal(proximityBonus(OCT_7.from - DAY, OCT_7.from - DAY, { ...near, bonus: 0 }), 0, 'bonus 0: none');
+  assert.equal(proximityBonus(OCT_7.from - HOUR, OCT_7.from - HOUR, { ...near, decayDays: 0 }), 0, 'decayDays 0: only inside');
+  assert.equal(proximityBonus(OCT_7.from + HOUR, OCT_7.from + HOUR, { ...near, decayDays: 0 }), 2);
+  assert.equal(proximityBonus(OCT_7.from - 30 * DAY, OCT_7.from - 30 * DAY, { from: null, to: OCT_7.to, bonus: 2, decayDays: 4 }), 2, 'an open start');
+  assert.equal(proximityBonus(NaN, NaN, near), 0, 'an undated item');
+});
+
+test('locatorKeep: a share of the slots goes to the best by content regardless of date, the rest by the dated order', () => {
+  const items = [
+    { id: 'a', content: 5, dated: 1 },
+    { id: 'b', content: 4, dated: 2 },
+    { id: 'c', content: 1, dated: 9 },
+    { id: 'd', content: 1, dated: 8 },
+    { id: 'e', content: 0, dated: 7 },
+  ];
+  const broadOrder = (x, y) => y.content - x.content;
+  const datedOrder = (x, y) => y.dated - x.dated;
+  const pick = (keep, broadShare) => locatorKeep(items, { keep, broadShare, broadOrder, datedOrder }).map(({ item, share }) => `${item.id}:${share}`);
+  assert.deepEqual(pick(4, 0.5), ['a:broad', 'b:broad', 'c:dated', 'd:dated']);
+  assert.deepEqual(pick(3, 0.5), ['a:broad', 'b:broad', 'c:dated'], 'the broad share rounds up');
+  assert.deepEqual(pick(3, 0), ['c:dated', 'd:dated', 'e:dated'], 'share 0: the date alone would crowd the content out');
+  assert.deepEqual(pick(2, 1), ['a:broad', 'b:broad']);
+  assert.equal(pick(9, 0.5).length, 5, 'never more than there are');
+});
+
+/** The 10-04 event (three lines, every form among them) and two weaker lines on the 10-07 the asker named. */
+function cueRecord({ eventAt = Date.UTC(2026, 9, 4, 18, 0) } = {}) {
+  return [
+    rec('o1', eventAt, { text: 'tu veux retirer la censure ?' }),
+    rec('o2', eventAt + MINUTE, { kind: 'said', text: 'non, j’ai résisté, la censure reste' }),
+    rec('o3', eventAt + 2 * MINUTE, { by: ELO, text: 'elle a résisté à retirer la censure' }),
+    rec('w1', Date.UTC(2026, 9, 7, 15, 0), { channelId: 'c1', text: 'une nouvelle règle de censure' }),
+    rec('w2', Date.UTC(2026, 9, 7, 20, 0), { channelId: 'c3', text: 'censure encore' }),
+  ];
+}
+
+test('matchRecord: a locator reads past the date and keeps the off-date event with the stronger hits; scope stays inside it', async () => {
+  const base = { participants: [], forms: CUE_FORMS, aliases: [], recordDays: 30, recordContext: 1, followMessages: 0, now: LATER, maxWindows: 2 };
+  const scoped = await matchRecord('g1', { ...base, record: fakeRecord(cueRecord()), range: OCT_7 });
+  assert.deepEqual(scoped.windows.map((w) => [...w.hitIds]), [['w2'], ['w1']], 'scope: only the named day');
+  assert.ok(scoped.windows.every((w) => !('share' in w)));
+
+  const located = await matchRecord('g1', { ...base, record: fakeRecord(cueRecord()), range: {}, locator: { ...OCT_7, ...LOCATE } });
+  assert.deepEqual(located.windows.map((w) => [[...w.hitIds].sort().join(','), w.share]), [['w2', 'dated'], ['o1,o2,o3', 'broad']]);
+});
+
+test('matchRecord: the reserved broad share keeps a far-off event the dated order alone would drop', async () => {
+  const lines = () => fakeRecord(cueRecord({ eventAt: Date.UTC(2026, 8, 20, 18, 0) }));
+  const base = { participants: [], forms: CUE_FORMS, aliases: [], recordDays: 30, recordContext: 1, followMessages: 0, now: LATER, maxWindows: 2, range: {} };
+  const dated = await matchRecord('g1', { ...base, record: lines(), locator: { ...OCT_7, ...LOCATE, broadShare: 0 } });
+  assert.deepEqual(dated.windows.map((w) => [...w.hitIds]), [['w2'], ['w1']], 'without the reserve the date crowds the event out');
+  const shared = await matchRecord('g1', { ...base, record: lines(), locator: { ...OCT_7, ...LOCATE } });
+  assert.deepEqual(shared.windows.map((w) => w.share), ['dated', 'broad']);
+  assert.ok(shared.windows[1].hitIds.has('o3'));
+});
+
+test('matchRecord: a locator reads the last recordDays and the named range when it lies before them', async () => {
+  const record = fakeRecord(cueRecord());
+  await matchRecord('g1', { participants: [], forms: CUE_FORMS, aliases: [], recordDays: 3, recordContext: 1, followMessages: 0, now: LATER, maxWindows: 2, record, range: {}, locator: { ...OCT_7, ...LOCATE } });
+  const spans = record.queries.map((q) => [q.from, q.to]);
+  assert.deepEqual(spans, [
+    [new Date(OCT_7.from).toISOString(), new Date(OCT_7.to).toISOString()],
+    [new Date(LATER - 3 * DAY).toISOString(), new Date(LATER).toISOString()],
+  ]);
+});
+
+test('matchMemory: a locator matches past the range and reserves a share for the best match by content', () => {
+  const profiles = [
+    {
+      id: ANA,
+      names: ['Ana'],
+      aliases: [],
+      episodes: [
+        ep('2026-10-04', 'a résisté à retirer la censure'),
+        ep('2026-10-07', 'une règle de censure'),
+        ep('2026-10-08', 'censure encore'),
+      ],
+    },
+  ];
+  const base = { forms: CUE_FORMS, profiles, max: 2, timezone: 'UTC' };
+  const scoped = matchMemory({ ...base, ...OCT_7 });
+  assert.deepEqual(scoped.map((item) => item.date), ['2026-10-07']);
+  assert.ok(scoped.every((item) => !('share' in item)));
+  const located = matchMemory({ ...base, locator: { ...OCT_7, ...LOCATE } });
+  assert.deepEqual(located.map((item) => [item.date, item.share]), [['2026-10-04', 'broad'], ['2026-10-07', 'dated']]);
+});
+
+test('rankClusters: with a locator the dated slots favour the range, the reserved ones the topic; without one nothing changes', () => {
+  const at = (ms) => ({ startTs: ms, endTs: ms });
+  const make = () => [
+    { channelId: 'c1', topic: 2, queries: 2, ...at(Date.UTC(2026, 8, 20)), id: 'far' },
+    { channelId: 'c1', topic: 1, queries: 1, ...at(OCT_7.from + HOUR), id: 'd1' },
+    { channelId: 'c2', topic: 1, queries: 1, ...at(OCT_7.from + 2 * HOUR), id: 'd2' },
+  ];
+  const plain = rankClusters(make(), { maxClusters: 2, keepOldest: 0, selfBonus: 0 });
+  assert.deepEqual(plain.map((c) => c.id), ['d2', 'far']);
+  assert.ok(plain.every((c) => !('share' in c)));
+  const dated = rankClusters(make(), { maxClusters: 2, keepOldest: 0, selfBonus: 0, locator: { ...OCT_7, ...LOCATE, broadShare: 0 } });
+  assert.deepEqual(dated.map((c) => c.id), ['d2', 'd1'], 'the bonus alone moves the dated ones up');
+  const shared = rankClusters(make(), { maxClusters: 2, keepOldest: 0, selfBonus: 0, locator: { ...OCT_7, ...LOCATE } });
+  assert.deepEqual(shared.map((c) => [c.id, c.share]), [['d2', 'dated'], ['far', 'broad']]);
+});
+
+test('buildRecallRequest: a time cue goes in <time_cue> right before <question> through labels.lookup.timeEstimate', () => {
+  const windows = [{ channelId: 'c2', channelName: 'garden', messages: [msg('w1', OCT_7.from + HOUR, { channelId: 'c2' })], hitIds: ['w1'] }];
+  const base = { prompt: 'p', selfName: 'Zoë', question: { authorName: 'Nikos', content: 'tu te souviens ?' }, windows, labels, timezone: 'UTC', answerChars: 100 };
+  const user = buildRecallRequest({ ...base, timeCue: OCT_7 })[1].content;
+  assert.ok(user.endsWith('<time_cue>\n[time cue 2026-10-07, an estimate]\n</time_cue>\n<question>\nNikos: tu te souviens ?\n</question>'), user);
+  const span = buildRecallRequest({ ...base, timeCue: { from: Date.UTC(2026, 9, 5), to: OCT_7.to } })[1].content;
+  assert.ok(span.includes('[time cue 2026-10-05 .. 2026-10-07, an estimate]'), span);
+  const open = buildRecallRequest({ ...base, timeCue: { from: null, to: OCT_7.to } })[1].content;
+  assert.ok(open.includes('[time cue .. 2026-10-07, an estimate]'), open);
+  const plain = buildRecallRequest(base)[1].content;
+  assert.ok(!plain.includes('<time_cue>'), 'no cue, no block');
+  const unlabelled = buildRecallRequest({ ...base, timeCue: OCT_7, labels: { ...labels, lookup: { ...labels.lookup, timeEstimate: ' ' } } })[1].content;
+  assert.ok(!unlabelled.includes('<time_cue>'), 'a blank label adds nothing');
 });

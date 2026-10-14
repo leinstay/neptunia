@@ -127,6 +127,23 @@ test('parsePlannerAnswer: a lookup head with its lines, inline or below, reads a
   assert.equal(parsePlannerAnswer('chatter\nchannel: none', { counts: COUNTS }).unknown, 1);
 });
 
+test('parsePlannerAnswer: a when-role line joins the lookup block as the lookup classifier reads it; a repeated one is invalid', () => {
+  const options = { counts: COUNTS, timezone: 'UTC', now: NOW };
+  const lines = 'server: censure, retirer\nwhen: 2026-10-07';
+  for (const role of ['', '\nwhen-role: locator', '\nWHEN_ROLE: scope', '\n- **when role:** scope']) {
+    const blocks = parsePlannerAnswer(`lookup:\n${lines}${role}`, options);
+    const lookup = parseLookupAnswer(`${lines}${role}`, { timezone: 'UTC', now: NOW });
+    assert.equal(blocks.lookup.state, 'ok', role);
+    assert.deepEqual(blocks.lookup.server, lookup.server, role);
+    assert.equal(blocks.unknown, 0, role);
+  }
+  assert.equal(parsePlannerAnswer(lines, options).lookup.server.locator, true, 'no role: a locator');
+  assert.equal('locator' in parsePlannerAnswer(`${lines}\nwhen-role: scope`, options).lookup.server, false);
+  assert.equal(parsePlannerAnswer('lookup: when-role: scope\nserver: censure\nwhen: 2026-10-07', options).lookup.state, 'ok', 'inline after the head');
+  const twice = parsePlannerAnswer(`${lines}\nwhen-role: scope\nwhen_role: locator`, options);
+  assert.deepEqual([twice.lookup.state, twice.lookup.parse], ['invalid', 'duplicate']);
+});
+
 /** A fake llm answering `text` (an Error is thrown), recording each call. */
 function fakeLlm(text) {
   const calls = [];

@@ -166,6 +166,7 @@ export const labels = {
     serverHeader: '[server part]',
     bothNote: '[both searches ran]',
     stretch: '[stretch of {date} in #{channel}]',
+    timeEstimate: '[time cue {range}, an estimate]',
   },
   affinity: {
     bands: {
