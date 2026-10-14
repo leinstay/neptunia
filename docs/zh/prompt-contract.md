@@ -644,6 +644,8 @@ task.added                               {added}: later messages from the author
 
 `server:` 命中（可附带 `who:` 和 `when:` 行）时，引擎通过 Discord 搜索 API 搜索服务器消息历史。词形成为有序的搜索查询列表（内容词形轮转，然后作者名），仅有 `when:` 时为日期范围采样。命中项经过过滤（排除其他机器人和受众规则拒绝的频道），按频道和时间分组为聚类（`recall.clusterGapMinutes`），按主题得分排名（聚类中每个有命中的不同 `server:` 词形，若其在整个服务器上的命中数不超过 `recall.rareHits` 则计 2，否则计 1），其次按所有不同查询的命中数，再按最新优先，保留排名前 `recall.maxClusters` 个聚类。仅有名称或作者命中的聚类排在任何有主题命中的聚类之后。`recall.keepOldest` 为主题得分至少为 2 的最旧聚类保留槽位。每个保留的聚类获取 `recall.windowMessages` 条消息的窗口。分类器的词形和名称词形还会与已存储记忆匹配（不含私有层）：成员的回忆、世界书条目、所学内容和近期行。每个匹配的条目成为 `<memory>` 块中的一行：`kind | date | name | text`，kind 为 `episode`、`lore`、`learned`、`recent`。`when:` 日期范围排除无日期的种类（lore、learned）。最多 `recall.memoryItems`（默认 6）条，按匹配的词形数和权重排名。`<memory>` 块在 `<people>` 之后、`<found>` 之前；其条目不能被指定为 `stretch`。有记忆匹配但无聊天命中的运行仍会询问摘要。日志记录在 `recall: searched` 行的 `stats.memory` 上。
 
+当 `features.meaningSearch` 严格为 `true` 时，recall 运行还按语义搜索。提问者的消息被嵌入（向 `classifier.embed` 模型发一个请求，purpose `recall-query`）；`recall.meaningWithReply` 时将被回复的行也包含在查询文本中。在请求的 `when:` 范围内搜索向量索引（`src/memory/vectors.js`）（无范围时搜索所有月份），在受众规则和可见聊天 id 应用后返回 `recall.meaningCandidates`（默认 80）行。语义搜索找到的记录行加入记录窗口；归档行加入记忆条目。同时被关键词和语义找到的行排名最先（倒数排名融合，k = 60）；仅语义找到的按余弦排序；仅关键词找到的排最后。嵌入或向量搜索失败时，运行记录 `recall: meaning failed`（`stage` 为 `embed` 或 `search`）并仅按关键词继续。
+
 摘要辅助（`recall-summary.md`，使用 `classifier.text`，块 `<people>`、`<memory>`、`<found>`、`<question>`）读取窗口、已存储记忆和问题并写出笔记。摘要可以指出最佳回答问题的一段原文（`stretch: <n>`）；如果是，该段的逐字内容（上限 `recall.stretchChars`）与笔记一起出现。摘要说 `nothing` 时，`<lookup>` 块无服务器部分。摘要失败或超时时回退到排名最高窗口的逐字原文段，不附笔记。
 
 两者都运行时，`<lookup>` 块在网络部分上方携带 `labels.lookup.webHeader`，服务器部分上方携带 `labels.lookup.serverHeader`，两者之间携带 `labels.lookup.bothNote`。

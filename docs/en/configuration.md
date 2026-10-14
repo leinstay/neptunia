@@ -43,6 +43,8 @@ Every key in `config.json` with its default, grouped by section.
 | `promptCache` | `true` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
 | `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
+| `meaningSearch` | `false` | On each recall run, embed the asker's message and search the vector index by meaning. Record rows that match by meaning join the word-hit windows; archive rows join the memory items. Combined with word hits through reciprocal rank fusion. Must be exactly `true` to enable; a missing key counts as off. Needs `features.recall` on and the embedding model (`classifier.embed`) reachable. See `recall.meaningCandidates` |
+| `embedIndex` | `false` | Keep the vector index current while the bot runs: every message the record takes is queued, and a batch is embedded every `embed.flushSeconds` seconds or once `embed.batch` lines wait. Must be exactly `true` to enable; a missing key counts as off. Needs `features.meaningSearch` on. Without this switch, the index is built only by `tools/embed-index.mjs` |
 | `journal` | `true` | Keep the persona's journal: for every turn, one line when it starts and one when it ends (what of the chat went into the request, its hidden reasoning, what it posted and reacted to, token usage, the limits that cut something), in `data/guilds/<id>/journal/<YYYY-MM-DD>.jsonl` by UTC day; a private chat's turns go to `data/guilds/<id>/private/<userId>/journal/` instead. While on, the live log carries only the length of the hidden reasoning (`thinkChars`). Must be exactly `true` to enable; a missing key counts as off. See [`journal`](#journal) |
 | `offPeriods` | `true` | `<now>` lists the periods of the last `journal.offWindowHours` hours when the persona was paused by the owner or the service was off, newest first, at most 3, from the journal's system records. Nothing is posted to any channel. A missing key counts as on. Needs `features.journal` |
 | `record` | `true` | Keep the record: every message the memory buffer took (written before the batch is analyzed; a batch the disk refuses stays in the buffer and is retried), every edit as a new line with the next revision, every deletion, each message the persona posted and each feeling she stored on a moment, one line each, in `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl` by UTC day. Only ids, time, channel, author, reply target, text, media kinds and mentions are kept, never a URL. A private chat's lines go to `data/guilds/<id>/private/<userId>/record/` instead. Never trimmed. Must be exactly `true` to enable; a missing key counts as off. See [`record`](#record) |
@@ -135,6 +137,13 @@ Helper model roles, grouped under one key. Each is set independently, so the hel
 | Key | Default | Meaning |
 |---|---|---|
 | `dimensions` | `1024` | Dimensions requested from the embedding model. A smaller value is faster and cheaper when the model supports truncation |
+| `batch` | `64` | Lines flushed in one embedding request by the live queue (`features.embedIndex`) |
+| `flushSeconds` | `180` | Seconds between live queue flushes. A flush also runs when `embed.batch` lines are waiting |
+| `queueMax` | `2000` | Lines the live queue holds in memory. The oldest are dropped when the queue is full |
+
+Each message the record takes is embedded with its two preceding lines of the same channel as context, so a short answer carries what it answers. Archive items (episodes, lessons, evicted details and interests) get one vector each. Vectors are stored per month in `data/guilds/<id>/vectors/<YYYY-MM>/` as int8 rows with a per-row scale, one manifest and one metadata file per generation. A private chat's vectors live under `data/guilds/<id>/private/<userId>/vectors/`. `/nep memory forget` drops every row that names the member (same rules as the record and the archive) by rewriting the month files; `/nep memory wipe` deletes the whole `vectors/` tree.
+
+Message text with author names is sent to the embedding provider (OpenAI through OpenRouter). A local forget removes the rows from the index but does not delete the provider's copy of the text.
 
 ## `context`
 
@@ -320,6 +329,8 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 | `recordContext` | `3` | Lines before and after each matching record line added to its stretch, besides the chain of messages it replies to |
 | `maxOutputTokens` | `500` | Max output tokens for the summary helper |
 | `fallbackOnClassifierFailure` | `true` | Run recall from the trigger's own words when the lookup classifier fails (an error, a timeout or an empty answer) on a direct call and server recall is available. The plan uses words of 5+ letters (longest first, at most `maxForms`, the persona's name left out) as forms, members named by a stored name or alias as `who`, no date range and no web search. Logged as `lookup: fallback` |
+| `meaningCandidates` | `80` | Rows returned from the vector index per meaning search. These candidates are fused with the word hits and then go through the same window builder and cluster ranking. `0` turns the meaning search off even when `features.meaningSearch` is on |
+| `meaningWithReply` | `false` | When the trigger message is a reply and the replied-to message is among the recent lines, embed the trigger together with that line (the asker's question in context). Otherwise only the trigger is embedded |
 
 ## `gifs`
 
