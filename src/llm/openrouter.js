@@ -98,6 +98,27 @@ export function llmCountToday(stateData, nowMs) {
   return countToday(stateData, LLM_DAILY, nowMs);
 }
 
+/**
+ * Count one request against `llm.maxRequestsPerDay` on the shared counter (`LLM_DAILY` in
+ * `state.data`), or refuse it: a `DailyCapError` (`key`, `used`, `cap`) when today's count has
+ * reached the cap, nothing counted. A cap that is not a finite number refuses everything
+ * (`dailyCapOf`). The one copy of the rail, for the chat client and the embedding client
+ * (src/llm/embed.js), so both spend from the same count of the day.
+ * @param {{ data: object, markDirty: () => void }} state  Persistent state.
+ * @param {unknown} configured  `llm.maxRequestsPerDay`, read by the caller at the moment of use.
+ * @param {number} nowMs
+ */
+export function countLlmRequest(state, configured, nowMs) {
+  const cap = dailyCapOf(configured, 'llm.maxRequestsPerDay');
+  const { count } = dailyCounter(state.data, LLM_DAILY, nowMs);
+  if (count >= cap) {
+    const err = new DailyCapError(`daily LLM request cap reached (${cap})`);
+    throw Object.assign(err, { key: 'llm.maxRequestsPerDay', used: count, cap });
+  }
+  bumpDaily(state.data, LLM_DAILY, nowMs);
+  state.markDirty();
+}
+
 /** `llm.helperTimeoutMs` when it is missing: config.json's value. */
 const HELPER_TIMEOUT_MS_FALLBACK = 30000;
 
@@ -150,13 +171,13 @@ export function helperRequestOptions(config, { role, maxOutputTokens, purpose, s
 }
 
 /** `llm.hedge`, key by key, when the group is there but a key is missing or invalid: config.json's values. */
-const HEDGE_FALLBACK = Object.freeze({ roles: Object.freeze(['classifier.text']), afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 });
+const HEDGE_FALLBACK = Object.freeze({ roles: Object.freeze(['classifier.text', 'classifier.reason']), afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 });
 
 /**
  * The hedge settings of the live config, or null when `llm.hedge` is not an object (no hedge at
  * all, every request as without it). Inside the group a key that is missing or invalid reads as
  * config.json's: `roles` (the `options.role` values whose helper requests are hedged, each read
- * through `currentRoleName`; not an array -> `['classifier.text']`), `afterMs` (how long the first attempt is given before a second one is
+ * through `currentRoleName`; not an array -> `['classifier.text', 'classifier.reason']`), `afterMs` (how long the first attempt is given before a second one is
  * sent; a finite number >= 0, 0 = no hedge; else 2500), `timeoutMs` (the limit of the whole
  * hedged call, both attempts included; a finite number > 0, else 8000) and `longTimeoutMs` (the
  * same limit for a helper marked `long`, whose answer is a summary of several hundred tokens; a
@@ -293,6 +314,13 @@ export function currentRoleName(role) {
 }
 
 /**
+ * The role whose role-specific routes a role inherits while no key names it: the reasoning
+ * helpers (`classifier.reason`) were `classifier.text` requests before the role existed, so a
+ * deployment's `"<prefix>@classifier.text"` route keeps routing them until a key of their own is set.
+ */
+const ROUTE_PARENT_ROLE = Object.freeze({ 'classifier.reason': 'classifier.text' });
+
+/**
  * One `llm.providerByModel` key split into its model prefix and its role:
  * `"<prefix>@<role>"` applies to that role only, a key without `@` to any
  * role (`role: null`). Split at the last `@`; model ids carry none.
@@ -310,7 +338,9 @@ export function parseRouteKey(key) {
  * for exactly this role, the longest case-sensitive prefix of `model` (an
  * exact id is simply the longest prefix); when none matches, the same among
  * the role-less keys. A role-specific key beats a role-less one whatever their
- * lengths. A non-string or empty `role` matches role-less keys only. A key's
+ * lengths. A role with a parent (`classifier.reason` -> `classifier.text`) with no key of
+ * its own matching takes the parent's keys the same way, before the role-less ones; its entry's
+ * `role` names the key's role. A non-string or empty `role` matches role-less keys only. A key's
  * role is read through `currentRoleName` (`"<prefix>@talk"` is a key for the
  * role `voice`, and its entry's `role` says `voice`); `role` itself is taken as given.
  * Non-object entries and maps are ignored.
@@ -322,7 +352,9 @@ export function parseRouteKey(key) {
 export function matchRoute(model, byModel, role) {
   if (typeof model !== 'string' || !isPlainObject(byModel)) return null;
   const wanted = typeof role === 'string' && role ? role : null;
+  const parent = wanted !== null && Object.hasOwn(ROUTE_PARENT_ROLE, wanted) ? ROUTE_PARENT_ROLE[wanted] : null;
   let bestRole = null;
+  let bestParent = null;
   let bestAny = null;
   for (const [key, value] of Object.entries(byModel)) {
     if (!isPlainObject(value)) continue;
@@ -334,9 +366,11 @@ export function matchRoute(model, byModel, role) {
       if (bestAny === null || parsed.prefix.length > bestAny.prefix.length) bestAny = entry;
     } else if (wanted !== null && keyRole === wanted) {
       if (bestRole === null || parsed.prefix.length > bestRole.prefix.length) bestRole = entry;
+    } else if (parent !== null && keyRole === parent) {
+      if (bestParent === null || parsed.prefix.length > bestParent.prefix.length) bestParent = entry;
     }
   }
-  return bestRole ?? bestAny;
+  return bestRole ?? bestParent ?? bestAny;
 }
 
 /**
@@ -756,15 +790,7 @@ export function createLlm({
   }
 
   function countRequest(configured) {
-    const cap = dailyCapOf(configured, 'llm.maxRequestsPerDay');
-    const nowMs = now();
-    const { count } = dailyCounter(state.data, LLM_DAILY, nowMs);
-    if (count >= cap) {
-      const err = new DailyCapError(`daily LLM request cap reached (${cap})`);
-      throw Object.assign(err, { key: 'llm.maxRequestsPerDay', used: count, cap });
-    }
-    bumpDaily(state.data, LLM_DAILY, nowMs);
-    state.markDirty();
+    countLlmRequest(state, configured, now());
   }
 
   // The one `llm: provider limit` line of a provider's quota of the day, thrown without a retry.
@@ -1018,7 +1044,7 @@ export function createLlm({
    * configured routing in charge. Exists for the video describer, which pins
    * the provider that can fetch a public video URL.
    * `options.role` — which subprocess makes the request (`voice`, `analyzer`,
-   * `classifier.text`, `classifier.media`, `classifier.video`; the
+   * `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`; the
    * names of `/nep model`), so a `"<prefix>@<role>"` key of
    * `llm.providerByModel` can route it; never sent. A call without a role
    * matches only role-less keys.

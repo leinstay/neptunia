@@ -79,12 +79,18 @@
     "provider": null,
     "providerByModel": {},
     "cache": { "ttl": "1h", "profilesTtl": "5m", "roles": ["voice"], "models": ["anthropic/"], "promptIncludesCached": true },
-    "hedge": { "roles": ["classifier.text"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
+    "hedge": { "roles": ["classifier.text", "classifier.reason"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
   },
   "classifier": {
     "text": "anthropic/claude-sonnet-4.6",
     "media": "anthropic/claude-haiku-4.5",
-    "video": "google/gemini-3.8-flash"
+    "video": "google/gemini-3.8-flash",
+    "reason": null,
+    "embed": "openai/text-embedding-3-large",
+    "byPurpose": {}
+  },
+  "embed": {
+    "dimensions": 1024
   },
   "context": {
     "channelMessages": 100,

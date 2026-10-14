@@ -9,7 +9,7 @@ import { emptyAffinity, affinityBand, roundScore } from '../memory/affinity.js';
 import { topByRank } from '../memory/ranking.js';
 import { fromTokens } from '../memory/mentions.js';
 import { MODEL_ROLES } from '../discord/commands.js';
-import { classifierTextModel, classifierMediaModel, classifierVideoModel } from '../behavior/mention.js';
+import { helperModel } from '../behavior/mention.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { oneLine } from '../memory/clamp.js';
 import { utcDay } from '../time.js';
@@ -517,10 +517,8 @@ export function modelForRole(role, cfg) {
   // The one model that speaks as the persona: its replies and its memory wording.
   if (role === 'voice') return cfg?.llm?.model || undefined;
   if (role === 'analyzer') return cfg?.memory?.model || cfg?.llm?.model || undefined;
-  if (role === 'classifier.text') return classifierTextModel(cfg);
-  if (role === 'classifier.media') return classifierMediaModel(cfg);
-  if (role === 'classifier.video') return classifierVideoModel(cfg);
-  return undefined;
+  // A helper role: its own model with its fallback chain (no purpose, so no byPurpose entry).
+  return helperModel(cfg, { role });
 }
 
 /** The model one route role uses now: the `/nep model` roles as `modelForRole`, `image` as `image.model`. */

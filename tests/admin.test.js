@@ -340,6 +340,7 @@ function makeAdmin(rootDir, extra = {}) {
     archive: extra.archive,
     journal: extra.journal,
     llm: extra.llm,
+    embedder: extra.embedder,
   });
   return { admin, hot, store };
 }
@@ -566,12 +567,20 @@ test('run: model.set writes the right config path for each role', async () => {
   await admin.run('model.set', { role: 'classifier.text', id: 'openrouter/text-model' }, {});
   await admin.run('model.set', { role: 'classifier.media', id: 'anthropic/claude-haiku-4.5' }, {});
   await admin.run('model.set', { role: 'classifier.video', id: 'openrouter/video-model' }, {});
+  await admin.run('model.set', { role: 'classifier.reason', id: 'openrouter/reason-model' }, {});
+  await admin.run('model.set', { role: 'classifier.embed', id: 'openai/text-embedding-3-small' }, {});
   assert.deepEqual(readLocal(rootDir), {
     llm: { model: 'anthropic/claude-opus-4.6' },
     memory: { model: 'openrouter/cheap-model' },
-    classifier: { text: 'openrouter/text-model', media: 'anthropic/claude-haiku-4.5', video: 'openrouter/video-model' },
+    classifier: {
+      text: 'openrouter/text-model',
+      media: 'anthropic/claude-haiku-4.5',
+      video: 'openrouter/video-model',
+      reason: 'openrouter/reason-model',
+      embed: 'openai/text-embedding-3-small',
+    },
   });
-  assert.equal(hot.reloadConfigCalls, 5);
+  assert.equal(hot.reloadConfigCalls, 7);
 });
 
 test('run: model.set rejects an unknown role, the old role names and the classifier group, and writes nothing', async () => {
@@ -581,7 +590,7 @@ test('run: model.set rejects an unknown role, the old role names and the classif
   for (const role of ['bogus', 'followup', 'media', 'video', 'classifier', 'talk']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
-      new RegExp(`unknown role: ${role} \\(voice, analyzer, classifier\\.text, classifier\\.media, classifier\\.video, image\\)`),
+      new RegExp(`unknown role: ${role} \\(voice, analyzer, classifier\\.text, classifier\\.reason, classifier\\.media, classifier\\.video, classifier\\.embed, image\\)`),
       role,
     );
   }
@@ -1982,7 +1991,7 @@ function probeConfig(hot) {
   hot.config.classifier = { text: 'x/text', media: 'x/media', video: 'x/video' };
   hot.config.image = { model: 'openai/gpt-image-1' };
   hot.config.llm.probeTimeoutMs = 1234;
-  hot.prompts.labels.status = { probe: 'Answer with one word: Ωmega' };
+  hot.prompts.labels.status = { probe: 'Answer with one word: Ωmega', fallback: '(= {role})' };
 }
 
 
@@ -2016,7 +2025,7 @@ test('status: the card lists one item per line in every field', async () => {
   assert.deepEqual(lines('memory').map((line) => line.split(' ')[0]), ['profiles', 'buffer', 'archive', 'journal']);
   assert.deepEqual(lines('journal'), ['append store ok', 'archive pending 2']);
   const roleLines = lines('models').filter((line) => !line.startsWith('  '));
-  assert.deepEqual(roleLines.map((line) => line.split(' ')[0]), ['voice', 'analyzer', 'classifier.text', 'classifier.media', 'classifier.video', 'image']);
+  assert.deepEqual(roleLines.map((line) => line.split(' ')[0]), ['voice', 'analyzer', 'classifier.text', 'classifier.reason', 'classifier.media', 'classifier.video', 'classifier.embed', 'image']);
   for (const field of embeds[0].fields) {
     if (field.name !== 'models') assert.ok(!field.value.includes(' · '), `${field.name}: no items joined on one line`);
     assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
@@ -2071,9 +2080,68 @@ test('status: the member card shows models without probing', async () => {
 
   const { embeds } = await admin.run('status', {}, { userId: '999' });
   const models = embeds[0].fields.find((f) => f.name === 'models').value;
-  assert.equal(models, 'voice anthropic/claude-opus-4.6\nanalyzer x/analyzer\nclassifier.text x/text\nclassifier.media x/media\nclassifier.video x/video\nimage openai/gpt-image-1');
+  assert.equal(models, 'voice anthropic/claude-opus-4.6\nanalyzer x/analyzer\nclassifier.text x/text\nclassifier.reason x/text (= classifier.text)\nclassifier.media x/media\nclassifier.video x/video\nimage openai/gpt-image-1');
   assert.equal(llm.calls.length, 0, 'no probe request');
   assert.equal(llm.listings.length, 0, 'no listing request');
+});
+
+test('status: identical probes are sent once, each role shows the model it resolves to, the embedding role gets an embedding probe', async () => {
+  const rootDir = makeRoot();
+  const llm = fakeProbeLlm(() => ({ provider: 'Prov', usage: { prompt_tokens: 9, completion_tokens: 1 } }));
+  const embedCalls = [];
+  const embedder = {
+    async embed(texts, options) {
+      embedCalls.push({ texts, options });
+      return [new Float32Array(8)];
+    },
+  };
+  const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 0, cap: 5 } }), llm, embedder });
+  probeConfig(hot);
+  hot.config.memory = { model: null }; // the analyzer on the voice's model: one probe for both
+  hot.config.classifier = { text: 'x/text', reason: null, media: 'x/media', video: 'x/media', embed: 'x/embed', byPurpose: { lookup: 'x/pinned' } };
+  // A role-specific route keeps the video role's probe apart although its model is the media one.
+  hot.config.llm.providerByModel = { 'x/@classifier.video': { only: ['video-host'] } };
+
+  const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
+  const lines = result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').filter((line) => !line.startsWith('  '));
+
+  assert.deepEqual(llm.calls.map((call) => [call.options.role, call.options.model]).sort(), [
+    ['classifier.media', 'x/media'],
+    ['classifier.text', 'x/text'],
+    ['classifier.video', 'x/media'],
+    ['voice', 'anthropic/claude-opus-4.6'],
+  ], 'one chat probe per (model, route); classifier.reason shares the text probe, the analyzer the voice one');
+  assert.deepEqual(embedCalls.map((call) => call.texts), [['Answer with one word: Ωmega']], 'one embedding request of one input');
+  assert.equal(embedCalls[0].options.countAgainstDailyCap, false);
+  assert.equal(embedCalls[0].options.origin, 'status');
+  assert.equal(embedCalls[0].options.timeoutMs, 1234);
+  assert.equal(embedCalls[0].options.config, hot.config);
+  assert.equal(llm.calls.some((call) => call.options.model === 'x/embed'), false, 'the embedding model is never sent a chat completion');
+
+  assert.match(lines[1], /^analyzer anthropic\/claude-opus-4\.6 \(= voice\) · ok \d+ ms$/);
+  assert.match(lines[3], /^classifier\.reason x\/text \(= classifier\.text\) · ok \d+ ms$/);
+  assert.match(lines[6], /^classifier\.embed x\/embed · ok \d+ ms$/);
+  assert.equal(lines[7], 'byPurpose lookup x/pinned', 'a per-purpose override is listed');
+  const embedDetail = result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n');
+  assert.equal(embedDetail[embedDetail.findIndex((line) => line.startsWith('classifier.embed')) + 1], '  dimensions=8');
+  assert.equal(logs.find((entry) => entry.msg === 'status: probed').requests, 5);
+});
+
+test('status: without an embedding client the embedding role is shown unchecked; an embedding failure shows its error', async () => {
+  const rootDir = makeRoot();
+  const llm = fakeProbeLlm(() => ({ provider: 'Prov' }));
+  const none = makeAdmin(rootDir, { llm });
+  probeConfig(none.hot);
+  none.hot.config.classifier.embed = 'x/embed';
+  const unchecked = await none.admin.run('status', {}, { userId: '42' });
+  assert.ok(unchecked.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('classifier.embed x/embed · not checked (no embedding client)'));
+
+  const embedder = { embed: async () => { throw Object.assign(new Error('HTTP 404: no such model'), { statusCode: 404 }); } };
+  const failing = makeAdmin(makeRoot(), { llm, embedder });
+  probeConfig(failing.hot);
+  failing.hot.config.classifier.embed = 'x/embed';
+  const { result } = await withCapturedLogs(() => failing.admin.run('status', {}, { userId: '42' }));
+  assert.ok(result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('classifier.embed x/embed · error: HTTP 404: no such model'));
 });
 
 // ---------------------------------------------------------------------------
@@ -3168,8 +3236,10 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     '  voice: anthropic/claude-opus-4.6 -> llm.provider (ignore some-provider, fallbacks: on)',
     '  analyzer: anthropic/claude-opus-4.6 -> anthropic/@analyzer (only amazon-bedrock, anthropic, fallbacks: on)',
     '  classifier.text: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
+    '  classifier.reason: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  classifier.media: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  classifier.video: google/gemini-3.8-flash -> google/@classifier.video (only google-ai-studio, fallbacks: off); direct-URL videos: media.video.provider (order google-ai-studio, fallbacks: off)',
+    '  classifier.embed: (no model configured)',
     '  image: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
   ]);
 });

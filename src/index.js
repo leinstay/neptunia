@@ -19,6 +19,7 @@ import { mirrorDryRun } from './behavior/limits.js';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm } from './llm/openrouter.js';
+import { createEmbedder } from './llm/embed.js';
 import { createImageGen } from './llm/images.js';
 import { createTurnRunner } from './behavior/turn.js';
 import { createActivity } from './behavior/activity.js';
@@ -138,6 +139,8 @@ const store = createStore({
 
 const calibrator = createCalibrator(store.state.data.calibration);
 const llm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: store.state });
+// Embeddings (classifier.embed) on the same daily request count as the chat client.
+const embedder = createEmbedder({ apiKey: openrouterKey, state: store.state });
 // The persona's drawings (features.imageGeneration): its own daily rails, counted on the same state.
 const images = createImageGen({ apiKey: openrouterKey, getConfig: () => hot.config, state: store.state });
 
@@ -311,6 +314,8 @@ const admin = createAdmin({
   journal,
   // /nep status: the owner card probes every role's model and the drawing model's listing.
   llm,
+  // /nep status: the embedding role's probe.
+  embedder,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 

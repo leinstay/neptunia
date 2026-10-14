@@ -67,18 +67,22 @@ export const DEFERRED_OPS = Object.freeze(new Set([
 ]));
 
 /**
- * The chat-model roles, each with the config path of its model (src/admin.js):
+ * The model roles, each with the config path of its model (src/ops/model.js):
  * the roles `/nep model` and `/nep route` list, plus `image` (`MODEL_SET_PATHS`);
  * every role choice list is derived from this one. `voice` is the one model that
  * speaks as the persona: its replies and every memory text worded in its voice
- * (src/memory/update.js#runVoice).
+ * (src/memory/update.js#runVoice). `classifier.reason` serves the helpers that reason
+ * over content (src/behavior/mention.js#REASON_PURPOSES; unset = `classifier.text`'s model),
+ * `classifier.embed` the embeddings (src/llm/embed.js), which take no chat completion.
  */
 export const MODEL_ROLE_PATHS = Object.freeze({
   voice: 'llm.model',
   analyzer: 'memory.model',
   'classifier.text': 'classifier.text',
+  'classifier.reason': 'classifier.reason',
   'classifier.media': 'classifier.media',
   'classifier.video': 'classifier.video',
+  'classifier.embed': 'classifier.embed',
 });
 
 /** The roles of `MODEL_ROLE_PATHS`, in order. */

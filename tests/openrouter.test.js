@@ -26,6 +26,7 @@ import {
   currentRoleName,
   REPLY_REQUEST,
   MEMORY_VOICE_REQUEST,
+  countLlmRequest,
 } from '../src/llm/openrouter.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createLimits } from '../src/llm/limits.js';
@@ -1411,6 +1412,31 @@ test('matchRoute: names the matching key and its role, or null', () => {
   assert.equal(matchRoute('openai/gpt-x', byModel, 'voice'), null);
   // A key splits at its last @: the role is what follows it, the prefix may hold an @ of its own.
   assert.deepEqual(matchRoute('a@b/model-x', { 'a@b@voice': STUDIO }, 'voice'), { key: 'a@b@voice', prefix: 'a@b', role: 'voice', value: STUDIO });
+});
+
+test('matchRoute: classifier.reason takes a key of its own, else a classifier.text key, before a role-less one', () => {
+  const REASON = { only: ['reason-provider'] };
+  const byModel = { 'x/': VERTEX, 'x/@classifier.text': STUDIO };
+  assert.deepEqual(matchRoute('x/model', byModel, 'classifier.reason'), { key: 'x/@classifier.text', prefix: 'x/', role: 'classifier.text', value: STUDIO }, 'the text route still applies');
+  assert.deepEqual(matchRoute('x/model', { ...byModel, 'x/@classifier.reason': REASON }, 'classifier.reason')?.value, REASON, 'its own key wins');
+  assert.deepEqual(matchRoute('x/model', { 'x/model@classifier.text': STUDIO, 'x/@classifier.reason': REASON }, 'classifier.reason')?.value, REASON, 'its own key wins whatever the lengths');
+  assert.deepEqual(matchRoute('x/model', { 'x/': VERTEX }, 'classifier.reason')?.value, VERTEX);
+  assert.equal(matchRoute('x/model', { 'x/@classifier.reason': REASON }, 'classifier.text')?.value, undefined, 'never the other way round');
+  assert.equal(resolveProvider('x/model', { byModel, role: 'classifier.reason' }), STUDIO);
+});
+
+test('countLlmRequest: counts one request of the day on the shared counter, refuses at the cap without counting', () => {
+  const state = fakeState();
+  const day = Date.UTC(2026, 9, 14, 12);
+  countLlmRequest(state, 2, day);
+  countLlmRequest(state, 2, day);
+  assert.equal(llmCountToday(state.data, day), 2);
+  assert.equal(state.dirty, 2);
+  assert.throws(() => countLlmRequest(state, 2, day), (err) => err instanceof DailyCapError && err.key === 'llm.maxRequestsPerDay' && err.used === 2 && err.cap === 2);
+  assert.equal(llmCountToday(state.data, day), 2, 'a refusal counts nothing');
+  countLlmRequest(state, 2, day + 24 * 3600 * 1000);
+  assert.equal(llmCountToday(state.data, day + 24 * 3600 * 1000), 1, 'a new day starts from 0');
+  assert.throws(() => countLlmRequest(fakeState(), 'many', day), DailyCapError, 'a cap that is not a number refuses');
 });
 
 test('complete: options.role selects the role key; a call without a role uses the role-less key', async () => {

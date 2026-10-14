@@ -210,7 +210,8 @@
     "private": "wrote to you privately"
   },
   "status": {
-    "probe": "Reply with the single word pong."
+    "probe": "Reply with the single word pong.",
+    "fallback": "(= {role})"
   },
   "warmup": {
     "ownMark": ">> ",
