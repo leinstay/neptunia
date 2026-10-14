@@ -85,7 +85,8 @@ import { toRecordLine } from '../memory/record.js';
 import { createOffPeriodsReader } from '../memory/journal.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
-import { checkSkill } from '../skills/gateway.js';
+import { checkSkill, listSkills } from '../skills/gateway.js';
+import { discoveryOn, proposalVerdicts, skillsIndex } from '../skills/discovery.js';
 import { skillsOn } from '../skills/access.js';
 import { SKILL_DEFINITIONS, loadSkills } from '../skills/registry.js';
 import { createDiscordAdapter } from '../interface/discord.js';
@@ -1042,6 +1043,8 @@ function journalTurnRecord(draft, result) {
     usage: draft.usage ?? null,
     budget: { dropped: draft.dropped ?? {} },
     limits: typeof draft.limits?.list === 'function' ? draft.limits.list() : [],
+    // The skills a classifier named for this turn, each with the gateway's verdict (shadow, phase 0).
+    ...(Array.isArray(draft.skillsProposed) && draft.skillsProposed.length > 0 ? { skillsProposed: draft.skillsProposed } : {}),
   };
 }
 
@@ -1296,6 +1299,53 @@ export function createTurnRunner({
     });
     if (!verdict.ok) log.info('skill: refused', { skill, code: verdict.code, reason: verdict.reason, channel: channel.id });
     return verdict;
+  }
+
+  /**
+   * What skills discovery gives a classifier (src/skills/discovery.js, the live config read by
+   * the caller now): `index` fills its prompt's `{{skills}}` (skillsIndex over the registry and
+   * `hot.prompts.skills`: static texts, no grant), `names` are the persona skills its `skills:`
+   * line may name. With discovery off, '' and none.
+   * @returns {{ index: string, names: string[] }}
+   */
+  function discoveryPrompt(config) {
+    if (!discoveryOn(config)) return { index: '', names: [] };
+    const registry = skills ?? defaultSkills();
+    const names = [...registry.values()].filter((skill) => skill.ownerOnly !== true).map((skill) => skill.name);
+    return { index: skillsIndex(registry, hot.prompts?.skills), names };
+  }
+
+  /**
+   * What a classifier's `skills:` line (`answer`: parseSkillsLines' result, null when it gave
+   * none) does on a turn someone asked for, with discovery on (read by the caller now). The
+   * catalogue of this requester (`trigger`'s author) in `channel` (src/skills/gateway.js#listSkills,
+   * the state read now) decides both: on `inventory` its rows are returned for the request's
+   * `<skills>` (logged `skills: inventory` with counts); on named skills nothing is shown to the
+   * persona (shadow, phase 0): each name with the gateway's verdict is logged `skills: proposed`
+   * and noted in the draft's `skillsProposed` (`{ name, allowed }`) for the journal's turn
+   * record. Null otherwise. Names and codes only, never a message.
+   * @returns {object[]|null}
+   */
+  function discoverSkills({ config, channel, trigger, answer, draft }) {
+    if (!answer || !discoveryOn(config)) return null;
+    const named = Array.isArray(answer.names) ? answer.names : [];
+    if (answer.inventory !== true && named.length === 0) return null;
+    const rows = listSkills({
+      config,
+      state: store.state?.data ?? {},
+      texts: hot.prompts?.skills,
+      requester: trigger?.authorId ? { id: String(trigger.authorId) } : null,
+      audience: { conversationId: String(channel.id) },
+      registry: skills ?? defaultSkills(),
+    });
+    if (answer.inventory === true) {
+      log.info('skills: inventory', { channel: channel.id, listed: rows.length, allowed: rows.filter((row) => row.allowed).length });
+      return rows;
+    }
+    const proposals = proposalVerdicts(named, rows);
+    log.info('skills: proposed', { channel: channel.id, count: proposals.length, proposals });
+    if (draft) draft.skillsProposed = proposals.map(({ name, allowed }) => ({ name, allowed }));
+    return null;
   }
 
   // channelId -> the chain of parts running there (runChain): its author, its parts, the part
@@ -2702,12 +2752,15 @@ export function createTurnRunner({
         if (started) return;
         started = true;
         const offer = { channel: channelOffer, episodes: offered(episodes), media: offered(media), lookup: lookupWanted === true };
+        const discovery = discoveryPrompt(config);
         askPlanner({
           llm,
           config,
           prompt: hot.prompts?.planner,
           selfName,
           today: zonedDay(clock(), config.bot?.timezone),
+          skills: discovery.index,
+          skillNames: discovery.names,
           offer: { channels: offer.channel?.lines, episodes: offer.episodes?.lines, media: offer.media?.lines, lookup: offer.lookup },
           transcriptBlock,
           candidateBlock,
@@ -2796,8 +2849,12 @@ export function createTurnRunner({
    * planner call take the failed classifier's fallback above (`reason` the
    * state or the failure code; the `helper-fallback` entry is the planner's,
    * `where: 'planner:lookup'`).
+   * Skills discovery (discoveryPrompt, read now): the classifier's `{{skills}}`
+   * is filled with the registry's lines, and a `skills:` line of its answer
+   * (parseLookupAnswer's `skills`) is handed to `onSkills` before any search
+   * runs; with the planner the turn reads the planner's own `skills:` line.
    */
-  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, journalStep = null, triggerKind = null, limits = null, planned = null }) {
+  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, onSkills = null, journalStep = null, triggerKind = null, limits = null, planned = null }) {
     const channelId = channel.id;
     const prompt = hot.prompts?.lookup;
     const searchCfg = config.web?.search ?? {};
@@ -2832,11 +2889,13 @@ export function createTurnRunner({
 
     // Read once: the request and its empty-answer warning name the same model.
     const model = roleModel(config, 'reasoner', 'lookup');
+    // Skills discovery: the registry's lines fill `{{skills}}`, its names bound the `skills:` line.
+    const discovery = discoveryPrompt(config);
     let completion;
     try {
       completion = await llm.complete(
         [
-          { role: 'system', content: fillPromptTemplate(prompt, { today: zonedDay(clock(), config.bot?.timezone), name: selfName ?? '' }) },
+          { role: 'system', content: fillPromptTemplate(prompt, { today: zonedDay(clock(), config.bot?.timezone), name: selfName ?? '', skills: discovery.index }) },
           { role: 'user', content: user },
         ],
         { model, ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }) },
@@ -2851,7 +2910,9 @@ export function createTurnRunner({
       log.warn('lookup: classifier failed', { channel: channelId, reason: 'empty', model: model ?? null });
       return fallback('empty');
     }
-    const parsed = parseLookupAnswer(completion.text, { timezone: config.bot?.timezone, now: clock(), maxForms: recallSettings(config)?.maxForms });
+    const parsed = parseLookupAnswer(completion.text, { timezone: config.bot?.timezone, now: clock(), maxForms: recallSettings(config)?.maxForms, skillNames: discovery.names });
+    // The `skills:` line goes to the turn, whatever the searches do (src/skills/discovery.js).
+    if (parsed.skills) onSkills?.(parsed.skills);
     const server = parsed.server;
     // Codes and counts only, never the query, a form or a name.
     log.info('lookup: classified', {
@@ -4036,6 +4097,8 @@ export function createTurnRunner({
       const answersDrawFailure = triggerKind === 'drawFailed';
       // Someone asked for this turn (askedFor): not a spontaneous or an overheard one.
       const asked = askedFor(trigger, triggerKind);
+      // Skills discovery: the `skills:` line of the search classifier or the planner (parseSkillsLines).
+      let skillsAnswer = null;
       // A direct call sees the persona typing while the turn prepares.
       stopTyping = typingWhilePreparing(channel, triggerKind, config);
 
@@ -4096,6 +4159,10 @@ export function createTurnRunner({
       planner = plannerOn(config) && !answersDrawFailure
         ? createTurnPlan({ config, channelId: channel.id, selfName, triggerKind, limits: draft.limits ?? null, early: Boolean(source) || mode === 'auto' })
         : null;
+      // The planner's `skills:` line, once it answered (skills discovery, read when the request is built).
+      planner?.result.then((plan) => {
+        skillsAnswer ??= plan?.blocks?.skills ?? null;
+      });
       // What the planner is sent: the search classifier's transcript of `lines` (with the captions,
       // video states and page reads given) and candidate, the participation pick's episodes, the
       // re-watch's media (`media`, prepared by the caller) and whether a search could run.
@@ -4498,6 +4565,9 @@ export function createTurnRunner({
                     webOn,
                     serverOn,
                     onSearch: () => deadline.extend(pace.prepareSearchMs),
+                    onSkills: (answer) => {
+                      skillsAnswer = answer;
+                    },
                     journalStep: prepStep,
                     triggerKind,
                     limits: draft.limits ?? null,
@@ -4726,6 +4796,9 @@ export function createTurnRunner({
       }
       // `<now>`: the persona's recent time away (the journal's pauses and stops).
       const offPeriods = await offPeriodsFor(guildId, config);
+      // Skills discovery on a turn someone asked for: the catalogue when the question was what the
+      // persona can do; named skills only logged and journaled (shadow).
+      const skillsInventory = asked && !answersDrawFailure ? discoverSkills({ config, channel, trigger, answer: skillsAnswer, draft }) : null;
       // Every input named (turnRequestInput throws on one left undefined); null marks an absent one.
       const request = buildRequest(
         turnRequestInput({
@@ -4803,6 +4876,7 @@ export function createTurnRunner({
           // A diary post: its past posts, its plan and what its search found.
           diary: diaryPrep ? { posts: diaryPrep.posts, plan: diaryPrep.plan, found: diaryPrep.found, seeds: diaryPrep.seeds ?? '' } : null,
           offPeriods,
+          skillsInventory,
         }),
       );
       // What `<recent>` showed, held back or cut: counts only.

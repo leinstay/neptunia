@@ -420,7 +420,7 @@ test('buildRequest: the user content is the stable part, the profiles, the tail,
     content.map((part) => [part.type, part.cacheSegment ?? null]),
     [['text', 'stable'], ['text', 'profiles'], ['text', null], ['image_url', null]],
   );
-  assert.deepEqual(blockTags(content[0].text), ['senses', 'self_facts', 'about_chat', 'gifs']);
+  assert.deepEqual(blockTags(content[0].text), ['senses', 'skills_protocol', 'self_facts', 'about_chat', 'gifs']);
   assert.deepEqual(blockTags(content[1].text), ['people']);
   assert.ok(!('cacheSegment' in content[2]), 'the tail carries no segment');
   assert.ok(content[0].text.endsWith('</gifs>\n\n') && content[1].text.endsWith('</people>\n\n'), 'each part but the last ends with the block separator');
@@ -448,8 +448,8 @@ test('buildRequest: without pictures the user content is still an array of text 
 });
 
 test('buildRequest: an empty segment is left out, never sent as an empty text part', () => {
-  // No senses labels: nothing at all for the stable part.
-  const prompts = fakePrompts({ labels: { ...labels, senses: undefined } });
+  // No senses labels and no skills protocol: nothing at all for the stable part.
+  const prompts = fakePrompts({ labels: { ...labels, senses: undefined, skills: undefined } });
   const request = buildRequest(baseInput({ prompts }));
   const content = request.messages[1].content;
   assert.deepEqual(content.map((part) => part.cacheSegment ?? null), [null], 'no senses, no memory, no GIFs, no caller: the tail alone');
@@ -457,10 +457,10 @@ test('buildRequest: an empty segment is left out, never sent as an empty text pa
   assert.ok(!content[0].text.endsWith('\n'));
   const callerOnly = buildRequest(segmentScene({ guildMemory: {}, gifs: null, prompts })).messages[1].content;
   assert.deepEqual(callerOnly.map((part) => part.cacheSegment ?? null), ['profiles', null]);
-  // With the senses labels the stable part is their stable lines alone, and no per-turn line leaves no tail block.
+  // With the senses labels the stable part is their stable lines and the skills protocol alone, and no per-turn line leaves no tail block.
   const sensesOnly = buildRequest(baseInput()).messages[1].content;
   assert.deepEqual(sensesOnly.map((part) => part.cacheSegment ?? null), ['stable', null]);
-  assert.deepEqual(blockTags(sensesOnly[0].text), ['senses']);
+  assert.deepEqual(blockTags(sensesOnly[0].text), ['senses', 'skills_protocol']);
   assert.ok(!blockTags(sensesOnly[1].text).includes('senses'));
 });
 
@@ -522,7 +522,7 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
   const stableBlocks = blocksOf(stable.text);
   const tailBlocks = blocksOf(tail.text);
   // Most stable first; the emoji list, whose ranking moves with use several times a day, stays out.
-  assert.deepEqual(stableBlocks.map((b) => b.tag), ['senses', 'self_facts', 'about_chat', 'gifs']);
+  assert.deepEqual(stableBlocks.map((b) => b.tag), ['senses', 'skills_protocol', 'self_facts', 'about_chat', 'gifs']);
   assert.deepEqual(blocksOf(profiles.text).map((b) => b.tag), ['people']);
   const tailTags = tailBlocks.map((b) => b.tag);
   assert.equal(tailTags[tailTags.indexOf('server') + 1], 'emoji', '<emoji> where it always stood');
@@ -4573,4 +4573,55 @@ test('buildRequest: another interlocutor changes the profiles part', () => {
   assert.notEqual(asBerenice[1].text, asAlice[1].text);
   assert.ok(asBerenice[1].text.startsWith(`<people>\n## Bérénice${labels.profile.interlocutorMark}\n`));
   assert.ok(blocksOf(asBerenice[2].text)[0].body.startsWith('## Alice\n'), 'the former interlocutor is now among the others, in the tail');
+});
+
+// --- skills discovery: the static protocol, the catalogue on request -------------------------
+
+/** Catalogue rows as src/skills/gateway.js#listSkills gives them. */
+const SKILL_ROWS = [
+  { name: 'message.send', title: 'Στείλε', whenToUse: 'σε άλλη συζήτηση', allowed: true, reason: 'carried-over' },
+  { name: 'message.edit', title: 'Διόρθωσε', whenToUse: 'ένα δικό σου μήνυμα', allowed: true, reason: 'allowed' },
+  { name: 'memory.read', title: 'Θυμήσου', whenToUse: 'τις σημειώσεις σου', allowed: false, reason: 'not-allowed' },
+  { name: 'x.owner', title: 'Owner', whenToUse: 'never', allowed: false, reason: 'owner-only' },
+];
+
+test('buildRequest: skills -- the protocol is in the stable part, byte-identical whatever the grants and the catalogue', () => {
+  const protocolBlock = `<skills_protocol>\n${labels.skills.protocol}\n</skills_protocol>`;
+  const plain = buildRequest(segmentScene()).messages[1].content;
+  const shown = buildRequest(segmentScene({ skillsInventory: SKILL_ROWS })).messages[1].content;
+  const regranted = buildRequest(segmentScene({ skillsInventory: SKILL_ROWS.map((row) => ({ ...row, allowed: true, reason: 'allowed' })) })).messages[1].content;
+  assert.equal(plain[0].cacheSegment, 'stable');
+  assert.ok(plain[0].text.includes(protocolBlock), plain[0].text);
+  assert.equal(shown[0].text, plain[0].text, 'the catalogue never touches the stable part');
+  assert.equal(regranted[0].text, plain[0].text, 'a grant never touches the stable part');
+  assert.ok(!plain[0].text.includes('message.send') && !shown[0].text.includes('message.send'), 'no skill row in the stable part');
+  assert.equal(blockTags(contentText(plain)).includes('skills'), false, 'no catalogue without the question');
+});
+
+test('buildRequest: skills -- the catalogue renders in the tail before <chat>, one line per persona skill with its access', () => {
+  const content = buildRequest(segmentScene({ skillsInventory: SKILL_ROWS })).messages[1].content;
+  const tail = content.at(-1).text;
+  const tags = blockTags(tail);
+  assert.equal(tags[tags.indexOf('skills') + 1], 'chat');
+  const body = blocksOf(tail).find((b) => b.tag === 'skills').body;
+  const line = (row, access) => fill(labels.skills.line, { name: row.name, title: row.title, whenToUse: row.whenToUse, access });
+  assert.deepEqual(body.split('\n'), [
+    line(SKILL_ROWS[0], labels.skills.access['carried-over']),
+    line(SKILL_ROWS[1], labels.skills.access.allowed),
+    line(SKILL_ROWS[2], labels.skills.access['not-allowed']),
+  ]);
+  assert.ok(!body.includes('x.owner'), 'an owner-only skill is no persona skill');
+  // A reason without its own label falls back to allowed / not allowed.
+  const other = buildRequest(segmentScene({ skillsInventory: [{ ...SKILL_ROWS[2], reason: 'something-else' }] })).messages[1].content;
+  assert.ok(contentText(other).includes(line(SKILL_ROWS[2], labels.skills.access['not-allowed'])));
+});
+
+test('buildRequest: skills -- features.skills or features.skillsDiscovery false: neither block; no labels: no block', () => {
+  for (const features of [{ skills: false }, { skillsDiscovery: false }]) {
+    const text = contentText(buildRequest(segmentScene({ config: fakeConfig({ features }), skillsInventory: SKILL_ROWS })).messages[1].content);
+    assert.ok(!text.includes('<skills_protocol>') && !blockTags(text).includes('skills'), JSON.stringify(features));
+  }
+  const prompts = fakePrompts({ labels: { ...labels, skills: undefined } });
+  const bare = contentText(buildRequest(segmentScene({ prompts, skillsInventory: SKILL_ROWS })).messages[1].content);
+  assert.ok(!bare.includes('<skills_protocol>') && !blockTags(bare).includes('skills'));
 });

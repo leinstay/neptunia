@@ -57,7 +57,8 @@
     "pauseNotice": true,
     "adminCommands": true,
     "memberCommands": true,
-    "skills": true
+    "skills": true,
+    "skillsDiscovery": true
   },
   "bot": {
     "timezone": "UTC",

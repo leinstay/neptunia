@@ -852,7 +852,8 @@ async function runRecall({ hot, mods, llm, store, guild, guildId, channel, self,
   const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
   const transcriptBlock =
     context.length === 0 ? '' : `<transcript>\n${classifierTranscript(context, { config, selfName, labels, descriptions, videos, reads })}\n</transcript>\n`;
-  const lookupSystem = fillPromptTemplate(prompt, { today: zonedDay(at, timezone), name: selfName ?? '' });
+  // The skills list of skills discovery is left empty: a replay reads only the search lines.
+  const lookupSystem = fillPromptTemplate(prompt, { today: zonedDay(at, timezone), name: selfName ?? '', skills: '' });
   const lookupUser = `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
   const model = roleModel(config, 'reasoner', 'lookup');
   let classifierRaw = null;

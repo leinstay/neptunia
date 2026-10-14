@@ -64,6 +64,7 @@ Every key in `config.json` with its default, grouped by section.
 | `adminCommands` | `true` | Owner slash commands; `false` unregisters them |
 | `memberCommands` | `true` | The `/nep pings` command, open to every member; `false` restricts it to owners |
 | `skills` | `true` | The persona's skill gateway. `false` refuses every skill call, which also silences carried-over reply effects (messages, reactions, drawing): a full stop. A missing key counts as on |
+| `skillsDiscovery` | `true` | The lookup classifier and the turn planner can name skills relevant to the message or request the full list on an inventory question. A `<skills_protocol>` block sits in the stable part, and a `<skills>` block with the full list is added on an inventory request. Off when `features.skills` is off. A missing key counts as on |
 
 ## `skills`
 

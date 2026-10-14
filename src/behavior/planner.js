@@ -19,6 +19,7 @@ import { parseParticipationPick } from './participation-pick.js';
 import { block, fillPromptTemplate, stableThenTail } from './prompt.js';
 import { parseLookupAnswer, recallSettings } from './recall.js';
 import { parseRouteAnswer } from './route.js';
+import { parseSkillsLines } from '../skills/discovery.js';
 
 /** The four blocks of a planner answer, in the order the prompt lists them. */
 export const PLANNER_BLOCKS = Object.freeze(['channel', 'episodes', 'rewatch', 'lookup']);
@@ -78,7 +79,9 @@ export function parseRewatchPickDetailed(raw, count) {
 
 /**
  * The planner's request: the system message is `prompt` with `{{name}}` (the
- * persona's display name) and `{{today}}` (`YYYY-MM-DD`) filled; the user
+ * persona's display name), `{{today}}` (`YYYY-MM-DD`) and `{{skills}}` (the
+ * registry's lines for skills discovery, src/skills/discovery.js#skillsIndex;
+ * '' with discovery off) filled; the user
  * message carries the input blocks in the prompt's order -- `<channels>`,
  * `<episodes>`, `<media>`, the transcript, `<candidate>` -- each left out when
  * it has no line. Laid out for the provider's prompt cache: the channel and
@@ -87,24 +90,24 @@ export function parseRewatchPickDetailed(raw, count) {
  * candidate are the per-turn tail. `transcriptBlock` is a whole
  * `<transcript>` block or ''. Null when the prompt is blank or there is no
  * candidate block.
- * @param {{ prompt: string|null|undefined, selfName: string, today: string, channelLines?: string[],
+ * @param {{ prompt: string|null|undefined, selfName: string, today: string, skills?: string, channelLines?: string[],
  *   episodeLines?: string[], mediaLines?: string[], transcriptBlock?: string, candidateBlock: string }} params
  * @returns {{ role: string, content: string|object[] }[]|null}
  */
-export function buildPlannerRequest({ prompt, selfName, today, channelLines = [], episodeLines = [], mediaLines = [], transcriptBlock = '', candidateBlock }) {
+export function buildPlannerRequest({ prompt, selfName, today, skills = '', channelLines = [], episodeLines = [], mediaLines = [], transcriptBlock = '', candidateBlock }) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   if (typeof candidateBlock !== 'string' || !candidateBlock) return null;
   const lines = (list) => (Array.isArray(list) ? list.join('\n') : '');
   const stable = [block('channels', lines(channelLines)), block('episodes', lines(episodeLines))].filter(Boolean).join('\n');
   const tail = [block('media', lines(mediaLines)), String(transcriptBlock ?? '').trimEnd(), candidateBlock];
   return [
-    { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '', today: today ?? '' }) },
+    { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '', today: today ?? '', skills: skills ?? '' }) },
     { role: 'user', content: stableThenTail(stable, tail, '\n') },
   ];
 }
 
 /** A labelled line of the answer: a list bullet or bold marks around the label are tolerated. */
-const LINE_RE = /^(?:[-*•>]\s*)*\**\s*(channel|episodes|rewatch|lookup|web|server|who|when|recent)\s*\**\s*:\s*\**\s*(.*)$/i;
+const LINE_RE = /^(?:[-*•>]\s*)*\**\s*(channel|episodes|rewatch|lookup|web|server|who|when|recent|skills)\s*\**\s*:\s*\**\s*(.*)$/i;
 /** The labels of the lookup block's own lines (src/behavior/recall.js#parseLookupAnswer). */
 const LOOKUP_LABELS = new Set(['web', 'server', 'who', 'when', 'recent']);
 const NONE_RE = /^none\b/i;
@@ -186,8 +189,11 @@ function lookupBlock(heads, labelled, options) {
 
 /**
  * The planner's answer, block by block. Every non-empty line is read once:
- * `channel:`, `episodes:`, `rewatch:`, `lookup:` and the lookup block's
- * labelled lines; any other line is counted in `unknown` and changes nothing.
+ * `channel:`, `episodes:`, `rewatch:`, `lookup:`, the lookup block's
+ * labelled lines and `skills:`; any other line is counted in `unknown` and
+ * changes nothing. `skills` is no block of PLANNER_BLOCKS: an optional line
+ * (skills discovery, src/skills/discovery.js#parseSkillsLines over
+ * `skillNames`), `missing` when absent, never a fallback.
  * Each block has a `state`: `ok` (a usable pick), `none` (the model said
  * none), `invalid` (present but unparsable, a number outside its list, a
  * repeated line) or `missing` (not answered), and `parse`, the code of the
@@ -196,15 +202,15 @@ function lookupBlock(heads, labelled, options) {
  * did not carry: any number for it is then invalid). Indices are 1-based.
  * @param {unknown} raw
  * @param {{ counts?: { channels?: number, episodes?: number, media?: number }, timezone?: string,
- *   now?: number, maxForms?: number }} [options]
+ *   now?: number, maxForms?: number, skillNames?: string[] }} [options]
  * @returns {{ channel: { state: string, parse: string|null, index: number|null, direction: 'earlier'|null },
  *   episodes: { state: string, parse: string|null, indices: number[] },
  *   rewatch: { state: string, parse: string|null, pick: { n: number, question: string, retry: boolean }|null },
  *   lookup: { state: string, parse: string|null, web: string|null, server: object|null },
- *   unknown: number }}
+ *   skills: { state: string, inventory: boolean, names: string[] }, unknown: number }}
  */
-export function parsePlannerAnswer(raw, { counts = {}, timezone = 'UTC', now, maxForms } = {}) {
-  const values = { channel: [], episodes: [], rewatch: [], lookup: [] };
+export function parsePlannerAnswer(raw, { counts = {}, timezone = 'UTC', now, maxForms, skillNames } = {}) {
+  const values = { channel: [], episodes: [], rewatch: [], lookup: [], skills: [] };
   const labelled = [];
   let unknown = 0;
   const take = (line) => {
@@ -233,6 +239,7 @@ export function parsePlannerAnswer(raw, { counts = {}, timezone = 'UTC', now, ma
     episodes: episodesBlock(values.episodes, count('episodes')),
     rewatch: rewatchBlock(values.rewatch, count('media')),
     lookup: lookupBlock(values.lookup, labelled, { timezone, now, maxForms }),
+    skills: parseSkillsLines(values.skills, skillNames),
     unknown,
   };
 }
@@ -262,14 +269,16 @@ function allMissing() {
  * failed call, adds a `helper-fallback` entry to `limits` (`where:
  * 'planner:<block>'`, `detail`: the state or the failure code); its consumer
  * then uses that block's safe default. Codes and counts only in the logs:
- * never a line, a query or a question.
+ * never a line, a query or a question. `skills` fills the prompt's
+ * `{{skills}}` (buildPlannerRequest) and `skillNames` are the names its
+ * `skills:` line may name (parsePlannerAnswer); the turn reads that line.
  * @param {{ llm: { complete: Function }, config: object, prompt: string|null|undefined, selfName: string,
- *   today: string, offer: { channels?: string[], episodes?: string[], media?: string[], lookup?: boolean },
+ *   today: string, skills?: string, skillNames?: string[], offer: { channels?: string[], episodes?: string[], media?: string[], lookup?: boolean },
  *   transcriptBlock?: string, candidateBlock?: string|null, channelId?: string|null, kind?: string|null,
  *   now?: () => number, limits?: { add: Function }|null }} params
  * @returns {Promise<{ outcome: 'classified'|'failed'|'skipped', reason: string|null, blocks: ReturnType<typeof parsePlannerAnswer> }>}
  */
-export async function askPlanner({ llm, config, prompt, selfName, today, offer = {}, transcriptBlock = '', candidateBlock = null, channelId = null, kind = null, now = Date.now, limits = null }) {
+export async function askPlanner({ llm, config, prompt, selfName, today, skills = '', skillNames, offer = {}, transcriptBlock = '', candidateBlock = null, channelId = null, kind = null, now = Date.now, limits = null }) {
   const at = now();
   const list = (key) => (Array.isArray(offer[key]) ? offer[key] : []);
   const counts = { channels: list('channels').length, episodes: list('episodes').length, media: list('media').length };
@@ -289,6 +298,7 @@ export async function askPlanner({ llm, config, prompt, selfName, today, offer =
     prompt,
     selfName,
     today,
+    skills,
     channelLines: list('channels'),
     episodeLines: list('episodes'),
     mediaLines: list('media'),
@@ -326,6 +336,7 @@ export async function askPlanner({ llm, config, prompt, selfName, today, offer =
     timezone: config?.bot?.timezone,
     now: at,
     maxForms: recallSettings(config)?.maxForms,
+    skillNames,
   });
   fellBack(blocks, (result) => (result.state === 'invalid' || result.state === 'missing' ? result.state : null));
   const states = Object.fromEntries(PLANNER_BLOCKS.map((name) => [name, offered[name] ? blocks[name].state : null]));

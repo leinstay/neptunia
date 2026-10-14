@@ -299,5 +299,16 @@
     "offLead": "You were away:",
     "offPaused": "Paused by the owner, {from} to {to} ({length})",
     "offStopped": "Off, {from} to {to} ({length})"
+  },
+  "skills": {
+    "protocol": "You have skills described in a registry. When someone asks what you can do, <skills> shows the full list with whether you may use each one. The engine checks your rights. Do not reach for a skill unless the message needs one.",
+    "line": "{name}: {title} — {whenToUse} ({access})",
+    "access": {
+      "allowed": "allowed",
+      "carried-over": "allowed here, through your reply",
+      "not-allowed": "not switched on",
+      "safe-mode": "safe mode",
+      "requester-denied": "not for this person"
+    }
   }
 }

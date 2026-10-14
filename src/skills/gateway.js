@@ -121,9 +121,10 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
  * The catalogue as the persona would see it for `requester` in `audience`'s conversation (the
  * discovery step, the `skills.list` skill): one row per registry skill, in order, `{ name, title,
  * whenToUse, allowed, reason }`, the texts from the skills layer (`texts`: `hot.prompts.skills`).
- * `reason` is skillAccess's (`carried-over`, `allowed`, `not-allowed`, `safe-mode`, `skills-off`,
- * `owner-only`), or `requester-denied` for a shared-state skill the requester has no right for.
- * Arguments, targets and budget are per call and left to `checkSkill`.
+ * `reason` is skillAccess's (`carried-over`, `allowed`, `not-allowed`, `safe-mode`, `skills-off`),
+ * or `requester-denied` for a shared-state skill the requester has no right for. An owner-only
+ * skill is no persona skill and has no row. Arguments, targets and budget are per call and left
+ * to `checkSkill`.
  * @param {{ config: object, state: object, texts?: object, requester?: object|null, audience?: { conversationId?: string },
  *   registry?: Map<string, object>, getOp?: Function }} args
  * @returns {{ name: string, title: string, whenToUse: string, allowed: boolean, reason: string }[]}
@@ -131,6 +132,7 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
 export function listSkills({ config, state, texts, requester = null, audience = {}, registry = skillRegistry(), getOp }) {
   const rows = [];
   for (const skill of registry.values()) {
+    if (skill.ownerOnly === true) continue;
     const { title, whenToUse } = describeSkill(skill, texts);
     const current = audience?.conversationId ?? null;
     let { allowed, reason } = skillAccess({ skill, state, config, conversationId: current, currentConversationId: current });
