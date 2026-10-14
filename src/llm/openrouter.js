@@ -442,8 +442,8 @@ export function cacheTtlFor(config, role, model, force) {
 
 /**
  * The TTL of the profiles segment's marker (`cacheSegment: 'profiles'`, see `withCacheMarker`):
- * `config.llm.cache.profilesTtl` -- `'1h'` as it is, `null` or `false` -> null (no marker on that
- * part), anything else (missing included) `'5m'`, config.json's value. Pure; the caller passes
+ * `config.llm.cache.profilesTtl` -- `'5m'` as it is, `null` or `false` -> null (no marker on that
+ * part), anything else (missing included) `'1h'`, config.json's value. Pure; the caller passes
  * the live config read at the moment of use.
  * @param {unknown} config  The whole live config.
  * @returns {'1h'|'5m'|null}
@@ -451,7 +451,7 @@ export function cacheTtlFor(config, role, model, force) {
 export function profilesTtlFor(config) {
   const value = config?.llm?.cache?.profilesTtl;
   if (value === null || value === false) return null;
-  return value === '1h' ? '1h' : '5m';
+  return value === '5m' ? '5m' : '1h';
 }
 
 // The marker of one TTL, a fresh object per call: `5m` is the provider's default (no `ttl` key),

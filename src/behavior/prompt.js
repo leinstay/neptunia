@@ -33,8 +33,9 @@
 // The rendered order is different, and laid out for the provider's prompt
 // cache: what changes least first, in three text parts -- the stable part
 // (the senses that read only the config, `<self_facts>`, `<about_chat>`,
-// `<gifs>`), the profiles (`<people>`), then the tail that changes every
-// turn, with the chat, the clock, the per-turn senses, the
+// `<gifs>`), the profiles (`<people>` with the interlocutor alone), then the
+// tail that changes every turn, opening with a second `<people>` for everyone
+// else, with the chat, the clock, the per-turn senses, the
 // tempo and the task last, where the model attends best (see assembleUser and
 // docs/prompt-contract.md, "Cache segments"). A private chat (`privateChat`)
 // drops the server map, the neighbouring channels and any pulled channel and
@@ -1077,8 +1078,9 @@ function nowBlock(now, timezone, labels, periods) {
  * segments (see docs/prompt-contract.md, "Cache segments"): the stable part
  * (`cacheSegment: 'stable'`), what changes least first: the stable
  * `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`; the profiles
- * (`cacheSegment: 'profiles'`: `<people>`), then the tail (no segment) with
- * everything that changes from turn to turn -- `<emoji>` among it, its
+ * (`cacheSegment: 'profiles'`: `<people>` with the interlocutor alone), then
+ * the tail (no segment) with everything that changes from turn to turn -- a
+ * second `<people>` with the other members first, `<emoji>` among it, its
  * ranking moves with use several times a day -- `<now>`, the per-turn
  * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
  * renderSenses' two halves. A segment with no block is left
@@ -1104,8 +1106,12 @@ function assembleUser({ nowText, timezone, labels, senses, kept, tempoText, task
     // Own-marked entries last (ownMarkedLast).
     block('gifs', (kept.gifs ?? []).join('\n')),
   ];
-  const profiles = [block('people', [...kept.interlocutor, ...kept.people].join('\n\n'))];
+  // The interlocutor alone: constant while the same member talks to the persona.
+  const profiles = [block('people', kept.interlocutor.join('\n\n'))];
   const tail = [
+    // Everyone else `<people>` shows (asked about, then the compact participants): who they are
+    // moves with every turn, so they open the tail, right where the one block stood.
+    block('people', kept.people.join('\n\n')),
     block('server', kept.server.join('\n\n')),
     block('emoji', (kept.emoji ?? []).join('\n')),
     block('lore', kept.lore.join('\n\n')),

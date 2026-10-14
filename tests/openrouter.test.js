@@ -1745,13 +1745,13 @@ function anySegment(messages) {
   return messages.some((m) => Array.isArray(m.content) && m.content.some((p) => 'cacheSegment' in p));
 }
 
-test('profilesTtlFor: 1h as it is, null or false for no marker, anything else 5m', () => {
-  assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: '1h' } } }), '1h');
+test('profilesTtlFor: 5m as it is, null or false for no marker, anything else 1h', () => {
+  assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: '5m' } } }), '5m');
   for (const off of [null, false]) assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: off } } }), null, String(off));
-  for (const value of ['5m', undefined, '2h', 5, true, '']) {
-    assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: value } } }), '5m', String(value));
+  for (const value of ['1h', undefined, '2h', 5, true, '']) {
+    assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: value } } }), '1h', String(value));
   }
-  for (const config of [undefined, null, {}, { llm: {} }]) assert.equal(profilesTtlFor(config), '5m', JSON.stringify(config));
+  for (const config of [undefined, null, {}, { llm: {} }]) assert.equal(profilesTtlFor(config), '1h', JSON.stringify(config));
 });
 
 test('withCacheMarker: cacheSegment stable takes the request ttl, profiles its own, and the tag is never sent', () => {
@@ -1820,7 +1820,7 @@ test('complete: a segmented reply is sent with the system, stable and profiles m
   assert.deepEqual(markedParts(noProfiles.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H]);
   for (const body of [off, unlisted, otherRole]) assert.deepEqual(markedParts(body.messages), []);
   for (const raw of sent) assert.equal(raw.includes('cacheSegment'), false);
-  assert.deepEqual(markedParts(defaulted.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_5M], 'a missing llm.cache.profilesTtl reads as 5m');
+  assert.deepEqual(markedParts(defaulted.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_1H], 'a missing llm.cache.profilesTtl reads as 1h');
 });
 
 test('complete: the estimate and the token cap count every text part of the user message', async () => {

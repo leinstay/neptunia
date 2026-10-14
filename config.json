@@ -92,7 +92,7 @@
     "maxRequestsPerDay": 5000,
     "provider": null,
     "providerByModel": {},
-    "cache": { "ttl": "1h", "profilesTtl": "5m", "roles": ["voice"], "models": ["anthropic/"], "promptIncludesCached": true },
+    "cache": { "ttl": "1h", "profilesTtl": "1h", "roles": ["voice"], "models": ["anthropic/"], "promptIncludesCached": true },
     "hedge": { "roles": ["analyzer", "reasoner"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
   },
   "embed": {

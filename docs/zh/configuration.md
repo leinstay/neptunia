@@ -90,7 +90,7 @@
 | `provider` | `null` | OpenRouter `provider` 路由对象，原样传递；`null` 表示不发送该字段 |
 | `providerByModel` | `{}` | 按模型路由 provider；详见下文 |
 | `cache.ttl` | `"1h"` | 标记上发送的缓存 TTL: `"1h"` 或 `"5m"` |
-| `cache.profilesTtl` | `"5m"` | 回复用户消息中档案（`<people>`）独立标记的缓存 TTL：`"1h"` 或 `"5m"`。`null` 或 `false` = 无标记。不得超过 `cache.ttl`（`cache.ttl` 为 `"5m"` 则此处也为 `"5m"`） |
+| `cache.profilesTtl` | `"1h"` | 回复用户消息中档案（`<people>`）独立标记的缓存 TTL：`"1h"` 或 `"5m"`。`null` 或 `false` = 无标记。不得超过 `cache.ttl`（`cache.ttl` 为 `"5m"` 则此处也为 `"5m"`） |
 | `cache.roles` | `["voice"]` | 系统消息（回复中也包括用户消息的稳定前缀和档案）会获得缓存标记的请求角色。记忆语音请求不参与，因此只有回复被缓存。添加 `analyzer` 和 `reasoner` 可同时缓存辅助工具的稳定部分 |
 | `cache.models` | `["anthropic/"]` | 提供商接受 `cache_control` 标记的模型 id 前缀（区分大小写）。列表外的模型发送时不带标记 |
 | `cache.promptIncludesCached` | `true` | 提供商报告的 `prompt_tokens` 是否已包含缓存读取和缓存写入的 token。通过一次实际探测设定。token 校准和每请求上限始终使用完整计数 |

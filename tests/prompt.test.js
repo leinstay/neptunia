@@ -2266,7 +2266,7 @@ test('people: a request whose asked-about members have no episodes is the same w
       interlocutor,
     }).request;
   const before = scene(0);
-  assert.ok(bodyOf(userText(before), 'people').includes('## Zoé'));
+  assert.ok(allPeopleOf(userText(before)).includes('## Zoé'));
   for (const value of [3, 10]) {
     const after = scene(value);
     assert.deepEqual(after.messages, before.messages, String(value));
@@ -2435,14 +2435,14 @@ test('people: next to a pulled block near the request limit an asked-about membe
 test("people: a private chat shows an asked-about member's episodes like the server; privateLikeServer off hides them", () => {
   const zoe = { id: 'z1', names: ['Zoé'], character: 'rêveuse', episodes: askedEpisodes() };
   const history = [makeMessage(1, NOW - MIN, { authorId: 'u1', authorName: 'Alice', content: 'τι έκανε η Zoé χθες;' })];
-  const shown = bodyOf(userText(buildRequest(privateScene({ history, trigger: history[0], candidateProfiles: [zoe] }))), 'people');
+  const shown = allPeopleOf(userText(buildRequest(privateScene({ history, trigger: history[0], candidateProfiles: [zoe] }))));
   assert.ok(shown.includes('## Zoé') && shown.includes('ε5'), 'a missing switch counts as on: the episodes show');
   const off = fakeConfig({ features: { privateLikeServer: false } });
   const user = userText(buildRequest(privateScene({ history, trigger: history[0], candidateProfiles: [zoe], config: off })));
-  const people = bodyOf(user, 'people');
+  const people = allPeopleOf(user);
   assert.ok(people.includes('## Zoé') && people.includes('character: rêveuse'));
   assert.ok(!people.includes('στιγμή'), "with the switch off another member's episodes do not reach a private chat");
-  const server = bodyOf(userText(buildRequest(privateScene({ history, trigger: history[0], candidateProfiles: [zoe], privateChat: null }))), 'people');
+  const server = allPeopleOf(userText(buildRequest(privateScene({ history, trigger: history[0], candidateProfiles: [zoe], privateChat: null }))));
   assert.ok(server.includes('ε5'), 'the same member on the server shows them');
 });
 
@@ -3006,7 +3006,8 @@ test('buildRequest: privateChat keeps other profiles public-only', () => {
   const user = contentText(buildRequest(
     privateScene({ history, trigger: history[1], otherProfiles: [bob], candidateProfiles: [bob, carl], privateProfile }),
   ).messages[1].content);
-  const people = /<people>\n([\s\S]*?)\n<\/people>/.exec(user)[1];
+  // The interlocutor's block in the profiles part, the others' in the tail.
+  const people = allPeopleOf(user);
   // The merged relationship holds a blank line itself: split on the headings only.
   const sections = people.split(/\n\n(?=## )/);
   const own = sections.filter((s) => s.startsWith('## Alice'));
@@ -3102,6 +3103,12 @@ function userText(request) {
 function bodyOf(text, tag) {
   const match = new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text);
   return match ? match[1] : null;
+}
+
+/** Every `<people>` body of `text` (the interlocutor's cached one, then the tail's) joined as one block was; null when none. */
+function allPeopleOf(text) {
+  const bodies = [...text.matchAll(/^<people>\n([\s\S]*?)\n<\/people>$/gm)].map((match) => match[1]);
+  return bodies.length > 0 ? bodies.join('\n\n') : null;
 }
 
 /** `{from}` / `{to}` of a pulled header: the date and the clock of `ts`. */
@@ -3538,10 +3545,7 @@ test('buildRequest: authors of pulled lines join <people> as asked-about profile
   const robot = { id: 'bot1', names: ['Robot'], character: 'ROBOT' };
   const self = { id: 'me', names: ['Nept'], character: 'SELF' };
   const people = (overrides) =>
-    bodyOf(
-      userText(buildRequest(baseInput({ pulled: [pulledChannel({ messages })], candidateProfiles: [zoe, bjorn, robot, self], ...overrides }))),
-      'people',
-    ) ?? '';
+    allPeopleOf(userText(buildRequest(baseInput({ pulled: [pulledChannel({ messages })], candidateProfiles: [zoe, bjorn, robot, self], ...overrides })))) ?? '';
 
   const shown = people({});
   assert.ok(shown.includes('ZOE_STYLE') && shown.includes('BJORN_STYLE'), 'rendered in full');
@@ -4479,4 +4483,94 @@ test('renderProfile: a freshly replaced real name rides on the new one through l
   assert.ok(renderProfile(profile, labels, { now: NOW }).includes('Real name: Théa (was: Léa)'));
   const later = renderProfile(profile, labels, { now: NOW + 30 * 86_400_000 });
   assert.ok(later.includes('Real name: Théa') && !later.includes('(was: Léa)'), 'past supersededShownDays the old name is not shown');
+});
+
+// --- the cached profiles part: the interlocutor alone ------------------------------------
+
+const BERENICE = {
+  id: 'author-2',
+  names: ['Bérénice', 'Béré'],
+  character: 'quiet',
+  style: 'short lines',
+  interests: [{ topic: 'opéra', note: 'Verdi', weight: 3, firstSeen: '2026-01-02T10:00:00.000Z', lastSeen: '2026-09-01T10:00:00.000Z' }],
+  details: [{ id: 1, text: 'plays the cello', weight: 2, firstSeen: '2026-02-01T10:00:00.000Z', lastSeen: '2026-09-10T10:00:00.000Z' }],
+  affinity: { score: -5, reason: 'teasing', history: [{ ts: '2026-09-12T08:00:00.000Z', delta: -2, reason: 'a joke too far' }] },
+  episodes: [{ date: '2026-09-11', what: 'an argument about Verdi', quote: 'όχι', feeling: 'stung', weight: 2 }],
+  messageCount: 130,
+};
+const CELIK = {
+  id: 'author-3',
+  names: ['Çelik'],
+  character: 'curious',
+  relationship: 'an old friend of Bérénice',
+  interests: [{ topic: 'sailing', note: '', weight: 2, firstSeen: '2026-03-02T10:00:00.000Z', lastSeen: '2026-09-15T10:00:00.000Z' }],
+  affinity: { score: 7, reason: 'helpful', history: [{ ts: '2026-09-14T08:00:00.000Z', delta: 2, reason: 'fixed a link' }] },
+  episodes: [
+    { date: '2026-09-13', what: 'a regatta story', quote: 'ούριος άνεμος', feeling: 'amused', weight: 3 },
+    { date: '2026-09-02', what: 'a lost map', feeling: 'curious', weight: 1 },
+  ],
+  messageCount: 55,
+};
+
+/** The bodies of every `<people>` block of the whole request, in order. */
+function peopleBodies(content) {
+  return blocksOf(contentText(content)).filter((b) => b.tag === 'people').map((b) => b.body);
+}
+
+/** The lines of `texts`, sorted: a multiset to compare. */
+function linesOf(texts) {
+  return texts.flatMap((text) => text.split('\n')).filter(Boolean).sort();
+}
+
+test('buildRequest: the profiles part holds the interlocutor alone and stays byte-identical while other participants come and go', () => {
+  const turn = (otherProfiles, content) => buildRequest(segmentScene({ otherProfiles, triggerFields: content ? { content } : {} })).messages[1].content;
+  const alone = turn([]);
+  const turns = {
+    'Bérénice joins': turn([BERENICE]),
+    'Çelik joins and is asked about': turn([BERENICE, CELIK], 'ask Çelik about it'),
+    'the order of the others turns': turn([CELIK, BERENICE]),
+    'Bérénice is asked about, Çelik left': turn([BERENICE], 'Bérénice knows'),
+  };
+  assert.equal(alone[1].cacheSegment, 'profiles');
+  assert.deepEqual(blocksOf(alone[1].text).map((b) => b.tag), ['people']);
+  assert.ok(alone[1].text.startsWith(`<people>\n## Alice${labels.profile.interlocutorMark}\n`), 'the interlocutor, marked');
+  for (const [name, content] of Object.entries(turns)) {
+    assert.equal(content[1].cacheSegment, 'profiles', name);
+    assert.equal(content[1].text, alone[1].text, name);
+    // The others open the tail, where `<people>` stood before the split.
+    assert.equal(content[2].cacheSegment, undefined, name);
+    assert.equal(blocksOf(content[2].text)[0].tag, 'people', name);
+    assert.ok(!content[2].text.includes('## Alice'), name);
+  }
+  assert.equal(peopleBodies(alone).length, 1, 'nobody else: no second block');
+});
+
+test('buildRequest: the two <people> blocks render exactly the profile lines one block did', () => {
+  const config = fakeConfig({ memory: { interestStaleDays: 30, confirmAfter: 2 } });
+  const content = buildRequest(segmentScene({ config, otherProfiles: [BERENICE, CELIK], triggerFields: { content: 'ask Çelik about it' } })).messages[1].content;
+  const opts = { relationships: true, shownMoves: 4, timezone: 'Europe/Moscow', now: NOW, confirmAfter: 2, staleDays: 30 };
+  const interlocutor = segmentScene().interlocutor;
+  // The old single block: the interlocutor in full with every episode, the member asked about in
+  // full with their top episodes, the other participant compact.
+  const before = [
+    renderProfile(interlocutor, labels, { ...opts, interlocutor: true, episodes: { enabled: true } }),
+    renderProfile(CELIK, labels, { ...opts, episodes: { enabled: true, max: 3 } }),
+    renderProfile(BERENICE, labels, { ...opts, compact: true }),
+  ];
+  assert.deepEqual(linesOf(peopleBodies(content)), linesOf(before));
+  const [cached, tail] = peopleBodies(content);
+  assert.equal(cached, before[0]);
+  assert.equal(tail, before.slice(1).join('\n\n'), 'asked about first, then the compact participants, as before');
+  assert.ok(tail.includes('a regatta story') && !tail.includes('an argument about Verdi'), 'episodes only for the member asked about');
+});
+
+test('buildRequest: another interlocutor changes the profiles part', () => {
+  const asAlice = buildRequest(segmentScene({ otherProfiles: [BERENICE] })).messages[1].content;
+  const asBerenice = buildRequest(
+    segmentScene({ interlocutor: BERENICE, otherProfiles: [segmentScene().interlocutor], triggerFields: { authorId: 'author-2', authorName: 'Bérénice' } }),
+  ).messages[1].content;
+  assert.equal(asBerenice[1].cacheSegment, 'profiles');
+  assert.notEqual(asBerenice[1].text, asAlice[1].text);
+  assert.ok(asBerenice[1].text.startsWith(`<people>\n## Bérénice${labels.profile.interlocutorMark}\n`));
+  assert.ok(blocksOf(asBerenice[2].text)[0].body.startsWith('## Alice\n'), 'the former interlocutor is now among the others, in the tail');
 });
