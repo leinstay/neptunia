@@ -1,5 +1,7 @@
 // Minimal structured logger: one JSON object per line, written to stdout.
 // No dependency, no levels config — callers filter downstream (journald, etc).
+// `onLog` lets a listener read each entry after it is written (src/ops/metrics.js takes the
+// durations the log lines already carry); a listener never changes or stops the logging.
 
 // JSON.stringify(new Error()) is "{}" — serialise errors explicitly, also when nested in meta
 // (callers usually pass `{ error: err, ... }`).
@@ -33,6 +35,31 @@ function write(level, msg, meta) {
     ...normalizeMeta(meta),
   };
   process.stdout.write(`${JSON.stringify(entry)}\n`);
+  for (const listener of listeners) {
+    try {
+      const result = listener(entry);
+      if (result && typeof result.catch === 'function') result.catch(() => {});
+    } catch {
+      // A listener's failure is its own: the line is written, the caller never sees it.
+    }
+  }
+}
+
+/** The listeners `onLog` subscribed, called in subscription order. */
+const listeners = new Set();
+
+/**
+ * Subscribe `listener` to every log entry: it gets the entry object (`{ level, time, msg,
+ * ...meta }`) right after the line is written; one that throws (or rejects) is ignored.
+ * @param {(entry: object) => unknown} listener
+ * @returns {() => void}  Unsubscribes it.
+ */
+export function onLog(listener) {
+  if (typeof listener !== 'function') return () => {};
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 /**

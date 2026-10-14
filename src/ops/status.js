@@ -1,21 +1,26 @@
 // Operations: `/nep status [detail]`: what the bot is doing now, read only. The reply is one
 // card (`cmdStatusCard`, plain embed data: src/discord/commands.js wraps it for discord.js), the
 // most important field first, for a phone; `detail` adds the long text form (`cmdStatus`) below
-// it. A member (anyone not in `bot.owners`) gets the card without the memory and journal fields,
-// and never the long form. Every field lists one item per line. The owner's card probes on every
-// call: one minimal chat completion per distinct chat model and route (`labels.status.probe`,
-// `llm.probeTimeoutMs`, never counted against `llm.maxRequestsPerDay` nor calibrated,
-// `origin: 'status'`), one one-input embedding request for the embedding role, and one free
-// GET of the drawing model's provider listing; a member's card only names the models. A role
-// whose own key is unset is shown with the role it falls back to (`labels.status.fallback`).
+// it. A member (anyone not in `bot.owners`) gets the card without the storage line, the memory
+// and speed fields, and never the long form. Every field lists one item per line. The models
+// field groups the roles by kind under a bold header each (voice, memory, helpers, media,
+// embeddings, drawing). The owner's card probes on every call: one minimal chat completion per
+// distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
+// against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
+// request for the embedding role, and one free GET of the drawing model's provider listing; a
+// member's card only names the models. A role whose own key is unset is shown with the role it
+// falls back to (`labels.status.fallback`). The memory field (the coverage of every kind of
+// memory) is computed at most once a minute: directory listings and the record's month indexes,
+// never its day files. The speed field reads src/ops/metrics.js (the last 24 h).
 
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { gifWatchesToday } from '../memory/gif-watch.js';
 import { initiateCooldownUntil } from '../behavior/spontaneous.js';
 import { RECALL_DAILY } from '../behavior/recall-run.js';
 import { llmCountToday, resolveProvider } from '../llm/openrouter.js';
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../llm/images.js';
-import { countToday, DAY_MS, HOUR_MS, MINUTE_MS } from '../time.js';
+import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
 import { VOICE_DAILY } from '../memory/update.js';
 import { VIDEO_DAILY } from '../memory/describe.js';
 import { WEB_DAILY } from '../web/lookup.js';
@@ -24,23 +29,42 @@ import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from '../discord/access.js';
 import { MODEL_ROLES, MODEL_ROLE_PATHS } from '../discord/commands.js';
 import { EMBED_ROLE } from '../llm/embed.js';
+import { ARCHIVE_EVENTS } from '../memory/archive.js';
+import { plannerOn } from '../behavior/planner.js';
+import { SPEED_METRICS } from './metrics.js';
 import { isPlainObject } from '../config.js';
 import { fill } from '../discord/format.js';
 import { log } from '../log.js';
 import { todayUtc, onOff, modelForRole } from './shared.js';
 import { defineOp, perEnv } from './registry.js';
 
-/** The card's field names, in order (the memory and journal ones are the owner's only). */
-export const STATUS_FIELDS = Object.freeze(['state', 'connection', 'long tasks', 'models', 'today', 'memory', 'journal', 'uptime']);
+/** The card's field names, in order (the memory and speed ones are the owner's only). */
+export const STATUS_FIELDS = Object.freeze(['state', 'connection', 'long tasks', 'models', 'limits', 'memory', 'speed', 'uptime']);
 
 /** The fields a member's card leaves out. */
-const OWNER_FIELDS = new Set(['memory', 'journal']);
-
-/** The roles the models field names after the voice, each only when its model differs. */
-const OTHER_ROLES = Object.freeze(MODEL_ROLES.filter((role) => role !== 'voice'));
+const OWNER_FIELDS = new Set(['memory', 'speed']);
 
 /** The role whose model a role takes while its own key is unset (src/ops/shared.js#modelForRole). */
 const FALLBACK_ROLE = Object.freeze({ analyzer: 'voice', 'classifier.reason': 'classifier.text', 'classifier.text': 'classifier.media' });
+
+/** The models field's groups, in order: a bold header line each, then one line per role (the
+ * helpers group ends with the `classifier.byPurpose` overrides). A role of MODEL_ROLES no group
+ * names joins the helpers. */
+const MODEL_GROUPS = Object.freeze([
+  { name: 'voice', roles: ['voice'] },
+  { name: 'memory', roles: ['analyzer'] },
+  { name: 'helpers', roles: ['classifier.text', 'classifier.reason'], byPurpose: true },
+  { name: 'media', roles: ['classifier.media', 'classifier.video'] },
+  { name: 'embeddings', roles: [EMBED_ROLE] },
+  { name: 'drawing', roles: [IMAGE_ROLE] },
+]);
+
+/** MODEL_GROUPS with every chat role placed: one left out joins the helpers. */
+function modelGroups() {
+  const placed = new Set(MODEL_GROUPS.flatMap((group) => group.roles));
+  const extra = MODEL_ROLES.filter((role) => !placed.has(role));
+  return MODEL_GROUPS.map((group) => (group.byPurpose && extra.length > 0 ? { ...group, roles: [...group.roles, ...extra] } : group));
+}
 
 /** The config value at a dotted path, or undefined. */
 function valueAt(cfg, dotted) {
@@ -65,29 +89,47 @@ function modelSourceRole(role, cfg) {
   return null;
 }
 
-/** `<role> <model>`, with `labels.status.fallback` (`{role}` = the role it falls back to) when
- * the model comes from another role's key; no marker without the label. */
+/** `<role> · <model>`, with `labels.status.fallback` (`{role}` = the role it falls back to) after
+ * the model when it comes from another role's key; no marker without the label. */
 function roleHead(role, model, cfg, labels) {
   const source = modelSourceRole(role, cfg);
   const template = labels?.status?.fallback;
   const marker = source && source !== role && typeof template === 'string' && template ? ` ${fill(template, { role: source })}` : '';
-  return `${role} ${model}${marker}`;
+  return `${role} · ${model}${marker}`;
 }
 
-/** The `classifier.byPurpose` overrides of the live config, one `byPurpose <purpose> <model>` line each. */
+/** The `classifier.byPurpose` overrides of the live config, one `byPurpose <purpose> · <model>` line each. */
 function byPurposeLines(cfg) {
   const byPurpose = cfg?.classifier?.byPurpose;
   if (!isPlainObject(byPurpose)) return [];
   return Object.entries(byPurpose)
     .filter(([, model]) => typeof model === 'string' && model)
-    .map(([purpose, model]) => `byPurpose ${purpose} ${model}`);
+    .map(([purpose, model]) => `byPurpose ${purpose} · ${model}`);
+}
+
+/** The models field: each group's bold header, then `lineOf(role)` per role (the drawing role's
+ * line `imageLine`, left out when null), the helpers group ending with the per-purpose overrides. */
+function groupedModels(cfg, lineOf, imageLine) {
+  const lines = [];
+  for (const group of modelGroups()) {
+    lines.push(`**${group.name}**`);
+    for (const role of group.roles) {
+      if (role === IMAGE_ROLE) {
+        if (imageLine) lines.push(imageLine);
+        continue;
+      }
+      lines.push(lineOf(role));
+    }
+    if (group.byPurpose) lines.push(...byPurposeLines(cfg));
+  }
+  return lines.join('\n');
 }
 
 /** `llm.probeTimeoutMs` when config.json lacks it (the same value). */
 const PROBE_TIMEOUT_MS = 30000;
 
 /** How much of a failed probe's error message the card keeps. */
-const PROBE_ERROR_CHARS = 160;
+const PROBE_ERROR_CHARS = 100;
 
 /** Discord's cap on one embed field's value. */
 const FIELD_MAX_CHARS = 1024;
@@ -137,24 +179,17 @@ function extractRoutingFunnel(rawBody) {
   return firstZero && firstZero !== last ? `${lastLine} (first hit 0 at ${describeFunnelStep(firstZero)})` : lastLine;
 }
 
-/** One role's probe lines: `<head> · ok <ms> ms` with the provider and token counts (or an
- * embedding's dimensions) indented below, or `<head> · error: <message>` with the routing funnel
- * below; `head` is `<role> <model>` with its fallback marker (roleHead). */
-function probeLines(head, outcome) {
+/** One role's probe line: `<head> · <provider> · ok <ms> ms` (`-` when the answer names no
+ * provider, as an embedding's does not), or `<head> · failed: <short reason>` with the routing
+ * funnel in brackets when the error body has one; `head` is `<role> · <model>` with its fallback
+ * marker (roleHead). */
+function probeLine(head, outcome) {
   if (!outcome.ok) {
     const message = clampChars(oneLine(outcome.err?.message ?? outcome.err ?? 'error'), PROBE_ERROR_CHARS);
     const funnel = extractRoutingFunnel(outcome.err?.body);
-    return funnel ? [`${head} · error: ${message}`, `  ${funnel}`] : [`${head} · error: ${message}`];
+    return `${head} · failed: ${message}${funnel ? ` (${funnel})` : ''}`;
   }
-  const detail = [];
-  if (outcome.result?.provider) detail.push(`provider=${outcome.result.provider}`);
-  const usage = outcome.result?.usage ?? {};
-  if (usage.prompt_tokens != null || usage.completion_tokens != null) {
-    detail.push(`tokens ${usage.prompt_tokens ?? '?'}/${usage.completion_tokens ?? '?'}`);
-  }
-  if (Number.isInteger(outcome.result?.dimensions)) detail.push(`dimensions=${outcome.result.dimensions}`);
-  const line = `${head} · ok ${outcome.ms} ms`;
-  return detail.length > 0 ? [line, `  ${detail.join(', ')}`] : [line];
+  return `${head} · ${outcome.result?.provider || '-'} · ok ${outcome.ms} ms`;
 }
 
 /** `YYYY-MM-DD HH:MM UTC` for an epoch ms or an ISO string; `-` for anything else. */
@@ -180,8 +215,61 @@ function span(ms) {
   return `${minutes}m`;
 }
 
+/** How long the memory field's coverage is reused before it is computed again. */
+const COVERAGE_CACHE_MS = MINUTE_MS;
+
+/** `embed.catchUpHours` when config.json lacks it (the same value). */
+const CATCH_UP_HOURS = 72;
+
+const MONTH_DIR_RE = /^\d{4}-\d{2}$/;
+const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The names in `dir`, sorted; [] when it does not exist. */
+async function listDir(dir) {
+  try {
+    return (await fs.readdir(dir)).sort();
+  } catch (err) {
+    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') return [];
+    throw err;
+  }
+}
+
+/** The days from `from` to `to` (both `YYYY-MM-DD`), both counted. */
+function daysBetween(from, to) {
+  return Math.floor((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / DAY_MS) + 1;
+}
+
+/** `part` of `whole` as a whole percent, `-` of nothing. */
+function percent(part, whole) {
+  return whole > 0 ? `${Math.round((part / whole) * 100)}%` : '-';
+}
+
+/** A duration for the speed field: `N ms` below a second, else `N.N s`. */
+function duration(ms) {
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** The length of a list, 0 for anything else. */
+function countOf(list) {
+  return Array.isArray(list) ? list.length : 0;
+}
+
+/** `<name>: <count> · <oldest>..<newest>`: the oldest of `starts` to the newest of `ends` (epoch
+ * ms, the non-numbers skipped), the count alone when there is no time. */
+function datedLine(name, count, starts, ends) {
+  const from = starts.filter((ms) => Number.isFinite(ms));
+  const to = ends.filter((ms) => Number.isFinite(ms));
+  if (from.length === 0 || to.length === 0) return `${name}: ${count}`;
+  return `${name}: ${count} · ${utcDay(Math.min(...from))}..${utcDay(Math.max(...to))}`;
+}
+
 const handlers = perEnv((env) => {
-  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue } = env;
+  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, record, metrics, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue } = env;
+  // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
+  const clock = typeof env.now === 'function' ? env.now : Date.now;
+  // guildId -> { at, value }: the memory field, reused for COVERAGE_CACHE_MS.
+  const coverageCache = new Map();
 
   /** The next spontaneous turn of `guildId` as an ISO time: src/behavior/spontaneous.js#status
    * keeps `{ [guildId]: epochMs }`. Null when there is none (or no scheduler). */
@@ -266,7 +354,8 @@ const handlers = perEnv((env) => {
     return lines.join('\n');
   }
 
-  /** The state field: running, or paused with since when and by whom (`pausedBy`, when known). */
+  /** The state field: running, or paused with since when and by whom (`pausedBy`, when known);
+   * the owner's card adds the storage line (storageLine). */
   function stateValue(data) {
     if (!data.paused) return 'running';
     const by = typeof data.pausedBy === 'string' && data.pausedBy ? ` by <@${data.pausedBy}>` : '';
@@ -303,20 +392,55 @@ const handlers = perEnv((env) => {
     return parts.length > 0 ? parts.join('\n') : 'none';
   }
 
-  /** The models field unprobed: the voice, then each other role (the drawing model last) whose model
-   * differs from it, each with its fallback marker, then the per-purpose overrides. */
+  /** When the journal was last written (today's day file, else yesterday's: the first hour after
+   * midnight), as epoch ms, or null (no journal, no file). */
+  async function journalLastWrite(guildId, nowMs) {
+    if (typeof journal?.dayFile !== 'function') return null;
+    let last = null;
+    for (const at of [nowMs, nowMs - DAY_MS]) {
+      try {
+        const stat = await fs.stat(journal.dayFile(guildId, new Date(at).toISOString()));
+        if (last === null || stat.mtimeMs > last) last = stat.mtimeMs;
+      } catch {
+        // no file that day
+      }
+    }
+    return last;
+  }
+
+  /**
+   * The owner's storage line under the state: `storage ok`, or `storage: <problem>; ...` -- the
+   * journal's append store stalled, archive copies waiting (the count), the journal not written
+   * for over an hour while turns happen (features.journal exactly true, read now; a reply posted
+   * in the last hour per the metrics; nothing is judged without them).
+   */
+  async function storageLine(guildId, cfg) {
+    const problems = [];
+    if (typeof journal?.stalled === 'function' && journal.stalled() === true) problems.push('append store stalled');
+    const pending = archivePending(guildId);
+    if (pending > 0) problems.push(`${pending} archive copies pending`);
+    const nowMs = clock();
+    if (guildId && cfg?.features?.journal === true && typeof metrics?.summary === 'function' && metrics.summary('reply', 1).n > 0) {
+      const last = await journalLastWrite(guildId, nowMs);
+      if (last === null) problems.push('journal not written today while turns happen');
+      else if (nowMs - last > HOUR_MS) problems.push(`journal not written since ${utcMinute(last)} while turns happen`);
+    }
+    return problems.length > 0 ? `storage: ${problems.join('; ')}` : 'storage ok';
+  }
+
+  /** The models field unprobed (a member's card): every group, each role's model with its
+   * fallback marker, the drawing model last. */
   function modelsValue(cfg) {
     const labels = hot.prompts?.labels;
-    const voice = modelForRole('voice', cfg) ?? '-';
-    const parts = [`voice ${voice}`];
-    for (const role of OTHER_ROLES) {
-      const model = modelForRole(role, cfg);
-      if (model && model !== voice) parts.push(roleHead(role, model, cfg, labels));
-    }
-    const image = cfg?.image?.model;
-    if (image && image !== voice) parts.push(`${IMAGE_ROLE} ${imageModelLabel(cfg)}`);
-    parts.push(...byPurposeLines(cfg));
-    return parts.join('\n');
+    const image = cfg?.image?.model ? `${IMAGE_ROLE} · ${imageModelLabel(cfg)}` : `${IMAGE_ROLE} · no model configured`;
+    return groupedModels(
+      cfg,
+      (role) => {
+        const model = modelForRole(role, cfg);
+        return model ? roleHead(role, model, cfg, labels) : `${role} · no model configured`;
+      },
+      image,
+    );
   }
 
   /** The embedding role's probe: one embedding request of one input (the probe label), never
@@ -341,29 +465,30 @@ const handlers = perEnv((env) => {
     try {
       listing = await llm.modelEndpoints(model, { timeoutMs });
     } catch (err) {
-      return `error: ${err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'network'}`;
+      return `failed: ${err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'network'}`;
     }
     if (listing.status === 404) return 'not listed (HTTP 404)';
-    if (!listing.ok) return `error: HTTP ${listing.status}`;
+    if (!listing.ok) return `failed: HTTP ${listing.status}`;
     const modalities = listing.json?.data?.architecture?.output_modalities;
     if (!Array.isArray(modalities) || !modalities.includes('image')) return 'listed, but no image output';
     const endpoints = Array.isArray(listing.json.data.endpoints) ? listing.json.data.endpoints.length : 0;
     return `listed, image output, ${endpoints} endpoint(s), ${Date.now() - start} ms`;
   }
 
-  /** The drawing model's line, or null when none is set; notes when drawing is switched off
-   * (features.imageGeneration false; a missing key counts as on). */
+  /** The drawing model's line (`image · no model configured` when none is set); notes when
+   * drawing is switched off (features.imageGeneration false; a missing key counts as on). */
   async function imageProbeLine(cfg, timeoutMs) {
     const model = cfg?.image?.model;
-    if (!model) return null;
+    if (!model) return `${IMAGE_ROLE} · no model configured`;
     const off = cfg?.features?.imageGeneration === false ? ' (features.imageGeneration is off)' : '';
-    return `${IMAGE_ROLE} ${model} · ${await imageListing(model, timeoutMs)}${off}`;
+    return `${IMAGE_ROLE} · ${model} · ${await imageListing(model, timeoutMs)}${off}`;
   }
 
   /**
    * The owner's models field: every role's model, as resolved now, probed in parallel -- the chat
    * roles with one minimal chat completion, the embedding role with one embedding request of one
-   * input -- then the per-purpose overrides (unprobed) and the drawing model's listing. Roles
+   * input -- grouped by kind (MODEL_GROUPS), one line per role, the per-purpose overrides
+   * (unprobed) closing the helpers and the drawing model's listing the drawing group. Roles
    * sharing a model and a provider route share a probe (a role-specific `llm.providerByModel` key
    * routing one elsewhere makes it a probe of its own); each probe goes out as the first role that
    * needs it. Never counted against the daily cap, never calibrated, never writes under data/.
@@ -421,22 +546,19 @@ const handlers = perEnv((env) => {
       failed: outcomes.filter((outcome) => !outcome.ok).length,
       reason: promptText ? null : 'no-label',
     });
-    const lines = MODEL_ROLES.flatMap((role) => {
+    const lineOf = (role) => {
       const model = roleModel.get(role);
-      if (!model) return [`${role} · no model configured`];
+      if (!model) return `${role} · no model configured`;
       const head = roleHead(role, model, cfg, labels);
-      if (!promptText) return [`${head} · skipped: label missing`];
-      if (role === EMBED_ROLE && !canEmbed) return [`${head} · not checked (no embedding client)`];
-      return probeLines(head, results.get(targetOf(role)));
-    });
-    lines.push(...byPurposeLines(cfg));
-    const imageLine = await image;
-    if (imageLine) lines.push(imageLine);
-    return lines.join('\n');
+      if (!promptText) return `${head} · skipped: label missing`;
+      if (role === EMBED_ROLE && !canEmbed) return `${head} · not checked (no embedding client)`;
+      return probeLine(head, results.get(targetOf(role)));
+    };
+    return groupedModels(cfg, lineOf, await image);
   }
 
-  /** The today field: every daily rail's used/cap, then when they reset. */
-  function todayValue(cfg, data) {
+  /** The limits field: every daily rail's used/cap, then when they reset. */
+  function limitsValue(cfg, data) {
     const nowMs = Date.now();
     const parts = [`requests ${usedOf(llmCountToday(data, nowMs), cfg?.llm?.maxRequestsPerDay)}`];
     if (images) {
@@ -451,58 +573,187 @@ const handlers = perEnv((env) => {
     return `${parts.join('\n')}\nresets 00:00 UTC`;
   }
 
-  /** When today's journal file was last written, or null (no journal, no file yet). */
-  async function journalLastWrite(guildId) {
-    if (typeof journal?.dayFile !== 'function') return null;
-    try {
-      const stat = await fs.stat(journal.dayFile(guildId, new Date().toISOString()));
-      return stat.mtimeMs;
-    } catch {
-      return null;
+  /** The record line: its messages (the distinct ids of the month indexes), its first day to
+   * today, and the share of those days with a day file. Reads directory listings and one
+   * `ids.json` per month, never a day file. */
+  async function recordLine(guildId, today) {
+    if (typeof record?.dayFile !== 'function') return 'record: not available';
+    // The guild record's root: the parent of a month directory (src/memory/record.js's layout).
+    const base = path.dirname(path.dirname(record.dayFile(guildId, '2000-01-01T00:00:00.000Z')));
+    const ids = new Set();
+    let days = 0;
+    let first = null;
+    for (const month of (await listDir(base)).filter((name) => MONTH_DIR_RE.test(name))) {
+      for (const name of await listDir(path.join(base, month))) {
+        const day = name.match(DAY_FILE_RE)?.[1];
+        if (!day) continue;
+        days += 1;
+        if (first === null || day < first) first = day;
+      }
+      let keys = null;
+      try {
+        keys = JSON.parse(await fs.readFile(path.join(base, month, 'ids.json'), 'utf8'));
+      } catch {
+        // no index for the month yet: its messages are not counted
+      }
+      if (Array.isArray(keys)) {
+        for (const key of keys) if (typeof key === 'string' && key.includes(':')) ids.add(key.slice(0, key.lastIndexOf(':')));
+      }
     }
+    if (first === null) return `record: ${ids.size} messages`;
+    const since = Math.max(1, daysBetween(first, today));
+    return `record: ${ids.size} messages · ${first}..${today} · ${percent(days, since)} of days have lines`;
   }
 
-  /** The meaning index line (`labels.status.index`: `{rows}` in the index, `{missing}` after the
-   * last catch-up pass, `-` before one), only while features.meaningSearch and features.embedIndex
-   * are both exactly true and the queue is wired; null otherwise, or when it cannot be read. */
+  /** The meaning index line: `off` unless features.meaningSearch and features.embedIndex are both
+   * exactly true; else its rows (the guild's and every private layer's), the share of the record
+   * messages of the last `embed.catchUpHours` it holds and the day of the oldest one missing. */
   async function indexLine(guildId, cfg) {
-    const template = hot.prompts?.labels?.status?.index;
-    if (typeof template !== 'string' || !template || typeof embedQueue?.indexSummary !== 'function') return null;
-    if (cfg?.features?.meaningSearch !== true || cfg?.features?.embedIndex !== true) return null;
+    if (cfg?.features?.meaningSearch !== true || cfg?.features?.embedIndex !== true) return 'index: off';
+    if (typeof embedQueue?.indexSummary !== 'function') return 'index: not available';
+    const { rows } = await embedQueue.indexSummary(guildId);
+    const parts = [`index: ${rows} rows`];
+    if (typeof embedQueue.coverage === 'function') {
+      const configured = cfg?.embed?.catchUpHours;
+      const hours = typeof configured === 'number' && Number.isFinite(configured) && configured > 0 ? configured : CATCH_UP_HOURS;
+      const found = await embedQueue.coverage(guildId, { hours });
+      parts.push(`${percent(found.indexed, found.messages)} of record messages indexed (last ${hours} h)`);
+      parts.push(found.oldestMissing ? `oldest missing ${String(found.oldestMissing).slice(0, 10)}` : 'none missing');
+    }
+    return parts.join(' · ');
+  }
+
+  /** The archive line: its entries by event (ARCHIVE_EVENTS order), and the days the oldest and
+   * the newest of them were observed. */
+  async function archiveLine(guildId) {
+    if (typeof archive?.iterate !== 'function') return 'archive: not available';
+    const byEvent = new Map();
+    let entries = 0;
+    let oldest = null;
+    let newest = null;
+    for await (const entry of archive.iterate(guildId)) {
+      entries += 1;
+      const event = typeof entry?.event === 'string' ? entry.event : 'other';
+      byEvent.set(event, (byEvent.get(event) ?? 0) + 1);
+      const day = String(entry?.observedAt?.date ?? '').slice(0, 10);
+      if (!DAY_RE.test(day)) continue;
+      if (oldest === null || day < oldest) oldest = day;
+      if (newest === null || day > newest) newest = day;
+    }
+    const order = (event) => (ARCHIVE_EVENTS.includes(event) ? ARCHIVE_EVENTS.indexOf(event) : ARCHIVE_EVENTS.length);
+    const kinds = [...byEvent].sort(([a], [b]) => order(a) - order(b)).map(([event, count]) => `${event} ${count}`);
+    const parts = [`archive: ${entries} entries`];
+    if (kinds.length > 0) parts.push(kinds.join(', '));
+    if (oldest) parts.push(`observed ${oldest}..${newest}`);
+    return parts.join(' · ');
+  }
+
+  /** The profiles line: their count, the share with a portrait (`character`), their episodes
+   * (total and per profile), details, aliases and real names set. */
+  function profilesLine(guildId) {
+    const profiles = store.listUserProfiles(guildId) ?? [];
+    let portraits = 0;
+    let episodes = 0;
+    let details = 0;
+    let aliases = 0;
+    let realNames = 0;
+    for (const profile of profiles) {
+      if (typeof profile?.character === 'string' && profile.character.trim()) portraits += 1;
+      episodes += countOf(profile?.episodes);
+      details += countOf(profile?.details);
+      aliases += countOf(profile?.aliases);
+      if (typeof profile?.realName?.name === 'string' && profile.realName.name) realNames += 1;
+    }
+    const n = profiles.length;
+    const perProfile = n > 0 ? Math.round((episodes / n) * 10) / 10 : 0;
+    return [
+      `profiles: ${n}`,
+      `${percent(portraits, n)} with a portrait`,
+      `${episodes} episodes (${perProfile} per profile)`,
+      `${details} details`,
+      `${aliases} aliases`,
+      `${realNames} real names set`,
+    ].join(' · ');
+  }
+
+  /** The server notes line: lore entries, lessons (`learned`), self facts and in-jokes. */
+  function serverNotesLine(guildId) {
+    const guild = store.getGuild(guildId) ?? {};
+    return `server notes: ${countOf(store.getLore(guildId))} lore entries · ${countOf(guild.learned)} lessons · ${countOf(guild.self)} self facts · ${countOf(guild.injokes)} in-jokes`;
+  }
+
+  /** The channels line: the channels with notes (a purpose, topics or a tone) of those seen. */
+  function channelsLine(guildId) {
+    const channels = store.listChannels(guildId) ?? [];
+    const noted = channels.filter((channel) => ['purpose', 'topics', 'tone'].some((key) => typeof channel?.[key] === 'string' && channel[key].trim())).length;
+    return `channels: ${noted} with notes / ${channels.length} seen (${percent(noted, channels.length)})`;
+  }
+
+  /** The recent lines (from the oldest `at` to the newest) and the participation fragments (from
+   * the first message of the oldest to the last message of the newest). */
+  function recentLine(guildId) {
+    const lines = store.getRecent?.(guildId)?.lines ?? [];
+    const at = lines.map((line) => line?.at);
+    return datedLine('recent lines', lines.length, at, at);
+  }
+
+  function participationLine(guildId) {
+    const episodes = store.getParticipation?.(guildId)?.episodes ?? [];
+    return datedLine('participation fragments', episodes.length, episodes.map((episode) => episode?.startAt), episodes.map((episode) => episode?.lastAt));
+  }
+
+  /** One coverage line through `compute`; `<name>: unreadable` (and a warn with the code) when it throws. */
+  async function safeLine(name, compute) {
     try {
-      const { rows, missing } = await embedQueue.indexSummary(guildId);
-      return fill(template, { rows, missing: missing ?? '-' });
+      return await compute();
     } catch (err) {
-      log.warn('admin: index summary failed', { code: err?.code ?? null, guildId });
-      return null;
+      log.warn('status: coverage failed', { name, code: err?.code ?? null });
+      return `${name}: unreadable`;
     }
   }
 
-  /** The memory field: profiles, buffer lines, the archive's pending queue, the journal's last
-   * write, the meaning index. */
-  async function memoryValue(guildId) {
-    const last = await journalLastWrite(guildId);
-    const index = await indexLine(guildId, hot.config);
+  /** The memory field (the coverage of every kind of memory), one line per kind. */
+  async function computeMemory(guildId) {
+    const cfg = hot.config;
+    const today = utcDay(clock());
     return [
-      `profiles ${store.countUsers(guildId)}`,
-      `buffer ${store.getBuffer(guildId).length} lines`,
-      `archive pending ${archivePending(guildId)}`,
-      `journal last write ${last === null ? 'none today' : utcMinute(last)}`,
-      ...(index ? [index] : []),
+      await safeLine('record', () => recordLine(guildId, today)),
+      await safeLine('index', () => indexLine(guildId, cfg)),
+      await safeLine('archive', () => archiveLine(guildId)),
+      await safeLine('profiles', () => profilesLine(guildId)),
+      await safeLine('server notes', () => serverNotesLine(guildId)),
+      await safeLine('channels', () => channelsLine(guildId)),
+      await safeLine('recent lines', () => recentLine(guildId)),
+      await safeLine('participation fragments', () => participationLine(guildId)),
     ].join('\n');
   }
 
-  /** The journal field: whether the append store is stalled, and the archive's pending queue. */
-  function journalValue(guildId) {
-    const stalled = typeof journal?.stalled === 'function' && journal.stalled() === true;
-    return `append store ${stalled ? 'STALLED' : 'ok'}\narchive pending ${archivePending(guildId)}`;
+  /** The guild's memory field, computed at most once per COVERAGE_CACHE_MS (the cached text in between). */
+  async function memoryValue(guildId) {
+    const cached = coverageCache.get(guildId);
+    if (cached && clock() - cached.at < COVERAGE_CACHE_MS) return cached.value;
+    const value = await computeMemory(guildId);
+    coverageCache.set(guildId, { at: clock(), value });
+    return value;
+  }
+
+  /** The speed field: each metric's median and mean over the last 24 h with the sample count in
+   * brackets, `-` without a sample; the planner only while features.turnPlanner is on. */
+  function speedValue(cfg) {
+    if (typeof metrics?.summary !== 'function') return 'not available';
+    return SPEED_METRICS.filter((name) => name !== 'planner' || plannerOn(cfg))
+      .map((name) => {
+        const { n, median, mean } = metrics.summary(name, 24);
+        return n > 0 ? `${name}: median ${duration(median)} · mean ${duration(mean)} (${n})` : `${name}: -`;
+      })
+      .join('\n');
   }
 
   /**
    * The status card as plain embed data (`{ fields: [{ name, value, inline }] }`), the fields in
    * STATUS_FIELDS order, one item per line in each; `owner` false leaves out the memory and
-   * journal fields and names the models without probing them. Reads the freshest data/ even
-   * mid-pause.
+   * speed fields and the storage line, and names the models without probing them. Reads the
+   * freshest data/ even mid-pause.
    */
   async function cmdStatusCard({ owner }) {
     freshenIfPaused();
@@ -511,14 +762,14 @@ const handlers = perEnv((env) => {
     const guildId = getGuildId?.() ?? null;
     const unresolved = 'guild not resolved yet';
     const values = {
-      state: stateValue(data),
+      state: owner ? `${stateValue(data)}\n${await storageLine(guildId, cfg)}` : stateValue(data),
       connection: connectionValue(),
       'long tasks': longTasksValue(guildId),
       // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
       models: owner && typeof llm?.complete === 'function' ? await probedModelsValue(cfg) : modelsValue(cfg),
-      today: todayValue(cfg, data),
+      limits: limitsValue(cfg, data),
       memory: owner && guildId ? await memoryValue(guildId) : unresolved,
-      journal: owner && guildId ? journalValue(guildId) : unresolved,
+      speed: owner ? speedValue(cfg) : '',
       uptime: span(process.uptime() * 1000),
     };
     const fields = STATUS_FIELDS

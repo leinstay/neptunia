@@ -24,6 +24,7 @@ import { createSpontaneous } from '../src/behavior/spontaneous.js';
 import { buildDrawPrompt } from '../src/behavior/prompt.js';
 import { familyOf, ImageGenError } from '../src/llm/images.js';
 import { createLlm } from '../src/llm/openrouter.js';
+import { createMetrics } from '../src/ops/metrics.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
@@ -297,6 +298,14 @@ function makeStore() {
     countUsers() {
       return profiles.size;
     },
+    listUserProfiles(guildId) {
+      const prefix = `${guildId}:`;
+      return [...profiles.entries()].filter(([key]) => key.startsWith(prefix)).map(([, value]) => value);
+    },
+    participation: new Map(), // guildId -> { episodes, nextId }
+    getParticipation(guildId) {
+      return structuredClone(this.participation.get(guildId) ?? { episodes: [], nextId: 1 });
+    },
     getBuffer() {
       return [];
     },
@@ -342,6 +351,9 @@ function makeAdmin(rootDir, extra = {}) {
     llm: extra.llm,
     embedder: extra.embedder,
     embedQueue: extra.embedQueue,
+    record: extra.record,
+    metrics: extra.metrics,
+    now: extra.now,
   });
   return { admin, hot, store };
 }
@@ -1926,7 +1938,7 @@ test('run: status shows the initiate cooldown only while it holds', async () => 
   assert.deepEqual(cooldownLines(await status()), [], 'already over');
 });
 
-test('status: the card carries the fields in order and the member variant drops the memory fields', async () => {
+test('status: the card carries the fields in order and the member variant drops the storage line, memory and speed', async () => {
   const rootDir = makeRoot();
   const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-status-journal-'));
   const dayFile = path.join(journalDir, 'today.jsonl');
@@ -1947,15 +1959,38 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(owner.text, '', 'no long form without detail');
   assert.equal(owner.embeds.length, 1);
   const fields = owner.embeds[0].fields;
-  assert.deepEqual(fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'today', 'memory', 'journal', 'uptime']);
+  assert.deepEqual(fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'memory', 'speed', 'uptime']);
   const value = (name) => fields.find((f) => f.name === name).value;
-  assert.equal(value('state'), 'paused since 2026-10-13 08:30 UTC by <@42>');
+  assert.equal(value('state'), 'paused since 2026-10-13 08:30 UTC by <@42>\nstorage: append store stalled; 3 archive copies pending');
   assert.equal(value('connection'), 'gateway 42 ms\nlast reconnect none');
   assert.equal(value('long tasks'), 'archive drain: 3 pending', 'a warmup is not a long task of the card');
-  assert.equal(value('models'), 'voice anthropic/claude-opus-4.6\nanalyzer x/analyzer', 'no llm client: the other roles only where they differ, unprobed');
-  assert.match(value('today'), /^requests \d+\/300\nvideos 0\/40\nrecall 0\/100\nlookups 0\/60\nresets 00:00 UTC$/);
-  assert.match(value('memory'), /^profiles \d+\nbuffer \d+ lines\narchive pending 3\njournal last write \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
-  assert.equal(value('journal'), 'append store STALLED\narchive pending 3');
+  assert.equal(
+    value('models'),
+    [
+      '**voice**',
+      'voice · anthropic/claude-opus-4.6',
+      '**memory**',
+      'analyzer · x/analyzer',
+      '**helpers**',
+      'classifier.text · no model configured',
+      'classifier.reason · no model configured',
+      '**media**',
+      'classifier.media · no model configured',
+      'classifier.video · no model configured',
+      '**embeddings**',
+      'classifier.embed · no model configured',
+      '**drawing**',
+      'image · no model configured',
+    ].join('\n'),
+    'no llm client: every role named by group, unprobed',
+  );
+  assert.match(value('limits'), /^requests \d+\/300\nvideos 0\/40\nrecall 0\/100\nlookups 0\/60\nresets 00:00 UTC$/);
+  assert.deepEqual(
+    value('memory').split('\n').map((line) => line.slice(0, line.indexOf(':'))),
+    ['record', 'index', 'archive', 'profiles', 'server notes', 'channels', 'recent lines', 'participation fragments'],
+  );
+  assert.ok(!/buffer|pending|journal/.test(value('memory')), 'no buffer, archive queue or journal line in memory');
+  assert.equal(value('speed'), 'not available', 'no metrics wired');
   assert.match(value('uptime'), /^(\d+d )?(\d+h )?\d+m$/);
   for (const field of fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 
@@ -1963,28 +1998,163 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.match(detail.text, /^dry-run: /, 'detail adds the long form');
 
   const member = await admin.run('status', { detail: true }, { userId: '999' });
-  assert.deepEqual(member.embeds[0].fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'today', 'uptime']);
+  const memberFields = member.embeds[0].fields;
+  assert.deepEqual(memberFields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'uptime']);
+  assert.equal(memberFields[0].value, 'paused since 2026-10-13 08:30 UTC by <@42>', 'no storage line for a member');
   assert.equal(member.text, '', 'a member never gets the long form');
 });
 
-test('status: the owner card ends the memory field with the meaning index line while both index switches are on', async () => {
+/** A clock the test moves by hand. */
+function handClock(start) {
+  const state = { at: start };
+  const now = () => state.at;
+  now.advance = (ms) => {
+    state.at += ms;
+  };
+  return now;
+}
+
+test('status: the memory field shows the coverage of every kind of memory, computed at most once a minute', async () => {
   const rootDir = makeRoot();
-  const journal = { dayFile: () => path.join(rootDir, 'none.jsonl'), stalled: () => false };
-  const asked = [];
-  const embedQueue = { async indexSummary(guildId) { asked.push(guildId); return { rows: 1234, missing: 5 }; } };
-  const { admin, hot } = makeAdmin(rootDir, { journal, embedQueue });
-  hot.prompts.labels.status = { index: labels.status.index };
+  const now = handClock(Date.parse('2026-10-14T12:00:00.000Z'));
+  // The record: four day files over two months, the month indexes naming four messages.
+  const recordBase = path.join(rootDir, 'data', 'guilds', 'g1', 'record');
+  const write = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(recordBase, rel)), { recursive: true });
+    fs.writeFileSync(path.join(recordBase, rel), text);
+  };
+  write('2026-09/2026-09-30.jsonl', '{}\n');
+  write('2026-09/ids.json', JSON.stringify(['m1:1']));
+  for (const day of ['05', '12', '14']) write(`2026-10/2026-10-${day}.jsonl`, '{}\n');
+  write('2026-10/ids.json', JSON.stringify(['m2:1', 'm2:2', 'm3:1', 'm3:deleted', 'm4:1']));
+  write('2026-10/notes.txt', 'not a day file');
+  const record = { dayFile: (guildId, iso) => path.join(rootDir, 'data', 'guilds', guildId, 'record', iso.slice(0, 7), `${iso.slice(0, 10)}.jsonl`) };
+  const archiveEntries = [
+    { event: 'backfill', observedAt: { date: '2026-03-01', precision: 'day' } },
+    { event: 'evicted', observedAt: { date: '2026-10-13T10:00:00.000Z', precision: 'time' } },
+    { event: 'evicted', observedAt: { date: '2026-05-02', precision: 'day' } },
+    { event: 'replaced', observedAt: { date: '2026-06-01', precision: 'approx' } },
+  ];
+  const archive = {
+    stats: () => ({ pending: 0 }),
+    async *iterate() {
+      yield* archiveEntries;
+    },
+  };
+  const coverageAsked = [];
+  const embedQueue = {
+    async indexSummary() {
+      return { rows: 1234, missing: 5 };
+    },
+    async coverage(guildId, options) {
+      coverageAsked.push([guildId, options.hours]);
+      return { messages: 200, indexed: 150, missing: 50, oldestMissing: '2026-10-12T08:00:00.000Z' };
+    },
+  };
+  const { admin, hot, store } = makeAdmin(rootDir, { record, archive, embedQueue, now });
+  hot.config.features = { meaningSearch: true, embedIndex: true };
+  hot.config.embed = { catchUpHours: 48 };
+  store.profiles.set('g1:u1', { id: 'u1', character: 'Ήσυχη και αστεία', episodes: [{}, {}, {}], details: [{}, {}], aliases: [{}], realName: { name: 'Éloïse' } });
+  store.profiles.set('g1:u2', { id: 'u2', character: '', episodes: [{}], details: [], aliases: [] });
+  store.profiles.set('g1:u3', { id: 'u3', character: 'Ζωηρός', episodes: [], details: [], aliases: [] });
+  store.lore.set('g1', [{ id: 1 }, { id: 2 }]);
+  store.guilds.set('g1', { patterns: '', starters: '', injokes: ['α', 'β'], self: ['γ'], learned: [{}, {}, {}], updatedAt: null });
+  store.channels.set('g1:c1', { id: 'c1', purpose: 'chat', topics: '', tone: '' });
+  store.channels.set('g1:c2', { id: 'c2', purpose: '', topics: '', tone: '' });
+  store.channels.set('g1:c3', { id: 'c3', purpose: '', topics: '', tone: 'calm' });
+  store.channels.set('g1:c4', { id: 'c4' });
+  store.recent.set('g1', { nextId: 3, lines: [{ at: Date.parse('2026-10-12T10:00:00.000Z') }, { at: Date.parse('2026-10-14T09:00:00.000Z') }] });
+  store.participation.set('g1', {
+    nextId: 3,
+    episodes: [
+      { startAt: Date.parse('2026-10-13T23:00:00.000Z'), lastAt: Date.parse('2026-10-14T01:00:00.000Z') },
+      { startAt: Date.parse('2026-10-10T10:00:00.000Z'), lastAt: Date.parse('2026-10-10T11:00:00.000Z') },
+    ],
+  });
   const memoryLines = async () => (await admin.run('status', {}, { userId: '42' })).embeds[0].fields.find((f) => f.name === 'memory').value.split('\n');
 
+  assert.deepEqual(await memoryLines(), [
+    'record: 4 messages · 2026-09-30..2026-10-14 · 27% of days have lines',
+    'index: 1234 rows · 75% of record messages indexed (last 48 h) · oldest missing 2026-10-12',
+    'archive: 4 entries · evicted 2, replaced 1, backfill 1 · observed 2026-03-01..2026-10-13',
+    'profiles: 3 · 67% with a portrait · 4 episodes (1.3 per profile) · 2 details · 1 aliases · 1 real names set',
+    'server notes: 2 lore entries · 3 lessons · 1 self facts · 2 in-jokes',
+    'channels: 2 with notes / 4 seen (50%)',
+    'recent lines: 2 · 2026-10-12..2026-10-14',
+    'participation fragments: 2 · 2026-10-10..2026-10-14',
+  ]);
+  assert.deepEqual(coverageAsked, [['g1', 48]]);
+
+  // Within the minute the cached field is shown, whatever changed.
+  store.profiles.set('g1:u4', { id: 'u4', character: 'Νέος', episodes: [], details: [], aliases: [] });
+  now.advance(30_000);
+  assert.equal((await memoryLines())[3].split(' · ')[0], 'profiles: 3', 'cached');
+  assert.equal(coverageAsked.length, 1, 'no second coverage read');
+  now.advance(31_000);
+  assert.equal((await memoryLines())[3].split(' · ')[0], 'profiles: 4', 'a minute later it is read again');
+  assert.equal(coverageAsked.length, 2);
+
   hot.config.features = { meaningSearch: true, embedIndex: false };
-  assert.equal((await memoryLines()).length, 4, 'the index off: no line');
+  now.advance(61_000);
+  assert.equal((await memoryLines())[1], 'index: off', 'one index switch off');
+  embedQueue.coverage = async () => ({ messages: 0, indexed: 0, missing: 0, oldestMissing: null });
   hot.config.features = { meaningSearch: true, embedIndex: true };
-  assert.equal((await memoryLines()).at(-1), 'index: 1234 rows, 5 missing');
-  assert.deepEqual(asked, ['g1']);
-  embedQueue.indexSummary = async () => ({ rows: 0, missing: null });
-  assert.equal((await memoryLines()).at(-1), 'index: 0 rows, - missing', 'before the first pass');
-  hot.prompts.labels.status = {};
-  assert.equal((await memoryLines()).length, 4, 'no label: no line');
+  now.advance(61_000);
+  assert.equal((await memoryLines())[1], 'index: 1234 rows · - of record messages indexed (last 48 h) · none missing');
+});
+
+test('status: the speed field gives the median and the mean of the last 24 h with the count, the planner only while it is on', async () => {
+  const rootDir = makeRoot();
+  const now = handClock(Date.parse('2026-10-14T12:00:00.000Z'));
+  const metrics = createMetrics({ dataDir: path.join(rootDir, 'data'), now });
+  metrics.record('reply', 4000);
+  metrics.record('reply', 6000);
+  metrics.record('reply without recall', 4000);
+  metrics.record('meaning search', 120);
+  metrics.record('planner', 700);
+  const { admin, hot } = makeAdmin(rootDir, { metrics, now });
+  const speedLines = async () => (await admin.run('status', {}, { userId: '42' })).embeds[0].fields.find((f) => f.name === 'speed').value.split('\n');
+
+  const off = await speedLines();
+  assert.deepEqual(off, [
+    'reply: median 5.0 s · mean 5.0 s (2)',
+    'reply with recall: -',
+    'reply without recall: median 4.0 s · mean 4.0 s (1)',
+    'recall total: -',
+    'discord search: -',
+    'record match: -',
+    'memory match: -',
+    'meaning search: median 120 ms · mean 120 ms (1)',
+    'recall summary: -',
+    'analyzer batch: -',
+    'embedding flush: -',
+  ]);
+  hot.config.features = { turnPlanner: true };
+  assert.equal((await speedLines()).find((line) => line.startsWith('planner')), 'planner: median 700 ms · mean 700 ms (1)');
+});
+
+test('status: the storage line flags a journal that stopped writing while turns happen', async () => {
+  const rootDir = makeRoot();
+  const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-status-journal-'));
+  const journal = { dayFile: (guildId, iso) => path.join(journalDir, `${iso.slice(0, 10)}.jsonl`), stalled: () => false };
+  const metrics = createMetrics({ dataDir: path.join(rootDir, 'data') });
+  const { admin, hot } = makeAdmin(rootDir, { journal, metrics });
+  const storage = async () => (await admin.run('status', {}, { userId: '42' })).embeds[0].fields[0].value.split('\n')[1];
+
+  hot.config.features = { journal: true };
+  assert.equal(await storage(), 'storage ok', 'no turn in the last hour: nothing to judge');
+  metrics.record('reply', 3000);
+  assert.equal(await storage(), 'storage: journal not written today while turns happen');
+  const today = journal.dayFile('g1', new Date().toISOString());
+  fs.writeFileSync(today, '{}\n');
+  const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
+  fs.utimesSync(today, twoHoursAgo, twoHoursAgo);
+  assert.match(await storage(), /^storage: journal not written since \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC while turns happen$/);
+  fs.utimesSync(today, new Date(), new Date());
+  assert.equal(await storage(), 'storage ok');
+  hot.config.features = { journal: false };
+  fs.utimesSync(today, twoHoursAgo, twoHoursAgo);
+  assert.equal(await storage(), 'storage ok', 'the journal switched off is not expected to write');
 });
 
 /** A fake llm client for the status probes: `complete` answers each role through `answer` (a
@@ -2015,8 +2185,10 @@ function probeConfig(hot) {
   hot.prompts.labels.status = { probe: 'Answer with one word: Ωmega', fallback: '(= {role})' };
 }
 
+/** The models field's lines without the group headers. */
+const roleLinesOf = (value) => value.split('\n').filter((line) => !line.startsWith('**'));
 
-test('status: the card lists one item per line in every field', async () => {
+test('status: the card lists one item per line in every field, the models grouped by kind under bold headers', async () => {
   const rootDir = makeRoot();
   const journal = { dayFile: () => path.join(rootDir, 'none.jsonl'), stalled: () => false };
   const archive = { stats: () => ({ pending: 2 }) };
@@ -2032,10 +2204,11 @@ test('status: the card lists one item per line in every field', async () => {
 
   const { embeds } = await admin.run('status', {}, { userId: '42' });
   const lines = (name) => embeds[0].fields.find((f) => f.name === name).value.split('\n');
-  assert.deepEqual(embeds[0].fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'today', 'memory', 'journal', 'uptime']);
+  assert.deepEqual(embeds[0].fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'memory', 'speed', 'uptime']);
+  assert.deepEqual(lines('state'), ['running', 'storage: 2 archive copies pending']);
   assert.deepEqual(lines('connection'), ['gateway 12 ms', 'last reconnect none']);
   assert.deepEqual(lines('long tasks'), ['emoji backfill running', 'GIF backfill running', 'archive drain: 2 pending']);
-  assert.deepEqual(lines('today').map((line) => line.replace(/^requests \d+/, 'requests N')), [
+  assert.deepEqual(lines('limits').map((line) => line.replace(/^requests \d+/, 'requests N')), [
     'requests N/300',
     'images 2/5',
     'videos 0/40',
@@ -2043,17 +2216,22 @@ test('status: the card lists one item per line in every field', async () => {
     'lookups 0/60',
     'resets 00:00 UTC',
   ]);
-  assert.deepEqual(lines('memory').map((line) => line.split(' ')[0]), ['profiles', 'buffer', 'archive', 'journal']);
-  assert.deepEqual(lines('journal'), ['append store ok', 'archive pending 2']);
-  const roleLines = lines('models').filter((line) => !line.startsWith('  '));
-  assert.deepEqual(roleLines.map((line) => line.split(' ')[0]), ['voice', 'analyzer', 'classifier.text', 'classifier.reason', 'classifier.media', 'classifier.video', 'classifier.embed', 'image']);
-  for (const field of embeds[0].fields) {
-    if (field.name !== 'models') assert.ok(!field.value.includes(' · '), `${field.name}: no items joined on one line`);
-    assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
-  }
+  assert.deepEqual(lines('models').filter((line) => line.startsWith('**')), ['**voice**', '**memory**', '**helpers**', '**media**', '**embeddings**', '**drawing**']);
+  assert.deepEqual(roleLinesOf(embeds[0].fields.find((f) => f.name === 'models').value).map((line) => line.split(' · ')[0]), [
+    'voice',
+    'analyzer',
+    'classifier.text',
+    'classifier.reason',
+    'classifier.media',
+    'classifier.video',
+    'classifier.embed',
+    'image',
+  ]);
+  assert.ok(!lines('models').some((line) => line.startsWith(' ')), 'no detail line under a role');
+  for (const field of embeds[0].fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 });
 
-test('status: the owner card probes every role\'s model and shows ok with latency or the error', async () => {
+test('status: the owner card probes every role\'s model and shows its provider and latency, or the failure', async () => {
   const rootDir = makeRoot();
   const funnel = JSON.stringify({ error: { metadata: { routing_funnel: [{ step: 'model', endpoint_count: 3 }, { step: 'provider', endpoint_count: 0 }] } } });
   const llm = fakeProbeLlm((role) => {
@@ -2065,7 +2243,7 @@ test('status: the owner card probes every role\'s model and shows ok with latenc
   const modelOf = { voice: 'anthropic/claude-opus-4.6', analyzer: 'x/analyzer', 'classifier.text': 'x/text', 'classifier.media': 'x/media', 'classifier.video': 'x/video' };
 
   const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
-  const lines = result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n');
+  const lines = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models').value);
 
   assert.deepEqual(llm.calls.map((call) => call.options.role).sort(), Object.keys(modelOf).sort(), 'one probe per role model');
   for (const { messages, options } of llm.calls) {
@@ -2078,13 +2256,10 @@ test('status: the owner card probes every role\'s model and shows ok with latenc
   }
   assert.deepEqual(llm.listings, [{ model: 'openai/gpt-image-1', options: { timeoutMs: 1234 } }]);
 
-  assert.match(lines[0], /^voice anthropic\/claude-opus-4\.6 · ok \d+ ms$/);
-  assert.equal(lines[1], '  provider=Prov, tokens 9/1');
-  assert.match(lines[2], /^analyzer x\/analyzer · ok \d+ ms$/);
-  const media = lines.indexOf('classifier.media x/media · error: HTTP 503: upstream down');
-  assert.ok(media > 0, 'the failing role shows its error');
-  assert.equal(lines[media + 1], '  funnel: provider -> 0 endpoints', 'the routing funnel under the error');
-  assert.match(lines.at(-1), /^image openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
+  assert.match(lines[0], /^voice · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
+  assert.match(lines[1], /^analyzer · x\/analyzer · Prov · ok \d+ ms$/);
+  assert.ok(lines.includes('classifier.media · x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
+  assert.match(lines.at(-1), /^image · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
 
   const probed = logs.filter((entry) => entry.msg === 'status: probed');
   assert.equal(probed.length, 1);
@@ -2092,7 +2267,7 @@ test('status: the owner card probes every role\'s model and shows ok with latenc
   assert.equal(probed[0].failed, 1);
 });
 
-test('status: the member card shows models without probing', async () => {
+test('status: the member card shows the models by group without probing', async () => {
   const rootDir = makeRoot();
   const llm = fakeProbeLlm(() => ({ provider: 'Prov' }));
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 2, cap: 5 } }), llm });
@@ -2101,7 +2276,25 @@ test('status: the member card shows models without probing', async () => {
 
   const { embeds } = await admin.run('status', {}, { userId: '999' });
   const models = embeds[0].fields.find((f) => f.name === 'models').value;
-  assert.equal(models, 'voice anthropic/claude-opus-4.6\nanalyzer x/analyzer\nclassifier.text x/text\nclassifier.reason x/text (= classifier.text)\nclassifier.media x/media\nclassifier.video x/video\nimage openai/gpt-image-1');
+  assert.equal(
+    models,
+    [
+      '**voice**',
+      'voice · anthropic/claude-opus-4.6',
+      '**memory**',
+      'analyzer · x/analyzer',
+      '**helpers**',
+      'classifier.text · x/text',
+      'classifier.reason · x/text (= classifier.text)',
+      '**media**',
+      'classifier.media · x/media',
+      'classifier.video · x/video',
+      '**embeddings**',
+      'classifier.embed · no model configured',
+      '**drawing**',
+      'image · openai/gpt-image-1',
+    ].join('\n'),
+  );
   assert.equal(llm.calls.length, 0, 'no probe request');
   assert.equal(llm.listings.length, 0, 'no listing request');
 });
@@ -2124,7 +2317,7 @@ test('status: identical probes are sent once, each role shows the model it resol
   hot.config.llm.providerByModel = { 'x/@classifier.video': { only: ['video-host'] } };
 
   const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
-  const lines = result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').filter((line) => !line.startsWith('  '));
+  const lines = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models').value);
 
   assert.deepEqual(llm.calls.map((call) => [call.options.role, call.options.model]).sort(), [
     ['classifier.media', 'x/media'],
@@ -2139,30 +2332,28 @@ test('status: identical probes are sent once, each role shows the model it resol
   assert.equal(embedCalls[0].options.config, hot.config);
   assert.equal(llm.calls.some((call) => call.options.model === 'x/embed'), false, 'the embedding model is never sent a chat completion');
 
-  assert.match(lines[1], /^analyzer anthropic\/claude-opus-4\.6 \(= voice\) · ok \d+ ms$/);
-  assert.match(lines[3], /^classifier\.reason x\/text \(= classifier\.text\) · ok \d+ ms$/);
-  assert.match(lines[6], /^classifier\.embed x\/embed · ok \d+ ms$/);
-  assert.equal(lines[7], 'byPurpose lookup x/pinned', 'a per-purpose override is listed');
-  const embedDetail = result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n');
-  assert.equal(embedDetail[embedDetail.findIndex((line) => line.startsWith('classifier.embed')) + 1], '  dimensions=8');
+  assert.match(lines[1], /^analyzer · anthropic\/claude-opus-4\.6 \(= voice\) · Prov · ok \d+ ms$/);
+  assert.match(lines[3], /^classifier\.reason · x\/text \(= classifier\.text\) · Prov · ok \d+ ms$/);
+  assert.equal(lines[4], 'byPurpose lookup · x/pinned', 'a per-purpose override closes the helpers');
+  assert.match(lines[7], /^classifier\.embed · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
   assert.equal(logs.find((entry) => entry.msg === 'status: probed').requests, 5);
 });
 
-test('status: without an embedding client the embedding role is shown unchecked; an embedding failure shows its error', async () => {
+test('status: without an embedding client the embedding role is shown unchecked; an embedding failure shows its reason', async () => {
   const rootDir = makeRoot();
   const llm = fakeProbeLlm(() => ({ provider: 'Prov' }));
   const none = makeAdmin(rootDir, { llm });
   probeConfig(none.hot);
   none.hot.config.classifier.embed = 'x/embed';
   const unchecked = await none.admin.run('status', {}, { userId: '42' });
-  assert.ok(unchecked.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('classifier.embed x/embed · not checked (no embedding client)'));
+  assert.ok(unchecked.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('classifier.embed · x/embed · not checked (no embedding client)'));
 
   const embedder = { embed: async () => { throw Object.assign(new Error('HTTP 404: no such model'), { statusCode: 404 }); } };
   const failing = makeAdmin(makeRoot(), { llm, embedder });
   probeConfig(failing.hot);
   failing.hot.config.classifier.embed = 'x/embed';
   const { result } = await withCapturedLogs(() => failing.admin.run('status', {}, { userId: '42' }));
-  assert.ok(result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('classifier.embed x/embed · error: HTTP 404: no such model'));
+  assert.ok(result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('classifier.embed · x/embed · failed: HTTP 404: no such model'));
 });
 
 // ---------------------------------------------------------------------------

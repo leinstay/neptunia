@@ -41,6 +41,9 @@ export function createOpsEnv({
   llm,
   embedder,
   embedQueue = null,
+  record = null,
+  metrics = null,
+  now = Date.now,
   dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
 } = {}) {
   // The gateway's last reconnect, for the status card: a resumed session, or a shard ready again
@@ -214,6 +217,9 @@ export function createOpsEnv({
     llm,
     embedder,
     embedQueue,
+    record,
+    metrics,
+    now,
     dataDir,
     connection,
     slash,

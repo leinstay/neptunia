@@ -9,7 +9,8 @@ import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
 
 import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { createHot } from './hot.js';
-import { log } from './log.js';
+import { log, onLog } from './log.js';
+import { createMetrics, metricsTap } from './ops/metrics.js';
 import { createStore } from './memory/store.js';
 import { createAppendStore } from './memory/append-store.js';
 import { createJournal } from './memory/journal.js';
@@ -102,6 +103,10 @@ if (!isValidCommandName(hot.config.bot.commandName)) {
 for (const { key, use } of deprecatedModelKeys(hot.config)) log.warn('index: deprecated model key ignored', { key, use });
 
 const dataDir = path.join(ROOT_DIR, 'data');
+// The speed figures of /nep status (src/ops/metrics.js): the durations the log lines carry,
+// kept for 24 h in data/metrics.json (loaded now, written every minute and on shutdown).
+const metrics = createMetrics({ dataDir, log });
+onLog(metricsTap(metrics));
 // The append-only files under data/ (the journal): one serialized writer per file. Its settings
 // are read once here; the journal reads its own section (journal.*) at each write.
 const appendStore = createAppendStore({
@@ -359,6 +364,10 @@ const admin = createAdmin({
   embedder,
   // /nep resume: a catch-up pass of the meaning index; /nep status: its index line.
   embedQueue,
+  // /nep status: the record's month indexes for the memory coverage.
+  record: recordWriter,
+  // /nep status: the speed field.
+  metrics,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 
@@ -522,6 +531,8 @@ client.once(Events.ClientReady, async () => {
   // The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner);
   // the same tick runs its catch-up pass when the switches turn on and every embed.catchUpEveryMinutes.
   every(30_000, () => embedQueue.tick(instance.guildId), 'embed.tick');
+  // The speed samples written to data/metrics.json (at most once a minute; nothing new, no write).
+  every(60_000, () => metrics.save(), 'metrics.save');
   scheduleArchiveDrain();
 
   if (!hot.config.bot.guildId) {
@@ -642,6 +653,7 @@ async function shutdown(signal) {
   const holdMaxMs = hot.config.archive?.holdMaxMs ?? 5000;
   hot.close();
   await store.flushSettled({ holdMaxMs });
+  await metrics.save({ force: true });
   // The journal's `stop` record (journal on), then the run marker goes: this stop was clean.
   if (instance.guildId) {
     if (journalOn()) await journal.system(instance.guildId, { event: 'stop', by: 'service', note: signal });

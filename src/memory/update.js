@@ -3801,6 +3801,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       if (!(await recordBatch(guildId, messages, buffer))) return;
       const batchId = `b-${uuid()}`;
 
+      const analyzeStartedAt = now();
       const outcome = await analyze(guildId, messages);
       if (outcome.ok) {
         sizeFactors.delete(guildId); // back to normal size after a success
@@ -3840,6 +3841,8 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         store.flush();
         log.info('memory: update applied', {
           guildId,
+          // The batch's time: the request, the parse and the writes.
+          ms: now() - analyzeStartedAt,
           consumed: consumed.length,
           shown: outcome.shown,
           // Left in the buffer for the next batch: they did not fit this request.
@@ -3912,6 +3915,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
       if (!(await recordBatch(guildId, messages, buffer, userId))) return;
       const batchId = `b-${uuid()}`;
 
+      const analyzeStartedAt = now();
       const outcome = await analyzePrivate(guildId, userId, messages);
       if (outcome.ok) {
         sizeFactors.delete(key);
@@ -3925,6 +3929,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
         }
         log.info('memory: private update applied', {
           guildId,
+          ms: now() - analyzeStartedAt,
           consumed: consumed.length,
           shown: outcome.shown,
           deferred: outcome.deferred,

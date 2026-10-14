@@ -738,17 +738,23 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       if (trace) trace.meaning = meaning.trace;
     }
 
+    // The time of each step, for `recall: searched` (src/ops/metrics.js reads them off the log).
+    const took = { memoryMs: 0, recordMs: 0, discordMs: 0 };
+    let stepAt = now();
     // 0. Stored memory (the archive included): no request, before the first Discord one so it always fits the budget.
     const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal, meaning: meaning?.archive ?? [] });
     if (signal.aborted) return null;
+    took.memoryMs = now() - stepAt;
     stats.memory = memory.items.length;
     stats.archived = memory.items.filter((item) => item.kind.startsWith('archived ')).length;
     if (trace) trace.memory = memory.items.map(traceItem);
 
     // 1. People.
     const via = new Map();
+    stepAt = now();
     const people = await findPeople({ guild, guildId, who: server.who ?? [], maxPeople: settings.maxPeople, selfId, signal: searchSignal, searchUntil, beforeRequest, via });
     if (signal.aborted) return null;
+    took.discordMs += now() - stepAt;
     if (trace) trace.people = people.map((p) => ({ id: p.id, form: via.get(p.id)?.form ?? null, how: via.get(p.id)?.how ?? null }));
 
     // 2. The queries, over the whole server and the range asked: the turn's own chat bounds no
@@ -764,8 +770,10 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const peopleOut = () => people.map((p) => ({ count: 0, newestTs: null, ...p }));
 
     // 2b. The record of the last days, for a dated or "recently" question: no request.
+    stepAt = now();
     const recordWindows = await recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId, meaning: meaning?.record ?? [] });
     if (signal.aborted) return null;
+    took.recordMs = now() - stepAt;
     const recordTrace = new Map(recordWindows.map((window) => [window, traceRecordWindow(window)]));
     if (trace) trace.record = [...recordTrace.values()];
     if (plan.length === 0 && memory.items.length === 0 && recordWindows.length === 0) {
@@ -789,6 +797,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       trace.plan.push(entry);
     };
     for (const query of plan) tracePlanned(query);
+    stepAt = now();
     while (queue.length > 0) {
       if (signal.aborted) return null;
       if (searchSignal.aborted || (stats.queries > 0 && now() >= searchUntil)) break;
@@ -823,6 +832,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         stats.planned += more.length;
       }
     }
+    took.discordMs += now() - stepAt;
     stats.hits = hits.size;
 
     // 4. Dropped: other bots, the turn's own chat, channels the pull rail refuses here (sourceOf, judged once each).
@@ -921,6 +931,9 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       record: stats.record,
       meaning: stats.meaning,
       meaningMs: stats.meaningMs,
+      memoryMs: took.memoryMs,
+      recordMs: took.recordMs,
+      discordMs: took.discordMs,
       planned: stats.planned,
       queries: stats.queries,
       failed: stats.failed,
@@ -986,7 +999,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       const chosenWindow = fallbackWindow(windows);
       const stretch = stretchOf(chosenWindow);
       if (trace) trace.summary = { answer: 'fallback', stretch: stretch ? windows.indexOf(chosenWindow) + 1 : null, text: null, note: null };
-      log.info('recall: summary', { channel: channelId, ms: asked === null ? 0 : now() - asked, answer: 'fallback', stretch: stretch !== null, summary: kind });
+      log.info('recall: summary', { channel: channelId, ms: asked === null ? 0 : now() - asked, totalMs: now() - started, answer: 'fallback', stretch: stretch !== null, summary: kind });
       return result({ stretch, people: peopleOut() });
     };
     progress.fallback = fallback;
@@ -1017,7 +1030,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const answer = parseRecallAnswer(completion?.text, { answerChars: settings.answerChars, count: windows.length });
     const stretch = answer.stretch !== null ? stretchOf(windows[answer.stretch - 1]) : null;
     if (trace) trace.summary = { answer: answer.text ? 'text' : 'nothing', stretch: stretch ? answer.stretch : null, text: answer.text, note: typeof completion?.text === 'string' ? completion.text : null };
-    log.info('recall: summary', { channel: channelId, ms: now() - asked, answer: answer.text ? 'text' : 'nothing', stretch: stretch !== null });
+    log.info('recall: summary', { channel: channelId, ms: now() - asked, totalMs: now() - started, answer: answer.text ? 'text' : 'nothing', stretch: stretch !== null });
     return result({ text: answer.text, stretch, people: peopleOut() });
   }
 
@@ -1039,7 +1052,9 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * the search's, also on `recall: searched`): matched memory or a record
    * window alone still asks the summary. `stats.meaning` the rows the meaning
    * search kept and `stats.meaningMs` its time (both 0 without it, also on
-   * `recall: searched`). The first
+   * `recall: searched`, beside `memoryMs`, `recordMs` and `discordMs`, the time of
+   * the stored-memory match, the record match and the Discord searches; `recall:
+   * summary` carries `totalMs`, the run's time so far). The first
    * request of a run (a Discord one, or the summary of a run on memory
    * alone) bumps `recallDay`/`recallCount` once. Never rejects: a failure logs `recall:
    * failed` (`reason`: the rail code of a failed summary request, `timeout`
