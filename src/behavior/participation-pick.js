@@ -162,6 +162,31 @@ export function parseParticipationPick(raw, count) {
 }
 
 /**
+ * The numbered `<episodes>` list of one pick, shared by the pick hook below
+ * and the turn planner (src/behavior/planner.js): the live headlines of the
+ * guild's stored episodes outside `channel` that pass `audience`
+ * (src/memory/participation.js#episodeHeadlines with the live
+ * `participation` settings), rendered by participationEpisodeList with each
+ * channel's stored note name, else the live channel's. `headlines` counts
+ * the headlines before a nameless channel's are left out. No request, no log.
+ * @param {{ store: object, guildId: string, channel: object, audience: (channelId: string) => boolean,
+ *   config: object, units: object, selfName: string, now: number }} params
+ * @returns {{ headlines: number, lines: string[], ids: string[] }}
+ */
+export function participationEpisodeOffer({ store, guildId, channel, audience, config, units, selfName, now }) {
+  const state = store.getParticipation(guildId);
+  const headlines = episodeHeadlines(state, { excludeChannelId: channel?.id ?? null, audience, now }, participationSettings(config));
+  if (headlines.length === 0) return { headlines: 0, lines: [], ids: [] };
+  const stored = typeof store.listChannels === 'function' ? store.listChannels(guildId) : [];
+  const channelNameOf = (id) =>
+    oneLine((Array.isArray(stored) ? stored.find((entry) => entry?.id === id)?.name : '') ?? '') ||
+    oneLine(channel?.guild?.channels?.cache?.get?.(id)?.name ?? '') ||
+    null;
+  const { lines, ids } = participationEpisodeList(headlines, { state, channelNameOf, units, selfName });
+  return { headlines: headlines.length, lines, ids };
+}
+
+/**
  * The pick hook of the turn runner (src/behavior/turn.js). Per call, with
  * `hot.config` / `hot.prompts` read at that moment: nothing (`[]`, no call,
  * no log) with `features.participation` off, on a turn participationPickAllowed
@@ -197,9 +222,9 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now }) {
       if (!participationPickAllowed({ mode, triggerKind, privateChat: !channel?.guild })) return [];
       if (typeof store?.getParticipation !== 'function') return [];
       const at = now();
-      const state = store.getParticipation(guildId);
-      const headlines = episodeHeadlines(state, { excludeChannelId: channelId, audience, now: at }, participationSettings(config));
-      if (headlines.length === 0) return [];
+      const labels = hot.prompts?.labels;
+      const { headlines, lines, ids } = participationEpisodeOffer({ store, guildId, channel, audience, config, units: labels?.units, selfName, now: at });
+      if (headlines === 0) return [];
       const prompt = hot.prompts?.['participation-pick'];
       if (typeof prompt !== 'string' || !prompt.trim()) {
         log.info('participation: skipped', { channel: channelId, reason: 'no-prompt' });
@@ -210,13 +235,6 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now }) {
         log.info('participation: skipped', { channel: channelId, reason: 'no-candidate' });
         return [];
       }
-      const labels = hot.prompts.labels;
-      const stored = typeof store.listChannels === 'function' ? store.listChannels(guildId) : [];
-      const channelNameOf = (id) =>
-        oneLine((Array.isArray(stored) ? stored.find((entry) => entry?.id === id)?.name : '') ?? '') ||
-        oneLine(channel?.guild?.channels?.cache?.get?.(id)?.name ?? '') ||
-        null;
-      const { lines, ids } = participationEpisodeList(headlines, { state, channelNameOf, units: labels.units, selfName });
       if (lines.length === 0) return [];
       const { transcriptBlock, candidateBlock } = routeContext({
         history,
