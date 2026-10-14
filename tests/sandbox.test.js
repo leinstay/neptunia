@@ -720,9 +720,9 @@ test('sandboxRequestInput: a skill scenario passes its inventory and her granted
   assert.equal(sandboxRequestInput({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW, skillsGranted: [] }).skillsGranted, null);
 });
 
-test('answerSkillScenario: her skills are shown; a call goes to onCall and its result comes back before <task>; nothing else runs', async () => {
+test('answerSkillScenario: her skills are shown; a call goes to onCall and its result comes back before <task> (features.followUpContinuation off); nothing else runs', async () => {
   const { answerSkillScenario } = sandbox;
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot({ followUpContinuation: false }), store: fakeStore(), guildId: 'g1' });
   const rows = [{ name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed' }];
   const llm = fakeLlm([
     '<msg>μια στιγμή</msg><call skill="rule.add">όχι spoilers</call>',
@@ -765,6 +765,34 @@ test('answerSkillScenario: her skills are shown; a call goes to onCall and its r
   assert.equal(third.followUp, null);
   assert.equal(seen.length, 2);
   assert.equal(result.stopped, false);
+  assert.equal(first.followUp.continuation, false);
+});
+
+test('answerSkillScenario: with features.followUpContinuation on the follow-up continues the turn as a live one -- her line with the call\'s mark and why, an ok call\'s data in <result>, the continue task', async () => {
+  const { answerSkillScenario } = sandbox;
+  const view = liveView({ hot: fakeHot({ followUpContinuation: true }), store: fakeStore(), guildId: 'g1' });
+  const rows = [{ name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed' }];
+  const llm = fakeLlm(['<msg>μια στιγμή</msg><call skill="message.delete"/>', '<msg>ποιο μήνυμα;</msg>', '<msg>κοιτάζω</msg><call skill="rule.add">όχι spoilers</call>', '<skip/>']);
+  const outcomes = [
+    { verdict: { stage: 'gateway', ok: false, code: 'invalid-args', reason: 'args.message:required' }, executed: null, result: { skill: 'message.delete', status: 'invalid', code: 'invalid-args', reason: 'args.message:required' }, followUp: true },
+    { verdict: { stage: 'gateway', ok: true }, executed: { skill: 'rule.add', args: { text: 'όχι spoilers' } }, result: { skill: 'rule.add', status: 'ok', data: { text: 'RESULT_MARKER' } }, followUp: true },
+  ];
+  let n = 0;
+  const result = await answerSkillScenario({ view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 2, at: NOW, skillsInventory: rows, onCall: () => outcomes[(n += 1) - 1] });
+  assert.equal(llm.calls.length, 4);
+  const failed = llm.calls[1].messages[1].content;
+  assert.equal(typeof failed, 'string', 'no cache marker');
+  const status = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.invalid, reason: fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' }) });
+  assert.ok(failed.includes(`Zoë (you): μια στιγμή [called message.delete in #general: ${status}]`), failed);
+  assert.ok(!failed.includes('<result') && !failed.includes(fill(labels.skills.result.alreadyPosted, { text: '' })), failed);
+  assert.ok(failed.endsWith(`<task>\n${fill(labels.task.continue, { skill: 'message.delete' })}\n</task>`), failed);
+  assert.ok(failed.indexOf('what do you think about chess?') < failed.indexOf('μια στιγμή'), 'the trigger kept, her line after it');
+  const read = llm.calls[3].messages[1].content;
+  const at = read.indexOf('<result skill="rule.add" status="ok">');
+  assert.ok(at > read.indexOf('</chat>') && at < read.lastIndexOf('<task>') && read.includes('RESULT_MARKER'), read);
+  assert.ok(read.includes(`Zoë (you): κοιτάζω [called rule.add in #general: ${labels.transcript.callStatus.ok}]`), read);
+  assert.deepEqual(result.runs.map((run) => run.followUp.continuation), [true, true]);
+  assert.deepEqual(result.runs[0].followUp.answer.messages.map((m) => m.text), ['ποιο μήνυμα;']);
 });
 
 // ---- the memory as it stood at the moment: momentView, momentCutoff, hiddenLater ---------------

@@ -68,7 +68,12 @@
 // answered `ok` with `result` (the text an operation would have answered,
 // '' when omitted); a refusal is answered as live. When a live turn would
 // ask her again (any refusal; an `ok` of an operation other than a message,
-// a reaction or a picture) the follow-up request is sent too.
+// a reaction or a picture) the follow-up request is sent too, framed as the
+// live turn frames it under the config read: with features.followUpContinuation
+// on (a missing key counts as on) the turn continued over her lines with the
+// call's mark, off the reply request again with a `<result>` block -- set it
+// in config.local.json to compare the two; each run line says which
+// (`followUp.continuation`).
 // Written to `--out` (default ./replay-skills-<time>/, refused under data/
 // and when it exists and is not empty): `runs.jsonl` (one line per run:
 // decision `call` / `no-call` / `malformed-call`, the skill with the
@@ -1745,7 +1750,8 @@ function visibleOf(answer) {
  * One run of a scenario (answerSkillScenario's) as its JSONL line: the decision (`call`,
  * `malformed-call`, `no-call`), the skill and the arguments she wrote (the body as `body`),
  * the gateway's verdict, the call recorded when it passed (`executed`), the result she got, her
- * visible messages of both passes, the tokens of both and their cost (`usage.cost` as the
+ * visible messages of both passes (the follow-up's with `continuation`: whether it continued the
+ * turn), the tokens of both and their cost (`usage.cost` as the
  * provider reported it; null when it reported none). Pure.
  * @param {string} scenarioId
  * @param {number} index  0-based.
@@ -1769,7 +1775,7 @@ export function runRecord(scenarioId, index, run) {
     executed: outcome?.executed ?? null,
     result: outcome ? { status: outcome.result.status, code: outcome.result.code ?? null } : null,
     first: visibleOf(run.answer),
-    followUp: follow ? (follow.error ? { error: follow.error } : { ...visibleOf(follow.answer), extraCall: follow.extraCall === true }) : null,
+    followUp: follow ? (follow.error ? { error: follow.error } : { ...visibleOf(follow.answer), extraCall: follow.extraCall === true, continuation: follow.continuation === true }) : null,
     tokens: { prompt: sum('prompt_tokens'), completion: sum('completion_tokens') },
     cost: costs.length > 0 ? costs.reduce((a, b) => a + b, 0) : null,
   };

@@ -406,7 +406,9 @@ function withoutCallFields(message) {
  * posted }` each -- `channelId` the channel of the turn that made the call, `at` when its result
  * came back, `target` what it aimed at (a message and its channel; null fields when unknown; a
  * missing channel is the call's own), `postedId` the message the call itself posted (null when
- * none; in the target channel), `posted` every message id that turn posted. Among `messages`
+ * none; in the target channel), `posted` every message id that turn posted, and optionally
+ * `detail` (src/skills/executors.js#outcomeDetail: why a call that did not work did not; the mark
+ * carries it when it has a `kind`). Among `messages`
  * of the call's own channel, the last line of hers its turn posted carries it (`calls`); when the
  * turn posted none of them, the last line at or before `at` carries it as a line of hers of its
  * own (`callsAfter`); a call older than every line of that channel here, or made in another
@@ -450,6 +452,8 @@ export function withCalls(messages, marks, { nameOf = () => null, linkOf = () =>
       targetChannel: name(targetChannelId),
       postedLink: postedId ? link(targetChannelId, postedId) : null,
       ts: call.at,
+      // Why a call that did not work did not (src/skills/executors.js#outcomeDetail), when known.
+      ...(call.detail && typeof call.detail.kind === 'string' ? { detail: call.detail } : {}),
     };
     const posted = new Set(Array.isArray(call.posted) ? call.posted : []);
     let host = -1;
@@ -480,8 +484,10 @@ export function withCalls(messages, marks, { nameOf = () => null, linkOf = () =>
  * One call mark of withCalls as the line reads it: `labels.transcript.called` with `{skill}`,
  * `{target}` (`calledTargetMessage` with the target's `#n` in this list, else `calledTargetLink`
  * with its link, else `calledTargetChannel` with its channel's name, else ''), `{status}` (the
- * status's word in `transcript.callStatus`, else the status code itself) and `{posted}`
- * (`calledPosted` with the link of the message the call posted, else ''). '' with `called` blank.
+ * status's word in `transcript.callStatus`, else the status code itself; with a mark's `detail`
+ * worded by callReason and `transcript.callStatusReason` set, that label with `{status}` and
+ * `{reason}`) and `{posted}` (`calledPosted` with the link of the message the call posted, else
+ * ''). '' with `called` blank.
  */
 function callText(mark, indexById, labels) {
   const t = labels.transcript;
@@ -494,8 +500,36 @@ function callText(mark, indexById, labels) {
   const posted = mark.postedLink ? fill(t.calledPosted, { link: mark.postedLink }) : '';
   const words = t.callStatus;
   const word = words && typeof words === 'object' && Object.hasOwn(words, mark.status) ? words[mark.status] : null;
-  const status = typeof word === 'string' && word ? word : mark.status;
+  const statusWord = typeof word === 'string' && word ? word : mark.status;
+  const reason = callReason(mark, labels);
+  const status = reason && typeof t.callStatusReason === 'string' && t.callStatusReason ? fill(t.callStatusReason, { status: statusWord, reason }) : statusWord;
   return fill(t.called, { skill: mark.skill, target, status, posted });
+}
+
+/**
+ * Why a call of the persona's did not work, worded (`mark.detail`, withCalls'), the first of: the
+ * specific `labels.transcript.callReasons[<kind>]` (`{arg}` the argument, `{channel}` the target
+ * channel's name); the operation's own message (`detail.text`, one line, cut by its maker) as it
+ * is; the generic `labels.skills.result.reasons[<code>]`; `labels.skills.result.reasons.other`. A
+ * phrase counts when it is a non-empty string whose `{arg}` and `{channel}` can be filled. ''
+ * without a detail or anything to say.
+ */
+function callReason(mark, labels) {
+  const detail = mark.detail;
+  if (!detail) return '';
+  const arg = typeof detail.arg === 'string' && detail.arg ? detail.arg : '';
+  const channel = typeof mark.targetChannel === 'string' && mark.targetChannel ? mark.targetChannel : '';
+  const usable = (phrase) => typeof phrase === 'string' && phrase !== '' && (arg || !phrase.includes('{arg}')) && (channel || !phrase.includes('{channel}'));
+  const own = labels.transcript.callReasons;
+  const coded = labels.skills?.result?.reasons;
+  const lookup = (map, key) => (map && typeof map === 'object' && typeof key === 'string' && Object.hasOwn(map, key) ? map[key] : null);
+  const specific = lookup(own, detail.kind);
+  if (usable(specific)) return fill(specific, { arg, channel });
+  // Before any generic phrase: the operation's own message, as it said it (one line, already cut),
+  // which names what exactly went wrong.
+  if (typeof detail.text === 'string' && detail.text) return detail.text;
+  const generic = [lookup(coded, detail.code), lookup(coded, 'other')].find(usable);
+  return generic ? fill(generic, { arg, channel }) : '';
 }
 
 /**

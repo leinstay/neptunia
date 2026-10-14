@@ -13,7 +13,7 @@ import { createAdmin } from '../src/admin.js';
 import { createDiary } from '../src/behavior/diary.js';
 import { skillResultBlock } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { QUIET_ON_OK, RESULT_STATUSES, executeCall, needsFollowUp, refusalStatus, resolveCall } from '../src/skills/executors.js';
+import { QUIET_ON_OK, RESULT_STATUSES, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { labels } from './fixtures/labels.js';
 
@@ -110,7 +110,11 @@ test('resolveCall: only a registry skill; its attributes are its command\'s opti
   assert.deepEqual([said.ok, said.skill, said.args], [true, 'message.create', { channel: NEWS, text: 'καλημέρα' }]);
   assert.deepEqual(resolve('message.create', { channel: '#νέα', who: 'x' }, 'γεια').reason, 'args.who:unknown');
   assert.deepEqual(resolve('message.create', { text: 'δύο' }, 'φορές').reason, 'args.text:twice');
-  assert.deepEqual(resolve('message.delete', { message: '#2' }, 'κείμενο').reason, 'args:body');
+  // A body where the command takes no text is her comment: left out, the call goes on with its attributes.
+  const commented = resolve('message.delete', { message: '#2' }, 'σβήνω το δοκιμαστικό');
+  assert.deepEqual([commented.ok, commented.bodyIgnored, commented.args], [true, true, { message: '1002', channel: HERE }]);
+  assert.equal('bodyIgnored' in resolve('message.delete', { message: '#2' }), false);
+  assert.equal('bodyIgnored' in said, false, 'a body the command takes is its text, as before');
   // whole numbers and yes/no are read strictly; anything else stays text for the schema to refuse
   assert.deepEqual(resolve('rule.remove', { number: '3' }).args, { number: 3 });
   assert.deepEqual(resolve('rule.remove', { number: 'τρία' }).args, { number: 'τρία' });
@@ -180,11 +184,11 @@ test('executeCall: a member asks her to post photos to the diary and the diary i
 
   // The owner asked: the operation runs and answers it has no channel -- not_configured, its line as data.
   const result = await executeCall(resolved, deps(admin, port));
-  assert.deepEqual(result, { status: 'not_configured', code: 'not-configured', data: { text: 'diary post photos: not-now (no-channel)' } });
+  assert.deepEqual(result, { status: 'not_configured', code: 'not-configured', data: { text: 'the diary has no channel set' } });
   assert.equal(needsFollowUp('diary.post', result), true, 'she hears it in the follow-up');
   const block = skillResultBlock({ skill: 'diary.post', ...result }, labels);
   assert.ok(block.startsWith('<result skill="diary.post" status="not_configured">\n'), block);
-  assert.ok(block.includes('diary post photos: not-now (no-channel)'), block);
+  assert.ok(block.includes('the diary has no channel set'), block);
   assert.ok(block.includes(labels.skills.result.failed.split('{reason}')[0]), 'told with the nearest label the labels have');
 
   // Without a running diary at all: the same, its own text.
@@ -455,4 +459,37 @@ test('needsFollowUp: an operation\'s answer or any failure brings the follow-up;
   assert.equal(needsFollowUp('message.edit', { status: 'denied', code: 'not-allowed' }), true);
   assert.equal(needsFollowUp('message.create', { status: 'unknown', code: 'timeout' }), true);
   assert.equal(needsFollowUp('message.create', { status: 'denied', code: 'skills-off' }), false);
+});
+
+test('outcomeDetail: a non-ok outcome names its argument, its message or its code; an ok one has none', () => {
+  const detail = (code, reason, status = 'invalid') => outcomeDetail({ status, code, reason });
+  // The gateway's schema paths: the argument and what was wrong with it.
+  assert.deepEqual(detail('invalid-args', 'args.message:required'), { kind: 'missing-arg', code: 'invalid-args', arg: 'message' });
+  assert.deepEqual(detail('invalid-args', 'args.text:max-length'), { kind: 'too-long', code: 'invalid-args', arg: 'text' });
+  assert.deepEqual(detail('invalid-args', 'args.text:min-length'), { kind: 'too-short', code: 'invalid-args', arg: 'text' });
+  assert.deepEqual(detail('invalid-args', 'args.n:maximum'), { kind: 'wrong-arg', code: 'invalid-args', arg: 'n' });
+  assert.deepEqual(detail('invalid-args', 'args.tags.0:type'), { kind: 'wrong-arg', code: 'invalid-args', arg: 'tags' });
+  assert.deepEqual(detail('invalid-args', 'command'), { kind: 'invalid-args', code: 'invalid-args', arg: null });
+  // resolveCall's own reasons, as it gives them.
+  const of = (refusal) => outcomeDetail({ status: refusalStatus(refusal.code), code: refusal.code, reason: refusal.reason });
+  assert.deepEqual(of(resolve('message.create', { channel: '#νέα', who: 'x' }, 'γεια')), { kind: 'unknown-arg', code: 'invalid-args', arg: 'who' });
+  assert.deepEqual(of(resolve('message.create', { text: 'δύο' }, 'φορές')), { kind: 'arg-twice', code: 'invalid-args', arg: 'text' });
+  assert.deepEqual(of(resolve('message.create', { channel: '#πουθενά' }, 'x')), { kind: 'unknown-channel', code: 'invalid-args', arg: 'channel' });
+  assert.deepEqual(of(resolve('message.delete', { message: '#7' })), { kind: 'unknown-message', code: 'unknown-message', arg: 'message' });
+  assert.deepEqual(of(resolve('message.delete', { message: '#4', channel: '#γενικά' })), { kind: 'message-elsewhere', code: 'unknown-message', arg: null });
+  assert.deepEqual(of(resolve('message.delete', { message: '#1' })), { kind: 'not-own-message', code: 'not-own-message', arg: 'message' });
+  assert.deepEqual(detail('unknown-member', 'ambiguous'), { kind: 'member-ambiguous', code: 'unknown-member', arg: null });
+  // Any other code is its own kind; nothing without a code, nothing for an ok outcome.
+  assert.deepEqual(detail('conversation-not-allowed', '', 'invalid'), { kind: 'conversation-not-allowed', code: 'conversation-not-allowed', arg: null });
+  assert.deepEqual(detail('timeout', undefined, 'unknown'), { kind: 'timeout', code: 'timeout', arg: null });
+  assert.equal(outcomeDetail({ status: 'ok', code: 'ok' }), null);
+  assert.equal(outcomeDetail({ status: 'failed' }), null);
+  assert.equal(outcomeDetail(null), null);
+  // The operation's own message rides along on one line, cut, only when asked for.
+  const diary = { status: 'not_configured', code: 'not-configured', data: { text: 'diary post photos:\n  not-now (no-channel)' } };
+  assert.deepEqual(outcomeDetail(diary, { textChars: 200 }), { kind: 'not-configured', code: 'not-configured', arg: null, text: 'diary post photos: not-now (no-channel)' });
+  assert.equal('text' in outcomeDetail(diary), false);
+  assert.equal('text' in outcomeDetail({ ...diary, data: { text: '  ' } }, { textChars: 200 }), false);
+  const long = outcomeDetail({ status: 'failed', code: 'error', data: { text: 'λέξη '.repeat(40) } }, { textChars: 30 }).text;
+  assert.ok(Array.from(long).length <= 30 && long.endsWith('…') && !long.includes('\n'), long);
 });

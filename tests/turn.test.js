@@ -359,6 +359,7 @@ const SWITCHES_ON = {
   attachedDescriptions: true,
   vision: true,
   privateLikeServer: true,
+  followUpContinuation: true,
 };
 
 function fakeHot(featureOverrides = {}, botOverrides = {}, configOverrides = {}) {
@@ -8677,9 +8678,11 @@ function clientWithChannels(...channels) {
  * `skills.conversations` list; the LLM answers `answers` in
  * order; `allowed` skills are granted to her (her user id in bot.access); `owners` are the bot's
  * owners (Alice by default: the owner asks); the port is a fake adapter, the operations run on a
- * real admin over it; `emoji`: the server's custom emoji index, none by default.
+ * real admin over it; `emoji`: the server's custom emoji index, none by default; `later`: raw
+ * messages that reach #general once the LLM has answered the first request; `labelSet`: the
+ * labels in place of the fixture's.
  */
-async function callTurn({ answers, allowed = [], features = {}, skills = {}, owners = ['u1'], images = null, journal = null, store = fakeStore(), beforeSend = null, failNext = null, diary = null, configExtra = {}, turnExtra = {}, emoji = null }) {
+async function callTurn({ answers, allowed = [], features = {}, skills = {}, owners = ['u1'], images = null, journal = null, store = fakeStore(), beforeSend = null, failNext = null, diary = null, configExtra = {}, turnExtra = {}, emoji = null, later = [], labelSet = null }) {
   const history = [
     rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'self-id', authorName: 'Bot', content: 'πρώτη' }),
     rawMessage({ id: 'm1', ts: NOW - 1000, authorId: 'u1', authorName: 'Alice', content: 'γράψε στο #νέα' }),
@@ -8693,6 +8696,7 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
   if (failNext) port.failNext(...failNext);
   const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners, access: personaGrants(allowed) }, { skills: { safeMode: false, resultMaxChars: 2000, ...skills }, ...configExtra });
   hot.prompts.draw = 'Drawing for {{name}}.\n\n{{request}}';
+  if (labelSet) hot.prompts.labels = labelSet;
   if (beforeSend) {
     const send = port.send.bind(port);
     port.send = async (...args) => {
@@ -8704,6 +8708,12 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
   const client = clientWithChannels(fakeTurnChannel({ id: 'c9', name: '💖νέα' }), noSend);
   const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', port, ...(images ? { images } : {}), ...(diary ? { diary: diary(hot) } : {}) });
   const llm = sequenceLlm(answers);
+  const complete = llm.complete;
+  llm.complete = async (...args) => {
+    const answer = await complete(...args);
+    if (llm.calls.length === 1) history.push(...later);
+    return answer;
+  };
   const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, ...(emoji ? { emoji } : {}) });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention', ...turnExtra }));
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
@@ -8758,17 +8768,23 @@ test('skill call: a call alone is no skip; here it needs no grant and replies to
   assert.equal(here.result.outcome, 'spoke');
   // The current conversation: carried over, the replied author notified.
   assert.deepEqual(here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions.repliedUser]), [['c1', 'ναι', 'm1', true]]);
-  // A reply target outside the conversation named: the call was not right, she hears it.
-  const across = await callTurn({ answers: ['<call skill="message.create" channel="#νέα" reply="#2">ναι</call>', '<msg>όχι τελικά</msg>'], allowed: ['message.create'] });
+  // A reply target outside the conversation named: the call was not right, she hears it --
+  // in a `<result>` block with features.followUpContinuation off, on the call's mark with it on.
+  const across = await callTurn({ answers: ['<call skill="message.create" channel="#νέα" reply="#2">ναι</call>', '<msg>όχι τελικά</msg>'], allowed: ['message.create'], features: { followUpContinuation: false } });
   assert.deepEqual(across.sends.map((send) => send.to), ['c1'], 'refused: only the follow-up answer is posted, here');
   assert.ok(requestText(across.llm, 1).includes('<result skill="message.create" status="invalid">'), requestText(across.llm, 1));
+  const continued = await callTurn({ answers: ['<call skill="message.create" channel="#νέα" reply="#2">ναι</call>', '<msg>όχι τελικά</msg>'], allowed: ['message.create'] });
+  assert.deepEqual(continued.sends.map((send) => send.to), ['c1']);
+  const reason = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.invalid, reason: fill(labels.transcript.callReasons['message-elsewhere']) });
+  assert.ok(requestText(continued.llm, 1).includes(`Bot (you): [called message.create: ${reason}]`), requestText(continued.llm, 1));
 });
 
-test('skill call: not granted, or a channel where the bot may not send -- refused, one follow-up with the reason or the operation\'s own text, its own call ignored', async () => {
+test('skill call: not granted, or a channel where the bot may not send -- refused, one follow-up with the reason or the operation own text, its own call ignored (features.followUpContinuation off)', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({
     answers: ['<msg>μισό</msg><call skill="message.create" channel="#νέα">γεια</call>', '<msg>δεν μπορώ εκεί</msg><call skill="message.create">ξανά</call>'],
     journal,
+    features: { followUpContinuation: false },
   });
   assert.deepEqual(run.sends.map((send) => [send.to, send.text]), [['c1', 'μισό'], ['c1', 'δεν μπορώ εκεί']]);
   assert.equal(run.llm.calls.length, 2, 'one follow-up, no second call');
@@ -8784,7 +8800,7 @@ test('skill call: not granted, or a channel where the bot may not send -- refuse
   assert.equal(actionsNamed(lines, 'skill').at(-1).result.code, 'not-allowed');
 
   // Granted, but the bot may not send in that channel: the operation's own rule, its own words.
-  const closed = await callTurn({ answers: ['<call skill="message.create" channel="#αλλού">γεια</call>', '<skip/>'], allowed: ['message.create'] });
+  const closed = await callTurn({ answers: ['<call skill="message.create" channel="#αλλού">γεια</call>', '<skip/>'], allowed: ['message.create'], features: { followUpContinuation: false } });
   assert.deepEqual(closed.sends, []);
   const text = requestText(closed.llm, 1);
   assert.ok(text.includes('<result skill="message.create" status="denied">'), text);
@@ -8799,10 +8815,29 @@ test('skill call: edit and delete reach only her own message', async () => {
   const deleted = await callTurn({ answers: ['<call skill="message.delete" message="#1"/>'], allowed: ['message.delete'] });
   assert.deepEqual(deleted.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId), ['m0']);
   for (const answer of ['<call skill="message.edit" message="#2">όχι</call>', '<call skill="message.delete" message="#2"/>']) {
-    const run = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.edit', 'message.delete'] });
+    const run = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.edit', 'message.delete'], features: { followUpContinuation: false } });
     assert.deepEqual(run.port.calls.filter((call) => call.op === 'edit' || call.op === 'delete'), [], answer);
     assert.ok(requestText(run.llm, 1).includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-own-message'] })), answer);
+    // The turn continued: her call's mark says whose message it was not.
+    const continued = await callTurn({ answers: [answer, '<skip/>'], allowed: ['message.edit', 'message.delete'] });
+    assert.deepEqual(continued.port.calls.filter((call) => call.op === 'edit' || call.op === 'delete'), [], answer);
+    const reason = fill(labels.transcript.callReasons['not-own-message'], { arg: 'message' });
+    assert.ok(requestText(continued.llm, 1).includes(`: ${fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.denied, reason })}]`), requestText(continued.llm, 1));
   }
+});
+
+test('skill call: a comment in the body of a skill that takes no text is left out -- the deletion runs with its attributes, logged without the text', async () => {
+  const run = await callTurn({ answers: ['<call skill="message.delete" message="#1">σβήνω το δοκιμαστικό</call>', '<skip/>'], allowed: ['message.delete'] });
+  assert.deepEqual(run.port.calls.filter((call) => call.op === 'delete').map((call) => call.args[0].messageId), ['m0']);
+  assert.equal(run.llm.calls.length, 1, 'a deletion that went through is its own answer');
+  const ignored = run.logs.filter((entry) => entry.msg === 'skills: body ignored');
+  assert.deepEqual(ignored.map((entry) => entry.skill), ['message.delete']);
+  assert.ok(!JSON.stringify(ignored).includes('δοκιμαστικό'), 'never the text');
+  assert.ok(!run.logs.some((entry) => entry.msg === 'skill: refused'));
+  // A skill that takes text keeps it as its text.
+  const created = await callTurn({ answers: ['<call skill="message.create" reply="#2">ναι</call>'] });
+  assert.deepEqual(created.sends.map((send) => send.text), ['ναι']);
+  assert.ok(!created.logs.some((entry) => entry.msg === 'skills: body ignored'));
 });
 
 test('skill call: a read brings the operation\'s answer back in one follow-up; a member without the right is refused before it runs', async () => {
@@ -8814,8 +8849,13 @@ test('skill call: a read brings the operation\'s answer back in one follow-up; a
   assert.ok(!requestText(run.llm, 0).includes('<result'), 'the first request carries no result');
   assert.deepEqual(run.sends.map((send) => send.text), ['τίποτα']);
   // Alice not an owner and not granted lore.list: refused before anything runs, and told so.
-  const denied = await callTurn({ answers: ['<call skill="lore.list"/>', '<skip/>'], allowed: ['lore.list'], owners: [], store });
+  const denied = await callTurn({ answers: ['<call skill="lore.list"/>', '<skip/>'], allowed: ['lore.list'], owners: [], store, features: { followUpContinuation: false } });
   assert.ok(requestText(denied.llm, 1).includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['requester-denied'] })));
+  // The turn continued: told on her call's mark, no `<result>` without data.
+  const told = await callTurn({ answers: ['<call skill="lore.list"/>', '<skip/>'], allowed: ['lore.list'], owners: [], store });
+  const reason = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.denied, reason: labels.skills.result.reasons['requester-denied'] });
+  assert.ok(requestText(told.llm, 1).includes(`[called lore.list: ${reason}]`), requestText(told.llm, 1));
+  assert.ok(!requestText(told.llm, 1).includes('<result'), requestText(told.llm, 1));
 });
 
 test('skill call: Alice asks her to post photos to the diary and the diary is not connected -- the diary\'s own words come back to her', async () => {
@@ -8825,15 +8865,32 @@ test('skill call: Alice asks her to post photos to the diary and the diary is no
     allowed: ['diary.post'],
     diary,
     configExtra: { diary: { channelId: '', kinds: { photos: 1 } } },
+    features: { followUpContinuation: false },
   });
   const text = requestText(run.llm, 1);
   assert.ok(text.includes('<result skill="diary.post" status="not_configured">'), text);
-  assert.ok(text.includes('diary post photos: not-now (no-channel)'), text);
+  assert.ok(text.includes('the diary has no channel set'), text);
   assert.ok(!text.includes(labels.skills.result.ok), 'never told it went out');
   assert.deepEqual(run.sends.map((send) => send.text), ['δεν έχω ημερολόγιο ακόμα']);
   // A member who is not the owner: the diary is hers, the same answer.
-  const member = await callTurn({ answers: ['<call skill="diary.post" kind="photos"/>', '<skip/>'], allowed: ['diary.post'], owners: [], diary, configExtra: { diary: { channelId: '', kinds: { photos: 1 } } } });
+  const member = await callTurn({ answers: ['<call skill="diary.post" kind="photos"/>', '<skip/>'], allowed: ['diary.post'], owners: [], diary, configExtra: { diary: { channelId: '', kinds: { photos: 1 } } }, features: { followUpContinuation: false } });
   assert.ok(requestText(member.llm, 1).includes('<result skill="diary.post" status="not_configured">'), requestText(member.llm, 1));
+  // The turn continued: her call's mark carries the diary's own words -- what exactly is not set
+  // up -- ahead of the generic phrase of its code, and she says so.
+  const generic = { ...labels, skills: { ...labels.skills, result: { ...labels.skills.result, reasons: { ...labels.skills.result.reasons, 'not-configured': 'GENERIC_NOT_SET_UP' } } } };
+  const continued = await callTurn({
+    answers: ['<call skill="diary.post" kind="photos"/>', '<msg>δεν έχω ημερολόγιο ακόμα</msg>'],
+    allowed: ['diary.post'],
+    diary,
+    configExtra: { diary: { channelId: '', kinds: { photos: 1 } }, skills: { conversations: ['c9'], safeMode: false, resultMaxChars: 2000, markTextMaxChars: 200 } },
+    labelSet: generic,
+  });
+  assert.ok(!requestText(continued.llm, 1).includes('GENERIC_NOT_SET_UP'), 'the generic phrase gives way');
+  const said = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.not_configured, reason: 'the diary has no channel set' });
+  const continuedText = requestText(continued.llm, 1);
+  assert.ok(continuedText.includes(`Bot (you): [called diary.post: ${said}]`), continuedText);
+  assert.ok(!continuedText.includes('<result'), continuedText);
+  assert.deepEqual(continued.sends.map((send) => send.text), ['δεν έχω ημερολόγιο ακόμα']);
 });
 
 test('skill call: a turn answering several people runs no write', async () => {
@@ -8878,6 +8935,7 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
     images,
     journal,
     failNext: ['send', { status: 'unknown', error: { code: 'timeout', retryable: false } }],
+    features: { followUpContinuation: false },
   });
   assert.equal(images.generateCalls.length, 1);
   assert.ok(images.quotaCalls.length > 0, 'the budget was checked before the generation');
@@ -8900,12 +8958,13 @@ test('skill call: a dry run only logs the call', async () => {
   assert.ok(run.logs.some((entry) => entry.msg === 'dry-run: would call' && entry.skill === 'message.create'));
 });
 
-test('skill call: the follow-up lists what the first pass already posted, before the result', async () => {
+test('skill call: with features.followUpContinuation off the follow-up lists what the first pass already posted, before the result', async () => {
   const store = fakeStore({ loreEntries: [] });
   const run = await callTurn({
     answers: ['<react to="#2">\u{1F389}</react><msg>μια στιγμή</msg><msg>κοιτάζω</msg><call skill="lore.list"/>', '<msg>βρήκα</msg>'],
     allowed: ['lore.list'],
     store,
+    features: { followUpContinuation: false },
   });
   const said = (text) => fill(labels.skills.result.alreadyPosted, { text });
   const reaction = fill(labels.transcript.reactions, { list: fill(labels.transcript.reactionMine, { emoji: '\u{1F389}', count: 1 }) });
@@ -8915,6 +8974,68 @@ test('skill call: the follow-up lists what the first pass already posted, before
   const second = run.llm.calls[1][1].content;
   for (let i = 0; i < first.length - 1; i += 1) assert.deepEqual(second[i], first[i], 'the cached parts are the same');
   assert.deepEqual(run.sends.map((send) => send.text), ['μια στιγμή', 'κοιτάζω', 'βρήκα']);
+});
+
+test('skill call: the follow-up continues the turn -- her first-pass line is hers with the call\'s mark and why, nothing "already posted", the continue task; a call in it is dropped and logged, never run', async () => {
+  const { journal, lines } = journalOverMemory();
+  const run = await callTurn({
+    // The live failure: a deletion announced, called without the message to delete.
+    answers: ['<msg>σβήνω και το ξαναγράφω</msg><call skill="message.delete"/>', '<msg>δεν έσβησα τίποτα: ποιο μήνυμα;</msg><call skill="message.delete" message="#1"/>'],
+    allowed: ['message.delete'],
+    journal,
+  });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.equal(run.llm.calls.length, 2, 'one follow-up, never a second');
+  const text = requestText(run.llm, 1);
+  const status = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.invalid, reason: fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' }) });
+  assert.ok(text.includes(`Bot (you) (turn triggered by #2): σβήνω και το ξαναγράφω [called message.delete: ${status}]`), text);
+  assert.ok(!text.includes(fill(labels.skills.result.alreadyPosted, { text: '' })), 'nothing is told as already posted');
+  assert.ok(!text.includes('<result'), 'a call that did not work brings no <result>: its mark says how it went');
+  assert.ok(text.endsWith(`<task>\n${fill(labels.task.continue, { skill: 'message.delete' })}\n</task>`), text);
+  assert.ok(!text.includes('Someone called you'), 'the trigger is not put to her again');
+  // The call in the continuation: dropped and logged, never planned or run.
+  assert.deepEqual(run.port.calls.filter((call) => call.op === 'delete'), []);
+  assert.deepEqual(skillPhases(lines), ['proposed', 'failed']);
+  assert.ok(run.logs.some((entry) => entry.msg === 'skills: extra-call' && entry.followUp === true && entry.continuation === true));
+  assert.ok(run.logs.some((entry) => entry.msg === 'skills: follow-up answered' && entry.continuation === true));
+  assert.deepEqual(run.sends.map((send) => send.text), ['σβήνω και το ξαναγράφω', 'δεν έσβησα τίποτα: ποιο μήνυμα;']);
+  // The journal: both passes' posts in the one turn record, the failure with its reason; the
+  // call's mark rebuilt from it covers both posts.
+  const records = lines.map(({ record }) => record);
+  const turn = records.find((record) => record.kind === 'turn');
+  assert.equal(turn.posted.length, 2);
+  const failed = actionsNamed(lines, 'skill').at(-1);
+  assert.deepEqual([failed.result.code, failed.result.status, failed.result.reason], ['invalid-args', 'invalid', 'args.message:required']);
+  const [mark] = callMarksOf(records).calls;
+  assert.deepEqual(mark.posted, turn.posted.map((post) => post.messageId));
+});
+
+test('skill call: the continuation shows a read\'s data in <result> before <task>, a message that came meanwhile as a later line, the cached parts unchanged', async () => {
+  const store = fakeStore({ loreEntries: [] });
+  const meanwhile = rawMessage({ id: 'm2', ts: NOW - 500, authorId: 'u2', authorName: 'Zoë', content: 'κι εγώ θέλω' });
+  const run = await callTurn({ answers: ['<msg>κοιτάζω</msg><call skill="lore.list"/>', '<msg>τίποτα ακόμα</msg>'], allowed: ['lore.list'], store, later: [meanwhile] });
+  assert.equal(run.llm.calls.length, 2);
+  // The prompt cache: the system prompt and every part before the tail byte for byte the same.
+  const first = run.llm.calls[0][1].content;
+  const second = run.llm.calls[1][1].content;
+  assert.deepEqual(run.llm.calls[1][0], run.llm.calls[0][0], 'the same system prompt');
+  assert.equal(second.length, first.length);
+  assert.ok(first.length > 1 && first[0].cacheSegment === 'stable');
+  for (let i = 0; i < first.length - 1; i += 1) assert.deepEqual(second[i], first[i], 'the cached parts are the same');
+  const text = requestText(run.llm, 1);
+  const chat = text.slice(text.indexOf('<chat>'), text.indexOf('</chat>'));
+  const chatLines = chat.split('\n');
+  const trigger = chatLines.findIndex((line) => line.includes('γράψε στο #νέα'));
+  const later = chatLines.findIndex((line) => line.includes('Zoë: κι εγώ θέλω'));
+  const own = chatLines.findIndex((line) => line.includes('Bot (you) (turn triggered by #2): κοιτάζω [called lore.list: '));
+  assert.ok(trigger >= 0 && trigger < later && later < own, chat);
+  assert.ok(!requestText(run.llm, 0).includes('κι εγώ θέλω'), 'it came after the first request');
+  // The data: apart from the transcript, right before the task.
+  const result = `<result skill="lore.list" status="ok">\n${labels.skills.result.ok}\n`;
+  assert.ok(!chat.includes('<result'), chat);
+  const at = text.indexOf(result);
+  assert.ok(at > text.indexOf('</chat>') && at < text.lastIndexOf('<task>'), text);
+  assert.deepEqual(run.sends.map((send) => send.text), ['κοιτάζω', 'τίποτα ακόμα']);
 });
 
 // ---------------------------------------------------------------------------
@@ -9008,7 +9129,7 @@ test('call marks: a turn that only called shows the call as a line of hers at it
   assert.ok(lines[at + 1].includes('και;'));
 });
 
-test('call marks: a refused call shows its status on the line its turn posted', async () => {
+test('call marks: a refused call shows its status and why on the line its turn posted', async () => {
   const scene = callMarkScene({ answers: ['<msg>μια στιγμή</msg><call skill="message.create" channel="#🍡νέα">γεια</call>', '<skip/>'], allowed: [] });
   await scene.run(scene.channel, scene.history[1]);
   scene.history.push(ownRaw(scene.port, 'c1', NOW));
@@ -9017,7 +9138,24 @@ test('call marks: a refused call shows its status on the line its turn posted', 
   scene.history.push(m2);
   await scene.run(scene.channel, m2);
   const line = lastChat(scene.llm).split('\n').find((text) => text.includes('μια στιγμή'));
-  assert.ok(line.endsWith('[called message.create in #general: denied]'), line);
+  const status = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.denied, reason: labels.skills.result.reasons['not-allowed'] });
+  assert.ok(line.endsWith(`[called message.create in #general: ${status}]`), line);
+});
+
+test('call marks: seeded from the journal after a restart, a call that did not work keeps why', async () => {
+  const { journal, lines } = journalOverMemory();
+  const scene = callMarkScene({ answers: ['<msg>μια στιγμή</msg><call skill="message.delete"/>', '<skip/>'], allowed: ['message.delete'], features: { journal: true }, journal });
+  await scene.run(scene.channel, scene.history[1]);
+  scene.history.push(ownRaw(scene.port, 'c1', NOW));
+  const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
+  scene.history.push(m2);
+  scene.clock.ms = NOW + 60_000;
+  const restarted = scene.runner();
+  restarted.seedCallMarks(callMarksOf(lines.map(({ record }) => record)));
+  await scene.run(scene.channel, m2, restarted);
+  const line = lastChat(scene.llm).split('\n').find((text) => text.includes('μια στιγμή'));
+  const status = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.invalid, reason: fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' }) });
+  assert.ok(line.endsWith(`[called message.delete in #general: ${status}]`), line);
 });
 
 test('call marks: seeded from the journal after a restart, the calls show as they did; with features.callMarkers off nothing shows', async () => {
