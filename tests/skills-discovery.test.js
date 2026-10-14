@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_ARG_VALUES, MAX_PROPOSED, byFamily, discoveryOn, parseSkillsLines, proposalVerdicts, skillArgs, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
+import { MAX_ARG_VALUES, MAX_PROPOSED, alwaysListedOn, byFamily, discoveryOn, grantedSkillNames, parseSkillsLines, proposalVerdicts, skillArgs, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
 import '../src/ops/index.js';
 import { loadSkills, skillNames, skillRegistry } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
@@ -207,4 +207,36 @@ test('listSkills: each row carries the skill\'s arguments (skillArgs)', () => {
   const byName = new Map(rows.map((row) => [row.name, row]));
   for (const name of ['memory.journal.read', 'message.edit', 'status.show']) assert.deepEqual(byName.get(name).args, skillArgs(registry.get(name)), name);
   assert.deepEqual(byName.get('memory.server.read').args, []);
+});
+
+test('alwaysListedOn: on unless features.skillsAlwaysListed, features.skillsDiscovery or features.skills is false', () => {
+  assert.equal(alwaysListedOn({}), true);
+  assert.equal(alwaysListedOn({ features: { skillsAlwaysListed: true } }), true);
+  assert.equal(alwaysListedOn({ features: { skillsAlwaysListed: false } }), false);
+  assert.equal(alwaysListedOn({ features: { skillsDiscovery: false } }), false);
+  assert.equal(alwaysListedOn({ features: { skills: false } }), false);
+});
+
+test('grantedSkillNames: only the skills granted to her user id, sorted by name whatever the grant or registry order', () => {
+  const registry = standInRegistry();
+  const config = granting(['message.react.remove', 'lore.list', 'message.edit', 'not.in.registry'], { features: {} });
+  assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry }), ['lore.list', 'message.edit', 'message.react.remove']);
+  // The same grants stored in another order: the same list.
+  const reordered = granting(['message.edit', 'not.in.registry', 'lore.list', 'message.react.remove'], { features: {} });
+  assert.deepEqual(grantedSkillNames({ config: reordered, selfId: 'self-1', registry }), ['lore.list', 'message.edit', 'message.react.remove']);
+  // A carried-over skill is listed only when granted.
+  assert.ok(!grantedSkillNames({ config, selfId: 'self-1', registry }).includes('message.create'));
+});
+
+test('grantedSkillNames: a grant to everyone or a role, another user, no id, safe mode, skills off or a not-grantable skill lists nothing', () => {
+  const registry = standInRegistry();
+  const people = { features: {}, bot: { access: { 'lore.list': { everyone: true, roles: ['r1'], users: ['u-9'] } } } };
+  assert.deepEqual(grantedSkillNames({ config: people, selfId: 'self-1', registry }), []);
+  const config = granting(['lore.list', 'message.edit'], { features: {} });
+  assert.deepEqual(grantedSkillNames({ config, selfId: null, registry }), []);
+  assert.deepEqual(grantedSkillNames({ config: { ...config, skills: { safeMode: true } }, selfId: 'self-1', registry }), []);
+  assert.deepEqual(grantedSkillNames({ config: { ...config, features: { skills: false } }, selfId: 'self-1', registry }), []);
+  const wipe = loadSkills([{ name: 'memory.wipe', op: null, argsSchema: { type: 'object' }, effects: 'destructive', costClass: 'free', targets: null }]);
+  assert.deepEqual(grantedSkillNames({ config: granting(['memory.wipe'], { features: {} }), selfId: 'self-1', registry: wipe }), []);
+  assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry: null }), []);
 });

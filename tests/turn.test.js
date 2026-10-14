@@ -8273,11 +8273,18 @@ test('skills discovery: the classifier reads the registry; an inventory answer s
   assert.equal('skillsProposed' in turn, false, 'an inventory proposes nothing');
 });
 
-test('skills discovery: the stable part is byte-identical with and without a grant; only the catalogue moves', async () => {
+test('skills discovery: a grant moves only the stable part\'s <skills_granted> and the catalogue; with that list off the stable part is byte-identical', async () => {
   const closed = await runDiscoveryTurn({ answer: 'skills: inventory' });
   const granted = await runDiscoveryTurn({ answer: 'skills: inventory', allowed: ['message.edit', 'message.delete'] });
-  assert.equal(granted.reply[0].text, closed.reply[0].text);
+  const withoutList = (text) => text.replace(/<skills_granted>\n[\s\S]*?\n<\/skills_granted>\n\n/, '');
+  assert.equal(blockBody(closed.reply[0].text, 'skills_granted'), null, 'nothing granted: no list');
+  assert.notEqual(blockBody(granted.reply[0].text, 'skills_granted'), null);
+  assert.equal(withoutList(granted.reply[0].text), closed.reply[0].text);
   assert.notEqual(blockBody(granted.reply.at(-1).text, 'skills'), blockBody(closed.reply.at(-1).text, 'skills'));
+  const features = { skillsAlwaysListed: false };
+  const closedOff = await runDiscoveryTurn({ answer: 'skills: inventory', features });
+  const grantedOff = await runDiscoveryTurn({ answer: 'skills: inventory', allowed: ['message.edit', 'message.delete'], features });
+  assert.equal(grantedOff.reply[0].text, closedOff.reply[0].text);
 });
 
 test('skills discovery: named skills are logged and journaled with the gateway verdict; <skills> shows the allowed ones and names the others', async () => {
@@ -8301,6 +8308,18 @@ test('skills discovery: named skills are logged and journaled with the gateway v
     { name: 'message.delete', allowed: false },
     { name: 'x.owner', allowed: false },
   ]);
+});
+
+test('skills discovery: every turn lists the skills granted to her in the stable part, with no question and no proposal; the switch off drops it', async () => {
+  const run = await runDiscoveryTurn({ answer: 'none', allowed: ['message.edit', 'lore.list', 'message.delete'] });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.equal(run.reply[0].cacheSegment, 'stable');
+  const body = blockBody(run.reply[0].text, 'skills_granted');
+  const { granted } = labels.skills;
+  assert.equal(body, [granted.lead, fill(granted.line, { family: 'lore', names: 'list' }), fill(granted.line, { family: 'message', names: 'delete, edit' })].join('\n'));
+  assert.ok(!run.text.includes('<skills>\n'), 'the detailed rows stay off without a question or a proposal');
+  const off = await runDiscoveryTurn({ answer: 'none', allowed: ['message.edit'], features: { skillsAlwaysListed: false } });
+  assert.ok(!off.text.includes('<skills_granted>') && off.text.includes('<skills_protocol>'), off.text);
 });
 
 test('skills discovery: features.skillsDiscovery or features.skills false -- no list for the classifier, no catalogue, no protocol', async () => {

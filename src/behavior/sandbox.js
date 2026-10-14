@@ -118,14 +118,19 @@ export const SANDBOX_OMITS = Object.freeze({
   diary: 'never a diary post: no <world>, <diary>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
   skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
+  skillsGranted: 'no skill registry: no <skills_granted> block of her granted skills (a skill scenario hands them in: SKILL_SCENARIO_OMITS)',
 });
+
+/** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
+const SKILL_SCENARIO_INPUTS = new Set(['skillsInventory', 'skillsGranted']);
 
 /**
  * What a skill scenario's turn (`answerSkillScenario`) leaves out: SANDBOX_OMITS but the skills
- * inventory, which it hands in (`scenarioInventory`) so the persona sees her `<skills>` as live.
+ * inventory and her granted skills, which it hands in (`scenarioInventory`, `skillsGranted`) so
+ * the persona sees her `<skills>` and `<skills_granted>` as live.
  * @type {Readonly<Record<string, string>>}
  */
-export const SKILL_SCENARIO_OMITS = Object.freeze(Object.fromEntries(Object.entries(SANDBOX_OMITS).filter(([key]) => key !== 'skillsInventory')));
+export const SKILL_SCENARIO_OMITS = Object.freeze(Object.fromEntries(Object.entries(SANDBOX_OMITS).filter(([key]) => !SKILL_SCENARIO_INPUTS.has(key))));
 
 /** A non-empty string id. */
 function isId(value) {
@@ -585,11 +590,12 @@ function recentLinesOf(view, at) {
  * out, the recent lines included: `recentLinesOf`), tokens measured with
  * `view.calibrator`, and the caller's lists and `<senses>` inputs. The inputs
  * left out on purpose are `SANDBOX_OMITS`, passed as absent -- but the
- * skills inventory when a skill scenario hands one in (`skillsInventory`, a
- * non-empty list of catalogue rows: SKILL_SCENARIO_OMITS). Never an
+ * skills inventory and her granted skills when a skill scenario hands them in
+ * (`skillsInventory`, a non-empty list of catalogue rows; `skillsGranted`, a
+ * non-empty list of skill names: SKILL_SCENARIO_OMITS). Never an
  * owner-forced turn. The view is read now and nothing is written.
  * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
- *   `skillsInventory` (`answerSkillScenario`'s).
+ *   `skillsInventory` and `skillsGranted` (`answerSkillScenario`'s).
  * @returns {object}
  */
 export function sandboxRequestInput({
@@ -607,6 +613,7 @@ export function sandboxRequestInput({
   elsewhereDestination = null,
   searchAvailable = false,
   skillsInventory = null,
+  skillsGranted = null,
 }) {
   const config = view.config;
   const memory = view.memory;
@@ -667,6 +674,8 @@ export function sandboxRequestInput({
     offPeriods: null,
     // Absent but in a skill scenario: the catalogue rows it hands in.
     skillsInventory: Array.isArray(skillsInventory) && skillsInventory.length > 0 ? skillsInventory : null,
+    // Absent but in a skill scenario: the names of her granted skills it hands in.
+    skillsGranted: Array.isArray(skillsGranted) && skillsGranted.length > 0 ? skillsGranted : null,
   };
 }
 
@@ -955,7 +964,8 @@ export function skillScenarioRequest(input) {
  * failed first pass throws (as answerReply). An aborted `signal` stops the runs (`stopped`).
  * Every completion goes out as answerReply's do (`origin: 'replay'`, off the daily cap and the
  * calibration). Nothing is sent to Discord and nothing is stored.
- * @param {object} input  answerReply's inputs (`samples` is `runs`), `skillsInventory` and `onCall`.
+ * @param {object} input  answerReply's inputs (`samples` is `runs`), `skillsInventory`, `skillsGranted`
+ *   (the names of the skills her scenario grants, src/skills/discovery.js#grantedSkillNames) and `onCall`.
  * @returns {Promise<{ request: { system: string, user: string, tokens: number|null, limit: number|null },
  *   runs: { answer: object, call: object|null, callError: string|null, extraCalls: number, usage: object|null,
  *     outcome: object|null, followUp: { answer?: object, extraCall?: boolean, usage?: object|null, error?: string }|null }[],
@@ -979,10 +989,11 @@ export async function answerSkillScenario({
   elsewhereDestination = null,
   searchAvailable = false,
   skillsInventory = null,
+  skillsGranted = null,
   onCall,
 }) {
   const built = sandboxMessages(
-    { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory },
+    { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted },
     runs,
   );
   const { request, messages, systemMessage, userMessage, userText } = built;

@@ -320,6 +320,10 @@
       "requester-denied": "not for this person"
     },
     "proposedOff": "Might fit here but not switched on for you: {names}.",
+    "granted": {
+      "lead": "Skills granted to you, by family (the details come when one fits the message or someone asks what you can do):",
+      "line": "{family}: {names}"
+    },
     "result": {
       "alreadyPosted": "You already posted this turn: {text}",
       "ok": "Your skill worked. What it gave back:",

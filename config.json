@@ -59,6 +59,7 @@
     "memberCommands": true,
     "skills": true,
     "skillsDiscovery": true,
+    "skillsAlwaysListed": true,
     "missedAnswers": true,
     "missedRecovery": false
   },
