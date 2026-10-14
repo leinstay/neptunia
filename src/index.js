@@ -511,6 +511,18 @@ async function seedTriggerLinks(guildId) {
   log.info('journal: trigger links read', { guildId, links: pairs.length });
 }
 
+/**
+ * The persona's skill calls of yesterday and today (the journal's skill operations), handed to the
+ * turn runner so her lines keep showing what she called and how it went across this start. Read
+ * whatever the switches: the runner renders them only with features.callMarkers on.
+ */
+async function seedCallMarks(guildId) {
+  const at = Date.now();
+  const marks = await journal.callMarks(guildId, { days: [utcDay(at - DAY_MS), utcDay(at)] });
+  turns.seedCallMarks(marks);
+  log.info('journal: call marks read', { guildId, calls: marks.calls.length });
+}
+
 /** Whether the journal is written now (features.journal exactly true, read now). */
 const journalOn = () => hot.config.features?.journal === true;
 
@@ -604,6 +616,8 @@ client.once(Events.ClientReady, async () => {
   // from the journal once the forgets are settled. Fire-and-forget: a turn before it is done
   // only lacks the older links.
   await startupStep('journal.triggerLinks', () => seedTriggerLinks(instance.guildId));
+  // The persona's recent skill calls, the same way.
+  await startupStep('journal.callMarks', () => seedCallMarks(instance.guildId));
 
   // The missed-answer registry: data/guilds/<id>/missed.json, reconciled with the journal of the
   // last hour once the forgets are settled; a sweep armed where a candidate waits.

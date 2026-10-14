@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createJournal, createOffPeriodsReader, offPeriods, triggerLinksOf } from '../src/memory/journal.js';
+import { callMarksOf, createJournal, createOffPeriodsReader, offPeriods, triggerLinksOf } from '../src/memory/journal.js';
 
 const DATA = path.join('fake-root', 'data');
 const DAY_D = Date.UTC(2026, 9, 13, 23, 59, 50);
@@ -202,6 +202,64 @@ test('journal: triggerLinks rebuilds the links of the days read, a turn closed t
   ]);
   // The day the turn started not read: its posts have no known trigger.
   assert.deepEqual(await journal.triggerLinks('g1', { days: ['2026-10-14'] }), []);
+});
+
+test('callMarksOf: each skill call of the records with its channel, time, status, target and the posts of its turn', () => {
+  const at = (s) => `2026-10-14T10:00:${String(s).padStart(2, '0')}.000Z`;
+  const skill = (opId, phase, extra = {}) => ({ kind: 'action', name: 'skill', opId, turnId: 't1', phase, scope: { channel: 'c1' }, occurredAt: at(extra.s ?? 0), ...extra });
+  const marks = callMarksOf([
+    { kind: 'turn.start', turnId: 't1', trigger: { kind: 'mention', messageId: 'm1' } },
+    { kind: 'action', name: 'post', opId: 'op-p', turnId: 't1', phase: 'succeeded', scope: { channel: 'c1' }, result: { messageId: 'p1' } },
+    skill('op-1', 'proposed', { input: { skill: 'message.create', invocationId: 'i1', args: ['channel'] }, s: 1 }),
+    skill('op-1', 'started', { input: { skill: 'message.create' }, target: { channel: 'c9' }, s: 2 }),
+    skill('op-1', 'succeeded', { result: { messageId: 'x1' }, s: 3 }),
+    skill('op-2', 'proposed', { input: { skill: 'message.delete' }, s: 4 }),
+    skill('op-2', 'failed', { result: { code: 'not-allowed', status: 'denied' }, s: 5 }),
+    skill('op-3', 'proposed', { input: { skill: 'message.edit' }, s: 6 }),
+    skill('op-3', 'started', { input: { skill: 'message.edit' }, target: { channel: 'c1', message: 'p0' }, s: 7 }),
+    skill('op-3', 'failed', { result: { code: 'error' }, s: 8 }), // an old line without its status
+    skill('op-4', 'proposed', { input: { skill: 'lore.list' }, s: 9 }),
+    skill('op-4', 'unknown', { result: { code: 'timeout' }, s: 10 }),
+    skill('op-5', 'proposed', { input: { skill: 'lore.list' }, s: 11 }), // never closed
+    { kind: 'action', name: 'skill', opId: 'op-6', turnId: 't2', phase: 'proposed', scope: { user: 'u2', private: true }, input: { skill: 'lore.list' }, occurredAt: at(12) },
+    { kind: 'turn', turnId: 't1', posted: [{ messageId: 'p1' }, 'p2'] },
+  ]);
+  const posted = ['p1', 'x1', 'p2'];
+  assert.deepEqual(marks.calls, [
+    { channelId: 'c1', at: Date.parse(at(3)), skill: 'message.create', status: 'ok', target: { messageId: null, channelId: 'c9' }, postedId: 'x1', posted },
+    { channelId: 'c1', at: Date.parse(at(5)), skill: 'message.delete', status: 'denied', target: { messageId: null, channelId: null }, postedId: null, posted },
+    { channelId: 'c1', at: Date.parse(at(8)), skill: 'message.edit', status: 'failed', target: { messageId: 'p0', channelId: 'c1' }, postedId: null, posted },
+    { channelId: 'c1', at: Date.parse(at(10)), skill: 'lore.list', status: 'unknown', target: { messageId: null, channelId: null }, postedId: null, posted },
+    { channelId: 'c1', at: Date.parse(at(11)), skill: 'lore.list', status: 'unknown', target: { messageId: null, channelId: null }, postedId: null, posted },
+  ]);
+  assert.deepEqual(marks.postedFrom, [['x1', 'c1']], 'a post the call made in another channel names the channel of its turn');
+  assert.deepEqual(callMarksOf(null), { calls: [], postedFrom: [] });
+});
+
+test('journal: callMarks rebuilds the skill calls of the days read from the operations a turn wrote', async () => {
+  const clock = { ms: DAY_D };
+  const { journal } = journalAt(clock);
+  const started = journal.start('g1', { channelId: 'c1', mode: 'reply', trigger: { kind: 'mention', messageId: 'm1', authorId: 'u1' } });
+  const op = journal.op('g1', { turnId: started.turnId, name: 'skill', by: 'persona', channelId: 'c1', input: { skill: 'message.create', invocationId: 'i1' } });
+  await op.proposed({ input: { skill: 'message.create', invocationId: 'i1', args: ['channel'], body: true } });
+  await op.started({ target: { channel: 'c9' } });
+  clock.ms = DAY_D1;
+  await op.succeeded({ messageId: 'x1' });
+  await journal.turn('g1', { ...started, channelId: 'c1', outcome: 'spoke', posted: [{ messageId: 'p1', replyTo: 'm1' }] });
+  const refused = journal.op('g1', { turnId: started.turnId, name: 'skill', by: 'persona', channelId: 'c1', input: { skill: 'lore.list' } });
+  await refused.proposed();
+  await refused.failed('not-allowed', { status: 'denied' });
+
+  const marks = await journal.callMarks('g1', { days: ['2026-10-13', '2026-10-14'] });
+  assert.deepEqual(
+    marks.calls.map((call) => [call.channelId, call.skill, call.status, call.target, call.postedId, call.posted, call.at]),
+    [
+      ['c1', 'message.create', 'ok', { messageId: null, channelId: 'c9' }, 'x1', ['x1', 'p1'], DAY_D1],
+      ['c1', 'lore.list', 'denied', { messageId: null, channelId: null }, null, ['x1', 'p1'], DAY_D1],
+    ],
+  );
+  assert.deepEqual(marks.postedFrom, [['x1', 'c1']]);
+  assert.deepEqual(await journal.callMarks('g1', { days: [] }), { calls: [], postedFrom: [] });
 });
 
 test('journal: a record missing participants or sourceMessageIds is written with empty arrays, never rejected', async () => {

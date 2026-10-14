@@ -67,7 +67,7 @@ import {
 } from '../discord/media.js';
 import { avatarReference, createImageFetcher } from '../discord/fetch-image.js';
 import { renderCustomEmoji, resolveReactionEmoji } from '../discord/emoji.js';
-import { fill, formatNow, replyMarker, withTriggers } from '../discord/format.js';
+import { fill, formatNow, replyMarker, withCalls, withTriggers } from '../discord/format.js';
 import { log } from '../log.js';
 import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { gifPostsToday } from '../memory/gif-watch.js';
@@ -218,6 +218,12 @@ const PREPARE_TYPING_REFRESH_MS = 8000;
 // How many of the persona's posted messages keep the link to their turn's trigger in process
 // (far more than two days of her lines; the oldest go first).
 const TRIGGER_LINKS_MAX = 5000;
+
+// How many of the persona's skill calls her transcript lines keep showing, in process (far more
+// than two days of them; the oldest go first), and how many of her posts keep the channel of the
+// turn that posted them from elsewhere.
+const CALL_MARKS_MAX = 500;
+const POSTED_FROM_MAX = 2000;
 
 /** The real timer behind createTurnRunner's `schedule`: `fn` once after `ms`; resolves a cancel function. */
 function scheduleTimer(fn, ms) {
@@ -1462,6 +1468,13 @@ function taskInput({ part, queued, added, missed = null, labels, channelId }) {
  * each line (`transcript.triggeredBy` / `triggeredByOlder`). The neighbours' lines show no `#n`
  * and carry none. A spontaneous turn, a diary post or a dry run links nothing.
  *
+ * Call marks: every skill call she makes (runCall: its skill, status, target and the messages its
+ * turn posted) is remembered in process, `seedCallMarks` adding the ones the journal kept from
+ * before a restart; a message a call posted in another channel than its turn's remembers that
+ * channel. With features.callMarkers on (a missing key counts as on, read per turn) the lines of
+ * the turn's history and of its pulled channels carry them (src/discord/format.js#withCalls,
+ * linkCalls), so she sees what she called and how it went, in the channel where she called it.
+ *
  * Skills and the interface: every effect of a reply -- a message with its reply target and
  * mentions, the GIF, the picture's publication after its generation, a diary set's pictures, a
  * reaction, the typing indicator -- is checked by src/skills/gateway.js#checkReplyEffect right
@@ -1705,18 +1718,32 @@ export function createTurnRunner({
     if (op.opId) {
       if (result.status === 'ok') await op.succeeded(result.ref?.messageId ? { messageId: result.ref.messageId } : {});
       else if (result.status === 'unknown') await op.unknown({ code: result.code ?? null });
-      else await op.failed(result.code ?? 'error');
+      else await op.failed(result.code ?? 'error', { status: result.status });
     }
     const args = plan.resolved?.args ?? {};
     const posted = result.status === 'ok' && (skill === 'message.create' || skill === 'draw.create') && result.ref ? postedOf(result) : null;
+    // Every message the turn posted, its follow-up's included (act adds them as they go out).
+    const turnPosts = draft ? (draft.ownPosts ??= []) : [];
+    const where = posted ? String(result.ref.conversationId ?? args.channel ?? channel.id) : null;
     if (posted) {
-      const where = String(result.ref.conversationId ?? args.channel ?? channel.id);
       lastPostAt.set(where, clock());
       noteTrigger(posted.id, trigger?.id);
+      if (!turnPosts.includes(posted.id)) turnPosts.push(posted.id);
+      if (where !== String(channel.id)) notePostedFrom(posted.id, String(channel.id));
       if (skill === 'message.create') {
         recordSaid({ guildId, channel: { id: where }, privateChat: false, trigger, draft, op, posted, text: args.text, replyId: args.reply ?? null, repliedAuthorId: plan.resolved.repliedAuthorId ?? null, userIds: rendered?.userIds ?? [] });
       }
     }
+    const idText = (value) => (typeof value === 'string' && value ? value : null);
+    noteCall({
+      channelId: String(channel.id),
+      at: clock(),
+      skill,
+      status: result.status,
+      target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },
+      postedId: posted?.id ?? null,
+      posted: turnPosts,
+    });
     log.info('skills: called', { channel: channel.id, skill, status: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' && result.error ? { error: portError(result) } : {}) });
     return { skill, ...result, followUp: needsFollowUp(skill, result) };
   }
@@ -1811,6 +1838,47 @@ export function createTurnRunner({
   function linkTriggers(lines) {
     if (hot.config.features?.triggerMarkers === false) return lines;
     return withTriggers(lines, triggerLinks);
+  }
+
+  // The persona's skill calls, in process (noteCall at each call, seedCallMarks at start from the
+  // journal), oldest first, the oldest dropped past CALL_MARKS_MAX; and posted message id -> the
+  // channel of the turn that posted it from another channel (notePostedFrom). Her transcript
+  // lines read both (linkCalls).
+  const callMarks = [];
+  const postedFromLinks = new Map();
+
+  /** Remember one skill call of hers (in src/discord/format.js#withCalls's shape). */
+  function noteCall(mark) {
+    callMarks.push(mark);
+    if (callMarks.length > CALL_MARKS_MAX) callMarks.splice(0, callMarks.length - CALL_MARKS_MAX);
+  }
+
+  /** Remember that `postedId` was posted by a turn of channel `originId` (a newer link wins). */
+  function notePostedFrom(postedId, originId) {
+    if (typeof postedId !== 'string' || !postedId || typeof originId !== 'string' || !originId) return;
+    postedFromLinks.delete(postedId);
+    postedFromLinks.set(postedId, originId);
+    while (postedFromLinks.size > POSTED_FROM_MAX) postedFromLinks.delete(postedFromLinks.keys().next().value);
+  }
+
+  /**
+   * `lines` with the persona's skill calls on her own lines (src/discord/format.js#withCalls): the
+   * channel names read live from the guild of `channel` (the turn's), the message links built in
+   * `guildId` (`@me` for a message of the private chat itself). `lines` as they are with
+   * features.callMarkers off (a missing key counts as on, read now).
+   */
+  function linkCalls(lines, { channel, guildId }) {
+    if (hot.config.features?.callMarkers === false) return lines;
+    if (callMarks.length === 0 && postedFromLinks.size === 0) return lines;
+    const privateId = channel.guild ? null : String(channel.id);
+    return withCalls(
+      lines,
+      { calls: callMarks, postedFrom: postedFromLinks },
+      {
+        nameOf: liveChannelName(channel),
+        linkOf: (channelId, messageId) => messageLink(channelId === privateId ? '@me' : guildId, channelId, messageId),
+      },
+    );
   }
 
   /** Whether the journal is written now: one injected and features.journal exactly true (read now). */
@@ -2649,6 +2717,7 @@ export function createTurnRunner({
       if (typeof sent?.id === 'string' && sent.id) {
         posts.push({ ...opField(op), messageId: sent.id, replyTo: replyTo ?? null });
         noteTrigger(sent.id, trigger?.id);
+        if (draft) (draft.ownPosts ??= []).push(sent.id);
       }
     };
 
@@ -3454,6 +3523,8 @@ export function createTurnRunner({
                   contextDescriptions: descriptions,
                   candidate: trigger,
                   server,
+                  // Her lines in the found stretches show her skill calls like her chat lines.
+                  decorate: (lines) => linkCalls(lines, { channel, guildId }),
                 }),
               channelId,
               'server',
@@ -4636,19 +4707,23 @@ export function createTurnRunner({
       // The first part of a split message reuses the history its message's turn fetched.
       // Part of the history: the messages replies of the window answer from outside it
       // (context.fetchReplyParents), prepended as its oldest lines (withReplyParents). The
-      // persona's own lines carry the message that started their turn (linkTriggers), so the
-      // request and every helper transcript built from this history name it.
-      const rawHistory = linkTriggers(
-        reuseHistory ??
-          (await beforeBar(
-            fetchHistory(channel, {
-              limit: config.context.channelMessages,
-              selfId,
-              embedTextChars: config.media?.embedTextChars,
-              videoSites: config.media?.video?.sites,
-              maxUrlChars: config.context?.maxUrlChars,
-            }).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config })),
-          )),
+      // persona's own lines carry the message that started their turn (linkTriggers) and the
+      // skill calls she made (linkCalls), so the request and every helper transcript built from
+      // this history name them.
+      const rawHistory = linkCalls(
+        linkTriggers(
+          reuseHistory ??
+            (await beforeBar(
+              fetchHistory(channel, {
+                limit: config.context.channelMessages,
+                selfId,
+                embedTextChars: config.media?.embedTextChars,
+                videoSites: config.media?.video?.sites,
+                maxUrlChars: config.context?.maxUrlChars,
+              }).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config })),
+            )),
+        ),
+        { channel, guildId },
       );
       const historyMs = clock() - historyStartedAt;
       const partner = await beforeBar(partnerPending);
@@ -5374,9 +5449,10 @@ export function createTurnRunner({
           // `<channel_view>`: the channels pulled into this turn (each with the last view of it
           // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is
           // about, the chat line put to the room, where a call from a read-only channel is answered.
-          // The persona's lines there name the message that started their turn (linkTriggers).
+          // The persona's lines there name the message that started their turn (linkTriggers) and
+          // the skill calls she made there (linkCalls).
           pulled: withSeenBefore(
-            pulled.map((entry) => (Array.isArray(entry?.messages) ? { ...entry, messages: linkTriggers(entry.messages) } : entry)),
+            pulled.map((entry) => (Array.isArray(entry?.messages) ? { ...entry, messages: linkCalls(linkTriggers(entry.messages), { channel, guildId }) } : entry)),
             channel.id,
             now,
           ),
@@ -5823,6 +5899,21 @@ export function createTurnRunner({
       for (const pair of Array.isArray(pairs) ? pairs : []) {
         if (!Array.isArray(pair) || triggerLinks.has(pair[0])) continue;
         noteTrigger(pair[0], pair[1]);
+      }
+    },
+    /**
+     * Remember the persona's skill calls from before a restart (src/memory/journal.js#callMarks at
+     * start: `calls` oldest first, `postedFrom` pairs), so her lines keep showing them. They go
+     * before the calls noted since; a post noted since keeps its channel.
+     * @param {{ calls?: object[], postedFrom?: Array<[string, string]> }} marks
+     */
+    seedCallMarks: (marks) => {
+      const seeded = (Array.isArray(marks?.calls) ? marks.calls : []).filter((mark) => mark && typeof mark === 'object');
+      callMarks.unshift(...seeded.slice(-CALL_MARKS_MAX));
+      if (callMarks.length > CALL_MARKS_MAX) callMarks.splice(0, callMarks.length - CALL_MARKS_MAX);
+      for (const pair of Array.isArray(marks?.postedFrom) ? marks.postedFrom : []) {
+        if (!Array.isArray(pair) || postedFromLinks.has(pair[0])) continue;
+        notePostedFrom(pair[0], pair[1]);
       }
     },
     /**

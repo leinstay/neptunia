@@ -54,6 +54,14 @@ export const ID_DIGITS = '\\d{17,20}';
 export const URL_PATTERN = 'https?:\\/\\/[^\\s<>]+';
 
 /**
+ * A Discord message link, the whole text: `https://discord.com/channels/<guild>/<channel>/<message>`
+ * (ptb, canary, discordapp too; `@me` for a private chat); groups: the channel id, the message id.
+ * The one copy for the operations (src/ops/shared.js#messageRefOf) and her calls
+ * (src/skills/executors.js#resolveCall).
+ */
+export const MESSAGE_LINK_RE = /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
+
+/**
  * `text` with `convert` applied to every stretch outside its URLs
  * (URL_PATTERN), the URLs kept exactly as written. `convert` may get ''. Pure.
  * @param {string} text

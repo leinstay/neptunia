@@ -287,6 +287,29 @@ test('executeCall: edit and delete change her own message; the port refuses anyo
   assert.equal(port.messagesIn(NEWS).some((message) => message.ref.messageId === '1004'), false);
 });
 
+test('resolveCall: a message link names the message and its channel; a raw id passes as written', () => {
+  const link = 'https://discord.com/channels/111/555/1009';
+  const conversations = [...view().conversations, { id: '555', name: 'ιστορίες' }];
+  assert.deepEqual(resolve('message.delete', { message: link }).args, { message: '1009', channel: '555' });
+  assert.deepEqual(resolve('message.delete', { message: `<${link}>` }).args, { message: '1009', channel: '555' }, 'in angle brackets too');
+  assert.deepEqual(resolve('message.edit', { message: link, channel: '#ιστορίες' }, 'σωστό', { conversations }).args, { message: '1009', channel: '555', text: 'σωστό' });
+  assert.deepEqual(resolve('message.react.add', { message: 'https://ptb.discord.com/channels/111/555/1009', emoji: '🎉' }).args, { message: '1009', emoji: '🎉', channel: '555' });
+  const reply = resolve('message.create', { reply: link }, 'απάντηση');
+  assert.deepEqual([reply.ok, reply.args], [true, { reply: '1009', text: 'απάντηση', channel: '555' }]);
+  // the channel she names must be the link's
+  assert.deepEqual([resolve('message.delete', { message: link, channel: '#γενικά' }).code, resolve('message.delete', { message: link, channel: '#γενικά' }).reason], ['unknown-message', 'conversation']);
+  // a raw id: as written, its channel the one she names
+  assert.deepEqual(resolve('message.delete', { message: '123456789012345678', channel: '#νέα' }).args, { message: '123456789012345678', channel: NEWS });
+});
+
+test('executeCall: a message she posted elsewhere is deleted by its link', async () => {
+  const { admin, port } = makeAdmin({ cfg: config({ skills: { conversations: [NEWS, '555'] } }) });
+  port.seed('555', { authorId: SELF, messageId: '1009', text: 'λάθος κανάλι' });
+  const deleted = await executeCall(resolve('message.delete', { message: 'https://discord.com/channels/111/555/1009' }), deps(admin, port));
+  assert.equal(deleted.status, 'ok', JSON.stringify(deleted));
+  assert.equal(port.messagesIn('555').some((message) => message.ref.messageId === '1009'), false);
+});
+
 test('executeCall: draw.create without a channel posts its picture here, once; with one, the operation posts it there', async () => {
   const generated = [];
   const images = {

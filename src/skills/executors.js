@@ -4,8 +4,8 @@
 // runs it as attributes. Two steps. `resolveCall` turns the tag's string attributes into the
 // command's arguments on the server's side -- a channel reference she sees (`#name`, `<#id>` or an
 // id) into a channel id, a member's name or mention into a stored profile's id, a role into its
-// id, a transcript number `#N` (a `message` or `reply` option) into that line's message id and
-// channel, a whole number or `true` / `false` read strictly -- so nothing the model writes is
+// id, a transcript number `#N` or a message link (a `message` or `reply` option) into that
+// message's id and channel, a whole number or `true` / `false` read strictly -- so nothing the model writes is
 // taken as an id unchecked. `executeCall` then runs the operation through its slash command's own
 // path (src/admin.js#runCommand: the requester's rights checked again, as for their own command),
 // the persona as the actor; its answer -- an error or a refusal included -- is the text the owner
@@ -15,7 +15,7 @@
 // never retried), `partial`, `failed`. Codes are kebab-case; no wording here: the persona reads a
 // result through `labels.skills.result`.
 
-import { matchChannel } from '../memory/mentions.js';
+import { matchChannel, MESSAGE_LINK_RE } from '../memory/mentions.js';
 import { SELF_OWNED_OPS } from '../ops/effects.js';
 
 /** The options whose value may be a transcript number `#N`: a message she can see. */
@@ -125,7 +125,9 @@ function memberOf(reference, members) {
  * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
  * is not hers). A `#N` of a `message` or `reply` option becomes the line's message id and, when
  * the command has a `channel` option the call left out, its channel; a reply records the replied
- * author. Pure.
+ * author. A Discord message link there (MESSAGE_LINK_RE, bare or in angle brackets) becomes its
+ * message id and names its channel the same way (`unknown-message` when the call named another);
+ * any other value -- a raw message id -- is passed on as written. Pure.
  * @param {{ skill: string, args: Record<string, string>, body: string }} call
  * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[],
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
@@ -151,6 +153,7 @@ export function resolveCall(call, view) {
 
   const args = {};
   const lines = {};
+  const linked = {}; // option -> the channel id of the message link it was given
   for (const [option, raw] of Object.entries(given)) {
     const text = String(raw ?? '').trim();
     switch (byName.get(option).kind) {
@@ -184,6 +187,13 @@ export function resolveCall(call, view) {
       }
       default: {
         const n = MESSAGE_OPTIONS.includes(option) ? transcriptNumber(text) : null;
+        // A message link (in angle brackets too) names the message and its channel.
+        const link = MESSAGE_OPTIONS.includes(option) && n === null ? MESSAGE_LINK_RE.exec(text.replace(/^<(.*)>$/, '$1')) : null;
+        if (link) {
+          linked[option] = link[1];
+          args[option] = link[2];
+          break;
+        }
         if (n === null) {
           args[option] = raw;
           break;
@@ -210,6 +220,12 @@ export function resolveCall(call, view) {
       if (!own) return refused('not-own-message', 'author');
     }
     if (option === 'reply') repliedAuthorId = line.authorId ?? null;
+  }
+  // A link names its channel the same way (whose message it is, the operation's port checks).
+  for (const at of Object.values(linked)) {
+    if (!byName.has('channel')) continue;
+    if (args.channel === undefined) args.channel = at;
+    else if (String(args.channel) !== at) return refused('unknown-message', 'conversation');
   }
   return { ok: true, skill: name, args, command, repliedAuthorId };
 }

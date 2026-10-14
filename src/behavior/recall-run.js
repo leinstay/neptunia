@@ -997,6 +997,11 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       if (traced) traced.kept = true;
     }
     stats.windows = windows.length;
+    if (typeof decorate === 'function') {
+      windows.forEach((window, i) => {
+        windows[i] = { ...window, messages: decorate(window.messages) };
+      });
+    }
     const descriptions = cachedCaptions(config, guildId, windows);
     for (const window of windows) window.descriptions = descriptions;
     log.info('recall: searched', {
@@ -1161,8 +1166,11 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * or `timeout` when the run ran out yet left its fallback stretch), `hits`
    * (the search hits), `kept`, `summaryChars` and `stretch` (whether a
    * stretch is returned); `failed` with `timeout` (nothing left) or `error`.
+   * `decorate` (optional; the turn's call marks, src/behavior/turn.js#linkCalls) takes each
+   * window's messages once they are read and gives the ones rendered, so the persona's lines
+   * there show what she called like her chat lines do.
    */
-  async function run({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], context = null, contextDescriptions, candidate = null, server = null, op = null } = {}) {
+  async function run({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], context = null, contextDescriptions, candidate = null, server = null, op = null, decorate = null } = {}) {
     const started = now();
     const channelId = channel?.id ?? null;
     const stats = emptyStats();

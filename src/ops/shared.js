@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { emptyAffinity, affinityBand, roundScore } from '../memory/affinity.js';
 import { topByRank } from '../memory/ranking.js';
-import { fromTokens } from '../memory/mentions.js';
+import { fromTokens, MESSAGE_LINK_RE } from '../memory/mentions.js';
 import { MODEL_ROLES } from '../discord/commands.js';
 import { roleModel } from '../llm/roles.js';
 import { IMAGE_ROLE } from '../llm/images.js';
@@ -664,9 +664,6 @@ export function postingConversation(config, channelId, context) {
   }
   return id;
 }
-
-/** A message link: `https://discord.com/channels/<guild>/<channel>/<message>` (ptb, canary, discordapp too). */
-const MESSAGE_LINK_RE = /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
 
 /**
  * `{ channelId, messageId }` of a message id (`channelId` null) or a message link; an `invalid`

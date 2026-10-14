@@ -50,7 +50,8 @@
 //
 // Which message started the turn that posted each of her messages (`triggerLinks`,
 // `triggerLinksOf`): read once at start, so her transcript lines keep naming their turn's trigger
-// across a restart (src/behavior/turn.js).
+// across a restart (src/behavior/turn.js). Her skill calls (`callMarks`, `callMarksOf`) are read
+// the same way, so her lines keep showing what she called and how it went.
 //
 // Which turn posted one of her messages (`findTurn`, `turnOfMessage`, shown by `turnView`): for
 // `/nep memory journal message:`, the turn record whole, its think included.
@@ -345,6 +346,65 @@ function succeededIdOf(record) {
   return typeof id === 'string' && id ? id : null;
 }
 
+/** A call result's status as a closing line keeps it (`ok`, `not_configured`, ...). */
+const CALL_STATUS_RE = /^[a-z_]{1,32}$/;
+
+/**
+ * The persona's skill calls, from journal records (parsed lines, any kinds, oldest first), for
+ * the call marks of her transcript lines (src/discord/format.js#withCalls): every `skill`
+ * operation of a guild channel as `{ channelId, at, skill, status, target, postedId, posted }` --
+ * `channelId` the channel of its turn (the operation's scope), `at` the time of its last line
+ * (epoch ms), `skill` its `input.skill`, `status` the closing line's: `ok` for `succeeded`,
+ * `unknown` for `unknown`, a `failed` line's `result.status` (`failed` when it has none: an older
+ * line), `unknown` with no closing line; `target` its `started` line's ids (`{ messageId, channelId
+ * }`: `message`, else `reply`; null fields when unknown), `postedId` the message it posted
+ * (`succeeded` with a `messageId`), `posted` every message its turn posted (its `turn` records'
+ * `posted` and its operations' succeeded ids, once each, in order). `postedFrom`: `[postedId,
+ * channelId]` for a call that posted in another channel than its turn's. Pure.
+ * @param {unknown[]} records
+ * @returns {{ calls: object[], postedFrom: Array<[string, string]> }}
+ */
+export function callMarksOf(records) {
+  const list = Array.isArray(records) ? records.filter((record) => record && typeof record === 'object') : [];
+  const text = (value) => (typeof value === 'string' && value ? value : null);
+  const postedByTurn = new Map(); // turnId -> message ids, in order
+  const addPosted = (turnId, id) => {
+    if (!text(turnId) || !id) return;
+    const ids = postedByTurn.get(turnId) ?? [];
+    if (!ids.includes(id)) ids.push(id);
+    postedByTurn.set(turnId, ids);
+  };
+  for (const record of list) {
+    if (record.kind === 'turn') for (const post of Array.isArray(record.posted) ? record.posted : []) addPosted(record.turnId, postedIdOf(post));
+    else if (record.kind === 'action') addPosted(record.turnId, succeededIdOf(record));
+  }
+  const ops = new Map(); // opId -> what its lines said
+  for (const record of list) {
+    if (record.kind !== 'action' || record.name !== 'skill' || !text(record.opId)) continue;
+    const op = ops.get(record.opId) ?? { turnId: null, channelId: null, skill: null, target: null, status: null, postedId: null, at: null };
+    op.turnId = text(record.turnId) ?? op.turnId;
+    op.channelId = text(record.scope?.channel) ?? op.channelId;
+    op.skill = text(record.input?.skill) ?? op.skill;
+    if (record.target && typeof record.target === 'object') op.target = record.target;
+    if (record.phase === 'succeeded') op.status = 'ok';
+    else if (record.phase === 'unknown') op.status = 'unknown';
+    else if (record.phase === 'failed') op.status = CALL_STATUS_RE.test(String(record.result?.status ?? '')) ? record.result.status : 'failed';
+    op.postedId = succeededIdOf(record) ?? op.postedId;
+    const at = Date.parse(record.occurredAt);
+    if (Number.isFinite(at)) op.at = at;
+    ops.set(record.opId, op);
+  }
+  const calls = [];
+  const postedFrom = [];
+  for (const op of ops.values()) {
+    if (!op.channelId || !op.skill) continue;
+    const target = { messageId: text(op.target?.message) ?? text(op.target?.reply), channelId: text(op.target?.channel) };
+    calls.push({ channelId: op.channelId, at: op.at, skill: op.skill, status: op.status ?? 'unknown', target, postedId: op.postedId, posted: [...(postedByTurn.get(op.turnId) ?? [])] });
+    if (op.postedId && target.channelId && target.channelId !== op.channelId) postedFrom.push([op.postedId, op.channelId]);
+  }
+  return { calls, postedFrom };
+}
+
 /**
  * The turn that posted message `messageId`, from journal records (parsed lines, any kinds, oldest
  * first): the `turn` record whose `posted` names it, else -- an old record without the ids, or a
@@ -464,6 +524,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   read(guildId: string, query: { day: string, kind?: string, n?: number, privateUserId?: string|null }): Promise<object[]>,
  *   timeline(guildId: string, query: { from: number }): Promise<Array<{ at: number, kind: string, event: string|null }>>,
  *   triggerLinks(guildId: string, query: { days: string[] }): Promise<Array<[string, string]>>,
+ *   callMarks(guildId: string, query: { days: string[] }): Promise<{ calls: object[], postedFrom: Array<[string, string]> }>,
  *   findTurn(guildId: string, query: { messageId: string, at: number }): Promise<{ turn: object, start: object|null,
  *     posted: string[], calls: object[] }|null>,
  *   dayFile(guildId: string, dateIso: string, privateUserId?: string|null): string,
@@ -711,6 +772,20 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
       }
     }
     return triggerLinksOf(records);
+  }
+
+  /**
+   * The guild journal's skill calls of `days` (UTC day keys, oldest first; callMarksOf over their
+   * `turn` and `action` records, read in that order). A private journal is not read.
+   */
+  async function callMarks(guildId, { days = [] } = {}) {
+    const records = [];
+    for (const day of Array.isArray(days) ? days : []) {
+      for (const record of await read(guildId, { day, n: Number.MAX_SAFE_INTEGER })) {
+        if (record.kind === 'turn' || record.kind === 'action') records.push(record);
+      }
+    }
+    return callMarksOf(records);
   }
 
   /**
@@ -1154,6 +1229,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     read,
     timeline,
     triggerLinks,
+    callMarks,
     findTurn,
     dayFile,
     op,

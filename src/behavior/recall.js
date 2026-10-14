@@ -956,6 +956,18 @@ export function fallbackWindow(windows, among = FALLBACK_AMONG) {
 }
 
 /**
+ * A message of a stretch without indices: no reply marker, and its call marks
+ * (src/discord/format.js#withCalls) name their target by link or channel, never by a number.
+ */
+function unnumbered(message) {
+  const out = { ...message, replyToId: null };
+  for (const key of ['calls', 'callsAfter']) {
+    if (Array.isArray(message[key])) out[key] = message[key].map((mark) => ({ ...mark, targetId: null }));
+  }
+  return out;
+}
+
+/**
  * The windows rendered as transcript lines with the transcript helpers of
  * src/discord/format.js (the chat form: gap and date markers, media tags
  * with the `descriptions` captions, reactions; wording from `labels`). A
@@ -981,7 +993,7 @@ export function renderRecallWindows(windows, { labels, timezone = 'UTC', selfNam
     const messages = (window?.messages ?? []).filter(Boolean);
     if (messages.length === 0) continue;
     const hits = new Set(window.hitIds ?? []);
-    const items = formatTranscript(indexed ? messages : messages.map((m) => ({ ...m, replyToId: null })), {
+    const items = formatTranscript(indexed ? messages : messages.map(unnumbered), {
       timezone,
       gapMinutes,
       maxChars,
