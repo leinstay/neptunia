@@ -56,7 +56,8 @@
     "typingSimulation": true,
     "pauseNotice": true,
     "adminCommands": true,
-    "memberCommands": true
+    "memberCommands": true,
+    "skills": true
   },
   "bot": {
     "timezone": "UTC",
@@ -343,6 +344,10 @@
     "provider": null,
     "openai": { "quality": "medium", "background": "auto", "moderation": "low" },
     "google": { "resolution": "1K" }
+  },
+  "skills": {
+    "conversations": [],
+    "safeMode": false
   },
   "diary": {
     "channelId": "",

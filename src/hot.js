@@ -7,8 +7,10 @@
 //
 // prompts/ is the tracked, generic layer; prompts.local/ is a deployment's
 // own, gitignored overrides — it may be entirely absent. A local file
-// replaces the base file of the same name once it is non-empty; labels.json
-// is deep-merged instead of replaced. A file that fails to parse (half
+// replaces the base file of the same name once it is non-empty; the JSON
+// layers (labels.json, and skills.json: the persona's skill texts,
+// src/skills/registry.js) are deep-merged instead of replaced, each under its
+// own name in `hot.prompts`. A file that fails to parse (half
 // -written JSON, editor temp state) is ignored on reload: the previous good
 // value stays live and the error is logged. On the very first load, invalid
 // JSON still throws so a broken deployment fails fast at startup.
@@ -27,6 +29,8 @@ import { log } from './log.js';
 const DEBOUNCE_MS = 250;
 const CONFIG_FILES = new Set(['config.json', 'config.local.json']);
 const LOCAL_PROMPTS_DIRNAME = 'prompts.local';
+/** The JSON files of the prompt layers, by name: `<name>.json`, deep-merged local over base. */
+const JSON_LAYERS = Object.freeze(['labels', 'skills']);
 
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
@@ -107,9 +111,9 @@ function computePromptFiles(promptsDir, localPromptsDir, prevPrompts, prevSource
   return { prompts, sources, keptPrevious };
 }
 
-/** Parsed `<dir>/labels.json`, or `undefined` when the file is absent or blank. Throws on invalid JSON. */
-function readLabelsFile(dir) {
-  const file = path.join(dir, 'labels.json');
+/** Parsed `<dir>/<name>.json`, or `undefined` when the file is absent or blank. Throws on invalid JSON. */
+function readJsonFile(dir, name) {
+  const file = path.join(dir, `${name}.json`);
   if (!fs.existsSync(file)) return undefined;
   const raw = fs.readFileSync(file, 'utf8').trim();
   if (!raw) return undefined;
@@ -117,22 +121,25 @@ function readLabelsFile(dir) {
 }
 
 /**
- * `{ labels, source }` for the deep-merged labels layer. Missing base labels
- * default to `{}`. Throws when either file exists and is not valid JSON —
- * callers on a reload path must catch this and keep the previous labels.
+ * `{ value, source }` for one deep-merged JSON layer (a name of JSON_LAYERS). A
+ * missing base file defaults to `{}`. Throws when either file exists and is
+ * not valid JSON — callers on a reload path must catch this and keep the
+ * previous value.
  */
-function computeLabels(promptsDir, localPromptsDir) {
-  const base = readLabelsFile(promptsDir);
-  const local = readLabelsFile(localPromptsDir);
-  if (local !== undefined) return { labels: deepMerge(base ?? {}, local), source: 'merged' };
-  return { labels: base ?? {}, source: 'base' };
+function computeJsonLayer(name, promptsDir, localPromptsDir) {
+  const base = readJsonFile(promptsDir, name);
+  const local = readJsonFile(localPromptsDir, name);
+  if (local !== undefined) return { value: deepMerge(base ?? {}, local), source: 'merged' };
+  return { value: base ?? {}, source: 'base' };
 }
 
 function loadPromptLayers(promptsDir, localPromptsDir, prevPrompts, prevSources) {
   const { prompts, sources, keptPrevious } = computePromptFiles(promptsDir, localPromptsDir, prevPrompts, prevSources);
-  const { labels, source: labelsSource } = computeLabels(promptsDir, localPromptsDir);
-  prompts.labels = labels;
-  sources.labels = labelsSource;
+  for (const name of JSON_LAYERS) {
+    const { value, source } = computeJsonLayer(name, promptsDir, localPromptsDir);
+    prompts[name] = value;
+    sources[name] = source;
+  }
   return { prompts, sources, keptPrevious };
 }
 
@@ -181,7 +188,7 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
     }
   };
   reportRetiredKeys();
-  // Initial load: invalid labels JSON throws so a broken deployment fails at startup.
+  // Initial load: an invalid JSON layer (labels, skills) throws so a broken deployment fails at startup.
   const initial = loadPromptLayers(promptsDir, localPromptsDir, {}, {});
   hot.prompts = initial.prompts;
   hot.promptSources = initial.sources;
@@ -228,18 +235,23 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
         hot.promptSources,
       );
 
-      let labels = hot.prompts.labels;
-      let labelsSource = hot.promptSources.labels;
-      try {
-        const computed = computeLabels(promptsDir, localPromptsDir);
-        labels = computed.labels;
-        labelsSource = computed.source;
-      } catch (err) {
-        log.warn('hot: labels.json not reloaded, keeping the previous labels', { error: err });
+      // Each JSON layer on its own: a broken one keeps its previous value, the rest still reload.
+      const json = {};
+      const jsonSources = {};
+      for (const name of JSON_LAYERS) {
+        json[name] = hot.prompts[name];
+        jsonSources[name] = hot.promptSources[name];
+        try {
+          const computed = computeJsonLayer(name, promptsDir, localPromptsDir);
+          json[name] = computed.value;
+          jsonSources[name] = computed.source;
+        } catch (err) {
+          log.warn('hot: json layer not reloaded, keeping the previous value', { name, error: err });
+        }
       }
 
-      hot.prompts = { ...mdPrompts, labels };
-      hot.promptSources = { ...mdSources, labels: labelsSource };
+      hot.prompts = { ...mdPrompts, ...json };
+      hot.promptSources = { ...mdSources, ...jsonSources };
       hot.hashes = { ...hot.hashes, promptsHash: shortHash(hot.prompts) };
       log.info('hot: prompts reloaded', { prompts: Object.keys(mdPrompts), keptPrevious });
       hot.emit('change', { what: 'prompts' });

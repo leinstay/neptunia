@@ -73,12 +73,12 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   }
 });
 
-test('buildCommandTree: the exact top-level list (18 entries, no warmup)', () => {
+test('buildCommandTree: the exact top-level list (19 entries, no warmup)', () => {
   const [command] = buildCommandTree('nep');
   const top = command.options.map((option) => option.name);
   assert.deepEqual(top, [
     'status', 'set', 'unset', 'pause', 'resume', 'draw', 'pings', 'talk', 'media',
-    'model', 'route', 'rule', 'access', 'diary', 'alias', 'learning', 'lore', 'memory',
+    'model', 'route', 'rule', 'access', 'skill', 'diary', 'alias', 'learning', 'lore', 'memory',
   ]);
   assert.deepEqual(COMMAND_TABLE.map((node) => node.name), top, 'the tree is the table');
   const groups = Object.fromEntries(command.options.filter((o) => o.type === 2).map((o) => [o.name, o.options.map((sub) => sub.name)]));
@@ -87,6 +87,7 @@ test('buildCommandTree: the exact top-level list (18 entries, no warmup)', () =>
     route: ['list', 'set', 'remove'],
     rule: ['add', 'list', 'remove'],
     access: ['grant', 'revoke', 'list'],
+    skill: ['allow', 'deny', 'list'],
     diary: ['set', 'show', 'off', 'post'],
     alias: ['add', 'remove'],
     learning: ['add', 'remove'],

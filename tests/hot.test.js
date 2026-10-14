@@ -265,6 +265,38 @@ test('createHot: labels.json deep-merges the local layer over the base one, sour
   }
 });
 
+test('createHot: skills.json is a JSON layer like labels.json: deep-merged, {} when absent, kept on a bad reload', () => {
+  const dir = makeRoot();
+  const write = (layer, value) => {
+    const target = layer === 'base' ? path.join(dir, 'prompts') : path.join(dir, 'prompts.local');
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'skills.json'), value);
+  };
+  const absent = createHot({ rootDir: dir });
+  try {
+    assert.deepEqual(absent.prompts.skills, {});
+    assert.equal(absent.promptSources.skills, 'base');
+  } finally {
+    absent.close();
+  }
+  write('base', JSON.stringify({ draw: { title: 'Ζωγραφιά', whenToUse: 'base' } }));
+  write('local', JSON.stringify({ draw: { whenToUse: 'local' } }));
+  writeLabels(dir, 'base', JSON.stringify({ locale: 'en-US' }));
+  const hot = createHot({ rootDir: dir });
+  try {
+    assert.deepEqual(hot.prompts.skills, { draw: { title: 'Ζωγραφιά', whenToUse: 'local' } });
+    assert.equal(hot.promptSources.skills, 'merged');
+    write('local', '{ broken');
+    writeLabels(dir, 'base', JSON.stringify({ locale: 'fr-FR' }));
+    assert.equal(hot.reloadPrompts(), true);
+    assert.deepEqual(hot.prompts.skills, { draw: { title: 'Ζωγραφιά', whenToUse: 'local' } }, 'the previous skills stay');
+    assert.deepEqual(hot.prompts.labels, { locale: 'fr-FR' }, 'the other JSON layer still reloads');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('createHot: missing base labels default to {} with source "base" when there is no local file', () => {
   const dir = makeRoot();
   const hot = createHot({ rootDir: dir });

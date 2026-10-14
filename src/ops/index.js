@@ -6,9 +6,9 @@
 // their command keys (`memory.show`, `media`, ...): COMMAND_TO_OP maps each one onto its
 // operation and arguments; src/admin.js renders the result as the reply.
 
-import { isAllowed } from '../discord/access.js';
 import { log } from '../log.js';
 import { OpError, STATUSES, getOp, listOps } from './registry.js';
+import { rightsRefusal } from './rights.js';
 import './status.js';
 import './config.js';
 import './pause.js';
@@ -25,6 +25,7 @@ import './alias.js';
 import './learning.js';
 import './lore.js';
 import './memory.js';
+import './skill.js';
 
 export { defineOp, listOps, OpError, invalid, denied } from './registry.js';
 
@@ -110,6 +111,9 @@ export const COMMAND_TO_OP = Object.freeze({
   'memory.restore': 'memory.restore',
   'memory.snapshot': 'memory.snapshot',
   'memory.private': byAction({ show: 'memory.private.read', forget: 'memory.private.forget', purge: 'memory.private.purge' }),
+  'skill.allow': 'skill.allow',
+  'skill.deny': 'skill.deny',
+  'skill.list': 'skill.list',
 });
 
 /**
@@ -215,24 +219,15 @@ function refusal(status, code, summary) {
 
 /**
  * Null when the caller (`ctx.userId`, `ctx.roleIds`) may run `op`, else the `denied` result with
- * its code: src/discord/access.js#isAllowed over `bot.owners`, `bot.access` and `features`, all
+ * its code: src/ops/rights.js#rightsRefusal over `bot.owners`, `bot.access` and `features`, all
  * read now. `owner-only` for an owner-only operation, `not-grantable` for one no grant opens (a
  * member operation while `features.memberCommands` is off included), else `not-granted`.
  */
 function checkRights(op, ctx) {
-  const config = ctx?.env?.hot?.config;
-  const allowed = isAllowed({
-    op,
-    member: { userId: ctx?.userId, roleIds: ctx?.roleIds },
-    access: config?.bot?.access ?? {},
-    owners: config?.bot?.owners ?? [],
-    features: config?.features,
-  });
-  if (allowed) return null;
-  const { rights } = op;
-  if (rights.ownerOnly === true) return refusal('denied', 'owner-only', `${op.name} is owner-only`);
-  if (rights.grantable === false || rights.member === true) return refusal('denied', 'not-grantable', `${op.name} is owner-only`);
-  return refusal('denied', 'not-granted', 'Not allowed');
+  const code = rightsRefusal(op, { userId: ctx?.userId, roleIds: ctx?.roleIds, config: ctx?.env?.hot?.config });
+  if (code === null) return null;
+  if (code === 'not-granted') return refusal('denied', code, 'Not allowed');
+  return refusal('denied', code, `${op.name} is owner-only`);
 }
 
 /** What an operation's `run` returned, as a result: a full result passes through; a reply text

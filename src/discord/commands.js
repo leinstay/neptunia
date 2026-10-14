@@ -1,6 +1,6 @@
 // The owner's Discord surface: one top-level guild slash command (name from
 // `config.bot.commandName`) whose tree is built here as plain JSON from one
-// declarative table (COMMAND_TABLE: the eighteen top-level entries, each leaf
+// declarative table (COMMAND_TABLE: the nineteen top-level entries, each leaf
 // with its options and its option -> args mapping) — no discord.js builder
 // classes — so `buildCommandTree` is trivially unit-tested.
 // `registerCommands` pushes that tree to the single guild this instance
@@ -23,6 +23,7 @@ import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { isPlainObject } from '../config.js';
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
+import { skillNames } from '../skills/registry.js';
 import { MINUTE_MS } from '../time.js';
 
 // Raw Discord API option-type numbers (application-command-option-type):
@@ -298,6 +299,25 @@ export const COMMAND_TABLE = Object.freeze([
         args: (options) => ({ command: options.getString('command', true), roleId: options.getRole('role')?.id, userId: options.getUser('user')?.id }),
       },
       { name: 'list', description: 'List every access grant.', args: none },
+    ],
+  },
+  {
+    name: 'skill',
+    description: "Open or close the persona's own skills.",
+    subcommands: [
+      {
+        name: 'allow',
+        description: 'Allow the persona one skill.',
+        options: [{ type: STRING, name: 'name', description: 'Skill name.', required: true, autocomplete: true }],
+        args: (options) => ({ name: options.getString('name', true) }),
+      },
+      {
+        name: 'deny',
+        description: 'Take one skill back from the persona.',
+        options: [{ type: STRING, name: 'name', description: 'Skill name.', required: true, autocomplete: true }],
+        args: (options) => ({ name: options.getString('name', true) }),
+      },
+      { name: 'list', description: 'Every skill, allowed or not, and why.', args: none },
     ],
   },
   {
@@ -812,6 +832,16 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
 
     if (focused.name === 'command') {
       await interaction.respond(accessKeyChoices(admin, typed)).catch(() => {});
+      return;
+    }
+
+    // `/nep skill allow|deny name:` offers the persona's skill names (src/skills/registry.js).
+    if ((commandKey === 'skill.allow' || commandKey === 'skill.deny') && focused.name === 'name') {
+      const choices = skillNames()
+        .filter((name) => name.toLowerCase().includes(typed))
+        .slice(0, MAX_AUTOCOMPLETE_CHOICES)
+        .map((name) => ({ name, value: name }));
+      await interaction.respond(choices).catch(() => {});
       return;
     }
 
