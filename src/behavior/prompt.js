@@ -1295,11 +1295,13 @@ function numberedItems(texts, first) {
 
 /**
  * The task labels for buildRequest's `input.tasks` (see there), joined by a
- * blank line: `labels.task.part` (or, without a usable part,
- * `labels.task.queued`), then `labels.task.queuedOthers`, then
- * `labels.task.added`. '' when nothing applies.
+ * blank line: `labels.task.missed` (a recovery turn's messages, `{missed}`:
+ * `<n>. <author>: <text>` joined by `; `), then `labels.task.part` (or,
+ * without a usable part, `labels.task.queued`), then
+ * `labels.task.queuedOthers`, then `labels.task.added`. '' when nothing applies.
  * @param {{ part?: { index: number, total?: number, parts: string[] }|null, queued?: string[],
- *   queuedOthers?: { author: string, text: string }[], added?: string[] }|null|undefined} tasks
+ *   queuedOthers?: { author: string, text: string }[], added?: string[],
+ *   missed?: { author: string, text: string }[] }|null|undefined} tasks
  * @param {object} labels
  * @returns {string}
  */
@@ -1308,6 +1310,12 @@ function renderTasks(tasks, labels) {
   const queued = Array.isArray(tasks.queued) ? tasks.queued : [];
   const added = Array.isArray(tasks.added) ? tasks.added : [];
   const texts = [];
+  // A recovery turn's messages left unanswered earlier (src/behavior/missed.js), first.
+  const missed = Array.isArray(tasks.missed) ? tasks.missed.filter((item) => item && item.text) : [];
+  if (missed.length > 0 && labels.task?.missed) {
+    const items = numberedItems(missed.map((item) => `${item.author ?? ''}: ${item.text}`), 1);
+    texts.push(fill(labels.task.missed, { missed: items.join(TASK_ITEM_JOIN) }));
+  }
   const part = tasks.part;
   const parts = Array.isArray(part?.parts) ? part.parts : [];
   const usablePart = Boolean(part) && Number.isInteger(part.index) && part.index >= 1 && part.index <= parts.length;

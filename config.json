@@ -58,7 +58,9 @@
     "adminCommands": true,
     "memberCommands": true,
     "skills": true,
-    "skillsDiscovery": true
+    "skillsDiscovery": true,
+    "missedAnswers": true,
+    "missedRecovery": false
   },
   "bot": {
     "timezone": "UTC",
@@ -158,6 +160,15 @@
     "followUpAliases": 5,
     "failOpenMinutes": 3,
     "pauseNoticeMinutes": 10
+  },
+  "missed": {
+    "sweepDelaySeconds": 90,
+    "sweepMaxDelaySeconds": 240,
+    "expireMinutes": 5,
+    "questionExpireMinutes": 15,
+    "channelCooldownMinutes": 5,
+    "contextMessages": 20,
+    "maxOutputTokens": 2000
   },
   "typing": {
     "reactionDelayMs": [800, 4000],

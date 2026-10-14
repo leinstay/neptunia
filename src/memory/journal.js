@@ -41,6 +41,13 @@
 // The persona's time away (`offPeriods`, `createOffPeriodsReader`): the owner's pauses and the
 // service's stops of the last hours, read from the system records (`timeline`), for her request.
 //
+// Messages that may have been left without an answer (src/behavior/missed.js) are `answer`
+// records (`answer`), scoped to their channel: `event` `fact` (a `reason`, the message's
+// `messageId`, `authorId`, `at` and whether it carries a question mark; `replacedBy`, `failure`
+// or `turnId` when known), `verdict` (the sweep's `verdict` and `by` -- `model` or `code` --,
+// `shadow` for an owed one nothing was posted for), `resolved` (`by`), `expired`, and `recovery`
+// (the `messageIds` of one recovery turn, its `triggerId` and `outcome`). Ids only, no text.
+//
 // Which message started the turn that posted each of her messages (`triggerLinks`,
 // `triggerLinksOf`): read once at start, so her transcript lines keep naming their turn's trigger
 // across a restart (src/behavior/turn.js).
@@ -87,7 +94,8 @@ export const LINE_THINK_CHARS = 80;
  * One record as a short owner-facing line: `HH:MM:SS kind <short>` (the UTC clock of
  * `occurredAt`). A turn: `mode outcome <n> msgs, think: <first 80 characters>`; a turn start:
  * `mode trigger`; an action: `name phase`; a memory record: `batch <n> lines, users <k>, episodes
- * <e>`; a system event: `event by note` (what is present).
+ * <e>`; a system event: `event by note`; an answer record: `event reason verdict outcome`
+ * (what is present).
  * @param {object} record
  * @returns {string}
  */
@@ -109,6 +117,8 @@ export function journalLine(record) {
     short = `batch ${lines} lines, users ${count(record.changed?.users)}, episodes ${count(record.episodes)}`;
   } else if (kind === 'system') {
     short = words(record.event ?? '-', record.by, record.note);
+  } else if (kind === 'answer') {
+    short = words(record.event ?? '-', record.reason, record.verdict, record.outcome);
   } else {
     short = '';
   }
@@ -349,6 +359,7 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   action(guildId: string, record: object): Promise<void>,
  *   memory(guildId: string, record: object): Promise<void>,
  *   system(guildId: string, record: object): Promise<void>,
+ *   answer(guildId: string, record: object): Promise<void>,
  *   read(guildId: string, query: { day: string, kind?: string, n?: number, privateUserId?: string|null }): Promise<object[]>,
  *   timeline(guildId: string, query: { from: number }): Promise<Array<{ at: number, kind: string, event: string|null }>>,
  *   triggerLinks(guildId: string, query: { days: string[] }): Promise<Array<[string, string]>>,
@@ -495,6 +506,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
   const action = (guildId, record) => write(guildId, 'action', record);
   const memory = (guildId, record) => write(guildId, 'memory', { ...record, channelId: null });
   const system = (guildId, record) => write(guildId, 'system', { ...record, channelId: null });
+  const answer = (guildId, record) => write(guildId, 'answer', record);
 
   /** The names of `dir` (none when it is absent). */
   async function namesIn(dir) {
@@ -1013,6 +1025,7 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     action,
     memory,
     system,
+    answer,
     read,
     timeline,
     triggerLinks,

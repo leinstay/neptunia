@@ -209,7 +209,8 @@
     "followUp": "continued your conversation",
     "overheard": "talked about you, not to you",
     "drawFailed": "was about to get a picture, but the drawing sub-process failed: {reason}",
-    "private": "wrote to you privately"
+    "private": "wrote to you privately",
+    "missed": "wrote to you earlier and got no answer from you"
   },
   "status": {
     "probe": "Reply with the single word pong."
@@ -293,7 +294,8 @@
     "part": "This message has {total} parts; you are answering part {index}: {part}. The rest ({others}) get their own turns, so do not answer them or say you will get to them. Answer this part, or let it pass.",
     "queued": "This person has other messages waiting ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "queuedOthers": "Other people have messages waiting for you too ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
-    "added": "While this was waiting, the person came back to it ({added}); answer once with that in view."
+    "added": "While this was waiting, the person came back to it ({added}); answer once with that in view.",
+    "missed": "Earlier messages to you got no answer from you ({missed}). You may answer them now, briefly, several together in one reply, or let them pass."
   },
   "journal": {
     "offLead": "You were away:",

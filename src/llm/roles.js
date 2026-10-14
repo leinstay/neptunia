@@ -50,6 +50,7 @@ export const PURPOSE_ROLES = Object.freeze({
   rewatch: 'analyzer',
   split: 'analyzer',
   'gif-pick': 'analyzer',
+  missed: 'analyzer',
   lookup: 'reasoner',
   planner: 'reasoner',
   'recall-summary': 'reasoner',

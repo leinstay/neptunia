@@ -2141,6 +2141,33 @@ test('status: the speed field gives the median and the mean of the last 24 h wit
   assert.equal((await speedLines()).find((line) => line.startsWith('planner')), 'planner: median 700 ms · mean 700 ms (1)');
 });
 
+test('status: the speed field ends with today\'s missed-answer figures from the journal, while it is on', async () => {
+  const rootDir = makeRoot();
+  const now = handClock(Date.parse('2026-10-14T12:00:00.000Z'));
+  const asked = [];
+  const journal = {
+    dayFile: () => path.join(rootDir, 'no-day.jsonl'),
+    stalled: () => false,
+    read: async (guildId, query) => {
+      asked.push([guildId, query]);
+      return [
+        { kind: 'answer', event: 'fact', reason: 'gate-failed', messageId: 'm1' },
+        { kind: 'answer', event: 'fact', reason: 'turn-error', messageId: 'm2' },
+        { kind: 'answer', event: 'verdict', verdict: 'owed', messageId: 'm1' },
+        { kind: 'answer', event: 'recovery', outcome: 'spoke', messageIds: ['m1'] },
+      ];
+    },
+  };
+  const { admin, hot } = makeAdmin(rootDir, { journal, now });
+  const speed = async (userId = '42') => (await admin.run('status', {}, { userId })).embeds[0].fields.find((f) => f.name === 'speed')?.value;
+  hot.config.features = { ...hot.config.features, journal: true };
+  assert.equal(await speed(), 'not available\nmissed: 2 candidates, 1 owed, 1 recovered');
+  assert.deepEqual(asked, [['g1', { day: '2026-10-14', kind: 'answer', n: Number.MAX_SAFE_INTEGER }]]);
+  assert.equal(await speed('999'), undefined, 'a member has no speed field');
+  hot.config.features = { ...hot.config.features, journal: false };
+  assert.equal(await speed(), 'not available', 'no journal, no line');
+});
+
 test('status: the storage line flags a journal that stopped writing while turns happen', async () => {
   const rootDir = makeRoot();
   const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-status-journal-'));

@@ -27,6 +27,7 @@ import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { createParticipationPicker } from '../src/behavior/participation-pick.js';
 import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
+import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/discord/events.js';
 import { normalizeMessage, withTextPreviews } from '../src/discord/collect.js';
 import { createCalibrator } from '../src/llm/tokens.js';
@@ -155,6 +156,7 @@ const LOADS = {
   room: ['room'],
   split: ['split'],
   merge: ['merge'],
+  missed: ['missed'],
   gifPick: ['gif-pick'],
   turn:[...SYSTEM, 'reply'],
   backfill: ['backfill'],
@@ -1251,6 +1253,46 @@ test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
   assert.ok(text.includes(SELF_NAME), 'gif-pick: {{name}} is the persona');
   assert.ok(text.includes(fill(LABELS.gifs.entry, { id: 'g1', text: 'un chat qui danse' })), 'gif-pick: an entry through labels.gifs.entry');
   assert.ok(text.includes(fill(LABELS.gifs.ownMark, { ago: `1 ${LABELS.units.hour}` })), 'gif-pick: the own mark through labels.gifs.ownMark');
+});
+
+test('createMissed: the missed-answer check fills missed.md', async () => {
+  const history = await generalHistory();
+  const candidate = history.findLast((message) => !message.self);
+  const llm = recordingLlm(() => '1: stale');
+  const guild = discordGuild([[GENERAL_INFO, generalRaws()]]);
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-shipped-missed-'));
+  const missed = createMissed({
+    hot: shippedHot(),
+    store: { state: { data: {} } },
+    llm,
+    turns: { triggerOf: () => null },
+    client: discordClient(guild),
+    getGuildId: () => GUILD,
+    getSelfName: () => SELF_NAME,
+    dataDir,
+    now: () => candidate.ts + MINUTE_MS,
+    timers: { set: () => null, clear() {} },
+    fetchHistory: async () => history,
+  });
+  try {
+    await withCapturedLogs(async () => {
+      missed.noteFact({ reason: 'gate-failed', message: candidate });
+      await missed.sweep(GENERAL);
+    });
+    assert.equal(llm.calls.length, 1, 'one check for the channel');
+    assertFilled(llm.calls[0].messages, { files: LOADS.missed, blocks: ['candidates'] }, 'missed');
+    assert.equal(llm.calls[0].options.purpose, 'missed');
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('buildRequest: a recovery turn names its messages under labels.task.missed and its trigger label', async () => {
+  const tasks = { part: null, queued: [], queuedOthers: [], added: [], missed: [{ author: 'Ana', text: 'tu es là ?' }] };
+  const request = buildRequest(await turnInput({ triggerKind: 'missed', tasks }));
+  const text = assertFilled(request.messages, { files: LOADS.reply, blocks: TURN_BLOCKS }, 'reply (missed)');
+  assert.ok(text.includes(LABELS.triggers.missed), 'the trigger label fills {{trigger}}');
+  assert.ok(text.includes(fill(LABELS.task.missed, { missed: '1. Ana: tu es là ?' })), 'the task names the messages');
 });
 
 test('createMessageHandler: the merge classifier fills merge.md', async () => {

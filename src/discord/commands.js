@@ -120,7 +120,7 @@ function choicesOf(values) {
 const ROUTE_ROLES = MODEL_SET_ROLES;
 
 /** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */
-export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'all']);
+export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'all']);
 
 /** `/nep memory refresh`'s `kind` choices (src/ops/index.js#COMMAND_TO_OP picks the operation by it). */
 export const MEMORY_REFRESH_KINDS = Object.freeze(['user', 'channel', 'server']);

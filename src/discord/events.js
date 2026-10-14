@@ -230,6 +230,11 @@ function bufferedMediaIds(buffered) {
  *   optional: with features.record exactly true (read at each event), a deleted message of the
  *   served guild writes a `deleted` line (onMessageDelete) and an edited one a `seen` line with
  *   the next revision (recordEdit). Absent: nothing is recorded here.
+ * @param {{ noteFact: Function, noteActivity: Function }|null} [deps.missed]  From
+ *   src/behavior/missed.js#createMissed, optional: a failed address classifier
+ *   (`gate-failed`, or `gate-failopen` when it let the line through anyway) and a deferred
+ *   follow-up replaced by a newer one (`replaced-deferred`, both ids) are noted as facts, and
+ *   every message of a served channel as activity there. Absent: nothing is noted.
  * @returns {(message: import('discord.js').Message) => Promise<void>} Also carries a
  *   `.drainPending()` method: called once a turn finishes anywhere (src/index.js wires it to
  *   src/behavior/turn.js's `setOnIdle`, in the same `finally` that frees the channel) to answer
@@ -262,6 +267,7 @@ export function createMessageHandler({
   timers = { set: setTimeout, clear: clearTimeout },
   activity = null,
   record = null,
+  missed = null,
 }) {
   // The record's edits (recordEdit): messageId -> the last revision written, for the UTC day
   // `revisionsDay`; cleared when the day turns, so it stays small. An edit of a message not in
@@ -810,6 +816,8 @@ export function createMessageHandler({
         missingAddressPromptLogged = true;
         log.warn('follow-up: prompts.address is missing, every follow-up is treated as "no"', {});
       }
+      // A failed build is a failed gate (src/behavior/missed.js); a missing prompt is the deployment's.
+      if (buildFailed) missed?.noteFact({ reason: 'gate-failed', message: normalized, failure: 'build-failed' });
       log.info('follow-up: verdict', { channel: channelId, author: normalized.authorId, verdict: 'no', answer: 'no', ms: now() - startedAt });
       bumpFollowUpNoStreak(channelId, state, mentionCfg);
       return 'no';
@@ -855,11 +863,14 @@ export function createMessageHandler({
     // A failed call (provider slowness, a timeout) does not drop a line from
     // the member the persona is talking with one to one right now.
     const failOpenMinutes = mentionCfg.failOpenMinutes ?? 3;
+    let open = false;
     if (failure && failOpenMinutes > 0) {
-      const open = activeExchangeWith(request.history, { authorId: normalized.authorId, ts: normalized.ts ?? now() }, failOpenMinutes);
+      open = activeExchangeWith(request.history, { authorId: normalized.authorId, ts: normalized.ts ?? now() }, failOpenMinutes);
       log.info('follow-up: fail-open', { channel: channelId, author: normalized.authorId, reason: failure, open });
       if (open) answer = 'yes';
     }
+    // A failed gate is a fact for the missed-answer registry (src/behavior/missed.js), let through or not.
+    if (failure) missed?.noteFact({ reason: open ? 'gate-failopen' : 'gate-failed', message: normalized, failure });
 
     // `verdict` is the two-way projection (overheard counts as yes), `answer` the word itself.
     const verdict = answer === 'no' ? 'no' : 'yes';
@@ -1377,7 +1388,7 @@ export function createMessageHandler({
       log.info('follow-up: dropped', { channel: channelId, message: trigger.id, reason: 'outranked' });
       return;
     }
-    if (slot.replaced) dropReplaced(slot.replaced);
+    if (slot.replaced) dropReplaced(slot.replaced, trigger.id);
     const maxPending = config.mention.maxPending ?? 6;
     const ping = { channelId, channel, trigger, kind, arrivedAt: now() };
     const { list, evicted } = addPending(pendingList, ping, maxPending);
@@ -1394,10 +1405,15 @@ export function createMessageHandler({
     if (evicted) logEvicted(evicted, maxPending);
   }
 
-  /** Remove the deferred follow-up or overheard line a newer entry of its channel replaced (followUpSlot), logged `newer`. */
-  function dropReplaced(older) {
+  /**
+   * Remove the deferred follow-up or overheard line a newer entry of its channel replaced
+   * (followUpSlot), logged `newer`. A replaced follow-up -- a line said to the persona -- is a
+   * `replaced-deferred` fact with both ids (src/behavior/missed.js); an overheard line is not.
+   */
+  function dropReplaced(older, newerId = null) {
     pendingList = pendingList.filter((p) => p !== older);
     log.info('follow-up: dropped', { channel: older.channelId, message: older.trigger.id, reason: 'newer' });
+    if (older.kind === 'followUp') missed?.noteFact({ reason: 'replaced-deferred', message: older.trigger, replacedBy: newerId });
   }
 
   /** Whether a pending entry is a deferred follow-up or overheard line (deferFollowUp), not a call. */
@@ -1487,7 +1503,7 @@ export function createMessageHandler({
     const routed = destination ? { destination, ...(superseded.length > 0 ? { superseded: [...superseded] } : {}) } : {};
     if (!destination) {
       const { replaced } = followUpSlot(pendingList, channel.id, kind);
-      if (replaced) dropReplaced(replaced);
+      if (replaced) dropReplaced(replaced, trigger.id);
     }
     const ping = { channelId: channel.id, channel, trigger, kind, arrivedAt, ...routed };
     const { list, evicted } = addPending(pendingList, ping, maxPending);
@@ -2436,6 +2452,8 @@ export function createMessageHandler({
       // 3c. When this author last wrote in this channel, for a turn that waits until the person
       // it answers stops writing (pace.settleMs). The persona's own messages never count.
       if (message.author.id !== client.user.id) activity?.note(message.channel.id, message.author.id, message.createdTimestamp);
+      // Any message, hers included, pushes back a missed-answer sweep armed here (src/behavior/missed.js).
+      missed?.noteActivity(message.channel.id, message.createdTimestamp);
 
       // 4. Normalize.
       const selfId = client.user.id;

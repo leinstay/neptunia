@@ -26,6 +26,7 @@ import { createEmbedder } from './llm/embed.js';
 import { createImageGen } from './llm/images.js';
 import { createTurnRunner } from './behavior/turn.js';
 import { createActivity } from './behavior/activity.js';
+import { createMissed } from './behavior/missed.js';
 import { hasRequiredLabels } from './behavior/prompt.js';
 import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
@@ -312,6 +313,11 @@ const memory = createMemoryUpdater({
   notify: (text) => mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header: 'memory', body: text }),
 });
 const tagHistory = createTagHistory();
+// Messages that may have been left without an answer (src/behavior/missed.js): facts from the
+// address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
+// recovery turn only with features.missedRecovery on (shadow mode by default).
+const missed = createMissed({ hot, store, journal, llm, turns, client, getGuildId, getSelfName, isWarmingUp, dataDir });
+turns.setOnTurnEnd((end) => missed.onTurnEnd(end));
 // The custom emoji ranking read from history (Discord API only, no LLM): once at startup, again on /nep emoji rescan.
 const emojiBackfill = createEmojiBackfill({ hot, store, client, log });
 // The GIF library read from history (Discord API; the describer captions the top ones): once at
@@ -340,6 +346,8 @@ const onMessage = createMessageHandler({
   activity,
   // features.record: deletions and edits reach the record.
   record,
+  // A failed address gate and a replaced deferred follow-up are missed-answer facts.
+  missed,
 });
 
 // One attention (mention.oneAtATime): once a turn frees its channel, answer
@@ -591,6 +599,10 @@ client.once(Events.ClientReady, async () => {
   // only lacks the older links.
   await startupStep('journal.triggerLinks', () => seedTriggerLinks(instance.guildId));
 
+  // The missed-answer registry: data/guilds/<id>/missed.json, reconciled with the journal of the
+  // last hour once the forgets are settled; a sweep armed where a candidate waits.
+  await startupStep('missed.start', () => missed.start(instance.guildId));
+
   // The meaning index caught up with what the record took while the queue was down (the last
   // embed.catchUpHours), once the forgets are settled. Fire-and-forget; nothing while paused or
   // with the switches off.
@@ -683,6 +695,8 @@ async function shutdown(signal) {
   spontaneous.stop();
   diary.stop();
   onMessage.stop();
+  missed.stop();
+  await missed.save().catch((err) => log.warn('index: missed registry not saved', { error: err }));
   // The embedding queue flushes what waits once (a short wait at most), before the stores close.
   await embedQueue.close().catch((err) => log.warn('index: embed queue close failed', { error: err }));
   // archive.holdMaxMs: how long a file held for the archive may wait before it is written anyway.
