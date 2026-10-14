@@ -31,6 +31,8 @@
     "offPeriods": true,
     "record": true,
     "archive": true,
+    "meaningSearch": false,
+    "embedIndex": false,
     "imageGeneration": false,
     "privateMessages": false,
     "privateLikeServer": true,
@@ -90,7 +92,10 @@
     "byPurpose": {}
   },
   "embed": {
-    "dimensions": 1024
+    "dimensions": 1024,
+    "batch": 64,
+    "flushSeconds": 180,
+    "queueMax": 2000
   },
   "context": {
     "channelMessages": 100,
