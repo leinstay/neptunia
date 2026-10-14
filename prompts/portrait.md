@@ -65,4 +65,4 @@ What cannot be understood without its surrounding conversation is not recorded.
 
 When the sample shows too little, return the draft's points in `keep` and empty lists elsewhere, with a short `style`.
 
-Record observed facts only. Never store sensitive information: addresses, phone numbers, identity documents, health conditions, financial details, real full names.
+Record observed facts only. A link in the chat is recorded by what it was about, never by pasting the address. Never store sensitive information: addresses, phone numbers, identity documents, health conditions, financial details, real full names.

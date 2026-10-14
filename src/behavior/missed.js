@@ -845,6 +845,7 @@ export function createMissed({
             selfId: client.user.id,
             embedTextChars: config.media?.embedTextChars,
             videoSites: config.media?.video?.sites,
+            maxUrlChars: config.context?.maxUrlChars,
           });
         } catch (error) {
           log.warn('missed: history fetch failed', { channelId, error });

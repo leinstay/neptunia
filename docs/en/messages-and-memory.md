@@ -111,7 +111,7 @@ The private analyzer (`analyzePrivate`) runs the same `memory.md` prompt with a 
 
 When `features.record` is on (the default), every message the memory buffer takes and every message the persona posts are written to a permanent file: `data/guilds/<id>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl`, one file per UTC day. Edits are written as new lines with the next revision; a deleted message gets a deletion line. Private chat lines go to `data/guilds/<id>/private/<userId>/record/` instead. The record is never trimmed: it grows as long as the bot runs.
 
-The record holds only ids, timestamps, channel, author, reply target, text, media kinds and mentions. It never stores a URL.
+The record holds only ids, timestamps, channel, author, reply target, text, media kinds and mentions. It stores no URL of an attachment, a sticker, a custom emoji or a GIF; a link someone posted stays in the text as it was posted, cut to `context.maxUrlChars`.
 
 ## Archive
 

@@ -121,13 +121,13 @@ function fakeHot(channelLinks) {
   };
 }
 
-async function runLinkTurn(channelLinks) {
+async function runLinkTurn(channelLinks, answer = '<msg>δες στο #γενικά και στο #φωνή</msg>') {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel([raw]);
   const turns = createTurnRunner({
     hot: fakeHot(channelLinks),
     store: fakeStore(),
-    llm: fakeLlm('<msg>δες στο #γενικά και στο #φωνή</msg>'),
+    llm: fakeLlm(answer),
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
     client: { user: { id: 'self-id', username: 'Bot' } },
   });
@@ -146,4 +146,11 @@ test('runTurn: features.channelLinks false sends #name as written', async () => 
   const { result, channel } = await runLinkTurn(false);
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent[0].content, 'δες στο #γενικά και στο #φωνή');
+});
+
+test('runTurn: a URL in a <msg> is posted exactly as written; a #name and an @name outside it still turn into links', async () => {
+  const url = 'https://www.youtube.com/@Alice/#γενικά?si=Ab_9&t=5';
+  const { result, channel } = await runLinkTurn(true, `<msg>@Alice δες ${url} στο #γενικά</msg>`);
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(channel.sent[0].content, `<@u1> δες ${url} στο <#${LINKED_ID}>`);
 });
