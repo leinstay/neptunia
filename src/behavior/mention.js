@@ -278,7 +278,7 @@ export function classifierVideoModel(config) {
 
 /**
  * The reasoning helper model (the helpers that reason over content: the search classifier, the
- * recall summary, the search summary, the link reader, the diary planner -- `REASON_PURPOSES`):
+ * turn planner, the recall summary, the search summary, the link reader, the diary planner -- `REASON_PURPOSES`):
  * `classifier.reason`, else the text model (classifierTextModel), so while it is unset every one
  * of them keeps the model it had. `undefined` when none is set.
  * @param {object|undefined} config  the full hot config
@@ -299,7 +299,7 @@ export function classifierEmbedModel(config) {
 }
 
 /** The purposes whose requests go out on the role `classifier.reason`, in the order of the task. */
-export const REASON_PURPOSES = Object.freeze(['lookup', 'recall-summary', 'search-summary', 'read-link', 'diary-plan']);
+export const REASON_PURPOSES = Object.freeze(['lookup', 'planner', 'recall-summary', 'search-summary', 'read-link', 'diary-plan']);
 
 /** Each helper role's own resolver, with its fallback chain. */
 const ROLE_MODELS = Object.freeze({

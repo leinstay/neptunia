@@ -47,6 +47,7 @@
     "channelPull": true,
     "pullSeenMarker": true,
     "channelRoute": true,
+    "turnPlanner": false,
     "channelLinks": true,
     "messageLinks": true,
     "elsewhere": true,

@@ -24,6 +24,38 @@ import {
 } from './route.js';
 
 /**
+ * The numbered `<channels>` list of one route decision, shared by the route
+ * hook below and the turn planner (src/behavior/planner.js): the stored
+ * channels of `guildId` other than `channel` and the candidate's own, each
+ * judged with the pull phase's rails (checkPull against `channel`, `partner`
+ * for a private chat; a check that throws drops that channel), at most
+ * `settings.maxChannels` (routeEntries), rendered by routeChannelList.
+ * `ids[n - 1]` is the channel of line `n`. No request, no log.
+ * @param {{ store: object, guildId: string, channel: object, guild?: object|null, partner?: object|null,
+ *   candidate: object, config: object, settings: { maxChannels: number, purposeChars: number }, now: number }} params
+ * @returns {{ lines: string[], ids: string[] }}
+ */
+export function routeChannelOffer({ store, guildId, channel, guild = channel?.guild ?? null, partner = null, candidate, config, settings, now }) {
+  const check = (id) => {
+    try {
+      const judged = checkPull({ guild, channelId: id, destination: channel, partner, config, now });
+      return judged.skip === null ? judged.channel : null;
+    } catch {
+      return null;
+    }
+  };
+  const entries = routeEntries({
+    channels: store.listChannels(guildId),
+    exclude: [channel?.id ?? null, candidate?.channelId ?? null].filter(Boolean),
+    check,
+    profileOf: (userId) => store.getUser(guildId, userId),
+    max: settings.maxChannels,
+    aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
+  });
+  return routeChannelList(entries, { max: settings.maxChannels, purposeChars: settings.purposeChars });
+}
+
+/**
  * The route hook for createTurnRunner. Per call, with `hot.config` /
  * `hot.prompts` read at that moment: nothing (`[]`, no log) with
  * `features.channelRoute` off or on a turn routeAllowed refuses -- a private
@@ -70,23 +102,7 @@ export function createChannelRouter({ hot, store, llm, now = Date.now }) {
       }
 
       const at = now();
-      const check = (id) => {
-        try {
-          const judged = checkPull({ guild, channelId: id, destination: channel, partner, config, now: at });
-          return judged.skip === null ? judged.channel : null;
-        } catch {
-          return null;
-        }
-      };
-      const entries = routeEntries({
-        channels: store.listChannels(guildId),
-        exclude: [channelId, candidate.channelId].filter(Boolean),
-        check,
-        profileOf: (userId) => store.getUser(guildId, userId),
-        max: settings.maxChannels,
-        aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
-      });
-      const { lines, ids } = routeChannelList(entries, { max: settings.maxChannels, purposeChars: settings.purposeChars });
+      const { lines, ids } = routeChannelOffer({ store, guildId, channel, guild, partner, candidate, config, settings, now: at });
       if (lines.length === 0) return [];
 
       const { transcriptBlock, candidateBlock } = routeContext({

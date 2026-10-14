@@ -73,7 +73,10 @@ import { isWordChar, linkChannels, linkMessageNumbers, occursAsWholeWord } from 
 import { rankGifs } from '../memory/gifs.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { participationSettings, recordOwnLine } from '../memory/participation.js';
-import { createParticipationPicker } from './participation-pick.js';
+import { createParticipationPicker, participationEpisodeOffer } from './participation-pick.js';
+import { askPlanner, parsePlannerAnswer, parseRewatchPickDetailed, plannerOn } from './planner.js';
+import { routeAllowed, routeCandidate, routeSettings } from './route.js';
+import { routeChannelOffer } from './route-channel.js';
 import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
@@ -606,10 +609,11 @@ function withLink(text, link, labels, limits = null) {
   return join(cutPost(text, Math.max(0, DISCORD_MESSAGE_CHARS - [...join('')].length), limits));
 }
 
-const REWATCH_QUESTION_CHARS = 300;
 const REWATCH_SUMMARY_CHARS = 200;
 // Protocol tokens of the re-watch classifier (docs/en/prompt-contract.md), not wording:
-// the kind and status columns of a `<media>` line and the answer that asks for a retry.
+// the kind and status columns of a `<media>` line. The answer's parser
+// (parseRewatchPickDetailed) lives in src/behavior/planner.js, which reads the
+// planner's re-watch block with it; it is re-exported from here.
 const REWATCH_KIND_VIDEO = 'video';
 const REWATCH_KIND_PICTURE = 'picture';
 // A watched GIF: listed to the classifier as a video (REWATCH_KIND_VIDEO); `gif` is the internal
@@ -618,45 +622,8 @@ const REWATCH_KIND_GIF = 'gif';
 const REWATCH_STATUS_WATCHED = 'watched';
 const REWATCH_STATUS_NOT_LOADED = 'not loaded';
 const REWATCH_STATUS_DESCRIBED = 'described';
-const REWATCH_RETRY = /^retry$/i;
-// The ordinal column: `<n>`, tolerating a `#` before it or a `.` after it.
-const REWATCH_ORDINAL = /^#?\s*(\d+)\.?$/;
 
-/**
- * Parse the re-watch classifier's answer (prompts/rewatch.md): ONE line,
- * `none` or `<n> | <question>` (`<n> | retry` asks to try a video that did
- * not load again), where `<n>` is the 1-based ordinal of a `<media>` line
- * (1 = the first line: the newest video, the pictures after the videos;
- * ordinals, not ids, because the model miscopies long ids).
- * `#1` and `1.` are accepted as `1`. Only the first non-empty line counts;
- * `none` (any case), anything unparsable, an ordinal outside 1..`count` or an
- * empty question -> no pick. The question is trimmed and cut to 300
- * characters; `retry` is true when it is exactly `retry` (any case). The
- * caller maps `n` back to its candidate (`candidates[n - 1]`). `reason` is a
- * code safe to log: `none` (the model answered none), `empty` (no non-empty
- * line), `no-bar`, `unknown-id` (not an ordinal within 1..`count`; the name
- * predates ordinals and is kept for log continuity), `no-question` or `ok`.
- * @param {string} raw
- * @param {number} count  How many lines the `<media>` block listed.
- * @returns {{ pick: { n: number, question: string, retry: boolean }|null,
- *   reason: 'none'|'empty'|'no-bar'|'unknown-id'|'no-question'|'ok' }}
- */
-export function parseRewatchPickDetailed(raw, count) {
-  const line = String(raw ?? '')
-    .split('\n')
-    .map((l) => l.trim())
-    .find(Boolean);
-  if (!line) return { pick: null, reason: 'empty' };
-  if (/^none$/i.test(line)) return { pick: null, reason: 'none' };
-  const bar = line.indexOf('|');
-  if (bar === -1) return { pick: null, reason: 'no-bar' };
-  const ordinal = REWATCH_ORDINAL.exec(line.slice(0, bar).trim());
-  const n = ordinal ? Number(ordinal[1]) : NaN;
-  const question = [...line.slice(bar + 1).trim()].slice(0, REWATCH_QUESTION_CHARS).join('').trim();
-  if (!Number.isSafeInteger(n) || n < 1 || n > count) return { pick: null, reason: 'unknown-id' };
-  if (!question) return { pick: null, reason: 'no-question' };
-  return { pick: { n, question, retry: REWATCH_RETRY.test(question) }, reason: 'ok' };
-}
+export { parseRewatchPickDetailed };
 
 /**
  * The link items of `history` the web lookup may read (src/discord/media.js#collectReadableLinks:
@@ -1164,6 +1131,14 @@ function taskInput({ part, queued, added, labels, channelId }) {
  * store to buildRequest as `<participation>`; beside its preparation the pick classifier
  * (src/behavior/participation-pick.js, not on a drawFailed turn) chooses which stored episodes
  * of other channels come first, under the same deadline -- late, the newest are shown.
+ *
+ * The turn planner (src/behavior/planner.js; features.turnPlanner exactly true, read per turn):
+ * one request (prompts/planner.md, role `classifier.reason`, purpose `planner`) stands in for
+ * the route hook, the participation pick, the re-watch classifier and the search classifier,
+ * none of which is asked then (createTurnPlan). Each answer block reaches the code its old
+ * classifier fed; a block that is invalid or missing keeps that consumer's default (no channel,
+ * the newest episodes, no second look), and the lookup block, or a failed call, takes the
+ * search classifier's fallback.
  *
  * Everything a turn prepares before its reply request (the file previews, the
  * captions, the videos and their re-watch, the link reads, the search
@@ -2277,6 +2252,55 @@ export function createTurnRunner({
       log.info('rewatch: skipped', { channel: channelId, reason: 'no-prompt' });
       return;
     }
+    const offer = rewatchOffer({ config, channelId, history, videos, descriptions, candidates, gifs, gifCaptions, pictures });
+    if (!offer) return;
+    const system = fillPromptTemplate(prompt, { name: selfName ?? '' });
+    const rewatchCfg = config.media?.video?.rewatch ?? {};
+    // The chat around the question.
+    const { triggerText, transcriptBlock } = classifierContext({
+      config,
+      selfName,
+      history,
+      trigger,
+      contextMessages: Math.max(0, Math.floor(rewatchCfg.contextMessages ?? 50)),
+      descriptions,
+      videos,
+    });
+    const user = `${transcriptBlock}<media>\n${offer.lines.join('\n')}\n</media>\n<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
+
+    let completion;
+    try {
+      completion = await llm.complete(
+        [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        {
+          model: helperModel(config, { role: 'classifier.text', purpose: 'rewatch' }),
+          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: rewatchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'rewatch' }),
+        },
+      );
+    } catch (err) {
+      log.warn('rewatch: classifier failed', { channel: channelId, status: err.statusCode ?? null, name: err.name });
+      return;
+    }
+    const { pick, reason } = parseRewatchPickDetailed(completion.text, offer.listed.length);
+    await applyRewatch({ guildId, channelId, offer, pick, reason, videos, imageAnswers });
+  }
+
+  /**
+   * The `<media>` list of one second look (maybeRewatch's rules, shared with
+   * the turn planner): the items offered, newest first within each kind and
+   * capped at `media.video.rewatch.maxCandidates`, each judged against the
+   * video states `videos`, `gifCaptions` and today's slots, rendered as
+   * `<n> | <kind> | <name> | <status> | <summary>`. Null after logging
+   * `rewatch: skipped` (`cap`, `no-window`, `no-watched`) when nothing can be
+   * offered. `states` is the map the list was judged on; `canRetry` whether a
+   * video that did not load may be tried again.
+   * @returns {{ listed: { item: object, kind: string }[], lines: string[], states: Map<string, object>,
+   *   canRetry: boolean }|null}
+   */
+  function rewatchOffer({ config, channelId, history, videos, descriptions, candidates, gifs = [], gifCaptions = new Map(), pictures = [] }) {
     // A retry requested by the person has its own slot, outside media.video.maxPerTurn.
     const canRetry = typeof describer.describeVideo === 'function';
     // Today's slots, when the describer can tell: a video's second look and a retry take a video
@@ -2289,16 +2313,15 @@ export function createTurnRunner({
     const gifsOn = questionsOn && gifSlot;
     if (slots && (!videoSlot || (!questionsOn && !canRetry)) && (pictures.length === 0 || !questionsOn) && (gifs.length === 0 || !gifsOn)) {
       log.info('rewatch: skipped', { channel: channelId, reason: 'cap' });
-      return;
+      return null;
     }
-    const system = fillPromptTemplate(prompt, { name: selfName ?? '' });
-    const mediaCfg = config.media ?? {};
-    const rewatchCfg = mediaCfg.video?.rewatch ?? {};
+    const rewatchCfg = config.media?.video?.rewatch ?? {};
     const recent = Math.max(0, Math.floor(rewatchCfg.recentMessages ?? 60));
     if (recent === 0) {
       log.info('rewatch: skipped', { channel: channelId, reason: 'no-window' });
-      return;
+      return null;
     }
+    const states = videos instanceof Map ? videos : new Map();
     // `candidates`, `gifs` and `pictures` are each newest first: the videos come first, then the
     // GIFs, and the cap over the merged list keeps the newest of each.
     const maxCandidates = Math.max(1, Math.floor(rewatchCfg.maxCandidates ?? 6));
@@ -2308,7 +2331,7 @@ export function createTurnRunner({
     for (const item of videoSlot ? candidates : []) {
       if (listed.length >= maxCandidates) break;
       if (seen.has(item.itemId) || !recentIds.has(item.messageId)) continue;
-      const state = videos.get(item.itemId)?.state;
+      const state = states.get(item.itemId)?.state;
       if (!(state === 'watched' && questionsOn) && !(state === 'error' && canRetry)) continue;
       seen.add(item.itemId);
       listed.push({ item, kind: REWATCH_KIND_VIDEO });
@@ -2327,7 +2350,7 @@ export function createTurnRunner({
     }
     if (listed.length === 0) {
       log.info('rewatch: skipped', { channel: channelId, reason: 'no-watched', watched: 0, recent });
-      return;
+      return null;
     }
 
     const lines = listed.map(({ item, kind }, index) => {
@@ -2340,50 +2363,37 @@ export function createTurnRunner({
         const summary = [...oneLine(gifCaptions.get(item.itemId))].slice(0, REWATCH_SUMMARY_CHARS).join('');
         return `${index + 1} | ${REWATCH_KIND_VIDEO} | ${oneLine(item.name)} | ${REWATCH_STATUS_WATCHED} | ${summary}`.trimEnd();
       }
-      const video = videos.get(item.itemId);
+      const video = states.get(item.itemId);
       const status = video.state === 'watched' ? REWATCH_STATUS_WATCHED : REWATCH_STATUS_NOT_LOADED;
       const summary = video.state === 'watched' ? [...oneLine(video.text)].slice(0, REWATCH_SUMMARY_CHARS).join('') : '';
       return `${index + 1} | ${kind} | ${oneLine(item.name)} | ${status} | ${summary}`.trimEnd();
     });
-    // The chat around the question.
-    const { triggerText, transcriptBlock } = classifierContext({
-      config,
-      selfName,
-      history,
-      trigger,
-      contextMessages: Math.max(0, Math.floor(rewatchCfg.contextMessages ?? 50)),
-      descriptions,
-      videos,
-    });
-    const user = `${transcriptBlock}<media>\n${lines.join('\n')}\n</media>\n<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
+    return { listed, lines, states, canRetry };
+  }
 
-    let completion;
-    try {
-      completion = await llm.complete(
-        [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        {
-          model: helperModel(config, { role: 'classifier.text', purpose: 'rewatch' }),
-          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: rewatchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'rewatch' }),
-        },
-      );
-    } catch (err) {
-      log.warn('rewatch: classifier failed', { channel: channelId, status: err.statusCode ?? null, name: err.name });
-      return;
-    }
-    const { pick, reason } = parseRewatchPickDetailed(completion.text, listed.length);
+  /**
+   * The second look a re-watch answer asked for (`pick`, read by
+   * parseRewatchPickDetailed against `offer.listed`; `reason` its parse code)
+   * on the item of `offer` it names: logged `rewatch: classified` (codes and
+   * counts only), then -- for a usable pick -- the describer looks again and
+   * the answer lands in `videos` (mutated in place: a video's answer, or a
+   * retried video's new state) or `imageAnswers` (a picture's or a GIF's).
+   * A retry is for a video that did not load, a question for a watched one, a
+   * GIF or a picture, judged on the states the list was built from
+   * (`offer.states`); anything else is ignored.
+   */
+  async function applyRewatch({ guildId, channelId, offer, pick, reason, videos, imageAnswers }) {
+    const { listed, states, canRetry } = offer;
     const entry = pick ? listed[pick.n - 1] : null;
     const item = entry?.item ?? null;
     const isPicture = entry?.kind === REWATCH_KIND_PICTURE;
     const isGif = entry?.kind === REWATCH_KIND_GIF;
-    const loaded = item && !isPicture && !isGif ? videos.get(item.itemId).state === 'watched' : false;
+    const loaded = item && !isPicture && !isGif ? states.get(item.itemId)?.state === 'watched' : false;
     // A retry is for a video that did not load, a question for a watched one, a GIF or a picture; anything else is ignored.
     const usable = Boolean(item) && (isPicture || isGif ? !pick.retry : pick.retry !== loaded);
     const pictureCount = listed.filter((candidate) => candidate.kind === REWATCH_KIND_PICTURE).length;
     const gifCount = listed.filter((candidate) => candidate.kind === REWATCH_KIND_GIF).length;
-    const watchedCount = listed.filter((candidate) => candidate.kind === REWATCH_KIND_VIDEO && videos.get(candidate.item.itemId).state === 'watched').length;
+    const watchedCount = listed.filter((candidate) => candidate.kind === REWATCH_KIND_VIDEO && states.get(candidate.item.itemId)?.state === 'watched').length;
     // Codes and counts only, never the question: an answer outside the format hints at a prompt mismatch.
     const level = reason === 'unknown-id' || reason === 'no-bar' ? 'warn' : 'info';
     log[level]('rewatch: classified', {
@@ -2414,7 +2424,7 @@ export function createTurnRunner({
       return;
     }
     const answer = await describer.rewatchVideo(guildId, item, pick.question);
-    if (answer) videos.set(item.itemId, { ...videos.get(item.itemId), answer });
+    if (answer) videos.set(item.itemId, { ...(videos.get(item.itemId) ?? states.get(item.itemId)), answer });
   }
 
   /**
@@ -2468,6 +2478,94 @@ export function createTurnRunner({
   }
 
   /**
+   * One attempt's turn planner (src/behavior/planner.js, features.turnPlanner
+   * exactly true): the one request that stands in for the route, the
+   * participation pick, the re-watch and the search classifiers. The pull's
+   * route step registers its channel list (`offerChannels`, ignored once the
+   * planner started) and waits on `result` for its pick; the participation,
+   * re-watch and lookup stages wait on `result` too. `start(inputs)` sends
+   * the request once -- `transcriptBlock`, `candidateBlock`, the `episodes`
+   * and `media` offers (`{ lines, ids }` / rewatchOffer's, null when not
+   * offered) and `lookup` (true when the search classifier would have been
+   * asked); later calls do nothing. `abandon(reason)` settles `result` with
+   * every block missing when the planner never started (a deadline passed
+   * first, or the attempt ended), so no stage waits forever. `early` is true
+   * on a turn whose pull is awaited before its preparation (a source, or a
+   * mode still to choose): its route step starts the planner itself.
+   * `result` never rejects: askPlanner's `{ outcome, reason, blocks }` plus
+   * `offer` (`channel`, `episodes`, `media`: the offers sent, null when not;
+   * `lookup`: boolean), what each consumer maps the block's numbers back with.
+   */
+  function createTurnPlan({ config, channelId, selfName, triggerKind, limits, early }) {
+    let channelOffer = null;
+    let started = false;
+    let settle;
+    const result = new Promise((resolve) => {
+      settle = resolve;
+    });
+    const unused = (reason) => ({ outcome: 'skipped', reason, blocks: parsePlannerAnswer(''), offer: { channel: null, episodes: null, media: null, lookup: false } });
+    const offered = (offer) => (Array.isArray(offer?.lines) && offer.lines.length > 0 ? offer : null);
+    return {
+      early,
+      result,
+      get started() {
+        return started;
+      },
+      offerChannels(offer) {
+        if (!started) channelOffer = offered(offer);
+      },
+      start({ transcriptBlock = '', candidateBlock = null, episodes = null, media = null, lookup: lookupWanted = false }) {
+        if (started) return;
+        started = true;
+        const offer = { channel: channelOffer, episodes: offered(episodes), media: offered(media), lookup: lookupWanted === true };
+        askPlanner({
+          llm,
+          config,
+          prompt: hot.prompts?.planner,
+          selfName,
+          today: zonedDay(clock(), config.bot?.timezone),
+          offer: { channels: offer.channel?.lines, episodes: offer.episodes?.lines, media: offer.media?.lines, lookup: offer.lookup },
+          transcriptBlock,
+          candidateBlock,
+          channelId,
+          kind: triggerKind,
+          now: clock,
+          limits,
+        }).then(
+          (asked) => settle({ ...asked, offer }),
+          () => settle(unused('error')),
+        );
+      },
+      abandon(reason = 'late') {
+        if (started) return;
+        started = true;
+        settle(unused(reason));
+      },
+    };
+  }
+
+  /**
+   * Which side of a lookup can run now (maybeLookup's gates, shared with the
+   * turn planner's offer): the web side under `webOn` unless
+   * `web.search.maxPerTurn` is below 1 (`no-slot`), the search has no key
+   * (`no-key`) or its daily slots are spent (`cap`); `skip` is that code, or
+   * `no-search`, when neither the web side nor the server side (`serverOn`)
+   * can run, else null. Read only.
+   * @returns {{ webCan: boolean, skip: string|null }}
+   */
+  function lookupGate({ config, webOn, serverOn }) {
+    const searchCfg = config.web?.search ?? {};
+    let webSkip = null;
+    if (webOn) {
+      if ((searchCfg.maxPerTurn ?? 1) < 1) webSkip = 'no-slot';
+      else if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch()) webSkip = 'no-key';
+      else if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) webSkip = 'cap';
+    }
+    const webCan = Boolean(webOn) && webSkip === null;
+    return { webCan, skip: !webCan && !serverOn ? (webSkip ?? 'no-search') : null };
+  }
+
+  /**
    * The searches on a question: the web search (`webOn`: features.webLookup,
    * web.search.enabled, a lookup with `search`) and the search of the
    * server's own history (`serverOn`: recall wired and available, a server
@@ -2507,21 +2605,22 @@ export function createTurnRunner({
    * is called once the answer asks for a search that runs, before it starts
    * (the turn's deadline grows to pace.prepareSearchMs; until the answer the
    * turn holds its deadline on this call, see createDeadline's `hold`).
+   * With the turn planner (`planned`: the attempt's createTurnPlan result)
+   * no classifier is asked here: the planner's lookup block stands in for its
+   * answer -- `ok` runs what it asks for; `none`, a planner that skipped or a
+   * block it never offered run nothing; `invalid`, `missing` or a failed
+   * planner call take the failed classifier's fallback above (`reason` the
+   * state or the failure code; the `helper-fallback` entry is the planner's,
+   * `where: 'planner:lookup'`).
    */
-  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, journalStep = null, triggerKind = null, limits = null }) {
+  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, journalStep = null, triggerKind = null, limits = null, planned = null }) {
     const channelId = channel.id;
     const prompt = hot.prompts?.lookup;
     const searchCfg = config.web?.search ?? {};
-    let webSkip = null;
-    if (webOn) {
-      if ((searchCfg.maxPerTurn ?? 1) < 1) webSkip = 'no-slot';
-      else if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch()) webSkip = 'no-key';
-      else if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) webSkip = 'cap';
-    }
-    const webCan = webOn && webSkip === null;
+    const { webCan, skip: gateSkip } = lookupGate({ config, webOn, serverOn });
     let skip = null;
-    if (!prompt) skip = 'no-prompt';
-    else if (!webCan && !serverOn) skip = webSkip ?? 'no-search';
+    if (!planned && !prompt) skip = 'no-prompt';
+    else skip = gateSkip;
     if (skip) {
       log.info('lookup: skipped', { channel: channelId, reason: skip });
       return null;
@@ -2538,6 +2637,13 @@ export function createTurnRunner({
       videos,
       reads,
     });
+    if (planned) {
+      if (planned.offer?.lookup !== true || planned.outcome === 'skipped') return null;
+      if (planned.outcome === 'failed') return fallback(planned.reason);
+      const answer = planned.blocks.lookup;
+      if (answer.state === 'ok') return runSearches({ web: answer.web, server: answer.server });
+      return answer.state === 'none' ? null : fallback(answer.state);
+    }
     const user = `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
 
     // Read once: the request and its empty-answer warning name the same model.
@@ -2589,7 +2695,8 @@ export function createTurnRunner({
       if (!plan) return null;
       // Counts only, never a form or a name.
       log.info('lookup: fallback', { channel: channelId, reason, forms: plan.forms.length, who: plan.who.length });
-      limits?.add({ kind: 'helper-fallback', where: 'lookup', detail: reason });
+      // The planner records its own fallen-back blocks (src/behavior/planner.js#askPlanner).
+      if (!planned) limits?.add({ kind: 'helper-fallback', where: 'lookup', detail: reason });
       return runSearches({ web: null, server: plan });
     }
 
@@ -3106,11 +3213,13 @@ export function createTurnRunner({
    * A private chat with its `partner` (privatePartner) pulls the same way from
    * `guild`, the served guild, every rail judged against the partner instead of
    * an audience (checkPull: their View Channel on the candidate); it has no
-   * source.
+   * source. `routePlan` (the turn planner's route step, runTurnAttempt; null
+   * without features.turnPlanner): `({ lines, routed }) => Promise<{ id,
+   * direction }[]>`, asked where the route hook would be, instead of it.
    * @returns {Promise<{ pulled: object[], sourceSkip: string|null }>}  The PulledChannel records,
    *   source first; `sourceSkip` is the skip code of a source that could not be pulled.
    */
-  async function pullChannels({ channel, guildId, guild = channel.guild, partner = null, history, trigger, candidate = trigger, triggerKind = null, source, selfId, selfName, config, now, certain, drawFailure, labelled }) {
+  async function pullChannels({ channel, guildId, guild = channel.guild, partner = null, history, trigger, candidate = trigger, triggerKind = null, source, selfId, selfName, config, now, certain, drawFailure, labelled, routePlan = null }) {
     const settings = pullSettings(config);
     const channelPull = channelPullOn(config) && labelled;
     // Every candidate judged once: its skip code (null = pullable) and why it was a candidate.
@@ -3189,9 +3298,12 @@ export function createTurnRunner({
       }
       sourcePulled = result.pulled;
     }
-    if (typeof routeChannels === 'function' && channelPull && !drawFailure && targets.length < settings.maxChannels) {
+    if ((routePlan || typeof routeChannels === 'function') && channelPull && !drawFailure && targets.length < settings.maxChannels) {
       const routedLines = source?.reason === 'routed' ? sourcePulled?.messages : null;
-      const picks = await routeIds({ guildId, channel, guild, partner, history: routedLines ?? history, trigger: candidate, triggerKind, selfName, config });
+      // With the turn planner its channel block stands in for the route hook (never both).
+      const picks = routePlan
+        ? await routePlan({ lines: routedLines ?? history, routed: routedLines ? sourcePulled : null })
+        : await routeIds({ guildId, channel, guild, partner, history: routedLines ?? history, trigger: candidate, triggerKind, selfName, config });
       judging = 'route';
       for (const pick of picks) if (pick.direction === 'earlier' && pick.id !== sourceTarget?.channelId) earlierIds.add(pick.id);
       if (picks.length > 0) targets = targetsWith(picks.map((pick) => pick.id));
@@ -3678,6 +3790,8 @@ export function createTurnRunner({
     let stopTyping = () => {};
     let deadline = null;
     let bar = null;
+    // The attempt's turn planner (createTurnPlan), abandoned in `finally` if it never started.
+    let planner = null;
     const turnStartedAt = clock();
     let turnMode = mode;
     try {
@@ -3780,6 +3894,79 @@ export function createTurnRunner({
             )
           : null;
 
+      // The searches this turn may run (maybeLookup): the web search (features.webLookup -- unlike
+      // the other switches a missing key counts as OFF: it costs money and the search needs a key)
+      // and the server search (a private chat only on its partner's behalf). Asked once, so the
+      // lookup stage, the planner's offer and `<senses>` agree.
+      const webLookupOn = features.webLookup === true && Boolean(lookup);
+      const webSearchOn = webLookupOn && config.web?.search?.enabled !== false && typeof lookup.search === 'function';
+      const serverOn = (!isPrivate || likeServer) && recallAvailable();
+      // The turn planner (features.turnPlanner exactly true, read now; never on a drawFailed turn,
+      // which asks no classifier): one request for the route, the participation pick, the
+      // re-watch and the search classifier, none of which is asked then. It starts in the pull's
+      // route step on a turn that waits for its pull (a source, or a mode still to choose), else
+      // once the file previews are in (below), like the search classifier did.
+      planner = plannerOn(config) && !answersDrawFailure
+        ? createTurnPlan({ config, channelId: channel.id, selfName, triggerKind, limits: draft.limits ?? null, early: Boolean(source) || mode === 'auto' })
+        : null;
+      // What the planner is sent: the search classifier's transcript of `lines` (with the captions,
+      // video states and page reads given) and candidate, the participation pick's episodes, the
+      // re-watch's media (`media`, prepared by the caller) and whether a search could run.
+      const plannerStart = ({ lines, descriptions, videos, reads, media = null }) => {
+        const judged = routeCandidate(lines, candidate);
+        const context = judged
+          ? classifierContext({
+              config,
+              selfName,
+              history: lines,
+              trigger: judged,
+              contextMessages: Math.max(0, Math.floor(config.web?.search?.contextMessages ?? 50)),
+              descriptions,
+              videos,
+              reads,
+            })
+          : null;
+        let episodes = null;
+        if (participationOn(channel, config) && mode !== 'diary') {
+          try {
+            const units = hot.prompts?.labels?.units;
+            episodes = participationEpisodeOffer({ store, guildId, channel, audience: participationAudience(channel, config), config, units, selfName, now: clock() });
+          } catch (err) {
+            log.warn('participation: failed', { channel: channel.id, reason: 'error', status: null, name: err?.name ?? null });
+          }
+        }
+        const lookupWanted = asked && (webSearchOn || serverOn) && lookupGate({ config, webOn: webSearchOn, serverOn }).skip === null;
+        planner.start({
+          transcriptBlock: context?.transcriptBlock ?? '',
+          candidateBlock: judged ? block('candidate', `${judged.authorName}: ${context.triggerText}`) : null,
+          episodes,
+          media,
+          lookup: lookupWanted,
+        });
+      };
+      // The planner's route step (pullChannels' routePlan): this turn's channel list as the route
+      // hook would build it (features.channelRoute, routeAllowed, its candidate), then the pick of
+      // the planner's channel block, mapped back to its id.
+      const routePlan = planner
+        ? async ({ lines, routed }) => {
+            const settings = routeSettings(config);
+            const allowed = channel.guild ? routeAllowed({ triggerKind }) : Boolean(servedGuild && partner) && triggerKind === 'private';
+            const judged = routeCandidate(lines, candidate);
+            if (settings && allowed && judged) {
+              try {
+                planner.offerChannels(routeChannelOffer({ store, guildId, channel, guild: servedGuild, partner, candidate: judged, config, settings, now: clock() }));
+              } catch (err) {
+                log.warn('pull: route failed', { channel: channel.id, error: err });
+              }
+            }
+            if (planner.early) plannerStart({ lines, descriptions: routed?.descriptions });
+            const plan = await planner.result;
+            const answer = plan.blocks.channel;
+            const id = answer.state === 'ok' ? plan.offer.channel?.ids?.[answer.index - 1] : null;
+            return typeof id === 'string' && id ? [{ id, direction: answer.direction === 'earlier' ? 'earlier' : null }] : [];
+          }
+        : null;
+
       // The other channels this turn shows (`<channel_view>`, pullChannels), found and fetched
       // before the mode is chosen so a chooser sees them. Fresh captions only for a turn certain
       // to run: with the fetch when no chooser can still say not-now, else once it chose
@@ -3795,7 +3982,7 @@ export function createTurnRunner({
       const pullStartedAt = clock();
       const pullsPending = isPrivate && !likeServer
         ? Promise.resolve({ pulled: [], sourceSkip: null })
-        : pullChannels({ channel, guildId, guild: servedGuild, partner, history, trigger, candidate, triggerKind, source, selfId, selfName, config, now, certain, drawFailure: answersDrawFailure, labelled: pullLabelled })
+        : pullChannels({ channel, guildId, guild: servedGuild, partner, history, trigger, candidate, triggerKind, source, selfId, selfName, config, now, certain, drawFailure: answersDrawFailure, labelled: pullLabelled, routePlan })
             // Never fails the turn: anything unexpected is no pull (and no source).
             .catch((err) => {
               log.warn('pull: failed', { channel: channel.id, error: err });
@@ -3961,12 +4148,38 @@ export function createTurnRunner({
       // the describer's watchedGifs offers none while GIFs are not watched (media.gif.watch).
       const gifRewatchOn =
         isVideoVisionOn(config) && features.videoRewatch !== false && typeof describer?.rewatchGif === 'function' && typeof describer.watchedGifs === 'function';
+      // The items a second look may be offered for (the re-watch, or the planner's `<media>`).
+      const mediaWanted = asked && !answersDrawFailure && (videoRewatchOn || imageRelookOn || gifRewatchOn) && !routedPull;
+      const pictures = mediaWanted && imageRelookOn ? relookCandidates(rawHistory) : [];
+      const gifItems = mediaWanted && gifRewatchOn ? gifRewatchItems(rawHistory) : [];
       if (asked && !answersDrawFailure && (videoRewatchOn || imageRelookOn || gifRewatchOn)) {
         if (routedPull) {
           log.info('rewatch: skipped', { channel: channel.id, reason: 'routed' });
+        } else if (planner) {
+          // The planner's re-watch block picks the item and the question (its `<media>` built by
+          // plannerMedia below); the second look itself waits for the video stage, as before.
+          rewatchChain = planner.result
+            .then(async (plan) => {
+              const offer = plan.offer.media;
+              const answer = plan.blocks.rewatch;
+              if (!offer || answer.state !== 'ok') return undefined;
+              await videoStage?.settled;
+              if (deadline.passed) return undefined;
+              rewatchStage = track('rewatch', async () => {
+                const own = new Map(videoStage?.value?.videos ?? offer.states);
+                const imageAnswers = new Map();
+                try {
+                  await applyRewatch({ guildId, channelId: channel.id, offer, pick: answer.pick, reason: answer.parse, videos: own, imageAnswers });
+                } catch (err) {
+                  log.warn('rewatch: failed', { channel: channel.id, error: err });
+                }
+                // The video states only when videos were offered; otherwise the video stage's stand.
+                return { videos: offer.offersVideos ? own : null, imageAnswers };
+              });
+              return rewatchStage.settled;
+            })
+            .catch(chainFailed('rewatch'));
         } else {
-          const pictures = imageRelookOn ? relookCandidates(rawHistory) : [];
-          const gifItems = gifRewatchOn ? gifRewatchItems(rawHistory) : [];
           rewatchChain = Promise.all([videoStage?.settled, previews.settled])
             .then(() => {
               const watched = videoStage?.value?.videos;
@@ -4045,7 +4258,6 @@ export function createTurnRunner({
           return undefined;
         }
       };
-      const webLookupOn = features.webLookup === true && Boolean(lookup);
       if (webLookupOn && webCfg.links?.enabled !== false && typeof lookup.readLinks === 'function') {
         linksStage = track('links', async () => {
           try {
@@ -4069,11 +4281,9 @@ export function createTurnRunner({
       // reads once done). A routed call is read in its source (routedPull), with its captions.
       let lookupStage = null;
       let lookupChain = null;
-      // The server search is possible this turn (a private chat only on its partner's behalf): the
-      // lookup stage runs it and `<senses>` says it exists. Asked once, so both agree.
-      const serverOn = (!isPrivate || likeServer) && recallAvailable();
+      // `serverOn` (above): the lookup stage runs the server search and `<senses>` says it exists.
       if (asked && !answersDrawFailure) {
-        const webOn = webLookupOn && webCfg.search?.enabled !== false && typeof lookup.search === 'function';
+        const webOn = webSearchOn;
         if (webOn || serverOn) {
           lookupChain = previews.settled
             .then(() => {
@@ -4104,6 +4314,8 @@ export function createTurnRunner({
                     journalStep: prepStep,
                     triggerKind,
                     limits: draft.limits ?? null,
+                    // With the planner its lookup block stands in for the search classifier.
+                    planned: planner ? await planner.result : null,
                   });
                 } catch (err) {
                   log.warn('lookup: failed', { channel: channel.id, error: err });
@@ -4118,6 +4330,56 @@ export function createTurnRunner({
             })
             .catch(chainFailed('lookup'));
         }
+      }
+
+      // The turn planner, unless its route step started it already: once the file previews are in
+      // (and, when a watched video may be offered a second look, once the video stage settled, as
+      // the re-watch waited), with what this turn has then -- the search classifier's transcript
+      // (a routed call read in its source) and the re-watch's `<media>` (plannerMedia). A deadline
+      // already passed sends nothing: every block keeps its default.
+      if (planner && !planner.started) {
+        const plannerMedia = (watched) => {
+          const offersVideos = videoRewatchOn && Boolean(watched);
+          // Read from the cache now, after the stages above: a GIF watched meanwhile counts.
+          const gifCaptions = gifItems.length > 0 ? describer.watchedGifs(guildId, gifItems) : new Map();
+          const gifs = gifItems.filter((item) => gifCaptions.has(item.itemId));
+          if (!offersVideos && !imageRelookOn && gifs.length === 0) return null;
+          const offer = rewatchOffer({
+            config,
+            channelId: channel.id,
+            history: previewed(),
+            videos: new Map(watched ?? []),
+            descriptions: captionsSoFar(),
+            candidates: offersVideos ? videoCandidates : [],
+            gifs,
+            gifCaptions,
+            pictures,
+          });
+          return offer ? { ...offer, offersVideos } : null;
+        };
+        const videosFirst = mediaWanted && videoRewatchOn && videoCandidates.length > 0 ? videoStage?.settled : null;
+        Promise.all([previews.settled, videosFirst])
+          .then(async () => {
+            if (planner.started) return;
+            if (deadline.passed) {
+              planner.abandon('late');
+              return;
+            }
+            const chat = previewed();
+            const shown = captionsSoFar();
+            const videosShown = await videosSoFar();
+            plannerStart({
+              lines: routedPull ? routedPull.messages : chat,
+              descriptions: routedPull ? new Map([...(shown ?? []), ...routedPull.descriptions]) : shown,
+              videos: videosShown,
+              reads: linksStage?.done ? linksStage.value : cachedLinkReads(),
+              media: mediaWanted ? plannerMedia(videosShown) : null,
+            });
+          })
+          .catch((err) => {
+            log.warn('turn: stage failed', { channel: channel.id, stage: 'planner', error: err });
+            planner.abandon('error');
+          });
       }
 
       // A private chat has no neighbouring channels. A neighbour passes the audience rail the
@@ -4146,7 +4408,14 @@ export function createTurnRunner({
       const participationStage =
         participationShown && !answersDrawFailure
           ? track('participation', () =>
-              pickParticipation({ guildId, channel, history: rawHistory, trigger: candidate, triggerKind, mode: finalMode, selfName, audience: participationAudienceOf }),
+              planner
+                ? // The planner's episodes block, mapped back to the episode ids it was offered.
+                  planner.result.then((plan) => {
+                    const answer = plan.blocks.episodes;
+                    const ids = plan.offer.episodes?.ids ?? [];
+                    return answer.state === 'ok' ? answer.indices.map((n) => ids[n - 1]).filter(Boolean) : [];
+                  })
+                : pickParticipation({ guildId, channel, history: rawHistory, trigger: candidate, triggerKind, mode: finalMode, selfName, audience: participationAudienceOf }),
             )
           : null;
 
@@ -4676,6 +4945,7 @@ export function createTurnRunner({
     } finally {
       draft.mode = turnMode;
       prep.closeAll();
+      planner?.abandon('ended');
       stopTyping();
       deadline?.close();
       bar?.close();

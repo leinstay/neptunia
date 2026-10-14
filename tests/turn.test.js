@@ -24,6 +24,7 @@ import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.js';
 import { pingStatus } from '../src/behavior/elsewhere.js';
 import { findGif } from '../src/memory/gifs.js';
 import { createJournal } from '../src/memory/journal.js';
+import { createChannelRouter } from '../src/behavior/route-channel.js';
 
 function rngReturning(value) {
   return () => value;
@@ -7995,4 +7996,190 @@ test('turn: a journalled turn dumps its request and raw answer', async () => {
 
   // The journal switched off: no dump.
   assert.equal((await run({ journal: false })).dumps.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// The turn planner (features.turnPlanner): one request for the route, the participation pick,
+// the re-watch and the search classifier.
+
+const PLANNER_SYSTEM = 'Plan the turn for {{name}} on {{today}}.';
+const ROUTE_SYSTEM = 'Route the call to {{name}}.';
+const PICK_SYSTEM = 'Pick episodes for {{name}}.';
+
+/** The number of the line of the `<tag>` block of `text` that includes `needle`, or `none`. */
+function listNumber(text, tag, needle) {
+  const body = text.split(`<${tag}>\n`)[1]?.split(`\n</${tag}>`)[0] ?? '';
+  const line = body.split('\n').find((entry) => entry.includes(needle));
+  return line ? line.split(' | ')[0] : 'none';
+}
+
+/** The planner's answer for the scene below: #diary, the #journal episode, a second look at the video, both searches. */
+function fullPlan(user) {
+  return [
+    `channel: ${listNumber(user, 'channels', '#diary')}`,
+    `episodes: ${listNumber(user, 'episodes', '#journal')}`,
+    'rewatch: 1 question: τι χρώμα;',
+    'web: χρώμα αυτοκινήτου',
+    'server: αυτοκίνητο',
+  ].join('\n');
+}
+
+/**
+ * An llm telling the helpers apart by their system prompt. The planner answers `planner(user)`
+ * (a throw fails the call); the four old classifiers answer the same decisions as fullPlan in
+ * their own grammar; anything else is the reply.
+ */
+function plannerLlm(planner = fullPlan) {
+  const calls = { planner: [], route: [], pick: [], rewatch: [], lookup: [], turn: [] };
+  const kindOf = (system) =>
+    system.startsWith('Plan the turn')
+      ? 'planner'
+      : system.startsWith('Route the call')
+        ? 'route'
+        : system.startsWith('Pick episodes')
+          ? 'pick'
+          : system.startsWith('Pick the video')
+            ? 'rewatch'
+            : system.startsWith('Decide whether')
+              ? 'lookup'
+              : 'turn';
+  const answers = {
+    planner: (user) => planner(user),
+    route: (user) => listNumber(user, 'channels', '#diary'),
+    pick: (user) => listNumber(user, 'episodes', '#journal'),
+    rewatch: () => '1 | τι χρώμα;',
+    lookup: () => 'web: χρώμα αυτοκινήτου\nserver: αυτοκίνητο',
+    turn: () => '<msg>ok</msg>',
+  };
+  return {
+    calls,
+    helperCalls: () => calls.planner.length + calls.route.length + calls.pick.length + calls.rewatch.length + calls.lookup.length,
+    complete: async (messages, options) => {
+      const kind = kindOf(messages[0].content);
+      calls[kind].push({ messages, options });
+      return { text: answers[kind](textOf(messages[1].content)), usage: {}, estimated: 5 };
+    },
+  };
+}
+
+/**
+ * One mention in #general asking about the watched video posted before it, with #diary routable,
+ * two stored episodes elsewhere (#journal older, #jardin newer; one shown), a web search and the
+ * server search wired, and the real route hook (createChannelRouter) injected.
+ */
+async function runPlannerTurn({ turnPlanner = true, llm = plannerLlm(), journal = null } = {}) {
+  const hot = rewatchHot(
+    { webLookup: true, turnPlanner, typingSimulation: false, journal: Boolean(journal) },
+    {},
+    {
+      web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50, classifierMaxOutputTokens: 333 } },
+      participation: { shown: 1 },
+      classifier: { media: 'x/haiku', reason: 'x/reason' },
+    },
+  );
+  Object.assign(hot.prompts, { planner: PLANNER_SYSTEM, lookup: LOOKUP_SYSTEM, 'route-channel': ROUTE_SYSTEM, 'participation-pick': PICK_SYSTEM });
+  const video = videoAttachmentRaw('m1', NOW - 5000, 'va', 'clip.mp4');
+  const triggerRaw = rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'τι χρώμα είναι το αυτοκίνητο στο βίντεο;' });
+  const channel = participationChannel([video, triggerRaw]);
+  const other = addChannel(channel, { id: DIARY, name: 'diary', messages: diaryLines() });
+  const store = participationStore(
+    { episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')], nextId: 3 },
+    fakeStore({ channels: [{ id: DIARY, name: 'diary', purpose: 'a diary', lastMessageAt: NOW - HOUR }, { id: 'c2', name: 'journal', purpose: 'a reading log' }] }),
+  );
+  const describer = fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } });
+  const lookup = fakeLookup();
+  const recall = fakeRecall();
+  const routeChannels = createChannelRouter({ hot, store, llm, now: () => NOW });
+  const turns = createTurnRunner({
+    hot,
+    store,
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    describer,
+    lookup,
+    recall,
+    routeChannels,
+    journal,
+    imageFetcher: fakeImageFetcher(),
+    now: () => NOW,
+  });
+  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(triggerRaw), triggerKind: 'mention' }));
+  const reply = llm.calls.turn.length > 0 ? textOf(llm.calls.turn.at(-1).messages[1].content) : '';
+  return { result, logs, llm, other, describer, lookup, recall, reply };
+}
+
+test('turn planner: one request instead of four, and each consumer gets what the old classifier gave for the same decision', async () => {
+  const on = await runPlannerTurn();
+  assert.equal(on.result.outcome, 'spoke');
+  assert.equal(on.llm.calls.planner.length, 1, 'one planner request');
+  assert.equal(on.llm.helperCalls(), 1, 'none of the four old classifiers is asked');
+  assert.equal(on.llm.calls.turn.length, 1);
+  const { messages, options } = on.llm.calls.planner[0];
+  assert.equal(options.role, 'classifier.reason');
+  assert.equal(options.purpose, 'planner');
+  assert.equal(options.model, 'x/reason');
+  assert.equal(options.maxOutputTokens, 333);
+  assert.equal(messages[0].content, 'Plan the turn for Bot on 2026-09-20.');
+  const user = textOf(messages[1].content);
+  const at = ['<channels>\n', '<episodes>\n', '<media>\n', '<transcript>\n', '<candidate>\n'].map((tag) => user.indexOf(tag));
+  assert.ok(at.every((index) => index >= 0), user);
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'the blocks in the prompt order');
+  assert.ok(user.includes('<media>\n1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά\n</media>'), user);
+
+  // The same decisions through the four old classifiers.
+  const off = await runPlannerTurn({ turnPlanner: false });
+  assert.deepEqual(
+    ['route', 'pick', 'rewatch', 'lookup', 'planner'].map((kind) => off.llm.calls[kind].length),
+    [1, 1, 1, 1, 0],
+  );
+  for (const run of [on, off]) {
+    assert.equal(run.other.fetches.length, 1, 'the routed channel is pulled');
+    assert.deepEqual(run.describer.rewatchCalls.map((call) => [call.item.itemId, call.question]), [['va', 'τι χρώμα;']]);
+    assert.deepEqual(run.lookup.searchCalls.map((call) => call.query), ['χρώμα αυτοκινήτου']);
+    assert.deepEqual(run.recall.runCalls.map((call) => call.server.forms), [['αυτοκίνητο']]);
+    assert.ok(run.reply.includes('στο ράφι είναι') && !run.reply.includes('ωραία λουλούδια'), 'the picked #journal episode is shown');
+  }
+  assert.equal(on.reply, off.reply, 'the reply request is the same either way');
+  const classified = on.logs.find((l) => l.msg === 'planner: classified');
+  assert.deepEqual(classified.states, { channel: 'ok', episodes: 'ok', rewatch: 'ok', lookup: 'ok' });
+  assert.ok(!JSON.stringify(classified).includes('χρώμα'), 'codes and counts only');
+});
+
+test('turn planner: a failed call runs the search fallback on the question\'s words, every other block keeps its default', async () => {
+  const { journal, lines } = journalOverMemory();
+  const run = await runPlannerTurn({
+    journal,
+    llm: plannerLlm(() => {
+      throw new Error('hedged timeout');
+    }),
+  });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.equal(run.llm.helperCalls(), 1, 'the old classifiers are never asked instead');
+  assert.equal(run.other.fetches.length, 0, 'no channel pulled');
+  assert.equal(run.describer.rewatchCalls.length, 0, 'no second look');
+  assert.equal(run.lookup.searchCalls.length, 0, 'the fallback never searches the web');
+  assert.equal(run.recall.runCalls.length, 1);
+  assert.ok(run.recall.runCalls[0].server.forms.includes('αυτοκίνητο'));
+  assert.ok(run.reply.includes('ωραία λουλούδια') && !run.reply.includes('στο ράφι είναι'), 'the newest episode is shown');
+  assert.equal(run.logs.find((l) => l.msg === 'planner: failed')?.reason, 'classifier-failed');
+  assert.equal(run.logs.find((l) => l.msg === 'lookup: fallback')?.reason, 'classifier-failed');
+  const turn = lines.find(({ record }) => record.kind === 'turn').record;
+  assert.deepEqual(
+    turn.limits.filter((limit) => limit.kind === 'helper-fallback').map((limit) => [limit.where, limit.detail]),
+    ['channel', 'episodes', 'rewatch', 'lookup'].map((block) => [`planner:${block}`, 'classifier-failed']),
+  );
+});
+
+test('turn planner: an invalid or missing block takes its default, a valid one still counts', async () => {
+  const run = await runPlannerTurn({ llm: plannerLlm((user) => `channel: 9\nepisodes: ${listNumber(user, 'episodes', '#journal')}\nlookup: maybe`) });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.equal(run.other.fetches.length, 0, 'an id outside the list pulls nothing');
+  assert.equal(run.describer.rewatchCalls.length, 0, 'a missing re-watch block looks at nothing');
+  assert.ok(run.reply.includes('στο ράφι είναι'), 'the valid episodes block is used');
+  assert.equal(run.lookup.searchCalls.length, 0);
+  assert.equal(run.recall.runCalls.length, 1, 'an invalid lookup block takes the search fallback');
+  assert.equal(run.logs.find((l) => l.msg === 'lookup: fallback')?.reason, 'invalid');
+  const classified = run.logs.find((l) => l.msg === 'planner: classified');
+  assert.deepEqual(classified.states, { channel: 'invalid', episodes: 'ok', rewatch: 'missing', lookup: 'invalid' });
 });

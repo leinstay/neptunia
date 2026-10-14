@@ -25,6 +25,7 @@ import { createTurnRunner } from '../src/behavior/turn.js';
 import { createRecall } from '../src/behavior/recall-run.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { createParticipationPicker } from '../src/behavior/participation-pick.js';
+import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMessageHandler } from '../src/discord/events.js';
 import { normalizeMessage, withTextPreviews } from '../src/discord/collect.js';
@@ -147,6 +148,7 @@ const LOADS = {
   recallSummary: ['recall-summary'],
   routeChannel: ['route-channel'],
   participationPick: ['participation-pick'],
+  planner: ['planner'],
   room: ['room'],
   split: ['split'],
   merge: ['merge'],
@@ -1078,6 +1080,32 @@ test('createParticipationPicker: the pick classifier fills participation-pick.md
   assert.deepEqual(result, []);
   assert.equal(llm.calls.length, 1, 'one pick request');
   assertFilled(llm.calls[0].messages, { files: LOADS.participationPick, blocks: ['transcript', 'candidate', 'episodes'] }, 'participation-pick');
+});
+
+test('askPlanner: the turn planner fills planner.md', async () => {
+  const hot = shippedHot();
+  const llm = recordingLlm(() => 'channel: none\nepisodes: none\nrewatch: none\nlookup: none');
+  const { result } = await withCapturedLogs(() =>
+    askPlanner({
+      llm,
+      config: hot.config,
+      prompt: hot.prompts.planner,
+      selfName: SELF_NAME,
+      today: zonedDay(NOW, hot.config.bot.timezone),
+      offer: {
+        channels: ['1 | #jardin | Nikos | the garden'],
+        episodes: ['1 | #journal | 40 min |  | Zoë: je relis mes notes'],
+        media: ['1 | video | clip.mp4 | watched | a tomato plant'],
+        lookup: true,
+      },
+      transcriptBlock: '<transcript>\nNikos: les tomates ont poussé\n</transcript>\n',
+      candidateBlock: '<candidate>\nAna: tu te souviens ?\n</candidate>',
+      now: () => NOW,
+    }),
+  );
+  assert.equal(result.outcome, 'classified');
+  assert.equal(llm.calls.length, 1, 'one planner request');
+  assertFilled(llm.calls[0].messages, { files: LOADS.planner, blocks: ['channels', 'episodes', 'media', 'transcript', 'candidate'] }, 'planner');
 });
 
 test('buildRequest: the <participation> block fills its labels and the senses line', async () => {
