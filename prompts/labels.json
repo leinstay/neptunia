@@ -14,6 +14,7 @@
     "header": "=== {date} ===",
     "timeAged": "[{clock} · {age} ago]",
     "empty": "(empty)",
+    "author": "{name} ({handle})",
     "replyTo": "(reply to {author}'s #{index}: {quote})",
     "replyToMemory": "(reply to {author}: {quote})",
     "replyToOld": "(replying to an older message)",
@@ -94,6 +95,11 @@
     "reactions": "[reactions: {list}]",
     "reactionItem": "{emoji} x{count}",
     "reactionMine": "{emoji} x{count} (you)"
+  },
+  "directory": {
+    "lead": "Members you can mention. Write the handle exactly as listed to tag someone; a name alone pings nobody.",
+    "line": "{handle}: {names}",
+    "lineAliases": "{handle}: {names}; also called {aliases}"
   },
   "senses": {
     "imageSee": "Pictures marked as attached you see yourself; they may carry a helper's note, which is a fallible reading whose confident wording is not evidence. Check identities and claims against what you see, and when a region is too small or unclear to make out, do not adopt a name or story from the note or the chat as fact. The helper may have seen more detail, so a vague view is inconclusive.",

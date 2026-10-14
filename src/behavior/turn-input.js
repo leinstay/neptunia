@@ -19,6 +19,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'forced',
   'now',
   'selfName',
+  'selfId',
   'history',
   'neighbors',
   'trigger',

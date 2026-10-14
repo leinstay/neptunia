@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PermissionFlagsBits } from 'discord.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
+import { handleOf } from '../src/behavior/handles.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
@@ -148,9 +149,10 @@ test('runTurn: features.channelLinks false sends #name as written', async () => 
   assert.equal(channel.sent[0].content, 'δες στο #γενικά και στο #φωνή');
 });
 
-test('runTurn: a URL in a <msg> is posted exactly as written; a #name and an @name outside it still turn into links', async () => {
-  const url = 'https://www.youtube.com/@Alice/#γενικά?si=Ab_9&t=5';
-  const { result, channel } = await runLinkTurn(true, `<msg>@Alice δες ${url} στο #γενικά</msg>`);
+test('runTurn: a URL in a <msg> is posted exactly as written; a #name and an @handle outside it still turn into links', async () => {
+  const handle = handleOf('u1');
+  const url = `https://www.youtube.com/@${handle}/#γενικά?si=Ab_9&t=5`;
+  const { result, channel } = await runLinkTurn(true, `<msg>@${handle} δες ${url} στο #γενικά</msg>`);
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent[0].content, `<@u1> δες ${url} στο <#${LINKED_ID}>`);
 });

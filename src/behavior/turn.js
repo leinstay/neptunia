@@ -45,6 +45,7 @@ import {
 import { channelPullOn, pullSettings, pullTargets } from './pull.js';
 import { audienceCovers, markSeen, messageLink, resolveDestination, stampPings } from './elsewhere.js';
 import { isTaggedCall } from './mention.js';
+import { resolveHandles } from './handles.js';
 import { roleModel } from '../llm/roles.js';
 import { parseLookupAnswer, recallSettings } from './recall.js';
 import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
@@ -423,6 +424,8 @@ export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfNam
 }
 
 /**
+ * The name matching of features.mentionHandles off (kept for rollback; with it on, renderPost
+ * resolves only `@handle`, src/behavior/handles.js#resolveHandles).
  * Turn `@nick` written by the model into real mentions for people the request showed: the
  * authors of `history` (the lines shown), then the stored names in `knownNames` (the members
  * whose profile the request showed, the authors of the pulled lines shown). A transcript
@@ -1721,7 +1724,7 @@ export function createTurnRunner({
    * cooldown, and src/skills/executors.js#executeCall runs it on the envelope through
    * `runCommand` (`skills.callTimeoutMs`, read now); her written text (`message.create`,
    * `message.edit`) is rendered first exactly as a `<msg>` of this turn (renderPost over the
-   * turn's `lines`, `knownNames`, `directory`, `idByIndex`, `pulledIds`), its mentions the only members
+   * turn's `handles`, or `lines`, `knownNames`, `directory`, and `idByIndex`, `pulledIds`), its mentions the only members
    * notified. The operation closes `succeeded` (with the
    * message id), `unknown` (never retried) or `failed` with the code. A message or picture that reached another conversation
    * stamps its lastPostAt, links its trigger, and a message is a `said` line of the record.
@@ -1729,12 +1732,12 @@ export function createTurnRunner({
    * `followUp` (src/skills/executors.js#needsFollowUp). Never throws.
    * @returns {Promise<{ skill: string, status: string, code?: string, data?: object, followUp: boolean }>}
    */
-  async function runCall(plan, { channel, trigger, guildId, draft, privateChat = false, idByIndex = null, pulledIds = null, lines = [], knownNames = [], directory = null }) {
+  async function runCall(plan, { channel, trigger, guildId, draft, privateChat = false, idByIndex = null, pulledIds = null, lines = [], knownNames = [], directory = null, handles = null }) {
     const { call, op, envelope } = plan;
     const skill = call.skill;
     // Her written text (message.create / message.edit) rendered as a `<msg>` of this turn is.
     let rendered = null;
-    const renderText = (text) => (rendered = renderPost(text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory, limits: draft?.limits ?? null }));
+    const renderText = (text) => (rendered = renderPost(text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory, handles, limits: draft?.limits ?? null }));
     let result;
     // A refusal keeps its machine reason (a schema path, an option name): the call mark says why (outcomeDetail).
     const refusedWith = (refusal) => ({ status: refusalStatus(refusal.code), code: refusal.code, ...(refusal.reason ? { reason: refusal.reason } : {}) });
@@ -1851,7 +1854,7 @@ export function createTurnRunner({
    * did not work has none: its mark says how it went. A failed fetch logs `skills: continuation
    * fetch failed` and goes on with the turn's history and her posts. Resolves the messages and
    * what act needs to act on the answer over the new transcript (`idByIndex`, `history`,
-   * `lines` with the pulled lines shown, `pulledIds`).
+   * `lines` with the pulled lines shown, `pulledIds`, the mention `handles` of the rebuilt request).
    */
   async function continuationRequest({ called, channel, guildId, acted, continuation }) {
     const { input, history, shownLines = [], pictures } = continuation;
@@ -1868,7 +1871,7 @@ export function createTurnRunner({
     const content = await continuationContent(request, pictures);
     return {
       messages: withSkillResult([request.messages[0], { ...request.messages[1], content }], resultBlock),
-      routing: { idByIndex: request.idByIndex, history: lines, lines: [...shownLines, ...lines], pulledIds: request.pulledIds ?? new Map() },
+      routing: { idByIndex: request.idByIndex, history: lines, lines: [...shownLines, ...lines], pulledIds: request.pulledIds ?? new Map(), handles: request.handles ?? null },
     };
   }
 
@@ -2151,7 +2154,11 @@ export function createTurnRunner({
 
   /**
    * The persona's `text` as it is posted -- a `<msg>`, or the text of her `message.create` /
-   * `message.edit` call: `@name` resolved over `lines`, then `knownNames`, then the fallback
+   * `message.edit` call: with `handles` (the request's handle -> member id map,
+   * features.mentionHandles on) only an exact `@handle` becomes a mention and no name is ever
+   * matched (src/behavior/handles.js#resolveHandles; a handle-shaped token the map does not hold
+   * stays text and is logged `turn: unknown handle` with `count`, unless `quiet`); without them
+   * `@name` resolved over `lines`, then `knownNames`, then the fallback
    * `directory` (a thunk, only called when the text has an `@`; resolveMentions), custom
    * emoji after the mentions (`<@id>` has no `:name:` in it to break), transcript numbers into jump
    * links (withMessageLinks), channel names into channel links (withChannelLinks), then `link`
@@ -2160,9 +2167,15 @@ export function createTurnRunner({
    * `userIds` (the members it mentions: the only ones a send may notify, allowedMentions).
    * @returns {{ text: string, spoken: string, userIds: string[] }}
    */
-  function renderPost(written, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory = null, link = null, limits = null }) {
-    const fallback = typeof directory === 'function' && String(written ?? '').includes('@') ? directory() : [];
-    const mentioned = resolveMentions(written, lines ?? [], knownNames ?? [], fallback);
+  function renderPost(written, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory = null, handles = null, link = null, limits = null, quiet = false }) {
+    let mentioned;
+    if (handles instanceof Map) {
+      mentioned = resolveHandles(written, handles);
+      if (mentioned.unknown > 0 && !quiet) log.info('turn: unknown handle', { channel: channel.id, count: mentioned.unknown });
+    } else {
+      const fallback = typeof directory === 'function' && String(written ?? '').includes('@') ? directory() : [];
+      mentioned = resolveMentions(written, lines ?? [], knownNames ?? [], fallback);
+    }
     const spoken = renderCustomEmoji(mentioned.text, emojiLookup());
     const text = withLink(withChannelLinks(channel, withMessageLinks(spoken, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds })), link, hot.prompts?.labels, limits);
     return { text, spoken, userIds: mentioned.userIds };
@@ -2285,9 +2298,10 @@ export function createTurnRunner({
    *   `dry-run: would draw` with `set: true` and mirrored with its place in the set.
    *   `plain`: the turn quotes no chat line (postsPlain); `lines`: the lines shown of the pulled
    *   channels, then this chat's history (names and authors); `knownNames`: the stored names
-   *   `@name` resolves by too (storedNames); `directory`: the fallback behind them (mentionDirectory).
+   *   `@name` resolves by too (storedNames); `directory`: the fallback behind them (mentionDirectory);
+   *   `handles`: the request's handle -> member id map, in place of all three (renderPost).
    */
-  async function dryAct({ channel, guildId, parsed, idByIndex, history = [], mode, triggerKind, trigger = null, plain, selfName, pulledIds, lines, knownNames, directory = null, linkFor, part = null, gifPick = true, setDraws = null, draft = null }) {
+  async function dryAct({ channel, guildId, parsed, idByIndex, history = [], mode, triggerKind, trigger = null, plain, selfName, pulledIds, lines, knownNames, directory = null, handles = null, linkFor, part = null, gifPick = true, setDraws = null, draft = null }) {
     const channelName = channel.name ?? null;
     const where = mirrorChannelLabel(channel);
     // Every triggered turn shares the mode `reply`: the header names its
@@ -2343,7 +2357,7 @@ export function createTurnRunner({
       const to = answeredId ? ` · to ${authorNameFor(lines, answeredId) ?? '—'}` : '';
       const link = linkFor(pulledId);
       // Same deliberate exception as above: the persona's own output, dry-run only.
-      const { text } = renderPost(message.text, { channel, guildId, privateChat: false, idByIndex, pulledIds, lines, knownNames, directory, link, limits: draft?.limits });
+      const { text } = renderPost(message.text, { channel, guildId, privateChat: false, idByIndex, pulledIds, lines, knownNames, directory, handles, link, limits: draft?.limits });
       await rehearse('post', { intent: { replyTo: replyId, text }, sourceMessageIds: replyId ? [replyId] : [] });
       log.info('dry-run: would send', { channel: channel.id, channelName, mode, trigger: triggerKind ?? null, replyTo: replyId, link, text });
       // The mirror shows @name as the model wrote it: resolving it to a real
@@ -2810,7 +2824,8 @@ export function createTurnRunner({
    *   `plain`: the turn quotes no chat line (postsPlain); `lines`: the lines shown of the
    *   pulled channels, then `history` (a chat author wins a display name both share);
    *   `knownNames`: the stored names `@name` resolves by too (storedNames); `directory`: the
-   *   fallback behind them (mentionDirectory, a thunk);
+   *   fallback behind them (mentionDirectory, a thunk); `handles`: the request's handle -> member
+   *   id map, in place of all three (renderPost);
    *   `sourceId`: the channel the turn is about (its `source`), logged on every message sent;
    *   with it a refused drawing's limit notice quotes nothing (the trigger of a routed turn
    *   lives in that channel); `gifPick`: false keeps the GIF picker from replacing the first
@@ -2829,7 +2844,7 @@ export function createTurnRunner({
    * picture was posted) and `drawFailed` when the picture failed; with a `set`, `setPictures`
    * (the pictures posted) and `setScene` (the scene of the first one posted).
    */
-  async function act({ channel, guildId, privateChat, parsed, idByIndex, history, startedAt, mode, triggerKind, plain, trigger, selfName, pulledIds, lines, knownNames, directory = null, linkFor, sourceId, gifPick = true, participation = null, set = null, draft = null }) {
+  async function act({ channel, guildId, privateChat, parsed, idByIndex, history, startedAt, mode, triggerKind, plain, trigger, selfName, pulledIds, lines, knownNames, directory = null, handles = null, linkFor, sourceId, gifPick = true, participation = null, set = null, draft = null }) {
     const cfg = hot.config.typing;
     const typingOn = hot.config.features?.typingSimulation !== false;
     // The typing imitation of one message: the indicator, then the time its text takes to type.
@@ -2904,7 +2919,7 @@ export function createTurnRunner({
     if (typingOn && parsed.messages.length > 0) {
       const head = parsed.messages[0];
       const { replyId } = replyTarget(head.replyTo, { plain, idByIndex, pulledIds });
-      const { spoken: first, text: firstText } = renderPost(head.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory });
+      const { spoken: first, text: firstText } = renderPost(head.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory, handles, quiet: true });
       firstRefused = !checkEffect('message.create', sendArgs({ text: firstText, replyId }), effect).ok;
       if (!firstRefused) await typeFor(first);
     }
@@ -2941,7 +2956,7 @@ export function createTurnRunner({
       const link = linkFor(pulledId);
       const repliedAuthorId = replyId ? (lines.find((line) => line.id === replyId)?.authorId ?? (trigger?.id === replyId ? trigger.authorId : null)) : null;
       // Links on the text sent; the typing time stays on the text before them.
-      const { text, spoken, userIds } = renderPost(message.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory, link, limits: draft?.limits });
+      const { text, spoken, userIds } = renderPost(message.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory, handles, link, limits: draft?.limits });
       const args = sendArgs({ text, replyId });
       // A first message refused before its typing above ends the posting (already logged).
       if (typedAbove(index) && firstRefused) {
@@ -5543,6 +5558,8 @@ export function createTurnRunner({
         forced: forced || (diaryPrep !== null && diaryParams?.forced === true),
         now,
         selfName,
+        // `<directory>` never lists the persona's own profile.
+        selfId,
         history,
         neighbors,
         trigger,
@@ -5861,9 +5878,12 @@ export function createTurnRunner({
         return (pulled.find((entry) => entry.channelId === channelId)?.messages ?? []).filter((message) => shownIds.has(message.id));
       });
       const lines = shownLines.length > 0 ? [...shownLines, ...history] : history;
-      const knownNames = memoryOn ? storedNames(request.peopleShown, shownLines, (userId) => store.getUser(guildId, userId)) : [];
+      // With features.mentionHandles on (the request was built with it: `handles`), only her
+      // `@handle` mentions anyone and no name is matched at all.
+      const handles = request.handles ?? null;
+      const knownNames = memoryOn && !handles ? storedNames(request.peopleShown, shownLines, (userId) => store.getUser(guildId, userId)) : [];
       // Behind those, every member of the served guild the bot knows (built once, on the first `@`).
-      const directory = turnDirectory({ guildId, channel, memoryOn });
+      const directory = handles ? null : turnDirectory({ guildId, channel, memoryOn });
       const linkFor = createLinker({
         guildId,
         pulledIds,
@@ -5873,7 +5893,7 @@ export function createTurnRunner({
       // model's reply="#n" quotes nothing --, nor does the drawFailed turn after one.
       // A later part of a split message posts plain too: the first part replied to the message.
       const plain = postsPlain(triggerKind) || postsPlain(drawFailedAfter) || plainPosts;
-      const routing = { pulledIds, lines, knownNames, directory, linkFor, plain };
+      const routing = { pulledIds, lines, knownNames, directory, handles, linkFor, plain };
       // Read fresh right here, not from the `features` snapshot taken at the
       // top of this turn: unlike the other switches this one defaults to OFF,
       // and whether to actually post is the very last decision of a turn.
@@ -5960,7 +5980,7 @@ export function createTurnRunner({
       let followed = null;
       let called = null;
       if (callPlan) {
-        called = await runCall(callPlan, { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory });
+        called = await runCall(callPlan, { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles });
         if (called.followUp) {
           followed = await followUp({
             called,

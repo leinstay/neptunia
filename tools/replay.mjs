@@ -1733,11 +1733,24 @@ export function scenarioTrigger({ text, authorId, authorName, channel, selfId, a
   };
 }
 
+/**
+ * The members her messages would mention (the sandbox's `mentions` per message, each id once,
+ * in order) and the handle-shaped tokens nobody holds, as `{ mentions, unknownHandles }`; {}
+ * when no message holds a handle, so an answer without one keeps its shape.
+ */
+function mentionsOf(answer) {
+  const messages = Array.isArray(answer?.messages) ? answer.messages : [];
+  if (!messages.some((m) => Array.isArray(m.mentions))) return {};
+  const mentions = [...new Set(messages.flatMap((m) => m.mentions ?? []))];
+  return { mentions, unknownHandles: messages.reduce((sum, m) => sum + (m.unknownHandles ?? 0), 0) };
+}
+
 /** What she showed in one pass (a shaped answer): her messages, reactions, GIF, drawing, skip, and her think. */
 function visibleOf(answer) {
   if (!answer) return null;
   return {
     messages: answer.messages.map((m) => m.text),
+    ...mentionsOf(answer),
     reactions: answer.reactions.map((r) => r.emoji),
     gif: answer.gif?.id ?? null,
     draw: answer.draw?.text ?? null,
@@ -1770,6 +1783,8 @@ export function runRecord(scenarioId, index, run) {
     decision: run.call ? 'call' : run.callError ? 'malformed-call' : 'no-call',
     skill: run.call?.skill ?? null,
     args: run.call ? { ...run.call.args, ...(run.call.body ? { body: run.call.body } : {}) } : null,
+    // The members the call's text would mention, when it holds a handle.
+    ...(run.callMentions ? { callMentions: run.callMentions } : {}),
     extraCalls: run.extraCalls ?? 0,
     verdict: outcome?.verdict ?? null,
     executed: outcome?.executed ?? null,
@@ -2020,7 +2035,7 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, store, gu
 /** One answer as the output and the sheet show it. */
 function answerOut(answer) {
   return answer
-    ? { think: answer.think, messages: answer.messages.map((m) => m.text), skip: answer.skip, reactions: answer.reactions, gif: answer.gif, draw: answer.draw ?? null }
+    ? { think: answer.think, messages: answer.messages.map((m) => m.text), ...mentionsOf(answer), skip: answer.skip, reactions: answer.reactions, gif: answer.gif, draw: answer.draw ?? null }
     : null;
 }
 
@@ -2452,6 +2467,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       answers: result.answers.map((answer) => ({
         think: answer.think,
         messages: answer.messages.map((m) => m.text),
+        ...mentionsOf(answer),
         skip: answer.skip,
         reactions: answer.reactions,
         gif: answer.gif,

@@ -20,6 +20,7 @@ import { fillPromptTemplate, userText as textOf } from '../src/behavior/prompt.j
 import { fill, formatClock, formatDate } from '../src/discord/format.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { handleOf } from '../src/behavior/handles.js';
 import { ImageCapError, ImageGenError } from '../src/llm/images.js';
 import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
@@ -1327,12 +1328,16 @@ function storeWithPingsOff(pingsOff) {
   return store;
 }
 
+// The mention handles of the two authors of runPingsTurn's chat (src/behavior/handles.js).
+const ALICE = `@${handleOf('u1')}`;
+const BOB = `@${handleOf('u2')}`;
+
 /** One reply turn in c1: Bob's older line, then Alice's trigger; the persona replies to the reply="#2" line. */
-async function runPingsTurn(store, answer) {
+async function runPingsTurn(store, answer, features = {}) {
   const bob = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Bob', ts: NOW - 5000, content: 'ola' });
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [bob, raw] });
-  const turns = createTurnRunner({ hot: fakeHot(), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ hot: fakeHot(features), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
   assert.equal(result.outcome, 'spoke');
   return channel;
@@ -1340,7 +1345,7 @@ async function runPingsTurn(store, answer) {
 
 test('runTurn: a reply to a member with pings off does not ping them; their mention stays in the text but notifies nobody', async () => {
   const store = storeWithPingsOff(['u1']);
-  const channel = await runPingsTurn(store, '<msg reply="#2">@Alice @Bob ναι</msg>');
+  const channel = await runPingsTurn(store, `<msg reply="#2">${ALICE} ${BOB} ναι</msg>`);
 
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].content, '<@u1> <@u2> ναι', 'the text is never changed');
@@ -1350,25 +1355,63 @@ test('runTurn: a reply to a member with pings off does not ping them; their ment
 });
 
 test('runTurn: a mentioned member with pings off is left out of users while the replied author with pings on is still pinged', async () => {
-  const channel = await runPingsTurn(storeWithPingsOff(['u2']), '<msg reply="#2">@Bob ναι</msg>');
+  const channel = await runPingsTurn(storeWithPingsOff(['u2']), `<msg reply="#2">${BOB} ναι</msg>`);
 
   assert.equal(channel.sent[0].content, '<@u2> ναι');
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: [], repliedUser: true });
 });
 
 test('runTurn: with nobody in pingsOff the reply and the mentions notify as before', async () => {
-  const channel = await runPingsTurn(storeWithPingsOff([]), '<msg reply="#2">@Alice @Bob ναι</msg>');
+  const channel = await runPingsTurn(storeWithPingsOff([]), `<msg reply="#2">${ALICE} ${BOB} ναι</msg>`);
 
   assert.deepEqual(channel.sent[0].reply, { messageReference: 'm1', failIfNotExists: false });
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u1', 'u2'], repliedUser: true });
 });
 
-/** One reply turn in c1 whose served guild's member cache holds `members` (the fallback directory). */
+test('runTurn: only an exact @handle mentions; a name and a handle nobody has stay text, the unknown one logged', async () => {
+  const unknown = ['@u0000', '@uzzzz'].find((token) => token !== ALICE && token !== BOB);
+  const { result: channel, logs } = await withCapturedLogs(() => runPingsTurn(storeWithPingsOff([]), `<msg>${BOB} @Alice @Bob ${unknown} ναι</msg>`));
+
+  assert.equal(channel.sent[0].content, `<@u2> @Alice @Bob ${unknown} ναι`, 'no name is matched, whoever carries it');
+  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u2'], repliedUser: true });
+  assert.deepEqual(
+    logs.filter((entry) => entry.msg === 'turn: unknown handle').map((entry) => [entry.channel, entry.count]),
+    [['c1', 1]],
+    'logged once, at the send',
+  );
+});
+
+test('runTurn: a member of the directory not in view is mentioned by the handle the request listed', async () => {
+  const store = storeWithPingsOff([]);
+  store.listUserProfiles = () => [{ id: 'u5', names: ['Ταξιάρχης'], aliases: [{ name: 'Τάκης', weight: 3 }] }];
+  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
+  const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
+  const hot = fakeHot();
+  hot.prompts.labels = { ...labels, directory: { lead: 'DIRECTORY', line: '{handle} {names}', lineAliases: '{handle} {names} aka {aliases}' } };
+  const llm = fakeLlm(`<msg>@${handleOf('u5')} @Τάκης ναι</msg>`);
+  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+
+  assert.equal(result.outcome, 'spoke');
+  const stable = llm.calls[0][1].content.find((part) => part.cacheSegment === 'stable').text;
+  assert.ok(stable.includes(`<directory>\nDIRECTORY\n@${handleOf('u5')} "Ταξιάρχης" aka "Τάκης"\n</directory>`), stable);
+  assert.equal(channel.sent[0].content, '<@u5> @Τάκης ναι', 'the alias written as a name stays text');
+  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u5'], repliedUser: true });
+});
+
+test('runTurn: features.mentionHandles off resolves @name as before and leaves a handle as text', async () => {
+  const channel = await runPingsTurn(storeWithPingsOff([]), `<msg reply="#2">@Alice @Bob ${BOB} ναι</msg>`, { mentionHandles: false });
+
+  assert.equal(channel.sent[0].content, `<@u1> <@u2> ${BOB} ναι`);
+  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u1', 'u2'], repliedUser: true });
+});
+
+/** One reply turn in c1 whose served guild's member cache holds `members` (the fallback directory of features.mentionHandles off). */
 async function runDirectoryTurn(store, answer, members) {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
   channel.guild.members.cache = new Map(members.map((member) => [member.id, member]));
-  const turns = createTurnRunner({ hot: fakeHot(), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ hot: fakeHot({ mentionHandles: false }), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
   assert.equal(result.outcome, 'spoke');
   return channel;
@@ -1451,6 +1494,22 @@ test('createTurnRunner: features.dryRun=true mirrors each action into bot.dryRun
   const [, ...bodyLines] = mirrorSent[0].content.split('\n');
   assert.equal(bodyLines.join('\n'), 'hi @Alice');
   assert.ok(!mirrorSent[0].content.includes('<@'), 'a mirrored @name must never resolve to a real mention');
+});
+
+test('createTurnRunner: features.dryRun=true logs a handle resolved, mirrors it as written, and sends nothing', async () => {
+  const raw = rawMessage({ id: 'm1', authorName: 'Alice' });
+  const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
+  const mirrorSent = [];
+  const client = fakeClient({ channels: { fetch: async () => ({ send: async (payload) => (mirrorSent.push(payload), { id: 'mirror-msg-1' }) }) } });
+  const turns = createTurnRunner({ hot: fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' }), store: fakeStore(), llm: fakeLlm(`<msg>hi @${handleOf('u1')}</msg>`), calibrator: identityCalibrator(), client });
+
+  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
+
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(channel.sent.length, 0);
+  assert.equal(logs.find((entry) => entry.msg === 'dry-run: would send').text, 'hi <@u1>');
+  assert.equal(mirrorSent[0].content.split('\n').slice(1).join('\n'), `hi @${handleOf('u1')}`);
+  assert.deepEqual(mirrorSent[0].allowedMentions, { parse: [] });
 });
 
 test('createTurnRunner: features.dryRun=true with no bot.dryRunChannelId configured mirrors nothing', async () => {
@@ -3594,7 +3653,7 @@ test('createTurnRunner: the request carries <emoji> ranked by guild.emojiUsage, 
 test('createTurnRunner: an outgoing :name: becomes the custom emoji, next to a resolved mention', async () => {
   const raw = rawMessage({ id: 'm1', authorName: 'Zoé' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<msg>@Zoé :dance: ok :unknown:</msg><react to="#1">:pepe_cry:</react>');
+  const llm = fakeLlm(`<msg>@${handleOf('u1')} :dance: ok :unknown:</msg><react to="#1">:pepe_cry:</react>`);
   const turns = createTurnRunner({
     hot: fakeHot(),
     store: fakeStore(),
@@ -4958,12 +5017,22 @@ test('runTurn: a noticed turn links its first message to the newest line of its 
 });
 
 test('runTurn: @name of a pulled author resolves to a mention', async () => {
-  const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm('<msg>@Éloïse ωραίος τοίχος</msg>') });
+  const scene = routedScene({ features: { typingSimulation: false, mentionHandles: false }, llm: fakeLlm('<msg>@Éloïse ωραίος τοίχος</msg>') });
 
   await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
   const [post] = scene.channel.sent;
   assert.equal(post.content, linked('<@u3> ωραίος τοίχος', 'd3'));
+  assert.deepEqual(post.allowedMentions.users, ['u3']);
+});
+
+test('runTurn: the author of a pulled line is mentioned by the handle on their line', async () => {
+  const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm(`<msg>@${handleOf('u3')} ωραίος τοίχος @Éloïse</msg>`) });
+
+  await withCapturedLogs(() => scene.turns.runTurn(scene.params));
+
+  const [post] = scene.channel.sent;
+  assert.equal(post.content, linked('<@u3> ωραίος τοίχος @Éloïse', 'd3'));
   assert.deepEqual(post.allowedMentions.users, ['u3']);
 });
 
@@ -5013,7 +5082,7 @@ test('runTurn: a follow-up reply to a pulled line posts plain with its jump link
 
 test('runTurn: a chat author wins @name over a pulled author with the same display name', async () => {
   const namesake = lineIn(DIARY, { id: 'd5', authorId: 'u7', authorName: 'Bob', ts: NOW - 3 * HOUR + 2 * MINUTE, content: 'κι εγώ' });
-  const scene = pullScene({ features: { typingSimulation: false }, diary: { messages: [...diaryLines(), namesake] }, llm: fakeLlm('<msg>@Bob ναι</msg>') });
+  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, diary: { messages: [...diaryLines(), namesake] }, llm: fakeLlm('<msg>@Bob ναι</msg>') });
 
   await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
 
@@ -5025,7 +5094,7 @@ test('runTurn: a chat author wins @name over a pulled author with the same displ
 
 test('runTurn: @name of an author whose pulled block the budget dropped stays text', async () => {
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
-  const scene = pullScene({ features: { typingSimulation: false }, context: { caps }, llm: fakeLlm('<msg>@Éloïse γεια</msg>') });
+  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, context: { caps }, llm: fakeLlm('<msg>@Éloïse γεια</msg>') });
 
   await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
 
@@ -5041,7 +5110,7 @@ function nicknameStore(extra = {}) {
 }
 
 test('runTurn: @name of a pulled author resolves by the stored nickname', async () => {
-  const scene = pullScene({ features: { typingSimulation: false }, store: nicknameStore(), llm: fakeLlm('<msg>@Éloïse de Vaux ωραίο μπλε</msg>') });
+  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, store: nicknameStore(), llm: fakeLlm('<msg>@Éloïse de Vaux ωραίο μπλε</msg>') });
 
   await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
 
@@ -5051,7 +5120,7 @@ test('runTurn: @name of a pulled author resolves by the stored nickname', async 
 });
 
 test('runTurn: in dry-run the stored nickname of a pulled author resolves the same way', async () => {
-  const scene = pullScene({ features: { typingSimulation: false, dryRun: true }, store: nicknameStore(), llm: fakeLlm('<msg>@Éloïse de Vaux ωραίο μπλε</msg>') });
+  const scene = pullScene({ features: { typingSimulation: false, dryRun: true, mentionHandles: false }, store: nicknameStore(), llm: fakeLlm('<msg>@Éloïse de Vaux ωραίο μπλε</msg>') });
 
   const { logs } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
 
@@ -5061,7 +5130,7 @@ test('runTurn: in dry-run the stored nickname of a pulled author resolves the sa
 
 test('runTurn: the stored name of a member the request did not show resolves through the fallback directory', async () => {
   const store = nicknameStore({ u9: { id: 'u9', names: ['Ταξιάρχης Μέγας'], character: 'ήσυχος' } });
-  const scene = pullScene({ features: { typingSimulation: false }, store, llm: fakeLlm('<msg>@Ταξιάρχης Μέγας γεια</msg>') });
+  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, store, llm: fakeLlm('<msg>@Ταξιάρχης Μέγας γεια</msg>') });
 
   await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
 
@@ -5073,7 +5142,7 @@ test('runTurn: the stored name of a member the request did not show resolves thr
 test('runTurn: the stored nickname of an author whose pulled block the budget dropped resolves through the fallback directory', async () => {
   // Her profile holds names only, so `<people>` has nothing to show of her either.
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
-  const scene = pullScene({ features: { typingSimulation: false }, context: { caps }, store: nicknameStore(), llm: fakeLlm('<msg>@Éloïse de Vaux γεια</msg>') });
+  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, context: { caps }, store: nicknameStore(), llm: fakeLlm('<msg>@Éloïse de Vaux γεια</msg>') });
 
   await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
 
@@ -5086,7 +5155,7 @@ test('runTurn: the stored nickname of an author whose pulled block the budget dr
 test('runTurn: @name resolves by a stored name of a member <people> shows', async () => {
   // Bob speaks in the chat under his display name; the persona remembers him by another one.
   const store = fakeStore({ userProfiles: { u2: { id: 'u2', names: ['Bob', 'Roberto Sáenz'], character: 'ήρεμος' } } });
-  const scene = pullScene({ features: { typingSimulation: false }, store, llm: fakeLlm('<msg>@Roberto Sáenz ναι</msg>') });
+  const scene = pullScene({ features: { typingSimulation: false, mentionHandles: false }, store, llm: fakeLlm('<msg>@Roberto Sáenz ναι</msg>') });
 
   await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
 
@@ -5739,7 +5808,7 @@ test('runTurn: a first message that fails to send ends spoke with nothing delive
 });
 
 test('runTurn: a post that grew past 2000 characters once its mentions expanded is cut to fit, never inside a mention', async () => {
-  const { channel } = await followUpTurn({ answer: `<msg>${'α'.repeat(1880)} @Bob @Bob @Bob @Bob</msg>` });
+  const { channel } = await followUpTurn({ features: { mentionHandles: false }, answer: `<msg>${'α'.repeat(1880)} @Bob @Bob @Bob @Bob</msg>` });
   const [payload] = channel.sent;
   assert.ok([...payload.content].length <= 2000, String([...payload.content].length));
   assert.ok(payload.content.lastIndexOf('<') <= payload.content.lastIndexOf('>'), 'no half mention at the end');
@@ -8015,7 +8084,7 @@ test('turn: limits lists a message cut at 2000 with the lost length', async () =
   const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
   const answer = `<msg>${'α'.repeat(1400)}${' @Bob'.repeat(100)}</msg>`;
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ hot: fakeHot({ journal: true, typingSimulation: false }), store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
+  const turns = createTurnRunner({ hot: fakeHot({ journal: true, typingSimulation: false, mentionHandles: false }), store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -8558,7 +8627,7 @@ async function gatewayTurn({ answer, features = {}, port = null, skills = null, 
 }
 
 test('skills gateway: a normal reply is carried over and posted through the port exactly as before', async () => {
-  const { result, channel, logs } = await gatewayTurn({ answer: '<msg reply="#1">γεια σου @Alice</msg>' });
+  const { result, channel, logs } = await gatewayTurn({ answer: `<msg reply="#1">γεια σου @${handleOf('u1')}</msg>` });
   assert.equal(result.outcome, 'spoke');
   assert.equal(logs.some((entry) => entry.msg === 'skill: refused'), false);
   assert.deepEqual(channel.sent, [
@@ -8572,7 +8641,7 @@ test('skills gateway: a normal reply is carried over and posted through the port
 
   // The same reply through another interface: the same text, reply target and mentions.
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
-  const other = await gatewayTurn({ answer: '<msg reply="#1">γεια σου @Alice</msg>', port });
+  const other = await gatewayTurn({ answer: `<msg reply="#1">γεια σου @${handleOf('u1')}</msg>`, port });
   assert.equal(other.result.outcome, 'spoke');
   assert.deepEqual(port.calls.map((call) => call.op), ['typing', 'send']);
   assert.deepEqual(port.calls[1].args, [
@@ -8742,18 +8811,20 @@ test('skill call: message.create to another channel where the bot may send runs 
   assert.ok(run.logs.some((entry) => entry.msg === 'skills: called' && entry.skill === 'message.create' && entry.status === 'ok'));
 });
 
-test('skill call: her message.create and message.edit text goes out like a <msg> -- a shown name pings, an unknown name and @everyone stay text and ping nobody; custom emoji, #N and channel links', async () => {
-  const written = '@Alice @Nobody @everyone :dance: #2 #αλλού';
-  const rendered = '<@u1> @Nobody @everyone <a:dance:222222222222222222> https://discord.com/channels/g1/c1/m1 <#c8>';
+test('skill call: her message.create and message.edit text goes out like a <msg> -- a handle pings, a name, an unknown handle and @everyone stay text and ping nobody; custom emoji, #N and channel links', async () => {
+  const alice = `@${handleOf('u1')}`;
+  const unknown = alice === '@uzzzz' ? '@u0000' : '@uzzzz';
+  const written = `${alice} @Alice ${unknown} @everyone :dance: #2 #αλλού`;
+  const rendered = `<@u1> @Alice ${unknown} @everyone <a:dance:222222222222222222> https://discord.com/channels/g1/c1/m1 <#c8>`;
   const created = await callTurn({ answers: [`<call skill="message.create" channel="#νέα">${written}</call>`], allowed: ['message.create'], emoji: fakeEmojiIndex() });
   assert.equal(created.result.outcome, 'spoke');
   assert.deepEqual(created.sends.map((send) => [send.to, send.text]), [['c9', rendered]]);
   assert.deepEqual(created.sends[0].mentions, { users: ['u1'], repliedUser: false }, 'only the resolved member is notified');
   // A reply keeps working, its author notified as before.
-  const replied = await callTurn({ answers: ['<call skill="message.create" reply="#2">@Alice :dance:</call>'], emoji: fakeEmojiIndex() });
+  const replied = await callTurn({ answers: [`<call skill="message.create" reply="#2">${alice} :dance:</call>`], emoji: fakeEmojiIndex() });
   assert.deepEqual(replied.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions]), [['c1', '<@u1> <a:dance:222222222222222222>', 'm1', { users: ['u1'], repliedUser: true }]]);
   // Pings off: the mention stays in the text and notifies nobody.
-  const quiet = await callTurn({ answers: ['<call skill="message.create" channel="#νέα">@Alice</call>'], allowed: ['message.create'], store: storeWithPingsOff(['u1']) });
+  const quiet = await callTurn({ answers: [`<call skill="message.create" channel="#νέα">${alice}</call>`], allowed: ['message.create'], store: storeWithPingsOff(['u1']) });
   assert.deepEqual(quiet.sends.map((send) => [send.text, send.mentions]), [['<@u1>', { users: [], repliedUser: false }]]);
   // The edit path: the same rendering, the same mentions.
   const edited = await callTurn({ answers: [`<call skill="message.edit" message="#1">${written}</call>`], allowed: ['message.edit'], emoji: fakeEmojiIndex() });

@@ -35,6 +35,7 @@
 
 import { buildRequest, continuesTurn, skillResultBlock, userText as userTextOf, withSkillResult } from './prompt.js';
 import { isTaggedCall } from './mention.js';
+import { resolveHandles } from './handles.js';
 import { continuationHistory, firstPass, pickOtherProfiles } from './turn.js';
 import { withCalls } from '../discord/format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../discord/access.js';
@@ -632,6 +633,8 @@ export function sandboxRequestInput({
     forced: false,
     now: at,
     selfName,
+    // As a live turn: her own profile is never listed in `<directory>`.
+    selfId: selfId ?? null,
     history,
     trigger,
     triggerKind,
@@ -742,7 +745,7 @@ export function sandboxRequestInput({
  * @param {boolean} [input.searchAvailable]  Whether a web search key is configured (the lookup's
  *   `hasSearch()`); only `true` adds the search line (with `features.webLookup` on). No search is run.
  * @returns {Promise<{ request: { system: string, user: string },
- *   answers: { messages: { text: string, replyTo: number|null }[], reactions: { to: number, emoji: string }[],
+ *   answers: { messages: { text: string, replyTo: number|null, mentions?: string[], unknownHandles?: number }[], reactions: { to: number, emoji: string }[],
  *     gif: { id: string, replyTo: number|null }|null, draw: { text: string, self: boolean, replyTo: number|null }|null,
  *     skip: boolean, think: string }[], stopped: boolean }>}
  */
@@ -765,7 +768,7 @@ export async function answerReply({
   elsewhereDestination = null,
   searchAvailable = false,
 }) {
-  const { messages, systemMessage, userContent } = sandboxMessages(
+  const { request, messages, systemMessage, userContent } = sandboxMessages(
     { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable },
     samples,
   );
@@ -777,7 +780,7 @@ export async function answerReply({
     samples,
     signal,
     onUsage,
-    read: (text) => shapeAnswer(parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars }), view.config, gifs),
+    read: (text) => shapeAnswer(parseOutput(text, { maxDrawChars: view.config.image?.maxPromptChars }), view.config, gifs, request.handles),
   });
 
   return { request: { system: textOf(systemMessage.content), user: textOf(userContent) }, answers, stopped };
@@ -808,17 +811,37 @@ function sandboxMessages(input, samples) {
  * One parsed answer (parseOutput's) shaped like a real turn's under `config`: reactions with
  * `features.reactions` on, one message with `features.multiMessage` off, a GIF only from the
  * library with `features.gifs` on, a drawing only with `features.imageGeneration` on; `skip`
- * when the model skipped or left nothing to do.
+ * when the model skipped or left nothing to do. With the request's `handles`
+ * (features.mentionHandles on) a message whose text holds a handle-shaped token also carries
+ * what a live turn would mention (handleMentions); its `text` stays as she wrote it.
  */
-function shapeAnswer(parsed, config, gifs) {
+function shapeAnswer(parsed, config, gifs, handles = null) {
   const features = config.features ?? {};
   const reactions = features.reactions === false ? [] : parsed.reactions;
-  const replies = features.multiMessage === false ? parsed.messages.slice(0, 1) : parsed.messages;
+  const kept = features.multiMessage === false ? parsed.messages.slice(0, 1) : parsed.messages;
+  const replies = kept.map((message) => ({ ...message, ...handleMentions(message.text, handles) }));
   // As src/behavior/turn.js: a GIF off the library or with the switch off, a drawing with drawing off, is dropped.
   const gif = parsed.gif && features.gifs !== false && findGif(gifs, parsed.gif.id) ? parsed.gif : null;
   const draw = features.imageGeneration === false ? null : parsed.draw;
   const nothingToDo = replies.length === 0 && reactions.length === 0 && gif === null && draw === null;
   return { messages: replies, reactions, gif, draw, skip: parsed.skip || nothingToDo, think: parsed.think };
+}
+
+/**
+ * What a live turn would mention in `text` (src/behavior/turn.js#renderPost over
+ * src/behavior/handles.js#resolveHandles with the request's `handles`): `mentions`, the member
+ * ids an exact `@handle` resolves to (the only ones a send would notify), and `unknownHandles`,
+ * the handle-shaped tokens the request does not hold (left as text). {} when there are no
+ * handles (features.mentionHandles off) or the text holds no handle-shaped token, so an answer
+ * without one keeps its shape. Pure.
+ * @param {string} text
+ * @param {Map<string, string>|null} handles
+ * @returns {{ mentions?: string[], unknownHandles?: number }}
+ */
+export function handleMentions(text, handles) {
+  if (!(handles instanceof Map)) return {};
+  const { userIds, unknown } = resolveHandles(text, handles);
+  return userIds.length > 0 || unknown > 0 ? { mentions: userIds, unknownHandles: unknown } : {};
 }
 
 // ---- skill scenarios -----------------------------------------------------------
@@ -1024,6 +1047,7 @@ function scenarioContinuation({ requestArgs, history, answer, outcome, labels, m
  *   (the names of the skills her scenario grants, src/skills/discovery.js#grantedSkillNames) and `onCall`.
  * @returns {Promise<{ request: { system: string, user: string, tokens: number|null, limit: number|null },
  *   runs: { answer: object, call: object|null, callError: string|null, extraCalls: number, usage: object|null,
+ *     callMentions?: { mentions: string[], unknownHandles: number },
  *     outcome: object|null, followUp: { answer?: object, extraCall?: boolean, usage?: object|null, continuation?: boolean, error?: string }|null }[],
  *   stopped: boolean }>}
  */
@@ -1071,8 +1095,11 @@ export async function answerSkillScenario({
       throw err;
     }
     const parsed = parseText(completion.text);
-    const answer = shapeAnswer(parsed, view.config, gifs);
+    const answer = shapeAnswer(parsed, view.config, gifs, request.handles);
     const run = { answer, call: parsed.call ?? null, callError: parsed.callError ?? null, extraCalls: parsed.extraCalls ?? 0, usage: completion.usage ?? null, outcome: null, followUp: null };
+    // A call's body (message.create / message.edit text) is rendered like a <msg> of the turn.
+    const callMentions = run.call ? handleMentions(run.call.body ?? '', request.handles) : {};
+    if (callMentions.mentions) run.callMentions = callMentions;
     out.push(run);
     if (!run.call || typeof onCall !== 'function') continue;
     run.outcome = await onCall(run.call, { idByIndex: request.idByIndex, history });
@@ -1096,7 +1123,8 @@ export async function answerSkillScenario({
     try {
       const second = await llm.complete(followUpMessages(), sandboxOptions(signal));
       const parsedAgain = parseText(second.text);
-      run.followUp = { answer: shapeAnswer(parsedAgain, view.config, gifs), extraCall: Boolean(parsedAgain.call || parsedAgain.callError), usage: second.usage ?? null, continuation: continued };
+      // The continued request lists the same members (her own lines add no author): the first request's handles.
+      run.followUp = { answer: shapeAnswer(parsedAgain, view.config, gifs, request.handles), extraCall: Boolean(parsedAgain.call || parsedAgain.callError), usage: second.usage ?? null, continuation: continued };
     } catch (err) {
       if (signal?.aborted) {
         stopped = true;

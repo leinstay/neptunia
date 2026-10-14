@@ -88,6 +88,7 @@
 | `<gifs>` | ペルソナが投稿できる GIF（`features.gifs`）: 最大 `gifs.max`（デフォルト 40）エントリ、使用頻度と新しさでランク付け。各エントリはハンドル（`g1`、`g2`、...）とキャッシュ済みの説明 3 フィールド（ある場合）: リアクションラベル（`gifs.reactionChars` で制限、デフォルト 40）、可視アクション（`gifs.actionChars` で制限、デフォルト 70）、画面上のテキスト。フィールド付きエントリは `labels.gifs.entryFields`（`{id}`、`{reaction}`、`{action}`、`{text}`; コードが空フィールドとそのセパレータを除去）で表示; フィールドなしのエントリは `labels.gifs.entry`（`{id}`、`{text}`）でキャプションを単語境界でカット。各エントリはペルソナ自身の投稿時刻と回数も記録し（`ownLast`、`ownUses`）、`gifs.ownMarkHours`（デフォルト 24、`0` = オフ）以内に投稿されたものには `gifs.ownMark` が短い相対時間とともに付く |
 | `<skills_protocol>` | `labels.skills.protocol` の静的テキスト: ペルソナにはスキルがあり、使えるものは名前で列挙、詳細はそのスキルが必要なメッセージか質問時に表示、呼び出しは `<call>` のみ、アクセスはエンジンが確認。`features.skills` と `features.skillsDiscovery` の両方がオンの場合に表示。安定部分、`<senses>` の後 |
 | `<skills_granted>` | ペルソナに付与されたスキルの名前。毎ターン表示し、分類器なしで何が使えるかわかるようにする: `labels.skills.granted.lead`（設定時）、次にファミリーごとに `labels.skills.granted.line`（`{family}` は名前の最初のドットまでの部分、`{names}` は各名前のそれ以降、カンマ区切り）。名前のみ; タイトル、使用条件、引数は `<skills>` にとどまる。ペルソナのグラント（`bot.access` のユーザー id エントリ）とレジストリから構築、名前順ソート。誰がどこで尋ねてもターン間でバイト同一、グラントが変わるまで。グラントのないスキルは除外、`skills.safeMode` でリストは空。引き継ぎリプライタグはグラント時のみ表示。リクエスタの権限はここに反映されない: エンジンは呼び出しごとに確認。カットなし。`features.skills`、`features.skillsDiscovery`、`features.skillsAlwaysListed` がすべてオンで少なくとも 1 つのスキルが付与されている場合に表示。安定部分、`<skills_protocol>` の直後 |
+| `<directory>` | メンバーディレクトリ（`features.mentionHandles`、未設定 = オン）: 保存されたプロファイルを持つギルドの各メンバー（ペルソナ自身は除外、ボットにはプロファイルなし）のうち、保存された名前またはオープンエイリアスがあるもの。`labels.directory.lead`（設定時）、次にメンバーごとに 1 行: エイリアスを持つメンバーにはそのラベル設定時に `labels.directory.lineAliases`（`{handle}` `{names}` `{aliases}`）、それ以外は `labels.directory.line`（`{handle}` `{names}`）。`{handle}` は `@` 付きのそのまま書くトークン。`{names}` は Discord から取得した保存名。`{aliases}` は保存されたオープンエイリアス（名前と同一のものは除外）。各リストは 1 行、各名前は 1 回、JSON 文字列としてコードポイント順に「, 」で結合。メンバーは最初の名前（なければ最初のエイリアス）、次に id でソート。ノート、ゲーム、ウェイト、本名なし。保存されたプロファイルのみから構築、メンバーの名前やエイリアスが変わるまでターン間でバイト同一。カットなし。`labels.directory.line` なし、またはメンバーなしでは省略。安定部分の末尾、`<gifs>` の後 |
 | `<server>` | 現在のチャンネルの詳細（Discord カテゴリとトピック、目的、投稿内容、トーン、アクティビティ、最新メッセージ、トップライター。`labels.server.currentMark` でマーク）に加え、このターンで `<other_channels>` に供給した隣接チャンネルのみ。他のチャンネルは含まない |
 | `<lore>` | 直近のメッセージにキーが出現するサーバーのロアブックエントリ（常時表示マーク付きのエントリも含む）: イベント、繰り返し登場するキャラクター、長期にわたるストーリー。ロアブックのように数百エントリが存在できるが、該当する少数だけが表示される |
 | `<self_facts>` | ペルソナが自身について主張した内容 |
@@ -110,7 +111,7 @@
 | `<topic>` | オーナーの強制投稿の題材（`/nep diary post [kind] [topic]`）: `labels.diary.topic`、次にトピック 1 行、最大 1000 文字。計画リクエストのみ、`<seeds>` の直後、トピック指定時のみ。カットされない |
 | `<task>` | `reply` / `follow-up`（`follow-up.md` が存在する場合、`followUp` と @メンションのない `reply` 用）/ `interject` / `initiate` / `overheard`（`overheard.md` が存在する場合）/ `elsewhere`（`elsewhere.md` が存在する場合、注目コメント用）/ `diary`（`diary.md` が存在する場合、日記投稿用）、プレースホルダー補完済み。モードプロンプトの後、条件が成立する場合に最大 3 つの `task.*` ラベルが追加（それぞれ空行で区切り）: 分割メッセージの 1 パートに応答するターンでは `task.part`、またはトリガー著者が他の呼びかけを待機中なら `task.queued`。次に他のメンバーがチャンネルで呼びかけを待機中なら `task.queuedOthers`。次に後のメッセージがこの呼びかけに統合されていれば `task.added`。`labels.task.*` を参照 |
 
-バジェットの優先順位（このリストの下からセクションがトリムされる）: system + task + clock + tempo + senses
+バジェットの優先順位（このリストの下からセクションがトリムされる）: system + task + clock + tempo + senses + skills protocol and grants + directory
 （カットされない）-> 発話者のプロファイル（エピソード付き）-> lookup（全体として保持または削除。ウェブパート、サーバーパート、またはその両方を含む場合がある）-> about_chat -> self_facts -> lore -> server -> chat（新しい順）->
 pulled（`<channel_view>`、`context.caps.pulled` で制限。読み取り専用チャンネルからの呼びかけに応答するターンでは、プルされたブロックは chat の後ではなく前に配置）->
 recent（`context.caps.recent` で制限）->
@@ -174,6 +175,7 @@ transcript.gapWithDate                   {duration} {date}: 同上、2 行の間
 transcript.date | header                 {date}
 transcript.timeAged                      {clock} {age}: 投稿から `context.ageAfterMinutes` 分以上たった行の、角括弧を含む時刻部分全体を置き換える。age は `labels.units` 単位の時間。それより新しい行は `[{clock}]` のまま。キーがないか空の場合、経過時間は表示されない
 transcript.empty | replyToOld | image
+transcript.author                        {name} {handle}: `<chat>`、`<channel_view>`、`<other_channels>` の行の著者（ペルソナでもボットでもない）、features.mentionHandles オン時。{handle} は `@` 付きのメンショントークンそのもの。キーがないか空: 素の名前
 transcript.triggeredBy                   {n}: ペルソナの行のペルソナ名のあと、その行を投稿したターンを起こしたメッセージの番号（features.triggerMarkers）。空 = マーカーなし
 transcript.triggeredByOlder              同上、そのメッセージがブロックに含まれない場合。空 = マーカーなし
 transcript.called                        {skill} {target} {status} {posted}: スキルを呼び出したターンのペルソナの最終行に付加される。メッセージがなかったターンでは単独行。{target} は calledTargetMessage、calledTargetLink、calledTargetChannel のいずれか、または空。{status} は callStatus.* のいずれか。{posted} は calledPosted または空。ペルソナが実際に行ったことの記録
@@ -355,6 +357,9 @@ skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denie
 skills.proposedOff                       {names}: 提案のみの `<skills>` ブロック末尾に表示され、許可されていない提案スキルを列挙する
 skills.granted.lead                      OPTIONAL: `<skills_granted>` の最初の行、ファミリー行の前。なければファミリー行のみ
 skills.granted.line                      {family} {names}: `<skills_granted>` 内のペルソナに付与されたスキルの 1 ファミリー。{names} はファミリーとドットの後の各名前の残り、「, 」で結合。このラベルがなければ `<skills_granted>` ブロックなし
+directory.lead                           OPTIONAL: `<directory>` の最初の行、メンバー行の前
+directory.line                           {handle} {names}: `<directory>` の 1 メンバー。{handle} は `@` 付きのメンショントークンそのもの。{names} は保存された名前を JSON 文字列として「, 」で結合。このラベルがなければ `<directory>` ブロックなし
+directory.lineAliases                    {handle} {names} {aliases}: オープンエイリアスを持つメンバー用（{aliases} は {names} と同形式）。キーがないか空: `directory.line` を使用
 skills.result.alreadyPosted              OPTIONAL {text}: 最初のパスで既に投稿された各アクション（メッセージ、リアクション、画像）に対する 1 行。`features.followUpContinuation` オフ時のみ。このラベルなしでは投稿済みアクションは列挙されない
 skills.result.ok                         データを返した読み取り呼び出しのステータス行。次の行にデータが続く
 skills.result.refused                    {reason}: 実行前にエンジンが呼び出しを拒否
@@ -373,7 +378,7 @@ skills.result.reasons.not-allowed | safe-mode | owner-only | unknown-skill | inv
 - `<draw self="yes" reply="#87">scene</draw>` 描画サブプロセスへの画像。ターンにつき 1 つ、最初の非空が優先、800 文字でクランプ。`self="yes"` でペルソナの外見が追加。`reply="#87"` は `<msg>` と同じ。`<msg>` や `<react>` と併用可。
 - `<call skill="NAME" attr="value"…>BODY</call>` または自己終了形式 `<call skill="NAME" attr="value"…/>`。ターンにつきスキル呼び出し 1 回。出力のトップレベルでのみパースされ、`<msg>`、`<draw>`、`<react>`、`<gif>`、`<think>`、コードスパン/ブロック、引用行（`>`）内では処理されない。最初の正しい形式の呼び出しが使われ、後続は無視される。`skill` でスキル名を指定し、他の属性は引数（二重引用符内のテキスト）、本文は呼び出しが運ぶメッセージまたはシーン（読み取りやステータス呼び出しでは空）。スキル別属性: `message.send` は `conversation` と任意の `replyTo`、本文はテキスト。`message.edit` は `message`、本文は新しいテキスト。`message.delete` は `message`。`memory.read` は `member`。`status.show` と `skills.list` は引数なし。`draw` は `conversation`、本文はプロンプト。エンジンがペルソナの権限を確認する。読み取り呼び出し、拒否された呼び出し、失敗した呼び出しはフォローアップリクエストの `<task>` 直前に `<result skill="NAME" status="STATUS">` ブロックとして 1 回だけ返され、ペルソナがデータで応答できる。成功した送信、編集、削除、画像にはフォローアップ不要。`unknown` ステータスは結果が不確定で、再試行しない。`features.skills: false` ですべての `<call>` が無効化される。
 - `<skip/>` 沈黙。
-- `@nick` トランスクリプトと同一の表記が実際のメンションになる。
+- `@handle`（`<directory>` またはトランスクリプト著者のハンドル、表示通りそのまま）が実際のメンションになる（`features.mentionHandles`）。オフの場合: `@nick` トランスクリプトと同一の表記。
 - `#チャンネル名` がサーバーチャンネルの場合、`<msg>` テキスト内で本物のチャンネルリンク（`<#id>`）に変換される（`features.channelLinks` オン時、デフォルト true、未設定 = オン）。まず完全一致する名前を最長優先で検索する。完全一致しない場合、書かれた名前はコアで照合される: 先頭・末尾の絵文字、記号、句読点を除去し、大文字小文字とアクセントを正規化する。コアが 1 つのチャンネルに一意であればリンクが作成される。2 つ以上のチャンネルが同じコアを持つ場合、リンクは作成されない。既存のリンクはそのまま。
 
 `features.reactions: false` は `<react>` を無効化、`features.multiMessage: false` は最初の `<msg>` のみを保持。
