@@ -75,7 +75,7 @@ import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/
 import { mergeProfiles } from './private.js';
 import { gifWatchBlocker } from '../memory/gif-watch.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
-import { discoveryOn } from '../skills/discovery.js';
+import { byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
 
 const TAG_OVERHEAD = 60;
@@ -1586,14 +1586,15 @@ function skillsProtocolText(labels) {
 }
 
 /**
- * The `<skills>` body: one `labels.skills.line` per catalogue row (src/skills/gateway.js#listSkills
- * for this requester and conversation), with `{name}`, `{title}`, `{whenToUse}` and `{access}`
+ * The `<skills>` body, compact whatever the size of the catalogue: only the rows the persona may
+ * use now (`allowed`), grouped by family (src/skills/discovery.js#byFamily, an empty line between
+ * families), one `labels.skills.line` each with `{name}`, `{title}`, `{whenToUse}` and `{access}`
  * filled; `{access}` is `labels.skills.access[<the row's reason>]`, else
- * `labels.skills.access.allowed` / `labels.skills.access['not-allowed']` by whether the row is
- * allowed. An owner-only row is no persona skill and is left out. Rows marked `proposed` (the
- * skills a classifier named for this turn, not the whole catalogue): a line only for each
- * allowed one, then the names of the others in one `labels.skills.proposedOff` line (`{names}`;
- * none without that label). '' without rows or without `labels.skills.line`.
+ * `labels.skills.access.allowed`. A row without a title (no texts in the skills layer yet) is its
+ * name alone. Rows marked `proposed` (the skills a classifier named for this turn, not the whole
+ * catalogue): a line for each allowed one, then the names of the others in one
+ * `labels.skills.proposedOff` line (`{names}`; none without that label). '' without an allowed
+ * row and nothing to name, or without `labels.skills.line`.
  * @param {{ name: string, title?: string, whenToUse?: string, allowed: boolean, reason: string, proposed?: boolean }[]|null|undefined} rows
  * @param {object} labels
  * @returns {string}
@@ -1602,24 +1603,30 @@ export function skillsInventoryText(rows, labels) {
   const l = labels.skills;
   if (!Array.isArray(rows) || rows.length === 0 || typeof l?.line !== 'string' || !l.line) return '';
   const access = isPlainObject(l.access) ? l.access : {};
-  const word = (row) => access[row.reason] ?? access[row.allowed === true ? 'allowed' : 'not-allowed'] ?? '';
-  const persona = rows.filter((row) => row && typeof row.name === 'string' && row.reason !== 'owner-only');
-  const line = (row) => fill(l.line, { name: row.name, title: row.title ?? '', whenToUse: row.whenToUse ?? '', access: word(row) });
-  if (!persona.every((row) => row.proposed === true)) return persona.map(line).join('\n');
-  const off = persona.filter((row) => row.allowed !== true).map((row) => row.name);
+  const word = (row) => access[row.reason] ?? access.allowed ?? '';
+  const named = rows.filter((row) => row && typeof row.name === 'string');
+  const line = (row) => (row.title ? fill(l.line, { name: row.name, title: row.title, whenToUse: row.whenToUse ?? '', access: word(row) }) : row.name);
+  const open = byFamily(named.filter((row) => row.allowed === true)).map((group) => group.map(line).join('\n'));
+  if (!named.every((row) => row.proposed === true)) return open.join('\n\n');
+  const off = named.filter((row) => row.allowed !== true).map((row) => row.name);
   const offLine = off.length > 0 && typeof l.proposedOff === 'string' && l.proposedOff ? fill(l.proposedOff, { names: off.join(', ') }) : '';
-  return [...persona.filter((row) => row.allowed === true).map(line), offLine].filter(Boolean).join('\n');
+  return [open.join('\n\n'), offLine].filter(Boolean).join('\n');
 }
 
-/** The status words of a `<result>` block (src/skills/executors.js's result statuses). */
-const RESULT_STATUSES = new Set(['ok', 'failed', 'refused', 'unknown']);
+/** The status words of a `<result>` block (src/skills/executors.js#RESULT_STATUSES; `refused` the old word for `denied`). */
+const RESULT_STATUSES = new Set(['ok', 'denied', 'not_configured', 'invalid', 'unknown', 'partial', 'failed', 'refused']);
+
+/** The label a status without its own `labels.skills.result.<status>` is told with. */
+const RESULT_LABEL_FALLBACK = Object.freeze({ denied: 'refused', invalid: 'refused', not_configured: 'failed', partial: 'failed' });
 
 /**
  * The `<result skill="<name>" status="<status>">` block of the one follow-up request after a
- * skill call (src/behavior/turn.js): `labels.skills.result[<status>]` with `{reason}` filled
+ * skill call (src/behavior/turn.js): `labels.skills.result[<status>]` (else the nearest label,
+ * RESULT_LABEL_FALLBACK) with `{reason}` filled
  * by `labels.skills.result.reasons[<code>]` (else `.reasons.other`, else the code itself), then
- * for a read that worked its data -- `data.text`, or `data.rows` as skillsInventoryText renders
- * the catalogue -- cut to `maxChars` (clampWithEllipsis). Before all that, one
+ * the call's data when it has any -- `data.text` (a read's answer, or what an operation answered,
+ * its error or refusal included), or `data.rows` as skillsInventoryText renders the catalogue --
+ * cut to `maxChars` (clampWithEllipsis). Before all that, one
  * `labels.skills.result.alreadyPosted` line (`{text}`) per item of `posted`: what the persona
  * already posted this turn (none without that label). '' for no result. Every word from the
  * labels; the skill name and status are protocol tokens.
@@ -1635,9 +1642,10 @@ export function skillResultBlock(result, labels, { maxChars = 2000, posted = [] 
   const reasons = isPlainObject(words.reasons) ? words.reasons : {};
   const code = typeof result.code === 'string' && result.code ? result.code : '';
   const reason = reasons[code] ?? reasons.other ?? code;
-  const lead = typeof words[status] === 'string' ? fill(words[status], { reason }) : '';
+  const word = typeof words[status] === 'string' ? words[status] : words[RESULT_LABEL_FALLBACK[status]];
+  const lead = typeof word === 'string' ? fill(word, { reason }) : '';
   let data = '';
-  if (status === 'ok' && result.data) {
+  if (result.data) {
     data = Array.isArray(result.data.rows) ? skillsInventoryText(result.data.rows, labels) : String(result.data.text ?? '');
     if (Number.isFinite(maxChars) && maxChars > 0) data = clampWithEllipsis(data, maxChars);
   }

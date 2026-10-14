@@ -2,7 +2,7 @@
 // so the owner can tune the running bot from Discord without a restart and
 // without ever touching data/: live rules (prompts.local/rules.md, seeded
 // from prompts/rules.md), config overrides (config.local.json, hot-reloaded),
-// status, a manual interject/initiate of the spontaneous scheduler, and
+// status, a turn of the persona asked for now (`/nep message create`), and
 // profile inspection/deletion, plus one member command, `/nep pings` (cmdPings: a
 // member's own notification switch, open to everyone while
 // `features.memberCommands` is on). This is the ONLY place in the project that ever
@@ -36,6 +36,7 @@ import { createOpsEnv } from './ops/env.js';
 import { resolveCommand, runOp, runOpPrechecked, legacyGrantOps } from './ops/index.js';
 import { getOp, listOps } from './ops/registry.js';
 import { grantKeys, migrateStoredGrants } from './ops/access.js';
+import { skillNames } from './skills/registry.js';
 
 export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from './ops/shared.js';
 
@@ -111,6 +112,9 @@ const ARCHIVE_CHOICES = 25;
  *   record line says it is not available.
  * `metrics` — from src/ops/metrics.js#createMetrics, optional: `summary`, the owner card's speed
  *   field, and the turns of the last hour its storage line weighs. Absent -> no speed figures.
+ * `port` — the persona's interface (src/interface/port.js), optional: what `/nep message
+ *   send|edit|delete|react` and `/nep draw channel:` post through, as the persona. Absent -> those
+ *   report they are not available.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
  * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
  *
@@ -149,9 +153,10 @@ export function createAdmin(deps) {
     });
   }
 
-  /** `/nep access grant`'s autocomplete keys: `*`, the groups and the grantable operations. */
+  /** `/nep access grant`'s autocomplete keys: `*`, the groups and the grantable operations, then
+   * the persona's other skill names (src/skills/registry.js), granted to her with her as the user. */
   function accessKeys() {
-    return grantKeys(listOps());
+    return [...new Set([...grantKeys(listOps()), ...skillNames()])];
   }
 
   /** An operation's result as the reply the command adapter expects: `ok` -> its text (or
@@ -225,17 +230,5 @@ export function createAdmin(deps) {
     return choices;
   }
 
-  /**
-   * One operation by name for the persona's skills (src/skills/executors.js), WITHOUT the
-   * caller's rights check: the skill gateway and the executor made the check that applies to her
-   * call. Never throws: `{ status, code, summary, data }` (src/ops/index.js#runOpPrechecked).
-   * @param {string} name
-   * @param {object} [args]
-   * @param {{ guildId?: string, channelId?: string, userId?: string|null }} [context]
-   */
-  function runOperation(name, args = {}, context = {}) {
-    return runOpPrechecked(name, args, { ...context, env });
-  }
-
-  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, migrateAccess, runOperation };
+  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, migrateAccess };
 }

@@ -2406,36 +2406,36 @@ function fakeSpontaneous(forceResult) {
   const calls = [];
   return {
     calls,
-    force: async (channel, mode) => {
-      calls.push([channel.id, mode]);
+    force: async (channel, mode, options) => {
+      calls.push([channel.id, mode, options]);
       return forceResult ?? { ok: true };
     },
   };
 }
 
-test('run: talk action:interject and action:initiate use the context channel when no channel argument is given', async () => {
-  for (const mode of ['interject', 'initiate']) {
-    const rootDir = makeRoot();
-    const spontaneous = fakeSpontaneous();
-    const client = { channels: { fetch: async (id) => ({ id }) } };
-    const { admin } = makeAdmin(rootDir, { spontaneous, client });
-
-    const result = await admin.run('talk', { action: mode }, { channelId: 'c1' });
-
-    assert.deepEqual(spontaneous.calls, [['c1', mode]], mode);
-    assert.ok(result.includes(`${mode} on c1`), `${mode}: ${result}`);
-  }
-});
-
-test('run: talk action:interject uses the channel argument when given, overriding the context channel', async () => {
+test('run: message create gives the persona a turn in the context channel, the one who asked its requester', async () => {
   const rootDir = makeRoot();
   const spontaneous = fakeSpontaneous();
   const client = { channels: { fetch: async (id) => ({ id }) } };
   const { admin } = makeAdmin(rootDir, { spontaneous, client });
 
-  await admin.run('talk', { action: 'interject', channelId: 'other' }, { channelId: 'c1' });
+  const result = await admin.run('message.create', {}, { channelId: 'c1', userId: '42', roleIds: ['r1'] });
 
-  assert.deepEqual(spontaneous.calls, [['other', 'interject']]);
+  // No mode: the turn reads the channel and joins it or starts a topic itself.
+  assert.deepEqual(spontaneous.calls, [['c1', null, { requester: { id: '42', roleIds: ['r1'] } }]]);
+  assert.ok(result.includes('message create on c1'), result);
+});
+
+test('run: message create uses the channel argument when given, overriding the context channel; a text from a person changes nothing', async () => {
+  const rootDir = makeRoot();
+  const spontaneous = fakeSpontaneous();
+  const client = { channels: { fetch: async (id) => ({ id }) } };
+  const { admin } = makeAdmin(rootDir, { spontaneous, client });
+
+  // The mode is the server's: a person always gets her turn, whatever text the arguments carry.
+  await admin.run('message.create', { channelId: 'other', text: 'Σ' }, { channelId: 'c1' });
+
+  assert.deepEqual(spontaneous.calls, [['other', null, { requester: null }]]);
 });
 
 // ---------------------------------------------------------------------------
@@ -2883,8 +2883,7 @@ test('run: every command that writes data/ is refused while paused, with a hint 
     ['memory.wipe', { confirm: 'The Server' }],
     ['lore.add', { title: 'Y', keys: 'y', text: 'z' }],
     ['lore.remove', { id: loreId }],
-    ['talk', { action: 'interject' }],
-    ['talk', { action: 'initiate' }],
+    ['message.create', {}],
   ];
   for (const [key, args] of attempts) {
     await assert.rejects(

@@ -10,12 +10,11 @@ import { COMMAND_TO_OP, legacyGrantOps, listOps, resolveCommand, runOp } from '.
 import { createOpsEnv } from '../src/ops/env.js';
 import { commandKeys } from '../src/discord/commands.js';
 
-/** The operation names the commands-cleanup plan agreed on (its wildcards spelled out). */
+/** The operation names the commands-cleanup plan agreed on (its wildcards spelled out), `/nep talk` since merged into `message.create`. */
 const AGREED = new Set([
   'status.show',
   'config.set', 'config.unset',
   'bot.pause', 'bot.resume',
-  'talk.interject', 'talk.initiate',
   'draw.create',
   'pings.get', 'pings.set',
   'media.status', 'media.rescan', 'media.recache',
@@ -30,7 +29,7 @@ const AGREED = new Set([
   'memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read', 'memory.refresh.user', 'memory.refresh.channel', 'memory.refresh.server', 'memory.forget',
   'memory.affinity.read', 'memory.affinity.set', 'memory.wipe', 'memory.journal.read', 'memory.archive.read', 'memory.restore',
   'memory.snapshot', 'memory.private.read', 'memory.private.forget', 'memory.private.purge',
-  'skill.allow', 'skill.deny', 'skill.list',
+  'message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove',
 ]);
 
 /** Owner-only per the plan: no grant ever opens them. */
@@ -38,7 +37,6 @@ const OWNER_ONLY = [
   'access.grant', 'access.revoke', 'access.list',
   'memory.private.read', 'memory.private.forget', 'memory.private.purge',
   'memory.journal.read', 'memory.snapshot', 'memory.forget', 'memory.wipe', 'memory.archive.read', 'memory.restore',
-  'skill.allow', 'skill.deny', 'skill.list',
 ];
 
 function makeEnv({ access = {}, emojiBackfill } = {}) {
@@ -138,7 +136,7 @@ test('ops: an exception becomes failed with its code', async () => {
 test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', () => {
   const registered = new Set(listOps().map((op) => op.name));
   // The keys whose required `action` (or `kind`) option picks the operation: every value is tried.
-  const ACTIONS = { talk: ['interject', 'initiate'], media: ['status', 'rescan', 'recache'], 'memory.private': ['show', 'forget', 'purge'] };
+  const ACTIONS = { media: ['status', 'rescan', 'recache'], 'memory.private': ['show', 'forget', 'purge'], 'message.react': ['add', 'remove'] };
   const KINDS = { 'memory.refresh': ['user', 'channel', 'server'] };
   for (const key of commandKeys().keys) {
     assert.ok(Object.hasOwn(COMMAND_TO_OP, key), `${key} has no operation`);
@@ -156,7 +154,9 @@ test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', 
   assert.equal(resolveCommand('memory.affinity', { userId: '1', score: 0 }).op, 'memory.affinity.set');
   assert.deepEqual(resolveCommand('media', { kind: 'gifs', action: 'recache' }), { op: 'media.recache', args: { kind: 'gifs', action: 'recache' } });
   assert.equal(resolveCommand('memory.private', { action: 'show', userId: '1' }).op, 'memory.private.read');
-  assert.match(resolveCommand('talk', {}).invalid, /action must be one of: interject, initiate/);
+  assert.match(resolveCommand('message.react', {}).invalid, /action must be one of: add, remove/);
+  assert.equal(resolveCommand('talk', {}), null, '/nep talk is message create now');
+  assert.deepEqual(legacyGrantOps('interject'), { from: null, names: ['message.create'] });
   assert.equal(resolveCommand('gifs.recache', {}), null, 'an old key dispatches nothing');
   for (const gone of ['ping', 'reload', 'learned.list']) assert.equal(resolveCommand(gone, {}), null, gone);
 });

@@ -361,7 +361,9 @@
   "skills": {
     "conversations": [],
     "safeMode": false,
-    "resultMaxChars": 2000
+    "resultMaxChars": 2000,
+    "destructiveCooldownMinutes": 10,
+    "callTimeoutMs": 120000
   },
   "diary": {
     "channelId": "",

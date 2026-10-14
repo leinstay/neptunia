@@ -28,3 +28,34 @@ export function rightsRefusal(op, { userId, roleIds, config } = {}) {
   if (rights.grantable === false || rights.member === true) return 'not-grantable';
   return 'not-granted';
 }
+
+/**
+ * The config keys that govern authorization or the persona's own controls: who is an owner and
+ * who may do what (`bot.owners`, `bot.access`, `features.adminCommands`, `features.memberCommands`),
+ * her kill switch and her skills' settings, safe mode included (`features.skills`,
+ * `features.skillsDiscovery`, `skills.*`), and the journal that records what she does
+ * (`features.journal`). The one list behind the non-delegable rule: she never changes her
+ * effective authority, directly or indirectly (src/ops/config.js, src/ops/access.js).
+ */
+export const PERSONA_GOVERNED_CONFIG = Object.freeze([
+  'bot.owners',
+  'bot.access',
+  'features.adminCommands',
+  'features.memberCommands',
+  'features.skills',
+  'features.skillsDiscovery',
+  'skills',
+  'features.journal',
+]);
+
+/**
+ * True when the dotted config path `key` is one of PERSONA_GOVERNED_CONFIG, lies under one, or
+ * holds one (a whole section).
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function governsPersona(key) {
+  const path = String(key ?? '');
+  if (!path) return false;
+  return PERSONA_GOVERNED_CONFIG.some((governed) => path === governed || path.startsWith(`${governed}.`) || governed.startsWith(`${path}.`));
+}

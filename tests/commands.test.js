@@ -73,12 +73,12 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   }
 });
 
-test('buildCommandTree: the exact top-level list (19 entries, no warmup)', () => {
+test('buildCommandTree: the exact top-level list (18 entries, no warmup, no skill group, no talk)', () => {
   const [command] = buildCommandTree('nep');
   const top = command.options.map((option) => option.name);
   assert.deepEqual(top, [
-    'status', 'set', 'unset', 'pause', 'resume', 'draw', 'pings', 'talk', 'media',
-    'model', 'route', 'rule', 'access', 'skill', 'diary', 'alias', 'learning', 'lore', 'memory',
+    'status', 'set', 'unset', 'pause', 'resume', 'draw', 'pings', 'media',
+    'model', 'route', 'rule', 'access', 'message', 'diary', 'alias', 'learning', 'lore', 'memory',
   ]);
   assert.deepEqual(COMMAND_TABLE.map((node) => node.name), top, 'the tree is the table');
   const groups = Object.fromEntries(command.options.filter((o) => o.type === 2).map((o) => [o.name, o.options.map((sub) => sub.name)]));
@@ -87,7 +87,7 @@ test('buildCommandTree: the exact top-level list (19 entries, no warmup)', () =>
     route: ['list', 'set', 'remove'],
     rule: ['add', 'list', 'remove'],
     access: ['grant', 'revoke', 'list'],
-    skill: ['allow', 'deny', 'list'],
+    message: ['create', 'edit', 'delete', 'react'],
     diary: ['set', 'show', 'off', 'post'],
     alias: ['add', 'remove'],
     learning: ['add', 'remove'],
@@ -95,8 +95,12 @@ test('buildCommandTree: the exact top-level list (19 entries, no warmup)', () =>
     memory: ['show', 'channel', 'server', 'recent', 'refresh', 'forget', 'affinity', 'wipe', 'journal', 'archive', 'restore', 'snapshot', 'private'],
   });
   const choices = (option) => option.choices.map((c) => c.value);
-  const talk = findOption(command.options, 'talk');
-  assert.deepEqual(choices(findOption(talk.options, 'action')), ['interject', 'initiate']);
+  const message = findOption(command.options, 'message');
+  const create = findOption(message.options, 'create');
+  // A person gives a channel and a message to answer; her own text is never a Discord option.
+  assert.deepEqual(create.options.map((option) => option.name), ['channel', 'reply']);
+  assert.equal(JSON.stringify(command).includes('personaOptions'), false);
+  assert.deepEqual(choices(findOption(findOption(message.options, 'react').options, 'action')), ['add', 'remove']);
   const media = findOption(command.options, 'media');
   assert.deepEqual(choices(findOption(media.options, 'kind')), ['emoji', 'gifs']);
   assert.deepEqual(choices(findOption(media.options, 'action')), ['status', 'rescan', 'recache']);
@@ -170,9 +174,9 @@ test('commandKeys: every group and every leaf command key, derived from the tree
   assert.ok(!groups.has('emoji') && !groups.has('gifs'), 'not registered any more');
   assert.ok(!groups.has('status'), 'a bare top-level command is not a group');
   assert.ok(keys.has('memory.private'));
-  assert.ok(keys.has('talk'));
+  assert.ok(keys.has('message.create'));
   assert.ok(keys.has('media'));
-  for (const gone of ['private.show', 'private.forget', 'private.purge', 'emoji.status', 'gifs.recache', 'interject', 'initiate', 'ping', 'reload', 'learned.list']) {
+  for (const gone of ['private.show', 'private.forget', 'private.purge', 'emoji.status', 'gifs.recache', 'interject', 'initiate', 'talk', 'skill.allow', 'ping', 'reload', 'learned.list']) {
     assert.ok(!keys.has(gone), `${gone} is not in the tree`);
   }
 
@@ -775,8 +779,8 @@ test('commands: every reply is ephemeral', async () => {
 
   // Deferred ones (what they post in the channel is the persona's own message, not the reply).
   for (const call of [
-    { subcommand: 'talk', optionValues: { action: 'interject' } },
-    { subcommand: 'talk', optionValues: { action: 'initiate', channel: { id: 'chan1' } } },
+    { group: 'message', subcommand: 'create', optionValues: {} },
+    { group: 'message', subcommand: 'create', optionValues: { channel: { id: 'chan1' } } },
     { group: 'diary', subcommand: 'post', optionValues: {} },
     { subcommand: 'draw', optionValues: { text: 'a lighthouse' } },
     { group: 'memory', subcommand: 'wipe', optionValues: { confirm: 'x' } },
@@ -813,7 +817,7 @@ test('commands: every reply is ephemeral', async () => {
   assert.equal(draw.edits[0].content, 'Error: busy');
 
   // A refusal too.
-  const member = fakeInteraction({ user: { id: 'helper1' }, subcommand: 'talk', optionValues: { action: 'interject' } });
+  const member = fakeInteraction({ user: { id: 'helper1' }, group: 'message', subcommand: 'create', optionValues: {} });
   await handler(member);
   assert.deepEqual(member.replies[0], { deferred: true, opts: { flags: MessageFlags.Ephemeral } });
   assert.equal(member.edits[0].content, 'Not allowed');
@@ -1123,6 +1127,10 @@ test('interaction handler: draw maps text and self (self false when omitted)', a
 
   await handler(fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a cat' } }));
   assert.deepEqual(admin.runCalls[1][1], { text: 'a cat', self: false });
+
+  // A channel: the picture is posted there as the persona.
+  await handler(fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a cat', channel: { id: 'chan1' } } }));
+  assert.deepEqual(admin.runCalls[2][1], { text: 'a cat', self: false, channelId: 'chan1' });
 });
 
 test('interaction handler: draw defers ephemerally, then edits the reply with the text and the file', async () => {

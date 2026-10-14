@@ -45,6 +45,7 @@ export function createOpsEnv({
   embedQueue = null,
   record = null,
   metrics = null,
+  port = null,
   now = Date.now,
   dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
 } = {}) {
@@ -222,6 +223,7 @@ export function createOpsEnv({
     embedQueue,
     record,
     metrics,
+    port,
     now,
     dataDir,
     connection,

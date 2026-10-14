@@ -7,6 +7,7 @@ import {
   isActiveHour,
   msUntilActive,
   chooseMode,
+  forcedMode,
   pickChannel,
   isChannelDead,
   createSpontaneous,
@@ -605,6 +606,33 @@ test('force: forwards mode straight to turns.runTurn, with forced: true', async 
   assert.equal(seen.channel, channel);
   assert.equal(seen.mode, 'interject');
   assert.equal(seen.forced, true);
+});
+
+test('forcedMode: a turn someone asked for starts a topic in an empty or quiet channel, else joins in -- never nothing', () => {
+  const cfg = { deadAfterMinutes: 30 };
+  const now = 10 * 60 * MINUTE;
+  assert.equal(forcedMode([], now, cfg), 'initiate');
+  assert.equal(forcedMode([{ ts: now - 31 * MINUTE, self: false }], now, cfg), 'initiate');
+  assert.equal(forcedMode([{ ts: now - 5 * MINUTE, self: false }], now, cfg), 'interject');
+  // her own last line, or a lone line: still a turn, she was asked
+  assert.equal(forcedMode([{ ts: now - 5 * MINUTE, self: true }], now, cfg), 'interject');
+});
+
+test('force: without a mode the turn picks it from the channel (forcedMode); the one who asked rides along as the requester', async () => {
+  let seen = null;
+  const turns = fakeTurns({ runTurn: async (args) => { seen = args; return { outcome: 'spoke' }; } });
+  const spontaneous = createSpontaneous({
+    hot: { config: baseConfig() },
+    store: fakeStore(),
+    client: { guilds: { cache: new Map() } },
+    turns,
+  });
+  const channel = { id: 'c1' };
+  await spontaneous.force(channel, null, { requester: { id: '42', roleIds: [] } });
+  assert.deepEqual([seen.mode, seen.forced, seen.requester], ['auto', true, { id: '42', roleIds: [] }]);
+  assert.equal(seen.chooseMode([], Date.now()), 'initiate', 'an empty channel: a topic of her own');
+  await spontaneous.force(channel, 'interject');
+  assert.equal('requester' in seen, false, 'nobody asked: no requester');
 });
 
 test('stop: clears pending eavesdrop timers without throwing', async () => {

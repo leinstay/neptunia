@@ -92,10 +92,16 @@ const handlers = perEnv((env) => {
     return `Diary off ${reloadNote(ok)}; its memory file is kept.`;
   }
 
-  /** `/nep diary post [kind] [topic]`: one forced post now; an unknown kind is refused with the list. */
+  /**
+   * `/nep diary post [kind] [topic]`: one forced post now; an unknown kind is refused with the list.
+   * Only a post that went out (`spoke`) is `ok`; any other outcome is a `failed` result with the
+   * same line, its code `not-configured` when the diary has no channel or is switched off (or is
+   * not running at all), `daily-cap` for a cap, else the outcome itself -- so nobody, the persona
+   * included (her skills), is told a post went out when it did not.
+   */
   async function cmdDiaryPost(args) {
     assertNotPaused();
-    if (typeof diary?.force !== 'function') throw new Error('diary not running');
+    if (typeof diary?.force !== 'function') throw Object.assign(new Error('diary not running'), { code: 'not-configured' });
     const kind = String(args?.kind ?? '').trim() || undefined;
     const kinds = diaryKindKeys();
     if (kind !== undefined && !kinds.includes(kind)) {
@@ -110,7 +116,12 @@ const handlers = perEnv((env) => {
     const reason = limit?.key
       ? ` (${limit.key} ${limit.used}/${limit.cap})`
       : outcome && typeof outcome === 'object' && outcome.reason ? ` (${outcome.reason})` : '';
-    return `diary post${kind ? ` ${kind}` : ''}: ${text}${reason}`;
+    const line = `diary post${kind ? ` ${kind}` : ''}: ${text}${reason}`;
+    const result = outcome && typeof outcome === 'object' ? outcome.outcome : outcome;
+    if (result === 'spoke' || result === undefined || result === null) return line;
+    const why = outcome && typeof outcome === 'object' ? outcome.reason : null;
+    const code = why === 'no-channel' || why === 'off' ? 'not-configured' : limit?.key ? 'daily-cap' : String(result);
+    return { status: 'failed', code, summary: line, data: null };
   }
 
   return { diaryKindKeys, diaryPlanLines, cmdDiarySet, cmdDiaryShow, cmdDiaryOff, cmdDiaryPost };

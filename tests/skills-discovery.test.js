@@ -1,23 +1,29 @@
 // Tests for skills discovery (src/skills/discovery.js) and the `skills:` line it adds to the
 // search classifier's and the planner's answers: the parsers read it and leave every other line
-// as it was, the classifiers' list of skills is static, the switches, and the catalogue view
-// leaving owner-only skills out.
+// as it was, the classifiers' list of skills is static and grouped by family, the switches, and
+// the catalogue view listing owner-only skills too (they run for an owner who asks).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_PROPOSED, discoveryOn, parseSkillsLines, proposalVerdicts, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
-import { SKILL_DEFINITIONS, loadSkills, skillNames } from '../src/skills/registry.js';
+import { MAX_PROPOSED, byFamily, discoveryOn, parseSkillsLines, proposalVerdicts, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
+import '../src/ops/index.js';
+import { loadSkills, skillNames } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
-import { allowSkill } from '../src/skills/access.js';
 import { parseLookupAnswer } from '../src/behavior/recall.js';
 import { buildPlannerRequest, parsePlannerAnswer, PLANNER_BLOCKS } from '../src/behavior/planner.js';
 
-const NAMES = ['message.send', 'message.edit', 'draw', 'memory.read', 'status.show'];
+const NAMES = ['message.create', 'message.edit', 'draw.create', 'memory.profile.read', 'status.show'];
 const NOW = Date.UTC(2026, 9, 14, 12, 0, 0);
 
-/** The interface skills (no operation behind them): a registry that needs no ops. */
-function interfaceRegistry() {
-  return loadSkills(SKILL_DEFINITIONS.filter((definition) => definition.op === null));
+/** Stand-in skills (no operation behind them, so no rights to check): a registry that needs no ops. */
+function standInRegistry() {
+  const names = ['message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'lore.list', 'access.list'];
+  return loadSkills(names.map((name) => ({ name, op: null, argsSchema: { type: 'object' }, effects: name.endsWith('.list') ? 'read' : 'write', costClass: 'free', targets: null })));
+}
+
+/** `cfg` with `names` granted to the persona (her user id, `self-1`). */
+function granting(names, cfg) {
+  return { ...cfg, bot: { ...cfg.bot, access: Object.fromEntries(names.map((name) => [name, { everyone: false, roles: [], users: ['self-1'] }])) } };
 }
 
 test('discoveryOn: on unless features.skills or features.skillsDiscovery is false', () => {
@@ -33,7 +39,7 @@ test('parseSkillsLines: missing, none, inventory, named, invalid', () => {
   assert.deepEqual(parseSkillsLines(['`None.`'], NAMES), { state: 'none', inventory: false, names: [] });
   assert.deepEqual(parseSkillsLines(['Inventory'], NAMES), { state: 'inventory', inventory: true, names: [] });
   assert.deepEqual(parseSkillsLines(['draw, inventory'], NAMES), { state: 'inventory', inventory: true, names: [] }, 'inventory wins');
-  assert.deepEqual(parseSkillsLines(['"Draw", message.edit, draw, café, memory.read.'], NAMES), { state: 'named', inventory: false, names: ['draw', 'message.edit', 'memory.read'] });
+  assert.deepEqual(parseSkillsLines(['"Draw.create", message.edit, draw.create, café, memory.profile.read.'], NAMES), { state: 'named', inventory: false, names: ['draw.create', 'message.edit', 'memory.profile.read'] });
   assert.deepEqual(parseSkillsLines(['ζωγραφική, café'], NAMES), { state: 'invalid', inventory: false, names: [] }, 'no known name');
   assert.deepEqual(parseSkillsLines(['draw', 'draw'], NAMES), { state: 'invalid', inventory: false, names: [] }, 'two lines');
 });
@@ -62,9 +68,9 @@ test('parseLookupAnswer: answers without a skills line read as before, with no s
 test('parseLookupAnswer: a skills line is read apart; the other lines read exactly as without it', () => {
   const lines = 'web: Αθήνα σήμερα\nserver: κουνέλι, κουνελιού\nwhen: 2026-10-01 .. 2026-10-03';
   const without = parseLookupAnswer(lines, { now: NOW });
-  const withSkills = parseLookupAnswer(`${lines}\nskills: draw, message.edit`, { now: NOW, skillNames: NAMES });
+  const withSkills = parseLookupAnswer(`${lines}\nskills: draw.create, message.edit`, { now: NOW, skillNames: NAMES });
   assert.deepEqual({ web: withSkills.web, server: withSkills.server, reason: withSkills.reason }, without);
-  assert.deepEqual(withSkills.skills, { state: 'named', inventory: false, names: ['draw', 'message.edit'] });
+  assert.deepEqual(withSkills.skills, { state: 'named', inventory: false, names: ['draw.create', 'message.edit'] });
 
   // The old single-line shape keeps working beside it.
   const old = parseLookupAnswer('champions final winner\nskills: none', { skillNames: NAMES });
@@ -84,8 +90,8 @@ test('parsePlannerAnswer: a skills line is read, never counted unknown, the four
   assert.equal(withSkills.unknown, 0);
   assert.deepEqual(withSkills.skills, { state: 'inventory', inventory: true, names: [] });
   assert.equal(without.skills.state, 'missing');
-  const named = parsePlannerAnswer('lookup: none\nskills: memory.read, draw', { skillNames: NAMES });
-  assert.deepEqual(named.skills.names, ['memory.read', 'draw']);
+  const named = parsePlannerAnswer('lookup: none\nskills: memory.profile.read, draw.create', { skillNames: NAMES });
+  assert.deepEqual(named.skills.names, ['memory.profile.read', 'draw.create']);
   assert.equal(named.lookup.state, 'none');
 });
 
@@ -98,30 +104,47 @@ test('buildPlannerRequest: {{skills}} is filled with the list given, or blanked'
   assert.equal(blank[0].content, 'Plan for Zoë.\nSkills:\n');
 });
 
-test('skillsIndex: one static line per persona skill, the same whatever is allowed', () => {
-  const registry = new Map([...interfaceRegistry(), ['x.owner', Object.freeze({ name: 'x.owner', ownerOnly: true })]]);
-  const texts = { 'message.send': { title: 'Στείλε', whenToUse: 'σε άλλη συζήτηση' } };
+test('skillsIndex: one static line per skill, grouped by family, the name alone without a text, the same whatever is allowed', () => {
+  const owner = Object.freeze({ name: 'message.purge', ownerOnly: true });
+  const registry = new Map([...standInRegistry(), ['x.read', Object.freeze({ name: 'x.read' })], ['message.purge', owner]]);
+  const texts = { 'message.create': { title: 'Στείλε', whenToUse: 'σε άλλη συζήτηση' } };
   const index = skillsIndex(registry, texts);
   const lines = index.split('\n');
-  assert.equal(lines[0], 'message.send | σε άλλη συζήτηση');
-  assert.equal(lines[1], 'message.edit |', 'no text: the name alone');
-  assert.ok(!index.includes('x.owner'), 'an owner-only skill is no persona skill');
-  assert.equal(lines.length, interfaceRegistry().size);
+  assert.equal(lines[0], 'message.create | σε άλλη συζήτηση');
+  assert.equal(lines[1], 'message.edit', 'no text: the name alone');
+  assert.ok(lines.includes('message.purge'), 'an owner-only skill is listed: it runs for an owner who asks');
+  // the message family stands together, its late member included, before the next family
+  assert.deepEqual(lines.slice(1, 6), ['message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'message.purge']);
+  assert.deepEqual(lines.slice(6), ['lore.list', 'access.list', 'x.read']);
+  assert.equal(lines.length, registry.size);
   assert.ok(!/allowed|not-allowed|carried/.test(index), 'no access in the list');
 });
 
-test('listSkills: an owner-only skill is not listed; proposalVerdicts reads each name off the rows', () => {
-  const owner = Object.freeze({ name: 'x.owner', family: 'x', op: null, kind: 'read', ownerOnly: true, sharedState: false, costClass: 'free', targets: null });
-  const registry = new Map([...interfaceRegistry(), ['x.owner', owner]]);
-  const state = {};
-  allowSkill(state, 'message.edit', { by: '42', at: 't' });
-  const config = { features: { skills: true }, skills: { conversations: [], safeMode: false }, bot: { owners: ['42'] } };
-  const rows = listSkills({ config, state, texts: {}, requester: { id: '7' }, audience: { conversationId: 'c1' }, registry });
-  assert.ok(!rows.some((row) => row.name === 'x.owner'));
-  assert.equal(rows.length, registry.size - 1);
-  assert.deepEqual(proposalVerdicts(['message.edit', 'message.delete', 'x.owner'], rows), [
+test('byFamily: groups by the part before the first dot, families in order of first appearance', () => {
+  const rows = ['message.create', 'draw.create', 'memory.profile.read', 'message.edit', 'draw', 'memory.wipe'].map((name) => ({ name }));
+  assert.deepEqual(byFamily(rows).map((group) => group.map((row) => row.name)), [
+    ['message.create', 'message.edit'],
+    ['draw.create', 'draw'],
+    ['memory.profile.read', 'memory.wipe'],
+  ]);
+  assert.deepEqual(byFamily(null), []);
+});
+
+test('listSkills: an owner-only skill has its row, open only for an owner who asks; proposalVerdicts reads each name off the rows', () => {
+  const ops = { 'x.owner.op': { name: 'x.owner.op', rights: { kind: 'read', ownerOnly: true } } };
+  const getOp = (name) => ops[name] ?? null;
+  const owner = loadSkills([{ name: 'x.owner', family: 'x', op: 'x.owner.op', argsSchema: { type: 'object' }, effects: 'read', sharedState: false, costClass: 'free', targets: null }], { getOp }).get('x.owner');
+  assert.equal(owner.ownerOnly, true);
+  const registry = new Map([...standInRegistry(), ['x.owner', owner]]);
+  const config = granting(['message.edit', 'x.owner'], { features: { skills: true }, skills: { conversations: [], safeMode: false }, bot: { owners: ['42'] } });
+  const rows = listSkills({ config, selfId: 'self-1', texts: {}, requester: { id: '7' }, audience: { conversationId: 'c1' }, registry, getOp });
+  assert.equal(rows.length, registry.size);
+  assert.deepEqual(proposalVerdicts(['message.edit', 'message.delete', 'x.owner', 'x.none'], rows), [
     { name: 'message.edit', allowed: true, reason: 'allowed' },
     { name: 'message.delete', allowed: false, reason: 'not-allowed' },
-    { name: 'x.owner', allowed: false, reason: 'unknown-skill' },
+    { name: 'x.owner', allowed: false, reason: 'requester-denied' },
+    { name: 'x.none', allowed: false, reason: 'unknown-skill' },
   ]);
+  const asOwner = listSkills({ config, selfId: 'self-1', texts: {}, requester: { id: '42' }, audience: { conversationId: 'c1' }, registry, getOp });
+  assert.deepEqual(proposalVerdicts(['x.owner'], asOwner), [{ name: 'x.owner', allowed: true, reason: 'allowed' }]);
 });

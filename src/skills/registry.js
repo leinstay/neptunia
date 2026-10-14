@@ -1,16 +1,20 @@
-// The persona's skills: what she may do through the engine, named in an interface-neutral way
-// (conversation, message, member) so a Discord adapter can be swapped later. A skill either runs
-// one operation of the ops registry (src/ops/registry.js), from which it inherits `kind` and
-// `ownerOnly`, or is an interface skill (`op: null`) an adapter implements later. Its wording --
-// `title`, `whenToUse`, `whenNotToUse` -- lives in prompts/skills.json (the hot prompts layer,
-// `hot.prompts.skills`), never here: `describeSkill` joins the two at the moment of use.
-// Loading refuses a skill on an owner-only operation: no allow ever opens what only an owner may
-// run. Phase 0: nothing here executes; src/skills/gateway.js answers whether a call may run.
+// The persona's skills ARE the owner's /nep commands: one catalogue. Every registered operation
+// (src/ops/registry.js) is a skill of the same name -- the vocabulary `/nep access grant` uses for
+// people -- derived from the slash command that runs it (src/skills/derive.js): its arguments are
+// that command's options, its `kind` and `ownerOnly` the operation's. No skill exists without an
+// operation behind a command. Every skill is closed until the owner grants it to her
+// (src/skills/access.js: `/nep access grant` with her as the user); an owner-only operation runs
+// only when the member who asked is an owner (src/skills/gateway.js). Their wording -- `title`,
+// `whenToUse`, `whenNotToUse` -- lives in prompts/skills.json, keyed by operation name (the hot
+// prompts layer, `hot.prompts.skills`), never here: `describeSkill` joins the two at the moment of
+// use, and a skill without texts is shown by its name alone.
 
-import { getOp as registryGetOp } from '../ops/registry.js';
+import { getOp as registryGetOp, listOps } from '../ops/registry.js';
+import { EFFECT_CLASSES } from '../ops/effects.js';
+import { deriveSkillDefinitions } from './derive.js';
 
-/** What a skill does to the world, one value per skill. */
-export const EFFECTS = Object.freeze(['read', 'send', 'edit', 'delete', 'generate', 'shared-write']);
+/** What a skill does to the world, one value per skill: its operation's effect class (src/ops/effects.js). */
+export const EFFECTS = EFFECT_CLASSES;
 
 /** `free`, or `paid`: spends balance and needs a budget (src/skills/gateway.js). */
 export const COST_CLASSES = Object.freeze(['free', 'paid']);
@@ -22,155 +26,18 @@ export const COST_CLASSES = Object.freeze(['free', 'paid']);
  */
 export const TARGETS = Object.freeze(['self-messages', 'allowed-conversations', 'any', null]);
 
-/** An opaque reference (conversation, message, member) as an argument. */
-const REF = Object.freeze({ type: 'string', minLength: 1, maxLength: 100 });
-/** A message body (Discord's cap on one message). */
-const TEXT = Object.freeze({ type: 'string', minLength: 1, maxLength: 2000 });
-/** One reaction emoji: a unicode emoji or a custom emoji's reference. */
-const EMOJI = Object.freeze({ type: 'string', minLength: 1, maxLength: 100 });
-
-/** An object schema with `properties`, `required` and no other key. */
-function objectSchema(properties = {}, required = [], extra = {}) {
-  return { type: 'object', properties, required, additionalProperties: false, ...extra };
-}
-
-/**
- * The structural definitions of the skills of phases 0-1 (docs: the skills design), in catalogue
- * order. No wording: the texts are prompts/skills.json's under the same names.
- */
-export const SKILL_DEFINITIONS = Object.freeze([
-  {
-    name: 'message.send',
-    family: 'message',
-    op: null,
-    argsSchema: objectSchema(
-      { conversationId: REF, text: TEXT, replyTo: REF, media: { type: 'string', minLength: 1, maxLength: 200 } },
-      [],
-      { anyOf: [{ required: ['text'] }, { required: ['media'] }] },
-    ),
-    effects: 'send',
-    sharedState: false,
-    costClass: 'free',
-    targets: 'allowed-conversations',
-    interfaceCapability: 'message.send',
-  },
-  {
-    name: 'message.edit',
-    family: 'message',
-    op: null,
-    argsSchema: objectSchema({ conversationId: REF, messageId: REF, text: TEXT }, ['messageId', 'text']),
-    effects: 'edit',
-    sharedState: false,
-    costClass: 'free',
-    targets: 'self-messages',
-    interfaceCapability: 'message.edit',
-  },
-  {
-    name: 'message.delete',
-    family: 'message',
-    op: null,
-    argsSchema: objectSchema({ conversationId: REF, messageId: REF }, ['messageId']),
-    effects: 'delete',
-    sharedState: false,
-    costClass: 'free',
-    targets: 'self-messages',
-    interfaceCapability: 'message.delete',
-  },
-  {
-    name: 'message.react.add',
-    family: 'message',
-    op: null,
-    argsSchema: objectSchema({ conversationId: REF, messageId: REF, emoji: EMOJI }, ['messageId', 'emoji']),
-    effects: 'send',
-    sharedState: false,
-    costClass: 'free',
-    targets: 'allowed-conversations',
-    interfaceCapability: 'message.react.add',
-  },
-  {
-    name: 'message.react.remove',
-    family: 'message',
-    op: null,
-    argsSchema: objectSchema({ conversationId: REF, messageId: REF, emoji: EMOJI }, ['messageId', 'emoji']),
-    effects: 'delete',
-    sharedState: false,
-    costClass: 'free',
-    targets: 'allowed-conversations',
-    interfaceCapability: 'message.react.remove',
-  },
-  {
-    name: 'draw',
-    family: 'draw',
-    op: 'draw.create',
-    argsSchema: objectSchema({ conversationId: REF, prompt: TEXT, self: { type: 'boolean' } }, ['prompt']),
-    effects: 'generate',
-    sharedState: false,
-    costClass: 'paid',
-    targets: 'allowed-conversations',
-    interfaceCapability: 'message.send',
-  },
-  {
-    name: 'memory.read',
-    family: 'memory',
-    op: 'memory.profile.read',
-    argsSchema: objectSchema({ memberId: REF }, ['memberId']),
-    effects: 'read',
-    sharedState: false,
-    costClass: 'free',
-    targets: null,
-    interfaceCapability: null,
-  },
-  {
-    name: 'status.show',
-    family: 'status',
-    op: 'status.show',
-    argsSchema: objectSchema(),
-    effects: 'read',
-    sharedState: false,
-    costClass: 'free',
-    targets: null,
-    interfaceCapability: null,
-  },
-  {
-    name: 'skills.list',
-    family: 'skills',
-    op: null,
-    argsSchema: objectSchema(),
-    effects: 'read',
-    sharedState: false,
-    costClass: 'free',
-    targets: null,
-    interfaceCapability: null,
-  },
-  {
-    name: 'access.request',
-    family: 'access',
-    op: null,
-    argsSchema: objectSchema({ skill: { type: 'string', minLength: 1, maxLength: 64 }, reason: { type: 'string', minLength: 1, maxLength: 300 } }, ['skill']),
-    effects: 'send',
-    sharedState: false,
-    costClass: 'free',
-    targets: null,
-    interfaceCapability: null,
-  },
-].map((definition) => Object.freeze(definition)));
-
-/** The names of SKILL_DEFINITIONS, in order: the `/nep skill` autocomplete (no ops needed). */
-export function skillNames() {
-  return SKILL_DEFINITIONS.map((definition) => definition.name);
-}
-
 /**
  * The skills of `definitions` as a Map name -> frozen skill: the definition plus `kind`
- * (`read`|`write`) and `ownerOnly`, inherited from the operation it runs (`getOp`), or, for an
- * interface skill (`op: null`), `kind` from its effects and `ownerOnly` false. Throws -- a
- * programming error, at startup -- on a missing or repeated name, an unknown effect, cost class or
- * target, a missing argument schema, an unknown operation, or an owner-only one.
+ * (`read`|`write`) and `ownerOnly`, inherited from the operation it runs (`getOp`); a definition
+ * with no operation (tests' stand-ins) takes `kind` from its effects and `ownerOnly` false. A
+ * derived skill keeps its `command` (src/skills/derive.js) and is marked `derived`. Throws -- a programming
+ * error, at startup -- on a missing or repeated name, an unknown effect, cost class or target, a
+ * missing argument schema, an unknown operation, or a command without its `toCall`.
  * @param {object[]} [definitions]
  * @param {{ getOp?: (name: string) => ({ name: string, rights: object } | null) }} [options]
  * @returns {Map<string, object>}
  */
-export function loadSkills(definitions = SKILL_DEFINITIONS, { getOp = registryGetOp } = {}) {
+export function loadSkills(definitions = [], { getOp = registryGetOp } = {}) {
   const skills = new Map();
   for (const definition of definitions) {
     const { name, op } = definition ?? {};
@@ -180,16 +47,18 @@ export function loadSkills(definitions = SKILL_DEFINITIONS, { getOp = registryGe
     if (!COST_CLASSES.includes(definition.costClass)) throw new Error(`skill ${name}: costClass must be free or paid`);
     if (!TARGETS.includes(definition.targets ?? null)) throw new Error(`skill ${name}: targets must be one of ${TARGETS.filter(Boolean).join(', ')} or null`);
     if (!definition.argsSchema || typeof definition.argsSchema !== 'object') throw new Error(`skill ${name}: argsSchema is required`);
+    const command = definition.command ?? null;
+    if (command !== null && (typeof command.key !== 'string' || typeof command.toCall !== 'function')) throw new Error(`skill ${name}: command needs a key and toCall`);
 
-    // An interface skill: its kind follows its effects. An operation's skill inherits both; an
-    // owner-only operation never loads, so every loaded skill has `ownerOnly: false`.
+    // An operation's skill inherits both, an owner-only operation included: who may run it is the
+    // requester's right (the gateway). Without an operation the kind follows the effects.
     let kind = definition.effects === 'read' ? 'read' : 'write';
-    const ownerOnly = false;
+    let ownerOnly = false;
     if (op !== null && op !== undefined) {
       const operation = getOp(op);
       if (!operation) throw new Error(`skill ${name}: unknown operation ${op}`);
-      if (operation.rights?.ownerOnly === true) throw new Error(`skill ${name}: operation ${op} is owner-only and can never be a persona skill`);
       kind = operation.rights.kind;
+      ownerOnly = operation.rights?.ownerOnly === true;
     }
     skills.set(name, Object.freeze({
       name,
@@ -203,22 +72,60 @@ export function loadSkills(definitions = SKILL_DEFINITIONS, { getOp = registryGe
       costClass: definition.costClass,
       targets: definition.targets ?? null,
       interfaceCapability: definition.interfaceCapability ?? null,
+      ...(command ? { derived: true, command } : {}),
     }));
   }
   return skills;
 }
 
+/**
+ * The whole registry: one derived skill per operation of `ops`, in order
+ * (src/skills/derive.js#deriveSkillDefinitions over the command `sources` and `resolve`). Without
+ * sources (no command tree registered) none. Throws like loadSkills.
+ * @param {{ ops?: { name: string, rights: object }[], sources?: Map<string, object>|null, resolve?: Function|null, getOp?: Function }} [input]
+ * @returns {Map<string, object>}
+ */
+export function buildSkills({ ops = [], sources = null, resolve = null, getOp = registryGetOp } = {}) {
+  const derived = sources && typeof resolve === 'function' ? deriveSkillDefinitions({ ops, sources, resolve }) : [];
+  return loadSkills(derived, { getOp });
+}
+
 let loaded = null;
+let commandTree = null;
 
 /**
- * The skills of SKILL_DEFINITIONS against the live ops registry, loaded once on first use (the
- * operations register themselves when src/ops/index.js is imported; src/index.js calls this at
- * start so a bad definition fails there). A load that throws is not kept.
+ * Registers the owner's command tree the derived skills come from: `sources()` (the command
+ * sources, src/skills/derive.js#commandSources, computed on first use) and `resolve(key, args)`
+ * (the command -> operation map). src/ops/index.js calls it once its operations are registered;
+ * the registry is rebuilt on its next use.
+ * @param {{ sources: () => Map<string, object>, resolve: Function }} tree
+ */
+export function useCommandTree(tree) {
+  commandTree = tree;
+  loaded = null;
+}
+
+/**
+ * Every skill against the live ops registry and the registered command tree (buildSkills),
+ * loaded once on first use (the operations and the tree register themselves when
+ * src/ops/index.js is imported; src/index.js calls this at start so a bad definition fails
+ * there). A load that throws is not kept.
  * @returns {Map<string, object>}
  */
 export function skillRegistry() {
-  if (!loaded) loaded = loadSkills();
+  if (!loaded) {
+    loaded = buildSkills({
+      ops: listOps(),
+      sources: commandTree ? commandTree.sources() : null,
+      resolve: commandTree?.resolve ?? null,
+    });
+  }
   return loaded;
+}
+
+/** The names of every registry skill, in order: the operation names a grant to the persona may name. */
+export function skillNames() {
+  return [...skillRegistry().keys()];
 }
 
 /** One skill's text field from the skills layer, '' when absent or not a string. */

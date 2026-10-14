@@ -12,6 +12,7 @@
 // post (a message, the GIF, the picture) answering such a line goes here
 // plain, with a jump link to it.
 
+import { randomUUID } from 'node:crypto';
 import {
   audienceOf,
   canAttach,
@@ -85,12 +86,11 @@ import { toRecordLine } from '../memory/record.js';
 import { createOffPeriodsReader } from '../memory/journal.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
-import { checkSkill, listSkills } from '../skills/gateway.js';
+import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
 import { discoveryOn, proposalVerdicts, skillsIndex } from '../skills/discovery.js';
 import { skillsOn } from '../skills/access.js';
-import { SKILL_DEFINITIONS, loadSkills } from '../skills/registry.js';
-import { executeCall, needsFollowUp, resolveCall } from '../skills/executors.js';
-import { getOp as registryGetOp } from '../ops/registry.js';
+import { skillRegistry } from '../skills/registry.js';
+import { executeCall, needsFollowUp, refusalStatus, resolveCall } from '../skills/executors.js';
 import { createDiscordAdapter } from '../interface/discord.js';
 
 /**
@@ -895,16 +895,52 @@ function postedOf(result) {
 /** The persona as the principal of her skill calls (src/skills/gateway.js). */
 const PERSONA = Object.freeze({ kind: 'persona' });
 
-/** The `message.send` arguments of a post: its text and/or media, the message it replies to. */
+/**
+ * The requester of a skill call: `trigger`'s author (`{ id, roleIds }`, the role ids from the
+ * guild's member cache of `channel`, none when the member is not cached), or null when nobody
+ * asked (a turn without a trigger author).
+ */
+function requesterOf(trigger, channel) {
+  if (!trigger?.authorId) return null;
+  const id = String(trigger.authorId);
+  const roles = channel?.guild?.members?.cache?.get?.(id)?.roles?.cache;
+  return { id, roleIds: roles && typeof roles.keys === 'function' ? [...roles.keys()].map(String) : [] };
+}
+
+/**
+ * The immutable envelope of the persona's skill call, built by code from the turn, never from
+ * what the model wrote: the actor (the persona), the requester (the person who asked for the
+ * turn, `requester` -- `/nep message create` -- else the author of the request the turn answers,
+ * requesterOf; a recovery turn's trigger is the original candidate, so its author; null when
+ * nobody asked), whether the turn answers several people at once (`mixed`: a recovery
+ * bundle naming more than one author -- no write then), the source message ids (the trigger and
+ * the lines folded into it), the origin channel, and a fresh invocation id the call's journal
+ * lines and its operation carry. The follow-up pass inherits it; a tool's output never adds a
+ * requester.
+ * @returns {Readonly<{ actor: 'persona', requester: object|null, mixed: boolean, sourceMessageIds: string[], originChannelId: string, invocationId: string }>}
+ */
+function callEnvelope({ trigger, channel, added = null, missed = null, requester: asked = null }) {
+  const requester = asked?.id ? { id: String(asked.id), roleIds: Array.isArray(asked.roleIds) ? asked.roleIds.map(String) : [] } : requesterOf(trigger, channel);
+  const authors = new Set((Array.isArray(missed) ? missed : []).map((line) => line?.author).filter((author) => typeof author === 'string' && author));
+  const sources = [trigger?.id, ...(Array.isArray(added) ? added.map((line) => line?.id) : [])].filter(Boolean).map(String);
+  return Object.freeze({
+    actor: 'persona',
+    requester: requester ? Object.freeze({ id: requester.id, roleIds: Object.freeze([...requester.roleIds]) }) : null,
+    mixed: authors.size > 1,
+    sourceMessageIds: Object.freeze(sources),
+    originChannelId: String(channel.id),
+    invocationId: randomUUID(),
+  });
+}
+
+/** What a post of the reply carries, for the reader of its check: its text and/or media, the message it replies to. */
 function sendArgs({ text = null, media = null, replyId = null }) {
   return { ...(text ? { text } : {}), ...(media ? { media } : {}), ...(replyId ? { replyTo: replyId } : {}) };
 }
 
-/** The interface skills (no operation behind them), loaded once: what a runner checks against when none is injected. */
-let interfaceSkills = null;
+/** The skill registry a runner checks against when none is injected: every operation's (src/skills/registry.js). */
 function defaultSkills() {
-  interfaceSkills ??= loadSkills(SKILL_DEFINITIONS.filter((definition) => definition.op === null));
-  return interfaceSkills;
+  return skillRegistry();
 }
 
 /** The most channels a runner's default adapter keeps a handle on (the oldest go first). */
@@ -1231,33 +1267,33 @@ function taskInput({ part, queued, added, missed = null, labels, channelId }) {
  * each line (`transcript.triggeredBy` / `triggeredByOlder`). The neighbours' lines show no `#n`
  * and carry none. A spontaneous turn, a diary post or a dry run links nothing.
  *
- * Skills and the interface (the skills design, phase 0): every effect of a reply -- a message
- * with its reply target and mentions, the GIF, the picture's publication after its generation,
- * a diary set's pictures, a reaction, the typing indicator -- is a skill call checked by
- * src/skills/gateway.js#checkSkill (the persona as principal, the trigger's author as requester,
- * the turn's channel as the conversation; `message.send`, a picture or GIF being one with its
- * media or URL, and `message.react.add`) right before it runs, then made through the interface
- * port `port` (src/interface/port.js; default: the Discord adapter over `client`, holding the
- * channels the turn hands it). Her reply tags are carried over in the current conversation, so
- * a check refuses them only with features.skills false: the full stop, she goes silent -- each
- * refusal logs `skill: refused` (`skill`, `code`, `reason`) and nothing is done; no picture or
- * diary set is generated for a post the check already refuses, and no typing indicator shows.
- * Nothing counts as posted (journal, record, stats, lastPostAt) unless the port answered `ok`;
- * `unknown` is journaled as unknown and never sent again. `skills`: the skill registry checked
- * against (src/skills/registry.js#skillRegistry from src/index.js; default: the interface
- * skills alone, which are all a reply uses). A dry run calls neither the gateway nor the port.
+ * Skills and the interface: every effect of a reply -- a message with its reply target and
+ * mentions, the GIF, the picture's publication after its generation, a diary set's pictures, a
+ * reaction, the typing indicator -- is checked by src/skills/gateway.js#checkReplyEffect right
+ * before it runs (`message.create`, a picture or GIF being one with its media or URL, and
+ * `message.react.add`: carried over in the current conversation, refused only under the full stop
+ * -- features.skills false, she goes silent; each refusal logs `skill: refused` (`skill`, `code`,
+ * `reason`) and nothing is done; no picture or diary set is generated for a post the check
+ * already refuses, and no typing indicator shows), then made through the interface port `port`
+ * (src/interface/port.js; default: the Discord adapter over `client`, holding the channels the
+ * turn hands it). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
+ * answered `ok`; `unknown` is journaled as unknown and never sent again. A dry run calls neither
+ * the gateway nor the port.
  *
- * Skill calls (the skills design, phase 1): the first top-level `<call>` of her output
+ * Skill calls: her skills are the owner's /nep commands (src/skills/registry.js; `skills`: the
+ * registry checked against, default skillRegistry()). The first top-level `<call>` of her output
  * (src/llm/parse.js; any later one, or a malformed first one, is logged `skills: extra-call` /
  * `skills: bad-call` and ignored; a diary post drops it) is planned before her reply is acted on
- * (planCall: journaled `proposed`, resolved on the server's side, checked) and made after it
- * (runCall: checked again right before, then run by src/skills/executors.js). A read that worked
- * (`memory.read`, `status.show`, `skills.list`) or any call that did not (refused, failed,
- * unknown; never under features.skills off) brings one follow-up request: the reply request
- * again with a `<result>` block before `<task>` (followUp); its answer is acted on like the
- * reply, a `<call>` in it ignored. `runOp(name, args, context)` (src/admin.js#runOperation,
- * optional) runs the operations behind the read skills; absent, they fail `unsupported`. A dry
- * run only logs the call (`dry-run: would call`).
+ * (planCall: on an immutable envelope built by code, callEnvelope; journaled `proposed` with its
+ * invocation id, resolved on the server's side, checked) and made after it (runCall: checked
+ * again right before, then run by src/skills/executors.js through `runCommand(key, args,
+ * context)` -- src/admin.js#runCommand, the command's own path, the requester's rights checked
+ * again; absent, a call is `not_configured`). An operation's answer -- an error or a refusal
+ * included -- or any call that did not succeed (never under features.skills off) brings one
+ * follow-up request: the reply request again with a `<result>` block before `<task>`
+ * (followUp); its answer is acted on like the reply, a `<call>` in it ignored. A message or a
+ * picture that went out is its own answer. A dry run only logs the call (`dry-run: would
+ * call`).
  */
 export function createTurnRunner({
   hot,
@@ -1283,7 +1319,7 @@ export function createTurnRunner({
   record = null,
   port = null,
   skills = null,
-  runOp = null,
+  runCommand = null,
 }) {
   const busy = new Set();
   // The channels the default adapter may resolve by id without the client (the turn's own and a
@@ -1306,20 +1342,14 @@ export function createTurnRunner({
   }
 
   /**
-   * The gateway's verdict on one skill call of the persona's reply in `channel`
-   * (src/skills/gateway.js#checkSkill, the live config and state read now): `trigger`'s author
-   * is the requester, `channel` the conversation. A refusal logs `skill: refused`.
+   * The gateway's verdict on one effect of the persona's reply in `channel`
+   * (src/skills/gateway.js#checkReplyEffect, the live config read now): carried over in the
+   * current conversation, refused only under the full stop. `args` and `trigger` name the effect
+   * for the reader; the check needs neither. A refusal logs `skill: refused`.
    * @returns {{ ok: boolean, code?: string, reason?: string }}
    */
-  function checkEffect(skill, args, { channel, trigger = null }) {
-    const verdict = checkSkill({
-      skill,
-      args,
-      principal: PERSONA,
-      requester: trigger?.authorId ? { id: String(trigger.authorId) } : null,
-      audience: { conversationId: String(channel.id) },
-      context: { config: hot.config, state: store.state?.data ?? {}, selfId: client?.user?.id ?? null, registry: skills ?? defaultSkills() },
-    });
+  function checkEffect(skill, _args, { channel }) {
+    const verdict = checkReplyEffect({ skill, principal: PERSONA, config: hot.config });
     if (!verdict.ok) log.info('skill: refused', { skill, code: verdict.code, reason: verdict.reason, channel: channel.id });
     return verdict;
   }
@@ -1327,14 +1357,14 @@ export function createTurnRunner({
   /**
    * What skills discovery gives a classifier (src/skills/discovery.js, the live config read by
    * the caller now): `index` fills its prompt's `{{skills}}` (skillsIndex over the registry and
-   * `hot.prompts.skills`: static texts, no grant), `names` are the persona skills its `skills:`
+   * `hot.prompts.skills`: static texts, no grant), `names` are the registry's skills its `skills:`
    * line may name. With discovery off, '' and none.
    * @returns {{ index: string, names: string[] }}
    */
   function discoveryPrompt(config) {
     if (!discoveryOn(config)) return { index: '', names: [] };
     const registry = skills ?? defaultSkills();
-    const names = [...registry.values()].filter((skill) => skill.ownerOnly !== true).map((skill) => skill.name);
+    const names = [...registry.keys()];
     return { index: skillsIndex(registry, hot.prompts?.skills), names };
   }
 
@@ -1356,9 +1386,9 @@ export function createTurnRunner({
     if (answer.inventory !== true && named.length === 0) return null;
     const rows = listSkills({
       config,
-      state: store.state?.data ?? {},
+      selfId: client?.user?.id ?? null,
       texts: hot.prompts?.skills,
-      requester: trigger?.authorId ? { id: String(trigger.authorId) } : null,
+      requester: requesterOf(trigger, channel),
       audience: { conversationId: String(channel.id) },
       registry: skills ?? defaultSkills(),
     });
@@ -1382,7 +1412,8 @@ export function createTurnRunner({
    * the others she may act in, the channels she can name (the guild's text channels, then the
    * stored channel notes, the turn's own channel), this turn's transcript numbers (`idByIndex`;
    * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
-   * profiles (only with memory on) and her own id.
+   * profiles (only with memory on), her own id, the guild's roles and the skill registry (a
+   * derived skill's options are resolved by its command).
    */
   function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn }) {
     const conversations = [];
@@ -1398,6 +1429,12 @@ export function createTurnRunner({
     }
     if (typeof channel.name === 'string' && channel.name) conversations.push({ id: String(channel.id), name: channel.name });
     const listed = hot.config.skills?.conversations;
+    // The guild's roles a derived skill's role option may name.
+    const roles = [];
+    const roleCache = channel?.guild?.roles?.cache;
+    if (roleCache && typeof roleCache.values === 'function') {
+      for (const role of roleCache.values()) if (role?.id && typeof role.name === 'string') roles.push({ id: String(role.id), name: role.name });
+    }
     return {
       currentConversationId: String(channel.id),
       allowedConversationIds: Array.isArray(listed) ? listed.map(String) : [],
@@ -1410,28 +1447,32 @@ export function createTurnRunner({
       },
       members: memoryOn && guildId && typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [],
       selfId: client?.user?.id ?? null,
+      roles,
+      skills: skills ?? defaultSkills(),
     };
   }
 
   /**
    * The gateway's verdict on a resolved `<call>` (src/skills/gateway.js#checkSkill, the live
-   * config and state read now): the persona as principal, `trigger`'s author as requester, the
-   * turn's channel as the audience, the message the server resolved, the image client's caps as
-   * the drawing budget. A refusal logs `skill: refused`.
+   * config read now): the persona as principal, the envelope's requester (callEnvelope), the
+   * turn's channel as the audience, the last run of a destructive skill from the origin channel
+   * (`destructiveRuns`), the image client's caps as the drawing budget. A refusal logs
+   * `skill: refused`.
    */
-  function checkCall(resolved, { channel, trigger = null }) {
+  function checkCall(resolved, { channel, envelope }) {
     const verdict = checkSkill({
       skill: resolved.skill,
       args: resolved.args,
       principal: PERSONA,
-      requester: trigger?.authorId ? { id: String(trigger.authorId) } : null,
+      requester: envelope.requester,
       audience: { conversationId: String(channel.id) },
       context: {
         config: hot.config,
-        state: store.state?.data ?? {},
         selfId: client?.user?.id ?? null,
         registry: skills ?? defaultSkills(),
-        ...(resolved.targetMessage ? { targetMessage: resolved.targetMessage } : {}),
+        mixedRequesters: envelope.mixed,
+        lastRunAt: destructiveRuns.get(`${resolved.skill}:${envelope.originChannelId}`) ?? null,
+        now: clock(),
         ...(images ? { images } : {}),
       },
     });
@@ -1441,72 +1482,64 @@ export function createTurnRunner({
 
   /**
    * The persona's `<call>` (`call`: src/llm/parse.js's) planned before anything of her reply is
-   * done: its journal operation (`skill`, by the persona) writes `proposed` with the skill and the
-   * names of its arguments, then the call is resolved on the server's side (`view`: callView's)
+   * done: its journal operation (`skill`, by the persona) writes `proposed` with the skill, the
+   * envelope's invocation id and the names of its arguments, then the call is resolved on the server's side (`view`: callView's)
    * and checked (checkCall). Resolves `{ call, op, resolved, refusal }`: `resolved` null and
    * `refusal` (`{ code, reason }`) when either said no -- a refusal of the resolution logs
    * `skill: refused` too. Nothing runs here.
    */
-  async function planCall({ call, channel, trigger, draft, view }) {
-    const op = journalOp(draft, 'skill', 'persona', { input: { skill: call.skill } });
-    if (op.opId) await op.proposed({ input: { skill: call.skill, args: Object.keys(call.args ?? {}), body: Boolean(call.body) } });
+  async function planCall({ call, channel, envelope, draft, view }) {
+    const op = journalOp(draft, 'skill', 'persona', { input: { skill: call.skill, invocationId: envelope.invocationId } });
+    if (op.opId) await op.proposed({ input: { skill: call.skill, invocationId: envelope.invocationId, args: Object.keys(call.args ?? {}), body: Boolean(call.body) } });
     const resolved = resolveCall(call, view);
     if (!resolved.ok) {
       log.info('skill: refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
-      return { call, op, resolved: null, refusal: { code: resolved.code, reason: resolved.reason } };
+      return { call, op, envelope, resolved: null, refusal: { code: resolved.code, reason: resolved.reason } };
     }
-    const verdict = checkCall(resolved, { channel, trigger });
-    return { call, op, resolved: verdict.ok ? resolved : null, refusal: verdict.ok ? null : { code: verdict.code, reason: verdict.reason } };
+    const verdict = checkCall(resolved, { channel, envelope });
+    return { call, op, envelope, resolved: verdict.ok ? resolved : null, refusal: verdict.ok ? null : { code: verdict.code, reason: verdict.reason } };
   }
 
-  /** The ids a resolved call aims at, for its journal line: never its text. */
+  /** The ids a resolved call aims at (its channel, message, reply target, member), for its journal line: never its text. */
   function callTarget(args) {
     const out = {};
-    for (const key of ['conversationId', 'messageId', 'replyTo', 'memberId']) if (typeof args?.[key] === 'string') out[key] = args[key];
+    for (const key of ['channel', 'message', 'reply', 'user']) if (typeof args?.[key] === 'string') out[key] = args[key];
     return out;
   }
 
   /**
    * The planned call (planCall's) made, after her reply's own effects: a refusal at the plan is
-   * closed `failed` with its code; otherwise the gateway is asked again right before the call
-   * (the owner may have revoked it meanwhile: `refused`), the operation writes `started` with the
-   * ids it aims at, and src/skills/executors.js#executeCall runs it through the port, the
-   * operations (`runOp`: an operation by name without the caller's check, src/admin.js#runOperation)
-   * or the image client. The operation closes `succeeded` (with the message id), `unknown` (never
-   * retried) or `failed` with the code. A message or picture that reached another conversation
+   * closed `failed` with its code (status `invalid` or `denied`, refusalStatus); otherwise the
+   * gateway is asked again right before the call (the owner may have revoked it meanwhile), the
+   * operation writes `started` with the ids it aims at, a destructive one is stamped for its
+   * cooldown, and src/skills/executors.js#executeCall runs it on the envelope through
+   * `runCommand` (`skills.callTimeoutMs`, read now). The operation closes `succeeded` (with the
+   * message id), `unknown` (never retried) or `failed` with the code. A message or picture that reached another conversation
    * stamps its lastPostAt, links its trigger, and a message is a `said` line of the record.
    * Logged `skills: called` (`skill`, `status`, `code`). Resolves the result with `skill` and
    * `followUp` (src/skills/executors.js#needsFollowUp). Never throws.
    * @returns {Promise<{ skill: string, status: string, code?: string, data?: object, followUp: boolean }>}
    */
-  async function runCall(plan, { channel, trigger, guildId, privateChat, selfName, draft }) {
-    const { call, op } = plan;
+  async function runCall(plan, { channel, trigger, guildId, draft }) {
+    const { call, op, envelope } = plan;
     const skill = call.skill;
     let result;
-    if (plan.refusal) result = { status: 'refused', code: plan.refusal.code };
+    if (plan.refusal) result = { status: refusalStatus(plan.refusal.code), code: plan.refusal.code };
     else {
-      const verdict = checkCall(plan.resolved, { channel, trigger });
-      if (!verdict.ok) result = { status: 'refused', code: verdict.code };
+      const verdict = checkCall(plan.resolved, { channel, envelope });
+      if (!verdict.ok) result = { status: refusalStatus(verdict.code), code: verdict.code };
       else {
         if (op.opId) await op.started({ target: callTarget(plan.resolved.args) });
-        const requester = trigger?.authorId ? { id: String(trigger.authorId) } : null;
+        // A destructive call counts from its dispatch, whatever comes back.
+        if (plan.resolved.command && (skills ?? defaultSkills()).get(skill)?.effects === 'destructive') destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
         result = await executeCall(plan.resolved, {
           port: iface,
           refOf: (conversationId) => ({ iface: iface.iface, conversationId: String(conversationId) }),
           renderText: (text) => renderCustomEmoji(text, emojiLookup()),
-          pingsOff: (userId) => !privateChat && Boolean(userId) && typeof store.isPingsOff === 'function' && store.isPingsOff(guildId, userId),
-          requester,
-          config: hot.config,
-          getOp: registryGetOp,
-          runOp,
+          envelope,
+          runCommand,
           opContext: { guildId, channelId: String(channel.id) },
-          catalogue: () =>
-            listSkills({ config: hot.config, state: store.state?.data ?? {}, texts: hot.prompts?.skills, requester, audience: { conversationId: String(channel.id) }, registry: skills ?? defaultSkills() }),
-          ...(images
-            ? { generate: (prompt) => images.generate({ prompt: drawPromptFor(selfName, { text: prompt, self: false }), reference: null, userId: requester?.id ?? null }) }
-            : {}),
-          fileName: imageFileName,
-          recheck: () => checkCall(plan.resolved, { channel, trigger }),
+          timeoutMs: hot.config.skills?.callTimeoutMs ?? 120000,
         });
       }
     }
@@ -1516,12 +1549,13 @@ export function createTurnRunner({
       else await op.failed(result.code ?? 'error');
     }
     const args = plan.resolved?.args ?? {};
-    const posted = result.status === 'ok' && (skill === 'message.send' || skill === 'draw') ? postedOf(result) : null;
+    const posted = result.status === 'ok' && (skill === 'message.create' || skill === 'draw.create') && result.ref ? postedOf(result) : null;
     if (posted) {
-      lastPostAt.set(String(args.conversationId), clock());
+      const where = String(result.ref.conversationId ?? args.channel ?? channel.id);
+      lastPostAt.set(where, clock());
       noteTrigger(posted.id, trigger?.id);
-      if (skill === 'message.send') {
-        recordSaid({ guildId, channel: { id: String(args.conversationId) }, privateChat: false, trigger, draft, op, posted, text: args.text, replyId: args.replyTo ?? null, repliedAuthorId: plan.resolved.repliedAuthorId ?? null, userIds: [] });
+      if (skill === 'message.create') {
+        recordSaid({ guildId, channel: { id: where }, privateChat: false, trigger, draft, op, posted, text: args.text, replyId: args.reply ?? null, repliedAuthorId: plan.resolved.repliedAuthorId ?? null, userIds: [] });
       }
     }
     log.info('skills: called', { channel: channel.id, skill, status: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' && result.error ? { error: portError(result) } : {}) });
@@ -1592,6 +1626,9 @@ export function createTurnRunner({
   // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
   const chains = new Map();
   const lastPostAt = new Map(); // channelId -> ts of the persona's last message
+  // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
+  // from that channel (skills.destructiveCooldownMinutes, src/skills/gateway.js); in process.
+  const destructiveRuns = new Map();
   let onIdle = null; // set via setOnIdle(); see the finally block of runTurn below
   let onTurnEnd = null; // set via setOnTurnEnd(); see noteTurnEnd
   let idleWaiters = []; // resolvers for waitIdle() (/nep pause), notified once busy.size hits 0
@@ -2029,7 +2066,7 @@ export function createTurnRunner({
    * turn about another channel (`sourceId`) the trigger, if any, is a call
    * written there: the limit notice is posted here as a plain message, never as
    * a Discord reply across channels. `plain`: the turn quotes no chat line (postsPlain).
-   * The publication is a `message.send` with the picture as its media (checkEffect): a
+   * The publication is a `message.create` with the picture as its media (checkEffect): a
    * check that refuses it before the generation draws nothing, one that refuses it after
    * (the switch moved meanwhile) posts nothing; both resolve `{}`. The upload goes through
    * the port: anything but `ok` is `{ drawFailed: 'error' }`, journaled by its status, and the
@@ -2042,7 +2079,7 @@ export function createTurnRunner({
     const asked = askedFor(trigger, triggerKind);
     const { replyId, pulledId } = replyTarget(parsed.draw.replyTo, { plain, idByIndex, pulledIds });
     // Nothing is paid for a picture its publication may not have.
-    if (!checkEffect('message.send', sendArgs({ media: imageFileName(null), replyId }), { channel, trigger }).ok) return {};
+    if (!checkEffect('message.create', sendArgs({ media: imageFileName(null), replyId }), { channel, trigger }).ok) return {};
     // The journal: the picture is one operation from its generation to its post.
     const op = journalOp(draft, 'draw', 'persona', { input: { self } });
     if (op.opId) await op.started();
@@ -2057,7 +2094,7 @@ export function createTurnRunner({
       const link = linkFor(pulledId);
       const name = imageFileName(picture.mediaType);
       // Checked again right before the publication: generated or not, a refused picture is not posted.
-      const verdict = checkEffect('message.send', sendArgs({ text: link, media: name, replyId }), { channel, trigger });
+      const verdict = checkEffect('message.create', sendArgs({ text: link, media: name, replyId }), { channel, trigger });
       if (!verdict.ok) {
         if (op.opId) await op.failed(verdict.code);
         return {};
@@ -2233,7 +2270,7 @@ export function createTurnRunner({
    * `guildId` (store.recordOwnGif: `ownLast`/`ownUses`, the `<gifs>` list's
    * own-post mark). Never throws; resolves `{ message, op }` once sent
    * (`message`: postedOf the port's answer; `op`: its journal operation),
-   * else null. The post is a `message.send` with the URL as its text
+   * else null. The post is a `message.create` with the URL as its text
    * (checkEffect, right before it; a refusal posts nothing and resolves null),
    * made through the port; its journal operation (`openOp()`, by sendGif)
    * starts only once the check passed.
@@ -2248,7 +2285,7 @@ export function createTurnRunner({
     try {
       const fresh = entry.kind === 'attachment' ? await freshAttachmentUrl(channel, entry) : null;
       const text = withLink(fresh ?? entry.url, link, hot.prompts?.labels);
-      if (!checkEffect('message.send', sendArgs({ text, replyId }), { channel, trigger }).ok) return null;
+      if (!checkEffect('message.create', sendArgs({ text, replyId }), { channel, trigger }).ok) return null;
       op = openOp();
       if (op.opId) await op.started();
       const result = await iface.send(conversationOf(channel), { text, ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}) });
@@ -2497,7 +2534,7 @@ export function createTurnRunner({
       const { replyId } = replyTarget(head.replyTo, { plain, idByIndex, pulledIds });
       const first = renderCustomEmoji(resolveMentions(head.text, lines, knownNames).text, emojiLookup());
       const firstText = withLink(withChannelLinks(channel, withMessageLinks(first, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds })), null, hot.prompts?.labels);
-      firstRefused = !checkEffect('message.send', sendArgs({ text: firstText, replyId }), effect).ok;
+      firstRefused = !checkEffect('message.create', sendArgs({ text: firstText, replyId }), effect).ok;
       if (!firstRefused) await typeFor(first);
     }
     const picked = await picking;
@@ -2546,14 +2583,14 @@ export function createTurnRunner({
       }
       // The first message was typed alongside the GIF picker, above; any other is checked before its typing.
       if (typingOn && !typedAbove(index)) {
-        if (!checkEffect('message.send', args, effect).ok) {
+        if (!checkEffect('message.create', args, effect).ok) {
           sendFailed = true;
           break;
         }
         await typeFor(spoken);
       }
       // Checked (again) right before the send: the owner's switch may have moved while she typed.
-      if (!checkEffect('message.send', args, effect).ok) {
+      if (!checkEffect('message.create', args, effect).ok) {
         sendFailed = true;
         break;
       }
@@ -2628,8 +2665,8 @@ export function createTurnRunner({
         let message;
         const bytes = chunk.reduce((sum, picture) => sum + (picture.buffer?.length ?? 0), 0);
         const attachments = chunk.map((picture) => ({ name: imageFileName(picture.mediaType), data: picture.buffer, contentType: picture.mediaType }));
-        // A message of files is a `message.send` with them as its media, checked right before it.
-        if (!checkEffect('message.send', sendArgs({ media: attachments.map((attachment) => attachment.name).join(',') }), effect).ok) break;
+        // A message of files is a `message.create` with them as its media, checked right before it.
+        if (!checkEffect('message.create', sendArgs({ media: attachments.map((attachment) => attachment.name).join(',') }), effect).ok) break;
         const op = journalOp(draft, 'draw', 'persona', { input: { set: true, pictures: chunk.length } });
         if (op.opId) await op.started();
         const result = await iface.send(conversationOf(channel), { attachments });
@@ -3942,7 +3979,7 @@ export function createTurnRunner({
    *   dropped its block). The drawFailed turn after a failed picture keeps it.
    * @param {object|null} [params.focus]  A normalized message of this chat put to everyone present
    *   (a room question): buildRequest appends `labels.room.focus` to the task.
-   * @param {boolean} [params.forced]  True for an owner-forced turn (`/nep interject`, `/nep
+   * @param {boolean} [params.forced]  True for a turn someone asked for (`/nep message create`; was `/nep interject`, `/nep
    *   initiate`) -- passed straight through to buildRequest, which appends prompts.forced (when
    *   present) to the task text so the model knows `<skip/>` is not the expected outcome this time.
    * @param {(() => { id: string, text: string, author?: string }[])|null} [params.queued]  The calls
@@ -3957,6 +3994,9 @@ export function createTurnRunner({
    * @param {{ author: string, text: string }[]|null} [params.missed]  A recovery turn's messages
    *   (trigger kind `missed`, src/behavior/missed.js), the trigger first: `labels.task.missed`
    *   names them.
+   * @param {{ id: string, roleIds?: string[] }|null} [params.requester]  The person who asked for
+   *   this turn when it is not the trigger's author (`/nep message create`, src/ops/message.js):
+   *   the requester of any skill call she makes in it (callEnvelope).
    * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
    *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
    * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.diary]  With `mode: 'diary'`
@@ -4272,6 +4312,7 @@ export function createTurnRunner({
     journalTurn = null,
     missed = null,
     stillDue = null,
+    requester: requesterParam = null,
   }, draft = {}) {
     // A server channel carries its guild; a private chat is served on behalf of the pinned one.
     const guildId = channel.guild?.id ?? guildIdParam;
@@ -5461,14 +5502,14 @@ export function createTurnRunner({
       // A skill call is planned (journaled `proposed`, resolved, checked) before anything of the
       // reply is done, and made after it (runCall).
       const callPlan = parsed.call
-        ? await planCall({ call: parsed.call, channel, trigger, draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn }) })
+        ? await planCall({ call: parsed.call, channel, envelope: callEnvelope({ trigger, channel, added, missed, requester: requesterParam }), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn }) })
         : null;
       // A set's pictures are generated before anything of the post is sent, and counted
       // against the day's diary pictures as they were paid for, posted or not.
       let set = null;
       if (setDraws) {
-        // Nothing is paid for pictures their publication may not have (`message.send`, checkEffect).
-        const allowed = checkEffect('message.send', sendArgs({ media: imageFileName(null) }), { channel, trigger });
+        // Nothing is paid for pictures their publication may not have (`message.create`, checkEffect).
+        const allowed = checkEffect('message.create', sendArgs({ media: imageFileName(null) }), { channel, trigger });
         if (!allowed.ok) return { outcome: 'refused', mode: finalMode, reason: allowed.code };
         const pictures = await generateSet({ channel, draws: setDraws, selfName, minPosted: setMinPosted });
         if (pictures.length > 0) {
@@ -5504,7 +5545,7 @@ export function createTurnRunner({
       let followed = null;
       let called = null;
       if (callPlan) {
-        called = await runCall(callPlan, { channel, trigger, guildId, privateChat: isPrivate, selfName, draft });
+        called = await runCall(callPlan, { channel, trigger, guildId, draft });
         if (called.followUp) {
           followed = await followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted, act: (parsedAgain) => act({ ...actArgs, parsed: parsedAgain, set: null }) });
         }

@@ -4,15 +4,19 @@
 // runs the operation and always answers
 // `{ status, code, summary, data }` -- it never throws. The slash commands arrive under
 // their command keys (`memory.show`, `media`, ...): COMMAND_TO_OP maps each one onto its
-// operation and arguments; src/admin.js renders the result as the reply.
+// operation and arguments; src/admin.js renders the result as the reply. The same tree and map
+// are registered with the persona's skills (src/skills/registry.js#useCommandTree): every
+// operation is a skill whose arguments are its command's options.
 
 import { log } from '../log.js';
+import { COMMAND_TABLE } from '../discord/commands.js';
+import { commandSources } from '../skills/derive.js';
+import { useCommandTree } from '../skills/registry.js';
 import { OpError, STATUSES, getOp, listOps } from './registry.js';
 import { rightsRefusal } from './rights.js';
 import './status.js';
 import './config.js';
 import './pause.js';
-import './talk.js';
 import './draw.js';
 import './pings.js';
 import './media.js';
@@ -25,7 +29,7 @@ import './alias.js';
 import './learning.js';
 import './lore.js';
 import './memory.js';
-import './skill.js';
+import './message.js';
 
 export { defineOp, listOps, OpError, invalid, denied } from './registry.js';
 
@@ -61,7 +65,7 @@ const byKind = (kinds) => byOption('kind', kinds);
 /**
  * The command keys of the tree (src/discord/commands.js#COMMAND_TABLE, `<group>.<name>` or a bare
  * `<name>`) -> operation: an operation name (same arguments), or `(args) => ({ op, args })` where
- * the arguments pick the operation (`talk`, `media` and `memory.private` by `action`, `memory.refresh`
+ * the arguments pick the operation (`media`, `memory.private` and `message.react` by `action`, `memory.refresh`
  * by `kind`, `pings` by `mode`, `memory.affinity` by `score`), or `{ invalid }` when they cannot. A key not listed
  * here runs nothing.
  */
@@ -73,7 +77,6 @@ export const COMMAND_TO_OP = Object.freeze({
   resume: 'bot.resume',
   draw: 'draw.create',
   pings: (args) => ({ op: absent(args?.mode) ? 'pings.get' : 'pings.set', args }),
-  talk: byAction({ interject: 'talk.interject', initiate: 'talk.initiate' }),
   media: byAction({ status: 'media.status', rescan: 'media.rescan', recache: 'media.recache' }),
   'model.show': 'model.show',
   'model.set': 'model.set',
@@ -111,9 +114,10 @@ export const COMMAND_TO_OP = Object.freeze({
   'memory.restore': 'memory.restore',
   'memory.snapshot': 'memory.snapshot',
   'memory.private': byAction({ show: 'memory.private.read', forget: 'memory.private.forget', purge: 'memory.private.purge' }),
-  'skill.allow': 'skill.allow',
-  'skill.deny': 'skill.deny',
-  'skill.list': 'skill.list',
+  'message.create': 'message.create',
+  'message.edit': 'message.edit',
+  'message.delete': 'message.delete',
+  'message.react': byAction({ add: 'message.react.add', remove: 'message.react.remove' }),
 });
 
 /**
@@ -127,8 +131,8 @@ const LEGACY_COMMAND_TO_OP = Object.freeze({
   unset: 'config.unset',
   pause: 'bot.pause',
   resume: 'bot.resume',
-  interject: 'talk.interject',
-  initiate: 'talk.initiate',
+  interject: 'message.create',
+  initiate: 'message.create',
   draw: 'draw.create',
   pings: (args) => ({ op: absent(args?.mode) ? 'pings.get' : 'pings.set', args }),
   'emoji.status': emoji('media.status'),
@@ -279,3 +283,7 @@ export async function runOp(name, args = {}, ctx = {}) {
   }
   return runOpPrechecked(name, args, ctx);
 }
+
+// The persona's skills derive one skill per operation from the command that runs it
+// (src/skills/derive.js): the tree and this map, read once on the registry's first use.
+useCommandTree({ sources: () => commandSources({ table: COMMAND_TABLE, resolve: resolveCommand }), resolve: resolveCommand });

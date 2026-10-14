@@ -1,6 +1,6 @@
 // The owner's Discord surface: one top-level guild slash command (name from
 // `config.bot.commandName`) whose tree is built here as plain JSON from one
-// declarative table (COMMAND_TABLE: the nineteen top-level entries, each leaf
+// declarative table (COMMAND_TABLE: the eighteen top-level entries, each leaf
 // with its options and its option -> args mapping) — no discord.js builder
 // classes — so `buildCommandTree` is trivially unit-tested.
 // `registerCommands` pushes that tree to the single guild this instance
@@ -23,7 +23,6 @@ import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { isPlainObject } from '../config.js';
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
-import { skillNames } from '../skills/registry.js';
 import { MINUTE_MS } from '../time.js';
 
 // Raw Discord API option-type numbers (application-command-option-type):
@@ -48,8 +47,7 @@ const RETRY_WINDOW_MS = 15 * MINUTE_MS;
 
 /** Operations that may take long enough to need `deferReply` before `editReply`. */
 export const DEFERRED_OPS = Object.freeze(new Set([
-  'talk.interject',
-  'talk.initiate',
+  'message.create',
   'bot.pause',
   'bot.resume',
   'memory.refresh.user',
@@ -147,7 +145,8 @@ const none = () => ({});
  * The whole `/nep` tree, top level in display order: a leaf is `{ name, description, options?,
  * args }`, a group is `{ name, description, subcommands: [leaf, ...] }`. `args(options)` maps a
  * discord.js interaction's options onto the plain `args` of src/admin.js#runCommand; the rest is
- * the Discord JSON of the node (`buildCommandTree` drops `args`). Option names are lowercase;
+ * the Discord JSON of the node (`buildCommandTree` drops `args`); `personaOptions` are options
+ * only the persona's own call of the operation gives (src/skills/derive.js), never sent to Discord. Option names are lowercase;
  * no name carries a hyphen; `action` only where every action takes the same options.
  */
 export const COMMAND_TABLE = Object.freeze([
@@ -180,23 +179,18 @@ export const COMMAND_TABLE = Object.freeze([
     options: [
       { type: STRING, name: 'text', description: 'What to draw.', required: true },
       { type: BOOLEAN, name: 'self', description: 'The persona is in it (adds the appearance prompt).', required: false },
+      channelOption('Post it there as the persona (default: shown only to you).'),
     ],
-    args: (options) => ({ text: options.getString('text', true), self: options.getBoolean('self') ?? false }),
+    args: (options) => {
+      const channelId = options.getChannel('channel')?.id;
+      return { text: options.getString('text', true), self: options.getBoolean('self') ?? false, ...(channelId ? { channelId } : {}) };
+    },
   },
   {
     name: 'pings',
     description: "Choose whether the bot's messages notify you.",
     options: [{ type: STRING, name: 'mode', description: 'on or off; leave empty to see your current setting.', required: false, choices: choicesOf(PINGS_MODES) }],
     args: (options) => ({ mode: options.getString('mode') ?? undefined }),
-  },
-  {
-    name: 'talk',
-    description: 'Make the persona speak now.',
-    options: [
-      { type: STRING, name: 'action', description: 'interject joins the conversation, initiate starts a topic.', required: true, choices: choicesOf(['interject', 'initiate']) },
-      channelOption('Channel (default: this one).'),
-    ],
-    args: (options) => ({ action: options.getString('action', true), channelId: options.getChannel('channel')?.id }),
   },
   {
     name: 'media',
@@ -302,22 +296,45 @@ export const COMMAND_TABLE = Object.freeze([
     ],
   },
   {
-    name: 'skill',
-    description: "Open or close the persona's own skills.",
+    name: 'message',
+    description: "The persona's own messages: speak now, change, delete, react.",
     subcommands: [
       {
-        name: 'allow',
-        description: 'Allow the persona one skill.',
-        options: [{ type: STRING, name: 'name', description: 'Skill name.', required: true, autocomplete: true }],
-        args: (options) => ({ name: options.getString('name', true) }),
+        name: 'create',
+        description: 'Make the persona speak now: her turn, in her own words.',
+        options: [channelOption('Channel (default: this one).'), { type: STRING, name: 'reply', description: 'Message id or link to answer.', required: false }],
+        // When the persona herself calls it, she gives her text: an argument only she has
+        // (src/skills/derive.js), never shown to Discord; the operation picks its mode by who acts.
+        personaOptions: [{ type: STRING, name: 'text', description: 'Her text.', required: true, max_length: 2000 }],
+        args: (options) => ({ channelId: options.getChannel('channel')?.id, replyTo: options.getString('reply') ?? undefined, text: options.getString('text') ?? undefined }),
       },
       {
-        name: 'deny',
-        description: 'Take one skill back from the persona.',
-        options: [{ type: STRING, name: 'name', description: 'Skill name.', required: true, autocomplete: true }],
-        args: (options) => ({ name: options.getString('name', true) }),
+        name: 'edit',
+        description: "Change one of the persona's messages.",
+        options: [
+          { type: STRING, name: 'message', description: 'Message id or link.', required: true },
+          { type: STRING, name: 'text', description: 'The new text.', required: true, max_length: 2000 },
+          channelOption('Channel (default: this one).'),
+        ],
+        args: (options) => ({ messageId: options.getString('message', true), text: options.getString('text', true), channelId: options.getChannel('channel')?.id }),
       },
-      { name: 'list', description: 'Every skill, allowed or not, and why.', args: none },
+      {
+        name: 'delete',
+        description: "Delete one of the persona's messages.",
+        options: [{ type: STRING, name: 'message', description: 'Message id or link.', required: true }, channelOption('Channel (default: this one).')],
+        args: (options) => ({ messageId: options.getString('message', true), channelId: options.getChannel('channel')?.id }),
+      },
+      {
+        name: 'react',
+        description: "Put or take back the persona's reaction.",
+        options: [
+          { type: STRING, name: 'action', description: 'add or remove.', required: true, choices: choicesOf(['add', 'remove']) },
+          { type: STRING, name: 'message', description: 'Message id or link.', required: true },
+          { type: STRING, name: 'emoji', description: 'The emoji.', required: true, max_length: 100 },
+          channelOption('Channel (default: this one).'),
+        ],
+        args: (options) => ({ action: options.getString('action', true), messageId: options.getString('message', true), emoji: options.getString('emoji', true), channelId: options.getChannel('channel')?.id }),
+      },
     ],
   },
   {
@@ -522,9 +539,9 @@ export const COMMAND_TABLE = Object.freeze([
   },
 ]);
 
-/** One table node as Discord JSON: `args` dropped, a group's leaves under `options`. */
+/** One table node as Discord JSON: `args` and `personaOptions` dropped, a group's leaves under `options`. */
 function nodeJson(node, type) {
-  const { args: _args, subcommands, options, ...rest } = node;
+  const { args: _args, personaOptions: _persona, subcommands, options, ...rest } = node;
   if (subcommands) return { type: SUBCOMMAND_GROUP, ...rest, options: subcommands.map((sub) => nodeJson(sub, SUBCOMMAND)) };
   return options ? { type, ...rest, options } : { type, ...rest };
 }
@@ -832,16 +849,6 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
 
     if (focused.name === 'command') {
       await interaction.respond(accessKeyChoices(admin, typed)).catch(() => {});
-      return;
-    }
-
-    // `/nep skill allow|deny name:` offers the persona's skill names (src/skills/registry.js).
-    if ((commandKey === 'skill.allow' || commandKey === 'skill.deny') && focused.name === 'name') {
-      const choices = skillNames()
-        .filter((name) => name.toLowerCase().includes(typed))
-        .slice(0, MAX_AUTOCOMPLETE_CHOICES)
-        .map((name) => ({ name, value: name }));
-      await interaction.respond(choices).catch(() => {});
       return;
     }
 

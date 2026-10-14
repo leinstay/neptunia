@@ -249,9 +249,10 @@ test('diary post: a cap refusal names the limit and the counts', async () => {
   ];
   const diary = { force: async () => outcomes.shift() };
   const { admin } = makeAdmin({ diary });
-  assert.equal(await admin.run('diary.post', { kind: 'thought' }, owner), 'diary post thought: refused (diary.maxPerDay 3/3)');
-  assert.equal(await admin.run('diary.post', {}, owner), 'diary post: refused (llm.maxRequestsPerDay 500/500)');
-  assert.equal(await admin.run('diary.post', {}, owner), 'diary post: not-now (no-channel)');
+  // A post that did not go out is no success: the same line, as a failure with its code.
+  await assert.rejects(() => admin.run('diary.post', { kind: 'thought' }, owner), { message: 'diary post thought: refused (diary.maxPerDay 3/3)', code: 'daily-cap' });
+  await assert.rejects(() => admin.run('diary.post', {}, owner), { message: 'diary post: refused (llm.maxRequestsPerDay 500/500)', code: 'daily-cap' });
+  await assert.rejects(() => admin.run('diary.post', {}, owner), { message: 'diary post: not-now (no-channel)', code: 'not-configured' });
 });
 
 test('diary post: a pictures refusal names the closed cap, else the reason', async () => {
@@ -261,13 +262,13 @@ test('diary post: a pictures refusal names the closed cap, else the reason', asy
   ];
   const diary = { force: async () => outcomes.shift() };
   const { admin } = makeAdmin({ diary });
-  assert.equal(await admin.run('diary.post', { kind: 'thought' }, owner), 'diary post thought: refused (diary.maxPicturesPerDay 2/2)');
-  assert.equal(await admin.run('diary.post', { kind: 'thought' }, owner), 'diary post thought: refused (pictures)');
+  await assert.rejects(() => admin.run('diary.post', { kind: 'thought' }, owner), { message: 'diary post thought: refused (diary.maxPicturesPerDay 2/2)', code: 'daily-cap' });
+  await assert.rejects(() => admin.run('diary.post', { kind: 'thought' }, owner), { message: 'diary post thought: refused (pictures)', code: 'refused' });
 });
 
 test('diary post: without a running diary it says so', async () => {
   const { admin } = makeAdmin();
-  await assert.rejects(() => admin.run('diary.post', {}, owner), /diary not running/);
+  await assert.rejects(() => admin.run('diary.post', {}, owner), { message: 'diary not running', code: 'not-configured' });
 });
 
 test('diary commands: the tree has the group and every key is known to the dispatcher', () => {

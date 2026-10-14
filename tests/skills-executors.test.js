@@ -1,18 +1,20 @@
-// Tests for src/skills/executors.js: how one `<call>` of the persona's output is resolved on the
-// server's side (conversations, transcript numbers, members) and run once the gateway let it
-// pass -- messages through a fake interface adapter, reads through the operations, a picture
-// generated once and published once.
+// Tests for src/skills/executors.js and the operations her calls run: one `<call>` of the
+// persona's output resolved on the server's side (channels, members, roles, transcript numbers)
+// into the arguments of the /nep command behind the skill, then run through that command's own
+// path (src/admin.js#runCommand: the requester's rights checked again), the persona as the actor.
+// Whatever the operation answers -- an error or a refusal included -- is her result, with a
+// structured status; the `/nep message` operations go through a fake interface adapter.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import '../src/ops/index.js';
-import { getOp } from '../src/ops/registry.js';
 import { createAdmin } from '../src/admin.js';
+import { createDiary } from '../src/behavior/diary.js';
+import { skillResultBlock } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { ImageCapError } from '../src/llm/images.js';
-import { CALL_FORMS, READ_SKILLS, executeCall, needsFollowUp, resolveCall } from '../src/skills/executors.js';
-import { SKILL_DEFINITIONS, loadSkills } from '../src/skills/registry.js';
-import { checkSkill } from '../src/skills/gateway.js';
+import { QUIET_ON_OK, RESULT_STATUSES, executeCall, needsFollowUp, refusalStatus, resolveCall } from '../src/skills/executors.js';
+import { skillRegistry } from '../src/skills/registry.js';
+import { labels } from './fixtures/labels.js';
 
 const OWNER = '42';
 const MEMBER = '7';
@@ -22,25 +24,25 @@ const NEWS = 'c-news';
 const ELSEWHERE = 'c-else';
 
 /** A config with the settings these tests read, each set here. */
-function config({ features = {}, skills = {}, access = {} } = {}) {
+function config({ features = {}, skills = {}, access = {}, diary = {} } = {}) {
   return {
-    features: { skills: true, ...features },
+    features: { skills: true, diary: true, ...features },
     skills: { conversations: [NEWS], safeMode: false, ...skills },
     bot: { owners: [OWNER], access },
+    diary: { channelId: '', kinds: { photos: 1, thought: 1 }, ...diary },
   };
 }
 
-/** The turn's view: three channels, a transcript of four lines, two stored members. */
+/** The turn's view: three channels, a transcript of four lines, three stored members, two roles. */
 function view(overrides = {}) {
   const lines = new Map([
-    [1, { id: 'm1', conversationId: HERE, authorId: MEMBER }],
-    [2, { id: 'm2', conversationId: HERE, authorId: SELF, self: true }],
-    [3, { id: 'm3', conversationId: NEWS, authorId: MEMBER }],
-    [4, { id: 'm4', conversationId: NEWS, authorId: SELF, self: true }],
+    [1, { id: '1001', conversationId: HERE, authorId: MEMBER }],
+    [2, { id: '1002', conversationId: HERE, authorId: SELF, self: true }],
+    [3, { id: '1003', conversationId: NEWS, authorId: MEMBER }],
+    [4, { id: '1004', conversationId: NEWS, authorId: SELF, self: true }],
   ]);
   return {
-    currentConversationId: HERE,
-    allowedConversationIds: [NEWS],
+    skills: skillRegistry(),
     conversations: [
       { id: HERE, name: 'γενικά' },
       { id: NEWS, name: '💖νέα' },
@@ -54,255 +56,214 @@ function view(overrides = {}) {
       { id: '8', names: ['Élodie'], aliases: [] },
       { id: '9', names: ['Ana'], aliases: [{ name: 'Élodie' }] },
     ],
+    roles: [{ id: 'r1', name: 'Φίλοι' }, { id: 'r2', name: 'Mods' }],
     selfId: SELF,
     ...overrides,
   };
 }
 
-/** Every skill of phases 0-1, against stand-in operations. */
-function registry() {
-  return loadSkills(SKILL_DEFINITIONS, { getOp: (name) => ({ name, rights: { kind: 'read' } }) });
+/** `<call>` -> resolveCall over the view. */
+function resolve(skill, args = {}, body = '', overrides = {}) {
+  return resolveCall({ skill, args, body }, view(overrides));
 }
 
-/** The gateway over a resolved call, as the turn checks it. */
-function gate(resolved, { cfg = config(), allowed = [], requester = { id: MEMBER } } = {}) {
-  return checkSkill({
-    skill: resolved.skill,
-    args: resolved.args,
-    principal: { kind: 'persona' },
-    requester,
-    audience: { conversationId: HERE },
-    context: {
-      config: cfg,
-      state: { skills: { allowed: Object.fromEntries(allowed.map((name) => [name, { by: OWNER, at: 't' }])) } },
-      selfId: SELF,
-      targetMessage: resolved.targetMessage ?? undefined,
-      registry: registry(),
-      images: { quota: () => ({ spent: false, userSpent: false }) },
-    },
-  });
+test('resolveCall: only a registry skill; its attributes are its command\'s options, the body its `text`', () => {
+  assert.deepEqual([resolve('files.wipe').ok, resolve('files.wipe').code], [false, 'unknown-skill']);
+  assert.equal(resolve('draw').code, 'unknown-skill', 'no skill exists that is not an operation');
+  const said = resolve('message.create', { channel: '#Νέα' }, 'καλημέρα');
+  assert.deepEqual([said.ok, said.skill, said.args], [true, 'message.create', { channel: NEWS, text: 'καλημέρα' }]);
+  assert.deepEqual(resolve('message.create', { channel: '#νέα', who: 'x' }, 'γεια').reason, 'args.who:unknown');
+  assert.deepEqual(resolve('message.create', { text: 'δύο' }, 'φορές').reason, 'args.text:twice');
+  assert.deepEqual(resolve('message.delete', { message: '#2' }, 'κείμενο').reason, 'args:body');
+  // whole numbers and yes/no are read strictly; anything else stays text for the schema to refuse
+  assert.deepEqual(resolve('rule.remove', { number: '3' }).args, { number: 3 });
+  assert.deepEqual(resolve('rule.remove', { number: 'τρία' }).args, { number: 'τρία' });
+  assert.deepEqual(resolve('draw.create', { self: 'TRUE' }, 'a lighthouse').args, { self: true, text: 'a lighthouse' });
+  assert.deepEqual(resolve('draw.create', { self: 'ναι' }, 'a lighthouse').args.self, 'ναι');
+});
+
+test('resolveCall: a channel by name, mention or id; a member by name, alias or mention; a role by name or mention', () => {
+  for (const channel of ['#🍡νέα', '💖νέα', 'ΝΕΑ']) assert.equal(resolve('memory.channel.read', { channel }).args.channel, NEWS, channel);
+  assert.equal(resolve('memory.channel.read', { channel: '<#123>' }).args.channel, '123', 'a mention is its id');
+  assert.deepEqual([resolve('memory.channel.read', { channel: '#κουζίνα' }).code], ['target-ambiguous']);
+  assert.equal(resolve('memory.channel.read', { channel: '#🍰κουζίνα' }).args.channel, 'k2', 'the exact name wins');
+  assert.deepEqual(resolve('memory.channel.read', { channel: '#κανένα' }).reason, 'args.channel:unknown-channel');
+  for (const user of ['Zoë', '@zoë', 'Ζωή', `<@${MEMBER}>`, MEMBER]) assert.equal(resolve('memory.profile.read', { user }).args.user, MEMBER, user);
+  assert.deepEqual([resolve('memory.profile.read', { user: 'Élodie' }).code, resolve('memory.profile.read', { user: 'Élodie' }).reason], ['unknown-member', 'ambiguous']);
+  assert.equal(resolve('memory.profile.read', { user: '<@555>' }).code, 'unknown-member');
+  assert.equal(resolve('access.grant', { command: 'lore.list', role: 'φίλοι' }).args.role, 'r1');
+  assert.equal(resolve('access.grant', { command: 'lore.list', role: '<@&r2>' }).reason, 'args.role:unknown-role');
+  assert.equal(resolve('access.grant', { command: 'lore.list', role: '<@&77>' }).args.role, '77');
+});
+
+test('resolveCall: a transcript number names a message she saw and its channel; edit and delete reach only her own', () => {
+  const edit = resolve('message.edit', { message: '#4' }, 'διόρθωση');
+  assert.deepEqual(edit.args, { message: '1004', text: 'διόρθωση', channel: NEWS });
+  assert.equal(resolve('message.delete', { message: '#2' }).args.message, '1002');
+  assert.deepEqual([resolve('message.edit', { message: '#1' }, 'όχι').code], ['not-own-message']);
+  assert.deepEqual([resolve('message.delete', { message: '#3' }).code], ['not-own-message']);
+  assert.deepEqual([resolve('message.delete', { message: '#7' }).code, resolve('message.delete', { message: '#7' }).reason], ['unknown-message', 'message']);
+  // the channel she names must be the line's
+  assert.deepEqual([resolve('message.delete', { message: '#4', channel: '#γενικά' }).code], ['unknown-message']);
+  // a reaction on anyone's line; a reply records whom it answers
+  assert.deepEqual(resolve('message.react.add', { message: '#3', emoji: '🎉' }).args, { message: '1003', emoji: '🎉', channel: NEWS });
+  const reply = resolve('message.create', { reply: '#3' }, 'απάντηση');
+  assert.deepEqual([reply.args, reply.repliedAuthorId], [{ reply: '1003', text: 'απάντηση', channel: NEWS }, MEMBER]);
+});
+
+/** An admin over a fake store and the fake port, with the operations a call reaches. */
+function makeAdmin({ cfg = config(), diary = null, port = createFakeAdapter({ iface: 'fake', selfId: SELF, now: () => 1000 }), extra = {} } = {}) {
+  const hot = { config: cfg, prompts: { labels: {} } };
+  const store = { state: { data: {}, markDirty() {} }, getUser: () => null, getGuild: () => ({}), isPingsOff: (guildId, userId) => userId === '8' };
+  const admin = createAdmin({ hot, store, client: { user: { id: SELF } }, getGuildId: () => 'g1', diary, port, ...extra });
+  return { admin, hot, store, port };
 }
 
-test('executors: every callable skill is a registry skill; the reads are the read skills', () => {
-  const skills = registry();
-  for (const name of Object.keys(CALL_FORMS)) assert.ok(skills.has(name), name);
-  for (const name of READ_SKILLS) assert.equal(skills.get(name).effects, 'read', name);
-});
-
-test('resolveCall: message.send names a listed conversation by #name, its body is the text, a reply target must be in it', () => {
-  const sent = resolveCall({ skill: 'message.send', args: { conversation: '#Νέα', replyTo: '#3' }, body: 'καλημέρα' }, view());
-  assert.deepEqual(sent, { ok: true, skill: 'message.send', args: { conversationId: NEWS, text: 'καλημέρα', replyTo: 'm3' }, targetMessage: null, repliedAuthorId: MEMBER });
-  // No conversation: the current one; an id or a channel mention resolve as well.
-  assert.equal(resolveCall({ skill: 'message.send', args: {}, body: 'ναι' }, view()).args.conversationId, HERE);
-  assert.equal(resolveCall({ skill: 'message.send', args: { conversation: '<#123>' }, body: 'ναι' }, view({ allowedConversationIds: ['123'] })).args.conversationId, '123');
-  // A channel name is matched by its core: another or no leading emoji still names it.
-  for (const conversation of ['#🍡νέα', '💖νέα', 'ΝΕΑ']) {
-    assert.equal(resolveCall({ skill: 'message.send', args: { conversation }, body: 'ναι' }, view()).args.conversationId, NEWS, conversation);
-  }
-  // Two channels share the core: no guess, even when both are listed.
-  const shared = resolveCall({ skill: 'message.send', args: { conversation: '#κουζίνα' }, body: 'ναι' }, view({ allowedConversationIds: [NEWS, 'k1', 'k2'] }));
-  assert.deepEqual([shared.ok, shared.code], [false, 'target-ambiguous']);
-  assert.equal(resolveCall({ skill: 'draw', args: { conversation: '#🍰κουζίνα' }, body: 'a cake' }, view({ allowedConversationIds: ['k2'] })).args.conversationId, 'k2', 'the exact name wins');
-
-  const refusals = [
-    [{ conversation: '#αλλού' }, 'target-not-allowed'],
-    [{ conversation: '#κανένα' }, 'target-not-allowed'],
-    [{ conversation: '#νέα', replyTo: '#1' }, 'unknown-message'],
-    [{ conversation: '#νέα', replyTo: '#99' }, 'unknown-message'],
-    [{ conversation: '#νέα', who: 'x' }, 'invalid-args'],
-    [{ conversation: '#νέα', text: 'δύο φορές' }, 'invalid-args'],
-  ];
-  for (const [args, code] of refusals) {
-    const result = resolveCall({ skill: 'message.send', args, body: 'γεια' }, view());
-    assert.equal(result.ok, false, JSON.stringify(args));
-    assert.equal(result.code, code, JSON.stringify(args));
-  }
-  assert.equal(resolveCall({ skill: 'message.delete', args: { message: '#2' }, body: 'κείμενο' }, view()).code, 'invalid-args');
-  assert.equal(resolveCall({ skill: 'files.wipe', args: {}, body: '' }, view()).code, 'unknown-skill');
-});
-
-test('resolveCall: edit and delete reach only her own messages, in a conversation she may act in', () => {
-  const edit = resolveCall({ skill: 'message.edit', args: { message: '#4' }, body: 'διόρθωση' }, view());
-  assert.deepEqual(edit.args, { conversationId: NEWS, messageId: 'm4', text: 'διόρθωση' });
-  assert.deepEqual(edit.targetMessage, { id: 'm4', authorId: SELF, conversationId: NEWS });
-  assert.equal(resolveCall({ skill: 'message.delete', args: { message: '#2' }, body: '' }, view()).args.messageId, 'm2');
-  assert.equal(resolveCall({ skill: 'message.edit', args: { message: '#1' }, body: 'όχι' }, view()).code, 'not-own-message');
-  assert.equal(resolveCall({ skill: 'message.delete', args: { message: '#3' }, body: '' }, view()).code, 'not-own-message');
-  assert.equal(resolveCall({ skill: 'message.delete', args: { message: '#7' }, body: '' }, view()).code, 'unknown-message');
-  // Her message in a conversation no longer listed.
-  assert.equal(resolveCall({ skill: 'message.delete', args: { message: '#4' }, body: '' }, view({ allowedConversationIds: [] })).code, 'target-not-allowed');
-});
-
-test('resolveCall: memory.read finds a stored member by name, alias or mention; two by one name is no answer', () => {
-  for (const member of ['Zoë', '@zoë', 'Ζωή', `<@${MEMBER}>`, MEMBER]) {
-    assert.deepEqual(resolveCall({ skill: 'memory.read', args: { member }, body: '' }, view()).args, { memberId: MEMBER }, member);
-  }
-  assert.deepEqual([resolveCall({ skill: 'memory.read', args: { member: 'Élodie' }, body: '' }, view())].map((r) => [r.code, r.reason]), [['unknown-member', 'ambiguous']]);
-  assert.equal(resolveCall({ skill: 'memory.read', args: { member: 'Ταξιάρχης' }, body: '' }, view()).code, 'unknown-member');
-  assert.equal(resolveCall({ skill: 'memory.read', args: { member: '<@555>' }, body: '' }, view()).code, 'unknown-member');
-});
-
-test('gateway over a resolved call: nothing runs unless the owner allowed it; a listed conversation still needs the allow', () => {
-  const elsewhere = resolveCall({ skill: 'message.send', args: { conversation: '#νέα' }, body: 'γεια' }, view());
-  assert.equal(gate(elsewhere).code, 'not-allowed');
-  assert.equal(gate(elsewhere, { allowed: ['message.send'] }).ok, true);
-  assert.equal(gate(elsewhere, { allowed: ['message.send'], cfg: config({ skills: { safeMode: true } }) }).code, 'safe-mode');
-  assert.equal(gate(elsewhere, { allowed: ['message.send'], cfg: config({ features: { skills: false } }) }).code, 'skills-off');
-  // The list moved since: the gateway refuses what the resolution let through.
-  assert.equal(gate(elsewhere, { allowed: ['message.send'], cfg: config({ skills: { conversations: [] } }) }).code, 'conversation-not-allowed');
-  // Here, the reply tag's own skill is carried over; an edit never is.
-  assert.equal(gate(resolveCall({ skill: 'message.send', args: {}, body: 'ναι' }, view())).ok, true);
-  const edit = resolveCall({ skill: 'message.edit', args: { message: '#2' }, body: 'ναι' }, view());
-  assert.equal(gate(edit).code, 'not-allowed');
-  assert.equal(gate(edit, { allowed: ['message.edit'] }).ok, true);
-  // Someone else's message, should the resolution ever let it through: the gateway refuses it too.
-  assert.equal(gate({ ...edit, targetMessage: { ...edit.targetMessage, authorId: MEMBER } }, { allowed: ['message.edit'] }).code, 'not-own-message');
-});
-
-/** The executor's dependencies over a fake adapter. */
-function deps(overrides = {}) {
-  const port = createFakeAdapter({ iface: 'fake', selfId: SELF, now: () => 1000 });
+/** The executor's dependencies: the admin's command path, the port, the envelope of `requester`. */
+function deps(admin, port, { requester = { id: OWNER, roleIds: [] }, ...over } = {}) {
   return {
     port,
     refOf: (conversationId) => ({ iface: 'fake', conversationId: String(conversationId) }),
     renderText: (text) => text,
-    pingsOff: () => false,
-    requester: { id: MEMBER },
-    config: config(),
-    getOp,
+    envelope: Object.freeze({ actor: 'persona', requester, mixed: false, invocationId: 'inv-1', originChannelId: HERE }),
+    runCommand: admin.runCommand,
     opContext: { guildId: 'g1', channelId: HERE },
-    ...overrides,
+    ...over,
   };
 }
 
-test('executeCall: message.send posts in the other conversation, notifying only the replied author', async () => {
-  const d = deps();
-  d.port.seed(NEWS, { authorId: MEMBER, messageId: 'm3', text: 'ερώτηση' });
-  const resolved = resolveCall({ skill: 'message.send', args: { conversation: '#νέα', replyTo: '#3' }, body: 'απάντηση <@8>' }, view());
-  const result = await executeCall(resolved, d);
+test('executeCall: a member asks her to post photos to the diary and the diary is not connected -- the operation\'s own text comes back to her', async () => {
+  // A real diary over a config with kinds but no channel: its forced post says why it did not post.
+  const cfg = config();
+  const hot = { config: cfg, prompts: { labels: {} } };
+  const diary = createDiary({ hot, store: { state: { data: {} } }, client: {}, turns: { isAnyBusy: () => false }, getGuildId: () => 'g1' });
+  const { admin, port } = makeAdmin({ cfg, diary });
+  const resolved = resolve('diary.post', { kind: 'photos' });
+  assert.equal(resolved.ok, true);
+
+  // The owner asked: the operation runs and answers it has no channel -- not_configured, its line as data.
+  const result = await executeCall(resolved, deps(admin, port));
+  assert.deepEqual(result, { status: 'not_configured', code: 'not-configured', data: { text: 'diary post photos: not-now (no-channel)' } });
+  assert.equal(needsFollowUp('diary.post', result), true, 'she hears it in the follow-up');
+  const block = skillResultBlock({ skill: 'diary.post', ...result }, labels);
+  assert.ok(block.startsWith('<result skill="diary.post" status="not_configured">\n'), block);
+  assert.ok(block.includes('diary post photos: not-now (no-channel)'), block);
+  assert.ok(block.includes(labels.skills.result.failed.split('{reason}')[0]), 'told with the nearest label the labels have');
+
+  // Without a running diary at all: the same, its own text.
+  const bare = makeAdmin({ cfg });
+  const none = await executeCall(resolved, deps(bare.admin, bare.port));
+  assert.deepEqual(none, { status: 'not_configured', code: 'not-configured', data: { text: 'diary not running' } });
+
+  // A member who asked: diary.post is owner-only, refused again on the command's own path, its text too.
+  const member = await executeCall(resolved, deps(admin, port, { requester: { id: MEMBER, roleIds: [] } }));
+  assert.deepEqual(member, { status: 'denied', code: 'owner-only', data: { text: 'diary.post is owner-only' } });
+});
+
+test('executeCall: the result she reads is cut to skills.resultMaxChars; ok is said only when the operation answered ok', async () => {
+  const long = { status: 'ok', data: { text: 'λ'.repeat(500) } };
+  const block = skillResultBlock({ skill: 'lore.list', ...long }, labels, { maxChars: 40 });
+  const data = block.split('\n')[2];
+  assert.ok(data.length <= 40 && data.endsWith('…'), data);
+  assert.ok(block.includes(labels.skills.result.ok));
+  for (const status of RESULT_STATUSES.filter((s) => s !== 'ok')) {
+    assert.ok(!skillResultBlock({ skill: 'lore.add', status, code: 'x', data: { text: 't' } }, labels).includes(labels.skills.result.ok), status);
+  }
+  assert.deepEqual([refusalStatus('invalid-args'), refusalStatus('unknown-message'), refusalStatus('not-allowed'), refusalStatus('owner-only')], ['invalid', 'invalid', 'denied', 'denied']);
+});
+
+test('executeCall: message.create posts her own text where she may, the reply notifying its author unless pings are off', async () => {
+  const { admin, port } = makeAdmin();
+  port.seed(NEWS, { authorId: MEMBER, messageId: '1003', text: 'ερώτηση' });
+  const resolved = resolve('message.create', { reply: '#3' }, 'απάντηση');
+  const result = await executeCall(resolved, deps(admin, port));
   assert.equal(result.status, 'ok');
   assert.equal(result.ref.conversationId, NEWS);
-  const [posted] = d.port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
-  assert.equal(posted.text, 'απάντηση <@8>');
+  assert.equal(needsFollowUp('message.create', result), false, 'a message that went out is its own answer');
+  const [posted] = port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
+  assert.equal(posted.text, 'απάντηση');
   assert.deepEqual(posted.mentions, { users: [], repliedUser: true });
-  assert.deepEqual(posted.replyTo, { iface: 'fake', conversationId: NEWS, messageId: 'm3' });
-  // That member turned pings off: the reply notifies nobody.
-  const quiet = deps({ pingsOff: (id) => id === MEMBER });
-  await executeCall(resolved, quiet);
-  assert.deepEqual(quiet.port.calls[0].args[1].mentions, { users: [], repliedUser: false });
-  // Unknown delivery is said so, never ok.
-  const lost = deps();
-  lost.port.failNext('send', { status: 'unknown', error: { code: 'timeout', retryable: false } });
-  assert.deepEqual([(await executeCall(resolved, lost)).status], ['unknown']);
+  // a channel neither here nor listed: the operation's own rule
+  const away = await executeCall(resolve('message.create', { channel: '#αλλού' }, 'γεια'), deps(admin, port));
+  assert.deepEqual([away.status, away.code], ['invalid', 'conversation-not-allowed']);
+  // a port answer of unknown fate: unknown, never ok
+  port.failNext('send', { status: 'unknown', error: { code: 'timeout', retryable: false } });
+  const lost = await executeCall(resolve('message.create', {}, 'ξανά'), deps(admin, port));
+  assert.deepEqual([lost.status, lost.code], ['unknown', 'timeout']);
+});
+
+test('executeCall: a person who runs /nep message create gives her a turn; her own call posts -- the mode is the server\'s, by who acts', async () => {
+  const forced = [];
+  const spontaneous = { force: async (channel, mode, options) => { forced.push([channel.id, mode, options]); return { outcome: 'spoke' }; } };
+  const client = { user: { id: SELF }, channels: { fetch: async (id) => ({ id }) } };
+  const { admin, port } = makeAdmin({ extra: { spontaneous, client } });
+  // a person: a turn, even with a text in the arguments
+  const person = await admin.runCommand('message.create', { text: 'πες αυτό' }, { guildId: 'g1', channelId: HERE, userId: OWNER, roleIds: [] });
+  assert.equal(person.status, 'ok');
+  assert.deepEqual(forced, [[HERE, null, { requester: { id: OWNER, roleIds: [] } }]]);
+  assert.equal(port.calls.length, 0, 'nothing posted as given text');
+  // her own call: her text, no turn
+  const own = await executeCall(resolve('message.create', {}, 'το λέω εγώ'), deps(admin, port));
+  assert.equal(own.status, 'ok');
+  assert.equal(forced.length, 1);
+  assert.equal(port.messagesIn(HERE).at(-1).text, 'το λέω εγώ');
 });
 
 test('executeCall: edit and delete change her own message; the port refuses anyone else\'s', async () => {
-  const d = deps();
-  const own = d.port.seed(NEWS, { authorId: SELF, messageId: 'm4', text: 'λάθος' });
-  d.port.seed(NEWS, { authorId: MEMBER, messageId: 'm3', text: 'δικό της' });
-  const edited = await executeCall({ skill: 'message.edit', args: { conversationId: NEWS, messageId: 'm4', text: 'σωστό' } }, d);
+  const { admin, port } = makeAdmin();
+  port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'λάθος' });
+  port.seed(NEWS, { authorId: MEMBER, messageId: '1003', text: 'δικό της' });
+  const edited = await executeCall({ ...resolve('message.edit', { message: '#4' }, 'σωστό') }, deps(admin, port));
   assert.equal(edited.status, 'ok');
-  assert.equal(d.port.messages.get(`${NEWS}/${own.messageId}`).text, 'σωστό');
-  const foreign = await executeCall({ skill: 'message.edit', args: { conversationId: NEWS, messageId: 'm3', text: 'όχι' } }, d);
+  assert.equal(port.messagesIn(NEWS).find((message) => message.ref.messageId === '1004').text, 'σωστό');
+  // someone else's message, should a raw id get past the transcript: the port says no
+  const skill = skillRegistry().get('message.edit');
+  const foreign = await executeCall({ ok: true, skill: 'message.edit', args: { message: '1003', text: 'όχι', channel: NEWS }, command: skill.command, repliedAuthorId: null }, deps(admin, port));
   assert.deepEqual([foreign.status, foreign.code], ['failed', 'not-own-message']);
-  const deleted = await executeCall({ skill: 'message.delete', args: { conversationId: NEWS, messageId: 'm4' } }, d);
+  const deleted = await executeCall(resolve('message.delete', { message: '#4' }), deps(admin, port));
   assert.equal(deleted.status, 'ok');
-  assert.equal(d.port.messagesIn(NEWS).some((message) => message.ref.messageId === 'm4'), false);
-  const notHers = await executeCall({ skill: 'message.delete', args: { conversationId: NEWS, messageId: 'm3' } }, d);
-  assert.deepEqual([notHers.status, notHers.code], ['failed', 'not-own-message']);
+  assert.equal(port.messagesIn(NEWS).some((message) => message.ref.messageId === '1004'), false);
 });
 
-/** A real admin over a store with one member's public profile and private layer. */
-function memoryAdmin(cfg) {
-  const profile = { id: MEMBER, names: ['Zoë'], aliases: [], messageCount: 12, character: 'λατρεύει τα βουνά', affinity: { score: 10, reason: '' }, interests: [], details: [], episodes: [] };
-  const privateCalls = [];
-  const store = {
-    state: { data: {}, markDirty() {} },
-    getUser: (guildId, userId) => (userId === MEMBER ? profile : null),
-    getPrivate: (...args) => {
-      privateCalls.push(args);
-      return { affinity: { score: 50, reason: 'μυστικό' }, interests: [{ topic: 'ιδιωτικό' }] };
-    },
-    getGuild: () => ({}),
-  };
-  const admin = createAdmin({ hot: { config: cfg, prompts: { labels: {} } }, store, client: {}, getGuildId: () => 'g1' });
-  return { admin, privateCalls };
-}
-
-test('executeCall: memory.read gives the asker the /nep memory show summary, never the private layer; a member needs the same right', async () => {
-  const resolved = { skill: 'memory.read', args: { memberId: MEMBER } };
-  for (const [requester, access] of [[{ id: OWNER }, {}], [{ id: MEMBER }, { 'memory.profile.read': { everyone: false, roles: [], users: [MEMBER] } }]]) {
-    const cfg = config({ access });
-    const { admin, privateCalls } = memoryAdmin(cfg);
-    const result = await executeCall(resolved, deps({ requester, config: cfg, runOp: admin.runOperation }));
-    assert.equal(result.status, 'ok', requester.id);
-    assert.ok(result.data.text.includes('name: Zoë') && result.data.text.includes('λατρεύει τα βουνά'), result.data.text);
-    assert.ok(!result.data.text.includes('μυστικό') && !result.data.text.includes('ιδιωτικό'), 'no private-layer data');
-    assert.deepEqual(privateCalls, []);
-  }
-  // A member without the right: refused before any memory is read.
-  const cfg = config();
-  const asked = [];
-  const result = await executeCall(resolved, deps({ requester: { id: MEMBER }, config: cfg, runOp: async (...args) => asked.push(args) }));
-  assert.deepEqual([result.status, result.code], ['refused', 'requester-denied']);
-  assert.deepEqual(asked, []);
-  // Nobody asked (a spontaneous turn): only a grant to everyone opens it.
-  const unasked = await executeCall(resolved, deps({ requester: null, config: cfg, runOp: async (...args) => asked.push(args) }));
-  assert.deepEqual([unasked.status, unasked.code], ['refused', 'requester-denied']);
-});
-
-test('executeCall: status.show is the member-level card, whoever asks; skills.list the catalogue rows', async () => {
-  const asked = [];
-  const runOp = async (name, args, context) => {
-    asked.push({ name, args, context });
-    return { status: 'ok', code: 'ok', summary: '', data: { text: '', embeds: [{ fields: [{ name: 'state', value: 'running' }, { name: 'uptime', value: '2 h' }] }] } };
-  };
-  const result = await executeCall({ skill: 'status.show', args: {} }, deps({ requester: { id: OWNER }, runOp }));
-  assert.deepEqual(result, { status: 'ok', data: { text: 'state: running\nuptime: 2 h' } });
-  assert.deepEqual(asked, [{ name: 'status.show', args: {}, context: { guildId: 'g1', channelId: HERE, userId: null } }]);
-
-  const rows = [{ name: 'draw', title: 'Ζωγράφισε', whenToUse: '', allowed: true, reason: 'allowed' }];
-  assert.deepEqual(await executeCall({ skill: 'skills.list', args: {} }, deps({ catalogue: () => rows })), { status: 'ok', data: { rows } });
-});
-
-test('executeCall: draw generates once and publishes once; a failed publication is not generated again', async () => {
+test('executeCall: draw.create without a channel posts its picture here, once; with one, the operation posts it there', async () => {
   const generated = [];
-  const generate = async (prompt) => {
-    generated.push(prompt);
-    return { buffer: Buffer.from('pic'), mediaType: 'image/png', cost: 0.02 };
+  const images = {
+    familyOf: () => 'openai',
+    generate: async ({ prompt }) => { generated.push(prompt); return { buffer: Buffer.from('pic'), mediaType: 'image/png', model: 'm', seconds: 1, cost: 0.02 }; },
+    quota: () => ({ spent: false, userSpent: false }),
   };
-  const base = { generate, fileName: () => 'image.png', recheck: () => ({ ok: true }) };
-  const d = deps(base);
-  const resolved = { skill: 'draw', args: { conversationId: NEWS, prompt: 'a lighthouse at dusk' } };
-  const ok = await executeCall(resolved, d);
-  assert.equal(ok.status, 'ok');
-  assert.deepEqual(generated, ['a lighthouse at dusk']);
-  assert.equal(d.port.calls[0].args[0].conversationId, NEWS);
-  assert.equal(d.port.calls[0].args[1].attachments[0].name, 'image.png');
-
-  const lost = deps(base);
-  lost.port.failNext('send', { status: 'unknown', error: { code: 'http-500', retryable: false } });
-  const unknown = await executeCall(resolved, lost);
-  assert.deepEqual([unknown.status, unknown.generated], ['unknown', true]);
-  assert.equal(generated.length, 2, 'one generation per call, none again after the failed publication');
-  assert.equal(lost.port.calls.length, 1);
-
-  // Revoked while it was generated: paid for, never published.
-  const revoked = deps({ ...base, recheck: () => ({ ok: false, code: 'not-allowed', reason: 'draw' }) });
-  const late = await executeCall(resolved, revoked);
-  assert.deepEqual([late.status, late.code], ['refused', 'not-allowed']);
-  assert.equal(revoked.port.calls.length, 0);
-
-  const capped = deps({ ...base, generate: async () => { throw new ImageCapError('cap', { key: 'image.maxPerDay' }); } });
-  assert.deepEqual([(await executeCall(resolved, capped)).code], ['daily-cap']);
+  const cfg = { ...config(), roles: { drawing: 'openai/gpt-image' } };
+  const { admin, port } = makeAdmin({ cfg, extra: { images } });
+  const here = await executeCall(resolve('draw.create', {}, 'a lighthouse at dusk'), deps(admin, port));
+  assert.equal(here.status, 'ok', JSON.stringify(here));
+  assert.equal(generated.length, 1);
+  assert.equal(port.calls.filter((call) => call.op === 'send')[0].args[0].conversationId, HERE);
+  const there = await executeCall(resolve('draw.create', { channel: '#νέα' }, 'a lighthouse'), deps(admin, port));
+  assert.equal(there.status, 'ok', JSON.stringify(there));
+  assert.equal(port.calls.filter((call) => call.op === 'send')[1].args[0].conversationId, NEWS);
+  assert.equal(generated.length, 2, 'one generation per call');
 });
 
-test('needsFollowUp: a read that worked or any call that did not; never under the full stop', () => {
-  assert.equal(needsFollowUp('memory.read', { status: 'ok' }), true);
-  assert.equal(needsFollowUp('status.show', { status: 'ok' }), true);
-  assert.equal(needsFollowUp('message.send', { status: 'ok' }), false);
-  assert.equal(needsFollowUp('draw', { status: 'ok' }), false);
-  assert.equal(needsFollowUp('message.edit', { status: 'refused', code: 'not-allowed' }), true);
-  assert.equal(needsFollowUp('message.send', { status: 'unknown', code: 'timeout' }), true);
-  assert.equal(needsFollowUp('message.send', { status: 'refused', code: 'skills-off' }), false);
+test('executeCall: an operation that does not answer in time is unknown, never retried', async () => {
+  const runCommand = () => new Promise(() => {});
+  // The executor's timer never holds a process open; this one keeps the test's loop alive meanwhile.
+  const keepAlive = setTimeout(() => {}, 1000);
+  const result = await executeCall(resolve('lore.list'), { envelope: { requester: { id: OWNER } }, runCommand, opContext: {}, timeoutMs: 20 });
+  clearTimeout(keepAlive);
+  assert.deepEqual(result, { status: 'unknown', code: 'timeout', data: { text: '' } });
+  // the envelope, never the model, says who asked; the actor and the invocation id ride along
+  const seen = [];
+  await executeCall(resolve('lore.list'), { envelope: { requester: { id: MEMBER, roleIds: ['r1'] }, invocationId: 'inv-9' }, runCommand: async (...args) => { seen.push(args); return { status: 'ok', summary: 'none' }; }, opContext: { guildId: 'g1', channelId: HERE } });
+  assert.deepEqual(seen, [['lore.list', { query: undefined }, { guildId: 'g1', channelId: HERE, userId: MEMBER, roleIds: ['r1'], actor: 'persona', invocationId: 'inv-9' }]]);
+});
+
+test('needsFollowUp: an operation\'s answer or any failure brings the follow-up; a message or picture that went out does not; never under the full stop', () => {
+  assert.deepEqual([...QUIET_ON_OK].sort(), ['draw.create', 'message.create', 'message.delete', 'message.edit', 'message.react.add', 'message.react.remove']);
+  assert.equal(needsFollowUp('lore.list', { status: 'ok', data: { text: 'none' } }), true);
+  assert.equal(needsFollowUp('lore.add', { status: 'ok', data: { text: 'Added' } }), true);
+  assert.equal(needsFollowUp('message.create', { status: 'ok', data: { text: 'sent' } }), false);
+  assert.equal(needsFollowUp('draw.create', { status: 'ok', data: { text: 'm' } }), false);
+  assert.equal(needsFollowUp('message.edit', { status: 'denied', code: 'not-allowed' }), true);
+  assert.equal(needsFollowUp('message.create', { status: 'unknown', code: 'timeout' }), true);
+  assert.equal(needsFollowUp('message.create', { status: 'denied', code: 'skills-off' }), false);
 });

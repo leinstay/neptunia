@@ -82,27 +82,47 @@ export function takeSkillsLines(raw) {
 }
 
 /**
- * The registry as the classifiers read it through `{{skills}}`: one line per skill, in order,
- * `<name> | <whenToUse>` (the text from the skills layer, '' when missing). Static: no access,
- * no grant, so the prompt it fills stays the same while the owner toggles skills.
+ * `items` (skills or catalogue rows, each with a `name`) grouped by family -- the part of the
+ * name before its first dot -- the families in the order they first appear, each group in the
+ * order given: how the skills are listed, so a family's skills stand together.
+ * @template T
+ * @param {T[]} items
+ * @returns {T[][]}
+ */
+export function byFamily(items) {
+  const groups = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const family = String(item?.name ?? '').split('.')[0];
+    if (!groups.has(family)) groups.set(family, []);
+    groups.get(family).push(item);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * The registry as the classifiers read it through `{{skills}}`: one line per skill, grouped by
+ * family (byFamily), `<name> | <whenToUse>` (the text from the skills layer), the name alone when
+ * it has none. Static: no access, no grant, so the prompt it fills stays the same while the owner
+ * toggles skills. Owner-only skills are listed too: they run for an owner who asks.
  * @param {Map<string, object>} registry
  * @param {object} [texts]  `hot.prompts.skills`.
  * @returns {string}
  */
 export function skillsIndex(registry, texts) {
-  const lines = [];
-  for (const skill of registry?.values?.() ?? []) {
-    if (skill?.ownerOnly === true) continue;
-    lines.push(`${skill.name} | ${describeSkill(skill, texts).whenToUse}`.trimEnd());
-  }
-  return lines.join('\n');
+  const skills = [...(registry?.values?.() ?? [])].filter((skill) => typeof skill?.name === 'string');
+  return byFamily(skills)
+    .flat()
+    .map((skill) => {
+      const whenToUse = describeSkill(skill, texts).whenToUse.trim();
+      return whenToUse ? `${skill.name} | ${whenToUse}` : skill.name;
+    })
+    .join('\n');
 }
 
 /**
  * The gateway's verdict on each named skill, from the catalogue rows of this requester and
  * conversation (src/skills/gateway.js#listSkills): `{ name, allowed, reason }` per name, in
- * order; a name with no row (not in the registry, or owner-only) is `{ allowed: false, reason:
- * 'unknown-skill' }`.
+ * order; a name with no row (not in the registry) is `{ allowed: false, reason: 'unknown-skill' }`.
  * @param {string[]} names
  * @param {{ name: string, allowed: boolean, reason: string }[]} rows
  * @returns {{ name: string, allowed: boolean, reason: string }[]}

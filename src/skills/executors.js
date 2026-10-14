@@ -1,37 +1,52 @@
-// The persona's first live skills (the skills design, phase 1): what one `<call>` of her output
-// (src/llm/parse.js) does once the gateway (src/skills/gateway.js#checkSkill) let it pass. Two
-// steps. `resolveCall` turns the tag's string attributes into the registry's arguments on the
-// server's side -- a channel reference she sees (`#name`, `<#id>` or an id) into a conversation
-// id, a transcript number `#N` into a message id with its author and conversation, a member's
-// name or mention into a stored profile's id -- so nothing the model writes is taken as an id
-// unchecked. `executeCall` then runs the skill: messages through the interface port
-// (src/interface/port.js), reads through the operations (src/ops: `memory.profile.read`,
-// `status.show`) or the catalogue, a picture through the image client and then the port. Every
-// result is `{ status, code?, data? }` with the port's honesty: `ok`, `failed`, `unknown` (may
-// have taken effect: never retried), `refused` (a rule said no, nothing was done). Codes are
-// kebab-case; no wording here: the persona reads a result through `labels.skills.result`.
+// What one `<call>` of the persona's output (src/llm/parse.js) does once the gateway
+// (src/skills/gateway.js#checkSkill) let it pass. Her skills are the owner's /nep commands
+// (src/skills/derive.js): a call names an operation and gives the options of the command that
+// runs it as attributes. Two steps. `resolveCall` turns the tag's string attributes into the
+// command's arguments on the server's side -- a channel reference she sees (`#name`, `<#id>` or an
+// id) into a channel id, a member's name or mention into a stored profile's id, a role into its
+// id, a transcript number `#N` (a `message` or `reply` option) into that line's message id and
+// channel, a whole number or `true` / `false` read strictly -- so nothing the model writes is
+// taken as an id unchecked. `executeCall` then runs the operation through its slash command's own
+// path (src/admin.js#runCommand: the requester's rights checked again, as for their own command),
+// the persona as the actor; its answer -- an error or a refusal included -- is the text the owner
+// would see. Every result is `{ status, code?, data? }`, structured and honest (RESULT_STATUSES):
+// `ok` only when the operation answered ok; `denied` (a rule said no), `invalid` (the call was
+// not right), `not_configured` (what it needs is not set up), `unknown` (it may have taken effect:
+// never retried), `partial`, `failed`. Codes are kebab-case; no wording here: the persona reads a
+// result through `labels.skills.result`.
 
-import { isOwnerId } from '../discord/access.js';
-import { ImageCapError, ImageGenError } from '../llm/images.js';
 import { matchChannel } from '../memory/mentions.js';
-import { rightsRefusal } from '../ops/rights.js';
+
+/** The options whose value may be a transcript number `#N`: a message she can see. */
+const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
+
+/** The operations whose success is its own answer: a message or a picture that went out. */
+export const QUIET_ON_OK = Object.freeze(['message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'draw.create']);
+
+/** The operations whose `text` is the persona's own writing, posted as it is shown (custom emoji). */
+const WRITTEN = Object.freeze(['message.create', 'message.edit']);
+
+/** Every status a call result may have. */
+export const RESULT_STATUSES = Object.freeze(['ok', 'denied', 'not_configured', 'invalid', 'unknown', 'partial', 'failed']);
+
+/** The operation codes that mean what it needs is not set up (a missing channel, client, interface or guild). */
+const NOT_CONFIGURED_CODES = Object.freeze(['not-configured', 'unsupported', 'no-guild']);
+
+/** The refusal codes of a call that was not right, as opposed to a rule that said no. */
+const INVALID_CODES = Object.freeze(['invalid-args', 'unknown-skill', 'unknown-member', 'unknown-message', 'target-ambiguous', 'unknown-op', 'not-found']);
+
+/** Milliseconds a call may run before its outcome is `unknown` (`skills.callTimeoutMs`; config.json's value). */
+const CALL_TIMEOUT_MS = 120_000;
 
 /**
- * The tag form of each callable skill: the attributes it takes (strings) and which argument its
- * body fills (null: a body is refused). A skill not listed here cannot be called with `<call>`.
+ * The structured status of a refusal made before anything ran (resolveCall's, the gateway's):
+ * `invalid` for a call that was not right, else `denied`.
+ * @param {string} code
+ * @returns {'invalid'|'denied'}
  */
-export const CALL_FORMS = Object.freeze({
-  'message.send': Object.freeze({ attrs: Object.freeze(['conversation', 'replyTo', 'text']), body: 'text' }),
-  'message.edit': Object.freeze({ attrs: Object.freeze(['message', 'text']), body: 'text' }),
-  'message.delete': Object.freeze({ attrs: Object.freeze(['message']), body: null }),
-  'memory.read': Object.freeze({ attrs: Object.freeze(['member']), body: null }),
-  'status.show': Object.freeze({ attrs: Object.freeze([]), body: null }),
-  'skills.list': Object.freeze({ attrs: Object.freeze([]), body: null }),
-  draw: Object.freeze({ attrs: Object.freeze(['conversation', 'prompt']), body: 'prompt' }),
-});
-
-/** The skills whose answer is data the persona reads (a follow-up request carries it). */
-export const READ_SKILLS = Object.freeze(['memory.read', 'status.show', 'skills.list']);
+export function refusalStatus(code) {
+  return INVALID_CODES.includes(code) ? 'invalid' : 'denied';
+}
 
 /** A refusal of the call before or instead of its execution. */
 function refused(code, reason = '') {
@@ -66,7 +81,17 @@ function conversationIdOf(reference, conversations) {
   return match === 'ambiguous' ? 'ambiguous' : (match?.id ?? null);
 }
 
-/** The transcript number of `#N` / `N`, else null. */
+/** The id of a role reference (`<@&id>` or an id), or of the one role of `roles` by that name; else null. */
+function roleIdOf(reference, roles) {
+  const given = String(reference ?? '').trim();
+  const match = /^<@&(\d+)>$/.exec(given) ?? /^(\d+)$/.exec(given);
+  if (match) return match[1];
+  const name = folded(given.replace(/^@/, ''));
+  const ids = new Set((Array.isArray(roles) ? roles : []).filter((role) => typeof role?.name === 'string' && folded(role.name) === name).map((role) => String(role.id)));
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
+/** The transcript number of `#N` / `N` (six digits at most: never a platform id), else null. */
 function transcriptNumber(value) {
   const match = /^#?(\d{1,6})$/.exec(String(value ?? '').trim());
   return match ? Number(match[1]) : null;
@@ -90,100 +115,133 @@ function memberOf(reference, members) {
 }
 
 /**
- * One `<call>` (`{ skill, args, body }`, src/llm/parse.js) as the registry's arguments, resolved
- * on the server's side, or the refusal: `unknown-skill` (no tag form), `invalid-args` (an
- * attribute the skill does not take, a body where none is taken, the text given twice),
- * `target-not-allowed` (a conversation that is neither the current one nor one of
- * `allowedConversationIds`, or one no reference names), `unknown-message` (a `#N` not in this
- * turn's transcript, or a reply target outside the conversation written to), `not-own-message`
- * (an edit or delete of someone else's message), `unknown-member` (no stored profile by that
- * name, or several). Pure.
+ * One `<call>` (`{ skill, args, body }`, src/llm/parse.js) as the arguments of the command behind
+ * the skill (`view.skills`: the registry), keyed by the command's option names, or the refusal:
+ * `unknown-skill` (no such skill), `invalid-args` (an attribute the command does not take, a body
+ * where it has no `text` option, the text given twice, a channel or role nobody has),
+ * `target-ambiguous` (a channel name several share), `unknown-member` (no stored profile by that
+ * name, or several), `unknown-message` (a `#N` not in this turn's transcript, or in another
+ * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
+ * is not hers). A `#N` of a `message` or `reply` option becomes the line's message id and, when
+ * the command has a `channel` option the call left out, its channel; a reply records the replied
+ * author. Pure.
  * @param {{ skill: string, args: Record<string, string>, body: string }} call
- * @param {{ currentConversationId: string, allowedConversationIds?: string[], conversations?: { id: string, name: string }[],
+ * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[],
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
- *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], selfId?: string|null }} view
- * @returns {{ ok: true, skill: string, args: object, targetMessage: object|null, repliedAuthorId: string|null }
+ *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
+ *   selfId?: string|null }} view
+ * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null }
  *   | { ok: false, code: string, reason: string }}
  */
 export function resolveCall(call, view) {
-  const skill = String(call?.skill ?? '');
-  const form = Object.hasOwn(CALL_FORMS, skill) ? CALL_FORMS[skill] : null;
-  if (!form) return refused('unknown-skill', skill);
+  const name = String(call?.skill ?? '');
+  const skill = view?.skills?.get?.(name);
+  if (!skill?.command) return refused('unknown-skill', name);
+  const { command } = skill;
+  const byName = new Map(command.options.map((option) => [option.name, option]));
   const given = { ...(call?.args ?? {}) };
-  for (const key of Object.keys(given)) if (!form.attrs.includes(key)) return refused('invalid-args', `args.${key}:unknown`);
+  for (const key of Object.keys(given)) if (!byName.has(key)) return refused('invalid-args', `args.${key}:unknown`);
   const body = typeof call?.body === 'string' ? call.body.trim() : '';
   if (body) {
-    if (!form.body) return refused('invalid-args', 'args:body');
-    if (Object.hasOwn(given, form.body)) return refused('invalid-args', `args.${form.body}:twice`);
-    given[form.body] = body;
+    if (!command.body) return refused('invalid-args', 'args:body');
+    if (Object.hasOwn(given, command.body)) return refused('invalid-args', `args.${command.body}:twice`);
+    given[command.body] = body;
   }
-
-  const current = String(view?.currentConversationId ?? '');
-  const allowed = new Set([current, ...(Array.isArray(view?.allowedConversationIds) ? view.allowedConversationIds.map(String) : [])]);
-  /** The conversation `reference` names (current when absent), or the refusal. */
-  const conversation = (reference) => {
-    if (reference === undefined) return { id: current };
-    const id = conversationIdOf(reference, view?.conversations);
-    if (id === 'ambiguous') return refused('target-ambiguous', 'conversation');
-    return id && allowed.has(id) ? { id } : refused('target-not-allowed', 'conversation');
-  };
-  /** The transcript line `#N` names, or null. */
-  const line = (value) => {
-    const n = transcriptNumber(value);
-    return n === null || typeof view?.messageAt !== 'function' ? null : (view.messageAt(n) ?? null);
-  };
 
   const args = {};
-  let targetMessage = null;
-  let repliedAuthorId = null;
-  if (skill === 'message.send' || skill === 'draw') {
-    const target = conversation(given.conversation);
-    if (target.ok === false) return target;
-    const conversationId = target.id;
-    args.conversationId = conversationId;
-    if (skill === 'draw') {
-      if (given.prompt !== undefined) args.prompt = given.prompt;
-    } else {
-      if (given.text !== undefined) args.text = given.text;
-      if (given.replyTo !== undefined) {
-        const target = line(given.replyTo);
-        if (!target) return refused('unknown-message', 'reply');
-        if (String(target.conversationId) !== conversationId) return refused('unknown-message', 'conversation');
-        args.replyTo = String(target.id);
-        repliedAuthorId = target.authorId ?? null;
+  const lines = {};
+  for (const [option, raw] of Object.entries(given)) {
+    const text = String(raw ?? '').trim();
+    switch (byName.get(option).kind) {
+      case 'integer':
+        args[option] = /^[+-]?\d{1,15}$/.test(text) ? Number(text) : raw;
+        break;
+      case 'number':
+        args[option] = /^[+-]?\d{1,15}(?:\.\d{1,15})?$/.test(text) ? Number(text) : raw;
+        break;
+      case 'boolean':
+        args[option] = /^(?:true|false)$/i.test(text) ? text.toLowerCase() === 'true' : raw;
+        break;
+      case 'user': {
+        const member = memberOf(text, view?.members);
+        if (member.ok === false) return member;
+        args[option] = member.id;
+        break;
+      }
+      case 'channel': {
+        const id = conversationIdOf(text, view?.conversations);
+        if (id === 'ambiguous') return refused('target-ambiguous', 'conversation');
+        if (!id) return refused('invalid-args', `args.${option}:unknown-channel`);
+        args[option] = id;
+        break;
+      }
+      case 'role': {
+        const id = roleIdOf(text, view?.roles);
+        if (!id) return refused('invalid-args', `args.${option}:unknown-role`);
+        args[option] = id;
+        break;
+      }
+      default: {
+        const n = MESSAGE_OPTIONS.includes(option) ? transcriptNumber(text) : null;
+        if (n === null) {
+          args[option] = raw;
+          break;
+        }
+        const line = typeof view?.messageAt === 'function' ? view.messageAt(n) : null;
+        if (!line) return refused('unknown-message', option);
+        lines[option] = line;
+        args[option] = String(line.id);
       }
     }
-  } else if (skill === 'message.edit' || skill === 'message.delete') {
-    const target = line(given.message);
-    if (!target) return refused('unknown-message', 'message');
-    if (!allowed.has(String(target.conversationId))) return refused('target-not-allowed', 'conversation');
-    const selfId = view?.selfId ?? null;
-    const own = target.self === true || (selfId !== null && selfId !== '' && String(target.authorId) === String(selfId));
-    if (!own) return refused('not-own-message', 'author');
-    args.conversationId = String(target.conversationId);
-    args.messageId = String(target.id);
-    if (skill === 'message.edit' && given.text !== undefined) args.text = given.text;
-    targetMessage = { id: String(target.id), authorId: own ? String(selfId ?? target.authorId) : String(target.authorId), conversationId: String(target.conversationId) };
-  } else if (skill === 'memory.read') {
-    const member = memberOf(given.member, view?.members);
-    if (member.ok === false) return member;
-    args.memberId = member.id;
   }
-  return { ok: true, skill, args, targetMessage, repliedAuthorId };
+
+  // A line names its channel: the one the call gave must be it, else it fills the channel option.
+  let repliedAuthorId = null;
+  for (const [option, line] of Object.entries(lines)) {
+    const at = String(line.conversationId);
+    if (byName.has('channel')) {
+      if (args.channel === undefined) args.channel = at;
+      else if (String(args.channel) !== at) return refused('unknown-message', 'conversation');
+    }
+    if (option === 'message' && (name === 'message.edit' || name === 'message.delete')) {
+      const selfId = view?.selfId ?? null;
+      const own = line.self === true || (selfId !== null && selfId !== '' && String(line.authorId) === String(selfId));
+      if (!own) return refused('not-own-message', 'author');
+    }
+    if (option === 'reply') repliedAuthorId = line.authorId ?? null;
+  }
+  return { ok: true, skill: name, args, command, repliedAuthorId };
 }
 
-/**
- * Null when `requester` may read stored memory about a member here, else the refusal: an owner
- * may; anyone else as a member running `/nep memory show` may (src/ops/rights.js#rightsRefusal on
- * the `memory.profile.read` operation: a grant on it, read now). No requester (nobody asked) is
- * held to the same rule with no id: only a grant to everyone opens it.
- */
-function memoryReaderRefusal(requester, { config, getOp }) {
-  if (requester?.id && isOwnerId(config, requester.id)) return null;
-  const op = typeof getOp === 'function' ? getOp('memory.profile.read') : null;
-  if (!op) return refused('requester-denied', 'no-operation');
-  const code = rightsRefusal(op, { userId: requester?.id ?? null, roleIds: requester?.roleIds ?? [], config });
-  return code ? refused('requester-denied', code) : null;
+/** The structured status of an operation's result (src/ops/index.js#runOp): `ok`; one that may
+ * have taken effect (`data.unknown`) `unknown`; a not-configured code `not_configured`; `denied`
+ * and `approval_required` `denied`; `invalid` `invalid`; `partial` `partial`; else `failed`. */
+function callStatus(result) {
+  if (result?.status === 'ok') return 'ok';
+  if (result?.data?.unknown === true) return 'unknown';
+  if (NOT_CONFIGURED_CODES.includes(result?.code)) return 'not_configured';
+  if (result?.status === 'denied' || result?.status === 'approval_required') return 'denied';
+  if (result?.status === 'invalid') return 'invalid';
+  if (result?.status === 'partial') return 'partial';
+  return 'failed';
+}
+
+/** `promise`, or `{ timedOut: true }` after `ms` (a timer that never holds the process open). */
+function withTimeout(promise, ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return promise;
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ timedOut: true }), ms);
+    timer.unref?.();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** A status card (`data.embeds`) as text: one `name: value` line per field. */
+function cardText(result) {
+  const card = Array.isArray(result?.data?.embeds) ? result.data.embeds[0] : null;
+  const fields = Array.isArray(card?.fields) ? card.fields : [];
+  return fields.map((field) => `${field.name}: ${field.value}`).join('\n');
 }
 
 /** A port result as a call result: `ok` with the message reference, else its status and code. */
@@ -193,117 +251,68 @@ function fromPort(result) {
   return { status, code: result?.error?.code ?? result?.status ?? 'error', error: result?.error ?? null };
 }
 
-/** An operation result as a call result: `ok` with its data, else `failed` with its code. */
-function fromOp(result, toData) {
-  if (result?.status === 'ok') return { status: 'ok', data: toData(result) };
-  return { status: result?.status === 'denied' ? 'refused' : 'failed', code: result?.code ?? 'error' };
-}
-
-/** The member-level status card as text: one `name: value` block per field. */
-function statusText(result) {
-  const card = Array.isArray(result?.data?.embeds) ? result.data.embeds[0] : null;
-  const fields = Array.isArray(card?.fields) ? card.fields : [];
-  return { text: fields.map((field) => `${field.name}: ${field.value}`).join('\n') };
-}
-
 /**
- * Runs one resolved call (`resolved`: resolveCall's) the gateway let pass, and resolves its
- * result; never throws (a throw is `failed` with `error`). `deps` (the turn's, read at the moment
- * of use): `port` and `refOf(conversationId)` (the port's conversation reference); `renderText`
- * (her text as it is posted: custom emoji); `pingsOff(userId)`; `requester` (`{ id, roleIds? }`
- * or null); `config` (live) and `getOp` (the operations registry); `runOp(name, args, ctx)` (an
- * operation without the caller's rights check: the check that applies is made here) and `opContext`
- * (`{ guildId, channelId }`); `catalogue()` (the catalogue rows of this requester, listSkills);
- * `generate(prompt)` (one picture: `{ buffer, mediaType }`, throwing ImageCapError /
- * ImageGenError), `fileName(mediaType)`, and `recheck()` (the gateway again, right before a
- * picture already paid for is published: `{ ok }` or the refusal).
- *
- * - `message.send`: the text to the conversation, replying to `replyTo` when given; it notifies
- *   nobody but the replied author (unless that member turned pings off), like her replies.
- * - `message.edit` / `message.delete`: her own message, through the port (which refuses anyone
- *   else's on its own too).
- * - `memory.read`: the summary view of `/nep memory show` for the member, never the private layer,
- *   only when the requester may read it (memoryReaderRefusal): `refused` `requester-denied` else.
- * - `status.show`: the member-level status card (no owner field, whoever asks).
- * - `skills.list`: the catalogue rows (`data.rows`).
- * - `draw`: one generation, then one publication; a publication that fails after it is `failed` or
- *   `unknown` and nothing is generated again. An image cap is `refused` `daily-cap`.
- * Results carry `data` (`{ text }` or `{ rows }`) for a read, `ref` for a message, `cost` and
- * `bytes` for a picture.
- * @returns {Promise<{ status: 'ok'|'failed'|'unknown'|'refused', code?: string, data?: object, ref?: object|null }>}
+ * Runs one resolved call (`resolved`: resolveCall's) the gateway let pass; never throws (a throw is
+ * `failed` with `error`). Her arguments with the command's fixed values, mapped by the command's
+ * own option mapper (`command.toCall`), must reach this very operation (else `invalid`); her own
+ * writing (`message.create`, `message.edit`) is first rendered as it is posted
+ * (`deps.renderText`: custom emoji). Then `deps.runCommand(key, args, context)`
+ * (src/admin.js#runCommand) on the call's envelope (`deps.envelope`, built by the turn, never by
+ * the model: the requester's `userId` and `roleIds`, null with nobody; the invocation id) in the
+ * turn's context (`deps.opContext`: `guildId`, `channelId`), the persona as the actor, the replied
+ * author for a reply's notification; not back within `deps.timeoutMs` (`skills.callTimeoutMs`)
+ * it is `unknown` (`timeout`), never retried. Its answer is the call's `data.text`
+ * whatever the status -- the reply text, a card's fields, or the error or refusal the owner would
+ * read -- with its code when it is not `ok`, and `ref` when a message went out. Files it answers
+ * with (`/nep draw` without a channel) are posted to the current conversation through
+ * `deps.port` (`deps.refOf`), as the owner's command shows them to the owner: the call is then
+ * that post's result, never generated again.
+ * @returns {Promise<{ status: string, code?: string, data?: { text: string }, ref?: object|null }>}
  */
 export async function executeCall(resolved, deps) {
-  const { skill, args } = resolved;
   try {
-    switch (skill) {
-      case 'message.send': {
-        const repliedAuthorId = resolved.repliedAuthorId ?? null;
-        const replyTo = args.replyTo ? { ...deps.refOf(args.conversationId), messageId: String(args.replyTo) } : null;
-        const content = {
-          text: deps.renderText ? deps.renderText(args.text) : args.text,
-          ...(replyTo ? { replyTo } : {}),
-          mentions: { users: [], repliedUser: Boolean(replyTo && repliedAuthorId && !deps.pingsOff?.(repliedAuthorId)) },
-        };
-        return fromPort(await deps.port.send(deps.refOf(args.conversationId), content));
-      }
-      case 'message.edit': {
-        const ref = { ...deps.refOf(args.conversationId), messageId: String(args.messageId) };
-        return fromPort(await deps.port.edit(ref, { text: deps.renderText ? deps.renderText(args.text) : args.text }));
-      }
-      case 'message.delete': {
-        const ref = { ...deps.refOf(args.conversationId), messageId: String(args.messageId) };
-        return fromPort(await deps.port.delete(ref));
-      }
-      case 'memory.read': {
-        const refusal = memoryReaderRefusal(deps.requester, deps);
-        if (refusal) return { status: 'refused', code: refusal.code, reason: refusal.reason };
-        if (typeof deps.runOp !== 'function') return { status: 'failed', code: 'unsupported' };
-        const result = await deps.runOp('memory.profile.read', { userId: args.memberId, section: 'summary' }, { ...deps.opContext, userId: deps.requester?.id ?? null });
-        return fromOp(result, (ok) => ({ text: String(ok.summary ?? '') }));
-      }
-      case 'status.show': {
-        if (typeof deps.runOp !== 'function') return { status: 'failed', code: 'unsupported' };
-        // Nobody's id: the card of a member, whoever asked.
-        const result = await deps.runOp('status.show', {}, { ...deps.opContext, userId: null });
-        return fromOp(result, statusText);
-      }
-      case 'skills.list':
-        return { status: 'ok', data: { rows: typeof deps.catalogue === 'function' ? deps.catalogue() : [] } };
-      case 'draw': {
-        if (typeof deps.generate !== 'function') return { status: 'failed', code: 'unsupported' };
-        let picture;
-        try {
-          picture = await deps.generate(args.prompt);
-        } catch (err) {
-          if (err instanceof ImageCapError) return { status: 'refused', code: 'daily-cap', error: err };
-          return { status: 'failed', code: err instanceof ImageGenError && err.reason && err.reason !== 'empty' ? String(err.reason) : 'error', error: err };
-        }
-        const bytes = picture?.buffer?.length ?? 0;
-        // Paid for: checked again right before it is published, and never generated again.
-        const verdict = typeof deps.recheck === 'function' ? deps.recheck() : { ok: true };
-        if (!verdict.ok) return { status: 'refused', code: verdict.code, reason: verdict.reason, generated: true, bytes };
-        const attachment = { name: deps.fileName(picture.mediaType), data: picture.buffer, contentType: picture.mediaType };
-        const sent = fromPort(await deps.port.send(deps.refOf(args.conversationId), { attachments: [attachment] }));
-        return { ...sent, generated: true, bytes, cost: picture.cost ?? null };
-      }
-      default:
-        return { status: 'refused', code: 'unknown-skill' };
-    }
+    const args = { ...resolved.args };
+    if (WRITTEN.includes(resolved.skill) && typeof args.text === 'string' && typeof deps.renderText === 'function') args.text = deps.renderText(args.text);
+    const call = resolved.command.toCall(args);
+    if (!call.args || call.op !== resolved.skill) return { status: 'invalid', code: 'invalid-args', reason: 'command' };
+    if (typeof deps.runCommand !== 'function') return { status: 'not_configured', code: 'unsupported' };
+    const envelope = deps.envelope ?? {};
+    const requester = envelope.requester ?? null;
+    const result = await withTimeout(deps.runCommand(call.key, call.args, {
+      ...deps.opContext,
+      userId: requester?.id ?? null,
+      roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
+      actor: 'persona',
+      ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
+      ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),
+    }), deps.timeoutMs ?? CALL_TIMEOUT_MS);
+    // Dispatched and not back in time: it may have taken effect. Never retried.
+    if (result?.timedOut === true) return { status: 'unknown', code: 'timeout', data: { text: '' } };
+    const status = callStatus(result);
+    const embeds = Array.isArray(result?.data?.embeds) && result.data.embeds.length > 0;
+    const text = embeds ? cardText(result) : String(result?.summary ?? '');
+    const out = { status, ...(status === 'ok' ? {} : { code: String(result?.code ?? 'error') }), data: { text }, ...(result?.data?.ref ? { ref: result.data.ref } : {}) };
+    const files = status === 'ok' && Array.isArray(result?.data?.files) ? result.data.files : [];
+    if (files.length === 0) return out;
+    const attachments = files.map((file) => ({ name: String(file?.name ?? 'file'), data: file?.attachment }));
+    const sent = fromPort(await deps.port.send(deps.refOf(deps.opContext?.channelId), { attachments }));
+    return { ...sent, data: { text } };
   } catch (err) {
     return { status: 'failed', code: 'error', error: err };
   }
 }
 
 /**
- * Whether the persona hears back about a call: a read that succeeded (its data), or any call
- * that did not succeed -- but never under the full stop (`skills-off`: she is silent). A send,
- * an edit, a delete or a picture that succeeded is its own answer.
+ * Whether the persona hears back about a call (one follow-up request with its `<result>`): an
+ * operation that answered, unless it is a message or a picture that went out (QUIET_ON_OK: its
+ * own answer); any call that did not succeed -- but never under the full stop (`skills-off`: she
+ * is silent).
  * @param {string} skill
- * @param {{ status: string, code?: string }} result
+ * @param {{ status: string, code?: string, data?: { text?: string } }} result
  * @returns {boolean}
  */
 export function needsFollowUp(skill, result) {
   if (result?.code === 'skills-off') return false;
-  if (result?.status === 'ok') return READ_SKILLS.includes(skill);
+  if (result?.status === 'ok') return !QUIET_ON_OK.includes(skill) && Boolean(result.data?.text);
   return true;
 }
