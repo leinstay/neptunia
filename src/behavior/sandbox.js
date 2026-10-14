@@ -104,6 +104,7 @@ export const SANDBOX_OMITS = Object.freeze({
   diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
   diary: 'never a diary post: no <world>, <diary>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
+  skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block',
 });
 
 /** A non-empty string id. */
@@ -640,6 +641,7 @@ export function sandboxRequestInput({
     diaryChannel: null,
     diary: null,
     offPeriods: null,
+    skillsInventory: null,
   };
 }
 
