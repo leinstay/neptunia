@@ -176,6 +176,13 @@ transcript.timeAged                      {clock} {age}: 投稿から `context.ag
 transcript.empty | replyToOld | image
 transcript.triggeredBy                   {n}: ペルソナの行のペルソナ名のあと、その行を投稿したターンを起こしたメッセージの番号（features.triggerMarkers）。空 = マーカーなし
 transcript.triggeredByOlder              同上、そのメッセージがブロックに含まれない場合。空 = マーカーなし
+transcript.called                        {skill} {target} {status} {posted}: スキルを呼び出したターンのペルソナの最終行に付加される。メッセージがなかったターンでは単独行。{target} は calledTargetMessage、calledTargetLink、calledTargetChannel のいずれか、または空。{status} は callStatus.* のいずれか。{posted} は calledPosted または空。ペルソナが実際に行ったことの記録
+transcript.calledTargetMessage           {n}: 呼び出しがトランスクリプト内のメッセージを対象にした場合、{target} を埋める
+transcript.calledTargetLink              {link}: 呼び出しがメッセージリンクを対象にした場合、{target} を埋める
+transcript.calledTargetChannel           {channel}: 呼び出しがチャンネルを対象にした場合、{target} を埋める
+transcript.calledPosted                  {link}: 呼び出しが別チャンネルに投稿した場合、{posted} を埋める
+transcript.callStatus.ok | invalid | denied | failed | unknown | partial | not_configured    7つの結果コードの短いフレーズ。失敗または不明な呼び出しが完了と読まれてはならない
+transcript.postedFrom                    {channel}: ペルソナが別チャンネルから投稿した行に付加される
 transcript.replyTo                       {index} {author} {quote}: 親メッセージの番号、その著者（親がペルソナ自身の場合は self ラベル）、親テキストの引用（`context.replyQuoteChars`（デフォルト 80、`0` = 全文）で単語境界にカット。メディアのみの親はそのメディアラベルを引用する）
 transcript.file | sticker                {name}
 transcript.stickerDescribed              {name} {text}

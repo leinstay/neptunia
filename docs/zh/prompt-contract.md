@@ -178,6 +178,13 @@ transcript.timeAged                      {clock} {age}: 替换发出已满 `cont
 transcript.empty | replyToOld | image
 transcript.triggeredBy                   {n}: 角色自身行中角色名之后，发出该行的回合所由触发消息的编号（features.triggerMarkers）；值为空时不显示标记
 transcript.triggeredByOlder              同上，当触发消息不在该区块内时；值为空时不显示标记
+transcript.called                        {skill} {target} {status} {posted}: 附加在调用了技能的回合中角色最后一行之后；如果回合没有消息则为独立行。{target} 为 calledTargetMessage、calledTargetLink、calledTargetChannel 之一或为空；{status} 为 callStatus.* 之一；{posted} 为 calledPosted 或为空。角色实际做了什么的记录
+transcript.calledTargetMessage           {n}: 当调用以对话记录中的消息为目标时填充 {target}
+transcript.calledTargetLink              {link}: 当调用以消息链接为目标时填充 {target}
+transcript.calledTargetChannel           {channel}: 当调用以频道为目标时填充 {target}
+transcript.calledPosted                  {link}: 当调用在其他频道发布消息时填充 {posted}
+transcript.callStatus.ok | invalid | denied | failed | unknown | partial | not_configured    七个结果代码的简短措辞；失败或未知的调用不得读作已完成
+transcript.postedFrom                    {channel}: 附加在角色从其他频道发布的行上
 transcript.replyTo                       {index} {author} {quote}: 父消息的编号、其作者（父消息为角色自己的时使用 self 标签）和父文本的引用（在词边界截断至 `context.replyQuoteChars`（默认 80；`0` = 完整）；仅含媒体的父消息引用其媒体标签）
 transcript.file | sticker                {name}
 transcript.stickerDescribed              {name} {text}

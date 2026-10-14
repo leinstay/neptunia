@@ -27,10 +27,10 @@
     "callStatus": {
       "ok": "done",
       "denied": "blocked",
-      "invalid": "not written right",
+      "invalid": "did not run (wrong arguments)",
       "not_configured": "not set up",
-      "unknown": "unclear whether it went through",
-      "partial": "partly done",
+      "unknown": "outcome unknown",
+      "partial": "partly worked",
       "failed": "did not work"
     },
     "postedFrom": "(posted from #{channel})",

@@ -225,7 +225,7 @@ transcript.calledTargetMessage           {n}: the {target} of a call whose targe
 transcript.calledTargetLink              {link}: the {target} of a call whose target message is not in the block (its Discord link)
 transcript.calledTargetChannel           {channel}: the {target} of a call without a known message: the target channel's name
 transcript.calledPosted                  {link}: the {posted} of a call that posted a message (its Discord link); empty otherwise
-transcript.callStatus.ok | denied | invalid | not_configured | unknown | partial | failed   the {status} word of each result status
+transcript.callStatus.ok | denied | invalid | not_configured | unknown | partial | failed   the {status} words; a failed or unknown call never reads as done
 transcript.postedFrom                    {channel}: after the persona's name on a line a call from another channel's turn posted; blanked: no marker
 transcript.replyTo                       {index} {author} {quote}: the parent message's number, its author (the self label when the parent is the persona's own) and a quote of the parent's text, cut at a word boundary to `context.replyQuoteChars` (default 80; `0` = whole); a parent with only media quotes its media labels
 transcript.replyToMemory                 {author} {quote}: appended to a line in the analyzer transcript; names the parent's author (the self label when the parent is the persona's own) and quotes its text. No `{index}`. A parent outside the batch renders `replyToOld`
