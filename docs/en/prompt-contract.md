@@ -196,7 +196,7 @@ that map lacks it. A call that did not work says why: `{status}` is then `transc
 (that word) and `{reason}`: `transcript.callReasons[<kind>]` for the kind the code and its machine reason give
 (`missing-arg`, `unknown-arg`, `wrong-arg`, `too-long`, `too-short`, `arg-twice`, `unknown-channel`, `unknown-role` with
 `{arg}` the argument's name; `unknown-message` and `not-own-message` with `{arg}` the option that named the
-message; `message-elsewhere`; `member-ambiguous`; any other kind is the code itself, `conversation-not-allowed` with
+message; `message-elsewhere`; `member-ambiguous`; any other kind is the code itself, `channel-no-permission` with
 `{channel}` the target channel's name), else the operation's own message as it said it (it names what exactly went
 wrong; on one line, cut to `skills.markTextMaxChars`, default 200, with an ellipsis; kept in process only, so a mark
 rebuilt from the journal after a restart has none), else the generic `skills.result.reasons[<code>]`, else
@@ -256,7 +256,7 @@ transcript.callStatusReason              OPTIONAL {status} {reason}: the {status
 transcript.callReasons.missing-arg | unknown-arg | wrong-arg | too-long | too-short | arg-twice | unknown-channel | unknown-role   {arg}: why a call's arguments were not right, naming the argument
 transcript.callReasons.message-elsewhere | member-ambiguous   why a call was not right: the message is in another channel than the one named; several members go by the name
 transcript.callReasons.unknown-message | not-own-message   {arg}: the message the option named is not in view; is not hers
-transcript.callReasons.conversation-not-allowed   {channel}: the channel she may not write in. Any kind without its phrase here falls back to skills.result.reasons[code], then .other
+transcript.callReasons.channel-no-permission      {channel}: the channel the bot has no permission in for this call. Any kind without its phrase here falls back to skills.result.reasons[code], then .other
 transcript.postedFrom                    {channel}: after the persona's name on a line a call from another channel's turn posted; blanked: no marker
 transcript.replyTo                       {index} {author} {quote}: the parent message's number, its author (the self label when the parent is the persona's own) and a quote of the parent's text, cut at a word boundary to `context.replyQuoteChars` (default 80; `0` = whole); a parent with only media quotes its media labels
 transcript.replyToMemory                 {author} {quote}: appended to a line in the analyzer transcript; names the parent's author (the self label when the parent is the persona's own) and quotes its text. No `{index}`. A parent outside the batch renders `replyToOld`

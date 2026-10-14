@@ -480,7 +480,7 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   assert.deepEqual(of(resolve('message.delete', { message: '#1' })), { kind: 'not-own-message', code: 'not-own-message', arg: 'message' });
   assert.deepEqual(detail('unknown-member', 'ambiguous'), { kind: 'member-ambiguous', code: 'unknown-member', arg: null });
   // Any other code is its own kind; nothing without a code, nothing for an ok outcome.
-  assert.deepEqual(detail('conversation-not-allowed', '', 'invalid'), { kind: 'conversation-not-allowed', code: 'conversation-not-allowed', arg: null });
+  assert.deepEqual(detail('channel-no-permission', '', 'denied'), { kind: 'channel-no-permission', code: 'channel-no-permission', arg: null });
   assert.deepEqual(detail('timeout', undefined, 'unknown'), { kind: 'timeout', code: 'timeout', arg: null });
   assert.equal(outcomeDetail({ status: 'ok', code: 'ok' }), null);
   assert.equal(outcomeDetail({ status: 'failed' }), null);

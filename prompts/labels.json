@@ -47,7 +47,7 @@
       "message-elsewhere": "that message is in another channel",
       "not-own-message": "that {arg} is not yours",
       "member-ambiguous": "more than one member by that name",
-      "conversation-not-allowed": "you may not write in #{channel}"
+      "channel-no-permission": "no permission in #{channel}"
     },
     "postedFrom": "(posted from #{channel})",
     "image": "[image]",
