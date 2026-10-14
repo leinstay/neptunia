@@ -150,6 +150,64 @@ test('embed-index build: while the bot runs with its live queue on, the current 
   assert.equal(fs.existsSync(path.join(kit.dataDir, 'guilds', GUILD, 'vectors', '2026-10')), false);
 });
 
+/** Mark the bot as running on the fixture's data/ with its live queue on. */
+function liveBot(kit) {
+  fs.mkdirSync(path.join(kit.dataDir, 'guilds', GUILD, 'journal'), { recursive: true });
+  fs.writeFileSync(path.join(kit.dataDir, 'guilds', GUILD, 'journal', '.running'), '{}');
+  kit.hot.config.features = { meaningSearch: true, embedIndex: true };
+}
+
+/** More record lines in the fixture's data/ (the stores closed again after). */
+async function recordMore(kit, lines) {
+  const store = createAppendStore({ fsyncMs: 0, log: quiet });
+  await createRecord({ appendStore: store, dataDir: kit.dataDir, log: quiet }).append(GUILD, lines);
+  await store.close();
+}
+
+test('embed-index build --include-live: the current month gets only its missing rows older than the catch-up window, appended', async () => {
+  const kit = await fixture();
+  await kit.run(['build', '--max-usd', '1']);
+  const before = manifest(kit.dataDir, '2026-10');
+  await recordMore(kit, [
+    line('m5', '2026-10-05T10:00:00.000Z', 'a missing line', ELENI),
+    line('m6', '2026-10-14T10:00:00.000Z', 'inside the catch-up window', NIKOS),
+  ]);
+  liveBot(kit);
+  const sent = kit.calls.length;
+  const left = await kit.run(['build', '--max-usd', '1']);
+  assert.match(left, /left to the live queue/);
+  assert.equal(kit.calls.length, sent, 'without --include-live the live month is the queue\'s');
+  const out = await kit.run(['build', '--max-usd', '1', '--include-live']);
+  assert.deepEqual(sentTexts(kit.calls.slice(sent)), ['Ελένη: chess night\n422222222222222222: won twice\nΕλένη: a missing line']);
+  const after = manifest(kit.dataDir, '2026-10');
+  assert.equal(after.gen, before.gen, 'appended, never replaced');
+  assert.equal(after.rows, before.rows + 1);
+  assert.match(out, /built: 1 month layer\(s\)/);
+  // Run again: nothing is missing any more.
+  await kit.run(['build', '--max-usd', '1', '--include-live']);
+  assert.equal(kit.calls.length, sent + 1);
+  assert.equal(manifest(kit.dataDir, '2026-10').rows, before.rows + 1);
+});
+
+test('embed-index: --include-live belongs to build, --coverage and --hours to stats', async () => {
+  const kit = await fixture();
+  await assert.rejects(kit.run(['stats', '--include-live']), (err) => err instanceof CliError);
+  await assert.rejects(kit.run(['build', '--max-usd', '1', '--coverage']), (err) => err instanceof CliError);
+  await assert.rejects(kit.run(['stats', '--hours', '5']), (err) => err instanceof CliError);
+  await assert.rejects(kit.run(['stats', '--coverage', '--hours', '0']), (err) => err instanceof CliError);
+});
+
+test('embed-index stats --coverage: the record of the last hours against the index, counts only', async () => {
+  const kit = await fixture();
+  const before = await kit.run(['stats', '--coverage', '--hours', '300']);
+  assert.match(before, /coverage, last 300 h: 3 messages, 0 indexed, 3 missing, oldest missing 2026-10-02T10:00:00.000Z/);
+  await kit.run(['build', '--max-usd', '1']);
+  const after = await kit.run(['stats', '--coverage', '--hours', '300']);
+  assert.match(after, /coverage, last 300 h: 3 messages, 3 indexed, 0 missing, oldest missing none/);
+  assert.match(await kit.run(['stats', '--coverage']), /coverage, last 72 h: 0 messages/, 'embed.catchUpHours by default');
+  for (const text of ['chess', 'private word']) assert.equal(after.includes(text), false, text);
+});
+
 test('embed-index stats: rows per month and the private layers summed', async () => {
   const kit = await fixture();
   await kit.run(['build', '--max-usd', '1']);

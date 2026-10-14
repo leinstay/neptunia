@@ -96,7 +96,9 @@
     "dimensions": 1024,
     "batch": 64,
     "flushSeconds": 180,
-    "queueMax": 2000
+    "queueMax": 2000,
+    "catchUpHours": 72,
+    "catchUpEveryMinutes": 60
   },
   "context": {
     "channelMessages": 100,

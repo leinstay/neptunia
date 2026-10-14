@@ -103,6 +103,9 @@ const ARCHIVE_CHOICES = 25;
  * `embedder` — from createEmbedder() (src/llm/embed.js), optional: `embed()`, the one-input
  *   embedding request the owner's `/nep status` card probes the `classifier.embed` role with.
  *   Absent -> that role is shown unchecked.
+ * `embedQueue` — from src/memory/embedder.js#createEmbedder, optional: `catchUp(guildId)`, the
+ *   meaning index's catch-up pass `/nep resume` starts (never awaited), and `indexSummary(guildId)`,
+ *   the owner card's index line. Absent -> no pass on resume and no index line.
  * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing

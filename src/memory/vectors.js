@@ -20,6 +20,11 @@
 // participants), and `search` hides a member under a forgetting marker or in the deletion ledger
 // even before the rewrite has run. Writers (append, rewrite) wait on the writer gate.
 //
+// `has` answers which messages and items a month already holds (the live queue's catch-up and
+// the index tool's append of what is missing): the `chunkKey` of every row, read from the jsonl
+// alone and kept per month while its manifest says the generation and the row count are the same
+// (a grown month reads only its new lines, a new generation is read whole).
+//
 // Logs carry counts, months and guild ids, never a row's contents.
 
 import * as nodeFs from 'node:fs/promises';
@@ -27,6 +32,7 @@ import path from 'node:path';
 import { log as defaultLog } from '../log.js';
 import { forgettingIds, isoOf, recordDrops } from './record.js';
 import { archiveDrops } from './archive.js';
+import { chunkKey } from './chunks.js';
 import { readLedger } from './store.js';
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
@@ -35,6 +41,8 @@ const MANIFEST_VERSION = 1;
 const FNV_OFFSET = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
 const DEFAULT_CACHE_BYTES = 256 * 1024 * 1024;
+/** Months whose row keys `has` keeps in memory, the least recently asked dropped first. */
+const KEY_SETS_MAX = 64;
 
 /**
  * One vector as int8 with its own scale: `scale` = max |v| / 127 (0 for an all-zero vector),
@@ -163,6 +171,7 @@ function validManifest(value) {
  *     from?: string|number|null, to?: string|number|null, filter?: ((meta: object) => boolean)|null,
  *     k?: number, privateUserId?: string|null }): Promise<Array<{ meta: object, score: number }>>,
  *   stats(guildId: string, opts?: { privateUserId?: string|null }): Promise<{ months: number, rows: number, bytes: number }>,
+ *   has(guildId: string, month: string, opts?: { privateUserId?: string|null }): Promise<Set<string>>,
  * }}
  *   A row's `meta`: `kind` ('record' | 'archive'), `id` (message id or item id), `revision`,
  *   `occurredAt`, `channelId`, `by`, `participants` (the union over the chunk's lines),
@@ -185,9 +194,14 @@ function validManifest(value) {
  *   `[from, to]` and that `filter` accepts, leaving out the rows of a member under a forgetting
  *   marker or forgotten in the ledger (rows before their ledger time), and a private layer whose
  *   member is either. A month whose files do not match its manifest's checksum is skipped (logged).
+ *   `has` resolves the `chunkKey` (`<kind>:<id>:<revision>`, src/memory/chunks.js) of every row
+ *   the month of the layer holds now (empty for a missing or unreadable month); the set is the
+ *   cached one, read only, current as of the call: an append, a rewrite or a replace by this
+ *   index or another process shows on the next call.
  */
 export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Date.now, writerGate = null, maxCacheBytes = DEFAULT_CACHE_BYTES }) {
   const cache = new Map(); // `${base}|${month}` -> { gen, rows, dims, bytes, metaBytes, data, metas, hashes, size }
+  const keySets = new Map(); // `${base}|${month}` -> { gen, rows, metaBytes, keys }
   let cachedBytes = 0;
   let chain = Promise.resolve();
 
@@ -309,6 +323,7 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
 
   function dropCachedUnder(prefix) {
     for (const key of [...cache.keys()]) if (key.startsWith(prefix)) dropCached(key);
+    for (const key of [...keySets.keys()]) if (key.startsWith(prefix)) keySets.delete(key);
   }
 
   function remember(key, entry) {
@@ -523,6 +538,7 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
       checksum: checksumOf(fnv(FNV_OFFSET, out), fnv(FNV_OFFSET, metaBuf)),
     }));
     dropCached(key);
+    keySets.delete(key);
     // Every other generation goes: the one just replaced and any a crashed rewrite left behind.
     for (const name of await listDir(dir)) {
       const match = name.match(GEN_FILE_RE);
@@ -586,6 +602,7 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
       checksum: checksumOf(fnv(FNV_OFFSET, out), fnv(FNV_OFFSET, metaBuf)),
     }));
     dropCached(key);
+    keySets.delete(key);
     for (const name of await listDir(dir)) {
       const match = name.match(GEN_FILE_RE);
       if (match && Number(match[1]) !== gen) await fs.rm(path.join(dir, name), { force: true });
@@ -766,5 +783,48 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     return { months: count, rows, bytes };
   }
 
-  return { append, rewrite, replace, forgetUser, search, stats };
+  /** The row keys of one month: the cached set, grown by the new jsonl lines, or read whole. */
+  async function keysOf(base, month, retried = false) {
+    const key = `${base}|${month}`;
+    const dir = path.join(base, month);
+    const manifest = await readManifest(dir);
+    if (!manifest || manifest.rows === 0) {
+      keySets.delete(key);
+      return new Set();
+    }
+    const held = keySets.get(key);
+    if (held && held.gen === manifest.gen && held.rows === manifest.rows) {
+      keySets.delete(key);
+      keySets.set(key, held);
+      return held.keys;
+    }
+    const grows = held && held.gen === manifest.gen && held.rows < manifest.rows && held.metaBytes <= manifest.metaBytes;
+    const from = grows ? held.metaBytes : 0;
+    let buf;
+    try {
+      buf = await readBytes(genFile(dir, manifest.gen, 'jsonl'), from, manifest.metaBytes - from);
+    } catch (error) {
+      // A rewrite switched the generation between the manifest and the file: read it again.
+      if (error?.code === 'ENOENT' && !retried) return keysOf(base, month, true);
+      if (error?.code === 'ENOENT' || error?.code === 'vectors-short') {
+        log.warn('vectors: month unreadable', { month, code: error.code });
+        keySets.delete(key);
+        return new Set();
+      }
+      throw error;
+    }
+    const keys = grows ? held.keys : new Set();
+    for (const meta of parseLines(buf)) if (meta) keys.add(chunkKey(meta));
+    keySets.delete(key);
+    keySets.set(key, { gen: manifest.gen, rows: manifest.rows, metaBytes: manifest.metaBytes, keys });
+    while (keySets.size > KEY_SETS_MAX) keySets.delete(keySets.keys().next().value);
+    return keys;
+  }
+
+  async function has(guildId, month, { privateUserId = null } = {}) {
+    if (!MONTH_RE.test(String(month))) throw new TypeError('vectors: month must be YYYY-MM');
+    return keysOf(baseDir(guildId, privateUserId), String(month));
+  }
+
+  return { append, rewrite, replace, forgetUser, search, stats, has };
 }

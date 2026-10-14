@@ -6,7 +6,7 @@ import { log } from '../log.js';
 import { defineOp, perEnv } from './registry.js';
 
 const handlers = perEnv((env) => {
-  const { hot, store, turns, memory, pending, warmup, gifRecache, slash, resolvedGuildId, journalSystem } = env;
+  const { hot, store, turns, memory, pending, warmup, gifRecache, slash, resolvedGuildId, journalSystem, embedQueue } = env;
 
   /**
    * Sets `paused`/`pausedAt` (and `pausedBy`, the caller) in state.json FIRST (so a crash or restart
@@ -88,7 +88,9 @@ const handlers = perEnv((env) => {
    * data/ fails to parse, naming the offending paths; else re-reads
    * state.json (the owner may have hand-edited data/ while paused) and clears
    * the pause flags, letting every other cache lazily re-populate from disk.
-   * Then the journal's `resume` record; nothing is posted to the chat.
+   * Then the journal's `resume` record; nothing is posted to the chat. Last, the meaning index's
+   * catch-up pass starts in the background (`embedQueue.catchUp`, never awaited; it does nothing
+   * with the index switches off).
    */
   async function cmdResume(context) {
     if (!store.state.data.paused) return 'Not paused.';
@@ -115,7 +117,14 @@ const handlers = perEnv((env) => {
 
     log.info('admin: resumed', {});
 
-    await journalSystem(resolvedGuildId(context), { event: 'resume', by: 'owner' });
+    const guildId = resolvedGuildId(context);
+    await journalSystem(guildId, { event: 'resume', by: 'owner' });
+
+    if (guildId && typeof embedQueue?.catchUp === 'function') {
+      Promise.resolve()
+        .then(() => embedQueue.catchUp(guildId))
+        .catch((err) => log.warn('admin: embed catch-up failed', { code: err?.code ?? null, guildId }));
+    }
 
     return 'Resumed.';
   }

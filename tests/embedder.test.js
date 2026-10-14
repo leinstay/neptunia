@@ -24,11 +24,12 @@ function line(messageId, minute, text, overrides = {}) {
 
 function quietLog() {
   const warns = [];
-  return { warns, info() {}, warn(name, fields) { warns.push({ name, fields }); }, error() {} };
+  const infos = [];
+  return { warns, infos, info(name, fields) { infos.push({ name, fields }); }, warn(name, fields) { warns.push({ name, fields }); }, error() {} };
 }
 
 /** A temp data/, the real record, a fake index and embed call, and the queue over them. */
-function scene({ features = { meaningSearch: true, embedIndex: true }, embedConfig = {}, embedImpl = null } = {}) {
+function scene({ features = { meaningSearch: true, embedIndex: true }, embedConfig = {}, embedImpl = null, paused = null } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-embedder-'));
   const appendStore = createAppendStore({ fsyncMs: 0, log: quietLog() });
   const record = createRecord({ appendStore, dataDir, log: quietLog() });
@@ -40,10 +41,23 @@ function scene({ features = { meaningSearch: true, embedIndex: true }, embedConf
   };
   const hot = { config };
   const appended = [];
+  /** Rows already in the index before the scene (`chunkKey`s by layer and month). */
+  const preIndexed = [];
   const vectors = {
     async append(guildId, rows, opts) {
       appended.push({ guildId, rows, opts });
       return { written: rows.length };
+    },
+    async has(guildId, month, { privateUserId = null } = {}) {
+      const keys = new Set();
+      for (const item of [...preIndexed, ...appended.flatMap((a) => a.rows.map((row) => ({ meta: row.meta, privateUserId: a.opts.privateUserId ?? null })))]) {
+        if ((item.privateUserId ?? null) === privateUserId && item.meta.occurredAt.slice(0, 7) === month) keys.add(`${item.meta.kind}:${item.meta.id}:${item.meta.revision}`);
+      }
+      return keys;
+    },
+    async stats(guildId, { privateUserId = null } = {}) {
+      const rows = appended.filter((a) => (a.opts.privateUserId ?? null) === privateUserId).reduce((n, a) => n + a.rows.length, 0);
+      return { months: rows > 0 ? 1 : 0, rows, bytes: 0 };
     },
   };
   const calls = [];
@@ -58,14 +72,19 @@ function scene({ features = { meaningSearch: true, embedIndex: true }, embedConf
     hot, vectors, embed, record, dataDir, log, now: () => clock.at,
     nameOf: (guildId, id) => names.get(id) ?? null,
     selfName: () => 'Persona',
+    ...(paused ? { paused } : {}),
   });
   /** Record the lines, then queue them, as src/index.js's wrapper does. */
   async function write(lines, opts = {}) {
     await record.append(GUILD, lines, opts);
     return embedder.enqueue(GUILD, lines, opts);
   }
-  return { dataDir, record, hot, appended, calls, clock, log, embedder, write, close: () => appendStore.close() };
+  /** Record the lines only: the queue was down (a stop, a crash, the switches off). */
+  const recordOnly = (lines, opts = {}) => record.append(GUILD, lines, opts);
+  return { dataDir, record, hot, appended, preIndexed, calls, clock, log, embedder, write, recordOnly, close: () => appendStore.close() };
 }
+
+const sentIds = (kit) => kit.appended.flatMap((a) => a.rows.map((row) => `${row.meta.id}:${row.meta.revision}`));
 
 test('embedder: nothing is queued or sent unless meaningSearch and embedIndex are both on', async () => {
   for (const features of [{ meaningSearch: true, embedIndex: false }, { meaningSearch: false, embedIndex: true }, {}]) {
@@ -241,5 +260,158 @@ test('embedder: close gives up after its timeout without waiting for a hung requ
   release([Float32Array.from([1, 0, 0, 0])]);
   await kit.embedder.flush();
   assert.equal(kit.calls.length, 1, 'the one flush, finished after close gave up');
+  await kit.close();
+});
+
+test('embedder: catchUp at start embeds the lines recorded while the queue was down, each with its channel context', async () => {
+  const kit = scene();
+  await kit.recordOnly([line('m1', 0, 'who brought the café?', { by: NIKOS, participants: [NIKOS] }), line('m2', 1, 'not me'), line('m3', 2, 'elsewhere', { scope: { channel: 'c2' } })]);
+  await kit.recordOnly([line('p1', 3, 'a private word')], { privateUserId: ELENI });
+  kit.clock.at = T0 + 3 * 3_600_000;
+  const pass = await kit.embedder.catchUp(GUILD);
+  assert.equal(pass.queued, 4);
+  assert.equal(pass.missing, 4);
+  await kit.embedder.flush();
+  assert.deepEqual(kit.calls[0].texts, ['Nikós: who brought the café?', 'Nikós: who brought the café?\nΕλένη: not me', 'Ελένη: elsewhere', 'Ελένη: a private word']);
+  assert.deepEqual(kit.appended.map((a) => a.opts.privateUserId), [null, ELENI]);
+  assert.ok(kit.log.infos.some((i) => i.name === 'embedder: coverage' && i.fields.missing === 4 && i.fields.queued === 4));
+  // A second pass finds nothing left.
+  assert.equal((await kit.embedder.catchUp(GUILD)).queued, 0);
+  assert.equal(kit.embedder.stats().queued, 0);
+  await kit.close();
+});
+
+test('embedder: catchUp skips what the index holds at that revision and embeds a newer revision', async () => {
+  const kit = scene();
+  await kit.recordOnly([line('m1', 0, 'kept'), line('m2', 1, 'first'), line('m3', 2, 'new')]);
+  await kit.recordOnly([line('m2', 1, 'edited', { revision: 2 })]);
+  kit.preIndexed.push(
+    { meta: { kind: 'record', id: 'm1', revision: 1, occurredAt: line('m1', 0, '').occurredAt }, privateUserId: null },
+    { meta: { kind: 'record', id: 'm2', revision: 1, occurredAt: line('m2', 1, '').occurredAt }, privateUserId: null },
+  );
+  kit.clock.at = T0 + 3_600_000;
+  const pass = await kit.embedder.catchUp(GUILD);
+  assert.deepEqual({ messages: pass.messages, indexed: pass.indexed, missing: pass.missing, queued: pass.queued }, { messages: 3, indexed: 1, missing: 2, queued: 2 });
+  await kit.embedder.flush();
+  assert.deepEqual(sentIds(kit), ['m2:2', 'm3:1']);
+  await kit.close();
+});
+
+test('embedder: catchUp leaves out a member under a forgetting marker, one the ledger forgot after the line, and their private layer', async () => {
+  const kit = scene();
+  const guildDir = path.join(kit.dataDir, 'guilds', GUILD);
+  const MARTA = '433333333333333333';
+  await kit.recordOnly([line('m1', 0, 'by Nikós', { by: NIKOS, participants: [NIKOS] }), line('m2', 1, 'by Eleni'), line('m3', 2, 'by Marta', { by: MARTA, participants: [MARTA] })]);
+  await kit.recordOnly([line('p1', 3, 'private to Nikós', { by: NIKOS, participants: [NIKOS] })], { privateUserId: NIKOS });
+  fs.writeFileSync(path.join(guildDir, 'forgotten.json'), JSON.stringify([{ userId: NIKOS, at: new Date(T0 + 30 * 60_000).toISOString() }]));
+  fs.mkdirSync(path.join(guildDir, 'forgetting'), { recursive: true });
+  fs.writeFileSync(path.join(guildDir, 'forgetting', `${MARTA}.json`), '{}');
+  kit.clock.at = T0 + 3_600_000;
+  const pass = await kit.embedder.catchUp(GUILD);
+  assert.equal(pass.queued, 1);
+  await kit.embedder.flush();
+  assert.deepEqual(sentIds(kit), ['m2:1']);
+  assert.deepEqual(kit.calls[0].texts, ['Ελένη: by Eleni'], 'a forgotten context line is left out too');
+  await kit.close();
+});
+
+test('embedder: coverage counts the record window, the indexed, the missing and the oldest missing, before and after a pass', async () => {
+  const kit = scene();
+  await kit.recordOnly([line('m0', -48 * 60, 'too old for the window'), line('m1', 0, 'a'), line('m2', 1, 'b')]);
+  kit.clock.at = T0 + 3_600_000;
+  const before = await kit.embedder.coverage(GUILD, { hours: 24 });
+  assert.deepEqual(before, { messages: 2, indexed: 0, missing: 2, oldestMissing: line('m1', 0, '').occurredAt });
+  const wide = await kit.embedder.coverage(GUILD, { hours: 72 });
+  assert.equal(wide.messages, 3);
+  await kit.embedder.catchUp(GUILD);
+  await kit.embedder.flush();
+  assert.deepEqual(await kit.embedder.coverage(GUILD, { hours: 72 }), { messages: 3, indexed: 3, missing: 0, oldestMissing: null });
+  await kit.close();
+});
+
+test('embedder: switching the index on later triggers a catch-up on the next tick', async () => {
+  const kit = scene({ features: { meaningSearch: true, embedIndex: false } });
+  assert.equal(await kit.write([line('m1', 0, 'while off')]), 0);
+  kit.clock.at = T0 + 60_000;
+  await kit.embedder.tick(GUILD);
+  assert.equal(kit.embedder.stats().queued, 0, 'off: no catch-up');
+  kit.hot.config.features.embedIndex = true;
+  await kit.embedder.tick(GUILD);
+  assert.equal(kit.embedder.stats().queued, 1, 'the switch turned on: caught up');
+  await kit.embedder.flush();
+  assert.deepEqual(sentIds(kit), ['m1:1']);
+  await kit.close();
+});
+
+test('embedder: no catch-up while paused; the one run on resume queues what the pause left', async () => {
+  const state = { paused: true };
+  const kit = scene({ paused: () => state.paused });
+  await kit.recordOnly([line('m1', 0, 'before the pause')]);
+  kit.clock.at = T0 + 60_000;
+  assert.equal(await kit.embedder.catchUp(GUILD), null);
+  await kit.embedder.tick(GUILD);
+  assert.equal(kit.embedder.stats().queued, 0);
+  state.paused = false;
+  const pass = await kit.embedder.catchUp(GUILD);
+  assert.equal(pass.queued, 1);
+  await kit.close();
+});
+
+test('embedder: the periodic pass runs every embed.catchUpEveryMinutes and finds lines that bypassed the queue', async () => {
+  const kit = scene({ embedConfig: { catchUpEveryMinutes: 60 } });
+  await kit.embedder.catchUp(GUILD);
+  await kit.recordOnly([line('m1', 5, 'a line the queue never heard of')]);
+  kit.clock.at = T0 + 59 * 60_000;
+  await kit.embedder.tick(GUILD);
+  assert.equal(kit.embedder.stats().queued, 0, 'not yet');
+  kit.clock.at = T0 + 60 * 60_000;
+  await kit.embedder.tick(GUILD);
+  assert.equal(kit.embedder.stats().queued + kit.appended.length, 1, 'the hourly pass found it');
+  await kit.close();
+});
+
+test('embedder: a pass queues at most embed.queueMax; the rest follows once the queue has drained', async () => {
+  const kit = scene({ embedConfig: { queueMax: 2, batch: 2, flushSeconds: 60 } });
+  await kit.recordOnly([1, 2, 3, 4, 5].map((n) => line(`m${n}`, n, `line ${n}`)));
+  kit.clock.at = T0 + 3_600_000;
+  const pass = await kit.embedder.catchUp(GUILD);
+  assert.deepEqual({ queued: pass.queued, left: pass.left }, { queued: 2, left: 3 });
+  assert.ok(!kit.log.warns.some((w) => w.name === 'embedder: queue full'), 'a pass never overfills the queue');
+  await kit.embedder.flush();
+  for (let i = 0; i < 4; i += 1) {
+    kit.clock.at += 60_000;
+    await kit.embedder.tick(GUILD);
+    await kit.embedder.flush();
+  }
+  assert.deepEqual(sentIds(kit), ['m1:1', 'm2:1', 'm3:1', 'm4:1', 'm5:1']);
+  await kit.close();
+});
+
+test('embedder: a line the queue had and lost is warned about as a coverage gap and queued again', async () => {
+  const kit = scene({ embedConfig: { queueMax: 1 } });
+  await kit.write([line('m1', 0, 'a'), line('m2', 1, 'b')]);
+  assert.ok(kit.log.warns.some((w) => w.name === 'embedder: queue full'));
+  await kit.embedder.flush();
+  assert.deepEqual(sentIds(kit), ['m2:1']);
+  kit.clock.at = T0 + 3_600_000;
+  const pass = await kit.embedder.catchUp(GUILD);
+  assert.equal(pass.lost, 1);
+  assert.ok(kit.log.warns.some((w) => w.name === 'embedder: coverage gap' && w.fields.lost === 1 && w.fields.missing === 1));
+  await kit.embedder.flush();
+  assert.deepEqual(sentIds(kit), ['m2:1', 'm1:1']);
+  await kit.close();
+});
+
+test('embedder: indexSummary gives the index rows and the last pass\'s missing count', async () => {
+  const kit = scene();
+  assert.deepEqual(await kit.embedder.indexSummary(GUILD), { rows: 0, missing: null });
+  await kit.recordOnly([line('m1', 0, 'a'), line('m2', 1, 'b')]);
+  await kit.recordOnly([line('p1', 2, 'c')], { privateUserId: ELENI });
+  kit.clock.at = T0 + 3_600_000;
+  await kit.embedder.catchUp(GUILD);
+  assert.deepEqual(await kit.embedder.indexSummary(GUILD), { rows: 0, missing: 3 });
+  await kit.embedder.flush();
+  await kit.embedder.catchUp(GUILD);
+  assert.deepEqual(await kit.embedder.indexSummary(GUILD), { rows: 3, missing: 0 });
   await kit.close();
 });

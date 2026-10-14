@@ -335,3 +335,36 @@ test('vectors: replace with another model or length keeps none of the old rows; 
     /a row of 2026-09/,
   );
 });
+
+test('vectors: has lists the kind, id and revision of every row of a month, kept current across append, rewrite and layers', async () => {
+  const { vectors } = scene();
+  const rng = seeded(11);
+  assert.deepEqual([...(await vectors.has('g1', '2026-10'))], [], 'no month yet');
+  await vectors.append('g1', [
+    { meta: meta('a'), vector: randomVector(rng, 8) },
+    { meta: meta('b', { revision: 2 }), vector: randomVector(rng, 8) },
+    { meta: meta('ep1', { kind: 'archive', revision: 'rv-1' }), vector: randomVector(rng, 8) },
+  ]);
+  assert.deepEqual([...(await vectors.has('g1', '2026-10'))].sort(), ['archive:ep1:rv-1', 'record:a:1', 'record:b:2']);
+  await vectors.append('g1', [{ meta: meta('c'), vector: randomVector(rng, 8) }]);
+  assert.ok((await vectors.has('g1', '2026-10')).has('record:c:1'), 'an append shows at once');
+  await vectors.rewrite('g1', '2026-10', (m) => m.id !== 'a');
+  assert.deepEqual([...(await vectors.has('g1', '2026-10'))].sort(), ['archive:ep1:rv-1', 'record:b:2', 'record:c:1'], 'a rewrite shows at once');
+  assert.equal((await vectors.has('g1', '2026-09')).size, 0, 'another month');
+  await vectors.append('g1', [{ meta: meta('p'), vector: randomVector(rng, 8) }], { privateUserId: 'u9' });
+  assert.deepEqual([...(await vectors.has('g1', '2026-10', { privateUserId: 'u9' }))], ['record:p:1']);
+  assert.equal((await vectors.has('g1', '2026-10')).has('record:p:1'), false, 'a private row stays out of the guild month');
+  await assert.rejects(vectors.has('g1', 'october'), TypeError);
+});
+
+test('vectors: has sees a month another process wrote (by its manifest)', async () => {
+  const { dataDir, vectors } = scene();
+  const other = createVectors({ dataDir, log: quiet, now: () => OCT });
+  const rng = seeded(12);
+  await vectors.append('g1', [{ meta: meta('a'), vector: randomVector(rng, 8) }]);
+  assert.equal((await vectors.has('g1', '2026-10')).size, 1);
+  await other.append('g1', [{ meta: meta('b'), vector: randomVector(rng, 8) }]);
+  assert.ok((await vectors.has('g1', '2026-10')).has('record:b:1'));
+  await other.replace('g1', '2026-10', [{ meta: meta('z'), vector: randomVector(rng, 8) }]);
+  assert.deepEqual([...(await vectors.has('g1', '2026-10'))], ['record:z:1']);
+});
