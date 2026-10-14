@@ -5,9 +5,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_PROPOSED, byFamily, discoveryOn, parseSkillsLines, proposalVerdicts, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
+import { MAX_ARG_VALUES, MAX_PROPOSED, byFamily, discoveryOn, parseSkillsLines, proposalVerdicts, skillArgs, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
 import '../src/ops/index.js';
-import { loadSkills, skillNames } from '../src/skills/registry.js';
+import { loadSkills, skillNames, skillRegistry } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
 import { parseLookupAnswer } from '../src/behavior/recall.js';
 import { buildPlannerRequest, parsePlannerAnswer, PLANNER_BLOCKS } from '../src/behavior/planner.js';
@@ -147,4 +147,65 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
   ]);
   const asOwner = listSkills({ config, selfId: 'self-1', texts: {}, requester: { id: '42' }, audience: { conversationId: 'c1' }, registry, getOp });
   assert.deepEqual(proposalVerdicts(['x.owner'], asOwner), [{ name: 'x.owner', allowed: true, reason: 'allowed' }]);
+});
+
+test('skillArgs: each argument in schema order, required marked, enum values capped, booleans as values, integer bounds, the body option flagged', () => {
+  const many = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ'];
+  const skill = {
+    name: 'x.read',
+    argsSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', minLength: 1, maxLength: 2000 },
+        section: { type: 'string', enum: many },
+        order: { type: 'string', enum: ['rank', 'recent'] },
+        detail: { type: 'boolean' },
+        n: { type: 'integer', minimum: 1, maximum: 50 },
+        number: { type: 'integer', minimum: 1 },
+        user: { type: 'string', minLength: 1, maxLength: 100 },
+      },
+      required: ['user', 'text'],
+      additionalProperties: false,
+    },
+    command: { body: 'text' },
+  };
+  assert.equal(MAX_ARG_VALUES, 8);
+  assert.deepEqual(skillArgs(skill), [
+    { name: 'text', required: true, body: true },
+    { name: 'section', required: false, values: many.slice(0, MAX_ARG_VALUES), more: true },
+    { name: 'order', required: false, values: ['rank', 'recent'] },
+    { name: 'detail', required: false, values: ['true', 'false'] },
+    { name: 'n', required: false, minimum: 1, maximum: 50 },
+    { name: 'number', required: false, minimum: 1 },
+    { name: 'user', required: true },
+  ]);
+  // Exactly the cap: every value, no "more".
+  assert.deepEqual(skillArgs({ argsSchema: { properties: { role: { enum: many.slice(0, MAX_ARG_VALUES) } } } }), [{ name: 'role', required: false, values: many.slice(0, MAX_ARG_VALUES) }]);
+  // No schema, no properties, no command: nothing to list; a `text` without a command body is no body.
+  assert.deepEqual(skillArgs({ argsSchema: { type: 'object' } }), []);
+  assert.deepEqual(skillArgs(null), []);
+  assert.deepEqual(skillArgs({ argsSchema: { properties: { text: { type: 'string' } } } }), [{ name: 'text', required: false }]);
+});
+
+test('skillArgs: a derived skill lists its command\'s options, the same each time', () => {
+  const registry = skillRegistry();
+  assert.deepEqual(skillArgs(registry.get('memory.journal.read')), [
+    { name: 'day', required: false },
+    { name: 'kind', required: false, values: ['turn', 'action', 'memory', 'system', 'answer', 'all'] },
+    { name: 'n', required: false, minimum: 1, maximum: 50 },
+  ]);
+  assert.deepEqual(skillArgs(registry.get('message.create')), [
+    { name: 'channel', required: false },
+    { name: 'reply', required: false },
+    { name: 'text', required: true, body: true },
+  ]);
+  assert.deepEqual(skillArgs(registry.get('memory.journal.read')), skillArgs(registry.get('memory.journal.read')));
+});
+
+test('listSkills: each row carries the skill\'s arguments (skillArgs)', () => {
+  const registry = skillRegistry();
+  const rows = listSkills({ config: { features: {} }, selfId: 'self-1', texts: {}, requester: null, audience: { conversationId: 'c1' }, registry });
+  const byName = new Map(rows.map((row) => [row.name, row]));
+  for (const name of ['memory.journal.read', 'message.edit', 'status.show']) assert.deepEqual(byName.get(name).args, skillArgs(registry.get(name)), name);
+  assert.deepEqual(byName.get('memory.server.read').args, []);
 });

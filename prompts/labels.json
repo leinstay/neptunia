@@ -303,7 +303,14 @@
   },
   "skills": {
     "protocol": "You have skills described in a registry. When someone asks what you can do, <skills> shows the full list with whether you may use each one. The engine checks your rights. Do not reach for a skill unless the message needs one.",
-    "line": "{name}: {title} — {whenToUse} ({access})",
+    "line": "{name}: {title} — {whenToUse} ({access}){args}",
+    "args": {
+      "list": " Arguments: {list}.",
+      "required": "{arg} (required)",
+      "values": "{arg} = {values}",
+      "range": "{arg} = {min}..{max}",
+      "body": "{arg} (between the tags)"
+    },
     "access": {
       "allowed": "allowed",
       "carried-over": "allowed here, through your reply",

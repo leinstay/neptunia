@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, renderProfile, skillResultBlock, stableThenTail, fillPromptTemplate, userText as contentText, usesFollowUpTask, withSkillResult } from '../src/behavior/prompt.js';
+import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, renderProfile, skillResultBlock, skillsInventoryText, stableThenTail, fillPromptTemplate, userText as contentText, usesFollowUpTask, withSkillResult } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
 import { fill, formatClock, formatDate, formatDuration } from '../src/discord/format.js';
 import { zonedDay } from '../src/time.js';
@@ -4646,6 +4646,55 @@ test('buildRequest: skills -- the skills proposed for this turn show the allowed
   const prompts = fakePrompts({ labels: { ...labels, skills: { ...labels.skills, proposedOff: undefined } } });
   const closed = buildRequest(segmentScene({ prompts, skillsInventory: [{ ...SKILL_ROWS[3], proposed: true }] })).messages[1].content;
   assert.equal(blockTags(contentText(closed)).includes('skills'), false);
+});
+
+test('skillsInventoryText: each line lists the skill\'s arguments -- required marked, enum values with the cut shown, a range, the body option -- in a stable order', () => {
+  const argLabels = {
+    ...labels,
+    skills: {
+      ...labels.skills,
+      line: '{name}: {title} -- {whenToUse} ({access}){args}',
+      args: { list: ' args: {list}', required: '{arg}*', values: '{arg}={values}', range: '{arg}={min}..{max}', body: '{arg}(body)' },
+    },
+  };
+  const rows = [
+    { name: 'memory.journal.read', title: 'Διάβασε', whenToUse: 'το ημερολόγιο', allowed: true, reason: 'allowed', args: [
+      { name: 'day', required: false },
+      { name: 'kind', required: false, values: ['turn', 'action'], more: true },
+      { name: 'n', required: false, minimum: 1, maximum: 50 },
+    ] },
+    { name: 'message.create', title: 'Στείλε', whenToUse: 'σε άλλη συζήτηση', allowed: true, reason: 'carried-over', args: [
+      { name: 'channel', required: false },
+      { name: 'text', required: true, body: true },
+    ] },
+    { name: 'memory.server.read', title: 'Θυμήσου', whenToUse: 'τον server', allowed: true, reason: 'allowed', args: [] },
+    { name: 'learning.remove', title: 'Ξέχνα', whenToUse: 'ένα μάθημα', allowed: true, reason: 'allowed', args: [
+      { name: 'number', required: true, minimum: 1 },
+      { name: 'detail', required: false, values: ['true', 'false'] },
+    ] },
+    { name: 'memory.wipe', title: 'Σβήσε', whenToUse: 'ποτέ', allowed: false, reason: 'not-grantable', args: [{ name: 'confirm', required: true }] },
+  ];
+  const text = skillsInventoryText(rows, argLabels);
+  assert.deepEqual(text.split('\n'), [
+    'memory.journal.read: Διάβασε -- το ημερολόγιο (allowed) args: day, kind=turn|action|…, n=1..50',
+    'memory.server.read: Θυμήσου -- τον server (allowed)',
+    '',
+    'message.create: Στείλε -- σε άλλη συζήτηση (allowed here) args: channel, text(body)*',
+    '',
+    'learning.remove: Ξέχνα -- ένα μάθημα (allowed) args: number=1..*, detail=true|false',
+  ]);
+  assert.equal(skillsInventoryText(rows, argLabels), text, 'the same rows, the same text');
+  // Without the args labels the slot is empty; a missing form leaves the bare name.
+  const bare = skillsInventoryText(rows.slice(0, 1), { ...argLabels, skills: { ...argLabels.skills, args: undefined } });
+  assert.equal(bare, 'memory.journal.read: Διάβασε -- το ημερολόγιο (allowed)');
+  const listOnly = skillsInventoryText(rows.slice(0, 2), { ...argLabels, skills: { ...argLabels.skills, args: { list: ' args: {list}' } } });
+  assert.deepEqual(listOnly.split('\n'), [
+    'memory.journal.read: Διάβασε -- το ημερολόγιο (allowed) args: day, kind, n',
+    '',
+    'message.create: Στείλε -- σε άλλη συζήτηση (allowed here) args: channel, text',
+  ]);
+  // A row without args (an older caller) renders as before.
+  assert.equal(skillsInventoryText([{ ...rows[0], args: undefined }], argLabels), 'memory.journal.read: Διάβασε -- το ημερολόγιο (allowed)');
 });
 
 test('skillResultBlock: the status and the reason in words, a read\'s data cut to its cap, rows as the catalogue', () => {

@@ -1585,17 +1585,50 @@ function skillsProtocolText(labels) {
   return typeof text === 'string' ? text.trim() : '';
 }
 
+// Notation of an argument's allowed values in `<skills>`: separator, and the mark of a cut list.
+const ARG_VALUE_SEPARATOR = '|';
+const ARG_VALUES_MORE = '…';
+
+/**
+ * The `{args}` of one `labels.skills.line`: `forms.list` with `{list}` filled by the arguments
+ * (src/skills/discovery.js#skillArgs, in their order) joined by ', ', each its name wrapped in
+ * turn by `forms.values` (`{arg}`, `{values}`: the values joined by '|', '…' after a cut list),
+ * else by `forms.range` (`{arg}`, `{min}`, `{max}`; a bound the schema leaves open is ''), then
+ * `forms.body` (`{arg}`) for the option a `<call>` body fills, then `forms.required` (`{arg}`);
+ * a form the labels lack leaves the text as it was. '' without arguments or without `forms.list`.
+ * @param {object[]|undefined} args
+ * @param {object|undefined} forms  `labels.skills.args`.
+ * @returns {string}
+ */
+function skillArgsText(args, forms) {
+  if (!Array.isArray(args) || args.length === 0 || !isPlainObject(forms) || typeof forms.list !== 'string' || !forms.list) return '';
+  const wrap = (key, text, values) => (typeof forms[key] === 'string' && forms[key] ? fill(forms[key], { ...values, arg: text }) : text);
+  const one = (arg) => {
+    let text = String(arg.name);
+    if (Array.isArray(arg.values) && arg.values.length > 0) {
+      text = wrap('values', text, { values: [...arg.values, ...(arg.more ? [ARG_VALUES_MORE] : [])].join(ARG_VALUE_SEPARATOR) });
+    } else if (Number.isFinite(arg.minimum) || Number.isFinite(arg.maximum)) {
+      text = wrap('range', text, { min: Number.isFinite(arg.minimum) ? arg.minimum : '', max: Number.isFinite(arg.maximum) ? arg.maximum : '' });
+    }
+    if (arg.body === true) text = wrap('body', text);
+    if (arg.required === true) text = wrap('required', text);
+    return text;
+  };
+  return fill(forms.list, { list: args.filter((arg) => typeof arg?.name === 'string').map(one).join(', ') });
+}
+
 /**
  * The `<skills>` body, compact whatever the size of the catalogue: only the rows the persona may
  * use now (`allowed`), grouped by family (src/skills/discovery.js#byFamily, an empty line between
- * families), one `labels.skills.line` each with `{name}`, `{title}`, `{whenToUse}` and `{access}`
- * filled; `{access}` is `labels.skills.access[<the row's reason>]`, else
- * `labels.skills.access.allowed`. A row without a title (no texts in the skills layer yet) is its
- * name alone. Rows marked `proposed` (the skills a classifier named for this turn, not the whole
- * catalogue): a line for each allowed one, then the names of the others in one
- * `labels.skills.proposedOff` line (`{names}`; none without that label). '' without an allowed
- * row and nothing to name, or without `labels.skills.line`.
- * @param {{ name: string, title?: string, whenToUse?: string, allowed: boolean, reason: string, proposed?: boolean }[]|null|undefined} rows
+ * families), one `labels.skills.line` each with `{name}`, `{title}`, `{whenToUse}`, `{access}`
+ * and `{args}` filled; `{access}` is `labels.skills.access[<the row's reason>]`, else
+ * `labels.skills.access.allowed`; `{args}` is skillArgsText of the row's `args`. A row without a
+ * title (no texts in the skills layer yet) is its name alone. Rows marked `proposed` (the skills
+ * a classifier named for this turn, not the whole catalogue): a line for each allowed one, then
+ * the names of the others in one `labels.skills.proposedOff` line (`{names}`; none without that
+ * label). '' without an allowed row and nothing to name, or without `labels.skills.line`.
+ * Deterministic: the rows' order (the registry's) and their arguments' (the schema's) decide it.
+ * @param {{ name: string, title?: string, whenToUse?: string, allowed: boolean, reason: string, proposed?: boolean, args?: object[] }[]|null|undefined} rows
  * @param {object} labels
  * @returns {string}
  */
@@ -1605,7 +1638,7 @@ export function skillsInventoryText(rows, labels) {
   const access = isPlainObject(l.access) ? l.access : {};
   const word = (row) => access[row.reason] ?? access.allowed ?? '';
   const named = rows.filter((row) => row && typeof row.name === 'string');
-  const line = (row) => (row.title ? fill(l.line, { name: row.name, title: row.title, whenToUse: row.whenToUse ?? '', access: word(row) }) : row.name);
+  const line = (row) => (row.title ? fill(l.line, { name: row.name, title: row.title, whenToUse: row.whenToUse ?? '', access: word(row), args: skillArgsText(row.args, l.args) }) : row.name);
   const open = byFamily(named.filter((row) => row.allowed === true)).map((group) => group.map(line).join('\n'));
   if (!named.every((row) => row.proposed === true)) return open.join('\n\n');
   const off = named.filter((row) => row.allowed !== true).map((row) => row.name);

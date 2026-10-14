@@ -426,10 +426,13 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   const rows = listSkills({ config: cfg, selfId: SELF, texts, requester: { id: OWNER }, audience });
   assert.equal(rows.length, skillNames().length);
   const byName = new Map(rows.map((row) => [row.name, row]));
-  assert.deepEqual(byName.get('message.create'), { name: 'message.create', title: 'Στείλε', whenToUse: 'όταν θέλεις', allowed: true, reason: 'carried-over' });
-  assert.deepEqual(byName.get('message.edit'), { name: 'message.edit', title: '', whenToUse: '', allowed: true, reason: 'allowed' });
-  assert.deepEqual(byName.get('message.delete'), { name: 'message.delete', title: '', whenToUse: '', allowed: false, reason: 'not-allowed' });
-  assert.deepEqual(byName.get('memory.wipe'), { name: 'memory.wipe', title: '', whenToUse: '', allowed: false, reason: 'not-grantable' });
+  const channel = { name: 'channel', required: false };
+  const body = { name: 'text', required: true, body: true };
+  const message = { name: 'message', required: true };
+  assert.deepEqual(byName.get('message.create'), { name: 'message.create', title: 'Στείλε', whenToUse: 'όταν θέλεις', allowed: true, reason: 'carried-over', args: [channel, { name: 'reply', required: false }, body] });
+  assert.deepEqual(byName.get('message.edit'), { name: 'message.edit', title: '', whenToUse: '', allowed: true, reason: 'allowed', args: [message, body, channel] });
+  assert.deepEqual(byName.get('message.delete'), { name: 'message.delete', title: '', whenToUse: '', allowed: false, reason: 'not-allowed', args: [message, channel] });
+  assert.deepEqual(byName.get('memory.wipe'), { name: 'memory.wipe', title: '', whenToUse: '', allowed: false, reason: 'not-grantable', args: [{ name: 'confirm', required: true }] });
   // an owner-only skill: allowed for an owner who asks, not for a member -- unless it is her own
   const row = (name, requester) => listSkills({ config: cfg, selfId: SELF, texts: {}, requester, audience }).find((entry) => entry.name === name);
   assert.deepEqual([row('memory.private.read', { id: OWNER }).allowed, row('memory.private.read', { id: OWNER }).reason], [true, 'allowed']);

@@ -14,6 +14,7 @@ import { rightsRefusal } from '../ops/rights.js';
 import { skillRegistry, describeSkill } from './registry.js';
 import { CARRIED_OVER, skillAccess, skillsOn } from './access.js';
 import { schemaError } from './schema.js';
+import { skillArgs } from './discovery.js';
 import { MINUTE_MS } from '../time.js';
 import { SELF_OWNED_OPS } from '../ops/effects.js';
 
@@ -156,11 +157,12 @@ export function checkReplyEffect({ skill, principal, config }) {
  * whenToUse, allowed, reason }`, the texts from the skills layer (`texts`: `hot.prompts.skills`,
  * '' when missing). `reason` is skillAccess's (`carried-over`, `allowed`, `not-allowed`,
  * `safe-mode`, `skills-off`), or `requester-denied` for an allowed skill this requester may not
- * have run (requesterRefusal). Arguments, targets and budget are per call and left to
- * `checkSkill`.
+ * have run (requesterRefusal). `args` is what the skill takes (src/skills/discovery.js#skillArgs:
+ * the command's option names, for `<skills>` to list); the arguments' values, targets and budget
+ * are per call and left to `checkSkill`.
  * @param {{ config: object, selfId?: string|null, texts?: object, requester?: object|null, audience?: { conversationId?: string },
  *   registry?: Map<string, object>, getOp?: Function }} args
- * @returns {{ name: string, title: string, whenToUse: string, allowed: boolean, reason: string }[]}
+ * @returns {{ name: string, title: string, whenToUse: string, allowed: boolean, reason: string, args: object[] }[]}
  */
 export function listSkills({ config, selfId = null, texts, requester = null, audience = {}, registry = skillRegistry(), getOp }) {
   const rows = [];
@@ -172,7 +174,7 @@ export function listSkills({ config, selfId = null, texts, requester = null, aud
       allowed = false;
       reason = 'requester-denied';
     }
-    rows.push({ name: skill.name, title, whenToUse, allowed, reason });
+    rows.push({ name: skill.name, title, whenToUse, allowed, reason, args: skillArgs(skill) });
   }
   return rows;
 }
