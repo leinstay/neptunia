@@ -1566,16 +1566,22 @@ export function createTurnRunner({
    * gateway is asked again right before the call (the owner may have revoked it meanwhile), the
    * operation writes `started` with the ids it aims at, a destructive one is stamped for its
    * cooldown, and src/skills/executors.js#executeCall runs it on the envelope through
-   * `runCommand` (`skills.callTimeoutMs`, read now). The operation closes `succeeded` (with the
+   * `runCommand` (`skills.callTimeoutMs`, read now); her written text (`message.create`,
+   * `message.edit`) is rendered first exactly as a `<msg>` of this turn (renderPost over the
+   * turn's `lines`, `knownNames`, `idByIndex`, `pulledIds`), its mentions the only members
+   * notified. The operation closes `succeeded` (with the
    * message id), `unknown` (never retried) or `failed` with the code. A message or picture that reached another conversation
    * stamps its lastPostAt, links its trigger, and a message is a `said` line of the record.
    * Logged `skills: called` (`skill`, `status`, `code`). Resolves the result with `skill` and
    * `followUp` (src/skills/executors.js#needsFollowUp). Never throws.
    * @returns {Promise<{ skill: string, status: string, code?: string, data?: object, followUp: boolean }>}
    */
-  async function runCall(plan, { channel, trigger, guildId, draft }) {
+  async function runCall(plan, { channel, trigger, guildId, draft, privateChat = false, idByIndex = null, pulledIds = null, lines = [], knownNames = [] }) {
     const { call, op, envelope } = plan;
     const skill = call.skill;
+    // Her written text (message.create / message.edit) rendered as a `<msg>` of this turn is.
+    let rendered = null;
+    const renderText = (text) => (rendered = renderPost(text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, limits: draft?.limits ?? null }));
     let result;
     if (plan.refusal) result = { status: refusalStatus(plan.refusal.code), code: plan.refusal.code };
     else {
@@ -1588,7 +1594,7 @@ export function createTurnRunner({
         result = await executeCall(plan.resolved, {
           port: iface,
           refOf: (conversationId) => ({ iface: iface.iface, conversationId: String(conversationId) }),
-          renderText: (text) => renderCustomEmoji(text, emojiLookup()),
+          renderText,
           envelope,
           runCommand,
           runOwnCommand,
@@ -1609,7 +1615,7 @@ export function createTurnRunner({
       lastPostAt.set(where, clock());
       noteTrigger(posted.id, trigger?.id);
       if (skill === 'message.create') {
-        recordSaid({ guildId, channel: { id: where }, privateChat: false, trigger, draft, op, posted, text: args.text, replyId: args.reply ?? null, repliedAuthorId: plan.resolved.repliedAuthorId ?? null, userIds: [] });
+        recordSaid({ guildId, channel: { id: where }, privateChat: false, trigger, draft, op, posted, text: args.text, replyId: args.reply ?? null, repliedAuthorId: plan.resolved.repliedAuthorId ?? null, userIds: rendered?.userIds ?? [] });
       }
     }
     log.info('skills: called', { channel: channel.id, skill, status: result.status, ...(result.code ? { code: result.code } : {}), ...(result.status !== 'ok' && result.error ? { error: portError(result) } : {}) });
@@ -1839,6 +1845,23 @@ export function createTurnRunner({
   }
 
   /**
+   * The persona's `text` as it is posted -- a `<msg>`, or the text of her `message.create` /
+   * `message.edit` call: `@name` resolved over `lines`, then `knownNames` (resolveMentions), custom
+   * emoji after the mentions (`<@id>` has no `:name:` in it to break), transcript numbers into jump
+   * links (withMessageLinks), channel names into channel links (withChannelLinks), then `link`
+   * joined and the whole cut to one Discord message (withLink; `limits` told a cut). Resolves
+   * `text` (as sent), `spoken` (before any link: what the typing time is taken from) and
+   * `userIds` (the members it mentions: the only ones a send may notify, allowedMentions).
+   * @returns {{ text: string, spoken: string, userIds: string[] }}
+   */
+  function renderPost(written, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, link = null, limits = null }) {
+    const mentioned = resolveMentions(written, lines ?? [], knownNames ?? []);
+    const spoken = renderCustomEmoji(mentioned.text, emojiLookup());
+    const text = withLink(withChannelLinks(channel, withMessageLinks(spoken, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds })), link, hot.prompts?.labels, limits);
+    return { text, spoken, userIds: mentioned.userIds };
+  }
+
+  /**
    * Wait until `trigger`'s author has been quiet in `channelId` for pace.settleMs (read at every
    * check), never past pace.settleMaxMs from the trigger message's time (the start of the wait
    * when that is unknown), checking the activity again at least every SETTLE_STEP_MS so a new
@@ -2013,7 +2036,7 @@ export function createTurnRunner({
       const to = answeredId ? ` · to ${authorNameFor(lines, answeredId) ?? '—'}` : '';
       const link = linkFor(pulledId);
       // Same deliberate exception as above: the persona's own output, dry-run only.
-      const text = withLink(withChannelLinks(channel, withMessageLinks(renderCustomEmoji(resolveMentions(message.text, lines, knownNames).text, emojiLookup()), { guildId, channelId: channel.id, privateChat: false, idByIndex, pulledIds })), link, labels, draft?.limits);
+      const { text } = renderPost(message.text, { channel, guildId, privateChat: false, idByIndex, pulledIds, lines, knownNames, link, limits: draft?.limits });
       await rehearse('post', { intent: { replyTo: replyId, text }, sourceMessageIds: replyId ? [replyId] : [] });
       log.info('dry-run: would send', { channel: channel.id, channelName, mode, trigger: triggerKind ?? null, replyTo: replyId, link, text });
       // The mirror shows @name as the model wrote it: resolving it to a real
@@ -2571,8 +2594,7 @@ export function createTurnRunner({
     if (typingOn && parsed.messages.length > 0) {
       const head = parsed.messages[0];
       const { replyId } = replyTarget(head.replyTo, { plain, idByIndex, pulledIds });
-      const first = renderCustomEmoji(resolveMentions(head.text, lines, knownNames).text, emojiLookup());
-      const firstText = withLink(withChannelLinks(channel, withMessageLinks(first, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds })), null, hot.prompts?.labels);
+      const { spoken: first, text: firstText } = renderPost(head.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames });
       firstRefused = !checkEffect('message.create', sendArgs({ text: firstText, replyId }), effect).ok;
       if (!firstRefused) await typeFor(first);
     }
@@ -2607,13 +2629,9 @@ export function createTurnRunner({
 
       const { replyId, pulledId } = replyTarget(message.replyTo, { plain, idByIndex, pulledIds });
       const link = linkFor(pulledId);
-      const mentioned = resolveMentions(message.text, lines, knownNames);
-      const { userIds } = mentioned;
       const repliedAuthorId = replyId ? (lines.find((line) => line.id === replyId)?.authorId ?? (trigger?.id === replyId ? trigger.authorId : null)) : null;
-      // Custom emoji after the mentions: `<@id>` has no `:name:` in it to break.
-      const spoken = renderCustomEmoji(mentioned.text, emojiLookup());
-      // Channel links on the text sent; the typing time stays on the text as written.
-      const text = withLink(withChannelLinks(channel, withMessageLinks(spoken, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds })), link, hot.prompts?.labels, draft?.limits);
+      // Links on the text sent; the typing time stays on the text before them.
+      const { text, spoken, userIds } = renderPost(message.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, link, limits: draft?.limits });
       const args = sendArgs({ text, replyId });
       // A first message refused before its typing above ends the posting (already logged).
       if (typedAbove(index) && firstRefused) {
@@ -5596,7 +5614,7 @@ export function createTurnRunner({
       let followed = null;
       let called = null;
       if (callPlan) {
-        called = await runCall(callPlan, { channel, trigger, guildId, draft });
+        called = await runCall(callPlan, { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames });
         if (called.followUp) {
           followed = await followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted, act: (parsedAgain) => act({ ...actArgs, parsed: parsedAgain, set: null }) });
         }
