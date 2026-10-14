@@ -150,7 +150,7 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
 });
 
 test('skillArgs: each argument in schema order, required marked, enum values capped, booleans as values, integer bounds, the body option flagged', () => {
-  const many = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ'];
+  const many = ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ'];
   const skill = {
     name: 'x.read',
     argsSchema: {
@@ -169,7 +169,6 @@ test('skillArgs: each argument in schema order, required marked, enum values cap
     },
     command: { body: 'text' },
   };
-  assert.equal(MAX_ARG_VALUES, 8);
   assert.deepEqual(skillArgs(skill), [
     { name: 'text', required: true, body: true },
     { name: 'section', required: false, values: many.slice(0, MAX_ARG_VALUES), more: true },

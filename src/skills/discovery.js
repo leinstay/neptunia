@@ -121,7 +121,7 @@ export function skillsIndex(registry, texts) {
 }
 
 /** The most allowed values one argument lists in `<skills>`; a longer list is marked `more`. */
-export const MAX_ARG_VALUES = 8;
+export const MAX_ARG_VALUES = 12;
 
 /**
  * The arguments of `skill` as `<skills>` lists them (src/behavior/prompt.js#skillsInventoryText),
