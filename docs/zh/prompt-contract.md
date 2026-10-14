@@ -96,7 +96,7 @@
 | `<other_channels>` | 每个相邻频道最多 `context.neighborMessages` 条消息，不超过 `context.neighborMaxAgeMinutes` 的时效。`features.mediaDescriptions` 开启时，相邻频道行中的图片在描述器缓存已有说明时携带说明；不为相邻频道发起新的描述请求。`<channel_view>` 中已显示其块的频道不再出现在 `<other_channels>` 中；如果预算丢弃了拉取的块，该频道重新作为普通相邻频道出现 |
 | `<channel_view>` | 拉入本轮的另一个频道（`features.channelPull`）。每个拉取的频道一个条目：标题行（`labels.pull.header`）、适用时的只读标记（`labels.server.readOnly`）、窗口被截断时的"更早的未显示"行、"图片未查看"计数、角色的早期呼叫（带已回复/未回复/已跳过标记），然后是窗口行。行使用与 `<chat>` 相同的对话记录格式，但编号在对话后继续（对话为 `#1`..`#N`，拉取块从 `#N+1` 开始），因此每个 `#n` 在块间唯一。图片仅以说明或盲标签形式出现，不作为附加图片。没有 `labels.pull.header` 时块为空 |
 | `<lookup>` | 角色本轮查询的内容。网络搜索（`features.webLookup`）携带 `labels.lookup.webHeader`、浓缩的答案、`labels.lookup.sources`，未找到时为 `labels.lookup.none`。服务器搜索（`features.recall`）携带 `labels.lookup.serverHeader`、摘要笔记，摘要指出一段时还有逐字原文。两者都运行时 `labels.lookup.bothNote` 位于两部分之间。`labels.lookup.stretch` 行引入一段逐字原文（`{date}` `{channel}`）。仅在搜索分类器触发且至少一项搜索完成后出现 |
-| `<skills>` | 完整技能列表，每个技能一行 `labels.skills.line`。在清单请求时（分类器或规划器回答 `skills: inventory`）或分类器为消息提议了技能时显示。清单请求会列出所有技能及其访问状态。提议时只有被允许的技能显示 `skills.line`；不被允许的提议技能通过 `labels.skills.proposedOff`（`{names}`，逗号分隔）汇成一行。在尾部，`<chat>` 之前。开关 `features.skillsDiscovery`（默认开；`features.skills` 关闭时关闭） |
+| `<skills>` | 完整技能列表，每个技能一行 `labels.skills.line`，按族分组（名称中第一个点之前的部分: `message.*` 一起，`memory.*` 一起，等等）。每行通过 `labels.skills.args`（`{args}`）列出技能的参数: 命令的选项名按命令顺序排列（`<call>` 的属性名），必填的有标记，带允许值（最多 8 个，之后为「…」）或数值范围，`text` 选项标记为调用的 body。顺序由注册表和命令决定，因此相同的授权产生相同的文本。在清单请求时（分类器或规划器回答 `skills: inventory`）或分类器为消息提议了技能时显示。清单请求会列出所有技能及其访问状态。提议时只有被允许的技能显示 `skills.line`；不被允许的提议技能通过 `labels.skills.proposedOff`（`{names}`，逗号分隔）汇成一行。在尾部，`<chat>` 之前。开关 `features.skillsDiscovery`（默认开；`features.skills` 关闭时关闭） |
 | `<result>` | 角色发起的技能调用的结果。仅在角色的第一轮输出了 `<call>` 标签之后的后续请求中出现。由 `skillResultBlock`（`src/behavior/prompt.js`）渲染：`<result skill="NAME" status="STATUS">`、正文、`</result>`，放在用户消息最后一个文本部分的 `<task>` 之前（缓存部分被复用）。正文以第一轮已发布的每个动作（消息、反应、图片）各一行 `labels.skills.result.alreadyPosted` 开头（无此标签则省略），然后是 `labels.skills.result[status]` 的状态行（`{reason}` 由 `labels.skills.result.reasons[code]` 填充，回退到 `.reasons.other`，再到代码本身）。`ok` 状态时数据跟随其后：技能的文本，或与 `<skills>` 相同的技能目录，截断到 `skills.resultMaxChars`（默认 2000）。状态：`ok`（返回数据的读取）、`refused`（引擎在执行前拒绝）、`failed`（执行了但未成功）、`unknown`（调用是否成功未知）。当技能调用是成功完成的发送、编辑、删除或图片时，不显示 `<result>` 块 |
 | `<chat>` | 当前频道最新的 `context.channelMessages` 条消息。发出已满 `context.ageAfterMinutes`（默认 60）分钟的行还会显示距今多久（`transcript.timeAged`）。`context.fetchReplyParents` 开启时，触发消息和窗口末尾 `context.replyParentsFor` 条回复早于窗口之消息的行的父消息会被拉取并作为普通对话记录行放在窗口之前；触发消息的父消息还可拉取其自身的父消息。每轮最多 `context.replyParentsMax` 条。间隔标记和日期标题覆盖时间跳跃；回复行通过 `transcript.replyTo` 引用父消息；父消息的媒体与其他行同样处理，缓存的描述免费提供。已删除或不可访问的父消息被跳过并记录为 `collect: parent missing` |
 | `<tempo>` | 10 分钟 / 1 小时 / 1 天的消息计数，不同人数，沉默时长，一个判定（活跃 / 缓慢 / 沉寂） |
@@ -318,9 +318,14 @@ task.part                                {index} {total} {part} {others}: this t
 task.queued                              {others}: the trigger author has other calls waiting, listed as numbered items joined by `; `. Shown only when there is no `task.part` for this turn. Without this key the waiting calls are not named and the seen-in-history drop rule applies to them
 task.queuedOthers                        {others}: other members have calls waiting in this channel, listed as `<n>. <author>: <text>` items joined by `; `. Without this key those calls are not named
 task.added                               {added}: later messages from the author were folded into this call while it waited, joined by `; `. Without this key the folded messages are not named
-skills.protocol                          static text for the `<skills_protocol>` block: the persona has skills, the list is shown on request, the engine checks access
-skills.line                              {name} {title} {whenToUse} {access}: one skill in the `<skills>` list. {access} is one of skills.access.*
-skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denied    short access phrase for the five states: allowed; allowed through the reply; not switched on; safe mode; not for this person
+skills.protocol                          `<skills_protocol>` 块的静态文本: 角色拥有技能，应请求显示完整列表，引擎检查访问权限
+skills.line                              {name} {title} {whenToUse} {access} {args}: `<skills>` 列表中的一个技能。{access} 是 skills.access.* 之一; {args} 是 skills.args.list，技能无参数时为空
+skills.args.list                         {list}: 一个技能的参数，填充 skills.line 的 {args}（前导空格或标点写在这里，因为无参数的技能 {args} 为空）。{list} 是按命令选项顺序用「, 」连接的参数; 没有此标签则不显示参数
+skills.args.required                     {arg}: 包裹调用必须提供的参数
+skills.args.values                       {arg} {values}: 具有固定值集的参数（选择或 boolean）; {values} 用「|」连接，最多 8 个，之后为「…」
+skills.args.range                        {arg} {min} {max}: 带范围的数值参数; 未设定的边界为空字符串
+skills.args.body                         {arg}: `<call …>` 与 `</call>` 之间的文本所填充的选项（`text`）
+skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denied    五种状态的简短访问短语: 已允许; 通过回复允许; 未开启; 安全模式; 此人不可用
 skills.proposedOff                       {names}: 在仅含提议的 `<skills>` 块末尾显示，列出不被允许的提议技能
 skills.result.alreadyPosted              OPTIONAL {text}: 第一轮已发布的每个动作（消息、反应、图片）各一行。无此标签时不列出已发布动作
 skills.result.ok                         返回数据的读取调用的状态行。数据在下一行跟随
