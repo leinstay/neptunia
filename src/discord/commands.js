@@ -485,13 +485,9 @@ export const COMMAND_TABLE = Object.freeze([
       },
       {
         name: 'affinity',
-        description: "Show or set a member's attitude score.",
-        options: [
-          userOption(),
-          { type: INTEGER, name: 'score', description: 'New score; omit to only show it.', required: false, min_value: -100, max_value: 100 },
-          { type: STRING, name: 'reason', description: 'Why (only with score).', required: false },
-        ],
-        args: (options) => ({ userId: userId(options), score: options.getInteger('score') ?? undefined, reason: options.getString('reason') ?? undefined }),
+        description: "Show a member's attitude score and its history.",
+        options: [userOption()],
+        args: (options) => ({ userId: userId(options) }),
       },
       {
         name: 'wipe',

@@ -120,11 +120,20 @@ test('skills registry: the texts come from prompts/skills.json by operation name
   assert.deepEqual(['title', 'whenToUse', 'whenNotToUse'].map((key) => describeSkill(skill, texts)[key]), ['Διόρθωση', 'όταν', 'ποτέ']);
   assert.deepEqual(['title', 'whenToUse', 'whenNotToUse'].map((key) => describeSkill(skillRegistry().get('memory.wipe'), {})[key]), ['', '', '']);
   assert.equal(describeSkill(skill, undefined).title, '');
-  // whatever the shipped file holds, every value it has is text (the writer fills the rest)
+});
+
+test('skills registry: prompts/skills.json has the three texts of every operation, and no key that is not one', () => {
   const file = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'prompts', 'skills.json');
-  for (const [name, entry] of Object.entries(JSON.parse(fs.readFileSync(file, 'utf8')))) {
-    for (const value of Object.values(entry)) assert.equal(typeof value, 'string', name);
+  const texts = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const ops = listOps().map((op) => op.name);
+  for (const name of ops) {
+    for (const key of ['title', 'whenToUse', 'whenNotToUse']) {
+      assert.equal(typeof texts[name]?.[key], 'string', `${name}.${key}`);
+      assert.ok(texts[name][key].trim(), `${name}.${key} is empty`);
+    }
   }
+  assert.deepEqual(Object.keys(texts).filter((name) => !ops.includes(name)), [], 'a key that is no operation');
+  assert.equal(Object.hasOwn(texts, 'memory.affinity.set'), false);
 });
 
 // ---- derived from the command tree ----------------------------------------------------
@@ -288,7 +297,8 @@ test('skills access: default deny; only a grant naming her user id opens a skill
 });
 
 test('skills access: the irreversible and administrative operations are never open to her, whatever is stored', () => {
-  assert.deepEqual([...NOT_GRANTABLE_TO_PERSONA].sort(), ['access.grant', 'access.revoke', 'bot.pause', 'bot.resume', 'config.set', 'config.unset', 'memory.forget', 'memory.private.forget', 'memory.private.purge', 'memory.restore', 'memory.wipe', 'model.set', 'route.remove', 'route.set']);
+  assert.deepEqual([...NOT_GRANTABLE_TO_PERSONA].sort(), ['access.grant', 'access.revoke', 'bot.pause', 'bot.resume', 'config.set', 'config.unset', 'memory.forget', 'memory.private.forget', 'memory.private.purge', 'memory.restore', 'memory.wipe', 'model.set', 'route.remove', 'route.set', 'rule.remove']);
+  assert.equal(NOT_GRANTABLE_TO_PERSONA.includes('rule.add'), false, 'adding a rule stays grantable');
   for (const name of NOT_GRANTABLE_TO_PERSONA) {
     assert.deepEqual(skillAccess({ skill: skillRegistry().get(name), config: granting([name]), selfId: SELF }), { allowed: false, reason: 'not-grantable' }, name);
   }

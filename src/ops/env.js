@@ -94,8 +94,8 @@ export function createOpsEnv({
   /**
    * `/nep pause`: refuse a command that would write under `data/` while
    * paused, with a hint to resume first. Guards interject, initiate,
-   * alias.add, alias.remove, memory.forget, private.forget, private.purge, memory.wipe, memory.affinity (when
-   * setting a score), memory.refresh.*, lore.add, lore.remove, learned.add,
+   * alias.add, alias.remove, memory.forget, private.forget, private.purge, memory.wipe,
+   * memory.refresh.*, lore.add, lore.remove, learned.add,
    * learned.remove, emoji.rescan, gifs.rescan, gifs.recache and draw (it counts against the image rail
    * in state.json).
    */

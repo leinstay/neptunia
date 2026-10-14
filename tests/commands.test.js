@@ -939,7 +939,8 @@ test('autocomplete: command-option choices for /nep access grant|revoke -- every
   assert.ok(choices.every((c) => c.name.toLowerCase().includes('mem')));
   assert.ok(choices.some((c) => c.name === 'memory'));
   assert.ok(choices.some((c) => c.name === 'memory.profile.read'));
-  assert.ok(choices.some((c) => c.name === 'memory.affinity.set'), 'a write is offered by its name');
+  assert.ok(choices.some((c) => c.name === 'memory.refresh.user'), 'a write is offered by its name');
+  assert.ok(!choices.some((c) => c.name === 'memory.affinity.set'), 'no operation sets the attitude');
   assert.ok(!choices.some((c) => c.name === 'memory.show'), 'never an old command key');
 });
 

@@ -214,11 +214,6 @@
     "whenToUse": "Read your attitude score, band and reason for a member.",
     "whenNotToUse": "Does not change the score."
   },
-  "memory.affinity.set": {
-    "title": "Set attitude",
-    "whenToUse": "Overwrite a member's attitude score with a new value and reason.",
-    "whenNotToUse": "Replaces the score outright; the history records the change."
-  },
   "memory.wipe": {
     "title": "Wipe all memory",
     "whenToUse": "Delete every stored profile, channel note, habit, lore entry and private memory for the whole server; a vault copy is saved first.",

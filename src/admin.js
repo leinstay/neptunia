@@ -140,7 +140,7 @@ export function createAdmin(deps) {
   }
 
   /** Whether the caller may run `commandKey` (with `args`, which pick the operation for
-   * `pings` and `memory.affinity`): src/discord/access.js#isAllowed on its operation, every input
+   * `pings`): src/discord/access.js#isAllowed on its operation, every input
    * read now. For the autocomplete, which runs nothing; a command itself goes through
    * `runCommand`. `roleIds` -- the caller's Discord role ids -- comes from
    * src/discord/commands.js#createInteractionHandler, which reads them off the interaction. */

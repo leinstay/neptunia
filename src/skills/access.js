@@ -29,6 +29,7 @@ export const NOT_GRANTABLE_TO_PERSONA = Object.freeze([
   'memory.forget',
   'memory.private.forget',
   'memory.restore',
+  'rule.remove',
   'config.set',
   'config.unset',
   'model.set',

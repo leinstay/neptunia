@@ -54,7 +54,6 @@ export const OP_EFFECTS = Object.freeze({
   'memory.refresh.server': 'write',
   'memory.forget': 'destructive',
   'memory.affinity.read': 'read',
-  'memory.affinity.set': 'write',
   'memory.wipe': 'destructive',
   'memory.journal.read': 'read',
   'memory.archive.read': 'read',

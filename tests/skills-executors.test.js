@@ -172,7 +172,7 @@ test('executeCall: her diary post inside her own turn is queued for right after 
   const { admin, port } = makeAdmin({ cfg, diary, extra: { turns, journal } });
   const resolved = resolve('diary.post', { kind: 'photos' });
   const first = await executeCall(resolved, deps(admin, port));
-  assert.deepEqual(first, { status: 'ok', data: { text: 'diary post photos: queued, posts right after this turn' } });
+  assert.deepEqual(first, { status: 'ok', data: { text: 'diary post photos: queued, posting after this turn' } });
   assert.equal(needsFollowUp('diary.post', first), true, 'she hears it is queued');
   // the same invocation again: queued once
   await executeCall(resolved, deps(admin, port));

@@ -66,7 +66,7 @@ const byKind = (kinds) => byOption('kind', kinds);
  * The command keys of the tree (src/discord/commands.js#COMMAND_TABLE, `<group>.<name>` or a bare
  * `<name>`) -> operation: an operation name (same arguments), or `(args) => ({ op, args })` where
  * the arguments pick the operation (`media`, `memory.private` and `message.react` by `action`, `memory.refresh`
- * by `kind`, `pings` by `mode`, `memory.affinity` by `score`), or `{ invalid }` when they cannot. A key not listed
+ * by `kind`, `pings` by `mode`), or `{ invalid }` when they cannot. A key not listed
  * here runs nothing.
  */
 export const COMMAND_TO_OP = Object.freeze({
@@ -107,7 +107,7 @@ export const COMMAND_TO_OP = Object.freeze({
   'memory.recent': 'memory.recent.read',
   'memory.refresh': byKind({ user: 'memory.refresh.user', channel: 'memory.refresh.channel', server: 'memory.refresh.server' }),
   'memory.forget': 'memory.forget',
-  'memory.affinity': (args) => ({ op: absent(args?.score) ? 'memory.affinity.read' : 'memory.affinity.set', args }),
+  'memory.affinity': 'memory.affinity.read',
   'memory.wipe': 'memory.wipe',
   'memory.journal': 'memory.journal.read',
   'memory.archive': 'memory.archive.read',
@@ -169,7 +169,7 @@ const LEGACY_COMMAND_TO_OP = Object.freeze({
   'memory.recent': 'memory.recent.read',
   'memory.refresh': 'memory.refresh.user',
   'memory.forget': 'memory.forget',
-  'memory.affinity': (args) => ({ op: absent(args?.score) ? 'memory.affinity.read' : 'memory.affinity.set', args }),
+  'memory.affinity': 'memory.affinity.read',
   'memory.wipe': 'memory.wipe',
   'memory.journal': 'memory.journal.read',
   'memory.archive': 'memory.archive.read',

@@ -27,7 +27,7 @@ const AGREED = new Set([
   'learning.add', 'learning.remove',
   'lore.add', 'lore.list', 'lore.show', 'lore.remove',
   'memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read', 'memory.refresh.user', 'memory.refresh.channel', 'memory.refresh.server', 'memory.forget',
-  'memory.affinity.read', 'memory.affinity.set', 'memory.wipe', 'memory.journal.read', 'memory.archive.read', 'memory.restore',
+  'memory.affinity.read', 'memory.wipe', 'memory.journal.read', 'memory.archive.read', 'memory.restore',
   'memory.snapshot', 'memory.private.read', 'memory.private.forget', 'memory.private.purge',
   'message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove',
 ]);
@@ -73,7 +73,7 @@ test('ops: every registered op has a rights kind and a name in the agreed list',
   for (const name of AGREED) assert.ok(byName.has(name), `${name} is not registered`);
   for (const name of OWNER_ONLY) assert.equal(byName.get(name).rights.ownerOnly, true, `${name} must be owner-only`);
   assert.equal(byName.get('memory.affinity.read').rights.kind, 'read');
-  assert.equal(byName.get('memory.affinity.set').rights.kind, 'write');
+  assert.equal(byName.has('memory.affinity.set'), false, 'the attitude changes through the analyzer alone');
 });
 
 test('ops: runOp denies a non-owner on an owner-only op with a code, even under a * grant', async () => {
@@ -151,7 +151,7 @@ test('ops: COMMAND_TO_OP covers every command key the command tree dispatches', 
     }
   }
   assert.equal(resolveCommand('memory.affinity', { userId: '1' }).op, 'memory.affinity.read');
-  assert.equal(resolveCommand('memory.affinity', { userId: '1', score: 0 }).op, 'memory.affinity.set');
+  assert.equal(resolveCommand('memory.affinity', { userId: '1', score: 0 }).op, 'memory.affinity.read', 'a score picks nothing any more');
   assert.deepEqual(resolveCommand('media', { kind: 'gifs', action: 'recache' }), { op: 'media.recache', args: { kind: 'gifs', action: 'recache' } });
   assert.equal(resolveCommand('memory.private', { action: 'show', userId: '1' }).op, 'memory.private.read');
   assert.match(resolveCommand('message.react', {}).invalid, /action must be one of: add, remove/);
