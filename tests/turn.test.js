@@ -8572,9 +8572,9 @@ function skillPhases(lines) {
  * listed in skills.conversations) and #αλλού (c8) in the guild; the LLM answers `answers` in
  * order; `allowed` skills are granted to her (her user id in bot.access); `owners` are the bot's
  * owners (Alice by default: the owner asks); the port is a fake adapter, the operations run on a
- * real admin over it.
+ * real admin over it; `emoji`: the server's custom emoji index, none by default.
  */
-async function callTurn({ answers, allowed = [], features = {}, skills = {}, owners = ['u1'], images = null, journal = null, store = fakeStore(), beforeSend = null, failNext = null, diary = null, configExtra = {}, turnExtra = {} }) {
+async function callTurn({ answers, allowed = [], features = {}, skills = {}, owners = ['u1'], images = null, journal = null, store = fakeStore(), beforeSend = null, failNext = null, diary = null, configExtra = {}, turnExtra = {}, emoji = null }) {
   const history = [
     rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'self-id', authorName: 'Bot', content: 'πρώτη' }),
     rawMessage({ id: 'm1', ts: NOW - 1000, authorId: 'u1', authorName: 'Alice', content: 'γράψε στο #νέα' }),
@@ -8598,7 +8598,7 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
   const client = fakeClient();
   const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', port, ...(images ? { images } : {}), ...(diary ? { diary: diary(hot) } : {}) });
   const llm = sequenceLlm(answers);
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand });
+  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, ...(emoji ? { emoji } : {}) });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention', ...turnExtra }));
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
   return { result, logs, llm, port, sends, channel, store, hot };
@@ -8625,6 +8625,26 @@ test('skill call: message.create to a listed conversation runs after the reply, 
   const turn = lines.map(({ record }) => record).find((record) => record.kind === 'turn');
   assert.ok(turn.actions.includes(started.opId));
   assert.ok(run.logs.some((entry) => entry.msg === 'skills: called' && entry.skill === 'message.create' && entry.status === 'ok'));
+});
+
+test('skill call: her message.create and message.edit text goes out like a <msg> -- a shown name pings, an unknown name and @everyone stay text and ping nobody; custom emoji, #N and channel links', async () => {
+  const written = '@Alice @Nobody @everyone :dance: #2 #αλλού';
+  const rendered = '<@u1> @Nobody @everyone <a:dance:222222222222222222> https://discord.com/channels/g1/c1/m1 <#c8>';
+  const created = await callTurn({ answers: [`<call skill="message.create" channel="#νέα">${written}</call>`], allowed: ['message.create'], emoji: fakeEmojiIndex() });
+  assert.equal(created.result.outcome, 'spoke');
+  assert.deepEqual(created.sends.map((send) => [send.to, send.text]), [['c9', rendered]]);
+  assert.deepEqual(created.sends[0].mentions, { users: ['u1'], repliedUser: false }, 'only the resolved member is notified');
+  // A reply keeps working, its author notified as before.
+  const replied = await callTurn({ answers: ['<call skill="message.create" reply="#2">@Alice :dance:</call>'], emoji: fakeEmojiIndex() });
+  assert.deepEqual(replied.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions]), [['c1', '<@u1> <a:dance:222222222222222222>', 'm1', { users: ['u1'], repliedUser: true }]]);
+  // Pings off: the mention stays in the text and notifies nobody.
+  const quiet = await callTurn({ answers: ['<call skill="message.create" channel="#νέα">@Alice</call>'], allowed: ['message.create'], store: storeWithPingsOff(['u1']) });
+  assert.deepEqual(quiet.sends.map((send) => [send.text, send.mentions]), [['<@u1>', { users: [], repliedUser: false }]]);
+  // The edit path: the same rendering, the same mentions.
+  const edited = await callTurn({ answers: [`<call skill="message.edit" message="#1">${written}</call>`], allowed: ['message.edit'], emoji: fakeEmojiIndex() });
+  const edits = edited.port.calls.filter((call) => call.op === 'edit').map((call) => [call.args[0].messageId, call.args[1]]);
+  assert.deepEqual(edits, [['m0', { text: rendered, mentions: { users: ['u1'], repliedUser: false } }]]);
+  assert.equal(edited.llm.calls.length, 1);
 });
 
 test('skill call: a call alone is no skip; here it needs no grant and replies to a line of this conversation', async () => {

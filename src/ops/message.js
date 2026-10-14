@@ -5,7 +5,9 @@
 // conversation or starts a topic herself (src/behavior/spontaneous.js#force); when she calls it
 // (`context.actor` 'persona', her skills, src/skills/), her own text -- the call's body -- is
 // posted through her interface (src/interface/port.js, `env.port`), replying to a message when
-// one is named, and a reply notifies the replied author unless they turned pings off. Edit,
+// one is named, and a reply notifies the replied author unless they turned pings off. Her text
+// (a post or an edit) arrives rendered as a `<msg>` of hers (src/skills/executors.js#executeCall);
+// only the members it mentions (`context.mentionUserIds`) are notified, none with pings off. Edit,
 // delete and react go through the interface too. The rules live here, for every caller: a post,
 // an edit, a deletion or a reaction only in the conversation the command runs in or one of
 // `skills.conversations` (read now; a person may ask for her turn in any channel); edit and
@@ -26,6 +28,12 @@ const handlers = perEnv((env) => {
     return store.isPingsOff(resolvedGuildId(context), String(userId)) === true;
   }
 
+  /** The members her rendered text mentions (`context.mentionUserIds`, her own calls only), less those with pings off. */
+  function mentionedUsers(context) {
+    if (context?.actor !== 'persona' || !Array.isArray(context.mentionUserIds)) return [];
+    return context.mentionUserIds.map(String).filter((id) => id && !pingsOff(context, id));
+  }
+
   /** The persona's own text posted as hers: the channel checked, the reply target in it. */
   async function post(args, context) {
     const p = requirePort();
@@ -39,7 +47,7 @@ const handlers = perEnv((env) => {
     const content = {
       text,
       ...(reply ? { replyTo: { iface: p.iface, conversationId: channelId, messageId: reply.messageId } } : {}),
-      mentions: { users: [], repliedUser },
+      mentions: { users: mentionedUsers(context), repliedUser },
     };
     const result = await p.send({ iface: p.iface, conversationId: channelId }, content);
     return portAnswer('message.create', result, `sent in ${channelId} (message ${result?.ref?.messageId ?? '?'})`);
@@ -95,7 +103,9 @@ const handlers = perEnv((env) => {
     const text = String(args?.text ?? '').trim();
     if (!text) throw invalid('text is required');
     const { channelId, messageId, ref } = target(args, context);
-    return portAnswer('message.edit', await p.edit(ref, { text }), `edited message ${messageId} in ${channelId}`);
+    const users = mentionedUsers(context);
+    const content = { text, ...(users.length > 0 ? { mentions: { users, repliedUser: false } } : {}) };
+    return portAnswer('message.edit', await p.edit(ref, content),`edited message ${messageId} in ${channelId}`);
   }
 
   /** `/nep message delete`: one of the persona's own messages, deleted. */
