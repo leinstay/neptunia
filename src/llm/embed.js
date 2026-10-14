@@ -1,6 +1,6 @@
 // OpenRouter embeddings client on the built-in fetch: a list of texts in, one unit-length
 // Float32Array per text out, for search by meaning. It goes out on the helper role
-// `classifier.embed` and keeps every rail of the chat client (src/llm/openrouter.js): the token
+// `embedding` and keeps every rail of the chat client (src/llm/openrouter.js): the token
 // cap per request, the shared daily request count (`llm.maxRequestsPerDay`, the same counter the
 // chat requests spend), the helper timeout, the same retries and the same transport bits (key,
 // base URL, provider routing by model and role). A request logs one `llm: usage` line with counts
@@ -17,12 +17,12 @@ import {
   resolveProvider,
   sleep,
 } from './openrouter.js';
-import { helperModel } from '../behavior/mention.js';
+import { roleModel } from './roles.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 
-/** The role an embedding request goes out on: `/nep model`, `llm.providerByModel` keys `"<prefix>@classifier.embed"`. */
-export const EMBED_ROLE = 'classifier.embed';
+/** The role an embedding request goes out on: `/nep model`, `llm.providerByModel` keys `"<prefix>@embedding"`. */
+export const EMBED_ROLE = 'embedding';
 
 /** `embed.dimensions` when it is missing or invalid: config.json's value. */
 const DIMENSIONS_FALLBACK = 1024;
@@ -83,8 +83,8 @@ function vectorsOf(json, count) {
 export function createEmbedder({ apiKey, state, fetchImpl = fetch, now = Date.now, sleepImpl = sleep }) {
   /**
    * Embed `texts` (non-empty strings; an empty list returns [] and sends nothing) in one request.
-   * The model is `helperModel(config, { role: 'classifier.embed', purpose })` (a
-   * `classifier.byPurpose` entry, else `classifier.embed`); none set throws before any request.
+   * The model is `roleModel(config, 'embedding', purpose)` (a
+   * `roles.byPurpose` entry, else `roles.embedding`, else its default); no model throws before any request.
    * Body: `{ model, input, dimensions }` (`embed.dimensions`, default 1024) plus the provider
    * routing `resolveProvider` picks for the model and the role. Rails, in order, before anything
    * is sent: the token cap (`llm.maxRequestTokens`, the inputs' raw estimate, a `TokenLimitError`)
@@ -110,8 +110,8 @@ export function createEmbedder({ apiKey, state, fetchImpl = fetch, now = Date.no
     }
     if (texts.length === 0) return [];
     const cfg = config?.llm ?? {};
-    const model = helperModel(config, { role: EMBED_ROLE, purpose });
-    if (!model) throw new Error('embed: no embedding model configured (classifier.embed)');
+    const model = roleModel(config, EMBED_ROLE, purpose);
+    if (!model) throw new Error('embed: no embedding model configured (roles.embedding)');
 
     const estimated = texts.reduce((sum, text) => sum + estimateTokens(text), 0);
     if (estimated > cfg.maxRequestTokens || !Number.isFinite(cfg.maxRequestTokens)) {

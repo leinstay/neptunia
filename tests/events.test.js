@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { MessageReferenceType, PermissionFlagsBits } from 'discord.js';
 import { deepMerge } from '../src/config.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
+import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createStore } from '../src/memory/store.js';
@@ -1927,8 +1928,8 @@ test('follow-up: the classifier request is address.md as system and a <candidate
   assert.ok(messages[1].content.includes('is this for you'));
   assert.ok(messages[1].content.includes('earlier message'), 'the channel context is included');
   assert.equal(options.maxOutputTokens, config.mention.followUpMaxOutputTokens, 'mention.followUpMaxOutputTokens');
-  assert.equal(options.model, config.classifier.text, 'classifier.text');
-  assert.equal(options.role, 'classifier.text', 'routed as the text classifier');
+  assert.equal(options.model, config.roles.analyzer, 'roles.analyzer');
+  assert.equal(options.role, 'analyzer', 'routed as the analyzer');
   assert.equal(options.countAgainstDailyCap, true);
   assert.equal(options.skipCalibration, true);
   assert.equal(options.timeoutMs, config.llm.helperTimeoutMs, 'llm.helperTimeoutMs, never the turn-length llm.timeoutMs');
@@ -1966,17 +1967,17 @@ test('follow-up: the address classifier timeout is llm.helperTimeoutMs, read at 
   assert.deepEqual(llm.calls.map((call) => call.options.purpose), ['address', 'address', 'address']);
 });
 
-test('follow-up: the address classifier model is classifier.text over the deprecated keys, classifier.media when classifier.text is null', async () => {
+test('follow-up: the address classifier model is roles.analyzer over the deprecated keys, its own default when it is null', async () => {
   const cases = [
     {
-      label: 'classifier.text wins over the deprecated llm.classifierModel and mention.followUpModel',
-      overrides: { classifier: { text: 'x/classifier' }, llm: { classifierModel: 'x/old' }, mention: { followUpModel: 'x/older' } },
+      label: 'roles.analyzer wins over the deprecated llm.classifierModel and mention.followUpModel',
+      overrides: { roles: { analyzer: 'x/classifier' }, llm: { classifierModel: 'x/old' }, mention: { followUpModel: 'x/older' } },
       expected: () => 'x/classifier',
     },
     {
-      label: 'classifier.text null falls back to classifier.media',
-      overrides: { classifier: { text: null } },
-      expected: (config) => config.classifier.media,
+      label: 'roles.analyzer null is the analyzer default, never the vision model',
+      overrides: { roles: { analyzer: null, vision: 'x/vision' } },
+      expected: () => ROLE_DEFAULTS.analyzer,
     },
   ];
   for (const { label, overrides, expected } of cases) {
@@ -2004,7 +2005,7 @@ test('follow-up: an empty or blank classifier answer is logged as a failure with
     const llm = fakeFollowUpLlm();
     const turns = recordingTurns();
     const spontaneous = fakeSpontaneous();
-    const config = baseConfig({ classifier: { text: 'x/text' } });
+    const config = baseConfig({ roles: { analyzer: 'x/text' } });
     const handler = makeHandler({ config, turns, spontaneous, llm, prompts: fakeAddressPrompts() });
     const guild = fakeGuild();
     const channel = fakeChannelWithHistory('c1', guild, []);
@@ -6345,8 +6346,8 @@ test('events: a failed eavesdrop roll may roll roomQuestionChance and ask the ro
   assert.deepEqual(
     { ...options },
     {
-      model: config.classifier.text,
-      role: 'classifier.text',
+      model: config.roles.analyzer,
+      role: 'analyzer',
       maxOutputTokens: config.mention.followUpMaxOutputTokens,
       countAgainstDailyCap: true,
       skipCalibration: true,
@@ -6355,7 +6356,7 @@ test('events: a failed eavesdrop roll may roll roomQuestionChance and ask the ro
       signal: undefined,
       helper: true,
     },
-    'the helper request options: classifier.text, mention.followUpMaxOutputTokens, the daily cap, llm.helperTimeoutMs',
+    'the helper request options: the analyzer role, mention.followUpMaxOutputTokens, the daily cap, llm.helperTimeoutMs',
   );
   llm.respond('no');
   await p;
@@ -7073,7 +7074,7 @@ test('events: a call the merge classifier folds into a waiting call gets no turn
   const [merge] = scene.calls.merge;
   assert.equal(merge.messages[0].content, 'Merge for Ζωή.');
   assert.equal(merge.messages[1].content, '<waiting>\n1. ποιος είναι ο Νίκος;\n</waiting>\n<candidate>\nAlice: λοιπόν, ο Νίκος;\n</candidate>');
-  assert.deepEqual([merge.options.role, merge.options.purpose, merge.options.helper], ['classifier.text', 'merge', true]);
+  assert.deepEqual([merge.options.role, merge.options.purpose, merge.options.helper], ['analyzer', 'merge', true]);
   const verdict = logs.find((line) => line.msg === 'merge: verdict');
   assert.deepEqual([verdict.channel, verdict.waiting, verdict.answer, typeof verdict.ms], ['c1', 1, 'item', 'number']);
   assert.equal(scene.tagHistory.hits, 3, 'the folded call still counts toward the repeat and spam counters');

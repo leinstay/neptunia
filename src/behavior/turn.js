@@ -43,7 +43,8 @@ import {
 } from './diary.js';
 import { channelPullOn, pullSettings, pullTargets } from './pull.js';
 import { audienceCovers, markSeen, messageLink, resolveDestination, stampPings } from './elsewhere.js';
-import { helperModel, isTaggedCall } from './mention.js';
+import { isTaggedCall } from './mention.js';
+import { roleModel } from '../llm/roles.js';
 import { parseLookupAnswer, recallSettings } from './recall.js';
 import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
 import { captionedEntries, gifPickSettings, parseGifPick, pickCandidates, pickContext, renderGifLibrary } from './gif-pick.js';
@@ -1133,7 +1134,7 @@ function taskInput({ part, queued, added, labels, channelId }) {
  * of other channels come first, under the same deadline -- late, the newest are shown.
  *
  * The turn planner (src/behavior/planner.js; features.turnPlanner exactly true, read per turn):
- * one request (prompts/planner.md, role `classifier.reason`, purpose `planner`) stands in for
+ * one request (prompts/planner.md, role `reasoner`, purpose `planner`) stands in for
  * the route hook, the participation pick, the re-watch classifier and the search classifier,
  * none of which is asked then (createTurnPlan). Each answer block reaches the code its old
  * classifier fed; a block that is invalid or missing keeps that consumer's default (no channel,
@@ -1836,7 +1837,7 @@ export function createTurnRunner({
    * message of at most `gifs.pick.maxChars` code points, no `<gif>` of the
    * turn's own -- the model's own GIF is never second-guessed --, at least one
    * captioned entry), ONE helper request on the classifier model
-   * (role `classifier.text`, purpose `gif-pick`, its answer capped at
+   * (role `analyzer`, purpose `gif-pick`, its answer capped at
    * `gifs.pick.maxOutputTokens`): system = the prompt with `{{name}}`, user =
    * `<gifs>` (renderGifLibrary over the WHOLE library in rank order, own-marked entries last,
    * `gifs.reactionChars`, `gifs.actionChars` and `gifs.ownMarkHours` read now: the stable bulk first,
@@ -1892,8 +1893,8 @@ export function createTurnRunner({
           { role: 'user', content: stableThenTail(block('gifs', library.join('\n')), [block('context', contextBody), block('reply', replyBody)], '\n\n') },
         ],
         {
-          model: helperModel(config, { role: 'classifier.text', purpose: 'gif-pick' }),
-          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: settings.maxOutputTokens, purpose: 'gif-pick' }),
+          model: roleModel(config, 'analyzer', 'gif-pick'),
+          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: settings.maxOutputTokens, purpose: 'gif-pick' }),
         },
       );
     } catch (err) {
@@ -2207,8 +2208,8 @@ export function createTurnRunner({
    * watched, or a picture posted, in the last `media.video.rewatch.recentMessages`
    * messages (at most `media.video.rewatch.maxCandidates` of them, the videos
    * first, then the watched GIFs, then the pictures, each newest first), one cheap classifier call
-   * (prompts.rewatch, on the classifier model: helperModel for `classifier.text` --
-   * `classifier.byPurpose.rewatch`, else `classifier.text`, else the media model; its answer capped at
+   * (prompts.rewatch, on the analyzer model: roleModel for `analyzer` --
+   * `roles.byPurpose.rewatch`, else `roles.analyzer`, else its default; its answer capped at
    * `media.video.rewatch.classifierMaxOutputTokens`) picks the item and
    * the question. For a video the describer looks at it again
    * (describer.rewatchVideo) and the answer joins that video's state as
@@ -2276,8 +2277,8 @@ export function createTurnRunner({
           { role: 'user', content: user },
         ],
         {
-          model: helperModel(config, { role: 'classifier.text', purpose: 'rewatch' }),
-          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: rewatchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'rewatch' }),
+          model: roleModel(config, 'analyzer', 'rewatch'),
+          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: rewatchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'rewatch' }),
         },
       );
     } catch (err) {
@@ -2573,7 +2574,7 @@ export function createTurnRunner({
    * the served one in a private chat). One cheap classifier call (prompts.lookup, `{{name}}` = the
    * persona's display name, `{{today}}` = the injected clock's date
    * `YYYY-MM-DD` in `bot.timezone`, the zone its `when:` range is read in;
-   * on the reasoning helper model (helperModel, role `classifier.reason`), its answer capped at
+   * on the reasoning helper model (roleModel, role `reasoner`), its answer capped at
    * `web.search.classifierMaxOutputTokens`) reads the last
    * `web.search.contextMessages` messages of `history` before the trigger
    * (with the pictures' captions, the video states and the read links this
@@ -2647,7 +2648,7 @@ export function createTurnRunner({
     const user = `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
 
     // Read once: the request and its empty-answer warning name the same model.
-    const model = helperModel(config, { role: 'classifier.reason', purpose: 'lookup' });
+    const model = roleModel(config, 'reasoner', 'lookup');
     let completion;
     try {
       completion = await llm.complete(
@@ -2655,7 +2656,7 @@ export function createTurnRunner({
           { role: 'system', content: fillPromptTemplate(prompt, { today: zonedDay(clock(), config.bot?.timezone), name: selfName ?? '' }) },
           { role: 'user', content: user },
         ],
-        { model, ...helperRequestOptions(config, { role: 'classifier.reason', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }) },
+        { model, ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }) },
       );
     } catch (err) {
       log.warn('lookup: classifier failed', { channel: channelId, status: err.statusCode ?? null, name: err.name });
@@ -2758,7 +2759,7 @@ export function createTurnRunner({
    * The splitter (src/behavior/split.js): whether the call `trigger` holds
    * several requests. One cheap classifier call (`prompt`, prompts/split.md,
    * `{{name}}` = the persona's display name, `{{maxTasks}}` = split.maxTasks;
-   * on the `classifier.text` helper model (helperModel), its answer capped at split.maxOutputTokens, a
+   * on the `analyzer` helper model (roleModel), its answer capped at split.maxOutputTokens, a
    * helper's request: helperRequestOptions, purpose `split`) reads the last
    * `split.contextMessages` messages of `history` before the trigger (the
    * captions this turn has at its start) and the trigger itself, and answers
@@ -2790,8 +2791,8 @@ export function createTurnRunner({
           { role: 'user', content: `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>` },
         ],
         {
-          model: helperModel(config, { role: 'classifier.text', purpose: 'split' }),
-          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: settings.maxOutputTokens, purpose: 'split' }),
+          model: roleModel(config, 'analyzer', 'split'),
+          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: settings.maxOutputTokens, purpose: 'split' }),
         },
       );
     } catch (err) {
@@ -2990,7 +2991,7 @@ export function createTurnRunner({
    * own cap not spent), then the plan request (src/behavior/prompt.js#buildDiaryPlanRequest:
    * prompts/diary-plan.md on the classifier model, `diary.planMaxOutputTokens`
    * (300), `diary.planTimeoutMs` (20000), usage purpose `diary-plan`; when
-   * `llm.hedge` hedges `classifier.text`, the hedged call is limited by
+   * `llm.hedge` hedges `analyzer`, the hedged call is limited by
    * `diary.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
    * `<seeds>` drawn from prompts/diary-seeds.md (`diary.seedSets`, 2) and,
    * with an owner's topic (`params.topic`, src/behavior/diary.js#diaryTopic),
@@ -3059,15 +3060,15 @@ export function createTurnRunner({
       const planTimeoutMs = diaryCfg.planTimeoutMs ?? 60000;
       // A hedged plan request gets the plan's own limit, not llm.hedge.timeoutMs.
       const hedge = hedgeSettings(config);
-      const planHedge = hedge && hedge.afterMs > 0 && hedge.roles.includes('classifier.reason')
+      const planHedge = hedge && hedge.afterMs > 0 && hedge.roles.includes('reasoner')
         ? { hedge: { afterMs: hedge.afterMs, timeoutMs: planTimeoutMs } }
         : {};
       let completion = null;
       try {
         completion = await llm.complete(request.messages, {
-          model: helperModel(config, { role: 'classifier.reason', purpose: 'diary-plan' }),
+          model: roleModel(config, 'reasoner', 'diary-plan'),
           ...helperRequestOptions(config, {
-            role: 'classifier.reason',
+            role: 'reasoner',
             maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 2000,
             purpose: 'diary-plan',
             timeoutMs: planTimeoutMs,

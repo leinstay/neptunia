@@ -435,6 +435,40 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
   }
 });
 
+test('createHot: a config.local.json under the old model keys is read under the new ones, with one warning naming the keys, never the values', async () => {
+  const dir = makeRoot({ config: { roles: { analyzer: 'x/default' } } });
+  const localFile = path.join(dir, 'config.local.json');
+  fs.writeFileSync(localFile, JSON.stringify({ classifier: { text: 'x/old-text' }, llm: { cache: { roles: ['voice', 'classifier.text'] } } }));
+  const warned = (logs) => logs.filter((entry) => entry.msg === 'config: old model keys read under their new names');
+  let hot;
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+    });
+    assert.equal(hot.config.roles.analyzer, 'x/old-text');
+    assert.deepEqual(hot.config.llm.cache.roles, ['voice', 'analyzer']);
+    assert.equal(hot.config.classifier, undefined);
+    assert.equal(warned(started.logs).length, 1);
+    assert.equal(warned(started.logs)[0].level, 'warn');
+    assert.deepEqual(warned(started.logs)[0].keys, [
+      { key: 'classifier.text', use: 'roles.analyzer' },
+      { key: 'llm.cache.roles: classifier.text', use: 'analyzer' },
+    ]);
+    assert.ok(!JSON.stringify(started.logs).includes('x/old-text'), 'the key, never its value');
+
+    const reloads = await withCapturedLogs(() => {
+      hot.reloadConfig(); // the same keys: no second warning
+      fs.writeFileSync(localFile, JSON.stringify({ roles: { analyzer: 'x/new-text' } }));
+      hot.reloadConfig(); // none left: quiet
+    });
+    assert.equal(warned(reloads.logs).length, 0);
+    assert.equal(hot.config.roles.analyzer, 'x/new-text');
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('hot: exposes promptsHash and configHash that change when a prompt or the config changes', () => {
   const dir = makeRoot({ config: { a: 1, b: { c: 2 } }, prompts: { persona: 'Είσαι η Ζωή.' } });
   const hot = createHot({ rootDir: dir });

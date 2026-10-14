@@ -3,13 +3,13 @@
 // most important field first, for a phone; `detail` adds the long text form (`cmdStatus`) below
 // it. A member (anyone not in `bot.owners`) gets the card without the storage line, the memory
 // and speed fields, and never the long form. Every field lists one item per line. The models
-// field groups the roles by kind under a bold header each (voice, memory, helpers, media,
-// embeddings, drawing). The owner's card probes on every call: one minimal chat completion per
+// field groups the roles by kind under a bold header each (voice, analyzer, reasoner, extractor,
+// media, embedding, drawing). The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
 // request for the embedding role, and one free GET of the drawing model's provider listing; a
-// member's card only names the models. A role whose own key is unset is shown with the role it
-// falls back to (`labels.status.fallback`). The memory field (the coverage of every kind of
+// member's card only names the models. Each role shows its own model (never another role's), and
+// each group ends with the `roles.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
 // memory) is computed at most once a minute: directory listings and the record's month indexes,
 // never its day files. The speed field reads src/ops/metrics.js (the last 24 h).
 
@@ -27,13 +27,13 @@ import { WEB_DAILY } from '../web/lookup.js';
 import { PORTRAIT_SLOTS, portraitSettings } from '../memory/portrait.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from '../discord/access.js';
-import { MODEL_ROLES, MODEL_ROLE_PATHS } from '../discord/commands.js';
+import { MODEL_ROLES } from '../discord/commands.js';
+import { PURPOSE_ROLES, roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { ARCHIVE_EVENTS } from '../memory/archive.js';
 import { plannerOn } from '../behavior/planner.js';
 import { SPEED_METRICS } from './metrics.js';
 import { isPlainObject } from '../config.js';
-import { fill } from '../discord/format.js';
 import { log } from '../log.js';
 import { todayUtc, onOff, modelForRole } from './shared.js';
 import { defineOp, perEnv } from './registry.js';
@@ -44,74 +44,43 @@ export const STATUS_FIELDS = Object.freeze(['state', 'connection', 'long tasks',
 /** The fields a member's card leaves out. */
 const OWNER_FIELDS = new Set(['memory', 'speed']);
 
-/** The role whose model a role takes while its own key is unset (src/ops/shared.js#modelForRole). */
-const FALLBACK_ROLE = Object.freeze({ analyzer: 'voice', 'classifier.reason': 'classifier.text', 'classifier.text': 'classifier.media' });
-
-/** The models field's groups, in order: a bold header line each, then one line per role (the
- * helpers group ends with the `classifier.byPurpose` overrides). A role of MODEL_ROLES no group
- * names joins the helpers. */
+/**
+ * The models field's groups, in order: a bold header line each, then one line per role, then
+ * the `roles.byPurpose` overrides of the purposes that go out on those roles
+ * (src/llm/roles.js#PURPOSE_ROLES; a purpose it does not list closes the analyzer group).
+ */
 const MODEL_GROUPS = Object.freeze([
   { name: 'voice', roles: ['voice'] },
-  { name: 'memory', roles: ['analyzer'] },
-  { name: 'helpers', roles: ['classifier.text', 'classifier.reason'], byPurpose: true },
-  { name: 'media', roles: ['classifier.media', 'classifier.video'] },
-  { name: 'embeddings', roles: [EMBED_ROLE] },
+  { name: 'analyzer', roles: ['analyzer'], unlistedPurposes: true },
+  { name: 'reasoner', roles: ['reasoner'] },
+  { name: 'extractor', roles: ['extractor'] },
+  { name: 'media', roles: ['vision', 'video'] },
+  { name: 'embedding', roles: [EMBED_ROLE] },
   { name: 'drawing', roles: [IMAGE_ROLE] },
 ]);
 
-/** MODEL_GROUPS with every chat role placed: one left out joins the helpers. */
-function modelGroups() {
-  const placed = new Set(MODEL_GROUPS.flatMap((group) => group.roles));
-  const extra = MODEL_ROLES.filter((role) => !placed.has(role));
-  return MODEL_GROUPS.map((group) => (group.byPurpose && extra.length > 0 ? { ...group, roles: [...group.roles, ...extra] } : group));
+/** `<role> · <model>`: each role shows its own model, never another role's. */
+function roleHead(role, model) {
+  return `${role} · ${model}`;
 }
 
-/** The config value at a dotted path, or undefined. */
-function valueAt(cfg, dotted) {
-  return dotted.split('.').reduce((node, key) => (isPlainObject(node) ? node[key] : undefined), cfg);
-}
-
-/**
- * The role whose own key supplies `role`'s model now: `role` itself when its key is set, else
- * the end of its fallback chain (e.g. `classifier.reason` unset -> `classifier.text`), or null
- * when no key on the chain is set.
- * @param {string} role
- * @param {object|undefined} cfg  The whole live config.
- * @returns {string|null}
- */
-function modelSourceRole(role, cfg) {
-  let current = role;
-  for (let hops = 0; hops < 4 && current; hops += 1) {
-    const own = valueAt(cfg, MODEL_ROLE_PATHS[current] ?? '');
-    if (typeof own === 'string' && own) return current;
-    current = FALLBACK_ROLE[current];
-  }
-  return null;
-}
-
-/** `<role> · <model>`, with `labels.status.fallback` (`{role}` = the role it falls back to) after
- * the model when it comes from another role's key; no marker without the label. */
-function roleHead(role, model, cfg, labels) {
-  const source = modelSourceRole(role, cfg);
-  const template = labels?.status?.fallback;
-  const marker = source && source !== role && typeof template === 'string' && template ? ` ${fill(template, { role: source })}` : '';
-  return `${role} · ${model}${marker}`;
-}
-
-/** The `classifier.byPurpose` overrides of the live config, one `byPurpose <purpose> · <model>` line each. */
-function byPurposeLines(cfg) {
-  const byPurpose = cfg?.classifier?.byPurpose;
+/** The `roles.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
+ * (with `unlisted`, also those of a purpose PURPOSE_ROLES does not list), one
+ * `byPurpose <purpose> · <model>` line each. */
+function byPurposeLines(cfg, roles, unlisted) {
+  const byPurpose = cfg?.roles?.byPurpose;
   if (!isPlainObject(byPurpose)) return [];
   return Object.entries(byPurpose)
     .filter(([, model]) => typeof model === 'string' && model)
+    .filter(([purpose]) => (Object.hasOwn(PURPOSE_ROLES, purpose) ? roles.includes(PURPOSE_ROLES[purpose]) : unlisted === true))
     .map(([purpose, model]) => `byPurpose ${purpose} · ${model}`);
 }
 
 /** The models field: each group's bold header, then `lineOf(role)` per role (the drawing role's
- * line `imageLine`, left out when null), the helpers group ending with the per-purpose overrides. */
+ * line `imageLine`, left out when null), each group ending with its per-purpose overrides. */
 function groupedModels(cfg, lineOf, imageLine) {
   const lines = [];
-  for (const group of modelGroups()) {
+  for (const group of MODEL_GROUPS) {
     lines.push(`**${group.name}**`);
     for (const role of group.roles) {
       if (role === IMAGE_ROLE) {
@@ -120,7 +89,7 @@ function groupedModels(cfg, lineOf, imageLine) {
       }
       lines.push(lineOf(role));
     }
-    if (group.byPurpose) lines.push(...byPurposeLines(cfg));
+    lines.push(...byPurposeLines(cfg, group.roles, group.unlistedPurposes));
   }
   return lines.join('\n');
 }
@@ -181,8 +150,7 @@ function extractRoutingFunnel(rawBody) {
 
 /** One role's probe line: `<head> · <provider> · ok <ms> ms` (`-` when the answer names no
  * provider, as an embedding's does not), or `<head> · failed: <short reason>` with the routing
- * funnel in brackets when the error body has one; `head` is `<role> · <model>` with its fallback
- * marker (roleHead). */
+ * funnel in brackets when the error body has one; `head` is `<role> · <model>` (roleHead). */
 function probeLine(head, outcome) {
   if (!outcome.ok) {
     const message = clampChars(oneLine(outcome.err?.message ?? outcome.err ?? 'error'), PROBE_ERROR_CHARS);
@@ -287,7 +255,7 @@ const handlers = perEnv((env) => {
     const dryRunTarget = dryRunOn ? ` → log${dryRunChannelId ? ` + #${dryRunChannelId}` : ''}` : '';
     const lines = [
       `dry-run: ${onOff(dryRunOn)}${dryRunTarget}`,
-      `model: ${cfg?.llm?.model ?? '-'}`,
+      `model: ${roleModel(cfg, 'voice') ?? '-'}`,
       `calibration ratio: ${calibrator ? calibrator.ratio.toFixed(3) : '-'}`,
       `llm requests today: ${llmCountToday(data, Date.now())} / ${cfg?.llm?.maxRequestsPerDay ?? '-'} (day: ${todayUtc()})`,
       `paused: ${onOff(data.paused)}${data.paused ? ` (since ${data.pausedAt ?? '?'})` : ''}`,
@@ -428,16 +396,15 @@ const handlers = perEnv((env) => {
     return problems.length > 0 ? `storage: ${problems.join('; ')}` : 'storage ok';
   }
 
-  /** The models field unprobed (a member's card): every group, each role's model with its
-   * fallback marker, the drawing model last. */
+  /** The models field unprobed (a member's card): every group, each role's own model, the
+   * drawing model last. */
   function modelsValue(cfg) {
-    const labels = hot.prompts?.labels;
-    const image = cfg?.image?.model ? `${IMAGE_ROLE} · ${imageModelLabel(cfg)}` : `${IMAGE_ROLE} · no model configured`;
+    const image = roleModel(cfg, 'drawing') ? `${IMAGE_ROLE} · ${imageModelLabel(cfg)}` : `${IMAGE_ROLE} · no model configured`;
     return groupedModels(
       cfg,
       (role) => {
         const model = modelForRole(role, cfg);
-        return model ? roleHead(role, model, cfg, labels) : `${role} · no model configured`;
+        return model ? roleHead(role, model) : `${role} · no model configured`;
       },
       image,
     );
@@ -478,7 +445,7 @@ const handlers = perEnv((env) => {
   /** The drawing model's line (`image · no model configured` when none is set); notes when
    * drawing is switched off (features.imageGeneration false; a missing key counts as on). */
   async function imageProbeLine(cfg, timeoutMs) {
-    const model = cfg?.image?.model;
+    const model = roleModel(cfg, 'drawing');
     if (!model) return `${IMAGE_ROLE} · no model configured`;
     const off = cfg?.features?.imageGeneration === false ? ' (features.imageGeneration is off)' : '';
     return `${IMAGE_ROLE} · ${model} · ${await imageListing(model, timeoutMs)}${off}`;
@@ -488,7 +455,7 @@ const handlers = perEnv((env) => {
    * The owner's models field: every role's model, as resolved now, probed in parallel -- the chat
    * roles with one minimal chat completion, the embedding role with one embedding request of one
    * input -- grouped by kind (MODEL_GROUPS), one line per role, the per-purpose overrides
-   * (unprobed) closing the helpers and the drawing model's listing the drawing group. Roles
+   * (unprobed) closing the group of their role and the drawing model's listing the drawing group. Roles
    * sharing a model and a provider route share a probe (a role-specific `llm.providerByModel` key
    * routing one elsewhere makes it a probe of its own); each probe goes out as the first role that
    * needs it. Never counted against the daily cap, never calibrated, never writes under data/.
@@ -498,10 +465,10 @@ const handlers = perEnv((env) => {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
     const labels = hot.prompts?.labels;
     const image = imageProbeLine(cfg, timeoutMs);
-    const roleModel = new Map(MODEL_ROLES.map((role) => [role, modelForRole(role, cfg)]));
+    const modelOf = new Map(MODEL_ROLES.map((role) => [role, modelForRole(role, cfg)]));
     // An embedding probe is another kind of request: never shared with a chat probe of the same model.
     const targetOf = (role) => {
-      const model = roleModel.get(role);
+      const model = modelOf.get(role);
       const route = resolveProvider(model, { byModel: cfg?.llm?.providerByModel, fallback: cfg?.llm?.provider, role });
       return `${role === EMBED_ROLE ? 'embed' : 'chat'}\n${model}\n${JSON.stringify(route ?? null)}`;
     };
@@ -511,7 +478,7 @@ const handlers = perEnv((env) => {
     if (promptText) {
       const targets = new Map();
       for (const role of MODEL_ROLES) {
-        const model = roleModel.get(role);
+        const model = modelOf.get(role);
         if (role === EMBED_ROLE && !canEmbed) continue;
         if (model && !targets.has(targetOf(role))) targets.set(targetOf(role), { model, role });
       }
@@ -547,9 +514,9 @@ const handlers = perEnv((env) => {
       reason: promptText ? null : 'no-label',
     });
     const lineOf = (role) => {
-      const model = roleModel.get(role);
+      const model = modelOf.get(role);
       if (!model) return `${role} · no model configured`;
-      const head = roleHead(role, model, cfg, labels);
+      const head = roleHead(role, model);
       if (!promptText) return `${head} · skipped: label missing`;
       if (role === EMBED_ROLE && !canEmbed) return `${head} · not checked (no embedding client)`;
       return probeLine(head, results.get(targetOf(role)));

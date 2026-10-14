@@ -18,7 +18,7 @@ import { formatDuration } from '../discord/format.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { oneLine } from '../memory/clamp.js';
 import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/participation.js';
-import { helperModel } from './mention.js';
+import { roleModel } from '../llm/roles.js';
 import { block, fillPromptTemplate, stableThenTail } from './prompt.js';
 import { routeCandidate, routeContext } from './route.js';
 
@@ -195,7 +195,7 @@ export function participationEpisodeOffer({ store, guildId, channel, audience, c
  * `<participation>` block uses); `participation: skipped` (`reason:
  * 'no-prompt'`) without `prompts['participation-pick']`, (`reason:
  * 'no-candidate'`) without a message to judge (src/behavior/route.js#routeCandidate).
- * Else one request on the classifier model (role `classifier.text`, purpose
+ * Else one request on the classifier model (role `analyzer`, purpose
  * `participation-pick`, its answer capped at `participation.maxOutputTokens`,
  * the helper timeout and the client's hedge): the last
  * `participation.contextMessages` lines before the candidate as
@@ -250,8 +250,8 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now }) {
       let completion;
       try {
         completion = await llm.complete(messages, {
-          model: helperModel(config, { role: 'classifier.text', purpose: 'participation-pick' }),
-          ...helperRequestOptions(config, { role: 'classifier.text', maxOutputTokens: settings.maxOutputTokens, purpose: 'participation-pick' }),
+          model: roleModel(config, 'analyzer', 'participation-pick'),
+          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: settings.maxOutputTokens, purpose: 'participation-pick' }),
         });
       } catch (err) {
         log.warn('participation: failed', { channel: channelId, reason: railReason(err), status: err?.statusCode ?? null, name: err?.name ?? null });

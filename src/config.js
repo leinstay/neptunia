@@ -2,7 +2,9 @@
 // process.env without overriding already-set variables, and reads
 // config.json (+ optional config.local.json, deep-merged) for non-secret
 // settings. Secrets are read once at startup; the JSON config is re-read by
-// src/hot.js whenever the files change, so nothing here caches it.
+// src/hot.js whenever the files change, so nothing here caches it. The model keys a
+// config.local.json may still carry from before the eight model roles are read under their new
+// names (`adaptLegacyModelKeys`).
 // Pure helpers (parseEnv, applyEnv, deepMerge) are exported separately so they
 // can be unit-tested without touching the filesystem.
 
@@ -102,14 +104,156 @@ export function loadDotEnv(rootDir = ROOT_DIR) {
   applyEnv(parseEnv(fs.readFileSync(file, 'utf8')));
 }
 
-/** Read config.json merged with config.local.json. Throws on invalid JSON. */
-export function readConfig(rootDir = ROOT_DIR) {
+// ---- the model keys before the eight roles (read for one release) -------------
+// The models used to sit under `llm.model`, `memory.model`, `classifier.*` and `image.model`,
+// and the request roles carried the names of those keys. A deployment's config.local.json
+// written that way keeps working: `adaptLegacyModelKeys` moves each old key to its `roles.*`
+// key (unless that new key is set too: the new one wins) and renames the old role names inside
+// `llm.hedge.roles`, `llm.cache.roles` and the `"<prefix>@<role>"` keys of `llm.providerByModel`.
+// The old role `analyzer` was the memory analyzer, which is now `extractor`, while `analyzer`
+// now names the quick-decision helpers (the old `classifier.text`): an `analyzer` entry is read
+// as `extractor` only when the same file still uses the old model keys (`memory.model` or any
+// `classifier.*` key is present), i.e. when it was written under the old names.
+
+/** Each old model key with the key that replaced it. */
+const LEGACY_MODEL_KEYS = Object.freeze([
+  ['llm.model', 'roles.voice'],
+  ['classifier.text', 'roles.analyzer'],
+  ['classifier.reason', 'roles.reasoner'],
+  ['memory.model', 'roles.extractor'],
+  ['classifier.media', 'roles.vision'],
+  ['classifier.video', 'roles.video'],
+  ['classifier.embed', 'roles.embedding'],
+  ['image.model', 'roles.drawing'],
+  ['classifier.byPurpose', 'roles.byPurpose'],
+]);
+
+/** Each old role name with its new one (the old `analyzer` is handled apart, see above). */
+const LEGACY_ROLE_NAMES = new Map([
+  ['classifier.text', 'analyzer'],
+  ['classifier.reason', 'reasoner'],
+  ['classifier.media', 'vision'],
+  ['classifier.video', 'video'],
+  ['classifier.embed', 'embedding'],
+  ['image', 'drawing'],
+]);
+
+/** The role lists a config may name roles in. */
+const LEGACY_ROLE_LISTS = Object.freeze(['hedge', 'cache']);
+
+/** The parent object of a dotted path inside `root` and the last key, or null when a parent is missing. */
+function parentOf(root, dotted) {
+  const keys = dotted.split('.');
+  let node = root;
+  for (const key of keys.slice(0, -1)) {
+    if (!isPlainObject(node) || !Object.hasOwn(node, key)) return null;
+    node = node[key];
+  }
+  return isPlainObject(node) ? { node, key: keys[keys.length - 1] } : null;
+}
+
+/** Set `value` at a dotted path inside `root`, creating plain objects on the way. */
+function setAt(root, dotted, value) {
+  const keys = dotted.split('.');
+  let node = root;
+  for (const key of keys.slice(0, -1)) {
+    if (!isPlainObject(node[key])) node[key] = {};
+    node = node[key];
+  }
+  node[keys[keys.length - 1]] = value;
+}
+
+/**
+ * A deployment's own config layer (config.local.json, before it is merged) read under the
+ * eight model roles: every old model key moved to its `roles.*` key unless the new key is set
+ * too (then the old one is dropped and the new one wins), and the old role names inside
+ * `llm.hedge.roles`, `llm.cache.roles` and the role suffix of the `llm.providerByModel` keys
+ * renamed (`classifier.text` -> `analyzer`, `classifier.reason` -> `reasoner`, `classifier.media`
+ * -> `vision`, `classifier.video` -> `video`, `classifier.embed` -> `embedding`, `image` ->
+ * `drawing`, and the old `analyzer` -> `extractor` only while the layer still holds
+ * `memory.model` or a `classifier.*` key). A renamed route whose new key is already set is
+ * dropped (the new key wins). `renamed` lists what was found, key names and role names only,
+ * never a value. Pure: `local` is never mutated.
+ * @param {unknown} local  The parsed config.local.json.
+ * @returns {{ config: unknown, renamed: Array<{ key: string, use: string }> }}
+ */
+export function adaptLegacyModelKeys(local) {
+  if (!isPlainObject(local)) return { config: local, renamed: [] };
+  const config = structuredClone(local);
+  const renamed = [];
+  const oldNames = (isPlainObject(config.memory) && Object.hasOwn(config.memory, 'model'))
+    || (isPlainObject(config.classifier) && Object.keys(config.classifier).length > 0);
+  const roleName = (name) => {
+    if (typeof name !== 'string') return name;
+    if (oldNames && name === 'analyzer') return 'extractor';
+    return LEGACY_ROLE_NAMES.get(name) ?? name;
+  };
+
+  for (const [from, to] of LEGACY_MODEL_KEYS) {
+    const at = parentOf(config, from);
+    if (!at || !Object.hasOwn(at.node, at.key)) continue;
+    const value = at.node[at.key];
+    delete at.node[at.key];
+    const target = parentOf(config, to);
+    if (!target || !Object.hasOwn(target.node, target.key)) setAt(config, to, value);
+    renamed.push({ key: from, use: to });
+  }
+  if (isPlainObject(config.classifier) && Object.keys(config.classifier).length === 0) delete config.classifier;
+
+  const llm = config.llm;
+  if (isPlainObject(llm)) {
+    for (const list of LEGACY_ROLE_LISTS) {
+      const roles = isPlainObject(llm[list]) ? llm[list].roles : undefined;
+      if (!Array.isArray(roles)) continue;
+      const next = [];
+      for (const name of roles) {
+        const use = roleName(name);
+        if (use !== name) renamed.push({ key: `llm.${list}.roles: ${name}`, use });
+        if (!next.includes(use)) next.push(use);
+      }
+      llm[list].roles = next;
+    }
+    if (isPlainObject(llm.providerByModel)) {
+      const routes = llm.providerByModel;
+      const next = {};
+      const moved = [];
+      for (const [key, value] of Object.entries(routes)) {
+        const at = key.lastIndexOf('@');
+        const role = at === -1 ? null : key.slice(at + 1);
+        const use = role === null ? role : roleName(role);
+        if (use === role) next[key] = value;
+        else moved.push({ key, newKey: `${key.slice(0, at)}@${use}`, value });
+      }
+      for (const { key, newKey, value } of moved) {
+        if (!Object.hasOwn(next, newKey)) next[newKey] = value;
+        renamed.push({ key: `llm.providerByModel: ${key}`, use: newKey });
+      }
+      llm.providerByModel = next;
+    }
+  }
+  return { config, renamed };
+}
+
+/**
+ * Read config.json merged with config.local.json, the local layer read through
+ * `adaptLegacyModelKeys` first. Throws on invalid JSON.
+ * @param {string} [rootDir]
+ * @returns {{ config: object, renamed: Array<{ key: string, use: string }> }}  `renamed`: the old
+ *   model keys and role names config.local.json still carries, with their new names.
+ */
+export function loadConfig(rootDir = ROOT_DIR) {
   const base = JSON.parse(fs.readFileSync(path.join(rootDir, 'config.json'), 'utf8'));
   const localPath = path.join(rootDir, 'config.local.json');
-  if (!fs.existsSync(localPath)) return base;
+  if (!fs.existsSync(localPath)) return { config: base, renamed: [] };
   const raw = fs.readFileSync(localPath, 'utf8').trim();
-  if (!raw) return base;
-  return deepMerge(base, JSON.parse(raw));
+  if (!raw) return { config: base, renamed: [] };
+  const { config: local, renamed } = adaptLegacyModelKeys(JSON.parse(raw));
+  return { config: deepMerge(base, local), renamed };
+}
+
+/** Read config.json merged with config.local.json (see `loadConfig`). Throws on invalid JSON. */
+export function readConfig(rootDir = ROOT_DIR) {
+  return loadConfig(rootDir).config;
 }
 
 export const env = process.env;

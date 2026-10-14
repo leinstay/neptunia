@@ -332,8 +332,8 @@ test('createChannelRouter: the request options carry the classifier model, the p
   const { router, llm, args, hot } = routerScene();
   await withCapturedLogs(() => router(args));
   const { options } = llm.calls[0];
-  assert.equal(options.model, hot.config.classifier.text);
-  assert.equal(options.role, 'classifier.text');
+  assert.equal(options.model, hot.config.roles.analyzer);
+  assert.equal(options.role, 'analyzer');
   assert.equal(options.purpose, 'route-channel');
   assert.equal(options.maxOutputTokens, 120);
   assert.equal(options.timeoutMs, 12345);

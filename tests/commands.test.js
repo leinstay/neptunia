@@ -61,14 +61,14 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   const values = (option) => option.choices.map((c) => c.value);
   const names = (option) => option.choices.map((c) => c.name);
   const setRole = findOption(findOption(findOption(command.options, 'model').options, 'set').options, 'role');
-  assert.deepEqual(values(setRole), [...MODEL_ROLES, 'image'], 'the chat roles, then the drawing model');
-  assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, 'image']);
-  assert.ok(MODEL_ROLES.includes('voice') && !MODEL_ROLES.includes('talk') && !MODEL_ROLES.includes('image'));
-  assert.ok(MODEL_ROLES.includes('classifier.reason') && MODEL_ROLES.includes('classifier.embed'), 'the reasoning and the embedding roles are set and routed like the others');
+  assert.deepEqual(values(setRole), [...MODEL_ROLES, 'drawing'], 'the chat and embedding roles, then the drawing model');
+  assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, 'drawing']);
+  assert.ok(MODEL_ROLES.includes('voice') && !MODEL_ROLES.includes('talk') && !MODEL_ROLES.includes('drawing'));
+  assert.ok(MODEL_ROLES.includes('reasoner') && MODEL_ROLES.includes('embedding'), 'the reasoning and the embedding roles are set and routed like the others');
   const route = findOption(command.options, 'route');
   for (const sub of ['set', 'remove']) {
     const role = findOption(findOption(route.options, sub).options, 'role');
-    assert.deepEqual(values(role), [...MODEL_ROLES, 'image'], sub);
+    assert.deepEqual(values(role), [...MODEL_ROLES, 'drawing'], sub);
     assert.deepEqual(names(role), values(role), sub);
   }
 });
@@ -1193,17 +1193,24 @@ test('autocomplete: the route model option offers the route prefixes and the mod
     config: {
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: {},
-      llm: { model: 'anthropic/claude-opus-4.6', providerByModel: { 'google/': { only: ['google-vertex'] }, 'google/@classifier.video': { only: ['google-ai-studio'] } } },
-      memory: { model: null },
-      classifier: { text: null, media: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash' },
-      image: { model: 'openai/gpt-image-x' },
+      llm: { providerByModel: { 'google/': { only: ['google-vertex'] }, 'google/@video': { only: ['google-ai-studio'] } } },
+      roles: {
+        voice: 'anthropic/claude-opus-4.6',
+        analyzer: 'google/gemini-3.8-flash',
+        reasoner: 'google/gemini-3.8-flash',
+        extractor: 'anthropic/claude-opus-4.6',
+        vision: 'google/gemini-3.8-flash',
+        video: 'google/gemini-3.8-flash',
+        embedding: 'openai/text-embedding-x',
+        drawing: 'openai/gpt-image-x',
+      },
     },
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });
 
   const all = fakeInteraction({ kind: 'autocomplete', group: 'route', subcommand: 'set', focused: { name: 'model', value: '' } });
   await handler(all);
-  assert.deepEqual(all.respondCalls[0].map((c) => c.value), ['google/', 'anthropic/claude-opus-4.6', 'google/gemini-3.8-flash', 'openai/gpt-image-x']);
+  assert.deepEqual(all.respondCalls[0].map((c) => c.value), ['google/', 'anthropic/claude-opus-4.6', 'google/gemini-3.8-flash', 'openai/text-embedding-x', 'openai/gpt-image-x']);
 
   const typed = fakeInteraction({ kind: 'autocomplete', group: 'route', subcommand: 'remove', focused: { name: 'model', value: 'GOO' } });
   await handler(typed);
@@ -1223,8 +1230,8 @@ test('autocomplete: model set offers the model ids in use; memory restore offers
     config: {
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: {},
-      llm: { model: 'anthropic/claude-opus-4.6', providerByModel: {} },
-      classifier: { media: 'google/gemini-3.8-flash' },
+      llm: { providerByModel: {} },
+      roles: { voice: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash' },
     },
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });

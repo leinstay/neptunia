@@ -143,7 +143,7 @@ function fakeLlm(text) {
 const CONFIG = {
   bot: { timezone: 'UTC' },
   llm: { helperTimeoutMs: 25_000 },
-  classifier: { text: 'x/text', reason: 'x/reason' },
+  roles: { analyzer: 'x/text', reasoner: 'x/reason' },
   web: { search: { classifierMaxOutputTokens: 321 } },
   recall: { maxForms: 6 },
 };
@@ -172,7 +172,7 @@ test('askPlanner: one request on the reasoning role, purpose planner, capped at 
   const { result, logs } = await ask(llm);
   assert.equal(llm.calls.length, 1);
   const { options, messages } = llm.calls[0];
-  assert.equal(options.role, 'classifier.reason');
+  assert.equal(options.role, 'reasoner');
   assert.equal(options.purpose, 'planner');
   assert.equal(options.model, 'x/reason');
   assert.equal(options.maxOutputTokens, 321);

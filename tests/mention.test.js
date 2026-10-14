@@ -10,12 +10,6 @@ import {
   decideMention,
   isFollowUpOpen,
   followUpPreFilter,
-  classifierTextModel,
-  classifierMediaModel,
-  classifierReasonModel,
-  classifierEmbedModel,
-  helperModel,
-  REASON_PURPOSES,
   deprecatedModelKeys,
   parseFollowUpVerdict,
   parseAddressAnswer,
@@ -23,6 +17,7 @@ import {
   isTaggedCall,
   roomPreFilter,
 } from '../src/behavior/mention.js';
+import { ROLE_DEFAULTS, roleModel } from '../src/llm/roles.js';
 
 const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 const NAME_TRIGGERS = ['νεπτούνια'];
@@ -483,81 +478,27 @@ const OLD_KEYS = {
   media: { model: 'x/old-media', video: { model: 'x/old-video' } },
 };
 
-test('classifierTextModel: classifier.text, else classifier.media', () => {
-  assert.equal(classifierTextModel({ ...OLD_KEYS, classifier: { text: 'x/text', media: 'x/media' } }), 'x/text');
-  assert.equal(classifierTextModel({ ...OLD_KEYS, classifier: { text: null, media: 'x/media' } }), 'x/media');
-});
-
-test('classifierTextModel: the deprecated llm.classifierModel, mention.followUpModel and media.model are ignored', () => {
-  assert.equal(classifierTextModel({ ...OLD_KEYS, classifier: { text: null, media: null, video: 'x/video' } }), undefined);
-  assert.equal(classifierTextModel(OLD_KEYS), undefined);
-  assert.equal(classifierTextModel({}), undefined);
-  assert.equal(classifierTextModel(undefined), undefined);
-});
-
-test('classifierReasonModel: classifier.reason, else the text model (classifier.text, then classifier.media)', () => {
-  assert.equal(classifierReasonModel({ classifier: { reason: 'x/reason', text: 'x/text', media: 'x/media' } }), 'x/reason');
-  assert.equal(classifierReasonModel({ classifier: { reason: null, text: 'x/text', media: 'x/media' } }), 'x/text', 'unset: the text model');
-  assert.equal(classifierReasonModel({ classifier: { reason: '', text: null, media: 'x/media' } }), 'x/media');
-  assert.equal(classifierReasonModel({}), undefined);
-  assert.equal(classifierReasonModel(undefined), undefined);
-});
-
-test('classifierEmbedModel: classifier.embed only, never a chat model', () => {
-  assert.equal(classifierEmbedModel({ classifier: { embed: 'x/embed', text: 'x/text' } }), 'x/embed');
-  assert.equal(classifierEmbedModel({ classifier: { embed: null, text: 'x/text', media: 'x/media' } }), undefined);
-  assert.equal(classifierEmbedModel(undefined), undefined);
-});
-
-test('helperModel: a classifier.byPurpose entry wins over the role, the role model over its fallback', () => {
-  const classifier = { text: 'x/text', media: 'x/media', video: 'x/video', reason: 'x/reason', embed: 'x/embed', byPurpose: { lookup: 'x/pinned' } };
-  assert.equal(helperModel({ classifier }, { role: 'classifier.reason', purpose: 'lookup' }), 'x/pinned', 'byPurpose first');
-  assert.equal(helperModel({ classifier }, { role: 'classifier.text', purpose: 'lookup' }), 'x/pinned', 'whatever the role');
-  assert.equal(helperModel({ classifier }, { role: 'classifier.reason', purpose: 'read-link' }), 'x/reason', 'no entry: the role model');
-  assert.equal(helperModel({ classifier }, { role: 'classifier.text', purpose: 'address' }), 'x/text');
-  assert.equal(helperModel({ classifier }, { role: 'classifier.media', purpose: 'describe' }), 'x/media');
-  assert.equal(helperModel({ classifier }, { role: 'classifier.video' }), 'x/video');
-  assert.equal(helperModel({ classifier }, { role: 'classifier.embed', purpose: 'search' }), 'x/embed');
-  const unsetReason = { classifier: { ...classifier, reason: null, byPurpose: {} } };
-  assert.equal(helperModel(unsetReason, { role: 'classifier.reason', purpose: 'lookup' }), 'x/text', 'then the role\'s fallback chain');
-  for (const byPurpose of [{ lookup: '' }, { lookup: null }, { lookup: 7 }, ['x/array'], 'x/string', null]) {
-    assert.equal(helperModel({ classifier: { ...classifier, byPurpose } }, { role: 'classifier.reason', purpose: 'lookup' }), 'x/reason', JSON.stringify(byPurpose));
+test('roleModel: the deprecated llm.classifierModel, mention.followUpModel, media.model and media.video.model are ignored', () => {
+  for (const role of ['analyzer', 'reasoner', 'vision', 'video']) {
+    assert.equal(roleModel(OLD_KEYS, role), ROLE_DEFAULTS[role], role);
+    assert.equal(roleModel({ ...OLD_KEYS, roles: { [role]: 'x/new' } }, role), 'x/new', role);
   }
-  assert.equal(helperModel({ classifier }, { role: 'classifier.unknown', purpose: 'other' }), undefined, 'an unknown role resolves to nothing');
-  assert.equal(helperModel({ classifier: { byPurpose: { toString: 'x/proto' } } }, { role: 'classifier.text', purpose: 'constructor' }), undefined, 'own keys only');
-  assert.equal(helperModel(undefined, { role: 'classifier.text', purpose: 'address' }), undefined);
-});
-
-test('helperModel: every reasoning purpose resolves through classifier.reason, and to the text model while it is unset', () => {
-  assert.deepEqual([...REASON_PURPOSES], ['lookup', 'planner', 'recall-summary', 'search-summary', 'read-link', 'diary-plan']);
-  for (const purpose of REASON_PURPOSES) {
-    assert.equal(helperModel({ classifier: { text: 'x/text', reason: 'x/reason' } }, { role: 'classifier.reason', purpose }), 'x/reason', purpose);
-    assert.equal(helperModel({ classifier: { text: 'x/text', reason: null, byPurpose: {} } }, { role: 'classifier.reason', purpose }), 'x/text', purpose);
-  }
-});
-
-test('classifierMediaModel: classifier.media only; the deprecated media.model is ignored', () => {
-  assert.equal(classifierMediaModel({ ...OLD_KEYS, classifier: { media: 'x/media' } }), 'x/media');
-  assert.equal(classifierMediaModel({ ...OLD_KEYS, classifier: { media: null } }), undefined);
-  assert.equal(classifierMediaModel(OLD_KEYS), undefined);
-  assert.equal(classifierMediaModel({ classifier: { text: 'x/text' }, llm: { model: 'x/talk' } }), undefined, 'never a text-only model');
-  assert.equal(classifierMediaModel(undefined), undefined);
 });
 
 test('deprecatedModelKeys: each old model key that is set, with its replacement, in a fixed order', () => {
   assert.deepEqual(deprecatedModelKeys(OLD_KEYS), [
-    { key: 'llm.classifierModel', use: 'classifier.text' },
-    { key: 'mention.followUpModel', use: 'classifier.text' },
-    { key: 'media.model', use: 'classifier.media' },
-    { key: 'media.video.model', use: 'classifier.video' },
+    { key: 'llm.classifierModel', use: 'roles.analyzer' },
+    { key: 'mention.followUpModel', use: 'roles.analyzer' },
+    { key: 'media.model', use: 'roles.vision' },
+    { key: 'media.video.model', use: 'roles.video' },
   ]);
-  assert.deepEqual(deprecatedModelKeys({ media: { video: { model: 'x/v' } }, llm: { model: 'x/talk' } }), [
-    { key: 'media.video.model', use: 'classifier.video' },
+  assert.deepEqual(deprecatedModelKeys({ media: { video: { model: 'x/v' } }, roles: { voice: 'x/talk' } }), [
+    { key: 'media.video.model', use: 'roles.video' },
   ]);
 });
 
 test('deprecatedModelKeys: none for a current config, a null old key or no config', () => {
-  assert.deepEqual(deprecatedModelKeys({ classifier: { text: 'a', media: 'b', video: 'c' }, llm: { model: 'x' }, media: { maxPerTurn: 6 } }), []);
+  assert.deepEqual(deprecatedModelKeys({ roles: { analyzer: 'a', vision: 'b', video: 'c', voice: 'x' }, media: { maxPerTurn: 6 } }), []);
   assert.deepEqual(deprecatedModelKeys({ llm: { classifierModel: null }, mention: {} }), []);
   assert.deepEqual(deprecatedModelKeys(undefined), []);
 });

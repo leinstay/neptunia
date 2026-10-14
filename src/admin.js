@@ -101,7 +101,7 @@ const ARCHIVE_CHOICES = 25;
  *   `/nep status` card sends to each role's model, and `modelEndpoints()`, its free check of the
  *   drawing model. Absent -> the card names the models without probing them.
  * `embedder` — from createEmbedder() (src/llm/embed.js), optional: `embed()`, the one-input
- *   embedding request the owner's `/nep status` card probes the `classifier.embed` role with.
+ *   embedding request the owner's `/nep status` card probes the `embedding` role with.
  *   Absent -> that role is shown unchecked.
  * `embedQueue` — from src/memory/embedder.js#createEmbedder, optional: `catchUp(guildId)`, the
  *   meaning index's catch-up pass `/nep resume` starts (never awaited), and `indexSummary(guildId)`,

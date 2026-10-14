@@ -30,6 +30,7 @@ import { isTaggedCall } from './mention.js';
 import { pickOtherProfiles } from './turn.js';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable } from '../discord/media.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
+import { roleModel } from '../llm/roles.js';
 import { parseOutput } from '../llm/parse.js';
 import { log } from '../log.js';
 import { findGif } from '../memory/gifs.js';
@@ -732,7 +733,7 @@ export async function answerReply({
   const [systemMessage, userMessage] = request.messages;
   const userText = userTextOf(request.textFallback ?? userMessage.content);
   // Samples 2..N repeat sample 1 exactly: the user part carries a cache breakpoint when the client caches the request.
-  const cached = sampleCount(samples) > 1 && cacheTtlFor(config, REPLY_REQUEST.role, config.llm?.model) !== null;
+  const cached = sampleCount(samples) > 1 && cacheTtlFor(config, REPLY_REQUEST.role, roleModel(config, REPLY_REQUEST.role, REPLY_REQUEST.purpose)) !== null;
   const userContent = cached ? [{ type: 'text', text: userText, cache_control: { ...USER_CACHE_MARKER } }] : userText;
   const messages = [systemMessage, { ...userMessage, content: userContent }];
 
