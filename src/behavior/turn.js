@@ -1783,8 +1783,9 @@ export function createTurnRunner({
       skill,
       status: result.status,
       // Why it did not work, when it did not (the mark words it through labels.transcript.callReasons;
-      // a code no label words: the operation's own message, one line, skills.markTextMaxChars, read
-      // now). In process only: the journal keeps the code and reason, never that message.
+      // without a specific phrase, the operation's own message before the generic one: one line,
+      // skills.markTextMaxChars, read now). In process only: the journal keeps the code and reason,
+      // never that message.
       detail: outcomeDetail(result, { textChars: hot.config.skills?.markTextMaxChars ?? 200 }),
       target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },
       postedId: posted?.id ?? null,

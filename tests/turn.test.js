@@ -8670,9 +8670,10 @@ function skillPhases(lines) {
  * order; `allowed` skills are granted to her (her user id in bot.access); `owners` are the bot's
  * owners (Alice by default: the owner asks); the port is a fake adapter, the operations run on a
  * real admin over it; `emoji`: the server's custom emoji index, none by default; `later`: raw
- * messages that reach #general once the LLM has answered the first request.
+ * messages that reach #general once the LLM has answered the first request; `labelSet`: the
+ * labels in place of the fixture's.
  */
-async function callTurn({ answers, allowed = [], features = {}, skills = {}, owners = ['u1'], images = null, journal = null, store = fakeStore(), beforeSend = null, failNext = null, diary = null, configExtra = {}, turnExtra = {}, emoji = null, later = [] }) {
+async function callTurn({ answers, allowed = [], features = {}, skills = {}, owners = ['u1'], images = null, journal = null, store = fakeStore(), beforeSend = null, failNext = null, diary = null, configExtra = {}, turnExtra = {}, emoji = null, later = [], labelSet = null }) {
   const history = [
     rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'self-id', authorName: 'Bot', content: 'πρώτη' }),
     rawMessage({ id: 'm1', ts: NOW - 1000, authorId: 'u1', authorName: 'Alice', content: 'γράψε στο #νέα' }),
@@ -8686,6 +8687,7 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
   if (failNext) port.failNext(...failNext);
   const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners, access: personaGrants(allowed) }, { skills: { conversations: ['c9'], safeMode: false, resultMaxChars: 2000, ...skills }, ...configExtra });
   hot.prompts.draw = 'Drawing for {{name}}.\n\n{{request}}';
+  if (labelSet) hot.prompts.labels = labelSet;
   if (beforeSend) {
     const send = port.send.bind(port);
     port.send = async (...args) => {
@@ -8848,15 +8850,17 @@ test('skill call: Alice asks her to post photos to the diary and the diary is no
   // A member who is not the owner: the diary is hers, the same answer.
   const member = await callTurn({ answers: ['<call skill="diary.post" kind="photos"/>', '<skip/>'], allowed: ['diary.post'], owners: [], diary, configExtra: { diary: { channelId: '', kinds: { photos: 1 } } }, features: { followUpContinuation: false } });
   assert.ok(requestText(member.llm, 1).includes('<result skill="diary.post" status="not_configured">'), requestText(member.llm, 1));
-  // The turn continued: no label words the diary's code, so her call's mark carries the diary's own
-  // words, and she says so.
+  // The turn continued: her call's mark carries the diary's own words -- what exactly is not set
+  // up -- ahead of the generic phrase of its code, and she says so.
+  const generic = { ...labels, skills: { ...labels.skills, result: { ...labels.skills.result, reasons: { ...labels.skills.result.reasons, 'not-configured': 'GENERIC_NOT_SET_UP' } } } };
   const continued = await callTurn({
     answers: ['<call skill="diary.post" kind="photos"/>', '<msg>δεν έχω ημερολόγιο ακόμα</msg>'],
     allowed: ['diary.post'],
     diary,
     configExtra: { diary: { channelId: '', kinds: { photos: 1 } }, skills: { conversations: ['c9'], safeMode: false, resultMaxChars: 2000, markTextMaxChars: 200 } },
+    labelSet: generic,
   });
-  assert.equal(labels.skills.result.reasons['not-configured'], undefined, 'the fixture words no not-configured code');
+  assert.ok(!requestText(continued.llm, 1).includes('GENERIC_NOT_SET_UP'), 'the generic phrase gives way');
   const said = fill(labels.transcript.callStatusReason, { status: labels.transcript.callStatus.not_configured, reason: 'diary post photos: not-now (no-channel)' });
   const continuedText = requestText(continued.llm, 1);
   assert.ok(continuedText.includes(`Bot (you): [called diary.post: ${said}]`), continuedText);

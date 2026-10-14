@@ -375,7 +375,8 @@ const ARG_RULE_KINDS = Object.freeze({
  * Any other code is its own kind without an argument. With `textChars` (a positive number) and
  * the operation's own message in `outcome.data.text`, that message rides along as `text`: one
  * line, cut to `textChars` with an ellipsis (src/memory/clamp.js) -- what the mark says when no
- * label words the code. Null for an `ok` outcome or one without a code. Pure.
+ * specific label words the kind, ahead of the generic phrase of the code. Null for an `ok`
+ * outcome or one without a code. Pure.
  * @param {{ status?: string, code?: string|null, reason?: string|null, data?: { text?: string }|null }|null|undefined} outcome
  * @param {{ textChars?: number }} [options]
  * @returns {{ kind: string, code: string, arg: string|null, text?: string }|null}

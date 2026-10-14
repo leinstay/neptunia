@@ -507,11 +507,11 @@ function callText(mark, indexById, labels) {
 }
 
 /**
- * Why a call of the persona's did not work, worded (`mark.detail`, withCalls'): the first usable of
- * `labels.transcript.callReasons[<kind>]` (`{arg}` the argument, `{channel}` the target channel's
- * name) and `labels.skills.result.reasons[<code>]`; with neither, the operation's own message
- * (`detail.text`, one line, cut by its maker) as it is; else `labels.skills.result.reasons.other`. A
- * phrase is usable when it is a non-empty string whose `{arg}` and `{channel}` can be filled. ''
+ * Why a call of the persona's did not work, worded (`mark.detail`, withCalls'), the first of: the
+ * specific `labels.transcript.callReasons[<kind>]` (`{arg}` the argument, `{channel}` the target
+ * channel's name); the operation's own message (`detail.text`, one line, cut by its maker) as it
+ * is; the generic `labels.skills.result.reasons[<code>]`; `labels.skills.result.reasons.other`. A
+ * phrase counts when it is a non-empty string whose `{arg}` and `{channel}` can be filled. ''
  * without a detail or anything to say.
  */
 function callReason(mark, labels) {
@@ -523,12 +523,13 @@ function callReason(mark, labels) {
   const own = labels.transcript.callReasons;
   const coded = labels.skills?.result?.reasons;
   const lookup = (map, key) => (map && typeof map === 'object' && typeof key === 'string' && Object.hasOwn(map, key) ? map[key] : null);
-  const phrase = [lookup(own, detail.kind), lookup(coded, detail.code)].find(usable);
-  if (phrase) return fill(phrase, { arg, channel });
-  // No label words this code: the operation's own message, as it said it (one line, already cut).
+  const specific = lookup(own, detail.kind);
+  if (usable(specific)) return fill(specific, { arg, channel });
+  // Before any generic phrase: the operation's own message, as it said it (one line, already cut),
+  // which names what exactly went wrong.
   if (typeof detail.text === 'string' && detail.text) return detail.text;
-  const other = lookup(coded, 'other');
-  return usable(other) ? fill(other, { arg, channel }) : '';
+  const generic = [lookup(coded, detail.code), lookup(coded, 'other')].find(usable);
+  return generic ? fill(generic, { arg, channel }) : '';
 }
 
 /**

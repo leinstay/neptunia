@@ -197,10 +197,10 @@ that map lacks it. A call that did not work says why: `{status}` is then `transc
 (`missing-arg`, `unknown-arg`, `wrong-arg`, `too-long`, `too-short`, `arg-twice`, `unknown-channel`, `unknown-role` with
 `{arg}` the argument's name; `no-body`; `unknown-message` and `not-own-message` with `{arg}` the option that named the
 message; `message-elsewhere`; `member-ambiguous`; any other kind is the code itself, `conversation-not-allowed` with
-`{channel}` the target channel's name), else `skills.result.reasons[<code>]`, else the operation's own message as it
-said it (on one line, cut to `skills.markTextMaxChars`, default 200, with an ellipsis; kept in process only, so a mark
-rebuilt from the journal after a restart has none), else `skills.result.reasons.other` -- a phrase whose `{arg}` or
-`{channel}` cannot be filled is passed over; with no phrase, or `callStatusReason` blank, the
+`{channel}` the target channel's name), else the operation's own message as it said it (it names what exactly went
+wrong; on one line, cut to `skills.markTextMaxChars`, default 200, with an ellipsis; kept in process only, so a mark
+rebuilt from the journal after a restart has none), else the generic `skills.result.reasons[<code>]`, else
+`skills.result.reasons.other` -- a phrase whose `{arg}` or `{channel}` cannot be filled is passed over; with no phrase, or `callStatusReason` blank, the
 status word alone: `[you called message.delete in #general: did not run (wrong arguments): message was not given]`;
 `{posted}` is `calledPosted` with the Discord link of the message the call posted (`message.create`,
 `draw.create`), else empty, so she can name that message in a later call. A turn that posted no line in that channel
