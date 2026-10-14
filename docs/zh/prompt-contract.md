@@ -87,6 +87,7 @@
 | `<gifs>` | 角色可以发送的 GIF（`features.gifs`）：最多 `gifs.max`（默认 40）条，按近期加权使用排名。每条包含 handle（`g1`、`g2`、…）和描述器缓存的三个字段（如有）：反应标签（受 `gifs.reactionChars` 限制，默认 40）、可见动作（受 `gifs.actionChars` 限制，默认 70）和屏幕文字。有字段的条目通过 `labels.gifs.entryFields`（`{id}`、`{reaction}`、`{action}`、`{text}`；代码去除空字段及其分隔符）渲染；无字段的条目使用 `labels.gifs.entry`（`{id}`、`{text}`），说明在词边界截断。每条还记录角色自己的发送时间和次数（`ownLast`、`ownUses`）；在 `gifs.ownMarkHours`（默认 24；`0` = 关）内发送的条目带有 `gifs.ownMark` 和简短的相对时间 |
 | `<skills_protocol>` | 来自 `labels.skills.protocol` 的静态文本：角色拥有技能，可用的按名称列出，详情随需要的消息或应请求出现，调用通过 `<call>`，引擎检查访问权限。`features.skills` 和 `features.skillsDiscovery` 均开启时显示。在稳定部分，`<senses>` 之后 |
 | `<skills_granted>` | 角色被授权的技能名称，每回合显示，使角色无需分类器即可知道自己能用什么：`labels.skills.granted.lead`（如已设置），然后每个族一行 `labels.skills.granted.line`（`{family}` 为名称中第一个点之前的部分，`{names}` 为各名称的其余部分，逗号分隔）。仅名称；标题、使用条件和参数保留在 `<skills>` 中。根据角色的授权（`bot.access` 中指向其 user id 的条目）和注册表构建，按名称排序，因此在不同回合、不同请求者、不同位置之间字节相同，直到授权变更；未授权的技能不显示，`skills.safeMode` 下列表为空。继承的回复标签仅在授权时列出。请求者自身的权限不在此反映：引擎在每次调用时仍会检查。永不裁剪。`features.skills`、`features.skillsDiscovery` 和 `features.skillsAlwaysListed` 均开启且至少有一个技能被授权时显示。在稳定部分，紧接 `<skills_protocol>` 之后 |
+| `<directory>` | 成员目录（`features.mentionHandles`，缺失 = 开）：服务式公会中每个拥有已存档案（角色自身除外；机器人无档案）且有存储名称或开放别名的成员。`labels.directory.lead`（如已设置），然后每成员一行：有别名的成员在该标签已设置时使用 `labels.directory.lineAliases`（`{handle}` `{names}` `{aliases}`），否则使用 `labels.directory.line`（`{handle}` `{names}`）。`{handle}` 是包含 `@` 的原样书写令牌；`{names}` 为 Discord 提供的存储名称；`{aliases}` 为存储的开放别名（与名称相同的排除）；每个列表单行，每名仅出现一次，按码位顺序以 JSON 字符串用「, 」连接。成员按首个名称（否则首个别名）排序，再按 id。无备注、游戏、权重或真实姓名。仅从存储档案构建，成员名称或别名变更前回合间字节相同。永不裁剪。无 `labels.directory.line` 或无成员可列时不显示。稳定部分的末尾，`<gifs>` 之后 |
 | `<about_chat>` | 人们在这里如何交谈，如何发起和插入对话，内部梗，人们教给角色的东西 |
 | `<server>` | 当前频道的完整信息（Discord 分类和话题、用途、人们写什么、氛围、活跃度、最后一条消息、最活跃作者；以 `labels.server.currentMark` 标记），加上仅限本轮向 `<other_channels>` 提供了消息的相邻频道；不包含其他频道 |
 | `<lore>` | 关键词出现在近期消息中的服务器世界书条目（加上标记为 always 的条目）：事件、常驻角色、长期故事。如同世界书：可存在数百个，仅显示相关的少数 |
@@ -110,7 +111,7 @@
 | `<topic>` | 拥有者的强制帖子主题（`/nep diary post [kind] [topic]`）：`labels.diary.topic`，然后主题一行，最多 1000 个字符。仅在计划请求中，紧随 `<seeds>` 之后，仅当指定了主题时出现。不会被截断 |
 | `<task>` | `reply` / `follow-up`（当 `follow-up.md` 存在时，用于 `followUp` 和未带 @提及的 `reply`）/ `interject` / `initiate` / `overheard`（当 `overheard.md` 存在时）/ `elsewhere`（当 `elsewhere.md` 存在时，用于 noticed 评论）/ `diary`（当 `diary.md` 存在时，用于日记帖子），占位符已填充。模式提示之后，当条件满足时最多追加三个 `task.*` 标签（各以空行分隔）：回合回答分拆消息的一个部分时为 `task.part`，或触发作者有其他呼叫等候时为 `task.queued`；频道中其他成员有呼叫等候时为 `task.queuedOthers`；稍后的消息被折叠进此呼叫时为 `task.added`。参见下方 `labels.task.*` |
 
-预算优先级（区块从此列表的底部开始裁剪）：系统提示 + 任务 + 时钟 + 节奏 + 感知
+预算优先级（区块从此列表的底部开始裁剪）：系统提示 + 任务 + 时钟 + 节奏 + 感知 + 技能协议与授权 + 目录
 （永不裁剪）-> 呼叫者的档案含回忆 -> 查询结果（整体保留或丢弃；可包含网络部分、服务器部分或两者）-> 聊天习惯 -> 自述事实 -> 世界书 -> 服务器 -> 对话记录（最新优先）->
 拉取的频道（`<channel_view>`，上限 `context.caps.pulled`；回答只读频道呼叫的回合中拉取块在对话记录之前而非之后）->
 近期记事（上限 `context.caps.recent`）->
@@ -176,6 +177,7 @@ transcript.gapWithDate                   {duration} {date}: 同上，两行之�
 transcript.date | header                 {date}
 transcript.timeAged                      {clock} {age}: 替换发出已满 `context.ageAfterMinutes` 分钟的行的整个方括号时间；age 是以 `labels.units` 表示的时长；较新的行保持 `[{clock}]`；键缺失或为空时不显示距今时间
 transcript.empty | replyToOld | image
+transcript.author                        {name} {handle}: `<chat>`、`<channel_view>` 或 `<other_channels>` 行的作者（非角色、非机器人），features.mentionHandles 开启时。{handle} 是包含 `@` 的精确提及令牌。键缺失或为空：仅显示裸名
 transcript.triggeredBy                   {n}: 角色自身行中角色名之后，发出该行的回合所由触发消息的编号（features.triggerMarkers）；值为空时不显示标记
 transcript.triggeredByOlder              同上，当触发消息不在该区块内时；值为空时不显示标记
 transcript.called                        {skill} {target} {status} {posted}: 附加在调用了技能的回合中角色最后一行之后；如果回合没有消息则为独立行。{target} 为 calledTargetMessage、calledTargetLink、calledTargetChannel 之一或为空；{status} 为 callStatus.* 之一；{posted} 为 calledPosted 或为空。角色实际做了什么的记录
@@ -344,6 +346,9 @@ skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denie
 skills.proposedOff                       {names}: 在仅含提议的 `<skills>` 块末尾显示，列出不被允许的提议技能
 skills.granted.lead                      OPTIONAL：`<skills_granted>` 的第一行，在族行之前。无此标签时族行独立显示
 skills.granted.line                      {family} {names}：`<skills_granted>` 中角色被授权的技能的一个族；{names} 是各名称去掉族和点后的部分，用「, 」连接。无此标签则不显示 `<skills_granted>` 块
+directory.lead                           OPTIONAL：`<directory>` 的第一行，在成员行之前
+directory.line                           {handle} {names}：`<directory>` 的一个成员；{handle} 是包含 `@` 的精确提及令牌；{names} 是存储的名称，以 JSON 字符串用「, 」连接。无此标签则不显示 `<directory>` 块
+directory.lineAliases                    {handle} {names} {aliases}：有开放别名的成员（{aliases} 格式同 {names}）。键缺失或为空：使用 `directory.line`
 skills.result.alreadyPosted              OPTIONAL {text}: 第一轮已发布的每个动作（消息、反应、图片）各一行；仅在 `features.followUpContinuation` 关闭时。无此标签时不列出已发布动作
 skills.result.ok                         返回数据的读取调用的状态行。数据在下一行跟随
 skills.result.refused                    {reason}: 引擎在执行前拒绝了调用
@@ -363,7 +368,7 @@ skills.result.reasons.not-allowed | safe-mode | owner-only | unknown-skill | inv
 - `<draw self="yes" reply="#87">scene</draw>` 提交给绘画子进程的图片。每回合一个，首个非空优先，截断至 800 字符。`self="yes"` 添加角色外貌；`reply="#87"` 与 `<msg>` 用法相同。可与 `<msg>` 和 `<react>` 同时出现。
 - `<call skill="NAME" attr="value"…>BODY</call>` 或自闭合形式 `<call skill="NAME" attr="value"…/>`。每回合一次技能调用。仅在输出的顶层解析，不在 `<msg>`、`<draw>`、`<react>`、`<gif>`、`<think>`、代码块或引用行（`>`）内处理；第一个格式正确的调用生效，后续忽略。`skill` 指定技能名；其余属性为参数（双引号内纯文本）；正文是调用携带的消息或场景（读取或状态调用时为空）。各技能属性：`message.send` 接受 `conversation` 和可选 `replyTo`，正文为文本；`message.edit` 接受 `message`，正文为新文本；`message.delete` 接受 `message`；`memory.read` 接受 `member`；`status.show` 和 `skills.list` 无参数；`draw` 接受 `conversation`，正文为提示。引擎检查角色是否有权使用该技能。读取调用、被拒绝或失败的调用会在后续请求的 `<task>` 之前以 `<result skill="NAME" status="STATUS">` 块返回一次，供角色据此回复。成功的发送、编辑、删除或图片不需要后续处理。`unknown` 状态表示结果不确定，不再重试。`features.skills: false` 丢弃所有 `<call>`。
 - `<skip/>` 保持沉默。
-- `@nick` 与对话记录中完全一致时转换为真实的提及。
+- `@handle`（`<directory>` 或对话记录作者的 handle，完全按显示写出）转换为真实的提及（`features.mentionHandles`）。关闭时：`@nick` 与对话记录中完全一致。
 - `#频道名` 为服务器频道时，`<msg>` 文本中会转换为真实的频道链接（`<#id>`）（`features.channelLinks` 开启时，默认 true，缺失 = 开）。先查找完全匹配的全名，最长优先。无完全匹配时，按核心名匹配：去除首尾表情、符号和标点，折叠大小写和重音。核心仅对应一个频道时创建链接；两个或更多频道共享核心时不创建链接。已有的链接保持不变。
 
 `features.reactions: false` 移除 `<react>`，`features.multiMessage: false` 仅保留第一个 `<msg>`；

@@ -97,7 +97,7 @@
     "reactionMine": "{emoji} x{count} (you)"
   },
   "directory": {
-    "lead": "Members you can mention. To mention one, write their handle exactly as listed, @ included; a name alone mentions nobody.",
+    "lead": "Members you can mention. Write the handle exactly as listed to tag someone; a name alone pings nobody.",
     "line": "{handle}: {names}",
     "lineAliases": "{handle}: {names}; also called {aliases}"
   },
