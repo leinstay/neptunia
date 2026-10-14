@@ -227,6 +227,33 @@ test('executeCall: message.create posts her own text where she may, the reply no
   assert.deepEqual([lost.status, lost.code], ['unknown', 'timeout']);
 });
 
+test('executeCall: her written text goes out as rendered; only the members the rendering resolved are notified, never one with pings off', async () => {
+  const { admin, port } = makeAdmin();
+  // The turn's rendering: two names it knows become mentions; @everyone is no name of anyone.
+  const renderText = (text) => {
+    const userIds = [];
+    const out = text.replace(/@(Zoë|Élodie)/g, (whole, name) => {
+      const id = name === 'Zoë' ? MEMBER : '8';
+      userIds.push(id);
+      return `<@${id}>`;
+    });
+    return { text: out, userIds };
+  };
+  const created = await executeCall(resolve('message.create', {}, '@Zoë @Élodie @everyone'), deps(admin, port, { renderText }));
+  assert.equal(created.status, 'ok');
+  const posted = port.messagesIn(HERE).at(-1);
+  assert.equal(posted.text, `<@${MEMBER}> <@8> @everyone`);
+  assert.deepEqual(posted.mentions, { users: [MEMBER], repliedUser: false }, 'Élodie (8) turned pings off');
+  // The edit: the same text and mentions.
+  port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'λάθος' });
+  const edited = await executeCall(resolve('message.edit', { message: '#4' }, '@Zoë'), deps(admin, port, { renderText }));
+  assert.equal(edited.status, 'ok');
+  assert.deepEqual(port.calls.filter((call) => call.op === 'edit').at(-1).args[1], { text: `<@${MEMBER}>`, mentions: { users: [MEMBER], repliedUser: false } });
+  // A rendering that is a plain string: the text as rendered, nobody notified.
+  await executeCall(resolve('message.create', {}, '@Zoë'), deps(admin, port, { renderText: (text) => text.toUpperCase() }));
+  assert.deepEqual([port.messagesIn(HERE).at(-1).text, port.messagesIn(HERE).at(-1).mentions], ['@ZOË', { users: [], repliedUser: false }]);
+});
+
 test('executeCall: a person who runs /nep message create gives her a turn; her own call posts -- the mode is the server\'s, by who acts', async () => {
   const forced = [];
   const spontaneous = { force: async (channel, mode, options) => { forced.push([channel.id, mode, options]); return { outcome: 'spoke' }; } };

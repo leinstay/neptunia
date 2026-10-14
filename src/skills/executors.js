@@ -24,7 +24,7 @@ const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
 /** The operations whose success is its own answer: a message or a picture that went out. */
 export const QUIET_ON_OK = Object.freeze(['message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'draw.create']);
 
-/** The operations whose `text` is the persona's own writing, posted as it is shown (custom emoji). */
+/** The operations whose `text` is the persona's own writing, posted as a `<msg>` of hers is (mentions, custom emoji, links). */
 const WRITTEN = Object.freeze(['message.create', 'message.edit']);
 
 /** Every status a call result may have. */
@@ -256,8 +256,10 @@ function fromPort(result) {
  * Runs one resolved call (`resolved`: resolveCall's) the gateway let pass; never throws (a throw is
  * `failed` with `error`). Her arguments with the command's fixed values, mapped by the command's
  * own option mapper (`command.toCall`), must reach this very operation (else `invalid`); her own
- * writing (`message.create`, `message.edit`) is first rendered as it is posted
- * (`deps.renderText`: custom emoji). Then `deps.runCommand(key, args, context)`
+ * writing (`message.create`, `message.edit`) is first rendered as a `<msg>` of hers is posted
+ * (`deps.renderText`: the text, or `{ text, userIds }` -- mentions, custom emoji, message and
+ * channel links; src/behavior/turn.js#renderPost), the members it mentions handed to the
+ * operation as `mentionUserIds`, the only ones it may notify. Then `deps.runCommand(key, args, context)`
  * (src/admin.js#runCommand) -- for her own expressive operations (src/ops/effects.js#SELF_OWNED_OPS)
  * `deps.runOwnCommand` (src/admin.js#runOwnCommand: her grant alone, no requester's right) -- on
  * the call's envelope (`deps.envelope`, built by the turn, never by
@@ -275,7 +277,16 @@ function fromPort(result) {
 export async function executeCall(resolved, deps) {
   try {
     const args = { ...resolved.args };
-    if (WRITTEN.includes(resolved.skill) && typeof args.text === 'string' && typeof deps.renderText === 'function') args.text = deps.renderText(args.text);
+    // Her own writing as a `<msg>` of hers is posted: the members its mentions resolved to ride along.
+    let mentionUserIds = [];
+    if (WRITTEN.includes(resolved.skill) && typeof args.text === 'string' && typeof deps.renderText === 'function') {
+      const rendered = deps.renderText(args.text);
+      if (typeof rendered === 'string') args.text = rendered;
+      else if (typeof rendered?.text === 'string') {
+        args.text = rendered.text;
+        if (Array.isArray(rendered.userIds)) mentionUserIds = rendered.userIds.filter((id) => typeof id === 'string' && id);
+      }
+    }
     const call = resolved.command.toCall(args);
     if (!call.args || call.op !== resolved.skill) return { status: 'invalid', code: 'invalid-args', reason: 'command' };
     // Her own expressive operations run on her grant alone; any other on the requester's right too.
@@ -290,6 +301,7 @@ export async function executeCall(resolved, deps) {
       actor: 'persona',
       ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
       ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),
+      ...(mentionUserIds.length > 0 ? { mentionUserIds } : {}),
     }), deps.timeoutMs ?? CALL_TIMEOUT_MS);
     // Dispatched and not back in time: it may have taken effect. Never retried.
     if (result?.timedOut === true) return { status: 'unknown', code: 'timeout', data: { text: '' } };
