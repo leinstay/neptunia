@@ -14,12 +14,13 @@ import { PAGE } from '../discord/collect.js';
 import { log } from '../log.js';
 import { clampAtBoundary } from '../memory/clamp.js';
 import { ARCHIVE_KINDS, archiveEntry } from '../memory/archive.js';
-import { utcDay, zonedDay } from '../time.js';
+import { SnowflakeUtil } from 'discord.js';
+import { DAY_MS, utcDay, zonedDay } from '../time.js';
 import { formatClock } from '../discord/format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
-import { journalLine } from '../memory/journal.js';
+import { journalLine, turnView } from '../memory/journal.js';
 import { DEFAULT_REDACTION, DEFAULT_VAULT_DIR, SNAPSHOTS_DIR } from '../memory/store.js';
-import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText } from './shared.js';
+import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText, messageRefOf } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 const handlers = perEnv((env) => {
@@ -322,13 +323,25 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory journal [day] [kind] [n]`: the last `n` (1..50, default 20) journal records of
+   * `/nep memory journal [day] [kind] [n] [message]`: the last `n` (1..50, default 20) journal records of
    * one UTC day (default today), of one kind or all, as short lines (src/memory/journal.js#journalLine).
+   * With `message` (`messageId`: an id or a message link; the persona's call gives `#N`, resolved
+   * to the id by src/skills/executors.js#resolveCall) the turn that posted that message instead,
+   * whole (journal.findTurn over the message's snowflake time, shown by turnView), the other
+   * options ignored; a message no turn of the guild journal posted is `not-found`.
    * Owner-only (src/discord/access.js); read only, so it works while paused.
    */
   async function cmdMemoryJournal(args, context) {
     if (!journal) return 'the journal is not available';
     const guildId = requireGuildId(context);
+    if (args?.messageId !== undefined && args?.messageId !== null && args?.messageId !== '') {
+      const { messageId } = messageRefOf(args.messageId);
+      if (!/^\d{1,20}$/.test(messageId)) throw invalid('a message id or link is required', 'unknown-message');
+      const at = SnowflakeUtil.timestampFrom(messageId);
+      const found = typeof journal.findTurn === 'function' ? await journal.findTurn(guildId, { messageId, at }) : null;
+      if (!found) throw invalid(`no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`, 'not-found');
+      return turnView(found);
+    }
     const day = args?.day ?? utcDay(Date.now());
     if (typeof day !== 'string' || !JOURNAL_DAY_RE.test(day)) throw invalid('day must be YYYY-MM-DD');
     const kind = args?.kind ?? 'all';

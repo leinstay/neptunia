@@ -192,6 +192,7 @@ test('skillArgs: a derived skill lists its command\'s options, the same each tim
     { name: 'day', required: false },
     { name: 'kind', required: false, values: ['turn', 'action', 'memory', 'system', 'answer', 'all'] },
     { name: 'n', required: false, minimum: 1, maximum: 50 },
+    { name: 'message', required: false },
   ]);
   assert.deepEqual(skillArgs(registry.get('message.create')), [
     { name: 'channel', required: false },
