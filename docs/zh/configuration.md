@@ -84,17 +84,17 @@
 | `provider` | `null` | OpenRouter `provider` 路由对象，原样传递；`null` 表示不发送该字段 |
 | `providerByModel` | `{}` | 按模型路由 provider；详见下文 |
 | `cache.ttl` | `"1h"` | 标记上发送的缓存 TTL: `"1h"` 或 `"5m"` |
-| `cache.roles` | `["voice"]` | 系统消息会获得缓存标记的请求角色。记忆语音请求不参与，因此只有回复被缓存 |
+| `cache.roles` | `["voice"]` | 系统消息会获得缓存标记的请求角色。记忆语音请求不参与，因此只有回复被缓存。添加 `classifier.text` 和 `classifier.reason` 可同时缓存辅助工具的稳定部分 |
 | `cache.models` | `["anthropic/"]` | 提供商接受 `cache_control` 标记的模型 id 前缀（区分大小写）。列表外的模型发送时不带标记 |
 | `cache.promptIncludesCached` | `true` | 提供商报告的 `prompt_tokens` 是否已包含缓存读取和缓存写入的 token。通过一次实际探测设定。token 校准和每请求上限始终使用完整计数 |
-| `hedge.roles` | `["classifier.text"]` | 对冲的请求角色（两个并发尝试，先完成的获胜） |
+| `hedge.roles` | `["classifier.text", "classifier.reason"]` | 对冲的请求角色（两个并发尝试，先完成的获胜） |
 | `hedge.afterMs` | `2500` | 第二次尝试在第一次之后多少毫秒启动。`0` 或以下对所有角色关闭对冲 |
 | `hedge.timeoutMs` | `8000` | 从第一次尝试开始，两者均未返回时中止的毫秒数 |
 | `hedge.longTimeoutMs` | `20000` | 当调用方标记请求为 `long: true` 时使用的超时（路由分类器在频道列表较大时使用此值） |
 
 `llm.provider` 为聊天请求设置默认的 OpenRouter provider 路由字段，例如 `{ "ignore": ["some-provider"] }` 或 `{ "order": ["anthropic"], "allow_fallbacks": true }`。`llm.providerByModel` 按模型添加覆盖：每个键是模型 id 前缀（匹配任意角色）或 `<prefix>@<role>`（仅匹配一个角色），值为原样传递的 OpenRouter 路由对象。
 
-单个请求的 provider 按以下顺序解析：每次调用的固定路由（视频描述器的直接 URL 路径使用 `media.video.provider`），然后是 `providerByModel` 中与该请求角色匹配的最长前缀，然后是无角色键中匹配的最长前缀，然后是 `llm.provider`（图像请求使用 `image.provider`），最后是无路由（由 OpenRouter 选择）。角色专用键始终优先于同一模型的无角色键。角色名称：`voice`、`analyzer`、`classifier.text`、`classifier.media`、`classifier.video`、`image`。为兼容性，路由键或角色列表中仍写 `talk` 的会被读取为 `voice`，附带一条日志（`config: role talk is now voice`）。
+单个请求的 provider 按以下顺序解析：每次调用的固定路由（视频描述器的直接 URL 路径使用 `media.video.provider`），然后是 `providerByModel` 中与该请求角色匹配的最长前缀，然后是无角色键中匹配的最长前缀，然后是 `llm.provider`（图像请求使用 `image.provider`），最后是无路由（由 OpenRouter 选择）。角色专用键始终优先于同一模型的无角色键。角色名称：`voice`、`analyzer`、`classifier.text`、`classifier.reason`、`classifier.media`、`classifier.video`、`classifier.embed`、`image`。为兼容性，路由键或角色列表中仍写 `talk` 的会被读取为 `voice`，附带一条日志（`config: role talk is now voice`）。
 
 示例：`"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` 将所有 Google 模型路由到 Vertex，而 `"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` 将视频分类器发送到 AI Studio。包含点号的路由键（如 `google/@classifier.video`）无法通过 `/nep set` 编辑，因为它会按点号拆分路径；请使用 `/nep route set` 和 `/nep route remove`。
 
@@ -108,15 +108,24 @@
 
 ## `classifier`
 
-三个辅助模型角色，统一归入一个键下。每个独立设置，因此辅助工具可以使用低成本模型，而语音使用高端模型。
+辅助模型角色，统一归入一个键下。每个独立设置，因此辅助工具可以使用低成本模型，而语音使用高端模型。
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
-| `text` | `"anthropic/claude-sonnet-4.6"` | 文本分类器：地址分类器（`features.followUp`）、搜索分类器、链接阅读器、搜索浓缩器和 recall 摘要（`features.webLookup`、`features.recall`）、重看分类器（`features.videoRewatch`）、房间分类器（`spontaneous.roomQuestionChance`）和频道路由分类器（`features.channelRoute`） |
+| `text` | `"anthropic/claude-sonnet-4.6"` | 文本分类器：地址分类器（`features.followUp`）、重看分类器（`features.videoRewatch`）、房间分类器（`spontaneous.roomQuestionChance`）和频道路由分类器（`features.channelRoute`） |
+| `reason` | `null` | 对内容进行推理的辅助工具：搜索分类器、recall 摘要、搜索浓缩器、链接阅读器和日记规划器。未设置（默认）时使用 `classifier.text` 的模型；状态卡片会标注回退来源。请求以角色 `classifier.reason` 发送 |
+| `byPurpose` | `{}` | 按用途覆盖模型：键为用途字符串（如 `lookup`、`recall-summary`、`diary-plan`），值为模型 ID。用途匹配优先于角色的模型。`/nep status` 不会探测 |
 | `media` | `"anthropic/claude-haiku-4.5"` | 图片描述器（`features.mediaDescriptions`）：为图片、GIF 帧、视频封面、贴纸、自定义表情和链接缩略图生成单行描述 |
 | `video` | `"google/gemini-3.8-flash"` | 视频描述器（`features.videoDescriptions`）：观看短片段，基于问题重看，按请求重试。必须同时接受视频和音频输入 |
+| `embed` | `"openai/text-embedding-3-large"` | 嵌入模型（用于语义搜索）。请求以角色 `classifier.embed` 发送；`llm: usage` 日志行包含 `inputs`（文本数量）和 `dimensions`。`/nep status` 通过单输入嵌入请求探测；没有嵌入客户端时该行显示未检查 |
 
 **从旧键迁移。**已废弃的键 `llm.classifierModel`、`mention.followUpModel`、`media.model` 和 `media.video.model` 不再读取。如果 `config.local.json` 中存在这些键，机器人会在启动时记录一条警告（`index: deprecated model key ignored`），指出该键及其替代键。请将值分别移至 `classifier.text`、`classifier.media` 或 `classifier.video`。
+
+## `embed`
+
+| 键 | 默认值 | 说明 |
+|---|---|---|
+| `dimensions` | `1024` | 请求嵌入模型返回的维度数。模型支持截断时，较小的值更快、更便宜 |
 
 ## `context`
 

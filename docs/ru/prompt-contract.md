@@ -164,7 +164,8 @@ recent (лимит `context.caps.recent`) ->
 
 ```
 locale                                   BCP-47 tag for dates
-status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word
+status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word. The embedding role (`classifier.embed`) is probed with a one-input embedding request of this text instead of a chat completion; when no embedding client is wired the embed line says it was not checked
+status.fallback                          {role}: shown next to a role whose own key is unset, marking that its model comes from another role's key; `{role}` is the role it falls back to. Without this label, no fallback marker is shown
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: время между двумя соседними строками, если между ними не меньше `context.gapMarkerMinutes` минут; формулировка не должна читаться как возраст сообщения

@@ -14,7 +14,7 @@ Owner-only operations (`access.*`, `diary.*`, `memory.private.*`, `memory.journa
 
 ## Status
 
-`/nep status` shows a single card with the fields that matter most for a quick check: the bot's state (running or paused since when), the gateway connection, long-running tasks (the emoji and GIF backfills, the GIF recache, the archive drain), which model serves each role, today's daily limits (requests, images, videos, recall, lookups) and uptime. `/nep status detail` adds the long text form below the card: model calibration, the warmup's progress, every loaded prompt with its source, and the voice queue. A member granted `status.show` sees the card without the memory and journal fields and never the long form.
+`/nep status` shows a single card with the fields that matter most for a quick check: the bot's state (running or paused since when), the gateway connection, long-running tasks (the emoji and GIF backfills, the GIF recache, the archive drain), which model serves each role, today's daily limits (requests, images, videos, recall, lookups) and uptime. Each role's resolved model is shown; a role whose own key is unset carries a fallback marker (`labels.status.fallback`) naming the role it takes its model from. Per-purpose overrides (`classifier.byPurpose`) are listed as `byPurpose <purpose> <model>` lines (not probed). The embed role is probed with a one-input embedding request (using the `status.probe` text); without an embedding client the embed line says it was not checked. `/nep status detail` adds the long text form below the card: model calibration, the warmup's progress, every loaded prompt with its source, and the voice queue. A member granted `status.show` sees the card without the memory and journal fields and never the long form.
 
 ## Command table
 
@@ -31,10 +31,10 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep talk <action:interject\|initiate> [channel]` | `talk.interject`, `talk.initiate` | ephemeral, deferred | Make the persona speak now |
 | `/nep media <kind:emoji\|gifs> <action:status\|rescan\|recache>` | `media.status`, `media.rescan`, `media.recache` | ephemeral, deferred for `media.rescan` | The custom emoji ranking and the GIF library |
 | `/nep model show` | `model.show` | ephemeral | Show the model of each role |
-| `/nep model set <role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image> <id>` | `model.set` | ephemeral | Set the model for one role; `id` autocompletes |
+| `/nep model set <role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image> <id>` | `model.set` | ephemeral | Set the model for one role; `id` autocompletes |
 | `/nep route list` | `route.list` | ephemeral | Every route, then each role's current model and route |
-| `/nep route set <model> <providers> [role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image] [fallbacks]` | `route.set` | ephemeral | Route a model prefix, for one role or any, to these providers only; `model` autocompletes |
-| `/nep route remove <model> [role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image]` | `route.remove` | ephemeral | Remove a model prefix's route, for one role or any; `model` autocompletes |
+| `/nep route set <model> <providers> [role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image] [fallbacks]` | `route.set` | ephemeral | Route a model prefix, for one role or any, to these providers only; `model` autocompletes |
+| `/nep route remove <model> [role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image]` | `route.remove` | ephemeral | Remove a model prefix's route, for one role or any; `model` autocompletes |
 | `/nep rule add <text>` | `rule.add` | ephemeral | Append a rule |
 | `/nep rule list` | `rule.list` | ephemeral | List the rules, numbered |
 | `/nep rule remove <number>` | `rule.remove` | ephemeral | Remove a rule by number |

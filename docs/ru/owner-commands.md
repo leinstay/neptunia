@@ -14,7 +14,7 @@
 
 ## Статус
 
-`/nep status` показывает одну карточку с самыми важными для быстрой проверки полями: состояние бота (работает или на паузе с какого момента), шлюз, долгие задачи (прогрев, бэкфиллы, разгрузка архива), модель для каждой роли, дневные лимиты (запросы, картинки, видео, recall, lookups) и аптайм. `/nep status detail` добавляет длинную текстовую форму под карточкой: калибровку моделей, прогресс прогрева, каждый загруженный промпт с источником и голосовую очередь. Участник с разрешением `status.show` видит карточку без полей памяти и журнала и никогда не видит длинную форму.
+`/nep status` показывает одну карточку с самыми важными для быстрой проверки полями: состояние бота (работает или на паузе с какого момента), шлюз, долгие задачи (бэкфиллы, разгрузка архива), модель для каждой роли, дневные лимиты (запросы, картинки, видео, recall, lookups) и аптайм. У роли, не задавшей собственную модель, рядом стоит маркер (`labels.status.fallback`) с именем роли, откуда взята модель. Переопределения по назначению (`classifier.byPurpose`) выводятся строками `byPurpose <purpose> <model>` (не проверяются). Роль эмбеддингов проверяется одним запросом на один вход (текст из `status.probe`); без клиента эмбеддингов строка сообщает, что проверка не проводилась. `/nep status detail` добавляет длинную текстовую форму под карточкой: калибровку моделей, прогресс прогрева, каждый загруженный промпт с источником и голосовую очередь. Участник с разрешением `status.show` видит карточку без полей памяти и журнала и никогда не видит длинную форму.
 
 ## Таблица команд
 
@@ -29,10 +29,10 @@
 | `/nep talk <action:interject\|initiate> [channel]` | `talk.interject`, `talk.initiate` | эфемерный, отложенный | Заставить персонажа заговорить |
 | `/nep media <kind:emoji\|gifs> <action:status\|rescan\|recache>` | `media.status`, `media.rescan`, `media.recache` | эфемерный, отложенный для `media.rescan` | Рейтинг эмодзи и библиотека GIF |
 | `/nep model show` | `model.show` | эфемерный | Модель каждой роли |
-| `/nep model set <role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image> <id>` | `model.set` | эфемерный | Установить модель для роли; `id` автодополняется |
+| `/nep model set <role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image> <id>` | `model.set` | эфемерный | Установить модель для роли; `id` автодополняется |
 | `/nep route list` | `route.list` | эфемерный | Все маршруты, затем модель и маршрут каждой роли |
-| `/nep route set <model> <providers> [role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image] [fallbacks]` | `route.set` | эфемерный | Маршрутизировать префикс модели только через этих провайдеров; `model` автодополняется |
-| `/nep route remove <model> [role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image]` | `route.remove` | эфемерный | Удалить маршрут; `model` автодополняется |
+| `/nep route set <model> <providers> [role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image] [fallbacks]` | `route.set` | эфемерный | Маршрутизировать префикс модели только через этих провайдеров; `model` автодополняется |
+| `/nep route remove <model> [role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image]` | `route.remove` | эфемерный | Удалить маршрут; `model` автодополняется |
 | `/nep rule add <text>` | `rule.add` | эфемерный | Добавить правило |
 | `/nep rule list` | `rule.list` | эфемерный | Список правил с нумерацией |
 | `/nep rule remove <number>` | `rule.remove` | эфемерный | Удалить правило по номеру |

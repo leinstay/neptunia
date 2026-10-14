@@ -84,17 +84,17 @@
 | `provider` | `null` | OpenRouter の `provider` ルーティングオブジェクト（そのまま渡される）。`null` の場合は送信しない |
 | `providerByModel` | `{}` | モデルごとのプロバイダールーティング。詳細は下記 |
 | `cache.ttl` | `"1h"` | マーカーに付与するキャッシュ TTL: `"1h"` または `"5m"` |
-| `cache.roles` | `["voice"]` | システムメッセージにキャッシュマーカーを付与するリクエストロール。メモリボイスリクエストはオプトアウトするため、リプライのみがキャッシュされる |
+| `cache.roles` | `["voice"]` | システムメッセージにキャッシュマーカーを付与するリクエストロール。メモリボイスリクエストはオプトアウトするため、リプライのみがキャッシュされる。ヘルパーの安定部分もキャッシュするには `classifier.text` と `classifier.reason` を追加 |
 | `cache.models` | `["anthropic/"]` | `cache_control` マーカーを受け入れるプロバイダーのモデル id プレフィックス（大文字小文字区別）。リスト外のモデルへのリクエストにはマーカーが付かない |
 | `cache.promptIncludesCached` | `true` | プロバイダーが報告する `prompt_tokens` にキャッシュ読み取りとキャッシュ書き込みのトークンが含まれているかどうか。実際のプローブから一度設定する。トークンキャリブレーションとリクエスト上限は常にフルカウントを使用する |
-| `hedge.roles` | `["classifier.text"]` | 呼び出しをヘッジするリクエストロール（2 つ同時に試行し、先に完了した方を採用） |
+| `hedge.roles` | `["classifier.text", "classifier.reason"]` | 呼び出しをヘッジするリクエストロール（2 つ同時に試行し、先に完了した方を採用） |
 | `hedge.afterMs` | `2500` | 2 回目の試行を開始するまでのミリ秒。`0` 以下ですべてのロールのヘッジをオフ |
 | `hedge.timeoutMs` | `8000` | 1 回目の試行開始からこのミリ秒でどちらも返っていない場合、両方を打ち切り |
 | `hedge.longTimeoutMs` | `20000` | 呼び出し元がリクエストに `long: true` を付けた場合に `timeoutMs` の代わりに使用するタイムアウト（ルート分類器が大きなチャンネルリストで使用） |
 
 `llm.provider` はチャットリクエストに対するデフォルトの OpenRouter プロバイダールーティングを設定します。例: `{ "ignore": ["some-provider"] }` や `{ "order": ["anthropic"], "allow_fallbacks": true }`。`llm.providerByModel` はモデルごとのオーバーライドを追加します。キーはモデル id のプレフィックス（任意のロールに一致）または `<prefix>@<role>`（1 つのロールのみ一致）で、値はそのまま渡される OpenRouter ルーティングオブジェクトです。
 
-1 つのリクエストに対するプロバイダーの解決順序: 呼び出しごとの固定ルート（動画説明モデルのダイレクト URL パスでは `media.video.provider`）、次にリクエストのロールに一致する `providerByModel` キーのうち最長プレフィックス、次にロールなしキーのうち最長プレフィックス、次に `llm.provider`（画像リクエストでは `image.provider`）、最後にルーティングなし。同じモデルに対してロール指定キーはロールなしキーより常に優先されます。ロール名: `voice`、`analyzer`、`classifier.text`、`classifier.media`、`classifier.video`、`image`。互換性のため、ルートキーやロールリストで `talk` と記載されたものは `voice` として読み取られ、1 回のログ行が出力されます（`config: role talk is now voice`）。
+1 つのリクエストに対するプロバイダーの解決順序: 呼び出しごとの固定ルート（動画説明モデルのダイレクト URL パスでは `media.video.provider`）、次にリクエストのロールに一致する `providerByModel` キーのうち最長プレフィックス、次にロールなしキーのうち最長プレフィックス、次に `llm.provider`（画像リクエストでは `image.provider`）、最後にルーティングなし。同じモデルに対してロール指定キーはロールなしキーより常に優先されます。ロール名: `voice`、`analyzer`、`classifier.text`、`classifier.reason`、`classifier.media`、`classifier.video`、`classifier.embed`、`image`。互換性のため、ルートキーやロールリストで `talk` と記載されたものは `voice` として読み取られ、1 回のログ行が出力されます（`config: role talk is now voice`）。
 
 例: `"google/": { "only": ["google-vertex"], "allow_fallbacks": false }` はすべての Google モデルを Vertex 経由にし、`"google/@classifier.video": { "only": ["google-ai-studio"], "allow_fallbacks": false }` は動画分類器を AI Studio 経由にします。ドットを含むルートキー（例: `google/@classifier.video`）は `/nep set` では編集できません（ドットでパスを分割するため）。`/nep route set` と `/nep route remove` を使用してください。
 
@@ -108,15 +108,24 @@ OpenRouter アカウント自体が許可プロバイダーを制限している
 
 ## `classifier`
 
-3 つのヘルパーモデルロールを 1 つのキーにまとめています。それぞれ独立して設定できるため、ペルソナの声にはプレミアムモデルを使い、ヘルパーには安価なモデルを使うことができます。
+ヘルパーモデルロールを 1 つのキーにまとめています。それぞれ独立して設定できるため、ペルソナの声にはプレミアムモデルを使い、ヘルパーには安価なモデルを使うことができます。
 
 | キー | デフォルト | 説明 |
 |---|---|---|
-| `text` | `"anthropic/claude-sonnet-4.6"` | テキスト分類器: アドレス分類器（`features.followUp`）、検索分類器・リンク読み取り・検索要約・リコールサマリー（`features.webLookup`、`features.recall`）、再視聴分類器（`features.videoRewatch`）、ルーム分類器（`spontaneous.roomQuestionChance`）、チャンネルルート分類器（`features.channelRoute`） |
+| `text` | `"anthropic/claude-sonnet-4.6"` | テキスト分類器: アドレス分類器（`features.followUp`）、再視聴分類器（`features.videoRewatch`）、ルーム分類器（`spontaneous.roomQuestionChance`）、チャンネルルート分類器（`features.channelRoute`） |
+| `reason` | `null` | 内容を推論するヘルパー: 検索分類器、リコールサマリー、検索要約、リンク読み取り、日記プランナー。未設定（デフォルト）の場合は `classifier.text` のモデルを使用し、ステータスカードにフォールバック元が表示される。リクエストはロール `classifier.reason` で送信される |
+| `byPurpose` | `{}` | 用途ごとのモデル上書き: キーは用途文字列（例: `lookup`、`recall-summary`、`diary-plan`）、値はモデル ID。用途の一致はロールのモデルより優先される。`/nep status` ではプローブされない |
 | `media` | `"anthropic/claude-haiku-4.5"` | 画像説明モデル（`features.mediaDescriptions`）: 画像、GIF フレーム、動画ポスター、スティッカー、カスタム絵文字、リンクサムネイルの一行説明文 |
 | `video` | `"google/gemini-3.8-flash"` | 動画説明モデル（`features.videoDescriptions`）: 短いクリップの視聴、質問に対する再視聴、リクエストに応じたリトライ。動画と音声の両方の入力を受け付ける必要がある |
+| `embed` | `"openai/text-embedding-3-large"` | エンベディングモデル（意味検索用）。リクエストはロール `classifier.embed` で送信される。`llm: usage` ログ行に `inputs`（テキスト数）と `dimensions` が記録される。`/nep status` は 1 入力のエンベディングリクエストでプローブする。エンベディングクライアントがない場合はチェックされなかったと表示される |
 
 **旧キーからの移行。** 非推奨のキー `llm.classifierModel`、`mention.followUpModel`、`media.model`、`media.video.model` は読み取られなくなりました。これらのいずれかが `config.local.json` に存在する場合、ボットは起動時に警告をログに記録し（`index: deprecated model key ignored`）、キー名とその置き換え先を示します。値を `classifier.text`、`classifier.media`、`classifier.video` にそれぞれ移行してください。
+
+## `embed`
+
+| キー | デフォルト | 説明 |
+|---|---|---|
+| `dimensions` | `1024` | エンベディングモデルにリクエストする次元数。モデルが切り詰めに対応していれば、小さい値のほうが高速で安価 |
 
 ## `context`
 

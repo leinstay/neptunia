@@ -14,7 +14,7 @@
 
 ## ステータス
 
-`/nep status` はクイックチェックに必要なフィールドを 1 枚のカードに表示します: ボットの状態（稼働中またはいつから一時停止中か）、ゲートウェイ接続、長時間タスク（ウォームアップ、バックフィル、アーカイブドレイン）、各ロールのモデル、本日のデイリーリミット（リクエスト、画像、動画、recall、lookup）、アップタイム。`/nep status detail` はカードの下に長いテキスト形式を追加します: モデルキャリブレーション、ウォームアップの進捗、読み込まれたプロンプトとそのソース、ボイスキュー。`status.show` をグラントされたメンバーはメモリとジャーナルのフィールドなしのカードを表示でき、長いテキスト形式は表示されません。
+`/nep status` はクイックチェックに必要なフィールドを 1 枚のカードに表示します: ボットの状態（稼働中またはいつから一時停止中か）、ゲートウェイ接続、長時間タスク（バックフィル、アーカイブドレイン）、各ロールのモデル、本日のデイリーリミット（リクエスト、画像、動画、recall、lookup）、アップタイム。自身のキーが未設定のロールにはフォールバックマーカー（`labels.status.fallback`）が付き、モデルの取得元ロールが示されます。用途ごとの上書き（`classifier.byPurpose`）は `byPurpose <purpose> <model>` 行として表示されます（プローブなし）。エンベディングロールは 1 入力のエンベディングリクエスト（`status.probe` のテキスト）でプローブされます。エンベディングクライアントがない場合はチェックされなかったと表示されます。`/nep status detail` はカードの下に長いテキスト形式を追加します: モデルキャリブレーション、ウォームアップの進捗、読み込まれたプロンプトとそのソース、ボイスキュー。`status.show` をグラントされたメンバーはメモリとジャーナルのフィールドなしのカードを表示でき、長いテキスト形式は表示されません。
 
 ## コマンド一覧
 
@@ -29,10 +29,10 @@
 | `/nep talk <action:interject\|initiate> [channel]` | `talk.interject`, `talk.initiate` | エフェメラル、遅延 | ペルソナに今すぐ発言させる |
 | `/nep media <kind:emoji\|gifs> <action:status\|rescan\|recache>` | `media.status`, `media.rescan`, `media.recache` | エフェメラル、`media.rescan` は遅延 | カスタム絵文字ランキングと GIF ライブラリ |
 | `/nep model show` | `model.show` | エフェメラル | 各ロールのモデルを表示 |
-| `/nep model set <role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image> <id>` | `model.set` | エフェメラル | ロールのモデルを設定; `id` はオートコンプリート |
+| `/nep model set <role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image> <id>` | `model.set` | エフェメラル | ロールのモデルを設定; `id` はオートコンプリート |
 | `/nep route list` | `route.list` | エフェメラル | すべてのルート、各ロールの現在のモデルとルート |
-| `/nep route set <model> <providers> [role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image] [fallbacks]` | `route.set` | エフェメラル | モデルプレフィックスを指定プロバイダーのみにルーティング; `model` はオートコンプリート |
-| `/nep route remove <model> [role:voice\|analyzer\|classifier.text\|classifier.media\|classifier.video\|image]` | `route.remove` | エフェメラル | ルートを削除; `model` はオートコンプリート |
+| `/nep route set <model> <providers> [role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image] [fallbacks]` | `route.set` | エフェメラル | モデルプレフィックスを指定プロバイダーのみにルーティング; `model` はオートコンプリート |
+| `/nep route remove <model> [role:voice\|analyzer\|classifier.text\|classifier.reason\|classifier.media\|classifier.video\|classifier.embed\|image]` | `route.remove` | エフェメラル | ルートを削除; `model` はオートコンプリート |
 | `/nep rule add <text>` | `rule.add` | エフェメラル | ルールを追加 |
 | `/nep rule list` | `rule.list` | エフェメラル | ルール一覧を番号付きで表示 |
 | `/nep rule remove <number>` | `rule.remove` | エフェメラル | 番号指定でルールを削除 |
