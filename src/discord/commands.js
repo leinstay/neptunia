@@ -175,7 +175,7 @@ export const COMMAND_TABLE = Object.freeze([
   { name: 'resume', description: 'Resume after a pause; refused if a data/ file is invalid.', args: none },
   {
     name: 'draw',
-    description: 'Draw one picture in this channel. Spends balance.',
+    description: 'Draw one picture. Spends balance.',
     options: [
       { type: STRING, name: 'text', description: 'What to draw.', required: true },
       { type: BOOLEAN, name: 'self', description: 'The persona is in it (adds the appearance prompt).', required: false },

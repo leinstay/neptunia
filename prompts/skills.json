@@ -1,52 +1,287 @@
 {
-  "message.send": {
-    "title": "Send a message",
-    "whenToUse": "Write in another conversation you have access to: a new message, a reply to a specific message, text or a media item.",
-    "whenNotToUse": "Your ordinary reply in the current conversation is not this skill. Only conversations you were given."
+  "status.show": {
+    "title": "Runtime state",
+    "whenToUse": "Read your limits, models, coverage and what is on and off.",
+    "whenNotToUse": "Returns operational data about the running instance."
+  },
+  "config.set": {
+    "title": "Set a config value",
+    "whenToUse": "Override one config key in the local file; takes effect on the next reload.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "config.unset": {
+    "title": "Remove a config override",
+    "whenToUse": "Drop a local override so the key falls back to its default.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "bot.pause": {
+    "title": "Pause the persona",
+    "whenToUse": "Stop the persona from speaking and flush memory to disk.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "bot.resume": {
+    "title": "Resume the persona",
+    "whenToUse": "Restart the persona after a pause; refuses if a data file is invalid.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "draw.create": {
+    "title": "Draw a picture",
+    "whenToUse": "Generate one picture and, with a channel, post it there as you; costs money, counted against the daily limit.",
+    "whenNotToUse": "A picture that failed to post is already paid for and will not be generated again."
+  },
+  "pings.get": {
+    "title": "Notification setting",
+    "whenToUse": "Read whether a member's notifications from you are on or off.",
+    "whenNotToUse": "Does not change the setting."
+  },
+  "pings.set": {
+    "title": "Change notification setting",
+    "whenToUse": "Turn a member's notifications from you on or off.",
+    "whenNotToUse": "Changes only that member's own setting."
+  },
+  "media.status": {
+    "title": "Emoji and GIF state",
+    "whenToUse": "Read the custom emoji ranking and GIF library counts.",
+    "whenNotToUse": "Does not recount or re-describe anything."
+  },
+  "media.rescan": {
+    "title": "Rescan emoji or GIFs",
+    "whenToUse": "Recount custom emoji or GIF usage from channel history.",
+    "whenNotToUse": "Runs in the background; a running scan blocks a second one."
+  },
+  "media.recache": {
+    "title": "Recache GIFs",
+    "whenToUse": "Re-watch every GIF in the library so their descriptions are current.",
+    "whenNotToUse": "Runs in the background; needs video descriptions on."
+  },
+  "model.show": {
+    "title": "Current models",
+    "whenToUse": "Read which model serves each role.",
+    "whenNotToUse": "Does not change any model."
+  },
+  "model.set": {
+    "title": "Set a model",
+    "whenToUse": "Change the model for one role; takes effect on the next request.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "route.list": {
+    "title": "Provider routes",
+    "whenToUse": "Read every provider route and each role's current model.",
+    "whenNotToUse": "Does not change any route."
+  },
+  "route.set": {
+    "title": "Set a route",
+    "whenToUse": "Route a model prefix to specific providers, for one role or all.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "route.remove": {
+    "title": "Remove a route",
+    "whenToUse": "Delete a model prefix's provider route.",
+    "whenNotToUse": "Administrative, not grantable to you."
+  },
+  "rule.add": {
+    "title": "Add a rule",
+    "whenToUse": "Append a live correction to your rules file; takes effect on the next reload.",
+    "whenNotToUse": "The rule goes into prompts.local/rules.md as text."
+  },
+  "rule.list": {
+    "title": "List rules",
+    "whenToUse": "Read the numbered list of live corrections in the rules file.",
+    "whenNotToUse": "Does not change any rule."
+  },
+  "rule.remove": {
+    "title": "Remove a rule",
+    "whenToUse": "Delete one rule by number; the text cannot be recovered.",
+    "whenNotToUse": "Irreversible."
+  },
+  "access.grant": {
+    "title": "Grant access",
+    "whenToUse": "Open an operation or group to a user, a role or everyone.",
+    "whenNotToUse": "Administrative, not grantable to you; you never change rights that reach you."
+  },
+  "access.revoke": {
+    "title": "Revoke access",
+    "whenToUse": "Close an operation or group for a user, a role or everyone.",
+    "whenNotToUse": "Administrative, not grantable to you; you never change rights that reach you."
+  },
+  "access.list": {
+    "title": "List grants",
+    "whenToUse": "Read every stored access grant and who holds each.",
+    "whenNotToUse": "Does not change any grant."
+  },
+  "diary.set": {
+    "title": "Set diary channel",
+    "whenToUse": "Pick the channel where you post diary entries.",
+    "whenNotToUse": "Administrative; changes which channel, not the content."
+  },
+  "diary.show": {
+    "title": "Diary state",
+    "whenToUse": "Read the diary's status for today: channel, post count, windows.",
+    "whenNotToUse": "Does not post or change anything."
+  },
+  "diary.off": {
+    "title": "Stop the diary",
+    "whenToUse": "Turn the diary off; past posts stay, new ones stop.",
+    "whenNotToUse": "Administrative; the diary can be turned back on with diary.set."
+  },
+  "diary.post": {
+    "title": "Post a diary entry",
+    "whenToUse": "Write one diary entry now; an optional kind and topic steer the post.",
+    "whenNotToUse": "Refuses when the diary has no channel or the daily cap is hit."
+  },
+  "alias.add": {
+    "title": "Add an alias",
+    "whenToUse": "Record or strengthen a nickname people in chat use for a member.",
+    "whenNotToUse": "Only what people actually call the member, not display names."
+  },
+  "alias.remove": {
+    "title": "Remove an alias",
+    "whenToUse": "Delete a stored alias from a member's profile.",
+    "whenNotToUse": "Irreversible."
+  },
+  "learning.add": {
+    "title": "Add a lesson",
+    "whenToUse": "Record or strengthen something people taught you.",
+    "whenNotToUse": "Only things addressed to you, not general facts."
+  },
+  "learning.remove": {
+    "title": "Remove a lesson",
+    "whenToUse": "Delete a stored lesson by number.",
+    "whenNotToUse": "Irreversible."
+  },
+  "lore.add": {
+    "title": "Add a lore entry",
+    "whenToUse": "Create or overwrite a lorebook entry: title, trigger keys, text.",
+    "whenNotToUse": "Becomes an owner entry; the analyzer will not change it."
+  },
+  "lore.list": {
+    "title": "List lore",
+    "whenToUse": "Read lorebook entries, optionally filtered by a substring of title or keys.",
+    "whenNotToUse": "Does not show the full text; lore.show does."
+  },
+  "lore.show": {
+    "title": "Show a lore entry",
+    "whenToUse": "Read one lorebook entry in full.",
+    "whenNotToUse": "Does not change the entry."
+  },
+  "lore.remove": {
+    "title": "Remove a lore entry",
+    "whenToUse": "Delete one lorebook entry by id.",
+    "whenNotToUse": "Irreversible."
+  },
+  "memory.profile.read": {
+    "title": "Read a profile",
+    "whenToUse": "Read a member's stored profile: character, style, interests, details, episodes or raw data.",
+    "whenNotToUse": "Returns what you remember publicly, not what the member said in DMs."
+  },
+  "memory.channel.read": {
+    "title": "Read channel notes",
+    "whenToUse": "Read one channel's stored notes, or a table of all stored channels.",
+    "whenNotToUse": "Does not change any note."
+  },
+  "memory.server.read": {
+    "title": "Read server notes",
+    "whenToUse": "Read the server's patterns, starters, in-jokes and self-facts.",
+    "whenNotToUse": "Does not change any note."
+  },
+  "memory.recent.read": {
+    "title": "Read recent events",
+    "whenToUse": "Read the live list of recent notes from the last few days.",
+    "whenNotToUse": "Does not add or remove notes."
+  },
+  "memory.refresh.user": {
+    "title": "Refresh a portrait",
+    "whenToUse": "Rewrite a member's character and style from a fresh sample of their messages.",
+    "whenNotToUse": "Sends one request; counts against the daily cap."
+  },
+  "memory.refresh.channel": {
+    "title": "Refresh channel notes",
+    "whenToUse": "Rewrite a channel's notes from a fresh spread of recent messages.",
+    "whenNotToUse": "Sends one request; counts against the daily cap."
+  },
+  "memory.refresh.server": {
+    "title": "Refresh server notes",
+    "whenToUse": "Rewrite the server's patterns, starters and in-jokes from channel and member summaries.",
+    "whenNotToUse": "Sends one request; counts against the daily cap."
+  },
+  "memory.forget": {
+    "title": "Forget a member",
+    "whenToUse": "Delete a member's profile, private memory, versions and record entries; a vault copy is saved first.",
+    "whenNotToUse": "Destructive, not grantable to you."
+  },
+  "memory.affinity.read": {
+    "title": "Read attitude",
+    "whenToUse": "Read your attitude score, band and reason for a member.",
+    "whenNotToUse": "Does not change the score."
+  },
+  "memory.affinity.set": {
+    "title": "Set attitude",
+    "whenToUse": "Overwrite a member's attitude score with a new value and reason.",
+    "whenNotToUse": "Replaces the score outright; the history records the change."
+  },
+  "memory.wipe": {
+    "title": "Wipe all memory",
+    "whenToUse": "Delete every stored profile, channel note, habit, lore entry and private memory for the whole server; a vault copy is saved first.",
+    "whenNotToUse": "Destructive, not grantable to you."
+  },
+  "memory.journal.read": {
+    "title": "Read journal",
+    "whenToUse": "Read your journal records for a day, optionally filtered by kind.",
+    "whenNotToUse": "Does not change any record."
+  },
+  "memory.archive.read": {
+    "title": "Read archive",
+    "whenToUse": "Read archived items: evicted episodes, expired interests, old notes.",
+    "whenNotToUse": "Does not restore anything; memory.restore does."
+  },
+  "memory.restore": {
+    "title": "Restore from archive",
+    "whenToUse": "Put an archived item back into active memory, replacing what is stored at its position.",
+    "whenNotToUse": "Destructive, not grantable to you."
+  },
+  "memory.snapshot": {
+    "title": "Snapshot data",
+    "whenToUse": "Copy the data directory to a timestamped directory for tools.",
+    "whenNotToUse": "Does not change any live data."
+  },
+  "memory.private.read": {
+    "title": "Read private memory",
+    "whenToUse": "Read what you remember from private conversations with a member.",
+    "whenNotToUse": "Private data; only the owner sees the reply."
+  },
+  "memory.private.forget": {
+    "title": "Forget private memory",
+    "whenToUse": "Delete a member's private DM memory; the public profile stays.",
+    "whenNotToUse": "Destructive, not grantable to you."
+  },
+  "memory.private.purge": {
+    "title": "Purge private chat",
+    "whenToUse": "Delete a member's private memory and bulk-delete your DM messages to them.",
+    "whenNotToUse": "Destructive, irreversible for the messages, not grantable to you."
+  },
+  "message.create": {
+    "title": "Post a message",
+    "whenToUse": "Post a message in a conversation you have access to, optionally as a reply; a reply notifies the author unless they turned pings off.",
+    "whenNotToUse": "Only in conversations you may write in."
   },
   "message.edit": {
     "title": "Edit your message",
-    "whenToUse": "Fix one of your own earlier messages: a factual mistake, a typo, something you were told is wrong.",
-    "whenNotToUse": "Only your own messages. Do not rewrite a message just because the conversation moved past it."
+    "whenToUse": "Replace the text of one of your own earlier messages.",
+    "whenNotToUse": "Only your own messages."
   },
   "message.delete": {
     "title": "Delete your message",
-    "whenToUse": "Remove one of your own messages that should no longer be there.",
-    "whenNotToUse": "Only your own messages. Do not delete a message people already responded to."
+    "whenToUse": "Remove one of your own messages; irreversible.",
+    "whenNotToUse": "Only your own messages; the text is gone once deleted."
   },
   "message.react.add": {
     "title": "Add a reaction",
-    "whenToUse": "Place an emoji reaction on a message, with or without a written reply.",
+    "whenToUse": "Place an emoji reaction on a message.",
     "whenNotToUse": "Only in conversations you have access to."
   },
   "message.react.remove": {
     "title": "Remove your reaction",
     "whenToUse": "Take back one of your own reactions from a message.",
     "whenNotToUse": "Only your own reactions."
-  },
-  "draw": {
-    "title": "Draw a picture",
-    "whenToUse": "Generate one picture and post it in a conversation you have access to. Costs money, daily limit applies.",
-    "whenNotToUse": "Do not retry a picture that already failed to post."
-  },
-  "memory.read": {
-    "title": "Read your notes on a member",
-    "whenToUse": "Look up what you remember about a member when the conversation calls for it and the asker may see it.",
-    "whenNotToUse": "Do not surface notes the asker or the audience should not see."
-  },
-  "status.show": {
-    "title": "Check your state",
-    "whenToUse": "See your runtime state: limits, pause, what is on and off.",
-    "whenNotToUse": "This is operational data, not a way to talk about how you feel."
-  },
-  "skills.list": {
-    "title": "List your skills",
-    "whenToUse": "See which skills exist, which are open to you here, and why the rest are closed.",
-    "whenNotToUse": "Skip when you already know which skill you need."
-  },
-  "access.request": {
-    "title": "Ask for a skill",
-    "whenToUse": "Leave the owner a request to open a skill you need. The owner decides.",
-    "whenNotToUse": "A skill already open to you does not need a request. Do not repeat a request you already made."
   }
 }

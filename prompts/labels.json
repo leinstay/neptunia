@@ -317,6 +317,10 @@
       "alreadyPosted": "You already posted this turn: {text}",
       "ok": "Your skill worked. What it gave back:",
       "refused": "Your skill did not run: {reason}.",
+      "denied": "Your skill was blocked: {reason}.",
+      "invalid": "Your skill call was not right: {reason}.",
+      "not_configured": "What your skill needs is not set up: {reason}.",
+      "partial": "Your skill partly worked: {reason}.",
       "failed": "Your skill did not work: {reason}.",
       "unknown": "It is unclear whether your skill went through ({reason}); do not try it again.",
       "reasons": {
@@ -335,6 +339,10 @@
         "daily-cap": "the limit for today is used up",
         "no-budget": "there is no budget for it now",
         "unsupported": "this chat cannot do that",
+        "not-configured": "what it needs is not set up",
+        "not-grantable": "that skill cannot be granted to you yet",
+        "cooldown": "a destructive skill was used recently in this channel",
+        "self-grant": "the persona cannot change her own rights",
         "timeout": "the chat did not answer in time",
         "other": "something went wrong"
       }

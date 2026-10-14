@@ -75,6 +75,8 @@ Every key in `config.json` with its default, grouped by section.
 | `conversations` | `[]` | Conversations the persona may act in besides the current one (channel ids). Empty means the current conversation only |
 | `safeMode` | `false` | Only the persona's carried-over reply effects pass (the tags of a normal reply: `<msg>`, `<react>`, `<draw>`, aimed at the current conversation). Every other skill is refused. Must be exactly `true` to enable |
 | `resultMaxChars` | `2000` | How many characters of a skill's returned data are shown in the `<result>` block. The text is cut at a word boundary with an ellipsis |
+| `destructiveCooldownMinutes` | `10` | Minutes between two destructive skill calls from the same channel. A destructive skill (one whose effect is `destructive` in `src/ops/effects.js`) called sooner is refused with reason `cooldown` |
+| `callTimeoutMs` | `120000` | How long a skill call may run before its outcome is reported as `unknown` and the call is never retried |
 
 ## `bot`
 

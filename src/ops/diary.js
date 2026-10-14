@@ -133,7 +133,7 @@ const handlers = perEnv((env) => {
     const off = hot.config.features?.diary === false ? 'off' : !hot.config.diary?.channelId ? 'no-channel' : null;
     if (off) return { status: 'failed', code: 'not-configured', summary: `${label}: not-now (${off})`, data: null };
     const invocationId = String(context?.invocationId ?? '');
-    const answer = `${label}: queued, posts right after this turn`;
+    const answer = `${label}: queued, posting after this turn`;
     if (invocationId && queued.has(invocationId)) return answer;
     if (invocationId) queued.add(invocationId);
     const guildId = resolvedGuildId(context);
