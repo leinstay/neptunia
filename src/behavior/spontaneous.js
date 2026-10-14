@@ -131,6 +131,20 @@ function initiateChanceDue(history, now, cfg) {
   return now - history[history.length - 1].ts >= cfg.deadAfterMinutes * MINUTE_MS;
 }
 
+/**
+ * What a turn someone asked for (`/nep message create`) does in a channel, from the same
+ * history a spontaneous turn reads: start a topic ('initiate') when the channel is empty or has
+ * been quiet for `cfg.deadAfterMinutes`, else join the conversation ('interject'). Never null:
+ * she was asked to speak; no chance is rolled and no cooldown applies.
+ * @param {object[]} history
+ * @param {number} now
+ * @param {object} cfg  config.spontaneous
+ * @returns {'interject'|'initiate'}
+ */
+export function forcedMode(history, now, cfg) {
+  return initiateChanceDue(history, now, cfg) ? 'initiate' : 'interject';
+}
+
 // Only when spontaneous.initiateCooldownHours is missing (config.json always has it).
 const INITIATE_COOLDOWN_FALLBACK = [24, 48];
 
@@ -677,9 +691,15 @@ export function createSpontaneous({
     }
   }
 
-  /** Force a turn right now, bypassing the schedule (owner command: `/nep interject`, `/nep initiate`). */
-  function force(channel, mode) {
-    return turns.runTurn({ channel, mode, forced: true });
+  /**
+   * Force a turn right now, bypassing the schedule (`/nep message create`): in `mode` when given,
+   * else the turn reads the channel and joins it or starts a topic (forcedMode, `spontaneous` read
+   * now). `requester`: the person who asked, the requester of her skill calls in that turn.
+   */
+  function force(channel, mode = null, { requester = null } = {}) {
+    const asked = requester ? { requester } : {};
+    if (mode) return turns.runTurn({ channel, mode, forced: true, ...asked });
+    return turns.runTurn({ channel, mode: 'auto', forced: true, chooseMode: (history, ts) => forcedMode(history, ts, hot.config.spontaneous ?? {}), ...asked });
   }
 
   function status() {

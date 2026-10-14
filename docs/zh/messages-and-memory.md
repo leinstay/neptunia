@@ -135,7 +135,7 @@ voice 请求之前运行的所有任务（历史、说明、路由和搜索分�
 | `/nep memory server` | 服务器级的习惯、内部梗、自述事实 |
 | `/nep memory refresh <user>` | 强制刷新某个成员的画像 |
 | `/nep memory forget <user>` | 删除已存储的档案和私有记忆 |
-| `/nep memory affinity <user>` | 显示或设置态度 |
+| `/nep memory affinity <user>` | 查看态度分数和历史 |
 | `/nep memory wipe` | 清除服务器的所有分析器记忆（包括私有文件） |
 | `/nep memory private show <user>` | 显示成员的私有记忆 |
 | `/nep memory private forget <user>` | 仅删除私有文件；公共档案保留 |

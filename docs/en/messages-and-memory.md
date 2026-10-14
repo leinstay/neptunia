@@ -171,7 +171,7 @@ The full command list is in [Commands](owner-commands.md). The most relevant for
 | `/nep memory server` | Server-wide habits, in-jokes, self-facts |
 | `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | Rewrite a member's portrait, or a channel's or the server notes from a fresh sample |
 | `/nep memory forget <user>` | Delete a stored profile, private memory and queued voice items |
-| `/nep memory affinity <user>` | Show or set attitude |
+| `/nep memory affinity <user>` | Show attitude score and history |
 | `/nep memory wipe` | Wipe all analyzer memory for the server, including private files |
 | `/nep memory private show <user>` | Show a member's private memory |
 | `/nep memory private forget <user>` | Delete only the private file; the public profile is kept |

@@ -272,18 +272,20 @@ function mergeEntry(current, incoming) {
 }
 
 /**
- * One line per stored grant on a grantable operation that exists (stale keys and owner-only ones
- * open nothing and are left out): `<op>: everyone, role id:<id>, user id:<id>`, a target that
- * came from a group or `*` followed by `(expanded from <pattern>, reads only)`.
+ * One line per stored grant on a grantable operation that exists, or on a key of `alsoKeys` (the
+ * persona's skills no person may hold, src/ops/access.js); stale keys and owner-only ones open
+ * nothing for a person and are left out: `<op>: everyone, role id:<id>, user id:<id>`, a target
+ * that came from a group or `*` followed by `(expanded from <pattern>, reads only)`.
  * @param {object} access
  * @param {{ name: string, rights: object }[]} ops
+ * @param {{ alsoKeys?: string[] }} [options]
  * @returns {string[]}
  */
-export function describeGrants(access, ops) {
+export function describeGrants(access, ops, { alsoKeys = [] } = {}) {
   const byName = new Map((Array.isArray(ops) ? ops : []).map((op) => [op.name, op]));
   const source = access && typeof access === 'object' && !Array.isArray(access) ? access : {};
   return Object.keys(source)
-    .filter((key) => isGrantableOp(byName.get(key)) && source[key] && typeof source[key] === 'object')
+    .filter((key) => (isGrantableOp(byName.get(key)) || alsoKeys.includes(key)) && source[key] && typeof source[key] === 'object')
     .map((key) => {
       const entry = entryOf(source, key);
       const label = (text, what) => {

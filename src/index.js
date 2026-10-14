@@ -94,8 +94,9 @@ if (missingPrompts.length > 0) {
   );
 }
 
-// The persona's skills against the operations registered by the imports above: a skill on an
-// owner-only or unknown operation is a programming error and stops the start here.
+// The persona's skills against the operations and the command tree registered by the imports
+// above: a skill on an unknown operation, or an operation no command runs, is a programming error
+// and stops the start here.
 try {
   skillRegistry();
 } catch (err) {
@@ -282,9 +283,12 @@ const turns = createTurnRunner({
   record,
   port: iface,
   skills: skillRegistry(),
-  // The persona's read skills (memory.read, status.show) run their operation through the admin's
-  // environment; read at call time, the admin being created below.
-  runOp: (name, args, context) => admin.runOperation(name, args, context),
+  // Her skills are the owner commands: each runs through the command's own path, the
+  // requester's rights checked again (src/admin.js#runCommand); read at call time, the admin
+  // being created below.
+  runCommand: (key, args, context) => admin.runCommand(key, args, context),
+  // Her own messages, drawings and diary run on her grant alone (src/ops/effects.js#SELF_OWNED_OPS).
+  runOwnCommand: (key, args, context) => admin.runOwnCommand(key, args, context),
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
@@ -358,6 +362,8 @@ const admin = createAdmin({
   hot,
   store,
   client,
+  // /nep message and /nep draw channel: post through the persona's interface, as her.
+  port: iface,
   spontaneous,
   // /nep diary: the day plan, a forced post.
   diary,

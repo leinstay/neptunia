@@ -1,14 +1,14 @@
 # Commands
 
-One slash command, `/nep`, with 19 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, `skill allow`/`skill deny` autocomplete `name` (the persona's skill names), and `memory restore` autocompletes `id` (the newest archive entries).
+One slash command, `/nep`, with 18 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
 
 ## Access
 
-`/nep` is visible to every member from the start. Access is gated per operation at the moment a command runs, not through Discord's command visibility. Each command runs one named operation. Reading and changing are separate: `/nep memory show` runs `memory.profile.read`, `/nep memory affinity <user>` runs `memory.affinity.read`, and `/nep memory affinity <user> <score>` runs `memory.affinity.set`.
+`/nep` is visible to every member from the start. Access is gated per operation at the moment a command runs, not through Discord's command visibility. Each command runs one named operation. Reading and changing are separate: `/nep memory show` runs `memory.profile.read`, `/nep memory affinity <user>` runs `memory.affinity.read`.
 
 Owners (`bot.owners`) can always run everything. Everyone else needs a grant on the exact operation. `/nep access grant <operation> [role] [user]` opens one operation (e.g. `memory.profile.read`) to everyone (no role or user given), to a role, or to a user. A group name (e.g. `memory`) or `*` is accepted, but the grant is stored as the individual read operations that exist at that moment, one entry each: it never opens a write, and an operation added later stays closed until it is granted by name. `/nep access revoke` removes the target from one operation, or from every stored operation under a group or `*`. `/nep access list` shows each operation, who holds it, and where each grant came from when it was part of a group or `*` expansion. Without a grant, a non-owner gets an ephemeral "Not allowed" reply.
 
-Owner-only operations (`access.*`, `skill.*`, `diary.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.forget`, `memory.wipe`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
+Owner-only operations (`access.*`, `diary.*`, `memory.private.*`, `memory.journal.read`, `memory.snapshot`, `memory.forget`, `memory.wipe`, `memory.archive.read`, `memory.restore`) are never opened by any grant, `*` included.
 
 **Migration from the old command keys.** On the first start after the deploy that keyed access by operation, every stored grant is converted once: an old command key becomes the operation it ran; an old group or `*` becomes the read operations it covered; owner-only operations are dropped. A journal `system` record `access-migrated` lists what each old grant covers now. After the migration: `/nep access revoke * everyone`, then `/nep access grant memory.profile.read everyone`, and re-grant any other operation by name (check `/nep access list`).
 
@@ -27,8 +27,7 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep unset <path>` | `config.unset` | ephemeral | Remove a config override; `path` autocompletes |
 | `/nep pause` | `bot.pause` | ephemeral, deferred | Pause the persona and flush memory so data/ can be hand-edited |
 | `/nep resume` | `bot.resume` | ephemeral, deferred | Resume after a pause; refused if a data/ file is invalid |
-| `/nep draw <text> [self]` | `draw.create` | ephemeral, deferred | Draw one picture in this channel. Spends balance |
-| `/nep talk <action:interject\|initiate> [channel]` | `talk.interject`, `talk.initiate` | ephemeral, deferred | Make the persona speak now |
+| `/nep draw <text> [self] [channel]` | `draw.create` | ephemeral, deferred | Draw one picture. Spends balance. With `channel`, posts it there as the persona |
 | `/nep media <kind:emoji\|gifs> <action:status\|rescan\|recache>` | `media.status`, `media.rescan`, `media.recache` | ephemeral, deferred for `media.rescan` | The custom emoji ranking and the GIF library |
 | `/nep model show` | `model.show` | ephemeral | Show the model of each role |
 | `/nep model set <role:voice\|analyzer\|reasoner\|extractor\|vision\|video\|embedding\|drawing> <id>` | `model.set` | ephemeral | Set the model for one role; `id` autocompletes |
@@ -41,9 +40,10 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep access grant <command> [role] [user]` | `access.grant` | ephemeral | Open an operation, group or * to everyone, a role or a user; `command` autocompletes |
 | `/nep access revoke <command> [role] [user]` | `access.revoke` | ephemeral | Revoke an operation, group or * from everyone, a role or a user; `command` autocompletes |
 | `/nep access list` | `access.list` | ephemeral | List every access grant |
-| `/nep skill allow <name>` | `skill.allow` | ephemeral | Allow the persona one skill; `name` autocompletes |
-| `/nep skill deny <name>` | `skill.deny` | ephemeral | Take one skill back from the persona; `name` autocompletes |
-| `/nep skill list` | `skill.list` | ephemeral | Every skill, allowed or not, and why |
+| `/nep message create [channel] [reply]` | `message.create` | ephemeral, deferred | Give the persona a turn now, in her own words. With `reply`, she answers that message |
+| `/nep message edit <message> <text> [channel]` | `message.edit` | ephemeral | Replace the text of one of the persona's messages |
+| `/nep message delete <message> [channel]` | `message.delete` | ephemeral | Delete one of the persona's messages |
+| `/nep message react <action:add\|remove> <message> <emoji> [channel]` | `message.react.add`, `message.react.remove` | ephemeral | Put or take back the persona's reaction on a message |
 | `/nep diary set <channel>` | `diary.set` | ephemeral, deferred | Set the diary channel |
 | `/nep diary show` | `diary.show` | ephemeral | Diary state today |
 | `/nep diary off` | `diary.off` | ephemeral | Stop the diary |
@@ -62,7 +62,7 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep memory recent` | `memory.recent.read` | ephemeral | Show the live recent lines, newest first |
 | `/nep memory refresh <kind:user\|channel\|server> [user] [channel]` | `memory.refresh.user`, `memory.refresh.channel`, `memory.refresh.server` | ephemeral, deferred | Rewrite a member's portrait, or a channel's or the server notes from a fresh sample |
 | `/nep memory forget <user>` | `memory.forget` | ephemeral, deferred | Delete a member's profile and private memory |
-| `/nep memory affinity <user> [score] [reason]` | `memory.affinity.read`, `memory.affinity.set` | ephemeral | Show or set a member's attitude score |
+| `/nep memory affinity <user>` | `memory.affinity.read` | ephemeral | Show a member's attitude score and its history |
 | `/nep memory wipe <confirm>` | `memory.wipe` | ephemeral, deferred | Delete ALL server memory (profiles, private memory, habits, channels, lore) |
 | `/nep memory journal [day] [kind:turn\|action\|memory\|system\|all] [n]` | `memory.journal.read` | ephemeral | Journal records |
 | `/nep memory archive [user] [kind] [n]` | `memory.archive.read` | ephemeral, deferred | Archived items |
@@ -70,15 +70,17 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep memory snapshot` | `memory.snapshot` | ephemeral, deferred | Snapshot data/ for the tools |
 | `/nep memory private <action:show\|forget\|purge> <user>` | `memory.private.read`, `memory.private.forget`, `memory.private.purge` | ephemeral, deferred for `memory.private.forget`, `memory.private.purge` | A member's private memory: what they said in DMs |
 
-## Skill commands
+## Granting skills to the persona
 
-`/nep skill allow` and `/nep skill deny` toggle individual skills for the persona. Each skill is either allowed or not; two levels, no middle ground. A "yes" in chat never grants a skill: only the owner's command, authenticated by Discord, changes access. The persona may ask for a skill in words, and the `access.request` skill can leave a record for the owner, but the owner decides with the command.
+The persona's skills are the same operations behind `/nep` commands. Every skill is closed until the owner grants it with `/nep access grant <operation> user:@bot`, where `@bot` is the bot's own user. `/nep access revoke <operation> user:@bot` takes it back. `/nep access list` shows the persona's grants alongside everyone else's. A "yes" in chat never grants a skill: only the owner's command, authenticated by Discord, changes access.
 
-`/nep skill list` shows every registered skill with its current state: allowed (by whom and when), carried over (the current conversation only), or not allowed. When `features.skills` is off, the list says so. When `skills.safeMode` is on, the list says so.
+A group name or `*` stores the read operations under it, one entry each, the same rule as for people. A write must be granted by its exact name.
 
-**Carried over (current conversation only)** means the persona's normal reply tags (`<msg>`, `<react>`, `<draw>`) count as `message.send`, `message.react.add` and `draw` in the current conversation without an allow record. This is how the persona keeps talking: its reply is a batch of skill calls that pass the gateway because they are in the conversation the turn belongs to. An allow record opens the skill for other conversations too.
+**Carried over (current conversation only):** the persona's normal reply tags (`<msg>`, `<react>`, `<draw>`) count as `message.create`, `message.react.add` and `draw.create` in the current conversation without a grant. This is how the persona keeps talking: its reply is a batch of skill calls that pass the gateway because they are aimed at the conversation the turn belongs to. A grant opens the skill for other conversations too.
 
-All three operations (`skill.allow`, `skill.deny`, `skill.list`) are owner-only. Every access change is journaled as a `system` record `skill-access`.
+**Not grantable to the persona:** `memory.wipe`, `memory.private.purge`, `memory.forget`, `memory.private.forget`, `memory.restore`, `config.set`, `config.unset`, `model.set`, `route.set`, `route.remove`, `access.grant`, `access.revoke`, `bot.pause`, `bot.resume`. These are the irreversible and administrative operations. A grant that names one of them (or a group or `*` that covers one) silently skips it. The persona also never changes rights that reach her: a grant or revoke she makes whose target is herself, everyone, or a role she holds is refused.
+
+**Self-owned operations:** `message.create`, `message.edit`, `message.delete`, `message.react.add`, `message.react.remove`, `draw.create`, `diary.post` and `diary.show` need only her own grant, not the requester's right (messages and drawings are hers). The bundled-author rule and the no-requester restriction still apply: no write when a turn answers several people, only a read when nobody asked.
 
 ## Memory commands
 
