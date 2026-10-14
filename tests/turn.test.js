@@ -8664,8 +8664,17 @@ function skillPhases(lines) {
 }
 
 /**
+ * The client of the skill-call scenes: it knows `channels` by id, each a text channel of the guild
+ * (fakeTurnChannel's permissions, or the ones a channel brings).
+ */
+function clientWithChannels(...channels) {
+  return fakeClient({ channels: { cache: new Map(channels.map((channel) => [channel.id, { isTextBased: () => true, ...channel }])) } });
+}
+
+/**
  * A mention by Alice (u1, #2) after a line of the persona (#1) in #general (c1), with #νέα (c9,
- * listed in skills.conversations) and #αλλού (c8) in the guild; the LLM answers `answers` in
+ * where the bot may do anything) and #αλλού (c8, where it may not send) in the guild; no
+ * `skills.conversations` list; the LLM answers `answers` in
  * order; `allowed` skills are granted to her (her user id in bot.access); `owners` are the bot's
  * owners (Alice by default: the owner asks); the port is a fake adapter, the operations run on a
  * real admin over it; `emoji`: the server's custom emoji index, none by default.
@@ -8682,7 +8691,7 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
   port.seed('c1', { authorId: 'self-id', messageId: 'm0', text: 'πρώτη' });
   port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'γράψε' });
   if (failNext) port.failNext(...failNext);
-  const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners, access: personaGrants(allowed) }, { skills: { conversations: ['c9'], safeMode: false, resultMaxChars: 2000, ...skills }, ...configExtra });
+  const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners, access: personaGrants(allowed) }, { skills: { safeMode: false, resultMaxChars: 2000, ...skills }, ...configExtra });
   hot.prompts.draw = 'Drawing for {{name}}.\n\n{{request}}';
   if (beforeSend) {
     const send = port.send.bind(port);
@@ -8691,7 +8700,8 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
       return send(...args);
     };
   }
-  const client = fakeClient();
+  const noSend = { ...fakeTurnChannel({ id: 'c8', name: 'αλλού' }), permissionsFor: () => ({ has: (flag) => flag !== PermissionFlagsBits.SendMessages }) };
+  const client = clientWithChannels(fakeTurnChannel({ id: 'c9', name: '💖νέα' }), noSend);
   const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', port, ...(images ? { images } : {}), ...(diary ? { diary: diary(hot) } : {}) });
   const llm = sequenceLlm(answers);
   const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, ...(emoji ? { emoji } : {}) });
@@ -8705,7 +8715,7 @@ function requestText(llm, i) {
   return textOf(llm.calls[i][1].content);
 }
 
-test('skill call: message.create to a listed conversation runs after the reply, journaled proposed, started, succeeded, with its invocation id; no follow-up', async () => {
+test('skill call: message.create to another channel where the bot may send runs after the reply, journaled proposed, started, succeeded, with its invocation id; no follow-up', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({ answers: ['<msg reply="#2">εντάξει</msg>\n<call skill="message.create" channel="#🍡νέα">καλημέρα :wave:</call>'], allowed: ['message.create'], journal });
   assert.deepEqual([run.result.outcome, run.result.delivered], ['spoke', true]);
@@ -8754,7 +8764,7 @@ test('skill call: a call alone is no skip; here it needs no grant and replies to
   assert.ok(requestText(across.llm, 1).includes('<result skill="message.create" status="invalid">'), requestText(across.llm, 1));
 });
 
-test('skill call: not granted, or a conversation not listed -- refused, one follow-up with the reason or the operation\'s own text, its own call ignored', async () => {
+test('skill call: not granted, or a channel where the bot may not send -- refused, one follow-up with the reason or the operation\'s own text, its own call ignored', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({
     answers: ['<msg>μισό</msg><call skill="message.create" channel="#νέα">γεια</call>', '<msg>δεν μπορώ εκεί</msg><call skill="message.create">ξανά</call>'],
@@ -8773,12 +8783,13 @@ test('skill call: not granted, or a conversation not listed -- refused, one foll
   assert.deepEqual(skillPhases(lines), ['proposed', 'failed']);
   assert.equal(actionsNamed(lines, 'skill').at(-1).result.code, 'not-allowed');
 
-  // Granted, but the channel is neither this one nor listed: the operation's own rule, its own words.
-  const unlisted = await callTurn({ answers: ['<call skill="message.create" channel="#αλλού">γεια</call>', '<skip/>'], allowed: ['message.create'] });
-  assert.deepEqual(unlisted.sends, []);
-  const text = requestText(unlisted.llm, 1);
-  assert.ok(text.includes('<result skill="message.create" status="invalid">'), text);
-  assert.ok(text.includes('channel c8 is neither this one nor in skills.conversations'), text);
+  // Granted, but the bot may not send in that channel: the operation's own rule, its own words.
+  const closed = await callTurn({ answers: ['<call skill="message.create" channel="#αλλού">γεια</call>', '<skip/>'], allowed: ['message.create'] });
+  assert.deepEqual(closed.sends, []);
+  const text = requestText(closed.llm, 1);
+  assert.ok(text.includes('<result skill="message.create" status="denied">'), text);
+  assert.ok(text.includes(fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['channel-no-permission'] })), text);
+  assert.ok(text.includes('channel c8'), text);
 });
 
 test('skill call: edit and delete reach only her own message', async () => {
@@ -8930,9 +8941,9 @@ function callMarkScene({ answers, allowed = ['message.create'], features = {}, j
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   port.seed('c1', { authorId: 'self-id', messageId: 'm0', text: 'πρώτη' });
   port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'γράψε' });
-  const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners: ['u1'], access: personaGrants(allowed) }, { skills: { conversations: ['c9'], safeMode: false, resultMaxChars: 2000 } });
+  const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners: ['u1'], access: personaGrants(allowed) }, { skills: { safeMode: false, resultMaxChars: 2000 } });
   const store = fakeStore();
-  const client = fakeClient();
+  const client = clientWithChannels(news);
   const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', port });
   const llm = sequenceLlm(answers);
   const clock = { ms: NOW };

@@ -425,7 +425,7 @@ skills.result.not_configured             {reason}: what the call needs is not se
 skills.result.partial                    {reason}: the call partly worked
 skills.result.failed                     {reason}: the call ran and did not succeed
 skills.result.unknown                    {reason}: it is uncertain whether the call went through; the model should not retry
-skills.result.reasons.not-allowed | safe-mode | owner-only | unknown-skill | invalid-args | target-not-allowed | target-ambiguous | conversation-not-allowed | unknown-message | not-own-message | unknown-member | requester-denied | daily-cap | no-budget | unsupported | not-configured | not-grantable | cooldown | self-grant | timeout | other    human phrases for the reason codes; a code not in the map falls back to `other`, then to the code itself
+skills.result.reasons.not-allowed | safe-mode | owner-only | unknown-skill | invalid-args | target-ambiguous | channel-no-permission | unknown-message | not-own-message | unknown-member | requester-denied | daily-cap | no-budget | unsupported | not-configured | not-grantable | cooldown | self-grant | timeout | other    human phrases for the reason codes; a code not in the map falls back to `other`, then to the code itself
 ```
 
 ## Output

@@ -23,9 +23,9 @@ const handlers = perEnv((env) => {
    * one line with the model, seconds and cost, plus the picture. A rail or
    * generation failure throws with its reason and HTTP status; the prompt is
    * never logged. With `channelId` the picture is posted there as the persona, through her
-   * interface (`env.port`), the channel being the one the command runs in or one of
-   * `skills.conversations` (src/ops/shared.js#postingConversation, checked before anything is
-   * generated); the answer is then the line alone, or a `failed` result when the post did not go
+   * interface (`env.port`), the channel being the one the command runs in or a text channel of
+   * the served guild where the bot may send files (src/ops/shared.js#postingConversation, checked
+   * before anything is generated); the answer is then the line alone, or a `failed` result when the post did not go
    * through (`data.unknown` when it may have: never generated again).
    */
   async function cmdDraw(args, context) {
@@ -33,7 +33,7 @@ const handlers = perEnv((env) => {
     assertNotPaused();
     const request = String(args?.text ?? '').trim();
     if (!request) throw invalid('text is required');
-    const postTo = args?.channelId ? postingConversation(hot.config, args.channelId, context) : null;
+    const postTo = args?.channelId ? await postingConversation({ client, guildId: resolvedGuildId(context), channelId: args.channelId, context, need: 'attach' }) : null;
     if (postTo && (!port || typeof port.send !== 'function')) throw Object.assign(new Error('the persona\'s interface is not available'), { code: 'not-configured' });
 
     const imageCfg = hot.config.image ?? {};

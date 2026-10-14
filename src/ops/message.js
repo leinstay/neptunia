@@ -9,8 +9,9 @@
 // (a post or an edit) arrives rendered as a `<msg>` of hers (src/skills/executors.js#executeCall);
 // only the members it mentions (`context.mentionUserIds`) are notified, none with pings off. Edit,
 // delete and react go through the interface too. The rules live here, for every caller: a post,
-// an edit, a deletion or a reaction only in the conversation the command runs in or one of
-// `skills.conversations` (read now; a person may ask for her turn in any channel); edit and
+// an edit, a deletion or a reaction in the conversation the command runs in, or in any text
+// channel of the served guild where the bot holds the Discord permissions it needs
+// (src/ops/shared.js#postingConversation; a person may ask for her turn in any channel); edit and
 // delete reach only her own messages (the port refuses anyone else's). A message is named by its
 // id or its link. A port answer that may have taken effect is `failed` with `data.unknown` true:
 // never retried.
@@ -42,7 +43,7 @@ const handlers = perEnv((env) => {
     const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', 'unknown-message');
-    const channelId = postingConversation(hot.config, given ?? reply?.channelId ?? null, context);
+    const channelId = await postingConversation({ client, guildId: resolvedGuildId(context), channelId: given ?? reply?.channelId ?? null, context, need: reply ? 'reply' : 'send' });
     const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
     const content = {
       text,
@@ -87,12 +88,15 @@ const handlers = perEnv((env) => {
     return port;
   }
 
-  /** The message `args.messageId` names, in the conversation it may be acted on in: `{ channelId, ref }`. */
-  function target(args, context) {
+  /**
+   * The message `args.messageId` names, in the conversation it may be acted on in -- the bot
+   * holding there the permissions `need` names (src/ops/shared.js#CHANNEL_NEEDS): `{ channelId, ref }`.
+   */
+  async function target(args, context, need) {
     const message = messageRefOf(args?.messageId);
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && message.channelId && given !== message.channelId) throw invalid('the message is not in that channel', 'unknown-message');
-    const channelId = postingConversation(hot.config, given ?? message.channelId, context);
+    const channelId = await postingConversation({ client, guildId: resolvedGuildId(context), channelId: given ?? message.channelId, context, need });
     return { channelId, messageId: message.messageId, ref: { iface: port.iface, conversationId: channelId, messageId: message.messageId } };
   }
 
@@ -102,7 +106,7 @@ const handlers = perEnv((env) => {
     const p = requirePort();
     const text = String(args?.text ?? '').trim();
     if (!text) throw invalid('text is required');
-    const { channelId, messageId, ref } = target(args, context);
+    const { channelId, messageId, ref } = await target(args, context, 'read');
     const users = mentionedUsers(context);
     const content = { text, ...(users.length > 0 ? { mentions: { users, repliedUser: false } } : {}) };
     return portAnswer('message.edit', await p.edit(ref, content),`edited message ${messageId} in ${channelId}`);
@@ -112,7 +116,7 @@ const handlers = perEnv((env) => {
   async function cmdDelete(args, context) {
     assertNotPaused();
     const p = requirePort();
-    const { channelId, messageId, ref } = target(args, context);
+    const { channelId, messageId, ref } = await target(args, context, 'read');
     return portAnswer('message.delete', await p.delete(ref), `deleted message ${messageId} in ${channelId}`);
   }
 
@@ -122,7 +126,7 @@ const handlers = perEnv((env) => {
     const p = requirePort();
     const emoji = String(args?.emoji ?? '').trim();
     if (!emoji) throw invalid('an emoji is required');
-    const { channelId, messageId, ref } = target(args, context);
+    const { channelId, messageId, ref } = await target(args, context, add ? 'react' : 'read');
     const result = add ? await p.react(ref, emoji) : await p.unreact(ref, emoji);
     return portAnswer(add ? 'message.react.add' : 'message.react.remove', result, `${add ? 'reacted to' : 'took back the reaction on'} message ${messageId} in ${channelId}`);
   }

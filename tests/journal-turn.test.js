@@ -86,7 +86,7 @@ async function writeTurn(journal, clock, { startMs, postMs, endMs, triggerId, po
 
 /** An admin over the journal, the persona's own id `SELF`, the owner `OWNER`. */
 function makeAdmin(journal) {
-  const hot = { config: { features: { skills: true, journal: true }, skills: { conversations: [], safeMode: false }, bot: { owners: [OWNER], access: {} } }, prompts: { labels: {} } };
+  const hot = { config: { features: { skills: true, journal: true }, skills: { safeMode: false }, bot: { owners: [OWNER], access: {} } }, prompts: { labels: {} } };
   const store = { state: { data: {}, markDirty() {} }, getUser: () => null, getGuild: () => ({}), isPingsOff: () => false };
   return createAdmin({ hot, store, client: { user: { id: SELF } }, getGuildId: () => 'g1', journal });
 }

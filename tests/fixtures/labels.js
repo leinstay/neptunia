@@ -342,7 +342,7 @@ export const labels = {
       unknown: 'skill unknown: {reason}; not retried',
       reasons: {
         'not-allowed': 'not switched on',
-        'target-not-allowed': 'channel not allowed',
+        'channel-no-permission': 'no permission there',
         'target-ambiguous': 'channel name shared',
         'not-own-message': 'not her message',
         'requester-denied': 'asker may not',

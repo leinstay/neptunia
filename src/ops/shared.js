@@ -1,7 +1,8 @@
 // Pure helpers and constants of the owner operations (src/ops/*.js), moved from src/admin.js:
 // the rules-file and config-path functions, the profile views, the ping/route formatters, the
 // media wording tables and the line formatters several operations share. No I/O but
-// `treeSize` (a directory walk for the memory snapshot).
+// `treeSize` (a directory walk for the memory snapshot) and `postingConversation` (a channel
+// looked up through the client it is handed).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,7 +14,8 @@ import { roleModel } from '../llm/roles.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { oneLine } from '../memory/clamp.js';
 import { utcDay } from '../time.js';
-import { invalid } from './registry.js';
+import { canAttach, canRead, canReact, canSend } from '../discord/collect.js';
+import { denied, invalid } from './registry.js';
 
 /** `/nep memory journal`'s `n`: default and bounds. */
 export const JOURNAL_N_DEFAULT = 20;
@@ -647,20 +649,51 @@ export function learnedLine(item, resolve) {
 }
 
 /**
- * The conversation an operation posting as the persona aims at (`/nep message`, `/nep draw
- * channel:`): `channelId`, else the one the command runs in; an `invalid` error unless it is the
- * one it runs in or one of `skills.conversations` (`config`, read by the caller now).
- * @param {object} config
- * @param {string|null|undefined} channelId
- * @param {{ channelId?: string }} context
- * @returns {string}
+ * What an operation does in a channel other than the one it runs in, and whether the bot holds
+ * the Discord permissions it needs there (src/discord/collect.js: each check needs View Channel
+ * too): `send` a message, `reply` to one (send, and read the history the reply points into),
+ * `attach` a picture (send with a file), `read` the history to find a message (an edit, a
+ * deletion, a reaction taken back), `react` to one.
  */
-export function postingConversation(config, channelId, context) {
+export const CHANNEL_NEEDS = Object.freeze({
+  send: (channel) => canSend(channel),
+  reply: (channel) => canSend(channel) && canRead(channel),
+  attach: (channel) => canSend(channel) && canAttach(channel),
+  read: (channel) => canRead(channel),
+  react: (channel) => canReact(channel),
+});
+
+/** The channel `id` the client knows (its cache, else a fetch), or null. */
+async function channelById(client, id) {
+  const cached = client?.channels?.cache?.get?.(id);
+  if (cached) return cached;
+  if (typeof client?.channels?.fetch !== 'function') return null;
+  return (await client.channels.fetch(id).catch(() => null)) ?? null;
+}
+
+/**
+ * The conversation an operation acting as the persona aims at (`/nep message`, `/nep draw
+ * channel:`): `channelId`, else the one the command runs in. The one it runs in passes as it is;
+ * any other must be a text channel of the served guild (`guildId`; never a private chat) where
+ * the bot holds the permissions `need` names (CHANNEL_NEEDS), looked up through `client` --
+ * Discord's permissions are the only limit on where. Otherwise a `denied` error
+ * (`channel-no-permission`), a channel the bot cannot find included; nothing was done.
+ * @param {{ client: object, guildId: string|null, channelId: string|null|undefined,
+ *   context: { channelId?: string }, need: keyof typeof CHANNEL_NEEDS }} args
+ * @returns {Promise<string>}
+ */
+export async function postingConversation({ client, guildId, channelId, context, need }) {
   const id = channelId ? String(channelId) : context?.channelId ? String(context.channelId) : null;
   if (!id) throw invalid('a channel is required');
-  const listed = Array.isArray(config?.skills?.conversations) ? config.skills.conversations.map(String) : [];
-  if (id !== String(context?.channelId ?? '') && !listed.includes(id)) {
-    throw invalid(`channel ${id} is neither this one nor in skills.conversations`, 'conversation-not-allowed');
+  if (id === String(context?.channelId ?? '')) return id;
+  const allowedThere = CHANNEL_NEEDS[need];
+  if (typeof allowedThere !== 'function') throw new Error(`unknown channel need: ${need}`);
+  const channel = await channelById(client, id);
+  const served = Boolean(channel?.guild) && Boolean(guildId) && String(channel.guild.id) === String(guildId);
+  const isDm = typeof channel?.isDMBased === 'function' && channel.isDMBased();
+  const text = typeof channel?.isTextBased === 'function' && channel.isTextBased() && !isDm;
+  if (!served || !text || !allowedThere(channel)) {
+    throw denied(`the bot may not ${need} in channel ${id}`, 'channel-no-permission');
   }
   return id;
 }

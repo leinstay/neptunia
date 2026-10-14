@@ -136,7 +136,7 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
   const owner = loadSkills([{ name: 'x.owner', family: 'x', op: 'x.owner.op', argsSchema: { type: 'object' }, effects: 'read', sharedState: false, costClass: 'free', targets: null }], { getOp }).get('x.owner');
   assert.equal(owner.ownerOnly, true);
   const registry = new Map([...standInRegistry(), ['x.owner', owner]]);
-  const config = granting(['message.edit', 'x.owner'], { features: { skills: true }, skills: { conversations: [], safeMode: false }, bot: { owners: ['42'] } });
+  const config = granting(['message.edit', 'x.owner'], { features: { skills: true }, skills: { safeMode: false }, bot: { owners: ['42'] } });
   const rows = listSkills({ config, selfId: 'self-1', texts: {}, requester: { id: '7' }, audience: { conversationId: 'c1' }, registry, getOp });
   assert.equal(rows.length, registry.size);
   assert.deepEqual(proposalVerdicts(['message.edit', 'message.delete', 'x.owner', 'x.none'], rows), [

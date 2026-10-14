@@ -1970,7 +1970,7 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, store, gu
         onCall: (call, { idByIndex, history: lines }) =>
           simulateCall({
             call,
-            view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, config: scenarioConfig, selfId: self.id, skills: registry }),
+            view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, selfId: self.id, skills: registry }),
             config: scenarioConfig,
             selfId: self.id,
             requester,

@@ -21,8 +21,9 @@ export const COST_CLASSES = Object.freeze(['free', 'paid']);
 
 /**
  * Whose things a skill may touch: `self-messages` (only the persona's own messages, in a
- * conversation she may act in), `allowed-conversations` (the current conversation or one of
- * `skills.conversations`), `any`, or null (no target).
+ * conversation she may act in), `allowed-conversations` (the current conversation or a text
+ * channel of the served guild where the bot holds the Discord permissions the operation needs,
+ * src/ops/shared.js#postingConversation), `any`, or null (no target).
  */
 export const TARGETS = Object.freeze(['self-messages', 'allowed-conversations', 'any', null]);
 

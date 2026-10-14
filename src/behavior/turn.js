@@ -1024,16 +1024,16 @@ export function requesterOf(trigger, channel) {
 
 /**
  * What a `<call>` of the persona is resolved against (src/skills/executors.js#resolveCall), read
- * now: the turn's channel as the current conversation, `skills.conversations` (`config`, the live
- * one) as the others she may act in, the channels she can name (the guild's text channels, then
- * the stored channel notes, the turn's own channel), this turn's transcript numbers (`idByIndex`;
+ * now: the turn's channel as the current conversation, the channels she can name (the guild's
+ * text channels, then the stored channel notes, the turn's own channel; where she may act is the
+ * operation's rule, src/ops/shared.js#postingConversation), this turn's transcript numbers (`idByIndex`;
  * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
  * profiles (only with memory on), her own id (`selfId`), the guild's roles and the skill registry
  * (`skills`: a derived skill's options are resolved by its command). Reads `store` only. Exported
  * for the replay's skill scenarios, which resolve a call exactly as a live turn does.
  * @returns {object}
  */
-export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, config, selfId, skills }) {
+export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills }) {
   const conversations = [];
   const cache = channel?.guild?.channels?.cache;
   if (cache && typeof cache.values === 'function') {
@@ -1046,7 +1046,6 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
     for (const note of store.listChannels(guildId) ?? []) if (note?.id && typeof note.name === 'string') conversations.push({ id: String(note.id), name: note.name });
   }
   if (typeof channel.name === 'string' && channel.name) conversations.push({ id: String(channel.id), name: channel.name });
-  const listed = config?.skills?.conversations;
   // The guild's roles a derived skill's role option may name.
   const roles = [];
   const roleCache = channel?.guild?.roles?.cache;
@@ -1055,7 +1054,6 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
   }
   return {
     currentConversationId: String(channel.id),
-    allowedConversationIds: Array.isArray(listed) ? listed.map(String) : [],
     conversations,
     messageAt: (n) => {
       const id = idByIndex?.get(n);
@@ -1612,9 +1610,9 @@ export function createTurnRunner({
     return proposedRows(proposals, rows);
   }
 
-  /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, live config, id and registry. */
+  /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, id and registry. */
   function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn }) {
-    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, config: hot.config, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills() });
+    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills() });
   }
 
   /**

@@ -111,7 +111,7 @@ function fakeChannel({ memberRoles = [] } = {}) {
 
 /** The live-like config: skills on, the owner, people's `access`; her grants laid over it. */
 function scenarioConfig(grants, { access = {}, features = {} } = {}) {
-  return personaGrantsConfig({ features: { skills: true, ...features }, skills: { conversations: [], safeMode: false }, bot: { owners: [OWNER], access } }, SELF, grants);
+  return personaGrantsConfig({ features: { skills: true, ...features }, skills: { safeMode: false }, bot: { owners: [OWNER], access } }, SELF, grants);
 }
 
 /** simulateCall as the replay makes it: the call view of the turn, the requester of `author`. */
