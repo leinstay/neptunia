@@ -12,6 +12,8 @@ A section headed `## n | date | #channel | source: record` was read from {{name}
 
 <context> holds the last few lines of the current channel right before the question, with {{name}}'s own lines marked. This is the conversation that prompted the question: someone quoting or retelling something {{name}} said or did, asking whether {{name}} understood or remembers, or following up on an earlier exchange. The context is the key to resolving what the question refers to. Read it to understand the question, then look for the stretch where the thing originally happened. A stretch marked [current conversation] covers part of that same conversation and is a retelling. Prefer the stretch where the thing first took place.
 
+<time_cue> when present means the asker's date is an approximate guide to finding the event. Each <found> header has its own date. If the best matching stretch sits on a different day from the cue, say so and give its real date.
+
 <question> is the new message: author and text.
 
 If the stretches answer the question, write: optionally a first line `stretch: <n>` naming the one stretch that best answers the question, or `stretch: none`; then plain text in the language of the question, at most {{answerChars}} characters, no markdown. The reader will see a named stretch's actual lines alongside your note. If nothing in the stretches answers the question, write the single word `nothing`.

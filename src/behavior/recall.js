@@ -35,11 +35,17 @@
 // the Discord side is src/discord/search.js and the runner
 // src/behavior/recall-run.js. No wording of ours goes into the request: tags
 // and structural marks only.
+// A `when:` range beside word or name forms is a locator unless the lookup
+// says `when-role: scope` (people misremember dates): the local sources then
+// search past it, a window near the range gets a bounded proximity bonus
+// (proximityBonus) and a share of the kept slots stays reserved for the best
+// by content regardless of date (locatorKeep), so a misread date cannot
+// exclude the answer. A `when:` alone, or one marked scope, stays a hard bound.
 
 import { isPlainObject } from '../config.js';
 import { estimateTokens } from '../llm/tokens.js';
 import { block, fillPromptTemplate } from './prompt.js';
-import { formatTranscript, renderTranscript } from '../discord/format.js';
+import { fill, formatTranscript, renderTranscript } from '../discord/format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { episodeDate } from '../memory/episodes.js';
 import { TEACHER_TOKEN_RE, fromTokens, occursAsWordStem, tokenIds } from '../memory/mentions.js';
@@ -77,6 +83,9 @@ export const RECALL_DEFAULTS = Object.freeze({
   fallbackOnClassifierFailure: true,
   meaningCandidates: 80,
   meaningWithReply: false,
+  locatorBonus: 2,
+  locatorDecayDays: 7,
+  locatorBroadShare: 0.5,
 });
 
 /** The `k` of reciprocal rank fusion (fuseRanks): an item at rank r of a list adds 1 / (k + r). */
@@ -111,8 +120,10 @@ const FORM_MAX_WORDS = 3;
 
 // Protocol tokens of the lookup classifier (prompts/lookup.md), not wording.
 const NONE_RE = /^none\b/i;
-const LABEL_RE = /^(?:[-*•>]\s*)*\**\s*(web|server|who|when|recent)\s*\**\s*:\s*\**\s*(.*)$/i;
+const LABEL_RE = /^(?:[-*•>]\s*)*\**\s*(web|server|who|when[-_ ]?role|when|recent)\s*\**\s*:\s*\**\s*(.*)$/i;
 const YES_RE = /^yes\b/i;
+const SCOPE_RE = /^scope\b/i;
+const LOCATOR_RE = /^locator\b/i;
 const DATE_RE = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/;
 const RANGE_SPLIT_RE = /\s*\.{2,}\s*/;
 const FORM_SPLIT_RE = /[,;，、]/;
@@ -156,14 +167,17 @@ function numberAtLeast(value, fallback, min) {
  * `meaningCandidates` (the rows one meaning search returns, see
  * src/behavior/recall-run.js) may be 0 (none); `meaningWithReply` (the
  * replied-to line joins the meaning query, meaningQuery) is on only when it
- * is exactly `true`.
+ * is exactly `true`. The locator numbers (a `when:` that only locates, see
+ * proximityBonus and locatorKeep): `locatorBonus` and `locatorDecayDays`
+ * numbers of at least 0, `locatorBroadShare` a number from 0 to 1.
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
  *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, followMessages: number,
  *   followGapMinutes: number, answerChars: number, stretchChars: number, maxPerDay: number,
  *   timeoutMs: number, minSummaryMs: number, maxOutputTokens: number, memoryItems: number, selfBonus: number, selfExtra: number,
  *   contextMessages: number, traceMaxLines: number, memoryTokens: number, recordDays: number, recordContext: number,
- *   archiveMonths: number, fallbackOnClassifierFailure: boolean, meaningCandidates: number, meaningWithReply: boolean }|null}
+ *   archiveMonths: number, fallbackOnClassifierFailure: boolean, meaningCandidates: number, meaningWithReply: boolean,
+ *   locatorBonus: number, locatorDecayDays: number, locatorBroadShare: number }|null}
  */
 export function recallSettings(config) {
   if (config?.features?.recall === false) return null;
@@ -198,7 +212,70 @@ export function recallSettings(config) {
     fallbackOnClassifierFailure: r.fallbackOnClassifierFailure !== false,
     meaningCandidates: intAtLeast(r.meaningCandidates, d.meaningCandidates, 0),
     meaningWithReply: r.meaningWithReply === true,
+    locatorBonus: numberAtLeast(r.locatorBonus, d.locatorBonus, 0),
+    locatorDecayDays: numberAtLeast(r.locatorDecayDays, d.locatorDecayDays, 0),
+    locatorBroadShare: shareOf(r.locatorBroadShare, d.locatorBroadShare),
   };
+}
+
+/** A finite `value` from 0 to 1, else `fallback`. */
+function shareOf(value, fallback) {
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : fallback;
+}
+
+/**
+ * The bounded bonus of a window or item near a `when:` locator: the time
+ * `[start, end]` (`end` defaults to `start`) against the range `[from, to]`
+ * (either side may be null, open): the full `bonus` when they overlap,
+ * falling linearly with the distance to 0 at `decayDays` days away (only
+ * inside with `decayDays` 0); 0 for a `start` that is not finite. Always
+ * within [0, bonus]. Unusable numbers: RECALL_DEFAULTS. Pure.
+ * @param {number} start
+ * @param {number|null|undefined} end
+ * @param {{ from?: number|null, to?: number|null, bonus?: number, decayDays?: number }} locator
+ * @returns {number}
+ */
+export function proximityBonus(start, end, { from = null, to = null, bonus, decayDays } = {}) {
+  const most = numberAtLeast(bonus, RECALL_DEFAULTS.locatorBonus, 0);
+  if (most === 0 || !Number.isFinite(start)) return 0;
+  const last = Number.isFinite(end) && end >= start ? end : start;
+  let gap = 0;
+  if (Number.isFinite(from) && last < from) gap = from - last;
+  else if (Number.isFinite(to) && start > to) gap = start - to;
+  if (gap === 0) return most;
+  const decay = numberAtLeast(decayDays, RECALL_DEFAULTS.locatorDecayDays, 0) * DAY_MS;
+  return decay > 0 ? most * Math.max(0, 1 - gap / decay) : 0;
+}
+
+/**
+ * The slots of a locator recall: the first ceil(`keep` x `broadShare`) go to
+ * the best of `items` by `broadOrder` (content, regardless of date), the
+ * rest to the best of the others by `datedOrder` (with the proximity bonus),
+ * so a date read wrong cannot crowd the right event out. At most `keep`
+ * (every item for a `keep` that is not an integer of at least 0); an
+ * unusable `broadShare`: RECALL_DEFAULTS.locatorBroadShare. Returned in pick
+ * order, each `{ item, share: 'broad' | 'dated' }`. Pure.
+ * @template T
+ * @param {T[]} items
+ * @param {{ keep?: number, broadShare?: number, broadOrder: (a: T, b: T) => number, datedOrder: (a: T, b: T) => number }} options
+ * @returns {{ item: T, share: 'broad'|'dated' }[]}
+ */
+export function locatorKeep(items, { keep, broadShare, broadOrder, datedOrder }) {
+  const list = Array.isArray(items) ? [...items] : [];
+  const limit = Number.isInteger(keep) && keep >= 0 ? keep : list.length;
+  const share = shareOf(broadShare, RECALL_DEFAULTS.locatorBroadShare);
+  const broad = [...list].sort(broadOrder).slice(0, Math.min(limit, Math.ceil(limit * share)));
+  const taken = new Set(broad);
+  const dated = list
+    .filter((item) => !taken.has(item))
+    .sort(datedOrder)
+    .slice(0, limit - broad.length);
+  return [...broad.map((item) => ({ item, share: 'broad' })), ...dated.map((item) => ({ item, share: 'dated' }))];
+}
+
+/** A usable locator option (a range with a finite side), else null. */
+function usableLocator(locator) {
+  return isPlainObject(locator) && (Number.isFinite(locator.from) || Number.isFinite(locator.to)) ? locator : null;
 }
 
 /**
@@ -374,6 +451,13 @@ function parseRange(value, timezone, now) {
  * - `recent`: `yes` (its first word, any case) marks a vague "recently";
  *   anything else does not. It only qualifies the other lines: `server` gets
  *   `recent: true` (the key is absent otherwise); the line alone asks nothing.
+ * - `when-role` (also `when_role`, `when role`): `scope` (its first word, any
+ *   case) or `locator`; the first usable one counts, anything else is no
+ *   role. It only qualifies `when:`: a usable range beside a form or a name
+ *   form is a locator (`server` gets `locator: true`, absent otherwise)
+ *   unless the role is `scope` -- a missing role locates, so a misread date
+ *   cannot exclude the answer; a range with neither is always a scope (the
+ *   time is the question). The line alone asks nothing.
  * `server` is an object when there is a form, a name form or a range, else
  * null. `reason`: `empty` (no text), `none` (an explicit none, or labelled
  * lines that all say none or nothing), `unparsed` (labelled lines with
@@ -385,7 +469,8 @@ function parseRange(value, timezone, now) {
  * nothing else is `none`. Without one there is no `skills` key (none).
  * @param {unknown} raw
  * @param {{ timezone?: string, now?: number, maxForms?: number, skillNames?: string[] }} [options]
- * @returns {{ web: string|null, server: { forms: string[], who: string[], from: number|null, to: number|null, recent?: true }|null,
+ * @returns {{ web: string|null, server: { forms: string[], who: string[], from: number|null, to: number|null, recent?: true,
+ *   locator?: true }|null,
  *   reason: 'empty'|'none'|'unparsed'|'ok', skills?: { state: string, inventory: boolean, names: string[] } }}
  */
 export function parseLookupAnswer(raw, { timezone = 'UTC', now, maxForms, skillNames } = {}) {
@@ -417,12 +502,19 @@ function parseSearchLines(raw, { timezone, now, maxForms }) {
   const who = [];
   let range = null;
   let recent = false;
+  let role = null;
   let content = false;
   for (const [, label, value] of labelled) {
     const stripped = stripLine(value);
     // `recent:` only qualifies the other lines: alone it asks nothing.
     if (label.toLowerCase() === 'recent') {
       recent ||= YES_RE.test(stripped);
+      continue;
+    }
+    // `when-role:` only qualifies `when:`; the first usable one counts.
+    if (/^when.?role$/i.test(label)) {
+      const bare = stripLine(stripped.replace(/^\**\s*/, ''));
+      role ??= SCOPE_RE.test(bare) ? 'scope' : LOCATOR_RE.test(bare) ? 'locator' : null;
       continue;
     }
     if (stripped && !NONE_RE.test(stripped)) content = true;
@@ -441,7 +533,11 @@ function parseSearchLines(raw, { timezone, now, maxForms }) {
     }
   }
   const asked = forms.length > 0 || who.length > 0 || range;
-  const server = asked ? { forms, who, from: range?.from ?? null, to: range?.to ?? null, ...(recent ? { recent: true } : {}) } : null;
+  // A range beside forms or names only locates the event unless marked scope; a range alone is the question.
+  const locator = Boolean(range) && (forms.length > 0 || who.length > 0) && role !== 'scope';
+  const server = asked
+    ? { forms, who, from: range?.from ?? null, to: range?.to ?? null, ...(recent ? { recent: true } : {}), ...(locator ? { locator: true } : {}) }
+    : null;
   if (web || server) return { web, server, reason: 'ok' };
   return { web: null, server: null, reason: content ? 'unparsed' : 'none' };
 }
@@ -601,13 +697,18 @@ export function rareFormKeys(totals, rareHits) {
  * slot no such cluster takes goes on by rank. `keepOldest` 0 reserves nothing. The kept
  * ones are returned newest first by `endTs` (channel id on a tie). Hits
  * without an id, a channel or a finite `ts` are ignored; a repeated id is one
- * hit with the queries of every copy.
+ * hit with the queries of every copy. With a `locator` (a `when:` that only
+ * locates: `{ from, to, bonus, decayDays, broadShare }`) the selection is
+ * locatorKeep's instead of the `keepOldest` one: the reserved share by the
+ * rank above, the rest by `topic` + proximityBonus of the cluster's span,
+ * each kept cluster marked `share` (`broad` | `dated`).
  * @param {{ id: string, channelId: string, ts: number, queries?: Iterable<string> }[]} hits
- * @param {{ gapMinutes?: number, maxClusters?: number, keepOldest?: number, rareForms?: Iterable<string> }} [options]
+ * @param {{ gapMinutes?: number, maxClusters?: number, keepOldest?: number, rareForms?: Iterable<string>,
+ *   locator?: object|null }} [options]
  * @returns {{ channelId: string, ids: string[], startTs: number, endTs: number, middleId: string, queries: number,
- *   forms: number, topic: number }[]}
+ *   forms: number, topic: number, share?: 'broad'|'dated' }[]}
  */
-export function clusterHits(hits, { gapMinutes, maxClusters, keepOldest, rareForms } = {}) {
+export function clusterHits(hits, { gapMinutes, maxClusters, keepOldest, rareForms, locator = null } = {}) {
   const gapMs = numberAtLeast(gapMinutes, RECALL_DEFAULTS.clusterGapMinutes, 0) * MINUTE_MS;
   const keep = intAtLeast(maxClusters, RECALL_DEFAULTS.maxClusters, 1);
   const oldest = Math.min(keep, intAtLeast(keepOldest, RECALL_DEFAULTS.keepOldest, 0));
@@ -651,7 +752,7 @@ export function clusterHits(hits, { gapMinutes, maxClusters, keepOldest, rareFor
       topic: topical.reduce((sum, key) => sum + (rare.has(key) ? RARE_WEIGHT : 1), 0),
     };
   });
-  return selectClusters(shaped, keep, oldest, (cluster) => cluster.topic);
+  return selectClusters(shaped, keep, oldest, (cluster) => cluster.topic, locator);
 }
 
 /** Newest first by `endTs`, channel id on a tie: the order kept clusters are returned in. */
@@ -664,10 +765,21 @@ function newestFirst(x, y) {
  * first), then `queries` (more first), then newestFirst; with more than
  * `keep`, the top `keep - oldest` plus the `oldest` reserved slots (the
  * oldest of the rest whose `topic` is at least OLDEST_MIN_TOPIC, a slot no
- * such cluster takes going on by rank). Returned newest first.
+ * such cluster takes going on by rank). Returned newest first. With a usable
+ * `locator`: locatorKeep over that rank (reserved) and `scoreOf` +
+ * proximityBonus of the span (dated), no `oldest` slot, each kept cluster
+ * marked `share`.
  */
-function selectClusters(clusters, keep, oldest, scoreOf) {
-  const ranked = [...clusters].sort((x, y) => scoreOf(y) - scoreOf(x) || y.queries - x.queries || newestFirst(x, y));
+function selectClusters(clusters, keep, oldest, scoreOf, locator = null) {
+  const byRank = (x, y) => scoreOf(y) - scoreOf(x) || y.queries - x.queries || newestFirst(x, y);
+  const near = usableLocator(locator);
+  if (near) {
+    const boosted = (cluster) => scoreOf(cluster) + proximityBonus(cluster.startTs, cluster.endTs, near);
+    const picked = locatorKeep(clusters, { keep, broadShare: near.broadShare, broadOrder: byRank, datedOrder: (x, y) => boosted(y) - boosted(x) || byRank(x, y) });
+    for (const { item, share } of picked) item.share = share;
+    return picked.map(({ item }) => item).sort(newestFirst);
+  }
+  const ranked = [...clusters].sort(byRank);
   let kept = ranked;
   if (ranked.length > keep) {
     kept = ranked.slice(0, keep - oldest);
@@ -719,17 +831,18 @@ export function clusterScore(cluster, selfBonus) {
  * with the persona's line) instead of `topic`, then `queries`, then the
  * newer `endTs`; `keepOldest` reserves as in clusterHits (by `topic`, the
  * bonus aside). At most `maxClusters`, returned newest first (the same
- * objects).
- * @param {{ channelId: string, endTs: number, topic: number, queries: number, self?: boolean }[]} clusters
- * @param {{ maxClusters?: number, keepOldest?: number, selfBonus?: number }} [options]
+ * objects). With a `locator` the selection is clusterHits' locator one over
+ * clusterScore, each kept cluster marked `share` in place.
+ * @param {{ channelId: string, startTs?: number, endTs: number, topic: number, queries: number, self?: boolean }[]} clusters
+ * @param {{ maxClusters?: number, keepOldest?: number, selfBonus?: number, locator?: object|null }} [options]
  * @returns {object[]}
  */
-export function rankClusters(clusters, { maxClusters, keepOldest, selfBonus } = {}) {
+export function rankClusters(clusters, { maxClusters, keepOldest, selfBonus, locator = null } = {}) {
   const keep = intAtLeast(maxClusters, RECALL_DEFAULTS.maxClusters, 1);
   const oldest = Math.min(keep, intAtLeast(keepOldest, RECALL_DEFAULTS.keepOldest, 0));
   const bonus = numberAtLeast(selfBonus, RECALL_DEFAULTS.selfBonus, 0);
   const list = (Array.isArray(clusters) ? clusters : []).filter((cluster) => cluster && Number.isFinite(cluster.endTs));
-  return selectClusters(list, keep, oldest, (cluster) => clusterScore(cluster, bonus));
+  return selectClusters(list, keep, oldest, (cluster) => clusterScore(cluster, bonus), locator);
 }
 
 /**
@@ -1080,13 +1193,20 @@ function archivedItem(entry, ctx, { matched = true } = {}) {
  * item (score 0 allowed, the range still applied), and the whole list is
  * then ordered by fuseRanks over (meaning rank, the order above) before the
  * `max` cut; without it the order above stands.
+ * `locator` (a `when:` that only locates, `{ from, to, bonus, decayDays,
+ * broadShare }`; the caller then passes no `from` / `to`): the `max` slots
+ * are locatorKeep's -- the reserved share in the order above, the rest by
+ * the score (or the fused one) + proximityBonus of the item's local day, in
+ * the unit of that score (one form, or 1 / (RRF_K + 1) fused); an undated
+ * item gets no bonus. Returned in pick order, each with `share` (`broad` |
+ * `dated`); without a locator there is no `share` key.
  * @param {{ forms?: string[], who?: string[], profiles?: object[], lore?: object[], learned?: object[],
  *   recentLines?: object[], archived?: object[], meaning?: object[], from?: number|null, to?: number|null, max?: number,
- *   timezone?: string, recent?: boolean }} params
+ *   timezone?: string, recent?: boolean, locator?: object|null }} params
  * @returns {{ kind: string, text: string, date: string|null, memberId: string|null, itemId: string|null, self: boolean,
- *   score: number }[]}
+ *   score: number, share?: 'broad'|'dated' }[]}
  */
-export function matchMemory({ forms = [], who = [], profiles = [], lore = [], learned = [], recentLines = [], archived = [], meaning = [], from = null, to = null, max, timezone = 'UTC', recent = false } = {}) {
+export function matchMemory({ forms = [], who = [], profiles = [], lore = [], learned = [], recentLines = [], archived = [], meaning = [], from = null, to = null, max, timezone = 'UTC', recent = false, locator = null } = {}) {
   const limit = intAtLeast(max, RECALL_DEFAULTS.memoryItems, 0);
   const list = (value) => (Array.isArray(value) ? value.filter((item) => item && typeof item === 'object') : []);
   const meant = list(meaning);
@@ -1167,6 +1287,7 @@ export function matchMemory({ forms = [], who = [], profiles = [], lore = [], le
 
   const ordered = found.sort(recent ? byRecency : byScore);
   let chosen = ordered;
+  let fusedScore = null;
   if (meant.length > 0) {
     // The meaning search's entries: the matched item of the same itemId, else their own archived item.
     const byItemId = new Map();
@@ -1177,11 +1298,27 @@ export function matchMemory({ forms = [], who = [], profiles = [], lore = [], le
       const item = (itemId && byItemId.get(itemId)) || archivedItem(entry, ctx, { matched: false });
       if (item && !meaningItems.includes(item)) meaningItems.push(item);
     }
-    chosen = fuseRanks([meaningItems, ordered]).map((entry) => entry.id);
+    const fused = fuseRanks([meaningItems, ordered]);
+    chosen = fused.map((entry) => entry.id);
+    fusedScore = new Map(fused.map((entry) => [entry.id, entry.score]));
   }
-  return chosen
-    .slice(0, limit)
-    .map(({ kind, text, date, memberId, itemId, self, score }) => ({ kind, text, date, memberId, itemId, self, score }));
+  let picked = chosen.slice(0, limit).map((item) => ({ item, share: null }));
+  const near = usableLocator(locator);
+  if (near) {
+    // A dated item's local day against the locator; the bonus in the unit of the order: one form, or one top rank fused.
+    const position = new Map(chosen.map((item, i) => [item, i]));
+    const unit = fusedScore ? 1 / (RRF_K + 1) : 1;
+    const boosted = new Map(
+      chosen.map((item) => {
+        const day = item.date ? dateSide(item.date) : null;
+        const bonus = day ? proximityBonus(sideStart(day, timezone), sideEnd(day, timezone), near) : 0;
+        return [item, (fusedScore ? fusedScore.get(item) : item.score) + unit * bonus];
+      }),
+    );
+    const byPosition = (a, b) => position.get(a) - position.get(b);
+    picked = locatorKeep(chosen, { keep: limit, broadShare: near.broadShare, broadOrder: byPosition, datedOrder: (a, b) => boosted.get(b) - boosted.get(a) || byPosition(a, b) });
+  }
+  return picked.map(({ item: { kind, text, date, memberId, itemId, self, score }, share }) => ({ kind, text, date, memberId, itemId, self, score, ...(share ? { share } : {}) }));
 }
 
 /**
@@ -1246,6 +1383,22 @@ function personLine(person, timezone) {
 }
 
 /**
+ * The `<time_cue>` text: `labels.lookup.timeEstimate` (trimmed) with `{range}`
+ * the local days of the cue in `timezone` -- `YYYY-MM-DD` for one day,
+ * `YYYY-MM-DD .. YYYY-MM-DD` for several, an open side left empty -- or ''
+ * without a cue with a finite side or without the label.
+ */
+function timeCueText(cue, labels, timezone) {
+  const template = labels?.lookup?.timeEstimate;
+  if (!isPlainObject(cue) || typeof template !== 'string' || !template.trim()) return '';
+  const from = Number.isFinite(cue.from) ? zonedDay(cue.from, timezone) : '';
+  const to = Number.isFinite(cue.to) ? zonedDay(cue.to, timezone) : '';
+  if (!from && !to) return '';
+  const range = from === to ? from : `${from} .. ${to}`.trim();
+  return fill(template.trim(), { range });
+}
+
+/**
  * The summary helper's request: the system message is `prompt` with
  * `{{name}}` (the persona's display name), `{{answerChars}}` and, given
  * `now`, `{{today}}` (the local date key in `timezone`) filled; the user
@@ -1264,7 +1417,10 @@ function personLine(person, timezone) {
  * classifier transcripts are -- src/discord/format.js formatTranscript and
  * renderTranscript, the persona's own lines under `labels.self`, the
  * `contextDescriptions` captions -- with their `#n` indices continuing after
- * the last `<found>` line; left out when there is no line) and `<question>`
+ * the last `<found>` line; left out when there is no line), `<time_cue>`
+ * (with a `timeCue` -- the asker's `when:` locator, `{ from, to }` -- the
+ * label `labels.lookup.timeEstimate` with `{range}` its local days, see
+ * timeCueText; left out without a cue or the label) and `<question>`
  * (the candidate's author and text cut to `maxChars`). Every block is
  * per-call content after the system message, in that order (stable first,
  * per-turn last; nothing is marked for the prompt cache). A section header
@@ -1279,7 +1435,7 @@ function personLine(person, timezone) {
  *   contextDescriptions?: Map<string, string>, replyQuoteChars?: number,
  *   nameOf?: (id: string) => (string|null|undefined), labels: object, timezone?: string, answerChars: number,
  *   now?: number, maxChars?: number, gapMinutes?: number, seeReactions?: boolean, reactionsPerMessage?: number,
- *   memoryTokens?: number }} params
+ *   memoryTokens?: number, timeCue?: { from?: number|null, to?: number|null }|null }} params
  * @returns {{ role: string, content: string }[]|null}
  */
 export function buildRecallRequest({
@@ -1302,6 +1458,7 @@ export function buildRecallRequest({
   seeReactions = true,
   reactionsPerMessage,
   memoryTokens,
+  timeCue = null,
 }) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   const rendered = renderRecallWindows(windows, { labels, timezone, selfName, gapMinutes, maxChars, seeReactions, reactionsPerMessage, indexed: true });
@@ -1356,6 +1513,7 @@ export function buildRecallRequest({
     block('memory', memoryLines.join('\n')),
     block('found', sections.join('\n\n')),
     block('context', contextText),
+    block('time_cue', timeCueText(timeCue, labels, timezone)),
     block('question', `${oneLine(question?.authorName)}: ${text}`),
   ]
     .filter(Boolean)
@@ -1541,16 +1699,27 @@ function recordMessage(line, { nameOf, selfName }) {
  * their best fused score (with `recent`: a persona's line first, then the
  * newer, then that score), with no window reserved for the earliest word
  * hit. Without a usable row nothing changes.
+ * `locator` (a `when:` that only locates, `{ from, to, bonus, decayDays,
+ * broadShare }`; the caller passes no `range` then): besides the last
+ * `recordDays` days the locator's own days are read as a dated question's
+ * would be (one span when they meet); the hits best with the proximity
+ * bonus (proximityBonus of the line's time, in the unit of the score: one
+ * form, or 1 / (RRF_K + 1) fused) get windows beside the best without it;
+ * the `maxWindows` slots are locatorKeep's -- the reserved share in the
+ * order above, the rest by the best score + the bonus of the window's span
+ * -- each kept window marked `share` (`broad` | `dated`); no window is
+ * reserved for the earliest hit. Without a locator there is no `share` key.
  * @param {string} guildId
  * @param {{ record: { iterate: Function }, range?: { from?: number|null, to?: number|null }, participants?: string[],
  *   forms?: string[], aliases?: string[], recordDays?: number, recordContext?: number, followMessages?: number,
  *   followGapMinutes?: number, now: number, maxWindows?: number,
  *   allowLine?: (line: object) => boolean, exclude?: Set<string>|string[], recent?: boolean,
  *   nameOf?: (id: string) => (string|null|undefined), selfName?: string, channelNameOf?: (id: string) => (string|null|undefined),
- *   meaning?: { id: string, channelId: string, occurredAt: string, sourceIds?: string[] }[], signal?: AbortSignal }} options
+ *   meaning?: { id: string, channelId: string, occurredAt: string, sourceIds?: string[] }[], locator?: object|null,
+ *   signal?: AbortSignal }} options
  * @returns {Promise<{ windows: object[], scanned: number, hits: number, meaningHits: number }>}
  */
-export async function matchRecord(guildId, { record, range = {}, participants = [], forms = [], aliases = [], recordDays, recordContext, followMessages, followGapMinutes, now, maxWindows, allowLine, exclude, recent = false, nameOf, selfName = '', channelNameOf, meaning = [], signal } = {}) {
+export async function matchRecord(guildId, { record, range = {}, participants = [], forms = [], aliases = [], recordDays, recordContext, followMessages, followGapMinutes, now, maxWindows, allowLine, exclude, recent = false, nameOf, selfName = '', channelNameOf, meaning = [], locator = null, signal } = {}) {
   const none = { windows: [], scanned: 0, hits: 0, meaningHits: 0 };
   const days = intAtLeast(recordDays, RECALL_DEFAULTS.recordDays, 0);
   const around = intAtLeast(recordContext, RECALL_DEFAULTS.recordContext, 0);
@@ -1559,9 +1728,25 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   const textForms = foldedForms([...(Array.isArray(forms) ? forms : []), ...(Array.isArray(aliases) ? aliases : [])]);
   const people = new Set((Array.isArray(participants) ? participants : []).filter((id) => typeof id === 'string' && id));
   const wanted = meaningRows(meaning);
+  const near = usableLocator(locator);
   const to = Math.min(Number.isFinite(range?.to) ? range.to : now, now);
   const from = Math.max(Number.isFinite(range?.from) ? range.from : -Infinity, to - days * DAY_MS);
-  const words = days > 0 && (textForms.length > 0 || people.size > 0) && from <= to;
+  // The word scan's spans, oldest first: the range read, and with a locator its own days read as a scope would.
+  const mainSpans = from <= to ? [{ from, to }] : [];
+  if (near) {
+    const nearTo = Math.min(Number.isFinite(near.to) ? near.to : now, now);
+    const nearFrom = Math.max(Number.isFinite(near.from) ? near.from : -Infinity, nearTo - days * DAY_MS);
+    const span = mainSpans[0];
+    const meets = span && nearFrom <= span.to && nearTo >= span.from;
+    if (nearFrom <= nearTo && meets) {
+      span.from = Math.min(span.from, nearFrom);
+      span.to = Math.max(span.to, nearTo);
+    } else if (nearFrom <= nearTo) {
+      mainSpans.push({ from: nearFrom, to: nearTo });
+      mainSpans.sort((a, b) => a.from - b.from);
+    }
+  }
+  const words = days > 0 && (textForms.length > 0 || people.size > 0) && mainSpans.length > 0;
   if (!words && wanted.length === 0) return none;
   const excluded = exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []);
 
@@ -1593,9 +1778,10 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
     if (known === null || (known && known.revision >= revision)) return;
     latest.set(line.messageId, { line, revision });
   };
-  if (words) {
-    stretches.push({ from, to });
-    const query = { from: new Date(from).toISOString(), to: new Date(to).toISOString() };
+  for (const span of words ? mainSpans : []) {
+    if (signal?.aborted) break;
+    stretches.push(span);
+    const query = { from: new Date(span.from).toISOString(), to: new Date(span.to).toISOString() };
     for await (const line of record.iterate(guildId, query)) {
       if (signal?.aborted) break;
       take(line, true);
@@ -1655,7 +1841,8 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
     : (a, b) => b.score - a.score || b.message.ts - a.message.ts;
   // A dateless, not-recent question: the earliest hit with the best score keeps a window of its own
   // (by words only: with meaning rows the fused order alone decides what is kept).
-  const dateless = !recent && !Number.isFinite(range?.from) && !Number.isFinite(range?.to) && meant.length === 0;
+  // A locator has its own reservation instead (locatorKeep).
+  const dateless = !near && !recent && !Number.isFinite(range?.from) && !Number.isFinite(range?.to) && meant.length === 0;
   const bestScore = Math.max(0, ...hits.map((hit) => hit.score));
   const earliest = dateless
     ? hits.filter((hit) => hit.score === bestScore).reduce((a, b) => (!a || b.message.ts < a.message.ts || (b.message.ts === a.message.ts && b.message.id < a.message.id) ? b : a), null)
@@ -1669,6 +1856,15 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   const hitScore = new Map(ranked.map((hit) => [hit.message.id, hit.score]));
   const chosenHits = ranked.slice(0, keep * RECORD_HITS_PER_WINDOW);
   if (earliest && !chosenHits.some((hit) => hit.message.id === earliest.message.id)) chosenHits.push(earliest);
+  // With a locator the bonus counts in the unit of the score: one form, or one top rank when fused.
+  const unit = meant.length === 0 ? 1 : 1 / (RRF_K + 1);
+  const boostedOf = (score, start, end) => score + unit * proximityBonus(start, end, near);
+  if (near) {
+    // The hits best with the bonus get windows too, beside the best without it.
+    const taken = new Set(chosenHits.map((hit) => hit.message.id));
+    const dated = [...ranked].sort((a, b) => boostedOf(b.score, b.message.ts) - boostedOf(a.score, a.message.ts) || b.message.ts - a.message.ts);
+    for (const hit of dated.slice(0, keep * RECORD_HITS_PER_WINDOW)) if (!taken.has(hit.message.id)) chosenHits.push(hit);
+  }
   const windows = chosenHits
     .map(({ message }) => {
       const list = byChannel.get(message.channelId);
@@ -1707,6 +1903,14 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
     ? (a, b) => Number(b.self) - Number(a.self) || b.endTs - a.endTs || b.score - a.score
     : (a, b) => b.score - a.score || b.endTs - a.endTs;
   const ordered = merged.sort(windowOrder);
+  if (near) {
+    const boosted = new Map(ordered.map((window) => [window, boostedOf(window.score, window.messages[0].ts, window.endTs)]));
+    const picked = locatorKeep(ordered, { keep, broadShare: near.broadShare, broadOrder: windowOrder, datedOrder: (a, b) => boosted.get(b) - boosted.get(a) || b.endTs - a.endTs });
+    const located = picked
+      .sort((a, b) => b.item.endTs - a.item.endTs)
+      .map(({ item: { score, self, endTs, ...window }, share }) => ({ ...window, share }));
+    return { windows: located, scanned, hits: hits.length, meaningHits: meant.length };
+  }
   const origin = earliest ? ordered.findIndex((window) => window.hitIds.has(earliest.message.id)) : -1;
   const kept = (origin >= keep ? [...ordered.slice(0, keep - 1), ordered[origin]] : ordered.slice(0, keep))
     .sort((a, b) => b.endTs - a.endTs)

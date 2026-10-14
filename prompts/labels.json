@@ -163,7 +163,8 @@
     "bothNote": "A web search and a server search both ran. They may answer different things; which one fits is yours to call.",
     "stretch": "{date} in #{channel}:",
     "stretchSelf": " [your lines]",
-    "stretchCurrent": " [current conversation]"
+    "stretchCurrent": " [current conversation]",
+    "timeEstimate": "The asker placed this around {range}. That date is a rough guide to finding the event, not the event's known date. If the match sits on a different date, say so and give the real one."
   },
   "affinity": {
     "bands": {

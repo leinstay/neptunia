@@ -48,6 +48,17 @@
 // windows and archive rows the stored-memory items, each fused with the word
 // hits by reciprocal rank (recall.js fuseRanks). A failed embedding or search
 // logs `recall: meaning failed` and the run goes on with words only.
+// A `when:` range the lookup marked a locator (recall.js parseLookupAnswer:
+// `locator: true`, a date that only helps find the event) bounds none of the
+// local sources: the record is read over its last `recall.recordDays` days
+// (and the locator's own days), the archive over its usual months, the
+// vector index over every month; their windows and items, and the Discord
+// clusters, are kept by recall.js locatorKeep (`recall.locatorBroadShare` of
+// the slots by content alone, the rest with `recall.locatorBonus` falling
+// over `recall.locatorDecayDays`). Discord searches the range as before,
+// plus one broad page of the first query over the past the record does not
+// hold, unless the record covers the range and its decay margin. The summary
+// reads the cue as an estimate (`<time_cue>`).
 // Logs carry counts, ids and codes only: never a form, a name or a message.
 // What a run found and chose is diagnosed from the trace file instead
 // (`features.recallTrace`, data/guilds/<id>/recall-trace.jsonl, see traceLine):
@@ -60,7 +71,7 @@ import { fetchAfter, fetchAround, searchMembers, searchMessages } from '../disco
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
-import { bumpDaily, countToday } from '../time.js';
+import { DAY_MS, bumpDaily, countToday } from '../time.js';
 import { audienceCovers } from './elsewhere.js';
 import { roleModel } from '../llm/roles.js';
 import { pullPictures } from './pull.js';
@@ -87,6 +98,7 @@ import {
   sampleOffsets,
   scanArchive,
   searchPlan,
+  snowflakeAt,
 } from './recall.js';
 
 /** The state.json fields of the daily recall counter. */
@@ -111,6 +123,22 @@ function asksServer(server) {
   if (!server || typeof server !== 'object') return false;
   const some = (list) => Array.isArray(list) && list.length > 0;
   return some(server.forms) || some(server.who) || Number.isFinite(server.from) || Number.isFinite(server.to);
+}
+
+/**
+ * The locator of a run (the options recall.js matchRecord, matchMemory and
+ * clusterHits read), or null: only for a server part marked `locator: true`
+ * with a finite side of its range.
+ */
+function locatorOf(server, settings) {
+  if (server?.locator !== true || (!Number.isFinite(server.from) && !Number.isFinite(server.to))) return null;
+  return {
+    from: Number.isFinite(server.from) ? server.from : null,
+    to: Number.isFinite(server.to) ? server.to : null,
+    bonus: settings.locatorBonus,
+    decayDays: settings.locatorDecayDays,
+    broadShare: settings.locatorBroadShare,
+  };
 }
 
 /** A raw search hit (src/discord/search.js) as the clustering reads it; `queries` the keys of the queries that found it. */
@@ -188,7 +216,7 @@ function newTrace({ started, channelId, candidate, server }) {
     triggerId: typeof candidate?.id === 'string' ? candidate.id : null,
     forms: Array.isArray(server?.forms) ? [...server.forms] : [],
     who: Array.isArray(server?.who) ? [...server.who] : [],
-    when: from !== null || to !== null ? { from: isoOf(from), to: isoOf(to) } : null,
+    when: from !== null || to !== null ? { from: isoOf(from), to: isoOf(to), role: server?.locator === true ? 'locator' : 'scope' } : null,
     clusters: [],
     summary: { answer: null, stretch: null, text: null, note: null },
     skipped: null,
@@ -211,6 +239,8 @@ function traceItem(item) {
     memberId: item?.memberId ?? null,
     self: item?.self === true,
     score: Number.isFinite(item?.score) ? item.score : null,
+    // A locator run's slot: the share reserved for content, or the dated one.
+    ...(item?.share ? { share: item.share } : {}),
   };
 }
 
@@ -223,6 +253,7 @@ function traceRecordWindow(window) {
     to: isoOf(messages[messages.length - 1]?.ts),
     hitIds: [...(window?.hitIds ?? [])],
     kept: false,
+    ...(window?.share ? { share: window.share } : {}),
   };
 }
 
@@ -243,7 +274,13 @@ function traceRecordWindow(window) {
  * total }` per Discord search planned (`total` null while unsent or when it
  * failed). `memory`: the stored-memory items matched, the archive's included
  * (traceItem). `record`: `{ channelId, from, to, hitIds, kept }` per record
- * window, `kept` whether it joined the windows the summary reads. `meaning`:
+ * window, `kept` whether it joined the windows the summary reads. `when`:
+ * null without a range, else `{ from, to, role }`, `role` `scope` (a hard
+ * bound) or `locator`. In a locator run each kept cluster, record window and
+ * memory item also carries `share` (`broad`: a slot reserved for content
+ * regardless of date, `dated`: one won with the proximity bonus; a cluster
+ * not kept `null`), and the broad Discord page's plan entry `broad: true`;
+ * otherwise those keys are absent. `meaning`:
  * null unless the run searched by meaning, else `{ query, candidates, kept,
  * ms }` -- `query` `question` | `question+reply` (what was embedded),
  * `candidates` the rows the searches returned, `kept` `{ id, kind, score,
@@ -315,7 +352,7 @@ function summaryFailure(err) {
  * @param {{ set: Function, clear: Function }} [deps.timers]  setTimeout / clearTimeout (tests inject fakes).
  * @returns {{ run: (args: { guild: object, guildId?: string, channel: object, partner?: object|null, selfId: string, selfName: string,
  *   history?: object[], candidate: { authorName?: string, content?: string }, server: { forms: string[], who: string[],
- *   from: number|null, to: number|null }|null }) => Promise<{ text: string|null, stretch: RecallStretch|null,
+ *   from: number|null, to: number|null, recent?: true, locator?: true }|null }) => Promise<{ text: string|null, stretch: RecallStretch|null,
  *   people: { id: string, name: string, username: string, count: number, newestTs: number|null }[], stats: object }>,
  *   available: () => boolean }}
  */
@@ -445,8 +482,11 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * months from the earliest row's on, the private archive too on a private
    * turn; the newest recorded revision per itemId, through the same switches
    * and `allowEntry`) and join matchMemory's items as its `meaning`.
+   * `locator` (locatorOf): no item is bounded by the range; the archive is
+   * read over the last `recall.archiveMonths` months, or from the range's
+   * start when that is earlier, and matchMemory ranks with the locator.
    */
-  async function storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal, meaning = [] }) {
+  async function storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal, meaning = [], locator = null }) {
     const none = { items: [], nameOf: () => null };
     const forms = Array.isArray(server.forms) ? server.forms : [];
     const who = Array.isArray(server.who) ? server.who : [];
@@ -456,6 +496,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
       const names = new Map(profiles.filter((p) => p?.id).map((p) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null]));
       const ranged = Number.isFinite(server.from) || Number.isFinite(server.to);
+      // A locator bounds no item: it only ranks (matchMemory's `locator`).
+      const bounds = locator ? { from: null, to: null } : { from: server.from ?? null, to: server.to ?? null };
       const switchedOff = new Set([
         ...(features.episodes === false ? ['episode'] : []),
         ...(features.recent === false ? ['recent'] : []),
@@ -470,14 +512,16 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         })();
       let archived = [];
       if (typeof archive?.iterate === 'function' && (ranged || settings.archiveMonths > 0)) {
-        const from = Number.isFinite(server.from) ? server.from : monthsBack(now(), Math.max(1, settings.archiveMonths));
+        const asked = Number.isFinite(server.from) ? server.from : monthsBack(now(), Math.max(1, settings.archiveMonths));
+        // A locator reads the usual months too, never fewer than its own range would.
+        const from = locator && settings.archiveMonths > 0 ? Math.min(asked, monthsBack(now(), settings.archiveMonths)) : asked;
         try {
           archived = await scanArchive(stream({ from: new Date(from).toISOString() }), {
             forms,
             who,
             profiles,
-            from: server.from ?? null,
-            to: server.to ?? null,
+            from: bounds.from,
+            to: bounds.to,
             timezone: config.bot?.timezone,
             recent,
             allow,
@@ -514,11 +558,12 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         recentLines: shownRecentLines(config, guild, guildId, channel, partner),
         archived,
         meaning: meant,
-        from: server.from ?? null,
-        to: server.to ?? null,
+        from: bounds.from,
+        to: bounds.to,
         max: settings.memoryItems,
         timezone: config.bot?.timezone,
         recent,
+        locator,
       });
       return { items, nameOf: (id) => names.get(String(id)) ?? null };
     } catch (err) {
@@ -540,8 +585,10 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * logs `recall: record failed` and gives none. `meaning`: the record rows
    * the meaning search kept, best first, for matchRecord's `meaning` (read
    * and fused there; with `recall.recordDays` 0 they alone are read).
+   * `locator` (locatorOf): read as a dateless question plus the locator's own
+   * days, the windows kept by matchRecord's locator rule.
    */
-  async function recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId, meaning = [] }) {
+  async function recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId, meaning = [], locator = null }) {
     if (typeof record?.iterate !== 'function' || (settings.recordDays <= 0 && meaning.length === 0)) return [];
     try {
       const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
@@ -560,7 +607,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       };
       const found = await matchRecord(guildId, {
         record: source,
-        range: { from: server.from ?? null, to: server.to ?? null },
+        range: locator ? { from: null, to: null } : { from: server.from ?? null, to: server.to ?? null },
+        locator,
         participants: [...ids],
         forms: [...(server.forms ?? []), ...(server.who ?? [])],
         aliases,
@@ -596,7 +644,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * One embedding of meaningQuery (the asker's message `candidate`, with
    * `recall.meaningWithReply` the line it replies to among `lines` before it),
    * then `vectors.search` within `server.from/to` (every month without a
-   * range), `recall.meaningCandidates` rows: the guild index, rows of a
+   * range or with a `locator`), `recall.meaningCandidates` rows: the guild index, rows of a
    * channel `sourceOf` refuses or of the visible chat (`ownIds`) left out (an
    * archive row is judged by its entry later); on a private turn the
    * partner's private layer too. The rows deduplicated (dedupeRows), split
@@ -606,7 +654,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * failed` (`stage` `embed` | `search`, counts and codes only) and gives no
    * row.
    */
-  async function meaningSearch({ config, settings, guild, guildId, channel, candidate, lines, server, privateUserId, sourceOf, ownIds, signal }) {
+  async function meaningSearch({ config, settings, guild, guildId, channel, candidate, lines, server, privateUserId, sourceOf, ownIds, signal, locator = null }) {
     if (config.features?.meaningSearch !== true || typeof embed !== 'function' || typeof vectors?.search !== 'function' || settings.meaningCandidates <= 0) return null;
     const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
     const stored = new Map(profiles.filter((p) => p?.id).map((p) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null]));
@@ -627,7 +675,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     } catch (err) {
       return failed('embed', err);
     }
-    const range = { from: Number.isFinite(server.from) ? server.from : null, to: Number.isFinite(server.to) ? server.to : null };
+    // A locator bounds no month: every one is searched, the date only ranks later.
+    const range = locator ? { from: null, to: null } : { from: Number.isFinite(server.from) ? server.from : null, to: Number.isFinite(server.to) ? server.to : null };
     const k = settings.meaningCandidates;
     const unseen = (meta) => meta?.kind === 'archive' || !ownIds.has(meta?.id);
     const shared = (meta) => unseen(meta) && (meta?.kind === 'archive' || (typeof meta?.channelId === 'string' && sourceOf(meta.channelId) !== null));
@@ -662,6 +711,24 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     } catch (err) {
       log.warn('recall: trace failed', { channel: channelId, name: err?.name ?? null });
     }
+  }
+
+  /**
+   * The one broad Discord page of a locator run, or null: the first planned
+   * query (not a range sample) without the range's bounds, over the past the
+   * record does not hold (`max_id` at the start of the record's last
+   * `recall.recordDays` days; no bound without a record), newest first,
+   * marked `broad`. None without a locator, or when the record reaches back
+   * to the locator's start minus `recall.locatorDecayDays` days: the record,
+   * read whole, already covers everything the date could point near.
+   */
+  function broadQuery(plan, locator, settings) {
+    const first = plan[0];
+    if (!locator || !first || first.kind === 'range') return null;
+    const recordStart = typeof record?.iterate === 'function' && settings.recordDays > 0 ? now() - settings.recordDays * DAY_MS : null;
+    const margin = Number.isFinite(locator.from) ? locator.from - settings.locatorDecayDays * DAY_MS : -Infinity;
+    if (recordStart !== null && recordStart <= margin) return null;
+    return { ...first, minId: null, maxId: recordStart !== null ? snowflakeAt(recordStart) : null, broad: true };
   }
 
   /** The cached captions of the windows' pictures and custom emoji, or undefined (cache only, never a request). */
@@ -723,6 +790,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const allowEntry = (entry) => allowScope(entry?.scope);
     const allowLine = (line) => (line?.scope?.private === true ? allowScope(line.scope) : typeof line?.scope?.channel === 'string' && allowScope(line.scope));
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
+    // A `when:` that only locates the event: it ranks, it bounds no local source (locatorOf).
+    const locator = locatorOf(server, settings);
     // The turn's own chat: its lines are dropped by id from every source (a private chat is not part of
     // the server: it drops nothing).
     const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id) : [];
@@ -730,7 +799,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
 
     // 0a. Meaning (features.meaningSearch): one embedding, the vector index; a failure leaves words only.
     const chatLines = [...(Array.isArray(history) ? history : []), ...(Array.isArray(context) ? context : [])];
-    const meaning = await meaningSearch({ config, settings, guild, guildId, channel, candidate, lines: chatLines, server, privateUserId, sourceOf, ownIds, signal: searchSignal });
+    const meaning = await meaningSearch({ config, settings, guild, guildId, channel, candidate, lines: chatLines, server, privateUserId, sourceOf, ownIds, signal: searchSignal, locator });
     if (signal.aborted) return null;
     if (meaning) {
       stats.meaning = meaning.trace.kept.length;
@@ -742,7 +811,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const took = { memoryMs: 0, recordMs: 0, discordMs: 0 };
     let stepAt = now();
     // 0. Stored memory (the archive included): no request, before the first Discord one so it always fits the budget.
-    const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal, meaning: meaning?.archive ?? [] });
+    const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal, meaning: meaning?.archive ?? [], locator });
     if (signal.aborted) return null;
     took.memoryMs = now() - stepAt;
     stats.memory = memory.items.length;
@@ -771,7 +840,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
 
     // 2b. The record of the last days, for a dated or "recently" question: no request.
     stepAt = now();
-    const recordWindows = await recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId, meaning: meaning?.record ?? [] });
+    const recordWindows = await recordWindowsFor({ settings, guild, guildId, server, people, recent, allowLine, privateUserId, ownIds, selfName, signal, channelId, meaning: meaning?.record ?? [], locator });
     if (signal.aborted) return null;
     took.recordMs = now() - stepAt;
     const recordTrace = new Map(recordWindows.map((window) => [window, traceRecordWindow(window)]));
@@ -786,17 +855,19 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     // Each query's total on the whole server is kept: a form found that rarely weighs more (step 5).
     const hits = new Map();
     const totals = new Map();
-    const queue = [...plan];
-    stats.planned = plan.length;
+    // With a locator, one broad page right after the first query (broadQuery): early enough to fit the budget.
+    const broad = broadQuery(plan, locator, settings);
+    const queue = broad ? [plan[0], broad, ...plan.slice(1)] : [...plan];
+    stats.planned = queue.length;
     // The trace's entry of each planned query, filled once it is sent.
     const planned = new Map();
     const tracePlanned = (query) => {
       if (!trace) return;
-      const entry = { kind: query.kind, content: query.content ?? null, authorId: query.authorId ?? null, offset: query.offset ?? 0, sent: false, total: null };
+      const entry = { kind: query.kind, content: query.content ?? null, authorId: query.authorId ?? null, offset: query.offset ?? 0, sent: false, total: null, ...(query.broad ? { broad: true } : {}) };
       planned.set(query, entry);
       trace.plan.push(entry);
     };
-    for (const query of plan) tracePlanned(query);
+    for (const query of queue) tracePlanned(query);
     stepAt = now();
     while (queue.length > 0) {
       if (signal.aborted) return null;
@@ -818,7 +889,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       // A message several queries find is one hit carrying every key, each by the query's kind
       // (form / who / author / range): clusterHits ranks by the topic (form) keys first.
       const key = queryKey(query);
-      if (!query.offset) totals.set(key, page.total);
+      // Rarity is judged on the asked range: the broad page's total counts for nothing.
+      if (!query.offset && !query.broad) totals.set(key, page.total);
       for (const raw of page.hits) {
         if (!hits.has(raw.id)) hits.set(raw.id, hitFrom(raw));
         hits.get(raw.id).queries.add(key);
@@ -859,6 +931,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
       maxClusters: settings.maxClusters + settings.selfExtra,
       keepOldest: settings.keepOldest,
       rareForms: rareFormKeys(totals, settings.rareHits),
+      locator,
     });
     const normalizeOptions = { selfId, embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites };
     // The lines after a window's last one that continue its conversation; none when the follow is off,
@@ -887,7 +960,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
     const ready = fetched.filter(Boolean);
     const chosen = rankClusters(
       ready.map((entry) => entry.cluster),
-      { maxClusters: settings.maxClusters, keepOldest: settings.keepOldest, selfBonus: settings.selfBonus },
+      { maxClusters: settings.maxClusters, keepOldest: settings.keepOldest, selfBonus: settings.selfBonus, locator },
     );
     const windowOf = new Map(ready.map((entry) => [entry.cluster, entry.window]));
     stats.clusters = chosen.length;
@@ -906,6 +979,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
           self: marked?.self === true,
           overlapsChat: marked?.overlapsChat === true,
           kept: marked !== null && chosenSet.has(marked),
+          // A locator run: which share kept it (rankClusters marks the kept ones), none for one not kept.
+          ...(locator ? { share: marked !== null && chosenSet.has(marked) ? (marked.share ?? null) : null } : {}),
         };
       });
     }
@@ -982,6 +1057,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
             nameOf: memory.nameOf,
             answerChars: settings.answerChars,
             memoryTokens: settings.memoryTokens,
+            // The asker's date, when it only locates the event, reaches the summary as an estimate.
+            timeCue: locator ? { from: locator.from, to: locator.to } : null,
             now: now(),
             ...render,
           })

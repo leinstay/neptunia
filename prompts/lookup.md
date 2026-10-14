@@ -16,7 +16,10 @@ who: <name form>, <name form>, ...
 When the question is about a person named in it who is not obviously someone in the transcript. The forms of that name: as written, the likely username spelling, transliterations in both scripts, so the person can be found by nickname, username or tag.
 
 when: <from> .. <to>
-When the question points at a time: a date, a holiday, "last winter", "yesterday". YYYY-MM-DD or YYYY-MM-DD HH:MM on each side of `..`; one date alone means that whole day. A date said without a year is the nearest past one, counted from today. A question only about a time ("what happened on <date>") gets `when` alone.
+When the question points at a time: a date, a holiday, a season, a relative phrase. YYYY-MM-DD or YYYY-MM-DD HH:MM on each side of `..`; one date alone means that whole day. A date said without a year is the nearest past one from today. An approximate cue gives an approximate range, not a single day. A question only about a time gets `when:` alone.
+
+when-role: scope | locator
+What the `when:` range is for. It only qualifies `when:`: alone or without a range it asks nothing. `scope` when the date itself is what the question asks about: the asker wants to know what happened at that time. `locator` when the date only points at an event the question names: the asker is using the time as a clue to find a specific thing. Without this line, a `when:` beside `server:` or `who:` forms is a locator; a `when:` on its own is a scope.
 
 recent: yes | no
 When the message refers to something from the last few days without naming a date or range: "we talked about this recently", "you said something the other day", "a couple of days ago". `yes` tells the engine to read its own record of the last days and rank the persona's own exchanges first. It does not replace `when:`. When a date or range can be named, write `when:` instead, or both when the date is approximate. Alone it asks nothing; it only qualifies a `server:` or `who:` line.
