@@ -8636,7 +8636,8 @@ test('skill call: not allowed, or a conversation not listed -- refused, one foll
   const first = run.llm.calls[0];
   assert.deepEqual(followUp[0], first[0], 'the same system prompt');
   for (let i = 0; i < first[1].content.length - 1; i += 1) assert.deepEqual(followUp[1].content[i], first[1].content[i], 'the cached parts are the same');
-  const block = `<result skill="message.send" status="refused">\n${fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })}\n</result>`;
+  const posted = fill(labels.skills.result.alreadyPosted, { text: 'μισό' });
+  const block = `<result skill="message.send" status="refused">\n${posted}\n${fill(labels.skills.result.refused, { reason: labels.skills.result.reasons['not-allowed'] })}\n</result>`;
   assert.ok(requestText(run.llm, 1).includes(`${block}\n\n<task>\n`), requestText(run.llm, 1));
   assert.ok(run.logs.some((entry) => entry.msg === 'skills: extra-call' && entry.followUp === true));
   assert.deepEqual(skillPhases(lines), ['proposed', 'failed']);
@@ -8673,6 +8674,7 @@ test('skill call: memory.read brings the summary back in one follow-up; nothing 
   assert.equal(run.llm.calls.length, 2);
   assert.ok(requestText(run.llm, 1).includes(`<result skill="memory.read" status="ok">\n${labels.skills.result.ok}\nname: Zoë\ncharacter: λατρεύει τα βουνά\n</result>`));
   assert.ok(!requestText(run.llm, 0).includes('<result'), 'the first request carries no result');
+  assert.ok(!requestText(run.llm, 1).includes(fill(labels.skills.result.alreadyPosted, { text: '' })), 'nothing posted first: no such line');
   assert.deepEqual(run.sends.map((send) => send.text), ['τα βουνά']);
   assert.deepEqual(skillPhases(lines), ['proposed', 'started', 'succeeded']);
 
@@ -8742,4 +8744,24 @@ test('skill call: a dry run only logs the call', async () => {
   assert.deepEqual(run.port.calls, []);
   assert.equal(run.llm.calls.length, 1);
   assert.ok(run.logs.some((entry) => entry.msg === 'dry-run: would call' && entry.skill === 'message.send'));
+});
+
+test('skill call: the follow-up lists what the first pass already posted, before the result', async () => {
+  const runOp = async () => ({ status: 'ok', code: 'ok', summary: 'name: Zoë', data: { text: 'name: Zoë' } });
+  const store = fakeStore({ userProfiles: { u7: { id: 'u7', names: ['Zoë'], aliases: [] } } });
+  const run = await callTurn({
+    answers: ['<react to="#2">\u{1F389}</react><msg>μια στιγμή</msg><msg>κοιτάζω</msg><call skill="memory.read" member="Zoë"/>', '<msg>βρήκα</msg>'],
+    allowed: ['memory.read'],
+    owners: ['u1'],
+    runOp,
+    store,
+  });
+  const said = (text) => fill(labels.skills.result.alreadyPosted, { text });
+  const reaction = fill(labels.transcript.reactions, { list: fill(labels.transcript.reactionMine, { emoji: '\u{1F389}', count: 1 }) });
+  const block = `<result skill="memory.read" status="ok">\n${said(reaction)}\n${said('μια στιγμή')}\n${said('κοιτάζω')}\n${labels.skills.result.ok}\nname: Zoë\n</result>`;
+  assert.ok(requestText(run.llm, 1).includes(`${block}\n\n<task>\n`), requestText(run.llm, 1));
+  const first = run.llm.calls[0][1].content;
+  const second = run.llm.calls[1][1].content;
+  for (let i = 0; i < first.length - 1; i += 1) assert.deepEqual(second[i], first[i], 'the cached parts are the same');
+  assert.deepEqual(run.sends.map((send) => send.text), ['μια στιγμή', 'κοιτάζω', 'βρήκα']);
 });

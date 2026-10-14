@@ -1611,14 +1611,16 @@ const RESULT_STATUSES = new Set(['ok', 'failed', 'refused', 'unknown']);
  * skill call (src/behavior/turn.js): `labels.skills.result[<status>]` with `{reason}` filled
  * by `labels.skills.result.reasons[<code>]` (else `.reasons.other`, else the code itself), then
  * for a read that worked its data -- `data.text`, or `data.rows` as skillsInventoryText renders
- * the catalogue -- cut to `maxChars` (clampWithEllipsis). '' for no result. Every word from the
+ * the catalogue -- cut to `maxChars` (clampWithEllipsis). Before all that, one
+ * `labels.skills.result.alreadyPosted` line (`{text}`) per item of `posted`: what the persona
+ * already posted this turn (none without that label). '' for no result. Every word from the
  * labels; the skill name and status are protocol tokens.
  * @param {{ skill: string, status: string, code?: string|null, data?: { text?: string, rows?: object[] }|null }} result
  * @param {object} labels
- * @param {{ maxChars?: number }} [options]
+ * @param {{ maxChars?: number, posted?: string[] }} [options]
  * @returns {string}
  */
-export function skillResultBlock(result, labels, { maxChars = 2000 } = {}) {
+export function skillResultBlock(result, labels, { maxChars = 2000, posted = [] } = {}) {
   if (!result || typeof result.skill !== 'string') return '';
   const status = RESULT_STATUSES.has(result.status) ? result.status : 'failed';
   const words = isPlainObject(labels?.skills?.result) ? labels.skills.result : {};
@@ -1631,7 +1633,10 @@ export function skillResultBlock(result, labels, { maxChars = 2000 } = {}) {
     data = Array.isArray(result.data.rows) ? skillsInventoryText(result.data.rows, labels) : String(result.data.text ?? '');
     if (Number.isFinite(maxChars) && maxChars > 0) data = clampWithEllipsis(data, maxChars);
   }
-  const body = [lead, data].filter(Boolean).join('\n') || code;
+  const said = typeof words.alreadyPosted === 'string' && words.alreadyPosted
+    ? (Array.isArray(posted) ? posted : []).filter((text) => typeof text === 'string' && text).map((text) => fill(words.alreadyPosted, { text }))
+    : [];
+  const body = [...said, [lead, data].filter(Boolean).join('\n') || code].join('\n');
   return `<result skill="${result.skill}" status="${status}">\n${body}\n</result>`;
 }
 

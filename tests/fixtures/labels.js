@@ -314,6 +314,7 @@ export const labels = {
     },
     proposedOff: 'proposed but off: {names}',
     result: {
+      alreadyPosted: 'already posted: {text}',
       ok: 'skill ok, data:',
       refused: 'skill refused: {reason}',
       failed: 'skill failed: {reason}',

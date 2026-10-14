@@ -1522,8 +1522,28 @@ export function createTurnRunner({
   }
 
   /**
+   * What the first pass of a turn posted (`acted`, act's answer), one item each, for the
+   * follow-up's `<result>`: each reaction as the transcript shows hers
+   * (`labels.transcript.reactions` over `reactionMine`), each GIF as `labels.transcript.gif`
+   * with its handle, each message as she wrote it, the picture as `labels.transcript.image`. An
+   * item whose label is missing is left out.
+   */
+  function firstPass(acted, labels) {
+    const t = labels?.transcript ?? {};
+    const items = [];
+    if (typeof t.reactions === 'string' && typeof t.reactionMine === 'string') {
+      for (const reaction of acted?.reacted ?? []) items.push(fill(t.reactions, { list: fill(t.reactionMine, { emoji: reaction.emoji, count: 1 }) }));
+    }
+    if (typeof t.gif === 'string') for (const id of acted?.gifs ?? []) items.push(fill(t.gif, { name: id }));
+    items.push(...(acted?.texts ?? []));
+    if (acted?.drew === true && typeof t.image === 'string') items.push(t.image);
+    return items;
+  }
+
+  /**
    * The one follow-up request after a skill call (runCall's `called`, whose `followUp` is true):
-   * the reply request as it was sent (`sentMessages`) with the `<result>` block
+   * the reply request as it was sent (`sentMessages`) with the `<result>` block -- led by what
+   * the first pass (`acted`, act's answer) already posted, one line each (firstPass) --
    * (src/behavior/prompt.js#skillResultBlock: labels read now, the data cut to
    * `skills.resultMaxChars`, read now) right before its `<task>` (withSkillResult), so the cached
    * parts are reused. The answer is parsed and shaped like the reply (`shapeOutput`); a `<call>`
@@ -1532,8 +1552,9 @@ export function createTurnRunner({
    * a failure (a rail, the provider) logs `skills: follow-up failed` and posts nothing. Resolves
    * act's answer, or null.
    */
-  async function followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, act: actOn }) {
-    const block = skillResultBlock(called, hot.prompts?.labels ?? {}, { maxChars: hot.config.skills?.resultMaxChars ?? 2000 });
+  async function followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted = null, act: actOn }) {
+    const labels = hot.prompts?.labels ?? {};
+    const block = skillResultBlock(called, labels, { maxChars: hot.config.skills?.resultMaxChars ?? 2000, posted: firstPass(acted, labels) });
     const messages = withSkillResult(sentMessages, block);
     let completion;
     try {
@@ -2387,7 +2408,8 @@ export function createTurnRunner({
    *   then `turn: set posted` (`pictures`, `messages`: the file messages sent). A file message that
    *   fails to send ends the set (`turn: send failed` with `set: true`).
    * Resolves `delivered`, `answered`, `messageIds` (the ids of the messages and the picture
-   * posted, in order), `texts` (the messages posted, as the persona wrote them), `drew` (the
+   * posted, in order), `texts` (the messages posted, as the persona wrote them), `gifs` (the
+   * handles of the GIFs posted), `drew` (the
    * picture was posted) and `drawFailed` when the picture failed; with a `set`, `setPictures`
    * (the pictures posted) and `setScene` (the scene of the first one posted).
    */
@@ -2450,8 +2472,9 @@ export function createTurnRunner({
     // Each posted message as the next fetchHistory will normalize it (its own id and time, the
     // persona's text as written).
     const ownPosted = [];
-    // The texts posted, as the persona wrote them.
+    // The texts posted, as the persona wrote them, and the handles of the GIFs posted.
     const postedTexts = [];
+    const postedGifs = [];
     let sendFailed = false;
     // The GIF picker starts first (its request is sent at once), then the first message's typing.
     const picking = gifPick
@@ -2479,6 +2502,7 @@ export function createTurnRunner({
         delivered = true;
         if (pulledId) answered.add(pulledId);
         notePost(sent.message, replyId, sent.op);
+        if (gif.entry?.id) postedGifs.push(gif.entry.id);
       }
       return sent?.message ?? null;
     };
@@ -2577,7 +2601,7 @@ export function createTurnRunner({
       });
     }
     const messageIds = ownPosted.map((line) => line.id).filter((id) => typeof id === 'string' && id);
-    const posted = { messageIds, texts: postedTexts, drew: false, posts, reacted };
+    const posted = { messageIds, texts: postedTexts, gifs: postedGifs, drew: false, posts, reacted };
     if (sendFailed) return { delivered, answered, ...posted };
 
     // The turn's own GIF right after the messages.
@@ -5418,7 +5442,7 @@ export function createTurnRunner({
       if (callPlan) {
         called = await runCall(callPlan, { channel, trigger, guildId, privateChat: isPrivate, selfName, draft });
         if (called.followUp) {
-          followed = await followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, act: (parsedAgain) => act({ ...actArgs, parsed: parsedAgain, set: null }) });
+          followed = await followUp({ called, channel, guildId, draft, sentMessages, shapeOutput, acted, act: (parsedAgain) => act({ ...actArgs, parsed: parsedAgain, set: null }) });
         }
       }
       noteSpokeSaw(channel, history, serverShown, pulled, notAnswered);

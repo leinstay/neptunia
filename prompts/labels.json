@@ -312,6 +312,7 @@
     },
     "proposedOff": "Might fit here but not switched on for you: {names}.",
     "result": {
+      "alreadyPosted": "You already posted this turn: {text}",
       "ok": "Your skill worked. What it gave back:",
       "refused": "Your skill did not run: {reason}.",
       "failed": "Your skill did not work: {reason}.",
