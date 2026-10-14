@@ -40,11 +40,11 @@
 | `rewatch-answer.md` | 是 | 角色外提示，用于二次查看回答：视觉或视频模型再次查看该项目并回答一个问题。类型无关（同时服务于视频和图片）。不接收角色卡 | `{{today}}` `{{question}}` `{{maxChars}}` |
 | `address.md` | 是 | 分类器：未标记的消息是否在对角色说话、在谈论角色还是两者都不是。输出为一个词：`yes`、`overheard` 或 `no` | `{{name}}` |
 | `overheard.md` | 否 | 任务：消息在谈论角色，而不是在对角色说话。触发类型为 `overheard` 且文件存在且非空时，代替模式提示使用；文件缺失或为空时回退到模式提示（降级） | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
-| `lookup.md` | 否 | 分类器：角色是否需要查询某些内容（`features.webLookup`、`features.recall`）。接收一段短对话记录和一个 `<candidate>` 块。输出为 `none`，或最多四行标注行：`web:` 网络查询，`server:` 在服务器消息中搜索的词形，`who:` 找人的名称词形，`when:` 日期范围。单行无标注仍被读取为网络查询 | `{{name}}` `{{today}}` |
+| `lookup.md` | 否 | 分类器：角色是否需要查询某些内容（`features.webLookup`、`features.recall`）。接收一段短对话记录和一个 `<candidate>` 块。输出为 `none`，或最多五行标注行：`web:` 网络查询，`server:` 在服务器消息中搜索的词形，`who:` 找人的名称词形，`when:` 日期范围，`recent:` `yes` 或 `no`。可选的 `skills:` 行指定与消息相关的技能或请求完整列表。单行无标注仍被读取为网络查询 | `{{name}}` `{{today}}` `{{skills}}` |
 | `recall-summary.md` | 否 | 角色外提示，用于 recall 摘要（`features.recall`）：读取服务器搜索找到的旧聊天片段并回答问题，可选择指出一段供角色逐字看到的原文。不接收角色卡 | `{{name}}` `{{answerChars}}` |
 | `room.md` | 否 | 分类器：这条消息是面向所有人还是面向特定人（`spontaneous.roomQuestionChance`）。接收一段短对话记录、作者的别名和一个 `<candidate>` 块。输出为一个词：`yes` 或 `no` | `{{name}}` |
 | `route-channel.md` | 否 | 分类器：回答这条消息是否需要角色看另一个频道（`features.channelRoute`）。接收一段短对话记录、一个 `<channels>` 列表和一个 `<candidate>` 块。输出为一行：列表中的一个编号、`<n> earlier`（该频道上次展示之前的页面）或 `none`。在 `context.pull.seenTtlMinutes` 内没有上次展示时，earlier 显示最新页面 | `{{name}}` |
-| `planner.md` | 否 | 回合规划器（`features.turnPlanner`）：回复前的一次辅助调用，取代频道路由、情节选择、搜索分类器和重看分类器。接收 `<channels>`、`<episodes>`、`<media>`、短对话记录（`web.search.contextMessages` 行）和 `<candidate>` 块。输出为四个标签块（`channel`、`episodes`、`rewatch`、`lookup`）。角色 `reasoner`，purpose `planner`；输出上限 `web.search.classifierMaxOutputTokens`。不接收角色卡 | `{{name}}` `{{today}}` |
+| `planner.md` | 否 | 回合规划器（`features.turnPlanner`）：回复前的一次辅助调用，取代频道路由、情节选择、搜索分类器和重看分类器。接收 `<channels>`、`<episodes>`、`<media>`、短对话记录（`web.search.contextMessages` 行）和 `<candidate>` 块。输出为四个标签块（`channel`、`episodes`、`rewatch`、`lookup`）加上可选的 `skills` 行。角色 `reasoner`，purpose `planner`；输出上限 `web.search.classifierMaxOutputTokens`。不接收角色卡 | `{{name}}` `{{today}}` `{{skills}}` |
 | `elsewhere.md` | 否 | 任务：角色读了一个无法发言的频道，可以在主频道评论（`features.elsewhere`）。用作 noticed 回合的任务文本。`<skip/>` 是正常结果 | `{{name}}` `{{channel}}` `{{destination}}` |
 | `read-link.md` | 否 | 角色外提示，用于链接阅读器（`features.webLookup`，`web.links.enabled`）：将获取的页面浓缩为一个段落。接收页面标题和正文。不接收角色卡 | `{{today}}` `{{maxChars}}` |
 | `search-summary.md` | 否 | 角色外提示，用于搜索浓缩器（`features.webLookup`，`web.search.enabled`）：将编号的搜索结果浓缩为带内联来源的笔记。不接收角色卡 | `{{today}}` `{{query}}` `{{maxChars}}` |
@@ -85,6 +85,7 @@
 | `<senses>` | 角色此刻能感知和不能感知的内容，根据实时配置生成：哪些图片由角色自己看到，哪些通过辅助描述获得，对什么视而不见、听而不闻。使角色不会假装看过视频，并能用自己的语气开玩笑 |
 | `<emoji>` | 角色可以使用的自定义表情（`features.customEmoji`）：最多 `context.customEmoji.max` 条，按成员使用率排名。每条包含 `:name:` 和辅助已缓存的说明。当 `labels.emoji.seenInChat` 存在时，出现在对话记录、拉取频道或相邻频道中但不在排名列表内的已描述自定义表情会列在该小标题下；对话记录行中所有自定义表情保留为裸 `:name:`。没有该标签（或没有该块）时，行内标签 `transcript.emojiDescribed` 照旧使用 |
 | `<gifs>` | 角色可以发送的 GIF（`features.gifs`）：最多 `gifs.max`（默认 40）条，按近期加权使用排名。每条包含 handle（`g1`、`g2`、…）和描述器缓存的三个字段（如有）：反应标签（受 `gifs.reactionChars` 限制，默认 40）、可见动作（受 `gifs.actionChars` 限制，默认 70）和屏幕文字。有字段的条目通过 `labels.gifs.entryFields`（`{id}`、`{reaction}`、`{action}`、`{text}`；代码去除空字段及其分隔符）渲染；无字段的条目使用 `labels.gifs.entry`（`{id}`、`{text}`），说明在词边界截断。每条还记录角色自己的发送时间和次数（`ownLast`、`ownUses`）；在 `gifs.ownMarkHours`（默认 24；`0` = 关）内发送的条目带有 `gifs.ownMark` 和简短的相对时间 |
+| `<skills_protocol>` | 来自 `labels.skills.protocol` 的静态文本：角色拥有技能，应请求显示完整列表，引擎检查访问权限。`features.skills` 和 `features.skillsDiscovery` 均开启时显示。在稳定部分，`<senses>` 之后 |
 | `<about_chat>` | 人们在这里如何交谈，如何发起和插入对话，内部梗，人们教给角色的东西 |
 | `<server>` | 当前频道的完整信息（Discord 分类和话题、用途、人们写什么、氛围、活跃度、最后一条消息、最活跃作者；以 `labels.server.currentMark` 标记），加上仅限本轮向 `<other_channels>` 提供了消息的相邻频道；不包含其他频道 |
 | `<lore>` | 关键词出现在近期消息中的服务器世界书条目（加上标记为 always 的条目）：事件、常驻角色、长期故事。如同世界书：可存在数百个，仅显示相关的少数 |
@@ -95,6 +96,7 @@
 | `<other_channels>` | 每个相邻频道最多 `context.neighborMessages` 条消息，不超过 `context.neighborMaxAgeMinutes` 的时效。`features.mediaDescriptions` 开启时，相邻频道行中的图片在描述器缓存已有说明时携带说明；不为相邻频道发起新的描述请求。`<channel_view>` 中已显示其块的频道不再出现在 `<other_channels>` 中；如果预算丢弃了拉取的块，该频道重新作为普通相邻频道出现 |
 | `<channel_view>` | 拉入本轮的另一个频道（`features.channelPull`）。每个拉取的频道一个条目：标题行（`labels.pull.header`）、适用时的只读标记（`labels.server.readOnly`）、窗口被截断时的"更早的未显示"行、"图片未查看"计数、角色的早期呼叫（带已回复/未回复/已跳过标记），然后是窗口行。行使用与 `<chat>` 相同的对话记录格式，但编号在对话后继续（对话为 `#1`..`#N`，拉取块从 `#N+1` 开始），因此每个 `#n` 在块间唯一。图片仅以说明或盲标签形式出现，不作为附加图片。没有 `labels.pull.header` 时块为空 |
 | `<lookup>` | 角色本轮查询的内容。网络搜索（`features.webLookup`）携带 `labels.lookup.webHeader`、浓缩的答案、`labels.lookup.sources`，未找到时为 `labels.lookup.none`。服务器搜索（`features.recall`）携带 `labels.lookup.serverHeader`、摘要笔记，摘要指出一段时还有逐字原文。两者都运行时 `labels.lookup.bothNote` 位于两部分之间。`labels.lookup.stretch` 行引入一段逐字原文（`{date}` `{channel}`）。仅在搜索分类器触发且至少一项搜索完成后出现 |
+| `<skills>` | 完整技能列表，每个技能一行 `labels.skills.line`。仅在清单请求时显示（分类器或规划器回答 `skills: inventory`）。在尾部，`<chat>` 之前。开关 `features.skillsDiscovery`（默认开；`features.skills` 关闭时关闭） |
 | `<chat>` | 当前频道最新的 `context.channelMessages` 条消息。发出已满 `context.ageAfterMinutes`（默认 60）分钟的行还会显示距今多久（`transcript.timeAged`）。`context.fetchReplyParents` 开启时，触发消息和窗口末尾 `context.replyParentsFor` 条回复早于窗口之消息的行的父消息会被拉取并作为普通对话记录行放在窗口之前；触发消息的父消息还可拉取其自身的父消息。每轮最多 `context.replyParentsMax` 条。间隔标记和日期标题覆盖时间跳跃；回复行通过 `transcript.replyTo` 引用父消息；父消息的媒体与其他行同样处理，缓存的描述免费提供。已删除或不可访问的父消息被跳过并记录为 `collect: parent missing` |
 | `<tempo>` | 10 分钟 / 1 小时 / 1 天的消息计数，不同人数，沉默时长，一个判定（活跃 / 缓慢 / 沉寂） |
 | `<world>` | 角色的虚拟世界（`prompts/world.md`，`{{name}}` 已填充）。仅在日记帖子（`mode === 'diary'`）且 `diary.world === true` 时出现。预算压力下整体丢弃。无文件或开关关闭则不添加 |
@@ -316,6 +318,9 @@ task.part                                {index} {total} {part} {others}: this t
 task.queued                              {others}: the trigger author has other calls waiting, listed as numbered items joined by `; `. Shown only when there is no `task.part` for this turn. Without this key the waiting calls are not named and the seen-in-history drop rule applies to them
 task.queuedOthers                        {others}: other members have calls waiting in this channel, listed as `<n>. <author>: <text>` items joined by `; `. Without this key those calls are not named
 task.added                               {added}: later messages from the author were folded into this call while it waited, joined by `; `. Without this key the folded messages are not named
+skills.protocol                          static text for the `<skills_protocol>` block: the persona has skills, the list is shown on request, the engine checks access
+skills.line                              {name} {title} {whenToUse} {access}: one skill in the `<skills>` list. {access} is one of skills.access.*
+skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denied    short access phrase for the five states: allowed; allowed through the reply; not switched on; safe mode; not for this person
 ```
 
 ## 输出
@@ -642,6 +647,8 @@ task.added                               {added}: later messages from the author
 - `server: <词形>, <词形>, ...`：消息问到了这个服务器上说过或做过的不在对话记录中的事。每个词形是一个词或短语的变体形式。仅在 `features.recall` 开启时触发。
 - `who: <名称词形>, <名称词形>, ...`：问题涉及对话记录中不明显的某个人。词形帮助通过昵称、用户名或标签找到此人。
 - `when: <from> .. <to>`：问题指向一个时间（`YYYY-MM-DD` 或 `YYYY-MM-DD HH:MM`，`..` 两侧各一个；单个日期表示全天）。
+
+可选的 `skills:` 行可与 `none` 或上述其他行一起出现（`features.skillsDiscovery`）。`skills: inventory` 请求完整技能列表；`skills: <name>, <name>`（最多 4 个）指定与消息相关的技能。代码通过 `parseSkillsAnswer` 读取。回答为 `inventory` 时，带有完整列表的 `<skills>` 块被添加到回复请求中。否则，指定的技能被记录为建议（日志回合记录中的 `skillsProposed`）。日志记录为 `skills: inventory` 或 `skills: proposed`（count）。
 
 单行无标注（旧格式）仍被读取为网络查询。空白或空的回答为失败调用（`reason: empty`），不是安静的 `none`。
 

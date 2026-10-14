@@ -59,6 +59,7 @@
 | `adminCommands` | `true` | 所有者斜杠命令；设为 `false` 时注销命令 |
 | `memberCommands` | `true` | `/nep pings` 命令，所有成员可用；`false` 仅限所有者 |
 | `skills` | `true` | 角色的技能网关。`false` 拒绝所有技能调用，也会停止继承的回复效果（消息、反应、绘图）：完全停止。缺失的键视为开启 |
+| `skillsDiscovery` | `true` | 搜索分类器和回合规划器可以指定与消息相关的技能，或在清单问题时请求完整列表。`<skills_protocol>` 块位于稳定部分，清单请求时添加包含完整列表的 `<skills>` 块。`features.skills` 关闭时关闭。缺失的键视为开启 |
 
 ## `skills`
 

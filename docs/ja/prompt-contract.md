@@ -40,11 +40,11 @@
 | `rewatch-answer.md` | はい | セカンドルックのアウトオブキャラクタープロンプト: ビジョンまたは動画モデルがアイテムをもう一度見て、質問の言語で 1 つの質問に回答。種類を問わず（動画と画像の両方に対応）。キャラクターカードなし | `{{today}}` `{{question}}` `{{maxChars}}` |
 | `address.md` | はい | 分類器: タグなしメッセージがペルソナ宛か、ペルソナについてか、どちらでもないか。出力は 1 語: `yes`、`overheard` または `no` | `{{name}}` |
 | `overheard.md` | いいえ | タスク: メッセージがペルソナについて話しているが、ペルソナに話しかけてはいない。トリガー種別が `overheard` でファイルが存在し空でない場合、モードプロンプトの代わりに使用。ファイルが存在しないか空の場合はモードプロンプトにフォールバック（劣化） | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
-| `lookup.md` | いいえ | 分類器: ペルソナが何かを調べる必要があるか（`features.webLookup`、`features.recall`）。短いトランスクリプトと `<candidate>` ブロックを受け取る。出力は `none`、または最大 4 行のラベル付き行: `web:` ウェブクエリ、`server:` サーバーのメッセージを検索するワードフォーム、`who:` 人物を見つけるネームフォーム、`when:` 日付範囲。ラベルなしの 1 行（旧フォーマット）はウェブクエリとして読み取られる | `{{name}}` `{{today}}` |
+| `lookup.md` | いいえ | 分類器: ペルソナが何かを調べる必要があるか（`features.webLookup`、`features.recall`）。短いトランスクリプトと `<candidate>` ブロックを受け取る。出力は `none`、または最大 5 行のラベル付き行: `web:` ウェブクエリ、`server:` サーバーのメッセージを検索するワードフォーム、`who:` 人物を見つけるネームフォーム、`when:` 日付範囲、`recent:` `yes` または `no`。任意の `skills:` 行でメッセージに関連するスキルを指定、またはフルリストを要求。ラベルなしの 1 行（旧フォーマット）はウェブクエリとして読み取られる | `{{name}}` `{{today}}` `{{skills}}` |
 | `recall-summary.md` | いいえ | リコールサマリーのアウトオブキャラクタープロンプト（`features.recall`）: サーバー検索で見つかった古いチャットのストレッチを読み、質問に回答。ペルソナに原文で届けるストレッチを任意に指定。キャラクターカードなし | `{{name}}` `{{answerChars}}` |
 | `room.md` | いいえ | 分類器: メッセージが全員に向けたものか、特定の一人に向けたものか（`spontaneous.roomQuestionChance`）。短いトランスクリプト、発話者のエイリアス、`<candidate>` ブロックを受け取る。出力は 1 語: `yes` または `no` | `{{name}}` |
 | `route-channel.md` | いいえ | 分類器: このメッセージに応答するにはペルソナが別のチャンネルを見る必要があるか（`features.channelRoute`）。短いトランスクリプト、`<channels>` リスト、`<candidate>` ブロックを受け取る。出力は 1 行: リストの番号、`<n> earlier`（そのチャンネルの前回表示より前のページ）、または `none`。`context.pull.seenTtlMinutes` 内に前回表示がない場合、earlier は最新ページを表示する | `{{name}}` |
-| `planner.md` | いいえ | ターンプランナー（`features.turnPlanner`）: リプライ前の 1 回のヘルパー呼び出しでチャンネルルーター、エピソード選択、検索分類器、再視聴分類器を置き換える。`<channels>`、`<episodes>`、`<media>`、短いトランスクリプト（`web.search.contextMessages` 行）、`<candidate>` ブロックを受け取る。出力は 4 つのラベル付きブロック（`channel`、`episodes`、`rewatch`、`lookup`）。ロール `reasoner`、purpose `planner`。出力上限 `web.search.classifierMaxOutputTokens`。カードなし | `{{name}}` `{{today}}` |
+| `planner.md` | いいえ | ターンプランナー（`features.turnPlanner`）: リプライ前の 1 回のヘルパー呼び出しでチャンネルルーター、エピソード選択、検索分類器、再視聴分類器を置き換える。`<channels>`、`<episodes>`、`<media>`、短いトランスクリプト（`web.search.contextMessages` 行）、`<candidate>` ブロックを受け取る。出力は 4 つのラベル付きブロック（`channel`、`episodes`、`rewatch`、`lookup`）に加え、任意の `skills` 行。ロール `reasoner`、purpose `planner`。出力上限 `web.search.classifierMaxOutputTokens`。カードなし | `{{name}}` `{{today}}` `{{skills}}` |
 | `elsewhere.md` | いいえ | タスク: ペルソナが書き込めないチャンネルを読み、メインチャンネルでコメントする可能性がある（`features.elsewhere`）。注目ターンのタスクテキストとして使用。`<skip/>` が通常の結果 | `{{name}}` `{{channel}}` `{{destination}}` |
 | `read-link.md` | いいえ | リンク読み取りのアウトオブキャラクタープロンプト（`features.webLookup`、`web.links.enabled`）: フェッチしたページを 1 段落に要約する。ページのタイトルと本文を受け取る。キャラクターカードなし | `{{today}}` `{{maxChars}}` |
 | `search-summary.md` | いいえ | 検索要約のアウトオブキャラクタープロンプト（`features.webLookup`、`web.search.enabled`）: 番号付き検索結果をインラインソース付きの 1 つのノートに要約する。キャラクターカードなし | `{{today}}` `{{query}}` `{{maxChars}}` |
@@ -86,6 +86,7 @@
 | `<about_chat>` | 人々がここでどう話すか、会話の始め方と割り込み方、内輪ネタ、人々がペルソナに教えたこと |
 | `<emoji>` | ペルソナが使えるカスタム絵文字（`features.customEmoji`）: 最大 `context.customEmoji.max` エントリ、メンバーの使用頻度でランク付け。各エントリは `:name:` とキャッシュ済みのヘルパーキャプション（ある場合）。`labels.emoji.seenInChat` がある場合、トランスクリプト・プルされたチャンネル・隣接チャンネルに出現したがトップリストに含まれない説明付きカスタム絵文字がそのサブ見出しの下に表示される。トランスクリプト行ではすべてのカスタム絵文字が素の `:name:` のまま残る。ラベルがない場合（またはブロックがない場合）はインラインの `transcript.emojiDescribed` タグがそのまま使用される |
 | `<gifs>` | ペルソナが投稿できる GIF（`features.gifs`）: 最大 `gifs.max`（デフォルト 40）エントリ、使用頻度と新しさでランク付け。各エントリはハンドル（`g1`、`g2`、...）とキャッシュ済みの説明 3 フィールド（ある場合）: リアクションラベル（`gifs.reactionChars` で制限、デフォルト 40）、可視アクション（`gifs.actionChars` で制限、デフォルト 70）、画面上のテキスト。フィールド付きエントリは `labels.gifs.entryFields`（`{id}`、`{reaction}`、`{action}`、`{text}`; コードが空フィールドとそのセパレータを除去）で表示; フィールドなしのエントリは `labels.gifs.entry`（`{id}`、`{text}`）でキャプションを単語境界でカット。各エントリはペルソナ自身の投稿時刻と回数も記録し（`ownLast`、`ownUses`）、`gifs.ownMarkHours`（デフォルト 24、`0` = オフ）以内に投稿されたものには `gifs.ownMark` が短い相対時間とともに付く |
+| `<skills_protocol>` | `labels.skills.protocol` の静的テキスト: ペルソナにはスキルがあり、リクエストに応じてフルリストが表示され、アクセスはエンジンが確認する。`features.skills` と `features.skillsDiscovery` の両方がオンの場合に表示。安定部分、`<senses>` の後 |
 | `<server>` | 現在のチャンネルの詳細（Discord カテゴリとトピック、目的、投稿内容、トーン、アクティビティ、最新メッセージ、トップライター。`labels.server.currentMark` でマーク）に加え、このターンで `<other_channels>` に供給した隣接チャンネルのみ。他のチャンネルは含まない |
 | `<lore>` | 直近のメッセージにキーが出現するサーバーのロアブックエントリ（常時表示マーク付きのエントリも含む）: イベント、繰り返し登場するキャラクター、長期にわたるストーリー。ロアブックのように数百エントリが存在できるが、該当する少数だけが表示される |
 | `<self_facts>` | ペルソナが自身について主張した内容 |
@@ -95,6 +96,7 @@
 | `<other_channels>` | 隣接チャンネルごとに最大 `context.neighborMessages` 件のメッセージ。`context.neighborMaxAgeMinutes` より古いものは含まない。`features.mediaDescriptions` がオンの場合、隣接チャンネルの行内の画像はキャッシュ済みキャプションを持つ場合にそれを付加。隣接チャンネルに対して新規の説明リクエストは行われない。`<channel_view>` にブロックが表示されているチャンネルは `<other_channels>` から除外。バジェットがプルされたブロックを落とした場合、そのチャンネルは通常の隣接チャンネルとしてここに再表示 |
 | `<channel_view>` | このターンにプルされた別のチャンネル（`features.channelPull`）。プルされたチャンネルごとにヘッダー行（`labels.pull.header`）、該当時の読み取り専用マーク（`labels.server.readOnly`）、ウィンドウがカットされた場合の「古いものは非表示」行、「画像は未確認」カウント、ペルソナへの過去の呼びかけ（応答済み/未応答/スキップマーク付き）、ウィンドウの行。行は `<chat>` と同じトランスクリプト形式だが、チャットの後に番号が続く（チャットは `#1`..`#N`、プルブロックは `#N+1` から）ため、すべての `#n` がブロック間で一意。画像はキャプションまたはブラインドタグのみ、添付画像としては含まない。`labels.pull.header` がない場合ブロックは空 |
 | `<lookup>` | ペルソナがこのターンで調べた内容。ウェブ検索（`features.webLookup`）は `labels.lookup.webHeader`、要約された回答、`labels.lookup.sources`。何も見つからなかった場合は `labels.lookup.none`。サーバー検索（`features.recall`）は `labels.lookup.serverHeader`、サマリーノート。サマリーがストレッチを指定した場合はそのストレッチの原文行。両方実行された場合は `labels.lookup.bothNote` がその間に配置。`labels.lookup.stretch` 行が原文ストレッチを導入（`{date}` `{channel}`）。検索分類器が発火し少なくとも 1 つの検索が完了した場合にのみ表示 |
+| `<skills>` | フルスキルリスト、スキルごとに `labels.skills.line` 1 行。インベントリリクエスト時のみ表示（分類器またはプランナーが `skills: inventory` と回答した場合）。テール部分、`<chat>` の前。スイッチ `features.skillsDiscovery`（デフォルトオン。`features.skills` オフ時はオフ） |
 | `<chat>` | 現在のチャンネルの最新 `context.channelMessages` 件のメッセージ。投稿から `context.ageAfterMinutes`（デフォルト 60）分以上たった行には、どれだけ前の投稿かも表示される（`transcript.timeAged`）。`context.fetchReplyParents` がオンの場合、トリガーメッセージとウィンドウ末尾の `context.replyParentsFor` 件の返信行（ウィンドウより古いメッセージへの返信）の親が取得され、通常のトランスクリプト行としてウィンドウの前に配置される。トリガーの親はさらにその親も取得可能。ターンあたり最大 `context.replyParentsMax` 件。ギャップマーカーと日付ヘッダーが時間の飛びをカバーし、リプライ行は `transcript.replyTo` で親を引用する。親のメディアは他の行と同様に扱われ、キャッシュ済みの説明はコストなしで提供される。削除済みまたはアクセス不能な親はスキップされ `collect: parent missing` としてログ出力 |
 | `<tempo>` | 10 分 / 1 時間 / 1 日のカウント、参加人数、沈黙時間、判定（live / slow / dead） |
 | `<world>` | ペルソナの仮想世界（`prompts/world.md`、`{{name}}` 補完済み）。日記投稿（`mode === 'diary'`）かつ `diary.world === true` の場合のみ。予算圧迫で丸ごと削除。ファイルなしまたはスイッチオフは何も追加しない |
@@ -327,6 +329,9 @@ task.part                                {index} {total} {part} {others}: this t
 task.queued                              {others}: the trigger author has other calls waiting, listed as numbered items joined by `; `. Shown only when there is no `task.part` for this turn. Without this key the waiting calls are not named and the seen-in-history drop rule applies to them
 task.queuedOthers                        {others}: other members have calls waiting in this channel, listed as `<n>. <author>: <text>` items joined by `; `. Without this key those calls are not named
 task.added                               {added}: later messages from the author were folded into this call while it waited, joined by `; `. Without this key the folded messages are not named
+skills.protocol                          static text for the `<skills_protocol>` block: the persona has skills, the list is shown on request, the engine checks access
+skills.line                              {name} {title} {whenToUse} {access}: one skill in the `<skills>` list. {access} is one of skills.access.*
+skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denied    short access phrase for the five states: allowed; allowed through the reply; not switched on; safe mode; not for this person
 ```
 
 ## 出力
@@ -539,6 +544,8 @@ task.added                               {added}: later messages from the author
 - `server: <フォーム>, <フォーム>, ...`: メッセージがこのサーバーで言われたことや行われたことについてで、トランスクリプトにない場合。各フォームは人々が実際に入力するような 1 語または短いフレーズで、活用形を列挙。`features.recall` がオンの場合のみ発火。
 - `who: <名前フォーム>, <名前フォーム>, ...`: 質問がトランスクリプトに明示的にいない人物についての場合。ニックネーム、ユーザー名、タグで見つけるためのフォーム。
 - `when: <from> .. <to>`: 質問が時間を指していう場合（`..` の各側に `YYYY-MM-DD` または `YYYY-MM-DD HH:MM`。日付単体はその日全体）。
+
+任意の `skills:` 行が `none` や他の行と一緒に表示される場合があります（`features.skillsDiscovery`）。`skills: inventory` はフルスキルリストを要求し、`skills: <name>, <name>`（最大 4 つ）はメッセージに関連するスキルを指定します。コードは `parseSkillsAnswer` で読み取ります。`inventory` の場合、フルリストを含む `<skills>` ブロックがリプライリクエストに追加されます。それ以外の場合、指定されたスキルは提案として記録されます（ジャーナルのターンレコードの `skillsProposed`）。`skills: inventory` または `skills: proposed`（count）としてログ。
 
 ラベルなしの 1 行（旧フォーマット）はウェブクエリとして読み取られます。空白の回答は失敗した呼び出し（`reason: empty`）であり、`none` ではありません。
 
