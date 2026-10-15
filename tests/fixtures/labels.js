@@ -167,6 +167,8 @@ export const labels = {
     episodeNoQuote: '{date}: {what} ({feeling})',
     before: '(was: {text})',
     conflict: '{a} / {b} (conflicting, {dateA} and {dateB})',
+    avatar: 'avatar: {text}',
+    avatarDefault: 'avatar: the default one',
   },
   lore: {
     entry: '{title}: {text}',

@@ -168,7 +168,9 @@
     "episode": "{date}: {what} — \"{quote}\" — felt: {feeling}",
     "episodeNoQuote": "{date}: {what} — felt: {feeling}",
     "before": "(was: {text})",
-    "conflict": "{a} / {b} (conflicting, {dateA} and {dateB})"
+    "conflict": "{a} / {b} (conflicting, {dateA} and {dateB})",
+    "avatar": "Avatar: {text}",
+    "avatarDefault": "Avatar: the default Discord avatar"
   },
   "lore": {
     "entry": "{title} — {text}"

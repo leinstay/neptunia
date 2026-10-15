@@ -72,6 +72,7 @@ Every key in `config.json` with its default, grouped by section.
 | `missedAnswers` | `true` | Track messages that may have been left unanswered: a failed address classifier, a replaced deferred follow-up, a turn that errored, was dropped or ended not-now. Each becomes a candidate in a registry, journaled as kind `answer`. A missing key counts as on. See [`missed`](#missed) |
 | `missedRecovery` | `false` | When the sweep finds owed candidates, start one reply turn to pick them up (trigger kind `missed`, `labels.task.missed`). Off (the default), the sweep classifies and journals only (shadow mode). Must be exactly `true` to enable; a missing key counts as off |
 | `around` | `true` | The persona sees, at the corner of her eye, what a member sees in Discord's sidebar right now. Each person the request is about gets an entry in `<people_now>` (in the tail of the request): a heading with their handle and name, then one labelled line each for their Discord status (online, idle, do not disturb, offline), whether they sit in a voice channel (which one, for how long when the bot saw them join, muted, deafened, streaming, camera, each yes or no) and their current activity (playing, streaming, listening to (a Spotify track with its artist), watching, or none). People sitting in a voice channel who have no profile in the request get an entry of their own. When the data cannot tell, the line says unavailable or stale instead of no. Custom statuses are never shown. A live snapshot in process memory, never stored, logged or backed up. Statuses and activities need `discord.intents.presences`; without it they read unavailable and only voice channels show. Not shown in a private chat or a diary post. Off: the entries keep only what memory holds (the attitude, its recent moves, the message count). A missing key counts as on. See `context.around.maxTokens` and [`discord`](#discord) |
+| `avatars` | `false` | The persona knows what each member's avatar looks like. Every member with a profile (never a bot) gets their current avatar (the server avatar when set, else the account one) described once by the vision model in one short line, kept in their profile and shown in it; a new avatar replaces the old description, no history is kept. Discord's default avatar is noted without a request. A background queue, one request every `avatars.intervalMs` at most and `avatars.maxPerDay` a day; it never delays a reply. Needs `prompts/avatar.md`. Changed avatars are seen at once with `discord.intents.members`, else at the member's next message or the daily scan. Must be exactly `true` to enable; a missing key counts as off. See [`avatars`](#avatars) |
 
 ## `skills`
 
@@ -88,7 +89,7 @@ Every key in `config.json` with its default, grouped by section.
 | Key | Default | Meaning |
 |---|---|---|
 | `intents.presences` | `false` | Request the privileged Presence intent, so the persona can see members' status and activities (`<people_now>`). Read once at startup: intents are fixed when the bot logs in, so a change needs a restart. The intent must also be switched on for the bot in the Discord Developer Portal; requesting a privileged intent that is not enabled there makes the login fail and the bot stays down. Off: statuses and activities are unknown and not shown |
-| `intents.members` | `false` | Request the privileged Server Members intent (member events and a fuller member cache). Same rules as `intents.presences`: read once at startup, needs the Developer Portal switch first, a restart to change. Nothing depends on it yet |
+| `intents.members` | `false` | Request the privileged Server Members intent (member events and a fuller member cache). Same rules as `intents.presences`: read once at startup, needs the Developer Portal switch first, a restart to change. `features.avatars` uses its member and user updates to see a changed avatar at once; without it a change is seen at the member's next message or the daily scan |
 
 The voice-state intent (the voice channels in `<people_now>`) is not privileged and is always requested.
 
@@ -114,7 +115,7 @@ Eight model roles. Each is set independently under `roles.<name>` with its own d
 | `analyzer` | `"openai/gpt-6.1-sol"` | Picks one of a few given options: address, room, merge, route-channel, participation-pick, rewatch, split, gif-pick |
 | `reasoner` | `"openai/gpt-6.1-sol"` | Plans a search and turns sources into notes: lookup, planner, recall-summary, search-summary, read-link, diary-plan |
 | `extractor` | `"openai/gpt-6.1-sol"` | Turns conversations into stored memory: analyzer batches, portraits, channel and server notes, warmup, backfill |
-| `vision` | `"google/gemini-3.8-flash"` | Describes a picture (describe, relook) |
+| `vision` | `"google/gemini-3.8-flash"` | Describes a picture (describe, relook, avatar) |
 | `video` | `"google/gemini-3.8-flash"` | Watches a video and looks at it again |
 | `embedding` | `"openai/text-embedding-3-large"` | Turns text into vectors for search by meaning. `embed.dimensions` (default 1024) sets the width. Probed by `/nep status` with a one-input embedding request; without an embedding client the line says it was not checked |
 | `drawing` | `"openai/gpt-image-2.5-flare"` | Generates the persona's pictures through OpenRouter's Images API. Only `openai/*` and `google/*` families are supported |
@@ -395,6 +396,16 @@ Settings for the GIF picker (`features.gifPicker`). When the persona's first out
 | `maxChars` | `160` | First message ceiling: the picker runs only when the persona's first outgoing message is at most this many characters |
 | `contextMessages` | `4` | Recent chat lines sent to the classifier alongside the reply and the library |
 | `maxOutputTokens` | `60` | Max output tokens for the picker classifier |
+
+## `avatars`
+
+Settings for the avatar descriptions (`features.avatars`). The queue scans every member with a profile when the bot starts (or the switch is turned on) and once a day, and queues those whose avatar changed since it was described. Each description is one request on the `vision` role (purpose `avatar`, prompt `prompts/avatar.md`, output cap `media.maxOutputTokens`) and counts against `llm.maxRequestsPerDay`. A description that failed is tried again at the next scan.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `intervalMs` | `20000` | Milliseconds between two avatar requests; one request at a time |
+| `maxPerDay` | `60` | Avatar requests per UTC day; the rest wait for the next day. Counted in `data/state.json`. A missing or invalid value refuses every request |
+| `descriptionChars` | `200` | Characters kept of a description (`{{maxChars}}` in `prompts/avatar.md`), cut at a word boundary |
 
 ## `media`
 

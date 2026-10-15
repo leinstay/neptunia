@@ -42,6 +42,8 @@ import { createEmojiBackfill } from './memory/emoji-backfill.js';
 import { createGifBackfill } from './memory/gif-backfill.js';
 import { createGifRecache } from './memory/gif-recache.js';
 import { createDescriber } from './memory/describe.js';
+import { createAvatarQueue } from './memory/avatar-queue.js';
+import { memberView } from './memory/avatars.js';
 import { startYoutubeCheck } from './memory/youtube-check.js';
 import { createImageFetcher } from './discord/fetch-image.js';
 import { createVideoFetcher } from './discord/fetch-video.js';
@@ -245,6 +247,24 @@ const imageFetcher = createImageFetcher();
 const videoFetcher = createVideoFetcher();
 // state: the daily video counter lives next to the LLM client's daily counter.
 const describer = createDescriber({ hot, store, llm, imageFetcher, videoFetcher, state: store.state, youtubeApiKey });
+// What each profiled member's avatar looks like (features.avatars, off by default): a throttled
+// background queue on the vision role, its daily counter next to the LLM client's. Members are
+// read from the cache first, else one REST fetch each; a member who left reads as gone.
+const avatars = createAvatarQueue({
+  hot,
+  store,
+  llm,
+  imageFetcher,
+  state: store.state,
+  getGuildId,
+  selfId: () => client.user?.id ?? null,
+  paused: () => store.state.data.paused === true,
+  resolveMember: async (guildId, userId) => {
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return null;
+    return memberView(await guild.members.fetch(userId).catch(() => null));
+  },
+});
 // The web lookup (features.webLookup, off by default): link reader + search on a question.
 // state: the daily web counter lives next to the LLM client's daily counter.
 const lookup = createLookup({
@@ -604,6 +624,9 @@ client.once(Events.ClientReady, async () => {
   // The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner);
   // the same tick runs its catch-up pass when the switches turn on and every embed.catchUpEveryMinutes.
   every(30_000, () => embedQueue.tick(instance.guildId), 'embed.tick');
+  // The avatar queue: its first tick scans the profiled members, then once a day; between
+  // requests it waits avatars.intervalMs (read at each tick). A no-op with the switch off.
+  every(5_000, () => avatars.tick(), 'avatars.tick');
   // The speed samples written to data/metrics.json (at most once a minute; nothing new, no write).
   every(60_000, () => metrics.save(), 'metrics.save');
   scheduleArchiveDrain();
@@ -736,6 +759,19 @@ client.on(Events.VoiceStateUpdate, (_old, state) => {
 });
 client.on(Events.PresenceUpdate, (_old, presence) => {
   if (instance.guildId && presence?.guild?.id === instance.guildId) around.presenceUpdate(presence);
+});
+// A changed avatar of a profiled member is queued for a description (features.avatars): the member
+// and user updates need discord.intents.members; a member's own message works without it. The
+// offer is synchronous and never throws.
+client.on(Events.GuildMemberUpdate, (_old, member) => {
+  if (instance.guildId && member?.guild?.id === instance.guildId) avatars.offer(instance.guildId, memberView(member));
+});
+client.on(Events.UserUpdate, (_old, user) => {
+  const member = instance.guildId ? client.guilds.cache.get(instance.guildId)?.members?.cache?.get(user?.id) : null;
+  if (member) avatars.offer(instance.guildId, memberView(member));
+});
+client.on('messageCreate', (message) => {
+  if (instance.guildId && message?.guild?.id === instance.guildId && message.member) avatars.offer(instance.guildId, memberView(message.member));
 });
 client.on(Events.ShardDisconnect, () => around.markStale());
 client.on(Events.ShardReconnecting, () => around.markStale());

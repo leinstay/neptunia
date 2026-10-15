@@ -603,6 +603,42 @@ test('buildRequest: the cached interlocutor profile is byte-identical across pre
   assert.ok(fieldsOf(rowOf(attitude, 'Alice'))[F.moves].includes('move +7 on 2026-09-20: a new move'));
   assert.equal(fieldsOf(rowOf(counted, 'Alice'))[F.messages], '900');
   assert.notEqual(contentText(sixHours.messages[1].content), contentText(base.messages[1].content), 'six hours later the tail moved');
+
+  // The avatar line (features.avatars) sits in the cached profile and moves only with the avatar.
+  const fox = { hash: 'h1', text: 'an illustrated fox in a scarf', describedAt: '2026-10-01T10:00:00.000Z' };
+  const avatarConfig = fakeConfig({ memory: { interestStaleDays: 30, confirmAfter: 2 }, features: { avatars: true } });
+  const withAvatar = ({ person = interlocutor, scene = {} } = {}, avatar = fox) =>
+    profilesPart(buildRequest(segmentScene({ config: avatarConfig, interlocutor: { ...person, avatar }, around: glance(), ...scene })));
+  const shownAvatar = withAvatar();
+  assert.ok(shownAvatar.includes(`\n${fill(labels.profile.avatar, { text: fox.text })}\n`), shownAvatar);
+  const avatarCases = {
+    attitude: withAvatar({ person: moved }),
+    counted: withAvatar({ person: { ...interlocutor, messageCount: 990 } }),
+    sixHours: withAvatar({ scene: { now: NOW + 6 * HOUR } }),
+    crowd: withAvatar({ scene: { history: [makeMessage(5, NOW - 2 * MIN, { authorId: 'w9', authorName: 'Wren' }), segmentScene().history[0]] } }),
+  };
+  for (const [name, text] of Object.entries(avatarCases)) assert.equal(text, shownAvatar, `avatar: ${name}`);
+  const cat = withAvatar({}, { hash: 'h2', text: 'a sleeping cat', describedAt: '2026-10-15T10:00:00.000Z' });
+  assert.equal(cat, shownAvatar.replace(fox.text, 'a sleeping cat'), 'a new avatar changes that line alone');
+  assert.ok(withAvatar({}, { hash: null, default: true }).includes(`\n${labels.profile.avatarDefault}\n`));
+  // Switched off, a stored avatar shows nothing and the cached profile is as before.
+  assert.equal(profilesPart(buildRequest(segmentScene({ interlocutor: { ...interlocutor, avatar: fox }, around: glance() }))), cached);
+});
+
+test('renderProfile: the avatar line under features.avatars, full and compact; an avatar alone is nothing learned', () => {
+  const fox = { hash: 'h1', text: 'an illustrated fox in a scarf', describedAt: null };
+  const line = fill(labels.profile.avatar, { text: fox.text });
+  const profile = { id: 'u1', names: ['Ελένη'], character: 'curious', avatar: fox };
+  assert.ok(!renderProfile(profile, labels, {}).includes(line), 'off unless asked');
+  assert.equal(renderProfile(profile, labels, { avatars: true }), ['## Ελένη', line, fill(labels.profile.character, { text: 'curious' })].join('\n'));
+  assert.ok(renderProfile(profile, labels, { avatars: true, compact: true }).includes(line));
+  assert.ok(renderProfile({ ...profile, avatar: { hash: null, default: true } }, labels, { avatars: true }).includes(labels.profile.avatarDefault));
+  assert.equal(renderProfile({ ...profile, avatar: { hash: 'h1' } }, labels, { avatars: true }), renderProfile(profile, labels, {}), 'a broken field shows nothing');
+  const bare = { id: 'u2', names: ['Ilse'], avatar: fox };
+  assert.equal(renderProfile(bare, labels, { avatars: true }), '', 'nothing learned and no attitude: not shown');
+  assert.equal(renderProfile(bare, labels, { avatars: true, interlocutor: true }), ['## Ilse', line, labels.profile.unknown].join('\n'));
+  const unlabelled = { ...labels, profile: { ...labels.profile, avatar: undefined } };
+  assert.ok(!renderProfile(profile, unlabelled, { avatars: true }).includes(fox.text), 'no label, no line');
 });
 
 test('buildRequest: a profile is the same all day long: the stale and replaced-claim marks change only with the day', () => {
