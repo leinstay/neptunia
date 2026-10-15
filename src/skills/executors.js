@@ -2,8 +2,8 @@
 // (src/skills/gateway.js#checkSkill) let it pass. Her skills are the owner's /nep commands
 // (src/skills/derive.js): a call names an operation and gives the options of the command that
 // runs it as attributes. Two steps. `resolveCall` turns the tag's string attributes into the
-// command's arguments on the server's side -- a channel reference she sees (`#name`, `<#id>` or an
-// id) into a channel id, a member's name or mention into a stored profile's id, a role into its
+// command's arguments on the server's side -- a channel reference she sees (`#handle`, `#name`,
+// `<#id>` or an id) into a channel id, a member's name or mention into a stored profile's id, a role into its
 // id, a transcript number `#N` or a message link (a `message` or `reply` option) into that
 // message's id and channel, a whole number or `true` / `false` read strictly -- so nothing the model writes is
 // taken as an id unchecked. `executeCall` then runs the operation through its slash command's own
@@ -67,16 +67,19 @@ function channelIdOf(reference) {
 }
 
 /**
- * The conversation id a channel reference (`#name`, `name`, `<#id>`, an id) names among
- * `conversations` (`{ id, name }`, one entry per id): a name by src/memory/mentions.js#matchChannel
- * (the exact name, else the one channel with the same core: other or no leading emoji, any case
- * and accents). `'ambiguous'` when several share it, null when none.
+ * The conversation id a channel reference (`#handle`, `#name`, `name`, `<#id>`, an id) names among
+ * `conversations` (`{ id, name }`, one entry per id): a handle of `channelHandles` (the request's
+ * channel handle without `#` -> channel id; with or without its `#`, exactly) first, else a name by
+ * src/memory/mentions.js#matchChannel (the exact name, else the one channel with the same core:
+ * other or no leading emoji, any case and accents). `'ambiguous'` when several share it, null when none.
  */
-function conversationIdOf(reference, conversations) {
+function conversationIdOf(reference, conversations, channelHandles = null) {
   const given = String(reference ?? '').trim();
   if (!given) return null;
   const id = channelIdOf(given);
   if (id) return id;
+  const byHandle = channelHandles instanceof Map ? channelHandles.get(given.replace(/^#/, '')) : undefined;
+  if (byHandle !== undefined && byHandle !== null && String(byHandle) !== '') return String(byHandle);
   const unique = new Map();
   for (const c of conversations ?? []) if (c && c.id !== undefined && c.id !== null && !unique.has(String(c.id))) unique.set(String(c.id), { id: String(c.id), name: c.name });
   const match = matchChannel(given.replace(/^#/, ''), unique.values());
@@ -169,7 +172,9 @@ export function bodyArguments(body, names) {
  * comment on the call) is left out and the call goes on with its attributes; the result says so
  * (`bodyIgnored: true`) for the caller to log. Pure.
  * @param {{ skill: string, args: Record<string, string>, body: string }} call
- * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[],
+ * A channel option resolves a `#handle` of `view.channelHandles` (the request's, handle -> channel
+ * id) exactly before any name.
+ * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[], channelHandles?: Map<string, string>|null,
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
  *   selfId?: string|null }} view
@@ -222,7 +227,7 @@ export function resolveCall(call, view) {
         break;
       }
       case 'channel': {
-        const id = conversationIdOf(text, view?.conversations);
+        const id = conversationIdOf(text, view?.conversations, view?.channelHandles);
         if (id === 'ambiguous') return refused('target-ambiguous', 'conversation');
         if (!id) return refused('invalid-args', `args.${option}:unknown-channel`);
         args[option] = id;

@@ -46,6 +46,7 @@ import { detectTrigger, isTaggedCall } from './mention.js';
 import { addPending, followUpSlot, popOldest } from './pending.js';
 import { snowflakeAt } from './recall.js';
 import { resolveHandles } from './handles.js';
+import { linkChannels } from '../memory/mentions.js';
 import { continuationHistory, firstPass, pickOtherProfiles, taskInput } from './turn.js';
 import { withCalls } from '../discord/format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../discord/access.js';
@@ -598,6 +599,22 @@ function recentLinesOf(view, at) {
 }
 
 /**
+ * The channels a sandbox request's `<channel_directory>` lists: `given` when it is a list (the
+ * guild's readable text channels, as a live turn reads them), else the view's stored channel map
+ * (`{ id, name, category }`; none with `features.memory` off) with the turn's `channel` when it has
+ * a name. Pure but for the view's read.
+ * @returns {{ id: string, name: string, category?: string|null }[]}
+ */
+function sandboxChannels(given, view, channel) {
+  if (Array.isArray(given)) return given;
+  const memoryOn = view.config.features?.memory !== false;
+  const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
+  const list = stored.filter((entry) => entry && entry.id !== undefined && entry.id !== null).map((entry) => ({ id: String(entry.id), name: entry.name, category: entry.category ?? null }));
+  if (channel && typeof channel.name === 'string' && channel.name && !list.some((entry) => entry.id === String(channel.id))) list.push({ id: String(channel.id), name: channel.name, category: null });
+  return list;
+}
+
+/**
  * The input of src/behavior/prompt.js#buildRequest for one sandbox turn, every
  * key named: the turn the moment was (`situationHistory`: its trigger and
  * kind; its mode, `reply` when none or an unknown one is recorded), memory
@@ -613,7 +630,10 @@ function recentLinesOf(view, at) {
  * (`queued`, `{ id, text, author? }` each, burstTurns's): then the task labels name them as a
  * live turn names its queued calls (src/behavior/turn.js#taskInput: the trigger author's own
  * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). Never an
- * owner-forced turn. The view is read now and nothing is written.
+ * owner-forced turn. `<channel_directory>` lists `channelDirectory` (the guild's readable text
+ * channels, src/discord/collect.js#channelDirectoryOf, as a live turn passes them) when given, else
+ * the view's stored channel map with the turn's channel (sandboxChannels). The view is read now
+ * and nothing is written.
  * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
  *   `skillsInventory`, `skillsGranted`, `continuation` and `queued` (`answerSkillScenario`'s).
  * @returns {object}
@@ -636,6 +656,7 @@ export function sandboxRequestInput({
   skillsGranted = null,
   continuation = null,
   queued = null,
+  channelDirectory = null,
 }) {
   const config = view.config;
   const memory = view.memory;
@@ -667,6 +688,8 @@ export function sandboxRequestInput({
     candidateProfiles: memoryOn ? memory.listUserProfiles() : [],
     nameOf: memoryOn ? (id) => memory.getUser(id)?.names?.[0] ?? null : null,
     channels: memoryOn ? memory.listChannels() : [],
+    // As a live turn: every text channel with its handle (sandboxChannels).
+    channelDirectory: sandboxChannels(channelDirectory, view, channel),
     loreEntries: memoryOn ? memory.getLore() : [],
     currentChannelId: channel.id,
     descriptions: descriptions instanceof Map ? descriptions : new Map(),
@@ -790,9 +813,10 @@ export async function answerReply({
   mediaCache = null,
   elsewhereDestination = null,
   searchAvailable = false,
+  channelDirectory = null,
 }) {
   const { request, messages, systemMessage, userContent } = sandboxMessages(
-    { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable },
+    { view, situation, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, channelDirectory },
     samples,
   );
 
@@ -1093,7 +1117,7 @@ function channelNamesOf(view, channel) {
  * A skill scenario: the moment's request with the persona's skills shown (`skillsInventory`,
  * scenarioInventory's rows; else as answerReply), answered `runs` times one after another. Each
  * answer is parsed with parseOutput and shaped as a real turn's; a well-formed `<call>` goes to
- * `onCall(call, { idByIndex, history })` (the caller's simulateCall) -- a malformed one is only
+ * `onCall(call, { idByIndex, history, channelHandles })` (the caller's simulateCall; the request's channel handles) -- a malformed one is only
  * reported, as a live turn runs none -- and when its outcome says a live turn would ask her
  * again (`followUp`), the follow-up request is sent as a live turn sends it, with no cache
  * marker: under src/behavior/prompt.js#continuesTurn (the view's config: the scenario's, so
@@ -1147,11 +1171,12 @@ export async function answerSkillScenario({
   onCall,
   callMarks = null,
   queued = null,
+  channelDirectory = null,
 }) {
   // The earlier steps' calls on her lines, as a live turn's history carries them (linkCalls).
   const earlier = Array.isArray(callMarks) && view.config.features?.callMarkers !== false ? callMarks : [];
   const moment = earlier.length > 0 ? { ...situation, history: withCalls(situationHistory(situation).history, { calls: earlier }, { nameOf: channelNamesOf(view, channel) }) } : situation;
-  const requestArgs = { view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted, queued };
+  const requestArgs = { view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted, queued, channelDirectory };
   const built = sandboxMessages(requestArgs, runs);
   const { request, messages, systemMessage, userMessage, userText } = built;
   const history = situationHistory(moment).history;
@@ -1177,14 +1202,14 @@ export async function answerSkillScenario({
     const answer = shapeAnswer(parsed, view.config, gifs, request.handles);
     const run = {
       answer, call: parsed.call ?? null, callError: parsed.callError ?? null, extraCalls: parsed.extraCalls ?? 0, usage: completion.usage ?? null, outcome: null, followUp: null,
-      refs: { idByIndex: request.idByIndex, handles: request.handles ?? null, followUpIdByIndex: null },
+      refs: { idByIndex: request.idByIndex, handles: request.handles ?? null, channelHandles: request.channelHandles ?? null, followUpIdByIndex: null },
     };
     // A call's text (its body, or a message's `text=` attribute) is rendered like a <msg> of the turn.
     const callMentions = run.call ? handleMentions(callTextOf(run.call), request.handles) : {};
     if (callMentions.mentions) run.callMentions = callMentions;
     out.push(run);
     if (!run.call || typeof onCall !== 'function') continue;
-    run.outcome = await onCall(run.call, { idByIndex: request.idByIndex, history });
+    run.outcome = await onCall(run.call, { idByIndex: request.idByIndex, history, channelHandles: request.channelHandles ?? null });
     if (run.outcome?.followUp !== true) continue;
     // The follow-up as a live turn sends it (no cache marker): the turn continued over her lines
     // with the call's mark (continuesTurn), else the same request with the result before `<task>`.
@@ -1298,7 +1323,10 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
   };
   const rendered = (text, handles) => {
     const resolved = handles instanceof Map ? resolveHandles(text, handles) : { text: String(text ?? ''), userIds: [] };
-    return { content: resolved.text, mentionedUserIds: resolved.userIds };
+    // Her `#handle` links its channel as a live post does (the line keeps the `<#id>` and names the channel).
+    const content = channelHandles instanceof Map ? linkChannels(resolved.text, [], channelHandles) : resolved.text;
+    const channelIds = [...new Set(Array.from(content.matchAll(/<#(\d+)>/g), (match) => match[1]))];
+    return { content, mentionedUserIds: resolved.userIds, ...(channelIds.length > 0 ? { mentionedChannelIds: channelIds } : {}) };
   };
   // One pass (a shaped answer) answered over `idByIndex`, its request sent at `start`; `aliases`:
   // the continued request's ids of her first-pass lines -> their ids here.
@@ -1317,6 +1345,7 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
     for (const reaction of Array.isArray(answer.reactions) ? answer.reactions : []) react(target(reaction.to), reaction.emoji);
   };
   const refs = run?.refs ?? {};
+  const channelHandles = refs.channelHandles ?? null;
   pass(run?.answer, refs.idByIndex, refs.handles, at);
   const outcome = run?.call ? run.outcome : null;
   if (!outcome?.result) {

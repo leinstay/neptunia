@@ -2416,7 +2416,7 @@ export function renderPairReport(entries, { a, b }) {
  * the same fetched chat, the same config and memory, the same number of runs). Returns
  * `{ code, result }`: code 1 when a scenario failed or the runs were stopped.
  */
-async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, before, log, signal, budget, viewMods, channelOf }) {
+async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, before, log, signal, budget, viewMods, channelOf, channelDirectory = null }) {
   const {
     answerSkillScenario, skillScenarioRequest, scenarioInventory, simulateCall, personaGrantsConfig, replayMedia,
     fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen, grantedSkillNames,
@@ -2527,10 +2527,10 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, st
     const images = { quota: createImageGen({ apiKey: '', getConfig: () => scenarioConfig, state: frozenState, fetchImpl: refusing }).quota };
     const memoryOn = scenarioConfig.features?.memory !== false;
     // Her call taken through the real resolution and gateway at `now`, never run: answered with `resultText`.
-    const onCallOf = (callRequester, now, resultText) => (call, { idByIndex, history: lines }) =>
+    const onCallOf = (callRequester, now, resultText) => (call, { idByIndex, history: lines, channelHandles = null }) =>
       simulateCall({
         call,
-        view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, selfId: self.id, skills: registry }),
+        view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, selfId: self.id, skills: registry, channelHandles }),
         config: scenarioConfig,
         selfId: self.id,
         requester: callRequester,
@@ -2562,7 +2562,7 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, st
         const media = replayMedia(turnMoment.history, { cache: mediaCache, sites: scenarioConfig.media?.video?.sites, before: null });
         const input = {
           view, situation: turnMoment, selfId: self.id, selfName: self.name, channel: channelOf(channel), at: turnAt,
-          descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory, skillsGranted,
+          descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory, skillsGranted, channelDirectory,
         };
         return { input, requester, shown: { rows: inventory?.length ?? 0, allowed: (inventory ?? []).filter((row) => row.allowed).length } };
       };
@@ -2805,7 +2805,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     burstTurns,
     seededSelfLine,
   } = await load('behavior/sandbox.js');
-  const { fetchHistoryWindow, fetchMessage } = await load('discord/collect.js');
+  const { channelDirectoryOf, fetchHistoryWindow, fetchMessage } = await load('discord/collect.js');
   const { createEmojiIndex } = await load('discord/emoji.js');
   const { resolveGuild } = await load('discord/guild.js');
   const viewMods = { liveView, momentView, momentCutoff, hiddenLater };
@@ -2859,6 +2859,8 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     client = connection.client;
     const { guild, guildId, self } = connection;
     const config = hot.config;
+    // `<channel_directory>`: the guild's readable text channels, as a live turn lists them.
+    const channelDirectory = channelDirectoryOf(guild, hot.config.bot);
 
     const realStore = createStore({ dataDir });
     const store = readOnlyStore(realStore, SANDBOX_STORE_READS);
@@ -2935,7 +2937,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
           try {
             const result = await answerReply({
               view, situation, selfId: self.id, selfName: self.name, channel: channelOf(channel), llm, samples: 1, at, signal, onUsage,
-              descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable,
+              descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, channelDirectory,
             });
             answers[side] = answerOut(result.answers[0] ?? null);
           } catch (err) {
@@ -2984,7 +2986,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       if (skillSides.length === 0) skillSides.push({ label: null, hot });
       return await runSkills({
         args, scenarios, root, liveData, mods: skillMods, hot, sides: skillSides, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji,
-        searchAvailable, before, log, signal, budget: spendBudget, viewMods, channelOf,
+        searchAvailable, before, log, signal, budget: spendBudget, viewMods, channelOf, channelDirectory,
       });
     }
 
@@ -3063,7 +3065,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       const request = buildRequest(
         sandboxRequestInput({
           view, situation, selfId: self.id, selfName: self.name, channel: channelOf(channel), at,
-          descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable,
+          descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, channelDirectory,
         }),
       );
       const [systemMessage, userMessage] = request.messages;
@@ -3108,6 +3110,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       gifs,
       mediaCache,
       searchAvailable,
+      channelDirectory,
     });
 
     const out = {

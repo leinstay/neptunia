@@ -4111,15 +4111,16 @@ test('runTurn: a spontaneous turn pulls a channel mentioned in its history', asy
 });
 
 test('runTurn: features.channelPull off pulls nothing for a mention and builds the request as without the channel', async () => {
-  const off = pullScene({ features: { channelPull: false } });
+  const off = pullScene({ features: { channelPull: false, mentionHandles: false } });
   const { logs } = await withCapturedLogs(() => off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: off.trigger, triggerKind: 'mention' }));
 
   assert.equal(off.other.fetches.length, 0, 'the mentioned channel is never fetched');
   assert.equal(channelViewOf(off.llm), null);
   assert.equal(logs.some((l) => l.msg.startsWith('pull: ')), false);
 
-  // The same scene with no mention at all: byte for byte the same request.
-  const plain = pullScene({ features: { channelPull: false }, mention: false });
+  // The same scene with no mention at all: byte for byte the same request (handles off: a real
+  // channel mention carries its handle, which is the mention's own rendering, not a pull).
+  const plain = pullScene({ features: { channelPull: false, mentionHandles: false }, mention: false });
   await withCapturedLogs(() => plain.turns.runTurn({ channel: plain.channel, mode: 'reply', trigger: plain.trigger, triggerKind: 'mention' }));
   assert.deepEqual(off.llm.calls[0], plain.llm.calls[0]);
 });

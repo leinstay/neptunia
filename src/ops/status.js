@@ -667,11 +667,15 @@ const handlers = perEnv((env) => {
 
   /** The guild's memory field, computed at most once per COVERAGE_CACHE_MS (the cached text in between). */
   async function memoryValue(guildId) {
+    // The chat window is read live (a config edit shows at once), ahead of the cached coverage.
+    const size = hot.config?.context?.channelMessages;
+    const windowLine = Number.isFinite(size) ? `chat window: last ${size} messages in the active channel` : null;
+    const withWindow = (value) => [windowLine, value].filter(Boolean).join('\n');
     const cached = coverageCache.get(guildId);
-    if (cached && clock() - cached.at < COVERAGE_CACHE_MS) return cached.value;
+    if (cached && clock() - cached.at < COVERAGE_CACHE_MS) return withWindow(cached.value);
     const value = await computeMemory(guildId);
     coverageCache.set(guildId, { at: clock(), value });
-    return value;
+    return withWindow(value);
   }
 
   /** The speed field: each metric's median and mean over the last 24 h with the sample count in

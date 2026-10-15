@@ -18,6 +18,7 @@ export const labels = {
     timeAged: '[{clock} · {age} ago]',
     header: '=== {date} ===',
     empty: '(empty)',
+    channel: '{name} [{handle}]',
     replyTo: '(replying to #{index}, {author}: "{quote}")',
     replyToMemory: '(reply to {author}: {quote})',
     replyToOld: '(replying to an older message)',
@@ -101,6 +102,11 @@ export const labels = {
       error: 'failed',
       pending: 'still loading',
     },
+  },
+  channelDirectory: {
+    lead: 'channels by handle:',
+    line: '{handle} {name}',
+    lineCategory: '{handle} {name} in {category}',
   },
   senses: {
     imageSee: 'you can see pictures attached to a request with your own eyes',

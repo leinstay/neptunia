@@ -33,6 +33,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'candidateProfiles',
   'nameOf',
   'channels',
+  'channelDirectory',
   'loreEntries',
   'currentChannelId',
   'descriptions',
