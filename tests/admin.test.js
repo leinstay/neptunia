@@ -358,6 +358,7 @@ function makeAdmin(rootDir, extra = {}) {
     record: extra.record,
     metrics: extra.metrics,
     usage: extra.usage,
+    managementKey: extra.managementKey,
     now: extra.now,
   });
   return { admin, hot, store };
@@ -1935,32 +1936,31 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(owner.text, '', 'no long form without detail');
   assert.equal(owner.embeds.length, 1);
   const fields = owner.embeds[0].fields;
-  assert.deepEqual(fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'costs', 'memory', 'speed', 'uptime']);
+  assert.deepEqual(fields.map((f) => f.name), ['state', 'long tasks', 'models', 'limits', 'costs (limits per key)', 'costs (today by role)', 'memory', 'speed']);
   const value = (name) => fields.find((f) => f.name === name).value;
-  assert.equal(value('state'), 'paused since 2026-10-13 08:30 UTC by <@42>\nstorage: append store stalled; 3 archive copies pending');
-  assert.equal(value('connection'), 'gateway 42 ms\nlast reconnect none');
+  const stateLines = value('state').split('\n');
+  assert.deepEqual(stateLines.slice(0, 4), [
+    'paused since 2026-10-13 08:30 UTC by <@42>',
+    'storage: append store stalled; 3 archive copies pending',
+    'gateway 42 ms',
+    'last reconnect none',
+  ], 'the state, then the connection');
+  assert.match(stateLines[4], /^uptime (\d+d )?(\d+h )?\d+m$/, 'the uptime last');
+  assert.equal(stateLines.length, 5);
   assert.equal(value('long tasks'), 'archive drain: 3 pending', 'a warmup is not a long task of the card');
   assert.equal(
     value('models'),
     [
-      '**voice**',
-      'anthropic/claude-opus-4.6',
-      '**analyzer**',
-      `${ROLE_DEFAULTS.analyzer}`,
-      '**reasoner**',
-      `${ROLE_DEFAULTS.reasoner}`,
-      '**extractor**',
-      'x/extractor',
-      '**vision**',
-      `${ROLE_DEFAULTS.vision}`,
-      '**video**',
-      `${ROLE_DEFAULTS.video}`,
-      '**embedding**',
-      `${ROLE_DEFAULTS.embedding}`,
-      '**drawing**',
-      `${ROLE_DEFAULTS.drawing}`,
+      'voice · anthropic/claude-opus-4.6',
+      `analyzer · ${ROLE_DEFAULTS.analyzer}`,
+      `reasoner · ${ROLE_DEFAULTS.reasoner}`,
+      'extractor · x/extractor',
+      `vision · ${ROLE_DEFAULTS.vision}`,
+      `video · ${ROLE_DEFAULTS.video}`,
+      `embedding · ${ROLE_DEFAULTS.embedding}`,
+      `drawing · ${ROLE_DEFAULTS.drawing}`,
     ].join('\n'),
-    'no llm client: every role named by group with its own model, unprobed',
+    'no llm client: one line per role with its own model, unprobed',
   );
   assert.match(value('limits'), /^requests \d+\/300\nvideos 0\/40\nrecall 0\/100\nlookups 0\/60\nresets 00:00 UTC$/);
   assert.deepEqual(
@@ -1969,7 +1969,6 @@ test('status: the card carries the fields in order and the member variant drops 
   );
   assert.ok(!/buffer|pending|journal/.test(value('memory')), 'no buffer, archive queue or journal line in memory');
   assert.equal(value('speed'), 'not available', 'no metrics wired');
-  assert.match(value('uptime'), /^(\d+d )?(\d+h )?\d+m$/);
   for (const field of fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 
   const detail = await admin.run('status', { detail: true }, { userId: '42' });
@@ -1977,12 +1976,12 @@ test('status: the card carries the fields in order and the member variant drops 
 
   const member = await admin.run('status', { detail: true }, { userId: '999' });
   const memberFields = member.embeds[0].fields;
-  assert.deepEqual(memberFields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'uptime']);
-  assert.equal(memberFields[0].value, 'paused since 2026-10-13 08:30 UTC by <@42>', 'no storage line for a member');
+  assert.deepEqual(memberFields.map((f) => f.name), ['state', 'long tasks', 'models', 'limits']);
+  assert.deepEqual(memberFields[0].value.split('\n').slice(0, 2), ['paused since 2026-10-13 08:30 UTC by <@42>', 'gateway 42 ms'], 'no storage line for a member');
   assert.equal(member.text, '', 'a member never gets the long form');
 });
 
-test('status: the owner card shows the key limit, the credits and today by role under costs; a member gets no field and no read', async () => {
+test('status: the owner card shows the limit of each key with its usage under it, then today by role, with no credits read; a member gets neither field and no read', async () => {
   const rootDir = makeRoot();
   const reads = [];
   const key = {
@@ -1997,9 +1996,9 @@ test('status: the owner card shows the key limit, the credits and today by role 
       reads.push(['key', options?.timeoutMs]);
       return { ok: true, status: 200, json: { data: key } };
     },
-    async credits(options) {
-      reads.push(['credits', options?.timeoutMs]);
-      throw Object.assign(new Error('slow'), { name: 'TimeoutError' });
+    async credits() {
+      reads.push(['credits']);
+      return { ok: true, status: 200, json: { data: {} } };
     },
   };
   let rows = [{ role: 'voice', requests: 38, promptTokens: 974_000, cachedTokens: 342_000, completionTokens: 9_300, cost: 4.03 }];
@@ -2008,26 +2007,70 @@ test('status: the owner card shows the key limit, the credits and today by role 
   hot.prompts.labels = labels;
   hot.config.llm.probeTimeoutMs = 1234;
 
-  const costsOf = async () => (await admin.run('status', {}, { userId: '42' })).embeds[0].fields.find((f) => f.name === 'costs').value;
-  assert.deepEqual((await costsOf()).split('\n'), [
-    'key 8.45/30.00 USD (resets daily at 2026-10-16 00:00 UTC; BYOK in)',
+  const fieldOf = async (name) => (await admin.run('status', {}, { userId: '42' })).embeds[0].fields.find((f) => f.name === name).value;
+  assert.deepEqual((await fieldOf('costs (limits per key)')).split('\n'), [
+    'main 8.45/30.00 USD (resets daily at 2026-10-16 00:00 UTC; BYOK in)',
     'usage day 0.10 USD',
-    'credits: unavailable (timeout)',
-    'today by role:',
-    'voice: 38 req, in 974k (cached 342k), out 9.3k, 4.03 USD',
-    'total: 38 req, in 974k (cached 342k), out 9.3k, 4.03 USD',
+    'sim: not set',
   ]);
-  assert.deepEqual(reads, [['key', 1234], ['credits', 1234]], 'both reads with the probe timeout');
+  assert.deepEqual((await fieldOf('costs (today by role)')).split('\n'), [
+    'voice: 38 req, in 974k (cached 342k), out 9.3k, 4.03 USD',
+  ], 'no header, no total');
+  assert.deepEqual(reads, [['key', 1234], ['key', 1234]], 'the key read with the probe timeout, once per card; never the credits');
 
   // Too many roles for one field: whole lines are cut from the bottom.
   rows = Array.from({ length: 40 }, (_, i) => ({ role: `role-${i}`, requests: 1, promptTokens: 1000, cachedTokens: 0, completionTokens: 10, cost: 0.01 }));
-  const long = await costsOf();
+  const long = await fieldOf('costs (today by role)');
   assert.ok(long.length <= 1024);
   assert.match(long.split('\n').at(-1), /^role-\d+: 1 req, in 1\.0k \(cached 0\), out 10, 0\.01 USD$/, 'the last line is whole');
+  rows = [];
+  assert.equal(await fieldOf('costs (today by role)'), 'today by role: none');
 
   const member = await admin.run('status', {}, { userId: '999' });
-  assert.ok(!member.embeds[0].fields.some((f) => f.name === 'costs'), 'no costs field for a member');
+  assert.ok(!member.embeds[0].fields.some((f) => f.name.startsWith('costs')), 'no costs field for a member');
   assert.equal(reads.length, 4, 'a member card sends no account read');
+});
+
+test('status: the field option renders that field alone and runs only its work', async () => {
+  const rootDir = makeRoot();
+  const reads = [];
+  const llm = fakeProbeLlm(() => ({ provider: 'Prov' }));
+  llm.keyInfo = async () => {
+    reads.push('key');
+    return { ok: true, status: 200, json: { data: { limit: 10, limit_remaining: 10 } } };
+  };
+  llm.activity = async () => {
+    reads.push('activity');
+    return { ok: true, status: 200, json: { data: [] } };
+  };
+  llm.keyHash = () => 'h';
+  const usage = { byRole: () => [{ role: 'voice', requests: 1, promptTokens: 1, cachedTokens: 0, completionTokens: 1, cost: 0.5 }] };
+  const { admin, hot } = makeAdmin(rootDir, { llm, usage, images: fakeImages({ quota: { used: 0, cap: 5 } }), managementKey: 'mgmt-test' });
+  probeConfig(hot);
+  hot.prompts.labels.status.costs = labels.status.costs;
+  hot.config.llm.maxRequestsPerDay = 300;
+
+  const only = async (field, userId = '42') => (await admin.run('status', { field }, { userId })).embeds[0].fields;
+  const limits = await only('limits');
+  assert.deepEqual(limits.map((f) => f.name), ['limits']);
+  assert.match(limits[0].value, /^requests \d+\/300\n/);
+  assert.deepEqual([llm.calls.length, llm.listings.length, reads.length], [0, 0, 0], 'no probe, no listing, no key read');
+
+  assert.deepEqual((await only('costs (today by role)')).map((f) => f.name), ['costs (today by role)']);
+  assert.deepEqual([llm.calls.length, reads.length], [0, 0], 'the role costs read no key');
+
+  const keys = await only('costs (limits per key)');
+  assert.deepEqual(keys.map((f) => f.name), ['costs (limits per key)']);
+  assert.deepEqual(reads.sort(), ['activity', 'key'], 'the key and its activity read once each');
+  assert.equal(llm.calls.length, 0, 'no model probe for the key field');
+
+  assert.deepEqual((await only('models')).map((f) => f.name), ['models']);
+  assert.ok(llm.calls.length > 0, 'the models field probes');
+
+  // An owner-only field asked by a member, or an unknown one: the whole card the caller may see.
+  hot.config.bot.access = { 'status.show': { everyone: true, roles: [], users: [] } };
+  assert.deepEqual((await only('memory', '999')).map((f) => f.name), ['state', 'long tasks', 'models', 'limits']);
+  assert.equal((await only('nonsense')).length, 8);
 });
 
 /** A clock the test moves by hand. */
@@ -2245,10 +2288,10 @@ function probeConfig(hot) {
   hot.prompts.labels.status = { probe: 'Answer with one word: Ωmega' };
 }
 
-/** The models field's lines without the group headers. */
-const roleLinesOf = (value) => value.split('\n').filter((line) => !line.startsWith('**'));
+/** The models field's lines. */
+const roleLinesOf = (value) => value.split('\n');
 
-test('status: the card lists one item per line in every field, the models grouped by kind under bold headers', async () => {
+test('status: the card lists one item per line in every field, the models one line per role with no heading', async () => {
   const rootDir = makeRoot();
   const journal = { dayFile: () => path.join(rootDir, 'none.jsonl'), stalled: () => false };
   const archive = { stats: () => ({ pending: 2 }) };
@@ -2264,9 +2307,9 @@ test('status: the card lists one item per line in every field, the models groupe
 
   const { embeds } = await admin.run('status', {}, { userId: '42' });
   const lines = (name) => embeds[0].fields.find((f) => f.name === name).value.split('\n');
-  assert.deepEqual(embeds[0].fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'costs', 'memory', 'speed', 'uptime']);
-  assert.deepEqual(lines('state'), ['running', 'storage: 2 archive copies pending']);
-  assert.deepEqual(lines('connection'), ['gateway 12 ms', 'last reconnect none']);
+  assert.deepEqual(embeds[0].fields.map((f) => f.name), ['state', 'long tasks', 'models', 'limits', 'costs (limits per key)', 'costs (today by role)', 'memory', 'speed']);
+  assert.deepEqual(lines('state').slice(0, 4), ['running', 'storage: 2 archive copies pending', 'gateway 12 ms', 'last reconnect none']);
+  assert.match(lines('state')[4], /^uptime /);
   assert.deepEqual(lines('long tasks'), ['emoji backfill running', 'GIF backfill running', 'archive drain: 2 pending']);
   assert.deepEqual(lines('limits').map((line) => line.replace(/^requests \d+/, 'requests N')), [
     'requests N/300',
@@ -2276,17 +2319,17 @@ test('status: the card lists one item per line in every field, the models groupe
     'lookups 0/60',
     'resets 00:00 UTC',
   ]);
-  assert.deepEqual(lines('models').filter((line) => line.startsWith('**')), ['**voice**', '**analyzer**', '**reasoner**', '**extractor**', '**vision**', '**video**', '**embedding**', '**drawing**']);
-  assert.deepEqual(roleLinesOf(embeds[0].fields.find((f) => f.name === 'models').value).map((line) => line.split(' · ')[0]), [
-    'anthropic/claude-opus-4.6',
-    'x/text',
-    'x/reason',
-    'x/extractor',
-    'x/media',
-    'x/video',
-    'x/embed',
-    'openai/gpt-image-1',
-  ], 'each line starts with its model; the bold header names the role');
+  assert.ok(!lines('models').some((line) => line.startsWith('**')), 'no bold heading');
+  assert.deepEqual(roleLinesOf(embeds[0].fields.find((f) => f.name === 'models').value).map((line) => line.split(' · ').slice(0, 2).join(' · ')), [
+    'voice · anthropic/claude-opus-4.6',
+    'analyzer · x/text',
+    'reasoner · x/reason',
+    'extractor · x/extractor',
+    'vision · x/media',
+    'video · x/video',
+    'embedding · x/embed',
+    'drawing · openai/gpt-image-1',
+  ], 'each line starts with its role and its model');
   assert.ok(!lines('models').some((line) => line.startsWith(' ')), 'no detail line under a role');
   for (const field of embeds[0].fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 });
@@ -2316,10 +2359,10 @@ test('status: the owner card probes every role\'s model and shows its provider a
   }
   assert.deepEqual(llm.listings, [{ model: 'openai/gpt-image-1', options: { timeoutMs: 1234 } }]);
 
-  assert.match(lines[0], /^anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
-  assert.match(lines[1], /^x\/text · Prov · ok \d+ ms$/);
-  assert.ok(lines.includes('x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
-  assert.match(lines.at(-1), /^openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
+  assert.match(lines[0], /^voice · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
+  assert.match(lines[1], /^analyzer · x\/text · Prov · ok \d+ ms$/);
+  assert.ok(lines.includes('vision · x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
+  assert.match(lines.at(-1), /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
 
   const probed = logs.filter((entry) => entry.msg === 'status: probed');
   assert.equal(probed.length, 1);
@@ -2327,7 +2370,7 @@ test('status: the owner card probes every role\'s model and shows its provider a
   assert.equal(probed[0].failed, 1);
 });
 
-test('status: the member card shows the models by group without probing', async () => {
+test('status: the member card shows the models one line per role without probing', async () => {
   const rootDir = makeRoot();
   const llm = fakeProbeLlm(() => ({ provider: 'Prov' }));
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 2, cap: 5 } }), llm });
@@ -2339,29 +2382,21 @@ test('status: the member card shows the models by group without probing', async 
   assert.equal(
     models,
     [
-      '**voice**',
-      'anthropic/claude-opus-4.6',
-      '**analyzer**',
-      'x/text',
-      '**reasoner**',
-      'x/reason',
-      '**extractor**',
-      'x/extractor',
-      '**vision**',
-      'x/media',
-      '**video**',
-      'x/video',
-      '**embedding**',
-      'x/embed',
-      '**drawing**',
-      'openai/gpt-image-1',
+      'voice · anthropic/claude-opus-4.6',
+      'analyzer · x/text',
+      'reasoner · x/reason',
+      'extractor · x/extractor',
+      'vision · x/media',
+      'video · x/video',
+      'embedding · x/embed',
+      'drawing · openai/gpt-image-1',
     ].join('\n'),
   );
   assert.equal(llm.calls.length, 0, 'no probe request');
   assert.equal(llm.listings.length, 0, 'no listing request');
 });
 
-test('status: identical probes are sent once, each role shows its own model, the overrides close the group of their role, the embedding role gets an embedding probe', async () => {
+test('status: identical probes are sent once, each role shows its own model, the overrides follow their role, the embedding role gets an embedding probe', async () => {
   const rootDir = makeRoot();
   const llm = fakeProbeLlm(() => ({ provider: 'Prov', usage: { prompt_tokens: 9, completion_tokens: 1 } }));
   const embedCalls = [];
@@ -2394,11 +2429,11 @@ test('status: identical probes are sent once, each role shows its own model, the
   assert.equal(embedCalls[0].options.config, hot.config);
   assert.equal(llm.calls.some((call) => call.options.model === 'x/embed'), false, 'the embedding model is never sent a chat completion');
 
-  assert.match(lines[2], /^x\/text · Prov · ok \d+ ms$/, 'its own line, no marker of another role');
-  assert.equal(lines[3], 'byPurpose lookup · x/pinned', 'a reasoner override closes the reasoner group');
-  assert.match(lines[4], /^anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
-  assert.equal(lines[6], 'byPurpose describe · x/seen', 'a vision override closes the vision group');
-  assert.match(lines[8], /^x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
+  assert.match(lines[2], /^reasoner · x\/text · Prov · ok \d+ ms$/, 'its own line, no marker of another role');
+  assert.equal(lines[3], 'byPurpose lookup · x/pinned', 'a reasoner override follows the reasoner');
+  assert.match(lines[4], /^extractor · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
+  assert.equal(lines[6], 'byPurpose describe · x/seen', 'a vision override follows the vision role');
+  assert.match(lines[8], /^embedding · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
   assert.equal(logs.find((entry) => entry.msg === 'status: probed').requests, 5);
 });
 
@@ -2408,13 +2443,13 @@ test('status: without an embedding client the embedding role is shown unchecked;
   const none = makeAdmin(rootDir, { llm });
   probeConfig(none.hot);
   const unchecked = await none.admin.run('status', {}, { userId: '42' });
-  assert.ok(unchecked.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('x/embed · not checked (no embedding client)'));
+  assert.ok(unchecked.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('embedding · x/embed · not checked (no embedding client)'));
 
   const embedder = { embed: async () => { throw Object.assign(new Error('HTTP 404: no such model'), { statusCode: 404 }); } };
   const failing = makeAdmin(makeRoot(), { llm, embedder });
   probeConfig(failing.hot);
   const { result } = await withCapturedLogs(() => failing.admin.run('status', {}, { userId: '42' }));
-  assert.ok(result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('x/embed · failed: HTTP 404: no such model'));
+  assert.ok(result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('embedding · x/embed · failed: HTTP 404: no such model'));
 });
 
 // ---------------------------------------------------------------------------

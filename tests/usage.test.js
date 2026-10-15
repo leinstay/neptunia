@@ -1,14 +1,15 @@
-// The costs field of the owner's /nep status card: today's per-role accumulator fed by the
-// `llm: usage` log lines (src/ops/usage.js), the OpenRouter key and credits reads, and the pure
-// renderer over every key shape the owner may set.
+// The two costs fields of the owner's /nep status card: today's per-role accumulator fed by the
+// `llm: usage` log lines (src/ops/usage.js), the OpenRouter key reads, and the pure renderers
+// over every key shape the owner may set.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
-import { createUsage, usageTap, costsLines, readAccount, compactTokens, USAGE_FILE, KEEP_DAYS } from '../src/ops/usage.js';
-import { createLlm } from '../src/llm/openrouter.js';
+import { createUsage, usageTap, keyCostsLines, roleCostsLines, readAccount, readActivity, activitySums, compactTokens, USAGE_FILE, KEEP_DAYS } from '../src/ops/usage.js';
+import { createLlm, keyHashOf } from '../src/llm/openrouter.js';
 
 const HOUR = 3_600_000;
 
@@ -48,13 +49,9 @@ const LABELS = {
       last30: 'L30 {usd}{since}',
       since: ' from {day}',
       partSeparator: ' | ',
-      credits: 'credits {left} left of {bought}, {used} used',
-      creditsUnavailable: 'credits unavailable: {reason}',
       reasons: { timeout: 'slow', network: 'net', http: 'http {status}', noClient: 'none', badAnswer: 'odd' },
-      byRoleHeader: 'by role',
       byRoleEmpty: 'by role: nothing',
       role: '{role} {requests} in {in} c {cached} out {out} = {cost}',
-      total: 'total {requests} in {in} c {cached} out {out} = {cost}',
     },
   },
 };
@@ -72,88 +69,76 @@ const KEY_DAILY = {
   usage_weekly: 3.41,
   usage_monthly: 12,
 };
-const CREDITS = ok({ total_credits: 132, total_usage: 121.64 });
-
-/** The key and usage lines only (the credits line and the empty day dropped). */
+/** The main key's lines (no simulator label in the fixture: no simulator line). */
 function keyLines(key) {
-  return costsLines({ key, credits: CREDITS, rows: [], labels: LABELS }).slice(0, -2);
+  return keyCostsLines({ key, labels: LABELS });
 }
 
-// ---- the renderer ------------------------------------------------------------------
+// ---- the renderers -----------------------------------------------------------------
 
-test('costsLines: a daily budget shows spend over limit, the reset time and BYOK, then usage today only (never the calendar week or month), credits and the empty day', () => {
-  assert.deepEqual(costsLines({ key: ok(KEY_DAILY), credits: CREDITS, rows: [], labels: LABELS }), [
+test('keyCostsLines: a daily budget shows spend over limit, the reset time and BYOK, then usage today only (never the calendar week or month); no credits line', () => {
+  assert.deepEqual(keyCostsLines({ key: ok(KEY_DAILY), labels: LABELS }), [
     'key 8.45/30.00 (resets day at 2026-10-16 00:00 UTC; byok in)',
     'usage D 0.10',
-    'credits 10.36 left of 132.00, 121.64 used',
-    'by role: nothing',
   ]);
 });
 
-test('costsLines: never prints the key label', () => {
-  const text = costsLines({ key: ok(KEY_DAILY), credits: CREDITS, rows: [], labels: LABELS }).join('\n');
+test('keyCostsLines: never prints the key label', () => {
+  const text = keyCostsLines({ key: ok(KEY_DAILY), labels: LABELS }).join('\n');
   assert.ok(!text.includes('sk-or'), 'no key label');
 });
 
-test('costsLines: a weekly and a monthly reset, BYOK left out of the limit', () => {
+test('keyCostsLines: a weekly and a monthly reset, BYOK left out of the limit', () => {
   for (const [interval, word] of [['weekly', 'week'], ['monthly', 'month']]) {
     const key = { limit: 50, limit_reset: interval, limit_remaining: 40, include_byok_in_limit: false };
     assert.deepEqual(keyLines(ok(key)), [`key 10.00/50.00 (resets ${word}; byok out)`], interval);
   }
 });
 
-test('costsLines: a limit that never resets, an unknown interval as its code, a missing reset with no note', () => {
+test('keyCostsLines: a limit that never resets, an unknown interval as its code, a missing reset with no note', () => {
   assert.deepEqual(keyLines(ok({ limit: 20, limit_reset: null, limit_remaining: 5 })), ['key 15.00/20.00 (never resets)']);
   assert.deepEqual(keyLines(ok({ limit: 20, limit_reset: 'hourly', limit_remaining: 5 })), ['key 15.00/20.00 (resets hourly)']);
   assert.deepEqual(keyLines(ok({ limit: 20, limit_remaining: 5 })), ['key 15.00/20.00'], 'no reset field, no BYOK field: no notes');
 });
 
-test('costsLines: budgets missing or empty fall back to the top-level fields; the spend from the interval usage when no remainder', () => {
+test('keyCostsLines: budgets missing or empty fall back to the top-level fields; the spend from the interval usage when no remainder', () => {
   assert.deepEqual(keyLines(ok({ limit: 30, limit_reset: 'daily', budgets: [], usage_daily: 2.5 })), ['key 2.50/30.00 (resets day)', 'usage D 2.50']);
   assert.deepEqual(keyLines(ok({ limit: 30, limit_reset: 'daily' })), ['key -/30.00 (resets day)'], 'no spend known');
 });
 
-test('costsLines: the effective budget stands in when no budget is the key limit', () => {
+test('keyCostsLines: the effective budget stands in when no budget is the key limit', () => {
   const key = { limit: null, budgets: [{ scope: 'other', limit_usd: 9 }], effective_budget: { limit_usd: 10, spend_usd: 1, reset_interval: 'weekly' } };
   assert.deepEqual(keyLines(ok(key)), ['key 1.00/10.00 (resets week)']);
 });
 
-test('costsLines: no limit shows the total used, or nothing more when even that is missing', () => {
+test('keyCostsLines: no limit shows the total used, or nothing more when even that is missing', () => {
   assert.deepEqual(keyLines(ok({ limit: null, limit_reset: null, budgets: [], usage: 52.314 })), ['key none, used 52.31']);
   assert.deepEqual(keyLines(ok({})), ['key none']);
 });
 
-test('costsLines: a failed read of the key or the credits says why', () => {
-  const lines = costsLines({
-    key: { ok: false, reason: 'http', status: 401 },
-    credits: { ok: false, reason: 'timeout' },
-    rows: [],
-    labels: LABELS,
-  });
-  assert.deepEqual(lines, ['key unavailable: http 401', 'credits unavailable: slow', 'by role: nothing']);
-  const more = costsLines({ key: { ok: false, reason: 'network' }, credits: { ok: false, reason: 'no-client' }, rows: [], labels: LABELS });
-  assert.deepEqual(more.slice(0, 2), ['key unavailable: net', 'credits unavailable: none']);
-  const odd = costsLines({ key: { ok: false, reason: 'bad-answer' }, credits: ok({ total_credits: 'x' }), rows: [], labels: LABELS });
-  assert.deepEqual(odd.slice(0, 2), ['key unavailable: odd', 'credits unavailable: odd'], 'credits with no numbers');
+test('keyCostsLines: a failed read of the key says why', () => {
+  assert.deepEqual(keyCostsLines({ key: { ok: false, reason: 'http', status: 401 }, labels: LABELS }), ['key unavailable: http 401']);
+  assert.deepEqual(keyCostsLines({ key: { ok: false, reason: 'network' }, labels: LABELS }), ['key unavailable: net']);
+  assert.deepEqual(keyCostsLines({ key: { ok: false, reason: 'bad-answer' }, labels: LABELS }), ['key unavailable: odd']);
 });
 
-test('costsLines: one line per role in the given order, then the total', () => {
+test('roleCostsLines: one line per role in the given order, no header and no total; the empty day says so', () => {
   const rows = [
     { role: 'voice', requests: 38, promptTokens: 974_000, cachedTokens: 342_000, completionTokens: 9_300, cost: 4.03 },
     { role: 'analyzer', requests: 12, promptTokens: 51_200, cachedTokens: 0, completionTokens: 812, cost: 0.2 },
   ];
-  assert.deepEqual(costsLines({ key: ok({}), credits: CREDITS, rows, labels: LABELS }).slice(2), [
-    'by role',
+  assert.deepEqual(roleCostsLines({ rows, labels: LABELS }), [
     'voice 38 in 974k c 342k out 9.3k = 4.03',
     'analyzer 12 in 51k c 0 out 812 = 0.20',
-    'total 50 in 1.03M c 342k out 10k = 4.23',
   ]);
+  assert.deepEqual(roleCostsLines({ rows: [], labels: LABELS }), ['by role: nothing']);
 });
 
-test('costsLines: no labels, no lines; a missing label leaves its line out', () => {
-  assert.deepEqual(costsLines({ key: ok(KEY_DAILY), credits: CREDITS, rows: [], labels: {} }), []);
+test('keyCostsLines / roleCostsLines: no labels, no lines; a missing label leaves its line out', () => {
+  assert.deepEqual(keyCostsLines({ key: ok(KEY_DAILY), labels: {} }), []);
+  assert.deepEqual(roleCostsLines({ rows: [], labels: {} }), []);
   const partial = { status: { costs: { ...LABELS.status.costs, usage: undefined } } };
-  assert.deepEqual(costsLines({ key: ok(KEY_DAILY), credits: CREDITS, rows: [], labels: partial }).length, 3, 'no usage line');
+  assert.deepEqual(keyCostsLines({ key: ok(KEY_DAILY), labels: partial }).length, 1, 'no usage line');
 });
 
 test('compactTokens: plain below a thousand, one decimal below ten thousand, whole k, then M', () => {
@@ -234,15 +219,14 @@ test('usage: a generated picture counts under drawing with its cost and no token
   ]);
 });
 
-test('costsLines: a role with no tokens shows them as -', () => {
+test('roleCostsLines: a role with no tokens shows them as -', () => {
   const rows = [
     { role: 'drawing', requests: 3, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 0.12 },
     { role: 'voice', requests: 1, promptTokens: 100, cachedTokens: 0, completionTokens: 5, cost: 0.01 },
   ];
-  assert.deepEqual(costsLines({ key: ok({}), credits: CREDITS, rows, labels: LABELS }).slice(3), [
+  assert.deepEqual(roleCostsLines({ rows, labels: LABELS }), [
     'drawing 3 in - c - out - = 0.12',
     'voice 1 in 100 c 0 out 5 = 0.01',
-    'total 4 in 100 c 0 out 5 = 0.13',
   ]);
 });
 
@@ -348,7 +332,7 @@ test('usage: a save within a minute of the last waits unless forced', async () =
   assert.equal(await usage.save({ force: true }), true);
 });
 
-test('costsLines: the simulator key line comes right after the key line, through the same renderer; not set says so', () => {
+test('keyCostsLines: the simulator key follows the main key and its usage, through the same renderer, its usage all from its own report; not set is one line', () => {
   const labels = {
     status: {
       costs: {
@@ -358,41 +342,46 @@ test('costsLines: the simulator key line comes right after the key line, through
         simKeyNotSet: 'sim: not set',
         keyLimit: '{lead} limit {spent}/{limit} ({notes})',
         keyUnavailable: '{lead} limit unavailable: {reason}',
+        usageWeekCal: 'W {usd}',
+        usageMonthCal: 'M {usd}',
       },
     },
   };
-  const simKey = ok({ limit: 5, limit_remaining: 4, limit_reset: null });
-  const withSim = costsLines({ key: ok({ limit: 30, limit_remaining: 21, limit_reset: null }), sim: simKey, credits: CREDITS, rows: [], labels });
-  assert.deepEqual(withSim.slice(0, 2), ['key limit 9.00/30.00 (never resets)', 'sim limit 1.00/5.00 (never resets)'], 'same renderer, other lead word');
-  const notSet = costsLines({ key: ok({ limit: 30, limit_remaining: 21, limit_reset: null }), sim: null, credits: CREDITS, rows: [], labels });
-  assert.equal(notSet[1], 'sim: not set');
-  const failed = costsLines({ key: ok({}), sim: { ok: false, reason: 'http', status: 401 }, credits: CREDITS, rows: [], labels });
-  assert.ok(failed.includes('sim limit unavailable: http 401'));
+  const main = ok({ limit: 30, limit_remaining: 21, limit_reset: null, usage_daily: 0.5 });
+  const windows = { last7: window(3), last30: window(4) };
+  const simKey = ok({ limit: 5, limit_remaining: 4, limit_reset: null, usage_daily: 0.25, usage_weekly: 1, usage_monthly: 2 });
+  assert.deepEqual(keyCostsLines({ key: main, sim: simKey, labels, windows }), [
+    'key limit 9.00/30.00 (never resets)',
+    'usage D 0.50 | L7 3.00 | L30 4.00',
+    'sim limit 1.00/5.00 (never resets)',
+    'usage D 0.25 | W 1.00 | M 2.00',
+  ], 'the main key with its rolling sums, then the simulator key with its calendar periods');
+  const partial = ok({ limit: 5, limit_remaining: 4, limit_reset: null, usage_daily: 0 });
+  assert.equal(keyCostsLines({ key: main, sim: partial, labels }).at(-1), 'usage D 0.00', 'only the periods the key reports');
+  assert.deepEqual(keyCostsLines({ key: main, sim: null, labels, windows }).slice(2), ['sim: not set'], 'no usage line under an unset key');
+  const failed = keyCostsLines({ key: ok({}), sim: { ok: false, reason: 'http', status: 401 }, labels });
+  assert.equal(failed.at(-1), 'sim limit unavailable: http 401', 'a failed read: no usage line under it');
 });
 
 // ---- rolling windows, extra role keys, the average ------------------------------------
 
 const window = (cost, since = '2026-09-16', partial = false) => ({ rows: [], total: { requests: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost }, since, partial });
 
-test('costsLines: the usage line is today from the key, then the rolling 7 and 30 days; a short window says since when', () => {
-  const lines = costsLines({
+test('keyCostsLines: the usage line is today from the key, then the rolling 7 and 30 days; a short window says since when', () => {
+  const lines = keyCostsLines({
     key: ok({ usage_daily: 0.1, usage_weekly: 9, usage_monthly: 99 }),
-    credits: CREDITS,
-    rows: [],
     labels: LABELS,
     windows: { last7: window(3.5, '2026-10-15', true), last30: window(12) },
   });
   assert.equal(lines[1], 'usage D 0.10 | L7 3.50 from 2026-10-15 | L30 12.00');
-  const failed = costsLines({ key: { ok: false, reason: 'timeout' }, credits: CREDITS, rows: [], labels: LABELS, windows: { last7: window(1), last30: window(2) } });
+  const failed = keyCostsLines({ key: { ok: false, reason: 'timeout' }, labels: LABELS, windows: { last7: window(1), last30: window(2) } });
   assert.equal(failed[1], 'usage L7 1.00 | L30 2.00', 'the rolling sums stay when the key read fails');
 });
 
-test('costsLines: each extra role key gets its key line led by its roles and its own usage line, after the main ones', () => {
+test('keyCostsLines: each extra role key gets its key line led by its roles and its own usage line under it, after the main and the simulator key', () => {
   const labels = { status: { costs: { ...LABELS.status.costs, keyLead: 'main', roleKeyLead: '{roles} key', roleSeparator: '+', keyLimitPlain: '{lead} {spent}/{limit}', keyUnavailable: '{lead} unavailable: {reason}', simKeyNotSet: 'sim: not set' } } };
-  const lines = costsLines({
+  const lines = keyCostsLines({
     key: ok({ limit: 30, limit_remaining: 20, usage_daily: 1 }),
-    credits: CREDITS,
-    rows: [],
     labels,
     windows: { last7: window(5), last30: window(6) },
     roleKeys: [
@@ -400,27 +389,106 @@ test('costsLines: each extra role key gets its key line led by its roles and its
       { roles: ['vision'], key: { ok: false, reason: 'http', status: 401 }, windows: { last7: window(0.5), last30: window(0.5) } },
     ],
   });
-  assert.deepEqual(lines.slice(0, 7), [
+  assert.deepEqual(lines, [
     'main 10.00/30.00',
-    'sim: not set',
     'usage D 1.00 | L7 5.00 | L30 6.00',
+    'sim: not set',
     'video+voice key 190.00/200.00',
     'usage D 2.00 | L7 7.00 | L30 8.00',
     'vision key unavailable: http 401',
     'usage L7 0.50 | L30 0.50',
   ]);
   const noLead = { status: { costs: { ...labels.status.costs, roleKeyLead: undefined } } };
-  const without = costsLines({ key: ok({}), credits: CREDITS, rows: [], labels: noLead, roleKeys: [{ roles: ['voice'], key: ok({}) }] });
+  const without = keyCostsLines({ key: ok({}), labels: noLead, roleKeys: [{ roles: ['voice'], key: ok({}) }] });
   assert.equal(without.some((text) => text.includes('voice')), false, 'no lead label, no role key line');
 });
 
-test('costsLines: the role and total lines carry the average cost per request, left out with no request or no label', () => {
-  const labels = { status: { costs: { ...LABELS.status.costs, role: '{role} {requests} = {cost}{avg}', total: 'total {requests} = {cost}{avg}', avg: ' avg {usd}' } } };
+test('roleCostsLines: the role lines carry the average cost per request, left out with no request or no label', () => {
+  const labels = { status: { costs: { ...LABELS.status.costs, role: '{role} {requests} = {cost}{avg}', avg: ' avg {usd}' } } };
   const rows = [
     { role: 'voice', requests: 4, promptTokens: 150_000, cachedTokens: 57_000, completionTokens: 635, cost: 0.61 },
     { role: 'idle', requests: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 0 },
   ];
-  assert.deepEqual(costsLines({ key: ok({}), credits: CREDITS, rows, labels }).slice(-3), ['voice 4 = 0.61 avg 0.153', 'idle 0 = 0.00', 'total 4 = 0.61 avg 0.153']);
+  assert.deepEqual(roleCostsLines({ rows, labels }), ['voice 4 = 0.61 avg 0.153', 'idle 0 = 0.00']);
   const noAvg = { status: { costs: { ...labels.status.costs, avg: undefined } } };
-  assert.equal(costsLines({ key: ok({}), credits: CREDITS, rows, labels: noAvg }).at(-1), 'total 4 = 0.61');
+  assert.equal(roleCostsLines({ rows, labels: noAvg })[0], 'voice 4 = 0.61');
+});
+
+// ---- the management key's activity ---------------------------------------------------------
+
+test('activitySums: the last 6 and 29 completed UTC days, each day usage plus BYOK inference over its rows; today and older days left out', () => {
+  const rows = [
+    { date: '2026-10-14 00:00:00', usage: 1, byok_usage_inference: 0.5, requests: 3 },
+    { date: '2026-10-14 00:00:00', usage: 0.25, byok_usage_inference: 0 },
+    { date: '2026-10-09 00:00:00', usage: 2, byok_usage_inference: null },
+    { date: '2026-10-08 00:00:00', usage: 4 },
+    { date: '2026-09-16 00:00:00', usage: 8 },
+    { date: '2026-09-15 00:00:00', usage: 16 },
+    { date: '2026-10-15 00:00:00', usage: 32 },
+    { date: 'not a day', usage: 64 },
+    null,
+  ];
+  assert.deepEqual(activitySums(rows, '2026-10-15'), { last7: 3.75, last30: 15.75 });
+  assert.equal(activitySums('odd', '2026-10-15'), null);
+});
+
+test('readActivity: the rows of a 2xx answer, or why not', async () => {
+  assert.deepEqual(await readActivity(async () => ({ ok: true, status: 200, json: { data: [{ usage: 1 }] } })), { ok: true, data: [{ usage: 1 }] });
+  assert.deepEqual(await readActivity(async () => ({ ok: true, status: 200, json: { data: {} } })), { ok: false, reason: 'bad-answer' });
+  assert.deepEqual(await readActivity(async () => ({ ok: false, status: 403, json: null })), { ok: false, reason: 'http', status: 403 });
+  assert.deepEqual(await readActivity(null), { ok: false, reason: 'no-client' });
+});
+
+test('keyCostsLines: with the activity of a key its usage line is today, then today plus the completed days of the last 7 and 30, for the simulator key too', () => {
+  const labels = { status: { costs: { ...LABELS.status.costs, keyLead: 'main', simKeyLead: 'sim', roleKeyLead: '{roles} key', keyLimitPlain: '{lead} {spent}/{limit}', usageWeekCal: 'W {usd}', usageMonthCal: 'M {usd}' } } };
+  const lines = keyCostsLines({
+    key: ok({ limit: 30, limit_remaining: 20, usage_daily: 1 }),
+    activity: { last7: 2, last30: 5 },
+    windows: { last7: window(99), last30: window(99) },
+    sim: ok({ limit: 5, limit_remaining: 5, usage_daily: 0.5, usage_weekly: 9, usage_monthly: 9 }),
+    simActivity: { last7: 0.25, last30: 0.75 },
+    labels,
+    roleKeys: [
+      { roles: ['voice'], key: ok({ limit: 200, limit_remaining: 100, usage_daily: 3 }), activity: { last7: 1, last30: 2 }, windows: { last7: window(99), last30: window(99) } },
+      { roles: ['vision'], key: ok({ limit: 10, limit_remaining: 10, usage_daily: 0 }), activity: null, windows: { last7: window(4), last30: window(6) } },
+    ],
+  });
+  assert.deepEqual(lines, [
+    'main 10.00/30.00',
+    'usage D 1.00 | L7 3.00 | L30 6.00',
+    'sim 0.00/5.00',
+    'usage D 0.50 | L7 0.75 | L30 1.25',
+    'voice key 100.00/200.00',
+    'usage D 3.00 | L7 4.00 | L30 5.00',
+    'vision key 0.00/10.00',
+    'usage D 0.00 | L7 4.00 | L30 6.00',
+  ], 'no activity for a key: the accumulator sums (the simulator key: its calendar periods)');
+  const failedKey = keyCostsLines({ key: { ok: false, reason: 'timeout' }, activity: { last7: 2, last30: 5 }, labels, windows: { last7: window(1), last30: window(2) } });
+  assert.equal(failedKey[1], 'usage L7 1.00 | L30 2.00', 'a failed key read: no today to add to, the accumulator sums');
+});
+
+test('createLlm: activity is one GET with the hash in the query and the management key; keyHash hashes the key a role goes out on', async () => {
+  const calls = [];
+  const state = { data: {}, markDirty() {} };
+  const llm = createLlm({
+    apiKey: 'k-test',
+    env: { OPENROUTER_VOICE_KEY: 'k-voice' },
+    getConfig: () => ({ llm: { baseUrl: 'https://openrouter.ai/api/v1', timeoutMs: 5000, maxRequestsPerDay: 1, keyByRole: { voice: 'OPENROUTER_VOICE_KEY' } } }),
+    calibrator: { observe() {} },
+    state,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return { ok: true, status: 200, json: async () => ({ data: [] }) };
+    },
+  });
+  const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
+  assert.equal(keyHashOf('k-test'), sha('k-test'));
+  assert.equal(llm.keyHash(), sha('k-test'));
+  assert.equal(llm.keyHash({ role: 'voice' }), sha('k-voice'));
+  assert.deepEqual(await llm.activity({ apiKey: 'mgmt-test', keyHash: sha('k-voice'), timeoutMs: 1234 }), { ok: true, status: 200, json: { data: [] } });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, `https://openrouter.ai/api/v1/activity?api_key_hash=${sha('k-voice')}`);
+  assert.equal(calls[0].init.method, 'GET');
+  assert.equal(calls[0].init.headers.Authorization, 'Bearer mgmt-test');
+  assert.deepEqual(state.data, {}, 'nothing counted');
 });

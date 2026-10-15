@@ -2,6 +2,7 @@
 // check of runOp, the result shape, and the old command keys' table (COMMAND_TO_OP).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -184,7 +185,7 @@ test('ops: a stored grant on a command or group that runs no operation any more 
   assert.deepEqual(legacyGrantOps('status'), { from: null, names: ['status.show'] });
 });
 
-test('createOpsEnv: the simulator key and the extra role keys reach the owner status card', async () => {
+test('createOpsEnv: the simulator key, the management key and the extra role keys reach the owner status card', async () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ops-'));
   const costs = {
     keyLead: 'main',
@@ -210,14 +211,21 @@ test('createOpsEnv: the simulator key and the extra role keys reach the owner st
       const limit = options.apiKey ? 5 : options.role ? 200 : 30;
       return { ok: true, status: 200, json: { data: { limit, limit_remaining: limit } } };
     },
-    async credits() {
-      return { ok: true, status: 200, json: { data: {} } };
+    keyHash: ({ role } = {}) => (role ? 'hash-voice' : 'hash-main'),
+    async activity(options) {
+      activity.push([options.apiKey, options.keyHash]);
+      return { ok: false, status: 403, json: null };
     },
   };
-  const env = createOpsEnv({ hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key' });
+  const activity = [];
+  const env = createOpsEnv({ hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key', managementKey: 'mgmt-test' });
   assert.equal(env.simKey, 'sim-test-key');
-  const result = await runOp('status.show', {}, { env, guildId: null, userId: '42', roleIds: [] });
-  const value = result.data.embeds[0].fields.find((field) => field.name === 'costs').value;
-  assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'voice key 0.00/200.00']);
+  assert.equal(env.managementKey, 'mgmt-test');
+  const result = await runOp('status.show', { field: 'costs (limits per key)' }, { env, guildId: null, userId: '42', roleIds: [] });
+  assert.deepEqual(result.data.embeds[0].fields.map((field) => field.name), ['costs (limits per key)']);
+  const value = result.data.embeds[0].fields[0].value;
+  assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'voice key 0.00/200.00'], 'a failed activity read: the lines as without it');
   assert.deepEqual(reads.sort(), ['main', 'sim-test-key', 'voice']);
+  const simHash = crypto.createHash('sha256').update('sim-test-key').digest('hex');
+  assert.deepEqual(activity.sort(), [['mgmt-test', 'hash-main'], ['mgmt-test', 'hash-voice'], ['mgmt-test', simHash]].sort(), 'one activity read per key, by its hash, with the management key');
 });

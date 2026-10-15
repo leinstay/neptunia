@@ -134,13 +134,13 @@ Eight model roles. Each is set independently under `roles.<name>` with its own d
 | `maxRequestTokens` | `50000` | Hard token cap per request |
 | `safetyMargin` | `0.9` | Budgeting fraction of maxRequestTokens |
 | `timeoutMs` | `300000` | Request timeout (ms) |
-| `probeTimeoutMs` | `30000` | Timeout of each model probe and of the key and credits reads on the owner's `/nep status` card (ms) |
+| `probeTimeoutMs` | `30000` | Timeout of each model probe and of the key and activity reads on the owner's `/nep status` card (ms) |
 | `helperTimeoutMs` | `30000` | Timeout for a helper that runs alongside the turn (the route classifier, the search classifier and the recall summary). A helper that runs past this limit is abandoned; the turn continues without its result |
 | `retries` | `2` | Retries on transient HTTP errors (408/429/5xx) and network failures. A provider account's daily-quota 429 gets one attempt and is thrown at once, not retried |
 | `maxRequestsPerDay` | `5000` | Daily request cap |
 | `provider` | `null` | OpenRouter `provider` routing object, passed verbatim; `null` sends nothing |
 | `providerByModel` | `{}` | Per-model provider routing; see below |
-| `keyByRole` | `{}` | A separate OpenRouter key per model role: maps a role name (`voice`, `analyzer`, `reasoner`, `extractor`, `vision`, `video`, `embedding`) to the NAME of a `.env` variable holding that key, e.g. `{ "voice": "OPENROUTER_VOICE_KEY" }`. Read at every request. Only names matching `OPENROUTER_[A-Z0-9_]+` are accepted; a role not in the map, a bad name or an unset variable uses `OPENROUTER_API_KEY` (a bad or unset one logs `llm: role key missing` once). The owner's `/nep status` card shows each extra key's limit and rolling spend. The account credits are always read with the main key |
+| `keyByRole` | `{}` | A separate OpenRouter key per model role: maps a role name (`voice`, `analyzer`, `reasoner`, `extractor`, `vision`, `video`, `embedding`) to the NAME of a `.env` variable holding that key, e.g. `{ "voice": "OPENROUTER_VOICE_KEY" }`. Read at every request. Only names matching `OPENROUTER_[A-Z0-9_]+` are accepted; a role not in the map, a bad name or an unset variable uses `OPENROUTER_API_KEY` (a bad or unset one logs `llm: role key missing` once). The owner's `/nep status` card shows each extra key's limit and rolling spend |
 | `cache.ttl` | `"1h"` | Cache TTL of the markers on the system message and on the reply's stable user prefix (the stable `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`): `"1h"` or `"5m"` |
 | `cache.profilesTtl` | `"1h"` | Cache TTL of the separate marker on the reply's profiles (`<people>`): `"1h"` or `"5m"`; `null` or `false` = no marker there. Never longer than `cache.ttl` (a `"5m"` `cache.ttl` makes it `"5m"`) |
 | `cache.roles` | `["voice"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached. Add `analyzer` and `reasoner` to cache the helpers' stable parts too |

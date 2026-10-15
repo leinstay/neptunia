@@ -88,6 +88,9 @@ const braveApiKey = env.BRAVE_SEARCH_API_KEY || null;
 // Optional: the simulator key, used only for one read-only GET of its limit on the owner's status
 // card, never for a model request. Never logged.
 const simApiKey = env.OPENROUTER_SIM_KEY || null;
+// Optional: the management key, used only for the read-only activity GETs of the owner's status
+// card (each key's spend over the last 30 days), never for a model request. Never logged.
+const managementApiKey = env.OPENROUTER_MANAGEMENT_KEY || null;
 
 const hot = createHot({ rootDir: ROOT_DIR }).watch();
 
@@ -461,6 +464,8 @@ const admin = createAdmin({
   usage,
   // /nep status: the simulator key's limit line (one GET, nothing else).
   simKey: simApiKey,
+  // /nep status: each key's activity for its last 7 and 30 days (GETs only, nothing else).
+  managementKey: managementApiKey,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 

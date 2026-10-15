@@ -1,27 +1,28 @@
-// Operations: `/nep status [detail]`: what the bot is doing now, read only. The reply is one
+// Operations: `/nep status [detail] [field]`: what the bot is doing now, read only. The reply is one
 // card (`cmdStatusCard`, plain embed data: src/discord/commands.js wraps it for discord.js), the
 // most important field first, for a phone; `detail` adds the long text form (`cmdStatus`) below
-// it. A member (anyone not in `bot.owners`) gets the card without the storage line, the costs,
-// memory and speed fields, and never the long form. Every field lists one item per line. The models
-// field groups the roles by kind under a bold header each (voice, analyzer, reasoner, extractor,
-// media, embedding, drawing). The owner's card probes on every call: one minimal chat completion per
+// it; `field` keeps only that field and computes nothing for the others. A member (anyone not in
+// `bot.owners`) gets the card without the storage line, the costs, memory and speed fields, and
+// never the long form. Every field lists one item per line; the state field ends with the gateway
+// and the uptime. The models field lists one line per role, `<role> · <model> ...` (voice,
+// analyzer, reasoner, extractor, vision, video, embedding, drawing). The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
 // request for the embedding role, and one free GET of the drawing model's provider listing; a
 // member's card only names the models. Each role shows its own model (never another role's), and
-// each group ends with the `roles.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
+// each role's line is followed by the `roles.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
 // memory) is computed at most once a minute: directory listings and the record's month indexes,
 // never its day files. The speed field reads src/ops/metrics.js (the last 24 h), then today's
-// missed-answer figures from the journal (src/behavior/missed.js). The costs field reads the API
-// key's limit and the credits (two free GETs, one more per extra role key) and the per-role
-// accumulator: rolling 7/30-day sums per key and today by role (src/ops/usage.js).
+// missed-answer figures from the journal (src/behavior/missed.js). The `costs (limits per key)`
+// field reads each API key's limit (one free GET per key) and the rolling 7/30-day sums per key;
+// `costs (today by role)` reads today's per-role accumulator (src/ops/usage.js).
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { gifWatchesToday } from '../memory/gif-watch.js';
 import { initiateCooldownUntil } from '../behavior/spontaneous.js';
 import { RECALL_DAILY } from '../behavior/recall-run.js';
-import { llmCountToday, resolveProvider } from '../llm/openrouter.js';
+import { keyHashOf, llmCountToday, resolveProvider } from '../llm/openrouter.js';
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../llm/images.js';
 import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../time.js';
 import { VOICE_DAILY } from '../memory/update.js';
@@ -30,29 +31,29 @@ import { WEB_DAILY } from '../web/lookup.js';
 import { PORTRAIT_SLOTS, portraitSettings } from '../memory/portrait.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from '../discord/access.js';
-import { MODEL_ROLES } from '../discord/commands.js';
+import { MODEL_ROLES, STATUS_FIELDS } from '../discord/commands.js';
 import { PURPOSE_ROLES, roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { ARCHIVE_EVENTS } from '../memory/archive.js';
 import { plannerOn } from '../behavior/planner.js';
 import { missedCounts, missedStatusLine } from '../behavior/missed.js';
 import { SPEED_METRICS } from './metrics.js';
-import { costsLines, readAccount } from './usage.js';
+import { activitySums, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 import { todayUtc, onOff, modelForRole } from './shared.js';
 import { defineOp, perEnv } from './registry.js';
 
-/** The card's field names, in order (the costs, memory and speed ones are the owner's only). */
-export const STATUS_FIELDS = Object.freeze(['state', 'connection', 'long tasks', 'models', 'limits', 'costs', 'memory', 'speed', 'uptime']);
+/** The card's field names, in order (src/discord/commands.js#STATUS_FIELDS, the `field` option's choices). */
+export { STATUS_FIELDS };
 
 /** The fields a member's card leaves out. */
-const OWNER_FIELDS = new Set(['costs', 'memory', 'speed']);
+const OWNER_FIELDS = new Set(['costs (limits per key)', 'costs (today by role)', 'memory', 'speed']);
 
 /**
- * The models field's groups, in order: a bold header line each, then one line per role, then
- * the `roles.byPurpose` overrides of the purposes that go out on those roles
- * (src/llm/roles.js#PURPOSE_ROLES; a purpose it does not list closes the analyzer group).
+ * The models field's groups, in order: one line per role, then the `roles.byPurpose` overrides
+ * of the purposes that go out on those roles (src/llm/roles.js#PURPOSE_ROLES; a purpose it does
+ * not list follows the analyzer).
  */
 const MODEL_GROUPS = Object.freeze([
   { name: 'voice', roles: ['voice'] },
@@ -65,9 +66,9 @@ const MODEL_GROUPS = Object.freeze([
   { name: 'drawing', roles: [IMAGE_ROLE] },
 ]);
 
-/** A role's line starts with its model alone: the group's bold header already names the role. */
-function roleHead(model) {
-  return model;
+/** `<role> · <model>`: each role shows its own model, never another role's. */
+function roleHead(role, model) {
+  return `${role} · ${model}`;
 }
 
 /** The `roles.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
@@ -82,12 +83,11 @@ function byPurposeLines(cfg, roles, unlisted) {
     .map(([purpose, model]) => `byPurpose ${purpose} · ${model}`);
 }
 
-/** The models field: each group's bold header, then `lineOf(role)` per role (the drawing role's
- * line `imageLine`, left out when null), each group ending with its per-purpose overrides. */
+/** The models field: `lineOf(role)` per role (the drawing role's line `imageLine`, left out when
+ * null), each group's per-purpose overrides after its role. */
 function groupedModels(cfg, lineOf, imageLine) {
   const lines = [];
   for (const group of MODEL_GROUPS) {
-    lines.push(`**${group.name}**`);
     for (const role of group.roles) {
       if (role === IMAGE_ROLE) {
         if (imageLine) lines.push(imageLine);
@@ -156,7 +156,7 @@ function extractRoutingFunnel(rawBody) {
 
 /** One role's probe line: `<head> · <provider> · ok <ms> ms` (`-` when the answer names no
  * provider, as an embedding's does not), or `<head> · failed: <short reason>` with the routing
- * funnel in brackets when the error body has one; `head` is the model (roleHead). */
+ * funnel in brackets when the error body has one; `head` is `<role> · <model>` (roleHead). */
 function probeLine(head, outcome) {
   if (!outcome.ok) {
     const message = clampChars(oneLine(outcome.err?.message ?? outcome.err ?? 'error'), PROBE_ERROR_CHARS);
@@ -395,18 +395,10 @@ const handlers = perEnv((env) => {
     return problems.length > 0 ? `storage: ${problems.join('; ')}` : 'storage ok';
   }
 
-  /** The models field unprobed (a member's card): every group, each role's own model, the
-   * drawing model last. */
+  /** The models field unprobed (a member's card): every role's own model, the drawing model last. */
   function modelsValue(cfg) {
-    const image = roleModel(cfg, 'drawing') ? imageModelLabel(cfg) : 'no model configured';
-    return groupedModels(
-      cfg,
-      (role) => {
-        const model = modelForRole(role, cfg);
-        return model ? roleHead(model) : 'no model configured';
-      },
-      image,
-    );
+    const image = roleHead(IMAGE_ROLE, roleModel(cfg, 'drawing') ? imageModelLabel(cfg) : 'no model configured');
+    return groupedModels(cfg, (role) => roleHead(role, modelForRole(role, cfg) ?? 'no model configured'), image);
   }
 
   /** The embedding role's probe: one embedding request of one input (the probe label), never
@@ -441,20 +433,20 @@ const handlers = perEnv((env) => {
     return `listed, image output, ${endpoints} endpoint(s), ${Date.now() - start} ms`;
   }
 
-  /** The drawing model's line (`image · no model configured` when none is set); notes when
+  /** The drawing model's line (`drawing · no model configured` when none is set); notes when
    * drawing is switched off (features.imageGeneration false; a missing key counts as on). */
   async function imageProbeLine(cfg, timeoutMs) {
     const model = roleModel(cfg, 'drawing');
-    if (!model) return 'no model configured';
+    if (!model) return roleHead(IMAGE_ROLE, 'no model configured');
     const off = cfg?.features?.imageGeneration === false ? ' (features.imageGeneration is off)' : '';
-    return `${model} · ${await imageListing(model, timeoutMs)}${off}`;
+    return `${roleHead(IMAGE_ROLE, model)} · ${await imageListing(model, timeoutMs)}${off}`;
   }
 
   /**
    * The owner's models field: every role's model, as resolved now, probed in parallel -- the chat
    * roles with one minimal chat completion, the embedding role with one embedding request of one
-   * input -- grouped by kind (MODEL_GROUPS), one line per role, the per-purpose overrides
-   * (unprobed) closing the group of their role and the drawing model's listing the drawing group. Roles
+   * input -- one line per role in MODEL_GROUPS order, the per-purpose overrides (unprobed)
+   * after their role and the drawing model's listing last. Roles
    * sharing a model and a provider route share a probe (a role-specific `llm.providerByModel` key
    * routing one elsewhere makes it a probe of its own); each probe goes out as the first role that
    * needs it. Never counted against the daily cap, never calibrated, never writes under data/.
@@ -514,8 +506,8 @@ const handlers = perEnv((env) => {
     });
     const lineOf = (role) => {
       const model = modelOf.get(role);
-      if (!model) return 'no model configured';
-      const head = roleHead(model);
+      if (!model) return roleHead(role, 'no model configured');
+      const head = roleHead(role, model);
       if (!promptText) return `${head} · skipped: label missing`;
       if (role === EMBED_ROLE && !canEmbed) return `${head} · not checked (no embedding client)`;
       return probeLine(head, results.get(targetOf(role)));
@@ -540,38 +532,69 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The owner's costs field (src/ops/usage.js#costsLines, every word from `labels.status.costs`):
-   * the API key's limit and spend and the account's credits, two free GETs in parallel
-   * (`llm.keyInfo`, `llm.credits`; `llm.probeTimeoutMs`, never counted against
-   * `llm.maxRequestsPerDay`), alongside the record of each extra key `llm.keyByRole` puts in use
-   * (`llm.roleKeys`, read by role, never holding a key here), then the rolling 7- and 30-day sums
-   * of each key's roles and today's requests per role from the usage accumulator. Logs
-   * `status: account read` with the outcomes' codes. `-` when the labels give no line.
+   * The owner's `costs (limits per key)` field (src/ops/usage.js#keyCostsLines, every word from
+   * `labels.status.costs`): the main API key's limit and spend, the simulator key's and those of
+   * each extra key `llm.keyByRole` puts in use (`llm.roleKeys`, read by role, never holding a key
+   * here), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
+   * `llm.maxRequestsPerDay`), with the rolling 7- and 30-day sums of each key's roles from the
+   * usage accumulator. With the management key (OPENROUTER_MANAGEMENT_KEY, `env.managementKey`,
+   * used for these GETs only) each key's activity is read alongside (`llm.activity` by its hash,
+   * one GET per key) and its last 7 and 30 days come from there instead; a failed activity read
+   * falls back. Logs `status: account read` with the outcomes' codes. `-` when the labels give
+   * no line.
    */
-  async function costsValue(cfg) {
+  async function keyCostsValue(cfg) {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
-    const read = (name) => readAccount(typeof llm?.[name] === 'function' ? () => llm[name]({ timeoutMs }) : null);
+    const readKey = readAccount(typeof llm?.keyInfo === 'function' ? () => llm.keyInfo({ timeoutMs }) : null);
     const simKey = typeof env.simKey === 'string' && env.simKey ? env.simKey : null;
     // The simulator key is used for this one read only, never for a model request.
     const readSim = simKey && typeof llm?.keyInfo === 'function' ? readAccount(() => llm.keyInfo({ timeoutMs, apiKey: simKey })) : null;
     const groups = typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
     const readRoleKeys = Promise.all(groups.map((group) => readAccount(() => llm.keyInfo({ timeoutMs, role: group.roles[0] }))));
-    const [key, credits, sim, roleReads] = await Promise.all([read('keyInfo'), read('credits'), readSim, readRoleKeys]);
+    // The management key reads each key's activity by its hash, for these GETs only; never logged.
+    const managementKey = typeof env.managementKey === 'string' && env.managementKey ? env.managementKey : null;
+    const canActivity = managementKey && typeof llm?.activity === 'function' && typeof llm?.keyHash === 'function';
+    const readActivityOf = (hashOf) => (canActivity ? readActivity(() => llm.activity({ apiKey: managementKey, keyHash: hashOf(), timeoutMs })) : null);
+    const activityReads = Promise.all([
+      readActivityOf(() => llm.keyHash()),
+      simKey ? readActivityOf(() => keyHashOf(simKey)) : null,
+      ...groups.map((group) => readActivityOf(() => llm.keyHash({ role: group.roles[0] }))),
+    ]);
+    const [key, sim, roleReads, [mainActivity, simActivity, ...roleActivity]] = await Promise.all([readKey, readSim, readRoleKeys, activityReads]);
+    const activityRead = [mainActivity, simActivity, ...roleActivity].filter(Boolean);
     log.info('status: account read', {
       key: key.ok ? 'ok' : key.reason,
       simKey: sim ? (sim.ok ? 'ok' : sim.reason) : 'not-set',
-      credits: credits.ok ? 'ok' : credits.reason,
       roleKeys: roleReads.length,
       roleKeysOk: roleReads.filter((outcome) => outcome.ok).length,
-      status: key.status ?? credits.status ?? null,
+      activity: canActivity ? activityRead.length : 'not-set',
+      activityOk: activityRead.filter((outcome) => outcome.ok).length,
+      status: key.status ?? null,
     });
-    const rows = typeof usage?.byRole === 'function' ? usage.byRole() : [];
+    const today = utcDay(clock());
+    const sumsOf = (outcome) => (outcome?.ok ? activitySums(outcome.data, today) : null);
     // Rolling sums per key: an extra key over its own roles, the main key over every other role.
     const sums = typeof usage?.sumDays === 'function';
     const windowsOf = (filter) => (sums ? { last7: usage.sumDays(7, filter), last30: usage.sumDays(30, filter) } : null);
     const taken = groups.flatMap((group) => group.roles);
-    const roleKeys = groups.map((group, i) => ({ roles: group.roles, key: roleReads[i], windows: windowsOf({ only: group.roles }) }));
-    const lines = costsLines({ key, sim, credits, rows, labels: hot.prompts?.labels, windows: windowsOf({ except: taken }), roleKeys });
+    const roleKeys = groups.map((group, i) => ({ roles: group.roles, key: roleReads[i], activity: sumsOf(roleActivity[i]), windows: windowsOf({ only: group.roles }) }));
+    const lines = keyCostsLines({
+      key,
+      activity: sumsOf(mainActivity),
+      sim,
+      simActivity: sumsOf(simActivity),
+      labels: hot.prompts?.labels,
+      windows: windowsOf({ except: taken }),
+      roleKeys,
+    });
+    return lines.length > 0 ? lines.join('\n') : '-';
+  }
+
+  /** The owner's `costs (today by role)` field (src/ops/usage.js#roleCostsLines): today's requests
+   * per role from the usage accumulator; `-` when the labels give no line. */
+  function roleCostsValue() {
+    const rows = typeof usage?.byRole === 'function' ? usage.byRole() : [];
+    const lines = roleCostsLines({ rows, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
@@ -769,34 +792,37 @@ const handlers = perEnv((env) => {
 
   /**
    * The status card as plain embed data (`{ fields: [{ name, value, inline }] }`), the fields in
-   * STATUS_FIELDS order, one item per line in each; `owner` false leaves out the costs, memory
-   * and speed fields and the storage line (and sends no account read), and names the models without probing them. Reads the
-   * freshest data/ even mid-pause.
+   * STATUS_FIELDS order, one item per line in each, a field with no line `-`; `owner` false leaves
+   * out the costs, memory and speed fields and the storage line (and sends no account read), and
+   * names the models without probing them. With `field` (one of STATUS_FIELDS this caller may see)
+   * the card holds that field alone and only its work runs (no probe, no account read, no
+   * coverage for another field); any other `field` gives the whole card. Reads the freshest data/
+   * even mid-pause.
    */
-  async function cmdStatusCard({ owner }) {
+  async function cmdStatusCard({ owner, field = null }) {
     freshenIfPaused();
     const cfg = hot.config;
     const data = store.state.data ?? {};
     const guildId = getGuildId?.() ?? null;
     const unresolved = 'guild not resolved yet';
-    const missed = owner ? await missedLine(guildId, cfg) : null;
-    // The account reads go out now, alongside the model probes; a member's card never sends them.
-    const costs = owner ? costsValue(cfg) : null;
-    const values = {
-      state: owner ? `${stateValue(data)}\n${await storageLine(guildId, cfg)}` : stateValue(data),
-      connection: connectionValue(),
-      'long tasks': longTasksValue(guildId),
+    const visible = STATUS_FIELDS.filter((name) => owner || !OWNER_FIELDS.has(name));
+    const shown = visible.includes(field) ? [field] : visible;
+    // Each field's work, run only for the fields shown, all at once: the account reads go out
+    // alongside the model probes.
+    const compute = {
+      // The state, then the gateway connection, then the uptime.
+      state: async () => [stateValue(data), owner ? await storageLine(guildId, cfg) : null, connectionValue(), `uptime ${span(process.uptime() * 1000)}`].filter(Boolean).join('\n'),
+      'long tasks': () => longTasksValue(guildId),
       // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
-      models: owner && typeof llm?.complete === 'function' ? await probedModelsValue(cfg) : modelsValue(cfg),
-      limits: limitsValue(cfg, data),
-      costs: owner ? await costs : '',
-      memory: owner && guildId ? await memoryValue(guildId) : unresolved,
-      speed: owner ? [speedValue(cfg), missed].filter(Boolean).join('\n') : '',
-      uptime: span(process.uptime() * 1000),
+      models: () => (owner && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg)),
+      limits: () => limitsValue(cfg, data),
+      'costs (limits per key)': () => keyCostsValue(cfg),
+      'costs (today by role)': () => roleCostsValue(),
+      memory: () => (guildId ? memoryValue(guildId) : unresolved),
+      speed: async () => [speedValue(cfg), await missedLine(guildId, cfg)].filter(Boolean).join('\n'),
     };
-    const fields = STATUS_FIELDS
-      .filter((name) => owner || !OWNER_FIELDS.has(name))
-      .map((name) => ({ name, value: fitField(values[name]), inline: false }));
+    const values = await Promise.all(shown.map((name) => compute[name]()));
+    const fields = shown.map((name, i) => ({ name, value: fitField(values[i] || '-'), inline: false }));
     return { fields };
   }
 
@@ -808,7 +834,8 @@ defineOp({
   rights: { kind: 'read' },
   run: async (args, ctx) => {
     const owner = isOwnerId(ctx.env.hot.config, ctx?.userId);
-    const card = await handlers(ctx.env).cmdStatusCard({ owner });
+    const field = typeof args?.field === 'string' ? args.field : null;
+    const card = await handlers(ctx.env).cmdStatusCard({ owner, field });
     // The long form below the card is the owner's only: it names files, prompts and guild internals.
     const text = owner && args?.detail === true ? handlers(ctx.env).cmdStatus() : '';
     return { text, embeds: [card] };
