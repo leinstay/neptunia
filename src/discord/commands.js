@@ -45,6 +45,12 @@ const MAX_AUTOCOMPLETE_CHOICES = 25;
 /** How long an interaction id is remembered, so a retried delivery runs nothing. */
 const RETRY_WINDOW_MS = 15 * MINUTE_MS;
 
+/**
+ * Any other command that has not answered after this long is deferred while it finishes: Discord
+ * drops an interaction not acknowledged within 3 s (a status card's model probes can take longer).
+ */
+export const DEFER_AFTER_MS = 2000;
+
 /** Operations that may take long enough to need `deferReply` before `editReply`. */
 export const DEFERRED_OPS = Object.freeze(new Set([
   'message.create',
@@ -802,7 +808,7 @@ function routeModelChoices(config, typed) {
  * `now` — the clock of the retry window (epoch ms), injected for the tests.
  * @returns {(interaction: import('discord.js').Interaction) => Promise<void>}
  */
-export function createInteractionHandler({ hot, admin, getGuildId, now = Date.now }) {
+export function createInteractionHandler({ hot, admin, getGuildId, now = Date.now, deferAfterMs = DEFER_AFTER_MS }) {
   // Interaction ids seen in the last RETRY_WINDOW_MS, oldest first: Discord may deliver one
   // interaction twice, and the second delivery must not run its operation again.
   const seen = new Map();
@@ -897,7 +903,23 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
       if (mode.deferred) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const context = { guildId: interaction.guildId, channelId: interaction.channelId, userId: interaction.user.id, roleIds: roleIdsFor(interaction) };
       // The rights are checked by the operation's own runOp (src/ops/index.js), every time.
-      const result = await admin.runCommand(commandKey, args, context);
+      const run = admin.runCommand(commandKey, args, context);
+      let result;
+      if (mode.deferred) result = await run;
+      else {
+        const late = Symbol('late');
+        let timer;
+        try {
+          const first = await Promise.race([run, new Promise((resolve) => { timer = setTimeout(() => resolve(late), deferAfterMs); })]);
+          if (first === late) {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            mode = { deferred: true };
+            result = await run;
+          } else result = first;
+        } finally {
+          clearTimeout(timer);
+        }
+      }
       if (result.status === 'ok') {
         await respond(interaction, result.data?.files || result.data?.embeds ? result.data : result.summary, mode);
       } else if (result.status === 'denied') {
