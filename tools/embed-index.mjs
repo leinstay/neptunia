@@ -43,7 +43,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, REFUSED_EXIT, parseFlags, resolveGuildId, runCli } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, parseFlags, resolveGuildId, runCli } from './lib/cli.mjs';
 import { log as defaultLog } from '../src/log.js';
 import { roleModel } from '../src/llm/roles.js';
 import { EMBED_ROLE } from '../src/llm/embed.js';
@@ -343,8 +343,7 @@ async function embedClientOf(ctx) {
   if (ctx.embedClient) return ctx.embedClient;
   const { loadDotEnv } = await import('../src/config.js');
   loadDotEnv(ctx.rootDir);
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new CliError('embed-index: OPENROUTER_API_KEY is not set (.env)');
+  const apiKey = simKey('embed-index');
   const { createEmbedder } = await import('../src/llm/embed.js');
   const stateData = readJson(path.join(ctx.dataDir, 'state.json'), {}) ?? {};
   const state = { data: { llmDay: stateData.llmDay, llmCount: stateData.llmCount }, markDirty() {} };

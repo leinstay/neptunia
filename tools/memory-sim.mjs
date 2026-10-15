@@ -43,7 +43,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { authorLines, batchesFromDump, manifestFrom, mobility, proseFields, stagnation, wordsPerSentence, SHORT_SENTENCE_WORDS } from './lib/sim.mjs';
-import { CliError, REFUSED_EXIT, daysBetween, parseFlags, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, daysBetween, parseFlags, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
 
 const USAGE =
   'usage: node tools/memory-sim.mjs --snapshot <dir> --since <YYYY-MM-DD> [--until <YYYY-MM-DD>] [--guild <id>] [--min-messages 30] ' +
@@ -215,8 +215,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, llmClien
   if (!llmClient) {
     const { loadDotEnv } = await import('../src/config.js');
     loadDotEnv(ROOT);
-    apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) throw new CliError('memory-sim: OPENROUTER_API_KEY is not set (.env)');
+    apiKey = simKey('memory-sim');
   }
 
   // The scratch copy: every write of the replay lands here.

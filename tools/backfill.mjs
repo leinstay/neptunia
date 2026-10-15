@@ -72,7 +72,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { CliError, REFUSED_EXIT, daysBetween, parseFlags, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, daysBetween, parseFlags, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
 import {
   WINDOW_MAX_LINES, advanceCursor, archiveItemOf, buildExtractRequest, candidateItemId, dedupeCandidates, estimate,
   DEDUPE_REASONS, ledgerDrops, readExtractAnswer, rosterOf, snowflakeAt, windowsOf,
@@ -605,8 +605,7 @@ async function modelClient(ctx) {
   if (ctx.llmClient) return ctx.llmClient;
   const { loadDotEnv } = await import('../src/config.js');
   loadDotEnv(ctx.rootDir);
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new CliError('backfill: OPENROUTER_API_KEY is not set (.env)');
+  const apiKey = simKey('backfill');
   const { createLlm } = await import('../src/llm/openrouter.js');
   const { createCalibrator } = await import('../src/llm/tokens.js');
   const stateData = ctx.store.state?.data ?? {};
