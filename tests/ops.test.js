@@ -221,8 +221,8 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
   const env = createOpsEnv({ hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key', managementKey: 'mgmt-test' });
   assert.equal(env.simKey, 'sim-test-key');
   assert.equal(env.managementKey, 'mgmt-test');
-  const result = await runOp('status.show', { field: 'costs (limits per key)' }, { env, guildId: null, userId: '42', roleIds: [] });
-  assert.deepEqual(result.data.embeds[0].fields.map((field) => field.name), ['costs (limits per key)']);
+  const result = await runOp('status.show', { field: 'keys' }, { env, guildId: null, userId: '42', roleIds: [] });
+  assert.deepEqual(result.data.embeds[0].fields.map((field) => field.name), ['keys']);
   const value = result.data.embeds[0].fields[0].value;
   assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'voice key 0.00/200.00'], 'a failed activity read: the lines as without it');
   assert.deepEqual(reads.sort(), ['main', 'sim-test-key', 'voice']);

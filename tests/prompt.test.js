@@ -4869,9 +4869,29 @@ test('buildRequest: skills -- the skills proposed for this turn show the allowed
     fill(labels.skills.proposedOff, { names: 'memory.profile.read, memory.wipe' }),
   ]);
   // Nothing allowed and no note label: no block.
-  const prompts = fakePrompts({ labels: { ...labels, skills: { ...labels.skills, proposedOff: undefined } } });
+  const prompts = fakePrompts({ labels: { ...labels, skills: { ...labels.skills, proposedOff: undefined, proposedDenied: undefined } } });
   const closed = buildRequest(segmentScene({ prompts, skillsInventory: [{ ...SKILL_ROWS[3], proposed: true }] })).messages[1].content;
   assert.equal(blockTags(contentText(closed)).includes('skills'), false);
+});
+
+test('skillsInventoryText: a proposed skill the asker has no right to is named on its own line, never as switched off', () => {
+  const rows = [
+    { ...SKILL_ROWS[2], proposed: true },
+    { name: 'memory.journal.read', title: 'Ημερολόγιο', whenToUse: 'τι έγινε', allowed: false, reason: 'requester-denied', proposed: true },
+    { ...SKILL_ROWS[3], proposed: true },
+  ];
+  const line = fill(labels.skills.line, { name: rows[0].name, title: rows[0].title, whenToUse: rows[0].whenToUse, access: labels.skills.access.allowed });
+  assert.deepEqual(skillsInventoryText(rows, labels).split('\n'), [
+    line,
+    fill(labels.skills.proposedOff, { names: 'memory.profile.read' }),
+    fill(labels.skills.proposedDenied, { names: 'memory.journal.read' }),
+  ]);
+  const deniedOnly = skillsInventoryText([rows[1]], labels);
+  assert.equal(deniedOnly, fill(labels.skills.proposedDenied, { names: 'memory.journal.read' }));
+  assert.ok(!deniedOnly.includes(fill(labels.skills.proposedOff, { names: 'memory.journal.read' })));
+  // Without its own label the asker's lack of right is not worded at all (never as switched off).
+  const bare = { ...labels, skills: { ...labels.skills, proposedDenied: undefined } };
+  assert.equal(skillsInventoryText([rows[1]], bare), '');
 });
 
 // --- the skills granted to her, always listed in the stable part ------------------------------

@@ -13,12 +13,21 @@
 // channel of the served guild where the bot holds the Discord permissions it needs
 // (src/ops/shared.js#postingConversation; a person may ask for her turn in any channel); edit and
 // delete reach only her own messages (the port refuses anyone else's). A message is named by its
-// id or its link. A port answer that may have taken effect is `failed` with `data.unknown` true:
+// id or its link; for an edit or a deletion also by `last`, her own most recent message in that
+// channel. A port answer that may have taken effect is `failed` with `data.unknown` true:
 // never retried.
 
 import { normalizeMessage } from '../discord/collect.js';
-import { messageRefOf, portAnswer, postingConversation } from './shared.js';
+import { channelById, messageRefOf, portAnswer, postingConversation } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+
+/** How far back `last` looks for her own message: Discord's most messages per history request. */
+const LAST_LOOKBACK = 100;
+
+/** True when a message reference is `last`: the persona's own most recent message (any case). */
+function isLast(value) {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'last';
+}
 
 const handlers = perEnv((env) => {
   const { hot, store, client, spontaneous, turns, port, assertNotPaused, resolvedGuildId } = env;
@@ -92,12 +101,33 @@ const handlers = perEnv((env) => {
    * The message `args.messageId` names, in the conversation it may be acted on in -- the bot
    * holding there the permissions `need` names (src/ops/shared.js#CHANNEL_NEEDS): `{ channelId, ref }`.
    */
-  async function target(args, context, need) {
+  async function target(args, context, need, { last = false } = {}) {
+    if (last && isLast(args?.messageId)) return lastTarget(args, context, need);
     const message = messageRefOf(args?.messageId);
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && message.channelId && given !== message.channelId) throw invalid('the message is not in that channel', 'unknown-message');
     const channelId = await postingConversation({ client, guildId: resolvedGuildId(context), channelId: given ?? message.channelId, context, need });
     return { channelId, messageId: message.messageId, ref: { iface: port.iface, conversationId: channelId, messageId: message.messageId } };
+  }
+
+  /**
+   * `last`'s target: the persona's own most recent message among the last LAST_LOOKBACK of the
+   * conversation (`args.channelId`, else the one the command runs in), read through the client;
+   * none of hers there is `invalid` with `no-own-message`.
+   */
+  async function lastTarget(args, context, need) {
+    const channelId = await postingConversation({ client, guildId: resolvedGuildId(context), channelId: args?.channelId ? String(args.channelId) : null, context, need });
+    const channel = await channelById(client, channelId);
+    const fetched = await Promise.resolve(channel?.messages?.fetch?.({ limit: LAST_LOOKBACK })).catch(() => null);
+    const selfId = client?.user?.id ? String(client.user.id) : null;
+    let newest = null;
+    for (const message of fetched?.values?.() ?? []) {
+      if (!selfId || String(message?.author?.id ?? '') !== selfId) continue;
+      if (!newest || (message.createdTimestamp ?? 0) > (newest.createdTimestamp ?? 0)) newest = message;
+    }
+    if (!newest) throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${channelId}`, 'no-own-message');
+    const messageId = String(newest.id);
+    return { channelId, messageId, ref: { iface: port.iface, conversationId: channelId, messageId } };
   }
 
   /** `/nep message edit`: one of the persona's own messages gets `text`. */
@@ -106,7 +136,7 @@ const handlers = perEnv((env) => {
     const p = requirePort();
     const text = String(args?.text ?? '').trim();
     if (!text) throw invalid('text is required');
-    const { channelId, messageId, ref } = await target(args, context, 'read');
+    const { channelId, messageId, ref } = await target(args, context, 'read', { last: true });
     const users = mentionedUsers(context);
     const content = { text, ...(users.length > 0 ? { mentions: { users, repliedUser: false } } : {}) };
     return portAnswer('message.edit', await p.edit(ref, content),`edited message ${messageId} in ${channelId}`);
@@ -116,7 +146,7 @@ const handlers = perEnv((env) => {
   async function cmdDelete(args, context) {
     assertNotPaused();
     const p = requirePort();
-    const { channelId, messageId, ref } = await target(args, context, 'read');
+    const { channelId, messageId, ref } = await target(args, context, 'read', { last: true });
     return portAnswer('message.delete', await p.delete(ref), `deleted message ${messageId} in ${channelId}`);
   }
 

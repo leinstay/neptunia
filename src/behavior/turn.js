@@ -1719,7 +1719,8 @@ export function createTurnRunner({
    * and checked (checkCall). Resolves `{ call, op, resolved, refusal }`: `resolved` null and
    * `refusal` (`{ code, reason }`) when either said no -- a refusal of the resolution logs
    * `skill: refused` too; a body the skill takes no text for, left out by the resolution, logs
-   * `skills: body ignored` (`skill`, never the text). Nothing runs here.
+   * `skills: body ignored` (`skill`, never the text); one read as its arguments logs
+   * `skills: body read as arguments` (`skill`, `count`, never the values). Nothing runs here.
    */
   async function planCall({ call, channel, envelope, draft, view }) {
     const op = journalOp(draft, 'skill', 'persona', { input: { skill: call.skill, invocationId: envelope.invocationId } });
@@ -1731,6 +1732,8 @@ export function createTurnRunner({
     }
     // Her comment in the body of a skill that takes no text: left out, the call goes on (never its text in the log).
     if (resolved.bodyIgnored) log.info('skills: body ignored', { skill: resolved.skill, channel: channel.id });
+    // Her arguments written in the body instead of as attributes: taken, counted (never the values).
+    if (Number.isInteger(resolved.bodyArgs)) log.info('skills: body read as arguments', { skill: resolved.skill, count: resolved.bodyArgs, channel: channel.id });
     const verdict = checkCall(resolved, { channel, envelope });
     return { call, op, envelope, resolved: verdict.ok ? resolved : null, refusal: verdict.ok ? null : { code: verdict.code, reason: verdict.reason } };
   }

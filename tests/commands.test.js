@@ -18,6 +18,7 @@ import {
   MODEL_ROLES,
   MODEL_SET_ROLES,
   STATUS_FIELDS,
+  readFlag,
 } from '../src/discord/commands.js';
 import { isAllowed as accessIsAllowed } from '../src/discord/access.js';
 import { resolveCommand, asResult, listOps } from '../src/ops/index.js';
@@ -65,7 +66,7 @@ test('status: an optional field option whose choices are the field names of the 
   assert.deepEqual(field.choices.map((c) => c.value), [...STATUS_FIELDS]);
   assert.deepEqual(field.choices.map((c) => c.name), [...STATUS_FIELDS]);
   for (const choice of field.choices) assert.ok(choice.value.length >= 1 && choice.value.length <= 100, choice.value);
-  assert.ok(STATUS_FIELDS.includes('costs (limits per key)') && STATUS_FIELDS.includes('costs (today by role)'));
+  assert.deepEqual([...STATUS_FIELDS], ['state', 'tasks', 'models', 'limits', 'keys', 'costs', 'memory', 'speed'], 'single words');
 });
 
 test('interaction handler: status passes the chosen field into its args, null without one', async () => {
@@ -73,7 +74,42 @@ test('interaction handler: status passes the chosen field into its args, null wi
   const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
   await handler(fakeInteraction({ subcommand: 'status', optionValues: { field: 'limits' } }));
   await handler(fakeInteraction({ subcommand: 'status' }));
-  assert.deepEqual(admin.runCalls.map((call) => call[1]), [{ detail: false, field: 'limits' }, { detail: false, field: null }]);
+  assert.deepEqual(admin.runCalls.map((call) => call[1]), [{ field: 'limits' }, { field: null }]);
+});
+
+test('status: no detail option', () => {
+  const [command] = buildCommandTree('nep');
+  assert.deepEqual(findOption(command.options, 'status').options.map((o) => o.name), ['field']);
+});
+
+test('buildCommandTree: no BOOLEAN option is left; every yes/no option is a STRING with lowercase true/false choices', () => {
+  const [command] = buildCommandTree('nep');
+  const all = [];
+  const walk = (options) => {
+    for (const option of options ?? []) {
+      all.push(option);
+      walk(option.options);
+    }
+  };
+  walk(command.options);
+  assert.deepEqual(all.filter((option) => option.type === 5).map((option) => option.name), []);
+  const flags = all.filter((option) => option.type === 3 && option.choices?.some((choice) => choice.value === 'true'));
+  assert.deepEqual(flags.map((option) => option.name).sort(), ['always', 'fallbacks', 'self']);
+  for (const option of flags) assert.deepEqual(option.choices, [{ name: 'true', value: 'true' }, { name: 'false', value: 'false' }], option.name);
+});
+
+test('readFlag: true/false as text (any case) or as a boolean; anything else is null', () => {
+  const reader = (value) => ({ getString: () => value });
+  assert.deepEqual(['true', 'false', ' TRUE ', 'False', true, false].map((value) => readFlag(reader(value), 'x')), [true, false, true, false, true, false]);
+  for (const value of [null, undefined, '', 'yes', '1', 1]) assert.equal(readFlag(reader(value), 'x'), null, String(value));
+});
+
+test('interaction handler: a yes/no option reaches the args as a boolean, its default when left out', async () => {
+  const admin = fakeAdmin();
+  const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
+  await handler(fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a lighthouse', self: 'true' } }));
+  await handler(fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a lighthouse' } }));
+  assert.deepEqual(admin.runCalls.map((call) => call[1].self), [true, false]);
 });
 
 test('MODEL_ROLES: the model-set, route and ping role choices are all derived from the one list', () => {

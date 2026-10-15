@@ -43,13 +43,23 @@ function leavesOf(table) {
   return out;
 }
 
+/**
+ * True for a yes/no option sent to Discord as a STRING with exactly the choices `true` and
+ * `false` (src/discord/commands.js#FLAG_CHOICES: Discord shows a BOOLEAN as True/False).
+ */
+function isFlag(option) {
+  if (option?.type !== STRING || !Array.isArray(option.choices) || option.choices.length !== 2) return false;
+  return option.choices.map((choice) => choice?.value).sort().join(',') === 'false,true';
+}
+
 /** The options of `leaf` the persona can give, `{ name, kind, json }` in order: the command's,
- * then the ones only her own call gives (`personaOptions`, never shown to Discord). */
+ * then the ones only her own call gives (`personaOptions`, never shown to Discord). A yes/no
+ * option (isFlag) is a `boolean` argument, as a BOOLEAN one. */
 function optionsOf(leaf) {
   const persona = Array.isArray(leaf?.personaOptions) ? leaf.personaOptions : [];
   return [...(Array.isArray(leaf?.options) ? leaf.options : []), ...persona]
     .filter((option) => Object.hasOwn(KIND_OF, option?.type) && typeof option.name === 'string')
-    .map((option) => ({ name: option.name, kind: KIND_OF[option.type], json: option }));
+    .map((option) => ({ name: option.name, kind: isFlag(option) ? 'boolean' : KIND_OF[option.type], json: option }));
 }
 
 /**
@@ -153,7 +163,8 @@ export function commandSources({ table, resolve }) {
 /** One option's schema: its kind, bounds and choices as the owner's command has them. */
 function optionSchema(option, enumValues) {
   const json = option.json;
-  const choices = enumValues ?? (Array.isArray(json.choices) && json.choices.length > 0 ? json.choices.map((choice) => choice.value) : null);
+  // A yes/no option's choices are its boolean type, never an enum of strings.
+  const choices = option.kind === 'boolean' ? null : enumValues ?? (Array.isArray(json.choices) && json.choices.length > 0 ? json.choices.map((choice) => choice.value) : null);
   let schema;
   switch (option.kind) {
     case 'string':

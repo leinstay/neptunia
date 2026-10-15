@@ -1739,7 +1739,9 @@ function skillArgsText(args, forms) {
  * title (no texts in the skills layer yet) is its name alone. Rows marked `proposed` (the skills
  * a classifier named for this turn, not the whole catalogue): a line for each allowed one, then
  * the names of the others in one `labels.skills.proposedOff` line (`{names}`; none without that
- * label). '' without an allowed row and nothing to name, or without `labels.skills.line`.
+ * label), except those the asker has no right to (`requester-denied`), named in one
+ * `labels.skills.proposedDenied` line after it (none without that label). '' without an allowed
+ * row and nothing to name, or without `labels.skills.line`.
  * Deterministic: the rows' order (the registry's) and their arguments' (the schema's) decide it.
  * @param {{ name: string, title?: string, whenToUse?: string, allowed: boolean, reason: string, proposed?: boolean, args?: object[] }[]|null|undefined} rows
  * @param {object} labels
@@ -1754,9 +1756,12 @@ export function skillsInventoryText(rows, labels) {
   const line = (row) => (row.title ? fill(l.line, { name: row.name, title: row.title, whenToUse: row.whenToUse ?? '', access: word(row), args: skillArgsText(row.args, l.args) }) : row.name);
   const open = byFamily(named.filter((row) => row.allowed === true)).map((group) => group.map(line).join('\n'));
   if (!named.every((row) => row.proposed === true)) return open.join('\n\n');
-  const off = named.filter((row) => row.allowed !== true).map((row) => row.name);
-  const offLine = off.length > 0 && typeof l.proposedOff === 'string' && l.proposedOff ? fill(l.proposedOff, { names: off.join(', ') }) : '';
-  return [open.join('\n\n'), offLine].filter(Boolean).join('\n');
+  // A skill the asker has no right to is not a switched-off one: each is named through its own label.
+  const closed = named.filter((row) => row.allowed !== true);
+  const note = (label, rows) => (rows.length > 0 && typeof label === 'string' && label ? fill(label, { names: rows.map((row) => row.name).join(', ') }) : '');
+  const offLine = note(l.proposedOff, closed.filter((row) => row.reason !== 'requester-denied'));
+  const deniedLine = note(l.proposedDenied, closed.filter((row) => row.reason === 'requester-denied'));
+  return [open.join('\n\n'), offLine, deniedLine].filter(Boolean).join('\n');
 }
 
 /** The status words of a `<result>` block (src/skills/executors.js#RESULT_STATUSES; `refused` the old word for `denied`). */

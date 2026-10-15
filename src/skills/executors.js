@@ -116,6 +116,40 @@ function memberOf(reference, members) {
   return refused('unknown-member', ids.size > 1 ? 'ambiguous' : 'name');
 }
 
+/** A line break written as an HTML tag in a call's body. */
+const BODY_BREAK_RE = /<br\s*\/?>/gi;
+/** One `<name>value</name>` at the start of what is left of a body. */
+const BODY_TAG_RE = /^<([A-Za-z][A-Za-z0-9_]*)>([\s\S]*?)<\/\1\s*>/;
+/** One `name: value` / `name = value` line at the start of what is left of a body. */
+const BODY_LINE_RE = /^([A-Za-z][A-Za-z0-9_]*)[ \t]*[:=]([^\n]*)/;
+
+/**
+ * The arguments a call's body spells out when the model wrote them there instead of as
+ * attributes: `{ name: value }` when the whole body (a `<br>` read as a line break, blank lines
+ * left out) is `name: value` or `name = value` lines and `<name>value</name>` tags, every name one
+ * of `names` (the command's option names) and given once, every value non-empty (trimmed); else
+ * null -- any other line, an unknown or repeated name, or an empty body. Pure.
+ * @param {string} body
+ * @param {Iterable<string>} names
+ * @returns {Record<string, string>|null}
+ */
+export function bodyArguments(body, names) {
+  const known = new Set(names ?? []);
+  let rest = String(body ?? '').replace(BODY_BREAK_RE, '\n').trim();
+  if (!rest) return null;
+  const out = {};
+  while (rest) {
+    const match = BODY_TAG_RE.exec(rest) ?? BODY_LINE_RE.exec(rest);
+    if (!match) return null;
+    const [all, name, raw] = match;
+    const value = raw.trim();
+    if (!known.has(name) || Object.hasOwn(out, name) || !value) return null;
+    out[name] = value;
+    rest = rest.slice(all.length).trim();
+  }
+  return out;
+}
+
 /**
  * One `<call>` (`{ skill, args, body }`, src/llm/parse.js) as the arguments of the command behind
  * the skill (`view.skills`: the registry), keyed by the command's option names, or the refusal:
@@ -129,14 +163,17 @@ function memberOf(reference, members) {
  * author. A Discord message link there (MESSAGE_LINK_RE, bare or in angle brackets) becomes its
  * message id and names its channel the same way (`unknown-message` when the call named another);
  * any other value -- a raw message id -- is passed on as written. A non-empty body for a command
- * without a body option (her comment on the call) is left out and the call goes on with its
- * attributes; the result says so (`bodyIgnored: true`) for the caller to log. Pure.
+ * without a body option that spells out its options (bodyArguments: `name: value` lines,
+ * `<name>value</name>` tags) gives those arguments, an attribute given explicitly winning; the
+ * result counts the ones taken (`bodyArgs`) for the caller to log. Any other such body (her
+ * comment on the call) is left out and the call goes on with its attributes; the result says so
+ * (`bodyIgnored: true`) for the caller to log. Pure.
  * @param {{ skill: string, args: Record<string, string>, body: string }} call
  * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[],
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
  *   selfId?: string|null }} view
- * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyIgnored?: true }
+ * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyIgnored?: true, bodyArgs?: number }
  *   | { ok: false, code: string, reason: string }}
  */
 export function resolveCall(call, view) {
@@ -148,8 +185,16 @@ export function resolveCall(call, view) {
   const given = { ...(call?.args ?? {}) };
   for (const key of Object.keys(given)) if (!byName.has(key)) return refused('invalid-args', `args.${key}:unknown`);
   const body = typeof call?.body === 'string' ? call.body.trim() : '';
-  // A body where the command takes none is her comment on the call: left out, never a refusal.
-  const bodyIgnored = Boolean(body) && !command.body;
+  // A body where the command takes none: its options spelled out (an attribute wins), else her
+  // comment on the call, left out -- never a refusal.
+  const fromBody = body && !command.body ? bodyArguments(body, byName.keys()) : null;
+  const bodyIgnored = Boolean(body) && !command.body && !fromBody;
+  let bodyArgs = 0;
+  for (const [key, value] of Object.entries(fromBody ?? {})) {
+    if (Object.hasOwn(given, key)) continue;
+    given[key] = value;
+    bodyArgs += 1;
+  }
   if (body && command.body) {
     if (Object.hasOwn(given, command.body)) return refused('invalid-args', `args.${command.body}:twice`);
     given[command.body] = body;
@@ -231,7 +276,7 @@ export function resolveCall(call, view) {
     if (args.channel === undefined) args.channel = at;
     else if (String(args.channel) !== at) return refused('unknown-message', 'conversation');
   }
-  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyIgnored ? { bodyIgnored: true } : {}) };
+  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody ? { bodyArgs } : {}) };
 }
 
 /** The structured status of an operation's result (src/ops/index.js#runOp): `ok`; one that may

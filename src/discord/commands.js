@@ -31,7 +31,6 @@ const SUBCOMMAND = 1;
 const SUBCOMMAND_GROUP = 2;
 const STRING = 3;
 const INTEGER = 4;
-const BOOLEAN = 5;
 const USER = 6;
 const CHANNEL = 7;
 const ROLE = 8;
@@ -121,7 +120,7 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
  * memory and speed ones are the owner's only): the choices of its `field` option. Kept here, not
  * in src/ops/status.js, which imports this module.
  */
-export const STATUS_FIELDS = Object.freeze(['state', 'long tasks', 'models', 'limits', 'costs (limits per key)', 'costs (today by role)', 'memory', 'speed']);
+export const STATUS_FIELDS = Object.freeze(['state', 'tasks', 'models', 'limits', 'keys', 'costs', 'memory', 'speed']);
 
 /** `{ name, value }` choices, one per entry of `values`, the name being the value itself. */
 function choicesOf(values) {
@@ -155,6 +154,32 @@ const userId = (options) => options.getUser('user', true).id;
 const none = () => ({});
 
 /**
+ * The choices of a yes/no option: lowercase `true` / `false` (a Discord BOOLEAN shows as
+ * True/False), sent as a STRING option and read back by readFlag.
+ */
+export const FLAG_CHOICES = Object.freeze([Object.freeze({ name: 'true', value: 'true' }), Object.freeze({ name: 'false', value: 'false' })]);
+
+/** A yes/no option: a STRING with FLAG_CHOICES. */
+function flagOption(name, description) {
+  return { type: STRING, name, description, required: false, choices: FLAG_CHOICES.map((choice) => ({ ...choice })) };
+}
+
+/**
+ * A yes/no option's value as a boolean: `true` / `'true'` -> true, `false` / `'false'` ->
+ * false (any case, trimmed), anything else (absent included) -> null. Reads the option as a
+ * string (a Discord interaction) or as the boolean a persona's call carries.
+ * @param {{ getString: (name: string) => unknown }} options
+ * @param {string} name
+ * @returns {boolean|null}
+ */
+export function readFlag(options, name) {
+  const value = options.getString(name);
+  if (typeof value === 'boolean') return value;
+  const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return text === 'true' ? true : text === 'false' ? false : null;
+}
+
+/**
  * The whole `/nep` tree, top level in display order: a leaf is `{ name, description, options?,
  * args }`, a group is `{ name, description, subcommands: [leaf, ...] }`. `args(options)` maps a
  * discord.js interaction's options onto the plain `args` of src/admin.js#runCommand; the rest is
@@ -167,10 +192,9 @@ export const COMMAND_TABLE = Object.freeze([
     name: 'status',
     description: 'What the bot is doing now: one card.',
     options: [
-      { type: BOOLEAN, name: 'detail', description: 'Add the long form below the card.', required: false },
       { type: STRING, name: 'field', description: 'Show only this field of the card.', required: false, choices: choicesOf(STATUS_FIELDS) },
     ],
-    args: (options) => ({ detail: options.getBoolean('detail') ?? false, field: options.getString('field') ?? null }),
+    args: (options) => ({ field: options.getString('field') ?? null }),
   },
   {
     name: 'set',
@@ -194,12 +218,12 @@ export const COMMAND_TABLE = Object.freeze([
     description: 'Draw one picture. Spends balance.',
     options: [
       { type: STRING, name: 'text', description: 'What to draw.', required: true },
-      { type: BOOLEAN, name: 'self', description: 'The persona is in it (adds the appearance prompt).', required: false },
+      flagOption('self', 'The persona is in it (adds the appearance prompt).'),
       channelOption('Post it there as the persona (default: shown only to you).'),
     ],
     args: (options) => {
       const channelId = options.getChannel('channel')?.id;
-      return { text: options.getString('text', true), self: options.getBoolean('self') ?? false, ...(channelId ? { channelId } : {}) };
+      return { text: options.getString('text', true), self: readFlag(options, 'self') ?? false, ...(channelId ? { channelId } : {}) };
     },
   },
   {
@@ -249,13 +273,13 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'model', description: 'Model id or prefix, e.g. google/ (no @ or spaces).', required: true, autocomplete: true },
           { type: STRING, name: 'providers', description: 'Comma-separated provider slugs, e.g. google-vertex.', required: true },
           { type: STRING, name: 'role', description: 'Only for this role (default: any).', required: false, choices: choicesOf(ROUTE_ROLES) },
-          { type: BOOLEAN, name: 'fallbacks', description: 'Allow other providers if these fail (default: false).', required: false },
+          flagOption('fallbacks', 'Allow other providers if these fail (default: false).'),
         ],
         args: (options) => ({
           model: options.getString('model', true),
           providers: options.getString('providers', true),
           role: options.getString('role') ?? undefined,
-          fallbacks: options.getBoolean('fallbacks') ?? undefined,
+          fallbacks: readFlag(options, 'fallbacks') ?? undefined,
         }),
       },
       {
@@ -430,13 +454,13 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'title', description: 'Entry title (its identity).', required: true },
           { type: STRING, name: 'keys', description: 'Comma-separated keys/phrases people type.', required: true },
           { type: STRING, name: 'text', description: 'Entry text, up to lore.textChars.', required: true },
-          { type: BOOLEAN, name: 'always', description: 'Show it even without a match.', required: false },
+          flagOption('always', 'Show it even without a match.'),
         ],
         args: (options) => ({
           title: options.getString('title', true),
           keys: options.getString('keys', true),
           text: options.getString('text', true),
-          always: options.getBoolean('always') ?? false,
+          always: readFlag(options, 'always') ?? false,
         }),
       },
       {

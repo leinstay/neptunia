@@ -415,7 +415,7 @@ function rowLine(template, row, L) {
 }
 
 /**
- * The `costs (limits per key)` field's lines, every word from `labels.status.costs` (a missing
+ * The `keys` field's lines, every word from `labels.status.costs` (a missing
  * label leaves its line out; no `status.costs` at all gives []): per key, its limit line
  * immediately followed by its own usage line -- the main key (lead `keyLead`), the simulator key
  * (lead `simKeyLead`; the one line `simKeyNotSet` when `sim` is null), then each extra role key
@@ -460,7 +460,7 @@ export function keyCostsLines({ key, activity = null, sim = null, simActivity = 
 }
 
 /**
- * The `costs (today by role)` field's lines, every word from `labels.status.costs` (no
+ * The `costs` field's lines, every word from `labels.status.costs` (no
  * `status.costs` gives []): one `role` line per row in the given order, each with `{avg}`, the
  * cost per request; `byRoleEmpty` alone when there is no row. No header and no total. Pure.
  * @param {{ rows: object[], labels: object }} params  `rows` as `createUsage().byRole()` returns.
