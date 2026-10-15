@@ -46,6 +46,7 @@ export function createOpsEnv({
   record = null,
   metrics = null,
   usage = null,
+  simKey = null,
   port = null,
   now = Date.now,
   dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
@@ -225,6 +226,8 @@ export function createOpsEnv({
     record,
     metrics,
     usage,
+    // The simulator key, read only by the status card's one GET of its limit; never logged.
+    simKey,
     port,
     now,
     dataDir,

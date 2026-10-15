@@ -193,9 +193,10 @@ const store = createStore({
 });
 
 const calibrator = createCalibrator(store.state.data.calibration);
-const llm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: store.state });
+// `env` (the .env loaded once above): the keys `llm.keyByRole` names per role, looked up per request.
+const llm = createLlm({ apiKey: openrouterKey, env, getConfig: () => hot.config, calibrator, state: store.state });
 // Embeddings (role embedding) on the same daily request count as the chat client.
-const embedder = createEmbedder({ apiKey: openrouterKey, state: store.state });
+const embedder = createEmbedder({ apiKey: openrouterKey, env, state: store.state });
 // The meaning index kept current: record lines queued above, flushed on the tick below.
 embedQueue = createEmbedQueue({
   hot,

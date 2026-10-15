@@ -79,6 +79,62 @@ export function apiUrl(baseUrl, path) {
   return `${String(baseUrl).replace(/\/+$/, '')}/${String(path).replace(/^\/+/, '')}`;
 }
 
+/** The only environment variable names `llm.keyByRole` may point at: a config typo never sends another secret to OpenRouter. */
+export const ROLE_KEY_NAME = /^OPENROUTER_[A-Z0-9_]+$/;
+
+// The `llm.keyByRole` entries already reported as unusable in this process (by name).
+const warnedRoleKeys = new Set();
+
+/**
+ * The OpenRouter key a request of `role` goes out on: the variable `llm.keyByRole[role]` names
+ * (read from `env`, the parsed `.env`) when the name matches `ROLE_KEY_NAME` and the variable is
+ * set and not blank, else `mainKey`. The map is read from `config` at the moment of use. A mapped
+ * role that falls back logs `llm: role key missing` (role, name) once per name per process; a
+ * name that is not a variable name is logged as null (it may be a pasted key). Never logs a value.
+ * The one place a request's key is chosen (chat completions, embeddings, the status card's reads).
+ * @param {object} config
+ * @param {Record<string, string|undefined>|null|undefined} env
+ * @param {unknown} role  The request's `options.role`.
+ * @param {string} mainKey  `OPENROUTER_API_KEY`.
+ * @returns {string}
+ */
+export function roleApiKey(config, env, role, mainKey) {
+  const map = config?.llm?.keyByRole;
+  if (typeof role !== 'string' || !role || !isPlainObject(map) || !Object.hasOwn(map, role)) return mainKey;
+  const name = map[role];
+  const valid = typeof name === 'string' && ROLE_KEY_NAME.test(name);
+  const value = valid && env ? env[name] : undefined;
+  if (typeof value === 'string' && value.trim()) return value;
+  const seen = valid ? name : `bad:${String(name)}`;
+  if (!warnedRoleKeys.has(seen)) {
+    warnedRoleKeys.add(seen);
+    log.warn('llm: role key missing', { role, name: valid ? name : null });
+  }
+  return mainKey;
+}
+
+/**
+ * The extra keys `llm.keyByRole` puts in use, one entry per distinct key other than `mainKey`
+ * (a role whose key falls back, or names the main key's value, stays on the main key), with the
+ * roles on it sorted by name, in the order the map first names each key. For the status card.
+ * @param {object} config
+ * @param {Record<string, string|undefined>|null|undefined} env
+ * @param {string} mainKey
+ * @returns {Array<{ roles: string[], apiKey: string }>}
+ */
+export function roleKeyGroups(config, env, mainKey) {
+  const map = config?.llm?.keyByRole;
+  if (!isPlainObject(map)) return [];
+  const groups = new Map();
+  for (const role of Object.keys(map)) {
+    const apiKey = roleApiKey(config, env, role, mainKey);
+    if (apiKey === mainKey) continue;
+    if (!groups.has(apiKey)) groups.set(apiKey, []);
+    groups.get(apiKey).push(role);
+  }
+  return [...groups].map(([apiKey, roles]) => ({ roles: roles.sort(), apiKey }));
+}
+
 /**
  * The state.json fields of the daily request counter: `complete()` counts every
  * request in them, unless it is sent with `countAgainstDailyCap: false`.
@@ -740,7 +796,8 @@ function hedgeTimeoutError(ms) {
 
 /**
  * @param {object} deps
- * @param {string} deps.apiKey
+ * @param {string} deps.apiKey           `OPENROUTER_API_KEY`: every role `llm.keyByRole` does not map elsewhere.
+ * @param {Record<string, string|undefined>} [deps.env]  The parsed `.env` the role keys are looked up in (`roleApiKey`).
  * @param {() => object} deps.getConfig   Returns the live config (hot-reloaded).
  * @param {object} deps.calibrator        From createCalibrator().
  * @param {object} deps.state             Persistent state with `llmDay` / `llmCount` fields.
@@ -748,10 +805,11 @@ function hedgeTimeoutError(ms) {
  * @param {() => number} [deps.now]       Clock in ms, for the day rollover and a request's logged duration.
  * @param {(fn: () => void, ms: number) => unknown} [deps.setTimer]  The hedge's timers (`setTimeout`).
  * @param {(handle: unknown) => void} [deps.clearTimer]              Their cancel (`clearTimeout`).
- * @returns {{ complete: Function, modelEndpoints: Function, keyInfo: Function, credits: Function, capLeft: (nowMs?: number) => number }}
+ * @returns {{ complete: Function, modelEndpoints: Function, keyInfo: Function, credits: Function, roleKeys: () => Array<{ roles: string[] }>, capLeft: (nowMs?: number) => number }}
  */
 export function createLlm({
   apiKey,
+  env = {},
   getConfig,
   calibrator,
   state,
@@ -1123,10 +1181,12 @@ export function createLlm({
     if (isPlainObject(options.reasoning)) body.reasoning = options.reasoning;
     // `options.purpose` and `options.origin` are for the usage line only: never put on `body`.
 
+    // The key of this request's role (`llm.keyByRole`, read now), else the main key.
+    const requestKey = roleApiKey(getConfig(), env, options.role, apiKey);
     // One POST of this body, under the attempt's own signal.
     const send = (signal) => fetchImpl(apiUrl(cfg.baseUrl, 'chat/completions'), {
       method: 'POST',
-      headers: openRouterHeaders(apiKey),
+      headers: openRouterHeaders(requestKey),
       body: JSON.stringify(body),
       signal,
     });
@@ -1246,13 +1306,14 @@ export function createLlm({
    * the parsed body of a 2xx answer (null when it is not JSON, or on any other status). Never
    * counted against `llm.maxRequestsPerDay`, never calibrated, never retried, nothing logged. A
    * network failure or the `timeoutMs` abort (default `llm.timeoutMs`) throws as fetch throws it.
-   * `apiKey` replaces the client's key for this GET.
+   * `apiKey` replaces the client's key for this GET; else `role` reads that role's key (`roleApiKey`).
    */
-  async function getFree(endpoint, { timeoutMs, apiKey: keyOverride } = {}) {
+  async function getFree(endpoint, { timeoutMs, apiKey: keyOverride, role } = {}) {
     const cfg = getConfig().llm;
+    const key = keyOverride || (role ? roleApiKey(getConfig(), env, role, apiKey) : apiKey);
     const response = await fetchImpl(apiUrl(cfg.baseUrl, endpoint), {
       method: 'GET',
-      headers: openRouterHeaders(keyOverride || apiKey),
+      headers: openRouterHeaders(key),
       signal: AbortSignal.timeout(timeoutMs ?? cfg.timeoutMs),
     });
     const json = response.ok
@@ -1266,8 +1327,9 @@ export function createLlm({
   /**
    * The API key's own record (`<llm.baseUrl>/key`: its limit, reset, budgets and usage), one free
    * GET (see `getFree`). For the costs field of the owner's `/nep status` card. `apiKey` reads
-   * another key's record (the simulator key's), for this one GET only.
-   * @param {{ timeoutMs?: number, apiKey?: string }} [options]
+   * another key's record (the simulator key's), `role` the record of the key that role goes out on
+   * (`llm.keyByRole`), for this one GET only.
+   * @param {{ timeoutMs?: number, apiKey?: string, role?: string }} [options]
    * @returns {Promise<{ ok: boolean, status: number, json: object|null }>}
    */
   const keyInfo = (options) => getFree('key', options);
@@ -1280,5 +1342,12 @@ export function createLlm({
    */
   const credits = (options) => getFree('credits', options);
 
-  return { complete, modelEndpoints, keyInfo, credits, capLeft };
+  /**
+   * The extra keys `llm.keyByRole` puts in use now (`roleKeyGroups`), each as the roles on it --
+   * never the key itself. The status card reads each one's record with `keyInfo({ role })`.
+   * @returns {Array<{ roles: string[] }>}
+   */
+  const roleKeys = () => roleKeyGroups(getConfig(), env, apiKey).map(({ roles }) => ({ roles }));
+
+  return { complete, modelEndpoints, keyInfo, credits, roleKeys, capLeft };
 }

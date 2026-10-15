@@ -3,7 +3,7 @@
 // accumulator is fed by the `llm: usage` log lines (src/log.js#onLog, subscribed in src/index.js
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
-// tokens); it keeps the current and the previous UTC day only, in memory, and `data/usage.json`
+// tokens); it keeps the last KEEP_DAYS UTC days (today included), in memory, and `data/usage.json`
 // keeps them across a restart (written at most once a minute, and once more on shutdown;
 // write-temp + rename). Only numbers and role codes are kept. The costs are OpenRouter's reported
 // ones: a BYOK request is billed by the provider and shows here at OpenRouter's list price (the
@@ -20,6 +20,9 @@ import { IMAGE_ROLE } from '../llm/images.js';
 
 /** The file under `data/` the per-day accumulator persists in. */
 export const USAGE_FILE = 'usage.json';
+
+/** How many UTC days the accumulator keeps, today included: enough for a rolling 30-day sum. */
+export const KEEP_DAYS = 31;
 
 /** The least time between two writes of the file (a forced write on shutdown aside). */
 export const SAVE_EVERY_MS = MINUTE_MS;
@@ -38,6 +41,14 @@ const COUNTERS = Object.freeze(['requests', 'promptTokens', 'cachedTokens', 'com
 const isAmount = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const amountOr0 = (value) => (isAmount(value) ? value : 0);
 
+/** A UTC day key, `YYYY-MM-DD`. */
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Role rows by cost, then requests (both descending), then role name. */
+function sortRows(rows) {
+  return rows.sort((a, b) => b.cost - a.cost || b.requests - a.requests || (a.role < b.role ? -1 : a.role > b.role ? 1 : 0));
+}
+
 /** A role's counters with every field a finite number >= 0 (0 for anything else). */
 function cleanRow(row) {
   return Object.fromEntries(COUNTERS.map((key) => [key, amountOr0(row?.[key])]));
@@ -45,7 +56,8 @@ function cleanRow(row) {
 
 /**
  * Create the accumulator, loading `data/usage.json` when it is there (a missing or broken file
- * starts empty; days other than today and yesterday are dropped).
+ * starts empty; days older than the last KEEP_DAYS, or after today, are dropped). A file of the
+ * older two-day format loads as it is.
  *
  * @param {object} options
  * @param {string} options.dataDir  The `data/` directory.
@@ -55,11 +67,16 @@ function cleanRow(row) {
  * @returns {{
  *   record(entry: { role?: string|null, promptTokens?: number, cachedTokens?: number, completionTokens?: number, cost?: number }): void,
  *   byRole(): Array<{ role: string, requests: number, promptTokens: number, cachedTokens: number, completionTokens: number, cost: number }>,
+ *   sumDays(days: number, filter?: { only?: string[], except?: string[] }): { rows: object[], total: object, since: string, partial: boolean },
  *   save(opts?: { force?: boolean }): Promise<boolean>,
  * }}
  *   `record` adds one request to today's row of its role (`other` without one; a count that is
  *   not a finite number >= 0 adds 0). `byRole` lists today's roles by cost, then requests (both
- *   descending), then role name. `save` writes the file when a request came since the last write
+ *   descending), then role name. `sumDays` sums the last `days` UTC days, today included (at most
+ *   KEEP_DAYS), over the roles in `only` (when given) and not in `except`: `rows` per role in
+ *   `byRole`'s order, `total` (every counter summed), `since` the first day the sum covers -- the
+ *   window's first day, or the accumulator's first kept day when it holds fewer days (today when it
+ *   is empty) -- and `partial` whether `since` is later than the window's first day. `save` writes the file when a request came since the last write
  *   and, unless `force`, a minute has passed since it; resolves whether it wrote. A failed write
  *   is logged (`usage: save failed`, its code) and tried again on the next call.
  */
@@ -70,11 +87,12 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
   let lastSaveAt = -Infinity;
   let chain = Promise.resolve();
 
-  /** Only today and yesterday (UTC) stay. */
+  /** Only the last KEEP_DAYS UTC days, today included, stay. */
   function prune() {
     const nowMs = now();
-    const keep = new Set([utcDay(nowMs), utcDay(nowMs - DAY_MS)]);
-    for (const day of Object.keys(days)) if (!keep.has(day)) delete days[day];
+    const today = utcDay(nowMs);
+    const first = utcDay(nowMs - (KEEP_DAYS - 1) * DAY_MS);
+    for (const day of Object.keys(days)) if (!DAY_KEY.test(day) || day < first || day > today) delete days[day];
   }
 
   function load() {
@@ -109,9 +127,31 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
 
   function byRole() {
     const today = days[utcDay(now())] ?? {};
-    return Object.entries(today)
-      .map(([role, row]) => ({ role, ...row }))
-      .sort((a, b) => b.cost - a.cost || b.requests - a.requests || (a.role < b.role ? -1 : a.role > b.role ? 1 : 0));
+    return sortRows(Object.entries(today).map(([role, row]) => ({ role, ...row })));
+  }
+
+  function sumDays(count, { only, except } = {}) {
+    const nowMs = now();
+    const today = utcDay(nowMs);
+    const span = Number.isInteger(count) && count > 0 ? Math.min(count, KEEP_DAYS) : 1;
+    const start = utcDay(nowMs - (span - 1) * DAY_MS);
+    const kept = Object.keys(days).filter((day) => day <= today).sort();
+    const since = kept.length === 0 ? today : kept[0] > start ? kept[0] : start;
+    const onlySet = Array.isArray(only) ? new Set(only) : null;
+    const exceptSet = new Set(Array.isArray(except) ? except : []);
+    const sums = {};
+    for (const [day, roles] of Object.entries(days)) {
+      if (day < start || day > today) continue;
+      for (const [role, row] of Object.entries(roles)) {
+        if ((onlySet && !onlySet.has(role)) || exceptSet.has(role)) continue;
+        const sum = (sums[role] ??= cleanRow(null));
+        for (const field of COUNTERS) sum[field] += amountOr0(row[field]);
+      }
+    }
+    const rows = sortRows(Object.entries(sums).map(([role, row]) => ({ role, ...row })));
+    const total = cleanRow(null);
+    for (const row of rows) for (const field of COUNTERS) total[field] += row[field];
+    return { rows, total, since, partial: since !== start };
   }
 
   async function write() {
@@ -142,7 +182,7 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
   }
 
   load();
-  return { record, byRole, save };
+  return { record, byRole, sumDays, save };
 }
 
 /**
@@ -205,6 +245,9 @@ export function compactTokens(n) {
 /** Dollars with two decimals. */
 const usd = (value) => amountOr0(value).toFixed(2);
 
+/** Dollars per request with three decimals, a half rounded up (a float quotient lands just under it). */
+const perRequest = (cost, requests) => (Math.round((amountOr0(cost) / requests) * 1000 + 1e-6) / 1000).toFixed(3);
+
 /** `fill` of a label that is a non-empty string; null otherwise (the line is left out). */
 function line(template, values) {
   return typeof template === 'string' && template ? fill(template, values) : null;
@@ -224,6 +267,9 @@ function keyBudget(data) {
 }
 
 const INTERVAL_USAGE = Object.freeze({ daily: 'usage_daily', weekly: 'usage_weekly', monthly: 'usage_monthly' });
+
+/** The rolling windows of a usage line, in order: the `sumDays` result's key and its label. */
+const WINDOWS = Object.freeze([['last7', 'last7'], ['last30', 'last30']]);
 
 /** The key line (src: GET /key's `data`): spend over limit with its notes, or no limit with the total used. */
 function keyLine(data, L, lead) {
@@ -259,17 +305,20 @@ function keyLine(data, L, lead) {
   return kept.length > 0 ? line(L.keyLimit, { ...values, notes: kept.join(L.noteSeparator ?? '') }) : line(L.keyLimitPlain, values);
 }
 
-/** The usage line: today, this week and this month from GET /key, each only when present. */
-function usageLine(data, L) {
-  const parts = [
-    ['usage_daily', L.usageToday],
-    ['usage_weekly', L.usageWeek],
-    ['usage_monthly', L.usageMonth],
-  ]
-    .filter(([field]) => isAmount(data[field]))
-    .map(([field, template]) => line(template, { usd: usd(data[field]) }))
-    .filter(Boolean);
-  return parts.length > 0 ? line(L.usage, { parts: parts.join(L.partSeparator ?? '') }) : null;
+/** The usage line: today from GET /key's `data` (null: not read), then the rolling last 7 and
+ * last 30 days from the bot's own accumulator (`windows`, `sumDays` results), each only when
+ * present; a window shorter than asked carries its first day through `since`. */
+function usageLine(data, windows, L) {
+  const parts = [];
+  if (isPlainObject(data) && isAmount(data.usage_daily)) parts.push(line(L.usageToday, { usd: usd(data.usage_daily) }));
+  for (const [key, label] of WINDOWS) {
+    const window = isPlainObject(windows) ? windows[key] : null;
+    if (!isPlainObject(window)) continue;
+    const since = window.partial ? (line(L.since, { day: window.since }) ?? '') : '';
+    parts.push(line(L[label], { usd: usd(window.total?.cost), since }));
+  }
+  const kept = parts.filter(Boolean);
+  return kept.length > 0 ? line(L.usage, { parts: kept.join(L.partSeparator ?? '') }) : null;
 }
 
 /** The credits line from GET /credits's `data`. */
@@ -281,8 +330,9 @@ function creditsLine(outcome, L) {
 }
 
 /** One role row (or the total) through `template`; a row with no token at all (a drawing) shows its
- * token counts as `-`. */
-function rowLine(template, row) {
+ * token counts as `-`; `{avg}` is the cost per request through `L.avg` (three decimals), empty
+ * with no request or no label. */
+function rowLine(template, row, L) {
   const tokens = row.promptTokens + row.cachedTokens + row.completionTokens > 0;
   const count = (n) => (tokens ? compactTokens(n) : '-');
   return line(template, {
@@ -292,6 +342,7 @@ function rowLine(template, row) {
     cached: count(row.cachedTokens),
     out: count(row.completionTokens),
     cost: usd(row.cost),
+    avg: row.requests > 0 ? (line(L.avg, { usd: perRequest(row.cost, row.requests) }) ?? '') : '',
   });
 }
 
@@ -303,13 +354,21 @@ function rowLine(template, row) {
  * same line for the simulator key (lead `simKeyLead`; `simKeyNotSet` when `sim` is null), the
  * `usage` line when the key reports any, the `credits`
  * line (`creditsUnavailable` on a failed read), then today's roles: `byRoleHeader`, one `role`
- * line per row in the given order and the `total`, or `byRoleEmpty`. The key's label is never read.
- * Pure.
- * @param {{ key: object, sim?: object|null, credits: object, rows: object[], labels: object }} params
- *   `key`, `sim` (null: not set) and `credits` as `readAccount` resolves; `rows` as `createUsage().byRole()` returns.
+ * line per row in the given order and the `total`, or `byRoleEmpty`; both with `{avg}`, the
+ * cost per request. The usage line (`usage` of `usageToday` -- today from the key's record --
+ * `last7` and `last30` -- the key's roles' rolling sums from the accumulator, `since` when the
+ * accumulator holds fewer days) follows the simulator key line; each extra role key
+ * (`llm.keyByRole`) then gets its key line (lead `roleKeyLead` with `{roles}`) and its own usage
+ * line. The key's label is never read. Pure.
+ * @param {{ key: object, sim?: object|null, credits: object, rows: object[], labels: object,
+ *   windows?: { last7?: object, last30?: object }|null,
+ *   roleKeys?: Array<{ roles: string[], key: object, windows?: { last7?: object, last30?: object }|null }> }} params
+ *   `key`, `sim` (null: not set), `credits` and each role key's `key` as `readAccount` resolves;
+ *   `rows` as `createUsage().byRole()` returns; `windows` as `createUsage().sumDays` returns, the
+ *   main key's over the roles no extra key takes.
  * @returns {string[]}
  */
-export function costsLines({ key, sim = null, credits, rows, labels }) {
+export function costsLines({ key, sim = null, credits, rows, labels, windows = null, roleKeys = [] }) {
   const L = labels?.status?.costs;
   if (!isPlainObject(L)) return [];
   const lines = [];
@@ -318,16 +377,23 @@ export function costsLines({ key, sim = null, credits, rows, labels }) {
   const unavailable = (outcome, word) => line(L.keyUnavailable, { lead: word, reason: reasonText(outcome ?? { reason: 'bad-answer' }, L) });
   lines.push(key?.ok ? keyLine(key.data, L, lead) : unavailable(key, lead));
   lines.push(sim ? (sim.ok ? keyLine(sim.data, L, simLead) : unavailable(sim, simLead)) : line(L.simKeyNotSet, {}));
-  if (key?.ok) lines.push(usageLine(key.data, L));
+  lines.push(usageLine(key?.ok ? key.data : null, windows, L));
+  for (const extra of Array.isArray(roleKeys) ? roleKeys : []) {
+    const roles = Array.isArray(extra?.roles) ? extra.roles : [];
+    const roleLead = line(L.roleKeyLead, { roles: roles.join(typeof L.roleSeparator === 'string' ? L.roleSeparator : ', ') });
+    if (!roleLead) continue;
+    lines.push(extra.key?.ok ? keyLine(extra.key.data, L, roleLead) : unavailable(extra.key, roleLead));
+    lines.push(usageLine(extra.key?.ok ? extra.key.data : null, extra.windows, L));
+  }
   lines.push(creditsLine(credits, L));
   const list = Array.isArray(rows) ? rows : [];
   if (list.length === 0) {
     lines.push(line(L.byRoleEmpty, {}));
   } else {
-    lines.push(line(L.byRoleHeader, {}), ...list.map((row) => rowLine(L.role, row)));
+    lines.push(line(L.byRoleHeader, {}), ...list.map((row) => rowLine(L.role, row, L)));
     const total = { role: '', ...cleanRow(null) };
     for (const row of list) for (const field of COUNTERS) total[field] += amountOr0(row[field]);
-    lines.push(rowLine(L.total, total));
+    lines.push(rowLine(L.total, total, L));
   }
   return lines.filter(Boolean);
 }

@@ -2,8 +2,8 @@
 // Float32Array per text out, for search by meaning. It goes out on the helper role
 // `embedding` and keeps every rail of the chat client (src/llm/openrouter.js): the token
 // cap per request, the shared daily request count (`llm.maxRequestsPerDay`, the same counter the
-// chat requests spend), the helper timeout, the same retries and the same transport bits (key,
-// base URL, provider routing by model and role). A request logs one `llm: usage` line with counts
+// chat requests spend), the helper timeout, the same retries and the same transport bits (the
+// key of the role, base URL, provider routing by model and role). A request logs one `llm: usage` line with counts
 // and cost, never the texts.
 
 import { estimateTokens } from './tokens.js';
@@ -15,6 +15,7 @@ import {
   countLlmRequest,
   openRouterHeaders,
   resolveProvider,
+  roleApiKey,
   sleep,
 } from './openrouter.js';
 import { roleModel } from './roles.js';
@@ -73,14 +74,15 @@ function vectorsOf(json, count) {
 
 /**
  * @param {object} deps
- * @param {string} deps.apiKey
+ * @param {string} deps.apiKey  `OPENROUTER_API_KEY`, unless `llm.keyByRole.embedding` names another (`roleApiKey`).
+ * @param {Record<string, string|undefined>} [deps.env]  The parsed `.env` the role key is looked up in.
  * @param {{ data: object, markDirty: () => void }} deps.state  Persistent state with the daily request counter.
  * @param {typeof fetch} [deps.fetchImpl]
  * @param {() => number} [deps.now]                        Clock in ms: the day of the counter, the logged duration.
  * @param {(ms: number) => Promise<void>} [deps.sleepImpl] The backoff wait between retries.
  * @returns {{ embed: Function }}
  */
-export function createEmbedder({ apiKey, state, fetchImpl = fetch, now = Date.now, sleepImpl = sleep }) {
+export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now = Date.now, sleepImpl = sleep }) {
   /**
    * Embed `texts` (non-empty strings; an empty list returns [] and sends nothing) in one request.
    * The model is `roleModel(config, 'embedding', purpose)` (a
@@ -127,6 +129,7 @@ export function createEmbedder({ apiKey, state, fetchImpl = fetch, now = Date.no
     if (provider) body.provider = provider;
     const attemptMs = timeoutMs ?? cfg.helperTimeoutMs ?? HELPER_TIMEOUT_MS_FALLBACK;
     const retries = Number.isInteger(cfg.retries) && cfg.retries > 0 ? cfg.retries : 0;
+    const requestKey = roleApiKey(config, env, EMBED_ROLE, apiKey);
     const startedAt = now();
 
     let lastError;
@@ -141,7 +144,7 @@ export function createEmbedder({ apiKey, state, fetchImpl = fetch, now = Date.no
         const timeout = AbortSignal.timeout(attemptMs);
         response = await fetchImpl(apiUrl(cfg.baseUrl, 'embeddings'), {
           method: 'POST',
-          headers: openRouterHeaders(apiKey),
+          headers: openRouterHeaders(requestKey),
           body: JSON.stringify(body),
           signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         });
