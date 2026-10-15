@@ -319,19 +319,52 @@ function mediaTags(message, labels, context = {}) {
 /**
  * The reactions tag of a message (`transcript.reactions` over at most `max`
  * items, `reactionMine` for the bot's own, else `reactionItem`), or '' when
- * the list is empty or the labels have no `transcript.reactions` key.
+ * the list is empty or the labels have no `transcript.reactions` key. With
+ * `names` (chat mode, features.reactionNames) a reaction on the persona's own
+ * line whose `users` are known names them instead of counting them
+ * (reactionNamesItem).
+ * @param {object} message
+ * @param {object} labels
+ * @param {number} max
+ * @param {{ max: number, nameOf: (user: object) => string }|null} [names]
  */
-function reactionsTag(message, labels, max) {
+function reactionsTag(message, labels, max, names = null) {
   const template = labels.transcript.reactions;
   const reactions = Array.isArray(message.reactions) ? message.reactions.slice(0, Math.max(0, max)) : [];
   if (!template || reactions.length === 0) return '';
+  const named = names && message.self && typeof labels.transcript.reactionNames === 'string' && labels.transcript.reactionNames !== '';
   const list = reactions
-    .map(({ emoji, count, mine }) =>
-      fill(mine ? (labels.transcript.reactionMine ?? labels.transcript.reactionItem) : labels.transcript.reactionItem, { emoji, count }),
-    )
+    .map((reaction) => {
+      const { emoji, count, mine } = reaction;
+      const item = named ? reactionNamesItem(reaction, labels, names) : '';
+      if (item) return item;
+      return fill(mine ? (labels.transcript.reactionMine ?? labels.transcript.reactionItem) : labels.transcript.reactionItem, { emoji, count });
+    })
     .filter(Boolean)
     .join(', ');
   return list ? fill(template, { list }) : '';
+}
+
+/**
+ * One reaction on the persona's line by name: its known reactors (`users`), each named by
+ * `names.nameOf` (the transcript's author form), at most `names.max` of them joined with ", ";
+ * the members it counts beyond the names shown (more than `max`, or not known) add
+ * `transcript.reactionMore` with `{n}`. `transcript.reactionNamesMine` (else `reactionNames`)
+ * when the persona reacted too; `{emoji}`, `{names}`, `{count}`. '' without known reactors
+ * (the caller counts it as before).
+ */
+function reactionNamesItem(reaction, labels, names) {
+  const users = Array.isArray(reaction.users) ? reaction.users.filter((user) => user && typeof user.name === 'string' && user.name !== '') : [];
+  if (users.length === 0) return '';
+  const count = Number(reaction.count);
+  const others = Math.max(users.length, Number.isInteger(count) ? count - (reaction.mine ? 1 : 0) : 0);
+  const max = Number.isInteger(names.max) && names.max > 0 ? names.max : users.length;
+  const shown = users.slice(0, max).map((user) => names.nameOf(user));
+  const rest = others - shown.length;
+  const more = rest > 0 ? fill(labels.transcript.reactionMore, { n: rest }) : '';
+  const list = [shown.join(', '), more].filter(Boolean).join(' ');
+  const template = reaction.mine ? labels.transcript.reactionNamesMine || labels.transcript.reactionNames : labels.transcript.reactionNames;
+  return fill(template, { emoji: reaction.emoji, names: list, count: reaction.count });
 }
 
 /**
@@ -607,6 +640,13 @@ function renderForwarded(snapshot, labels, context, maxChars, channelName) {
  *   `transcript.reactions` at the end of its line. Ignored when the labels have no
  *   `transcript.reactions` key.
  * @param {number} [options.reactionsPerMessage]  Default 6: at most this many reactions per message.
+ * @param {boolean} [options.reactionNames]  Default false (features.reactionNames, read by the caller):
+ *   in `mode: 'chat'`, a reaction on the persona's own line whose `users` are known (src/discord/
+ *   reactors.js#withReactors) renders `transcript.reactionNames` / `reactionNamesMine` with the
+ *   reactors named exactly like the authors of lines (the `handles` and `transcript.author` below),
+ *   at most `reactionNamesMax` (5 when omitted) of them, the rest as `transcript.reactionMore`.
+ *   Off, without the label or on anyone else's line: the counts as before.
+ * @param {number} [options.reactionNamesMax]  `context.reactions.maxNames`.
  * @param {number} [options.replyQuoteChars]  `context.replyQuoteChars` (80 when omitted; 0 = whole):
  *   a reply to a message of the list renders `transcript.replyTo` with `{index}`, `{author}` (the
  *   parent's name, the persona's self label for its own line) and `{quote}` (replyQuote); in
@@ -676,6 +716,18 @@ export function formatTranscript(messages, options) {
   // Each author's mention handle (chat mode only, and only with `transcript.author` set).
   const authorLabel = labels.transcript.author;
   const authorHandles = mode === 'chat' && options.handles instanceof Map && typeof authorLabel === 'string' && authorLabel !== '' ? options.handles : null;
+  /**
+   * How the transcript names a member: the persona's self label for her, else the name with the
+   * member's mention handle (transcript.author) when they have one and are not a bot, else the
+   * bare name. Authors and the reactors of her lines are named by it alike.
+   */
+  const nameOf = ({ id, name, self = false, bot = false }) => {
+    if (self) return selfLabel;
+    const handle = authorHandles && !bot ? authorHandles.get(String(id)) : undefined;
+    return handle ? fill(authorLabel, { name, handle: `@${handle}` }) : name;
+  };
+  // Reactors named on the persona's lines (chat mode, features.reactionNames).
+  const reactorNames = mode === 'chat' && options.reactionNames === true ? { max: options.reactionNamesMax ?? 5, nameOf } : null;
   // A bad offset is a caller bug: counting it as 0 would renumber a second
   // block from #1 over the first block's indices, so a tag aimed at one line
   // would silently land on another.
@@ -710,8 +762,7 @@ export function formatTranscript(messages, options) {
       }
     }
 
-    const handle = authorHandles && !message.self && !message.bot ? authorHandles.get(String(message.authorId)) : undefined;
-    const name = message.self ? selfLabel : handle ? fill(authorLabel, { name: message.authorName, handle: `@${handle}` }) : message.authorName;
+    const name = nameOf({ id: message.authorId, name: message.authorName, self: message.self, bot: message.bot });
     // The persona's own line names the message that started its turn (chat mode; see withTriggers)
     // and, posted from another channel's turn, that channel (withCalls).
     const triggered = mode === 'chat' ? triggerMarker(message, indexById, labels) : '';
@@ -734,7 +785,7 @@ export function formatTranscript(messages, options) {
     for (const snapshot of message.forwarded ?? []) {
       body.push(renderForwarded(snapshot, labels, mediaContext, maxChars, message.forwardedFrom));
     }
-    if (seeReactions) body.push(reactionsTag(message, labels, reactionsPerMessage));
+    if (seeReactions) body.push(reactionsTag(message, labels, reactionsPerMessage, reactorNames));
     // The skill calls of the turn that posted this line of hers (chat mode; see withCalls).
     if (callsOn && message.self) for (const mark of message.calls ?? []) body.push(callText(mark, indexById, labels));
 

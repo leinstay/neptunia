@@ -91,6 +91,9 @@ export const labels = {
     reactions: '[reactions: {list}]',
     reactionItem: '{emoji} x{count}',
     reactionMine: '{emoji} x{count} (yours too)',
+    reactionNames: '{emoji} by {names}',
+    reactionNamesMine: '{emoji} by {names} and you',
+    reactionMore: 'and {n} more',
     videoReason: {
       length: 'too long',
       size: 'too big',

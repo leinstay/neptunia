@@ -22,6 +22,7 @@ import {
 } from './media.js';
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from './video-sites.js';
 import { CUSTOM_EMOJI_MARKUP } from './emoji.js';
+import { backfillPlan, emojiOf, reactionKey, runBackfill, withReactors } from './reactors.js';
 
 const TEXT_PREVIEW_SIZE_GUARD = 256 * 1024; // 256 KB — never fetch a bigger "text" attachment
 /** Discord's REST page size for a message list. */
@@ -102,24 +103,28 @@ function normalizeStickers(stickers) {
  * @returns {{ emoji: string, count: number, mine: boolean }[]}
  */
 function normalizeReactions(reactions) {
-  // discord.js resolves a reaction's emoji through the client's emoji cache; a REST-only client
-  // (the tools) has none and the getter throws. Such a reaction is skipped, never fatal.
-  const emojiOf = (reaction) => {
-    try {
-      return reaction?.emoji ?? null;
-    } catch {
-      return null;
-    }
-  };
+  // A reaction whose emoji cannot be read (emojiOf: a REST-only client) is skipped, never fatal.
   return [...(reactions?.cache?.values?.() ?? [])]
-    .map((reaction) => ({ reaction, emoji: emojiOf(reaction) }))
-    .filter(({ reaction, emoji }) => Number.isInteger(reaction?.count) && reaction.count > 0 && emoji?.name)
+    .map((reaction) => ({ reaction, emoji: reactionKey(emojiOf(reaction)) }))
+    .filter(({ reaction, emoji }) => Number.isInteger(reaction?.count) && reaction.count > 0 && emoji)
     .map(({ reaction, emoji }) => ({
-      emoji: emoji.id ? `:${emoji.name}:` : emoji.name,
+      emoji,
       count: reaction.count,
       mine: Boolean(reaction.me),
     }))
     .sort((a, b) => b.count - a.count);
+}
+
+/**
+ * The name the transcript gives a member: their server display name, else their global name,
+ * else their username; null when neither is known. Authors (normalizeMessage) and reactors
+ * (fetchHistory's `reactors`) are named by it alike.
+ * @param {{ displayName?: string|null }|null|undefined} member
+ * @param {{ globalName?: string|null, username?: string|null }|null|undefined} user
+ * @returns {string|null}
+ */
+export function displayNameOf(member, user) {
+  return member?.displayName ?? user?.globalName ?? user?.username ?? null;
 }
 
 /** Whether the message carries Discord's voice-message flag (the whole message is flagged, not the attachment). */
@@ -379,7 +384,7 @@ export function normalizeMessage(message, selfId, options = {}) {
     channelCategory: message.channel?.parent?.name ?? null,
     channelTopic: message.channel?.topic ?? null,
     authorId: message.author.id,
-    authorName: message.member?.displayName ?? message.author.globalName ?? message.author.username,
+    authorName: displayNameOf(message.member, message.author),
     self: message.author.id === selfId,
     bot: message.author.bot && message.author.id !== selfId,
     content,
@@ -531,16 +536,53 @@ export function canAttach(channel) {
  * normalized. `embedTextChars` caps link/gif embed title+description
  * (config.media.embedTextChars); `videoSites` lists the video-site hosts
  * whose typed URLs become link items (config.media.video.sites); `maxUrlChars`
- * cuts the URLs left in the text (config.context.maxUrlChars).
+ * cuts the URLs left in the text (config.context.maxUrlChars). With `reactors`
+ * (features.reactionNames, src/discord/reactors.js) every line of the persona
+ * is kept in the reactor store, the reactors it lacks for her reactions are
+ * fetched first (each message and emoji once, at most `fetchUsers` users,
+ * waiting at most `budgetMs`), and each reaction on her lines with known
+ * reactors carries them as `users` (`{ id, name, bot }`, named by displayNameOf
+ * from the client's caches; one not in them is left out).
  * @param {import('discord.js').TextBasedChannel} channel
- * @param {{ limit: number, selfId: string, embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }} options
+ * @param {{ limit: number, selfId: string, embedTextChars?: number, videoSites?: string[], maxUrlChars?: number,
+ *   reactors?: { store: object, budgetMs: number, fetchUsers: number }|null }} options
  * @returns {Promise<object[]>}
  */
-export async function fetchHistory(channel, { limit, selfId, embedTextChars, videoSites, maxUrlChars }) {
+export async function fetchHistory(channel, { limit, selfId, embedTextChars, videoSites, maxUrlChars, reactors = null }) {
   const fetched = await channel.messages.fetch({ limit: Math.min(PAGE, limit) });
-  return [...fetched.values()]
-    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-    .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
+  const raw = [...fetched.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+  const lines = raw.map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
+  return reactors?.store ? withReactorNames(channel, raw, lines, reactors, selfId) : lines;
+}
+
+/**
+ * The ids of the members who put `emoji` (a reactionKey) on discord.js message `message`: one
+ * REST page of at most `fetchUsers` (1..100). Throws when the message or the reaction is gone.
+ */
+async function fetchReactorIds(message, emoji, fetchUsers) {
+  const reaction = [...(message?.reactions?.cache?.values?.() ?? [])].find((item) => reactionKey(emojiOf(item)) === emoji);
+  if (!reaction) throw new Error('reaction not found');
+  const cap = Math.min(PAGE, Math.max(1, Math.floor(Number(fetchUsers) || 10)));
+  const users = await reaction.users.fetch({ limit: cap });
+  return [...users.keys()];
+}
+
+/** fetchHistory's `reactors` step: the backfill (logged with counts), then the reactors' names. */
+async function withReactorNames(channel, raw, lines, { store, budgetMs, fetchUsers }, selfId) {
+  const byId = new Map(raw.map((message) => [message.id, message]));
+  const plan = backfillPlan(lines, store);
+  if (plan.length > 0) {
+    const stats = await runBackfill(plan, store, (item) => fetchReactorIds(byId.get(item.messageId), item.emoji, fetchUsers), { budgetMs, selfId });
+    log.info('reactors: backfill', { channel: channel.id, ...stats });
+  }
+  const guild = channel.guild ?? null;
+  const users = channel.client?.users?.cache ?? null;
+  return withReactors(lines, store, (id) => {
+    const member = guild?.members?.cache?.get?.(id) ?? null;
+    const user = member?.user ?? users?.get?.(id) ?? null;
+    const name = displayNameOf(member, user);
+    return name ? { name, bot: Boolean(user?.bot) } : null;
+  });
 }
 
 /** A Discord snowflake string one greater than `id`, so `before: bump(id)` includes `id` itself. */
@@ -594,9 +636,10 @@ export async function fetchHistoryWindow(channel, { anchorId, limit, minTs = 0, 
 }
 
 /**
- * One message of `channel` by id: discord.js's message cache first, else one
- * fetch; null when it cannot be fetched (deleted, no access, any error) and,
- * without a request, for a missing or empty id.
+ * One message of `channel` by id: discord.js's message cache first (a whole
+ * message, never a partial one), else one fetch; null when it cannot be
+ * fetched (deleted, no access, any error) and, without a request, for a
+ * missing or empty id.
  * @param {import('discord.js').TextBasedChannel} channel
  * @param {string|null|undefined} id
  * @returns {Promise<import('discord.js').Message|null>}
@@ -604,8 +647,10 @@ export async function fetchHistoryWindow(channel, { anchorId, limit, minTs = 0, 
 export async function fetchMessage(channel, id) {
   if (!id) return null;
   try {
+    // A partial one (a reaction event on an uncached message caches it so: no author, no
+    // content) is fetched whole like a missing one.
     const cached = channel.messages.cache?.get?.(id);
-    if (cached) return cached;
+    if (cached && !cached.partial) return cached;
     return (await channel.messages.fetch(id)) ?? null;
   } catch {
     return null;

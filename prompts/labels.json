@@ -94,7 +94,10 @@
     "emojiDescribed": "[:{name}: {text}]",
     "reactions": "[reactions: {list}]",
     "reactionItem": "{emoji} x{count}",
-    "reactionMine": "{emoji} x{count} (you)"
+    "reactionMine": "{emoji} x{count} (you)",
+    "reactionNames": "{emoji} {names}",
+    "reactionNamesMine": "{emoji} {names}, you",
+    "reactionMore": "+{n}"
   },
   "directory": {
     "lead": "Members you can mention. Write the handle exactly as listed to tag someone; a name alone pings nobody.",

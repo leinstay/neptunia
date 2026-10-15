@@ -1565,6 +1565,9 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * `<call>` in it dropped and logged, never a second follow-up. A message or a
  * picture that went out is its own answer. A dry run only logs the call (`dry-run: would
  * call`).
+ *
+ * Reactors: `reactors` (src/discord/reactors.js#createReactorStore, null: none) is the store of
+ * who reacted to her messages; the turn's history fetch names them on her lines (historyOptions).
  */
 export function createTurnRunner({
   hot,
@@ -1593,6 +1596,7 @@ export function createTurnRunner({
   runCommand = null,
   runOwnCommand = null,
   around = null,
+  reactors = null,
 }) {
   const busy = new Set();
   // The channels the default adapter may resolve by id without the client (the turn's own and a
@@ -1821,14 +1825,23 @@ export function createTurnRunner({
     return { skill, ...result, followUp: needsFollowUp(skill, result) };
   }
 
-  /** The options of a turn's history fetch (src/discord/collect.js#fetchHistory) under `config`. */
+  /**
+   * The options of a turn's history fetch (src/discord/collect.js#fetchHistory) under `config`:
+   * with the reactor store (`reactors`), features.reactionNames and features.seeReactions on (a
+   * missing key counts as on), the persona's lines carry who reacted to them, the missing reactors
+   * fetched within `context.reactions.fetchTimeoutMs`.
+   */
   function historyOptions(config) {
+    const namesOn = reactors && config.features?.reactionNames !== false && config.features?.seeReactions !== false;
     return {
       limit: config.context.channelMessages,
       selfId: client.user.id,
       embedTextChars: config.media?.embedTextChars,
       videoSites: config.media?.video?.sites,
       maxUrlChars: config.context?.maxUrlChars,
+      reactors: namesOn
+        ? { store: reactors, budgetMs: config.context.reactions?.fetchTimeoutMs ?? 2000, fetchUsers: config.context.reactions?.fetchUsers ?? 10 }
+        : null,
     };
   }
 

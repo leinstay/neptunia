@@ -79,6 +79,7 @@ import { selectPictures, mediaProxyUrl, fitBox, mediaParts } from '../discord/me
 import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { mergeProfiles } from './private.js';
 import { assignHandles, directoryEntries, renderDirectory } from './handles.js';
+import { reactorIdsOf } from '../discord/reactors.js';
 import { gifWatchBlocker } from '../memory/gif-watch.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
@@ -2196,7 +2197,8 @@ function pingStateOf(pingState, id) {
 /**
  * The ids of the members who wrote the lines a request may show -- `history`, then every
  * `messages` list of each of `sources` (the pulled channels, the neighbours) -- never the
- * persona's own lines or a bot's, each once (src/behavior/handles.js#assignHandles' `inView`).
+ * persona's own lines or a bot's, each once (src/behavior/handles.js#assignHandles' `inView`);
+ * the members named as reactors on her lines of `history` too.
  * @param {object[]} history
  * @param {unknown[]} sources  Lists of `{ messages }` entries; anything else is skipped.
  * @returns {string[]}
@@ -2210,6 +2212,8 @@ function authorsInView(history, sources) {
     }
   };
   add(history);
+  // The members who reacted to the persona's lines are named on them like authors (reactorIdsOf).
+  for (const id of reactorIdsOf(history)) ids.add(id);
   for (const source of sources) for (const entry of Array.isArray(source) ? source : []) add(entry?.messages);
   return [...ids];
 }
@@ -2873,6 +2877,9 @@ export function buildRequest(input) {
     ageMinutes: config.context.ageAfterMinutes ?? 60,
     seeReactions: config.features?.seeReactions !== false,
     reactionsPerMessage: config.context.reactionsPerMessage,
+    // Who reacted to the persona's own lines, named like authors (features.reactionNames).
+    reactionNames: config.features?.reactionNames !== false,
+    reactionNamesMax: config.context.reactions?.maxNames ?? 5,
     replyQuoteChars: config.context.replyQuoteChars,
     emojiInline: !emojiOnce,
     attachedIndex,

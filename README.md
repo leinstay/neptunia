@@ -59,6 +59,8 @@ What the persona knows about each person is split in two. The profile keeps what
 
 The persona can know what each member's avatar looks like (`features.avatars`, off by default). Every member with a profile gets their current avatar described once by the vision model in one short line, which shows in their profile; a new avatar replaces the old description. A background queue sends at most one request every `avatars.intervalMs` and `avatars.maxPerDay` a day. With `discord.intents.members` on, a changed avatar is seen at once; otherwise at the member's next message or the daily scan.
 
+On its own messages the persona sees who reacted, not only how many: each reaction lists the names of the members who put it, up to five (`context.reactions.maxNames`), then "+N" for the rest (`features.reactionNames`, on by default). Other members' messages keep plain counts. The bot now asks Discord for reaction events (a non-privileged intent, no Developer Portal change needed); who reacted is kept in process memory only, and after a restart the reactors of its recent messages are fetched once when it reads the chat.
+
 **14.10.2026**  
 Recall can search by meaning, not only by words (`features.meaningSearch`, off by default). Each message in the record is embedded with its context lines and stored in a per-month vector index. When someone asks a question, the asker's message is embedded and the closest record lines join the word-hit windows through reciprocal rank fusion. Archive items found by meaning join the memory block. The index is built with `tools/embed-index.mjs` and optionally kept current by a live queue (`features.embedIndex`). Message text with author names goes to the embedding provider.
 
