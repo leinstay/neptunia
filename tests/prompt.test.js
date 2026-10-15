@@ -12,6 +12,7 @@ import { fill, formatClock, formatDate, formatDuration } from '../src/discord/fo
 import { zonedDay } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
 import { tokenIds } from '../src/memory/mentions.js';
+import { handleOf } from '../src/behavior/handles.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0); // Sun 20 Sep 2026, 13:00 Moscow
 const MIN = 60_000;
@@ -113,6 +114,12 @@ function rowOf(request, name) {
   if (body === null) return null;
   const who = (line) => (/^@u[0-9a-z]+ /.test(line) ? line.slice(line.indexOf(' ') + 1) : line);
   return body.split('\n').find((line) => who(line) === name || who(line).startsWith(`${name}:`) || who(line).startsWith(`${name} `)) ?? null;
+}
+
+/** `## name (@handle)`: a profile heading with the member's handle in `request`. */
+function headingOf(request, name, id) {
+  const handle = [...request.handles].find(([, member]) => member === id)?.[0];
+  return `## ${name} (@${handle})`;
 }
 
 /** The parts of a `<people_now>` row: what follows its first `: `, split on `; `. */
@@ -312,15 +319,15 @@ test('buildRequest: the author heads <people> bare; their <people_now> row is ma
   const overheard = contentText(overheardRequest.messages[1].content);
   assert.ok(!overheard.includes(labels.profile.interlocutorMark.trim()), 'no "talking to you" mark');
   const peopleStart = overheard.indexOf('<people>');
-  const elodie = overheard.indexOf('## Élodie\n', peopleStart);
-  assert.ok(elodie !== -1, 'the author still heads <people>, heading bare');
+  const elodie = overheard.indexOf(`${headingOf(overheardRequest, 'Élodie', 'author-1')}\n`, peopleStart);
+  assert.ok(elodie !== -1, 'the author still heads <people>, heading with the handle and no mark');
   assert.ok(elodie < overheard.indexOf('## Carl', peopleStart));
   assert.ok(overheard.includes(fill(labels.profile.character, { text: 'curious' })), 'the full profile still renders');
   assert.ok(rowOf(overheardRequest, 'Élodie').endsWith(`Élodie${labels.peopleNow.overheardMark}`), 'the overheard mark on the row');
 
   const followUpRequest = run('followUp');
   const followUp = contentText(followUpRequest.messages[1].content);
-  assert.ok(followUp.includes('## Élodie\n'), 'the heading is bare either way');
+  assert.ok(followUp.includes(`${headingOf(followUpRequest, 'Élodie', 'author-1')}\n`), 'the same heading either way');
   assert.ok(rowOf(followUpRequest, 'Élodie').endsWith(`Élodie${labels.profile.interlocutorMark}`));
   assert.ok(!followUp.includes(labels.peopleNow.overheardMark.trim()));
   // The profiles part is the same either way: the mark describes the request, not the person.
@@ -517,7 +524,9 @@ test('buildRequest: the cached interlocutor profile is byte-identical across pre
   const profilesPart = (request) => request.messages[1].content.find((part) => part.cacheSegment === 'profiles').text;
   const base = buildRequest(segmentScene({ around: glance() }));
   const cached = profilesPart(base);
-  assert.ok(cached.startsWith('<people>\n## Alice\n'), cached);
+  // The heading carries the handle <directory> and the <people_now> row use.
+  assert.ok(cached.startsWith(`<people>\n## Alice (@${handleOf('author-1')})\n`), cached);
+  assert.ok(rowOf(base, 'Alice').startsWith(`@${handleOf('author-1')} Alice`));
 
   store.presenceUpdate({ userId: 'author-1', status: 'online', activities: [{ type: 0, name: 'Chess' }] });
   const online = buildRequest(segmentScene({ around: glance() }));
@@ -533,7 +542,13 @@ test('buildRequest: the cached interlocutor profile is byte-identical across pre
   const attitude = buildRequest(segmentScene({ interlocutor: moved, around: glance() }));
   const counted = buildRequest(segmentScene({ messageCount: 990, around: glance() }));
   const sixHours = buildRequest(segmentScene({ now: NOW + 6 * HOUR, around: glance() }));
-  const cases = { online, listening, inVoice, attitude, counted, sixHours };
+  // Someone else in view and in voice: their handles join the request, the caller's stays.
+  store.voiceUpdate({ id: 'v-new', channelId: 'vc1', member: { displayName: 'Ηρώ' } });
+  const crowd = buildRequest(
+    segmentScene({ around: glance(), history: [makeMessage(5, NOW - 2 * MIN, { authorId: 'w9', authorName: 'Wren' }), segmentScene().history[0]] }),
+  );
+  assert.ok(crowd.handles.size > base.handles.size);
+  const cases = { online, listening, inVoice, attitude, counted, sixHours, crowd };
   for (const [name, request] of Object.entries(cases)) assert.equal(profilesPart(request), cached, name);
   // Each change is there, in the tail's <people_now> row.
   assert.ok(rowOf(online, 'Alice').includes('online, playing Chess'));
@@ -729,9 +744,9 @@ test('buildRequest: the interlocutor heads <people> before other profiles; the m
   );
   const user = contentText(request.messages[1].content);
   const peopleBlockStart = user.indexOf('<people>');
-  const aliceIdx = user.indexOf('## Alice\n', peopleBlockStart);
-  const carlIdx = user.indexOf('## Carl', peopleBlockStart);
-  assert.ok(aliceIdx !== -1 && carlIdx !== -1 && aliceIdx < carlIdx);
+  const aliceIdx = user.indexOf(`${headingOf(request, 'Alice', 'author-1')}\n`, peopleBlockStart);
+  const carlIdx = user.indexOf(`${headingOf(request, 'Carl', 'p2')}\n`, peopleBlockStart);
+  assert.ok(aliceIdx !== -1 && carlIdx !== -1 && aliceIdx < carlIdx, user);
   // The rows: the lead, the interlocutor marked, then Carl; each led by the handle <directory> lists.
   const rows = peopleNowOf(request).split('\n');
   assert.equal(rows[0], labels.peopleNow.lead);
@@ -1325,6 +1340,21 @@ test('renderProfile: episodes render only for the interlocutor, right after the 
   assert.equal(lines[1], labels.profile.episodes);
   assert.equal(lines[2], '2026-01-01: said something memorable — "never forget this" (touched)');
   assert.ok(!text.includes('attitude:'), 'the attitude is in the row');
+});
+
+test('renderProfile: opts.handle follows the name on the heading; none without it', () => {
+  const profile = { id: 'p1', names: ['Carl', 'OldCarl'], character: 'calm' };
+  assert.equal(renderProfile(profile, labels, { handle: 'u1a2b' }).split('\n')[0], '## Carl (@u1a2b)');
+  assert.equal(renderProfile(profile, labels, { compact: true, handle: 'u1a2b' }).split('\n')[0], '## Carl (@u1a2b)');
+  assert.equal(renderProfile(profile, labels, { handle: null }).split('\n')[0], '## Carl');
+});
+
+test('buildRequest: with features.mentionHandles off the headings carry no handle', () => {
+  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
+  const interlocutor = { id: 'author-1', names: ['Alice'], character: 'talkative' };
+  const request = buildRequest(baseInput({ config: fakeConfig({ features: { mentionHandles: false } }), history: [trigger], trigger, triggerKind: 'mention', interlocutor }));
+  assert.ok(contentText(request.messages[1].content).includes('<people>\n## Alice\n'));
+  assert.equal(request.handles, null);
 });
 
 test('renderProfile: the interlocutor heading is bare: the mark describes the request and lives in <people_now>', () => {
@@ -2300,7 +2330,7 @@ function askedAboutScene({ context = {}, zoe = {}, ...overrides } = {}) {
 test('people: an asked-about member renders up to askedAboutEpisodes episodes, heaviest first', () => {
   const { people } = askedAboutScene();
   const lines = people.split('\n');
-  assert.equal(lines[0], '## Zoé');
+  assert.equal(lines[0], `## Zoé (@${handleOf('z1')})`);
   assert.equal(lines[1], labels.profile.episodes, 'right after the heading, where the interlocutor has them');
   assert.equal(lines[2], fill(labels.profile.episode, { date: '2026-09-10', what: 'ε5 στιγμή', quote: 'ποτέ ξανά', feeling: 'touched' }));
   assert.equal(lines[3], fill(labels.profile.episodeNoQuote, { date: '2026-08-01', what: 'ε4 στιγμή', feeling: 'touched' }));
@@ -2342,7 +2372,7 @@ test('people: the interlocutor still renders every episode within caps.interlocu
 
   // A tight caps.interlocutor still drops the interlocutor's lightest episodes first, as before.
   const cost = (text) => estimateTokens(text) + 2;
-  const rest = renderProfile({ ...interlocutor, episodes: [] }, labels, { interlocutor: true, relationships: true, episodes: { enabled: true } });
+  const rest = renderProfile({ ...interlocutor, episodes: [] }, labels, { handle: handleOf(interlocutor.id), interlocutor: true, relationships: true, episodes: { enabled: true } });
   const heavy = [
     fill(labels.profile.episode, { date: '2026-09-10', what: 'ε5 στιγμή', quote: 'ποτέ ξανά', feeling: 'touched' }),
     fill(labels.profile.episodeNoQuote, { date: '2026-08-01', what: 'ε4 στιγμή', feeling: 'touched' }),
@@ -2377,7 +2407,7 @@ test('people: a request whose asked-about members have no episodes is the same w
 test('people: an asked-about member known only by episodes still shows them', () => {
   const { people } = askedAboutScene({ zoe: { character: undefined } });
   const lines = people.split('\n');
-  assert.equal(lines[0], '## Zoé');
+  assert.equal(lines[0], `## Zoé (@${handleOf('z1')})`);
   assert.equal(lines[1], labels.profile.episodes);
   assert.equal(lines.length, 5, 'the heading, the episodes heading and three episodes, nothing claiming she is unknown');
   assert.ok(!people.includes(labels.profile.unknown));
@@ -2387,7 +2417,7 @@ test('people: an asked-about member known only by episodes still shows them', ()
 
 test('people: under a tight caps.people the lightest episodes of an asked-about member go first and the member stays', () => {
   const cost = (text) => estimateTokens(text) + 2;
-  const rest = renderProfile({ id: 'z1', names: ['Zoé'], character: 'rêveuse' }, labels, { relationships: true });
+  const rest = renderProfile({ id: 'z1', names: ['Zoé'], character: 'rêveuse' }, labels, { relationships: true, handle: handleOf('z1') });
   const heaviest = fill(labels.profile.episode, { date: '2026-09-10', what: 'ε5 στιγμή', quote: 'ποτέ ξανά', feeling: 'touched' });
   const people = cost(rest) + cost(labels.profile.episodes) + cost(heaviest);
   const caps = { interlocutor: 2500, aboutChat: 2500, people, neighbors: 3000, server: 2500, lore: 1500 };
@@ -2418,14 +2448,14 @@ test('people: near the request limit an asked-about member keeps her place and l
   // A limit leaving <people> exactly `room` tokens (safetyMargin 1, no picture, 60 for the tags).
   const tight = (room, askedAboutEpisodes) => scene({ maxRequestTokens: ahead + room + 60, safetyMargin: 1 }, askedAboutEpisodes);
 
-  const rest = renderProfile({ id: 'z1', names: ['Zoé'], character: 'rêveuse' }, labels, { relationships: true });
+  const rest = renderProfile({ id: 'z1', names: ['Zoé'], character: 'rêveuse' }, labels, { relationships: true, handle: handleOf('z1') });
   const heaviest = fill(labels.profile.episode, { date: '2026-09-10', what: 'ε5 στιγμή', quote: 'ποτέ ξανά', feeling: 'touched' });
   const room = cost(rest) + cost(labels.profile.episodes) + cost(heaviest);
   assert.ok(room < fakeConfig().context.caps.people, 'the request limit binds, not caps.people');
   assert.ok(tight(room, 0).people.startsWith(rest), 'without episodes she is shown');
 
   const { request, people } = tight(room, 3);
-  assert.ok(people.startsWith('## Zoé\n'), `the member asked about is never lost to her episodes: ${people}`);
+  assert.ok(people.startsWith(`## Zoé (@${handleOf('z1')})\n`), `the member asked about is never lost to her episodes: ${people}`);
   assert.ok(people.includes('ε5') && !people.includes('ε4') && !people.includes('ε3'), 'the lightest go first');
   assert.ok(request.stats.used <= request.stats.limit);
 
@@ -2438,11 +2468,11 @@ test('people: near the request limit an asked-about member keeps her place and l
 test('people: room for the episodes heading but not for one episode shows no heading, and an episodes-only member not at all', () => {
   const cost = (text) => estimateTokens(text) + 2;
   const capsWith = (people) => ({ interlocutor: 2500, aboutChat: 2500, people, neighbors: 3000, server: 2500, lore: 1500 });
-  const rest = renderProfile({ id: 'z1', names: ['Zoé'], character: 'rêveuse' }, labels, { relationships: true });
+  const rest = renderProfile({ id: 'z1', names: ['Zoé'], character: 'rêveuse' }, labels, { relationships: true, handle: handleOf('z1') });
   const { people } = askedAboutScene({ context: { caps: capsWith(cost(rest) + cost(labels.profile.episodes) + 1) } });
   assert.equal(people, rest, 'the profile without an empty episodes heading');
 
-  const bare = askedAboutScene({ zoe: { character: undefined }, context: { caps: capsWith(cost('## Zoé') + cost(labels.profile.episodes) + 1) } });
+  const bare = askedAboutScene({ zoe: { character: undefined }, context: { caps: capsWith(cost(`## Zoé (@${handleOf('z1')})`) + cost(labels.profile.episodes) + 1) } });
   assert.equal(bare.people, '', 'nothing learned and no episode shown: no profile');
   assert.equal(bare.request.stats.people.kept, 0);
 
@@ -2456,8 +2486,8 @@ test('people: under a tight caps.people a second asked-about member loses episod
   const cost = (text) => estimateTokens(text) + 2;
   const zoe = { id: 'z1', names: ['Zoé'], character: 'rêveuse', episodes: askedEpisodes() };
   const maxime = { id: 'm1', names: ['Maxime'], character: 'têtu', episodes: askedEpisodes() };
-  const full = renderProfile(zoe, labels, { relationships: true, episodes: { enabled: true, max: 3 } });
-  const bare = renderProfile({ ...maxime, episodes: [] }, labels, { relationships: true });
+  const full = renderProfile(zoe, labels, { handle: handleOf(zoe.id), relationships: true, episodes: { enabled: true, max: 3 } });
+  const bare = renderProfile({ ...maxime, episodes: [] }, labels, { handle: handleOf(maxime.id), relationships: true });
   const caps = { interlocutor: 2500, aboutChat: 2500, people: cost(full) + cost(bare) + 1, neighbors: 3000, server: 2500, lore: 1500 };
   const trigger = makeMessage(1, NOW - MIN, { authorId: 'u1', authorName: 'Ana', content: 'τι έκαναν η Zoé και ο Maxime χθες;' });
   const request = buildRequest(
@@ -2472,8 +2502,8 @@ test("people: the first asked-about member's episodes never cost a later member 
   const cost = (text) => estimateTokens(text) + 2;
   const zoe = { id: 'z1', names: ['Zoé'], character: 'rêveuse', episodes: askedEpisodes() };
   const maxime = { id: 'm1', names: ['Maxime'], character: 'têtu' };
-  const zoeWith = (max) => renderProfile(zoe, labels, { relationships: true, episodes: { enabled: true, max } });
-  const bareMaxime = renderProfile(maxime, labels, { relationships: true });
+  const zoeWith = (max) => renderProfile(zoe, labels, { handle: handleOf(zoe.id), relationships: true, episodes: { enabled: true, max } });
+  const bareMaxime = renderProfile(maxime, labels, { handle: handleOf(maxime.id), relationships: true });
   // One token short of Zoé with her three episodes and Maxime: her lightest one has to go.
   const people = cost(zoeWith(3)) + cost(bareMaxime) - 1;
   const caps = { interlocutor: 2500, aboutChat: 2500, people, neighbors: 3000, server: 2500, lore: 1500 };
@@ -2501,7 +2531,7 @@ test("people: the first asked-about member's episodes never cost a later member 
 test('people: next to a pulled block near the request limit an asked-about member keeps her place with fewer episodes', () => {
   const cost = (text) => estimateTokens(text) + 2;
   const zoe = { id: 'z1', names: ['Zoé'], character: 'rêveuse', episodes: askedEpisodes() };
-  const zoeWith = (max) => renderProfile(zoe, labels, { relationships: true, episodes: { enabled: true, max } });
+  const zoeWith = (max) => renderProfile(zoe, labels, { handle: handleOf(zoe.id), relationships: true, episodes: { enabled: true, max } });
   const trigger = makeMessage(1, NOW - MIN, { authorId: 'u1', authorName: 'Ana', content: 'τι έκανε η Zoé χθες;' });
   // Lines by someone with no profile: the block only takes room ahead of <people>.
   const messages = [1, 2, 3, 4, 5, 6].map((i) =>
@@ -3899,7 +3929,7 @@ test("recent view: an asked-about member's shown episodes are left out, the rest
 test("recent view: an asked-about member's episode cut from <people> is shown in <recent> instead", () => {
   const cost = (text) => estimateTokens(text) + 2;
   const { zoe } = askedZoeScene();
-  const zoeWithOne = renderProfile(zoe, labels, { relationships: true, episodes: { enabled: true, max: 1 } });
+  const zoeWithOne = renderProfile(zoe, labels, { handle: handleOf(zoe.id), relationships: true, episodes: { enabled: true, max: 1 } });
   const caps = { ...fakeConfig().context.caps, people: cost(zoeWithOne) };
   const { request, people, recent } = askedZoeScene({ context: { caps } });
   assert.deepEqual(people, [5], 'only her heaviest fits <people>');
@@ -3913,7 +3943,7 @@ test("recent view: an asked-about member's episode cut from <people> is shown in
 test("recent view: an asked-about member's moments <people> has no room for come back in <recent> while the request has room", () => {
   const cost = (text) => estimateTokens(text) + 2;
   const episodes = [recentMoment('ζ1 στιγμή', { weight: 1 }), recentMoment('ζ2 στιγμή', { weight: 2 })];
-  const bare = renderProfile({ id: ZOE_ID, names: ['Zoé'], character: 'ονειροπόλα' }, labels, { relationships: true });
+  const bare = renderProfile({ id: ZOE_ID, names: ['Zoé'], character: 'ονειροπόλα' }, labels, { handle: handleOf(ZOE_ID), relationships: true });
   const caps = { ...fakeConfig().context.caps, people: cost(bare) };
   const { request, people, recent } = askedZoeScene({ episodes, context: { caps } });
   assert.equal(bodyOf(userText(request), 'people'), bare, 'caps.people holds her profile alone');
@@ -3938,7 +3968,7 @@ test('recent view: at a binding request limit <recent> never takes the room <peo
     recentMoment('ζ5 στιγμή', { weight: 5 }),
   ];
   const zoe = { id: ZOE_ID, names: ['Zoé'], character: 'ονειροπόλα', episodes };
-  const zoeWith = (max) => renderProfile(zoe, labels, { relationships: true, episodes: max > 0 ? { enabled: true, max } : undefined });
+  const zoeWith = (max) => renderProfile(zoe, labels, { handle: handleOf(zoe.id), relationships: true, episodes: max > 0 ? { enabled: true, max } : undefined });
   const entry = (what) => cost(fill(labels.recent.episode, { date: momentDate('2026-09-19'), name: 'Zoé', what }));
   // Loose: <people> shows ζ5, ζ4 and ζ3; <recent> the line, ζ2 and ζ1. Nothing is offered after <people>.
   const loose = askedZoeScene({ episodes });
@@ -3981,7 +4011,7 @@ test('recent view: the room <recent> frees never costs a member asked about thei
   const lea = { id: '444444444444444444', names: ['Léa'], character: 'ήσυχη' };
   const trigger = makeMessage(1, NOW - MIN, { authorId: ANA_ID, authorName: 'Ana', channelId: HERE, channelName: 'here', content: 'τι έκαναν η Zoé, ο Maxime και η Léa;' });
   const scene = (llm) => buildRequest(recentScene({ lines: [recentLine(1)], history: [trigger], trigger, candidateProfiles: [zoe, maxime, lea], llm }));
-  const bare = (profile) => renderProfile({ ...profile, episodes: [] }, labels, { relationships: true });
+  const bare = (profile) => renderProfile({ ...profile, episodes: [] }, labels, { handle: handleOf(profile.id), relationships: true });
   const entry = (what) => cost(fill(labels.recent.episode, { date: momentDate('2026-09-19'), name: 'Zoé', what }));
   // Loose: <people> shows ζ5, ζ4 and ζ3 with Zoé; <recent> the line, ζ2 and ζ1.
   const loose = scene({}).stats;
@@ -4048,7 +4078,7 @@ test("recent view: an interlocutor's moment her own block does not show comes ba
   assert.deepEqual(whole.recent, { lines: 0, episodes: 0, cut: 0, hidden: 0, repeated: 1, unnamed: 0 });
 
   // caps.interlocutor with room for her heaviest moment only: the light one comes back here.
-  const rest = renderProfile({ ...ana, episodes: [] }, labels, { interlocutor: true, relationships: true, episodes: { enabled: true } });
+  const rest = renderProfile({ ...ana, episodes: [] }, labels, { handle: handleOf(ana.id), interlocutor: true, relationships: true, episodes: { enabled: true } });
   const heavyLine = fill(labels.profile.episode, { date: '2026-08-01', what: heavy.what, quote: heavy.quote, feeling: heavy.feeling });
   const caps = { ...fakeConfig().context.caps, interlocutor: cost(rest) + cost(labels.profile.episodes) + cost(heavyLine) };
   const trimmed = scene({ context: { caps } });
@@ -4639,7 +4669,7 @@ test('buildRequest: the profiles part holds the interlocutor alone and stays byt
   };
   assert.equal(alone[1].cacheSegment, 'profiles');
   assert.deepEqual(blocksOf(alone[1].text).map((b) => b.tag), ['people']);
-  assert.ok(alone[1].text.startsWith('<people>\n## Alice\n'), 'the interlocutor, bare');
+  assert.ok(alone[1].text.startsWith(`<people>\n## Alice (@${handleOf('author-1')})\n`), 'the interlocutor, with the handle and no mark');
   for (const [name, content] of Object.entries(turns)) {
     assert.equal(content[1].cacheSegment, 'profiles', name);
     assert.equal(content[1].text, alone[1].text, name);
@@ -4653,15 +4683,17 @@ test('buildRequest: the profiles part holds the interlocutor alone and stays byt
 
 test('buildRequest: the two <people> blocks render exactly the profile lines one block did', () => {
   const config = fakeConfig({ memory: { interestStaleDays: 30, confirmAfter: 2 } });
-  const content = buildRequest(segmentScene({ config, otherProfiles: [BERENICE, CELIK], triggerFields: { content: 'ask Çelik about it' } })).messages[1].content;
+  const request = buildRequest(segmentScene({ config, otherProfiles: [BERENICE, CELIK], triggerFields: { content: 'ask Çelik about it' } }));
+  const content = request.messages[1].content;
   const opts = { relationships: true, shownMoves: 4, timezone: 'Europe/Moscow', now: NOW, confirmAfter: 2, staleDays: 30 };
   const interlocutor = segmentScene().interlocutor;
+  const handle = (id) => [...request.handles].find(([, member]) => member === id)[0];
   // The old single block: the interlocutor in full with every episode, the member asked about in
-  // full with their top episodes, the other participant compact.
+  // full with their top episodes, the other participant compact; each heading with its handle.
   const before = [
-    renderProfile(interlocutor, labels, { ...opts, interlocutor: true, episodes: { enabled: true } }),
-    renderProfile(CELIK, labels, { ...opts, episodes: { enabled: true, max: 3 } }),
-    renderProfile(BERENICE, labels, { ...opts, compact: true }),
+    renderProfile(interlocutor, labels, { ...opts, interlocutor: true, episodes: { enabled: true }, handle: handle('author-1') }),
+    renderProfile(CELIK, labels, { ...opts, episodes: { enabled: true, max: 3 }, handle: handle('author-3') }),
+    renderProfile(BERENICE, labels, { ...opts, compact: true, handle: handle('author-2') }),
   ];
   assert.deepEqual(linesOf(peopleBodies(content)), linesOf(before));
   const [cached, tail] = peopleBodies(content);
@@ -4677,8 +4709,8 @@ test('buildRequest: another interlocutor changes the profiles part', () => {
   ).messages[1].content;
   assert.equal(asBerenice[1].cacheSegment, 'profiles');
   assert.notEqual(asBerenice[1].text, asAlice[1].text);
-  assert.ok(asBerenice[1].text.startsWith('<people>\n## Bérénice\n'));
-  assert.ok(blocksOf(asBerenice[2].text)[0].body.startsWith('## Alice\n'), 'the former interlocutor is now among the others, in the tail');
+  assert.ok(asBerenice[1].text.startsWith(`<people>\n## Bérénice (@${handleOf('author-2')})\n`));
+  assert.ok(blocksOf(asBerenice[2].text)[0].body.startsWith(`## Alice (@${handleOf('author-1')})\n`), 'the former interlocutor is now among the others, in the tail');
 });
 
 // --- skills discovery: the static protocol, the catalogue on request -------------------------
@@ -4981,7 +5013,7 @@ test('buildRequest: people_now -- <people> holds no live line, no attitude, no m
   for (const absent of ['online', 'idle', 'Σαλόνι', 'Spotify', 'attitude:', 'move ', 'kind words', 'rude once', 'messages you have seen', labels.profile.interlocutorMark.trim()]) {
     assert.ok(!people.includes(absent), `<people> holds ${absent}`);
   }
-  assert.equal(tailPeople(request), '## Carl\ncharacter: talkative', 'the compact profile, unchanged');
+  assert.equal(tailPeople(request), `## Carl (@${handleOf('p2')})\ncharacter: talkative`, 'the compact profile, with its handle');
   // Carl is a compact participant: the attitude, no count.
   assert.deepEqual(rowParts(rowOf(request, 'Carl')), ['idle, in voice Σαλόνι, streaming, listening to Spotify: Fado - Lisboa', 'attitude: -4 (neutral) — rude once']);
   assert.deepEqual(rowParts(rowOf(request, 'Alice')).slice(1), ALICE_STATE.split('; '));

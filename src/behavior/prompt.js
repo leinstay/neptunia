@@ -406,6 +406,10 @@ function moveParts(affinity, labels, { max, timezone, nameOf }) {
  * relative. The interlocutor's copy sits in a cached part of the request and must stay
  * byte-identical while the same member talks to the persona.
  *
+ * `opts.handle` (the member's mention handle, src/behavior/handles.js, without the `@`; omitted
+ * or null: none) follows the name on the heading as `(@handle)`: the same token `<directory>`
+ * lists and the person's `<people_now>` row starts with, so the three join by it.
+ *
  * A profile with no durable content is still shown (the heading alone) when
  * `opts.relationships` is on and it carries a non-neutral attitude (non-zero
  * score or a non-empty reason): its row says how the persona feels.
@@ -525,6 +529,7 @@ function renderProfileShown(
   {
     interlocutor = false,
     compact = false,
+    handle = null,
     relationships = false,
     episodes,
     maxInterests,
@@ -569,7 +574,8 @@ function renderProfileShown(
     : [];
   if (!hasContent && interlocutor) restLines.push(p.unknown);
 
-  const heading = `## ${name}`;
+  // The mention handle joins the profile with its `<directory>` line and `<people_now>` row.
+  const heading = handle ? `## ${name} (@${handle})` : `## ${name}`;
 
   if (renderedEpisodes.length && typeof episodes.cap === 'number' && typeof episodes.cost === 'function') {
     const restText = [heading, ...restLines].join('\n');
@@ -2798,6 +2804,9 @@ export function buildRequest(input) {
       })
     : null;
   const directoryText = handleById ? renderDirectory(directory, handleById, labels) : '';
+  // A member's handle in this request (null with the switch off or none given): on their profile
+  // heading and at the start of their `<people_now>` row, as `<directory>` lists it.
+  const handleFor = (memberId) => (memberId !== null && handleById ? (handleById.get(memberId) ?? null) : null);
   // `<now>`: the clock, then the persona's recent time away (features.offPeriods, read now).
   const nowText = nowBlock(now, timezone, labels, config.features?.offPeriods !== false ? input.offPeriods : null);
   const relationships = config.features?.relationships !== false;
@@ -3054,6 +3063,7 @@ export function buildRequest(input) {
   const episodesOpt = { enabled: episodesOn, cap: caps.interlocutor, cost };
   const interlocutorShown = renderProfileShown(interlocutor, labels, {
     interlocutor: true,
+    handle: handleFor(memberIdOf(interlocutor?.id)),
     relationships,
     episodes: episodesOpt,
     maxInterests: config.memory?.maxInterests,
@@ -3073,7 +3083,6 @@ export function buildRequest(input) {
   // (`liveOf`), then what memory holds that changes from turn to turn (profileStateParts) --
   // led by the person's mention handle, the join key with `<people>` and `<directory>`.
   const liveOf = (memberId) => (liveOn && memberId !== null ? liveDetails(liveSnapshot, memberId, { labels, channelNameOf: voiceChannelNameOf }) : '');
-  const handleFor = (memberId) => (memberId !== null && handleById ? (handleById.get(memberId) ?? null) : null);
   // The interlocutor's row, never cut: with a profile, marked as the one talking to the persona
   // (on an overheard turn, as overheard) -- the mark describes the request, so it is never in the
   // cached profile; the trigger's author without a profile gets a row only for its live part.
@@ -3339,6 +3348,7 @@ export function buildRequest(input) {
   const askedRows = new Map(askedAbout.map((profile) => [profile, tailRowOf(profile, false)]));
   const renderAsked = (profile, episodes) => {
     const shown = renderProfileShown(profile, labels, {
+      handle: handleFor(memberIdOf(profile?.id)),
       relationships,
       episodes,
       maxInterests: config.memory?.maxInterests,
@@ -3432,6 +3442,7 @@ export function buildRequest(input) {
       const row = tailRowOf(profile, true);
       const text = renderProfile(profile, labels, {
         compact: true,
+        handle: handleFor(memberIdOf(profile?.id)),
         relationships,
         maxAliases: config.memory?.maxAliases,
         aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
