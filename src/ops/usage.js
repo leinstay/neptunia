@@ -2,7 +2,8 @@
 // the account's credits, and today's requests per model role from the bot's own accounting. The
 // accumulator is fed by the `llm: usage` log lines (src/log.js#onLog, subscribed in src/index.js
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
-// and cost; it keeps the current and the previous UTC day only, in memory, and `data/usage.json`
+// and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
+// tokens); it keeps the current and the previous UTC day only, in memory, and `data/usage.json`
 // keeps them across a restart (written at most once a minute, and once more on shutdown;
 // write-temp + rename). Only numbers and role codes are kept. The costs are OpenRouter's reported
 // ones: a BYOK request is billed by the provider and shows here at OpenRouter's list price (the
@@ -15,6 +16,7 @@ import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../time.js';
 import { fill } from '../discord/format.js';
 import { isPlainObject } from '../config.js';
 import { log as defaultLog } from '../log.js';
+import { IMAGE_ROLE } from '../llm/images.js';
 
 /** The file under `data/` the per-day accumulator persists in. */
 export const USAGE_FILE = 'usage.json';
@@ -24,6 +26,9 @@ export const SAVE_EVERY_MS = MINUTE_MS;
 
 /** The file's schema version. */
 const VERSION = 1;
+
+/** The role a generated picture counts under (src/llm/images.js#IMAGE_ROLE). */
+const DRAWING_ROLE = IMAGE_ROLE;
 
 /** The role code of a usage line that names none. */
 const NO_ROLE = 'other';
@@ -142,14 +147,21 @@ export function createUsage({ dataDir, now = Date.now, fs = nodeFs, log = defaul
 
 /**
  * A log listener (src/log.js#onLog) feeding `usage` from every `llm: usage` line: its role, prompt,
- * cached and completion tokens, and its cost (`upstreamCost` when the line has one, else `cost`).
+ * cached and completion tokens, and its cost (`upstreamCost` when the line has one, else `cost`);
+ * and from every `images: generated` line (src/llm/images.js, which logs no `llm: usage`): one
+ * request of the `drawing` role with its `cost` and no tokens.
  * Never throws on an odd entry.
  * @param {{ record: Function }} usage
  * @returns {(entry: object) => void}
  */
 export function usageTap(usage) {
   return (entry) => {
-    if (!entry || typeof entry !== 'object' || entry.msg !== 'llm: usage') return;
+    if (!entry || typeof entry !== 'object') return;
+    if (entry.msg === 'images: generated') {
+      usage.record({ role: DRAWING_ROLE, cost: entry.cost });
+      return;
+    }
+    if (entry.msg !== 'llm: usage') return;
     usage.record({
       role: entry.role,
       promptTokens: entry.promptTokens,
@@ -268,14 +280,17 @@ function creditsLine(outcome, L) {
   return line(L.credits, { left: usd(bought - used), bought: usd(bought), used: usd(used) });
 }
 
-/** One role row (or the total) through `template`. */
+/** One role row (or the total) through `template`; a row with no token at all (a drawing) shows its
+ * token counts as `-`. */
 function rowLine(template, row) {
+  const tokens = row.promptTokens + row.cachedTokens + row.completionTokens > 0;
+  const count = (n) => (tokens ? compactTokens(n) : '-');
   return line(template, {
     role: row.role,
     requests: row.requests,
-    in: compactTokens(row.promptTokens),
-    cached: compactTokens(row.cachedTokens),
-    out: compactTokens(row.completionTokens),
+    in: count(row.promptTokens),
+    cached: count(row.cachedTokens),
+    out: count(row.completionTokens),
     cost: usd(row.cost),
   });
 }

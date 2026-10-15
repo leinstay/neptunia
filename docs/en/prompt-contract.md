@@ -255,7 +255,7 @@ status.costs.credits                     {left} {bought} {used}: the account's c
 status.costs.creditsUnavailable          {reason}: the credits read failed
 status.costs.reasons.timeout | network | noClient | badAnswer | http   the {reason} words; http has {status}
 status.costs.byRoleHeader | byRoleEmpty  the head of today's per-role lines (UTC day); byRoleEmpty alone when no request was made today
-status.costs.role | total                {role} {requests} {in} {cached} {out} {cost}: one role's requests today, tokens compact (`9.3k`, `974k`, `1.23M`), cost in USD; the roles by cost, then the total
+status.costs.role | total                {role} {requests} {in} {cached} {out} {cost}: one role's requests today, tokens compact (`9.3k`, `974k`, `1.23M`), cost in USD; a role with no tokens (`drawing`: generated pictures, counted with their cost) shows them as `-`; the roles by cost, then the total
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: the time between two consecutive lines at least `context.gapMarkerMinutes` apart, worded so it cannot pass for an age

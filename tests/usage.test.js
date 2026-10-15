@@ -219,6 +219,30 @@ test('usage: requests add up per role, the cost is the upstream cost when there 
   ]);
 });
 
+test('usage: a generated picture counts under drawing with its cost and no tokens', () => {
+  const usage = createUsage({ dataDir: tmpDir(), now: clock() });
+  const tap = usageTap(usage);
+  tap({ msg: 'images: generated', model: 'x/img', family: 'openai', seconds: 12.5, cost: 0.04, bytes: 1000, reference: true });
+  tap({ msg: 'images: generated', model: 'x/img', cost: null, bytes: 900 });
+  tap({ msg: 'llm: usage', role: 'voice', promptTokens: 100, completionTokens: 5, cost: 0.01 });
+  assert.deepEqual(usage.byRole(), [
+    { role: 'drawing', requests: 2, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 0.04 },
+    { role: 'voice', requests: 1, promptTokens: 100, cachedTokens: 0, completionTokens: 5, cost: 0.01 },
+  ]);
+});
+
+test('costsLines: a role with no tokens shows them as -', () => {
+  const rows = [
+    { role: 'drawing', requests: 3, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 0.12 },
+    { role: 'voice', requests: 1, promptTokens: 100, cachedTokens: 0, completionTokens: 5, cost: 0.01 },
+  ];
+  assert.deepEqual(costsLines({ key: ok({}), credits: CREDITS, rows, labels: LABELS }).slice(3), [
+    'drawing 3 in - c - out - = 0.12',
+    'voice 1 in 100 c 0 out 5 = 0.01',
+    'total 4 in 100 c 0 out 5 = 0.13',
+  ]);
+});
+
 test('usage: equal costs order by requests, then by role name', () => {
   const usage = createUsage({ dataDir: tmpDir(), now: clock() });
   for (const role of ['b', 'a', 'c', 'c']) usage.record({ role, cost: 0 });
