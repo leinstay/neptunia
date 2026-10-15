@@ -257,6 +257,20 @@ The keys of `labels.json`; `{x}` is filled by code.
 ```
 locale                                   BCP-47 tag for dates
 status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word. The embedding role is probed with a one-input embedding request of this text instead of a chat completion; when no embedding client is wired the embed line says it was not checked
+status.costs.*                           the costs field of the owner's `/nep status` card (src/ops/usage.js#costsLines); read by the owner, never sent to a model. A missing key leaves its line out. The costs are OpenRouter's reported ones (the upstream cost when the answer carries it): a BYOK request is billed by the provider and shows at OpenRouter's list price
+status.costs.keyLimit                    {spent} {limit} {notes}: the key's limit with what it spent in USD; notes are the reset and the BYOK note joined by `noteSeparator`; `keyLimitPlain` ({spent} {limit}) when there is no note; spent is `-` when the key reports none
+status.costs.keyNone | keyNonePlain      {used} (keyNone only): the key has no limit, with its total usage when reported
+status.costs.keyUnavailable              {reason}: the key read failed
+status.costs.resets | resetsAt           {interval} ({at}: `YYYY-MM-DD HH:MM UTC`): the limit's reset; interval through `intervals.daily | weekly | monthly`, an unknown one as its code
+status.costs.neverResets                 a limit with a null reset
+status.costs.byokCounted | byokNotCounted   whether BYOK requests count against the limit; nothing when the key does not say
+status.costs.noteSeparator | partSeparator  the joiners of the key line's notes and of the usage line's parts
+status.costs.usage                       {parts}: the key's usage, parts from `usageToday` | `usageWeek` | `usageMonth` ({usd}), each only when reported
+status.costs.credits                     {left} {bought} {used}: the account's credits in USD
+status.costs.creditsUnavailable          {reason}: the credits read failed
+status.costs.reasons.timeout | network | noClient | badAnswer | http   the {reason} words; http has {status}
+status.costs.byRoleHeader | byRoleEmpty  the head of today's per-role lines (UTC day); byRoleEmpty alone when no request was made today
+status.costs.role | total                {role} {requests} {in} {cached} {out} {cost}: one role's requests today, tokens compact (`9.3k`, `974k`, `1.23M`), cost in USD; a role with no tokens (`drawing`: generated pictures, counted with their cost) shows them as `-`; the roles by cost, then the total
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: the time between two consecutive lines at least `context.gapMarkerMinutes` apart, worded so it cannot pass for an age

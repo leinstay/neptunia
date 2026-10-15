@@ -1,8 +1,8 @@
 // Operations: `/nep status [detail]`: what the bot is doing now, read only. The reply is one
 // card (`cmdStatusCard`, plain embed data: src/discord/commands.js wraps it for discord.js), the
 // most important field first, for a phone; `detail` adds the long text form (`cmdStatus`) below
-// it. A member (anyone not in `bot.owners`) gets the card without the storage line, the memory
-// and speed fields, and never the long form. Every field lists one item per line. The models
+// it. A member (anyone not in `bot.owners`) gets the card without the storage line, the costs,
+// memory and speed fields, and never the long form. Every field lists one item per line. The models
 // field groups the roles by kind under a bold header each (voice, analyzer, reasoner, extractor,
 // media, embedding, drawing). The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
@@ -12,7 +12,8 @@
 // each group ends with the `roles.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
 // memory) is computed at most once a minute: directory listings and the record's month indexes,
 // never its day files. The speed field reads src/ops/metrics.js (the last 24 h), then today's
-// missed-answer figures from the journal (src/behavior/missed.js).
+// missed-answer figures from the journal (src/behavior/missed.js). The costs field reads the API
+// key's limit and the credits (two free GETs) and today's per-role accumulator (src/ops/usage.js).
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -21,7 +22,7 @@ import { initiateCooldownUntil } from '../behavior/spontaneous.js';
 import { RECALL_DAILY } from '../behavior/recall-run.js';
 import { llmCountToday, resolveProvider } from '../llm/openrouter.js';
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../llm/images.js';
-import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
+import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../time.js';
 import { VOICE_DAILY } from '../memory/update.js';
 import { VIDEO_DAILY } from '../memory/describe.js';
 import { WEB_DAILY } from '../web/lookup.js';
@@ -35,16 +36,17 @@ import { ARCHIVE_EVENTS } from '../memory/archive.js';
 import { plannerOn } from '../behavior/planner.js';
 import { missedCounts, missedStatusLine } from '../behavior/missed.js';
 import { SPEED_METRICS } from './metrics.js';
+import { costsLines, readAccount } from './usage.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 import { todayUtc, onOff, modelForRole } from './shared.js';
 import { defineOp, perEnv } from './registry.js';
 
-/** The card's field names, in order (the memory and speed ones are the owner's only). */
-export const STATUS_FIELDS = Object.freeze(['state', 'connection', 'long tasks', 'models', 'limits', 'memory', 'speed', 'uptime']);
+/** The card's field names, in order (the costs, memory and speed ones are the owner's only). */
+export const STATUS_FIELDS = Object.freeze(['state', 'connection', 'long tasks', 'models', 'limits', 'costs', 'memory', 'speed', 'uptime']);
 
 /** The fields a member's card leaves out. */
-const OWNER_FIELDS = new Set(['memory', 'speed']);
+const OWNER_FIELDS = new Set(['costs', 'memory', 'speed']);
 
 /**
  * The models field's groups, in order: a bold header line each, then one line per role, then
@@ -163,13 +165,6 @@ function probeLine(head, outcome) {
   return `${head} · ${outcome.result?.provider || '-'} · ok ${outcome.ms} ms`;
 }
 
-/** `YYYY-MM-DD HH:MM UTC` for an epoch ms or an ISO string; `-` for anything else. */
-function utcMinute(value) {
-  const ms = typeof value === 'number' ? value : Date.parse(String(value ?? ''));
-  if (!Number.isFinite(ms)) return '-';
-  return `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-}
-
 /** `used/cap`, the cap `-` when it is not a number. */
 function usedOf(used, cap) {
   return `${used}/${Number.isFinite(cap) ? cap : '-'}`;
@@ -236,7 +231,7 @@ function datedLine(name, count, starts, ends) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, record, metrics, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue } = env;
+  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, record, metrics, usage, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue } = env;
   // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
   const clock = typeof env.now === 'function' ? env.now : Date.now;
   // guildId -> { at, value }: the memory field, reused for COVERAGE_CACHE_MS.
@@ -543,6 +538,27 @@ const handlers = perEnv((env) => {
     return `${parts.join('\n')}\nresets 00:00 UTC`;
   }
 
+  /**
+   * The owner's costs field (src/ops/usage.js#costsLines, every word from `labels.status.costs`):
+   * the API key's limit and spend and the account's credits, two free GETs in parallel
+   * (`llm.keyInfo`, `llm.credits`; `llm.probeTimeoutMs`, never counted against
+   * `llm.maxRequestsPerDay`), then today's requests per role from the usage accumulator. Logs
+   * `status: account read` with the two outcomes' codes. `-` when the labels give no line.
+   */
+  async function costsValue(cfg) {
+    const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+    const read = (name) => readAccount(typeof llm?.[name] === 'function' ? () => llm[name]({ timeoutMs }) : null);
+    const [key, credits] = await Promise.all([read('keyInfo'), read('credits')]);
+    log.info('status: account read', {
+      key: key.ok ? 'ok' : key.reason,
+      credits: credits.ok ? 'ok' : credits.reason,
+      status: key.status ?? credits.status ?? null,
+    });
+    const rows = typeof usage?.byRole === 'function' ? usage.byRole() : [];
+    const lines = costsLines({ key, credits, rows, labels: hot.prompts?.labels });
+    return lines.length > 0 ? lines.join('\n') : '-';
+  }
+
   /** The record line: its messages (the distinct ids of the month indexes), its first day to
    * today, and the share of those days with a day file. Reads directory listings and one
    * `ids.json` per month, never a day file. */
@@ -737,8 +753,8 @@ const handlers = perEnv((env) => {
 
   /**
    * The status card as plain embed data (`{ fields: [{ name, value, inline }] }`), the fields in
-   * STATUS_FIELDS order, one item per line in each; `owner` false leaves out the memory and
-   * speed fields and the storage line, and names the models without probing them. Reads the
+   * STATUS_FIELDS order, one item per line in each; `owner` false leaves out the costs, memory
+   * and speed fields and the storage line (and sends no account read), and names the models without probing them. Reads the
    * freshest data/ even mid-pause.
    */
   async function cmdStatusCard({ owner }) {
@@ -748,6 +764,8 @@ const handlers = perEnv((env) => {
     const guildId = getGuildId?.() ?? null;
     const unresolved = 'guild not resolved yet';
     const missed = owner ? await missedLine(guildId, cfg) : null;
+    // The account reads go out now, alongside the model probes; a member's card never sends them.
+    const costs = owner ? costsValue(cfg) : null;
     const values = {
       state: owner ? `${stateValue(data)}\n${await storageLine(guildId, cfg)}` : stateValue(data),
       connection: connectionValue(),
@@ -755,6 +773,7 @@ const handlers = perEnv((env) => {
       // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
       models: owner && typeof llm?.complete === 'function' ? await probedModelsValue(cfg) : modelsValue(cfg),
       limits: limitsValue(cfg, data),
+      costs: owner ? await costs : '',
       memory: owner && guildId ? await memoryValue(guildId) : unresolved,
       speed: owner ? [speedValue(cfg), missed].filter(Boolean).join('\n') : '',
       uptime: span(process.uptime() * 1000),

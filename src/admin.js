@@ -113,6 +113,8 @@ const ARCHIVE_CHOICES = 25;
  *   record line says it is not available.
  * `metrics` — from src/ops/metrics.js#createMetrics, optional: `summary`, the owner card's speed
  *   field, and the turns of the last hour its storage line weighs. Absent -> no speed figures.
+ * `usage` — from src/ops/usage.js#createUsage, optional: `byRole`, today's requests per role on
+ *   the owner card's costs field. Absent -> no role lines.
  * `port` — the persona's interface (src/interface/port.js), optional: what `/nep message
  *   send|edit|delete|react` and `/nep draw channel:` post through, as the persona. Absent -> those
  *   report they are not available.

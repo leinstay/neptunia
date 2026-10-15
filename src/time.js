@@ -26,6 +26,17 @@ export function utcDay(ms) {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+/**
+ * `YYYY-MM-DD HH:MM UTC` for an epoch ms or an ISO string; `-` for anything else.
+ * @param {number|string|null|undefined} value
+ * @returns {string}
+ */
+export function utcMinute(value) {
+  const ms = typeof value === 'number' ? value : Date.parse(String(value ?? ''));
+  if (!Number.isFinite(ms)) return '-';
+  return `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
 /** A finite, non-negative count, or 0. */
 function countOf(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;

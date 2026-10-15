@@ -357,6 +357,7 @@ function makeAdmin(rootDir, extra = {}) {
     embedQueue: extra.embedQueue,
     record: extra.record,
     metrics: extra.metrics,
+    usage: extra.usage,
     now: extra.now,
   });
   return { admin, hot, store };
@@ -1934,7 +1935,7 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(owner.text, '', 'no long form without detail');
   assert.equal(owner.embeds.length, 1);
   const fields = owner.embeds[0].fields;
-  assert.deepEqual(fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'memory', 'speed', 'uptime']);
+  assert.deepEqual(fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'costs', 'memory', 'speed', 'uptime']);
   const value = (name) => fields.find((f) => f.name === name).value;
   assert.equal(value('state'), 'paused since 2026-10-13 08:30 UTC by <@42>\nstorage: append store stalled; 3 archive copies pending');
   assert.equal(value('connection'), 'gateway 42 ms\nlast reconnect none');
@@ -1979,6 +1980,54 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.deepEqual(memberFields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'uptime']);
   assert.equal(memberFields[0].value, 'paused since 2026-10-13 08:30 UTC by <@42>', 'no storage line for a member');
   assert.equal(member.text, '', 'a member never gets the long form');
+});
+
+test('status: the owner card shows the key limit, the credits and today by role under costs; a member gets no field and no read', async () => {
+  const rootDir = makeRoot();
+  const reads = [];
+  const key = {
+    label: 'sk-or-v1-hidden',
+    limit: 30,
+    limit_reset: 'daily',
+    budgets: [{ scope: 'key_limit', limit_usd: 30, spend_usd: 8.45, reset_interval: 'daily', resets_at: '2026-10-16T00:00:00.000Z', include_byok: true }],
+    usage_daily: 0.1,
+  };
+  const llm = {
+    async keyInfo(options) {
+      reads.push(['key', options?.timeoutMs]);
+      return { ok: true, status: 200, json: { data: key } };
+    },
+    async credits(options) {
+      reads.push(['credits', options?.timeoutMs]);
+      throw Object.assign(new Error('slow'), { name: 'TimeoutError' });
+    },
+  };
+  let rows = [{ role: 'voice', requests: 38, promptTokens: 974_000, cachedTokens: 342_000, completionTokens: 9_300, cost: 4.03 }];
+  const usage = { byRole: () => rows };
+  const { admin, hot } = makeAdmin(rootDir, { llm, usage });
+  hot.prompts.labels = labels;
+  hot.config.llm.probeTimeoutMs = 1234;
+
+  const costsOf = async () => (await admin.run('status', {}, { userId: '42' })).embeds[0].fields.find((f) => f.name === 'costs').value;
+  assert.deepEqual((await costsOf()).split('\n'), [
+    'key 8.45/30.00 USD (resets daily at 2026-10-16 00:00 UTC; BYOK in)',
+    'usage day 0.10 USD',
+    'credits: unavailable (timeout)',
+    'today by role:',
+    'voice: 38 req, in 974k (cached 342k), out 9.3k, 4.03 USD',
+    'total: 38 req, in 974k (cached 342k), out 9.3k, 4.03 USD',
+  ]);
+  assert.deepEqual(reads, [['key', 1234], ['credits', 1234]], 'both reads with the probe timeout');
+
+  // Too many roles for one field: whole lines are cut from the bottom.
+  rows = Array.from({ length: 40 }, (_, i) => ({ role: `role-${i}`, requests: 1, promptTokens: 1000, cachedTokens: 0, completionTokens: 10, cost: 0.01 }));
+  const long = await costsOf();
+  assert.ok(long.length <= 1024);
+  assert.match(long.split('\n').at(-1), /^role-\d+: 1 req, in 1\.0k \(cached 0\), out 10, 0\.01 USD$/, 'the last line is whole');
+
+  const member = await admin.run('status', {}, { userId: '999' });
+  assert.ok(!member.embeds[0].fields.some((f) => f.name === 'costs'), 'no costs field for a member');
+  assert.equal(reads.length, 4, 'a member card sends no account read');
 });
 
 /** A clock the test moves by hand. */
@@ -2215,7 +2264,7 @@ test('status: the card lists one item per line in every field, the models groupe
 
   const { embeds } = await admin.run('status', {}, { userId: '42' });
   const lines = (name) => embeds[0].fields.find((f) => f.name === name).value.split('\n');
-  assert.deepEqual(embeds[0].fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'memory', 'speed', 'uptime']);
+  assert.deepEqual(embeds[0].fields.map((f) => f.name), ['state', 'connection', 'long tasks', 'models', 'limits', 'costs', 'memory', 'speed', 'uptime']);
   assert.deepEqual(lines('state'), ['running', 'storage: 2 archive copies pending']);
   assert.deepEqual(lines('connection'), ['gateway 12 ms', 'last reconnect none']);
   assert.deepEqual(lines('long tasks'), ['emoji backfill running', 'GIF backfill running', 'archive drain: 2 pending']);
