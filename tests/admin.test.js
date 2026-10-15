@@ -1903,6 +1903,7 @@ test('status: the card carries the fields in order and the member variant drops 
   hot.config.media = { video: { maxPerDay: 40 } };
   hot.config.recall = { maxPerDay: 100 };
   hot.config.web = { maxPerDay: 60 };
+  hot.config.context = { ...hot.config.context, channelMessages: 60 };
   store.state.data.paused = true;
   store.state.data.pausedAt = '2026-10-13T08:30:00.000Z';
   store.state.data.pausedBy = '42';
@@ -1940,8 +1941,9 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.match(value('limits'), /^requests \d+\/300\nvideos 0\/40\nrecall 0\/100\nlookups 0\/60\nresets 00:00 UTC$/);
   assert.deepEqual(
     value('memory').split('\n').map((line) => line.slice(0, line.indexOf(':'))),
-    ['record', 'index', 'archive', 'profiles', 'server notes', 'channels', 'recent lines', 'participation fragments'],
+    ['chat window', 'record', 'index', 'archive', 'profiles', 'server notes', 'channels', 'recent lines', 'participation fragments'],
   );
+  assert.match(value('memory'), /^chat window: last 60 messages in the active channel\n/);
   assert.ok(!/buffer|pending|journal/.test(value('memory')), 'no buffer, archive queue or journal line in memory');
   assert.equal(value('speed'), 'not available', 'no metrics wired');
   for (const field of fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
