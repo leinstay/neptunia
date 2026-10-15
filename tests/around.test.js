@@ -1,26 +1,21 @@
-// The live glance at the voice channels and the people's now lines (src/discord/around.js): the
-// snapshot store fed by gateway events, the `<around>` body and the now line. Pure: plain objects
-// in the shape of discord.js' VoiceState and Presence, no client, no network.
+// The live glance at the voice channels and the people's statuses (src/discord/around.js): the
+// snapshot store fed by gateway events and the pieces of a `<people_now>` row (the live part,
+// the block's notices, the people in voice, the row itself). Pure: plain objects in the shape of
+// discord.js' VoiceState and Presence, no client, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AROUND_TEXT_CHARS, NOW_DETAIL_CHARS, cleanText, createAroundStore, nowDetails, nowLine, renderAround } from '../src/discord/around.js';
-import { estimateTokens } from '../src/llm/tokens.js';
+import { AROUND_TEXT_CHARS, NOW_DETAIL_CHARS, cleanText, createAroundStore, liveDetails, liveNotices, nowRow, voiceOccupants } from '../src/discord/around.js';
 import { labels } from './fixtures/labels.js';
 
 const CHANNELS = { v1: 'Σαλόνι', v2: 'Café', v3: 'Zéro' };
 const channelNameOf = (id) => CHANNELS[id] ?? null;
 const NAMES = { u1: 'Αλέξης', u2: 'Zoë', u3: 'Chloé', u4: 'Ηλίας' };
 const nameOf = (id) => NAMES[id] ?? null;
-// One character per token: the trim tests count characters.
-const estimate = (text) => text.length;
 
 const voice = (id, channelId, flags = {}) => ({ id, channelId, ...flags });
 const presence = (userId, status, activities = []) => ({ userId, status, activities });
 
-function render(store, { interlocutor = null, maxTokens = Infinity, ...rest } = {}) {
-  return renderAround({ snapshot: store.snapshot(), interlocutorId: interlocutor, nameOf, channelNameOf, labels, maxTokens, estimate, ...rest });
-}
-const details = (store, id) => nowDetails(store.snapshot(), id, { labels, channelNameOf });
+const details = (store, id) => liveDetails(store.snapshot(), id, { labels, channelNameOf });
 
 test('around store: a voice join, a flag change, a move and a leave keep one record per member', () => {
   const store = createAroundStore();
@@ -92,88 +87,35 @@ test('around store: a seed replaces what was held; stale and fresh are explicit'
   assert.equal(store.snapshot().stale, false);
 });
 
-test('renderAround: voice channels list their occupants with the flags as label words', () => {
-  const store = createAroundStore();
-  store.voiceUpdate(voice('u1', 'v1', { selfMute: true, selfDeaf: true }));
-  store.voiceUpdate(voice('u2', 'v1', { streaming: true, selfVideo: true }));
-  store.voiceUpdate(voice('u3', 'v2'));
-  assert.equal(
-    render(store),
-    [
-      labels.around.lead,
-      'In voice channel Café: Chloé',
-      'In voice channel Σαλόνι: Zoë (streaming, camera on), Αλέξης (muted, deafened)',
-    ].join('\n'),
-  );
-});
-
-test('renderAround: a voice channel the caller cannot name and a member without a name are left out', () => {
-  const store = createAroundStore();
-  store.voiceUpdate(voice('u1', 'v1'));
-  store.voiceUpdate(voice('u2', 'hidden'));
-  store.voiceUpdate(voice('stranger', 'v1'));
-  assert.equal(render(store), [labels.around.lead, 'In voice channel Σαλόνι: Αλέξης'].join('\n'));
-  // The name the event carried stands in for a store name.
-  store.voiceUpdate({ id: 'stranger', channelId: 'v1', member: { displayName: 'Ñandú' } });
-  assert.ok(render(store).includes('Ñandú, Αλέξης'));
-});
-
-test('renderAround: the block is the voice summary only: no activities, no status lines, no custom status, no one else', () => {
-  const store = createAroundStore({ presences: true });
-  store.voiceUpdate(voice('u1', 'v1', { streaming: true }));
-  store.voiceUpdate(voice('u2', 'v1'));
-  store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Dota 2', details: 'ranked' }, { type: 4, name: 'Custom Status', state: 'late night' }]));
-  store.presenceUpdate(presence('u2', 'idle', [{ type: 2, name: 'Spotify', details: 'Fado', state: 'Lisboa' }]));
-  store.presenceUpdate(presence('u3', 'dnd', [{ type: 0, name: 'Chess' }]));
-  // The interlocutor (u3) is the one named line; nobody else gets a status line.
-  const body = render(store, { interlocutor: 'u3' });
-  assert.equal(
-    body,
-    [
-      labels.around.lead,
-      'Chloé now: do not disturb, playing Chess',
-      'In voice channel Σαλόνι: Zoë, Αλέξης (streaming)',
-    ].join('\n'),
-  );
-  for (const noise of ['Dota', 'Spotify', 'Fado', 'late night', 'not observed', 'online', 'idle']) assert.ok(!body.includes(noise), `${noise}: ${body}`);
-});
-
-test('renderAround: with nobody in voice and no interlocutor line the body is empty; with the interlocutor alone it is their line', () => {
-  const store = createAroundStore({ presences: true });
-  store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Chess' }]));
-  assert.equal(render(store), '');
-  assert.equal(render(store, { interlocutor: 'u1' }), [labels.around.lead, 'Αλέξης now: online, playing Chess'].join('\n'));
-  // A bare name: no named line without a name.
-  assert.equal(renderAround({ snapshot: store.snapshot(), interlocutorId: 'nobody', nameOf, channelNameOf, labels, estimate }), '');
-});
-
-test('nowDetails: offline is inferred from a missing record only with the intent on and a fresh snapshot', () => {
+test('liveDetails: offline is inferred from a missing record only with the intent on and a fresh snapshot', () => {
   const on = createAroundStore({ presences: true });
   on.presenceUpdate(presence('u1', 'online'));
   assert.equal(details(on, 'u1'), 'online');
   assert.equal(details(on, 'u2'), 'offline', 'no presence record: offline');
-  // An explicit offline record, even with a leftover activity or a voice seat, is the word alone.
+  // An explicit offline record shows no leftover activity; a voice seat still shows (invisible in voice).
   on.presenceUpdate(presence('u3', 'offline', [{ type: 0, name: 'Ghost' }]));
-  on.voiceUpdate(voice('u3', 'v1'));
   assert.equal(details(on, 'u3'), 'offline');
-  // Stale: nothing is known, no line, never a word for it.
+  on.voiceUpdate(voice('u3', 'v1'));
+  assert.equal(details(on, 'u3'), 'offline, in voice Σαλόνι');
+  // Stale: nothing about presence, never a word for it; the voice seat stays.
   on.markStale();
   assert.equal(details(on, 'u1'), '');
   assert.equal(details(on, 'u2'), '');
+  assert.equal(details(on, 'u3'), 'in voice Σαλόνι');
   on.markFresh();
   assert.equal(details(on, 'u2'), 'offline');
-  // The intent off: no line at all, whatever the voice says.
+  // The intent off: no status and no activity, whatever is held; the voice seat shows.
   const off = createAroundStore({ presences: false });
-  off.voiceUpdate(voice('u1', 'v1'));
-  assert.equal(details(off, 'u1'), '');
+  off.voiceUpdate(voice('u1', 'v1', { selfMute: true }));
+  assert.equal(details(off, 'u1'), 'in voice Σαλόνι, muted');
   assert.equal(details(off, 'u2'), '');
-  // A status Discord does not define: no line.
-  on.presenceUpdate(presence('u4', 'invisible'));
+  // A status Discord does not define: no status, no activity.
+  on.presenceUpdate(presence('u4', 'invisible', [{ type: 0, name: 'Chess' }]));
   assert.equal(details(on, 'u4'), '');
-  for (const text of ['unknown', 'not observed']) assert.ok(!Object.values(labels.around.status).includes(text));
+  for (const text of ['unknown', 'not observed']) assert.ok(!Object.values(labels.peopleNow.status).includes(text));
 });
 
-test('nowDetails: status, voice with its flags, then the activities of every type', () => {
+test('liveDetails: status, voice with its flags, then the activities of every type', () => {
   const store = createAroundStore({ presences: true });
   store.voiceUpdate(voice('u1', 'v1', { streaming: true, selfVideo: true, selfMute: true }));
   store.presenceUpdate(
@@ -190,16 +132,16 @@ test('nowDetails: status, voice with its flags, then the activities of every typ
   assert.equal(details(store, 'u3'), 'idle');
 });
 
-test('nowDetails: a voice channel the audience cannot see is not named, nor are its flags', () => {
+test('liveDetails: a voice channel the audience cannot see is not named, nor are its flags', () => {
   const store = createAroundStore({ presences: true });
   store.voiceUpdate(voice('u1', 'hidden', { streaming: true }));
   store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Chess' }]));
   assert.equal(details(store, 'u1'), 'online, playing Chess');
   // No namer at all: the same.
-  assert.equal(nowDetails(store.snapshot(), 'u1', { labels }), 'online, playing Chess');
+  assert.equal(liveDetails(store.snapshot(), 'u1', { labels }), 'online, playing Chess');
 });
 
-test('nowDetails: Spotify shows track and artist, a game shows short clamped details, no custom status anywhere', () => {
+test('liveDetails: Spotify shows track and artist, a game shows short clamped details, no custom status anywhere', () => {
   const store = createAroundStore({ presences: true });
   store.presenceUpdate(presence('u1', 'online', [{ type: 2, name: 'Spotify', details: 'Fado Tropical', state: 'Lisboa Trio' }, { type: 4, name: 'Custom Status', state: 'εξετάσεις' }]));
   assert.equal(details(store, 'u1'), 'online, listening to Spotify: Fado Tropical - Lisboa Trio');
@@ -218,102 +160,69 @@ test('nowDetails: Spotify shows track and artist, a game shows short clamped det
   store.presenceUpdate(presence('u5', 'idle', [{ type: 4, name: 'Custom Status', state: 'back soon' }]));
   assert.equal(details(store, 'u5'), 'idle');
   for (const id of ['u1', 'u2', 'u3', 'u4', 'u5']) assert.ok(!details(store, id).includes('custom'), id);
-  assert.ok(!Object.keys(labels.around).includes('customStatus'));
+  assert.ok(!Object.keys(labels.peopleNow).includes('customStatus'));
 });
 
-test('nowLine: named for the interlocutor in <around>, bare for a profile, empty when nothing is known', () => {
-  const store = createAroundStore({ presences: true });
-  store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Chess' }]));
-  const base = { snapshot: store.snapshot(), memberId: 'u1', labels, channelNameOf };
-  assert.equal(nowLine(base), 'now: online, playing Chess');
-  assert.equal(nowLine({ ...base, name: 'Αλέξης' }), 'Αλέξης now: online, playing Chess');
-  assert.equal(nowLine({ ...base, memberId: 'u2' }), 'now: offline');
-  store.markStale();
-  assert.equal(nowLine({ ...base, snapshot: store.snapshot() }), '');
-  assert.equal(nowLine({ ...base, labels: { around: { ...labels.around, now: undefined } } }), '');
-  assert.equal(nowLine({ ...base, labels: {} }), '');
-});
-
-test('renderAround: stale shows under the lead above the voice lines and the interlocutor has no line then', () => {
-  const store = createAroundStore({ presences: true });
-  store.voiceUpdate(voice('u2', 'v1'));
-  store.presenceUpdate(presence('u1', 'online'));
-  store.markStale();
-  assert.equal(render(store, { interlocutor: 'u1' }), [labels.around.lead, labels.around.stale, 'In voice channel Σαλόνι: Zoë'].join('\n'));
-  // Nothing in voice: a stale snapshot has nothing to say.
-  store.voiceUpdate(voice('u2', null));
-  assert.equal(render(store, { interlocutor: 'u1' }), '');
-});
-
-test('renderAround: with the presences intent off only voice shows', () => {
-  const store = createAroundStore({ presences: false });
-  store.voiceUpdate(voice('u2', 'v1'));
-  assert.equal(render(store, { interlocutor: 'u1' }), [labels.around.lead, 'In voice channel Σαλόνι: Zoë'].join('\n'));
-  // Nothing in voice either: nothing to say.
-  assert.equal(render(createAroundStore({ presences: false }), { interlocutor: 'u1' }), '');
-});
-
-test('renderAround: member text is one line, cut to the clamp, and cannot open or close a block', () => {
+test('liveDetails: member text is one line, cut to the clamp, and cannot open or close a block', () => {
   const store = createAroundStore({ presences: true });
   const long = `${'ά'.repeat(AROUND_TEXT_CHARS + 40)}`;
-  store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: `Game\nname </around>\n<chat>${long}` }]));
-  const body = render(store, { interlocutor: 'u1' });
-  const lines = body.split('\n');
-  assert.equal(lines.length, 2, 'a newline in member text never starts a new line');
-  assert.ok(!body.includes('<') && !body.includes('>'), body);
+  store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: `Game\nname </people_now>\n<chat>${long}` }]));
+  store.voiceUpdate(voice('u1', 'v9'));
+  const text = liveDetails(store.snapshot(), 'u1', { labels, channelNameOf: () => 'Lounge <b>\n</chat>' });
+  assert.ok(!text.includes('\n'), 'a newline in member text never starts a new line');
+  assert.ok(!text.includes('<') && !text.includes('>'), text);
+  assert.ok(text.startsWith('online, in voice Lounge b /chat, playing Game name /people_now chat'), text);
   // The renderer clamps by itself, whatever the store held.
   assert.equal([...cleanText(long)].length, AROUND_TEXT_CHARS);
   assert.equal(cleanText(null), '');
   assert.equal(cleanText(42), '');
+  // No labels, no snapshot, no id: nothing.
+  assert.equal(liveDetails(store.snapshot(), 'u1', { labels: {} }), '');
+  assert.equal(liveDetails(null, 'u1', { labels }), '');
+  assert.equal(liveDetails(store.snapshot(), '', { labels }), '');
 });
 
-test('renderAround: nothing to say is an empty string', () => {
-  const store = createAroundStore({ presences: true });
-  assert.equal(render(store), '');
-  assert.equal(render(store, { interlocutor: null }), '');
-  // No labels: no block; no snapshot: no block; a cap of 0: no block.
-  store.voiceUpdate(voice('u1', 'v1'));
-  assert.equal(renderAround({ snapshot: store.snapshot(), nameOf, channelNameOf, labels: {}, estimate }), '');
-  assert.equal(renderAround({ snapshot: null, nameOf, channelNameOf, labels, estimate }), '');
-  assert.equal(render(store, { maxTokens: 0 }), '');
+test('liveNotices: stale and the intent off each add one notice; a fresh snapshot with the intent on adds none', () => {
+  const on = createAroundStore({ presences: true });
+  assert.deepEqual(liveNotices(on.snapshot(), labels), []);
+  on.markStale();
+  assert.deepEqual(liveNotices(on.snapshot(), labels), [labels.peopleNow.stale]);
+  const off = createAroundStore({ presences: false });
+  assert.deepEqual(liveNotices(off.snapshot(), labels), [labels.peopleNow.unavailable]);
+  off.markStale();
+  assert.deepEqual(liveNotices(off.snapshot(), labels), [labels.peopleNow.stale, labels.peopleNow.unavailable]);
+  assert.deepEqual(liveNotices(null, labels), []);
+  assert.deepEqual(liveNotices(off.snapshot(), {}), []);
 });
 
-test('renderAround: over the cap the voice flags go first, then the channels (the last first), the interlocutor line last', () => {
-  const store = createAroundStore({ presences: true });
-  store.voiceUpdate(voice('u3', 'v1', { selfMute: true }));
-  store.voiceUpdate(voice('u4', 'v2'));
-  store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Chess' }]));
-  const lead = labels.around.lead;
-  const voiceFull = ['In voice channel Café: Ηλίας', 'In voice channel Σαλόνι: Chloé (muted)'];
-  const voiceBare = ['In voice channel Café: Ηλίας', 'In voice channel Σαλόνι: Chloé'];
-  const first = 'Αλέξης now: online, playing Chess';
-  const len = (lines) => [lead, ...lines].join('\n').length;
-  const run = (maxTokens) => render(store, { interlocutor: 'u1', maxTokens });
-
-  assert.equal(run(Infinity), [lead, first, ...voiceFull].join('\n'));
-  // The voice flags first.
-  assert.equal(run(len([first, ...voiceFull]) - 1), [lead, first, ...voiceBare].join('\n'));
-  // Then voice channels, the last first, with the interlocutor's line kept.
-  assert.equal(run(len([first, ...voiceBare]) - 1), [lead, first, voiceBare[0]].join('\n'));
-  assert.equal(run(len([first, voiceBare[0]]) - 1), [lead, first].join('\n'));
-  // Not even the first line fits: no block.
-  assert.equal(run(len([first]) - 1), '');
+test('voiceOccupants: the members in a voice channel that can be named, by name, without the ones excluded', () => {
+  const store = createAroundStore();
+  store.voiceUpdate(voice('u1', 'v1', { selfMute: true }));
+  store.voiceUpdate(voice('u2', 'v2'));
+  store.voiceUpdate(voice('u3', 'hidden'));
+  store.voiceUpdate(voice('stranger', 'v1'));
+  store.voiceUpdate(voice('u4', 'v3'));
+  assert.deepEqual(voiceOccupants(store.snapshot(), { nameOf, channelNameOf }), [
+    { memberId: 'u2', name: 'Zoë' },
+    { memberId: 'u1', name: 'Αλέξης' },
+    { memberId: 'u4', name: 'Ηλίας' },
+  ]);
+  assert.deepEqual(voiceOccupants(store.snapshot(), { excludeIds: new Set(['u1', 'u4']), nameOf, channelNameOf }), [{ memberId: 'u2', name: 'Zoë' }]);
+  // The name the event carried stands in for a store name.
+  store.voiceUpdate({ id: 'stranger', channelId: 'v1', member: { displayName: 'Ñandú' } });
+  assert.ok(voiceOccupants(store.snapshot(), { nameOf, channelNameOf }).some((o) => o.memberId === 'stranger' && o.name === 'Ñandú'));
+  // No channel namer: nobody can be placed.
+  assert.deepEqual(voiceOccupants(store.snapshot(), { nameOf }), []);
 });
 
-test('renderAround: the default estimate and a finite cap hold the block to the cap', () => {
-  const store = createAroundStore({ presences: true });
-  for (let i = 0; i < 30; i += 1) store.voiceUpdate(voice(`m${i}`, `c${i}`));
-  store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Chess' }]));
-  const manyChannels = (id) => `Channel ${id}`;
-  const body = renderAround({
-    snapshot: store.snapshot(),
-    interlocutorId: 'u1',
-    nameOf: (id) => `Member ${id}`,
-    channelNameOf: manyChannels,
-    labels,
-    maxTokens: 60,
-  });
-  assert.ok(body.length > 0);
-  assert.ok(estimateTokens(body) <= 60, 'held to the cap by the default estimate');
-  assert.ok(body.includes('Member u1 now: online, playing Chess'), 'the interlocutor line stays');
+test('nowRow: handle and name, then the mark and the parts; the mark alone through rowBare; nothing to say is empty', () => {
+  assert.equal(nowRow({ handle: 'u1ab', name: 'Zoë', parts: ['online', '', 'attitude: 3'] }, labels), '@u1ab Zoë: online; attitude: 3');
+  assert.equal(nowRow({ handle: 'u1ab', name: 'Zoë', mark: ' (M)', parts: ['online'] }, labels), '@u1ab Zoë (M): online');
+  assert.equal(nowRow({ handle: 'u1ab', name: 'Zoë', mark: ' (M)' }, labels), '@u1ab Zoë (M)');
+  assert.equal(nowRow({ handle: null, name: 'Zoë', parts: ['idle'] }, labels), 'Zoë: idle', 'no handle with the handles off');
+  assert.equal(nowRow({ handle: 'u1ab', name: 'Zoë', parts: [] }, labels), '', 'no part, no mark: no row');
+  assert.equal(nowRow({ handle: null, name: '', parts: ['idle'] }, labels), '');
+  assert.equal(nowRow({ handle: 'u1ab', name: 'Zoë', parts: ['idle'] }, {}), '');
+  // The name is member text: one line, no angle brackets; a part with a newline stays on the row.
+  assert.equal(nowRow({ handle: 'u1ab', name: 'Zo\n<ë>', parts: ['a\nb'] }, labels), '@u1ab Zo ë: a b');
 });

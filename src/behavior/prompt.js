@@ -1,12 +1,11 @@
 // Assembles one LLM request for a turn. Pure: takes already-fetched data and
 // the live prompts/config, returns chat-completions messages. The token budget
 // is spent in this priority order (see src/llm/budget.js):
-//   1. system prompt (persona + live rules + output format), task, clock, tempo — never cut
+//   1. system prompt (persona + live rules + output format), task, clock, tempo, and the
+//      interlocutor's `<people_now>` row (what is current about them) — never cut
 //   2. memory about the trigger's author (the person the persona is talking to, or the one overheard)
 //   2b. what the persona looked up this turn (`<lookup>`, one piece: online,
 //       in the server's own history, or both)
-//   2c. what she sees at the corner of her eye (`<around>`, one piece: the interlocutor's
-//       live now line and the live voice channels, `context.around.maxTokens`)
 //   3. how this server talks + what the persona has said about itself
 //   3b. lorebook entries matched by the transcript (`<lore>`)
 //   4. the map of the server's channels
@@ -22,7 +21,8 @@
 //   5d. the persona's own exchanges on other channels (`<participation>`): the
 //       episodes the pick classifier chose, then the newest, capped by
 //       `context.caps.participation`; never in a private chat
-//   6. memory about other people present in the transcript
+//   6. memory about other people present in the transcript, each with their
+//      `<people_now>` row (the row lives and dies with the profile)
 //   6b. the members the persona feels most strongly about that the request
 //       does not describe (`<attitudes>`, one piece: names and bands)
 //   6c. a diary post only (mode `diary`): the persona's world (`<world>`, one piece, under
@@ -32,14 +32,16 @@
 //   7. neighbouring channels
 //   8. the server's custom emoji (`<emoji>`)
 //   9. the GIF library (`<gifs>`)
+//  10. the `<people_now>` rows of the people in voice the request has no profile for,
+//      capped by `context.around.maxTokens`
 // The rendered order is different, and laid out for the provider's prompt
 // cache: what changes least first, in three text parts -- the stable part
 // (the senses that read only the config, the skills protocol, the names of the
 // skills granted to the persona, `<self_facts>`,
 // `<about_chat>`, `<gifs>`, the people directory `<directory>`), the profiles (`<people>` with the interlocutor alone), then the
 // tail that changes every turn, opening with a second `<people>` for everyone
-// else, with the chat, the clock, the per-turn senses, the
-// tempo and the task last, where the model attends best (see assembleUser and
+// else, with `<people_now>` (what is current about each person) right before the chat,
+// the clock, the per-turn senses, the tempo and the task last, where the model attends best (see assembleUser and
 // docs/prompt-contract.md, "Cache segments"). A private chat (`privateChat`)
 // drops the server map, the neighbouring channels and any pulled channel and
 // sees its partner through the public and private profiles merged
@@ -81,7 +83,7 @@ import { gifWatchBlocker } from '../memory/gif-watch.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
-import { nowLine, renderAround } from '../discord/around.js';
+import { liveDetails, liveNotices, nowRow, voiceOccupants } from '../discord/around.js';
 
 const TAG_OVERHEAD = 60;
 
@@ -372,15 +374,15 @@ function nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalf
 }
 
 /**
- * The moves behind an attitude, one `labels.profile.affinityMove` line each
+ * The moves behind an attitude, one `labels.peopleNow.move` part each
  * (`{delta}` the move's `delta` as a signed integer, `{date}` its `YYYY-MM-DD`
  * in `timezone`, `{reason}` with `<@id>` tokens resolved): up to `max` of
  * `affinity.history`, chosen by src/memory/affinity.js#strongestMoves (the
  * strongest, both signs when there are both, never the reason the attitude
- * line already shows), oldest first. `[]` when the label is missing.
+ * part already shows), oldest first. `[]` when the label is missing.
  */
-function moveLines(affinity, labels, { max, timezone, nameOf }) {
-  const label = labels.profile?.affinityMove;
+function moveParts(affinity, labels, { max, timezone, nameOf }) {
+  const label = labels.peopleNow?.move;
   if (!label) return [];
   return strongestMoves(affinity.history, { max, currentReason: affinity.reason }).map((move) => {
     const delta = Math.round(Number.isFinite(move.delta) ? move.delta : move.appliedDelta);
@@ -393,25 +395,30 @@ function moveLines(affinity, labels, { max, timezone, nameOf }) {
 }
 
 /**
- * One person's memory as prompt text; '' when nothing has been learned yet.
- * When `relationships` is on and the profile carries a non-neutral (non-zero
- * score or non-empty reason) affinity, an attitude line is inserted right
- * after the heading — even when it ends up being the profile's only content,
- * since the persona's attitude toward someone is useful on its own.
- * Under it, `opts.shownMoves` (`relationships.shownMoves`) of the stored
- * moves that made that attitude, one `labels.profile.affinityMove` line each,
- * oldest first (see `moveLines`); omitted or 0 -> none. `opts.timezone`
- * (`bot.timezone`) dates them.
+ * One person's DURABLE memory as prompt text (the `<people>` form, see docs/prompt-contract.md,
+ * "<people>"): '' when nothing has been learned yet. What changes from turn to turn -- the
+ * attitude with its moves, the message count, whether this person is the one talking to the
+ * persona, the live snapshot -- is never here: it is the person's `<people_now>` row
+ * (`profileStateParts`, src/discord/around.js). So the text depends on stored values only, and
+ * on the clock only by the day: the stale and replaced-claim marks and the order of the names
+ * people use read `opts.now` cut to the start of its UTC day (`profileDay`), the ranks of
+ * interests, details and aliases use absolute dates (src/memory/ranking.js#rank), and no age is
+ * relative. The interlocutor's copy sits in a cached part of the request and must stay
+ * byte-identical while the same member talks to the persona.
  *
- * For the interlocutor (`interlocutor: true`), right after the attitude line
- * (or right after the heading, if there is none), `opts.episodes.enabled`
- * additionally renders the caller's remembered episodes -- see
+ * A profile with no durable content is still shown (the heading alone) when
+ * `opts.relationships` is on and it carries a non-neutral attitude (non-zero
+ * score or a non-empty reason): its row says how the persona feels.
+ *
+ * For the interlocutor (`interlocutor: true`), right after the heading,
+ * `opts.episodes.enabled` additionally renders the caller's remembered episodes -- see
  * docs/prompt-contract.md, "<people>". Anyone else (a member the persona is
  * asked about) gets them in the same place only with `opts.episodes.max` a
  * positive integer, and then only the top `max` (src/memory/episodes.js#topEpisodes,
  * heaviest then newest); `max` never caps the interlocutor. Such a profile
  * with nothing else learned is shown by its episodes alone (no
- * `labels.profile.unknown` line). `opts.episodes.cap`/`.cost`
+ * `labels.profile.unknown` line). The interlocutor with no durable content gets
+ * `labels.profile.unknown`. `opts.episodes.cap`/`.cost`
  * (when given) trim the episode list, heaviest-first, to fit that token
  * budget on top of the rest of the profile (for anyone but the interlocutor,
  * down to no heading at all when not one episode fits); without them every
@@ -428,25 +435,12 @@ function moveLines(affinity, labels, { max, timezone, nameOf }) {
  *
  * `opts.compact` renders the SHORT form used for `<people>` priority
  * (c), the other recent participants: current name, aliases, `character`
- * (as stored), the attitude line with at most ONE move under it (the
- * strongest, and none when `shownMoves` is 0: a bystander's "why" in one
- * line), and the top 5 interests (bare topics, no
- * note) -- no former names, no `style`, no `details`, no `relationship`, no
- * message count, no episodes even for the interlocutor. Never passed
+ * (as stored) and the top 5 interests (bare topics, no
+ * note) -- no former names, no `style`, no `details`, no `relationship`,
+ * no episodes even for the interlocutor. Never passed
  * alongside `interlocutor: true` in practice (the interlocutor is always
  * rendered in full), but `compact` wins over `interlocutor` for episodes
  * either way.
- *
- * `opts.nowLine` (a ready line from src/discord/around.js#nowLine, '' or omitted: none) is the
- * live "now" line of a member the cached segments do not hold: one line right under the heading,
- * counted with the profile. It never makes a profile by itself (a member with nothing else to
- * show stays out) and is never passed for the interlocutor, whose profile is cached: theirs goes
- * in `<around>`.
- *
- * `opts.mark` (default true) puts `labels.profile.interlocutorMark` on the
- * interlocutor's heading; false leaves the heading bare and changes nothing
- * else -- the author of an overheard line is rendered in full but is not
- * talking to the persona.
  *
  * Interests, details and aliases show open items only (`validTo` unset); the
  * profile's `closed` claims and conflict sets render as `validityTexts` says,
@@ -465,7 +459,7 @@ export function renderProfile(profile, labels, opts) {
  * The `<attitudes>` block's one item: `labels.attitudes.header`, then one
  * `labels.attitudes.line` per member (`{name}` = the stored `names[0]`,
  * `{band}` = `labels.affinity.bands[affinityBand(score)]`, as the attitude
- * line of a profile shows it) -- the `max` members of `profiles` with the
+ * of a `<people_now>` row shows it) -- the `max` members of `profiles` with the
  * largest `|affinity.score|`, warm and cool alike, rendered by the signed score
  * descending (warmest first, coolest last). A profile is skipped when its score
  * is not a finite number or is 0, its id is in `skipIds` (the interlocutor and
@@ -503,12 +497,10 @@ function renderAttitudes(profiles, labels, { max, skipIds }) {
 }
 
 /**
- * A member's message count as a profile shows it (`labels.profile.messageCount`):
- * rounded down to a multiple of 10 below 100 and of 100 from 100 up, so the
- * line does not change with every message the member writes and the cached
- * profiles of a request stay the same from turn to turn (docs/prompt-contract.md,
- * "Cache segments"). 0 for anything that is not a positive number, and for a
- * count below 10 -- no line then, as with no count at all. Pure.
+ * A member's message count as their `<people_now>` row shows it (`labels.peopleNow.messages`):
+ * rounded down to a multiple of 10 below 100 and of 100 from 100 up -- a rough figure, not a
+ * running tally. 0 for anything that is not a positive number, and for a
+ * count below 10 -- no part then, as with no count at all. Pure.
  * @param {unknown} count  `profile.messageCount`.
  * @returns {number}
  */
@@ -532,9 +524,7 @@ function renderProfileShown(
   labels,
   {
     interlocutor = false,
-    mark: markInterlocutor = true,
     compact = false,
-    nowLine: nowText = '',
     relationships = false,
     episodes,
     maxInterests,
@@ -548,34 +538,20 @@ function renderProfileShown(
     staleDays,
     now,
     nameOf,
-    shownMoves,
-    timezone,
     supersededShownDays,
   } = {},
 ) {
   if (!profile) return { text: '', episodes: 0 };
   const p = labels.profile;
   const name = profile.names?.[0] ?? profile.id;
-  const validity = { closed: profile.closed, now, shownDays: supersededShownDays };
-  const marks = { confirmAfter, staleDays, now, interestHalfLifeDays, detailHalfLifeDays, nameOf, validity };
-
-  const attitudeLines = [];
-  const affinity = profile.affinity;
-  const hasAffinity = relationships && affinity && (affinity.score !== 0 || Boolean(affinity.reason));
-  if (hasAffinity) {
-    attitudeLines.push(
-      fill(p.affinity, {
-        score: roundScore(affinity.score),
-        band: labels.affinity?.bands?.[affinityBand(affinity.score)],
-        reason: resolveChatText(affinity.reason, nameOf),
-      }),
-    );
-    attitudeLines.push(...moveLines(affinity, labels, { max: compact ? Math.min(shownMoves ?? 0, 1) : shownMoves, timezone, nameOf }));
-  }
+  // The clock by the day only: the profile text must not change within a day.
+  const day = profileDay(now);
+  const validity = { closed: profile.closed, now: day, shownDays: supersededShownDays };
+  const marks = { confirmAfter, staleDays, now: day, interestHalfLifeDays, detailHalfLifeDays, nameOf, validity };
 
   const restLines = [];
   if (!compact && profile.names?.length > 1) restLines.push(fill(p.formerNames, { names: profile.names.slice(1).join(', ') }));
-  restLines.push(...nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now }));
+  restLines.push(...nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now: day }));
   if (profile.character) restLines.push(fill(p.character, { text: resolveChatText(profile.character, nameOf) }));
   const interestsLine = compact
     ? compactInterestsText(profile.interests, labels, interestHalfLifeDays)
@@ -585,31 +561,80 @@ function renderProfileShown(
   const detailsLine = compact ? '' : detailsText(profile.details, labels, maxDetails, marks);
   if (detailsLine) restLines.push(fill(p.details, { text: detailsLine }));
   if (!compact && profile.relationship) restLines.push(fill(p.relationship, { text: resolveChatText(profile.relationship, nameOf) }));
-  const hasContent = attitudeLines.length > 0 || restLines.length > 0;
+  const hasContent = restLines.length > 0;
   // Every episode for the interlocutor; the top `episodes.max` for a member asked about.
   const showEpisodes = !compact && episodes?.enabled && (interlocutor || (Number.isInteger(episodes.max) && episodes.max > 0));
   let renderedEpisodes = showEpisodes
     ? episodeLines(interlocutor ? profile.episodes : topEpisodes(profile.episodes, episodes.max), labels, nameOf)
     : [];
   if (!hasContent && interlocutor) restLines.push(p.unknown);
-  const messagesShown = compact ? 0 : roundedMessageCount(profile.messageCount);
-  if (messagesShown) restLines.push(fill(p.messageCount, { count: messagesShown }));
 
-  const mark = interlocutor && markInterlocutor ? p.interlocutorMark : '';
-  const heading = `## ${name}${mark}`;
-  const nowLines = nowText ? [nowText] : [];
+  const heading = `## ${name}`;
 
   if (renderedEpisodes.length && typeof episodes.cap === 'number' && typeof episodes.cost === 'function') {
-    const restText = [heading, ...nowLines, ...attitudeLines, ...restLines].join('\n');
+    const restText = [heading, ...restLines].join('\n');
     renderedEpisodes = fitEpisodeLines(renderedEpisodes, episodes.cap - episodes.cost(restText), episodes.cost);
     // A member asked about never shows the episodes heading with no episode under it.
     if (!interlocutor && renderedEpisodes.length < 2) renderedEpisodes = [];
   }
-  // Anyone but the interlocutor with nothing learned and no moment shown (none, or none fit): nothing to show.
-  if (!hasContent && !interlocutor && renderedEpisodes.length === 0) return { text: '', episodes: 0 };
+  // Anyone but the interlocutor with nothing learned, no attitude and no moment shown (none, or
+  // none fit): nothing to show. With an attitude alone the heading stands for the row.
+  if (!hasContent && !interlocutor && renderedEpisodes.length === 0 && !hasAttitude(profile, relationships)) return { text: '', episodes: 0 };
 
   // The episodes heading, then one line per episode.
-  return { text: [heading, ...nowLines, ...attitudeLines, ...renderedEpisodes, ...restLines].join('\n'), episodes: Math.max(0, renderedEpisodes.length - 1) };
+  return { text: [heading, ...renderedEpisodes, ...restLines].join('\n'), episodes: Math.max(0, renderedEpisodes.length - 1) };
+}
+
+/**
+ * The start of `now`'s UTC day (`Date.now()` when `now` is not a number): the one clock a
+ * profile's text reads, so it stays the same all day long.
+ * @param {number} [now]
+ * @returns {number}
+ */
+function profileDay(now) {
+  const ms = Number.isFinite(now) ? now : Date.now();
+  return Math.floor(ms / DAY_MS) * DAY_MS;
+}
+
+/** Whether `relationships` is on and `profile` carries a non-neutral attitude (a non-zero score or a reason). */
+function hasAttitude(profile, relationships) {
+  const affinity = profile?.affinity;
+  return Boolean(relationships && affinity && (affinity.score !== 0 || Boolean(affinity.reason)));
+}
+
+/**
+ * What is current about one person in memory, as the parts of their `<people_now>` row: with
+ * `relationships` on and a non-neutral attitude (`hasAttitude`), `labels.peopleNow.attitude`
+ * (`{score}` rounded, `{band}` from `labels.affinity.bands`, `{reason}` with `<@id>` tokens
+ * resolved) and up to `shownMoves` of the moves behind it (`moveParts`; at most one for a
+ * `compact` profile, none with `shownMoves` 0); then, for anyone not `compact`, the rounded
+ * message count (`labels.peopleNow.messages`, `roundedMessageCount`). A missing label leaves
+ * its part out. `[]` without a profile or labels. Pure.
+ * @param {object|null} profile
+ * @param {object} labels
+ * @param {{ relationships?: boolean, shownMoves?: number, compact?: boolean, timezone?: string, nameOf?: (id: string) => string|null }} [opts]
+ * @returns {string[]}
+ */
+export function profileStateParts(profile, labels, { relationships = false, shownMoves, compact = false, timezone, nameOf } = {}) {
+  const n = labels?.peopleNow;
+  if (!profile || !n) return [];
+  const parts = [];
+  if (hasAttitude(profile, relationships)) {
+    const affinity = profile.affinity;
+    if (n.attitude) {
+      parts.push(
+        fill(n.attitude, {
+          score: roundScore(affinity.score),
+          band: labels.affinity?.bands?.[affinityBand(affinity.score)],
+          reason: resolveChatText(affinity.reason, nameOf),
+        }),
+      );
+    }
+    parts.push(...moveParts(affinity, labels, { max: compact ? Math.min(shownMoves ?? 0, 1) : shownMoves, timezone, nameOf }));
+  }
+  const messages = compact ? 0 : roundedMessageCount(profile.messageCount);
+  if (messages && n.messages) parts.push(fill(n.messages, { count: messages }));
+  return parts;
 }
 
 /**
@@ -1101,7 +1126,8 @@ function nowBlock(now, timezone, labels, periods) {
  * the tail (no segment) with everything that changes from turn to turn -- a
  * second `<people>` with the other members first, `<emoji>` among it, its
  * ranking moves with use several times a day, `<skills>` (the catalogue, on
- * a question about what the persona can do) and `<around>` (the live voice and status glance) right before `<chat>` -- `<now>`, the per-turn
+ * a question about what the persona can do) and `<people_now>` (what is current about each
+ * person: status, voice, activity, attitude) right before `<chat>` -- `<now>`, the per-turn
  * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
  * renderSenses' two halves. A segment with no block is left
  * out; every part but the last ends with the blank line that separates
@@ -1160,8 +1186,9 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('lookup', (kept.lookup ?? []).join('\n')),
     // The persona's skills with her access here, when she was asked what she can do.
     block('skills', (kept.skills ?? []).join('\n')),
-    // What is going on at the edge of the persona's view right now: a live glance, tail only.
-    block('around', (kept.around ?? []).join('\n')),
+    // What is current about each person: the live snapshot and what changes from turn to turn
+    // in memory. Tail only, right before the chat.
+    block('people_now', (kept.peopleNow ?? []).join('\n')),
     block('chat', renderTranscript(chatItems, timezone, labels)),
     // The present moment after the history it dates, with the persona's recent time away (nowBlock).
     block('now', nowText),
@@ -2477,7 +2504,8 @@ function seenOf({ history, keptChat, pictures }) {
  *   Its `labels.triggers` entry fills `{{trigger}}`. `overheard` (a line about the persona, said to
  *   someone else or to the room) takes `prompts.overheard` as its task text instead of
  *   `prompts[mode]` when that file is a non-empty string, falls back to the `followUp` then the
- *   `reply` label, and renders the author's profile without `labels.profile.interlocutorMark`.
+ *   `reply` label, and marks the author's `<people_now>` row with `labels.peopleNow.overheardMark`
+ *   instead of `labels.profile.interlocutorMark`.
  *   `followUp` and an untagged `reply` take `prompts['follow-up']` instead of `prompts.reply`
  *   (usesFollowUpTask) when that file is a non-empty string; missing or blank, `prompts.reply`.
  * @param {boolean|null} [input.taggedCall]  Whether the trigger tags the persona
@@ -2668,13 +2696,18 @@ function seenOf({ history, keptChat, pictures }) {
  * @param {{ snapshot: object, channelNameOf?: (channelId: string) => string|null }|null} [input.around]
  *   The live glance at the server's sidebar (src/discord/around.js): `snapshot` is the
  *   store's snapshot, `channelNameOf` the name of a voice channel the audience may see (else
- *   null: left out). Two uses: `<around>` in the tail right before `<chat>`, never in a cached
- *   part, holds the voice summary and the interlocutor's now line (their profile is cached);
- *   every profile of the tail `<people>` carries its own now line. `<around>` is rendered by
- *   renderAround to at most `context.around.maxTokens` (default 250) and fitted as one piece
- *   right after `<skills>` in the budget order, so it displaces other context and never adds
- *   above the rail. Needs `labels.around`; `features.around` off, a private chat, an empty
- *   snapshot, or an omitted or null input -> no block.
+ *   null: left out). It is the live part of `<people_now>`, in the tail right after `<skills>`
+ *   and before `<chat>`, never in a cached part: one row per person
+ *   (src/discord/around.js#nowRow) led by their mention handle and name -- the interlocutor
+ *   first (marked with `labels.profile.interlocutorMark`, or `labels.peopleNow.overheardMark` on
+ *   an overheard turn; never cut), then the people of the tail `<people>` in their order (each
+ *   row one budget item with its profile), then the people in a voice channel the request has
+ *   no profile for, by name (the lowest priority, capped by `context.around.maxTokens`, default
+ *   250). A row holds the live part (liveDetails) and, for a profiled person, the attitude with
+ *   its moves and the rounded message count (profileStateParts); `labels.peopleNow.lead` and
+ *   the notices (liveNotices) open the block when it has a row. `features.around` off, a private
+ *   chat, a diary post, an omitted or null input or no `labels.peopleNow`: no live part, the
+ *   rows of memory alone.
  * @param {{ skill: string }|null} [input.continuation]  The same turn continued after the
  *   persona's skill call (src/behavior/turn.js#followUp under continuesTurn): the request is the
  *   turn's own, rebuilt over the turn's history as it stands now (her lines of the turn with the
@@ -2741,15 +2774,34 @@ export function buildRequest(input) {
   // Mention handles (features.mentionHandles, a missing key counts as on): every member with a
   // stored profile gets one in `<directory>` (the stable part), the authors in view on their lines.
   const handlesOn = config.features?.mentionHandles !== false;
+  // `<people_now>`'s live part (features.around, a missing key counts as on): the snapshot of
+  // the gateway's voice states and presences, never in a private chat or a diary post.
+  const aroundInput = input.around;
+  const liveOn =
+    config.features?.around !== false && !privateChat && mode !== 'diary' && isPlainObject(aroundInput) && Boolean(aroundInput.snapshot) && Boolean(labels.peopleNow);
+  const liveSnapshot = liveOn ? aroundInput.snapshot : null;
+  const voiceChannelNameOf = liveOn ? aroundInput.channelNameOf : undefined;
+  const selfMemberId = memberIdOf(input.selfId);
+  // Everyone in a voice channel the audience may see, the persona aside: each gets a handle, so
+  // their `<people_now>` row joins by it like everyone's.
+  const inVoice = liveOn
+    ? voiceOccupants(liveSnapshot, { excludeIds: new Set([selfMemberId].filter(Boolean)), nameOf, channelNameOf: voiceChannelNameOf }).map((occupant) => occupant.memberId)
+    : [];
   const directory = handlesOn ? directoryEntries(input.candidateProfiles ?? [], { selfId: input.selfId ?? null }) : [];
+  // The interlocutor and the other people a profile is offered for are in view too, so every
+  // `<people_now>` row has a handle even for a member the directory does not list.
+  const offeredIds = [interlocutor?.id, ...(Array.isArray(input.otherProfiles) ? input.otherProfiles.map((profile) => profile?.id) : [])].map(memberIdOf).filter(Boolean);
   const handleById = handlesOn
-    ? assignHandles({ profiled: directory.map((entry) => entry.id), inView: authorsInView(history, privateChat ? [] : [input.pulled, neighbors]) })
+    ? assignHandles({
+        profiled: directory.map((entry) => entry.id),
+        inView: [...authorsInView(history, privateChat ? [] : [input.pulled, neighbors]), ...offeredIds, ...inVoice],
+      })
     : null;
   const directoryText = handleById ? renderDirectory(directory, handleById, labels) : '';
   // `<now>`: the clock, then the persona's recent time away (features.offPeriods, read now).
   const nowText = nowBlock(now, timezone, labels, config.features?.offPeriods !== false ? input.offPeriods : null);
   const relationships = config.features?.relationships !== false;
-  // How many attitude moves show under the attitude line (renderProfile).
+  // How many attitude moves follow the attitude in a `<people_now>` row (profileStateParts).
   const shownMoves = config.relationships?.shownMoves ?? 4;
   const episodesOn = config.features?.episodes !== false;
   const loreOn = config.features?.lore !== false;
@@ -3002,8 +3054,6 @@ export function buildRequest(input) {
   const episodesOpt = { enabled: episodesOn, cap: caps.interlocutor, cost };
   const interlocutorShown = renderProfileShown(interlocutor, labels, {
     interlocutor: true,
-    // The author of an overheard line is not talking to the persona.
-    mark: !overheard,
     relationships,
     episodes: episodesOpt,
     maxInterests: config.memory?.maxInterests,
@@ -3017,15 +3067,41 @@ export function buildRequest(input) {
     staleDays: config.memory?.interestStaleDays,
     now,
     nameOf,
-    shownMoves,
-    timezone,
     supersededShownDays: config.memory?.supersededShownDays,
   });
+  // `<people_now>`: one row per person with what is current about them -- the live snapshot
+  // (`liveOf`), then what memory holds that changes from turn to turn (profileStateParts) --
+  // led by the person's mention handle, the join key with `<people>` and `<directory>`.
+  const liveOf = (memberId) => (liveOn && memberId !== null ? liveDetails(liveSnapshot, memberId, { labels, channelNameOf: voiceChannelNameOf }) : '');
+  const handleFor = (memberId) => (memberId !== null && handleById ? (handleById.get(memberId) ?? null) : null);
+  // The interlocutor's row, never cut: with a profile, marked as the one talking to the persona
+  // (on an overheard turn, as overheard) -- the mark describes the request, so it is never in the
+  // cached profile; the trigger's author without a profile gets a row only for its live part.
+  const interlocutorRowId = memberIdOf(interlocutor?.id) ?? memberIdOf(trigger?.authorId);
+  const interlocutorRow =
+    interlocutorRowId === null
+      ? ''
+      : nowRow(
+          {
+            handle: handleFor(interlocutorRowId),
+            name: interlocutor?.names?.[0] ?? trigger?.authorName ?? '',
+            mark: !interlocutor ? '' : overheard ? (labels.peopleNow?.overheardMark ?? '') : (labels.profile?.interlocutorMark ?? ''),
+            parts: [liveOf(interlocutorRowId), ...profileStateParts(interlocutor, labels, { relationships, shownMoves, timezone, nameOf })],
+          },
+          labels,
+        );
+  // The block's lead and notices (a stale snapshot, the presences intent off), rendered only when
+  // a row is shown: paid for with the fixed part when there is an interlocutor row or a live
+  // part (a row is then all but certain), else after the fit, from what the request has left.
+  const peopleNowHead = [labels.peopleNow?.lead ?? '', ...(liveOn ? liveNotices(liveSnapshot, labels) : [])].filter(Boolean).join('\n');
+  const headReserved = Boolean(interlocutorRow) || liveOn;
+  const peopleNowFixed = [headReserved ? peopleNowHead : '', interlocutorRow].filter(Boolean).join('\n');
   const fixedSection = {
     name: 'fixed',
     required: true,
-    // The skills granted to her, the people directory, a diary post's plan, its seeds and its `<diary>` intro are never cut.
-    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, directoryText, planText, seedsText, diaryIntro].filter(Boolean)],
+    // The skills granted to her, the people directory, a diary post's plan, its seeds, its `<diary>` intro and the
+    // interlocutor's `<people_now>` row are never cut.
+    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -3039,29 +3115,6 @@ export function buildRequest(input) {
     lookupItem = lookupOptions.find((text) => cost(text) <= room) ?? lookupItem;
   }
   // The sections fitted ahead of the chat, in priority order.
-  // `<around>` (features.around, a missing key counts as on; never in a private chat): the live
-  // snapshot of the voice channels and the interlocutor's now line (their profile is cached, so
-  // the line lives here in the tail), rendered to at most `context.around.maxTokens` and then
-  // fitted as one piece like what was looked up. The other people's now lines ride on their own
-  // profiles in the tail `<people>` (`nowLineOf`).
-  const aroundInput = input.around;
-  const aroundMax = config.context.around?.maxTokens;
-  const aroundOn = config.features?.around !== false && !privateChat && isPlainObject(aroundInput) && Boolean(aroundInput.snapshot);
-  const nowLineOf = (profile) =>
-    aroundOn ? nowLine({ snapshot: aroundInput.snapshot, memberId: memberIdOf(profile?.id), labels, channelNameOf: aroundInput.channelNameOf }) : '';
-  const aroundText =
-    aroundOn
-      ? renderAround({
-          snapshot: aroundInput.snapshot,
-          interlocutorId: memberIdOf(interlocutor?.id) ?? memberIdOf(trigger?.authorId),
-          interlocutorName: interlocutor?.names?.[0] ?? trigger?.authorName ?? '',
-          nameOf,
-          channelNameOf: aroundInput.channelNameOf,
-          labels,
-          maxTokens: Number.isFinite(aroundMax) ? aroundMax : 250,
-          estimate: cost,
-        })
-      : '';
   const head = [
     fixedSection,
     interlocutorSection,
@@ -3073,9 +3126,6 @@ export function buildRequest(input) {
     { name: 'found', items: [foundText].filter(Boolean) },
     // The skills catalogue, asked for: one piece, ahead of the chat like what was looked up.
     { name: 'skills', items: [inventoryText].filter(Boolean) },
-    // What she sees of the voice channels and the scene's activities: one piece, already cut to
-    // `context.around.maxTokens`, ranked with what was looked up so it displaces, never adds.
-    { name: 'around', items: [aroundText].filter(Boolean) },
     {
       name: 'aboutChat',
       cap: caps.aboutChat,
@@ -3272,9 +3322,23 @@ export function buildRequest(input) {
   // less; measured only when an episode may be shown. The compact participants after them
   // get what is left.
   const peopleRoomCap = Number.isFinite(caps.people) ? caps.people : Infinity;
-  const renderAsked = (profile, episodes) =>
-    renderProfileShown(profile, labels, {
-      nowLine: nowLineOf(profile),
+  // A tail person's `<people_now>` row rides on their profile: one budget item, so the row lives
+  // and dies with the profile and is paid for with it (split again after the fit).
+  const tailRowOf = (profile, compact) => {
+    const id = memberIdOf(profile?.id);
+    return nowRow(
+      {
+        handle: handleFor(id),
+        name: profile?.names?.[0] ?? (id ?? ''),
+        parts: [liveOf(id), ...profileStateParts(profile, labels, { relationships, shownMoves, compact, timezone, nameOf })],
+      },
+      labels,
+    );
+  };
+  const withRow = (text, row) => (text && row ? `${text}\n${row}` : text);
+  const askedRows = new Map(askedAbout.map((profile) => [profile, tailRowOf(profile, false)]));
+  const renderAsked = (profile, episodes) => {
+    const shown = renderProfileShown(profile, labels, {
       relationships,
       episodes,
       maxInterests: config.memory?.maxInterests,
@@ -3288,10 +3352,10 @@ export function buildRequest(input) {
       staleDays: config.memory?.interestStaleDays,
       now,
       nameOf,
-      shownMoves,
-      timezone,
       supersededShownDays: config.memory?.supersededShownDays,
     });
+    return { ...shown, text: withRow(shown.text, askedRows.get(profile) ?? '') };
+  };
   const askedAboutBare = askedAbout.map((profile) => renderAsked(profile, undefined).text);
   let askedAboutItems = askedAboutBare;
   // Members asked about the second placement below leaves out (see there): offered, not shown.
@@ -3360,14 +3424,14 @@ export function buildRequest(input) {
     }
   }
 
-  // `<people>`'s items, each with the member it renders (an empty rendering is no item).
+  // `<people>`'s items, each with the member it renders and their `<people_now>` row (an empty
+  // rendering is no item): the item's text is the profile with the row under it.
   const peopleOffered = [
-    ...askedAbout.map((profile, i) => ({ profile, text: askedAboutItems[i] })),
-    ...participants.map((profile) => ({
-      profile,
-      text: renderProfile(profile, labels, {
+    ...askedAbout.map((profile, i) => ({ profile, row: askedRows.get(profile) ?? '', text: askedAboutItems[i] })),
+    ...participants.map((profile) => {
+      const row = tailRowOf(profile, true);
+      const text = renderProfile(profile, labels, {
         compact: true,
-        nowLine: nowLineOf(profile),
         relationships,
         maxAliases: config.memory?.maxAliases,
         aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
@@ -3377,27 +3441,38 @@ export function buildRequest(input) {
         staleDays: config.memory?.interestStaleDays,
         now,
         nameOf,
-        shownMoves,
-        timezone,
-      }),
-    })),
+      });
+      return { profile, row, text: withRow(text, row) };
+    }),
   ].filter((entry) => entry.text);
+  /** An offered item's profile alone, its row taken off. */
+  const profileTextOf = (entry) => (entry.row && entry.text.endsWith(`\n${entry.row}`) ? entry.text.slice(0, -(entry.row.length + 1)) : entry.text);
   const peopleSection = { name: 'people', cap: caps.people, items: peopleOffered.map((entry) => entry.text) };
-  // The members `<people>` keeps: a subsequence of the offered items, in their order.
-  const keptPeopleOf = (keptPeople) => {
+  // The offered items `<people>` keeps: a subsequence of them, in their order.
+  const keptPeopleEntriesOf = (keptPeople) => {
     const shown = [];
     let next = 0;
     for (const entry of peopleOffered) {
       if (next < keptPeople.length && keptPeople[next] === entry.text) {
-        shown.push(entry.profile);
+        shown.push(entry);
         next += 1;
       }
     }
     return shown;
   };
+  const keptPeopleOf = (keptPeople) => keptPeopleEntriesOf(keptPeople).map((entry) => entry.profile);
+  // The people in voice the request shows no profile for: one `<people_now>` row each (the
+  // live part alone), the lowest priority of the request, capped by `context.around.maxTokens`.
+  const rowIds = new Set([interlocutorRowId, selfMemberId, ...peopleOffered.map((entry) => memberIdOf(entry.profile?.id))].filter(Boolean));
+  const voiceRows = liveOn
+    ? voiceOccupants(liveSnapshot, { excludeIds: rowIds, nameOf, channelNameOf: voiceChannelNameOf })
+        .map(({ memberId, name }) => nowRow({ handle: handleFor(memberId), name, parts: [liveOf(memberId)] }, labels))
+        .filter(Boolean)
+    : [];
+  const aroundMax = config.context.around?.maxTokens;
   // `<attitudes>`: the top `context.attitudes` members by attitude strength (0 = no block), out
   // of every public profile of the guild, a private chat included. The interlocutor and the
-  // members `<people>` shows carry their full attitude line there and are left out; `<people>`
+  // members `<people>` shows carry their full attitude in `<people_now>` and are left out; `<people>`
   // is fitted ahead of this block, so what it keeps is measured without it.
   const attitudesMax = config.context.attitudes ?? 6;
   const attitudesOn =
@@ -3441,6 +3516,8 @@ export function buildRequest(input) {
         keep: 'first',
         items: gifList.items,
       },
+      // Last of all: the people in voice the request has no profile for, by name.
+      { name: 'around', cap: Number.isFinite(aroundMax) ? aroundMax : 250, keep: 'first', items: voiceRows },
     ],
     limit,
     cost,
@@ -3455,6 +3532,23 @@ export function buildRequest(input) {
   // The budget kept the GIFs in rank order; the ones carrying the own-post mark render last.
   kept.gifs = ownMarkedLast(kept.gifs, gifList.marked);
   if (askedLeftOut > 0) stats.people = { ...stats.people, dropped: stats.people.dropped + askedLeftOut };
+  // `<people>` shows the profiles kept; their rows join the interlocutor's and the voice rows in
+  // `<people_now>`, under its lead and notices. No row, no block.
+  const keptPeopleEntries = keptPeopleEntriesOf(kept.people ?? []);
+  kept.people = keptPeopleEntries.map(profileTextOf);
+  let peopleNowRows = [interlocutorRow, ...keptPeopleEntries.map((entry) => entry.row), ...(kept.around ?? [])].filter(Boolean);
+  // A lead the fixed part did not pay for is paid now, from what the request has left; when it
+  // does not fit, the rows are left out (the request only gets shorter).
+  if (peopleNowRows.length > 0 && !headReserved && peopleNowHead) {
+    const price = cost(peopleNowHead);
+    if (used + price <= limit) {
+      used += price;
+      stats.people = { ...stats.people, used: stats.people.used + price };
+    } else {
+      peopleNowRows = [];
+    }
+  }
+  kept.peopleNow = peopleNowRows.length > 0 ? [[peopleNowHead, ...peopleNowRows].filter(Boolean).join('\n')] : [];
   // `<recent>` as one piece: the header, then the entries kept (a subsequence of the offered
   // ones, in their order) oldest first. The header alone, or entries without it, make no block.
   let recent = null;
@@ -3529,7 +3623,7 @@ export function buildRequest(input) {
     if (id !== null) peopleShown.push({ id, names });
   };
   if ((kept.interlocutor ?? []).length > 0) showPerson(interlocutor);
-  for (const profile of keptPeopleOf(kept.people ?? [])) showPerson(profile);
+  for (const entry of keptPeopleEntries) showPerson(entry.profile);
   // The pulled channels whose block survived, with what of them was shown.
   const keptPulled = new Set(kept.pulled);
   const pulledKept = pulledFits

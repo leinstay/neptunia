@@ -1,34 +1,34 @@
 // What the persona sees at the corner of her eye, the way a member sees it in Discord's
-// sidebar right now: who sits in which voice channel (muted, deafened, streaming, camera on),
-// and, for each person whose profile a request renders, one short "now" line (status, the
-// voice channel, what they are doing).
+// sidebar right now: for each person a request is about, their status, the voice channel they
+// sit in (muted, deafened, streaming, camera on) and what they are doing; and who else sits in
+// a voice channel. src/behavior/prompt.js puts it in the `<people_now>` rows, one per person.
 //
 // A LIVE SNAPSHOT, never a record: the store below lives in process memory, is fed by the
 // gateway's voice and presence events, is never written to data/, the journal, the record,
 // a log (counts only) or a backup, and is gone at a restart. Discord sends presences only for
 // members who are not offline, so with the presences intent on and a fresh snapshot a member
 // without a presence record IS offline; with the intent off or a stale snapshot nothing is
-// known and no now line is made (never "unknown").
+// said about presence (one notice for the block, never "unknown" per person).
 //
-// Member-supplied text (activity names, details) is untrusted data: one line, clamped, angle
-// brackets removed so it cannot close or open a prompt block. Custom statuses are never kept.
+// Member-supplied text (names, activity names, details, channel names) is untrusted data: one
+// line, clamped, angle brackets removed so it cannot close or open a prompt block. Custom
+// statuses are never kept.
 //
 // Pure: no discord.js import, no clock; src/index.js feeds the store, src/behavior/prompt.js
-// renders the block and the now lines. Every word the model reads comes from `labels.around`.
+// builds the rows. Every word the model reads comes from `labels.peopleNow`.
 
 import { fill } from './format.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
-import { estimateTokens } from '../llm/tokens.js';
 
 /** Longest member-supplied text kept, in code points. */
 export const AROUND_TEXT_CHARS = 80;
-/** Longest activity details (a game's rich presence) shown in a now line, in code points. */
+/** Longest activity details (a game's rich presence) shown in a row, in code points. */
 export const NOW_DETAIL_CHARS = 40;
 /** Most activities kept per member. */
 const MAX_ACTIVITIES = 3;
 
 const STATUSES = new Set(['online', 'idle', 'dnd', 'offline']);
-// discord.js ActivityType, by number: the keys of `labels.around.activity`.
+// discord.js ActivityType, by number: the keys of `labels.peopleNow.activity`.
 const ACTIVITY_KEYS = { 0: 'playing', 1: 'streaming', 2: 'listening', 3: 'watching', 5: 'competing' };
 const LISTENING = 2;
 // A custom status is not kept: dropped at the door.
@@ -78,8 +78,8 @@ export function voiceRecord(state) {
 
 /**
  * A presence (discord.js `Presence`, or any object with the same fields) as the snapshot's
- * record; null without a member id. An unrecognised status stays `unknown` (no now line is
- * made for it). A custom status is not kept.
+ * record; null without a member id. An unrecognised status stays `unknown` (nothing about
+ * presence is said for it). A custom status is not kept.
  * @param {object} presence  `userId`, `status`, `activities` (`type`, `name`, `details`, `state`), `member?`.
  * @returns {{ memberId: string, name: string|null, status: 'online'|'idle'|'dnd'|'offline'|'unknown', activities: { type: number, name: string, details: string, state: string }[] }|null}
  */
@@ -168,7 +168,7 @@ export function createAroundStore({ presences = false } = {}) {
 /** Names compare by plain code unit order: stable whatever the locale. */
 const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
-/** The flag words of one voice record, through `labels.around.flags`. */
+/** The flag words of one voice record, through `labels.peopleNow.flags`. */
 function flagWords(record, flags) {
   if (!flags || typeof flags !== 'object') return [];
   const words = [];
@@ -180,7 +180,7 @@ function flagWords(record, flags) {
 }
 
 /**
- * One activity as a phrase: `labels.around.activity[type]` (else `other`), then a listening
+ * One activity as a phrase: `labels.peopleNow.activity[type]` (else `other`), then a listening
  * activity of Spotify as `activityTrack` (details = the track, state = the artist), any other
  * activity's details and state as `activityDetails`, clamped to NOW_DETAIL_CHARS.
  */
@@ -198,122 +198,88 @@ function activityPhrase(activity, l) {
 }
 
 /**
- * What one member is doing now, as the details of a now line: the status word, then (unless
- * offline) the voice channel with the member's voice flags -- only a channel `channelNameOf`
- * names -- then the activities. An offline member is the status word alone.
- * '' when nothing is known: the presences intent off, a stale snapshot, a status Discord does
- * not define, or labels missing. With the intent on and a fresh snapshot a member without a
- * presence record is offline.
+ * The live part of one member's `<people_now>` row, the parts joined by `, `: the status word,
+ * then the voice channel the member sits in with their voice flags -- only a channel
+ * `channelNameOf` names -- then (online, idle or do not disturb only) the activities.
+ * The status and the activities need the presences intent on and a fresh snapshot: then a
+ * member without a presence record is offline, and an offline member shows no activity. With
+ * the intent off or a stale snapshot nothing about presence is said (the block carries one
+ * notice instead, see `liveNotices`); the voice seat still shows, as the voice states do not
+ * depend on the presences intent. A status Discord does not define says nothing either.
+ * '' when nothing is known or the labels are missing.
  * @param {{ presences: boolean, stale: boolean, voice: Map<string, object>, presence: Map<string, object> }} snapshot  createAroundStore().snapshot().
  * @param {string} memberId
- * @param {{ labels: object, channelNameOf?: (channelId: string) => string|null }} options
+ * @param {{ labels: object, channelNameOf?: (channelId: string) => string|null }} options  The whole labels object.
  * @returns {string}
  */
-export function nowDetails(snapshot, memberId, { labels, channelNameOf } = {}) {
-  const l = labels?.around;
-  if (!l || !snapshot || !snapshot.presences || snapshot.stale || typeof memberId !== 'string' || memberId === '') return '';
-  const record = snapshot.presence.get(memberId);
-  const status = record ? record.status : 'offline';
-  const statusWord = l.status?.[status];
-  if (!statusWord) return '';
+export function liveDetails(snapshot, memberId, { labels, channelNameOf } = {}) {
+  const l = labels?.peopleNow;
+  if (!l || !snapshot || typeof memberId !== 'string' || memberId === '') return '';
+  const presenceKnown = snapshot.presences === true && snapshot.stale !== true;
+  const record = presenceKnown ? snapshot.presence.get(memberId) : undefined;
+  const status = presenceKnown ? (record ? record.status : 'offline') : null;
+  const statusWord = status ? (l.status?.[status] ?? '') : '';
   const parts = [statusWord];
-  if (status !== 'offline') {
-    const here = snapshot.voice.get(memberId);
-    const channelName = here && typeof channelNameOf === 'function' ? cleanText(channelNameOf(here.channelId) ?? '') : '';
-    if (channelName && l.inVoice) parts.push(fill(l.inVoice, { channel: channelName }), ...flagWords(here, l.flags));
+  const here = snapshot.voice.get(memberId);
+  const channelName = here && typeof channelNameOf === 'function' ? cleanText(channelNameOf(here.channelId) ?? '') : '';
+  if (channelName && l.inVoice) parts.push(fill(l.inVoice, { channel: channelName }), ...flagWords(here, l.flags));
+  if (statusWord && status !== 'offline') {
     for (const activity of record?.activities ?? []) parts.push(activityPhrase(activity, l));
   }
   return parts.filter(Boolean).join(', ');
 }
 
 /**
- * One member's now line: `labels.around.nowNamed` (`{name}` `{details}`) when a name is given,
- * else `labels.around.now` (`{details}`, for a profile that already carries the name). '' when
- * `nowDetails` is empty or the label is missing.
- * @param {object} input
- * @param {object} input.snapshot
- * @param {string} input.memberId
- * @param {string} [input.name]
- * @param {object} input.labels  The whole labels object.
- * @param {(channelId: string) => string|null} [input.channelNameOf]
- * @returns {string}
+ * The block-level notices of `<people_now>`, in this order: `labels.peopleNow.stale` when the
+ * gateway dropped since the last update (what is held may be out of date), then
+ * `labels.peopleNow.unavailable` when the presences intent is off (no status and no activity
+ * can be known). [] for a fresh snapshot with the intent on, no snapshot or no labels. The
+ * caller shows them only when the block has rows anyway.
+ * @param {{ presences: boolean, stale: boolean }|null} snapshot
+ * @param {object} labels  The whole labels object.
+ * @returns {string[]}
  */
-export function nowLine({ snapshot, memberId, name = '', labels, channelNameOf }) {
-  const l = labels?.around;
-  const details = nowDetails(snapshot, memberId, { labels, channelNameOf });
-  if (!details || !l) return '';
-  const who = cleanText(name);
-  if (who) return l.nowNamed ? fill(l.nowNamed, { name: who, details }) : '';
-  return l.now ? fill(l.now, { details }) : '';
+export function liveNotices(snapshot, labels) {
+  const l = labels?.peopleNow;
+  if (!l || !snapshot) return [];
+  return [snapshot.stale === true ? l.stale : '', snapshot.presences !== true ? l.unavailable : ''].filter(Boolean);
 }
 
 /**
- * The `<around>` block body: `labels.around.lead`, the interlocutor's now line (named; it lives
- * here because their profile is in a cached part of the request), then one line per voice
- * channel with its occupants and their voice flags. Nothing else: no activities in the voice
- * lines, no other people. '' when there is nothing to say (no voice occupant and no now line
- * for the interlocutor), labels missing or `maxTokens` 0. Over `maxTokens` the voice goes
- * first (the flags, then channels, the last first); the interlocutor's line stays longest, and
- * when even that does not fit the body is ''.
- * @param {object} input
- * @param {{ presences: boolean, stale: boolean, voice: Map<string, object>, presence: Map<string, object> }} input.snapshot  createAroundStore().snapshot().
- * @param {string|null} [input.interlocutorId]  The member whose profile is in the cached part.
- * @param {string} [input.interlocutorName]  Their name as their profile shows it; else `nameOf`, else the name the snapshot holds.
- * @param {(memberId: string) => string|null} input.nameOf
- * @param {(channelId: string) => string|null} input.channelNameOf  null: a channel not to be named, left out.
- * @param {object} input.labels  The whole labels object; `labels.around` is read.
- * @param {number} [input.maxTokens]  Hard cap of the body (non-finite: no cap).
- * @param {(text: string) => number} [input.estimate]  Token estimate of a text (default: src/llm/tokens.js).
+ * The members sitting in a voice channel the audience may see (`channelNameOf` names it), but
+ * those in `excludeIds`, each with a name (`nameOf`, else the name the snapshot holds; one
+ * without either is left out), by name then id.
+ * @param {{ voice: Map<string, object> }} snapshot
+ * @param {{ excludeIds?: Set<string>, nameOf?: (memberId: string) => string|null, channelNameOf?: (channelId: string) => string|null }} [options]
+ * @returns {{ memberId: string, name: string }[]}
+ */
+export function voiceOccupants(snapshot, { excludeIds = new Set(), nameOf, channelNameOf } = {}) {
+  if (!snapshot?.voice || typeof channelNameOf !== 'function') return [];
+  const out = [];
+  for (const entry of snapshot.voice.values()) {
+    if (excludeIds.has(entry.memberId)) continue;
+    if (!cleanText(channelNameOf(entry.channelId) ?? '')) continue;
+    const name = cleanText((typeof nameOf === 'function' ? nameOf(entry.memberId) : null) ?? entry.name ?? '');
+    if (name) out.push({ memberId: entry.memberId, name });
+  }
+  return out.sort((a, b) => byText(a.name, b.name) || byText(a.memberId, b.memberId));
+}
+
+/**
+ * One `<people_now>` row: `labels.peopleNow.row` (`{who}` `{mark}` `{details}`, the parts
+ * joined by `; `), or `labels.peopleNow.rowBare` (`{who}` `{mark}`) when a mark is all there is
+ * to say. `{who}` is `@handle` (the member's mention handle, src/behavior/handles.js, the join
+ * key with `<people>` and `<directory>`) and the name (member text: cleaned like any). One line
+ * always. '' with nothing to say (no part, no mark), no name and no handle, or the label missing.
+ * @param {{ handle?: string|null, name?: string, mark?: string, parts?: string[] }} row
+ * @param {object} labels  The whole labels object.
  * @returns {string}
  */
-export function renderAround({ snapshot, interlocutorId = null, interlocutorName: givenName = '', nameOf, channelNameOf, labels, maxTokens = Infinity, estimate = estimateTokens }) {
-  const l = labels?.around;
-  if (!l?.lead || !snapshot || !(maxTokens > 0)) return '';
-  const name = (id, record) => cleanText((typeof nameOf === 'function' ? nameOf(id) : null) ?? record?.name ?? '');
-
-  // Voice: channels by name, occupants by name.
-  const byChannel = new Map();
-  for (const entry of snapshot.voice.values()) {
-    const memberName = name(entry.memberId, entry);
-    if (!memberName) continue;
-    const channelName = typeof channelNameOf === 'function' ? cleanText(channelNameOf(entry.channelId) ?? '') : '';
-    if (!channelName) continue;
-    const group = byChannel.get(entry.channelId) ?? { channelName, members: [] };
-    group.members.push({ name: memberName, entry });
-    byChannel.set(entry.channelId, group);
-  }
-  const groups = [...byChannel.values()].sort((a, b) => byText(a.channelName, b.channelName));
-  for (const group of groups) group.members.sort((a, b) => byText(a.name, b.name));
-  const voiceLine = (group, withFlags) => {
-    if (!l.voiceChannel) return '';
-    const members = group.members.map(({ name: memberName, entry }) => {
-      const words = withFlags ? flagWords(entry, l.flags) : [];
-      return words.length > 0 && l.voiceMember ? fill(l.voiceMember, { name: memberName, flags: words.join(', ') }) : memberName;
-    });
-    return fill(l.voiceChannel, { channel: group.channelName, members: members.join(', ') });
-  };
-
-  // The interlocutor's line: named, so it reads alone under the lead.
-  const hasInterlocutor = typeof interlocutorId === 'string' && interlocutorId !== '';
-  const interlocutorName = hasInterlocutor ? cleanText(givenName) || name(interlocutorId, snapshot.presence.get(interlocutorId)) : '';
-  const now = interlocutorName ? nowLine({ snapshot, memberId: interlocutorId, name: interlocutorName, labels, channelNameOf }) : '';
-
-  const compose = (voiceLines) => {
-    if (voiceLines.length === 0 && !now) return '';
-    return [l.lead, voiceLines.length > 0 && snapshot.stale ? l.stale : '', now, ...voiceLines].filter(Boolean).join('\n');
-  };
-  const fits = (text) => text !== '' && (!Number.isFinite(maxTokens) || estimate(text) <= maxTokens);
-
-  // Candidates from the fullest down, the first that fits wins: no flags, then fewer channels
-  // (the last first), the interlocutor's line kept to the end.
-  for (const withFlags of [true, false]) {
-    const text = compose(groups.map((group) => voiceLine(group, withFlags)).filter(Boolean));
-    if (fits(text)) return text;
-  }
-  const bare = groups.map((group) => voiceLine(group, false)).filter(Boolean);
-  for (let channels = bare.length - 1; channels >= 0; channels -= 1) {
-    const text = compose(bare.slice(0, channels));
-    if (fits(text)) return text;
-  }
-  return '';
+export function nowRow({ handle = null, name = '', mark = '', parts = [] }, labels) {
+  const l = labels?.peopleNow;
+  const who = [handle ? `@${handle}` : '', cleanText(name)].filter(Boolean).join(' ');
+  if (!l || !who) return '';
+  const details = parts.filter(Boolean).join('; ');
+  if (details) return l.row ? oneLine(fill(l.row, { who, mark: mark ?? '', details })) : '';
+  return mark && l.rowBare ? oneLine(fill(l.rowBare, { who, mark })) : '';
 }

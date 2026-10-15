@@ -3837,9 +3837,8 @@ export function createTurnRunner({
   }
 
   /**
-   * `<around>`'s input (src/discord/around.js): the live snapshot of the voice channels and of
-   * the statuses (the prompt builder derives the now lines of the interlocutor and of the
-   * `<people>` from it) and the voice channels' names -- only those a member without any role may see, so
+   * The live part of `<people_now>` (src/discord/around.js): the snapshot of the voice channels and
+   * of the statuses (the prompt builder derives each person's row from it) and the voice channels' names -- only those a member without any role may see, so
    * she never names who sits in a room this chat cannot see. Null without the store, with
    * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
    * Read at the moment of the request; nothing of it is kept.
@@ -5675,7 +5674,7 @@ export function createTurnRunner({
         // `<skills_granted>`: the names of the skills granted to her, on every turn -- her grants
         // (the config read now) and the registry only, never this requester or channel.
         skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
-        // `<around>`: the live voice and status snapshot (null: no block).
+        // `<people_now>`'s live part: the voice and status snapshot (null: none).
         around: aroundInputFor({ channel, config, mode: finalMode, isPrivate }),
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
         continuation: null,
