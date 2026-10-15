@@ -127,7 +127,7 @@ test('renderAround: scene members get their status, activities and custom status
     body,
     [
       labels.around.lead,
-      'Αλέξης: online; listening to Música (Fado / Lisboa); status text: εξετάσεις',
+      'Αλέξης: online; listening to Música (Fado / Lisboa); custom status: εξετάσεις',
       'Zoë: do not disturb; playing Chess',
     ].join('\n'),
   );
@@ -167,7 +167,7 @@ test('renderAround: member text is one line, cut to the clamp, and cannot open o
   const lines = body.split('\n');
   assert.equal(lines.length, 2, 'a newline in member text never starts a new line');
   assert.ok(!body.includes('<') && !body.includes('>'), body);
-  const custom = /status text: (.*)$/.exec(lines[1])[1];
+  const custom = /custom status: (.*)$/.exec(lines[1])[1];
   assert.ok([...custom].length <= AROUND_TEXT_CHARS, `${[...custom].length}`);
   assert.ok(custom.startsWith('line one /around chat'.slice(0, 8)));
   // The renderer clamps by itself, whatever the store held.
