@@ -19,6 +19,7 @@ import {
 } from '../src/behavior/handles.js';
 import { buildRequest, userText } from '../src/behavior/prompt.js';
 import { afterScenarioTurn } from '../src/behavior/sandbox.js';
+import { channelDirectoryOf as guildChannelDirectory } from '../src/discord/collect.js';
 import { formatTranscript } from '../src/discord/format.js';
 import { withCacheMarker } from '../src/llm/openrouter.js';
 import { linkChannels } from '../src/memory/mentions.js';
@@ -208,4 +209,27 @@ test('afterScenarioTurn: her #handle lands on her line as the channel link a liv
   const [mine] = out.transcript;
   assert.equal(mine.content, `over in <#${KITCHEN}>`);
   assert.deepEqual(mine.mentionedChannelIds, [KITCHEN]);
+});
+
+test('channelDirectoryOf: the readable text channels with their category, never a thread', () => {
+  const guild = { members: { me: { id: SELF_ID } } };
+  const channel = (id, name, { thread = false, parent = null, readable = true } = {}) => ({
+    id, name, guild, viewable: true, parent,
+    isTextBased: () => true,
+    isThread: () => thread,
+    permissionsFor: () => ({ has: () => readable }),
+  });
+  guild.channels = {
+    cache: new Map([
+      [GENERAL, channel(GENERAL, 'γενικά')],
+      [NEWS, channel(NEWS, '💖νέα', { parent: { name: 'Κοινότητα' } })],
+      ['800000000000000404', channel('800000000000000404', 'ένα νήμα', { thread: true, parent: { name: 'γενικά' } })],
+      ['800000000000000505', channel('800000000000000505', 'κρυφό', { readable: false })],
+    ]),
+  };
+  assert.deepEqual(guildChannelDirectory(guild, {}), [
+    { id: GENERAL, name: 'γενικά', category: null },
+    { id: NEWS, name: '💖νέα', category: 'Κοινότητα' },
+  ]);
+  assert.deepEqual(guildChannelDirectory(null, {}), [], 'a private chat has none');
 });

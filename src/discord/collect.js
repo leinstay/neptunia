@@ -742,7 +742,7 @@ export function readableChannels(guild, botConfig, exceptId = null) {
 
 /**
  * The channel directory's input (src/behavior/prompt.js#buildRequest `channelDirectory`): every
- * channel of `guild` the persona may read (isReadableChannel) as `{ id, name, category }`, the
+ * channel of `guild` the persona may read (isReadableChannel), never a thread, as `{ id, name, category }`, the
  * category its parent's name or null. [] without a guild (a private chat).
  * @param {object|null|undefined} guild  A discord.js Guild.
  * @param {object} botConfig  The live `config.bot`.
@@ -753,7 +753,9 @@ export function channelDirectoryOf(guild, botConfig) {
   if (!cache || typeof cache.values !== 'function' || !guild.members) return [];
   // A channel object without the discord.js checks (a partial one) is never listed.
   const usable = (channel) => typeof channel?.isTextBased === 'function' && typeof channel.isThread === 'function' && typeof channel.permissionsFor === 'function';
-  return [...cache.values()].filter((channel) => usable(channel) && isReadableChannel(channel, botConfig)).map((channel) => ({
+  // Never a thread: discord.js caches threads as they turn active or archived, and each one listed
+  // would rewrite the cached stable part (a thread still resolves and renders by its `#name`).
+  return [...cache.values()].filter((channel) => usable(channel) && !channel.isThread() && isReadableChannel(channel, botConfig)).map((channel) => ({
     id: String(channel.id),
     name: channel.name,
     category: typeof channel.parent?.name === 'string' ? channel.parent.name : null,
