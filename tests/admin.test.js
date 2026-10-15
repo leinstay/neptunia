@@ -1943,20 +1943,21 @@ test('status: the card carries the fields in order and the member variant drops 
     value('models'),
     [
       '**voice**',
-      'voice · anthropic/claude-opus-4.6',
+      'anthropic/claude-opus-4.6',
       '**analyzer**',
-      `analyzer · ${ROLE_DEFAULTS.analyzer}`,
+      `${ROLE_DEFAULTS.analyzer}`,
       '**reasoner**',
-      `reasoner · ${ROLE_DEFAULTS.reasoner}`,
+      `${ROLE_DEFAULTS.reasoner}`,
       '**extractor**',
-      'extractor · x/extractor',
-      '**media**',
-      `vision · ${ROLE_DEFAULTS.vision}`,
-      `video · ${ROLE_DEFAULTS.video}`,
+      'x/extractor',
+      '**vision**',
+      `${ROLE_DEFAULTS.vision}`,
+      '**video**',
+      `${ROLE_DEFAULTS.video}`,
       '**embedding**',
-      `embedding · ${ROLE_DEFAULTS.embedding}`,
+      `${ROLE_DEFAULTS.embedding}`,
       '**drawing**',
-      `drawing · ${ROLE_DEFAULTS.drawing}`,
+      `${ROLE_DEFAULTS.drawing}`,
     ].join('\n'),
     'no llm client: every role named by group with its own model, unprobed',
   );
@@ -2226,17 +2227,17 @@ test('status: the card lists one item per line in every field, the models groupe
     'lookups 0/60',
     'resets 00:00 UTC',
   ]);
-  assert.deepEqual(lines('models').filter((line) => line.startsWith('**')), ['**voice**', '**analyzer**', '**reasoner**', '**extractor**', '**media**', '**embedding**', '**drawing**']);
+  assert.deepEqual(lines('models').filter((line) => line.startsWith('**')), ['**voice**', '**analyzer**', '**reasoner**', '**extractor**', '**vision**', '**video**', '**embedding**', '**drawing**']);
   assert.deepEqual(roleLinesOf(embeds[0].fields.find((f) => f.name === 'models').value).map((line) => line.split(' · ')[0]), [
-    'voice',
-    'analyzer',
-    'reasoner',
-    'extractor',
-    'vision',
-    'video',
-    'embedding',
-    'drawing',
-  ]);
+    'anthropic/claude-opus-4.6',
+    'x/text',
+    'x/reason',
+    'x/extractor',
+    'x/media',
+    'x/video',
+    'x/embed',
+    'openai/gpt-image-1',
+  ], 'each line starts with its model; the bold header names the role');
   assert.ok(!lines('models').some((line) => line.startsWith(' ')), 'no detail line under a role');
   for (const field of embeds[0].fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 });
@@ -2266,10 +2267,10 @@ test('status: the owner card probes every role\'s model and shows its provider a
   }
   assert.deepEqual(llm.listings, [{ model: 'openai/gpt-image-1', options: { timeoutMs: 1234 } }]);
 
-  assert.match(lines[0], /^voice · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
-  assert.match(lines[1], /^analyzer · x\/text · Prov · ok \d+ ms$/);
-  assert.ok(lines.includes('vision · x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
-  assert.match(lines.at(-1), /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
+  assert.match(lines[0], /^anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
+  assert.match(lines[1], /^x\/text · Prov · ok \d+ ms$/);
+  assert.ok(lines.includes('x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
+  assert.match(lines.at(-1), /^openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
 
   const probed = logs.filter((entry) => entry.msg === 'status: probed');
   assert.equal(probed.length, 1);
@@ -2290,20 +2291,21 @@ test('status: the member card shows the models by group without probing', async 
     models,
     [
       '**voice**',
-      'voice · anthropic/claude-opus-4.6',
+      'anthropic/claude-opus-4.6',
       '**analyzer**',
-      'analyzer · x/text',
+      'x/text',
       '**reasoner**',
-      'reasoner · x/reason',
+      'x/reason',
       '**extractor**',
-      'extractor · x/extractor',
-      '**media**',
-      'vision · x/media',
-      'video · x/video',
+      'x/extractor',
+      '**vision**',
+      'x/media',
+      '**video**',
+      'x/video',
       '**embedding**',
-      'embedding · x/embed',
+      'x/embed',
       '**drawing**',
-      'drawing · openai/gpt-image-1',
+      'openai/gpt-image-1',
     ].join('\n'),
   );
   assert.equal(llm.calls.length, 0, 'no probe request');
@@ -2343,11 +2345,11 @@ test('status: identical probes are sent once, each role shows its own model, the
   assert.equal(embedCalls[0].options.config, hot.config);
   assert.equal(llm.calls.some((call) => call.options.model === 'x/embed'), false, 'the embedding model is never sent a chat completion');
 
-  assert.match(lines[2], /^reasoner · x\/text · Prov · ok \d+ ms$/, 'its own line, no marker of another role');
+  assert.match(lines[2], /^x\/text · Prov · ok \d+ ms$/, 'its own line, no marker of another role');
   assert.equal(lines[3], 'byPurpose lookup · x/pinned', 'a reasoner override closes the reasoner group');
-  assert.match(lines[4], /^extractor · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
-  assert.equal(lines[7], 'byPurpose describe · x/seen', 'a vision override closes the media group');
-  assert.match(lines[8], /^embedding · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
+  assert.match(lines[4], /^anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
+  assert.equal(lines[6], 'byPurpose describe · x/seen', 'a vision override closes the vision group');
+  assert.match(lines[8], /^x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
   assert.equal(logs.find((entry) => entry.msg === 'status: probed').requests, 5);
 });
 
@@ -2357,13 +2359,13 @@ test('status: without an embedding client the embedding role is shown unchecked;
   const none = makeAdmin(rootDir, { llm });
   probeConfig(none.hot);
   const unchecked = await none.admin.run('status', {}, { userId: '42' });
-  assert.ok(unchecked.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('embedding · x/embed · not checked (no embedding client)'));
+  assert.ok(unchecked.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('x/embed · not checked (no embedding client)'));
 
   const embedder = { embed: async () => { throw Object.assign(new Error('HTTP 404: no such model'), { statusCode: 404 }); } };
   const failing = makeAdmin(makeRoot(), { llm, embedder });
   probeConfig(failing.hot);
   const { result } = await withCapturedLogs(() => failing.admin.run('status', {}, { userId: '42' }));
-  assert.ok(result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('embedding · x/embed · failed: HTTP 404: no such model'));
+  assert.ok(result.embeds[0].fields.find((f) => f.name === 'models').value.split('\n').includes('x/embed · failed: HTTP 404: no such model'));
 });
 
 // ---------------------------------------------------------------------------
