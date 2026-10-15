@@ -52,6 +52,9 @@ When `bot.guildId` is empty and the bot is in exactly one server, it locks to th
 
 ## Features and changes
 
+**15.10.2026**  
+The persona sees, at the corner of her eye, what a member sees in Discord's sidebar: who is in which voice channel (muted, deafened, streaming, camera on) and, for the people in the current scene, their status, activity and custom status (`features.around`, `context.around.maxTokens`). It is a live snapshot in memory, never stored. Voice needs no setup. Statuses need the privileged Presence intent: switch it on for the bot in the Discord Developer Portal first, then set `discord.intents.presences` (and, if wanted, `discord.intents.members`) to `true` in `config.local.json`. Both default to `false`, because requesting a privileged intent that is not enabled in the Portal makes the login fail. Intents are read once at startup, so a change needs a restart.
+
 **14.10.2026**  
 Recall can search by meaning, not only by words (`features.meaningSearch`, off by default). Each message in the record is embedded with its context lines and stored in a per-month vector index. When someone asks a question, the asker's message is embedded and the closest record lines join the word-hit windows through reciprocal rank fusion. Archive items found by meaning join the memory block. The index is built with `tools/embed-index.mjs` and optionally kept current by a live queue (`features.embedIndex`). Message text with author names goes to the embedding provider.
 

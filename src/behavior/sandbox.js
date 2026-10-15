@@ -132,6 +132,7 @@ export const SANDBOX_OMITS = Object.freeze({
   diary: 'never a diary post: no <world>, <diary>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
   skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
+  around: 'a replay has no live gateway: no voice channels or statuses to glance at, so no <around> block',
   skillsGranted: 'no skill registry: no <skills_granted> block of her granted skills (a skill scenario hands them in: SKILL_SCENARIO_OMITS)',
 });
 
@@ -699,6 +700,7 @@ export function sandboxRequestInput({
     diaryChannel: null,
     diary: null,
     offPeriods: null,
+    around: null,
     // Absent but in a skill scenario: the catalogue rows it hands in.
     skillsInventory: Array.isArray(skillsInventory) && skillsInventory.length > 0 ? skillsInventory : null,
     // Absent but in a skill scenario: the names of her granted skills it hands in.

@@ -5,6 +5,8 @@
 //   2. memory about the trigger's author (the person the persona is talking to, or the one overheard)
 //   2b. what the persona looked up this turn (`<lookup>`, one piece: online,
 //       in the server's own history, or both)
+//   2c. what she sees at the corner of her eye (`<around>`, one piece: the live voice
+//       channels and the scene's status and activities, `context.around.maxTokens`)
 //   3. how this server talks + what the persona has said about itself
 //   3b. lorebook entries matched by the transcript (`<lore>`)
 //   4. the map of the server's channels
@@ -79,6 +81,7 @@ import { gifWatchBlocker } from '../memory/gif-watch.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
+import { renderAround } from '../discord/around.js';
 
 const TAG_OVERHEAD = 60;
 
@@ -1090,7 +1093,7 @@ function nowBlock(now, timezone, labels, periods) {
  * the tail (no segment) with everything that changes from turn to turn -- a
  * second `<people>` with the other members first, `<emoji>` among it, its
  * ranking moves with use several times a day, `<skills>` (the catalogue, on
- * a question about what the persona can do) right before `<chat>` -- `<now>`, the per-turn
+ * a question about what the persona can do) and `<around>` (the live voice and status glance) right before `<chat>` -- `<now>`, the per-turn
  * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
  * renderSenses' two halves. A segment with no block is left
  * out; every part but the last ends with the blank line that separates
@@ -1149,6 +1152,8 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('lookup', (kept.lookup ?? []).join('\n')),
     // The persona's skills with her access here, when she was asked what she can do.
     block('skills', (kept.skills ?? []).join('\n')),
+    // What is going on at the edge of the persona's view right now: a live glance, tail only.
+    block('around', (kept.around ?? []).join('\n')),
     block('chat', renderTranscript(chatItems, timezone, labels)),
     // The present moment after the history it dates, with the persona's recent time away (nowBlock).
     block('now', nowText),
@@ -2652,6 +2657,15 @@ function seenOf({ history, keptChat, pictures }) {
  *   `<skills_protocol>`, one `labels.skills.granted.line` per family after
  *   `labels.skills.granted.lead` (skillsGrantedText), fixed, never cut. Omitted, null or empty
  *   -> no block.
+ * @param {{ snapshot: object, sceneMemberIds?: string[], channelNameOf?: (channelId: string) => string|null }|null} [input.around]
+ *   The live glance at the server's sidebar (src/discord/around.js): `snapshot` is the
+ *   store's snapshot, `sceneMemberIds` the interlocutor first, then whoever spoke last,
+ *   `channelNameOf` the name of a voice channel the audience may see (else null: left out).
+ *   `<around>` in the tail right before `<chat>`, never in a cached part, rendered by
+ *   renderAround to at most `context.around.maxTokens` (default 200) and fitted as one piece
+ *   right after `<skills>` in the budget order, so it displaces other context and never adds
+ *   above the rail. Needs `labels.around`; `features.around` off, a private chat, an empty
+ *   snapshot, or an omitted or null input -> no block.
  * @param {{ skill: string }|null} [input.continuation]  The same turn continued after the
  *   persona's skill call (src/behavior/turn.js#followUp under continuesTurn): the request is the
  *   turn's own, rebuilt over the turn's history as it stands now (her lines of the turn with the
@@ -3016,6 +3030,23 @@ export function buildRequest(input) {
     lookupItem = lookupOptions.find((text) => cost(text) <= room) ?? lookupItem;
   }
   // The sections fitted ahead of the chat, in priority order.
+  // `<around>` (features.around, a missing key counts as on; never in a private chat): the live
+  // snapshot of the voice channels and of the scene's status and activities, rendered to at most
+  // `context.around.maxTokens` and then fitted as one piece like what was looked up.
+  const aroundInput = input.around;
+  const aroundMax = config.context.around?.maxTokens;
+  const aroundText =
+    config.features?.around !== false && !privateChat && isPlainObject(aroundInput) && aroundInput.snapshot
+      ? renderAround({
+          snapshot: aroundInput.snapshot,
+          sceneMemberIds: aroundInput.sceneMemberIds ?? [],
+          nameOf,
+          channelNameOf: aroundInput.channelNameOf,
+          labels,
+          maxTokens: Number.isFinite(aroundMax) ? aroundMax : 200,
+          estimate: cost,
+        })
+      : '';
   const head = [
     fixedSection,
     interlocutorSection,
@@ -3027,6 +3058,9 @@ export function buildRequest(input) {
     { name: 'found', items: [foundText].filter(Boolean) },
     // The skills catalogue, asked for: one piece, ahead of the chat like what was looked up.
     { name: 'skills', items: [inventoryText].filter(Boolean) },
+    // What she sees of the voice channels and the scene's activities: one piece, already cut to
+    // `context.around.maxTokens`, ranked with what was looked up so it displaces, never adds.
+    { name: 'around', items: [aroundText].filter(Boolean) },
     {
       name: 'aboutChat',
       cap: caps.aboutChat,
