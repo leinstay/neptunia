@@ -368,7 +368,7 @@ export const labels = {
     },
   },
   around: {
-    lead: 'What you can see in the sidebar of this server right now (a live glance, not a memory):',
+    lead: 'What you see in the sidebar right now:',
     stale: 'The connection to Discord dropped a moment ago, so this may be out of date.',
     voiceChannel: 'In voice channel {channel}: {members}',
     voiceMember: '{name} ({flags})',
@@ -384,7 +384,7 @@ export const labels = {
       idle: 'idle',
       dnd: 'do not disturb',
       offline: 'shown offline (may be invisible)',
-      unknown: 'unknown',
+      unknown: 'not observed',
     },
     activity: {
       playing: 'playing {name}',
@@ -395,6 +395,6 @@ export const labels = {
       other: '{name}',
     },
     activityDetails: '{activity} ({details})',
-    customStatus: 'status text: {text}',
+    customStatus: 'custom status: {text}',
   },
 };
