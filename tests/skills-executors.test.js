@@ -13,7 +13,7 @@ import { createAdmin } from '../src/admin.js';
 import { createDiary } from '../src/behavior/diary.js';
 import { skillResultBlock } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { QUIET_ON_OK, RESULT_STATUSES, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
+import { QUIET_ON_OK, RESULT_STATUSES, bodyArguments, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { labels } from './fixtures/labels.js';
 
@@ -120,6 +120,34 @@ test('resolveCall: only a registry skill; its attributes are its command\'s opti
   assert.deepEqual(resolve('rule.remove', { number: 'τρία' }).args, { number: 'τρία' });
   assert.deepEqual(resolve('draw.create', { self: 'TRUE' }, 'a lighthouse').args, { self: true, text: 'a lighthouse' });
   assert.deepEqual(resolve('draw.create', { self: 'ναι' }, 'a lighthouse').args.self, 'ναι');
+});
+
+test('bodyArguments: `name: value`, `name = value` lines and `<name>value</name>` tags of known options, else null', () => {
+  const names = ['day', 'kind', 'n', 'topic'];
+  assert.deepEqual(bodyArguments('day: 2026-10-14\n\n  kind = all  \nn: 50', names), { day: '2026-10-14', kind: 'all', n: '50' });
+  assert.deepEqual(bodyArguments('<topic>a walk by the sea</topic>\nkind: photos', names), { topic: 'a walk by the sea', kind: 'photos' });
+  assert.deepEqual(bodyArguments('<topic>ένας περίπατος</topic><kind>thought</kind>', names), { topic: 'ένας περίπατος', kind: 'thought' });
+  assert.deepEqual(bodyArguments('<br/>day: 2026-10-14<br>kind: all', names), { day: '2026-10-14', kind: 'all' }, 'a line break written as <br> splits lines');
+  assert.deepEqual(bodyArguments('topic: ώρα: δώδεκα', names), { topic: 'ώρα: δώδεκα' }, 'the value is everything after the first separator');
+  for (const body of ['', '   ', 'just reading the journal', 'day: 2026-10-14\nplease', 'who: Zoë', 'day: 1\nday: 2', 'day:', '<who>Zoë</who>', '<topic>x</kind>']) {
+    assert.equal(bodyArguments(body, names), null, JSON.stringify(body));
+  }
+});
+
+test('resolveCall: a body of `name: value` lines for a skill without text is read as its arguments; an attribute wins', () => {
+  const read = resolve('memory.journal.read', {}, 'day: 2026-10-14\nkind: all\nn: 50');
+  assert.deepEqual([read.ok, read.args, read.bodyArgs, 'bodyIgnored' in read], [true, { day: '2026-10-14', kind: 'all', n: 50 }, 3, false]);
+  const both = resolve('memory.journal.read', { kind: 'errors' }, 'kind: all\nn = 5');
+  assert.deepEqual([both.args, both.bodyArgs], [{ kind: 'errors', n: 5 }, 1], 'the attribute given explicitly wins');
+  const tagged = resolve('diary.post', { kind: 'photos' }, '<topic>θάλασσα</topic>');
+  assert.deepEqual([tagged.args, tagged.bodyArgs], [{ kind: 'photos', topic: 'θάλασσα' }, 1]);
+  // Anything else in the body: her comment, left out as before.
+  for (const body of ['day: 2026-10-14\nreading it now', 'day: 2026-10-14\nwho: Zoë']) {
+    const ignored = resolve('memory.journal.read', { kind: 'all' }, body);
+    assert.deepEqual([ignored.ok, ignored.args, ignored.bodyIgnored, 'bodyArgs' in ignored], [true, { kind: 'all' }, true, false], body);
+  }
+  const said = resolve('message.create', {}, 'channel: #νέα');
+  assert.deepEqual([said.args, 'bodyArgs' in said], [{ text: 'channel: #νέα' }, false], 'a skill that takes text keeps its body as its text');
 });
 
 test('resolveCall: a channel by name, mention or id; a member by name, alias or mention; a role by name or mention', () => {
