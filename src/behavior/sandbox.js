@@ -34,13 +34,17 @@
 // the follow-up pass a live turn would make is made with that result. A
 // multi-step scenario carries each turn into the next step's channel
 // (`afterScenarioTurn`: her lines, her reactions, a post the call left here,
-// every call's mark), so the next request reads what she said and did.
+// every call's mark), so the next request reads what she said and did. A step
+// whose messages come in a burst is played as the live queue plays it
+// (`burstTurns`: each call its own turn in arrival order, the waiting ones
+// named under the task labels, one follow-up slot per channel).
 
 import { buildRequest, continuesTurn, skillResultBlock, userText as userTextOf, withSkillResult } from './prompt.js';
-import { isTaggedCall } from './mention.js';
+import { detectTrigger, isTaggedCall } from './mention.js';
+import { addPending, followUpSlot, popOldest } from './pending.js';
 import { snowflakeAt } from './recall.js';
 import { resolveHandles } from './handles.js';
-import { continuationHistory, firstPass, pickOtherProfiles } from './turn.js';
+import { continuationHistory, firstPass, pickOtherProfiles, taskInput } from './turn.js';
 import { withCalls } from '../discord/format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../discord/access.js';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable } from '../discord/media.js';
@@ -48,6 +52,7 @@ import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { parseOutput } from '../llm/parse.js';
 import { log } from '../log.js';
+import { clampChars, oneLine } from '../memory/clamp.js';
 import { findGif } from '../memory/gifs.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { checkSkill, listSkills } from '../skills/gateway.js';
@@ -117,7 +122,7 @@ export const SANDBOX_OMITS = Object.freeze({
   drawQuota: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
   drawReason: 'a failed drawing\'s reason is not known to a replay',
   focus: 'no room question: a live turn has no caller for it either',
-  tasks: 'no part of a split message, no queued or folded call: a replay knows none',
+  tasks: 'no part of a split message, no queued or folded call: a replay knows none (a skill scenario\'s burst hands in its waiting calls: `queued`)',
   recentAudience: 'no guild to compare audiences in: <recent> shows the lines of the turn\'s own channel only',
   participation: 'no guild to compare audiences in: no <participation> block of the persona\'s exchanges elsewhere',
   diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
@@ -599,10 +604,14 @@ function recentLinesOf(view, at) {
  * skills inventory and her granted skills when a skill scenario hands them in
  * (`skillsInventory`, a non-empty list of catalogue rows; `skillsGranted`, a
  * non-empty list of skill names: SKILL_SCENARIO_OMITS). `continuation` is
- * null but on a skill scenario's continued turn (`{ skill }`, scenarioContinuation). Never an
+ * null but on a skill scenario's continued turn (`{ skill }`, scenarioContinuation). `tasks` is
+ * absent but when a skill scenario's burst hands in the calls still waiting after this one
+ * (`queued`, `{ id, text, author? }` each, burstTurns's): then the task labels name them as a
+ * live turn names its queued calls (src/behavior/turn.js#taskInput: the trigger author's own
+ * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). Never an
  * owner-forced turn. The view is read now and nothing is written.
  * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
- *   `skillsInventory`, `skillsGranted` and `continuation` (`answerSkillScenario`'s).
+ *   `skillsInventory`, `skillsGranted`, `continuation` and `queued` (`answerSkillScenario`'s).
  * @returns {object}
  */
 export function sandboxRequestInput({
@@ -622,9 +631,13 @@ export function sandboxRequestInput({
   skillsInventory = null,
   skillsGranted = null,
   continuation = null,
+  queued = null,
 }) {
   const config = view.config;
   const memory = view.memory;
+  // A burst's calls still waiting, named as a live turn names its queued calls; absent otherwise.
+  const waiting = Array.isArray(queued) && queued.length > 0 ? queued : null;
+  const tasks = waiting ? taskInput({ part: null, queued: () => waiting, added: null, labels: view.prompts?.labels, channelId: channel.id }).input : null;
   const memoryOn = config.features?.memory !== false;
   const { history, trigger, triggerKind } = situationHistory(situation);
   // pickOtherProfiles reads a store-shaped object; this one reads the view.
@@ -676,7 +689,8 @@ export function sandboxRequestInput({
     drawQuota: null,
     drawReason: null,
     focus: null,
-    tasks: null,
+    // Absent but on a burst's turn with calls still waiting (`queued`).
+    tasks,
     recentAudience: null,
     participation: null,
     diaryChannel: null,
@@ -846,6 +860,21 @@ export function handleMentions(text, handles) {
   if (!(handles instanceof Map)) return {};
   const { userIds, unknown } = resolveHandles(text, handles);
   return userIds.length > 0 || unknown > 0 ? { mentions: userIds, unknownHandles: unknown } : {};
+}
+
+/** The operations whose `text` argument is a message she posts (src/ops/message.js). */
+const MESSAGE_TEXT_SKILLS = Object.freeze(['message.create', 'message.edit']);
+
+/**
+ * The text a `<call>` (src/llm/parse.js's) would post: its body, else -- for a message.create or
+ * message.edit -- its `text` attribute (the command takes the body as `text`,
+ * src/skills/executors.js#resolveCall); '' for none. Pure.
+ */
+function callTextOf(call) {
+  const body = typeof call?.body === 'string' ? call.body : '';
+  if (body) return body;
+  const text = call?.args?.text;
+  return MESSAGE_TEXT_SKILLS.includes(call?.skill) && typeof text === 'string' ? text : '';
 }
 
 // ---- skill scenarios -----------------------------------------------------------
@@ -1074,12 +1103,16 @@ function channelNamesOf(view, channel) {
  * calibration). Nothing is sent to Discord and nothing is stored.
  * A step of a multi-step scenario hands in the calls of its earlier steps (`callMarks`,
  * withCalls's shape, afterScenarioTurn's): with features.callMarkers on (a missing key counts as
- * on) her lines carry their marks in both requests, as a live turn's history does. Each run keeps
+ * on) her lines carry their marks in both requests, as a live turn's history does. A turn of a
+ * burst hands in the calls still waiting after it (`queued`, burstTurns's; sandboxRequestInput),
+ * named in both requests as a live turn names them. A call's text -- its body, or the `text`
+ * attribute of a message.create / message.edit -- carries what it would mention
+ * (`callMentions`, handleMentions over the request's handles). Each run keeps
  * what afterScenarioTurn needs to carry the turn on (`refs`: the transcript numbers and mention
  * handles of the request each pass answered).
  * @param {object} input  answerReply's inputs (`samples` is `runs`), `skillsInventory`, `skillsGranted`
- *   (the names of the skills her scenario grants, src/skills/discovery.js#grantedSkillNames), `onCall`
- *   and `callMarks`.
+ *   (the names of the skills her scenario grants, src/skills/discovery.js#grantedSkillNames), `onCall`,
+ *   `callMarks` and `queued`.
  * @returns {Promise<{ request: { system: string, user: string, tokens: number|null, limit: number|null },
  *   runs: { answer: object, call: object|null, callError: string|null, extraCalls: number, usage: object|null,
  *     callMentions?: { mentions: string[], unknownHandles: number },
@@ -1108,11 +1141,12 @@ export async function answerSkillScenario({
   skillsGranted = null,
   onCall,
   callMarks = null,
+  queued = null,
 }) {
   // The earlier steps' calls on her lines, as a live turn's history carries them (linkCalls).
   const earlier = Array.isArray(callMarks) && view.config.features?.callMarkers !== false ? callMarks : [];
   const moment = earlier.length > 0 ? { ...situation, history: withCalls(situationHistory(situation).history, { calls: earlier }, { nameOf: channelNamesOf(view, channel) }) } : situation;
-  const requestArgs = { view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted };
+  const requestArgs = { view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted, queued };
   const built = sandboxMessages(requestArgs, runs);
   const { request, messages, systemMessage, userMessage, userText } = built;
   const history = situationHistory(moment).history;
@@ -1140,8 +1174,8 @@ export async function answerSkillScenario({
       answer, call: parsed.call ?? null, callError: parsed.callError ?? null, extraCalls: parsed.extraCalls ?? 0, usage: completion.usage ?? null, outcome: null, followUp: null,
       refs: { idByIndex: request.idByIndex, handles: request.handles ?? null, followUpIdByIndex: null },
     };
-    // A call's body (message.create / message.edit text) is rendered like a <msg> of the turn.
-    const callMentions = run.call ? handleMentions(run.call.body ?? '', request.handles) : {};
+    // A call's text (its body, or a message's `text=` attribute) is rendered like a <msg> of the turn.
+    const callMentions = run.call ? handleMentions(callTextOf(run.call), request.handles) : {};
     if (callMentions.mentions) run.callMentions = callMentions;
     out.push(run);
     if (!run.call || typeof onCall !== 'function') continue;
@@ -1302,4 +1336,84 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
   }
   const mark = callMarkOf({ outcome, channelId, at: callAt, postedId, posted: own.map((line) => line.id), config: config ?? {} });
   return { transcript: continuationHistory({ history: lines, own, selfName }), callMarks: [...callMarks, mark], posted: own.map((line) => line.id) };
+}
+
+/** A burst's waiting text when `context.maxMessageChars` is not set (config.json's value). */
+const QUEUED_TEXT_MAX_CHARS = 2000;
+/** The pending queue's cap when `mention.maxPending` is not set (config.json's value). */
+const MAX_PENDING = 6;
+
+/**
+ * The turns one step of a skill scenario gets when its messages (`incoming`, normalized lines in
+ * arrival order, all of one channel) come in a burst, as the live queue gives them
+ * (src/discord/events.js, src/behavior/pending.js). How each message calls her is read as the
+ * live pipeline reads it (src/behavior/mention.js#detectTrigger, each input masked by its switch:
+ * a tag of hers among `mentionedUserIds` with features.mentions on, a reply to a line of hers in
+ * `history` or the burst with features.replies on, one of `bot.nameTriggers` as a whole word with
+ * features.nameTriggers on -- a missing key counts as on); a message that does not call her is a
+ * follow-up the address classifier said `yes` to (it is never asked here). The first message finds
+ * her attention free and starts a turn; the rest come in while that turn runs: a call waits in the
+ * queue (addPending, `mention.maxPending` the cap: the oldest waiting entry is `dropped`, reason
+ * `full`), a follow-up takes the channel's one follow-up slot (followUpSlot: a newer one takes an
+ * older one's place, which is `replaced` -- live, a missed-answer candidate -- by the newer's id).
+ * The queue is then drained oldest first (popOldest), each entry its own turn. Each turn's
+ * `queued` is what still waits besides it, arrival order, as src/discord/events.js#queuedFor lists
+ * it: the trigger author's own as `{ id, text }`, another member's as `{ id, text, author }`
+ * (their display name), the text on one line cut to `context.maxMessageChars`. Not modelled: the
+ * ignore rolls, the merge classifier folding a call into an earlier one, a follow-up's window and
+ * staleness checks. Pure; nothing handed in is changed.
+ * @param {object[]} incoming
+ * @param {{ selfId: string, config: object, history?: object[] }} input
+ * @returns {{ turns: { line: object, kind: 'mention'|'reply'|'name'|'followUp', queued: { id: string, text: string, author?: string }[] }[],
+ *   replaced: { id: string, by: string }[], dropped: { id: string, reason: string }[] }}
+ */
+export function burstTurns(incoming, { selfId, config, history = [] }) {
+  const lines = (Array.isArray(incoming) ? incoming : []).filter(Boolean);
+  if (lines.length === 0) return { turns: [], replaced: [], dropped: [] };
+  const features = config?.features ?? {};
+  const self = String(selfId);
+  const nameTriggers = features.nameTriggers !== false && Array.isArray(config?.bot?.nameTriggers) ? config.bot.nameTriggers : [];
+  const herLines = new Set([...(Array.isArray(history) ? history : []), ...lines].filter((line) => line?.self === true).map((line) => line.id));
+  const kindOf = (line) =>
+    detectTrigger({
+      mentionsSelf: features.mentions !== false && (line.mentionedUserIds ?? []).includes(self),
+      repliesToSelf: features.replies !== false && Boolean(line.replyToId) && herLines.has(line.replyToId),
+      content: String(line.content ?? ''),
+      nameTriggers,
+    }) ?? 'followUp';
+  const maxPending = config?.mention?.maxPending ?? MAX_PENDING;
+  const maxChars = config?.context?.maxMessageChars ?? QUEUED_TEXT_MAX_CHARS;
+  const [first, ...rest] = lines;
+  let pending = [];
+  const replaced = [];
+  const dropped = [];
+  for (const line of rest) {
+    const kind = kindOf(line);
+    const channelId = String(line.channelId ?? '');
+    const slot = followUpSlot(pending, channelId, kind);
+    if (!slot.admit) continue;
+    if (slot.replaced) {
+      pending = pending.filter((ping) => ping !== slot.replaced);
+      replaced.push({ id: slot.replaced.trigger.id, by: line.id });
+    }
+    const { list, evicted } = addPending(pending, { channelId, trigger: line, kind, arrivedAt: Number(line.ts) || 0 }, maxPending);
+    pending = list;
+    if (evicted) dropped.push({ id: evicted.trigger.id, reason: 'full' });
+  }
+  const queuedFor = (trigger) =>
+    pending
+      .filter((ping) => ping.kind !== 'overheard' && ping.trigger.id !== trigger.id)
+      .sort((a, b) => a.arrivedAt - b.arrivedAt)
+      .map((ping) => ({
+        id: ping.trigger.id,
+        text: clampChars(oneLine(ping.trigger.content), maxChars),
+        ...(ping.trigger.authorId === trigger.authorId ? {} : { author: oneLine(ping.trigger.authorName ?? '') }),
+      }));
+  const turns = [{ line: first, kind: kindOf(first), queued: queuedFor(first) }];
+  while (pending.length > 0) {
+    const next = popOldest(pending);
+    pending = next.list;
+    turns.push({ line: next.ping.trigger, kind: next.ping.kind, queued: queuedFor(next.ping.trigger) });
+  }
+  return { turns, replaced, dropped };
 }

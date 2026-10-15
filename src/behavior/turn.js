@@ -1343,7 +1343,7 @@ function journalTurnRecord(draft, result) {
  * @returns {{ input: { part: object|null, queued: string[], queuedOthers: { author: string, text: string }[],
  *   added: string[], missed: { author: string, text: string }[] }|null, deferred: Set<string> }}
  */
-function taskInput({ part, queued, added, missed = null, labels, channelId }) {
+export function taskInput({ part, queued, added, missed = null, labels, channelId }) {
   let waiting = [];
   if (typeof queued === 'function') {
     try {

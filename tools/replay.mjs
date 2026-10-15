@@ -31,14 +31,16 @@
 //   cd /opt/neptunia-bot && node tools/replay.mjs --show-request <turnId> [--snapshot <dir>] [--before 40] [--as-of-moment]
 //   cd /opt/neptunia-bot && node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"]
 //        [--prompts <dir>] [--out <file>] [--spend <usd>]
-//   cd /opt/neptunia-bot && node tools/replay.mjs --skills <scenarios.json> [--out <dir>] [--before 40]
+//   cd /opt/neptunia-bot && node tools/replay.mjs --skills <scenarios.json>
+//        [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40]
 //        [--as-of-moment] [--snapshot <dir>] [--dry] [--spend <usd>]
 //
 // The spend gate (tools/lib/cli.mjs#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
 // answer, a splitter sample, the recall classifier and its summary, a diary
 // brief's plan and compose requests, a skill run's answer and its possible
-// follow-up, per step of a multi-step scenario) and refuses, exit code 2,
+// follow-up, per message of every step of a multi-step scenario -- each may
+// get its own turn --, twice with `--pair-prompts`) and refuses, exit code 2,
 // without `--spend <usd>` covering it.
 // `--skills` also stops once what the provider reports spent (`usage.cost`,
 // else the estimate per request) reaches `--spend`.
@@ -80,37 +82,71 @@
 // each `{ author?, text?, gapMinutes?, burst?, result? }`): each run replays
 // every step from the start. A step's message, then its `burst` (more messages,
 // each by its own real author, 5 s apart), joins the channel `gapMinutes`
-// (default 1) after the newest line so far; the last of them is the trigger
-// (its author the requester) of one decision answered exactly as a single-turn
-// run (the same request builder, gateway, fake executor and follow-up; its
-// `result`, else the scenario's). What she did in that turn is carried into the
-// channel the next step reads (src/behavior/sandbox.js#afterScenarioTurn): her
+// (default 1) after the newest line so far. The step's own message tags the
+// persona (a `mention`); a burst's message calls her only as a live message
+// would -- her tag `<@id>` in its text, one of `bot.nameTriggers` as a whole
+// word, read by the live classifier (src/behavior/mention.js#detectTrigger,
+// each switch as live) -- and is otherwise a plain follow-up the address
+// classifier said yes to (it is not asked). The step is then played as the
+// live queue plays it (src/behavior/sandbox.js#burstTurns, playSteps): the
+// first message starts her turn; every call after it waits for its own turn,
+// in arrival order (the cap `mention.maxPending` drops the oldest waiting);
+// the plain follow-ups share the channel's one follow-up slot, a newer one
+// replacing the older (`replaced`; live, a missed-answer candidate). Each turn
+// is one decision answered exactly as a single-turn run (the same request
+// builder, gateway, fake executor and follow-up; the step's `result`, else
+// the scenario's) over every message of the step, at the newest line so far,
+// its trigger's author the requester and its trigger kind as live; the calls
+// still waiting are named in its task as a live turn names them
+// (`labels.task.queued` for the author's own, `labels.task.queuedOthers` for
+// another member's). Not played: the ignore rolls, the merge classifier, a
+// follow-up's window. What she did in a turn is carried into the channel the
+// next turn and step read (src/behavior/sandbox.js#afterScenarioTurn): her
 // messages of both passes as her lines, her reactions, a post her call left in
 // this channel, and the call's mark as a live transcript shows it (a post into
 // another channel leaves only the mark). The memory is the one at the first
-// decision for every step; the image quota is not counted down.
+// decision for every step; the image quota is not counted down. A step of one
+// message is one turn.
+// `--prompts <dir>`: every scenario answered with `<dir>` laid over a copy of
+// the live prompts.local/ (a file of the same name replaces the private one,
+// the others stay; labels.json and skills.json deep-merge over the private
+// ones as src/hot.js merges its layers). `--pair-prompts <dirA> <dirB>`: every
+// scenario answered under both layers, each laid over prompts.local/ the same
+// way, over the same fetched chat, config and memory, the same number of
+// runs; runs.jsonl lines carry `side` (`A` / `B`) and report.md is the side by
+// side one (renderPairReport). The live prompts.local/ is only read.
 // Written to `--out` (default ./replay-skills-<time>/, refused under data/
 // and when it exists and is not empty): `runs.jsonl` (one line per run --
-// per step of a run for a multi-step scenario, with `step` --: decision
+// per turn of a step of a run for a multi-step scenario, with `step`, and for
+// a step of several messages `turn` and `queue`: the turns the step got, its
+// trigger's kind, author and text, how many calls still waited, the replaced
+// and dropped messages --: decision
 // `call` / `no-call` / `malformed-call`, the skill with the arguments she
 // wrote and the resolved ones, the gateway's verdict, her visible messages of
-// both passes with the members they would mention and her whole `<think>`,
-// tokens and cost) and `report.md` (a table per scenario: calls, runs without
-// a call, refusals; a table of the multi-step ones: each run's calls per step
-// as letters, `CCCN NNNN`, the first step without a call, how many runs made
-// a call again after one; then every run, step by step with the start of her
-// `<think>`).
+// both passes with the members they would mention -- a call's text too, its
+// body or a message's `text` attribute (`callMentions`) -- and her whole
+// `<think>`, tokens and cost) and `report.md` (a table per scenario: calls,
+// runs without a call, refusals; a table of the multi-step ones: each run's
+// calls per decision as letters, `CCCN NNNN`, the first step without a call,
+// how many runs made a call again after one; then every run, step by step and
+// turn by turn with the start of her `<think>`, and per burst which messages
+// got a turn and which were replaced or dropped. Under `--pair-prompts`: per
+// scenario A's letters against B's (`CCCCCN` vs `CCNNNN`), the first declines,
+// then every decision side by side: the call, her messages, the first 300
+// characters of her `<think>`).
 // stdout: the summary. `--dry`: no model request and no key needed; the
 // first request of every scenario is built and its sizes printed.
 // THE FILES HOLD MESSAGE CONTENTS: the server's eyes only, like stdout.
 //
 // Prompt layers (tools/lib/prompt-layers.mjs#promptLayersHot, the one helper
-// for both modes that take a prompt directory): a scratch copy of the config
+// for every mode that takes a prompt directory): a scratch copy of the config
 // files and the tracked prompts/, with directories copied into prompts.local/
 // in order and read by src/hot.js as the bot reads its own. `--pair` gives
 // each side its directory alone as prompts.local/; `--diary --prompts <dir>`
 // lays the directory over the live prompts.local/ (a file of the same name
-// replaces it whole, labels.json included). Nothing in the checkout changes.
+// replaces it whole, labels.json included); `--skills --prompts` and
+// `--pair-prompts` lay it the same way but merge labels.json and skills.json
+// (overlayPromptsHot). Nothing in the checkout changes.
 //
 // `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one
 // `runTurn({ channel, mode: 'diary', diary: { kind, [topic], forced: false } })`
@@ -310,7 +346,7 @@ const USAGE =
   '       node tools/replay.mjs --pair <promptsDirA> <promptsDirB> (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --show-request <turnId> [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
   '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
-  '       node tools/replay.mjs --skills <scenarios.json> [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--spend <usd>]   (cwd: the bot directory)';
+  '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--spend <usd>]   (cwd: the bot directory)';
 /** The diary kinds a brief is asked of: the ones that draw. */
 const DIARY_KINDS = Object.freeze(['selfPicture', 'picture']);
 /** A diary brief's requests: the plan (classifier model) and the compose (voice model). */
@@ -432,15 +468,17 @@ function withoutSelfFacts(view, { all, needles }) {
  * (`count`, 1 by default), `--topic` (`topic`, raw), `--prompts` (`prompts`),
  * `--out` (`outDir`: the briefs file) and `--spend`; those three take nothing
  * else. `--skills <file>` sets `skills` (the scenario file) and takes only
- * `--out`, `--before`, `--as-of-moment`, `--snapshot`, `--spend` and `--dry`
- * (`dry`, only with it); no positionals.
+ * `--out`, `--before`, `--as-of-moment`, `--snapshot`, `--spend`, `--dry`
+ * (`dry`, only with it), and one of `--prompts <dir>` (`prompts`) and
+ * `--pair-prompts <dirA> <dirB>` (`pairPrompts`, [dirA, dirB], only with it;
+ * null when absent); no positionals.
  * @param {string[]} argv
  */
 export function parseArgs(argv) {
   const out = {
     before: null, samples: null, showRequest: false, asOfMoment: false, hideSelf: [], hideSelfAll: false, split: false, recall: false, budget: null, text: null,
     pair: null, triggers: null, snapshot: null, outDir: null, spend: undefined, showRequestTurn: null,
-    diary: null, count: null, topic: null, prompts: null, skills: null, dry: false,
+    diary: null, count: null, topic: null, prompts: null, skills: null, dry: false, pairPrompts: null,
   };
   const positional = [];
   const pathValue = (value) => {
@@ -471,6 +509,7 @@ export function parseArgs(argv) {
       out.diary = kind;
     } else if (arg === '--count') out.count = intFlag(argv[(i += 1)], 1, MAX_DIARY_COUNT);
     else if (arg === '--prompts') out.prompts = pathValue(argv[(i += 1)]);
+    else if (arg === '--pair-prompts') out.pairPrompts = [pathValue(argv[(i += 1)]), pathValue(argv[(i += 1)])];
     else if (arg === '--topic') {
       const topic = argv[(i += 1)];
       if (typeof topic !== 'string') throw new CliError(USAGE);
@@ -492,16 +531,17 @@ export function parseArgs(argv) {
   }
   const [channelId, triggerId, extra] = positional;
   if (out.skills !== null) {
-    // The scenario file with the memory and output flags, --spend and --dry only; no positionals.
+    // The scenario file with the memory, output and prompt-layer flags, --spend and --dry only; no positionals.
     if (
       positional.length > 0 || out.diary !== null || out.showRequestTurn !== null || out.showRequest || out.pair || out.triggers !== null || out.split || out.recall ||
-      out.samples !== null || out.text !== null || out.budget !== null || out.hideSelfAll || out.hideSelf.length > 0 || out.count !== null || out.topic !== null || out.prompts !== null
+      out.samples !== null || out.text !== null || out.budget !== null || out.hideSelfAll || out.hideSelf.length > 0 || out.count !== null || out.topic !== null ||
+      (out.prompts !== null && out.pairPrompts !== null)
     ) {
       throw new CliError(USAGE);
     }
     return { ...out, samples: 1, channelId: null, triggerId: null };
   }
-  if (out.dry) throw new CliError(USAGE);
+  if (out.dry || out.pairPrompts !== null) throw new CliError(USAGE);
   if (out.diary !== null) {
     // The diary flags, --out and --spend only; no positionals.
     if (
@@ -1338,6 +1378,23 @@ export function diaryPromptLayers(root, promptsDir) {
 }
 
 /**
+ * A hot view whose private layer is a copy of the live prompts.local/ with `promptsDir` laid over
+ * it (diaryPromptLayers, then tools/lib/prompt-layers.mjs): a file of the directory replaces the
+ * private one of the same name, the rest stay. `mergeJson` (src/config.js#deepMerge) merges the
+ * directory's labels.json / skills.json over the private ones as src/hot.js merges its layers
+ * (`--skills --prompts` and `--pair-prompts`); without it they replace them whole (`--diary
+ * --prompts`). The live prompts.local/ is only read. Returns `{ hot, dir }`: the caller closes
+ * the view and removes `dir`.
+ * @param {(options: { rootDir: string }) => object} createHot
+ * @param {string} root
+ * @param {string} promptsDir
+ * @param {{ mergeJson?: Function|null, tmpDir?: string }} [options]
+ */
+export function overlayPromptsHot(createHot, root, promptsDir, { mergeJson = null, tmpDir } = {}) {
+  return promptLayersHot(createHot, root, diaryPromptLayers(root, promptsDir), { mergeJson, ...(tmpDir ? { tmpDir } : {}) });
+}
+
+/**
  * `hot` as a `--diary` turn sees it: `features.dryRun` on and
  * `bot.dryRunChannelId` empty (the turn acts on nothing and mirrors nothing);
  * everything else, the config's other keys included, read from `hot` at use.
@@ -1427,9 +1484,8 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   let client = null;
   try {
     if (args.prompts !== null) {
-      const layers = diaryPromptLayers(root, args.prompts);
-      layered = promptLayersHot(createHot, root, layers);
-      log.info('replay-cli: diary prompt layers', { layers: layers.length });
+      layered = overlayPromptsHot(createHot, root, args.prompts);
+      log.info('replay-cli: diary prompt layers', { layers: diaryPromptLayers(root, args.prompts).length });
     }
     const hot = dryRunHot(layered?.hot ?? liveHot);
     const config = hot.config;
@@ -1656,15 +1712,17 @@ const SKILL_REQUESTS_PER_RUN = 2;
  * `"none"` or a list of 1..4 skill names. A multi-step scenario has `steps` instead of
  * `author` / `text`: 1..20 of `{ author?, text?, gapMinutes?, burst?, result? }` -- the step's
  * message (`author` and `text` together, or neither), then `burst`, 1..10 more `{ author, text }`
- * from anyone, all before one decision (at least one message per step); `gapMinutes` how long
+ * from anyone (at least one message per step), played as the live queue plays them (playSteps);
+ * `gapMinutes` how long
  * after the line before it the step's first message comes (more than 0, at most a week, default
  * 1); `result` the text the operation answers in this step (default: the scenario's). Parsed, a
- * step is `{ messages: [{ author, text }], gapMinutes, result: string|null }` and the scenario
+ * step is `{ messages: [{ author, text }], own, gapMinutes, result: string|null }` (`own`: its
+ * first message is the step's own `author` / `text`, which tags the persona) and the scenario
  * has no `author` / `text`. Any other field, type or value is a CliError naming the scenario
  * (and the step). Names are checked against the registry later (scenarioGrants, scenarioDiscovery).
  * @param {string} text
  * @returns {{ id: string, channelId: string, before: string|null, author?: string, text?: string,
- *   steps?: { messages: { author: string, text: string }[], gapMinutes: number, result: string|null }[],
+ *   steps?: { messages: { author: string, text: string }[], own: boolean, gapMinutes: number, result: string|null }[],
  *   grants: string[], runs: number, result: string, discovery: 'inventory'|'none'|string[] }[]}
  */
 export function parseScenarios(text) {
@@ -1740,19 +1798,22 @@ function parseSteps(steps, bad) {
     const gapMinutes = step.gapMinutes ?? DEFAULT_GAP_MINUTES;
     if (typeof gapMinutes !== 'number' || !Number.isFinite(gapMinutes) || gapMinutes <= 0 || gapMinutes > MAX_GAP_MINUTES) throw wrong(`gapMinutes must be more than 0 and at most ${MAX_GAP_MINUTES}`);
     if (step.result !== undefined && (typeof step.result !== 'string' || step.result.length > MAX_SCENARIO_TEXT)) throw wrong(`result must be text of at most ${MAX_SCENARIO_TEXT} characters`);
-    return { messages, gapMinutes, result: step.result ?? null };
+    return { messages, own, gapMinutes, result: step.result ?? null };
   });
 }
 
 /**
  * The model requests a `--skills` file may send at most (the spend gate's estimate): up to
  * SKILL_REQUESTS_PER_RUN per decision -- her answer and the follow-up after a call -- and a
- * run is one decision, or one per step of a multi-step scenario (each run replays every step).
- * @param {{ runs: number, steps?: object[] }[]} scenarios  parseScenarios's.
+ * run is one decision, or for a multi-step scenario one per message of every step (each run
+ * replays every step; every message of a burst may get its own turn, playSteps). The caller
+ * doubles it for `--pair-prompts`.
+ * @param {{ runs: number, steps?: { messages: object[] }[] }[]} scenarios  parseScenarios's.
  * @returns {number}
  */
 export function skillRequestEstimate(scenarios) {
-  return scenarios.reduce((total, scenario) => total + SKILL_REQUESTS_PER_RUN * scenario.runs * (Array.isArray(scenario.steps) ? scenario.steps.length : 1), 0);
+  const decisions = (scenario) => (Array.isArray(scenario.steps) ? scenario.steps.reduce((sum, step) => sum + Math.max(1, step.messages?.length ?? 1), 0) : 1);
+  return scenarios.reduce((total, scenario) => total + SKILL_REQUESTS_PER_RUN * scenario.runs * decisions(scenario), 0);
 }
 
 /**
@@ -1785,13 +1846,15 @@ export function scenarioDiscovery(scenario, names) {
 /**
  * The invented message of a scenario as a normalized history line (src/discord/collect.js#normalizeMessage's
  * shape): by `authorId` / `authorName` in `channel` at `at`, the text as given, tagging the
- * persona (`mentionedUserIds`: `selfId`), replying to nothing, without media. Its id is the
- * snowflake of its moment, so it sorts after every line before it. Pure.
+ * persona (`mentionedUserIds`: `selfId`) unless `tagged` is false -- a burst's message, which
+ * tags her only when its text holds her tag `<@selfId>` --, replying to nothing, without media.
+ * Its id is the snowflake of its moment, so it sorts after every line before it. Pure.
  * @param {{ text: string, authorId: string, authorName: string, channel: { id: string, name?: string|null,
- *   category?: string|null, topic?: string|null }, selfId: string, at: number }} input
+ *   category?: string|null, topic?: string|null }, selfId: string, at: number, tagged?: boolean }} input
  * @returns {object}
  */
-export function scenarioTrigger({ text, authorId, authorName, channel, selfId, at }) {
+export function scenarioTrigger({ text, authorId, authorName, channel, selfId, at, tagged = true }) {
+  const tags = tagged || text.includes(`<@${selfId}>`) || text.includes(`<@!${selfId}>`);
   return {
     id: String((BigInt(Math.floor(at)) - DISCORD_EPOCH) << 22n),
     channelId: String(channel.id),
@@ -1804,7 +1867,7 @@ export function scenarioTrigger({ text, authorId, authorName, channel, selfId, a
     bot: false,
     content: text,
     ts: at,
-    mentionedUserIds: [String(selfId)],
+    mentionedUserIds: tags ? [String(selfId)] : [],
     mentionedChannelIds: [],
     replyToId: null,
     replyPingUserId: null,
@@ -1914,70 +1977,127 @@ const DECISION_LETTERS = Object.freeze({ call: 'C', 'no-call': 'N', 'malformed-c
  * step answered, in order: `C` a call, `N` no call, `M` a malformed call), `firstDecline` (the
  * first step she made no call in; null when she made one in every step), `resumed` (whether she
  * made a call in a later step after that decline; null without one) and `complete` (every step
- * answered: a run stopped by --spend or Ctrl-C is cut short). `pattern` is every run's pattern,
- * space-separated (`CCCN NNNN`). Pure.
- * @param {object[]} records  runRecord's, each with `step`.
+ * answered, every turn of a burst included: a run stopped by --spend or Ctrl-C is cut short).
+ * A step played as a burst (records with `turn` and `queue`) has one letter per turn, in order.
+ * `pattern` is every run's pattern, space-separated (`CCCN NNNN`). Pure.
+ * @param {object[]} records  runRecord's, each with `step` (and `turn` / `queue` on a burst's).
  * @param {number} steps  The scenario's step count.
  */
 export function sequenceSummary(records, steps) {
+  const sequences = runPatterns(records).map(({ run, ordered, pattern, firstDecline }) => {
+    const answered = new Set(ordered.map((record) => record.step));
+    const last = ordered[ordered.length - 1];
+    const lastDone = !last?.queue || ordered.filter((record) => record.step === last.step).length === last.queue.turns;
+    return {
+      run,
+      pattern,
+      firstDecline,
+      resumed: firstDecline === null ? null : ordered.some((record) => record.step > firstDecline && record.decision === 'call'),
+      complete: answered.size === steps && lastDone,
+    };
+  });
+  return { ...scenarioSummary(records), runs: sequences.length, steps, decisions: records.length, pattern: sequences.map((s) => s.pattern).join(' '), sequences };
+}
+
+/**
+ * Run records grouped by run, in run order: each run's records in the order they were decided
+ * (`step`, then `turn`; a single-turn scenario's one record per run), its `pattern` (one
+ * DECISION_LETTERS letter per record) and `firstDecline` (the step of the first record without a
+ * call -- 1 for a single-turn run --, null when she made a call every time). Pure.
+ * @param {object[]} records  runRecord's.
+ * @returns {{ run: number, ordered: object[], pattern: string, firstDecline: number|null }[]}
+ */
+function runPatterns(records) {
   const byRun = new Map();
   for (const record of records) {
     if (!byRun.has(record.run)) byRun.set(record.run, []);
     byRun.get(record.run).push(record);
   }
-  const sequences = [...byRun.entries()]
+  return [...byRun.entries()]
     .sort(([a], [b]) => a - b)
     .map(([run, list]) => {
-      const ordered = [...list].sort((a, b) => a.step - b.step);
+      const ordered = [...list].sort((a, b) => (a.step ?? 1) - (b.step ?? 1) || (a.turn ?? 1) - (b.turn ?? 1));
       const decline = ordered.find((record) => record.decision === 'no-call') ?? null;
-      const firstDecline = decline ? decline.step : null;
       return {
         run,
+        ordered,
         pattern: ordered.map((record) => DECISION_LETTERS[record.decision] ?? '?').join(''),
-        firstDecline,
-        resumed: firstDecline === null ? null : ordered.some((record) => record.step > firstDecline && record.decision === 'call'),
-        complete: ordered.length === steps,
+        firstDecline: decline ? (decline.step ?? 1) : null,
       };
     });
-  return { ...scenarioSummary(records), runs: sequences.length, steps, decisions: records.length, pattern: sequences.map((s) => s.pattern).join(' '), sequences };
+}
+
+/** The newest moment among `lines` (ms), or `fallback` when none has one. */
+function newestTs(lines, fallback) {
+  const times = lines.map((line) => line?.ts).filter(Number.isFinite);
+  return times.length > 0 ? Math.max(...times) : fallback;
 }
 
 /**
  * One run of a multi-step scenario, every step from the start: before each step its messages
- * join the channel (`lineOf(message, at)`: a normalized line by the message's own author at
- * `at`) -- the first `gapMinutes` after the newest line so far (the first step's at `firstAt`),
- * a burst's next ones BURST_SPACING_MS apart -- and the last of them is the trigger of one
- * decision: `answerStep({ situation, trigger, at, callMarks, result, step })` (her turn at the
- * trigger's time over the channel so far and the earlier steps' call marks, the step's `result`
- * else the scenario's; resolves `{ run, stopped }`), its run recorded (runRecord with `step`,
- * 1-based, handed to `onRecord` as it comes), then carried into the channel the next step reads by
- * `afterTurn({ transcript, callMarks, run, at, triggerId })` (src/behavior/sandbox.js#afterScenarioTurn:
- * her lines and the call's mark). A stopped answer ends the run (`stopped`). Nothing here sends
- * or writes; `answerStep` and `afterTurn` do what they do.
+ * join the channel (`lineOf(message, at, { tagged })`: a normalized line by the message's own
+ * author at `at`, tagging the persona when `tagged` -- the step's own message, `own` --, a burst's
+ * message by its text alone) -- the first `gapMinutes` after the newest line so far (the first
+ * step's at `firstAt`), the next ones BURST_SPACING_MS apart. `planBurst(incoming, { history })`
+ * (src/behavior/sandbox.js#burstTurns over the channel before the step) says which of them get a
+ * turn, in the order the live queue answers them, and which a newer follow-up `replaced` (or the
+ * queue's cap `dropped`). Each turn is one decision: `answerStep({ situation, trigger, at,
+ * callMarks, result, step, turn, queued })` (her turn over the channel so far -- every message of
+ * the step, her earlier turns -- at its newest moment, with the trigger's kind, the earlier
+ * calls' marks, the calls still waiting after it, the step's `result` else the scenario's;
+ * resolves `{ run, stopped }`), its run recorded (runRecord with `step`, 1-based, and -- a step
+ * of more than one message -- `turn` and `queue`: `{ turns, kind, trigger: { id, author, text },
+ * queued, replaced: [{ id, author, text, by }], dropped: [{ id, author, text, reason }] }`; handed
+ * to `onRecord` as it comes), then carried into the channel the next turn reads by `afterTurn({
+ * transcript, callMarks, run, at, triggerId })` (src/behavior/sandbox.js#afterScenarioTurn: her
+ * lines and the call's mark). A stopped answer ends the run (`stopped`). `bursts` lists, per step
+ * of more than one message, the ids that got a turn and the replaced and dropped ones. Nothing
+ * here sends or writes; `answerStep` and `afterTurn` do what they do.
  * @param {{ scenario: { id: string, result: string, steps: object[] }, history: object[], firstAt: number, runIndex: number,
- *   lineOf: Function, answerStep: Function, afterTurn: Function, onRecord?: Function }} input
- * @returns {Promise<{ records: object[], stopped: boolean, transcript: object[] }>}
+ *   lineOf: Function, planBurst: Function, answerStep: Function, afterTurn: Function, onRecord?: Function }} input
+ * @returns {Promise<{ records: object[], stopped: boolean, transcript: object[],
+ *   bursts: { step: number, turns: string[], replaced: object[], dropped: object[] }[] }>}
  */
-export async function playSteps({ scenario, history, firstAt, runIndex, lineOf, answerStep, afterTurn, onRecord }) {
+export async function playSteps({ scenario, history, firstAt, runIndex, lineOf, planBurst, answerStep, afterTurn, onRecord }) {
   let transcript = [...history];
   let callMarks = [];
   const records = [];
+  const bursts = [];
   for (const [index, step] of scenario.steps.entries()) {
-    const times = transcript.map((line) => line?.ts).filter(Number.isFinite);
-    const start = index === 0 || times.length === 0 ? firstAt : Math.max(...times) + step.gapMinutes * 60_000;
-    const incoming = step.messages.map((message, i) => lineOf(message, start + i * BURST_SPACING_MS));
-    const trigger = incoming[incoming.length - 1];
-    const lines = [...transcript, ...incoming];
-    const situation = { history: lines, triggerId: trigger.id, kind: 'mention', mode: 'reply' };
-    const answered = await answerStep({ situation, trigger, at: trigger.ts, callMarks, result: step.result ?? scenario.result, step: index + 1 });
-    if (answered?.stopped || !answered?.run) return { records, stopped: true, transcript: lines };
-    const { scenario: id, run, ...rest } = runRecord(scenario.id, runIndex, answered.run);
-    const record = { scenario: id, run, step: index + 1, ...rest };
-    records.push(record);
-    if (typeof onRecord === 'function') onRecord(record);
-    ({ transcript, callMarks } = afterTurn({ transcript: lines, callMarks, run: answered.run, at: trigger.ts, triggerId: trigger.id }));
+    const start = index === 0 ? firstAt : newestTs(transcript, firstAt) + step.gapMinutes * 60_000;
+    const incoming = step.messages.map((message, i) => lineOf(message, start + i * BURST_SPACING_MS, { tagged: step.own !== false && i === 0 }));
+    const plan = planBurst(incoming, { history: transcript });
+    const byId = new Map(incoming.map((line) => [line.id, line]));
+    const about = (id) => ({ id, author: byId.get(id)?.authorId ?? null, text: byId.get(id)?.content ?? '' });
+    const burst = incoming.length > 1
+      ? {
+          step: index + 1,
+          turns: plan.turns.map((turn) => turn.line.id),
+          replaced: plan.replaced.map(({ id, by }) => ({ ...about(id), by })),
+          dropped: plan.dropped.map(({ id, reason }) => ({ ...about(id), reason })),
+        }
+      : null;
+    if (burst) bursts.push(burst);
+    let lines = [...transcript, ...incoming];
+    for (const [turnIndex, turn] of plan.turns.entries()) {
+      const at = newestTs(lines, turn.line.ts);
+      const situation = { history: lines, triggerId: turn.line.id, kind: turn.kind, mode: 'reply' };
+      const answered = await answerStep({
+        situation, trigger: turn.line, at, callMarks, result: step.result ?? scenario.result, step: index + 1, turn: turnIndex + 1, queued: turn.queued,
+      });
+      if (answered?.stopped || !answered?.run) return { records, stopped: true, transcript: lines, bursts };
+      const { scenario: id, run, ...rest } = runRecord(scenario.id, runIndex, answered.run);
+      const queue = burst
+        ? { turns: plan.turns.length, kind: turn.kind, trigger: about(turn.line.id), queued: turn.queued.length, replaced: burst.replaced, dropped: burst.dropped }
+        : null;
+      const record = queue ? { scenario: id, run, step: index + 1, turn: turnIndex + 1, ...rest, queue } : { scenario: id, run, step: index + 1, ...rest };
+      records.push(record);
+      if (typeof onRecord === 'function') onRecord(record);
+      ({ transcript: lines, callMarks } = afterTurn({ transcript: lines, callMarks, run: answered.run, at, triggerId: turn.line.id }));
+    }
+    transcript = lines;
   }
-  return { records, stopped: false, transcript };
+  return { records, stopped: false, transcript, bursts };
 }
 
 /** At most THINK_EXCERPT_CHARS of her `<think>` for the report, on one line; the whole stays in runs.jsonl. */
@@ -2006,11 +2126,14 @@ function passLines(pass, { detail = false } = {}) {
   if (pass.draw) out.push(`draw: ${cell(pass.draw)}`, '');
   if (pass.messages.length === 0 && pass.reactions.length === 0 && !pass.gif && !pass.draw) out.push(pass.skip ? '(skip)' : '(nothing)', '');
   if (detail && Array.isArray(pass.mentions)) out.push(`mentions: ${pass.mentions.length > 0 ? pass.mentions.join(', ') : '(none)'}; unknown handles: ${pass.unknownHandles ?? 0}`, '');
-  if (detail && pass.think) {
-    const think = cell(pass.think);
-    out.push(`think: ${think.length > THINK_EXCERPT_CHARS ? `${think.slice(0, THINK_EXCERPT_CHARS)}...` : think}`, '');
-  }
+  if (detail && pass.think) out.push(`think: ${thinkExcerpt(pass.think)}`, '');
   return out;
+}
+
+/** The start of her `<think>` on one line: at most THINK_EXCERPT_CHARS, `...` when cut. */
+function thinkExcerpt(text) {
+  const think = cell(text);
+  return think.length > THINK_EXCERPT_CHARS ? `${think.slice(0, THINK_EXCERPT_CHARS)}...` : think;
 }
 
 /** One decision (a run, or a step of one) as markdown lines under `heading`; `detail` as passLines. */
@@ -2078,11 +2201,127 @@ export function renderSkillsReport(entries) {
       for (const record of records) lines.push(...recordLines(record, `### run ${record.run}: ${record.decision}`));
       continue;
     }
-    const runs = [...new Set(records.map((record) => record.run))].sort((a, b) => a - b);
-    for (const run of runs) {
-      const steps = records.filter((record) => record.run === run).sort((a, b) => a.step - b.step);
-      lines.push(`### run ${run}: ${steps.map((record) => DECISION_LETTERS[record.decision] ?? '?').join('')}`, '');
-      for (const record of steps) lines.push(...recordLines(record, `#### step ${record.step}: ${record.decision}`, { detail: true }));
+    for (const { run, ordered, pattern } of runPatterns(records)) {
+      lines.push(`### run ${run}: ${pattern}`, '');
+      for (const record of ordered) {
+        if (record.queue && record.turn === 1) lines.push(...burstLines(ordered.filter((r) => r.step === record.step)));
+        lines.push(...recordLines(record, `#### ${decisionTitle(record)}: ${record.decision}`, { detail: true }));
+      }
+    }
+  }
+  return `${lines.join('\n').trimEnd()}\n`;
+}
+
+/** A step record's place: `step 2`, or for a burst's turn `step 2, turn 1 of 3 (name, <author>: <text>)`. */
+function decisionTitle(record) {
+  if (!record.queue) return `step ${record.step}`;
+  const trigger = record.queue.trigger ?? {};
+  return `step ${record.step}, turn ${record.turn} of ${record.queue.turns} (${record.queue.kind}, ${cell(trigger.author)}: ${cell(trigger.text)})`;
+}
+
+/**
+ * How the live queue played one step's burst (the step's records of one run, playSteps's `queue`):
+ * the messages that got a turn in the order they got it, the follow-ups a newer one replaced
+ * (live, missed-answer candidates) and the calls the queue's cap dropped, as markdown lines.
+ */
+function burstLines(stepRecords) {
+  const queue = stepRecords[0]?.queue;
+  if (!queue) return [];
+  const turns = stepRecords.map((record) => `${record.turn}. ${cell(record.queue.trigger?.author)}: ${cell(record.queue.trigger?.text)} (${record.queue.kind})`);
+  const lines = [`burst: ${queue.turns} turns: ${turns.join('; ')}`, ''];
+  if (queue.replaced.length > 0) lines.push(`replaced: ${queue.replaced.map((m) => `${cell(m.author)}: ${cell(m.text)}`).join('; ')}`, '');
+  if (queue.dropped.length > 0) lines.push(`dropped (${queue.dropped[0].reason}): ${queue.dropped.map((m) => `${cell(m.author)}: ${cell(m.text)}`).join('; ')}`, '');
+  return lines;
+}
+
+/** The two prompt layers of `--pair-prompts`, in the order they are given. */
+const PAIR_SIDES = Object.freeze(['A', 'B']);
+
+/** One decision as a pair-report cell: the call with its arguments and the gateway's verdict, no call, a malformed call; '-' for none. */
+function decisionCell(record) {
+  if (!record) return '-';
+  if (record.decision === 'call') {
+    const verdict = record.verdict?.ok ? 'passed' : `refused at ${record.verdict?.stage}: ${record.verdict?.code}`;
+    return `call \`${cell(record.skill)}\` ${cell(JSON.stringify(record.args))} (${cell(verdict)})`;
+  }
+  return record.decision === 'malformed-call' ? 'malformed call' : 'no call';
+}
+
+/** One pass's messages as a pair-report cell: joined by ` / `, `(skip)` / `(nothing)` without one, its error; '-' for no pass. */
+function messagesCell(pass) {
+  if (!pass) return '-';
+  if (pass.error) return `failed: ${cell(pass.error)}`;
+  if (Array.isArray(pass.messages) && pass.messages.length > 0) return pass.messages.map(cell).join(' / ');
+  return pass.skip ? '(skip)' : '(nothing)';
+}
+
+/** The key of one decision of a run: its run, step and turn (1 for a single-turn scenario's). */
+function decisionKey(record) {
+  return `${record.run}|${record.step ?? 1}|${record.turn ?? 1}`;
+}
+
+/**
+ * The markdown report of a `--skills --pair-prompts` run: the two prompt directories (`a`, `b`),
+ * a table of every scenario with each side's decisions (runPatterns: one letter per decision, a
+ * run's letters together, runs space-separated: `CCCCCN` vs `CCNNNN`), its first declines per run
+ * and its cost; then per scenario its message (or steps) and grants, and every decision of every
+ * run side by side -- a burst's turns each on its own (decisionTitle) --: the decision, her
+ * messages, those after the result when either side had a follow-up, and the first
+ * THINK_EXCERPT_CHARS of her `<think>`. A side that failed shows its error. Tool output for the
+ * owner, not model-facing. Pure.
+ * @param {{ scenario: object, grantNames?: string[], error?: string,
+ *   sides?: Record<'A'|'B', { records: object[], summary: object|null, error?: string }> }[]} entries
+ * @param {{ a: string, b: string }} dirs
+ * @returns {string}
+ */
+export function renderPairReport(entries, { a, b }) {
+  const lines = [
+    '# Skill scenarios: prompt layers A and B', '', `A: ${a}`, '', `B: ${b}`, '',
+    '| scenario | runs | A: calls per decision | B: calls per decision | A: first decline | B: first decline | A: cost (USD) | B: cost (USD) |',
+    '|---|---|---|---|---|---|---|---|',
+  ];
+  for (const { scenario, sides, error } of entries) {
+    if (error) {
+      lines.push(`| ${cell(scenario.id)} | failed: ${cell(error)} | | | | | | |`);
+      continue;
+    }
+    const shown = PAIR_SIDES.map((side) => {
+      const result = sides?.[side];
+      if (!result || result.error) return { runs: 0, pattern: `failed: ${cell(result?.error ?? 'not run')}`, declines: '-', cost: '-' };
+      const patterns = runPatterns(result.records ?? []);
+      return {
+        runs: patterns.length,
+        pattern: patterns.length > 0 ? `\`${patterns.map((p) => p.pattern).join(' ')}\`` : '-',
+        declines: patterns.length > 0 ? patterns.map((p) => (p.firstDecline === null ? '-' : String(p.firstDecline))).join(' ') : '-',
+        cost: Number.isFinite(result.summary?.cost) ? result.summary.cost.toFixed(4) : '-',
+      };
+    });
+    const [left, right] = shown;
+    lines.push(`| ${cell(scenario.id)} | ${Math.max(left.runs, right.runs)} | ${left.pattern} | ${right.pattern} | ${left.declines} | ${right.declines} | ${left.cost} | ${right.cost} |`);
+  }
+  for (const { scenario, grantNames, sides, error } of entries) {
+    const stimulus = scenario.steps ? stepsLines(scenario.steps) : [quoted(scenario.text), ''];
+    lines.push('', `## ${scenario.id}`, '', ...stimulus, `grants: ${grantNames?.length ? grantNames.join(', ') : '(none)'}; discovery: ${Array.isArray(scenario.discovery) ? scenario.discovery.join(', ') : scenario.discovery}`, '');
+    if (error) {
+      lines.push(`failed: ${cell(error)}`);
+      continue;
+    }
+    const bySide = PAIR_SIDES.map((side) => new Map((sides?.[side]?.records ?? []).map((record) => [decisionKey(record), record])));
+    const all = [...new Map([...bySide[1].values(), ...bySide[0].values()].map((record) => [decisionKey(record), record])).values()]
+      .sort((x, y) => x.run - y.run || (x.step ?? 1) - (y.step ?? 1) || (x.turn ?? 1) - (y.turn ?? 1));
+    let run = null;
+    for (const record of all) {
+      if (record.run !== run) {
+        run = record.run;
+        lines.push(`### run ${run}`, '');
+      }
+      const key = decisionKey(record);
+      const [left, right] = bySide.map((map) => map.get(key) ?? null);
+      if (scenario.steps) lines.push(`#### ${decisionTitle(record)}`, '');
+      const think = (side) => (side?.first?.think ? thinkExcerpt(side.first.think) : '-');
+      lines.push('| | A | B |', '|---|---|---|', `| decision | ${decisionCell(left)} | ${decisionCell(right)} |`, `| messages | ${messagesCell(left?.first)} | ${messagesCell(right?.first)} |`);
+      if (left?.followUp || right?.followUp) lines.push(`| after the result | ${messagesCell(left?.followUp)} | ${messagesCell(right?.followUp)} |`);
+      lines.push(`| think | ${think(left)} | ${think(right)} |`, '');
     }
   }
   return `${lines.join('\n').trimEnd()}\n`;
@@ -2090,16 +2329,20 @@ export function renderSkillsReport(entries) {
 
 /**
  * The `--skills` mode (see the header): every scenario of `scenarios` put to the persona after
- * its channel's real chat, nothing posted, run or written but the output files. Returns
+ * its channel's real chat, nothing posted, run or written but the output files. `sides`: the
+ * prompt layers the scenarios are answered under, `[{ label, hot }]` -- one with label null (the
+ * live prompts, or `--prompts`), or A and B (`--pair-prompts`: every scenario under both, over
+ * the same fetched chat, the same config and memory, the same number of runs). Returns
  * `{ code, result }`: code 1 when a scenario failed or the runs were stopped.
  */
-async function runSkills({ args, scenarios, root, liveData, mods, hot, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, before, log, signal, budget, viewMods, channelOf }) {
+async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, before, log, signal, budget, viewMods, channelOf }) {
   const {
     answerSkillScenario, skillScenarioRequest, scenarioInventory, simulateCall, personaGrantsConfig, replayMedia,
     fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen, grantedSkillNames,
   } = mods;
   const registry = skillRegistry();
   const names = [...registry.keys()];
+  const pairing = sides.length > 1;
   // Every name is checked before anything is fetched or sent.
   const plans = scenarios.map((scenario) => ({ scenario, grantNames: scenarioGrants(scenario, expandPersonaGrant), discovery: scenarioDiscovery(scenario, names) }));
 
@@ -2111,6 +2354,12 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, store, gu
     fs.mkdirSync(outDir, { recursive: true });
   }
   const jsonl = outDir ? path.join(outDir, 'runs.jsonl') : null;
+  // A record as runs.jsonl holds it: under --pair-prompts with its side after the scenario.
+  const writeRecords = (records, label) => {
+    if (!jsonl || records.length === 0) return;
+    const lines = records.map((record) => JSON.stringify(label ? { scenario: record.scenario, side: label, ...record } : record));
+    fs.appendFileSync(jsonl, `${lines.join('\n')}\n`);
+  };
 
   // The spend cap: what the provider reports spent (else the estimate per request) stops the runs at --spend.
   let spent = 0;
@@ -2143,6 +2392,7 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, store, gu
       throw new Error('replay-cli: the state is read-only here');
     },
   };
+  const errorOf = (err) => (err instanceof CliError ? err.message : `${err?.name ?? 'Error'}`);
 
   const entries = [];
   const dry = [];
@@ -2152,6 +2402,8 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, store, gu
       cut = true;
       break;
     }
+    // The moment the scenario is put after, fetched once for every side.
+    let moment;
     try {
       const channel = await readableChannel({ client, guild, guildId, channelId: scenario.channelId });
       // Every member who writes in the scenario: one, or each step's authors.
@@ -2162,127 +2414,170 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, store, gu
       const last = history[history.length - 1] ?? null;
       const firstGapMs = scenario.steps ? scenario.steps[0].gapMinutes * 60_000 : SCENARIO_AFTER_MS;
       const at = scenario.before && last ? last.ts + firstGapMs : Date.now();
-      const nameOf = (id) => guild.members.cache.get(id)?.displayName ?? store.getUser(guildId, id)?.names?.[0] ?? id;
-      const lineOf = (message, ts) => scenarioTrigger({ text: message.text, authorId: message.author, authorName: nameOf(message.author), channel: channelOf(channel), selfId: self.id, at: ts });
-      // A single-turn scenario's message, or the first step's messages (a burst's 5 s apart, the last one the trigger).
-      const firstLines = scenario.steps ? scenario.steps[0].messages.map((message, i) => lineOf(message, at + i * BURST_SPACING_MS)) : [lineOf(scenario, at)];
-      const trigger = firstLines[firstLines.length - 1];
-      const situation = { history: [...history, ...firstLines], triggerId: trigger.id, kind: 'mention', mode: 'reply' };
+      moment = { channel, history, at };
+    } catch (err) {
+      const error = errorOf(err);
+      if (args.dry) dry.push({ id: scenario.id, error });
+      else entries.push({ scenario, grantNames, records: [], summary: null, error });
+      continue;
+    }
+    const { channel, history, at } = moment;
+    const nameOf = (id) => guild.members.cache.get(id)?.displayName ?? store.getUser(guildId, id)?.names?.[0] ?? id;
+    // A scenario's message: the single one and a step's own tag her; a burst's message calls her by its text alone.
+    const lineOf = (message, ts, { tagged = true } = {}) =>
+      scenarioTrigger({ text: message.text, authorId: message.author, authorName: nameOf(message.author), channel: channelOf(channel), selfId: self.id, at: ts, tagged });
+    // The config with her grants, read now and kept for the scenario (both sides); never written.
+    const scenarioConfig = personaGrantsConfig(hot.config, self.id, grantNames);
+    // A step's burst as the live queue plays it, with the scenario's config (name triggers, switches, caps).
+    const planBurst = (incoming, { history: before }) => mods.burstTurns(incoming, { selfId: self.id, config: scenarioConfig, history: before });
+    // A single-turn scenario's message, or the first step's messages (5 s apart): what the first request reads.
+    const firstLines = scenario.steps
+      ? scenario.steps[0].messages.map((message, i) => lineOf(message, at + i * BURST_SPACING_MS, { tagged: scenario.steps[0].own !== false && i === 0 }))
+      : [lineOf(scenario, at)];
+    const firstPlan = scenario.steps ? planBurst(firstLines, { history }) : null;
+    const firstTurn = firstPlan ? firstPlan.turns[0] : { line: firstLines[0], kind: 'mention', queued: [] };
+    const trigger = firstTurn.line;
+    const situation = { history: [...history, ...firstLines], triggerId: trigger.id, kind: firstTurn.kind, mode: 'reply' };
+    // `<skills_granted>`: the names of the skills the scenario grants her, as a live turn lists them.
+    const skillsGranted = grantedSkillNames({ config: scenarioConfig, selfId: self.id, registry });
+    const images = { quota: createImageGen({ apiKey: '', getConfig: () => scenarioConfig, state: frozenState, fetchImpl: refusing }).quota };
+    const memoryOn = scenarioConfig.features?.memory !== false;
+    // Her call taken through the real resolution and gateway at `now`, never run: answered with `resultText`.
+    const onCallOf = (callRequester, now, resultText) => (call, { idByIndex, history: lines }) =>
+      simulateCall({
+        call,
+        view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, selfId: self.id, skills: registry }),
+        config: scenarioConfig,
+        selfId: self.id,
+        requester: callRequester,
+        conversationId: channel.id,
+        now,
+        images,
+        resultText,
+      });
 
-      // The config with her grants, read now and kept for the scenario; never written.
-      const scenarioConfig = personaGrantsConfig(hot.config, self.id, grantNames);
+    // One prompt layer's runs of the scenario (`label` its side under --pair-prompts): its records,
+    // written to runs.jsonl as they come, and its summary (or its `--dry` sizes).
+    const playSide = async (sideHot, label) => {
       const hotLike = {
         get prompts() {
-          return hot.prompts;
+          return sideHot.prompts;
         },
         get config() {
           return scenarioConfig;
         },
       };
+      // The first decision is answered once the first step's messages are in: at the newest of them.
+      const firstAt = newestTs(situation.history, trigger.ts);
       // The memory as it stands at the scenario's first decision, for every step: nothing is learned in between.
-      const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at: trigger.ts, args: { asOfMoment: args.asOfMoment, hideSelf: [], hideSelfAll: false }, mods: viewMods });
-      // `<skills_granted>`: the names of the skills the scenario grants her, as a live turn lists them.
-      const skillsGranted = grantedSkillNames({ config: scenarioConfig, selfId: self.id, registry });
+      const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at: firstAt, args: { asOfMoment: args.asOfMoment, hideSelf: [], hideSelfAll: false }, mods: viewMods });
       // One decision's request inputs: the requester's catalogue (the trigger's author), the media of the channel so far.
-      const turnInput = (moment, turnAt, turnTrigger) => {
+      const turnInput = (turnMoment, turnAt, turnTrigger) => {
         const requester = requesterOf(turnTrigger, channel);
-        const inventory = scenarioInventory({ config: scenarioConfig, selfId: self.id, texts: hot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
-        const media = replayMedia(moment.history, { cache: mediaCache, sites: scenarioConfig.media?.video?.sites, before: null });
+        const inventory = scenarioInventory({ config: scenarioConfig, selfId: self.id, texts: sideHot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
+        const media = replayMedia(turnMoment.history, { cache: mediaCache, sites: scenarioConfig.media?.video?.sites, before: null });
         const input = {
-          view, situation: moment, selfId: self.id, selfName: self.name, channel: channelOf(channel), at: turnAt,
+          view, situation: turnMoment, selfId: self.id, selfName: self.name, channel: channelOf(channel), at: turnAt,
           descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory, skillsGranted,
         };
         return { input, requester, shown: { rows: inventory?.length ?? 0, allowed: (inventory ?? []).filter((row) => row.allowed).length } };
       };
-      const { input, requester, shown } = turnInput(situation, trigger.ts, trigger);
+      const { input, requester, shown } = turnInput(situation, firstAt, trigger);
       if (args.dry) {
-        const request = skillScenarioRequest(input);
-        dry.push({
-          id: scenario.id, channelId: channel.id, lines: history.length, systemChars: request.system.length, userChars: request.user.length,
-          tokens: request.tokens, limit: request.limit, skillsBlock: blockOf(request.user, 'skills') !== null, skills: shown, runs: scenario.runs,
-          ...(scenario.steps ? { steps: scenario.steps.length } : {}),
-        });
-        continue;
+        const request = skillScenarioRequest({ ...input, queued: firstTurn.queued });
+        return {
+          dry: {
+            id: scenario.id, channelId: channel.id, lines: history.length, systemChars: request.system.length, userChars: request.user.length,
+            tokens: request.tokens, limit: request.limit, skillsBlock: blockOf(request.user, 'skills') !== null, skills: shown, runs: scenario.runs,
+            ...(scenario.steps ? { steps: scenario.steps.length } : {}),
+          },
+        };
       }
-      const images = { quota: createImageGen({ apiKey: '', getConfig: () => scenarioConfig, state: frozenState, fetchImpl: refusing }).quota };
-      const memoryOn = scenarioConfig.features?.memory !== false;
-      // Her call taken through the real resolution and gateway at `now`, never run: answered with `resultText`.
-      const onCallOf = (callRequester, now, resultText) => (call, { idByIndex, history: lines }) =>
-        simulateCall({
-          call,
-          view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, selfId: self.id, skills: registry }),
-          config: scenarioConfig,
-          selfId: self.id,
-          requester: callRequester,
-          conversationId: channel.id,
-          now,
-          images,
-          resultText,
-        });
       if (scenario.steps) {
-        // Each run replays every step from the start: her turns carried into the channel the next step reads.
+        // Each run replays every step from the start: her turns carried into the channel the next turn reads.
         const { afterScenarioTurn } = mods;
         const records = [];
         let tokensEstimate = null;
+        let stopped = false;
         for (let runIndex = 0; runIndex < scenario.runs; runIndex += 1) {
           if (runSignal.aborted) {
-            cut = true;
+            stopped = true;
             break;
           }
           const played = await playSteps({
-            scenario, history, firstAt: at, runIndex, lineOf,
-            answerStep: async ({ situation: moment, trigger: stepTrigger, at: stepAt, callMarks, result }) => {
-              const step = turnInput(moment, stepAt, stepTrigger);
-              const answered = await answerSkillScenario({ ...step.input, llm: capped, runs: 1, signal: runSignal, callMarks, onCall: onCallOf(step.requester, stepAt, result) });
+            scenario, history, firstAt: at, runIndex, lineOf, planBurst,
+            answerStep: async ({ situation: turnMoment, trigger: turnTrigger, at: turnAt, callMarks, result, queued }) => {
+              const turn = turnInput(turnMoment, turnAt, turnTrigger);
+              const answered = await answerSkillScenario({ ...turn.input, llm: capped, runs: 1, signal: runSignal, callMarks, queued, onCall: onCallOf(turn.requester, turnAt, result) });
               tokensEstimate ??= answered.request.tokens;
               return { run: answered.runs[0] ?? null, stopped: answered.stopped };
             },
             afterTurn: ({ transcript, callMarks, run, at: turnAt, triggerId }) =>
               afterScenarioTurn({ transcript, callMarks, run, at: turnAt, selfId: self.id, selfName: self.name, channel: channelOf(channel), triggerId, config: scenarioConfig }),
-            onRecord: (record) => fs.appendFileSync(jsonl, `${JSON.stringify(record)}\n`),
+            onRecord: (record) => writeRecords([record], label),
           });
           records.push(...played.records);
           if (played.stopped) {
-            cut = true;
+            stopped = true;
             break;
           }
         }
         const summary = sequenceSummary(records, scenario.steps.length);
-        entries.push({ scenario, grantNames, records, summary: { ...summary, skills: shown, tokensEstimate } });
-        log.info('replay-cli: skill scenario', { runs: summary.runs, steps: summary.steps, calls: summary.calls });
+        return { records, summary: { ...summary, skills: shown, tokensEstimate }, stopped };
+      }
+      const answered = await answerSkillScenario({ ...input, llm: capped, runs: scenario.runs, signal: runSignal, onCall: onCallOf(requester, trigger.ts, scenario.result) });
+      const records = answered.runs.map((run, index) => runRecord(scenario.id, index, run));
+      writeRecords(records, label);
+      return { records, summary: { ...scenarioSummary(records), skills: shown, tokensEstimate: answered.request.tokens }, stopped: answered.stopped };
+    };
+
+    const results = {};
+    for (const side of sides) {
+      const key = side.label ?? 'single';
+      if (runSignal.aborted) {
+        cut = true;
+        results[key] = { records: [], summary: null, error: 'not run: stopped' };
         continue;
       }
-      const answered = await answerSkillScenario({
-        ...input,
-        llm: capped,
-        runs: scenario.runs,
-        signal: runSignal,
-        onCall: onCallOf(requester, trigger.ts, scenario.result),
-      });
-      if (answered.stopped) cut = true;
-      const records = answered.runs.map((run, index) => runRecord(scenario.id, index, run));
-      if (records.length > 0) fs.appendFileSync(jsonl, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
-      entries.push({ scenario, grantNames, records, summary: { ...scenarioSummary(records), skills: shown, tokensEstimate: answered.request.tokens } });
-      log.info('replay-cli: skill scenario', { runs: records.length, calls: records.filter((r) => r.decision === 'call').length });
-    } catch (err) {
-      const error = err instanceof CliError ? err.message : `${err?.name ?? 'Error'}`;
-      if (args.dry) dry.push({ id: scenario.id, error });
-      else entries.push({ scenario, grantNames, records: [], summary: null, error });
+      try {
+        const out = await playSide(side.hot, side.label);
+        if (out.dry) {
+          dry.push(side.label ? { ...out.dry, side: side.label } : out.dry);
+          continue;
+        }
+        if (out.stopped) cut = true;
+        results[key] = { records: out.records, summary: out.summary };
+        log.info('replay-cli: skill scenario', { runs: out.summary.runs, calls: out.summary.calls, ...(out.summary.steps ? { steps: out.summary.steps } : {}), ...(side.label ? { side: side.label } : {}) });
+      } catch (err) {
+        const error = errorOf(err);
+        if (args.dry) dry.push({ id: scenario.id, ...(side.label ? { side: side.label } : {}), error });
+        else results[key] = { records: [], summary: null, error };
+      }
     }
+    if (args.dry) continue;
+    if (pairing) entries.push({ scenario, grantNames, sides: { A: results.A, B: results.B } });
+    else entries.push({ scenario, grantNames, records: results.single.records, summary: results.single.summary, ...(results.single.error ? { error: results.single.error } : {}) });
   }
   // Stopped only when something was left unanswered: by Ctrl-C, else by the spend cap.
   const stoppedBy = !cut ? null : signal?.aborted ? 'signal' : 'spend';
   if (args.dry) return { code: dry.some((d) => d.error) ? 1 : 0, result: { dry: true, scenarios: dry } };
   const report = path.join(outDir, 'report.md');
-  fs.writeFileSync(report, renderSkillsReport(entries));
-  const failed = entries.filter((e) => e.error).map((e) => ({ id: e.scenario.id, error: e.error }));
+  const dirs = pairing ? { a: path.resolve(root, args.pairPrompts[0]), b: path.resolve(root, args.pairPrompts[1]) } : null;
+  fs.writeFileSync(report, pairing ? renderPairReport(entries, dirs) : renderSkillsReport(entries));
+  const failed = pairing
+    ? entries.flatMap((e) => (e.error ? [{ id: e.scenario.id, error: e.error }] : PAIR_SIDES.filter((side) => e.sides[side]?.error).map((side) => ({ id: e.scenario.id, side, error: e.sides[side].error }))))
+    : entries.filter((e) => e.error).map((e) => ({ id: e.scenario.id, error: e.error }));
+  const scenariosOut = pairing
+    ? entries.filter((e) => !e.error).map((e) => ({ id: e.scenario.id, A: e.sides.A?.summary ?? null, B: e.sides.B?.summary ?? null }))
+    : entries.filter((e) => !e.error).map((e) => ({ id: e.scenario.id, ...e.summary }));
   return {
     code: failed.length > 0 || stoppedBy !== null ? 1 : 0,
     result: {
       out: outDir,
       runs: jsonl,
       report,
-      scenarios: entries.filter((e) => !e.error).map((e) => ({ id: e.scenario.id, ...e.summary })),
+      ...(pairing ? { prompts: dirs } : args.prompts !== null ? { prompts: path.resolve(root, args.prompts) } : {}),
+      scenarios: scenariosOut,
       failed,
       stoppedBy,
       spentUsd: Math.round(spent * 10000) / 10000,
@@ -2336,15 +2631,24 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   if (args.showRequestTurn === null) {
     const requests = args.dry
       ? 0
-      : args.diary ? DIARY_REQUESTS_PER_BRIEF * args.count : args.pair ? 2 * pairTriggers.length : args.recall ? RECALL_REQUESTS : scenarios ? skillRequestEstimate(scenarios) : args.samples;
-    const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? `, up to ${SKILL_REQUESTS_PER_RUN} per decision (a run, or each step of a run): her answer and the follow-up after a call` : ''}`;
+      : args.diary
+        ? DIARY_REQUESTS_PER_BRIEF * args.count
+        : args.pair
+          ? 2 * pairTriggers.length
+          : args.recall
+            ? RECALL_REQUESTS
+            : scenarios
+              ? skillRequestEstimate(scenarios) * (args.pairPrompts ? PAIR_SIDES.length : 1)
+              : args.samples;
+    const skillDetail = `, up to ${SKILL_REQUESTS_PER_RUN} per decision (a run, or each turn of each step of a run): her answer and the follow-up after a call${args.pairPrompts ? ', under both prompt layers' : ''}`;
+    const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? skillDetail : ''}`;
     const gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail });
     if (!gate.ok) throw new CliError(`replay-cli: ${gate.text}`, { exitCode: REFUSED_EXIT });
     spendBudget = gate.budget;
     process.stderr.write(`replay-cli: ${gate.text}\n`);
   }
 
-  const { loadDotEnv } = await load('config.js');
+  const { loadDotEnv, deepMerge } = await load('config.js');
   const { createHot } = await load('hot.js');
   const { log } = await load('log.js');
 
@@ -2414,6 +2718,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     simulateCall,
     personaGrantsConfig,
     afterScenarioTurn,
+    burstTurns,
   } = await load('behavior/sandbox.js');
   const { fetchHistoryWindow, fetchMessage } = await load('discord/collect.js');
   const { createEmojiIndex } = await load('discord/emoji.js');
@@ -2440,8 +2745,8 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     skillMods = {
       answerSkillScenario, skillScenarioRequest, scenarioInventory, simulateCall, personaGrantsConfig, replayMedia,
       fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen, grantedSkillNames,
-      // Only a multi-step scenario carries a turn into the next step.
-      ...(scenarios.some((scenario) => scenario.steps) ? { afterScenarioTurn } : {}),
+      // Only a multi-step scenario carries a turn into the next one, and plays its bursts as the live queue does.
+      ...(scenarios.some((scenario) => scenario.steps) ? { afterScenarioTurn, burstTurns } : {}),
     };
     for (const [name, fn] of Object.entries(skillMods)) {
       if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--skills needs it)`);
@@ -2580,8 +2885,18 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     }
 
     if (scenarios) {
+      // The prompt layers the scenarios are answered under: the live ones, `--prompts` over a copy of
+      // prompts.local/, or both sides of `--pair-prompts`; labels.json merged as src/hot.js merges it.
+      const skillSides = [];
+      const layerDirs = args.pairPrompts ?? (args.prompts !== null ? [args.prompts] : []);
+      for (const [index, dir] of layerDirs.entries()) {
+        const side = overlayPromptsHot(createHot, root, dir, { mergeJson: deepMerge });
+        sides.push(side);
+        skillSides.push({ label: args.pairPrompts ? PAIR_SIDES[index] : null, hot: side.hot });
+      }
+      if (skillSides.length === 0) skillSides.push({ label: null, hot });
       return await runSkills({
-        args, scenarios, root, liveData, mods: skillMods, hot, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji,
+        args, scenarios, root, liveData, mods: skillMods, hot, sides: skillSides, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji,
         searchAvailable, before, log, signal, budget: spendBudget, viewMods, channelOf,
       });
     }
