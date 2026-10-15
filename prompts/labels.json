@@ -150,7 +150,6 @@
     "verdictDead": "dead quiet"
   },
   "profile": {
-    "interlocutorMark": " ← talking to you",
     "formerNames": "Previously known as: {names}",
     "aliases": "Also called: {text}",
     "addressed": "Called most often: {text}",
@@ -394,21 +393,30 @@
     }
   },
   "peopleNow": {
-    "lead": "Right now, one line per person (the handle is the same as in <people> and <directory>):",
-    "stale": "The connection to Discord dropped a moment ago, so this may be out of date.",
+    "lead": "Right now, per person (the handle is the same as in <people> and <directory>):",
+    "stale": "The connection to Discord dropped a moment ago, so live details are marked stale.",
     "unavailable": "You cannot see anyone's online status or activity right now.",
-    "row": "{who}{mark}: {details}",
-    "rowBare": "{who}{mark}",
-    "overheardMark": " ← overheard, not talking to you",
-    "attitude": "Your attitude: {score} ({band}) — {reason}",
-    "move": "{delta} on {date}: {reason}",
-    "messages": "Messages seen: {count}",
-    "inVoice": "in voice {channel}",
-    "flags": {
-      "muted": "muted",
-      "deafened": "deafened",
-      "streaming": "streaming",
-      "camera": "camera on"
+    "heading": "{who}",
+    "headingMarked": "{who} ({mark})",
+    "marks": {
+      "interlocutor": "the one talking to you",
+      "overheard": "overheard, not talking to you"
+    },
+    "field": "- {field}: {value}",
+    "fields": {
+      "status": "Discord status",
+      "voice": "In voice",
+      "activity": "Current activity",
+      "attitude": "Attitude",
+      "moves": "Recent attitude moves",
+      "messages": "Messages seen"
+    },
+    "values": {
+      "yes": "yes",
+      "no": "no",
+      "none": "none",
+      "unavailable": "unavailable",
+      "stale": "stale"
     },
     "status": {
       "online": "online",
@@ -416,6 +424,8 @@
       "dnd": "do not disturb",
       "offline": "offline"
     },
+    "voiceYes": "yes (channel: {channel}{joined}; muted: {muted}; deafened: {deafened}; streaming: {streaming}; camera: {camera})",
+    "joinedAgo": "; joined {ago} ago",
     "activity": {
       "playing": "playing {name}",
       "streaming": "streaming {name}",
@@ -425,6 +435,8 @@
       "other": "{name}"
     },
     "activityDetails": "{activity} ({details})",
-    "activityTrack": "{activity}: {track} - {artist}"
+    "activityTrack": "{activity}: {track} - {artist}",
+    "attitude": "{score} ({band}) — {reason}",
+    "move": "{delta} on {date}: {reason}"
   }
 }
