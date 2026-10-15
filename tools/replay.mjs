@@ -344,7 +344,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // CliError: an operator-facing failure, printed as is, exit code `exitCode` (1 unless the spend gate refused: 2).
-import { CliError, REFUSED_EXIT, resolveGuildId, spendGate } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, resolveGuildId, spendGate } from './lib/cli.mjs';
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.mjs';
 import { promptLayersHot } from './lib/prompt-layers.mjs';
 
@@ -1485,9 +1485,8 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 
   loadDotEnv(root);
   const discordToken = process.env.DISCORD_TOKEN;
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
   if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
-  if (!openrouterKey) throw new CliError('replay-cli: OPENROUTER_API_KEY is not set (.env)');
+  const openrouterKey = simKey('replay-cli');
 
   let layered = null;
   let client = null;
@@ -2776,9 +2775,9 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
 
   loadDotEnv(root);
   const discordToken = process.env.DISCORD_TOKEN;
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
   if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
-  if (!openrouterKey && args.showRequestTurn === null && !args.dry) throw new CliError('replay-cli: OPENROUTER_API_KEY is not set (.env)');
+  const keyNeeded = args.showRequestTurn === null && !args.dry;
+  const openrouterKey = keyNeeded ? simKey('replay-cli') : (process.env.OPENROUTER_SIM_KEY || undefined);
   const searchAvailable = typeof process.env.BRAVE_SEARCH_API_KEY === 'string' && process.env.BRAVE_SEARCH_API_KEY.trim().length > 0;
 
   const { createStore } = await load('memory/store.js');

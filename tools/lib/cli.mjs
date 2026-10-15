@@ -1,5 +1,5 @@
 // What every script under tools/ shares: flag parsing, the UTC day range, the guild of a data
-// directory, the spend gate, and the entry point (print the result, or the error and exit 1).
+// directory, the OpenRouter key slot of the tools, the spend gate, and the entry point (print the result, or the error and exit 1).
 // The spend gate is the one rule for a tool that sends model requests: it prints its estimate
 // first and refuses unless `--spend <usd>` covers it.
 
@@ -13,6 +13,18 @@ export class CliError extends Error {
     super(message);
     this.exitCode = exitCode;
   }
+}
+
+/**
+ * The OpenRouter key a tool may spend: `OPENROUTER_SIM_KEY` and only that, never the bot's
+ * `OPENROUTER_API_KEY`. A CliError naming the variable when it is missing; the value is never printed.
+ */
+export function simKey(tool, env = process.env) {
+  const key = env.OPENROUTER_SIM_KEY;
+  if (typeof key !== 'string' || key.trim() === '') {
+    throw new CliError(`${tool}: OPENROUTER_SIM_KEY is not set (.env): tools never use the bot's OPENROUTER_API_KEY`);
+  }
+  return key;
 }
 
 /** Exit code of a run refused by the spend gate. */

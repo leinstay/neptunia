@@ -47,7 +47,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, parseFlags, resolveGuildId, runCli } from './lib/cli.mjs';
+import { simKey, CliError, parseFlags, resolveGuildId, runCli } from './lib/cli.mjs';
 import {
   DEFAULT_GEN_MS, cacheEntryOf, classify, contentOf, generationsOf, kindKey, matchTurns, parseCsv, replyMatcher, shapeOf,
 } from './lib/import-turns.mjs';
@@ -450,8 +450,7 @@ export async function main(argv, {
     // Read as the bot reads it (src/config.js); never printed.
     const { loadDotEnv } = await import('../src/config.js');
     loadDotEnv(rootDir);
-    key = process.env.OPENROUTER_API_KEY;
-    if (!key) throw new CliError('import-turns: OPENROUTER_API_KEY is not set (.env)');
+    key = simKey('import-turns');
   }
   const ctx = { now, sleep, log, fetchImpl, cacheDir, concurrency, rate, apiKey: () => key, baseUrl: hot.config?.llm?.baseUrl || DEFAULT_BASE_URL };
   const fetchCounts = await fetchAll(ctx, toFetch);

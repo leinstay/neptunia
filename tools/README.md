@@ -9,7 +9,8 @@ which writes hot memory and so runs with the bot stopped.
 - **Run as the service user, from the checkout:**
   `cd /opt/neptunia-bot && sudo -u neptunia-bot node tools/<tool>.mjs ...` (the user and directory of
   `deploy/neptunia-bot.service`). The tools read `config.json`, `config.local.json`, `prompts/`, `prompts.local/`
-  and `.env` from there.
+  and `.env` from there. Every tool that sends model requests uses `OPENROUTER_SIM_KEY` from `.env` and never the bot's
+  `OPENROUTER_API_KEY`; without it the tool refuses to start.
 - **Read-only on `data/`.** No tool writes under `data/`. A tool that needs to change memory works on a copy
   (`tools/memory-sim.mjs` copies a snapshot to a scratch directory). The one way to make that copy is the bot itself:
   `/nep memory snapshot`. The one exception is `backfill.mjs` (below): it appends

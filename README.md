@@ -34,7 +34,7 @@ cd neptunia-bot && npm install
 cp .env.example .env
 ```
 
-Edit `.env` with your Discord token and API key. Create `config.local.json` with your Discord user ID:
+Edit `.env` with your Discord token and API key. To run the tools under `tools/`, also set `OPENROUTER_SIM_KEY`: a second OpenRouter key that only the tools use, so they never spend the bot's live `OPENROUTER_API_KEY`. Create `config.local.json` with your Discord user ID:
 
 ```json
 {
@@ -235,7 +235,7 @@ Runs with `node --test`. No network or Discord connection needed. The same comma
 
 ```
 config.json                defaults for every setting, hot-reloaded
-.env.example               template for DISCORD_TOKEN, OPENROUTER_API_KEY, optional YOUTUBE_API_KEY and BRAVE_SEARCH_API_KEY
+.env.example               template for DISCORD_TOKEN, OPENROUTER_API_KEY, optional OPENROUTER_SIM_KEY (tools only), YOUTUBE_API_KEY and BRAVE_SEARCH_API_KEY
 prompts/
   system-prompt.md         how to behave like an ordinary chat member
   character-card.md        the personality (working example)

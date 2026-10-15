@@ -44,7 +44,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { CliError, REFUSED_EXIT, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
 import {
   SPENDING_SUBCOMMANDS, assertBotStopped, channelWrittenText, formatPeople, formatStatus, formatUserWritten, parseWarmupArgs, serverWrittenText, warmupEstimate, warmupPlan,
 } from './lib/warmup.mjs';
@@ -128,8 +128,7 @@ async function modelClient(ctx) {
   if (ctx.llmClient) return ctx.llmClient;
   const { loadDotEnv } = await import('../src/config.js');
   loadDotEnv(ctx.rootDir);
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new CliError('warmup: OPENROUTER_API_KEY is not set (.env)');
+  const apiKey = simKey('warmup');
   const { createLlm } = await import('../src/llm/openrouter.js');
   const stateData = ctx.store.state?.data ?? {};
   const llmState = { data: { llmDay: stateData.llmDay, llmCount: stateData.llmCount }, markDirty() {} };

@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mobility, stagnation, wordsPerSentence, batchesFromDump, manifestFrom, proseFields, authorLines, SHORT_SENTENCE_WORDS } from '../tools/lib/sim.mjs';
-import { spendGate, daysBetween, parseFlags, CliError } from '../tools/lib/cli.mjs';
+import { spendGate, daysBetween, parseFlags, simKey, CliError } from '../tools/lib/cli.mjs';
 
 const profile = (fields) => ({
   id: 'u1',
@@ -136,4 +136,10 @@ test('cli: parseFlags takes values, lists, multi-value flags and switches', () =
   assert.deepEqual(flags, { _: ['a'], '--x': '1', '--l': ['p', 'q'], '--m': ['d1', 'd2'], '--s': true });
   assert.throws(() => parseFlags(['--nope'], { usage: 'u' }), CliError);
   assert.throws(() => parseFlags(['--x'], { values: ['--x'], usage: 'u' }), CliError);
+});
+
+test('simKey: only OPENROUTER_SIM_KEY counts, never the bot key', () => {
+  assert.equal(simKey('t', { OPENROUTER_SIM_KEY: 'sim' }), 'sim');
+  assert.throws(() => simKey('t', { OPENROUTER_API_KEY: 'live' }), (e) => e instanceof CliError && e.message.includes('OPENROUTER_SIM_KEY is not set'));
+  assert.throws(() => simKey('t', { OPENROUTER_SIM_KEY: '  ' }), CliError);
 });
