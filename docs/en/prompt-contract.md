@@ -257,7 +257,7 @@ The keys of `labels.json`; `{x}` is filled by code.
 ```
 locale                                   BCP-47 tag for dates
 status.probe                             the user message of the model probe on the owner's `/nep status` card; must make any model answer one short word. The embedding role is probed with a one-input embedding request of this text instead of a chat completion; when no embedding client is wired the embed line says it was not checked
-status.costs.*                           the two costs fields of the owner's `/nep status` card, `costs (limits per key)` (src/ops/usage.js#keyCostsLines) and `costs (today by role)` (#roleCostsLines); read by the owner, never sent to a model. A missing key leaves its line out. The costs are OpenRouter's reported ones (the upstream cost when the answer carries it): a BYOK request is billed by the provider and shows at OpenRouter's list price
+status.costs.*                           the two costs fields of the owner's `/nep status` card, `keys` (src/ops/usage.js#keyCostsLines) and `costs` (#roleCostsLines); read by the owner, never sent to a model. A missing key leaves its line out. The costs are OpenRouter's reported ones (the upstream cost when the answer carries it): a BYOK request is billed by the provider and shows at OpenRouter's list price
 status.costs.keyLead | simKeyLead        the {lead} of the main key's and of the simulator key's (OPENROUTER_SIM_KEY) lines; each key's limit line is followed by its own usage line
 status.costs.simKeyNotSet                the one line for the simulator key when it is not set (no usage line under it)
 status.costs.keyLimit                    {lead} {spent} {limit} {notes}: the key's limit with what it spent in USD; notes are the reset and the BYOK note joined by `noteSeparator`; `keyLimitPlain` ({lead} {spent} {limit}) when there is no note; spent is `-` when the key reports none
@@ -271,7 +271,7 @@ status.costs.usage                       {parts}: a key's usage, parts from `usa
 status.costs.usageWeekCal | usageMonthCal   {usd}: the simulator key's usage parts after `usageToday` without its activity: the calendar week and month as the key reports them (the usage accumulator never sees the tools' spend), each only when reported
 status.costs.roleKeyLead | roleSeparator   {roles}: the lead word of an extra key's lines (`llm.keyByRole`), its roles joined by `roleSeparator`
 status.costs.reasons.timeout | network | noClient | badAnswer | http   the {reason} words; http has {status}
-status.costs.byRoleEmpty                 the `costs (today by role)` field alone when no request was made today (UTC day)
+status.costs.byRoleEmpty                 the `costs` field alone when no request was made today (UTC day)
 status.costs.role                        {role} {requests} {in} {cached} {out} {cost} {avg}: one role's requests today, tokens compact (`9.3k`, `974k`, `1.23M`), cost in USD; a role with no tokens (`drawing`: generated pictures, counted with their cost) shows them as `-`; the roles by cost, no header and no total; {avg} is `avg` ({usd}: cost per request, 3 decimals), empty with no requests
 self                                     {name}
 units.lessThanMinute | minute | hour | day

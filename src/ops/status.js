@@ -12,9 +12,9 @@
 // each role's line is followed by the `roles.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
 // memory) is computed at most once a minute: directory listings and the record's month indexes,
 // never its day files. The speed field reads src/ops/metrics.js (the last 24 h), then today's
-// missed-answer figures from the journal (src/behavior/missed.js). The `costs (limits per key)`
+// missed-answer figures from the journal (src/behavior/missed.js). The `keys`
 // field reads each API key's limit (one free GET per key) and the rolling 7/30-day sums per key;
-// `costs (today by role)` reads today's per-role accumulator (src/ops/usage.js).
+// `costs` reads today's per-role accumulator (src/ops/usage.js).
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -43,7 +43,7 @@ import { defineOp, perEnv } from './registry.js';
 export { STATUS_FIELDS };
 
 /** The fields a member's card leaves out. */
-const OWNER_FIELDS = new Set(['costs (limits per key)', 'costs (today by role)', 'memory', 'speed']);
+const OWNER_FIELDS = new Set(['keys', 'costs', 'memory', 'speed']);
 
 /**
  * The models field's groups, in order: one line per role, then the `roles.byPurpose` overrides
@@ -444,7 +444,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The owner's `costs (limits per key)` field (src/ops/usage.js#keyCostsLines, every word from
+   * The owner's `keys` field (src/ops/usage.js#keyCostsLines, every word from
    * `labels.status.costs`): the main API key's limit and spend, the simulator key's and those of
    * each extra key `llm.keyByRole` puts in use (`llm.roleKeys`, read by role, never holding a key
    * here), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
@@ -502,7 +502,7 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
-  /** The owner's `costs (today by role)` field (src/ops/usage.js#roleCostsLines): today's requests
+  /** The owner's `costs` field (src/ops/usage.js#roleCostsLines): today's requests
    * per role from the usage accumulator; `-` when the labels give no line. */
   function roleCostsValue() {
     const rows = typeof usage?.byRole === 'function' ? usage.byRole() : [];
@@ -724,12 +724,12 @@ const handlers = perEnv((env) => {
     const compute = {
       // The state, then the gateway connection, then the uptime.
       state: async () => [stateValue(data), owner ? await storageLine(guildId, cfg) : null, connectionValue(), `uptime ${span(process.uptime() * 1000)}`].filter(Boolean).join('\n'),
-      'long tasks': () => longTasksValue(guildId),
+      tasks: () => longTasksValue(guildId),
       // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
       models: () => (owner && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg)),
       limits: () => limitsValue(cfg, data),
-      'costs (limits per key)': () => keyCostsValue(cfg),
-      'costs (today by role)': () => roleCostsValue(),
+      keys: () => keyCostsValue(cfg),
+      costs: () => roleCostsValue(),
       memory: () => (guildId ? memoryValue(guildId) : unresolved),
       speed: async () => [speedValue(cfg), await missedLine(guildId, cfg)].filter(Boolean).join('\n'),
     };

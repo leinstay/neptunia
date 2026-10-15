@@ -66,7 +66,7 @@ test('status: an optional field option whose choices are the field names of the 
   assert.deepEqual(field.choices.map((c) => c.value), [...STATUS_FIELDS]);
   assert.deepEqual(field.choices.map((c) => c.name), [...STATUS_FIELDS]);
   for (const choice of field.choices) assert.ok(choice.value.length >= 1 && choice.value.length <= 100, choice.value);
-  assert.ok(STATUS_FIELDS.includes('costs (limits per key)') && STATUS_FIELDS.includes('costs (today by role)'));
+  assert.deepEqual([...STATUS_FIELDS], ['state', 'tasks', 'models', 'limits', 'keys', 'costs', 'memory', 'speed'], 'single words');
 });
 
 test('interaction handler: status passes the chosen field into its args, null without one', async () => {
