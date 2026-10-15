@@ -4805,18 +4805,46 @@ test('withSkillResult: the block goes into the tail right before <task>; the cac
   assert.equal(messages[1].content, before, 'the request is not changed');
 });
 
-// --- <around>: the live voice and status glance, tail only, right before <chat> ---------------
+// --- <around>: the voice summary and the interlocutor's now line, tail only, right before <chat>; now lines on the tail profiles ---
 
-/** An `around` input: a Greek voice channel with one member, and a known status for the speaker of the lines. */
+/**
+ * An `around` input: a Greek voice channel with one member muted, the interlocutor (`author-1`, Alice)
+ * online and playing, and Carl (`p2`) in the voice channel streaming while listening to Spotify.
+ */
 function aroundInput({ presences = true } = {}) {
   const store = createAroundStore({ presences });
   store.voiceUpdate({ id: 'v-user', channelId: 'vc1', selfMute: true, member: { displayName: 'Ηλέκτρα' } });
+  store.voiceUpdate({ id: 'p2', channelId: 'vc1', streaming: true, member: { displayName: 'Carl' } });
   store.presenceUpdate({ userId: 'author-1', status: 'online', activities: [{ type: 0, name: 'Chess' }], member: { displayName: 'Alice' } });
-  return { snapshot: store.snapshot(), sceneMemberIds: ['author-1'], channelNameOf: (id) => (id === 'vc1' ? 'Σαλόνι' : null) };
+  store.presenceUpdate({
+    userId: 'p2',
+    status: 'idle',
+    activities: [{ type: 2, name: 'Spotify', details: 'Fado', state: 'Lisboa' }, { type: 4, name: 'Custom Status', state: 'late night' }],
+    member: { displayName: 'Carl' },
+  });
+  return { snapshot: store.snapshot(), channelNameOf: (id) => (id === 'vc1' ? 'Σαλόνι' : null) };
 }
 
-test('buildRequest: around -- <around> sits in the tail right after <skills> and before <chat>, in no cached part', () => {
-  const content = buildRequest(segmentScene({ around: aroundInput(), skillsInventory: SKILL_ROWS })).messages[1].content;
+/** A scene where Carl (`p2`) is an active participant besides Alice, the interlocutor. */
+function aroundScene(overrides = {}) {
+  const carlLine = makeMessage(2, NOW - 2 * MIN, { authorId: 'p2', authorName: 'Carl', content: 'hi there' });
+  const alice = makeMessage(3, NOW - MIN, { authorName: 'Alice' });
+  return segmentScene({
+    history: [carlLine, alice],
+    trigger: alice,
+    otherProfiles: [{ id: 'p2', names: ['Carl'], character: 'talkative' }],
+    around: aroundInput(),
+    ...overrides,
+  });
+}
+
+// A now line: the word `now:` followed by a status word (the block's lead also ends in "now:").
+const hasNowLine = (text) => /now: (online|idle|do not disturb|offline)/.test(text);
+const aroundBody = (request) => blocksOf(request.messages[1].content.at(-1).text).find((b) => b.tag === 'around')?.body ?? null;
+const tailPeople = (request) => blocksOf(request.messages[1].content.at(-1).text).find((b) => b.tag === 'people')?.body ?? '';
+
+test('buildRequest: around -- <around> sits in the tail right after <skills> and before <chat>, in no cached part, voice summary plus the interlocutor line', () => {
+  const content = buildRequest(aroundScene({ skillsInventory: SKILL_ROWS })).messages[1].content;
   const tail = content.at(-1);
   assert.equal(tail.cacheSegment, undefined, 'the tail carries no cache segment');
   const tags = blockTags(tail.text);
@@ -4824,39 +4852,90 @@ test('buildRequest: around -- <around> sits in the tail right after <skills> and
   assert.equal(tags[tags.indexOf('around') + 1], 'chat');
   for (const part of content.slice(0, -1)) assert.ok(!part.text.includes('<around>'), `a cached part (${part.cacheSegment}) holds <around>`);
   const body = blocksOf(tail.text).find((b) => b.tag === 'around').body;
-  assert.equal(body.split('\n')[0], labels.around.lead);
-  assert.ok(body.includes('Σαλόνι: Ηλέκτρα (muted)'), body);
-  assert.ok(body.includes('online; playing Chess'), body);
+  // The lead, the interlocutor's now line, then the voice summary alone.
+  assert.equal(body, [labels.around.lead, 'Alice now: online, playing Chess', 'In voice channel Σαλόνι: Carl (streaming), Ηλέκτρα (muted)'].join('\n'));
+  assert.ok(!body.includes('Spotify') && !body.includes('late night') && !body.includes('idle'), 'no activities, no status of another person, no custom status');
 });
 
-test('buildRequest: around -- the cached parts are the same with and without the block', () => {
-  const plain = buildRequest(segmentScene()).messages[1].content;
-  const glanced = buildRequest(segmentScene({ around: aroundInput() })).messages[1].content;
+test('buildRequest: around -- the interlocutor now line is in the tail, never in a cached part; the cached parts are the same with and without it', () => {
+  const plain = buildRequest(aroundScene({ around: null })).messages[1].content;
+  const glanced = buildRequest(aroundScene()).messages[1].content;
   assert.equal(glanced.length, plain.length);
-  for (let i = 0; i < plain.length - 1; i += 1) assert.equal(glanced[i].text, plain[i].text);
+  for (let i = 0; i < plain.length - 1; i += 1) {
+    assert.equal(glanced[i].text, plain[i].text, `part ${i} (${plain[i].cacheSegment})`);
+    assert.ok(!hasNowLine(glanced[i].text), `a cached part (${glanced[i].cacheSegment}) holds a now line`);
+  }
   assert.ok(!blockTags(plain.at(-1).text).includes('around'));
+  assert.ok(glanced.at(-1).text.includes('Alice now: online, playing Chess'));
 });
 
-test('buildRequest: around -- no block when nothing is in view, the switch is off, no labels, no input or in a private chat', () => {
-  const absent = (request) => !blockTags(contentText(request.messages[1].content)).includes('around');
+test('buildRequest: around -- with nobody in voice, <around> holds the lead and the interlocutor line only', () => {
+  const store = createAroundStore({ presences: true });
+  store.presenceUpdate({ userId: 'author-1', status: 'dnd', activities: [], member: { displayName: 'Alice' } });
+  const body = aroundBody(buildRequest(aroundScene({ around: { snapshot: store.snapshot(), channelNameOf: () => null } })));
+  assert.equal(body, [labels.around.lead, 'Alice now: do not disturb'].join('\n'));
+  // Nobody in the snapshot and the intent on: the interlocutor is offline, and that is the line.
+  const empty = createAroundStore({ presences: true });
+  const offline = aroundBody(buildRequest(aroundScene({ around: { snapshot: empty.snapshot(), channelNameOf: () => null } })));
+  assert.equal(offline, [labels.around.lead, 'Alice now: offline'].join('\n'));
+});
+
+test('buildRequest: around -- a profile of the tail <people> carries its now line right under its heading; the cached profile carries none', () => {
+  const request = buildRequest(aroundScene());
+  const [, profiles] = request.messages[1].content;
+  assert.equal(profiles.cacheSegment, 'profiles');
+  assert.ok(!hasNowLine(profiles.text), 'the cached profile of the interlocutor has no now line');
+  const people = tailPeople(request);
+  const lines = people.split('\n');
+  assert.equal(lines[0], '## Carl');
+  assert.equal(lines[1], 'now: idle, in voice Σαλόνι, streaming, listening to Spotify: Fado - Lisboa');
+  assert.ok(!people.includes('late night'), 'no custom status');
+  assert.ok(people.includes('talkative'), 'the profile itself is unchanged');
+});
+
+test('buildRequest: around -- a tail profile now line is counted in its budget and never makes a profile by itself', () => {
+  const without = buildRequest(aroundScene({ around: null }));
+  const withLine = buildRequest(aroundScene());
+  assert.ok(withLine.stats.people.used > without.stats.people.used, 'the line costs tokens in <people>');
+  // A member with nothing learned stays out even with a now line.
+  const bare = buildRequest(aroundScene({ otherProfiles: [{ id: 'p2', names: ['Carl'] }] }));
+  assert.equal(tailPeople(bare), '');
+});
+
+test('buildRequest: around -- offline is inferred with the intent on, and there is no now line at all with the intent off or a stale snapshot', () => {
+  const store = createAroundStore({ presences: true });
+  store.presenceUpdate({ userId: 'author-1', status: 'online', activities: [], member: { displayName: 'Alice' } });
+  const scene = (snapshot) => buildRequest(aroundScene({ around: { snapshot, channelNameOf: () => null } }));
+  // Carl has no presence record: offline.
+  assert.equal(tailPeople(scene(store.snapshot())).split('\n')[1], 'now: offline');
+  // Stale: no now line, and <around> has nothing to say (no voice).
+  store.markStale();
+  assert.ok(!hasNowLine(contentText(scene(store.snapshot()).messages[1].content)));
+  assert.equal(aroundBody(scene(store.snapshot())), null);
+  // The intent off: only voice shows, no now line anywhere, never an unknown word.
+  const request = buildRequest(aroundScene({ around: aroundInput({ presences: false }) }));
+  const text = contentText(request.messages[1].content);
+  assert.ok(!hasNowLine(text) && !text.includes('not observed') && !text.includes('unknown'), 'no now line');
+  assert.equal(aroundBody(request), [labels.around.lead, 'In voice channel Σαλόνι: Carl (streaming), Ηλέκτρα (muted)'].join('\n'));
+});
+
+test('buildRequest: around -- no block and no now line when nothing is in view, the switch is off, no labels, no input or in a private chat', () => {
+  const absent = (request) => !blockTags(contentText(request.messages[1].content)).includes('around') && !hasNowLine(contentText(request.messages[1].content));
   assert.ok(absent(buildRequest(segmentScene())), 'no input');
   assert.ok(absent(buildRequest(segmentScene({ around: null }))), 'null input');
-  const empty = { snapshot: createAroundStore().snapshot(), sceneMemberIds: ['author-1'], channelNameOf: () => 'x' };
-  assert.ok(absent(buildRequest(segmentScene({ around: empty }))), 'an empty snapshot');
-  assert.ok(absent(buildRequest(segmentScene({ around: aroundInput(), config: fakeConfig({ features: { around: false } }) }))), 'features.around off');
-  assert.ok(absent(buildRequest(segmentScene({ around: aroundInput(), prompts: fakePrompts({ labels: { ...labels, around: undefined } }) }))), 'no labels');
-  assert.ok(absent(buildRequest(segmentScene({ around: aroundInput(), privateChat: { userId: 'author-1' } }))), 'a private chat');
-  assert.ok(!absent(buildRequest(segmentScene({ around: aroundInput() }))), 'the control shows it');
+  const none = createAroundStore({ presences: false });
+  assert.ok(absent(buildRequest(segmentScene({ around: { snapshot: none.snapshot(), channelNameOf: () => 'x' } }))), 'an empty snapshot with the intent off');
+  assert.ok(absent(buildRequest(aroundScene({ config: fakeConfig({ features: { around: false } }) }))), 'features.around off');
+  assert.ok(absent(buildRequest(aroundScene({ prompts: fakePrompts({ labels: { ...labels, around: undefined } }) }))), 'no labels');
+  assert.ok(absent(buildRequest(aroundScene({ privateChat: { userId: 'author-1' } }))), 'a private chat');
+  assert.ok(!absent(buildRequest(aroundScene())), 'the control shows it');
 });
 
 test('buildRequest: around -- context.around.maxTokens caps the body', () => {
-  const body = (maxTokens) => {
-    const request = buildRequest(segmentScene({ around: aroundInput(), config: fakeConfig({ context: { around: { maxTokens } } }) }));
-    return blocksOf(request.messages[1].content.at(-1).text).find((b) => b.tag === 'around')?.body ?? null;
-  };
-  assert.ok(body(200).includes('Chess'));
-  // Room for the lead and the speaker's status line only: the voice channel is the first to go.
-  const expected = [labels.around.lead, 'Alice: online; playing Chess'].join('\n');
+  const body = (maxTokens) => aroundBody(buildRequest(aroundScene({ config: fakeConfig({ context: { around: { maxTokens } } }) })));
+  assert.ok(body(200).includes('Σαλόνι'));
+  // Room for the lead and the interlocutor line only: the voice channel is the first to go.
+  const expected = [labels.around.lead, 'Alice now: online, playing Chess'].join('\n');
   assert.equal(body(estimateTokens(expected) + 2), expected);
   assert.equal(body(0), null);
 });

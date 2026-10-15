@@ -5,8 +5,8 @@
 //   2. memory about the trigger's author (the person the persona is talking to, or the one overheard)
 //   2b. what the persona looked up this turn (`<lookup>`, one piece: online,
 //       in the server's own history, or both)
-//   2c. what she sees at the corner of her eye (`<around>`, one piece: the live voice
-//       channels and the scene's status and activities, `context.around.maxTokens`)
+//   2c. what she sees at the corner of her eye (`<around>`, one piece: the interlocutor's
+//       live now line and the live voice channels, `context.around.maxTokens`)
 //   3. how this server talks + what the persona has said about itself
 //   3b. lorebook entries matched by the transcript (`<lore>`)
 //   4. the map of the server's channels
@@ -81,7 +81,7 @@ import { gifWatchBlocker } from '../memory/gif-watch.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
-import { renderAround } from '../discord/around.js';
+import { nowLine, renderAround } from '../discord/around.js';
 
 const TAG_OVERHEAD = 60;
 
@@ -437,6 +437,12 @@ function moveLines(affinity, labels, { max, timezone, nameOf }) {
  * rendered in full), but `compact` wins over `interlocutor` for episodes
  * either way.
  *
+ * `opts.nowLine` (a ready line from src/discord/around.js#nowLine, '' or omitted: none) is the
+ * live "now" line of a member the cached segments do not hold: one line right under the heading,
+ * counted with the profile. It never makes a profile by itself (a member with nothing else to
+ * show stays out) and is never passed for the interlocutor, whose profile is cached: theirs goes
+ * in `<around>`.
+ *
  * `opts.mark` (default true) puts `labels.profile.interlocutorMark` on the
  * interlocutor's heading; false leaves the heading bare and changes nothing
  * else -- the author of an overheard line is rendered in full but is not
@@ -528,6 +534,7 @@ function renderProfileShown(
     interlocutor = false,
     mark: markInterlocutor = true,
     compact = false,
+    nowLine: nowText = '',
     relationships = false,
     episodes,
     maxInterests,
@@ -590,9 +597,10 @@ function renderProfileShown(
 
   const mark = interlocutor && markInterlocutor ? p.interlocutorMark : '';
   const heading = `## ${name}${mark}`;
+  const nowLines = nowText ? [nowText] : [];
 
   if (renderedEpisodes.length && typeof episodes.cap === 'number' && typeof episodes.cost === 'function') {
-    const restText = [heading, ...attitudeLines, ...restLines].join('\n');
+    const restText = [heading, ...nowLines, ...attitudeLines, ...restLines].join('\n');
     renderedEpisodes = fitEpisodeLines(renderedEpisodes, episodes.cap - episodes.cost(restText), episodes.cost);
     // A member asked about never shows the episodes heading with no episode under it.
     if (!interlocutor && renderedEpisodes.length < 2) renderedEpisodes = [];
@@ -601,7 +609,7 @@ function renderProfileShown(
   if (!hasContent && !interlocutor && renderedEpisodes.length === 0) return { text: '', episodes: 0 };
 
   // The episodes heading, then one line per episode.
-  return { text: [heading, ...attitudeLines, ...renderedEpisodes, ...restLines].join('\n'), episodes: Math.max(0, renderedEpisodes.length - 1) };
+  return { text: [heading, ...nowLines, ...attitudeLines, ...renderedEpisodes, ...restLines].join('\n'), episodes: Math.max(0, renderedEpisodes.length - 1) };
 }
 
 /**
@@ -2657,11 +2665,12 @@ function seenOf({ history, keptChat, pictures }) {
  *   `<skills_protocol>`, one `labels.skills.granted.line` per family after
  *   `labels.skills.granted.lead` (skillsGrantedText), fixed, never cut. Omitted, null or empty
  *   -> no block.
- * @param {{ snapshot: object, sceneMemberIds?: string[], channelNameOf?: (channelId: string) => string|null }|null} [input.around]
+ * @param {{ snapshot: object, channelNameOf?: (channelId: string) => string|null }|null} [input.around]
  *   The live glance at the server's sidebar (src/discord/around.js): `snapshot` is the
- *   store's snapshot, `sceneMemberIds` the interlocutor first, then whoever spoke last,
- *   `channelNameOf` the name of a voice channel the audience may see (else null: left out).
- *   `<around>` in the tail right before `<chat>`, never in a cached part, rendered by
+ *   store's snapshot, `channelNameOf` the name of a voice channel the audience may see (else
+ *   null: left out). Two uses: `<around>` in the tail right before `<chat>`, never in a cached
+ *   part, holds the voice summary and the interlocutor's now line (their profile is cached);
+ *   every profile of the tail `<people>` carries its own now line. `<around>` is rendered by
  *   renderAround to at most `context.around.maxTokens` (default 250) and fitted as one piece
  *   right after `<skills>` in the budget order, so it displaces other context and never adds
  *   above the rail. Needs `labels.around`; `features.around` off, a private chat, an empty
@@ -3031,15 +3040,21 @@ export function buildRequest(input) {
   }
   // The sections fitted ahead of the chat, in priority order.
   // `<around>` (features.around, a missing key counts as on; never in a private chat): the live
-  // snapshot of the voice channels and of the scene's status and activities, rendered to at most
-  // `context.around.maxTokens` and then fitted as one piece like what was looked up.
+  // snapshot of the voice channels and the interlocutor's now line (their profile is cached, so
+  // the line lives here in the tail), rendered to at most `context.around.maxTokens` and then
+  // fitted as one piece like what was looked up. The other people's now lines ride on their own
+  // profiles in the tail `<people>` (`nowLineOf`).
   const aroundInput = input.around;
   const aroundMax = config.context.around?.maxTokens;
+  const aroundOn = config.features?.around !== false && !privateChat && isPlainObject(aroundInput) && Boolean(aroundInput.snapshot);
+  const nowLineOf = (profile) =>
+    aroundOn ? nowLine({ snapshot: aroundInput.snapshot, memberId: memberIdOf(profile?.id), labels, channelNameOf: aroundInput.channelNameOf }) : '';
   const aroundText =
-    config.features?.around !== false && !privateChat && isPlainObject(aroundInput) && aroundInput.snapshot
+    aroundOn
       ? renderAround({
           snapshot: aroundInput.snapshot,
-          sceneMemberIds: aroundInput.sceneMemberIds ?? [],
+          interlocutorId: memberIdOf(interlocutor?.id) ?? memberIdOf(trigger?.authorId),
+          interlocutorName: interlocutor?.names?.[0] ?? trigger?.authorName ?? '',
           nameOf,
           channelNameOf: aroundInput.channelNameOf,
           labels,
@@ -3259,6 +3274,7 @@ export function buildRequest(input) {
   const peopleRoomCap = Number.isFinite(caps.people) ? caps.people : Infinity;
   const renderAsked = (profile, episodes) =>
     renderProfileShown(profile, labels, {
+      nowLine: nowLineOf(profile),
       relationships,
       episodes,
       maxInterests: config.memory?.maxInterests,
@@ -3351,6 +3367,7 @@ export function buildRequest(input) {
       profile,
       text: renderProfile(profile, labels, {
         compact: true,
+        nowLine: nowLineOf(profile),
         relationships,
         maxAliases: config.memory?.maxAliases,
         aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,

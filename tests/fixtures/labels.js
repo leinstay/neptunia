@@ -378,13 +378,11 @@ export const labels = {
       streaming: 'streaming',
       camera: 'camera on',
     },
-    presenceLine: '{name}: {details}',
     status: {
       online: 'online',
       idle: 'idle',
       dnd: 'do not disturb',
-      offline: 'shown offline (may be invisible)',
-      unknown: 'not observed',
+      offline: 'offline',
     },
     activity: {
       playing: 'playing {name}',
@@ -395,6 +393,9 @@ export const labels = {
       other: '{name}',
     },
     activityDetails: '{activity} ({details})',
-    customStatus: 'custom status: {text}',
+    activityTrack: '{activity}: {track} - {artist}',
+    inVoice: 'in voice {channel}',
+    now: 'now: {details}',
+    nowNamed: '{name} now: {details}',
   },
 };
