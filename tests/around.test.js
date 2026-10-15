@@ -231,3 +231,80 @@ test('renderAround: the default estimate and a finite cap hold a long scene to t
   assert.ok(body.includes('Member m0'), 'the first scene member stays');
   assert.ok(!body.includes('Member m29'), 'the last of the scene goes first');
 });
+
+test('renderAround: a voice occupant carries the activities of a known presence inline', () => {
+  const store = createAroundStore({ presences: true });
+  store.voiceUpdate(voice('u1', 'v1', { streaming: true }));
+  store.voiceUpdate(voice('u2', 'v1'));
+  store.voiceUpdate(voice('u3', 'v1'));
+  store.voiceUpdate(voice('u4', 'v2'));
+  store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Dota 2', details: 'ranked' }, { type: 4, name: 'Custom Status', state: 'late night' }]));
+  store.presenceUpdate(presence('u2', 'idle', [{ type: 2, name: 'Música', details: 'Fado' }]));
+  // u3 shows offline with a leftover activity; u4 was never observed.
+  store.presenceUpdate(presence('u3', 'offline', [{ type: 0, name: 'Ghost' }]));
+  const body = render(store, { scene: [] });
+  assert.equal(
+    body,
+    [
+      labels.around.lead,
+      'In voice channel Café: Ηλίας',
+      'In voice channel Σαλόνι: Chloé, Zoë (listening to Música (Fado)), Αλέξης (streaming, playing Dota 2 (ranked))',
+    ].join('\n'),
+  );
+  assert.ok(!body.includes('late night') && !body.includes('online') && !body.includes('Ghost'), 'neither status words, custom status nor an offline leftover');
+  // With the presences intent off there is nothing to carry.
+  const off = createAroundStore({ presences: false });
+  off.voiceUpdate(voice('u1', 'v1'));
+  off.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Dota 2' }]));
+  assert.equal(render(off, { scene: [] }), [labels.around.lead, 'In voice channel Σαλόνι: Αλέξης'].join('\n'));
+});
+
+test('renderAround: a scene member shown with activities in a voice line does not repeat them in the status line', () => {
+  const store = createAroundStore({ presences: true });
+  store.voiceUpdate(voice('u1', 'v1'));
+  store.voiceUpdate(voice('u2', 'hidden'));
+  store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Chess' }, { type: 4, name: 'Custom Status', state: 'back soon' }]));
+  store.presenceUpdate(presence('u2', 'dnd', [{ type: 0, name: 'Go' }]));
+  assert.equal(
+    render(store, { scene: ['u1', 'u2'] }),
+    [
+      labels.around.lead,
+      'In voice channel Σαλόνι: Αλέξης (playing Chess)',
+      'Αλέξης: online; custom status: back soon',
+      'Zoë: do not disturb; playing Go',
+    ].join('\n'),
+    'u2 sits in a channel the caller cannot name: its activities stay in the status line',
+  );
+});
+
+test('renderAround: over the cap the other people go, then the voice activities (the scene line takes its own back), then the voice flags, then the channels', () => {
+  const store = createAroundStore({ presences: true });
+  store.voiceUpdate(voice('u1', 'v1', { selfMute: true }));
+  store.voiceUpdate(voice('u3', 'v1', { selfMute: true }));
+  store.voiceUpdate(voice('u4', 'v2'));
+  store.presenceUpdate(presence('u1', 'online', [{ type: 0, name: 'Chess' }]));
+  store.presenceUpdate(presence('u2', 'idle', [{ type: 0, name: 'Go' }]));
+  store.presenceUpdate(presence('u3', 'online', [{ type: 2, name: 'Fado' }]));
+  const lead = labels.around.lead;
+  const café = 'In voice channel Café: Ηλίας';
+  const withActivities = 'In voice channel Σαλόνι: Chloé (muted, listening to Fado), Αλέξης (muted, playing Chess)';
+  const withFlags = 'In voice channel Σαλόνι: Chloé (muted), Αλέξης (muted)';
+  const bare = 'In voice channel Σαλόνι: Chloé, Αλέξης';
+  const quiet = 'Αλέξης: online';
+  const loud = 'Αλέξης: online; playing Chess';
+  const other = 'Zoë: idle; playing Go';
+  const len = (lines) => [lead, ...lines].join('\n').length;
+  const scene = ['u1', 'u2'];
+
+  assert.equal(render(store, { scene }), [lead, café, withActivities, quiet, other].join('\n'));
+  // The other person goes first.
+  assert.equal(render(store, { scene, maxTokens: len([café, withActivities, quiet, other]) - 1 }), [lead, café, withActivities, quiet].join('\n'));
+  // Then the voice activities: the first scene member's line takes his own back, the flags stay.
+  assert.equal(render(store, { scene, maxTokens: len([café, withActivities, quiet]) - 1 }), [lead, café, withFlags, loud].join('\n'));
+  // Then the voice flags.
+  assert.equal(render(store, { scene, maxTokens: len([café, withFlags, loud]) - 1 }), [lead, café, bare, loud].join('\n'));
+  // Then the channels, the last first; the member's own line is the last to stay.
+  assert.equal(render(store, { scene, maxTokens: len([café, bare, loud]) - 1 }), [lead, café, loud].join('\n'));
+  assert.equal(render(store, { scene, maxTokens: len([café, loud]) - 1 }), [lead, loud].join('\n'));
+  assert.equal(render(store, { scene, maxTokens: len([loud]) - 1 }), '');
+});

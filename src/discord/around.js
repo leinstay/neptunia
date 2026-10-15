@@ -188,18 +188,24 @@ function activityPhrase(activity, l) {
   return details && l.activityDetails ? fill(l.activityDetails, { activity: phrase, details }) : phrase;
 }
 
+/** The activity phrases of a voice occupant: none for a member nobody observed or shown offline. */
+function voiceActivities(record, l) {
+  if (!record || record.status === 'offline') return [];
+  return record.activities.map((activity) => activityPhrase(activity, l)).filter(Boolean);
+}
+
 /**
  * What one scene member's status line says: the status word (`unknown` for a member nobody
- * observed, never `offline`), then the activities and the custom status. '' when the labels
- * lack what it needs.
+ * observed, never `offline`), then the activities (unless `withActivities` is false: the voice
+ * line already carries them) and the custom status. '' when the labels lack what it needs.
  */
-function presenceDetails(record, l) {
+function presenceDetails(record, l, withActivities = true) {
   const status = record ? record.status : 'unknown';
   const statusWord = l.status?.[status];
   if (!statusWord) return '';
   const parts = [statusWord];
   if (record && status !== 'offline') {
-    for (const activity of record.activities) parts.push(activityPhrase(activity, l));
+    if (withActivities) for (const activity of record.activities) parts.push(activityPhrase(activity, l));
     if (record.custom && l.customStatus) parts.push(fill(l.customStatus, { text: record.custom }));
   }
   return parts.filter(Boolean).join('; ');
@@ -207,12 +213,14 @@ function presenceDetails(record, l) {
 
 /**
  * The `<around>` block body: the live voice channels with their occupants (flags as label
- * words), then, for the scene members only, their status, activity and custom status. '' when
+ * words, then the activities of an occupant whose presence is known), then, for the scene
+ * members only, their status, activity and custom status (a member shown with activities in a
+ * voice line does not repeat them there). '' when
  * there is nothing to say (no voice occupant and no scene member with an observed status -- a
  * member nobody observed shows as `unknown` beside other content but never makes a block of its
  * own --, labels missing, `maxTokens` 0). Over `maxTokens` the lowest-value lines go first:
- * the other people's lines (last of the scene first), then the voice flags, then voice
- * channels (last first); the first scene member's line stays longest, and when even that does
+ * the other people's lines (last of the scene first), then the voice
+ * activities (the scene line takes them back), then the voice flags, then voice channels (last first); the first scene member's line stays longest, and when even that does
  * not fit the body is ''.
  * @param {object} input
  * @param {{ presences: boolean, stale: boolean, voice: Map<string, object>, presence: Map<string, object> }} input.snapshot  createAroundStore().snapshot().
@@ -242,11 +250,16 @@ export function renderAround({ snapshot, sceneMemberIds = [], nameOf, channelNam
   }
   const groups = [...byChannel.values()].sort((a, b) => byText(a.channelName, b.channelName));
   for (const group of groups) group.members.sort((a, b) => byText(a.name, b.name));
-  const voiceLine = (group, withFlags) => {
+  // One voice line; `shown` collects the members whose activities it carries.
+  const voiceLine = (group, withFlags, withActivities, shown) => {
     if (!l.voiceChannel) return '';
     const members = group.members.map(({ name: memberName, entry }) => {
       const words = withFlags ? flagWords(entry, l.flags) : [];
-      return words.length > 0 && l.voiceMember ? fill(l.voiceMember, { name: memberName, flags: words.join(', ') }) : memberName;
+      const activities = withActivities ? voiceActivities(snapshot.presence.get(entry.memberId), l) : [];
+      const inside = [...words, ...activities];
+      if (inside.length === 0 || !l.voiceMember) return memberName;
+      if (activities.length > 0) shown.add(entry.memberId);
+      return fill(l.voiceMember, { name: memberName, flags: inside.join(', ') });
     });
     return fill(l.voiceChannel, { channel: group.channelName, members: members.join(', ') });
   };
@@ -261,28 +274,43 @@ export function renderAround({ snapshot, sceneMemberIds = [], nameOf, channelNam
     if (!snapshot.presences) continue;
     const record = snapshot.presence.get(id);
     const memberName = name(id, record);
-    const details = memberName ? presenceDetails(record, l) : '';
-    if (details && l.presenceLine) people.push({ text: fill(l.presenceLine, { name: memberName, details }), known: Boolean(record) });
+    const text = (withActivities) => {
+      const details = memberName ? presenceDetails(record, l, withActivities) : '';
+      return details && l.presenceLine ? fill(l.presenceLine, { name: memberName, details }) : '';
+    };
+    if (text(true)) people.push({ id, text, known: Boolean(record) });
   }
 
   // A block of unobserved members alone says nothing: it needs a voice line or a known status.
-  const compose = (voiceLines, personLines) => {
+  // `shown`: the members whose activities the voice lines carry; their status line leaves them out.
+  const compose = (voiceLines, personLines, shown) => {
     if (voiceLines.length === 0 && !personLines.some((person) => person.known)) return '';
-    return [l.lead, snapshot.stale ? l.stale : '', ...voiceLines, ...personLines.map((person) => person.text)].filter(Boolean).join('\n');
+    return [l.lead, snapshot.stale ? l.stale : '', ...voiceLines, ...personLines.map((person) => person.text(!shown.has(person.id)))].filter(Boolean).join('\n');
+  };
+  const buildVoice = (withFlags, withActivities) => {
+    const shown = new Set();
+    const lines = groups.map((group) => voiceLine(group, withFlags, withActivities, shown)).filter(Boolean);
+    return { lines, shown };
   };
   const fits = (text) => text !== '' && (!Number.isFinite(maxTokens) || estimate(text) <= maxTokens);
 
   // Candidates from the fullest down, the first that fits wins: fewer other people, then no
-  // flags, then fewer channels, the first scene member's line kept to the end.
-  const full = groups.map((group) => voiceLine(group, true)).filter(Boolean);
-  const bare = groups.map((group) => voiceLine(group, false)).filter(Boolean);
+  // voice activities, then no flags, then fewer channels, the first scene member's line kept to
+  // the end (it takes its own activities back once the voice line stops carrying them).
+  const full = buildVoice(true, true);
   for (let count = people.length; count >= Math.min(1, people.length); count -= 1) {
-    const text = compose(full, people.slice(0, count));
+    const text = compose(full.lines, people.slice(0, count), full.shown);
     if (fits(text)) return text;
   }
   const first = people.slice(0, 1);
-  for (let channels = bare.length; channels >= 0; channels -= 1) {
-    const text = compose(bare.slice(0, channels), first);
+  for (const withFlags of [true, false]) {
+    const voiceOnly = buildVoice(withFlags, false);
+    const text = compose(voiceOnly.lines, first, voiceOnly.shown);
+    if (fits(text)) return text;
+  }
+  const bare = buildVoice(false, false).lines;
+  for (let channels = bare.length - 1; channels >= 0; channels -= 1) {
+    const text = compose(bare.slice(0, channels), first, new Set());
     if (fits(text)) return text;
   }
   return '';
