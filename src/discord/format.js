@@ -351,9 +351,10 @@ function reactionsTag(message, labels, max, names = null) {
  * One reaction on the persona's line by name: its known reactors (`users`), each named by
  * `names.nameOf` (the transcript's author form), at most `names.max` of them joined with ", ";
  * the members it counts beyond the names shown (more than `max`, or not known) add
- * `transcript.reactionMore` with `{n}`. `transcript.reactionNamesMine` (else `reactionNames`)
- * when the persona reacted too; `{emoji}`, `{names}`, `{count}`. '' without known reactors
- * (the caller counts it as before).
+ * `transcript.reactionMore` with `{n}`. When the persona reacted too, she is named after them
+ * the way her own lines name her (`names.nameOf` with `self`: the `labels.self` form), before
+ * the "+N". Rendered through `transcript.reactionNames` (`{emoji}`, `{names}`, `{count}`).
+ * '' without known reactors (the caller counts it as before, `reactionMine` included).
  */
 function reactionNamesItem(reaction, labels, names) {
   const users = Array.isArray(reaction.users) ? reaction.users.filter((user) => user && typeof user.name === 'string' && user.name !== '') : [];
@@ -363,10 +364,10 @@ function reactionNamesItem(reaction, labels, names) {
   const max = Number.isInteger(names.max) && names.max > 0 ? names.max : users.length;
   const shown = users.slice(0, max).map((user) => names.nameOf(user));
   const rest = others - shown.length;
+  if (reaction.mine) shown.push(names.nameOf({ self: true }));
   const more = rest > 0 ? fill(labels.transcript.reactionMore, { n: rest }) : '';
   const list = [shown.join(', '), more].filter(Boolean).join(' ');
-  const template = reaction.mine ? labels.transcript.reactionNamesMine || labels.transcript.reactionNames : labels.transcript.reactionNames;
-  return fill(template, { emoji: reaction.emoji, names: list, count: reaction.count });
+  return fill(labels.transcript.reactionNames, { emoji: reaction.emoji, names: list, count: reaction.count });
 }
 
 /**
@@ -644,7 +645,7 @@ function renderForwarded(snapshot, labels, context, maxChars, channelName) {
  * @param {number} [options.reactionsPerMessage]  Default 6: at most this many reactions per message.
  * @param {boolean} [options.reactionNames]  Default false (features.reactionNames, read by the caller):
  *   in `mode: 'chat'`, a reaction on the persona's own line whose `users` are known (src/discord/
- *   reactors.js#withReactors) renders `transcript.reactionNames` / `reactionNamesMine` with the
+ *   reactors.js#withReactors) renders `transcript.reactionNames` with the
  *   reactors named exactly like the authors of lines (the `handles` and `transcript.author` below),
  *   at most `reactionNamesMax` (5 when omitted) of them, the rest as `transcript.reactionMore`.
  *   Off, without the label or on anyone else's line: the counts as before.

@@ -1268,6 +1268,17 @@ test('formatTranscript: reactionSeparator parts reactions, names inside one reac
   assert.ok(old[0].text.endsWith('[reactions: 😂 x2, 👍 x1]'), old[0].text);
 });
 
+test('formatTranscript: the persona among the reactors of her line is named as her lines name her, counts keep reactionMine', () => {
+  const T = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const users = [{ id: '7', name: 'Ἄννα', bot: false }, { id: '8', name: 'Bé', bot: false }];
+  const own = msg('1', T, { self: true, reactions: [{ emoji: '😂', count: 3, mine: true, users }, { emoji: '👍', count: 2, mine: true }] });
+  const items = reactionTranscript([own], { reactionNames: true });
+  assert.ok(items[0].text.includes('] Nept (you): text'), items[0].text);
+  assert.ok(items[0].text.endsWith('[reactions: 😂 by Ἄννα, Bé, Nept (you) · 👍 x2 (yours too)]'), items[0].text);
+  const capped = reactionTranscript([{ ...own, reactions: [{ emoji: '😂', count: 4, mine: true, users }] }], { reactionNames: true, reactionNamesMax: 1 });
+  assert.ok(capped[0].text.endsWith('[reactions: 😂 by Ἄννα, Nept (you) and 2 more]'), capped[0].text);
+});
+
 test('formatTranscript: seeReactions=false renders none', () => {
   const T = Date.UTC(2026, 8, 20, 10, 0, 0);
   const items = reactionTranscript([msg('1', T, { reactions: [{ emoji: '🍣', count: 2, mine: false }] })], { seeReactions: false });

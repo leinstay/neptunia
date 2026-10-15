@@ -333,7 +333,7 @@ test('formatTranscript: past reactionNamesMax the rest is counted, and unknown r
   const [capped] = formatTranscript([reacted(users, { count: 4 })], { ...base, reactionNames: true, reactionNamesMax: 2 });
   assert.ok(capped.text.endsWith('[reactions: 😂 by Ana, Bé and 2 more]'), capped.text);
   const [partly] = formatTranscript([reacted(users.slice(0, 1), { count: 4, mine: true })], { ...base, reactionNames: true });
-  assert.ok(partly.text.endsWith('[reactions: 😂 by Ana and 2 more and you]'), partly.text);
+  assert.ok(partly.text.endsWith('[reactions: 😂 by Ana, Persona (you) and 2 more]'), partly.text);
 });
 
 test('formatTranscript: counts stay on others\' lines, for unknown reactors and with the switch off', () => {

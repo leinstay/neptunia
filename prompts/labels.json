@@ -96,7 +96,6 @@
     "reactionItem": "{emoji} x{count}",
     "reactionMine": "{emoji} x{count} (you)",
     "reactionNames": "{emoji} {names}",
-    "reactionNamesMine": "{emoji} {names}, you",
     "reactionMore": "+{n}",
     "reactionSeparator": " · "
   },

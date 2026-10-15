@@ -92,7 +92,6 @@ export const labels = {
     reactionItem: '{emoji} x{count}',
     reactionMine: '{emoji} x{count} (yours too)',
     reactionNames: '{emoji} by {names}',
-    reactionNamesMine: '{emoji} by {names} and you',
     reactionMore: 'and {n} more',
     reactionSeparator: ' · ',
     videoReason: {
