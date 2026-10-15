@@ -8,16 +8,18 @@
 // a log (counts only) or a backup, and is gone at a restart. Discord sends presences only for
 // members who are not offline, so with the presences intent on and a fresh snapshot a member
 // without a presence record IS offline; with the intent off or a stale snapshot nothing is
-// said about presence (one notice for the block, never "unknown" per person).
+// claimed about presence: the fields say "unavailable" or "stale", never "no".
 //
 // Member-supplied text (names, activity names, details, channel names) is untrusted data: one
 // line, clamped, angle brackets removed so it cannot close or open a prompt block. Custom
 // statuses are never kept.
 //
 // Pure: no discord.js import, no clock; src/index.js feeds the store, src/behavior/prompt.js
-// builds the rows. Every word the model reads comes from `labels.peopleNow`.
+// builds the rows: a heading line per person, then one labelled field per line, negatives
+// written out ("no", "none") only where the live data can tell, "unavailable" / "stale" where it
+// cannot. Every word the model reads comes from `labels.peopleNow`.
 
-import { fill } from './format.js';
+import { fill, formatDuration } from './format.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 
 /** Longest member-supplied text kept, in code points. */
@@ -104,10 +106,13 @@ export function presenceRecord(presence) {
 
 /**
  * The snapshot store of one served guild. Methods take discord.js objects (or the same shape)
- * and keep plain records; nothing is persisted.
- * @param {{ presences?: boolean }} [options]  `presences`: the presences intent is on (fixed at login).
+ * and keep plain records; nothing is persisted. A voice record seen joining a channel (a join or
+ * a move) carries `joinedAt` (ms, from `now`), kept while the member stays in that channel (a
+ * flag change); a record from a seed has none: when that member joined is not known.
+ * @param {{ presences?: boolean, now?: () => number }} [options]  `presences`: the presences
+ *   intent is on (fixed at login); `now`: the clock (Date.now by default).
  */
-export function createAroundStore({ presences = false } = {}) {
+export function createAroundStore({ presences = false, now = Date.now } = {}) {
   /** @type {Map<string, object>} */
   let voice = new Map();
   /** @type {Map<string, object>} */
@@ -115,13 +120,26 @@ export function createAroundStore({ presences = false } = {}) {
   let stale = false;
 
   return {
-    /** A voice state changed: a join, a move or a flag change replaces the record; a leave removes it. */
+    /**
+     * A voice state changed: a join, a move or a flag change replaces the record; a leave removes
+     * it. A join or a move stamps `joinedAt`; a flag change keeps the held one (none after a seed).
+     */
     voiceUpdate(state) {
       const memberId = idOf(state?.id) ?? idOf(state?.member?.id);
       if (!memberId) return;
       const record = voiceRecord(state);
-      if (record) voice.set(memberId, record);
-      else voice.delete(memberId);
+      if (!record) {
+        voice.delete(memberId);
+        return;
+      }
+      const held = voice.get(memberId);
+      if (held && held.channelId === record.channelId) {
+        if (held.joinedAt !== undefined) record.joinedAt = held.joinedAt;
+      } else {
+        const at = now();
+        if (Number.isFinite(at)) record.joinedAt = at;
+      }
+      voice.set(memberId, record);
     },
     /** A presence changed (a no-op while the presences intent is off). */
     presenceUpdate(next) {
@@ -129,7 +147,7 @@ export function createAroundStore({ presences = false } = {}) {
       const record = presenceRecord(next);
       if (record) presence.set(record.memberId, record);
     },
-    /** Replace the voice records with the voice states of the guild's cache. */
+    /** Replace the voice records with the voice states of the guild's cache (no `joinedAt`: not seen joining). */
     seedVoice(states) {
       voice = new Map();
       for (const state of states ?? []) {
@@ -168,21 +186,42 @@ export function createAroundStore({ presences = false } = {}) {
 /** Names compare by plain code unit order: stable whatever the locale. */
 const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
-/** The flag words of one voice record, through `labels.peopleNow.flags`. */
-function flagWords(record, flags) {
-  if (!flags || typeof flags !== 'object') return [];
-  const words = [];
-  if (record.muted && flags.muted) words.push(flags.muted);
-  if (record.deafened && flags.deafened) words.push(flags.deafened);
-  if (record.streaming && flags.streaming) words.push(flags.streaming);
-  if (record.camera && flags.camera) words.push(flags.camera);
-  return words;
+/**
+ * One field line of a `<people_now>` row: `labels.peopleNow.field` (`{field}` `{value}`) with
+ * `{field}` = `labels.peopleNow.fields[key]`. '' when either label is missing or the value is
+ * empty. The value is kept on one line.
+ * @param {object} labels  The whole labels object.
+ * @param {string} key     A key of `labels.peopleNow.fields`.
+ * @param {string} value
+ * @returns {string}
+ */
+export function fieldLine(labels, key, value) {
+  const l = labels?.peopleNow;
+  const field = l?.fields?.[key];
+  const text = oneLine(value);
+  return l?.field && field && text ? fill(l.field, { field, value: text }) : '';
 }
 
 /**
- * One activity as a phrase: `labels.peopleNow.activity[type]` (else `other`), then a listening
- * activity of Spotify as `activityTrack` (details = the track, state = the artist), any other
- * activity's details and state as `activityDetails`, clamped to NOW_DETAIL_CHARS.
+ * `labels.peopleNow.joinedAgo` (`{ago}`) for a voice record seen joining (`joinedAt`), the age
+ * through formatDuration and `labels.units`; '' without `joinedAt`, a clock, the labels.
+ */
+function joinedText(record, now, labels) {
+  const template = labels?.peopleNow?.joinedAgo;
+  if (!template || !labels?.units || !Number.isFinite(record?.joinedAt) || !Number.isFinite(now)) return '';
+  return fill(template, { ago: formatDuration(Math.max(0, now - record.joinedAt), labels.units) });
+}
+
+/** A yes/no word of `labels.peopleNow.values`. */
+function yesNo(l, flag) {
+  return flag ? (l.values?.yes ?? '') : (l.values?.no ?? '');
+}
+
+/**
+ * One activity as a phrase: `labels.peopleNow.activity[type]` (else `other`; `{name}`), then a
+ * listening activity of Spotify with a track (details) and an artist (state) as `activityTrack`
+ * (`{activity}` `{track}` `{artist}`), any other with details or state as `activityDetails`
+ * (`{activity}` `{details}`, the two joined by ` / `, clamped to NOW_DETAIL_CHARS).
  */
 function activityPhrase(activity, l) {
   const forms = l.activity ?? {};
@@ -198,35 +237,58 @@ function activityPhrase(activity, l) {
 }
 
 /**
- * The live part of one member's `<people_now>` row, the parts joined by `, `: the status word,
- * then the voice channel the member sits in with their voice flags -- only a channel
- * `channelNameOf` names -- then (online, idle or do not disturb only) the activities.
- * The status and the activities need the presences intent on and a fresh snapshot: then a
- * member without a presence record is offline, and an offline member shows no activity. With
- * the intent off or a stale snapshot nothing about presence is said (the block carries one
- * notice instead, see `liveNotices`); the voice seat still shows, as the voice states do not
- * depend on the presences intent. A status Discord does not define says nothing either.
- * '' when nothing is known or the labels are missing.
+ * The live field lines of one member's `<people_now>` row (fieldLine), in this order:
+ * - `status`: the `labels.peopleNow.status` word. With the presences intent on and a fresh
+ *   snapshot a member without a presence record is offline. With the intent off the value is
+ *   `values.unavailable`, with a stale snapshot `values.stale`, and a status Discord does not
+ *   define reads as unavailable: never a guess.
+ * - `voice`: from the voice snapshot (the voice states do not depend on the presences intent):
+ *   `labels.peopleNow.voiceYes` (`{channel}` `{joined}` `{muted}` `{deafened}` `{streaming}`
+ *   `{camera}`, each flag a yes/no word; `{joined}` is `labels.peopleNow.joinedAgo` with `{ago}`
+ *   through formatDuration and `labels.units` when the record has `joinedAt` and `now` is given,
+ *   else empty: never a guess) when the member sits in a voice channel `channelNameOf` names
+ *   (one the audience may see), else `values.no`; `values.stale` with a stale snapshot. An
+ *   offline member in voice shows it (an invisible status).
+ * - `activity`: every activity Discord shows (a game and Spotify at once, say), each through
+ *   `activityPhrase`, joined by `; `, else `values.none` -- also for an offline member, whose
+ *   activities are not kept. Unavailable or stale as the status is, never `none` then.
+ * Custom statuses are never kept. [] with no snapshot, no member id or no labels.
  * @param {{ presences: boolean, stale: boolean, voice: Map<string, object>, presence: Map<string, object> }} snapshot  createAroundStore().snapshot().
  * @param {string} memberId
- * @param {{ labels: object, channelNameOf?: (channelId: string) => string|null }} options  The whole labels object.
- * @returns {string}
+ * @param {{ labels: object, channelNameOf?: (channelId: string) => string|null, now?: number }} options
+ *   The whole labels object; `now` the request's clock (ms).
+ * @returns {string[]}
  */
-export function liveDetails(snapshot, memberId, { labels, channelNameOf } = {}) {
+export function liveFields(snapshot, memberId, { labels, channelNameOf, now } = {}) {
   const l = labels?.peopleNow;
-  if (!l || !snapshot || typeof memberId !== 'string' || memberId === '') return '';
-  const presenceKnown = snapshot.presences === true && snapshot.stale !== true;
-  const record = presenceKnown ? snapshot.presence.get(memberId) : undefined;
-  const status = presenceKnown ? (record ? record.status : 'offline') : null;
-  const statusWord = status ? (l.status?.[status] ?? '') : '';
-  const parts = [statusWord];
+  if (!l || !snapshot || typeof memberId !== 'string' || memberId === '') return [];
+  const values = l.values ?? {};
+  const stale = snapshot.stale === true;
+  const record = snapshot.presence.get(memberId);
+  const status = record ? record.status : 'offline';
+  // What the presence side may say: a status word, or one word for why it says nothing.
+  const unknown = stale ? 'stale' : snapshot.presences !== true || !STATUSES.has(status) ? 'unavailable' : null;
+  const lines = [fieldLine(labels, 'status', unknown ? (values[unknown] ?? '') : (l.status?.[status] ?? ''))];
+
   const here = snapshot.voice.get(memberId);
-  const channelName = here && typeof channelNameOf === 'function' ? cleanText(channelNameOf(here.channelId) ?? '') : '';
-  if (channelName && l.inVoice) parts.push(fill(l.inVoice, { channel: channelName }), ...flagWords(here, l.flags));
-  if (statusWord && status !== 'offline') {
-    for (const activity of record?.activities ?? []) parts.push(activityPhrase(activity, l));
-  }
-  return parts.filter(Boolean).join(', ');
+  const channel = here && typeof channelNameOf === 'function' ? cleanText(channelNameOf(here.channelId) ?? '') : '';
+  const voice = stale
+    ? values.stale
+    : channel && l.voiceYes
+      ? fill(l.voiceYes, {
+          channel,
+          joined: joinedText(here, now, labels),
+          muted: yesNo(l, here.muted),
+          deafened: yesNo(l, here.deafened),
+          streaming: yesNo(l, here.streaming),
+          camera: yesNo(l, here.camera),
+        })
+      : values.no;
+  lines.push(fieldLine(labels, 'voice', voice ?? ''));
+
+  const doing = !unknown && status !== 'offline' ? (record?.activities ?? []).map((activity) => activityPhrase(activity, l)).filter(Boolean) : [];
+  lines.push(fieldLine(labels, 'activity', unknown ? (values[unknown] ?? '') : doing.join('; ') || values.none || ''));
+  return lines.filter(Boolean);
 }
 
 /**
@@ -266,20 +328,22 @@ export function voiceOccupants(snapshot, { excludeIds = new Set(), nameOf, chann
 }
 
 /**
- * One `<people_now>` row: `labels.peopleNow.row` (`{who}` `{mark}` `{details}`, the parts
- * joined by `; `), or `labels.peopleNow.rowBare` (`{who}` `{mark}`) when a mark is all there is
- * to say. `{who}` is `@handle` (the member's mention handle, src/behavior/handles.js, the join
- * key with `<people>` and `<directory>`) and the name (member text: cleaned like any). One line
- * always. '' with nothing to say (no part, no mark), no name and no handle, or the label missing.
- * @param {{ handle?: string|null, name?: string, mark?: string, parts?: string[] }} row
+ * One person's `<people_now>` entry: a heading line, then one field line each (fieldLine). The
+ * heading is `labels.peopleNow.heading` (`{who}`), or `labels.peopleNow.headingMarked` (`{who}`
+ * `{mark}`) with a mark (a tag about the person in this request, from `labels.peopleNow.marks`).
+ * `{who}` is `@handle` (the member's mention handle, src/behavior/handles.js, the join key with
+ * `<people>` and `<directory>`) and the name (member text: cleaned like any). '' with nothing to
+ * say (no field, no mark), no name and no handle, or the labels missing.
+ * @param {{ handle?: string|null, name?: string, mark?: string, fields?: string[] }} row
  * @param {object} labels  The whole labels object.
  * @returns {string}
  */
-export function nowRow({ handle = null, name = '', mark = '', parts = [] }, labels) {
+export function personRow({ handle = null, name = '', mark = '', fields = [] }, labels) {
   const l = labels?.peopleNow;
   const who = [handle ? `@${handle}` : '', cleanText(name)].filter(Boolean).join(' ');
-  if (!l || !who) return '';
-  const details = parts.filter(Boolean).join('; ');
-  if (details) return l.row ? oneLine(fill(l.row, { who, mark: mark ?? '', details })) : '';
-  return mark && l.rowBare ? oneLine(fill(l.rowBare, { who, mark })) : '';
+  const lines = fields.filter(Boolean);
+  if (!l || !who || (lines.length === 0 && !mark)) return '';
+  const heading = mark ? fill(l.headingMarked, { who, mark }) : fill(l.heading, { who });
+  if (!heading) return '';
+  return [oneLine(heading), ...lines].join('\n');
 }

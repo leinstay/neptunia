@@ -510,11 +510,11 @@ test('answerReply: a moment stored as overheard is replayed with the overheard t
   assert.ok(!overheard.request.user.includes('REPLY_TASK'));
   // Its author is not the one who called her.
   assert.ok(overheard.request.user.includes('ALICE_PORTRAIT'));
-  assert.ok(!overheard.request.user.includes(labels.profile.interlocutorMark));
+  assert.ok(!overheard.request.user.includes(labels.peopleNow.marks.interlocutor));
   // The same moment without its kind is the old guess: a mention under the reply task.
   const guessed = await replay(storedMoment());
   assert.ok(guessed.request.user.includes(`REPLY_TASK Alice: ${labels.triggers.mention}`));
-  assert.ok(guessed.request.user.includes(labels.profile.interlocutorMark));
+  assert.ok(guessed.request.user.includes(labels.peopleNow.marks.interlocutor));
 });
 
 test('answerReply: a follow-up and a name call keep their trigger labels; a spontaneous moment takes its mode\'s task', async () => {
@@ -525,7 +525,7 @@ test('answerReply: a follow-up and a name call keep their trigger labels; a spon
   const unasked = await replay({ ...storedMoment(), mode: 'interject', kind: null, triggerId: null });
   assert.ok(unasked.request.user.includes('INTERJECT_TASK'));
   assert.ok(!unasked.request.user.includes('REPLY_TASK'));
-  assert.ok(!unasked.request.user.includes(labels.profile.interlocutorMark), 'nobody called her');
+  assert.ok(!unasked.request.user.includes(labels.peopleNow.marks.interlocutor), 'nobody called her');
   // An unknown mode is a reply.
   const odd = await replay({ ...storedMoment(), mode: 'auto' });
   assert.ok(odd.request.user.includes('REPLY_TASK'));
