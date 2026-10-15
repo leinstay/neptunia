@@ -400,6 +400,7 @@
       "requester-denied": "not for this person"
     },
     "proposedOff": "Might fit here but not switched on for you: {names}.",
+    "proposedDenied": "PLACEHOLDER (nep-writer): might fit here, but the person who asked has no right to this: {names}.",
     "granted": {
       "lead": "Your skills, by family (details come when a skill fits the message, or on request):",
       "line": "{family}: {names}"

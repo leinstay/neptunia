@@ -378,6 +378,7 @@ export const labels = {
       'requester-denied': 'not allowed for this member',
     },
     proposedOff: 'proposed but off: {names}',
+    proposedDenied: 'proposed but not for the asker: {names}',
     granted: {
       lead: 'skills granted to you, by family:',
       line: '{family}: {names}',
