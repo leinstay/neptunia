@@ -2,11 +2,14 @@
 // persona's grants laid over a copy of the config, and her `<call>` taken through the real
 // resolution and the real gateway with the operation never run
 // (src/behavior/sandbox.js#simulateCall), and multi-step scenarios played step by step with her
-// turns carried into the next step (playSteps, afterScenarioTurn), all against fakes: no
-// network, no data/.
+// turns carried into the next step (playSteps, afterScenarioTurn), a burst played as the live
+// queue plays it (burstTurns), and the prompt layers of `--prompts` / `--pair-prompts` with
+// their side-by-side report, all against fakes: no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import '../src/ops/index.js';
 import { expandPersonaGrant } from '../src/ops/access.js';
@@ -14,9 +17,12 @@ import { skillRegistry } from '../src/skills/registry.js';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/skills/access.js';
 import { callViewOf, requesterOf } from '../src/behavior/turn.js';
 import { fill } from '../src/discord/format.js';
-import { afterScenarioTurn, answerSkillScenario, liveView, personaGrantsConfig, scenarioInventory, simulateCall } from '../src/behavior/sandbox.js';
+import { createHot } from '../src/hot.js';
+import { deepMerge } from '../src/config.js';
+import { afterScenarioTurn, answerSkillScenario, burstTurns, liveView, personaGrantsConfig, scenarioInventory, simulateCall } from '../src/behavior/sandbox.js';
 import {
-  parseArgs, parseScenarios, playSteps, renderSkillsReport, runRecord, scenarioDiscovery, scenarioGrants, scenarioSummary, scenarioTrigger, sequenceSummary, skillRequestEstimate,
+  overlayPromptsHot, parseArgs, parseScenarios, playSteps, renderPairReport, renderSkillsReport, runRecord, scenarioDiscovery, scenarioGrants, scenarioSummary, scenarioTrigger,
+  sequenceSummary, skillRequestEstimate,
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
 
@@ -241,9 +247,9 @@ const OTHER = '100000000000000009';
 const NAMES = { [OWNER]: 'Élodie', [MEMBER]: 'Zoë', [OTHER]: 'Νίκος' };
 
 /** The config of a sequence's view: what buildRequest reads, skills on, the owner, her grants laid over it. */
-function sequenceConfig(grants, features = {}) {
+function sequenceConfig(grants, features = {}, nameTriggers = []) {
   return personaGrantsConfig({
-    bot: { owners: [OWNER], timezone: 'UTC', access: {} },
+    bot: { owners: [OWNER], timezone: 'UTC', access: {}, nameTriggers },
     context: {
       channelMessages: 100, maxMessageChars: 800, gapMarkerMinutes: 20, otherProfiles: 6,
       caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
@@ -278,9 +284,9 @@ function userOf(call) {
  * One run of a multi-step scenario as the replay plays it (playSteps over answerSkillScenario,
  * simulateCall and afterScenarioTurn), against fakes: the channel γενικά with νέα beside it.
  */
-async function playSequence(rawSteps, texts, { grants = ['message.create', 'rule.add'], history = [] } = {}) {
+async function playSequence(rawSteps, texts, { grants = ['message.create', 'rule.add'], history = [], nameTriggers = [] } = {}) {
   const [scenario] = load([{ id: 'seq', channelId: HERE, steps: rawSteps, grants: [], result: 'SCENARIO_RESULT' }]);
-  const config = sequenceConfig(grants);
+  const config = sequenceConfig(grants, {}, nameTriggers);
   const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
   const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [{ id: NEWS, name: 'νέα' }], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
   const view = liveView({ hot, store, guildId: 'g1' });
@@ -289,13 +295,14 @@ async function playSequence(rawSteps, texts, { grants = ['message.create', 'rule
   const llm = scriptedLlm(texts);
   const steps = [];
   const records = [];
-  const lineOf = (message, at) => scenarioTrigger({ text: message.text, authorId: message.author, authorName: NAMES[message.author], channel: here, selfId: SELF, at });
+  const lineOf = (message, at, { tagged }) => scenarioTrigger({ text: message.text, authorId: message.author, authorName: NAMES[message.author], channel: here, selfId: SELF, at, tagged });
   const played = await playSteps({
     scenario, history, firstAt: NOW, runIndex: 0, lineOf,
-    answerStep: async ({ situation, trigger, at, callMarks, result }) => {
+    planBurst: (incoming, { history: before }) => burstTurns(incoming, { selfId: SELF, config, history: before }),
+    answerStep: async ({ situation, trigger, at, callMarks, result, queued }) => {
       const requester = requesterOf(trigger, channel);
       const answered = await answerSkillScenario({
-        view, situation, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at, callMarks,
+        view, situation, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at, callMarks, queued,
         onCall: (call, { idByIndex, history: lines }) =>
           simulateCall({
             call,
@@ -303,7 +310,7 @@ async function playSequence(rawSteps, texts, { grants = ['message.create', 'rule
             config, selfId: SELF, requester, conversationId: HERE, now: at, resultText: result,
           }),
       });
-      steps.push({ situation, trigger, at, callMarks, requests: llm.calls.length });
+      steps.push({ situation, trigger, at, callMarks, queued, requests: llm.calls.length });
       return { run: answered.runs[0] ?? null, stopped: answered.stopped };
     },
     afterTurn: ({ transcript, callMarks, run, at, triggerId }) => afterScenarioTurn({ transcript, callMarks, run, at, selfId: SELF, selfName: 'Persona', channel: here, triggerId, config }),
@@ -324,9 +331,9 @@ test('parseScenarios: steps take the place of author and text; a burst adds mess
   assert.deepEqual(scenario, {
     id: 'seq', channelId: HERE, before: null, grants: [], runs: 1, result: '', discovery: 'inventory',
     steps: [
-      { messages: [{ author: OWNER, text: 'α' }], gapMinutes: 1, result: null },
-      { messages: [{ author: MEMBER, text: 'β' }, { author: OTHER, text: 'γ' }], gapMinutes: 2.5, result: 'Résultat' },
-      { messages: [{ author: MEMBER, text: 'δ' }, { author: OWNER, text: 'ε' }], gapMinutes: 1, result: null },
+      { messages: [{ author: OWNER, text: 'α' }], own: true, gapMinutes: 1, result: null },
+      { messages: [{ author: MEMBER, text: 'β' }, { author: OTHER, text: 'γ' }], own: true, gapMinutes: 2.5, result: 'Résultat' },
+      { messages: [{ author: MEMBER, text: 'δ' }, { author: OWNER, text: 'ε' }], own: false, gapMinutes: 1, result: null },
     ],
   });
   const step = (overrides) => ({ id: 's', channelId: HERE, grants: [], steps: [{ author: OWNER, text: 'α', ...overrides }] });
@@ -398,20 +405,99 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   assert.deepEqual(played.records, records);
 });
 
-test('replay --skills steps: a burst puts every author\'s message in before one decision; its last author is the requester', async () => {
-  const { steps, records, llm } = await playSequence(
-    [{ burst: [{ author: OWNER, text: 'πρόσθεσε κανόνα' }, { author: MEMBER, text: 'κι εμένα έναν' }] }],
-    ['<call skill="rule.add">όχι spoilers</call>', '<msg>όχι από σένα</msg>'],
+test('replay --skills steps: a burst of two named calls gets two turns in arrival order; the first names the waiting call under the queued labels', async () => {
+  const { steps, records, llm, played } = await playSequence(
+    [{ burst: [{ author: OWNER, text: 'Persona, πρόσθεσε κανόνα' }, { author: MEMBER, text: 'Persona, κι εμένα έναν' }] }],
+    ['<call skill="rule.add">όχι spoilers</call>', '<msg>έγινε</msg>', '<call skill="rule.add">κι άλλος</call>', '<msg>όχι από σένα</msg>'],
+    { nameTriggers: ['persona'] },
   );
-  assert.equal(steps.length, 1);
+  assert.equal(played.stopped, false);
+  assert.equal(steps.length, 2, 'one turn per call');
+  assert.deepEqual(steps.map((s) => [s.trigger.authorId, s.situation.kind]), [[OWNER, 'name'], [MEMBER, 'name']]);
   const lines = steps[0].situation.history;
-  assert.deepEqual(lines.slice(-2).map((line) => [line.authorId, line.content]), [[OWNER, 'πρόσθεσε κανόνα'], [MEMBER, 'κι εμένα έναν']]);
+  assert.deepEqual(lines.slice(-2).map((line) => [line.authorId, line.content, line.mentionedUserIds]), [[OWNER, 'Persona, πρόσθεσε κανόνα', []], [MEMBER, 'Persona, κι εμένα έναν', []]]);
   assert.equal(lines.at(-1).ts - lines.at(-2).ts, 5000);
-  assert.equal(steps[0].trigger.authorId, MEMBER);
-  const user = userOf(llm.calls[0]);
-  assert.ok(user.includes('Élodie') && user.includes('Zoë') && user.indexOf('πρόσθεσε κανόνα') < user.indexOf('κι εμένα έναν'), user);
-  assert.deepEqual([records[0].verdict.code, records[0].verdict.reason], ['requester-denied', 'not-granted'], 'the member who asked last lacks the right');
-  assert.deepEqual(records[0].followUp.messages, ['όχι από σένα']);
+
+  // The first turn sees the second call waiting, by another member: labels.task.queuedOthers.
+  assert.deepEqual(steps[0].queued, [{ id: lines.at(-1).id, text: 'Persona, κι εμένα έναν', author: 'Zoë' }]);
+  const first = userOf(llm.calls[0]);
+  assert.ok(first.includes(fill(labels.task.queuedOthers, { others: '1. Zoë: Persona, κι εμένα έναν' })), first);
+  assert.ok(first.includes('Élodie') && first.indexOf('πρόσθεσε κανόνα') < first.indexOf('κι εμένα έναν'), first);
+  // The second turn: nothing waits any more, and her first turn is in the channel it reads.
+  assert.deepEqual(steps[1].queued, []);
+  const second = userOf(llm.calls[2]);
+  assert.ok(!second.includes(fill(labels.task.queuedOthers, { others: '' }).slice(0, 20)), second);
+  assert.ok(second.includes('έγινε') && second.indexOf('κι εμένα έναν') < second.indexOf('έγινε'), second);
+  assert.ok(steps[1].at > steps[0].at && steps[0].at === lines.at(-1).ts);
+
+  // Each turn's requester is its own call's author: the owner may, the member may not.
+  assert.deepEqual(records.map((r) => [r.step, r.turn, r.decision, r.verdict?.ok]), [[1, 1, 'call', true], [1, 2, 'call', false]]);
+  assert.deepEqual([records[1].verdict.code, records[1].verdict.reason], ['requester-denied', 'not-granted']);
+  assert.deepEqual(records[1].followUp.messages, ['όχι από σένα']);
+  assert.deepEqual(records[0].queue, {
+    turns: 2, kind: 'name', trigger: { id: lines.at(-2).id, author: OWNER, text: 'Persona, πρόσθεσε κανόνα' }, queued: 1, replaced: [], dropped: [],
+  });
+  assert.deepEqual(played.bursts, [{ step: 1, turns: [lines.at(-2).id, lines.at(-1).id], replaced: [], dropped: [] }]);
+});
+
+test('replay --skills steps: plain follow-ups after a call share one slot; the newer replaces the older, which is reported', async () => {
+  const { steps, records, llm, played } = await playSequence(
+    [{ author: OWNER, text: 'πρώτο μήνυμα', burst: [{ author: OWNER, text: 'και κάτι ακόμα' }, { author: MEMBER, text: 'κι άλλο ένα' }] }],
+    ['<msg>ένα</msg>', '<msg>δύο</msg>'],
+  );
+  assert.equal(played.stopped, false);
+  const lines = steps[0].situation.history;
+  const [call, older, newer] = lines.slice(-3);
+  assert.deepEqual([call, older, newer].map((line) => line.mentionedUserIds), [[SELF], [], []], 'the step\'s own message tags her; the burst does not');
+  assert.deepEqual(steps.map((s) => [s.trigger.id, s.situation.kind]), [[call.id, 'mention'], [newer.id, 'followUp']]);
+  // The first turn sees only the follow-up left in the slot: another member's.
+  assert.deepEqual(steps[0].queued, [{ id: newer.id, text: 'κι άλλο ένα', author: 'Zoë' }]);
+  assert.ok(!userOf(llm.calls[0]).includes(fill(labels.task.queued, { others: '1. και κάτι ακόμα' })));
+  // The replaced line stays in the channel: the second turn reads it, after her first answer.
+  const second = userOf(llm.calls[1]);
+  assert.ok(second.includes('και κάτι ακόμα') && second.includes('ένα'), second);
+  const replaced = [{ id: older.id, author: OWNER, text: 'και κάτι ακόμα', by: newer.id }];
+  assert.deepEqual(records.map((r) => [r.turn, r.queue.kind, r.queue.replaced]), [[1, 'mention', replaced], [2, 'followUp', replaced]]);
+  assert.deepEqual(played.bursts, [{ step: 1, turns: [call.id, newer.id], replaced, dropped: [] }]);
+  // Two decisions in one step: the pattern has both, and the run is complete.
+  const summary = sequenceSummary(records, 1);
+  assert.deepEqual([summary.pattern, summary.sequences[0].complete], ['NN', true]);
+  assert.deepEqual([sequenceSummary(records.slice(0, 1), 1).sequences[0].complete], [false], 'a burst cut after its first turn is cut short');
+  const report = renderSkillsReport([{ scenario: { id: 'seq', steps: [{ messages: [], gapMinutes: 1, result: null }], discovery: 'inventory' }, grantNames: [], summary, records }]);
+  assert.ok(report.includes('#### step 1, turn 2 of 2 (followUp'), report);
+  assert.ok(report.includes('replaced: ') && report.includes('και κάτι ακόμα'), report);
+});
+
+test('burstTurns: the live queue over a burst -- the first message starts the turn, calls wait in arrival order, one follow-up slot, the cap', () => {
+  const here = { id: HERE, name: 'γενικά' };
+  const line = (author, text, i) => scenarioTrigger({ text, authorId: author, authorName: NAMES[author], channel: here, selfId: SELF, at: NOW + i * 5000, tagged: false });
+  const a = line(OWNER, 'Persona, α', 0);
+  const b = line(OWNER, 'persona β', 1);
+  const c = line(MEMBER, 'γ', 2);
+  const d = line(OTHER, `<@${SELF}> δ`, 3);
+  const e = line(MEMBER, 'ε', 4);
+  assert.deepEqual(d.mentionedUserIds, [SELF], 'a tag written in the text tags her');
+  const config = { bot: { nameTriggers: ['Persona'] } };
+  const plan = burstTurns([a, b, c, d, e], { selfId: SELF, config });
+  assert.deepEqual(plan.turns.map((t) => [t.line.id, t.kind]), [[a.id, 'name'], [b.id, 'name'], [d.id, 'mention'], [e.id, 'followUp']]);
+  assert.deepEqual(plan.replaced, [{ id: c.id, by: e.id }]);
+  assert.deepEqual(plan.dropped, []);
+  // The trigger author's own waiting calls carry no author (labels.task.queued); another member's do.
+  assert.deepEqual(plan.turns[0].queued, [{ id: b.id, text: 'persona β' }, { id: d.id, text: `<@${SELF}> δ`, author: 'Νίκος' }, { id: e.id, text: 'ε', author: 'Zoë' }]);
+  assert.deepEqual(plan.turns[1].queued, [{ id: d.id, text: `<@${SELF}> δ`, author: 'Νίκος' }, { id: e.id, text: 'ε', author: 'Zoë' }]);
+  assert.deepEqual(plan.turns[3].queued, []);
+  // features.nameTriggers off: a named line is a plain follow-up.
+  const off = burstTurns([a, b], { selfId: SELF, config: { ...config, features: { nameTriggers: false } } });
+  assert.deepEqual(off.turns.map((t) => t.kind), ['followUp', 'followUp']);
+  // mention.maxPending: the oldest waiting entry is dropped when the queue is full.
+  const capped = burstTurns([a, b, d, e], { selfId: SELF, config: { ...config, mention: { maxPending: 2 } } });
+  assert.deepEqual(capped.dropped, [{ id: b.id, reason: 'full' }]);
+  assert.deepEqual(capped.turns.map((t) => t.line.id), [a.id, d.id, e.id]);
+  // A reply to her own line is a reply call.
+  const mine = { id: '300000000000000001', self: true, authorId: SELF, ts: NOW - 1000 };
+  const reply = { ...line(MEMBER, 'ναι', 0), replyToId: mine.id };
+  assert.equal(burstTurns([reply], { selfId: SELF, config, history: [mine] }).turns[0].kind, 'reply');
+  assert.deepEqual(burstTurns([], { selfId: SELF, config }), { turns: [], replaced: [], dropped: [] });
 });
 
 test('afterScenarioTurn: a post the call left here is her line hosting the mark; her reactions and drawing land; the transcript handed in is untouched', () => {
@@ -467,12 +553,100 @@ test('sequenceSummary: each run\'s calls per step as letters, its first decline,
   assert.ok(think.endsWith('...') && think.length <= 'think: '.length + 303, 'the start of her think only');
 });
 
-test('skillRequestEstimate: up to two requests per decision -- a run, or every step of every run', () => {
+test('skillRequestEstimate: up to two requests per decision -- a run, or every turn of every step of every run', () => {
   const [single, multi] = load([
     raw({ id: 'one', runs: 3 }),
     { id: 'seq', channelId: HERE, grants: [], runs: 2, steps: [{ author: OWNER, text: 'α' }, { author: OWNER, text: 'β' }, { burst: [{ author: MEMBER, text: 'γ' }, { author: OTHER, text: 'δ' }] }] },
   ]);
   assert.equal(skillRequestEstimate([single]), 6);
-  assert.equal(skillRequestEstimate([multi]), 12, 'three steps x two runs x two requests; a burst is one decision');
-  assert.equal(skillRequestEstimate([single, multi]), 18);
+  assert.equal(skillRequestEstimate([multi]), 16, 'four messages x two runs x two requests: every message of a burst may get its own turn');
+  assert.equal(skillRequestEstimate([single, multi]), 22);
+});
+
+// ---- prompt layers: --prompts and --pair-prompts ------------------------------------
+
+test('replay --skills --prompts: the directory is laid over a copy of prompts.local/; a file in it replaces, labels.json merges; nothing live changes', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-skills-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-skills-layers-'));
+  const write = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  write('config.json', JSON.stringify({ features: { skills: true } }));
+  write('prompts/reply.md', 'tracked reply');
+  write('prompts/format.md', 'tracked format');
+  write('prompts/labels.json', JSON.stringify({ transcript: { author: '{name}' }, task: { queued: 'tracked queued' } }));
+  const localLabels = JSON.stringify({ task: { queued: 'local queued', queuedOthers: 'local others' } });
+  write('prompts.local/reply.md', 'local réply');
+  write('prompts.local/format.md', 'local format');
+  write('prompts.local/labels.json', localLabels);
+  write('side-a/reply.md', 'réply A');
+  write('side-a/labels.json', JSON.stringify({ task: { queued: 'queued A' } }));
+  write('side-b/format.md', 'format B');
+  const opened = [];
+  try {
+    const a = overlayPromptsHot(createHot, root, 'side-a', { mergeJson: deepMerge, tmpDir });
+    opened.push(a);
+    assert.equal(a.hot.prompts.reply, 'réply A', 'a file of the directory replaces the private one');
+    assert.equal(a.hot.prompts.format, 'local format', 'a file it lacks stays the private one');
+    assert.deepEqual(a.hot.prompts.labels.task, { queued: 'queued A', queuedOthers: 'local others' }, 'labels.json merges over the private one');
+    assert.equal(a.hot.prompts.labels.transcript.author, '{name}', 'and over the tracked one, as hot.js merges');
+    const b = overlayPromptsHot(createHot, root, 'side-b', { mergeJson: deepMerge, tmpDir });
+    opened.push(b);
+    assert.deepEqual([b.hot.prompts.reply, b.hot.prompts.format, b.hot.prompts.labels.task.queued], ['local réply', 'format B', 'local queued']);
+    // The diary's --prompts keeps its layering: a labels.json of the directory replaces the private one whole.
+    const diary = overlayPromptsHot(createHot, root, 'side-a', { tmpDir });
+    opened.push(diary);
+    assert.deepEqual(diary.hot.prompts.labels.task, { queued: 'queued A' });
+    // The live layer is untouched.
+    assert.equal(fs.readFileSync(path.join(root, 'prompts.local', 'labels.json'), 'utf8'), localLabels);
+    assert.equal(fs.readFileSync(path.join(root, 'prompts.local', 'reply.md'), 'utf8'), 'local réply');
+    assert.throws(() => overlayPromptsHot(createHot, root, 'missing', { mergeJson: deepMerge, tmpDir }), /missing is not a directory/);
+  } finally {
+    for (const side of opened) {
+      side.hot.close();
+      fs.rmSync(side.dir, { recursive: true, force: true });
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  // The flags: one layer or a pair, with --skills only, never both.
+  assert.equal(parseArgs(['--skills', 's.json', '--prompts', 'cand']).prompts, 'cand');
+  assert.deepEqual(parseArgs(['--skills', 's.json', '--pair-prompts', 'a', 'b', '--spend', '2']).pairPrompts, ['a', 'b']);
+  assert.equal(parseArgs(['--skills', 's.json']).pairPrompts, null);
+  assert.throws(() => parseArgs(['--skills', 's.json', '--prompts', 'c', '--pair-prompts', 'a', 'b']), /usage/);
+  assert.throws(() => parseArgs(['--skills', 's.json', '--pair-prompts', 'a']), /usage/);
+  assert.throws(() => parseArgs(['--pair-prompts', 'a', 'b', '123456789012345678', '223456789012345678']), /usage/);
+  assert.throws(() => parseArgs(['--diary', 'picture', '--pair-prompts', 'a', 'b']), /usage/);
+});
+
+test('renderPairReport: per scenario the decisions of A and B side by side, the first declines, then each decision\'s messages and the start of her think', () => {
+  const record = (side, run, step, decision, text, extra = {}) => ({
+    scenario: 'seq', side, run, step, decision, skill: decision === 'call' ? 'rule.add' : null, args: decision === 'call' ? { body: 'κανόνας' } : null, extraCalls: 0,
+    verdict: decision === 'call' ? { stage: 'gateway', ok: true } : null, executed: null, result: null,
+    first: { messages: [text], reactions: [], gif: null, draw: null, skip: false, think: `${side} ${'σκέψη '.repeat(80)}` }, followUp: null,
+    tokens: { prompt: 10, completion: 1 }, cost: 0.01, ...extra,
+  });
+  const a = [record('A', 1, 1, 'call', 'α1'), record('A', 1, 2, 'call', 'α2', { followUp: { messages: ['έγινε'], reactions: [], gif: null, draw: null, skip: false, think: '' } }), record('A', 1, 3, 'no-call', 'α3')];
+  const b = [record('B', 1, 1, 'call', 'β1'), record('B', 1, 2, 'no-call', 'β2'), record('B', 1, 3, 'no-call', 'β3')];
+  const steps = [1, 2, 3].map(() => ({ messages: [{ author: OWNER, text: 'α' }], own: true, gapMinutes: 1, result: null }));
+  const single = { id: 'one', channelId: HERE, author: MEMBER, text: 'Γεια | σου', discovery: 'inventory' };
+  const oneA = [1, 2].map((run) => ({ ...record('A', run, 1, run === 1 ? 'call' : 'no-call', `x${run}`), step: undefined }));
+  const report = renderPairReport([
+    { scenario: { id: 'seq', steps, discovery: 'inventory' }, grantNames: ['rule.add'], sides: { A: { records: a, summary: sequenceSummary(a, 3) }, B: { records: b, summary: sequenceSummary(b, 3) } } },
+    { scenario: single, grantNames: [], sides: { A: { records: oneA, summary: scenarioSummary(oneA) }, B: { records: [], summary: null, error: 'boom' } } },
+  ], { a: '/cand/A', b: '/cand/B' });
+  assert.ok(report.startsWith('# Skill scenarios: prompt layers A and B'), report);
+  assert.ok(report.includes('A: /cand/A') && report.includes('B: /cand/B'));
+  assert.ok(report.includes('| seq | 1 | `CCN` | `CNN` | 3 | 2 | 0.0300 | 0.0300 |'), report);
+  assert.ok(report.includes('| one | 2 | `C N` | failed: boom | - 1 | - | 0.0200 | - |'), report);
+  assert.ok(report.includes('#### step 2'), report);
+  assert.ok(report.includes('| decision | call `rule.add` {"body":"κανόνας"} (passed) | no call |'), report);
+  assert.ok(report.includes('| messages | α2 | β2 |'), report);
+  assert.ok(report.includes('| after the result | έγινε | - |'), report);
+  const think = report.split('\n').find((line) => line.startsWith('| think | A '));
+  const [, cellA] = think.split(' | ');
+  assert.ok(cellA.endsWith('...') && cellA.length <= 303, 'the first 300 characters of her think');
+  assert.ok(report.includes('> Γεια | σου'), 'the single message quoted');
 });

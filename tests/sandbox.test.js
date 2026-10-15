@@ -1225,3 +1225,22 @@ test('answerSkillScenario: a message.create body is resolved like a <msg> (callM
   assert.deepEqual(first.answer.messages[0].mentions, [ZOE_ID]);
   assert.equal('callMentions' in second, false, 'a run without a call has none');
 });
+
+test('answerSkillScenario: a message text given in a text= attribute is resolved like a body (callMentions)', async () => {
+  const { answerSkillScenario } = sandbox;
+  const view = handlesView();
+  const zoe = `@${handleOf(ZOE_ID)}`;
+  const llm = fakeLlm([
+    `<call skill="message.create" channel="#general" text="${zoe} @Zo"/>`,
+    `<call skill="message.edit" message="#1" text="${zoe}"></call>`,
+    `<call skill="rule.add" text="${zoe}"/>`,
+  ]);
+  const result = await answerSkillScenario({
+    view, situation: twoLines(), selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, llm, runs: 3, at: NOW,
+    onCall: () => ({ verdict: { stage: 'gateway', ok: true }, executed: null, result: { skill: 'message.create', status: 'ok' }, followUp: false }),
+  });
+  const [create, edit, other] = result.runs;
+  assert.deepEqual(create.callMentions, { mentions: [ZOE_ID], unknownHandles: 0 });
+  assert.deepEqual(edit.callMentions, { mentions: [ZOE_ID], unknownHandles: 0 });
+  assert.equal('callMentions' in other, false, 'only a message\'s text is rendered as a post');
+});
