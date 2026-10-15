@@ -16,6 +16,7 @@ import { clipWithEllipsis, mediaLabelFor, stickerLabelFor, stickerUrl } from './
 import { gifHandleOf } from '../memory/gifs.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from '../time.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
+import { isWordChar, outsideUrls } from '../memory/mentions.js';
 
 // config.json's context.replyQuoteChars: how much of a reply's parent its line quotes.
 const DEFAULT_REPLY_QUOTE_CHARS = 80;
@@ -600,6 +601,48 @@ function renderForwarded(snapshot, labels, context, maxChars, channelName) {
   return fill(labels.transcript.forwarded, { text });
 }
 
+/** A raw channel mention `<#id>` left in a text; the group is the id. */
+const RAW_CHANNEL_RE = /<#(\d+)>/g;
+
+/**
+ * `content` with each channel it mentions carrying its handle: every raw `<#id>` and every whole
+ * `#name` of a channel in `mentionedIds` (the ids of the message's `<#id>` mentions, which the
+ * text reads as `#name`: src/discord/collect.js) that `channels` knows becomes `template` filled
+ * with `{name}` (`#` + the channel's name) and `{handle}` (`#` + its handle). Whole: no word
+ * character right before the `#` or after the name; the longest name first; URLs left alone. Pure.
+ */
+function withChannelHandles(content, mentionedIds, channels, template) {
+  if (typeof content !== 'string' || !content.includes('#')) return content;
+  const marked = (entry) => fill(template, { name: `#${entry.name}`, handle: `#${entry.handle}` });
+  const named = [...new Set((Array.isArray(mentionedIds) ? mentionedIds : []).map(String))]
+    .map((id) => channels.get(id))
+    .filter((entry) => entry && typeof entry.name === 'string' && entry.name && entry.handle)
+    .sort((a, b) => b.name.length - a.name.length);
+  return outsideUrls(content, (part) => {
+    const raw = part.replace(RAW_CHANNEL_RE, (whole, id) => {
+      const entry = channels.get(id);
+      return entry?.name && entry.handle ? marked(entry) : whole;
+    });
+    if (named.length === 0) return raw;
+    let out = '';
+    let index = 0;
+    while (index < raw.length) {
+      const at = raw.indexOf('#', index);
+      if (at === -1) break;
+      out += raw.slice(index, at);
+      const entry = isWordChar(raw[at - 1]) ? null : named.find(({ name }) => raw.startsWith(name, at + 1) && !isWordChar(raw[at + 1 + name.length]));
+      if (entry) {
+        out += marked(entry);
+        index = at + 1 + entry.name.length;
+      } else {
+        out += '#';
+        index = at + 1;
+      }
+    }
+    return out + raw.slice(index);
+  });
+}
+
 /**
  * Format messages (oldest first) into transcript items, one per message.
  * `item.text` already carries the gap/date marker that precedes the message,
@@ -685,6 +728,12 @@ function renderForwarded(snapshot, labels, context, maxChars, channelName) {
  *   author of a line that is neither the persona's nor a bot's and has a handle renders as that
  *   label with `{name}` and `{handle}` (the exact token to write, `@` included). Omitted, or
  *   without the label: the bare name, as before.
+ * @param {Map<string, { handle: string, name: string }>} [options.channels]  Channel id -> its handle
+ *   (without `#`) and name (src/behavior/handles.js#assignChannelHandles over the channel
+ *   directory). In `mode: 'chat'` with a non-empty `transcript.channel` label, a channel a line's
+ *   text mentions (its `mentionedChannelIds`, read as `#name`, or a raw `<#id>`) renders as that
+ *   label with `{name}` and `{handle}` (both with their `#`; withChannelHandles). Omitted, or
+ *   without the label: the text as it came.
  * @throws {RangeError} when `indexOffset` is given but is not an integer of at least 0.
  * @returns {{ id: string, index: number, ts: number, text: string }[]}
  *
@@ -729,6 +778,10 @@ export function formatTranscript(messages, options) {
     const handle = authorHandles && !bot ? authorHandles.get(String(id)) : undefined;
     return handle ? fill(authorLabel, { name, handle: `@${handle}` }) : name;
   };
+  // Each channel a line mentions with its handle (chat mode only, and only with `transcript.channel` set).
+  const channelLabel = labels.transcript.channel;
+  const channelMarks =
+    mode === 'chat' && options.channels instanceof Map && options.channels.size > 0 && typeof channelLabel === 'string' && channelLabel !== '' ? options.channels : null;
   // Reactors named on the persona's lines (chat mode, features.reactionNames).
   const reactorNames = mode === 'chat' && options.reactionNames === true ? { max: options.reactionNamesMax ?? 5, nameOf } : null;
   // A bad offset is a caller bug: counting it as 0 would renumber a second
@@ -775,7 +828,8 @@ export function formatTranscript(messages, options) {
     const head = mode === 'memory' ? time : `#${index} ${time}`;
 
     const body = [];
-    if (message.content) body.push(clipWithEllipsis(message.content, maxChars));
+    const content = channelMarks ? withChannelHandles(message.content, message.mentionedChannelIds, channelMarks, channelLabel) : message.content;
+    if (content) body.push(clipWithEllipsis(content, maxChars));
     if (message.replyToId) {
       const target = indexById.get(message.replyToId);
       if (target) {

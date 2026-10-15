@@ -26,7 +26,8 @@
 // and src/memory/voice.js#splitDecision), so switching modes never changes a
 // lesson's teacher.
 //
-// Channels go the same way back out: `linkChannels` turns the `#name` the
+// Channels go the same way back out: `linkChannels` turns the `#handle` (exactly, from the
+// request's channel directory) or else the `#name` the
 // persona writes into the `<#id>` link the chat shows as a channel, and `linkMessageNumbers` turns a
 // transcript number `#93` into the jump link of that message. And a forget takes a member
 // out of a kept text (`redactUser`): their token and their names become a neutral word.
@@ -397,9 +398,12 @@ function coreAt(text, at, byCore) {
 }
 
 /**
- * Turn every `#name` of a known channel in the persona's outgoing `text` into
- * the real channel link `<#id>` -- incoming `<#id>` mentions reach the model as
- * `#name` (src/discord/collect.js), so this is the way back out. Exact,
+ * Turn every `#handle` of `handles` and every `#name` of a known channel in the persona's
+ * outgoing `text` into the real channel link `<#id>` -- incoming `<#id>` mentions reach the model
+ * as `#name` (src/discord/collect.js), with the channel's handle beside it when the request has one
+ * (src/discord/format.js), so this is the way back out. A handle first, strictly: the whole token
+ * after the `#` (base-36 digits and lower-case letters, case as given) is a key of `handles`;
+ * a token `handles` does not hold goes on to the names below. Then the names: exact,
  * case-sensitive names first, the longest first (a name may be a prefix of another);
  * then, failing that, the core (channelCore, matchChannel's rule): the written name with other or
  * no leading emoji, in any case and accents, links to the one channel with that core, never to
@@ -410,15 +414,17 @@ function coreAt(text, at, byCore) {
  * text without `#` comes back unchanged.
  * @param {string} text
  * @param {Iterable<{ id: string, name: string }>} channels  The served guild's text channels.
+ * @param {Map<string, string>|null} [handles]  The request's channel handle (without `#`) -> channel id.
  * @returns {string}
  */
-export function linkChannels(text, channels) {
-  if (typeof text !== 'string' || !text.includes('#') || !channels) return text;
+export function linkChannels(text, channels, handles = null) {
+  const byHandle = handles instanceof Map && handles.size > 0 ? handles : null;
+  if (typeof text !== 'string' || !text.includes('#') || (!channels && !byHandle)) return text;
   const known = [];
-  for (const channel of channels) {
+  for (const channel of channels ?? []) {
     if (typeof channel?.id === 'string' && channel.id && typeof channel.name === 'string' && channel.name) known.push(channel);
   }
-  if (known.length === 0) return text;
+  if (known.length === 0 && !byHandle) return text;
   known.sort((a, b) => b.name.length - a.name.length);
   // Each core shared by exactly one channel, the longest first.
   const counts = new Map();
@@ -430,11 +436,23 @@ export function linkChannels(text, channels) {
     [...counts.entries()].filter(([, channels]) => channels.length === 1).sort((a, b) => b[0].length - a[0].length).map(([core, [channel]]) => [core, channel]),
   );
 
-  return outsideUrls(text, (part) => linkChannelsIn(part, known, byCore));
+  return outsideUrls(text, (part) => linkChannelsIn(part, known, byCore, byHandle));
+}
+
+/** The handle-shaped token right after a `#`: lower-case letters and digits. */
+const CHANNEL_HANDLE_AT_RE = /^[0-9a-z]+/;
+
+/** The channel of the `#handle` at `at` (the `#`) of `text` and where it ends, or null (linkChannels). */
+function handleAt(text, at, byHandle) {
+  if (!byHandle) return null;
+  const token = CHANNEL_HANDLE_AT_RE.exec(text.slice(at + 1))?.[0];
+  if (!token || isWordChar(text[at + 1 + token.length])) return null;
+  const id = byHandle.get(token);
+  return id === undefined || id === null || String(id) === '' ? null : { channel: { id: String(id) }, end: at + 1 + token.length };
 }
 
 /** linkChannels over one stretch of text holding no URL. */
-function linkChannelsIn(text, known, byCore) {
+function linkChannelsIn(text, known, byCore, byHandle = null) {
   let result = '';
   let index = 0;
   while (index < text.length) {
@@ -444,8 +462,9 @@ function linkChannelsIn(text, known, byCore) {
     const before = text[at - 1];
     let linked = null;
     if (before !== '<' && !isWordChar(before)) {
-      const exact = known.find(({ name }) => text.startsWith(name, at + 1) && !isWordChar(text[at + 1 + name.length])) ?? null;
-      linked = exact ? { channel: exact, end: at + 1 + exact.name.length } : coreAt(text, at + 1, byCore);
+      linked = handleAt(text, at, byHandle);
+      const exact = linked ? null : (known.find(({ name }) => text.startsWith(name, at + 1) && !isWordChar(text[at + 1 + name.length])) ?? null);
+      if (!linked) linked = exact ? { channel: exact, end: at + 1 + exact.name.length } : coreAt(text, at + 1, byCore);
     }
     if (linked) {
       result += `<#${linked.channel.id}>`;

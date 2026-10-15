@@ -740,6 +740,26 @@ export function readableChannels(guild, botConfig, exceptId = null) {
   );
 }
 
+/**
+ * The channel directory's input (src/behavior/prompt.js#buildRequest `channelDirectory`): every
+ * channel of `guild` the persona may read (isReadableChannel) as `{ id, name, category }`, the
+ * category its parent's name or null. [] without a guild (a private chat).
+ * @param {object|null|undefined} guild  A discord.js Guild.
+ * @param {object} botConfig  The live `config.bot`.
+ * @returns {{ id: string, name: string, category: string|null }[]}
+ */
+export function channelDirectoryOf(guild, botConfig) {
+  const cache = guild?.channels?.cache;
+  if (!cache || typeof cache.values !== 'function' || !guild.members) return [];
+  // A channel object without the discord.js checks (a partial one) is never listed.
+  const usable = (channel) => typeof channel?.isTextBased === 'function' && typeof channel.isThread === 'function' && typeof channel.permissionsFor === 'function';
+  return [...cache.values()].filter((channel) => usable(channel) && isReadableChannel(channel, botConfig)).map((channel) => ({
+    id: String(channel.id),
+    name: channel.name,
+    category: typeof channel.parent?.name === 'string' ? channel.parent.name : null,
+  }));
+}
+
 /** Timestamp of the newest message in a channel, from its snowflake — no API call. */
 export function lastActivity(channel) {
   return channel.lastMessageId ? SnowflakeUtil.timestampFrom(channel.lastMessageId) : 0;

@@ -7,7 +7,11 @@
 // and the members with a stored profile are placed before the ones only in view, so a passer-by
 // never moves a profiled member's handle. The people directory (`<directory>`, the stable part of
 // the persona's request) lists the profiled members with their handle, the names Discord gave them
-// and their open aliases, sorted so its text changes only when those names do. Pure.
+// and their open aliases, sorted so its text changes only when those names do.
+// Channels get handles the same way (`#` + CHANNEL_HANDLE_PREFIX + base-36 digits of the channel
+// id's hash): the channel directory (`<channel_directory>`, the stable part too) lists each text
+// channel the persona can read with its handle, its name and its category, sorted by id, so a
+// channel she names resolves exactly and a made-up name never has to be guessed. Pure.
 
 import { createHash } from 'node:crypto';
 import { fill } from '../discord/format.js';
@@ -17,6 +21,8 @@ import { outsideUrls } from '../memory/mentions.js';
 
 /** The first character of every handle: tells a handle from a name after `@`. */
 export const HANDLE_PREFIX = 'u';
+/** The first character of every channel handle: a channel's handle is `#` + this + digits. */
+export const CHANNEL_HANDLE_PREFIX = 'c';
 /** Base-36 digits of a handle without a collision. */
 export const HANDLE_DIGITS = 4;
 // 256 bits of SHA-256 hold 49 base-36 digits: past that two ids would share their whole hash.
@@ -32,15 +38,16 @@ function hashOf(id) {
 }
 
 /**
- * The handle of `id` with `digits` base-36 digits: HANDLE_PREFIX, then the id's SHA-256 modulo
+ * The handle of `id` with `digits` base-36 digits: `prefix`, then the id's SHA-256 modulo
  * 36^digits in base 36, zero-padded. The same id always gives the same handle. Pure.
  * @param {string} id
  * @param {number} [digits]  HANDLE_DIGITS by default.
+ * @param {string} [prefix]  HANDLE_PREFIX (a member) by default; CHANNEL_HANDLE_PREFIX for a channel.
  * @returns {string}
  */
-export function handleOf(id, digits = HANDLE_DIGITS) {
+export function handleOf(id, digits = HANDLE_DIGITS, prefix = HANDLE_PREFIX) {
   const body = (hashOf(id) % DIGITS_BASE ** BigInt(digits)).toString(36).padStart(digits, '0');
-  return `${HANDLE_PREFIX}${body}`;
+  return `${prefix}${body}`;
 }
 
 /** Snowflakes oldest first: shorter digit strings first, then text order (any other id too). */
@@ -56,9 +63,10 @@ function compareIds(a, b) {
  * only for the oldest of them (compareIds), when it is still free; the others go on. The result
  * depends on the two sets only, never on their order. Blank and repeated ids are skipped. Pure.
  * @param {{ profiled?: Iterable<string>, inView?: Iterable<string> }} groups
+ * @param {{ prefix?: string }} [options]  The handles' first character (HANDLE_PREFIX by default).
  * @returns {Map<string, string>}  id -> handle (without the `@`).
  */
-export function assignHandles({ profiled = [], inView = [] } = {}) {
+export function assignHandles({ profiled = [], inView = [] } = {}, { prefix = HANDLE_PREFIX } = {}) {
   const handles = new Map();
   const taken = new Set();
   const place = (ids) => {
@@ -68,7 +76,7 @@ export function assignHandles({ profiled = [], inView = [] } = {}) {
     for (let digits = HANDLE_DIGITS; pending.length > 0 && digits <= MAX_DIGITS; digits += 1) {
       const groups = new Map();
       for (const id of pending) {
-        const handle = handleOf(id, digits);
+        const handle = handleOf(id, digits, prefix);
         if (!groups.has(handle)) groups.set(handle, []);
         groups.get(handle).push(id);
       }
@@ -196,4 +204,66 @@ export function resolveHandles(text, ids) {
     }),
   );
   return { text: resolved, userIds, unknown };
+}
+
+/**
+ * Every channel's handle for one request: assignHandles over `ids` with CHANNEL_HANDLE_PREFIX,
+ * so the oldest of two channels sharing a handle keeps the short form and the other takes one
+ * more digit. A channel handle never equals a member handle (another prefix). Pure.
+ * @param {Iterable<string>} ids
+ * @returns {Map<string, string>}  channel id -> handle (without the `#`).
+ */
+export function assignChannelHandles(ids) {
+  return assignHandles({ profiled: ids ?? [] }, { prefix: CHANNEL_HANDLE_PREFIX });
+}
+
+/**
+ * The channel directory's entries: one per channel id of `channels` (`{ id, name, category? }`)
+ * with a non-blank name, the first given winning; `name` and `category` one-line (`category`
+ * null when blank or missing). Sorted by id (oldest first), so the text moves only when a channel
+ * is added, removed or renamed -- never with activity, position or time. Pure.
+ * @param {Iterable<{ id: string, name: string, category?: string|null }>} channels
+ * @returns {{ id: string, name: string, category: string|null }[]}
+ */
+export function channelDirectoryEntries(channels) {
+  const byId = new Map();
+  for (const channel of channels ?? []) {
+    if (!channel || typeof channel !== 'object' || channel.id === undefined || channel.id === null) continue;
+    const id = String(channel.id);
+    const name = typeof channel.name === 'string' ? oneLine(channel.name) : '';
+    if (id === '' || !name || byId.has(id)) continue;
+    const category = typeof channel.category === 'string' ? oneLine(channel.category) : '';
+    byId.set(id, { id, name, category: category || null });
+  }
+  return [...byId.values()].sort((a, b) => compareIds(a.id, b.id));
+}
+
+/**
+ * The `<channel_directory>` block's body: `labels.channelDirectory.lead` (when set), then one line
+ * per entry with a handle -- `labels.channelDirectory.lineCategory` (`{handle}` `{name}`
+ * `{category}`) for a channel with a category when that label is set, else
+ * `labels.channelDirectory.line` (`{handle}` `{name}`). `{handle}` is the exact token to write,
+ * `#` included; `{name}` and `{category}` are JSON strings (quoted, escaped). '' without
+ * `labels.channelDirectory.line` or without a line. Pure.
+ * @param {{ id: string, name: string, category: string|null }[]} entries  channelDirectoryEntries'.
+ * @param {Map<string, string>} handles  channel id -> handle (assignChannelHandles').
+ * @param {object} labels
+ * @returns {string}
+ */
+export function renderChannelDirectory(entries, handles, labels) {
+  const l = labels?.channelDirectory;
+  if (typeof l?.line !== 'string' || !l.line) return '';
+  const lines = [];
+  for (const entry of entries ?? []) {
+    const handle = handles?.get(entry.id);
+    if (!handle) continue;
+    const values = { handle: `#${handle}`, name: JSON.stringify(entry.name) };
+    lines.push(
+      entry.category && typeof l.lineCategory === 'string' && l.lineCategory
+        ? fill(l.lineCategory, { ...values, category: JSON.stringify(entry.category) })
+        : fill(l.line, values),
+    );
+  }
+  if (lines.length === 0) return '';
+  return [typeof l.lead === 'string' ? l.lead : '', ...lines].filter(Boolean).join('\n');
 }
