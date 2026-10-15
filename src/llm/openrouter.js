@@ -1246,12 +1246,13 @@ export function createLlm({
    * the parsed body of a 2xx answer (null when it is not JSON, or on any other status). Never
    * counted against `llm.maxRequestsPerDay`, never calibrated, never retried, nothing logged. A
    * network failure or the `timeoutMs` abort (default `llm.timeoutMs`) throws as fetch throws it.
+   * `apiKey` replaces the client's key for this GET.
    */
-  async function getFree(endpoint, { timeoutMs } = {}) {
+  async function getFree(endpoint, { timeoutMs, apiKey: keyOverride } = {}) {
     const cfg = getConfig().llm;
     const response = await fetchImpl(apiUrl(cfg.baseUrl, endpoint), {
       method: 'GET',
-      headers: openRouterHeaders(apiKey),
+      headers: openRouterHeaders(keyOverride || apiKey),
       signal: AbortSignal.timeout(timeoutMs ?? cfg.timeoutMs),
     });
     const json = response.ok
@@ -1264,8 +1265,9 @@ export function createLlm({
 
   /**
    * The API key's own record (`<llm.baseUrl>/key`: its limit, reset, budgets and usage), one free
-   * GET (see `getFree`). For the costs field of the owner's `/nep status` card.
-   * @param {{ timeoutMs?: number }} [options]
+   * GET (see `getFree`). For the costs field of the owner's `/nep status` card. `apiKey` reads
+   * another key's record (the simulator key's), for this one GET only.
+   * @param {{ timeoutMs?: number, apiKey?: string }} [options]
    * @returns {Promise<{ ok: boolean, status: number, json: object|null }>}
    */
   const keyInfo = (options) => getFree('key', options);

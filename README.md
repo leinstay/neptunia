@@ -34,7 +34,7 @@ cd neptunia-bot && npm install
 cp .env.example .env
 ```
 
-Edit `.env` with your Discord token and API key. To run the tools under `tools/`, also set `OPENROUTER_SIM_KEY`: a second OpenRouter key that only the tools use, so they never spend the bot's live `OPENROUTER_API_KEY`. Create `config.local.json` with your Discord user ID:
+Edit `.env` with your Discord token and API key. To run the tools under `tools/`, also set `OPENROUTER_SIM_KEY`: a second OpenRouter key that only the tools use, so they do not spend the bot's live `OPENROUTER_API_KEY` (without it the tools fall back to that key and warn on stderr; the owner's `/nep status` card shows the simulator key's limit too). Create `config.local.json` with your Discord user ID:
 
 ```json
 {

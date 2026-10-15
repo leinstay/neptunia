@@ -548,14 +548,18 @@ const handlers = perEnv((env) => {
   async function costsValue(cfg) {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
     const read = (name) => readAccount(typeof llm?.[name] === 'function' ? () => llm[name]({ timeoutMs }) : null);
-    const [key, credits] = await Promise.all([read('keyInfo'), read('credits')]);
+    const simKey = typeof env.simKey === 'string' && env.simKey ? env.simKey : null;
+    // The simulator key is used for this one read only, never for a model request.
+    const readSim = simKey && typeof llm?.keyInfo === 'function' ? readAccount(() => llm.keyInfo({ timeoutMs, apiKey: simKey })) : null;
+    const [key, credits, sim] = await Promise.all([read('keyInfo'), read('credits'), readSim]);
     log.info('status: account read', {
       key: key.ok ? 'ok' : key.reason,
+      simKey: sim ? (sim.ok ? 'ok' : sim.reason) : 'not-set',
       credits: credits.ok ? 'ok' : credits.reason,
       status: key.status ?? credits.status ?? null,
     });
     const rows = typeof usage?.byRole === 'function' ? usage.byRole() : [];
-    const lines = costsLines({ key, credits, rows, labels: hot.prompts?.labels });
+    const lines = costsLines({ key, sim, credits, rows, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 

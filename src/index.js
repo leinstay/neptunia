@@ -85,6 +85,9 @@ const openrouterKey = needOrFail('OPENROUTER_API_KEY');
 const youtubeApiKey = env.YOUTUBE_API_KEY || null;
 // Optional: without it the web lookup reads links but never searches. Never logged.
 const braveApiKey = env.BRAVE_SEARCH_API_KEY || null;
+// Optional: the simulator key, used only for one read-only GET of its limit on the owner's status
+// card, never for a model request. Never logged.
+const simApiKey = env.OPENROUTER_SIM_KEY || null;
 
 const hot = createHot({ rootDir: ROOT_DIR }).watch();
 
@@ -455,6 +458,8 @@ const admin = createAdmin({
   metrics,
   // /nep status: the costs field's per-role lines.
   usage,
+  // /nep status: the simulator key's limit line (one GET, nothing else).
+  simKey: simApiKey,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 

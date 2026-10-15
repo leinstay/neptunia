@@ -226,11 +226,11 @@ function keyBudget(data) {
 const INTERVAL_USAGE = Object.freeze({ daily: 'usage_daily', weekly: 'usage_weekly', monthly: 'usage_monthly' });
 
 /** The key line (src: GET /key's `data`): spend over limit with its notes, or no limit with the total used. */
-function keyLine(data, L) {
+function keyLine(data, L, lead) {
   const budget = keyBudget(data);
   const limit = isAmount(budget?.limit_usd) ? budget.limit_usd : data.limit;
   if (!isAmount(limit)) {
-    return isAmount(data.usage) ? line(L.keyNone, { used: usd(data.usage) }) : line(L.keyNonePlain, {});
+    return isAmount(data.usage) ? line(L.keyNone, { lead, used: usd(data.usage) }) : line(L.keyNonePlain, { lead });
   }
   const hasReset = budget && Object.hasOwn(budget, 'reset_interval') ? true : Object.hasOwn(data, 'limit_reset');
   const interval = budget && Object.hasOwn(budget, 'reset_interval') ? budget.reset_interval : data.limit_reset;
@@ -255,7 +255,7 @@ function keyLine(data, L) {
   if (byok === true) notes.push(line(L.byokCounted, {}));
   if (byok === false) notes.push(line(L.byokNotCounted, {}));
   const kept = notes.filter(Boolean);
-  const values = { spent: spent === null ? '-' : usd(spent), limit: usd(limit) };
+  const values = { lead, spent: spent === null ? '-' : usd(spent), limit: usd(limit) };
   return kept.length > 0 ? line(L.keyLimit, { ...values, notes: kept.join(L.noteSeparator ?? '') }) : line(L.keyLimitPlain, values);
 }
 
@@ -299,20 +299,26 @@ function rowLine(template, row) {
  * The costs field's lines, every word from `labels.status.costs` (a missing label leaves its line
  * out; no `status.costs` at all gives []): the key line (`keyLimit` with its `notes` -- the reset
  * and whether BYOK counts -- or `keyLimitPlain`; `keyNone` / `keyNonePlain` without a limit;
- * `keyUnavailable` on a failed read), the `usage` line when the key reports any, the `credits`
+ * `keyUnavailable` on a failed read; each takes the lead word `{lead}` from `keyLead`), then the
+ * same line for the simulator key (lead `simKeyLead`; `simKeyNotSet` when `sim` is null), the
+ * `usage` line when the key reports any, the `credits`
  * line (`creditsUnavailable` on a failed read), then today's roles: `byRoleHeader`, one `role`
  * line per row in the given order and the `total`, or `byRoleEmpty`. The key's label is never read.
  * Pure.
- * @param {{ key: object, credits: object, rows: object[], labels: object }} params
- *   `key` and `credits` as `readAccount` resolves; `rows` as `createUsage().byRole()` returns.
+ * @param {{ key: object, sim?: object|null, credits: object, rows: object[], labels: object }} params
+ *   `key`, `sim` (null: not set) and `credits` as `readAccount` resolves; `rows` as `createUsage().byRole()` returns.
  * @returns {string[]}
  */
-export function costsLines({ key, credits, rows, labels }) {
+export function costsLines({ key, sim = null, credits, rows, labels }) {
   const L = labels?.status?.costs;
   if (!isPlainObject(L)) return [];
   const lines = [];
-  if (key?.ok) lines.push(keyLine(key.data, L), usageLine(key.data, L));
-  else lines.push(line(L.keyUnavailable, { reason: reasonText(key ?? { reason: 'bad-answer' }, L) }));
+  const lead = typeof L.keyLead === 'string' ? L.keyLead : '';
+  const simLead = typeof L.simKeyLead === 'string' ? L.simKeyLead : '';
+  const unavailable = (outcome, word) => line(L.keyUnavailable, { lead: word, reason: reasonText(outcome ?? { reason: 'bad-answer' }, L) });
+  lines.push(key?.ok ? keyLine(key.data, L, lead) : unavailable(key, lead));
+  lines.push(sim ? (sim.ok ? keyLine(sim.data, L, simLead) : unavailable(sim, simLead)) : line(L.simKeyNotSet, {}));
+  if (key?.ok) lines.push(usageLine(key.data, L));
   lines.push(creditsLine(credits, L));
   const list = Array.isArray(rows) ? rows : [];
   if (list.length === 0) {
