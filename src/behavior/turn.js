@@ -1072,6 +1072,27 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
 }
 
 /**
+ * The journal's closing record of a successful persona skill call: counts only, never content.
+ * `messageId` of the message it posted (result.ref); `chars` the length of the answer the persona
+ * reads (the text, or the serialized rows of a list; absent when empty); `items` the row count of
+ * a list. `{}` when the call returned nothing.
+ * @param {{ ref?: { messageId?: string }, data?: { text?: string, rows?: object[] }|null }|null} result
+ * @returns {{ messageId?: string, chars?: number, items?: number }}
+ */
+export function journalResultOf(result) {
+  const out = {};
+  if (result?.ref?.messageId) out.messageId = result.ref.messageId;
+  const data = result?.data;
+  if (data) {
+    const rows = Array.isArray(data.rows) ? data.rows : null;
+    const chars = rows ? JSON.stringify(rows).length : String(data.text ?? '').length;
+    if (chars > 0) out.chars = chars;
+    if (rows) out.items = rows.length;
+  }
+  return out;
+}
+
+/**
  * What the first pass of a turn posted (`acted`, act's answer), one item each, for the
  * follow-up's `<result>`: each reaction as the transcript shows hers
  * (`labels.transcript.reactions` over `reactionMine`), each GIF as `labels.transcript.gif`
@@ -1762,7 +1783,7 @@ export function createTurnRunner({
       }
     }
     if (op.opId) {
-      if (result.status === 'ok') await op.succeeded(result.ref?.messageId ? { messageId: result.ref.messageId } : {});
+      if (result.status === 'ok') await op.succeeded(journalResultOf(result));
       else if (result.status === 'unknown') await op.unknown({ code: result.code ?? null });
       else await op.failed(result.code ?? 'error', { status: result.status, ...(typeof result.reason === 'string' && result.reason ? { reason: result.reason } : {}) });
     }
