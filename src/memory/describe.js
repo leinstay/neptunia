@@ -95,7 +95,24 @@
 // failed fetch, conversion or request -- gets the one-frame description as
 // before (marked `gif: true`, plus `watchFailed` when a watch failed). A
 // cached one-frame caption is served as it is; only `watchGif()` (the
-// owner's recache, src/memory/gif-recache.js) replaces it.
+// owner's recache, src/memory/gif-recache.js) replaces it -- or
+// `media.recacheBefore`, below.
+//
+// Provenance and the recache rule. Every description the describer writes
+// (a picture's caption -- an emoji and a sticker included --, a GIF watch, a
+// video summary) carries `describedAt` (ms) and `model` (the model id the
+// request asked for); a cache hit stamps `usedAt` (ms), so the owner's
+// recache (src/memory/gif-recache.js#startMedia) can tell recent use from
+// the write time `ts`. With `media.recacheBefore` set (an ISO date-time, read
+// at the moment of use; null = off) a cached description whose `describedAt`
+// is missing or earlier is stale: it is treated as a miss and described
+// again through the normal path, under every cap of a new one
+// (`llm.maxRequestsPerDay`, the caller's `maxNew`, the daily video and GIF
+// counters). A failed attempt keeps the old text (better a stale
+// description than none), stamps the entry `refreshFailedAt` and is not
+// tried again for the miss TTL (an hour; `media.video.errorRetryMinutes` for
+// a video); a refusal by the daily cap or a spent daily slot only serves the
+// old text. A stale watched GIF is never replaced by a one-frame caption.
 
 import { isPlainObject } from '../config.js';
 import { fitBox, mediaProxyUrl } from '../discord/media.js';
@@ -362,6 +379,32 @@ export function videoStateFromCache(entry, config, item = {}) {
 }
 
 /**
+ * `media.recacheBefore` as epoch ms: an ISO date-time string, else null (off) -- null, a
+ * missing key, a non-string or an unparsable value alike. Pure.
+ * @param {object} config  The live config.
+ * @returns {number|null}
+ */
+export function recacheCutoffMs(config) {
+  const value = config?.media?.recacheBefore;
+  if (typeof value !== 'string' || value === '') return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Whether a cached description is stale under the cutoff `cutoffMs` (recacheCutoffMs): its
+ * `describedAt` is missing or earlier. With no cutoff nothing is. Pure.
+ * @param {object|undefined} entry  A media cache entry.
+ * @param {number|null} cutoffMs
+ * @returns {boolean}
+ */
+export function isStaleDescription(entry, cutoffMs) {
+  if (typeof cutoffMs !== 'number' || !Number.isFinite(cutoffMs)) return false;
+  const at = entry?.describedAt;
+  return !(typeof at === 'number' && Number.isFinite(at) && at >= cutoffMs);
+}
+
+/**
  * @param {object} deps
  * @param {object} deps.hot     Live config + prompts; read at the moment of use.
  * @param {object} deps.store
@@ -400,23 +443,54 @@ export function createDescriber({
 
   /** Whether pictures are described under the live config and prompts (the switch and the describe prompt). */
   function picturesOn() {
-    return hot.config.features?.mediaDescriptions === true && Boolean(hot.prompts?.describe);
+    return pictureBlocker() === null;
   }
 
   /**
-   * The cached state of one picture, synchronously: its caption as a
-   * describe() result (LRU-touched, `cached: true`), FRESH_MISS while a
-   * failure younger than an hour is remembered, or null when it must be
-   * described.
+   * Why pictures are not described under the live config and prompts, or
+   * null when they are: `off` (features.mediaDescriptions not true) or
+   * `no-prompt` (no describe prompt).
+   * @returns {'off'|'no-prompt'|null}
+   */
+  function pictureBlocker() {
+    if (hot.config.features?.mediaDescriptions !== true) return 'off';
+    if (!hot.prompts?.describe) return 'no-prompt';
+    return null;
+  }
+
+  /**
+   * Whether a cached description must be described again now: stale under
+   * the live `media.recacheBefore` (isStaleDescription) and no failed attempt
+   * (`refreshFailedAt`) younger than `ttlMs`.
+   */
+  function dueForRecache(entry, ttlMs) {
+    if (!isStaleDescription(entry, recacheCutoffMs(hot.config))) return false;
+    const failedAt = entry.refreshFailedAt;
+    return !(typeof failedAt === 'number' && Number.isFinite(failedAt) && now() - failedAt < ttlMs);
+  }
+
+  /** A cache hit: LRU-touched and stamped `usedAt`, the guild's cache marked dirty. */
+  function touchHit(guildId, cache, key, entry) {
+    entry.usedAt = now();
+    touchKey(cache, key, entry);
+    store.markMediaCacheDirty(guildId);
+  }
+
+  /**
+   * The cached state of one picture, synchronously: `{ result, stale, entry }`
+   * for a caption (`result` a describe() result, `cached: true`; the entry
+   * LRU-touched; `stale` when media.recacheBefore wants it described again,
+   * see dueForRecache), FRESH_MISS while a failure younger than an hour is
+   * remembered, or null when it must be described.
    */
   function cachedPicture(guildId, itemId) {
     const cache = store.getMediaCache(guildId);
     const cached = cache[itemId];
     if (!cached) return null;
     if (cached.miss) return now() - cached.ts < MISS_TTL_MS ? FRESH_MISS : null;
-    touchKey(cache, itemId, cached);
-    store.markMediaCacheDirty(guildId);
-    return { text: cached.text, usage: null, estimated: 0, cached: true };
+    touchHit(guildId, cache, itemId, cached);
+    const result = { text: cached.text, usage: null, estimated: 0, cached: true };
+    return { result, stale: dueForRecache(cached, MISS_TTL_MS), entry: cached };
   }
 
   // One in-flight description per guild + picture: a message prefill and a
@@ -432,14 +506,47 @@ export function createDescriber({
     if (!picturesOn()) return { result: null, joined: false };
     const hit = cachedPicture(guildId, item.itemId);
     if (hit === FRESH_MISS) return { result: null, joined: false };
-    if (hit) return { result: hit, joined: false };
+    if (hit && !hit.stale) return { result: hit.result, joined: false };
+    // A stale caption (media.recacheBefore) is described again; its old text is the fallback.
+    const kept = hit?.result ?? null;
     const flightKey = `${guildId}:${item.itemId}`;
     const running = pictureFlights.get(flightKey);
-    if (running) return { result: await running, joined: true };
-    if (capSpent()) return { result: null, joined: false };
-    const promise = describeNow(guildId, item).finally(() => pictureFlights.delete(flightKey));
+    if (running) return { result: (await running) ?? kept, joined: true };
+    if (capSpent()) return { result: kept, joined: false };
+    const promise = describeNow(guildId, item, hit?.entry ?? null).finally(() => pictureFlights.delete(flightKey));
     pictureFlights.set(flightKey, promise);
     return { result: await promise, joined: false };
+  }
+
+  /**
+   * Describe one picture again whatever its cache holds, for the owner's
+   * recache (src/memory/gif-recache.js#startMedia): the normal uncached path
+   * (describeNow, a GIF watched first), every rail of a new description. A
+   * cached caption is the fallback: a failure keeps it (stamped
+   * `refreshFailedAt`). Joins a description of the same picture already in
+   * flight.
+   * @param {string} guildId
+   * @param {object} item  One collectPictures / collectEmojiItems item.
+   * @returns {Promise<{ state: 'done' } | { state: 'failed' } | { state: 'unavailable', reason: string }>}
+   *   `unavailable`: pictures are not described now (pictureBlocker) or `llm.maxRequestsPerDay` is spent.
+   */
+  async function redescribe(guildId, item) {
+    const blocker = pictureBlocker();
+    if (blocker !== null) return { state: 'unavailable', reason: blocker };
+    if (capSpent()) return { state: 'unavailable', reason: 'daily-cap' };
+    const flightKey = `${guildId}:${item.itemId}`;
+    let promise = pictureFlights.get(flightKey);
+    if (!promise) {
+      const entry = store.getMediaCache(guildId)[item.itemId];
+      const previous = entry && !entry.miss && typeof entry.text === 'string' && entry.text ? entry : null;
+      promise = describeNow(guildId, item, previous).finally(() => pictureFlights.delete(flightKey));
+      pictureFlights.set(flightKey, promise);
+    }
+    const result = await promise;
+    if (result && !result.kept) return { state: 'done' };
+    // The request itself may have been the one the daily cap refused.
+    if (capSpent()) return { state: 'unavailable', reason: 'daily-cap' };
+    return { state: 'failed' };
   }
 
   /**
@@ -456,23 +563,41 @@ export function createDescriber({
     return (await describeShared(guildId, item)).result;
   }
 
-  /** The uncached part of describe(): the GIF watch, else the download and the request; the cache is written here. */
-  async function describeNow(guildId, item) {
+  /**
+   * The uncached part of describe(): the GIF watch, else the download and
+   * the request; the cache is written here. `previous` is the cached entry
+   * being described again (a stale or recached caption), else null: on a
+   * failure it is kept (its text returned as a cached result marked `kept`,
+   * the entry stamped `refreshFailedAt` unless the daily cap refused the
+   * request) instead of a miss being cached.
+   */
+  async function describeNow(guildId, item, previous = null) {
     const promptText = hot.prompts?.describe;
     if (!promptText) return null;
     const mediaCfg = hot.config.media ?? {};
     const descriptionChars = positiveOr(mediaCfg.descriptionChars, DESCRIPTION_CHARS_FALLBACK);
     const cache = store.getMediaCache(guildId);
 
+    // The old caption kept on a failure, its entry stamped when `mark` is set.
+    const keepPrevious = (mark) => {
+      if (mark) {
+        touchKey(cache, item.itemId, { ...previous, refreshFailedAt: now() });
+        store.markMediaCacheDirty(guildId);
+      }
+      return { text: previous.text, usage: null, estimated: 0, cached: true, kept: true };
+    };
+
     // A GIF is watched like a short video first (see watchGifShared); one
     // that cannot be watched, or whose watch fails, keeps the one-frame
-    // description below -- never nothing.
+    // description below -- never nothing. A watched caption described again
+    // is never replaced by one frame: it is kept instead.
     let watchFailed = false;
     if (item.kind === 'gif') {
       const watched = await watchGifShared(guildId, item);
       if (watched?.state === 'watched') {
         return { text: watched.text, usage: watched.usage ?? null, estimated: watched.estimated ?? 0 };
       }
+      if (previous?.watched === true) return keepPrevious(watched?.reason !== 'daily-cap');
       watchFailed = watched?.state === 'failed';
     }
 
@@ -482,10 +607,15 @@ export function createDescriber({
     // kind goes through the media proxy (pictureImageUrl).
     const imageUrl = pictureImageUrl(item, mediaCfg);
 
-    const recordMiss = () => {
-      touchKey(cache, item.itemId, { miss: true, ts: now() });
-      trimCache(cache, mediaCfg.cacheEntries ?? Infinity);
-      store.markMediaCacheDirty(guildId);
+    // A failure: the previous caption kept, else a miss cached (`mark` false: the daily cap, nothing cached).
+    const fail = (mark = true) => {
+      if (previous) return keepPrevious(mark);
+      if (mark) {
+        touchKey(cache, item.itemId, { miss: true, ts: now() });
+        trimCache(cache, mediaCfg.cacheEntries ?? Infinity);
+        store.markMediaCacheDirty(guildId);
+      }
+      return null;
     };
 
     const visionCfg = hot.config.context?.vision ?? {};
@@ -495,10 +625,10 @@ export function createDescriber({
     });
     if (!downloaded) {
       log.warn('describe: failed', { kind: item.kind, reason: 'download' });
-      recordMiss();
-      return null;
+      return fail();
     }
 
+    const model = roleModel(hot.config, 'vision', 'describe');
     let completion;
     try {
       completion = await llm.complete(
@@ -510,7 +640,7 @@ export function createDescriber({
         // picture is estimated at a flat context.vision.tokensPerImage while the
         // vision model counts far more).
         {
-          model: roleModel(hot.config, 'vision', 'describe'),
+          model,
           ...helperRequestOptions(hot.config, { role: 'vision', maxOutputTokens: mediaCfg.maxOutputTokens, purpose: 'describe' }),
         },
       );
@@ -518,8 +648,7 @@ export function createDescriber({
       const reason = requestFailureReason(err);
       log.warn('describe: failed', { kind: item.kind, reason, status: err.statusCode, detail: safeDetail(err.message) });
       // A refusal by the daily cap says nothing about the picture: described after the reset.
-      if (reason !== 'daily-cap') recordMiss();
-      return null;
+      return fail(reason !== 'daily-cap');
     }
 
     // First line only, hard-capped on a word boundary (never mid-token).
@@ -530,13 +659,13 @@ export function createDescriber({
 
     if (!text) {
       log.warn('describe: failed', { kind: item.kind, reason: 'empty' });
-      recordMiss();
-      return null;
+      return fail();
     }
 
     // A GIF's one-frame caption is marked (`gif`) so the recache can find it
     // (src/memory/gif-recache.js), and `watchFailed` when a watch was tried.
-    const entry = { text, ts: now() };
+    const ts = now();
+    const entry = { text, ts, describedAt: ts, model };
     if (item.kind === 'gif') entry.gif = true;
     if (watchFailed) entry.watchFailed = entry.ts;
     touchKey(cache, item.itemId, entry);
@@ -605,6 +734,7 @@ export function createDescriber({
 
     const { clip } = fetched;
     const sizes = { seconds: clip.seconds, bytes: fetched.bytes };
+    const options = videoRequestOptions(videoCfg, clip, { maxOutputTokens: videoCfg.maxOutputTokens });
     let completion;
     try {
       completion = await llm.complete(
@@ -612,7 +742,7 @@ export function createDescriber({
           { role: 'system', content: gifSystemPrompt(descriptionChars, maxSeconds) },
           { role: 'user', content: [videoPart(videoCfg, clip)] },
         ],
-        videoRequestOptions(videoCfg, clip, { maxOutputTokens: videoCfg.maxOutputTokens }),
+        options,
       );
     } catch (err) {
       const reason = requestFailureReason(err);
@@ -623,7 +753,8 @@ export function createDescriber({
     const fields = parseGifDescription(completion.text, { descriptionChars });
     if (!fields) return report({ state: 'failed', reason: 'empty' }, sizes);
     const { text, reaction, action, screen } = fields;
-    putVideoEntry(guildId, item.itemId, { text, reaction, action, screen, ts: now(), watched: true, gif: true });
+    const ts = now();
+    putVideoEntry(guildId, item.itemId, { text, reaction, action, screen, ts, watched: true, gif: true, describedAt: ts, model: options.model });
     report({ state: 'watched' }, sizes);
     return { state: 'watched', text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
   }
@@ -758,8 +889,11 @@ export function createDescriber({
       seen.add(item.itemId);
       const hit = cachedPicture(guildId, item.itemId);
       if (hit === FRESH_MISS) continue;
-      if (hit) found.set(item.itemId, hit.text);
+      // A stale caption (media.recacheBefore) is picked like a new picture;
+      // past `maxNew` (or with the cap spent) its old text is served.
+      if (hit && !hit.stale) found.set(item.itemId, hit.result.text);
       else if (!spent && picked.length < maxNew) picked.push(item);
+      else if (hit) found.set(item.itemId, hit.result.text);
     }
 
     let next = 0;
@@ -798,15 +932,12 @@ export function createDescriber({
     const descriptions = new Map();
     if (hot.config.features?.mediaDescriptions !== true || !hot.prompts?.describe) return descriptions;
     const cache = store.getMediaCache(guildId);
-    let touched = false;
     for (const item of items ?? []) {
       const entry = item?.itemId ? cache[item.itemId] : undefined;
       if (!entry || entry.miss || typeof entry.text !== 'string' || !entry.text) continue;
-      touchKey(cache, item.itemId, entry);
-      touched = true;
+      touchHit(guildId, cache, item.itemId, entry);
       descriptions.set(item.itemId, entry.text);
     }
-    if (touched) store.markMediaCacheDirty(guildId);
     return descriptions;
   }
 
@@ -828,6 +959,9 @@ export function createDescriber({
    * a `length` miss of unknown duration, or one that fits the cap now, is
    * absent so a raised cap retries it), plus an error miss, which counts only
    * for `media.video.errorRetryMinutes` (read now) and never when `force` is set.
+   * A watched summary that media.recacheBefore wants watched again
+   * (dueForRecache, the error retry time as its TTL) comes with `stale`: its
+   * cache entry.
    */
   function cachedVideo(guildId, key, item, force = false) {
     const cache = store.getMediaCache(guildId);
@@ -835,9 +969,9 @@ export function createDescriber({
     if (!entry) return null;
     const lasting = videoStateFromCache(entry, hot.config, item);
     if (lasting?.state === 'watched') {
-      touchKey(cache, key, entry);
-      store.markMediaCacheDirty(guildId);
-      return { ...lasting, usage: null, estimated: 0, cached: true };
+      touchHit(guildId, cache, key, entry);
+      const result = { ...lasting, usage: null, estimated: 0, cached: true };
+      return dueForRecache(entry, videoErrorTtlMs()) ? { ...result, stale: entry } : result;
     }
     if (lasting) return lasting;
     if (entry.miss && PERMANENT_VIDEO_MISSES.has(entry.reason)) return null; // a length miss to retry
@@ -1027,9 +1161,12 @@ export function createDescriber({
    * not an attempt. With `llm.maxRequestsPerDay` spent nothing is fetched,
    * no video slot is taken and nothing is cached (`result` null), and a
    * request the cap refuses caches no miss either: the video is watched
-   * after the reset. `forced` only marks the log line.
+   * after the reset. `forced` only marks the log line. `previous` (`{ entry,
+   * result }`) is a stale watched summary being watched again: every failure
+   * returns its result instead, a spent rail as it is, any other failure
+   * with its entry stamped `refreshFailedAt` -- never a miss over it.
    */
-  async function watchVideo(guildId, item, key, promptText, forced = false) {
+  async function watchVideo(guildId, item, key, promptText, forced = false, previous = null) {
     const videoCfg = hot.config.media?.video ?? {};
     const summaryChars = positiveOr(videoCfg.summaryChars, VIDEO_TEXT_CHARS_FALLBACK);
     const report = (result, extra = {}) => {
@@ -1046,7 +1183,16 @@ export function createDescriber({
       });
       return result;
     };
+    // The stale summary kept, its entry stamped so it waits the error retry time.
+    const keepPrevious = () => {
+      putVideoEntry(guildId, key, { ...previous.entry, refreshFailedAt: now() });
+      return previous.result;
+    };
     const errorMiss = (reason, extra = {}) => {
+      if (previous) {
+        report({ state: 'error' }, { ...extra, reason });
+        return keepPrevious();
+      }
       putVideoEntry(guildId, key, { miss: true, ts: now(), reason: 'error' });
       return report({ state: 'error' }, { ...extra, reason });
     };
@@ -1054,7 +1200,7 @@ export function createDescriber({
     // The request would be refused: no fetch, no slot, no miss.
     if (capSpent()) {
       report({ state: 'skipped' }, { reason: 'daily-cap' });
-      return { result: null, sent: false, attempted: false };
+      return { result: previous?.result ?? null, sent: false, attempted: false };
     }
 
     // Reserve the daily slot synchronously, before any await, so concurrent
@@ -1062,13 +1208,18 @@ export function createDescriber({
     // its slot: attempts count, like media.video.maxPerTurn.
     const countToday = videoCountToday();
     if (countToday >= (videoCfg.maxPerDay ?? Infinity)) {
-      return { result: report({ state: 'limit', reason: 'daily' }), sent: false, attempted: false };
+      const limit = report({ state: 'limit', reason: 'daily' });
+      return { result: previous?.result ?? limit, sent: false, attempted: false };
     }
     state.data.videoCount = countToday + 1;
     state.markDirty();
 
     const media = await fetchVideoMedia(item, videoCfg);
     if (!media.ok) {
+      if (previous) {
+        report({ state: PERMANENT_VIDEO_MISSES.has(media.reason) ? 'limit' : 'error' }, { reason: media.reason ?? 'download' });
+        return { result: keepPrevious(), sent: false, attempted: true };
+      }
       if (PERMANENT_VIDEO_MISSES.has(media.reason)) {
         const entry = { miss: true, ts: now(), reason: media.reason };
         if (media.reason === 'length') entry.durationSec = media.durationSec ?? null;
@@ -1079,6 +1230,7 @@ export function createDescriber({
     }
 
     const sizes = { seconds: media.seconds ?? null, bytes: media.bytes ?? null };
+    const options = videoRequestOptions(videoCfg, media, { maxOutputTokens: videoCfg.maxOutputTokens });
     let completion;
     try {
       completion = await llm.complete(
@@ -1086,13 +1238,13 @@ export function createDescriber({
           { role: 'system', content: fillPromptTemplate(promptText, { maxChars: summaryChars, today: todayDate() }) },
           { role: 'user', content: [videoPart(videoCfg, media)] },
         ],
-        videoRequestOptions(videoCfg, media, { maxOutputTokens: videoCfg.maxOutputTokens }),
+        options,
       );
     } catch (err) {
       const reason = requestFailureReason(err);
       if (reason === 'daily-cap') {
         report({ state: 'skipped' }, { ...sizes, reason });
-        return { result: null, sent: false, attempted: true };
+        return { result: previous?.result ?? null, sent: false, attempted: true };
       }
       return { result: errorMiss(reason, { ...sizes, status: err.statusCode }), sent: reason !== 'token-limit', attempted: true };
     }
@@ -1100,7 +1252,8 @@ export function createDescriber({
     const text = cleanVideoText(completion.text, summaryChars);
     if (!text) return { result: errorMiss('empty', sizes), sent: true, attempted: true };
 
-    putVideoEntry(guildId, key, { text, ts: now(), watched: true });
+    const ts = now();
+    putVideoEntry(guildId, key, { text, ts, watched: true, describedAt: ts, model: options.model });
     const result = { state: 'watched', text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
     report(result, sizes);
     return { result, sent: true, attempted: true };
@@ -1121,19 +1274,24 @@ export function createDescriber({
 
     const key = `video:${item.itemId}`;
     const cached = cachedVideo(guildId, key, item, force);
-    if (cached) {
+    // A stale summary (media.recacheBefore) is watched again; its old result is the fallback.
+    let previous = null;
+    if (cached?.stale) {
+      const { stale, ...result } = cached;
+      previous = { entry: stale, result };
+    } else if (cached) {
       log.info('describe: video', { source: item.source, state: cached.state, reason: cached.reason ?? null, cached: true });
       return { result: cached, sent: false, attempted: false };
     }
-    if (cacheOnly) return { result: null, sent: false, attempted: false };
+    if (cacheOnly) return { result: previous?.result ?? null, sent: false, attempted: false };
 
     const flightKey = `${guildId}:${key}`;
     const running = inFlight.get(flightKey);
     if (running) {
       const { result } = await running;
-      return { result, sent: false, attempted: true };
+      return { result: result ?? previous?.result ?? null, sent: false, attempted: true };
     }
-    const promise = watchVideo(guildId, item, key, promptText, force).finally(() =>
+    const promise = watchVideo(guildId, item, key, promptText, force, previous).finally(() =>
       inFlight.delete(flightKey),
     );
     inFlight.set(flightKey, promise);
@@ -1546,6 +1704,8 @@ export function createDescriber({
 
   return {
     describe,
+    redescribe,
+    pictureBlocker,
     describeMany,
     cachedDescriptions,
     describeVideo,

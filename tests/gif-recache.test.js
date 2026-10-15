@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createGifRecache, gifCaptionCounts, gifCaptionState, gifFormatCounts, oneFrameGifKeys, recacheQueue } from '../src/memory/gif-recache.js';
+import { createGifRecache, gifCaptionCounts, gifCaptionState, gifFormatCounts, isPictureKey, oneFrameGifKeys, pickStaleDescriptions, recacheQueue, recordFinder, snowflakeMs } from '../src/memory/gif-recache.js';
 import { createStore } from '../src/memory/store.js';
 
 const T0 = Date.UTC(2026, 8, 1);
@@ -359,4 +359,239 @@ test('gif recache: a run stops before the next GIF once paused, a warmup starts 
       assert.equal(log.entries.find((e) => e.message === 'gif-recache: done').fields.stopped, stop);
     });
   }
+});
+
+// --- the media recache (startMedia) ---------------------------------------------
+
+const NOW = Date.UTC(2026, 9, 15, 12);
+const DAY = 24 * 60 * 60 * 1000;
+const MODELS = { vision: 'x/new-vision', video: 'x/new-video' };
+
+/** A Discord snowflake id created at `ms` (sequence `seq`). */
+function snowflake(ms, seq = 0) {
+  return String((BigInt(ms - 1_420_070_400_000) << 22n) + BigInt(seq));
+}
+
+test('snowflakeMs: the creation time of a snowflake; null for anything else', () => {
+  assert.equal(snowflakeMs(snowflake(NOW, 5)), NOW);
+  assert.equal(snowflakeMs('m1'), null);
+  assert.equal(snowflakeMs('123'), null);
+  assert.equal(snowflakeMs(undefined), null);
+});
+
+test('isPictureKey: picture descriptions only, never video summaries, answers or web entries', () => {
+  for (const key of [snowflake(NOW), `${snowflake(NOW)}#e0`, 'm1#e2', 'emoji:42', 'sticker:42', 'link:abcdef', 'video:url:abcdef']) {
+    assert.equal(isPictureKey(key), true, key);
+  }
+  for (const key of [`video:${snowflake(NOW)}`, 'video:video:url:abcdef', 'video:m7#e0', 'image:1:q:abc', 'gif:m1#e0:q:abc', 'video:1:q:abc', 'read:link:abc', 'search:abc', 'a1']) {
+    assert.equal(isPictureKey(key), false, key);
+  }
+});
+
+test('pickStaleDescriptions: by last use within the days, older models only, most recent first', () => {
+  const cache = {
+    old: { text: 'x', ts: NOW - 10 * DAY },
+    [snowflake(NOW - 2 * DAY)]: { text: 'a photo', ts: NOW - 20 * DAY, usedAt: NOW - 2 * DAY },
+    'emoji:1': { text: 'a grin', ts: NOW - DAY },
+    'emoji:2': { text: 'a wink', ts: NOW - 3 * DAY, describedAt: NOW - 3 * DAY, model: 'x/new-vision' },
+    'emoji:3': { text: 'a nod', ts: NOW - 8 * DAY },
+    'm1#e0': { text: 'a dance', ts: NOW - 4 * DAY, watched: true, gif: true, model: 'x/new-vision' },
+    'm2#e0': { text: 'a jump', ts: NOW - 4 * DAY, watched: true, gif: true, model: 'x/new-video' },
+    'link:aa': { miss: true, ts: NOW },
+    'video:1': { text: 'a video', ts: NOW, watched: true },
+  };
+  assert.deepEqual(pickStaleDescriptions(cache, { nowMs: NOW, days: 7, cutoffMs: null, models: MODELS }), ['emoji:1', snowflake(NOW - 2 * DAY), 'm1#e0']);
+  assert.deepEqual(pickStaleDescriptions(cache, { nowMs: NOW, days: 9, cutoffMs: null, models: MODELS }), ['emoji:1', snowflake(NOW - 2 * DAY), 'm1#e0', 'emoji:3']);
+});
+
+test('pickStaleDescriptions: with media.recacheBefore set, entries described at or after it are skipped', () => {
+  const cutoffMs = NOW - 5 * DAY;
+  const cache = {
+    'emoji:1': { text: 'a', ts: NOW - DAY, describedAt: cutoffMs, model: 'x/older' },
+    'emoji:2': { text: 'b', ts: NOW - DAY, describedAt: cutoffMs - 1, model: 'x/older' },
+    'emoji:3': { text: 'c', ts: NOW - DAY },
+    'emoji:4': { text: 'd', ts: NOW - DAY, describedAt: cutoffMs - 1, model: 'x/new-vision' },
+  };
+  assert.deepEqual(pickStaleDescriptions(cache, { nowMs: NOW, days: 7, cutoffMs, models: MODELS }).sort(), ['emoji:2', 'emoji:3']);
+});
+
+test('recordFinder: a gif embed by its message, an attachment by its upload time, an undated key within the window', () => {
+  const upload = NOW - 3 * DAY;
+  const attachment = snowflake(upload);
+  const embedMessage = snowflake(NOW - 40 * DAY);
+  const line = (messageId, occurredAt, extra = {}) => ({ kind: 'seen', messageId, occurredAt: new Date(occurredAt).toISOString(), scope: { channel: 'c1' }, media: ['image'], ...extra });
+
+  const dated = recordFinder([attachment, `${embedMessage}#e0`], NOW - 7 * DAY);
+  assert.ok(dated.fromMs <= NOW - 40 * DAY, 'reads back to the oldest dated key');
+  assert.equal(dated.matches(line(embedMessage, NOW - 40 * DAY)), true);
+  assert.equal(dated.matches(line(snowflake(upload + 60_000), upload + 60_000)), true, 'sent a minute after the upload');
+  assert.equal(dated.matches(line(snowflake(upload + 3_600_000), upload + 3_600_000)), false, 'an hour later');
+  assert.equal(dated.matches(line(snowflake(NOW - DAY), NOW - DAY)), false, 'no undated key: the window alone is not enough');
+  assert.equal(dated.matches(line(embedMessage, NOW - 40 * DAY, { media: [] })), false, 'no media');
+  assert.equal(dated.matches(line(embedMessage, NOW - 40 * DAY, { kind: 'deleted' })), false);
+
+  const undated = recordFinder(['link:aa'], NOW - 7 * DAY);
+  assert.equal(undated.fromMs, NOW - 7 * DAY);
+  assert.equal(undated.matches(line(snowflake(NOW - DAY), NOW - DAY)), true);
+  assert.equal(undated.matches(line(snowflake(NOW - 8 * DAY), NOW - 8 * DAY)), false);
+});
+
+/** A raw discord.js message in channel c1 with one attached png `attachmentId`. */
+function rawPictureMessage(id, attachmentId) {
+  return {
+    id,
+    channelId: 'c1',
+    author: { id: 'u1', bot: false, username: 'u1' },
+    cleanContent: '',
+    createdTimestamp: snowflakeMs(id) ?? T0,
+    reference: null,
+    attachments: new Map([[attachmentId, { id: attachmentId, contentType: 'image/png', name: 'p.png', url: `https://cdn.discordapp.com/attachments/1/${attachmentId}/p.png`, width: 64, height: 64 }]]),
+    stickers: new Map(),
+    messageSnapshots: new Map(),
+    embeds: [],
+  };
+}
+
+/** A record whose iterate yields `lines` from `from` on, as src/memory/record.js does. */
+function fakeRecord(lines) {
+  return {
+    async *iterate(guildId, { from = null } = {}) {
+      const fromMs = from ? Date.parse(from) : -Infinity;
+      for (const line of lines) if (Date.parse(line.occurredAt) >= fromMs) yield line;
+    },
+  };
+}
+
+/** A media describer: redescribe takes `costMs` of the clock and follows `outcome(item)` (done by default). */
+function fakeMediaDescriber(clock, { outcome, costMs = 0, blocker = null } = {}) {
+  const calls = [];
+  return {
+    calls,
+    pictureBlocker: () => blocker,
+    async redescribe(guildId, item) {
+      calls.push({ guildId, item, at: clock.at });
+      clock.at += costMs;
+      return outcome ? outcome(item) : { state: 'done' };
+    },
+  };
+}
+
+function mediaHot(media = {}) {
+  return { config: { media: { embedTextChars: 200, recacheIntervalMs: 3000, ...media }, gifs: { recachePerRun: 50 }, roles: { vision: MODELS.vision, video: MODELS.video } } };
+}
+
+/** A clock and a sleep that moves it, recording every wait. */
+function fakeTime(start = NOW) {
+  const clock = { at: start, sleeps: [] };
+  clock.now = () => clock.at;
+  clock.sleep = async (ms) => {
+    clock.sleeps.push(ms);
+    clock.at += ms;
+  };
+  return clock;
+}
+
+test('media recache: emoji from their id, a library GIF from its message, an attachment through the record; counts logged', async () => {
+  await withStore(async (store) => {
+    const upload = NOW - 2 * DAY;
+    const attachmentId = snowflake(upload, 1);
+    const messageId = snowflake(upload + 5_000, 2);
+    seed(store, [linkEntry(1)], {
+      'emoji:77': { text: 'a grin', ts: NOW - DAY },
+      'm1#e0': { text: 'a dance', ts: NOW - DAY, watched: true, gif: true },
+      [attachmentId]: { text: 'a photo', ts: NOW - DAY },
+      [snowflake(upload, 9)]: { text: 'nowhere to be found', ts: NOW - DAY },
+      'emoji:78': { text: 'current', ts: NOW - DAY, describedAt: NOW - DAY, model: MODELS.vision },
+    });
+    const clock = fakeTime();
+    const describer = fakeMediaDescriber(clock);
+    const log = silentLog();
+    const record = fakeRecord([
+      { kind: 'seen', messageId, occurredAt: new Date(upload + 5_000).toISOString(), scope: { channel: 'c1' }, media: ['image'] },
+    ]);
+    const recache = createGifRecache({
+      hot: mediaHot(),
+      store,
+      client: fakeClient([rawGifMessage(1), rawPictureMessage(messageId, attachmentId)]),
+      describer,
+      record,
+      now: clock.now,
+      sleep: clock.sleep,
+      log,
+    });
+
+    assert.deepEqual(recache.startMedia('g1', { days: 7 }), { ok: true, picked: 4, days: 7 });
+    assert.equal(recache.isRunning(), true);
+    await recache.waitIdle();
+
+    assert.deepEqual(describer.calls.map((c) => c.item.itemId), ['emoji:77', 'm1#e0', attachmentId]);
+    const [emoji, gif, picture] = describer.calls.map((c) => c.item);
+    assert.equal(emoji.kind, 'emoji');
+    assert.match(emoji.url, /emojis\/77\./);
+    assert.equal(gif.animationUrl, `${TENOR(1)}/loop.mp4`);
+    assert.equal(picture.kind, 'image');
+    const done = log.entries.find((e) => e.message === 'media: recached');
+    assert.deepEqual(done.fields, { picked: 4, done: 3, failed: 0, unlocated: 1, stopped: null });
+  });
+});
+
+test('media recache: descriptions are paced media.recacheIntervalMs apart on the injected clock', async () => {
+  await withStore(async (store) => {
+    seed(store, [], {
+      'emoji:1': { text: 'a', ts: NOW - DAY },
+      'emoji:2': { text: 'b', ts: NOW - DAY },
+      'emoji:3': { text: 'c', ts: NOW - DAY },
+    });
+    const clock = fakeTime();
+    const describer = fakeMediaDescriber(clock, { costMs: 1000 });
+    const recache = createGifRecache({ hot: mediaHot({ recacheIntervalMs: 3000 }), store, client: fakeClient([]), describer, now: clock.now, sleep: clock.sleep, log: silentLog() });
+    recache.startMedia('g1', {});
+    await recache.waitIdle();
+    assert.deepEqual(clock.sleeps, [2000, 2000], 'the time a request took counts toward the pause');
+    assert.deepEqual(describer.calls.map((c) => c.at - NOW), [0, 3000, 6000]);
+  });
+});
+
+test('media recache: a spent daily request cap stops the run; a failure is counted and the run goes on', async () => {
+  await withStore(async (store) => {
+    seed(store, [], {
+      'emoji:1': { text: 'a', ts: NOW - DAY },
+      'emoji:2': { text: 'b', ts: NOW - 2 * DAY },
+      'emoji:3': { text: 'c', ts: NOW - 3 * DAY },
+    });
+    const clock = fakeTime();
+    const outcomes = [{ state: 'failed' }, { state: 'unavailable', reason: 'daily-cap' }, { state: 'done' }];
+    const describer = fakeMediaDescriber(clock, { outcome: () => outcomes.shift() });
+    const log = silentLog();
+    const recache = createGifRecache({ hot: mediaHot(), store, client: fakeClient([]), describer, now: clock.now, sleep: clock.sleep, log });
+    recache.startMedia('g1', { days: 7 });
+    await recache.waitIdle();
+    assert.equal(describer.calls.length, 2);
+    assert.deepEqual(log.entries.find((e) => e.message === 'media: recached').fields, { picked: 3, done: 0, failed: 1, unlocated: 0, stopped: 'daily-cap' });
+  });
+});
+
+test('media recache: refused while running (either run), paused, during a warmup, without a describer or with pictures off', async () => {
+  await withStore(async (store) => {
+    seed(store, [linkEntry(1)], { 'emoji:1': { text: 'a', ts: NOW - DAY } });
+    const clock = fakeTime();
+    const base = { hot: mediaHot(), store, client: fakeClient([rawGifMessage(1)]), now: clock.now, sleep: clock.sleep, log: silentLog() };
+    let release;
+    const gate = () => new Promise((resolve) => {
+      release = resolve;
+    });
+    const both = { ...fakeDescriber(store, { gate }), ...fakeMediaDescriber(clock) };
+    const busy = createGifRecache({ ...base, describer: both });
+    assert.equal(busy.start('g1').ok, true);
+    assert.deepEqual(busy.startMedia('g1', {}), { ok: false, reason: 'running' });
+    while (!release) await new Promise((resolve) => setImmediate(resolve));
+    release();
+    await busy.waitIdle();
+
+    assert.deepEqual(createGifRecache({ ...base, describer: fakeMediaDescriber(clock), isWarmingUp: () => true }).startMedia('g1', {}), { ok: false, reason: 'warmup' });
+    assert.deepEqual(createGifRecache({ ...base }).startMedia('g1', {}), { ok: false, reason: 'unavailable' });
+    assert.deepEqual(createGifRecache({ ...base, describer: fakeMediaDescriber(clock, { blocker: 'off' }) }).startMedia('g1', {}), { ok: false, reason: 'off' });
+    store.state.data.paused = true;
+    assert.deepEqual(createGifRecache({ ...base, describer: fakeMediaDescriber(clock) }).startMedia('g1', {}), { ok: false, reason: 'paused' });
+  });
 });

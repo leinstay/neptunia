@@ -1,12 +1,13 @@
-// Operations: `/nep media kind:emoji|gifs action:status|rescan|recache`: the custom emoji ranking and the GIF library, one operation per action with `kind`.
+// Operations: `/nep media kind:emoji|gifs|pictures action:status|rescan|recache`: the custom emoji ranking and the GIF library, one operation per action with `kind`;
+// `kind:pictures` only with `recache` (the media recache of src/memory/gif-recache.js#startMedia, `days` optional).
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { rankEmojiUsage } from '../memory/emoji-usage.js';
 import { rankGifs } from '../memory/gifs.js';
-import { gifCaptionCounts, gifFormatCounts } from '../memory/gif-recache.js';
+import { gifCaptionCounts, gifFormatCounts, RECACHE_DAYS } from '../memory/gif-recache.js';
 import { gifPostsToday, gifWatchesToday } from '../memory/gif-watch.js';
-import { NONE, todayUtc, backfillText, EMOJI_RESCAN_SKIPS, GIFS_RESCAN_SKIPS, GIFS_RECACHE_SKIPS } from './shared.js';
+import { NONE, todayUtc, backfillText, EMOJI_RESCAN_SKIPS, GIFS_RESCAN_SKIPS, GIFS_RECACHE_SKIPS, PICTURES_RECACHE_SKIPS } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 /** The handler of `args.kind` among `byKindHandlers`, or an `invalid` error naming the kinds. */
@@ -127,7 +128,31 @@ const handlers = perEnv((env) => {
     ].join('\n');
   }
 
-  return { cmdEmojiStatus, cmdEmojiRescan, cmdGifsStatus, cmdGifsRescan, cmdGifsRecache };
+  /** `/nep media kind:pictures action:recache days:<n>`: re-describes, in the background, the
+   * cached picture descriptions (GIFs, stickers and emoji included) last used within the last
+   * `days` (default 7, 1..60) that an older model wrote (src/memory/gif-recache.js#startMedia).
+   * Replies at once with how many were picked. Writes under data/, so refused while paused. */
+  function cmdPicturesRecache(args, context) {
+    if (typeof gifRecache?.startMedia !== 'function') return PICTURES_RECACHE_SKIPS.unavailable;
+    const days = args?.days ?? RECACHE_DAYS.default;
+    if (!Number.isInteger(days) || days < RECACHE_DAYS.min || days > RECACHE_DAYS.max) {
+      throw invalid(`days must be a whole number from ${RECACHE_DAYS.min} to ${RECACHE_DAYS.max}`);
+    }
+    assertNotPaused();
+    const guildId = requireGuildId(context);
+
+    const result = gifRecache.startMedia(guildId, { days });
+    if (!result.ok) {
+      if (result.reason === 'running') return 'A recache is already running: wait for it to finish.';
+      return skipText(PICTURES_RECACHE_SKIPS, result.reason, `not started (${result.reason})`);
+    }
+    return [
+      `Media recache started: ${result.picked} cached descriptions used in the last ${result.days} days and written by an older model are queued.`,
+      'They are described again one at a time in the background; a failure keeps the old description.',
+    ].join('\n');
+  }
+
+  return { cmdEmojiStatus, cmdEmojiRescan, cmdGifsStatus, cmdGifsRescan, cmdGifsRecache, cmdPicturesRecache };
 });
 
 defineOp({
@@ -143,5 +168,5 @@ defineOp({
 defineOp({
   name: 'media.recache',
   rights: { kind: 'write' },
-  run: (args, ctx) => byKind(args, { gifs: handlers(ctx.env).cmdGifsRecache })(args, ctx),
+  run: (args, ctx) => byKind(args, { gifs: handlers(ctx.env).cmdGifsRecache, pictures: handlers(ctx.env).cmdPicturesRecache })(args, ctx),
 });

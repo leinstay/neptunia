@@ -594,6 +594,13 @@ export const GIFS_RECACHE_SKIPS = {
   'no-prompt': 'GIFs are not watched: the describe-video prompt is missing.',
 };
 
+/** Why `/nep media kind:pictures action:recache` did not start, by src/memory/gif-recache.js#startMedia's skip reason. */
+export const PICTURES_RECACHE_SKIPS = {
+  unavailable: 'the media recache is not available',
+  off: 'Pictures are not described (features.mediaDescriptions is off).',
+  'no-prompt': 'Pictures are not described: the describe prompt is missing.',
+};
+
 // ---------------------------------------------------------------------------
 // Pure line formatters shared by several operations
 // ---------------------------------------------------------------------------

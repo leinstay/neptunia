@@ -251,9 +251,9 @@ test('skills derived: the real tree -- every schema is generated from the slash 
   assert.deepEqual(Object.keys(schema.properties), leaf.options.map((option) => option.name));
   assert.deepEqual(schema.required, leaf.options.filter((option) => option.required).map((option) => option.name));
   assert.deepEqual(schema.properties.section.enum, leaf.options.find((option) => option.name === 'section').choices.map((choice) => choice.value));
-  // `/nep media action:status`: the action is the skill, the kind its one argument
+  // `/nep media action:status`: the action is the skill, the kind and the days (read by the pictures recache only) its arguments
   assert.deepEqual(skillRegistry().get('media.status').command.fixed, { action: 'status' });
-  assert.deepEqual(Object.keys(skillRegistry().get('media.status').argsSchema.properties), ['kind']);
+  assert.deepEqual(Object.keys(skillRegistry().get('media.status').argsSchema.properties), ['kind', 'days']);
   // `/nep diary post`: kind and topic, as the command offers them
   assert.deepEqual(skillRegistry().get('diary.post').argsSchema.properties, { kind: { type: 'string', minLength: 1, maxLength: 6000 }, topic: { type: 'string', minLength: 1, maxLength: 1000 } });
   // `/nep message create`: a channel and a message to answer, and her own text, required, the body of her call
