@@ -13,7 +13,8 @@
 // memory) is computed at most once a minute: directory listings and the record's month indexes,
 // never its day files. The speed field reads src/ops/metrics.js (the last 24 h), then today's
 // missed-answer figures from the journal (src/behavior/missed.js). The costs field reads the API
-// key's limit and the credits (two free GETs) and today's per-role accumulator (src/ops/usage.js).
+// key's limit and the credits (two free GETs, one more per extra role key) and the per-role
+// accumulator: rolling 7/30-day sums per key and today by role (src/ops/usage.js).
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -542,8 +543,10 @@ const handlers = perEnv((env) => {
    * The owner's costs field (src/ops/usage.js#costsLines, every word from `labels.status.costs`):
    * the API key's limit and spend and the account's credits, two free GETs in parallel
    * (`llm.keyInfo`, `llm.credits`; `llm.probeTimeoutMs`, never counted against
-   * `llm.maxRequestsPerDay`), then today's requests per role from the usage accumulator. Logs
-   * `status: account read` with the two outcomes' codes. `-` when the labels give no line.
+   * `llm.maxRequestsPerDay`), alongside the record of each extra key `llm.keyByRole` puts in use
+   * (`llm.roleKeys`, read by role, never holding a key here), then the rolling 7- and 30-day sums
+   * of each key's roles and today's requests per role from the usage accumulator. Logs
+   * `status: account read` with the outcomes' codes. `-` when the labels give no line.
    */
   async function costsValue(cfg) {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
@@ -551,15 +554,24 @@ const handlers = perEnv((env) => {
     const simKey = typeof env.simKey === 'string' && env.simKey ? env.simKey : null;
     // The simulator key is used for this one read only, never for a model request.
     const readSim = simKey && typeof llm?.keyInfo === 'function' ? readAccount(() => llm.keyInfo({ timeoutMs, apiKey: simKey })) : null;
-    const [key, credits, sim] = await Promise.all([read('keyInfo'), read('credits'), readSim]);
+    const groups = typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
+    const readRoleKeys = Promise.all(groups.map((group) => readAccount(() => llm.keyInfo({ timeoutMs, role: group.roles[0] }))));
+    const [key, credits, sim, roleReads] = await Promise.all([read('keyInfo'), read('credits'), readSim, readRoleKeys]);
     log.info('status: account read', {
       key: key.ok ? 'ok' : key.reason,
       simKey: sim ? (sim.ok ? 'ok' : sim.reason) : 'not-set',
       credits: credits.ok ? 'ok' : credits.reason,
+      roleKeys: roleReads.length,
+      roleKeysOk: roleReads.filter((outcome) => outcome.ok).length,
       status: key.status ?? credits.status ?? null,
     });
     const rows = typeof usage?.byRole === 'function' ? usage.byRole() : [];
-    const lines = costsLines({ key, sim, credits, rows, labels: hot.prompts?.labels });
+    // Rolling sums per key: an extra key over its own roles, the main key over every other role.
+    const sums = typeof usage?.sumDays === 'function';
+    const windowsOf = (filter) => (sums ? { last7: usage.sumDays(7, filter), last30: usage.sumDays(30, filter) } : null);
+    const taken = groups.flatMap((group) => group.roles);
+    const roleKeys = groups.map((group, i) => ({ roles: group.roles, key: roleReads[i], windows: windowsOf({ only: group.roles }) }));
+    const lines = costsLines({ key, sim, credits, rows, labels: hot.prompts?.labels, windows: windowsOf({ except: taken }), roleKeys });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 

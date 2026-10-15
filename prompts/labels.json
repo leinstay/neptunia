@@ -256,6 +256,8 @@
       "keyLead": "key",
       "simKeyLead": "simulator key",
       "simKeyNotSet": "simulator key: not set",
+      "roleKeyLead": "{roles} key",
+      "roleSeparator": ", ",
       "keyLimit": "{lead} limit: {spent} / {limit} USD ({notes})",
       "keyLimitPlain": "{lead} limit: {spent} / {limit} USD",
       "keyNone": "{lead} limit: none (used {used} USD total)",
@@ -274,8 +276,9 @@
       "noteSeparator": "; ",
       "usage": "usage: {parts} USD",
       "usageToday": "today {usd}",
-      "usageWeek": "week {usd}",
-      "usageMonth": "month {usd}",
+      "last7": "last 7 days {usd}{since}",
+      "last30": "last 30 days {usd}{since}",
+      "since": " (since {day})",
       "partSeparator": " · ",
       "credits": "credits: {left} USD left ({bought} bought, {used} used)",
       "creditsUnavailable": "credits: unavailable ({reason})",
@@ -288,8 +291,9 @@
       },
       "byRoleHeader": "today by role (UTC):",
       "byRoleEmpty": "today by role: no requests yet",
-      "role": "{role} · {requests} req · in {in} (cached {cached}) · out {out} · {cost} USD",
-      "total": "total · {requests} req · in {in} (cached {cached}) · out {out} · {cost} USD"
+      "role": "{role} · {requests} req · in {in} (cached {cached}) · out {out} · {cost} USD{avg}",
+      "total": "total · {requests} req · in {in} (cached {cached}) · out {out} · {cost} USD{avg}",
+      "avg": " · avg {usd} USD"
     }
   },
   "warmup": {

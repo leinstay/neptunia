@@ -105,6 +105,7 @@
     "maxRequestsPerDay": 5000,
     "provider": null,
     "providerByModel": {},
+    "keyByRole": {},
     "cache": { "ttl": "1h", "profilesTtl": "1h", "roles": ["voice"], "models": ["anthropic/"], "promptIncludesCached": true },
     "hedge": { "roles": ["analyzer", "reasoner"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
   },

@@ -183,3 +183,41 @@ test('ops: a stored grant on a command or group that runs no operation any more 
   for (const key of ['ping', 'reload', 'learned.list', 'removed', 'removed.run']) assert.equal(legacyGrantOps(key), null, key);
   assert.deepEqual(legacyGrantOps('status'), { from: null, names: ['status.show'] });
 });
+
+test('createOpsEnv: the simulator key and the extra role keys reach the owner status card', async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ops-'));
+  const costs = {
+    keyLead: 'main',
+    simKeyLead: 'sim',
+    simKeyNotSet: 'sim: not set',
+    roleKeyLead: '{roles} key',
+    keyLimitPlain: '{lead} {spent}/{limit}',
+    keyNonePlain: '{lead} none',
+    keyUnavailable: '{lead} unavailable',
+  };
+  const hot = {
+    config: { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 } },
+    prompts: { labels: { status: { costs } } },
+    promptSources: {},
+    rootDir,
+  };
+  const store = { state: { data: {}, markDirty() {} }, flush() {} };
+  const reads = [];
+  const llm = {
+    roleKeys: () => [{ roles: ['voice'] }],
+    async keyInfo(options) {
+      reads.push(options.apiKey ?? options.role ?? 'main');
+      const limit = options.apiKey ? 5 : options.role ? 200 : 30;
+      return { ok: true, status: 200, json: { data: { limit, limit_remaining: limit } } };
+    },
+    async credits() {
+      return { ok: true, status: 200, json: { data: {} } };
+    },
+  };
+  const env = createOpsEnv({ hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key' });
+  assert.equal(env.simKey, 'sim-test-key');
+  const result = await runOp('status.show', {}, { env, guildId: null, userId: '42', roleIds: [] });
+  const value = result.data.embeds[0].fields.find((field) => field.name === 'costs').value;
+  assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'voice key 0.00/200.00']);
+  assert.deepEqual(reads.sort(), ['main', 'sim-test-key', 'voice']);
+});
