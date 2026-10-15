@@ -314,6 +314,8 @@
     "cacheEntries": 5000,
     "filePreviewChars": 10000,
     "embedTextChars": 200,
+    "recacheBefore": null,
+    "recacheIntervalMs": 3000,
     "gif": { "watch": true, "maxSeconds": 15, "maxPerDay": 200 },
     "video": {
       "provider": { "order": ["google-ai-studio"], "allow_fallbacks": false },

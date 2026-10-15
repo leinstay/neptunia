@@ -83,9 +83,9 @@ const ARCHIVE_CHOICES = 25;
  *   `force`, awaited by `/nep gifs rescan`) and `isRunning` (a note in `/nep gifs status`).
  *   Absent -> `/nep gifs rescan` reports it is not available; `/nep gifs status` still works.
  * `gifRecache` — from createGifRecache() (src/memory/gif-recache.js), optional: `start` (started by
- *   `/nep gifs recache`, never awaited to the end), `isRunning` (a note in `/nep gifs status`) and
- *   `waitIdle` (`/nep pause` waits for a run in flight). Absent -> `/nep gifs recache` reports it is
- *   not available.
+ *   `/nep gifs recache`, never awaited to the end), `startMedia` (the same for `/nep media
+ *   kind:pictures action:recache`), `isRunning` (a note in `/nep gifs status`) and `waitIdle`
+ *   (`/nep pause` waits for a run in flight). Absent -> either recache reports it is not available.
  * `diary` — from createDiary() (src/behavior/diary.js), optional: `force({ kind })` (`/nep diary post`)
  *   and `status()` (`/nep diary show`, the plan in the `set` reply). Absent -> `show` prints the
  *   channel and the history size only, and `post` reports the diary is not running.

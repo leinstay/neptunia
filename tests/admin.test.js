@@ -578,7 +578,8 @@ test('run: model.show ignores the deprecated keys of an old config.local.json', 
 test('run: model.set writes the roles path of each role', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
-  const { admin } = makeAdmin(rootDir, { hot });
+  const changedAt = Date.UTC(2026, 9, 15, 9, 30);
+  const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
 
   await admin.run('model.set', { role: 'voice', id: 'anthropic/claude-opus-4.6' }, {});
   assert.deepEqual(readLocal(rootDir), { roles: { voice: 'anthropic/claude-opus-4.6' } });
@@ -601,8 +602,39 @@ test('run: model.set writes the roles path of each role', async () => {
       embedding: 'openai/text-embedding-3-small',
       drawing: 'openai/gpt-image-x',
     },
+    // The video model changed (the vision one was set to the model it already had).
+    media: { recacheBefore: new Date(changedAt).toISOString() },
   });
   assert.equal(hot.reloadConfigCalls, 8);
+});
+
+test('run: model.set vision or video sets media.recacheBefore to the moment of the change and says so; other roles never do', async () => {
+  const changedAt = Date.UTC(2026, 9, 15, 9, 30);
+  const iso = new Date(changedAt).toISOString();
+  for (const role of ['vision', 'video']) {
+    const rootDir = makeRoot();
+    const hot = makeHotWithMedia(rootDir);
+    const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
+    const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
+    assert.deepEqual(readLocal(rootDir), { roles: { [role]: 'google/a-new-model' }, media: { recacheBefore: iso } }, role);
+    assert.equal(hot.reloadConfigCalls, 1, `${role}: one write, one reload`);
+    assert.match(reply, /^Set (vision|video) model to google\/a-new-model \(reload ok\)\n/);
+    assert.ok(reply.includes(`media.recacheBefore set to ${iso}`), role);
+  }
+  for (const role of ['voice', 'analyzer', 'reasoner', 'extractor', 'embedding', 'drawing']) {
+    const rootDir = makeRoot();
+    const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => changedAt });
+    const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
+    assert.equal(readLocal(rootDir).media, undefined, role);
+    assert.ok(!reply.includes('recacheBefore'), role);
+  }
+});
+
+test('run: model.set vision to the model it already has leaves media.recacheBefore alone', async () => {
+  const rootDir = makeRoot();
+  const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
+  await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5' }, {});
+  assert.deepEqual(readLocal(rootDir), { roles: { vision: 'anthropic/claude-haiku-4.5' } });
 });
 
 test('run: model.set rejects an unknown role and the old role names, and writes nothing', async () => {
@@ -630,10 +662,10 @@ test('run: model.set rejects an id that does not look like a model id', async ()
 
 test('run: model.set accepts a loosely-valid id (letters, digits, dot, colon, slash, dash, underscore)', async () => {
   const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
+  const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => 0 });
 
   await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5:beta' }, {});
-  assert.deepEqual(readLocal(rootDir), { roles: { vision: 'anthropic/claude-haiku-4.5:beta' } });
+  assert.deepEqual(readLocal(rootDir), { roles: { vision: 'anthropic/claude-haiku-4.5:beta' }, media: { recacheBefore: new Date(0).toISOString() } });
 });
 
 test('model show: the voice role is roles.voice, never the extractor or a stale memory.voiceModel; no talk line', async () => {
@@ -3335,6 +3367,51 @@ test('run: gifs.recache is refused while paused and without the recache; pause w
 
   const { admin: bare } = makeAdmin(rootDir);
   assert.equal(await bare.run('media', { kind: 'gifs', action: 'recache' }, { guildId: 'g1' }), 'the GIF recache is not available');
+});
+
+// media kind:pictures action:recache -- the cached descriptions of an older model described again
+
+function fakeMediaRecache(result = { ok: true, picked: 12, days: 7 }) {
+  return {
+    calls: [],
+    start() {
+      throw new Error('the GIF run is not asked for');
+    },
+    startMedia(guildId, options) {
+      this.calls.push({ guildId, options });
+      return typeof result === 'function' ? result(options) : result;
+    },
+    isRunning: () => false,
+    async waitIdle() {},
+  };
+}
+
+test('run: media pictures recache starts the media run with days (default 7) and replies at once with how many are queued', async () => {
+  const rootDir = makeRoot();
+  const gifRecache = fakeMediaRecache((options) => ({ ok: true, picked: 12, days: options.days }));
+  const { admin } = makeAdmin(rootDir, { gifRecache });
+
+  const reply = await admin.run('media', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' });
+  assert.deepEqual(gifRecache.calls[0], { guildId: 'g1', options: { days: 7 } });
+  assert.match(reply, /^Media recache started: 12 cached descriptions used in the last 7 days/);
+  await admin.run('media', { kind: 'pictures', action: 'recache', days: 30 }, { guildId: 'g1' });
+  assert.deepEqual(gifRecache.calls[1].options, { days: 30 });
+});
+
+test('run: media pictures recache refuses days out of 1..60, a run in flight, pictures off; status and rescan have no pictures kind', async () => {
+  const rootDir = makeRoot();
+  const { admin } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache() });
+  for (const days of [0, 61, 2.5, '7']) {
+    await assert.rejects(() => admin.run('media', { kind: 'pictures', action: 'recache', days }, { guildId: 'g1' }), /days must be a whole number from 1 to 60/, String(days));
+  }
+  await assert.rejects(() => admin.run('media', { kind: 'pictures', action: 'status' }, { guildId: 'g1' }), /kind must be one of: emoji, gifs/);
+
+  const { admin: busy } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache({ ok: false, reason: 'running' }) });
+  assert.match(await busy.run('media', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }), /already running/);
+  const { admin: off } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache({ ok: false, reason: 'off' }) });
+  assert.match(await off.run('media', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }), /features\.mediaDescriptions is off/);
+  const { admin: bare } = makeAdmin(rootDir);
+  assert.equal(await bare.run('media', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }), 'the media recache is not available');
 });
 
 // ---------------------------------------------------------------------------

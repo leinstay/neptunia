@@ -200,12 +200,16 @@ export const COMMAND_TABLE = Object.freeze([
   },
   {
     name: 'media',
-    description: 'The custom emoji ranking and the GIF library.',
+    description: 'The custom emoji ranking, the GIF library and the picture descriptions.',
     options: [
-      { type: STRING, name: 'kind', description: 'emoji or gifs.', required: true, choices: choicesOf(['emoji', 'gifs']) },
-      { type: STRING, name: 'action', description: 'status; rescan recounts from history; recache re-describes GIFs.', required: true, choices: choicesOf(['status', 'rescan', 'recache']) },
+      { type: STRING, name: 'kind', description: 'emoji, gifs, or pictures (recache only).', required: true, choices: choicesOf(['emoji', 'gifs', 'pictures']) },
+      { type: STRING, name: 'action', description: 'status; rescan recounts from history; recache re-describes.', required: true, choices: choicesOf(['status', 'rescan', 'recache']) },
+      { type: INTEGER, name: 'days', description: 'pictures recache: descriptions used in the last N days (default 7).', required: false, min_value: 1, max_value: 60 },
     ],
-    args: (options) => ({ kind: options.getString('kind', true), action: options.getString('action', true) }),
+    args: (options) => {
+      const days = options.getInteger('days');
+      return { kind: options.getString('kind', true), action: options.getString('action', true), ...(days == null ? {} : { days }) };
+    },
   },
   {
     name: 'model',

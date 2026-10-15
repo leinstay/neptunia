@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createStore } from '../src/memory/store.js';
-import { createDescriber, parseGifDescription, videoStateFromCache } from '../src/memory/describe.js';
+import { createDescriber, isStaleDescription, parseGifDescription, recacheCutoffMs, videoStateFromCache } from '../src/memory/describe.js';
 import { createHash } from 'node:crypto';
 import { createLlm, helperRequestOptions, TokenLimitError, DailyCapError, VIDEO_TOKENS_PER_SECOND_FALLBACK } from '../src/llm/openrouter.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
@@ -2522,8 +2522,8 @@ test('describe: pictures and videos are untouched by the GIF watch', async () =>
   await run.describer.describe('g1', pictureItem('v1', { source: 'attachment', kind: 'video', url: 'https://cdn.discordapp.com/x/clip.mp4' }));
   assert.equal(run.videoFetcher.calls.length, 0);
   assert.equal(run.imageFetcher.calls.length, 2);
-  assert.deepEqual(Object.keys(run.store.getMediaCache('g1').p1).sort(), ['text', 'ts']);
-  assert.deepEqual(Object.keys(run.store.getMediaCache('g1').v1).sort(), ['text', 'ts']);
+  assert.deepEqual(Object.keys(run.store.getMediaCache('g1').p1).sort(), ['describedAt', 'model', 'text', 'ts']);
+  assert.deepEqual(Object.keys(run.store.getMediaCache('g1').v1).sort(), ['describedAt', 'model', 'text', 'ts']);
   assert.ok(run.llm.calls.every((c) => c.options.role === 'vision'));
 
   const video = await run.describer.describeVideo('g1', videoAttachment());
@@ -2722,8 +2722,8 @@ test('describe: a three-field GIF answer is cached as text, reaction, action and
   assert.equal(result.text, 'a cat lifts its chin');
   const entry = store.getMediaCache('g1')['m1#e0'];
   assert.deepEqual(
-    { ...entry, ts: 0 },
-    { text: 'a cat lifts its chin', reaction: 'firm agreement', action: 'a cat lifts its chin', screen: 'yes.', ts: 0, watched: true, gif: true },
+    { ...entry, ts: 0, describedAt: 0 },
+    { text: 'a cat lifts its chin', reaction: 'firm agreement', action: 'a cat lifts its chin', screen: 'yes.', ts: 0, watched: true, gif: true, describedAt: 0, model: 'x/video-model' },
   );
 });
 
@@ -2860,4 +2860,246 @@ test('describeVideo: media.video.proxy reaches the probe and the clip only for a
     assert.deepEqual(videoFetcher.calls.map((c) => c.fn), ['probeSite', 'fetchSiteClip'], url);
     for (const call of videoFetcher.calls) assert.equal(call.options.proxy, expected, `${call.fn} ${url}`);
   }
+});
+
+// --- media.recacheBefore: provenance and staleness ------------------------------
+
+const CUTOFF_ISO = '2026-10-15T00:00:00.000Z';
+const CUTOFF = Date.parse(CUTOFF_ISO);
+const HOUR = 60 * 60 * 1000;
+
+/** A clock the test moves by hand. */
+function handClock(start) {
+  const clock = { at: start, now: () => clock.at };
+  return clock;
+}
+
+test('recacheCutoffMs: an ISO date-time as ms; null, a missing key or an invalid value is off', () => {
+  assert.equal(recacheCutoffMs({ media: { recacheBefore: CUTOFF_ISO } }), CUTOFF);
+  assert.equal(recacheCutoffMs({ media: { recacheBefore: null } }), null);
+  assert.equal(recacheCutoffMs({ media: {} }), null);
+  assert.equal(recacheCutoffMs({}), null);
+  assert.equal(recacheCutoffMs({ media: { recacheBefore: 'not a date' } }), null);
+  assert.equal(recacheCutoffMs({ media: { recacheBefore: 12 } }), null);
+});
+
+test('isStaleDescription: missing or earlier describedAt is stale; at or after the cutoff is not; no cutoff never is', () => {
+  assert.equal(isStaleDescription({ text: 'a', ts: 1 }, CUTOFF), true, 'missing');
+  assert.equal(isStaleDescription({ text: 'a', ts: 1, describedAt: CUTOFF - 1 }, CUTOFF), true, 'earlier');
+  assert.equal(isStaleDescription({ text: 'a', ts: 1, describedAt: CUTOFF }, CUTOFF), false, 'at');
+  assert.equal(isStaleDescription({ text: 'a', ts: 1, describedAt: CUTOFF + 1 }, CUTOFF), false, 'later');
+  assert.equal(isStaleDescription({ text: 'a', ts: 1 }, null), false, 'recacheBefore null');
+});
+
+test('describe: a new picture entry carries describedAt (ms) and the model used', async () => {
+  const store = createStore({ dataDir: tmpDataDir() });
+  const llm = fakeLlm({ text: 'une tasse' });
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher(), now: () => 5_000 });
+  await describer.describe('g1', pictureItem('a1'));
+  const entry = store.getMediaCache('g1').a1;
+  assert.equal(entry.describedAt, 5_000);
+  assert.equal(entry.model, 'x/haiku');
+  assert.equal(entry.model, llm.calls[0].options.model);
+});
+
+test('describe: with media.recacheBefore null an old entry is served from the cache', async () => {
+  const store = createStore({ dataDir: tmpDataDir() });
+  store.getMediaCache('g1').a1 = { text: 'une vieille photo', ts: 1 };
+  const llm = fakeLlm({ text: 'new' });
+  const imageFetcher = fakeImageFetcher();
+  const describer = createDescriber({ hot: fakeHot({ config: { media: { recacheBefore: null, cacheEntries: 5000 } } }), store, llm, imageFetcher, now: () => CUTOFF + HOUR });
+  const result = await describer.describe('g1', pictureItem('a1'));
+  assert.equal(result.text, 'une vieille photo');
+  assert.equal(result.cached, true);
+  assert.equal(llm.calls.length, 0);
+  assert.equal(imageFetcher.calls.length, 0);
+});
+
+test('describe: with media.recacheBefore set, an entry described before it (or never stamped) is described again; a later one is served', async () => {
+  const store = createStore({ dataDir: tmpDataDir() });
+  const cache = store.getMediaCache('g1');
+  cache.old = { text: 'une vieille photo', ts: 1 };
+  cache.earlier = { text: 'une photo', ts: 2, describedAt: CUTOFF - 1, model: 'x/old' };
+  cache.fresh = { text: 'une photo récente', ts: 3, describedAt: CUTOFF + 1, model: 'x/haiku' };
+  const llm = fakeLlm({ text: 'une nouvelle description' });
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO, cacheEntries: 5000 } } });
+  const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => CUTOFF + HOUR });
+
+  assert.equal((await describer.describe('g1', pictureItem('old'))).text, 'une nouvelle description');
+  assert.equal((await describer.describe('g1', pictureItem('earlier'))).text, 'une nouvelle description');
+  const fresh = await describer.describe('g1', pictureItem('fresh'));
+  assert.equal(fresh.text, 'une photo récente');
+  assert.equal(fresh.cached, true);
+  assert.equal(llm.calls.length, 2);
+  assert.equal(cache.old.describedAt, CUTOFF + HOUR);
+  assert.equal(cache.old.model, 'x/haiku');
+  // Described again now: served from the cache from here on.
+  assert.equal((await describer.describe('g1', pictureItem('old'))).cached, true);
+  assert.equal(llm.calls.length, 2);
+});
+
+test('describe: a stale entry whose new description fails keeps its old text and is not retried until the miss TTL', async () => {
+  const store = createStore({ dataDir: tmpDataDir() });
+  const cache = store.getMediaCache('g1');
+  cache.a1 = { text: 'une vieille photo', ts: 1 };
+  const clock = handClock(CUTOFF + HOUR);
+  const llm = fakeLlm([new Error('boom'), { text: 'enfin' }]);
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO, cacheEntries: 5000 } } });
+  const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: clock.now });
+
+  const failed = await describer.describe('g1', pictureItem('a1'));
+  assert.equal(failed.text, 'une vieille photo', 'better a stale description than none');
+  assert.equal(cache.a1.text, 'une vieille photo');
+  assert.equal(cache.a1.miss, undefined);
+  assert.equal(llm.calls.length, 1);
+
+  clock.at += 30 * 60 * 1000;
+  assert.equal((await describer.describe('g1', pictureItem('a1'))).text, 'une vieille photo');
+  assert.equal(llm.calls.length, 1, 'not retried within the hour');
+
+  clock.at += 31 * 60 * 1000;
+  assert.equal((await describer.describe('g1', pictureItem('a1'))).text, 'enfin');
+  assert.equal(llm.calls.length, 2);
+  assert.equal(cache.a1.describedAt, clock.at);
+});
+
+test('describe: a stale entry whose download fails keeps its old text', async () => {
+  const store = createStore({ dataDir: tmpDataDir() });
+  store.getMediaCache('g1').a1 = { text: 'une vieille photo', ts: 1 };
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO, cacheEntries: 5000 } } });
+  const describer = createDescriber({ hot, store, llm: fakeLlm({ text: 'x' }), imageFetcher: fakeImageFetcher(null), now: () => CUTOFF + HOUR });
+  assert.equal((await describer.describe('g1', pictureItem('a1'))).text, 'une vieille photo');
+  assert.equal(store.getMediaCache('g1').a1.text, 'une vieille photo');
+});
+
+test('describe: a stale entry with the daily request cap spent is served as it is, nothing downloaded', async () => {
+  const store = createStore({ dataDir: tmpDataDir() });
+  store.getMediaCache('g1').a1 = { text: 'une vieille photo', ts: 1 };
+  const llm = cappedLlm(0);
+  const imageFetcher = fakeImageFetcher();
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO, cacheEntries: 5000 } } });
+  const describer = createDescriber({ hot, store, llm, imageFetcher, now: () => CUTOFF + HOUR });
+  assert.equal((await describer.describe('g1', pictureItem('a1'))).text, 'une vieille photo');
+  const many = await describer.describeMany('g1', [pictureItem('a1')], { maxNew: 6 });
+  assert.equal(many.descriptions.get('a1'), 'une vieille photo');
+  assert.equal(imageFetcher.calls.length, 0);
+  assert.equal(llm.calls.length, 0);
+});
+
+test('describeMany: stale entries count toward maxNew; past it their old text is served', async () => {
+  const store = createStore({ dataDir: tmpDataDir() });
+  const cache = store.getMediaCache('g1');
+  cache.s1 = { text: 'vieux un', ts: 1 };
+  cache.s2 = { text: 'vieux deux', ts: 1 };
+  const llm = fakeLlm({ text: 'neuf' });
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO, cacheEntries: 5000 } } });
+  const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => CUTOFF + HOUR });
+  const charged = [];
+  const { descriptions, newCount } = await describer.describeMany('g1', [pictureItem('s1'), pictureItem('s2')], { maxNew: 1, onCharge: (r) => charged.push(r) });
+  assert.equal(newCount, 1);
+  assert.equal(descriptions.get('s1'), 'neuf');
+  assert.equal(descriptions.get('s2'), 'vieux deux');
+  assert.equal(llm.calls.length, 1);
+  assert.equal(charged.length, 1);
+});
+
+test('describe: a watched GIF entry carries describedAt and the video model', async () => {
+  const run = gifDescriber({ now: () => 9_000 });
+  await run.describer.describe('g1', gifEmbedItem());
+  const entry = run.store.getMediaCache('g1')['m1#e0'];
+  assert.equal(entry.watched, true);
+  assert.equal(entry.describedAt, 9_000);
+  assert.equal(entry.model, 'x/video-model');
+});
+
+test('describe: a stale watched GIF is watched again; a failed watch keeps the watched text, never one frame', async () => {
+  const hot = gifHot({ media: { recacheBefore: CUTOFF_ISO } });
+  const ok = gifDescriber({ hot, now: () => CUTOFF + HOUR });
+  ok.store.getMediaCache('g1')['m1#e0'] = { ...WATCHED_GIF_ENTRY };
+  assert.equal((await ok.describer.describe('g1', gifEmbedItem())).text, 'a man pulls a child back as a train rushes past');
+  assert.equal(ok.store.getMediaCache('g1')['m1#e0'].describedAt, CUTOFF + HOUR);
+
+  const failing = gifDescriber({ hot, videoFetcher: gifFetcher({ ok: false, reason: 'tool' }), now: () => CUTOFF + HOUR });
+  failing.store.getMediaCache('g1')['m1#e0'] = { ...WATCHED_GIF_ENTRY };
+  const kept = await failing.describer.describe('g1', gifEmbedItem());
+  assert.equal(kept.text, WATCHED_GIF_ENTRY.text);
+  const entry = failing.store.getMediaCache('g1')['m1#e0'];
+  assert.equal(entry.watched, true);
+  assert.equal(entry.text, WATCHED_GIF_ENTRY.text);
+  assert.equal(failing.imageFetcher.calls.length, 0, 'no one-frame fallback over a watched caption');
+  assert.equal(failing.llm.calls.length, 0);
+});
+
+test('describeVideo: a watched entry carries describedAt and the video model', async () => {
+  const { describer, store } = videoDescriber({ now: () => 4_000 });
+  await describer.describeVideo('g1', videoAttachment());
+  const entry = store.getMediaCache('g1')['video:v1'];
+  assert.equal(entry.describedAt, 4_000);
+  assert.equal(entry.model, 'x/video-model');
+});
+
+test('describeVideo: with media.recacheBefore set a stale summary is watched again; the cache-only read serves the old one', async () => {
+  const hot = videoHot();
+  hot.config.media.recacheBefore = CUTOFF_ISO;
+  const { describer, store, llm } = videoDescriber({ hot, now: () => CUTOFF + HOUR });
+  store.getMediaCache('g1')['video:v1'] = { text: 'une vieille vidéo', ts: 1, watched: true };
+  const cachedOnly = await describer.cachedVideos('g1', [videoAttachment()]);
+  assert.equal(cachedOnly.get('v1').text, 'une vieille vidéo');
+  assert.equal(llm.calls.length, 0);
+  const result = await describer.describeVideo('g1', videoAttachment());
+  assert.equal(result.text, 'someone dances');
+  assert.equal(store.getMediaCache('g1')['video:v1'].describedAt, CUTOFF + HOUR);
+});
+
+test('describeVideo: a stale summary whose watch fails keeps its text and waits errorRetryMinutes', async () => {
+  const hot = videoHot();
+  hot.config.media.recacheBefore = CUTOFF_ISO;
+  const clock = handClock(CUTOFF + HOUR);
+  const { describer, store, llm, state } = videoDescriber({ hot, llm: fakeLlm([new Error('boom'), { text: 'enfin' }]), now: clock.now });
+  store.getMediaCache('g1')['video:v1'] = { text: 'une vieille vidéo', ts: 1, watched: true };
+  const kept = await describer.describeVideo('g1', videoAttachment());
+  assert.equal(kept.state, 'watched');
+  assert.equal(kept.text, 'une vieille vidéo');
+  assert.equal(store.getMediaCache('g1')['video:v1'].text, 'une vieille vidéo');
+  assert.equal(store.getMediaCache('g1')['video:v1'].miss, undefined);
+
+  clock.at += 30 * 60 * 1000;
+  assert.equal((await describer.describeVideo('g1', videoAttachment())).text, 'une vieille vidéo');
+  assert.equal(llm.calls.length, 1, 'not retried within errorRetryMinutes');
+
+  clock.at += 31 * 60 * 1000;
+  assert.equal((await describer.describeVideo('g1', videoAttachment())).text, 'enfin');
+  assert.equal(state.data.videoCount, 2, 'each attempt takes a daily video slot');
+});
+
+test('describeVideo: a stale summary with the daily video rail spent is served as it is', async () => {
+  const hot = videoHot({ video: { maxPerDay: 0 } });
+  hot.config.media.recacheBefore = CUTOFF_ISO;
+  const { describer, store, videoFetcher } = videoDescriber({ hot, now: () => CUTOFF + HOUR });
+  store.getMediaCache('g1')['video:v1'] = { text: 'une vieille vidéo', ts: 1, watched: true };
+  const result = await describer.describeVideo('g1', videoAttachment());
+  assert.equal(result.text, 'une vieille vidéo');
+  assert.equal(videoFetcher.calls.length, 0);
+});
+
+test('redescribe: describes a picture again whatever its cache holds; a failure keeps the old text; a spent cap is unavailable', async () => {
+  const store = createStore({ dataDir: tmpDataDir() });
+  const cache = store.getMediaCache('g1');
+  cache.a1 = { text: 'par un vieux modèle', ts: 1, describedAt: 1, model: 'x/old' };
+  cache.a2 = { text: 'garde-moi', ts: 1 };
+  const llm = fakeLlm([{ text: 'par le nouveau' }, new Error('boom')]);
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher(), now: () => 7_000 });
+
+  assert.deepEqual(await describer.redescribe('g1', pictureItem('a1')), { state: 'done' });
+  assert.equal(cache.a1.text, 'par le nouveau');
+  assert.equal(cache.a1.model, 'x/haiku');
+  assert.deepEqual(await describer.redescribe('g1', pictureItem('a2')), { state: 'failed' });
+  assert.equal(cache.a2.text, 'garde-moi');
+
+  const spent = createDescriber({ hot: fakeHot(), store, llm: cappedLlm(0), imageFetcher: fakeImageFetcher() });
+  assert.deepEqual(await spent.redescribe('g1', pictureItem('a1')), { state: 'unavailable', reason: 'daily-cap' });
+  const off = createDescriber({ hot: fakeHot({ config: { features: { mediaDescriptions: false } } }), store, llm, imageFetcher: fakeImageFetcher() });
+  assert.deepEqual(await off.redescribe('g1', pictureItem('a1')), { state: 'unavailable', reason: 'off' });
+  assert.equal(off.pictureBlocker(), 'off');
+  assert.equal(describer.pictureBlocker(), null);
 });

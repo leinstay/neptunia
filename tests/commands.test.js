@@ -102,7 +102,8 @@ test('buildCommandTree: the exact top-level list (18 entries, no warmup, no skil
   assert.equal(JSON.stringify(command).includes('personaOptions'), false);
   assert.deepEqual(choices(findOption(findOption(message.options, 'react').options, 'action')), ['add', 'remove']);
   const media = findOption(command.options, 'media');
-  assert.deepEqual(choices(findOption(media.options, 'kind')), ['emoji', 'gifs']);
+  assert.deepEqual(choices(findOption(media.options, 'kind')), ['emoji', 'gifs', 'pictures']);
+  assert.deepEqual([findOption(media.options, 'days').required, findOption(media.options, 'days').min_value, findOption(media.options, 'days').max_value], [false, 1, 60]);
   assert.deepEqual(choices(findOption(media.options, 'action')), ['status', 'rescan', 'recache']);
   const privateMemory = findOption(findOption(command.options, 'memory').options, 'private');
   assert.deepEqual(choices(findOption(privateMemory.options, 'action')), ['show', 'forget', 'purge']);
@@ -658,6 +659,9 @@ test('interaction handler: media kind:gifs action:recache replies at once, its w
   assert.equal(admin.runCalls[0][0], 'media');
   assert.deepEqual(admin.runCalls[0][1], { kind: 'gifs', action: 'recache' });
   assert.ok(!recache.replies.some((r) => r.deferred));
+
+  await handler(fakeInteraction({ subcommand: 'media', optionValues: { kind: 'pictures', action: 'recache', days: 30 } }));
+  assert.deepEqual(admin.runCalls[1][1], { kind: 'pictures', action: 'recache', days: 30 });
 });
 
 test('interaction handler: memory.channel maps the optional channel option to channelId (undefined when omitted)', async () => {

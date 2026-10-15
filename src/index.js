@@ -362,8 +362,10 @@ const emojiBackfill = createEmojiBackfill({ hot, store, client, log });
 // The GIF library read from history (Discord API; the describer captions the top ones): once at
 // startup, again on /nep gifs rescan.
 const gifBackfill = createGifBackfill({ hot, store, client, describer, log });
-// The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache.
-const gifRecache = createGifRecache({ hot, store, client, describer, isWarmingUp, log });
+// The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache;
+// and the pictures an older model described, found through the record: only on /nep media
+// kind:pictures action:recache.
+const gifRecache = createGifRecache({ hot, store, client, describer, record, isWarmingUp, log });
 
 const onMessage = createMessageHandler({
   hot,

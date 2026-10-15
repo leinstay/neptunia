@@ -421,6 +421,8 @@ Settings for the media describer (`features.mediaDescriptions`). The describer m
 | `cacheEntries` | `5000` | Description cache size, keyed by attachment |
 | `filePreviewChars` | `10000` | Characters shown from the beginning of text files |
 | `embedTextChars` | `200` | Characters shown from link embed text |
+| `recacheBefore` | `null` | An ISO date-time, or `null` (off). A cached picture, GIF or video description written before it (or never stamped with its time, as every description from before 15.10.2026 is) is described again the next time it comes up, through the normal path and under the same limits as a new one (`llm.maxRequestsPerDay`, `media.maxPerTurn`, `context.pull.maxNewDescriptions`, the daily video and GIF caps). A failed attempt keeps the old description and waits an hour (`media.video.errorRetryMinutes` for a video) before the next one. `/nep model set` for the `vision` or `video` role sets it to the moment of the change |
+| `recacheIntervalMs` | `3000` | Milliseconds between two descriptions of a `/nep media kind:pictures action:recache` run (one at a time). The run takes the cached picture descriptions used in the last `days` days (the command's option, default 7, from 1 to 60) that were written by an older model: written before `recacheBefore` when it is set, and never by the current `vision` model (the `video` model for a watched GIF). It stops when `llm.maxRequestsPerDay` is spent, the bot is paused or a warmup starts |
 
 ### `media.gif`
 
