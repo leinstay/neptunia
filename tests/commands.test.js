@@ -1266,3 +1266,12 @@ test('autocomplete: model set offers the model ids in use; memory restore offers
   assert.deepEqual(member.respondCalls[0], []);
   assert.equal(archiveCalls.length, 1);
 });
+
+test('interaction handler: a command still running after deferAfterMs is deferred, then edited with its result', async () => {
+  const admin = fakeAdmin({ runImpl: () => new Promise((resolve) => setTimeout(() => resolve('slow result'), 40)) });
+  const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1', deferAfterMs: 5 });
+  const interaction = fakeInteraction({ subcommand: 'status' });
+  await handler(interaction);
+  assert.equal(interaction.deferred, true);
+  assert.equal(interaction.edits.at(-1).content, 'slow result');
+});
