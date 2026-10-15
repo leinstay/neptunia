@@ -263,6 +263,13 @@ test('skills derived: the real tree -- every schema is generated from the slash 
   assert.equal(create.command.body, 'text');
   // `/nep draw`: a channel to post the picture in, the owner's too
   assert.ok(Object.hasOwn(skillRegistry().get('draw.create').argsSchema.properties, 'channel'));
+  // A yes/no option, a STRING with lowercase true/false choices for Discord, is a boolean argument for her.
+  assert.deepEqual(skillRegistry().get('draw.create').argsSchema.properties.self, { type: 'boolean' });
+  assert.deepEqual(skillRegistry().get('lore.add').argsSchema.properties.always, { type: 'boolean' });
+  assert.deepEqual(skillRegistry().get('route.set').argsSchema.properties.fallbacks, { type: 'boolean' });
+  assert.equal(skillRegistry().get('lore.add').command.toCall({ title: 't', keys: 'k', text: 'x', always: true }).args.always, true);
+  assert.equal(skillRegistry().get('lore.add').command.toCall({ title: 't', keys: 'k', text: 'x', always: false }).args.always, false);
+  assert.deepEqual(Object.keys(skillRegistry().get('status.show').argsSchema.properties), ['field']);
 });
 
 test('skills schema: types, bounds, enums, arrays and anyOf', () => {

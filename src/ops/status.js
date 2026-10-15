@@ -1,10 +1,9 @@
-// Operations: `/nep status [detail] [field]`: what the bot is doing now, read only. The reply is one
+// Operations: `/nep status [field]`: what the bot is doing now, read only. The reply is one
 // card (`cmdStatusCard`, plain embed data: src/discord/commands.js wraps it for discord.js), the
-// most important field first, for a phone; `detail` adds the long text form (`cmdStatus`) below
-// it; `field` keeps only that field and computes nothing for the others. A member (anyone not in
-// `bot.owners`) gets the card without the storage line, the costs, memory and speed fields, and
-// never the long form. Every field lists one item per line; the state field ends with the gateway
-// and the uptime. The models field lists one line per role, `<role> · <model> ...` (voice,
+// most important field first, for a phone; `field` keeps only that field and computes nothing
+// for the others. A member (anyone not in `bot.owners`) gets the card without the storage line,
+// the costs, memory and speed fields. Every field lists one item per line; the state field ends
+// with the gateway and the uptime. The models field lists one line per role, `<role> · <model> ...` (voice,
 // analyzer, reasoner, extractor, vision, video, embedding, drawing). The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
@@ -19,16 +18,12 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { gifWatchesToday } from '../memory/gif-watch.js';
-import { initiateCooldownUntil } from '../behavior/spontaneous.js';
 import { RECALL_DAILY } from '../behavior/recall-run.js';
 import { keyHashOf, llmCountToday, resolveProvider } from '../llm/openrouter.js';
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../llm/images.js';
 import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../time.js';
-import { VOICE_DAILY } from '../memory/update.js';
 import { VIDEO_DAILY } from '../memory/describe.js';
 import { WEB_DAILY } from '../web/lookup.js';
-import { PORTRAIT_SLOTS, portraitSettings } from '../memory/portrait.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from '../discord/access.js';
 import { MODEL_ROLES, STATUS_FIELDS } from '../discord/commands.js';
@@ -41,7 +36,7 @@ import { SPEED_METRICS } from './metrics.js';
 import { activitySums, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
-import { todayUtc, onOff, modelForRole } from './shared.js';
+import { modelForRole } from './shared.js';
 import { defineOp, perEnv } from './registry.js';
 
 /** The card's field names, in order (src/discord/commands.js#STATUS_FIELDS, the `field` option's choices). */
@@ -232,94 +227,11 @@ function datedLine(name, count, starts, ends) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, spontaneous, calibrator, getGuildId, isWarmingUp, warmup, images, archive, journal, record, metrics, usage, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue } = env;
+  const { hot, store, client, getGuildId, images, archive, journal, record, metrics, usage, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue } = env;
   // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
   const clock = typeof env.now === 'function' ? env.now : Date.now;
   // guildId -> { at, value }: the memory field, reused for COVERAGE_CACHE_MS.
   const coverageCache = new Map();
-
-  /** The next spontaneous turn of `guildId` as an ISO time: src/behavior/spontaneous.js#status
-   * keeps `{ [guildId]: epochMs }`. Null when there is none (or no scheduler). */
-  function nextSpontaneousFor(guildId) {
-    const ms = spontaneous?.status?.()?.[guildId];
-    return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
-  }
-
-  function cmdStatus() {
-    freshenIfPaused(); // read the freshest data/ even mid-pause
-    const cfg = hot.config;
-    const data = store.state.data ?? {};
-    const dryRunOn = cfg?.features?.dryRun === true;
-    const dryRunChannelId = cfg?.bot?.dryRunChannelId || '';
-    const dryRunTarget = dryRunOn ? ` → log${dryRunChannelId ? ` + #${dryRunChannelId}` : ''}` : '';
-    const lines = [
-      `dry-run: ${onOff(dryRunOn)}${dryRunTarget}`,
-      `model: ${roleModel(cfg, 'voice') ?? '-'}`,
-      `calibration ratio: ${calibrator ? calibrator.ratio.toFixed(3) : '-'}`,
-      `llm requests today: ${llmCountToday(data, Date.now())} / ${cfg?.llm?.maxRequestsPerDay ?? '-'} (day: ${todayUtc()})`,
-      `paused: ${onOff(data.paused)}${data.paused ? ` (since ${data.pausedAt ?? '?'})` : ''}`,
-      `warming up: ${onOff(isWarmingUp())}`,
-    ];
-
-    if (images) {
-      const quota = images.quota({ userId: null });
-      lines.push(`images today: ${quota.used}/${quota.cap ?? '-'}`, `image model: ${imageModelLabel(cfg)}`);
-    }
-
-    // GIF watches have their own daily cap (media.gif.maxPerDay), apart from the video one.
-    const gifWatches = gifWatchesToday(data, cfg, todayUtc());
-    lines.push(`gif watches today: ${gifWatches.used}/${gifWatches.cap}`);
-
-    // Portraits share one daily cap (memory.portraitRefreshPerDay) between the analyzer and the owner.
-    const portraitsToday = countToday(data, PORTRAIT_SLOTS, todayUtc());
-    lines.push(`portraits refreshed today: ${portraitsToday}/${portraitSettings(cfg).perDay}`);
-
-    if (warmup && typeof warmup.summary === 'function') {
-      const summary = warmup.summary();
-      lines.push(
-        `warmup: channels=${summary.doneChannels} people=${summary.donePeople} server=${summary.doneServer ? 'done' : 'pending'} ` +
-          `tokens=${summary.tokensUsed} requests=${summary.requests} aborted=${summary.aborted ?? 'no'}`,
-      );
-    }
-
-    const guildId = getGuildId?.() ?? null;
-    if (guildId) {
-      const guildName = client?.guilds?.cache?.get(guildId)?.name;
-      const label = guildName ? `${guildName} (${guildId})` : guildId;
-      const profiles = store.countUsers(guildId);
-      const buffer = store.getBuffer(guildId);
-      const next = nextSpontaneousFor(guildId);
-      lines.push(`guild: ${label} profiles=${profiles} buffer=${buffer.length} nextSpontaneous=${next ?? '-'}`);
-      // The pause after a topic the persona started (spontaneous.initiateCooldownHours), only while it holds.
-      const initiateUntil = initiateCooldownUntil(data, guildId, Date.now(), cfg?.spontaneous);
-      if (initiateUntil !== null) lines.push(`initiate cooldown until ${new Date(initiateUntil).toISOString()}`);
-      // The voice lines exist only while the two-stage analyzer is on (features.memoryTwoStage).
-      if (cfg?.features?.memoryTwoStage === true) {
-        const voiceCap = cfg?.memory?.voice?.maxPerDay;
-        lines.push(
-          `voice queue: ${store.getVoiceQueue(guildId).length}`,
-          `voice requests today: ${countToday(data, VOICE_DAILY, todayUtc())}/${Number.isFinite(voiceCap) ? voiceCap : 100}`,
-        );
-      }
-    } else {
-      lines.push('guild: not resolved yet');
-    }
-
-    const privateChat = onOff(cfg?.features?.privateMessages === true);
-    lines.push(guildId ? `private chat: ${privateChat} · ${store.listPrivate(guildId).length} private files` : `private chat: ${privateChat}`);
-
-    const prompts = hot.prompts ?? {};
-    const sources = hot.promptSources ?? {};
-    for (const name of Object.keys(prompts)) {
-      if (name === 'labels') {
-        lines.push(`prompt labels: locale=${prompts.labels?.locale ?? '-'} source=${sources.labels ?? '-'}`);
-        continue;
-      }
-      lines.push(`prompt ${name}: ${prompts[name].length} chars source=${sources[name] ?? '-'}`);
-    }
-
-    return lines.join('\n');
-  }
 
   /** The state field: running, or paused with since when and by whom (`pausedBy`, when known);
    * the owner's card adds the storage line (storageLine). */
@@ -826,7 +738,7 @@ const handlers = perEnv((env) => {
     return { fields };
   }
 
-  return { nextSpontaneousFor, cmdStatus, cmdStatusCard };
+  return { cmdStatusCard };
 });
 
 defineOp({
@@ -836,8 +748,6 @@ defineOp({
     const owner = isOwnerId(ctx.env.hot.config, ctx?.userId);
     const field = typeof args?.field === 'string' ? args.field : null;
     const card = await handlers(ctx.env).cmdStatusCard({ owner, field });
-    // The long form below the card is the owner's only: it names files, prompts and guild internals.
-    const text = owner && args?.detail === true ? handlers(ctx.env).cmdStatus() : '';
-    return { text, embeds: [card] };
+    return { text: '', embeds: [card] };
   },
 });

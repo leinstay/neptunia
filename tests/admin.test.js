@@ -1890,31 +1890,6 @@ test('run: lore.remove deletes an entry by id and reports its title', async () =
 // status
 // ---------------------------------------------------------------------------
 
-test('run: status reports dry-run on, logging only, when no mirror channel is configured', async () => {
-  const rootDir = makeRoot();
-  const { admin, hot } = makeAdmin(rootDir);
-  hot.config.features = { dryRun: true };
-  hot.config.bot.dryRunChannelId = '';
-
-  const { text: body } = await admin.run('status', { detail: true }, { userId: '42' });
-  assert.equal(body.split('\n')[0], 'dry-run: on → log');
-});
-
-test('run: status shows the initiate cooldown only while it holds', async () => {
-  const rootDir = makeRoot();
-  const { admin, hot, store } = makeAdmin(rootDir);
-  hot.config.spontaneous = { initiateCooldownHours: [2, 4] };
-  const until = Date.now() + 3_600_000;
-  const cooldownLines = (reply) => reply.text.split('\n').filter((line) => line.startsWith('initiate cooldown'));
-  const status = () => admin.run('status', { detail: true }, { userId: '42' });
-
-  assert.deepEqual(cooldownLines(await status()), [], 'none stored');
-  store.state.data.spontaneousInitiateUntil = { g1: until };
-  assert.deepEqual(cooldownLines(await status()), [`initiate cooldown until ${new Date(until).toISOString()}`]);
-  store.state.data.spontaneousInitiateUntil = { g1: Date.now() - 1000 };
-  assert.deepEqual(cooldownLines(await status()), [], 'already over');
-});
-
 test('status: the card carries the fields in order and the member variant drops the storage line, memory and speed', async () => {
   const rootDir = makeRoot();
   const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-status-journal-'));
@@ -1933,7 +1908,7 @@ test('status: the card carries the fields in order and the member variant drops 
   store.state.data.pausedBy = '42';
 
   const owner = await admin.run('status', {}, { userId: '42' });
-  assert.equal(owner.text, '', 'no long form without detail');
+  assert.equal(owner.text, '', 'the card alone, no long form');
   assert.equal(owner.embeds.length, 1);
   const fields = owner.embeds[0].fields;
   assert.deepEqual(fields.map((f) => f.name), ['state', 'long tasks', 'models', 'limits', 'costs (limits per key)', 'costs (today by role)', 'memory', 'speed']);
@@ -1971,10 +1946,7 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(value('speed'), 'not available', 'no metrics wired');
   for (const field of fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 
-  const detail = await admin.run('status', { detail: true }, { userId: '42' });
-  assert.match(detail.text, /^dry-run: /, 'detail adds the long form');
-
-  const member = await admin.run('status', { detail: true }, { userId: '999' });
+  const member = await admin.run('status', {}, { userId: '999' });
   const memberFields = member.embeds[0].fields;
   assert.deepEqual(memberFields.map((f) => f.name), ['state', 'long tasks', 'models', 'limits']);
   assert.deepEqual(memberFields[0].value.split('\n').slice(0, 2), ['paused since 2026-10-13 08:30 UTC by <@42>', 'gateway 42 ms'], 'no storage line for a member');

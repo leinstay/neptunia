@@ -53,7 +53,7 @@ const ARCHIVE_CHOICES = 25;
  * `getGuildId` — the single guild this instance serves, or null before it resolves.
  * `isWarmingUp` — `() => boolean`, optional: true while the memory warmup runner
  *   (src/memory/warmup.js) is in flight. Read by `cmdMemoryWipe`, the `memory.refresh.*`
- *   handlers and `cmdStatus`. Default: never warming up.
+ *   handlers. Default: never warming up.
  * `turns` — from createTurnRunner() (src/behavior/turn.js), optional: `waitIdle()`, used by
  *   `/nep pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.
  * `memory` — from createMemoryUpdater() (src/memory/update.js), optional: `waitIdle()`, used by
@@ -67,7 +67,7 @@ const ARCHIVE_CHOICES = 25;
  * `warmup` — from createWarmup() (src/memory/warmup.js), optional: the sample-based
  *   memory warmup's engine -- `refreshPortrait` (`/nep memory refresh kind:user`),
  *   `refreshChannelNotes` and `refreshServerNotes` (`kind:channel`, `kind:server`: a fresh
- *   sample, the live rails), `summary` (`/nep status detail`) and
+ *   sample, the live rails) and
  *   `waitIdle` (awaited by `/nep pause`, same shape as `memory`/`turns`; it also covers portrait
  *   refreshes in flight). A warmup run itself is tools/warmup.mjs's, with the bot stopped.
  *   Absent -> every `memory.refresh.*` command reports it is not available.
