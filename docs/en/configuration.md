@@ -133,7 +133,7 @@ Eight model roles. Each is set independently under `roles.<name>` with its own d
 | `maxRequestTokens` | `50000` | Hard token cap per request |
 | `safetyMargin` | `0.9` | Budgeting fraction of maxRequestTokens |
 | `timeoutMs` | `300000` | Request timeout (ms) |
-| `probeTimeoutMs` | `30000` | Timeout of each model probe on the owner's `/nep status` card (ms) |
+| `probeTimeoutMs` | `30000` | Timeout of each model probe and of the key and credits reads on the owner's `/nep status` card (ms) |
 | `helperTimeoutMs` | `30000` | Timeout for a helper that runs alongside the turn (the route classifier, the search classifier and the recall summary). A helper that runs past this limit is abandoned; the turn continues without its result |
 | `retries` | `2` | Retries on transient HTTP errors (408/429/5xx) and network failures. A provider account's daily-quota 429 gets one attempt and is thrown at once, not retried |
 | `maxRequestsPerDay` | `5000` | Daily request cap |

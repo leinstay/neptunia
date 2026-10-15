@@ -11,6 +11,7 @@ import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { createHot } from './hot.js';
 import { log, onLog } from './log.js';
 import { createMetrics, metricsTap } from './ops/metrics.js';
+import { createUsage, usageTap } from './ops/usage.js';
 import { createStore } from './memory/store.js';
 import { createAppendStore } from './memory/append-store.js';
 import { createJournal } from './memory/journal.js';
@@ -122,6 +123,10 @@ const dataDir = path.join(ROOT_DIR, 'data');
 // kept for 24 h in data/metrics.json (loaded now, written every minute and on shutdown).
 const metrics = createMetrics({ dataDir, log });
 onLog(metricsTap(metrics));
+// The costs field of /nep status (src/ops/usage.js): today's requests per role from the `llm: usage`
+// lines, kept for today and yesterday in data/usage.json (loaded now, written every minute and on shutdown).
+const usage = createUsage({ dataDir, log });
+onLog(usageTap(usage));
 // The append-only files under data/ (the journal): one serialized writer per file. Its settings
 // are read once here; the journal reads its own section (journal.*) at each write.
 const appendStore = createAppendStore({
@@ -437,6 +442,8 @@ const admin = createAdmin({
   record: recordWriter,
   // /nep status: the speed field.
   metrics,
+  // /nep status: the costs field's per-role lines.
+  usage,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 
@@ -631,6 +638,8 @@ client.once(Events.ClientReady, async () => {
   every(5_000, () => avatars.tick(), 'avatars.tick');
   // The speed samples written to data/metrics.json (at most once a minute; nothing new, no write).
   every(60_000, () => metrics.save(), 'metrics.save');
+  // Today's per-role usage written to data/usage.json (at most once a minute; nothing new, no write).
+  every(60_000, () => usage.save(), 'usage.save');
   scheduleArchiveDrain();
 
   if (!hot.config.bot.guildId) {
@@ -801,6 +810,7 @@ async function shutdown(signal) {
   hot.close();
   await store.flushSettled({ holdMaxMs });
   await metrics.save({ force: true });
+  await usage.save({ force: true });
   // The journal's `stop` record (journal on), then the run marker goes: this stop was clean.
   if (instance.guildId) {
     if (journalOn()) await journal.system(instance.guildId, { event: 'stop', by: 'service', note: signal });

@@ -748,7 +748,7 @@ function hedgeTimeoutError(ms) {
  * @param {() => number} [deps.now]       Clock in ms, for the day rollover and a request's logged duration.
  * @param {(fn: () => void, ms: number) => unknown} [deps.setTimer]  The hedge's timers (`setTimeout`).
  * @param {(handle: unknown) => void} [deps.clearTimer]              Their cancel (`clearTimeout`).
- * @returns {{ complete: Function, modelEndpoints: Function, capLeft: (nowMs?: number) => number }}
+ * @returns {{ complete: Function, modelEndpoints: Function, keyInfo: Function, credits: Function, capLeft: (nowMs?: number) => number }}
  */
 export function createLlm({
   apiKey,
@@ -1238,8 +1238,18 @@ export function createLlm({
    * @returns {Promise<{ ok: boolean, status: number, json: object|null }>}
    */
   async function modelEndpoints(model, { timeoutMs } = {}) {
+    return getFree(`models/${model}/endpoints`, { timeoutMs });
+  }
+
+  /**
+   * One free, read-only GET of `<llm.baseUrl>/<endpoint>`: `{ ok, status, json }`, `json` being
+   * the parsed body of a 2xx answer (null when it is not JSON, or on any other status). Never
+   * counted against `llm.maxRequestsPerDay`, never calibrated, never retried, nothing logged. A
+   * network failure or the `timeoutMs` abort (default `llm.timeoutMs`) throws as fetch throws it.
+   */
+  async function getFree(endpoint, { timeoutMs } = {}) {
     const cfg = getConfig().llm;
-    const response = await fetchImpl(apiUrl(cfg.baseUrl, `models/${model}/endpoints`), {
+    const response = await fetchImpl(apiUrl(cfg.baseUrl, endpoint), {
       method: 'GET',
       headers: openRouterHeaders(apiKey),
       signal: AbortSignal.timeout(timeoutMs ?? cfg.timeoutMs),
@@ -1252,5 +1262,21 @@ export function createLlm({
     return { ok: response.ok, status: response.status, json };
   }
 
-  return { complete, modelEndpoints, capLeft };
+  /**
+   * The API key's own record (`<llm.baseUrl>/key`: its limit, reset, budgets and usage), one free
+   * GET (see `getFree`). For the costs field of the owner's `/nep status` card.
+   * @param {{ timeoutMs?: number }} [options]
+   * @returns {Promise<{ ok: boolean, status: number, json: object|null }>}
+   */
+  const keyInfo = (options) => getFree('key', options);
+
+  /**
+   * The account's credits (`<llm.baseUrl>/credits`: bought and used), one free GET (see
+   * `getFree`). For the costs field of the owner's `/nep status` card.
+   * @param {{ timeoutMs?: number }} [options]
+   * @returns {Promise<{ ok: boolean, status: number, json: object|null }>}
+   */
+  const credits = (options) => getFree('credits', options);
+
+  return { complete, modelEndpoints, keyInfo, credits, capLeft };
 }

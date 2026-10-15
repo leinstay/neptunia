@@ -248,7 +248,43 @@
     "missed": "wrote to you earlier and got no answer from you"
   },
   "status": {
-    "probe": "Reply with the single word pong."
+    "probe": "Reply with the single word pong.",
+    "costs": {
+      "keyLimit": "key limit: {spent} / {limit} USD ({notes})",
+      "keyLimitPlain": "key limit: {spent} / {limit} USD",
+      "keyNone": "key limit: none (used {used} USD total)",
+      "keyNonePlain": "key limit: none",
+      "keyUnavailable": "key limit: unavailable ({reason})",
+      "resets": "resets {interval}",
+      "resetsAt": "resets {interval}, {at}",
+      "neverResets": "never resets",
+      "intervals": {
+        "daily": "daily",
+        "weekly": "weekly",
+        "monthly": "monthly"
+      },
+      "byokCounted": "BYOK counted",
+      "byokNotCounted": "BYOK not counted",
+      "noteSeparator": "; ",
+      "usage": "usage: {parts} USD",
+      "usageToday": "today {usd}",
+      "usageWeek": "week {usd}",
+      "usageMonth": "month {usd}",
+      "partSeparator": " · ",
+      "credits": "credits: {left} USD left ({bought} bought, {used} used)",
+      "creditsUnavailable": "credits: unavailable ({reason})",
+      "reasons": {
+        "timeout": "timeout",
+        "network": "network error",
+        "http": "HTTP {status}",
+        "noClient": "no client",
+        "badAnswer": "unexpected answer"
+      },
+      "byRoleHeader": "today by role (UTC):",
+      "byRoleEmpty": "today by role: no requests yet",
+      "role": "{role} · {requests} req · in {in} (cached {cached}) · out {out} · {cost} USD",
+      "total": "total · {requests} req · in {in} (cached {cached}) · out {out} · {cost} USD"
+    }
   },
   "warmup": {
     "ownMark": ">> ",
