@@ -56,14 +56,15 @@ const MODEL_GROUPS = Object.freeze([
   { name: 'analyzer', roles: ['analyzer'], unlistedPurposes: true },
   { name: 'reasoner', roles: ['reasoner'] },
   { name: 'extractor', roles: ['extractor'] },
-  { name: 'media', roles: ['vision', 'video'] },
+  { name: 'vision', roles: ['vision'] },
+  { name: 'video', roles: ['video'] },
   { name: 'embedding', roles: [EMBED_ROLE] },
   { name: 'drawing', roles: [IMAGE_ROLE] },
 ]);
 
-/** `<role> · <model>`: each role shows its own model, never another role's. */
-function roleHead(role, model) {
-  return `${role} · ${model}`;
+/** A role's line starts with its model alone: the group's bold header already names the role. */
+function roleHead(model) {
+  return model;
 }
 
 /** The `roles.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
@@ -152,7 +153,7 @@ function extractRoutingFunnel(rawBody) {
 
 /** One role's probe line: `<head> · <provider> · ok <ms> ms` (`-` when the answer names no
  * provider, as an embedding's does not), or `<head> · failed: <short reason>` with the routing
- * funnel in brackets when the error body has one; `head` is `<role> · <model>` (roleHead). */
+ * funnel in brackets when the error body has one; `head` is the model (roleHead). */
 function probeLine(head, outcome) {
   if (!outcome.ok) {
     const message = clampChars(oneLine(outcome.err?.message ?? outcome.err ?? 'error'), PROBE_ERROR_CHARS);
@@ -401,12 +402,12 @@ const handlers = perEnv((env) => {
   /** The models field unprobed (a member's card): every group, each role's own model, the
    * drawing model last. */
   function modelsValue(cfg) {
-    const image = roleModel(cfg, 'drawing') ? `${IMAGE_ROLE} · ${imageModelLabel(cfg)}` : `${IMAGE_ROLE} · no model configured`;
+    const image = roleModel(cfg, 'drawing') ? imageModelLabel(cfg) : 'no model configured';
     return groupedModels(
       cfg,
       (role) => {
         const model = modelForRole(role, cfg);
-        return model ? roleHead(role, model) : `${role} · no model configured`;
+        return model ? roleHead(model) : 'no model configured';
       },
       image,
     );
@@ -448,9 +449,9 @@ const handlers = perEnv((env) => {
    * drawing is switched off (features.imageGeneration false; a missing key counts as on). */
   async function imageProbeLine(cfg, timeoutMs) {
     const model = roleModel(cfg, 'drawing');
-    if (!model) return `${IMAGE_ROLE} · no model configured`;
+    if (!model) return 'no model configured';
     const off = cfg?.features?.imageGeneration === false ? ' (features.imageGeneration is off)' : '';
-    return `${IMAGE_ROLE} · ${model} · ${await imageListing(model, timeoutMs)}${off}`;
+    return `${model} · ${await imageListing(model, timeoutMs)}${off}`;
   }
 
   /**
@@ -517,8 +518,8 @@ const handlers = perEnv((env) => {
     });
     const lineOf = (role) => {
       const model = modelOf.get(role);
-      if (!model) return `${role} · no model configured`;
-      const head = roleHead(role, model);
+      if (!model) return 'no model configured';
+      const head = roleHead(model);
       if (!promptText) return `${head} · skipped: label missing`;
       if (role === EMBED_ROLE && !canEmbed) return `${head} · not checked (no embedding client)`;
       return probeLine(head, results.get(targetOf(role)));
