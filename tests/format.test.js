@@ -1238,7 +1238,7 @@ test('formatTranscript: reactions follow the media tags, in both modes', () => {
   ];
   for (const mode of ['chat', 'memory']) {
     const items = reactionTranscript(messages, { mode });
-    assert.ok(items[0].text.endsWith('text [image] [reactions: :κάτι: x3, 🍣 x1]'), items[0].text);
+    assert.ok(items[0].text.endsWith('text [image] [reactions: :κάτι: x3 · 🍣 x1]'), items[0].text);
   }
 });
 
@@ -1247,14 +1247,25 @@ test('formatTranscript: the bot\'s own reaction uses reactionMine', () => {
   const items = reactionTranscript([
     msg('1', T, { reactions: [{ emoji: '👍', count: 3, mine: true }, { emoji: '🍣', count: 1, mine: false }] }),
   ]);
-  assert.ok(items[0].text.endsWith('[reactions: 👍 x3 (yours too), 🍣 x1]'), items[0].text);
+  assert.ok(items[0].text.endsWith('[reactions: 👍 x3 (yours too) · 🍣 x1]'), items[0].text);
 });
 
 test('formatTranscript: at most reactionsPerMessage items', () => {
   const T = Date.UTC(2026, 8, 20, 10, 0, 0);
   const reactions = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((name, i) => ({ emoji: `:${name}:`, count: 8 - i, mine: false }));
   const capped = reactionTranscript([msg('1', T, { reactions })], { reactionsPerMessage: 2 });
-  assert.ok(capped[0].text.endsWith('[reactions: :a: x8, :b: x7]'), capped[0].text);
+  assert.ok(capped[0].text.endsWith('[reactions: :a: x8 · :b: x7]'), capped[0].text);
+});
+
+test('formatTranscript: reactionSeparator parts reactions, names inside one reaction keep ", "', () => {
+  const T = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const users = [{ id: '7', name: 'Ἄννα', bot: false }, { id: '8', name: 'Bé', bot: false }];
+  const own = msg('1', T, { self: true, reactions: [{ emoji: '😂', count: 2, mine: false, users }, { emoji: '👍', count: 2, mine: false }] });
+  const items = reactionTranscript([own], { reactionNames: true });
+  assert.ok(items[0].text.endsWith('[reactions: 😂 by Ἄννα, Bé · 👍 x2]'), items[0].text);
+  const noKey = { ...labels, transcript: { ...labels.transcript, reactionSeparator: undefined } };
+  const old = reactionTranscript([msg('1', T, { reactions: [{ emoji: '😂', count: 2, mine: false }, { emoji: '👍', count: 1, mine: false }] })], { labels: noKey });
+  assert.ok(old[0].text.endsWith('[reactions: 😂 x2, 👍 x1]'), old[0].text);
 });
 
 test('formatTranscript: seeReactions=false renders none', () => {

@@ -319,7 +319,9 @@ function mediaTags(message, labels, context = {}) {
 /**
  * The reactions tag of a message (`transcript.reactions` over at most `max`
  * items, `reactionMine` for the bot's own, else `reactionItem`), or '' when
- * the list is empty or the labels have no `transcript.reactions` key. With
+ * the list is empty or the labels have no `transcript.reactions` key. The
+ * items are joined with `transcript.reactionSeparator` (", " for a labels file
+ * without it); names inside one item are joined with ", ". With
  * `names` (chat mode, features.reactionNames) a reaction on the persona's own
  * line whose `users` are known names them instead of counting them
  * (reactionNamesItem).
@@ -341,7 +343,7 @@ function reactionsTag(message, labels, max, names = null) {
       return fill(mine ? (labels.transcript.reactionMine ?? labels.transcript.reactionItem) : labels.transcript.reactionItem, { emoji, count });
     })
     .filter(Boolean)
-    .join(', ');
+    .join(labels.transcript.reactionSeparator ?? ', ');
   return list ? fill(template, { list }) : '';
 }
 

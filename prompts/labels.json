@@ -97,7 +97,8 @@
     "reactionMine": "{emoji} x{count} (you)",
     "reactionNames": "{emoji} {names}",
     "reactionNamesMine": "{emoji} {names}, you",
-    "reactionMore": "+{n}"
+    "reactionMore": "+{n}",
+    "reactionSeparator": " · "
   },
   "directory": {
     "lead": "Members you can mention. Write the handle exactly as listed to tag someone; a name alone pings nobody.",
