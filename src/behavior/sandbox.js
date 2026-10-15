@@ -37,7 +37,9 @@
 // every call's mark), so the next request reads what she said and did. A step
 // whose messages come in a burst is played as the live queue plays it
 // (`burstTurns`: each call its own turn in arrival order, the waiting ones
-// named under the task labels, one follow-up slot per channel).
+// named under the task labels, one follow-up slot per channel). A line of hers
+// the scenario seeds is shaped as her live lines (`seededSelfLine`) without a
+// turn run for it.
 
 import { buildRequest, continuesTurn, skillResultBlock, userText as userTextOf, withSkillResult } from './prompt.js';
 import { detectTrigger, isTaggedCall } from './mention.js';
@@ -54,6 +56,7 @@ import { parseOutput } from '../llm/parse.js';
 import { log } from '../log.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { findGif } from '../memory/gifs.js';
+import { tokenIds } from '../memory/mentions.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { checkSkill, listSkills } from '../skills/gateway.js';
 import { discoveryOn, proposalVerdicts, proposedRows } from '../skills/discovery.js';
@@ -1336,6 +1339,23 @@ export function afterScenarioTurn({ transcript, callMarks: earlier = [], run, at
   }
   const mark = callMarkOf({ outcome, channelId, at: callAt, postedId, posted: own.map((line) => line.id), config: config ?? {} });
   return { transcript: continuationHistory({ history: lines, own, selfName }), callMarks: [...callMarks, mark], posted: own.map((line) => line.id) };
+}
+
+/**
+ * A line of the persona's seeded into a skill scenario (tools/replay.mjs `--skills`, a step
+ * `{ self }` or a burst item `{ self: true }`): `text` as if she had said it at `at` in
+ * `channel`, no turn run for it. Shaped exactly as afterScenarioTurn shapes her live lines
+ * (src/behavior/turn.js#continuationHistory, `selfName` as author; its id a snowflake of its
+ * moment), the text as given with `mentionedUserIds` the members its `<@id>` tags name
+ * (src/memory/mentions.js#tokenIds) -- and, since no turn posted it, no link to a trigger and no
+ * call mark. Pure.
+ * @param {{ text: string, at: number, selfId: string, selfName: string, channel: { id: string } }} input
+ * @returns {object}
+ */
+export function seededSelfLine({ text, at, selfId, selfName, channel }) {
+  const content = String(text ?? '');
+  const line = { id: ownLineId(at, 1), channelId: String(channel.id), ts: at, authorId: String(selfId), content, mentionedUserIds: tokenIds(content), replyToId: null };
+  return continuationHistory({ history: [], own: [line], selfName })[0];
 }
 
 /** A burst's waiting text when `context.maxMessageChars` is not set (config.json's value). */

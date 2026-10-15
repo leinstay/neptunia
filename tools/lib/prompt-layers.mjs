@@ -2,7 +2,9 @@
 // (tools/replay.mjs --pair, --diary and --skills): a scratch root holding a copy of the bot's
 // config files and its tracked prompts/, with the given directories copied into prompts.local/
 // in order, read by src/hot.js exactly as the bot reads its own layers. Nothing in the checkout
-// changes; the caller closes the hot view and removes the scratch root.
+// changes; the caller closes the hot view and removes the scratch root. A layer that is a link
+// (a separate checkout whose prompts.local/ links to the live one) is read through it and copied
+// as files: nothing in the scratch root links back, so nothing written there reaches the source.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,7 +30,9 @@ function readJson(file) {
  * one of the same name whole -- labels.json and skills.json included, unless `mergeJson` is
  * given (src/config.js#deepMerge): then a later layer's JSON layer file is deep-merged over the
  * one already there, as src/hot.js merges prompts.local/ over prompts/. A layer that is not a
- * directory, or a JSON layer file that does not parse when it is merged, is a CliError.
+ * directory, or a JSON layer file that does not parse when it is merged, is a CliError. A layer
+ * given as a link is resolved (realpath) and every link inside it followed: the copy holds files
+ * only, so the merge's writes and the hot view never reach the source.
  * @param {(options: { rootDir: string }) => object} createHot
  * @param {string} root  The bot's checkout.
  * @param {string[]} layers
@@ -39,14 +43,14 @@ export function promptLayersHot(createHot, root, layers, { tmpDir = os.tmpdir(),
   const sources = layers.map((layer) => {
     const source = path.resolve(root, layer);
     if (!fs.existsSync(source) || !fs.statSync(source).isDirectory()) throw new CliError(`replay-cli: ${layer} is not a directory`);
-    return source;
+    return fs.realpathSync(source);
   });
   const dir = fs.mkdtempSync(path.join(tmpDir, 'nep-prompt-layers-'));
   try {
     for (const name of ['config.json', 'config.local.json']) {
       if (fs.existsSync(path.join(root, name))) fs.copyFileSync(path.join(root, name), path.join(dir, name));
     }
-    fs.cpSync(path.join(root, 'prompts'), path.join(dir, 'prompts'), { recursive: true });
+    fs.cpSync(fs.realpathSync(path.join(root, 'prompts')), path.join(dir, 'prompts'), { recursive: true, dereference: true });
     const local = path.join(dir, 'prompts.local');
     fs.mkdirSync(local, { recursive: true });
     for (const source of sources) {
@@ -55,7 +59,7 @@ export function promptLayersHot(createHot, root, layers, { tmpDir = os.tmpdir(),
       const kept = typeof mergeJson === 'function'
         ? JSON_LAYER_FILES.filter((name) => fs.existsSync(path.join(source, name)) && fs.existsSync(path.join(local, name))).map((name) => [name, readJson(path.join(local, name))])
         : [];
-      fs.cpSync(source, local, { recursive: true, force: true });
+      fs.cpSync(source, local, { recursive: true, force: true, dereference: true });
       for (const [name, base] of kept) {
         const value = mergeJson(base, readJson(path.join(source, name)));
         fs.writeFileSync(path.join(local, name), `${JSON.stringify(value, null, 2)}\n`);
