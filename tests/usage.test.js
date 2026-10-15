@@ -190,6 +190,8 @@ test('createLlm: keyInfo and credits are one GET each with the key and a timeout
     },
   });
   assert.deepEqual(await llm.keyInfo({ timeoutMs: 1234 }), { ok: true, status: 200, json: { data: { ok: 1 } } });
+  assert.deepEqual(await llm.keyInfo({ timeoutMs: 1234, apiKey: 'sim-test' }), { ok: true, status: 200, json: { data: { ok: 1 } } });
+  assert.equal(calls.pop().init.headers.Authorization, 'Bearer sim-test', 'another key for this one GET');
   assert.deepEqual(await llm.credits({ timeoutMs: 1234 }), { ok: true, status: 200, json: { data: { ok: 1 } } });
   assert.deepEqual(calls.map((call) => call.url), ['https://openrouter.ai/api/v1/key', 'https://openrouter.ai/api/v1/credits']);
   for (const call of calls) {
@@ -294,4 +296,26 @@ test('usage: a save within a minute of the last waits unless forced', async () =
   usage.record({ role: 'voice', cost: 1 });
   assert.equal(await usage.save(), false);
   assert.equal(await usage.save({ force: true }), true);
+});
+
+test('costsLines: the simulator key line comes right after the key line, through the same renderer; not set says so', () => {
+  const labels = {
+    status: {
+      costs: {
+        ...LABELS.status.costs,
+        keyLead: 'key',
+        simKeyLead: 'sim',
+        simKeyNotSet: 'sim: not set',
+        keyLimit: '{lead} limit {spent}/{limit} ({notes})',
+        keyUnavailable: '{lead} limit unavailable: {reason}',
+      },
+    },
+  };
+  const simKey = ok({ limit: 5, limit_remaining: 4, limit_reset: null });
+  const withSim = costsLines({ key: ok({ limit: 30, limit_remaining: 21, limit_reset: null }), sim: simKey, credits: CREDITS, rows: [], labels });
+  assert.deepEqual(withSim.slice(0, 2), ['key limit 9.00/30.00 (never resets)', 'sim limit 1.00/5.00 (never resets)'], 'same renderer, other lead word');
+  const notSet = costsLines({ key: ok({ limit: 30, limit_remaining: 21, limit_reset: null }), sim: null, credits: CREDITS, rows: [], labels });
+  assert.equal(notSet[1], 'sim: not set');
+  const failed = costsLines({ key: ok({}), sim: { ok: false, reason: 'http', status: 401 }, credits: CREDITS, rows: [], labels });
+  assert.ok(failed.includes('sim limit unavailable: http 401'));
 });

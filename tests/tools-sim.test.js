@@ -138,8 +138,19 @@ test('cli: parseFlags takes values, lists, multi-value flags and switches', () =
   assert.throws(() => parseFlags(['--x'], { values: ['--x'], usage: 'u' }), CliError);
 });
 
-test('simKey: only OPENROUTER_SIM_KEY counts, never the bot key', () => {
-  assert.equal(simKey('t', { OPENROUTER_SIM_KEY: 'sim' }), 'sim');
-  assert.throws(() => simKey('t', { OPENROUTER_API_KEY: 'live' }), (e) => e instanceof CliError && e.message.includes('OPENROUTER_SIM_KEY is not set'));
-  assert.throws(() => simKey('t', { OPENROUTER_SIM_KEY: '  ' }), CliError);
+test('simKey: the simulator key wins, else the bot key with one stderr warning, else both are named', () => {
+  const lines = [];
+  const original = console.error;
+  console.error = (line) => lines.push(line);
+  try {
+    assert.equal(simKey('t', { OPENROUTER_SIM_KEY: 'sim', OPENROUTER_API_KEY: 'live' }), 'sim');
+    assert.deepEqual(lines, [], 'no warning while the simulator key is set');
+    assert.equal(simKey('t', { OPENROUTER_API_KEY: 'live' }), 'live');
+    assert.equal(simKey('t', { OPENROUTER_SIM_KEY: '  ', OPENROUTER_API_KEY: 'live' }), 'live');
+    assert.deepEqual(lines, Array(2).fill("t: OPENROUTER_SIM_KEY is not set, spending the bot's OPENROUTER_API_KEY"));
+    assert.ok(lines.every((line) => !line.includes('live')), 'the key itself is never printed');
+  } finally {
+    console.error = original;
+  }
+  assert.throws(() => simKey('t', {}), (e) => e instanceof CliError && e.message.includes('OPENROUTER_SIM_KEY') && e.message.includes('OPENROUTER_API_KEY'));
 });

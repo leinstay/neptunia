@@ -16,15 +16,18 @@ export class CliError extends Error {
 }
 
 /**
- * The OpenRouter key a tool may spend: `OPENROUTER_SIM_KEY` and only that, never the bot's
- * `OPENROUTER_API_KEY`. A CliError naming the variable when it is missing; the value is never printed.
+ * The OpenRouter key a tool spends: `OPENROUTER_SIM_KEY` when set, else the bot's
+ * `OPENROUTER_API_KEY` with one stderr warning line, else a CliError naming both. The value is
+ * never printed.
  */
 export function simKey(tool, env = process.env) {
-  const key = env.OPENROUTER_SIM_KEY;
-  if (typeof key !== 'string' || key.trim() === '') {
-    throw new CliError(`${tool}: OPENROUTER_SIM_KEY is not set (.env): tools never use the bot's OPENROUTER_API_KEY`);
+  const filled = (value) => typeof value === 'string' && value.trim() !== '';
+  if (filled(env.OPENROUTER_SIM_KEY)) return env.OPENROUTER_SIM_KEY;
+  if (filled(env.OPENROUTER_API_KEY)) {
+    console.error(`${tool}: OPENROUTER_SIM_KEY is not set, spending the bot's OPENROUTER_API_KEY`);
+    return env.OPENROUTER_API_KEY;
   }
-  return key;
+  throw new CliError(`${tool}: neither OPENROUTER_SIM_KEY nor OPENROUTER_API_KEY is set (.env)`);
 }
 
 /** Exit code of a run refused by the spend gate. */
