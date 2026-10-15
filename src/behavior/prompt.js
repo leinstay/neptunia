@@ -2662,7 +2662,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   store's snapshot, `sceneMemberIds` the interlocutor first, then whoever spoke last,
  *   `channelNameOf` the name of a voice channel the audience may see (else null: left out).
  *   `<around>` in the tail right before `<chat>`, never in a cached part, rendered by
- *   renderAround to at most `context.around.maxTokens` (default 200) and fitted as one piece
+ *   renderAround to at most `context.around.maxTokens` (default 250) and fitted as one piece
  *   right after `<skills>` in the budget order, so it displaces other context and never adds
  *   above the rail. Needs `labels.around`; `features.around` off, a private chat, an empty
  *   snapshot, or an omitted or null input -> no block.
@@ -3043,7 +3043,7 @@ export function buildRequest(input) {
           nameOf,
           channelNameOf: aroundInput.channelNameOf,
           labels,
-          maxTokens: Number.isFinite(aroundMax) ? aroundMax : 200,
+          maxTokens: Number.isFinite(aroundMax) ? aroundMax : 250,
           estimate: cost,
         })
       : '';
