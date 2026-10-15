@@ -84,6 +84,7 @@ import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
 import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from '../discord/around.js';
+import { normalizeAvatar } from '../memory/avatars.js';
 
 const TAG_OVERHEAD = 60;
 
@@ -374,6 +375,21 @@ function nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalf
 }
 
 /**
+ * A profile's avatar line (`features.avatars`, src/memory/avatars.js): `labels.profile.avatar`
+ * (`{text}`) for a described avatar, `labels.profile.avatarDefault` for Discord's default one.
+ * '' when nothing valid is stored or the label is missing. Changes only when the avatar does.
+ * @param {unknown} stored  `profile.avatar`.
+ * @param {object} p  `labels.profile`.
+ * @returns {string}
+ */
+function avatarLine(stored, p) {
+  const avatar = normalizeAvatar(stored);
+  if (!avatar) return '';
+  if (avatar.default) return typeof p?.avatarDefault === 'string' ? p.avatarDefault : '';
+  return p?.avatar ? fill(p.avatar, { text: avatar.text }) : '';
+}
+
+/**
  * The moves behind an attitude, one `labels.peopleNow.move` phrase each
  * (`{delta}` the move's `delta` as a signed integer, `{date}` its `YYYY-MM-DD`
  * in `timezone`, `{reason}` with `<@id>` tokens resolved): up to `max` of
@@ -544,6 +560,7 @@ function renderProfileShown(
     now,
     nameOf,
     supersededShownDays,
+    avatars = false,
   } = {},
 ) {
   if (!profile) return { text: '', episodes: 0 };
@@ -557,6 +574,9 @@ function renderProfileShown(
   const restLines = [];
   if (!compact && profile.names?.length > 1) restLines.push(fill(p.formerNames, { names: profile.names.slice(1).join(', ') }));
   restLines.push(...nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now: day }));
+  // What their avatar looks like (`features.avatars`): shown, but not something learned about them.
+  const avatarText = avatars ? avatarLine(profile.avatar, p) : '';
+  if (avatarText) restLines.push(avatarText);
   if (profile.character) restLines.push(fill(p.character, { text: resolveChatText(profile.character, nameOf) }));
   const interestsLine = compact
     ? compactInterestsText(profile.interests, labels, interestHalfLifeDays)
@@ -566,7 +586,7 @@ function renderProfileShown(
   const detailsLine = compact ? '' : detailsText(profile.details, labels, maxDetails, marks);
   if (detailsLine) restLines.push(fill(p.details, { text: detailsLine }));
   if (!compact && profile.relationship) restLines.push(fill(p.relationship, { text: resolveChatText(profile.relationship, nameOf) }));
-  const hasContent = restLines.length > 0;
+  const hasContent = restLines.length > (avatarText ? 1 : 0);
   // Every episode for the interlocutor; the top `episodes.max` for a member asked about.
   const showEpisodes = !compact && episodes?.enabled && (interlocutor || (Number.isInteger(episodes.max) && episodes.max > 0));
   let renderedEpisodes = showEpisodes
@@ -3070,6 +3090,8 @@ export function buildRequest(input) {
   const limit = requestTokenLimit(config) - pictures.length * (visionCfg.tokensPerImage ?? 400) - TAG_OVERHEAD;
 
   const episodesOpt = { enabled: episodesOn, cap: caps.interlocutor, cost };
+  // The avatar line of every profile (features.avatars, exactly true: a paid helper writes it).
+  const avatarsOn = config.features?.avatars === true;
   const interlocutorShown = renderProfileShown(interlocutor, labels, {
     interlocutor: true,
     handle: handleFor(memberIdOf(interlocutor?.id)),
@@ -3087,6 +3109,7 @@ export function buildRequest(input) {
     now,
     nameOf,
     supersededShownDays: config.memory?.supersededShownDays,
+    avatars: avatarsOn,
   });
   // `<people_now>`: one entry per person with what is current about them -- a heading line led
   // by the person's mention handle (the join key with `<people>` and `<directory>`), then one
@@ -3375,6 +3398,7 @@ export function buildRequest(input) {
       now,
       nameOf,
       supersededShownDays: config.memory?.supersededShownDays,
+      avatars: avatarsOn,
     });
     return { ...shown, text: withRow(shown.text, askedRows.get(profile) ?? '') };
   };
@@ -3464,6 +3488,7 @@ export function buildRequest(input) {
         staleDays: config.memory?.interestStaleDays,
         now,
         nameOf,
+        avatars: avatarsOn,
       });
       return { profile, row, text: withRow(text, row) };
     }),

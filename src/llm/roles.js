@@ -10,7 +10,7 @@
 //                search-summary, read-link, diary-plan;
 // - `extractor`  turns conversations into stored memory: the memory analyzer's batches, the
 //                portraits' stage A, the channel and server notes, the warmup, the backfill;
-// - `vision`     describes a picture (describe, relook);
+// - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
 // - `embedding`  turns text into vectors for search by meaning;
 // - `drawing`    generates the persona's pictures.
@@ -60,6 +60,7 @@ export const PURPOSE_ROLES = Object.freeze({
   backfill: 'extractor',
   describe: 'vision',
   relook: 'vision',
+  avatar: 'vision',
   'recall-query': 'embedding',
   probe: 'embedding',
 });

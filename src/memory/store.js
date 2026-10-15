@@ -110,6 +110,7 @@ import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizePa
 import { ITEM_ID_PREFIX, archiveDrops, archiveEntry, archiveRevision } from './archive.js';
 import { journalDrops, requestMentions } from './journal.js';
 import { redactUser } from './mentions.js';
+import { normalizeAvatar } from './avatars.js';
 
 const DIARY_HISTORY_POSTS = 150; // diary.historyPosts
 
@@ -603,6 +604,12 @@ function normalizeProfile(profile) {
   normalizeClosed(profile);
   // Only `true` is the flag; anything else a hand edit left is no flag.
   if ('relationshipRewrite' in profile && profile.relationshipRewrite !== true) delete profile.relationshipRewrite;
+  // The current avatar (src/memory/avatars.js): absent stays absent, a hand-broken one goes.
+  if ('avatar' in profile) {
+    const avatar = normalizeAvatar(profile.avatar);
+    if (avatar) profile.avatar = avatar;
+    else delete profile.avatar;
+  }
 }
 
 /** A stored `realName` (`{ name, from, to: null, itemId, recordedAt? }`) as it may be kept: a
@@ -2494,6 +2501,27 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       profile.addressedAs = applyAddressUses(profile.addressedAs, uses, opts);
       item.dirty = true;
       return profile;
+    },
+
+    /**
+     * Store a member's current avatar (src/memory/avatars.js#normalizeAvatar: `{ hash, text,
+     * describedAt }` or `{ hash: null, default: true }`), replacing the one stored: no history of
+     * old avatars. Only into an existing profile, never while a forget of the member is under way,
+     * and never a profile's `updatedAt` (the portrait refresh's version stamp). Lives and goes
+     * with the profile file, so `/nep memory forget` and the wipe remove it.
+     * @returns {object|null}  The profile, or null when nothing was written.
+     */
+    setAvatar(guildId, userId, avatar) {
+      if (isForgetting(guildId, userId)) return null;
+      const file = userFile(guildId, userId);
+      if (!entries.has(file) && !fs.existsSync(file)) return null;
+      const value = normalizeAvatar(avatar);
+      if (!value) return null;
+      const item = entry(file, () => emptyProfile(String(userId)));
+      normalizeProfile(item.value);
+      item.value.avatar = value;
+      item.dirty = true;
+      return item.value;
     },
 
     /**

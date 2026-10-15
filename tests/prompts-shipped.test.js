@@ -36,6 +36,7 @@ import { buildVoiceRequest } from '../src/memory/voice.js';
 import { createWarmup } from '../src/memory/warmup.js';
 import { createStore } from '../src/memory/store.js';
 import { createDescriber } from '../src/memory/describe.js';
+import { createAvatarQueue } from '../src/memory/avatar-queue.js';
 import { createLookup } from '../src/web/lookup.js';
 import { buildExtractRequest, rosterOf, windowsOf } from '../tools/lib/backfill.mjs';
 import { loadSkills } from '../src/skills/registry.js';
@@ -141,6 +142,7 @@ const LOADS = {
   portraitSingle: ['profile', ...CHARACTER],
   portraitStageA: ['portrait', ...CHARACTER],
   describe: ['describe'],
+  avatar: ['avatar'],
   describeGif: ['describe-gif'],
   describeVideo: ['describe-video'],
   rewatch: ['rewatch'],
@@ -1401,4 +1403,24 @@ test('backfill: the extract request of tools/backfill.mjs carries prompts/backfi
     channelName: 'général',
   });
   assertFilled(messages, { files: LOADS.backfill, blocks: ['roster', 'window'] }, 'backfill extract');
+});
+
+test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
+  const hot = shippedHot({ features: { avatars: true } });
+  const profile = { id: 'u1', names: ['Ελένη'] };
+  const store = {
+    getUser: (guildId, id) => (id === 'u1' ? profile : null),
+    listUserProfiles: () => [profile],
+    setAvatar: (guildId, id, avatar) => Object.assign(profile, { avatar }),
+  };
+  const llm = recordingLlm(() => 'an illustrated fox in a scarf');
+  const imageFetcher = { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,ZmFrZQ==', bytes: 4, contentType: 'image/png' }) };
+  const state = { data: {}, markDirty() {} };
+  const view = { id: 'u1', bot: false, hash: 'h1', url: 'https://cdn.example/avatars/u1/h1.png?size=256' };
+  const queue = createAvatarQueue({ hot, store, llm, imageFetcher, state, getGuildId: () => GUILD, selfId: () => SELF_ID, resolveMember: async () => view, now: () => NOW });
+  const { result } = await withCapturedLogs(() => queue.tick());
+  assert.equal(result, 'described');
+  assert.equal(llm.calls.length, 1);
+  assertFilled(llm.calls[0].messages, { files: LOADS.avatar }, 'avatar');
+  assert.equal(profile.avatar.text, 'an illustrated fox in a scarf');
 });
