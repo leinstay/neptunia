@@ -165,9 +165,6 @@
     "details": "Notes: {text}",
     "relationship": "Your history: {text}",
     "unknown": "You don't know anything about this person yet.",
-    "messageCount": "Messages seen: {count}",
-    "affinity": "Your attitude: {score} ({band}) — {reason}",
-    "affinityMove": "{delta} on {date}: {reason}",
     "episodes": "Moments you remember with this person:",
     "episode": "{date}: {what} — \"{quote}\" — felt: {feeling}",
     "episodeNoQuote": "{date}: {what} — felt: {feeling}",
@@ -396,24 +393,28 @@
       }
     }
   },
-  "around": {
-    "lead": "What you see in the sidebar right now:",
+  "peopleNow": {
+    "lead": "Right now, one line per person (the handle is the same as in <people> and <directory>):",
     "stale": "The connection to Discord dropped a moment ago, so this may be out of date.",
-    "voiceChannel": "In voice channel {channel}: {members}",
-    "voiceMember": "{name} ({flags})",
+    "unavailable": "You cannot see anyone's online status or activity right now.",
+    "row": "{who}{mark}: {details}",
+    "rowBare": "{who}{mark}",
+    "overheardMark": " ← overheard, not talking to you",
+    "attitude": "Your attitude: {score} ({band}) — {reason}",
+    "move": "{delta} on {date}: {reason}",
+    "messages": "Messages seen: {count}",
+    "inVoice": "in voice {channel}",
     "flags": {
       "muted": "muted",
       "deafened": "deafened",
       "streaming": "streaming",
       "camera": "camera on"
     },
-    "presenceLine": "{name}: {details}",
     "status": {
       "online": "online",
       "idle": "idle",
       "dnd": "do not disturb",
-      "offline": "shown offline (may be invisible)",
-      "unknown": "not observed"
+      "offline": "offline"
     },
     "activity": {
       "playing": "playing {name}",
@@ -424,6 +425,6 @@
       "other": "{name}"
     },
     "activityDetails": "{activity} ({details})",
-    "customStatus": "custom status: {text}"
+    "activityTrack": "{activity}: {track} - {artist}"
   }
 }

@@ -71,7 +71,7 @@ Every key in `config.json` with its default, grouped by section.
 | `skillsAlwaysListed` | `true` | Every reply request lists the names of the persona's granted skills in the cached part (`<skills_granted>`, grouped by family), so she always sees what she can do. Off when `features.skills` or `features.skillsDiscovery` is off. A missing key counts as on |
 | `missedAnswers` | `true` | Track messages that may have been left unanswered: a failed address classifier, a replaced deferred follow-up, a turn that errored, was dropped or ended not-now. Each becomes a candidate in a registry, journaled as kind `answer`. A missing key counts as on. See [`missed`](#missed) |
 | `missedRecovery` | `false` | When the sweep finds owed candidates, start one reply turn to pick them up (trigger kind `missed`, `labels.task.missed`). Off (the default), the sweep classifies and journals only (shadow mode). Must be exactly `true` to enable; a missing key counts as off |
-| `around` | `true` | The persona sees, at the corner of her eye, what a member sees in Discord's sidebar right now: who is in which voice channel (muted, deafened, streaming, camera on, and what they play or listen to when their presence is known) and, for the people in the current scene, their status, activity and custom status, in an `<around>` block in the tail of the request. A live snapshot in process memory, never stored, logged or backed up. Statuses need `discord.intents.presences`. Not shown in a private chat or a diary post. A missing key counts as on. See `context.around.maxTokens` and [`discord`](#discord) |
+| `around` | `true` | The persona sees, at the corner of her eye, what a member sees in Discord's sidebar right now. For each person the request is about, their line in `<people_now>` (in the tail of the request) starts with their status (online, idle, do not disturb, offline), the voice channel they sit in (muted, deafened, streaming, camera on) and what they play, stream, watch or listen to (a Spotify track with its artist). People sitting in a voice channel who have no profile in the request get a line of their own. Custom statuses are never shown. A live snapshot in process memory, never stored, logged or backed up. Statuses and activities need `discord.intents.presences`; without it only voice channels show, and the block says statuses cannot be seen. Not shown in a private chat or a diary post. Off: the lines keep only what memory holds (the attitude, the message count). A missing key counts as on. See `context.around.maxTokens` and [`discord`](#discord) |
 
 ## `skills`
 
@@ -87,10 +87,10 @@ Every key in `config.json` with its default, grouped by section.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `intents.presences` | `false` | Request the privileged Presence intent, so the persona can see members' status, activities and custom status (`<around>`). Read once at startup: intents are fixed when the bot logs in, so a change needs a restart. The intent must also be switched on for the bot in the Discord Developer Portal; requesting a privileged intent that is not enabled there makes the login fail and the bot stays down. Off: statuses are unknown and not shown |
+| `intents.presences` | `false` | Request the privileged Presence intent, so the persona can see members' status and activities (`<people_now>`). Read once at startup: intents are fixed when the bot logs in, so a change needs a restart. The intent must also be switched on for the bot in the Discord Developer Portal; requesting a privileged intent that is not enabled there makes the login fail and the bot stays down. Off: statuses and activities are unknown and not shown |
 | `intents.members` | `false` | Request the privileged Server Members intent (member events and a fuller member cache). Same rules as `intents.presences`: read once at startup, needs the Developer Portal switch first, a restart to change. Nothing depends on it yet |
 
-The voice-state intent (`<around>`'s voice channels) is not privileged and is always requested.
+The voice-state intent (the voice channels in `<people_now>`) is not privileged and is always requested.
 
 ## `bot`
 
@@ -199,7 +199,7 @@ Message text with author names is sent to the embedding provider (OpenAI through
 | `askedAboutProfiles` | `3` | Members named in recent messages whose profiles are shown in full, ahead of the other participants |
 | `askedAboutEpisodes` | `3` | Episodes shown per member who is asked about. `0` hides episodes for asked-about members. In a private chat, shown when `features.privateLikeServer` is on (the default); hidden otherwise |
 | `attitudes` | `6` | Members shown in the `<attitudes>` block, ranked by attitude score strength, warm and cool mixed. `0` turns the block off |
-| `around.maxTokens` | `250` | Token cap of the `<around>` block (`features.around`). Over the cap the other people's lines go first, then the activities shown beside voice occupants, then the voice flags, then voice channels, the speaker's own line last; `0` turns the block off. In the request budget it ranks with `<lookup>`, so it displaces other context and never adds above the request limit |
+| `around.maxTokens` | `250` | Token cap of the `<people_now>` lines of the people sitting in a voice channel who have no profile in the request (`features.around`), one line each, by name; over the cap the last names go first, `0` shows none. They are the lowest priority of the request, so they never push out anything else. The lines of the people the request has a profile for are not under this cap: the speaker's is never cut, and anyone else's is kept or dropped together with their profile |
 | `tempo.liveMessages10min` | `4` | Messages in 10 min = "live" |
 | `tempo.deadSilenceMinutes` | `45` | Silence minutes = "dead" |
 | `caps.interlocutor` | `6000` | Token cap: caller's profile with episodes |
@@ -609,7 +609,7 @@ Settings for missed-answer recovery (`features.missedAnswers`). When a message m
 | `interestNoteChars` | `120` | Max chars for an interest note |
 | `confirmAfter` | `2` | Sightings before an interest or detail is confirmed |
 | `confirmGapHours` | `12` | Hours between sightings to count as a new occasion |
-| `interestStaleDays` | `90` | Days without sighting before an interest is marked old |
+| `interestStaleDays` | `90` | Days without sighting before an interest is marked old (checked against the start of the current UTC day, so the mark changes only once a day) |
 | `interestHalfLifeDays` | `180` | Weight half-life for interests (days); an unseen item's weight halves each period, so a new pastime can overtake an old one |
 | `detailHalfLifeDays` | `720` | Weight half-life for details (days) |
 | `maxLearned` | `20` | Lessons shown to the analyzer and the chat model |
@@ -622,7 +622,7 @@ Settings for missed-answer recovery (`features.missedAnswers`). When a message m
 | `aliasHalfLifeDays` | `365` | Weight half-life for aliases (days) |
 | `addressHalfLifeDays` | `30` | Days for a name use to lose half its weight in the "called most often" order |
 | `maxClosedStored` | `40` | Closed claims kept per profile: an interest, detail, alias or real name the analyzer marked as replaced by a newer one (`supersedes`) leaves the ranked list and is kept here with the dates it was true; past the limit the oldest goes to the archive (event `replaced`). Read at each write |
-| `supersededShownDays` | `7` | Days a replaced claim is still shown to the persona, once, next to the claim that replaced it (counted from when the new claim was recorded). Read at each request |
+| `supersededShownDays` | `7` | Days a replaced claim is still shown to the persona, once, next to the claim that replaced it (counted from when the new claim was recorded, checked against the start of the current UTC day). Read at each request |
 | `maxInjokes` | `15` | Max server in-jokes |
 | `maxSelfFacts` | `20` | Max self-claims |
 | `maxEpisodes` | `20` | Max episodes kept per person |
@@ -656,7 +656,7 @@ Settings for stage B of the two-stage analyzer (`features.memoryTwoStage`). Stag
 | `dampingPower` | `1` | Exponent of the damping factor; higher values make the ends of the scale harder to reach |
 | `maxDeltaPerUpdate` | `15` | Max score change per update |
 | `historySize` | `10` | Attitude changes kept per member |
-| `shownMoves` | `4` | Attitude moves shown after the score in the profile, strongest by absolute delta first. `0` hides them |
+| `shownMoves` | `4` | Attitude moves shown after the score in the person's `<people_now>` line, strongest by absolute delta first (at most one for someone who only took part in the conversation). `0` hides them |
 | `directTriggerCount` | `6` | Direct interactions that force early update |
 | `decayPerDay` | `0.04` | Daily drift toward zero; per day the score loses `decayPerDay * |score| * (|score| / 100) ^ decayPower`. `0` or missing = off |
 | `decayPower` | `1` | Exponent of the decay curve; higher values make scores close to zero decay slower. Not a positive number = 1 |

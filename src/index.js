@@ -206,7 +206,7 @@ const images = createImageGen({ apiKey: openrouterKey, getConfig: () => hot.conf
 // switch is hot, intents are not); a DM channel arrives uncached, hence the
 // Channel partial. GuildExpressions keeps the guild's custom emoji cache
 // current (emoji created, renamed, deleted) for the emoji index below.
-// GuildVoiceStates feeds the `<around>` glance at the voice channels. The two PRIVILEGED
+// GuildVoiceStates feeds the voice channels of `<people_now>`. The two PRIVILEGED
 // intents (discord.intents.presences, discord.intents.members) are requested only when the
 // config says so, read ONCE here because intents are fixed at login: asking for one that the
 // Developer Portal has not enabled makes the login fail, so both default to false.
@@ -720,7 +720,7 @@ client.on(Events.ChannelCreate, warmOnChannel);
 client.on(Events.ChannelUpdate, (_old, channel) => warmOnChannel(channel));
 client.on('interactionCreate', onInteraction);
 
-// The `<around>` snapshot follows the gateway: the events are cheap map updates and run whatever
+// The live snapshot (`<people_now>`) follows the gateway: the events are cheap map updates and run whatever
 // features.around says (a switch turned on later finds a snapshot that is current); a lost
 // connection marks it stale until the shard is back. Only the served guild is tracked.
 function seedAround() {

@@ -3837,27 +3837,17 @@ export function createTurnRunner({
   }
 
   /**
-   * `<around>`'s input (src/discord/around.js): the live snapshot of the voice channels and of
-   * the statuses, the scene (the interlocutor first, then whoever spoke last, no bot, not the
-   * persona) and the voice channels' names -- only those a member without any role may see, so
+   * The live part of `<people_now>` (src/discord/around.js): the snapshot of the voice channels and
+   * of the statuses (the prompt builder derives each person's row from it) and the voice channels' names -- only those a member without any role may see, so
    * she never names who sits in a room this chat cannot see. Null without the store, with
    * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
    * Read at the moment of the request; nothing of it is kept.
    */
-  function aroundInputFor({ channel, config, history, trigger, mode, isPrivate }) {
+  function aroundInputFor({ channel, config, mode, isPrivate }) {
     if (!around || config.features?.around === false || isPrivate || mode === 'diary') return null;
-    const sceneMemberIds = [];
-    const add = (id) => {
-      if (typeof id === 'string' && id !== '' && !sceneMemberIds.includes(id)) sceneMemberIds.push(id);
-    };
-    add(trigger?.authorId);
-    for (let i = history.length - 1; i >= 0; i -= 1) {
-      if (!history[i].self && !history[i].bot) add(history[i].authorId);
-    }
     const guild = channel.guild;
     return {
       snapshot: around.snapshot(),
-      sceneMemberIds,
       channelNameOf: (channelId) => {
         const voice = guild?.channels?.cache?.get?.(channelId);
         const visible = voice?.permissionsFor?.(guild.roles?.everyone)?.has?.('ViewChannel') === true;
@@ -5684,8 +5674,8 @@ export function createTurnRunner({
         // `<skills_granted>`: the names of the skills granted to her, on every turn -- her grants
         // (the config read now) and the registry only, never this requester or channel.
         skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
-        // `<around>`: the live voice and status snapshot with the scene (null: no block).
-        around: aroundInputFor({ channel, config, history, trigger, mode: finalMode, isPrivate }),
+        // `<people_now>`'s live part: the voice and status snapshot (null: none).
+        around: aroundInputFor({ channel, config, mode: finalMode, isPrivate }),
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
         continuation: null,
       });
