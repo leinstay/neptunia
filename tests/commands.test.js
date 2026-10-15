@@ -17,6 +17,7 @@ import {
   COMMAND_TABLE,
   MODEL_ROLES,
   MODEL_SET_ROLES,
+  STATUS_FIELDS,
 } from '../src/discord/commands.js';
 import { isAllowed as accessIsAllowed } from '../src/discord/access.js';
 import { resolveCommand, asResult, listOps } from '../src/ops/index.js';
@@ -54,6 +55,25 @@ test('buildCommandTree: no subcommand or group name anywhere in the tree contain
   walk(command.options);
   assert.ok(names.length > 0);
   for (const name of names) assert.ok(!name.includes('-'), `${name} must not contain a hyphen`);
+});
+
+test('status: an optional field option whose choices are the field names of the card, names as values', () => {
+  const [command] = buildCommandTree('nep');
+  const field = findOption(findOption(command.options, 'status').options, 'field');
+  assert.equal(field.type, 3);
+  assert.equal(field.required, false);
+  assert.deepEqual(field.choices.map((c) => c.value), [...STATUS_FIELDS]);
+  assert.deepEqual(field.choices.map((c) => c.name), [...STATUS_FIELDS]);
+  for (const choice of field.choices) assert.ok(choice.value.length >= 1 && choice.value.length <= 100, choice.value);
+  assert.ok(STATUS_FIELDS.includes('costs (limits per key)') && STATUS_FIELDS.includes('costs (today by role)'));
+});
+
+test('interaction handler: status passes the chosen field into its args, null without one', async () => {
+  const admin = fakeAdmin();
+  const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
+  await handler(fakeInteraction({ subcommand: 'status', optionValues: { field: 'limits' } }));
+  await handler(fakeInteraction({ subcommand: 'status' }));
+  assert.deepEqual(admin.runCalls.map((call) => call[1]), [{ detail: false, field: 'limits' }, { detail: false, field: null }]);
 });
 
 test('MODEL_ROLES: the model-set, route and ping role choices are all derived from the one list', () => {

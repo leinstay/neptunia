@@ -117,6 +117,9 @@ const ARCHIVE_CHOICES = 25;
  *   the owner card's costs field. Absent -> no role lines.
  * `simKey` — the optional simulator key (OPENROUTER_SIM_KEY), a string: used for one read-only GET of
  *   its limit on the owner card's costs field, never for a model request. Absent -> a "not set" line.
+ * `managementKey` — the optional management key (OPENROUTER_MANAGEMENT_KEY), a string: used only for
+ *   the read-only activity GETs behind each key's last 7 and 30 days on the owner card. Absent -> the
+ *   bot's own accumulator (the simulator key: its calendar week and month).
  * `port` — the persona's interface (src/interface/port.js), optional: what `/nep message
  *   send|edit|delete|react` and `/nep draw channel:` post through, as the persona. Absent -> those
  *   report they are not available.

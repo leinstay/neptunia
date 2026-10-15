@@ -34,7 +34,7 @@ cd neptunia-bot && npm install
 cp .env.example .env
 ```
 
-Edit `.env` with your Discord token and API key. To run the tools under `tools/`, also set `OPENROUTER_SIM_KEY`: a second OpenRouter key that only the tools use, so they do not spend the bot's live `OPENROUTER_API_KEY` (without it the tools fall back to that key and warn on stderr; the owner's `/nep status` card shows the simulator key's limit too). Create `config.local.json` with your Discord user ID:
+Edit `.env` with your Discord token and API key. To run the tools under `tools/`, also set `OPENROUTER_SIM_KEY`: a second OpenRouter key that only the tools use, so they do not spend the bot's live `OPENROUTER_API_KEY` (without it the tools fall back to that key and warn on stderr; the owner's `/nep status` card shows the simulator key's limit too). Optionally set `OPENROUTER_MANAGEMENT_KEY` so the status card shows every key's last 7 and 30 days from OpenRouter's activity records; such a key can manage every key of the account, the bot only reads activity with it. Create `config.local.json` with your Discord user ID:
 
 ```json
 {
@@ -53,7 +53,7 @@ When `bot.guildId` is empty and the bot is in exactly one server, it locks to th
 ## Features and changes
 
 **15.10.2026**  
-The owner's `/nep status` card has a costs field: the OpenRouter key's limit and what it spent (with when it resets), the credits left, and today's requests, tokens and cost per model role, counted by the bot and kept in `data/usage.json`. The costs are what OpenRouter reports; BYOK requests are billed by the provider and show at OpenRouter's list prices. Members do not see the field.
+The owner's `/nep status` card has two costs fields: `costs (limits per key)`, each OpenRouter key's limit and what it spent (with when it resets) followed by its usage today and over the last 7 and 30 days; and `costs (today by role)`, today's requests, tokens and cost per model role, counted by the bot and kept in `data/usage.json`. The costs are what OpenRouter reports; BYOK requests are billed by the provider and show at OpenRouter's list prices. Members do not see these fields.
 
 Picture, GIF and video descriptions can be redone after a model change. Every new description remembers when it was written and by which model. `media.recacheBefore` (an ISO date-time, off by default) marks everything written before it as outdated: such a description is written again the next time the picture comes up, under the usual limits, and the old one stays if the new attempt fails. `/nep model set` for the `vision` or `video` role sets it by itself. `/nep media kind:pictures action:recache days:7` redoes, in the background and one at a time, the descriptions used in the last few days that an older model wrote.
 
@@ -235,7 +235,7 @@ Runs with `node --test`. No network or Discord connection needed. The same comma
 
 ```
 config.json                defaults for every setting, hot-reloaded
-.env.example               template for DISCORD_TOKEN, OPENROUTER_API_KEY, optional OPENROUTER_SIM_KEY (tools only), YOUTUBE_API_KEY and BRAVE_SEARCH_API_KEY
+.env.example               template for DISCORD_TOKEN, OPENROUTER_API_KEY, optional OPENROUTER_SIM_KEY (tools only), OPENROUTER_MANAGEMENT_KEY (status card activity, read only), YOUTUBE_API_KEY and BRAVE_SEARCH_API_KEY
 prompts/
   system-prompt.md         how to behave like an ordinary chat member
   character-card.md        the personality (working example)
@@ -324,7 +324,7 @@ src/
     index.js               routing: command key to operation, run with access check
     status.js              /nep status: the status card and the long text form
     metrics.js             speed figures for the status card: samples of the last 24 h, persisted in data/metrics.json
-    usage.js               costs field of the status card: key limit, credits, today's requests per role in data/usage.json
+    usage.js               costs fields of the status card: each key's limit and usage, today's requests per role in data/usage.json
     access.js              /nep access: grant, revoke, list, migration from old keys
     env.js                 shared environment for all operation handlers
     shared.js              small helpers used across operation modules

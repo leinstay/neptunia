@@ -1,5 +1,5 @@
-// The costs field of the owner's `/nep status` card: what the OpenRouter key allows and has spent,
-// the account's credits, and today's requests per model role from the bot's own accounting. The
+// The two costs fields of the owner's `/nep status` card: what each OpenRouter key allows and has
+// spent, and today's requests per model role from the bot's own accounting. The
 // accumulator is fed by the `llm: usage` log lines (src/log.js#onLog, subscribed in src/index.js
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
@@ -7,7 +7,7 @@
 // keeps them across a restart (written at most once a minute, and once more on shutdown;
 // write-temp + rename). Only numbers and role codes are kept. The costs are OpenRouter's reported
 // ones: a BYOK request is billed by the provider and shows here at OpenRouter's list price (the
-// upstream cost when the answer carries it). The renderer is pure and takes every word from
+// upstream cost when the answer carries it). The renderers are pure and take every word from
 // `labels.status.costs`.
 
 import * as nodeFs from 'node:fs';
@@ -213,7 +213,7 @@ export function usageTap(usage) {
 }
 
 /**
- * One read-only account GET of the llm client (`keyInfo` or `credits`, src/llm/openrouter.js),
+ * One read-only account GET of the llm client (`keyInfo`, src/llm/openrouter.js),
  * reduced to `{ ok: true, data }` (the answer's `data` object) or `{ ok: false, reason, status? }`
  * with `reason` one of `no-client` (no such method), `http` (a non-2xx answer, with its status),
  * `bad-answer` (no `data` object), `timeout`, `network`. Never rejects.
@@ -221,6 +221,21 @@ export function usageTap(usage) {
  * @returns {Promise<{ ok: true, data: object } | { ok: false, reason: string, status?: number }>}
  */
 export async function readAccount(call) {
+  return readData(call, isPlainObject);
+}
+
+/**
+ * One activity GET of the llm client (`activity`, src/llm/openrouter.js), reduced like
+ * `readAccount`, its `data` being the answer's array of rows. Never rejects.
+ * @param {(() => Promise<{ ok: boolean, status: number, json: object|null }>)|null|undefined} call
+ * @returns {Promise<{ ok: true, data: object[] } | { ok: false, reason: string, status?: number }>}
+ */
+export async function readActivity(call) {
+  return readData(call, Array.isArray);
+}
+
+/** `readAccount` / `readActivity`: the answer's `data` when `accept` takes it. */
+async function readData(call, accept) {
   if (typeof call !== 'function') return { ok: false, reason: 'no-client' };
   let answer;
   try {
@@ -229,8 +244,33 @@ export async function readAccount(call) {
     return { ok: false, reason: err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'network' };
   }
   if (!answer?.ok) return { ok: false, reason: 'http', status: answer?.status ?? null };
-  if (!isPlainObject(answer.json?.data)) return { ok: false, reason: 'bad-answer' };
+  if (!accept(answer.json?.data)) return { ok: false, reason: 'bad-answer' };
   return { ok: true, data: answer.json.data };
+}
+
+/**
+ * A key's spend over the completed UTC days of the last 7 and 30 (today excluded: 6 and 29 days
+ * before `today`) from its activity rows (GET /activity's `data`: one row per day, model and
+ * endpoint, `date` `YYYY-MM-DD ...`); a day's spend is `usage + byok_usage_inference` summed over
+ * its rows (a field that is not a finite number >= 0 counts 0). Null when `rows` is no array. Pure.
+ * @param {object[]} rows
+ * @param {string} today  `YYYY-MM-DD`, UTC.
+ * @returns {{ last7: number, last30: number }|null}
+ */
+export function activitySums(rows, today) {
+  if (!Array.isArray(rows)) return null;
+  const todayMs = Date.parse(`${today}T00:00:00.000Z`);
+  const sums = { last7: 0, last30: 0 };
+  for (const row of rows) {
+    const day = typeof row?.date === 'string' ? row.date.slice(0, 10) : '';
+    if (!DAY_KEY.test(day)) continue;
+    const back = Math.round((todayMs - Date.parse(`${day}T00:00:00.000Z`)) / DAY_MS);
+    if (!(back >= 1 && back <= 29)) continue;
+    const spend = amountOr0(row.usage) + amountOr0(row.byok_usage_inference);
+    sums.last30 += spend;
+    if (back <= 6) sums.last7 += spend;
+  }
+  return sums;
 }
 
 /** A token count for the card: `812`, `9.3k`, `974k`, `1.23M`. */
@@ -271,6 +311,9 @@ const INTERVAL_USAGE = Object.freeze({ daily: 'usage_daily', weekly: 'usage_week
 /** The rolling windows of a usage line, in order: the `sumDays` result's key and its label. */
 const WINDOWS = Object.freeze([['last7', 'last7'], ['last30', 'last30']]);
 
+/** The simulator key's calendar periods after today, in order: the key's own field and its label. */
+const CALENDAR = Object.freeze([['usage_weekly', 'usageWeekCal'], ['usage_monthly', 'usageMonthCal']]);
+
 /** The key line (src: GET /key's `data`): spend over limit with its notes, or no limit with the total used. */
 function keyLine(data, L, lead) {
   const budget = keyBudget(data);
@@ -305,6 +348,12 @@ function keyLine(data, L, lead) {
   return kept.length > 0 ? line(L.keyLimit, { ...values, notes: kept.join(L.noteSeparator ?? '') }) : line(L.keyLimitPlain, values);
 }
 
+/** The usage line of `parts` (the null ones dropped), or null when none is left. */
+function partsLine(parts, L) {
+  const kept = parts.filter(Boolean);
+  return kept.length > 0 ? line(L.usage, { parts: kept.join(L.partSeparator ?? '') }) : null;
+}
+
 /** The usage line: today from GET /key's `data` (null: not read), then the rolling last 7 and
  * last 30 days from the bot's own accumulator (`windows`, `sumDays` results), each only when
  * present; a window shorter than asked carries its first day through `since`. */
@@ -317,19 +366,38 @@ function usageLine(data, windows, L) {
     const since = window.partial ? (line(L.since, { day: window.since }) ?? '') : '';
     parts.push(line(L[label], { usd: usd(window.total?.cost), since }));
   }
-  const kept = parts.filter(Boolean);
-  return kept.length > 0 ? line(L.usage, { parts: kept.join(L.partSeparator ?? '') }) : null;
+  return partsLine(parts, L);
 }
 
-/** The credits line from GET /credits's `data`. */
-function creditsLine(outcome, L) {
-  if (!outcome?.ok) return line(L.creditsUnavailable, { reason: reasonText(outcome ?? { reason: 'bad-answer' }, L) });
-  const { total_credits: bought, total_usage: used } = outcome.data;
-  if (!isAmount(bought) || !isAmount(used)) return line(L.creditsUnavailable, { reason: reasonText({ reason: 'bad-answer' }, L) });
-  return line(L.credits, { left: usd(bought - used), bought: usd(bought), used: usd(used) });
+/** The usage line with the key's activity (`activitySums`): today from GET /key's `data`, then
+ * the last 7 and 30 days as today plus their completed days. Null without today's figure. */
+function activityLine(data, activity, L) {
+  if (!isPlainObject(data) || !isAmount(data.usage_daily)) return null;
+  const today = data.usage_daily;
+  return partsLine([
+    line(L.usageToday, { usd: usd(today) }),
+    line(L.last7, { usd: usd(today + amountOr0(activity.last7)), since: '' }),
+    line(L.last30, { usd: usd(today + amountOr0(activity.last30)), since: '' }),
+  ], L);
 }
 
-/** One role row (or the total) through `template`; a row with no token at all (a drawing) shows its
+/** A key's usage line: with its activity (`activityLine`), else `fallback()`. */
+function keyUsageLine(data, activity, L, fallback) {
+  return (isPlainObject(activity) ? activityLine(data, activity, L) : null) ?? fallback();
+}
+
+/** The simulator key's usage line without its activity, all from its own GET /key `data` (the
+ * bot's accumulator never sees the tools' spend): today, then the calendar week and month as
+ * OpenRouter reports them, each only when reported. */
+function ownUsageLine(data, L) {
+  if (!isPlainObject(data)) return null;
+  const parts = [];
+  if (isAmount(data.usage_daily)) parts.push(line(L.usageToday, { usd: usd(data.usage_daily) }));
+  for (const [field, label] of CALENDAR) if (isAmount(data[field])) parts.push(line(L[label], { usd: usd(data[field]) }));
+  return partsLine(parts, L);
+}
+
+/** One role row through `template`; a row with no token at all (a drawing) shows its
  * token counts as `-`; `{avg}` is the cost per request through `L.avg` (three decimals), empty
  * with no request or no label. */
 function rowLine(template, row, L) {
@@ -347,28 +415,29 @@ function rowLine(template, row, L) {
 }
 
 /**
- * The costs field's lines, every word from `labels.status.costs` (a missing label leaves its line
- * out; no `status.costs` at all gives []): the key line (`keyLimit` with its `notes` -- the reset
- * and whether BYOK counts -- or `keyLimitPlain`; `keyNone` / `keyNonePlain` without a limit;
- * `keyUnavailable` on a failed read; each takes the lead word `{lead}` from `keyLead`), then the
- * same line for the simulator key (lead `simKeyLead`; `simKeyNotSet` when `sim` is null), the
- * `usage` line when the key reports any, the `credits`
- * line (`creditsUnavailable` on a failed read), then today's roles: `byRoleHeader`, one `role`
- * line per row in the given order and the `total`, or `byRoleEmpty`; both with `{avg}`, the
- * cost per request. The usage line (`usage` of `usageToday` -- today from the key's record --
- * `last7` and `last30` -- the key's roles' rolling sums from the accumulator, `since` when the
- * accumulator holds fewer days) follows the simulator key line; each extra role key
- * (`llm.keyByRole`) then gets its key line (lead `roleKeyLead` with `{roles}`) and its own usage
- * line. The key's label is never read. Pure.
- * @param {{ key: object, sim?: object|null, credits: object, rows: object[], labels: object,
+ * The `costs (limits per key)` field's lines, every word from `labels.status.costs` (a missing
+ * label leaves its line out; no `status.costs` at all gives []): per key, its limit line
+ * immediately followed by its own usage line -- the main key (lead `keyLead`), the simulator key
+ * (lead `simKeyLead`; the one line `simKeyNotSet` when `sim` is null), then each extra role key
+ * (`llm.keyByRole`, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`). A limit line is
+ * `keyLimit` with its `notes` (the reset and whether BYOK counts) or `keyLimitPlain`; `keyNone` /
+ * `keyNonePlain` without a limit; `keyUnavailable` on a failed read. A usage line is `usage` of
+ * its parts: for the main and the role keys `usageToday` (today from the key's record) and
+ * `last7` / `last30` (the key's roles' rolling sums from the accumulator, `since` when it holds
+ * fewer days); for the simulator key, whose spend the accumulator never sees, `usageToday`,
+ * `usageWeekCal` and `usageMonthCal` all from its own record, each only when reported (a failed
+ * read: no usage line). A key with its activity (the management key's read, `activitySums`)
+ * shows instead `usageToday`, then `last7` and `last30` as today plus the completed days (no
+ * `since`), when its record gives today's figure. The key's label is never read. Pure.
+ * @param {{ key: object, activity?: object|null, sim?: object|null, simActivity?: object|null, labels: object,
  *   windows?: { last7?: object, last30?: object }|null,
- *   roleKeys?: Array<{ roles: string[], key: object, windows?: { last7?: object, last30?: object }|null }> }} params
- *   `key`, `sim` (null: not set), `credits` and each role key's `key` as `readAccount` resolves;
- *   `rows` as `createUsage().byRole()` returns; `windows` as `createUsage().sumDays` returns, the
- *   main key's over the roles no extra key takes.
+ *   roleKeys?: Array<{ roles: string[], key: object, activity?: object|null, windows?: { last7?: object, last30?: object }|null }> }} params
+ *   `key`, `sim` (null: not set) and each role key's `key` as `readAccount` resolves; each
+ *   `activity` as `activitySums` returns (null: not read); `windows` as `createUsage().sumDays`
+ *   returns, the main key's over the roles no extra key takes.
  * @returns {string[]}
  */
-export function costsLines({ key, sim = null, credits, rows, labels, windows = null, roleKeys = [] }) {
+export function keyCostsLines({ key, activity = null, sim = null, simActivity = null, labels, windows = null, roleKeys = [] }) {
   const L = labels?.status?.costs;
   if (!isPlainObject(L)) return [];
   const lines = [];
@@ -376,24 +445,31 @@ export function costsLines({ key, sim = null, credits, rows, labels, windows = n
   const simLead = typeof L.simKeyLead === 'string' ? L.simKeyLead : '';
   const unavailable = (outcome, word) => line(L.keyUnavailable, { lead: word, reason: reasonText(outcome ?? { reason: 'bad-answer' }, L) });
   lines.push(key?.ok ? keyLine(key.data, L, lead) : unavailable(key, lead));
-  lines.push(sim ? (sim.ok ? keyLine(sim.data, L, simLead) : unavailable(sim, simLead)) : line(L.simKeyNotSet, {}));
-  lines.push(usageLine(key?.ok ? key.data : null, windows, L));
+  const dataOf = (outcome) => (outcome?.ok ? outcome.data : null);
+  lines.push(keyUsageLine(dataOf(key), activity, L, () => usageLine(dataOf(key), windows, L)));
+  if (sim) lines.push(sim.ok ? keyLine(sim.data, L, simLead) : unavailable(sim, simLead), keyUsageLine(dataOf(sim), simActivity, L, () => ownUsageLine(dataOf(sim), L)));
+  else lines.push(line(L.simKeyNotSet, {}));
   for (const extra of Array.isArray(roleKeys) ? roleKeys : []) {
     const roles = Array.isArray(extra?.roles) ? extra.roles : [];
     const roleLead = line(L.roleKeyLead, { roles: roles.join(typeof L.roleSeparator === 'string' ? L.roleSeparator : ', ') });
     if (!roleLead) continue;
     lines.push(extra.key?.ok ? keyLine(extra.key.data, L, roleLead) : unavailable(extra.key, roleLead));
-    lines.push(usageLine(extra.key?.ok ? extra.key.data : null, extra.windows, L));
+    lines.push(keyUsageLine(dataOf(extra.key), extra.activity, L, () => usageLine(dataOf(extra.key), extra.windows, L)));
   }
-  lines.push(creditsLine(credits, L));
+  return lines.filter(Boolean);
+}
+
+/**
+ * The `costs (today by role)` field's lines, every word from `labels.status.costs` (no
+ * `status.costs` gives []): one `role` line per row in the given order, each with `{avg}`, the
+ * cost per request; `byRoleEmpty` alone when there is no row. No header and no total. Pure.
+ * @param {{ rows: object[], labels: object }} params  `rows` as `createUsage().byRole()` returns.
+ * @returns {string[]}
+ */
+export function roleCostsLines({ rows, labels }) {
+  const L = labels?.status?.costs;
+  if (!isPlainObject(L)) return [];
   const list = Array.isArray(rows) ? rows : [];
-  if (list.length === 0) {
-    lines.push(line(L.byRoleEmpty, {}));
-  } else {
-    lines.push(line(L.byRoleHeader, {}), ...list.map((row) => rowLine(L.role, row, L)));
-    const total = { role: '', ...cleanRow(null) };
-    for (const row of list) for (const field of COUNTERS) total[field] += amountOr0(row[field]);
-    lines.push(rowLine(L.total, total, L));
-  }
+  const lines = list.length === 0 ? [line(L.byRoleEmpty, {})] : list.map((row) => rowLine(L.role, row, L));
   return lines.filter(Boolean);
 }

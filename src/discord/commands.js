@@ -116,6 +116,13 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
   'raw',
 ]);
 
+/**
+ * The fields of the `/nep status` card, in order (src/ops/status.js renders them; the costs,
+ * memory and speed ones are the owner's only): the choices of its `field` option. Kept here, not
+ * in src/ops/status.js, which imports this module.
+ */
+export const STATUS_FIELDS = Object.freeze(['state', 'long tasks', 'models', 'limits', 'costs (limits per key)', 'costs (today by role)', 'memory', 'speed']);
+
 /** `{ name, value }` choices, one per entry of `values`, the name being the value itself. */
 function choicesOf(values) {
   return values.map((value) => ({ name: value, value }));
@@ -159,8 +166,11 @@ export const COMMAND_TABLE = Object.freeze([
   {
     name: 'status',
     description: 'What the bot is doing now: one card.',
-    options: [{ type: BOOLEAN, name: 'detail', description: 'Add the long form below the card.', required: false }],
-    args: (options) => ({ detail: options.getBoolean('detail') ?? false }),
+    options: [
+      { type: BOOLEAN, name: 'detail', description: 'Add the long form below the card.', required: false },
+      { type: STRING, name: 'field', description: 'Show only this field of the card.', required: false, choices: choicesOf(STATUS_FIELDS) },
+    ],
+    args: (options) => ({ detail: options.getBoolean('detail') ?? false, field: options.getString('field') ?? null }),
   },
   {
     name: 'set',

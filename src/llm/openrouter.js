@@ -24,6 +24,7 @@
 // It is also the one place the prompt-cache marker is put on a request (see
 // `withCacheMarker`): after the estimate, so the rails never see it.
 
+import { createHash } from 'node:crypto';
 import { estimateMessages } from './tokens.js';
 import { safetyMarginOf } from './budget.js';
 import { isPlainObject } from '../config.js';
@@ -111,6 +112,16 @@ export function roleApiKey(config, env, role, mainKey) {
     log.warn('llm: role key missing', { role, name: valid ? name : null });
   }
   return mainKey;
+}
+
+/**
+ * The SHA-256 hex digest of an API key: how OpenRouter's activity endpoint names a key
+ * (`api_key_hash`), so the status card can ask for one key's spend without holding it.
+ * @param {string} key
+ * @returns {string}
+ */
+export function keyHashOf(key) {
+  return createHash('sha256').update(String(key)).digest('hex');
 }
 
 /**
@@ -805,7 +816,7 @@ function hedgeTimeoutError(ms) {
  * @param {() => number} [deps.now]       Clock in ms, for the day rollover and a request's logged duration.
  * @param {(fn: () => void, ms: number) => unknown} [deps.setTimer]  The hedge's timers (`setTimeout`).
  * @param {(handle: unknown) => void} [deps.clearTimer]              Their cancel (`clearTimeout`).
- * @returns {{ complete: Function, modelEndpoints: Function, keyInfo: Function, credits: Function, roleKeys: () => Array<{ roles: string[] }>, capLeft: (nowMs?: number) => number }}
+ * @returns {{ complete: Function, modelEndpoints: Function, keyInfo: Function, credits: Function, activity: Function, keyHash: Function, roleKeys: () => Array<{ roles: string[] }>, capLeft: (nowMs?: number) => number }}
  */
 export function createLlm({
   apiKey,
@@ -1349,5 +1360,24 @@ export function createLlm({
    */
   const roleKeys = () => roleKeyGroups(getConfig(), env, apiKey).map(({ roles }) => ({ roles }));
 
-  return { complete, modelEndpoints, keyInfo, credits, roleKeys, capLeft };
+  /**
+   * One key's daily spend over the last 30 completed UTC days (`<llm.baseUrl>/activity`, one row
+   * per day, model and endpoint), one free GET (see `getFree`) made with `apiKey` -- the
+   * management key, for this one GET only -- for the key whose hash is `keyHash` (`keyHashOf`).
+   * For the costs field of the owner's `/nep status` card.
+   * @param {{ apiKey: string, keyHash: string, timeoutMs?: number }} options
+   * @returns {Promise<{ ok: boolean, status: number, json: object|null }>}
+   */
+  const activity = ({ apiKey: managementKey, keyHash: hash, timeoutMs } = {}) =>
+    getFree(`activity?api_key_hash=${encodeURIComponent(String(hash))}`, { timeoutMs, apiKey: managementKey });
+
+  /**
+   * The hash (`keyHashOf`) of the key `role` goes out on (`roleApiKey`), or of the main key
+   * without one: what `activity` asks about, never the key itself.
+   * @param {{ role?: string }} [options]
+   * @returns {string}
+   */
+  const keyHash = ({ role } = {}) => keyHashOf(role ? roleApiKey(getConfig(), env, role, apiKey) : apiKey);
+
+  return { complete, modelEndpoints, keyInfo, credits, activity, keyHash, roleKeys, capLeft };
 }
