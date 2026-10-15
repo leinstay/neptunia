@@ -261,12 +261,12 @@
   },
   "message.edit": {
     "title": "Edit your message",
-    "whenToUse": "Replace the text of one of your own earlier messages; takes a #N or a message link.",
+    "whenToUse": "Replace the text of one of your own earlier messages; takes a #N or a message link. PLACEHOLDER (nep-writer): message=\"last\" means your own most recent message in that channel, even when it is not in the chat you see.",
     "whenNotToUse": "Only your own messages."
   },
   "message.delete": {
     "title": "Delete your message",
-    "whenToUse": "Remove one of your own messages; takes a #N or a message link. Irreversible.",
+    "whenToUse": "Remove one of your own messages; takes a #N or a message link. PLACEHOLDER (nep-writer): message=\"last\" means your own most recent message in that channel, even when it is not in the chat you see. Irreversible.",
     "whenNotToUse": "Only your own messages; the text is gone once deleted."
   },
   "message.react.add": {

@@ -41,8 +41,8 @@ The table is generated from the command table (`src/discord/commands.js#COMMAND_
 | `/nep access revoke <command> [role] [user]` | `access.revoke` | ephemeral | Revoke an operation, group or * from everyone, a role or a user; `command` autocompletes |
 | `/nep access list` | `access.list` | ephemeral | List every access grant |
 | `/nep message create [channel] [reply]` | `message.create` | ephemeral, deferred | Give the persona a turn now, in her own words. With `reply`, she answers that message |
-| `/nep message edit <message> <text> [channel]` | `message.edit` | ephemeral | Replace the text of one of the persona's messages |
-| `/nep message delete <message> [channel]` | `message.delete` | ephemeral | Delete one of the persona's messages |
+| `/nep message edit <message> <text> [channel]` | `message.edit` | ephemeral | Replace the text of one of the persona's messages (`message:last`: her most recent one in the channel, among its last 100) |
+| `/nep message delete <message> [channel]` | `message.delete` | ephemeral | Delete one of the persona's messages (`message:last`: her most recent one in the channel, among its last 100) |
 | `/nep message react <action:add\|remove> <message> <emoji> [channel]` | `message.react.add`, `message.react.remove` | ephemeral | Put or take back the persona's reaction on a message |
 | `/nep diary set <channel>` | `diary.set` | ephemeral, deferred | Set the diary channel |
 | `/nep diary show` | `diary.show` | ephemeral | Diary state today |

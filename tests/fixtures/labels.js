@@ -394,6 +394,7 @@ export const labels = {
         'channel-no-permission': 'no permission there',
         'target-ambiguous': 'channel name shared',
         'not-own-message': 'not her message',
+        'no-own-message': 'no recent message of hers',
         'requester-denied': 'asker may not',
         other: 'other failure',
       },

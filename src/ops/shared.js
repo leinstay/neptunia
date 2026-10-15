@@ -671,7 +671,7 @@ export const CHANNEL_NEEDS = Object.freeze({
 });
 
 /** The channel `id` the client knows (its cache, else a fetch), or null. */
-async function channelById(client, id) {
+export async function channelById(client, id) {
   const cached = client?.channels?.cache?.get?.(id);
   if (cached) return cached;
   if (typeof client?.channels?.fetch !== 'function') return null;

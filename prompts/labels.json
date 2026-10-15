@@ -425,6 +425,7 @@
         "channel-no-permission": "you may not write in that channel",
         "unknown-message": "that message is not in the chat you were shown",
         "not-own-message": "that message is not yours",
+        "no-own-message": "PLACEHOLDER (nep-writer): none of your recent messages in that channel was found",
         "unknown-member": "nobody by that name is in your memory",
         "requester-denied": "the person asking may not see or do this",
         "daily-cap": "the limit for today is used up",
