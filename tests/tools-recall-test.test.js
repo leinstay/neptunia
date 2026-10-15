@@ -1,0 +1,258 @@
+// Tests for tools/lib/recall-test.mjs: the pure part of tools/recall-test.mjs (the questions
+// file, hit@k scoring, false confident recalls, the spend stop, the candidate sample) and the
+// offline guild the local stages run against, through the real recall runner with fakes.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  latestLines,
+  localGuild,
+  parseQuestions,
+  percentile,
+  costOf,
+  runQuestions,
+  sampleCandidates,
+  scoreQuestion,
+  summarize,
+} from '../tools/lib/recall-test.mjs';
+import { createRecall } from '../src/behavior/recall-run.js';
+import { toRecordLine } from '../src/memory/record.js';
+import { labels } from './fixtures/labels.js';
+import { withCapturedLogs } from './fixtures/capture-logs.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+
+const DAY = 86_400_000;
+const NOW = Date.UTC(2026, 9, 16, 12, 0, 0);
+const C1 = '100000000000000001';
+const C2 = '100000000000000002';
+const ASKER = '200000000000000001';
+const ANA = '200000000000000002';
+const SELF = '200000000000000009';
+const id = (n) => `3000000000000${String(n).padStart(5, '0')}`;
+
+/** A valid question with `fields` over it. */
+function question(fields = {}) {
+  return { id: 'q1', channelId: C1, askerId: ASKER, question: 'πού είναι το κουνέλι;', expected: [id(1)], kind: 'exact', ...fields };
+}
+
+/** A record line of `channelId` at `ts` (src/memory/record.js#toRecordLine). */
+function recLine(n, ts, text, { channelId = C1, by = ANA, kind = 'seen', revision = 1 } = {}) {
+  return toRecordLine({ id: id(n), channelId, authorId: by, content: text, ts }, { kind, revision, now: () => NOW, uuid: () => `u-${n}-${revision}` });
+}
+
+/** A message list with these ids. */
+const win = (...ns) => ns.map((n) => ({ id: id(n) }));
+
+test('recall-test: a valid questions file parses, every problem is named by position and id', () => {
+  const ok = parseQuestions([question(), question({ id: 'q2', kind: 'none', expected: [], note: 'not there' }), question({ id: 'q3', kind: 'fuzzy', expected: [id(1), id(1), id(2)] })]);
+  assert.deepEqual(ok.errors, []);
+  assert.equal(ok.questions.length, 3);
+  assert.deepEqual(ok.questions[2].expected, [id(1), id(2)], 'expected ids once each');
+  assert.equal(ok.questions[1].note, 'not there');
+
+  const bad = parseQuestions([
+    question(),
+    question(),
+    question({ id: 'q4', channelId: 'general', kind: 'maybe' }),
+    question({ id: 'q5', kind: 'none' }),
+    question({ id: 'q6', expected: [] }),
+    question({ id: 'q7', question: '  ', expected: ['x'] }),
+    'text',
+  ]);
+  assert.equal(bad.questions.length, 1);
+  assert.equal(bad.errors.length, 6);
+  assert.match(bad.errors[0], /^question 2 \(q1\): a duplicate id$/);
+  assert.match(bad.errors[1], /question 3 \(q4\): channelId is not a Discord id; kind is not one of exact, fuzzy, none/);
+  assert.match(bad.errors[2], /q5\): a none question expects no message/);
+  assert.match(bad.errors[3], /q6\): expected is empty/);
+  assert.match(bad.errors[4], /q7\): no question text; expected holds a value that is not a Discord id/);
+  assert.match(bad.errors[5], /question 7: not an object/);
+  assert.ok(!bad.errors.join('\n').includes('κουνέλι'), 'errors never quote the question');
+  assert.deepEqual(parseQuestions({}).errors, ['the file is not a JSON array']);
+});
+
+test('recall-test: hit@1 and hit@5 count the matched ids in window order, the rest of a window only as seen', () => {
+  const q = question({ expected: [id(7)] });
+  // Matched ids come first, in window order, then the other lines.
+  const first = scoreQuestion(q, { windows: [win(1, 7, 2), win(3)], matched: [id(7), id(3)] });
+  assert.deepEqual([first.rank, first.hit1, first.hit5, first.seen, first.windowRank], [1, true, true, true, 1]);
+  assert.deepEqual(first.surfaced, [id(7), id(3), id(1), id(2)]);
+
+  const fifth = scoreQuestion(q, { windows: [win(1, 2), win(3, 4), win(5, 7)], matched: [id(1), id(2), id(3), id(4), id(7)] });
+  assert.deepEqual([fifth.rank, fifth.hit1, fifth.hit5, fifth.windowRank], [5, false, true, 3]);
+
+  const sixth = scoreQuestion(q, { windows: [win(1, 2, 3, 4, 5, 6, 7)], matched: [id(1), id(2), id(3), id(4), id(5), id(7)] });
+  assert.deepEqual([sixth.rank, sixth.hit5], [6, false]);
+
+  // In a window but never matched: no hit, yet the summary saw it.
+  const context = scoreQuestion(q, { windows: [win(1, 7)], matched: [id(1)] });
+  assert.deepEqual([context.rank, context.hit5, context.seen], [null, false, true]);
+
+  const nothing = scoreQuestion(q, {});
+  assert.deepEqual([nothing.rank, nothing.hit1, nothing.hit5, nothing.seen, nothing.windowRank], [null, false, false, false, null]);
+});
+
+test('recall-test: a confident answer to a none question is a false confident recall, answerable ones never count', () => {
+  const none = question({ id: 'n1', kind: 'none', expected: [] });
+  const results = [
+    { id: 'n1', kind: 'none', score: scoreQuestion(none, { confident: true }), latencyMs: 100, costUsd: 0.01 },
+    { id: 'n2', kind: 'none', score: scoreQuestion(none, { confident: false, windows: [win(1)], matched: [id(1)] }), latencyMs: 300, costUsd: 0.02 },
+    { id: 'a1', kind: 'exact', question: 'α;', score: scoreQuestion(question(), { confident: true, windows: [win(1)], matched: [id(1)] }), latencyMs: 200, costUsd: 0.03 },
+    { id: 'a2', kind: 'fuzzy', question: 'β;', score: scoreQuestion(question(), { confident: true, windows: [win(2)], matched: [id(2)] }), latencyMs: 900, costUsd: 0, answer: 'ναι' },
+    { id: 'a3', kind: 'exact', question: 'γ;', score: null, error: 'classifier-failed', latencyMs: 50, costUsd: 0 },
+  ];
+  assert.equal(results[1].score.falseConfident, false);
+  assert.equal(results[2].score.falseConfident, null);
+  const summary = summarize(results);
+  assert.deepEqual(
+    [summary.questions, summary.answerable, summary.hit1, summary.hit5, summary.noneQuestions, summary.falseConfident, summary.failed],
+    [5, 3, 1, 1, 2, 1, 1],
+  );
+  assert.deepEqual(summary.misses.map((m) => m.id), ['a2', 'a3']);
+  assert.deepEqual(summary.misses[0].surfaced, [id(2)]);
+  assert.equal(summary.misses[1].error, 'classifier-failed');
+  assert.deepEqual(summary.latencyMs, { median: 200, p90: 900 });
+  assert.equal(summary.costUsd, 0.06);
+  assert.equal(percentile([], 50), null);
+  assert.equal(costOf({ cost: 0.2, cost_details: { upstream_inference_cost: 0.5 } }), 0.5);
+  assert.equal(costOf({ cost: 0.2 }), 0.2);
+  assert.equal(costOf(null), 0);
+});
+
+test('recall-test: the run stops asking once the summed cost passes --max-usd, and keeps to --limit', async () => {
+  const questions = ['a', 'b', 'c', 'd', 'e'].map((q) => question({ id: q }));
+  const asked = [];
+  const ask = async (q) => {
+    asked.push(q.id);
+    return { id: q.id, costUsd: 0.4 };
+  };
+  const stopped = await runQuestions(questions, { ask, maxUsd: 1 });
+  // 0.4, 0.8, 1.2 > 1: the fourth is never asked.
+  assert.deepEqual(asked, ['a', 'b', 'c']);
+  assert.deepEqual([stopped.stopped, stopped.skipped, stopped.results.length], ['max-usd', 2, 3]);
+  assert.ok(Math.abs(stopped.spentUsd - 1.2) < 1e-9);
+
+  asked.length = 0;
+  const limited = await runQuestions(questions, { ask, maxUsd: 100, limit: 2 });
+  assert.deepEqual(asked, ['a', 'b']);
+  assert.deepEqual([limited.stopped, limited.skipped], [null, 0]);
+
+  // One at a time: a question starts only after the previous one resolved.
+  let inFlight = 0;
+  let most = 0;
+  await runQuestions(questions, {
+    maxUsd: 3,
+    ask: async (q) => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setImmediate(resolve));
+      inFlight -= 1;
+      return { id: q.id, costUsd: 0 };
+    },
+  });
+  assert.equal(most, 1);
+});
+
+test('recall-test: the newest revision of a message stands and a deleted one is gone', () => {
+  const lines = latestLines([
+    recLine(1, NOW - 5 * DAY, 'πρώτη μορφή'),
+    recLine(1, NOW - 5 * DAY, 'δεύτερη μορφή', { revision: 2 }),
+    recLine(2, NOW - 4 * DAY, 'θα σβηστεί'),
+    { ...recLine(2, NOW - 4 * DAY, ''), kind: 'deleted' },
+    { kind: 'felt', messageId: null },
+  ]);
+  assert.deepEqual(lines.map((l) => [l.messageId, l.text]), [[id(1), 'δεύτερη μορφή']]);
+});
+
+test('recall-test: the sample keeps substantive lines of members only, outside the last two days, spread across channels', () => {
+  const long = (word) => `${word} ${'λέξη '.repeat(10)}`.trim();
+  const lines = latestLines([
+    recLine(1, NOW - 40 * DAY, long('πολύ παλιά')),
+    recLine(2, NOW - 10 * DAY, long('πριν')),
+    recLine(3, NOW - 10 * DAY + 1000, long('μέση')),
+    recLine(4, NOW - 10 * DAY + 2000, 'σύντομο'),
+    recLine(5, NOW - 10 * DAY + 3000, long('δική της'), { kind: 'said', by: null }),
+    recLine(6, NOW - 10 * DAY + 4000, long('το bot γράφει'), { by: SELF }),
+    recLine(7, NOW - 10 * DAY + 5000, long('μετά')),
+    recLine(8, NOW - DAY, long('πρόσφατο')),
+    recLine(9, NOW - 9 * DAY, long('άλλο κανάλι'), { channelId: C2 }),
+    recLine(10, NOW - 8 * DAY, long('άλλο κανάλι ξανά'), { channelId: C2 }),
+  ]);
+  let seed = 7;
+  const rng = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  const all = sampleCandidates(lines, { n: 50, days: 30, now: NOW, rng, selfId: SELF, nameOf: (who) => (who === ANA ? 'Ana' : null) });
+  assert.deepEqual(all.map((c) => c.id).sort(), [id(2), id(3), id(7), id(9), id(10)]);
+  const middle = all.find((c) => c.id === id(3));
+  assert.deepEqual([middle.channelId, middle.authorId, middle.authorName, middle.self], [C1, ANA, 'Ana', false]);
+  assert.deepEqual(middle.before.map((l) => l.id), [id(1), id(2)], 'an old line is still a neighbour');
+  assert.deepEqual(middle.after.map((l) => l.id), [id(4), id(5), id(6)], 'neighbours are any lines of the channel, hers included');
+  assert.equal(middle.after[1].self, true);
+
+  // Two picks: one from each channel before a second from either.
+  for (let s = 1; s < 20; s += 1) {
+    seed = s;
+    const two = sampleCandidates(lines, { n: 2, days: 30, now: NOW, rng, selfId: SELF });
+    assert.deepEqual(two.map((c) => c.channelId).sort(), [C1, C2]);
+  }
+});
+
+test('recall-test: the local guild runs the record stage of the real recall, surfaces its window and searches no Discord', async () => {
+  const record = {
+    async *iterate() {
+      yield recLine(1, NOW - DAY, 'το κουνέλι κρύφτηκε στον κήπο');
+      yield recLine(2, NOW - DAY + 60_000, 'το είδα κι εγώ', { by: ASKER });
+      yield recLine(3, NOW - DAY + 120_000, 'άσχετο', { channelId: C2 });
+    },
+  };
+  const guild = localGuild({ guildId: 'g1', selfId: SELF, channelNameOf: (cid) => (cid === C1 ? 'garden' : null) });
+  const channel = guild.channels.cache.get(C1);
+  assert.equal(channel.name, 'garden');
+  assert.equal(guild.channels.cache.get(C2).name, C2);
+  const traces = [];
+  const store = {
+    state: { data: {}, markDirty() {} },
+    listUserProfiles: () => [],
+    appendRecallTrace: (gid, line) => traces.push(line),
+  };
+  const config = structuredClone(SHIPPED_CONFIG);
+  config.bot = { ...config.bot, timezone: 'UTC' };
+  config.features = { ...config.features, recall: true, recallTrace: true, meaningSearch: false };
+  config.recall = { ...config.recall, recordDays: 3, recordContext: 3, maxPerDay: 100, timeoutMs: 30000 };
+  const calls = [];
+  const llm = { capLeft: () => 100, complete: async (messages) => (calls.push(messages), { text: 'stretch: 1\nIn the garden.' }) };
+  const recall = createRecall({ hot: { config, prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels } }, store, llm, record, now: () => NOW });
+  const windows = [];
+  const candidate = { id: 'q', channelId: C1, authorId: ASKER, authorName: 'Nikos', content: 'πού είναι το κουνέλι;', ts: NOW, self: false, bot: false };
+  const { result: out } = await withCapturedLogs(() =>
+    recall.run({
+      guild,
+      guildId: 'g1',
+      channel,
+      selfId: SELF,
+      selfName: 'Zoë',
+      history: [candidate],
+      candidate,
+      server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+      decorate: (messages) => {
+        windows.push(messages);
+        return messages;
+      },
+    }),
+  );
+  assert.equal(out.text, 'In the garden.');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(windows.map((w) => w.map((m) => m.id)), [[id(1), id(2)]], 'the decorate hook sees each window the summary reads');
+  assert.equal(traces.length, 1);
+  assert.deepEqual(traces[0].record.filter((w) => w.kept).flatMap((w) => w.hitIds), [id(1)]);
+  assert.deepEqual(traces[0].plan.map((p) => p.sent), [true], 'the Discord search was sent to the local guild');
+  assert.deepEqual([traces[0].hits, traces[0].clusters.length], [0, 0], 'and found nothing');
+  const score = scoreQuestion(question({ expected: [id(1)] }), { windows, matched: traces[0].record.flatMap((w) => w.hitIds), confident: Boolean(out.text) });
+  assert.deepEqual([score.rank, score.hit1], [1, true]);
+});
