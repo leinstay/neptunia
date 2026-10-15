@@ -31,6 +31,7 @@ import { hasRequiredLabels } from './behavior/prompt.js';
 import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
 import { createEmojiIndex } from './discord/emoji.js';
+import { createAroundStore } from './discord/around.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
 import { backfillDiary, createDiary } from './behavior/diary.js';
 import { createMemoryUpdater } from './memory/update.js';
@@ -205,6 +206,13 @@ const images = createImageGen({ apiKey: openrouterKey, getConfig: () => hot.conf
 // switch is hot, intents are not); a DM channel arrives uncached, hence the
 // Channel partial. GuildExpressions keeps the guild's custom emoji cache
 // current (emoji created, renamed, deleted) for the emoji index below.
+// GuildVoiceStates feeds the `<around>` glance at the voice channels. The two PRIVILEGED
+// intents (discord.intents.presences, discord.intents.members) are requested only when the
+// config says so, read ONCE here because intents are fixed at login: asking for one that the
+// Developer Portal has not enabled makes the login fail, so both default to false.
+const intentSettings = hot.config.discord?.intents ?? {};
+const presencesIntent = intentSettings.presences === true;
+const membersIntent = intentSettings.members === true;
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -212,6 +220,9 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildExpressions,
+    GatewayIntentBits.GuildVoiceStates,
+    ...(presencesIntent ? [GatewayIntentBits.GuildPresences] : []),
+    ...(membersIntent ? [GatewayIntentBits.GuildMembers] : []),
   ],
   partials: [Partials.Channel],
 });
@@ -245,6 +256,9 @@ const lookup = createLookup({
   braveSearch: createBraveSearch(),
   braveApiKey,
 });
+// The live glance at the voice channels and the scene's statuses (features.around): a snapshot
+// in process memory, fed by the gateway events below, never written anywhere.
+const around = createAroundStore({ presences: presencesIntent });
 // The served guild's custom emoji (features.customEmoji): a live view over discord.js's own cache.
 const emoji = createEmojiIndex(client, getGuildId);
 // The persona's display name in a guild: the one name every request, the warmup and the analyzer use.
@@ -275,6 +289,7 @@ const turns = createTurnRunner({
   recall,
   images,
   emoji,
+  around,
   getSelfName,
   routeChannels,
   isWarmingUp: () => warmup.isWarmingUp(),
@@ -567,6 +582,7 @@ client.once(Events.ClientReady, async () => {
   if (resolved.error) fail(`index: ${resolved.error}`);
 
   instance.guildId = resolved.guildId;
+  seedAround();
 
   // The periodic work first, before anything below can throw or wait: the
   // flush, the spontaneous, diary, memory and portrait ticks, the hourly affinity decay.
@@ -703,6 +719,29 @@ const warmOnChannel = (channel) => {
 client.on(Events.ChannelCreate, warmOnChannel);
 client.on(Events.ChannelUpdate, (_old, channel) => warmOnChannel(channel));
 client.on('interactionCreate', onInteraction);
+
+// The `<around>` snapshot follows the gateway: the events are cheap map updates and run whatever
+// features.around says (a switch turned on later finds a snapshot that is current); a lost
+// connection marks it stale until the shard is back. Only the served guild is tracked.
+function seedAround() {
+  const guild = instance.guildId ? client.guilds.cache.get(instance.guildId) : null;
+  if (!guild) return;
+  around.seedVoice(guild.voiceStates?.cache?.values() ?? []);
+  around.seedPresence(guild.presences?.cache?.values() ?? []);
+  around.markFresh();
+  log.info('around: seeded', { guildId: instance.guildId, ...around.counts() });
+}
+client.on(Events.VoiceStateUpdate, (_old, state) => {
+  if (instance.guildId && state?.guild?.id === instance.guildId) around.voiceUpdate(state);
+});
+client.on(Events.PresenceUpdate, (_old, presence) => {
+  if (instance.guildId && presence?.guild?.id === instance.guildId) around.presenceUpdate(presence);
+});
+client.on(Events.ShardDisconnect, () => around.markStale());
+client.on(Events.ShardReconnecting, () => around.markStale());
+client.on(Events.ShardResume, () => around.markFresh());
+// A fresh session (not a resume) delivers the guild's state again: reseed from the cache.
+client.on(Events.ShardReady, () => seedAround());
 
 let shuttingDown = false;
 

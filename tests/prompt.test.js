@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, renderProfile, skillResultBlock, skillsInventoryText, stableThenTail, fillPromptTemplate, userText as contentText, usesFollowUpTask, withSkillResult } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
+import { createAroundStore } from '../src/discord/around.js';
 import { fill, formatClock, formatDate, formatDuration } from '../src/discord/format.js';
 import { zonedDay } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
@@ -4802,4 +4803,73 @@ test('withSkillResult: the block goes into the tail right before <task>; the cac
   assert.equal(blockTags(after.at(-1).text).at(-1), 'task', '<task> stays last');
   assert.equal(after.at(-1).text.replace(`${block}\n\n`, ''), before.at(-1).text, 'nothing else moved');
   assert.equal(messages[1].content, before, 'the request is not changed');
+});
+
+// --- <around>: the live voice and status glance, tail only, right before <chat> ---------------
+
+/** An `around` input: a Greek voice channel with one member, and a known status for the speaker of the lines. */
+function aroundInput({ presences = true } = {}) {
+  const store = createAroundStore({ presences });
+  store.voiceUpdate({ id: 'v-user', channelId: 'vc1', selfMute: true, member: { displayName: 'Ηλέκτρα' } });
+  store.presenceUpdate({ userId: 'author-1', status: 'online', activities: [{ type: 0, name: 'Chess' }], member: { displayName: 'Alice' } });
+  return { snapshot: store.snapshot(), sceneMemberIds: ['author-1'], channelNameOf: (id) => (id === 'vc1' ? 'Σαλόνι' : null) };
+}
+
+test('buildRequest: around -- <around> sits in the tail right after <skills> and before <chat>, in no cached part', () => {
+  const content = buildRequest(segmentScene({ around: aroundInput(), skillsInventory: SKILL_ROWS })).messages[1].content;
+  const tail = content.at(-1);
+  assert.equal(tail.cacheSegment, undefined, 'the tail carries no cache segment');
+  const tags = blockTags(tail.text);
+  assert.equal(tags[tags.indexOf('around') - 1], 'skills');
+  assert.equal(tags[tags.indexOf('around') + 1], 'chat');
+  for (const part of content.slice(0, -1)) assert.ok(!part.text.includes('<around>'), `a cached part (${part.cacheSegment}) holds <around>`);
+  const body = blocksOf(tail.text).find((b) => b.tag === 'around').body;
+  assert.equal(body.split('\n')[0], labels.around.lead);
+  assert.ok(body.includes('Σαλόνι: Ηλέκτρα (muted)'), body);
+  assert.ok(body.includes('online; playing Chess'), body);
+});
+
+test('buildRequest: around -- the cached parts are the same with and without the block', () => {
+  const plain = buildRequest(segmentScene()).messages[1].content;
+  const glanced = buildRequest(segmentScene({ around: aroundInput() })).messages[1].content;
+  assert.equal(glanced.length, plain.length);
+  for (let i = 0; i < plain.length - 1; i += 1) assert.equal(glanced[i].text, plain[i].text);
+  assert.ok(!blockTags(plain.at(-1).text).includes('around'));
+});
+
+test('buildRequest: around -- no block when nothing is in view, the switch is off, no labels, no input or in a private chat', () => {
+  const absent = (request) => !blockTags(contentText(request.messages[1].content)).includes('around');
+  assert.ok(absent(buildRequest(segmentScene())), 'no input');
+  assert.ok(absent(buildRequest(segmentScene({ around: null }))), 'null input');
+  const empty = { snapshot: createAroundStore().snapshot(), sceneMemberIds: ['author-1'], channelNameOf: () => 'x' };
+  assert.ok(absent(buildRequest(segmentScene({ around: empty }))), 'an empty snapshot');
+  assert.ok(absent(buildRequest(segmentScene({ around: aroundInput(), config: fakeConfig({ features: { around: false } }) }))), 'features.around off');
+  assert.ok(absent(buildRequest(segmentScene({ around: aroundInput(), prompts: fakePrompts({ labels: { ...labels, around: undefined } }) }))), 'no labels');
+  assert.ok(absent(buildRequest(segmentScene({ around: aroundInput(), privateChat: { userId: 'author-1' } }))), 'a private chat');
+  assert.ok(!absent(buildRequest(segmentScene({ around: aroundInput() }))), 'the control shows it');
+});
+
+test('buildRequest: around -- context.around.maxTokens caps the body', () => {
+  const body = (maxTokens) => {
+    const request = buildRequest(segmentScene({ around: aroundInput(), config: fakeConfig({ context: { around: { maxTokens } } }) }));
+    return blocksOf(request.messages[1].content.at(-1).text).find((b) => b.tag === 'around')?.body ?? null;
+  };
+  assert.ok(body(200).includes('Chess'));
+  // Room for the lead and the speaker's status line only: the voice channel is the first to go.
+  const expected = [labels.around.lead, 'Alice: online; playing Chess'].join('\n');
+  assert.equal(body(estimateTokens(expected) + 2), expected);
+  assert.equal(body(0), null);
+});
+
+test('buildRequest: around -- competes in the budget: the chat gives way, the request never passes the limit', () => {
+  const messages = Array.from({ length: 30 }, (_, i) => makeMessage(i + 1, NOW - (31 - i) * MIN, { content: 'word '.repeat(20) }));
+  // A limit a few chat lines below what the whole request takes.
+  const whole = buildRequest(segmentScene({ history: messages }));
+  const config = fakeConfig({ llm: { maxRequestTokens: whole.stats.used - 300, safetyMargin: 1 } });
+  const without = buildRequest(segmentScene({ history: messages, config }));
+  const withBlock = buildRequest(segmentScene({ history: messages, config, around: aroundInput() }));
+  assert.ok(without.stats.chat.dropped > 0, 'the limit is tight enough to trim the chat');
+  assert.equal(withBlock.stats.around.kept, 1, 'the glance is kept ahead of the chat');
+  assert.ok(withBlock.stats.chat.kept <= without.stats.chat.kept, 'it displaces chat lines, never adds');
+  assert.ok(withBlock.stats.used <= config.llm.maxRequestTokens, `used ${withBlock.stats.used}`);
 });

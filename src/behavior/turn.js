@@ -1592,6 +1592,7 @@ export function createTurnRunner({
   skills = null,
   runCommand = null,
   runOwnCommand = null,
+  around = null,
 }) {
   const busy = new Set();
   // The channels the default adapter may resolve by id without the client (the turn's own and a
@@ -3835,6 +3836,36 @@ export function createTurnRunner({
     };
   }
 
+  /**
+   * `<around>`'s input (src/discord/around.js): the live snapshot of the voice channels and of
+   * the statuses, the scene (the interlocutor first, then whoever spoke last, no bot, not the
+   * persona) and the voice channels' names -- only those a member without any role may see, so
+   * she never names who sits in a room this chat cannot see. Null without the store, with
+   * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
+   * Read at the moment of the request; nothing of it is kept.
+   */
+  function aroundInputFor({ channel, config, history, trigger, mode, isPrivate }) {
+    if (!around || config.features?.around === false || isPrivate || mode === 'diary') return null;
+    const sceneMemberIds = [];
+    const add = (id) => {
+      if (typeof id === 'string' && id !== '' && !sceneMemberIds.includes(id)) sceneMemberIds.push(id);
+    };
+    add(trigger?.authorId);
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+      if (!history[i].self && !history[i].bot) add(history[i].authorId);
+    }
+    const guild = channel.guild;
+    return {
+      snapshot: around.snapshot(),
+      sceneMemberIds,
+      channelNameOf: (channelId) => {
+        const voice = guild?.channels?.cache?.get?.(channelId);
+        const visible = voice?.permissionsFor?.(guild.roles?.everyone)?.has?.('ViewChannel') === true;
+        return visible && typeof voice.name === 'string' && voice.name ? voice.name : null;
+      },
+    };
+  }
+
   /** A channel's live name in `channel`'s guild, for a participation episode whose channel has no stored note. */
   function liveChannelName(channel) {
     return (channelId) => {
@@ -5653,6 +5684,8 @@ export function createTurnRunner({
         // `<skills_granted>`: the names of the skills granted to her, on every turn -- her grants
         // (the config read now) and the registry only, never this requester or channel.
         skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
+        // `<around>`: the live voice and status snapshot with the scene (null: no block).
+        around: aroundInputFor({ channel, config, history, trigger, mode: finalMode, isPrivate }),
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
         continuation: null,
       });

@@ -71,6 +71,7 @@ Every key in `config.json` with its default, grouped by section.
 | `skillsAlwaysListed` | `true` | Every reply request lists the names of the persona's granted skills in the cached part (`<skills_granted>`, grouped by family), so she always sees what she can do. Off when `features.skills` or `features.skillsDiscovery` is off. A missing key counts as on |
 | `missedAnswers` | `true` | Track messages that may have been left unanswered: a failed address classifier, a replaced deferred follow-up, a turn that errored, was dropped or ended not-now. Each becomes a candidate in a registry, journaled as kind `answer`. A missing key counts as on. See [`missed`](#missed) |
 | `missedRecovery` | `false` | When the sweep finds owed candidates, start one reply turn to pick them up (trigger kind `missed`, `labels.task.missed`). Off (the default), the sweep classifies and journals only (shadow mode). Must be exactly `true` to enable; a missing key counts as off |
+| `around` | `true` | The persona sees, at the corner of her eye, what a member sees in Discord's sidebar right now: who is in which voice channel (muted, deafened, streaming, camera on) and, for the people in the current scene, their status, activity and custom status, in an `<around>` block in the tail of the request. A live snapshot in process memory, never stored, logged or backed up. Statuses need `discord.intents.presences`. Not shown in a private chat or a diary post. A missing key counts as on. See `context.around.maxTokens` and [`discord`](#discord) |
 
 ## `skills`
 
@@ -81,6 +82,15 @@ Every key in `config.json` with its default, grouped by section.
 | `markTextMaxChars` | `200` | When a skill call did not work and no specific label words its reason (a missing or wrong argument, a message not found or not hers, a channel she may not write in), the call's mark in the persona's transcript carries the operation's own message, ahead of the general reason phrase, because it says what exactly went wrong (for example a diary that has no channel set). On one line, cut to this many characters with an ellipsis. Kept in memory only: after a restart such a mark shows the general reason. `0` = never show the operation's message |
 | `destructiveCooldownMinutes` | `10` | Minutes between two destructive skill calls from the same channel. A destructive skill (one whose effect is `destructive` in `src/ops/effects.js`) called sooner is refused with reason `cooldown` |
 | `callTimeoutMs` | `120000` | How long a skill call may run before its outcome is reported as `unknown` and the call is never retried |
+
+## `discord`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `intents.presences` | `false` | Request the privileged Presence intent, so the persona can see members' status, activities and custom status (`<around>`). Read once at startup: intents are fixed when the bot logs in, so a change needs a restart. The intent must also be switched on for the bot in the Discord Developer Portal; requesting a privileged intent that is not enabled there makes the login fail and the bot stays down. Off: statuses are unknown and not shown |
+| `intents.members` | `false` | Request the privileged Server Members intent (member events and a fuller member cache). Same rules as `intents.presences`: read once at startup, needs the Developer Portal switch first, a restart to change. Nothing depends on it yet |
+
+The voice-state intent (`<around>`'s voice channels) is not privileged and is always requested.
 
 ## `bot`
 
@@ -189,6 +199,7 @@ Message text with author names is sent to the embedding provider (OpenAI through
 | `askedAboutProfiles` | `3` | Members named in recent messages whose profiles are shown in full, ahead of the other participants |
 | `askedAboutEpisodes` | `3` | Episodes shown per member who is asked about. `0` hides episodes for asked-about members. In a private chat, shown when `features.privateLikeServer` is on (the default); hidden otherwise |
 | `attitudes` | `6` | Members shown in the `<attitudes>` block, ranked by attitude score strength, warm and cool mixed. `0` turns the block off |
+| `around.maxTokens` | `200` | Token cap of the `<around>` block (`features.around`). Over the cap the other people's lines go first, then the voice flags, then voice channels, the speaker's own line last; `0` turns the block off. In the request budget it ranks with `<lookup>`, so it displaces other context and never adds above the request limit |
 | `tempo.liveMessages10min` | `4` | Messages in 10 min = "live" |
 | `tempo.deadSilenceMinutes` | `45` | Silence minutes = "dead" |
 | `caps.interlocutor` | `6000` | Token cap: caller's profile with episodes |
