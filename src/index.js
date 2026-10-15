@@ -32,6 +32,7 @@ import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
 import { createEmojiIndex } from './discord/emoji.js';
 import { createAroundStore } from './discord/around.js';
+import { applyReactionEvent, createReactorStore, reactionEventOf } from './discord/reactors.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
 import { backfillDiary, createDiary } from './behavior/diary.js';
 import { createMemoryUpdater } from './memory/update.js';
@@ -212,6 +213,10 @@ const images = createImageGen({ apiKey: openrouterKey, getConfig: () => hot.conf
 // intents (discord.intents.presences, discord.intents.members) are requested only when the
 // config says so, read ONCE here because intents are fixed at login: asking for one that the
 // Developer Portal has not enabled makes the login fail, so both default to false.
+// GuildMessageReactions (not privileged) feeds the reactor store below; a reaction on a message,
+// by a user or of a message the client has not cached arrives only with the Message, Reaction and
+// User partials. The message handlers take partials already: an edit or a deletion of an
+// uncached message comes partial (no author, no content) and is recorded or skipped as such.
 const intentSettings = hot.config.discord?.intents ?? {};
 const presencesIntent = intentSettings.presences === true;
 const membersIntent = intentSettings.members === true;
@@ -223,10 +228,11 @@ const client = new Client({
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildExpressions,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessageReactions,
     ...(presencesIntent ? [GatewayIntentBits.GuildPresences] : []),
     ...(membersIntent ? [GatewayIntentBits.GuildMembers] : []),
   ],
-  partials: [Partials.Channel],
+  partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
 });
 
 // This instance serves exactly one Discord server. `instance.guildId` is set
@@ -279,6 +285,10 @@ const lookup = createLookup({
 // The live glance at the voice channels and the scene's statuses (features.around): a snapshot
 // in process memory, fed by the gateway events below, never written anywhere.
 const around = createAroundStore({ presences: presencesIntent });
+// Who reacted to the persona's own messages (features.reactionNames): in process memory only,
+// at most context.reactions.maxMessages of her messages (read at each insertion), fed by the
+// reaction events below and by the turn's history fetch.
+const reactors = createReactorStore({ maxMessages: () => hot.config.context?.reactions?.maxMessages ?? 500 });
 // The served guild's custom emoji (features.customEmoji): a live view over discord.js's own cache.
 const emoji = createEmojiIndex(client, getGuildId);
 // The persona's display name in a guild: the one name every request, the warmup and the analyzer use.
@@ -310,6 +320,7 @@ const turns = createTurnRunner({
   images,
   emoji,
   around,
+  reactors,
   getSelfName,
   routeChannels,
   isWarmingUp: () => warmup.isWarmingUp(),
@@ -775,6 +786,19 @@ client.on(Events.UserUpdate, (_old, user) => {
 client.on('messageCreate', (message) => {
   if (instance.guildId && message?.guild?.id === instance.guildId && message.member) avatars.offer(instance.guildId, memberView(message.member));
 });
+// The reactor store follows the reactions on the persona's messages in the served guild, whatever
+// features.reactionNames says (a cheap map update; a switch turned on later finds it current).
+const feedReactors = (kind, parts) => {
+  try {
+    applyReactionEvent(reactors, reactionEventOf(kind, parts), { guildId: instance.guildId, selfId: client.user?.id ?? null });
+  } catch (err) {
+    log.warn('reactors: event failed', { kind, code: err?.code ?? null });
+  }
+};
+client.on(Events.MessageReactionAdd, (reaction, user) => feedReactors('add', { reaction, user }));
+client.on(Events.MessageReactionRemove, (reaction, user) => feedReactors('remove', { reaction, user }));
+client.on(Events.MessageReactionRemoveAll, (message) => feedReactors('removeAll', { message }));
+client.on(Events.MessageReactionRemoveEmoji, (reaction) => feedReactors('removeEmoji', { reaction }));
 client.on(Events.ShardDisconnect, () => around.markStale());
 client.on(Events.ShardReconnecting, () => around.markStale());
 client.on(Events.ShardResume, () => around.markFresh());

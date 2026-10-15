@@ -149,8 +149,23 @@ link's other extras (video, thumbnail). Text files show their beginning via `fil
 wrapped in `forwarded`. When `features.seeReactions` is on (the default), a reactions tag is appended at the very
 end of a line, after media tags and forwarded wrappers. It lists at most `context.reactionsPerMessage` reactions per
 message, most frequent first; each item uses `transcript.reactionItem` or `transcript.reactionMine` (when the persona
-is among the reactors), joined with ", " and wrapped in `transcript.reactions`. A labels file without
-`transcript.reactions` renders nothing.
+is among the reactors), joined with `transcript.reactionSeparator` (" · "; ", " for a labels file without the key) and
+wrapped in `transcript.reactions`, as in `[reactions: 😂 x2 · 👍 x1]`. A labels file without
+`transcript.reactions` renders nothing. With `features.reactionNames` on (the default) a reaction on one of the
+persona's own lines in `<chat>` whose reactors are known names them instead of counting them:
+`transcript.reactionNames` with `{names}`, the first
+`context.reactions.maxNames` (default 5) reactors, each written exactly as the transcript writes an author (the
+display name, with the handle through `transcript.author` when the member has one), joined with ", ", followed by
+`transcript.reactionMore` with `{n}` when more members reacted than are named (more than the cap, or not known). When
+the persona reacted too, she is named after the others (before the "+N") exactly as her own lines name her (`labels.self`),
+as in `😂 Ana, Bé, Nepka (you)`; a count item keeps `transcript.reactionMine`. She never counts toward the cap; other
+bots are named like anyone, with their bare name. A reactor named on her line is in view
+and gets a mention handle like an author. A reaction whose reactors are not known, every reaction on other members'
+lines, pulled and neighbour channels and helper transcripts keep the counts. Who reacted is kept in process memory
+only (`context.reactions.maxMessages` of her messages, default 500), fed by the gateway's reaction events; the
+reactors a line of hers lacks are fetched once per message and emoji (at most `context.reactions.fetchUsers`, default
+10) while the history is read, the turn waiting at most `context.reactions.fetchTimeoutMs` (default 2000). `<chat>`
+is in the tail: none of this enters a cached part.
 
 Video results are cached per attachment or per link in `data/guilds/<id>/media.json` under the key
 `video:<itemId>` (the attachment id, or a stable hash of the link URL). Cache entries:
@@ -298,9 +313,12 @@ transcript.filePreview                   {name} {text}
 transcript.forwarded                     {text}
 transcript.forwardedFrom                 {channel} {text}: used when the source channel is known; falls back to `forwarded`
 transcript.frameAttached                 {n}: follows a video/gif item whose still frame is attached picture n
-transcript.reactions                     OPTIONAL {list}: appended at the end of a line after all media and forwarded tags; list is items joined with ", ". A labels file without this key renders nothing
+transcript.reactions                     OPTIONAL {list}: appended at the end of a line after all media and forwarded tags; list is items joined with reactionSeparator. A labels file without this key renders nothing
 transcript.reactionItem                  {emoji} {count}: one reaction; emoji is unicode or :name: for custom
 transcript.reactionMine                  {emoji} {count}: used instead of reactionItem when the persona is among the reactors; reads correctly whether count is 1 or more
+transcript.reactionNames                 OPTIONAL {emoji} {names} {count}: one reaction on the persona's own line with its known reactors named (features.reactionNames); names are author-form names joined with ", ", the persona last in her labels.self form when she reacted too, plus reactionMore. Without it: counts
+transcript.reactionSeparator             OPTIONAL: placed between two reactions of one line, counts and names alike (" · "); names inside one reaction stay joined with ", ". Missing: ", "
+transcript.reactionMore                  OPTIONAL {n}: after the names, the members who reacted and are not named (past context.reactions.maxNames, or not known). Blank: nothing
 transcript.unknownDuration               shown in place of {duration} when Discord gave none
 senses.imageSee | imageDescribed | imageBlind        one line each; code picks the ones true under the live config. imageSee also covers the helper's note when features.attachedDescriptions is on
 senses.gifWatched | gifDescribed | gifBlind   gifWatched replaces gifDescribed when media.gif.watch is on (needs video vision on and a describe-gif or describe-video prompt); a labels file without gifWatched falls back to gifDescribed. Both say GIF descriptions come from a helper (second-hand); without a description the persona does not infer the content
