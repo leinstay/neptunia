@@ -107,6 +107,13 @@
 // another channel leaves only the mark). The memory is the one at the first
 // decision for every step; the image quota is not counted down. A step of one
 // message is one turn.
+// A line of the persona's own is seeded with a step `{ self: "<text>", gapMinutes? }`
+// or a burst item `{ self: true, text }`: it joins the channel as if she had said
+// it, timed as any message of a step, shaped exactly as her lines carried from a
+// turn (src/behavior/sandbox.js#seededSelfLine; no call mark, no link to a
+// trigger), and no turn is run for it: no request, no record, no letter in the
+// pattern. So a decision can be put after her own question. A scenario needs at
+// least one step with a message that is not hers.
 // `--prompts <dir>`: every scenario answered with `<dir>` laid over a copy of
 // the live prompts.local/ (a file of the same name replaces the private one,
 // the others stay; labels.json and skills.json deep-merge over the private
@@ -146,7 +153,9 @@
 // lays the directory over the live prompts.local/ (a file of the same name
 // replaces it whole, labels.json included); `--skills --prompts` and
 // `--pair-prompts` lay it the same way but merge labels.json and skills.json
-// (overlayPromptsHot). Nothing in the checkout changes.
+// (overlayPromptsHot). Nothing in the checkout changes. A prompts.local/ (or a
+// directory given) that is a link -- a separate checkout linking to the live
+// layer -- is read through it and copied as files, never linked to or written.
 //
 // `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one
 // `runTurn({ channel, mode: 'diary', diary: { kind, [topic], forced: false } })`
@@ -1679,8 +1688,8 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 /** The fields a scenario may have. */
 const SCENARIO_KEYS = Object.freeze(['id', 'channelId', 'before', 'author', 'text', 'steps', 'grants', 'runs', 'result', 'discovery']);
 /** The fields a step of a multi-step scenario may have, and those of a burst message. */
-const STEP_KEYS = Object.freeze(['author', 'text', 'gapMinutes', 'burst', 'result']);
-const BURST_KEYS = Object.freeze(['author', 'text']);
+const STEP_KEYS = Object.freeze(['author', 'text', 'gapMinutes', 'burst', 'result', 'self']);
+const BURST_KEYS = Object.freeze(['author', 'text', 'self']);
 /** The most steps a scenario may have, and the most messages a burst adds. */
 const MAX_STEPS = 20;
 const MAX_BURST = 10;
@@ -1715,14 +1724,17 @@ const SKILL_REQUESTS_PER_RUN = 2;
  * from anyone (at least one message per step), played as the live queue plays them (playSteps);
  * `gapMinutes` how long
  * after the line before it the step's first message comes (more than 0, at most a week, default
- * 1); `result` the text the operation answers in this step (default: the scenario's). Parsed, a
- * step is `{ messages: [{ author, text }], own, gapMinutes, result: string|null }` (`own`: its
+ * 1); `result` the text the operation answers in this step (default: the scenario's). A line of
+ * the persona's own is seeded, no turn run for it (playSteps): a step `{ self: "<text>",
+ * gapMinutes? }` (nothing else beside it), or a burst item `{ self: true, text }` (no author);
+ * at least one step must hold a message that is not hers. Parsed, a step is `{ messages:
+ * [{ author, text } | { self: true, text }], own, gapMinutes, result: string|null }` (`own`: its
  * first message is the step's own `author` / `text`, which tags the persona) and the scenario
  * has no `author` / `text`. Any other field, type or value is a CliError naming the scenario
  * (and the step). Names are checked against the registry later (scenarioGrants, scenarioDiscovery).
  * @param {string} text
  * @returns {{ id: string, channelId: string, before: string|null, author?: string, text?: string,
- *   steps?: { messages: { author: string, text: string }[], own: boolean, gapMinutes: number, result: string|null }[],
+ *   steps?: { messages: ({ author: string, text: string } | { self: true, text: string })[], own: boolean, gapMinutes: number, result: string|null }[],
  *   grants: string[], runs: number, result: string, discovery: 'inventory'|'none'|string[] }[]}
  */
 export function parseScenarios(text) {
@@ -1777,19 +1789,29 @@ function isScenarioText(value) {
 /** The `steps` of a multi-step scenario (see parseScenarios), each a CliError made by `bad` when wrong. */
 function parseSteps(steps, bad) {
   if (!Array.isArray(steps) || steps.length === 0 || steps.length > MAX_STEPS) throw bad(`steps must be a list of 1..${MAX_STEPS} steps`);
-  return steps.map((step, index) => {
+  const parsed = steps.map((step, index) => {
     const wrong = (what) => bad(`step ${index + 1}: ${what}`);
     if (!step || typeof step !== 'object' || Array.isArray(step)) throw wrong('not an object');
     for (const key of Object.keys(step)) if (!STEP_KEYS.includes(key)) throw wrong(`unknown field ${key}`);
     const message = (item, where) => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw wrong(`${where} is not an object`);
       for (const key of Object.keys(item)) if (!BURST_KEYS.includes(key)) throw wrong(`${where}: unknown field ${key}`);
+      if (item.self !== undefined) {
+        // A line of hers, seeded: no author, no turn run for it.
+        if (item.self !== true) throw wrong(`${where}: self must be true`);
+        if (item.author !== undefined) throw wrong(`${where}: a line of hers has no author`);
+        if (!isScenarioText(item.text)) throw wrong(`${where}: text must be 1..${MAX_SCENARIO_TEXT} characters`);
+        return { self: true, text: item.text };
+      }
       if (typeof item.author !== 'string' || !SNOWFLAKE.test(item.author)) throw wrong(`${where}: author must be a member id`);
       if (!isScenarioText(item.text)) throw wrong(`${where}: text must be 1..${MAX_SCENARIO_TEXT} characters`);
       return { author: item.author, text: item.text };
     };
+    const seeded = step.self !== undefined;
+    if (seeded && Object.keys(step).some((key) => key !== 'self' && key !== 'gapMinutes')) throw wrong('self takes only gapMinutes beside it');
+    if (seeded && !isScenarioText(step.self)) throw wrong(`self must be 1..${MAX_SCENARIO_TEXT} characters`);
     const own = step.author !== undefined || step.text !== undefined;
-    const messages = own ? [message({ author: step.author, text: step.text }, 'the message')] : [];
+    const messages = seeded ? [{ self: true, text: step.self }] : own ? [message({ author: step.author, text: step.text }, 'the message')] : [];
     if (step.burst !== undefined) {
       if (!Array.isArray(step.burst) || step.burst.length === 0 || step.burst.length > MAX_BURST) throw wrong(`burst must be a list of 1..${MAX_BURST} messages`);
       step.burst.forEach((item, i) => messages.push(message(item, `burst ${i + 1}`)));
@@ -1800,19 +1822,27 @@ function parseSteps(steps, bad) {
     if (step.result !== undefined && (typeof step.result !== 'string' || step.result.length > MAX_SCENARIO_TEXT)) throw wrong(`result must be text of at most ${MAX_SCENARIO_TEXT} characters`);
     return { messages, own, gapMinutes, result: step.result ?? null };
   });
+  if (!parsed.some(runsTurn)) throw bad('steps: needs at least one step that runs her turn (a message that is not hers)');
+  return parsed;
+}
+
+/** Whether a parsed step runs her turn: it holds a message that is not a seeded line of hers. */
+function runsTurn(step) {
+  return Array.isArray(step?.messages) && step.messages.some((message) => message?.self !== true);
 }
 
 /**
  * The model requests a `--skills` file may send at most (the spend gate's estimate): up to
  * SKILL_REQUESTS_PER_RUN per decision -- her answer and the follow-up after a call -- and a
  * run is one decision, or for a multi-step scenario one per message of every step (each run
- * replays every step; every message of a burst may get its own turn, playSteps). The caller
- * doubles it for `--pair-prompts`.
+ * replays every step; every message of a burst may get its own turn, playSteps) -- a seeded
+ * line of hers none: no turn is run for it. The caller doubles it for `--pair-prompts`.
  * @param {{ runs: number, steps?: { messages: object[] }[] }[]} scenarios  parseScenarios's.
  * @returns {number}
  */
 export function skillRequestEstimate(scenarios) {
-  const decisions = (scenario) => (Array.isArray(scenario.steps) ? scenario.steps.reduce((sum, step) => sum + Math.max(1, step.messages?.length ?? 1), 0) : 1);
+  const turns = (step) => (Array.isArray(step.messages) ? step.messages.filter((message) => message?.self !== true).length : 1);
+  const decisions = (scenario) => (Array.isArray(scenario.steps) ? scenario.steps.reduce((sum, step) => sum + turns(step), 0) : 1);
   return scenarios.reduce((total, scenario) => total + SKILL_REQUESTS_PER_RUN * scenario.runs * decisions(scenario), 0);
 }
 
@@ -1979,11 +2009,14 @@ const DECISION_LETTERS = Object.freeze({ call: 'C', 'no-call': 'N', 'malformed-c
  * made a call in a later step after that decline; null without one) and `complete` (every step
  * answered, every turn of a burst included: a run stopped by --spend or Ctrl-C is cut short).
  * A step played as a burst (records with `turn` and `queue`) has one letter per turn, in order.
- * `pattern` is every run's pattern, space-separated (`CCCN NNNN`). Pure.
+ * `pattern` is every run's pattern, space-separated (`CCCN NNNN`). A step that only seeds a line
+ * of hers (`seededSteps` of them) has no record and no letter; a run is complete without it.
+ * Pure.
  * @param {object[]} records  runRecord's, each with `step` (and `turn` / `queue` on a burst's).
  * @param {number} steps  The scenario's step count.
+ * @param {{ seededSteps?: number }} [options]  How many of the steps run no turn (only her seeded lines).
  */
-export function sequenceSummary(records, steps) {
+export function sequenceSummary(records, steps, { seededSteps = 0 } = {}) {
   const sequences = runPatterns(records).map(({ run, ordered, pattern, firstDecline }) => {
     const answered = new Set(ordered.map((record) => record.step));
     const last = ordered[ordered.length - 1];
@@ -1993,7 +2026,7 @@ export function sequenceSummary(records, steps) {
       pattern,
       firstDecline,
       resumed: firstDecline === null ? null : ordered.some((record) => record.step > firstDecline && record.decision === 'call'),
-      complete: answered.size === steps && lastDone,
+      complete: answered.size === steps - seededSteps && lastDone,
     };
   });
   return { ...scenarioSummary(records), runs: sequences.length, steps, decisions: records.length, pattern: sequences.map((s) => s.pattern).join(' '), sequences };
@@ -2034,11 +2067,54 @@ function newestTs(lines, fallback) {
 }
 
 /**
+ * The lines one step adds to the channel (`transcript`, the channel before it), in arrival
+ * order: the first `gapMinutes` after the newest line so far (the first step's at `firstAt`),
+ * the next ones BURST_SPACING_MS apart. A member's message is `lineOf(message, at, { tagged })`
+ * (tagging her when it is the step's own, `own`), a seeded line of hers `seedLine(message, at)`.
+ * `callers` the members' lines (those that may get a turn), `seeded` hers. Pure.
+ */
+function stepLines({ step, index, transcript, firstAt, lineOf, seedLine }) {
+  const start = index === 0 ? firstAt : newestTs(transcript, firstAt) + step.gapMinutes * 60_000;
+  const incoming = step.messages.map((message, i) => {
+    const at = start + i * BURST_SPACING_MS;
+    if (message.self !== true) return lineOf(message, at, { tagged: step.own !== false && i === 0 });
+    if (typeof seedLine !== 'function') throw new CliError('replay-cli: a seeded line of hers needs seedLine');
+    return seedLine(message, at);
+  });
+  const seeded = incoming.filter((_, i) => step.messages[i].self === true);
+  return { incoming, callers: incoming.filter((line) => !seeded.includes(line)), seeded };
+}
+
+/**
+ * The first decision of a multi-step scenario, as playSteps reaches it: the channel (`lines`:
+ * `history`, then every step up to and including the first that runs her turn -- the steps
+ * before it only seed lines of hers, stepLines) and that step's first turn (`turn`, planBurst's).
+ * What `--dry` builds and the memory is read at. Pure apart from what the callbacks do.
+ * @param {{ scenario: { steps: object[] }, history: object[], firstAt: number, lineOf: Function, seedLine?: Function, planBurst: Function }} input
+ * @returns {{ lines: object[], turn: { line: object, kind: string, queued: object[] } }}
+ */
+export function firstDecision({ scenario, history, firstAt, lineOf, seedLine, planBurst }) {
+  let transcript = [...history];
+  for (const [index, step] of scenario.steps.entries()) {
+    const { incoming, callers, seeded } = stepLines({ step, index, transcript, firstAt, lineOf, seedLine });
+    if (callers.length > 0) {
+      const plan = planBurst(callers, { history: [...transcript, ...seeded] });
+      return { lines: [...transcript, ...incoming], turn: plan.turns[0] };
+    }
+    transcript = [...transcript, ...incoming];
+  }
+  throw new CliError('replay-cli: the scenario has no step that runs her turn');
+}
+
+/**
  * One run of a multi-step scenario, every step from the start: before each step its messages
  * join the channel (`lineOf(message, at, { tagged })`: a normalized line by the message's own
  * author at `at`, tagging the persona when `tagged` -- the step's own message, `own` --, a burst's
  * message by its text alone) -- the first `gapMinutes` after the newest line so far (the first
- * step's at `firstAt`), the next ones BURST_SPACING_MS apart. `planBurst(incoming, { history })`
+ * step's at `firstAt`), the next ones BURST_SPACING_MS apart (stepLines). A seeded line of hers
+ * (`{ self: true, text }`) joins as `seedLine(message, at)` (src/behavior/sandbox.js#seededSelfLine:
+ * shaped as her live lines) and runs no turn: it costs no request and leaves no record; a step of
+ * nothing else is only that line. `planBurst(incoming, { history })` -- the members' messages --
  * (src/behavior/sandbox.js#burstTurns over the channel before the step) says which of them get a
  * turn, in the order the live queue answers them, and which a newer follow-up `replaced` (or the
  * queue's cap `dropped`). Each turn is one decision: `answerStep({ situation, trigger, at,
@@ -2046,30 +2122,30 @@ function newestTs(lines, fallback) {
  * the step, her earlier turns -- at its newest moment, with the trigger's kind, the earlier
  * calls' marks, the calls still waiting after it, the step's `result` else the scenario's;
  * resolves `{ run, stopped }`), its run recorded (runRecord with `step`, 1-based, and -- a step
- * of more than one message -- `turn` and `queue`: `{ turns, kind, trigger: { id, author, text },
- * queued, replaced: [{ id, author, text, by }], dropped: [{ id, author, text, reason }] }`; handed
- * to `onRecord` as it comes), then carried into the channel the next turn reads by `afterTurn({
- * transcript, callMarks, run, at, triggerId })` (src/behavior/sandbox.js#afterScenarioTurn: her
- * lines and the call's mark). A stopped answer ends the run (`stopped`). `bursts` lists, per step
- * of more than one message, the ids that got a turn and the replaced and dropped ones. Nothing
- * here sends or writes; `answerStep` and `afterTurn` do what they do.
+ * of more than one member's message -- `turn` and `queue`: `{ turns, kind, trigger: { id,
+ * author, text }, queued, replaced: [{ id, author, text, by }], dropped: [{ id, author, text,
+ * reason }] }`; handed to `onRecord` as it comes), then carried into the channel the next turn
+ * reads by `afterTurn({ transcript, callMarks, run, at, triggerId })`
+ * (src/behavior/sandbox.js#afterScenarioTurn: her lines and the call's mark). A stopped answer
+ * ends the run (`stopped`). `bursts` lists, per step of more than one member's message, the ids
+ * that got a turn and the replaced and dropped ones. Nothing here sends or writes; `answerStep`
+ * and `afterTurn` do what they do.
  * @param {{ scenario: { id: string, result: string, steps: object[] }, history: object[], firstAt: number, runIndex: number,
- *   lineOf: Function, planBurst: Function, answerStep: Function, afterTurn: Function, onRecord?: Function }} input
+ *   lineOf: Function, seedLine?: Function, planBurst: Function, answerStep: Function, afterTurn: Function, onRecord?: Function }} input
  * @returns {Promise<{ records: object[], stopped: boolean, transcript: object[],
  *   bursts: { step: number, turns: string[], replaced: object[], dropped: object[] }[] }>}
  */
-export async function playSteps({ scenario, history, firstAt, runIndex, lineOf, planBurst, answerStep, afterTurn, onRecord }) {
+export async function playSteps({ scenario, history, firstAt, runIndex, lineOf, seedLine, planBurst, answerStep, afterTurn, onRecord }) {
   let transcript = [...history];
   let callMarks = [];
   const records = [];
   const bursts = [];
   for (const [index, step] of scenario.steps.entries()) {
-    const start = index === 0 ? firstAt : newestTs(transcript, firstAt) + step.gapMinutes * 60_000;
-    const incoming = step.messages.map((message, i) => lineOf(message, start + i * BURST_SPACING_MS, { tagged: step.own !== false && i === 0 }));
-    const plan = planBurst(incoming, { history: transcript });
-    const byId = new Map(incoming.map((line) => [line.id, line]));
+    const { incoming, callers, seeded } = stepLines({ step, index, transcript, firstAt, lineOf, seedLine });
+    const plan = callers.length > 0 ? planBurst(callers, { history: [...transcript, ...seeded] }) : { turns: [], replaced: [], dropped: [] };
+    const byId = new Map(callers.map((line) => [line.id, line]));
     const about = (id) => ({ id, author: byId.get(id)?.authorId ?? null, text: byId.get(id)?.content ?? '' });
-    const burst = incoming.length > 1
+    const burst = callers.length > 1
       ? {
           step: index + 1,
           turns: plan.turns.map((turn) => turn.line.id),
@@ -2152,12 +2228,18 @@ function recordLines(record, heading, { detail = false } = {}) {
   return lines;
 }
 
-/** A multi-step scenario's steps as markdown lines: each message by its author, the gap before it. */
+/**
+ * A multi-step scenario's steps as markdown lines: each message by its author (a seeded line of
+ * hers by `persona (seeded)`), the gap before it, a step of only her lines marked as running no turn.
+ */
 function stepsLines(steps) {
   const lines = [];
   steps.forEach((step, index) => {
-    lines.push(`step ${index + 1} (+${step.gapMinutes} min${step.messages.length > 1 ? `, a burst of ${step.messages.length}` : ''}):`, '');
-    for (const message of step.messages) lines.push(quoted(`${message.author}: ${message.text}`), '');
+    const notes = [`+${step.gapMinutes} min`];
+    if (step.messages.length > 1) notes.push(`a burst of ${step.messages.length}`);
+    if (step.messages.length > 0 && step.messages.every((message) => message.self === true)) notes.push('seeded, no turn');
+    lines.push(`step ${index + 1} (${notes.join(', ')}):`, '');
+    for (const message of step.messages) lines.push(quoted(`${message.self === true ? 'persona (seeded)' : message.author}: ${message.text}`), '');
   });
   return lines;
 }
@@ -2407,7 +2489,9 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, st
     try {
       const channel = await readableChannel({ client, guild, guildId, channelId: scenario.channelId });
       // Every member who writes in the scenario: one, or each step's authors.
-      const authors = scenario.steps ? [...new Set(scenario.steps.flatMap((step) => step.messages.map((message) => message.author)))] : [scenario.author];
+      const authors = scenario.steps
+        ? [...new Set(scenario.steps.flatMap((step) => step.messages.filter((message) => message.self !== true).map((message) => message.author)))]
+        : [scenario.author];
       if (authors.includes(self.id)) throw new CliError('replay-cli: the author is the persona');
       const history = await fetchWindow({ guild, channel, self, anchorId: scenario.before, limit: Math.max(1, before), config: hot.config, fetchHistoryWindow, log, memberIds: authors });
       if (scenario.before && history[history.length - 1]?.id !== scenario.before) throw new CliError('replay-cli: the anchor message was not found in that channel');
@@ -2430,14 +2514,15 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, st
     const scenarioConfig = personaGrantsConfig(hot.config, self.id, grantNames);
     // A step's burst as the live queue plays it, with the scenario's config (name triggers, switches, caps).
     const planBurst = (incoming, { history: before }) => mods.burstTurns(incoming, { selfId: self.id, config: scenarioConfig, history: before });
-    // A single-turn scenario's message, or the first step's messages (5 s apart): what the first request reads.
-    const firstLines = scenario.steps
-      ? scenario.steps[0].messages.map((message, i) => lineOf(message, at + i * BURST_SPACING_MS, { tagged: scenario.steps[0].own !== false && i === 0 }))
-      : [lineOf(scenario, at)];
-    const firstPlan = scenario.steps ? planBurst(firstLines, { history }) : null;
-    const firstTurn = firstPlan ? firstPlan.turns[0] : { line: firstLines[0], kind: 'mention', queued: [] };
+    // A line of hers the scenario seeds: shaped as her live lines, no turn run for it.
+    const seedLine = (message, ts) => mods.seededSelfLine({ text: message.text, at: ts, selfId: self.id, selfName: self.name, channel: channelOf(channel) });
+    // A single-turn scenario's message, or the steps up to the first that runs her turn (5 s apart within one): what the first request reads.
+    const first = scenario.steps
+      ? firstDecision({ scenario, history, firstAt: at, lineOf, seedLine, planBurst })
+      : { lines: [...history, lineOf(scenario, at)], turn: null };
+    const firstTurn = first.turn ?? { line: first.lines[first.lines.length - 1], kind: 'mention', queued: [] };
     const trigger = firstTurn.line;
-    const situation = { history: [...history, ...firstLines], triggerId: trigger.id, kind: firstTurn.kind, mode: 'reply' };
+    const situation = { history: first.lines, triggerId: trigger.id, kind: firstTurn.kind, mode: 'reply' };
     // `<skills_granted>`: the names of the skills the scenario grants her, as a live turn lists them.
     const skillsGranted = grantedSkillNames({ config: scenarioConfig, selfId: self.id, registry });
     const images = { quota: createImageGen({ apiKey: '', getConfig: () => scenarioConfig, state: frozenState, fetchImpl: refusing }).quota };
@@ -2505,7 +2590,7 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, st
             break;
           }
           const played = await playSteps({
-            scenario, history, firstAt: at, runIndex, lineOf, planBurst,
+            scenario, history, firstAt: at, runIndex, lineOf, seedLine, planBurst,
             answerStep: async ({ situation: turnMoment, trigger: turnTrigger, at: turnAt, callMarks, result, queued }) => {
               const turn = turnInput(turnMoment, turnAt, turnTrigger);
               const answered = await answerSkillScenario({ ...turn.input, llm: capped, runs: 1, signal: runSignal, callMarks, queued, onCall: onCallOf(turn.requester, turnAt, result) });
@@ -2522,7 +2607,7 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, st
             break;
           }
         }
-        const summary = sequenceSummary(records, scenario.steps.length);
+        const summary = sequenceSummary(records, scenario.steps.length, { seededSteps: scenario.steps.filter((step) => !runsTurn(step)).length });
         return { records, summary: { ...summary, skills: shown, tokensEstimate }, stopped };
       }
       const answered = await answerSkillScenario({ ...input, llm: capped, runs: scenario.runs, signal: runSignal, onCall: onCallOf(requester, trigger.ts, scenario.result) });
@@ -2719,6 +2804,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     personaGrantsConfig,
     afterScenarioTurn,
     burstTurns,
+    seededSelfLine,
   } = await load('behavior/sandbox.js');
   const { fetchHistoryWindow, fetchMessage } = await load('discord/collect.js');
   const { createEmojiIndex } = await load('discord/emoji.js');
@@ -2747,6 +2833,8 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen, grantedSkillNames,
       // Only a multi-step scenario carries a turn into the next one, and plays its bursts as the live queue does.
       ...(scenarios.some((scenario) => scenario.steps) ? { afterScenarioTurn, burstTurns } : {}),
+      // Only a scenario that seeds a line of hers needs it.
+      ...(scenarios.some((scenario) => scenario.steps?.some((step) => step.messages.some((message) => message.self === true))) ? { seededSelfLine } : {}),
     };
     for (const [name, fn] of Object.entries(skillMods)) {
       if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--skills needs it)`);

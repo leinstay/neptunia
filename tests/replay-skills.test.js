@@ -19,9 +19,9 @@ import { callViewOf, requesterOf } from '../src/behavior/turn.js';
 import { fill } from '../src/discord/format.js';
 import { createHot } from '../src/hot.js';
 import { deepMerge } from '../src/config.js';
-import { afterScenarioTurn, answerSkillScenario, burstTurns, liveView, personaGrantsConfig, scenarioInventory, simulateCall } from '../src/behavior/sandbox.js';
+import { afterScenarioTurn, answerSkillScenario, burstTurns, liveView, personaGrantsConfig, scenarioInventory, seededSelfLine, simulateCall } from '../src/behavior/sandbox.js';
 import {
-  overlayPromptsHot, parseArgs, parseScenarios, playSteps, renderPairReport, renderSkillsReport, runRecord, scenarioDiscovery, scenarioGrants, scenarioSummary, scenarioTrigger,
+  firstDecision, overlayPromptsHot, parseArgs, parseScenarios, playSteps, renderPairReport, renderSkillsReport, runRecord, scenarioDiscovery, scenarioGrants, scenarioSummary, scenarioTrigger,
   sequenceSummary, skillRequestEstimate,
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
@@ -296,8 +296,9 @@ async function playSequence(rawSteps, texts, { grants = ['message.create', 'rule
   const steps = [];
   const records = [];
   const lineOf = (message, at, { tagged }) => scenarioTrigger({ text: message.text, authorId: message.author, authorName: NAMES[message.author], channel: here, selfId: SELF, at, tagged });
+  const seedLine = (message, at) => seededSelfLine({ text: message.text, at, selfId: SELF, selfName: 'Persona', channel: here });
   const played = await playSteps({
-    scenario, history, firstAt: NOW, runIndex: 0, lineOf,
+    scenario, history, firstAt: NOW, runIndex: 0, lineOf, seedLine,
     planBurst: (incoming, { history: before }) => burstTurns(incoming, { selfId: SELF, config, history: before }),
     answerStep: async ({ situation, trigger, at, callMarks, result, queued }) => {
       const requester = requesterOf(trigger, channel);
@@ -468,6 +469,91 @@ test('replay --skills steps: plain follow-ups after a call share one slot; the n
   assert.ok(report.includes('replaced: ') && report.includes('και κάτι ακόμα'), report);
 });
 
+test('parseScenarios: a seeded line of hers -- a step { self } or a burst item { self: true } -- and its refusals', () => {
+  const [scenario] = load([{ id: 'seq', channelId: HERE, grants: [], steps: [
+    { author: OWNER, text: 'α' },
+    { self: 'γιατί;', gapMinutes: 0.5 },
+    { author: OWNER, text: 'β', burst: [{ self: true, text: 'καλά' }, { author: MEMBER, text: 'γ' }] },
+  ] }]);
+  assert.deepEqual(scenario.steps, [
+    { messages: [{ author: OWNER, text: 'α' }], own: true, gapMinutes: 1, result: null },
+    { messages: [{ self: true, text: 'γιατί;' }], own: false, gapMinutes: 0.5, result: null },
+    { messages: [{ author: OWNER, text: 'β' }, { self: true, text: 'καλά' }, { author: MEMBER, text: 'γ' }], own: true, gapMinutes: 1, result: null },
+  ]);
+  const steps = (list) => ({ id: 's', channelId: HERE, grants: [], steps: list });
+  const refused = [
+    [steps([{ author: OWNER, text: 'α' }, { self: '   ' }]), /step 2: self must be 1\.\.4000 characters/],
+    [steps([{ author: OWNER, text: 'α' }, { self: 'γ', author: OWNER }]), /step 2: self takes only gapMinutes/],
+    [steps([{ author: OWNER, text: 'α' }, { self: 'γ', burst: [{ author: OWNER, text: 'δ' }] }]), /step 2: self takes only gapMinutes/],
+    [steps([{ author: OWNER, text: 'α' }, { self: 'γ', result: 'x' }]), /step 2: self takes only gapMinutes/],
+    [steps([{ author: OWNER, text: 'α', burst: [{ self: 'yes', text: 'γ' }] }]), /step 1: burst 1: self must be true/],
+    [steps([{ author: OWNER, text: 'α', burst: [{ self: true, author: OWNER, text: 'γ' }] }]), /step 1: burst 1: a line of hers has no author/],
+    [steps([{ author: OWNER, text: 'α', burst: [{ self: true }] }]), /step 1: burst 1: text must be/],
+    [steps([{ self: 'α' }, { burst: [{ self: true, text: 'β' }] }]), /needs at least one step that runs her turn/],
+  ];
+  for (const [scenarioRaw, message] of refused) assert.throws(() => load([scenarioRaw]), message);
+  // Her seeded lines cost no request: only the messages that may get a turn count.
+  assert.equal(skillRequestEstimate([scenario]), 2 * 3, 'three messages not hers x two requests');
+});
+
+test('replay --skills steps: a seeded line is hers in the channel before the next step, rendered as her live lines, and costs no request', async () => {
+  const { played, steps, records, llm } = await playSequence(
+    [{ author: OWNER, text: 'στείλε κάτι στα νέα' }, { self: 'γιατί;' }, { author: OWNER, text: 'απλώς κάν\' το', gapMinutes: 2 }],
+    ['<msg>ας δούμε</msg>', '<msg>εντάξει τότε</msg>'],
+  );
+  assert.equal(played.stopped, false);
+  assert.equal(llm.calls.length, 2, 'one request per step that runs her turn; the seeded line none');
+  assert.equal(steps.length, 2);
+  const hers = played.transcript.filter((line) => line.self);
+  assert.deepEqual(hers.map((line) => line.content), ['ας δούμε', 'γιατί;', 'εντάξει τότε']);
+  const [live, seeded] = hers;
+  // Shaped as her live lines: her id and name, no link to a trigger, no call mark.
+  assert.deepEqual([seeded.authorId, seeded.authorName, seeded.self, seeded.bot], [SELF, 'Persona', true, false]);
+  assert.equal('triggerId' in seeded, false);
+  assert.deepEqual(Object.keys(seeded).sort(), Object.keys(live).filter((key) => key !== 'triggerId').sort());
+  assert.ok(/^\d+$/.test(seeded.id) && seeded.id !== live.id);
+  // Timed like a step: a minute after the newest line (her answer, a second after the trigger).
+  assert.equal(seeded.ts, NOW + 1000 + 60_000);
+  assert.equal(steps[1].at, seeded.ts + 2 * 60_000 + 0, 'the next step two minutes after her seeded line');
+  // The next request reads it as hers, between her answer and the next message, with no marker.
+  const second = userOf(llm.calls[1]);
+  const line = second.split('\n').find((l) => l.includes('γιατί;'));
+  assert.ok(line && line.includes('Persona'), second);
+  assert.ok(!line.includes('(turn triggered by') && !line.includes('[called '), line);
+  assert.ok(second.indexOf('ας δούμε') < second.indexOf('γιατί;') && second.indexOf('γιατί;') < second.indexOf('απλώς κάν'), second);
+  // No record for it: the pattern holds the two decisions, steps 1 and 3, and the run is complete.
+  assert.deepEqual(records.map((r) => [r.step, r.decision]), [[1, 'no-call'], [3, 'no-call']]);
+  const summary = sequenceSummary(records, 3, { seededSteps: 1 });
+  assert.deepEqual([summary.steps, summary.pattern, summary.sequences[0].complete, summary.sequences[0].firstDecline], [3, 'NN', true, 1]);
+  assert.equal(sequenceSummary(records.slice(0, 1), 3, { seededSteps: 1 }).sequences[0].complete, false);
+});
+
+test('replay --skills steps: a seeded line inside a burst gets no turn; the first decision skips a seeded first step', async () => {
+  const { steps, records, llm, played } = await playSequence(
+    [{ author: OWNER, text: 'πρώτο', burst: [{ self: true, text: 'μισό λεπτό' }] }],
+    ['<msg>λοιπόν</msg>'],
+  );
+  assert.equal(llm.calls.length, 1);
+  assert.equal(steps.length, 1, 'the burst has one message that may call her: one turn');
+  const lines = steps[0].situation.history;
+  assert.deepEqual(lines.slice(-2).map((line) => [line.self === true, line.content]), [[false, 'πρώτο'], [true, 'μισό λεπτό']]);
+  assert.equal(steps[0].at, lines.at(-1).ts, 'answered after her seeded line');
+  assert.ok(!('queue' in records[0]), 'one turn: no queue');
+  assert.deepEqual(played.bursts, []);
+
+  // A first step that is only her line: the first decision is the next step's, her line before it.
+  const [scenario] = load([{ id: 'seq', channelId: HERE, grants: [], steps: [{ self: 'καλημέρα' }, { author: OWNER, text: 'γεια', gapMinutes: 3 }] }]);
+  const here = { id: HERE, name: 'γενικά' };
+  const first = firstDecision({
+    scenario, history: [], firstAt: NOW,
+    lineOf: (message, at, { tagged }) => scenarioTrigger({ text: message.text, authorId: message.author, authorName: NAMES[message.author], channel: here, selfId: SELF, at, tagged }),
+    seedLine: (message, at) => seededSelfLine({ text: message.text, at, selfId: SELF, selfName: 'Persona', channel: here }),
+    planBurst: (incoming, { history: before }) => burstTurns(incoming, { selfId: SELF, config: sequenceConfig([]), history: before }),
+  });
+  assert.deepEqual(first.lines.map((line) => [line.self === true, line.content, line.ts]), [[true, 'καλημέρα', NOW], [false, 'γεια', NOW + 3 * 60_000]]);
+  assert.deepEqual([first.turn.line.content, first.turn.kind], ['γεια', 'mention']);
+});
+
 test('burstTurns: the live queue over a burst -- the first message starts the turn, calls wait in arrival order, one follow-up slot, the cap', () => {
   const here = { id: HERE, name: 'γενικά' };
   const line = (author, text, i) => scenarioTrigger({ text, authorId: author, authorName: NAMES[author], channel: here, selfId: SELF, at: NOW + i * 5000, tagged: false });
@@ -619,6 +705,68 @@ test('replay --skills --prompts: the directory is laid over a copy of prompts.lo
   assert.throws(() => parseArgs(['--skills', 's.json', '--pair-prompts', 'a']), /usage/);
   assert.throws(() => parseArgs(['--pair-prompts', 'a', 'b', '123456789012345678', '223456789012345678']), /usage/);
   assert.throws(() => parseArgs(['--diary', 'picture', '--pair-prompts', 'a', 'b']), /usage/);
+});
+
+/** A link at `link` to the directory `target`: a symlink, else (Windows without the privilege) a junction; null when neither can be made. */
+function linkDir(target, link) {
+  for (const type of process.platform === 'win32' ? ['dir', 'junction'] : ['dir']) {
+    try {
+      fs.symlinkSync(target, link, type);
+      return type;
+    } catch (err) {
+      if (!['EPERM', 'EACCES', 'ENOTSUP', 'ENOSYS'].includes(err?.code)) throw err;
+    }
+  }
+  return null;
+}
+
+test('replay --skills --prompts: a prompts.local/ that links to the live layer is read through the link and copied; nothing is linked into or written to it', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-skills-'));
+  const live = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-skills-live-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-skills-layers-'));
+  const opened = [];
+  try {
+    if (!linkDir(live, path.join(root, 'prompts.local'))) {
+      t.skip('this platform makes no directory link without privileges');
+      return;
+    }
+    const write = (dir, rel, text) => {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), text);
+    };
+    write(root, 'config.json', JSON.stringify({ features: { skills: true } }));
+    write(root, 'prompts/reply.md', 'tracked reply');
+    write(root, 'prompts/labels.json', JSON.stringify({ task: { queued: 'tracked queued' } }));
+    const liveLabels = JSON.stringify({ task: { queued: 'live queued', queuedOthers: 'live others' } });
+    write(live, 'reply.md', 'live réply');
+    write(live, 'labels.json', liveLabels);
+    write(root, 'side-a/labels.json', JSON.stringify({ task: { queued: 'queued A' } }));
+    write(root, 'side-a/format.md', 'format A');
+    const listing = () => fs.readdirSync(live).sort();
+    const before = listing();
+    for (const mergeJson of [deepMerge, null]) {
+      const side = overlayPromptsHot(createHot, root, 'side-a', { mergeJson, tmpDir });
+      opened.push(side);
+      assert.equal(side.hot.prompts.reply, 'live réply', 'the live layer is read through the link');
+      assert.equal(side.hot.prompts.format, 'format A');
+      assert.deepEqual(side.hot.prompts.labels.task, mergeJson ? { queued: 'queued A', queuedOthers: 'live others' } : { queued: 'queued A' });
+      const local = path.join(side.dir, 'prompts.local');
+      assert.equal(fs.lstatSync(local).isSymbolicLink(), false, 'the scratch layer is a copy, not a link');
+      for (const name of fs.readdirSync(local)) assert.equal(fs.lstatSync(path.join(local, name)).isSymbolicLink(), false, name);
+    }
+    assert.deepEqual(listing(), before, 'nothing is added to the live layer');
+    assert.equal(fs.readFileSync(path.join(live, 'labels.json'), 'utf8'), liveLabels);
+    assert.equal(fs.readFileSync(path.join(live, 'reply.md'), 'utf8'), 'live réply');
+  } finally {
+    for (const side of opened) {
+      side.hot.close();
+      fs.rmSync(side.dir, { recursive: true, force: true });
+    }
+    // The link first, so removing the root never reaches into the live directory.
+    const link = path.join(root, 'prompts.local');
+    if (fs.existsSync(link) && fs.lstatSync(link).isSymbolicLink()) fs.unlinkSync(link);
+    for (const dir of [root, live, tmpDir]) fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('renderPairReport: per scenario the decisions of A and B side by side, the first declines, then each decision\'s messages and the start of her think', () => {
