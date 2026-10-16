@@ -34,10 +34,10 @@
 | `channel.md` | да | Прогрев и обновление заметок: заметки о канале из выборки сообщений. При обновлении необязательный блок `<existing_notes>` содержит сохранённые заметки как гипотезы для проверки, а не как доказательства. Необязательный блок `<over_limit>` при повторе перечисляет поля, чей предыдущий ответ превысил лимит | `{{fieldChars}}` |
 | `server.md` | да | Прогрев и обновление заметок: серверные заметки из заметок каналов и сводок участников. При обновлении необязательный блок `<existing_notes>` содержит сохранённые заметки как гипотезы для проверки. Необязательный блок `<over_limit>` при повторе перечисляет поля, чей предыдущий ответ превысил лимит | `{{fieldChars}}` `{{maxInjokes}}` `{{loreTextChars}}` |
 | `describe.md` | да | Внеролевой промпт модели описаний медиа (`features.mediaDescriptions`): одна картинка на входе, одна строка на выходе: действие и суть, читаемый текст цитируется в оригинальном написании. Всегда на английском. Без комментариев, без морализаторства, без разметки | `{{today}}` `{{maxChars}}` (необязательный) |
-| `describe-video.md` | да | Внеролевой промпт модели описаний видео (`features.videoDescriptions`): один видеоклип на входе (со звуком), полное описание настраиваемой длины на выходе: кто появляется, что говорится (ключевые фразы цитатой), текст на экране, что происходит визуально, музыка/звук при необходимости. Всегда на английском; речь, субтитры и текст на экране цитируются на языке оригинала. Без карточки персонажа | `{{today}}` `{{maxChars}}` |
+| `describe-video.md` | да | Внеролевой промпт модели описаний видео (`features.videoDescriptions`): один видеоклип на входе (со звуком), полное описание настраиваемой длины на выходе: кто появляется, что говорится (ключевые фразы цитатой), текст на экране, что происходит визуально. Audio-first: модель сначала определяет по аудио, слышен ли звук, открывает описание простым утверждением о том, что слышно (или что тихо), и никогда не додумывает звук по картинке, субтитрам или жанру. Всегда на английском; речь, субтитры и текст на экране цитируются на языке оригинала. Без карточки персонажа | `{{today}}` `{{maxChars}}` |
 | `describe-gif.md` | нет | Внеролевой промпт для описателя GIF (`media.gif.watch`): короткий немой клип на входе, три размеченные строки на выходе: `reaction` (функция ответа, несколько слов или `none`), `action` (что видно, ограничено `{{maxChars}}`), `text` (текст на экране дословно или `none`). Всегда на английском. Без карточки персонажа. При отсутствии код использует `describe-video.md` | `{{today}}` `{{maxChars}}` `{{seconds}}` |
 | `rewatch.md` | да | Классификатор: нужно ли персонажу пересмотреть видео, повторить загрузку незагрузившегося или посмотреть картинку ещё раз (`features.videoRewatch`, `features.imageRelook`). Получает нумерованный список недавних медиа (видео и картинки) с их типом, статусом и новое сообщение. Выход: ОДНА строка: `<number> \| <question>`, `<number> \| retry` или `none` | `{{name}}` |
-| `rewatch-answer.md` | да | Внеролевой промпт для повторного просмотра: модель зрения или видеомодель смотрит на элемент ещё раз и отвечает на один вопрос на языке вопроса. Универсальный (для видео и картинок). Без карточки персонажа | `{{today}}` `{{question}}` `{{maxChars}}` |
+| `rewatch-answer.md` | да | Внеролевой промпт для повторного просмотра: модель зрения или видеомодель смотрит на элемент ещё раз и отвечает на один вопрос на языке вопроса. Универсальный (для видео и картинок). Для видео: звук только когда слышен в аудио, тишина названа прямо, определение трека считается догадкой, если клип не называет его. Без карточки персонажа | `{{today}}` `{{question}}` `{{maxChars}}` |
 | `address.md` | да | Классификатор: адресовано ли сообщение без обращения персонажу, говорят ли о нём или ни то ни другое. Выход: одно слово: `yes`, `overheard` или `no` | `{{name}}` |
 | `overheard.md` | нет | Задача: сообщение говорит О персонаже, а не к нему. Используется ВМЕСТО промпта режима при виде триггера `overheard` и наличии файла; отсутствующий или пустой файл откатывается к промпту режима (деградированно) | `{{name}}` `{{author}}` `{{trigger}}` `{{target}}` |
 | `lookup.md` | нет | Классификатор: нужно ли персонажу что-то найти (`features.webLookup`, `features.recall`). Получает короткий транскрипт и блок `<candidate>`. Выход: `none` или до пяти помеченных строк: `web:` веб-запрос, `server:` формы слов для поиска по сообщениям сервера, `who:` формы имён для поиска человека, `when:` диапазон дат, `when-role:` `scope` или `locator` (является ли дата предметом вопроса или лишь помогает найти событие; только уточняет `when:`), `recent:` `yes` или `no`. Необязательная строка `skills:` указывает навыки, относящиеся к сообщению, или запрашивает полный список. Одна строка без пометки (старый формат) по-прежнему читается как веб-запрос | `{{name}}` `{{today}}` `{{skills}}` |
@@ -127,10 +127,15 @@ recent (лимит `context.caps.recent`) ->
 помощник дал подпись (пронумерованы в порядке следования за текстом); описанная →
 `imageDescribed` / `gifDescribed` / `videoDescribed`; иначе слепые формы `image` / `gif` / `video`.
 Когда зрение видео включено (`features.mediaDescriptions` И `features.videoDescriptions`), видео или ссылка на
-видеосайт получает состояние: `videoWatched` (из первых рук, видел и слышал), `videoNotWatchedFrame` (не просмотрено,
-но описан стоп-кадр) или `videoNotWatched` (не просмотрено, без кадра). Код причины (`length` / `size` / `daily` /
-`error` / `pending`) заменяется человекочитаемой фразой из `transcript.videoReason.*`, прежде чем попадает в транскрипт. Ссылки
-сохраняют свой базовый тег (`link` / `linkText`) и получают видеодополнение: `linkWatched`, `linkNotWatchedFrame` или
+видеосайт получает состояние: `videoWatched` (из первых рук, видел и слышал), `videoWatchedPart` (из первых рук,
+но только начало длинного клипа, с длительностью просмотренного, общей длительностью и причиной из
+`transcript.videoPartReason.*`), `videoNotWatchedFrame` (не просмотрено,
+но описан стоп-кадр) или `videoNotWatched` (не просмотрено, без кадра). `videoWatchedPart` предназначен для видеовложений и скачанных клипов;
+`linkWatchedPart` — аналог для видеоссылок, у которых известна полная длительность. Код причины (`length` / `size` / `daily` /
+`error` / `pending`) заменяется человекочитаемой фразой из `transcript.videoReason.*`, прежде чем попадает в транскрипт.
+Когда код определяет, что в клипе нет слышимого звука или он преимущественно тихий, `videoAudio.none` или `videoAudio.map`
+добавляется к системному промпту видеомодели; закреплённые прямые URL (YouTube, отправляемый провайдеру по URL) и GIF не получают аудиопримечания. Ссылки
+сохраняют свой базовый тег (`link` / `linkText`) и получают видеодополнение: `linkWatched`, `linkWatchedPart`, `linkNotWatchedFrame` или
 `linkNotWatched`. Если стоп-кадр прикреплён как картинка, добавляется также `frameAttached`. Ссылки используют
 `link` / `linkText`, построенные из эмбеда Discord (сайт, заголовок, фрагмент); URL отправленной ссылки остаётся в тексте сообщения там, где был написан (обрезается до `context.maxUrlChars`, по умолчанию 200), тогда как URL вложений, файлов Discord CDN, GIF, стикеров и кастомных эмодзи не появляются; когда `features.webLookup` включён и ссылка была прочитана, `linkRead` добавляется после остальных дополнений ссылки (видео, превью). Текстовые файлы показывают начало через
 `filePreview`; пересланное сообщение обёрнуто в `forwarded`. Когда `features.seeReactions` включён (по
@@ -219,13 +224,16 @@ transcript.gifKnownNoText                {id} {name}: a library GIF without a ca
 transcript.video                         {name} {duration}
 transcript.videoDescribed                {name} {duration} {text}: text describes ONE frame
 transcript.videoWatched                  {name} {duration} {text}: first-hand, the persona saw and heard the clip
+transcript.videoWatchedPart              {name} {duration} {watched} {reason} {text}: из первых рук, но только начало длинного клипа; {watched} — просмотренная длительность (напр. 5:00), {duration} — общая; {reason} — человекочитаемая фраза из videoPartReason.*
 transcript.videoNotWatched               {name} {duration} {reason}: reason is the human phrase from videoReason.*
 transcript.videoNotWatchedFrame          {name} {duration} {reason} {text}: not watched but a still frame was described
 transcript.videoAnswered                {question} {text}: extra tag after a watched video tag; the persona re-watched the clip for this question
 transcript.imageAnswered                {question} {text}: extra tag under the picture's line; the persona looked at the picture again for this question
 transcript.videoReason.length | size | daily | error | pending    human phrases for the five reason codes; pending = the clip was still loading when the request went out
-transcript.linkWatched                   {text}: extra tag after a link tag, first-hand video summary
-transcript.linkNotWatched                {reason}: extra tag after a link tag, not watched with reason
+transcript.videoPartReason.clip          человекочитаемая фраза для ограничения по длине клипа (просмотрено только начало длинного видео)
+transcript.linkWatched                   {text}: доп. тег после тега ссылки, описание видео из первых рук
+transcript.linkWatchedPart               {duration} {watched} {reason} {text}: доп. тег после тега ссылки, из первых рук, но только начало длинного видео; {duration} — полная длительность, {watched} — просмотренная, {reason} — человекочитаемая фраза из videoPartReason.*
+transcript.linkNotWatched                {reason}: доп. тег после тега ссылки, не просмотрено с причиной
 transcript.linkNotWatchedFrame           {reason} {text}: extra tag after a link tag, not watched but preview described
 transcript.voice                         {duration}
 transcript.audio                         {name} {duration}
@@ -333,6 +341,8 @@ triggers.drawFailed                      {reason}: the drawing sub-process faile
 triggers.missed                          триггер для хода подбора пропущенных ответов (features.missedRecovery)
 draw.when                                {when}: локальные дата и время для модели изображений, чтобы свет и сезон совпадали. Заполняется для каждой картинки (дневник и не только), когда время известно; пусто иначе
 draw.reasons.moderation | daily | userDaily | timeout | error    human phrases for the five failure reasons; daily and userDaily are reserved but no longer reached by triggers.drawFailed — an image cap now posts limits.notice instead of a follow-up turn
+videoAudio.none                          добавляется к системному промпту видеомодели, когда файл измерен как не содержащий слышимого звука (нет аудиопотока или тишина на всём протяжении). Говорит, что это измерение, а не догадка. Без плейсхолдеров
+videoAudio.map                           {spans}: добавляется к системному промпту видеомодели, когда файл измерен как преимущественно тихий. {spans} — список звучащих отрезков через запятую (напр. `0:12-0:13, 1:05-1:20`), форматируемый кодом из измеренных уровней аудио. Говорит, что звук слышен только в этих отрезках
 diary.intro                              первая строка блока `<diary>`
 diary.line                               {date} {kind} {gist}: один прошлый пост
 diary.picture                            {scene}: добавляется к строке дневника, если пост содержал картинку

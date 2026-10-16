@@ -10,6 +10,8 @@ import {
   videoUrlCacheKey,
   ytdlpClipArgs,
   ffmpegTrimArgs,
+  ffmpegFitArgs,
+  fitBitrate,
   ytdlpProbeArgs,
   proxyFor,
   ffmpegGifArgs,
@@ -191,14 +193,54 @@ test('ffmpegGifArgs: a GIF becomes a short, even-sided, never upscaled yuv420p H
   });
 });
 
-test('ffmpegTrimArgs: the capped bitrate keeps a shipped-length re-encode within the shipped maxBytes', () => {
+test('fitBitrate + ffmpegFitArgs: a shipped-length fit re-encode stays within the shipped maxBytes, and that under the 20 MB body limit once base64', () => {
   const shipped = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
   const { maxSeconds, maxBytes } = shipped.media.video;
-  const { args } = ffmpegTrimArgs('/tmp/in.webm', '/tmp/out.mp4', { ffmpegPath: 'ffmpeg', maxSeconds });
+  const { videoKbps, audioKbps } = fitBitrate({ maxBytes, seconds: maxSeconds });
+  const { args } = ffmpegFitArgs('/tmp/in.webm', '/tmp/out.mp4', { ffmpegPath: 'ffmpeg', maxSeconds, videoKbps, audioKbps });
   const kbps = (flag) => Number(String(args[args.indexOf(flag) + 1]).replace(/k$/, ''));
-  assert.ok(args.includes('-maxrate') && args.includes('-bufsize') && args.includes('-b:a'));
   const bytes = ((kbps('-maxrate') + kbps('-b:a')) * 1000 / 8) * maxSeconds;
   assert.ok(bytes < maxBytes, `${bytes} bytes for ${maxSeconds} s`);
+  assert.ok(Math.ceil(maxBytes / 3) * 4 < 20_000_000, 'the inlined clip fits the provider body limit');
+});
+
+test('ffmpegTrimArgs: the first maxSeconds at 360p, CRF 28 under a 400k ceiling, 96k audio', () => {
+  assert.deepEqual(ffmpegTrimArgs('/tmp/in', '/tmp/small.mp4', { ffmpegPath: 'ffmpeg', maxSeconds: 300 }).args, [
+    '-y', '-hide_banner', '-loglevel', 'error',
+    '-i', '/tmp/in',
+    '-t', '300',
+    '-vf', 'scale=-2:360',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
+    '-maxrate', '400k', '-bufsize', '800k',
+    '-c:a', 'aac', '-b:a', '96k',
+    '-movflags', '+faststart',
+    '/tmp/small.mp4',
+  ]);
+});
+
+test('fitBitrate: video gets what maxBytes leaves after 10 % headroom and 48k audio, between 100k and 400k', () => {
+  // 14.5 MB over 300 s: 14.5e6 * 8 * 0.9 / 300 / 1000 = 348 kbps, minus 48 for audio.
+  assert.deepEqual(fitBitrate({ maxBytes: 14_500_000, seconds: 300 }), { videoKbps: 300, audioKbps: 48 });
+  assert.deepEqual(fitBitrate({ maxBytes: 14_500_000, seconds: 60 }), { videoKbps: 400, audioKbps: 48 });
+  assert.deepEqual(fitBitrate({ maxBytes: 1000, seconds: 60 }), { videoKbps: 100, audioKbps: 48 });
+  assert.deepEqual(fitBitrate({ maxBytes: 14_500_000, seconds: 0 }), { videoKbps: 100, audioKbps: 48 });
+});
+
+test('ffmpegFitArgs: the trim at fixed bitrates instead of CRF', () => {
+  assert.deepEqual(ffmpegFitArgs('/tmp/in', '/tmp/fit.mp4', { ffmpegPath: '/usr/bin/ffmpeg', maxSeconds: 300, videoKbps: 250, audioKbps: 48 }), {
+    command: '/usr/bin/ffmpeg',
+    args: [
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-i', '/tmp/in',
+      '-t', '300',
+      '-vf', 'scale=-2:360',
+      '-c:v', 'libx264', '-preset', 'veryfast',
+      '-b:v', '250k', '-maxrate', '250k', '-bufsize', '500k',
+      '-c:a', 'aac', '-b:a', '48k',
+      '-movflags', '+faststart',
+      '/tmp/fit.mp4',
+    ],
+  });
 });
 
 test('parseProbe: reads duration and title; tolerates missing fields and bad JSON', () => {

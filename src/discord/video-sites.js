@@ -254,12 +254,22 @@ export function ytdlpClipArgs(url, {
   };
 }
 
+// The trim's video ceiling and audio bitrate (kbps), see ffmpegTrimArgs.
+const TRIM_VIDEO_KBPS = 400;
+const TRIM_AUDIO_KBPS = 96;
+// The fit re-encode (fitBitrate): its audio bitrate, the share of maxBytes it
+// aims at (container overhead and rate-control overshoot), its video floor.
+const FIT_AUDIO_KBPS = 48;
+const FIT_HEADROOM = 0.9;
+const FIT_VIDEO_FLOOR_KBPS = 100;
+
 /**
  * An ffmpeg run that cuts `inPath` to its first `maxSeconds` and re-encodes
  * it small (360p H.264 + AAC) into `outPath`. The video bitrate is capped
  * (`-maxrate 400k -bufsize 800k` on top of CRF 28) so high-motion content
- * cannot blow the size up: 400k video + 96k audio is ~496 kbps, ~11.2 MB for
- * a 180 s clip, within the shipped `media.video.maxBytes` (12 MB).
+ * cannot blow the size up: 400k video + 96k audio is ~496 kbps, ~18.6 MB at
+ * worst for a 300 s clip. Most clips land far below it; one still over
+ * `media.video.maxBytes` is encoded once more at fitBitrate (ffmpegFitArgs).
  * @param {string} inPath
  * @param {string} outPath
  * @param {{ ffmpegPath: string, maxSeconds: number }} options
@@ -274,8 +284,52 @@ export function ffmpegTrimArgs(inPath, outPath, { ffmpegPath, maxSeconds } = {})
       '-t', String(maxSeconds),
       '-vf', 'scale=-2:360',
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
-      '-maxrate', '400k', '-bufsize', '800k',
-      '-c:a', 'aac', '-b:a', '96k',
+      '-maxrate', `${TRIM_VIDEO_KBPS}k`, '-bufsize', `${TRIM_VIDEO_KBPS * 2}k`,
+      '-c:a', 'aac', '-b:a', `${TRIM_AUDIO_KBPS}k`,
+      '-movflags', '+faststart',
+      String(outPath),
+    ],
+  };
+}
+
+/**
+ * The bitrates of the one fit re-encode of a clip `seconds` long that must
+ * stay within `maxBytes`: audio at FIT_AUDIO_KBPS (48), video at what is left
+ * of `maxBytes * 8 / seconds` after FIT_HEADROOM (90 %) and the audio, never
+ * above the trim's own ceiling (400) nor below FIT_VIDEO_FLOOR_KBPS (100) --
+ * a clip that needs less still gets the floor and may stay `size`. Whole
+ * kbps, rounded down. Pure.
+ * @param {{ maxBytes: number, seconds: number }} options
+ * @returns {{ videoKbps: number, audioKbps: number }}
+ */
+export function fitBitrate({ maxBytes, seconds } = {}) {
+  const valid = Number.isFinite(maxBytes) && maxBytes > 0 && Number.isFinite(seconds) && seconds > 0;
+  const totalKbps = valid ? (maxBytes * 8 * FIT_HEADROOM) / seconds / 1000 : 0;
+  const videoKbps = Math.floor(Math.min(TRIM_VIDEO_KBPS, Math.max(FIT_VIDEO_FLOOR_KBPS, totalKbps - FIT_AUDIO_KBPS)));
+  return { videoKbps, audioKbps: FIT_AUDIO_KBPS };
+}
+
+/**
+ * An ffmpeg run like ffmpegTrimArgs (first `maxSeconds`, 360p, H.264 + AAC)
+ * at fixed bitrates from fitBitrate instead of CRF: video `-b:v` = `-maxrate`
+ * = `videoKbps` with a buffer of twice that, audio at `audioKbps`. For a
+ * clip the trim left over `maxBytes`; it is encoded from the same source.
+ * @param {string} inPath
+ * @param {string} outPath
+ * @param {{ ffmpegPath: string, maxSeconds: number, videoKbps: number, audioKbps: number }} options
+ * @returns {{ command: string, args: string[] }}
+ */
+export function ffmpegFitArgs(inPath, outPath, { ffmpegPath, maxSeconds, videoKbps, audioKbps } = {}) {
+  return {
+    command: ffmpegPath,
+    args: [
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-i', String(inPath),
+      '-t', String(maxSeconds),
+      '-vf', 'scale=-2:360',
+      '-c:v', 'libx264', '-preset', 'veryfast',
+      '-b:v', `${videoKbps}k`, '-maxrate', `${videoKbps}k`, '-bufsize', `${videoKbps * 2}k`,
+      '-c:a', 'aac', '-b:a', `${audioKbps}k`,
       '-movflags', '+faststart',
       String(outPath),
     ],

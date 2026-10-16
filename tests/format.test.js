@@ -662,6 +662,20 @@ test('formatTranscript: a watched video renders videoWatched', () => {
   assert.ok(items[0].text.endsWith('[video: clip.mp4, 1:05, watched: a dog runs]'));
 });
 
+test('formatTranscript: a video watched only in part renders videoWatchedPart with its reason label; blank falls back to videoWatched', () => {
+  const longMsg = () => msg('a', T0, { content: '', attachments: [{ id: 'v1', kind: 'video', name: 'long.mp4', durationSec: 400 }] });
+  const videos = new Map([['v1', { state: 'watched', text: 'a talk', watchedSeconds: 300 }]]);
+  const items = videoTranscript([longMsg()], { videos });
+  assert.ok(items[0].text.endsWith('[video: long.mp4, 6:40, watched the first 5:00 (clip cap): a talk]'), items[0].text);
+
+  const blank = { ...labels, transcript: { ...labels.transcript, videoWatchedPart: '' } };
+  const fallback = videoTranscript([longMsg()], { labels: blank, videos });
+  assert.ok(fallback[0].text.endsWith('[video: long.mp4, 6:40, watched: a talk]'), fallback[0].text);
+
+  const old = videoTranscript([longMsg()], { videos: new Map([['v1', { state: 'watched', text: 'a talk' }]]) });
+  assert.ok(old[0].text.endsWith('[video: long.mp4, 6:40, watched: a talk]'), 'an entry without watchedSeconds keeps the old line');
+});
+
 test('formatTranscript: the reason code is swapped for its label, for all four codes', () => {
   const cases = [
     [{ state: 'limit', reason: 'length' }, 'too long'],
@@ -680,6 +694,16 @@ test('formatTranscript: a reason code missing from labels.transcript.videoReason
   const items = videoTranscript([videoMsg()], { labels: partial, videos: new Map([['v1', { state: 'error' }]]) });
   assert.ok(items[0].text.endsWith('[video: clip.mp4, 1:05, not watched: ]'));
   assert.ok(!items[0].text.includes('error'));
+});
+
+test('formatTranscript: a link watched only in part renders linkWatchedPart with the clip reason; blank falls back to linkWatched', () => {
+  const messages = [msg('a', T0, { content: '', links: [ytLink] })];
+  const videos = new Map([['link:abcd1234', { state: 'watched', text: 'a talk', watchedSeconds: 300, totalSeconds: 3289 }]]);
+  const items = videoTranscript(messages, { videos });
+  assert.ok(items[0].text.endsWith('[link: YouTube — Cool video] [watched the first 5:00 of 54:49 (clip cap): a talk]'), items[0].text);
+  const blank = { ...labels, transcript: { ...labels.transcript, linkWatchedPart: '' } };
+  const fallback = videoTranscript(messages, { labels: blank, videos });
+  assert.ok(fallback[0].text.endsWith('[link: YouTube — Cool video] [watched: a talk]'), fallback[0].text);
 });
 
 test('formatTranscript: a watched link keeps the link tag, linkWatched follows', () => {

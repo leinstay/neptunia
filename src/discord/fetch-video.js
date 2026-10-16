@@ -4,7 +4,10 @@
 // A video-site link goes through yt-dlp: a metadata-only probe (duration,
 // title) and a clip download of the first `maxSeconds` (whole when it is no
 // longer), capped at the same download ceiling as an attachment; a clip over
-// `maxBytes` is then re-encoded by ffmpeg the same way. Through a proxy
+// `maxBytes` is then re-encoded by ffmpeg the same way. A re-encoded clip
+// still over `maxBytes` is encoded once more from the same source at a
+// bitrate computed to fit (video-sites.js#fitBitrate); only when that one is
+// still over is it `size`. Through a proxy
 // (`proxy`, resolved by the caller with video-sites.js#proxyFor) the video is
 // downloaded whole -- yt-dlp's sections cut runs ffmpeg, which cannot speak
 // SOCKS -- and ffmpeg trims its first `maxSeconds` locally whenever it may be
@@ -17,7 +20,13 @@
 // window, not per link. The proxy URL may carry credentials: neither it nor
 // its host or port is ever logged. A GIF (a .gif file
 // or a GIF site's mp4/webm) is downloaded the same way and always converted
-// by ffmpeg into a short mp4, so it can be watched like a video. Where yt-dlp cannot
+// by ffmpeg into a short mp4, so it can be watched like a video. With an
+// `audioMap` (src/discord/audio-map.js#audioMapSettings) an attachment's or a
+// link's final clip -- never a GIF's, silent by design -- has its sound
+// measured before the temp directory goes: one read-only ffmpeg
+// `silencedetect` pass whose stderr is parsed (never logged), returned as
+// `audio` (`none` / `map` with the audible stretches / `full`); a failed
+// measurement is one warn line and `audio: null`, never a failed fetch. Where yt-dlp cannot
 // read YouTube (a bot check), probeYoutube learns the duration without it:
 // the YouTube Data API when a key is configured, else the watch page itself.
 // The argument arrays and parsers come from the pure
@@ -36,7 +45,8 @@
 // query string -- a Discord CDN signature, tracking ids), an exit code,
 // signal or errno, an HTTP status. Never tool output, never an error
 // message, never file contents, never the Data API key (its request is
-// logged under a fixed key-free location).
+// logged under a fixed key-free location). stderr is read only by the audio
+// measurement and never logged.
 
 import { spawn } from 'node:child_process';
 import * as fsPromises from 'node:fs/promises';
@@ -45,10 +55,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { log } from '../log.js';
 import { MINUTE_MS } from '../time.js';
+import { classifyAudio, parseSilenceDetect, silenceDetectArgs } from './audio-map.js';
 import {
   bareContentType,
+  ffmpegFitArgs,
   ffmpegGifArgs,
   ffmpegTrimArgs,
+  fitBitrate,
   parseProbe,
   parseYoutubeDataApi,
   parseYoutubePageDuration,
@@ -60,6 +73,8 @@ import {
 } from './video-sites.js';
 
 const STDOUT_MAX_BYTES = 32 * 1024 * 1024;
+// The audio measurement's stderr: the input section plus two short lines per silence.
+const STDERR_MAX_BYTES = 1024 * 1024;
 const DOWNLOAD_CEILING_FACTOR = 4;
 const CLOSE_GRACE_MS = 5000;
 // media.video.proxyRetryMinutes in config.json.
@@ -224,16 +239,19 @@ export function createVideoFetcher({
   }
 
   /**
-   * Run one tool; resolves `{ code, signal, stdout, spawnError, timedOut }`.
+   * Run one tool; resolves `{ code, signal, stdout, stderr, spawnError, timedOut }`.
    * A tool still running at `timeoutMs` is killed with its process tree and
    * reported as timed out -- but only once it has closed, or `closeGraceMs`
    * after the kill, so the caller never removes a directory it still writes
-   * to. stderr is never read (never logged either).
+   * to. stderr is read only with `readStderr` (the audio measurement; '' otherwise),
+   * capped at STDERR_MAX_BYTES, and never logged.
    */
-  function runTool({ command, args }, timeoutMs) {
+  function runTool({ command, args }, timeoutMs, { readStderr = false } = {}) {
     return new Promise((resolve) => {
       const out = [];
       let outBytes = 0;
+      const err = [];
+      let errBytes = 0;
       let settled = false;
       let timedOut = false;
       let timer = null;
@@ -243,13 +261,19 @@ export function createVideoFetcher({
         settled = true;
         if (timer) clearTimeout(timer);
         if (graceTimer) clearTimeout(graceTimer);
-        resolve({ stdout: Buffer.concat(out).toString('utf8'), signal: null, ...result, timedOut });
+        resolve({
+          stdout: Buffer.concat(out).toString('utf8'),
+          stderr: Buffer.concat(err).toString('utf8'),
+          signal: null,
+          ...result,
+          timedOut,
+        });
       };
 
       let child;
       try {
         child = spawnImpl(command, args, {
-          stdio: ['ignore', 'pipe', 'ignore'],
+          stdio: ['ignore', 'pipe', readStderr ? 'pipe' : 'ignore'],
           windowsHide: true,
           detached: !isWindows,
         });
@@ -264,9 +288,17 @@ export function createVideoFetcher({
         out.push(buf);
         outBytes += buf.byteLength;
       });
-      child.on('error', (err) => {
+      if (readStderr) {
+        child.stderr?.on?.('data', (chunk) => {
+          if (errBytes >= STDERR_MAX_BYTES) return;
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          err.push(buf);
+          errBytes += buf.byteLength;
+        });
+      }
+      child.on('error', (error) => {
         // After a timeout kill only `close` (or the grace timer) ends the run.
-        if (!timedOut) settle({ code: null, spawnError: err });
+        if (!timedOut) settle({ code: null, spawnError: error });
       });
       child.on('close', (code, signal) => settle({ code, signal: signal ?? null, spawnError: null }));
 
@@ -372,6 +404,80 @@ export function createVideoFetcher({
   }
 
   /**
+   * Re-encode `sourcePath` small: ffmpegTrimArgs into `<dir>/small.mp4`; when
+   * that is still over `maxBytes`, once more from the same source at
+   * fitBitrate for a clip `seconds` long into `<dir>/fit.mp4`. Resolves
+   * `{ ok: true, path, bytes }` or `{ ok: false, reason: 'timeout'|'tool'|'size', extra? }`.
+   */
+  async function shrinkClip(source, sourcePath, dir, { ffmpegPath, maxSeconds, maxBytes, seconds, toolTimeoutMs }) {
+    const encode = async (args, outPath) => {
+      const run = await runTool(args, toolTimeoutMs);
+      if (run.timedOut) return { ok: false, reason: 'timeout', extra: { code: runCode(run) } };
+      if (run.spawnError || run.code !== 0) return { ok: false, reason: 'tool', extra: { code: runCode(run) } };
+      const bytes = await sizeOf(outPath);
+      if (bytes === null) return { ok: false, reason: 'tool', extra: { code: runCode(run) } };
+      return { ok: true, path: outPath, bytes };
+    };
+    const smallPath = path.join(dir, 'small.mp4');
+    const trimmed = await encode(ffmpegTrimArgs(sourcePath, smallPath, { ffmpegPath, maxSeconds }), smallPath);
+    if (!trimmed.ok || trimmed.bytes <= maxBytes) return trimmed;
+
+    const fitPath = path.join(dir, 'fit.mp4');
+    const { videoKbps, audioKbps } = fitBitrate({ maxBytes, seconds });
+    const fitted = await encode(ffmpegFitArgs(sourcePath, fitPath, { ffmpegPath, maxSeconds, videoKbps, audioKbps }), fitPath);
+    log.info('fetch-video: refit', {
+      source,
+      seconds,
+      videoKbps,
+      before: trimmed.bytes,
+      bytes: fitted.ok ? fitted.bytes : null,
+      reason: fitted.ok ? null : fitted.reason,
+    });
+    if (!fitted.ok || fitted.bytes <= maxBytes) return fitted;
+    return { ok: false, reason: 'size' };
+  }
+
+  /**
+   * The sound of the clip at `clipPath`, measured read-only (silenceDetectArgs,
+   * classifyAudio) under `settings` (audio-map.js#audioMapSettings):
+   * `{ kind: 'none' }`, `{ kind: 'map', spans }`, `{ kind: 'full' }`, or null
+   * when the measurement failed (a timeout, a tool error, unreadable output),
+   * logged once as a warn with codes only. `fallbackSec` is the clip length
+   * known here, for an input that prints no duration. Never rejects.
+   */
+  async function measureAudio(source, clipPath, settings, { ffmpegPath, toolTimeoutMs, fallbackSec }) {
+    const failed = (reason, code = null) => {
+      const meta = { source, reason };
+      if (code !== null && code !== undefined) meta.code = code;
+      log.warn('fetch-video: audio map failed', meta);
+      return null;
+    };
+    try {
+      const run = await runTool(
+        silenceDetectArgs(clipPath, { ffmpegPath, noiseDb: settings.noiseDb, minSilenceSeconds: settings.minSilenceSeconds }),
+        toolTimeoutMs,
+        { readStderr: true },
+      );
+      if (run.timedOut) return failed('timeout', runCode(run));
+      if (run.spawnError) return failed('tool', runCode(run));
+      const parsed = parseSilenceDetect(run.stderr);
+      // A file with no audio stream makes ffmpeg exit non-zero (`-vn` leaves no
+      // output stream): the input section alone already answers.
+      if (run.code !== 0 && !(parsed.inputSeen && !parsed.hasAudio)) return failed('tool', runCode(run));
+      const audio = classifyAudio(parsed, settings, fallbackSec);
+      return audio ?? failed('parse');
+    } catch (err) {
+      return failed('tool', errorCode(err));
+    }
+  }
+
+  /** `{ audio }` for a result when measuring is on (`settings` set), else nothing. */
+  async function audioField(source, clipPath, settings, options) {
+    if (!settings) return {};
+    return { audio: await measureAudio(source, clipPath, settings, options) };
+  }
+
+  /**
    * Stream `url` into `file`, stopping at `ceiling` bytes. `accept` decides
    * which content types count as media (a video by default).
    * @returns {Promise<{ ok: true, bytes: number, contentType: string } | { ok: false, reason: string, extra?: object }>}
@@ -424,23 +530,25 @@ export function createVideoFetcher({
   /**
    * Download a video attachment and return it inline: as-is when its known
    * duration fits `maxSeconds` and it fits `maxBytes`, else cut by ffmpeg to
-   * a 360p mp4 of the first `maxSeconds`. Never rejects.
+   * a 360p mp4 of the first `maxSeconds` (shrinkClip: once more at a fitted
+   * bitrate when still over `maxBytes`). Never rejects.
    * @param {string} url
    * @param {{ durationSec?: number|null, maxSeconds: number, maxBytes: number, toolTimeoutMs: number,
-   *   ffmpegPath: string, fetchTimeoutMs?: number }} options  `fetchTimeoutMs` falls back to `toolTimeoutMs`.
+   *   ffmpegPath: string, fetchTimeoutMs?: number, audioMap?: object|null }} options  `fetchTimeoutMs` falls
+   *   back to `toolTimeoutMs`; `audioMap` (audio-map.js#audioMapSettings, null = off) measures the sound
+   *   of the clip sent and adds `audio` to the result.
    * A missing ffmpeg (ENOENT) is `tool` -- an error miss the describer retries
    * later, so installing ffmpeg takes effect -- never a permanent length/size.
-   * @returns {Promise<{ ok: true, dataUrl: string, mimeType: string, seconds: number|null, bytes: number }
-   *   | { ok: false, reason: 'size'|'download'|'tool'|'timeout' }>}
+   * @returns {Promise<{ ok: true, dataUrl: string, mimeType: string, seconds: number|null, bytes: number,
+   *   audio?: object|null } | { ok: false, reason: 'size'|'download'|'tool'|'timeout' }>}
    */
   async function fetchAttachment(url, {
-    durationSec = null, maxSeconds, maxBytes, toolTimeoutMs, ffmpegPath, fetchTimeoutMs,
+    durationSec = null, maxSeconds, maxBytes, toolTimeoutMs, ffmpegPath, fetchTimeoutMs, audioMap = null,
   } = {}) {
     let dir = null;
     try {
       dir = await makeWorkDir();
       const inPath = path.join(dir, 'in');
-      const outPath = path.join(dir, 'out.mp4');
       const got = await download(url, inPath, {
         ceiling: maxBytes * DOWNLOAD_CEILING_FACTOR,
         timeoutMs: Number.isFinite(fetchTimeoutMs) ? fetchTimeoutMs : toolTimeoutMs,
@@ -456,23 +564,20 @@ export function createVideoFetcher({
           mimeType: got.contentType,
           seconds: knownDuration,
           bytes: got.bytes,
+          ...(await audioField('attachment', inPath, audioMap, { ffmpegPath, toolTimeoutMs, fallbackSec: knownDuration })),
         };
       }
 
-      const run = await runTool(ffmpegTrimArgs(inPath, outPath, { ffmpegPath, maxSeconds }), toolTimeoutMs);
-      if (run.timedOut) return fail('attachment', url, 'timeout', { code: runCode(run) });
-      if (run.spawnError) return fail('attachment', url, 'tool', { code: runCode(run) });
-      if (run.code !== 0) return fail('attachment', url, 'tool', { code: runCode(run) });
-
-      const bytes = await sizeOf(outPath);
-      if (bytes === null) return fail('attachment', url, 'tool', { code: runCode(run) });
-      if (bytes > maxBytes) return fail('attachment', url, 'size');
+      const seconds = Math.min(knownDuration ?? maxSeconds, maxSeconds);
+      const shrunk = await shrinkClip('attachment', inPath, dir, { ffmpegPath, maxSeconds, maxBytes, seconds, toolTimeoutMs });
+      if (!shrunk.ok) return fail('attachment', url, shrunk.reason, shrunk.extra);
       return {
         ok: true,
-        dataUrl: await asDataUrl(outPath, 'video/mp4'),
+        dataUrl: await asDataUrl(shrunk.path, 'video/mp4'),
         mimeType: 'video/mp4',
-        seconds: Math.min(knownDuration ?? maxSeconds, maxSeconds),
-        bytes,
+        seconds,
+        bytes: shrunk.bytes,
+        ...(await audioField('attachment', shrunk.path, audioMap, { ffmpegPath, toolTimeoutMs, fallbackSec: seconds })),
       };
     } catch (err) {
       return fail('attachment', url, 'download', { code: errorCode(err) });
@@ -568,26 +673,27 @@ export function createVideoFetcher({
    * still over `maxBytes`. With a non-empty `proxy` (yt-dlp's `--proxy`,
    * never logged) the download is always whole, so the same ffmpeg trim also
    * runs whenever the duration is unknown or over `maxSeconds`, whatever the
-   * size. A failed proxied download is retried once directly with the
+   * size. The re-encode goes once more at a fitted bitrate when still over
+   * `maxBytes` (shrinkClip). A failed proxied download is retried once directly with the
    * sections cut (see runYtdlp). A missing or failing ffmpeg there is `tool`. Each
-   * tool run gets its own `toolTimeoutMs`. Never rejects.
+   * tool run gets its own `toolTimeoutMs`. `audioMap` (null = off) measures
+   * the sound of the clip sent and adds `audio` to the result. Never rejects.
    * @param {string} url
    * @param {{ ytdlpPath: string, ffmpegPath: string, maxSeconds: number, maxBytes: number,
    *   toolTimeoutMs: number, durationSec?: number|null, proxy?: string|null,
-   *   proxyRetryMinutes?: number }} options
-   * @returns {Promise<{ ok: true, dataUrl: string, mimeType: string, seconds: number, bytes: number }
-   *   | { ok: false, reason: 'size'|'download'|'tool'|'timeout' }>}
+   *   proxyRetryMinutes?: number, audioMap?: object|null }} options
+   * @returns {Promise<{ ok: true, dataUrl: string, mimeType: string, seconds: number, bytes: number,
+   *   audio?: object|null } | { ok: false, reason: 'size'|'download'|'tool'|'timeout' }>}
    */
   async function fetchSiteClip(url, {
     ytdlpPath, ffmpegPath, maxSeconds, maxBytes, toolTimeoutMs, durationSec = null, proxy = null,
-    proxyRetryMinutes,
+    proxyRetryMinutes, audioMap = null,
   } = {}) {
     let dir = null;
     try {
       dir = await makeWorkDir();
       // A direct retry writes its own file, so a partial proxied download is never resumed.
       const clipPathFor = (via) => path.join(dir, via ? 'clip-proxy.mp4' : 'clip.mp4');
-      const smallPath = path.join(dir, 'small.mp4');
       const { run, proxied } = await runYtdlp(
         'clip',
         (via) => ytdlpClipArgs(url, {
@@ -616,13 +722,10 @@ export function createVideoFetcher({
       // Through a proxy nothing was cut on download (see ytdlpClipArgs).
       const uncut = proxied && !(Number.isFinite(durationSec) && durationSec <= maxSeconds);
       if (clipBytes > maxBytes || uncut) {
-        const trim = await runTool(ffmpegTrimArgs(clipPath, smallPath, { ffmpegPath, maxSeconds }), toolTimeoutMs);
-        if (trim.timedOut) return fail('link', url, 'timeout', { code: runCode(trim) });
-        if (trim.spawnError || trim.code !== 0) return fail('link', url, 'tool', { code: runCode(trim) });
-        bytes = await sizeOf(smallPath);
-        if (bytes === null) return fail('link', url, 'tool', { code: runCode(trim) });
-        if (bytes > maxBytes) return fail('link', url, 'size');
-        outPath = smallPath;
+        const shrunk = await shrinkClip('link', clipPath, dir, { ffmpegPath, maxSeconds, maxBytes, seconds, toolTimeoutMs });
+        if (!shrunk.ok) return fail('link', url, shrunk.reason, shrunk.extra);
+        outPath = shrunk.path;
+        bytes = shrunk.bytes;
       }
       return {
         ok: true,
@@ -630,6 +733,7 @@ export function createVideoFetcher({
         mimeType: 'video/mp4',
         seconds,
         bytes,
+        ...(await audioField('link', outPath, audioMap, { ffmpegPath, toolTimeoutMs, fallbackSec: seconds })),
       };
     } catch (err) {
       return fail('link', url, 'download', { code: errorCode(err) });

@@ -64,10 +64,14 @@
     "video": "[video: {name}, {duration}]",
     "videoDescribed": "[video: {name}, {duration} — still frame: {text}]",
     "videoWatched": "[video: {name}, {duration} — watched: {text}]",
+    "videoWatchedPart": "[video: {name}, {duration} — watched first {watched} ({reason}): {text}]",
     "videoNotWatched": "[video: {name}, {duration} — not watched: {reason}]",
     "videoNotWatchedFrame": "[video: {name}, {duration} — not watched: {reason} — still frame: {text}]",
     "videoAnswered": "[looked again for {question}: {text}]",
     "imageAnswered": "[looked again at the picture for {question}: {text}]",
+    "videoPartReason": {
+      "clip": "clip length limit"
+    },
     "videoReason": {
       "length": "over length limit",
       "size": "file too large",
@@ -80,6 +84,7 @@
     "link": "[link: {site} — {title}]",
     "linkText": "[link: {site} — {title} | {text}]",
     "linkWatched": "[watched: {text}]",
+    "linkWatchedPart": "[watched first {watched} of {duration} ({reason}): {text}]",
     "linkNotWatched": "[not watched: {reason}]",
     "linkNotWatchedFrame": "[not watched: {reason} — preview: {text}]",
     "linkRead": "[read: {text}]",
@@ -313,6 +318,10 @@
       "error": "something went wrong"
     },
     "when": "Local time: {when}"
+  },
+  "videoAudio": {
+    "none": "Measured from the file: this clip has no audible sound. Do not describe any music, speech or sound effects.",
+    "map": "Measured from the file's audio levels: sound is audible only during {spans}. Everything outside those stretches is silence."
   },
   "diary": {
     "intro": "Your latest diary posts, oldest first:",

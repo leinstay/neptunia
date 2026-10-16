@@ -730,6 +730,8 @@ function fakeState(data = {}) {
 }
 
 const CLIP_DATA_URL = 'data:video/mp4;base64,Y2xpcA==';
+// What media.video.audioMap resolves to when the config has no such key.
+const AUDIO_MAP_ON = { noiseDb: -50, minSilenceSeconds: 0.5, mapBelowShare: 0.8, maxSpans: 20 };
 
 /** A fake createVideoFetcher()-shaped dependency; every method records its call and returns the given result. */
 function fakeVideoFetcher({
@@ -825,6 +827,7 @@ test('describeVideo: attachment is watched through a data URL with the video set
     toolTimeoutMs: 60_000,
     ffmpegPath: 'ffmpeg-test',
     fetchTimeoutMs: 10_000,
+    audioMap: AUDIO_MAP_ON,
   });
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
@@ -891,6 +894,7 @@ test('describeVideo: a non-direct site downloads a clip; the raw URL never reach
     durationSec: 30,
     proxy: null,
     proxyRetryMinutes: undefined,
+    audioMap: AUDIO_MAP_ON,
   });
   const body = JSON.stringify(llm.calls[0].messages);
   assert.ok(!body.includes('tiktok.com'), 'only the data URL is sent');
@@ -919,7 +923,7 @@ test('describeVideo: a cache hit is free and marked cached', async () => {
   await describer.describeVideo('g1', videoAttachment());
   const again = await describer.describeVideo('g1', videoAttachment());
 
-  assert.deepEqual(again, { state: 'watched', text: 'someone dances', usage: null, estimated: 0, cached: true });
+  assert.deepEqual(again, { state: 'watched', text: 'someone dances', watchedSeconds: 12, usage: null, estimated: 0, cached: true });
   assert.equal(llm.calls.length, 1);
   assert.equal(videoFetcher.calls.length, 1);
   assert.equal(state.data.videoCount, 1);
@@ -1199,6 +1203,10 @@ test('videoCapsLeft: the video, re-watch and GIF watch slots left today, read on
 test('videoStateFromCache: watched, a permanent limit, or null -- a length miss that fits the cap now is no limit', () => {
   const config = { media: { video: { maxSeconds: 60 } } };
   assert.deepEqual(videoStateFromCache({ text: 'ένας χορός', ts: 1, watched: true }, config), { state: 'watched', text: 'ένας χορός' });
+  assert.deepEqual(
+    videoStateFromCache({ text: 'ένας χορός', ts: 1, watched: true, watchedSeconds: 300 }, config),
+    { state: 'watched', text: 'ένας χορός', watchedSeconds: 300 },
+  );
   assert.deepEqual(videoStateFromCache({ miss: true, ts: 1, reason: 'size' }, config), { state: 'limit', reason: 'size' });
   assert.deepEqual(videoStateFromCache({ miss: true, ts: 1, reason: 'length', durationSec: 600 }, config), { state: 'limit', reason: 'length' });
   assert.equal(videoStateFromCache({ miss: true, ts: 1, reason: 'length', durationSec: 30 }, config), null, 'fits the cap now');
@@ -3102,4 +3110,92 @@ test('redescribe: describes a picture again whatever its cache holds; a failure 
   assert.deepEqual(await off.redescribe('g1', pictureItem('a1')), { state: 'unavailable', reason: 'off' });
   assert.equal(off.pictureBlocker(), 'off');
   assert.equal(describer.pictureBlocker(), null);
+});
+
+// --- the measured audio note and the watched length ---------------------------
+
+const AUDIO_LABELS = { videoAudio: { none: 'NO-SOUND-NOTE', map: 'SOUND-ONLY {spans}' } };
+
+test('describeVideo: a measured silent clip appends videoAudio.none to the system prompt after a blank line', async () => {
+  const hot = videoHot({ prompts: { labels: AUDIO_LABELS } });
+  const videoFetcher = fakeVideoFetcher({
+    attachment: { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 12, bytes: 4, audio: { kind: 'none' } },
+  });
+  const { describer, llm } = videoDescriber({ hot, videoFetcher });
+  await describer.describeVideo('g1', videoAttachment());
+  assert.equal(llm.calls[0].messages[0].content, `${VIDEO_PROMPT}\n\nNO-SOUND-NOTE`);
+});
+
+test('describeVideo: a mostly silent clip gets videoAudio.map with its stretches; full, unmeasured or a blank label add nothing', async () => {
+  const cases = [
+    [{ kind: 'map', spans: [[12.2, 13.4], [65, 80]] }, AUDIO_LABELS, `${VIDEO_PROMPT}\n\nSOUND-ONLY 0:12-0:14, 1:05-1:20`],
+    [{ kind: 'full' }, AUDIO_LABELS, VIDEO_PROMPT],
+    [null, AUDIO_LABELS, VIDEO_PROMPT],
+    [{ kind: 'none' }, { videoAudio: { none: '' } }, VIDEO_PROMPT],
+  ];
+  for (const [audio, labels, expected] of cases) {
+    const hot = videoHot({ prompts: { labels } });
+    const clip = { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 60, bytes: 4, audio };
+    const item = videoLink('video:url:aaaaaaaaaaaaaaaa', { url: 'https://www.tiktok.com/@someone/video/123', site: 'tiktok.com' });
+    const { describer, llm } = videoDescriber({ hot, videoFetcher: fakeVideoFetcher({ clip }) });
+    await describer.describeVideo('g1', item);
+    assert.equal(llm.calls[0].messages[0].content, expected);
+  }
+});
+
+test('describeVideo: media.video.audioMap null or false passes no measuring to the fetcher', async () => {
+  for (const audioMap of [null, false]) {
+    const { describer, videoFetcher } = videoDescriber({ hot: videoHot({ video: { audioMap } }) });
+    await describer.describeVideo('g1', videoAttachment());
+    assert.equal(videoFetcher.calls[0].options.audioMap, null);
+  }
+  const custom = videoDescriber({ hot: videoHot({ video: { audioMap: { noiseDb: -30 } } }) });
+  await custom.describer.describeVideo('g1', videoAttachment());
+  assert.deepEqual(custom.videoFetcher.calls[0].options.audioMap, { ...AUDIO_MAP_ON, noiseDb: -30 });
+});
+
+test('rewatchVideo: the measured note is appended to the rewatch-answer prompt too', async () => {
+  const hot = rewatchHot({ prompts: { labels: AUDIO_LABELS } });
+  const videoFetcher = fakeVideoFetcher({
+    attachment: { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 12, bytes: 4, audio: { kind: 'none' } },
+  });
+  const { describer, llm } = videoDescriber({ hot, videoFetcher, llm: fakeLlm({ text: 'nothing heard' }) });
+  await describer.rewatchVideo('g1', videoAttachment(), 'τι ακούγεται;');
+  const system = llm.calls[0].messages[0].content;
+  assert.ok(system.endsWith('\n\nNO-SOUND-NOTE'), system);
+});
+
+test('describeVideo: a downloaded clip stores its length as watchedSeconds; a pinned public URL stores none and gets no note', async () => {
+  const hot = videoHot({ prompts: { labels: AUDIO_LABELS } });
+  const item = videoAttachment('v9', { durationSec: 400 });
+  const videoFetcher = fakeVideoFetcher({ attachment: { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 60, bytes: 4 } });
+  const clip = videoDescriber({ hot, videoFetcher });
+  const watched = await clip.describer.describeVideo('g1', item);
+  assert.equal(watched.watchedSeconds, 60);
+  assert.equal(clip.store.getMediaCache('g1')['video:v9'].watchedSeconds, 60);
+  assert.equal((await clip.describer.describeVideo('g1', item)).watchedSeconds, 60, 'a cache hit carries it');
+
+  // A link clip also stores its probed total, and a cache hit carries both.
+  const tiktok = videoLink('video:url:bbbbbbbbbbbbbbbb', { url: 'https://www.tiktok.com/@someone/video/9', site: 'tiktok.com' });
+  const linkClip = videoDescriber({
+    hot,
+    videoFetcher: fakeVideoFetcher({ probe: { ok: true, durationSec: 400, title: null } }),
+  });
+  const linkWatched = await linkClip.describer.describeVideo('g1', tiktok);
+  assert.equal(linkWatched.watchedSeconds, 60);
+  assert.equal(linkWatched.totalSeconds, 400);
+  assert.equal(linkClip.store.getMediaCache('g1')[`video:${tiktok.itemId}`].totalSeconds, 400);
+  const linkHit = await linkClip.describer.describeVideo('g1', tiktok);
+  assert.equal(linkHit.totalSeconds, 400);
+  assert.equal(linkHit.watchedSeconds, 60);
+  assert.equal('totalSeconds' in clip.store.getMediaCache('g1')['video:v9'], false, 'an attachment carries its own length');
+
+  const pinned = videoDescriber({ hot });
+  const link = videoLink();
+  const result = await pinned.describer.describeVideo('g1', link);
+  assert.equal(result.state, 'watched');
+  assert.equal('watchedSeconds' in result, false);
+  assert.equal('watchedSeconds' in pinned.store.getMediaCache('g1')[`video:${link.itemId}`], false);
+  assert.equal('totalSeconds' in pinned.store.getMediaCache('g1')[`video:${link.itemId}`], false);
+  assert.equal(pinned.llm.calls[0].messages[0].content, VIDEO_PROMPT);
 });

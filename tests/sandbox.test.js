@@ -1128,6 +1128,15 @@ function rendered(history, { descriptions, videos } = {}) {
     .join('\n');
 }
 
+test('replayMedia: a stored watched length and total pass through, so a part-watched link renders as live', async () => {
+  const history = await fetchHistoryWindow(fakeChannel(mediaChat()), { anchorId: sf(3), limit: 30, selfId: SELF_ID, embedTextChars: 300, videoSites: SITES });
+  const key = `video:${videoUrlCacheKey(YOUTUBE)}`;
+  const cache = deepFreeze({ [key]: { text: 'a long lecture', ts: SEEN_TS, watched: true, watchedSeconds: 300, totalSeconds: 3289 } });
+  const media = replayMedia(history, { cache, sites: SITES });
+  assert.deepEqual(media.videos.get(videoUrlCacheKey(YOUTUBE)), { state: 'watched', text: 'a long lecture', watchedSeconds: 300, totalSeconds: 3289 });
+  assert.match(rendered(history, media), /\[watched the first 5:00 of 54:49 \(clip cap\): a long lecture\]/);
+});
+
 test('replayMedia: the describer cache as it stood when she answered renders as the live transcript did, read only', async () => {
   const history = await fetchHistoryWindow(fakeChannel(mediaChat()), { anchorId: sf(3), limit: 30, selfId: SELF_ID, embedTextChars: 300, videoSites: SITES });
   assert.equal(history.length, 4);

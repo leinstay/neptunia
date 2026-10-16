@@ -81,9 +81,11 @@ export const labels = {
     frameAttached: '[its still frame is attached image {n}]',
     unknownDuration: 'unknown length',
     videoWatched: '[video: {name}, {duration}, watched: {text}]',
+    videoWatchedPart: '[video: {name}, {duration}, watched the first {watched} ({reason}): {text}]',
     videoNotWatched: '[video: {name}, {duration}, not watched: {reason}]',
     videoNotWatchedFrame: '[video: {name}, {duration}, not watched: {reason}; one frame: {text}]',
     linkWatched: '[watched: {text}]',
+    linkWatchedPart: '[watched the first {watched} of {duration} ({reason}): {text}]',
     linkNotWatched: '[not watched: {reason}]',
     linkNotWatchedFrame: '[not watched: {reason}; thumbnail: {text}]',
     videoAnswered: '[looked again for "{question}": {text}]',
@@ -95,6 +97,9 @@ export const labels = {
     reactionNames: '{emoji} by {names}',
     reactionMore: 'and {n} more',
     reactionSeparator: ' · ',
+    videoPartReason: {
+      clip: 'clip cap',
+    },
     videoReason: {
       length: 'too long',
       size: 'too big',
@@ -353,6 +358,10 @@ export const labels = {
     channelNoPurpose: '#{channel}:',
     episode: '{when} ago:',
     skipped: '[{count} messages skipped]',
+  },
+  videoAudio: {
+    none: 'Measured: no audible sound in this clip.',
+    map: 'Measured: sound only during {spans}.',
   },
   diary: {
     intro: 'Your latest diary posts, oldest first:',

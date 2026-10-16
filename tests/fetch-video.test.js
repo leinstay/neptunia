@@ -241,6 +241,42 @@ test('fetchAttachment: the trimmed clip still over maxBytes -> size', async () =
   assert.deepEqual(await leftovers(), []);
 });
 
+test('fetchAttachment: a trimmed clip over maxBytes is encoded once more at a fitted bitrate and sent when it fits', async () => {
+  const { fetchImpl } = fakeFetch(fakeResponse());
+  const sizes = [1001, 800];
+  const { spawnImpl, calls } = fakeSpawn((child, command, args) => writesOutput(sizes.shift())(child, command, args));
+  const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
+
+  const { result, logs } = await withCapturedLogs(() => fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec: 90 }));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.bytes, 800);
+  assert.equal(result.seconds, 60);
+  assert.equal(calls.length, 2);
+  const trimArgs = calls[0].args;
+  const fitArgs = calls[1].args;
+  assert.ok(trimArgs.includes('-crf') && !trimArgs.includes('-b:v'));
+  assert.ok(fitArgs.includes('-b:v') && !fitArgs.includes('-crf'));
+  assert.equal(fitArgs[fitArgs.indexOf('-i') + 1], trimArgs[trimArgs.indexOf('-i') + 1], 'both encode the same download');
+  assert.equal(fitArgs[fitArgs.indexOf('-t') + 1], '60');
+  const refit = logs.find((l) => l.msg === 'fetch-video: refit');
+  assert.ok(refit, 'the fit re-encode is logged');
+  assert.equal(refit.before, 1001);
+  assert.equal(refit.bytes, 800);
+  assert.deepEqual(await leftovers(), []);
+});
+
+test('fetchAttachment: a failing fit re-encode keeps its own reason (tool, timeout)', async () => {
+  for (const [second, reason] of [[(child) => child.emit('close', 1, null), 'tool'], [() => {}, 'timeout']]) {
+    const { fetchImpl } = fakeFetch(fakeResponse());
+    const behaviours = [writesOutput(1001), second];
+    const { spawnImpl } = fakeSpawn((child, command, args) => behaviours.shift()(child, command, args));
+    const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
+    assert.deepEqual(await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, toolTimeoutMs: 50, durationSec: 90 }), { ok: false, reason });
+    assert.deepEqual(await leftovers(), []);
+  }
+});
+
 test('fetchAttachment: a hung ffmpeg is killed after toolTimeoutMs -> timeout', async () => {
   const { fetchImpl } = fakeFetch(fakeResponse());
   const { spawnImpl, calls } = fakeSpawn(() => {});
@@ -574,12 +610,41 @@ test('fetchSiteClip: an oversized whole download is re-encoded by ffmpeg and the
   assert.deepEqual(await leftovers(), [], 'both temp files are removed');
 });
 
-test('fetchSiteClip: still over maxBytes after the re-encode -> size', async () => {
+test('fetchSiteClip: still over maxBytes after the re-encode and the fit re-encode -> size', async () => {
   const { spawnImpl, calls } = fakeSpawn(byTool({ ytdlp: writesOutput(3000, '-o'), ffmpeg: writesOutput(1001) }));
   const fetcher = makeFetcher({ spawnImpl, tmpDir });
 
   assert.deepEqual(await fetcher.fetchSiteClip(SITE_URL, { ...OPTS, durationSec: 58 }), { ok: false, reason: 'size' });
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
+  assert.ok(calls[2].args.includes('-b:v'), 'the third run is the fit re-encode');
+  assert.deepEqual(await leftovers(), []);
+});
+
+test('fetchSiteClip: a re-encode still over maxBytes is encoded once more from the download at a fitted bitrate', async () => {
+  const { spawnImpl, calls } = fakeSpawn(byTool({ ytdlp: writesOutput(1_500_000, '-o'), ffmpeg: writesOutput(900_000) }));
+  const fetcher = makeFetcher({ spawnImpl, tmpDir });
+
+  const { result, logs } = await withCapturedLogs(() => fetcher.fetchSiteClip(SITE_URL, { ...OPTS, maxBytes: 1_000_000, durationSec: 58 }));
+  assert.equal(result.bytes, 900_000);
+  assert.equal(calls.length, 2, 'no fit run while the first re-encode is within maxBytes');
+  assert.equal(logs.some((l) => l.msg === 'fetch-video: refit'), false);
+
+  const sizes2 = [1_200_000, 900_000];
+  const ffmpeg2 = (child, command, args) => writesOutput(sizes2.shift())(child, command, args);
+  const second = fakeSpawn(byTool({ ytdlp: writesOutput(1_500_000, '-o'), ffmpeg: ffmpeg2 }));
+  const fetcher2 = makeFetcher({ spawnImpl: second.spawnImpl, tmpDir });
+  const fitted = await fetcher2.fetchSiteClip(SITE_URL, { ...OPTS, maxBytes: 1_000_000, durationSec: 58 });
+
+  assert.equal(fitted.ok, true);
+  assert.equal(fitted.bytes, 900_000);
+  assert.equal(fitted.seconds, 58);
+  assert.equal(second.calls.length, 3);
+  const clipPath = second.calls[0].args[second.calls[0].args.indexOf('-o') + 1];
+  const fitArgs = second.calls[2].args;
+  assert.equal(fitArgs[fitArgs.indexOf('-i') + 1], clipPath, 'the fit re-encode reads the download, not the first re-encode');
+  // 1 MB over 58 s: 1e6 * 8 * 0.9 / 58 / 1000 = 124 kbps, minus 48 for audio -> the 100k floor.
+  assert.equal(fitArgs[fitArgs.indexOf('-b:v') + 1], '100k');
+  assert.equal(fitArgs[fitArgs.indexOf('-b:a') + 1], '48k');
   assert.deepEqual(await leftovers(), []);
 });
 
@@ -876,7 +941,7 @@ test('fetchSiteClip: with a proxy the trim still ends in size when its output st
   const fetcher = makeFetcher({ spawnImpl, tmpDir });
   const result = await fetcher.fetchSiteClip(SITE_URL, { ...OPTS, durationSec: null, proxy: PROXY });
   assert.deepEqual(result, { ok: false, reason: 'size' });
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
 });
 
 test('fetchSiteClip: without a proxy an unknown duration under maxBytes is not trimmed (sections cut instead)', async () => {
@@ -1190,4 +1255,111 @@ test('proxyReachable: default ports per scheme; an unparsable URL or unknown sch
   }
   const throwing = () => { throw new Error('boom'); };
   assert.equal(await proxyReachable(PROXY, { connect: throwing, timeoutMs: 50 }), false);
+});
+
+// --- the audio measurement --------------------------------------------------
+
+const AUDIO_MAP = { noiseDb: -50, minSilenceSeconds: 0.5, mapBelowShare: 0.8, maxSpans: 20 };
+const STDERR_NO_AUDIO = [
+  "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'in':",
+  '  Duration: 00:00:12.00, start: 0.000000, bitrate: 34 kb/s',
+  '  Stream #0:0(und): Video: h264 (High), yuv420p, 160x120 (default)',
+  'Output file #0 does not contain any stream',
+].join('\n');
+const STDERR_SPARSE = [
+  "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'small.mp4':",
+  '  Duration: 00:01:00.00, start: 0.000000, bitrate: 76 kb/s',
+  '  Stream #0:0(und): Video: h264 (High), yuv420p, 640x360 (default)',
+  '  Stream #0:1(und): Audio: aac (LC), 44100 Hz, mono, fltp, 96 kb/s (default)',
+  '[silencedetect @ 0x1] silence_start: 0',
+  '[silencedetect @ 0x1] silence_end: 12.2 | silence_duration: 12.2',
+  '[silencedetect @ 0x1] silence_start: 13.4',
+].join('\n');
+
+/** Whether a fake run is the audio measurement. */
+function isMeasure(args) {
+  return args.some((arg) => String(arg).startsWith('silencedetect='));
+}
+
+/** A measuring ffmpeg that prints `stderr` and exits with `code`. */
+function measures(stderr, code = 0) {
+  return (child) => {
+    child.stderr.emit('data', Buffer.from(stderr));
+    child.emit('close', code, null);
+  };
+}
+
+test('fetchAttachment: with audioMap an as-is clip with no audio stream is measured read-only -> audio none', async () => {
+  const { fetchImpl } = fakeFetch(fakeResponse());
+  const { spawnImpl, calls } = fakeSpawn(measures(STDERR_NO_AUDIO, 1));
+  const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
+
+  const result = await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec: 12, audioMap: AUDIO_MAP });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.audio, { kind: 'none' });
+  assert.equal(calls.length, 1);
+  assert.ok(isMeasure(calls[0].args));
+  assert.equal(calls[0].options.stdio[2], 'pipe', 'only the measurement reads stderr');
+  assert.equal(calls[0].args[calls[0].args.indexOf('-f') + 1], 'null', 'nothing is written');
+  assert.equal(calls[0].args.includes('-y'), false);
+  assert.deepEqual(await leftovers(), []);
+});
+
+test('fetchSiteClip: with audioMap the clip sent is measured -> a mostly silent one is a map', async () => {
+  const ffmpeg = (child, command, args) => (isMeasure(args) ? measures(STDERR_SPARSE)(child) : writesOutput(600)(child, command, args));
+  const { spawnImpl, calls } = fakeSpawn(byTool({ ytdlp: writesOutput(3000, '-o'), ffmpeg }));
+  const fetcher = makeFetcher({ spawnImpl, tmpDir });
+
+  const result = await fetcher.fetchSiteClip(SITE_URL, { ...OPTS, durationSec: 125, audioMap: AUDIO_MAP });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.audio, { kind: 'map', spans: [[12.2, 13.4]] });
+  assert.equal(calls.length, 3);
+  const trimOut = calls[1].args[calls[1].args.length - 1];
+  assert.equal(calls[2].args[calls[2].args.indexOf('-i') + 1], trimOut, 'the re-encoded clip is the one measured');
+  assert.equal(calls[1].options.stdio[2], 'ignore');
+  assert.deepEqual(await leftovers(), []);
+});
+
+test('fetchAttachment: a failed measurement is one warn line and audio null, never a failed fetch', async () => {
+  for (const [behave, reason] of [[measures('garbage', 1), 'tool'], [measures('garbage', 0), 'parse'], [enoent, 'tool'], [() => {}, 'timeout']]) {
+    const { fetchImpl } = fakeFetch(fakeResponse());
+    const { spawnImpl } = fakeSpawn(behave);
+    const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
+    const { result, logs } = await withCapturedLogs(() =>
+      fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, toolTimeoutMs: 50, durationSec: 12, audioMap: AUDIO_MAP }),
+    );
+    assert.equal(result.ok, true, reason);
+    assert.equal(result.audio, null);
+    const failed = logs.filter((l) => l.msg === 'fetch-video: audio map failed');
+    assert.equal(failed.length, 1);
+    assert.equal(failed[0].reason, reason);
+    assert.equal(JSON.stringify(failed).includes('garbage'), false, 'tool output is never logged');
+    assert.deepEqual(await leftovers(), []);
+  }
+});
+
+test('fetchAttachment: an input that prints no duration is measured against the known clip length', async () => {
+  const stderr = STDERR_SPARSE.replace(/Duration: [^,]+/, 'Duration: N/A').split('\n').slice(0, 4).join('\n') +
+    '\n[silencedetect @ 0x1] silence_start: 3';
+  const { fetchImpl } = fakeFetch(fakeResponse());
+  const { spawnImpl } = fakeSpawn(measures(stderr));
+  const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
+
+  const result = await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec: 12, audioMap: AUDIO_MAP });
+
+  assert.deepEqual(result.audio, { kind: 'map', spans: [[0, 3]] });
+});
+
+test('fetchAttachment: without audioMap nothing is measured and the result has no audio field', async () => {
+  const { fetchImpl } = fakeFetch(fakeResponse());
+  const { spawnImpl, calls } = fakeSpawn(() => assert.fail('nothing runs'));
+  const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
+
+  const result = await fetcher.fetchAttachment(ATTACHMENT, { ...OPTS, durationSec: 12, audioMap: null });
+
+  assert.equal(result.ok, true);
+  assert.equal('audio' in result, false);
+  assert.equal(calls.length, 0);
 });

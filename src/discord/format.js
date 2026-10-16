@@ -184,7 +184,10 @@ export function formatDuration(ms, units) {
  * `emoji:<id>` — see normalizeMessage). `context.videos` is an optional
  * `Map` of the same ids to a video state (see mediaLabelFor); it only takes
  * effect when the labels carry `transcript.videoWatched` (a key blanked in
- * prompts.local/labels.json switches this form off); a video state's
+ * prompts.local/labels.json switches this form off); a video watched only in
+ * part renders `transcript.videoWatchedPart` (a link `transcript.linkWatchedPart`;
+ * the reason from `transcript.videoPartReason`), or `videoWatched` / `linkWatched`
+ * with that key blanked; a video state's
  * `answer` (a second look on a question) likewise needs
  * `transcript.videoAnswered`. `context.reads` is an optional `Map` of link
  * ids to the excerpt the web lookup read from that page (src/web/lookup.js);
@@ -204,6 +207,19 @@ export function formatDuration(ms, units) {
  * `transcript.gifKnownFields` (fillGifFields: an empty field leaves out its
  * separator); with that key blanked it renders `gifKnown` instead.
  */
+// The part-watched forms: their reason code reads labels.transcript.videoPartReason.
+const PART_KEYS = new Set(['videoWatchedPart', 'linkWatchedPart']);
+
+/** A part-watched tag whose label is blank, as its whole-video form; any other tag as it is. */
+function partFallback(tag, labels) {
+  if (PART_KEYS.has(tag.key) && !labels.transcript[tag.key]) {
+    return tag.key === 'videoWatchedPart'
+      ? { key: 'videoWatched', values: { name: tag.values.name, duration: tag.values.duration, text: tag.values.text } }
+      : { key: 'linkWatched', values: { text: tag.values.text } };
+  }
+  return tag;
+}
+
 function mediaTags(message, labels, context = {}) {
   const unknownDuration = labels.transcript.unknownDuration ?? '?';
   const videosOn = Boolean(labels.transcript.videoWatched);
@@ -226,11 +242,15 @@ function mediaTags(message, labels, context = {}) {
   };
   const tags = [];
   // A video tag's `reason` is a code (media.js is label-free): swap it for
-  // its label before filling.
-  const pushTag = ({ key, values }) => {
+  // its label before filling -- a part-watched video's from videoPartReason.
+  // A blank videoWatchedPart / linkWatchedPart falls back to the whole-video
+  // videoWatched / linkWatched.
+  const pushTag = (tag) => {
+    const { key, values } = partFallback(tag, labels);
+    const reasons = PART_KEYS.has(key) ? labels.transcript.videoPartReason : labels.transcript.videoReason;
     const filled =
       values && Object.prototype.hasOwnProperty.call(values, 'reason')
-        ? { ...values, reason: labels.transcript.videoReason?.[values.reason] ?? '' }
+        ? { ...values, reason: reasons?.[values.reason] ?? '' }
         : values;
     // A library GIF's three caption fields drop an empty field with its separator.
     if (key === 'gifKnownFields') {
