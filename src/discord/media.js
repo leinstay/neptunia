@@ -404,12 +404,57 @@ function videoReasonCode(video) {
 }
 
 /**
- * The ONE video extra tag of a `link` item with a video state: `linkWatched`
- * when the video was watched, else `linkNotWatchedFrame` when a thumbnail
- * caption exists, else `linkNotWatched`.
+ * The watched lengths a cached video summary (a media cache entry
+ * `video:<item id>`) carries, for its video state: `watchedSeconds` (the
+ * downloaded clip's length) and `totalSeconds` (a link's probed total
+ * length), each only when it is a finite number -- an entry from before
+ * either was stored gives `{}`. Pure.
+ * @param {object|undefined} entry
+ * @returns {{ watchedSeconds?: number, totalSeconds?: number }}
  */
-function linkVideoExtra(video, description) {
-  if (video.state === 'watched') return { key: 'linkWatched', values: { text: video.text ?? '' } };
+export function watchedLengths(entry) {
+  const out = {};
+  for (const key of ['watchedSeconds', 'totalSeconds']) {
+    const value = entry?.[key];
+    if (typeof value === 'number' && Number.isFinite(value)) out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Whether a watched video was seen only in part: its total length
+ * `durationSec` and the watched clip's `watchedSeconds` are both known and
+ * the total is longer by at least a whole second (both rounded as m:ss shows them).
+ */
+function watchedPart(durationSec, watchedSeconds) {
+  const known = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  return known(durationSec) && known(watchedSeconds) && Math.round(durationSec) > Math.round(watchedSeconds);
+}
+
+/**
+ * The ONE video extra tag of a `link` item with a video state: `linkWatched`
+ * when the video was watched -- `linkWatchedPart` when the state's
+ * `watchedSeconds` is shorter than its total (`video.totalSeconds`, else the
+ * item's `durationSec`), with `{ duration, watched }` as m:ss and the reason
+ * code `'clip'` --, else `linkNotWatchedFrame` when a thumbnail caption
+ * exists, else `linkNotWatched`.
+ */
+function linkVideoExtra(video, description, item) {
+  if (video.state === 'watched') {
+    const total = video.totalSeconds ?? item?.durationSec;
+    if (watchedPart(total, video.watchedSeconds)) {
+      return {
+        key: 'linkWatchedPart',
+        values: {
+          duration: formatDurationShort(total),
+          watched: formatDurationShort(video.watchedSeconds),
+          reason: 'clip',
+          text: video.text ?? '',
+        },
+      };
+    }
+    return { key: 'linkWatched', values: { text: video.text ?? '' } };
+  }
   const reason = videoReasonCode(video);
   return description
     ? { key: 'linkNotWatchedFrame', values: { reason, text: description } }
@@ -481,7 +526,10 @@ function extraOf(...extras) {
  * 'length'|'size'|'daily' }`, `{ state: 'error' }` or `{ state: 'pending' }`
  * (the turn's watch missed its deadline, see lateVideoStates); null keeps the
  * still-frame behaviour above. A `video` item that was watched renders
- * `videoWatched`; one not watched renders `videoNotWatchedFrame` (a still
+ * `videoWatched`, or `videoWatchedPart` when the state's `watchedSeconds` (the
+ * downloaded clip's length) is shorter than the item's known `durationSec`
+ * (`values.watched` its m:ss, `values.reason` the code `'clip'`, swapped by
+ * src/discord/format.js for `transcript.videoPartReason.clip`); one not watched renders `videoNotWatchedFrame` (a still
  * frame caption exists) or `videoNotWatched`, `values.reason` carrying the
  * reason CODE (`'length'|'size'|'daily'|'error'|'pending'`, never a label -- see
  * src/discord/format.js). A `link` with a video state swaps its one extra for
@@ -521,8 +569,8 @@ function extraOf(...extras) {
  * other kind ignores it (a video's answer lives in its state, `context.video.answer`).
  * @param {object} item
  * @param {{ attachedIndex?: number|null, description?: string|null, unknownDuration?: string,
- *   video?: { state: 'watched'|'limit'|'error'|'pending', text?: string, reason?: string,
- *     answer?: { question: string, text: string } }|null, read?: string|null, gifHandle?: string|null,
+ *   video?: { state: 'watched'|'limit'|'error'|'pending', text?: string, reason?: string, watchedSeconds?: number,
+ *     totalSeconds?: number, answer?: { question: string, text: string } }|null, read?: string|null, gifHandle?: string|null,
  *   gifFields?: { reaction?: string, action?: string, screen?: string }|null,
  *   answer?: { question: string, text: string }|null }} [context]
  * @returns {{ key: string, values: object,
@@ -587,7 +635,12 @@ export function mediaLabelFor(
       const name = item.name ?? '';
       const duration = durationOrUnknown(item.durationSec, unknownDuration);
       if (video?.state === 'watched') {
-        const watched = { key: 'videoWatched', values: { name, duration, text: video.text ?? '' } };
+        const watched = watchedPart(item.durationSec, video.watchedSeconds)
+          ? {
+            key: 'videoWatchedPart',
+            values: { name, duration, watched: formatDurationShort(video.watchedSeconds), reason: 'clip', text: video.text ?? '' },
+          }
+          : { key: 'videoWatched', values: { name, duration, text: video.text ?? '' } };
         const extra = extraOf(answeredExtra(video));
         return extra ? { ...watched, extra } : watched;
       }
@@ -616,7 +669,7 @@ export function mediaLabelFor(
       const frame = attachedIndex != null && item.thumbnailUrl ? { key: 'frameAttached', values: { n: attachedIndex } } : null;
       const readExtra = read ? { key: 'linkRead', values: { text: read } } : null;
       if (video) {
-        const videoExtra = linkVideoExtra(video, description);
+        const videoExtra = linkVideoExtra(video, description, item);
         return { ...base, extra: extraOf(frame, videoExtra, answeredExtra(video), readExtra) };
       }
       const thumbnail = !frame && description ? { key: 'thumbnailDescribed', values: { text: description } } : null;

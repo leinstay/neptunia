@@ -56,6 +56,16 @@
 // data: never logged. `checkYoutube()` probes one canary video to tell the
 // operator which link of the YouTube duration chain works here.
 //
+// A downloaded clip (an attachment, a link's yt-dlp clip; never a public URL
+// the provider opens itself, never a GIF) has its sound measured by the
+// fetcher (`media.video.audioMap`, null or false = off); a clip with nothing
+// audible gets `labels.videoAudio.none` and a mostly silent one
+// `labels.videoAudio.map` with its audible stretches, appended to the video
+// model's system prompt after a blank line, on a watch and a re-watch alike
+// (src/discord/audio-map.js). A watched summary of a downloaded clip keeps
+// the clip's length as `watchedSeconds`, so the transcript can tell a video
+// watched only in part (src/discord/media.js, `videoWatchedPart`).
+//
 // A summary is capped at `media.video.summaryChars` (the describe-video
 // prompt learns the cap through `{{maxChars}}`). `rewatchVideo()` is the
 // second look on a question (features.videoRewatch, a missing key counts as
@@ -115,9 +125,10 @@
 // old text. A stale watched GIF is never replaced by a one-frame caption.
 
 import { isPlainObject } from '../config.js';
-import { fitBox, mediaProxyUrl } from '../discord/media.js';
+import { fitBox, mediaProxyUrl, watchedLengths } from '../discord/media.js';
 import { createImageFetcher } from '../discord/fetch-image.js';
 import { createVideoFetcher } from '../discord/fetch-video.js';
+import { audioMapSettings, videoAudioNote, withAudioNote } from '../discord/audio-map.js';
 import { isDirectUrlSite, proxyFor, publicVideoUrl, safeLocation, youtubeVideoId } from '../discord/video-sites.js';
 import {
   helperRequestOptions,
@@ -354,7 +365,9 @@ function urlProcessingMode(videoCfg) {
 
 /**
  * The lasting video state a media cache entry (`video:<item id>`) stands for, by the describer's
- * own rules, read-only: `{ state: 'watched', text }`, `{ state: 'limit', reason }` for a
+ * own rules, read-only: `{ state: 'watched', text, watchedSeconds?, totalSeconds? }` (the length of the
+ * downloaded clip the summary was made from and a link's probed total, when the entry has them),
+ * `{ state: 'limit', reason }` for a
  * permanent miss (`length`, `size`), or null -- no entry, an error miss (retried after
  * `media.video.errorRetryMinutes`, see describeVideo), or a `length` miss whose duration is
  * unknown or fits the length cap that applies to `item` now (a raised cap retries it). `item`
@@ -364,11 +377,13 @@ function urlProcessingMode(videoCfg) {
  * @param {object|undefined} entry
  * @param {object} config  Live config (`media.video`, `llm`).
  * @param {object} [item]
- * @returns {{ state: 'watched', text: string } | { state: 'limit', reason: string } | null}
+ * @returns {{ state: 'watched', text: string, watchedSeconds?: number, totalSeconds?: number }
+ *   | { state: 'limit', reason: string } | null}
  */
 export function videoStateFromCache(entry, config, item = {}) {
   if (!entry) return null;
-  if (entry.watched) return { state: 'watched', text: entry.text };
+  // An entry from before watchedSeconds / totalSeconds were stored renders as watched whole.
+  if (entry.watched) return { state: 'watched', text: entry.text, ...watchedLengths(entry) };
   if (!entry.miss || !PERMANENT_VIDEO_MISSES.has(entry.reason)) return null;
   if (entry.reason === 'length') {
     // An unknown duration (older entries included) costs one probe to learn.
@@ -1043,6 +1058,16 @@ export function createDescriber({
   }
 
   /**
+   * The system prompt of a video request on `media` (a watch or a re-watch):
+   * `filled` plus the measured-sound note of a downloaded clip
+   * (audio-map.js#videoAudioNote on the live `labels.videoAudio`), after a
+   * blank line; `filled` alone without one.
+   */
+  function videoSystemPrompt(filled, media) {
+    return withAudioNote(filled, videoAudioNote(media.audio, hot.prompts?.labels));
+  }
+
+  /**
    * The per-second token estimate of a public URL in agentic processing
    * (`media.video.directUrlTokensPerSecond`), or undefined for every other
    * request -- a data: URL clip, a public URL in another or no processing
@@ -1086,11 +1111,16 @@ export function createDescriber({
   }
 
   /**
-   * Get the media of one candidate: `{ ok: true, url, seconds, bytes, pinned }`
+   * Get the media of one candidate: `{ ok: true, url, seconds, bytes, pinned, audio, totalSeconds? }`
+   * (`totalSeconds`: a link clip's probed total length, null when unknown)
    * or `{ ok: false, reason }` (a `length` failure adds `durationSec`, null when unknown).
+   * `audio` is the fetcher's measured sound of a downloaded clip
+   * (`media.video.audioMap`, read now), null for a public URL, with measuring
+   * off or after a failed measurement.
    */
   async function fetchVideoMedia(item, videoCfg) {
     const { maxSeconds, maxBytes, toolTimeoutMs, ffmpegPath, ytdlpPath } = videoCfg;
+    const audioMap = audioMapSettings(videoCfg.audioMap);
     if (item.source === 'attachment') {
       const got = await videoFetcher.fetchAttachment(item.url, {
         durationSec: item.durationSec,
@@ -1099,8 +1129,11 @@ export function createDescriber({
         toolTimeoutMs,
         ffmpegPath,
         fetchTimeoutMs: hot.config.context?.vision?.fetchTimeoutMs,
+        audioMap,
       });
-      if (got.ok) return { ok: true, url: got.dataUrl, seconds: got.seconds, bytes: got.bytes, pinned: false };
+      if (got.ok) {
+        return { ok: true, url: got.dataUrl, seconds: got.seconds, bytes: got.bytes, pinned: false, audio: got.audio ?? null };
+      }
       if (got.reason === 'length') {
         return { ok: false, reason: 'length', durationSec: Number.isFinite(got.durationSec) ? got.durationSec : null };
       }
@@ -1146,8 +1179,20 @@ export function createDescriber({
       durationSec,
       proxy,
       proxyRetryMinutes,
+      audioMap,
     });
-    if (clip.ok) return { ok: true, url: clip.dataUrl, seconds: clip.seconds, bytes: clip.bytes, pinned: false };
+    if (clip.ok) {
+      return {
+        ok: true,
+        url: clip.dataUrl,
+        seconds: clip.seconds,
+        bytes: clip.bytes,
+        pinned: false,
+        audio: clip.audio ?? null,
+        // The probed total: a link item seldom carries its own length.
+        totalSeconds: typeof durationSec === 'number' && Number.isFinite(durationSec) ? durationSec : null,
+      };
+    }
     // Too long and not clippable: the video will not get shorter, so this is final.
     // The duration is kept so a later, larger cap can retry it (cachedVideo).
     if (durationSec != null && durationSec > maxSeconds) return { ok: false, reason: 'length', durationSec };
@@ -1177,6 +1222,8 @@ export function createDescriber({
         seconds: extra.seconds ?? null,
         bytes: extra.bytes ?? null,
         status: extra.status,
+        // The measured sound of a downloaded clip (none / map / full), when measured.
+        ...(extra.audio ? { audio: extra.audio } : {}),
         cached: false,
         location: safeLocation(item.url),
         ...(forced ? { forced: true } : {}),
@@ -1229,13 +1276,13 @@ export function createDescriber({
       return { result: errorMiss(media.reason ?? 'download'), sent: false, attempted: true };
     }
 
-    const sizes = { seconds: media.seconds ?? null, bytes: media.bytes ?? null };
+    const sizes = { seconds: media.seconds ?? null, bytes: media.bytes ?? null, audio: media.audio?.kind ?? null };
     const options = videoRequestOptions(videoCfg, media, { maxOutputTokens: videoCfg.maxOutputTokens });
     let completion;
     try {
       completion = await llm.complete(
         [
-          { role: 'system', content: fillPromptTemplate(promptText, { maxChars: summaryChars, today: todayDate() }) },
+          { role: 'system', content: videoSystemPrompt(fillPromptTemplate(promptText, { maxChars: summaryChars, today: todayDate() }), media) },
           { role: 'user', content: [videoPart(videoCfg, media)] },
         ],
         options,
@@ -1253,8 +1300,16 @@ export function createDescriber({
     if (!text) return { result: errorMiss('empty', sizes), sent: true, attempted: true };
 
     const ts = now();
-    putVideoEntry(guildId, key, { text, ts, watched: true, describedAt: ts, model: options.model });
+    const entry = { text, ts, watched: true, describedAt: ts, model: options.model };
+    // How much of the video the summary saw: a downloaded clip is cut to
+    // maxSeconds; a public URL is opened whole by the provider.
+    if (!media.pinned && typeof media.seconds === 'number' && Number.isFinite(media.seconds)) {
+      entry.watchedSeconds = media.seconds;
+      if (typeof media.totalSeconds === 'number') entry.totalSeconds = media.totalSeconds;
+    }
+    putVideoEntry(guildId, key, entry);
     const result = { state: 'watched', text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
+    Object.assign(result, watchedLengths(entry));
     report(result, sizes);
     return { result, sent: true, attempted: true };
   }
@@ -1439,7 +1494,10 @@ export function createDescriber({
     try {
       completion = await llm.complete(
         [
-          { role: 'system', content: fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }) },
+          {
+            role: 'system',
+            content: videoSystemPrompt(fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }), media),
+          },
           { role: 'user', content: [{ type: 'text', text: asked }, videoPart(videoCfg, media)] },
         ],
         videoRequestOptions(videoCfg, media, { maxOutputTokens: rewatchCfg.maxOutputTokens }),

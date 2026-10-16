@@ -24,6 +24,7 @@ import {
   clipWithEllipsis,
   isGifHostUrl,
   fitBox,
+  watchedLengths,
 } from '../src/discord/media.js';
 
 // --- siteOf --------------------------------------------------------------------
@@ -507,6 +508,23 @@ test('mediaLabelFor: a watched video renders videoWatched with name, duration an
   });
 });
 
+test('mediaLabelFor: a video watched only in part renders videoWatchedPart with the watched length and the reason code', () => {
+  const long = { kind: 'video', name: 'long.mp4', durationSec: 400 };
+  assert.deepEqual(mediaLabelFor(long, { video: { state: 'watched', text: 'a talk', watchedSeconds: 300 } }), {
+    key: 'videoWatchedPart',
+    values: { name: 'long.mp4', duration: '6:40', watched: '5:00', reason: 'clip', text: 'a talk' },
+  });
+  // Watched whole, an unknown total, or an old cache entry without watchedSeconds: the plain form.
+  for (const [item, video] of [
+    [long, { state: 'watched', text: 'a talk', watchedSeconds: 400 }],
+    [{ ...long, durationSec: 300.4 }, { state: 'watched', text: 'a talk', watchedSeconds: 300 }],
+    [{ ...long, durationSec: null }, { state: 'watched', text: 'a talk', watchedSeconds: 300 }],
+    [long, { state: 'watched', text: 'a talk' }],
+  ]) {
+    assert.equal(mediaLabelFor(item, { video }).key, 'videoWatched');
+  }
+});
+
 test('mediaLabelFor: a watched video wins over a still-frame description', () => {
   const result = mediaLabelFor(clip, { description: 'one frame', video: { state: 'watched', text: 'the whole clip' } });
   assert.equal(result.key, 'videoWatched');
@@ -570,6 +588,29 @@ test('mediaLabelFor: a watched link keeps its link tag, the one extra becomes li
     values: { site: 's', title: 't' },
     extra: { key: 'linkWatched', values: { text: 'a talk' } },
   });
+});
+
+test('mediaLabelFor: a link watched only in part renders linkWatchedPart from the stored total; whole or old entries keep linkWatched', () => {
+  const item = { kind: 'link', site: 's', title: 't', durationSec: null };
+  assert.deepEqual(mediaLabelFor(item, { video: { state: 'watched', text: 'a talk', watchedSeconds: 300, totalSeconds: 3289 } }).extra, {
+    key: 'linkWatchedPart',
+    values: { duration: '54:49', watched: '5:00', reason: 'clip', text: 'a talk' },
+  });
+  // The item's own duration stands in when the state carries no total.
+  assert.equal(mediaLabelFor({ ...item, durationSec: 400 }, { video: { state: 'watched', text: 'a talk', watchedSeconds: 300 } }).extra.key, 'linkWatchedPart');
+  for (const video of [
+    { state: 'watched', text: 'a talk', watchedSeconds: 42, totalSeconds: 42 },
+    { state: 'watched', text: 'a talk', watchedSeconds: 300 },
+    { state: 'watched', text: 'a talk' },
+  ]) {
+    assert.deepEqual(mediaLabelFor(item, { video }).extra, { key: 'linkWatched', values: { text: 'a talk' } });
+  }
+});
+
+test('watchedLengths: the finite watchedSeconds / totalSeconds of a cache entry, nothing for an old entry', () => {
+  assert.deepEqual(watchedLengths({ text: 'x', watched: true, watchedSeconds: 300, totalSeconds: 3289 }), { watchedSeconds: 300, totalSeconds: 3289 });
+  assert.deepEqual(watchedLengths({ text: 'x', watched: true, watchedSeconds: 'long', totalSeconds: null }), {});
+  assert.deepEqual(watchedLengths(undefined), {});
 });
 
 test('mediaLabelFor: a link not watched with a thumbnail caption renders linkNotWatchedFrame', () => {

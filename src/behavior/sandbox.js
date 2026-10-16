@@ -50,7 +50,7 @@ import { linkChannels } from '../memory/mentions.js';
 import { continuationHistory, firstPass, pickOtherProfiles, taskInput } from './turn.js';
 import { withCalls } from '../discord/format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../discord/access.js';
-import { collectEmojiItems, collectPictures, collectVideos, isDescribable } from '../discord/media.js';
+import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../discord/media.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { parseOutput } from '../llm/parse.js';
@@ -231,7 +231,7 @@ function mediaItemsOf(message, sites) {
  * history, the describer's `cache` entry as it stood by `before` (null: any
  * time), read only. A cached miss, a limit or error state and an entry written
  * after `before` are no description; a watched summary is the video state
- * `{ state: 'watched', text }`. Without a cache, empty maps. Pure.
+ * `{ state: 'watched', text }` plus the entry's `watchedSeconds` / `totalSeconds` when stored. Without a cache, empty maps. Pure.
  * @param {object[]} history  Normalized messages (src/discord/collect.js#normalizeMessage).
  * @param {{ cache?: object|null, sites?: string[], before?: number|null }} [options]  `cache`: the
  *   describer's cache (`store.getMediaCache(guildId)`), or null.
@@ -249,8 +249,10 @@ export function replayMedia(history, { cache = null, sites = [], before = null }
       if (text !== null && !descriptions.has(id)) descriptions.set(id, text);
     }
     for (const id of clips) {
-      const text = seenText(entryOf(cache, `video:${id}`), { watched: true, before });
-      if (text !== null && !videos.has(id)) videos.set(id, { state: 'watched', text });
+      const entry = entryOf(cache, `video:${id}`);
+      const text = seenText(entry, { watched: true, before });
+      // The watched lengths too, so a part-watched video renders as in the live turn.
+      if (text !== null && !videos.has(id)) videos.set(id, { state: 'watched', text, ...watchedLengths(entry) });
     }
   }
   return { descriptions, videos };
