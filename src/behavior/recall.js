@@ -1714,7 +1714,10 @@ function recordMessage(line, { nameOf, selfName }) {
  * follow never crossing from one read stretch into another -- and kept by
  * their best fused score (with `recent`: a persona's line first, then the
  * newer, then that score), with no window reserved for the earliest word
- * hit. Without a usable row nothing changes.
+ * hit; instead the best word hit matching a topic form (by its word score,
+ * then the newer) keeps one kept window, unless that window is kept anyway
+ * (without a locator; none without a topic-matched hit). Without a usable
+ * row nothing changes.
  * `locator` (a `when:` that only locates, `{ from, to, bonus, decayDays,
  * broadShare }`; the caller passes no `range` then): besides the last
  * `recordDays` days the locator's own days are read as a dated question's
@@ -1847,8 +1850,9 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
     if (excluded.has(message.id) || !scannedIds.has(message.id)) continue;
     const person = (named.get(message.id) ?? []).some((id) => people.has(id));
     const locates = person || formsMatched([message.content], nameForms) > 0;
-    const score = formsMatched([message.content], textForms) + (locates ? RECORD_NAME_WEIGHT : 0);
-    if (score > 0) hits.push({ message, score });
+    const topic = formsMatched([message.content], textForms);
+    const score = topic + (locates ? RECORD_NAME_WEIGHT : 0);
+    if (score > 0) hits.push({ message, score, topic });
   }
   // The meaning rows that stand: found, not shown in the chat, every source line allowed.
   const meant = wanted
@@ -1865,6 +1869,12 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   const earliest = dateless
     ? hits.filter((hit) => hit.score === bestScore).reduce((a, b) => (!a || b.message.ts < a.message.ts || (b.message.ts === a.message.ts && b.message.id < a.message.id) ? b : a), null)
     : null;
+  // Fused with meaning rows (no locator): the best word hit matching a topic form keeps a window of its own,
+  // so lines found by both searches cannot crowd out the strongest lexical match.
+  const strongest =
+    meant.length > 0 && !near
+      ? hits.filter((hit) => hit.topic > 0).reduce((a, b) => (!a || b.score > a.score || (b.score === a.score && b.message.ts > a.message.ts) ? b : a), null)
+      : null;
   const wordOrdered = hits.sort(hitOrder);
   // Without meaning rows the word order and scores; with them the fused ones (fuseRanks).
   const ranked =
@@ -1873,7 +1883,9 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
       : fuseRanks([meant.map((message) => message.id), wordOrdered.map((hit) => hit.message.id)]).map((entry) => ({ message: byId.get(entry.id), score: entry.score }));
   const hitScore = new Map(ranked.map((hit) => [hit.message.id, hit.score]));
   const chosenHits = ranked.slice(0, keep * RECORD_HITS_PER_WINDOW);
-  if (earliest && !chosenHits.some((hit) => hit.message.id === earliest.message.id)) chosenHits.push(earliest);
+  // At most one of them is set: `earliest` needs no meaning row, `strongest` at least one.
+  const reserved = earliest ?? strongest;
+  if (reserved && !chosenHits.some((hit) => hit.message.id === reserved.message.id)) chosenHits.push(reserved);
   // With a locator the bonus counts in the unit of the score: one form, or one top rank when fused.
   const unit = meant.length === 0 ? 1 : 1 / (RRF_K + 1);
   const boostedOf = (score, start, end) => score + unit * proximityBonus(start, end, near);
@@ -1929,7 +1941,7 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
       .map(({ item: { score, self, endTs, ...window }, share }) => ({ ...window, share }));
     return { windows: located, scanned, hits: hits.length, meaningHits: meant.length };
   }
-  const origin = earliest ? ordered.findIndex((window) => window.hitIds.has(earliest.message.id)) : -1;
+  const origin = reserved ? ordered.findIndex((window) => window.hitIds.has(reserved.message.id)) : -1;
   const kept = (origin >= keep ? [...ordered.slice(0, keep - 1), ordered[origin]] : ordered.slice(0, keep))
     .sort((a, b) => b.endTs - a.endTs)
     .map(({ score, self, endTs, ...window }) => window);
