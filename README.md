@@ -426,7 +426,7 @@ tools/
   replay.mjs               answer a real message again, or compare two prompt layers on the same triggers
   replay-score.mjs         tally a pair sheet's scores
   memory-sim.mjs           replay analyzer batches on a snapshot: field movement, sentence length, lost facts
-  recall-test.mjs          PLACEHOLDER (nep-writer to word): score recall on hand-written questions: hit@1, hit@5, false confident recalls
+  recall-test.mjs          measure recall against hand-written questions: hit@1, hit@5, false confident answers (run, sample)
   README.md                rules, tool reference, typical measurement
 tests/                     node --test, pure-function unit tests
 deploy/
