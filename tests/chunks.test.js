@@ -46,6 +46,13 @@ test('recordChunk: an unknown author reads as their id; each line is cut at the 
   assert.equal(text, `433333333333333333: ${'α'.repeat(300)}`);
 });
 
+test('recordChunk: a line with links carries their titles and descriptions; a line without is unchanged', () => {
+  const links = [{ url: 'https://video.example/1', title: 'Carrera épica', description: 'Δύο φίλοι τρέχουν', site: 'VideoSite' }];
+  const line = seen('m1', '2026-10-12T10:00:00Z', 'https://video.example/1', { links });
+  assert.equal(recordChunk(line, [], opts).text, 'Ελένη: https://video.example/1 Carrera épica Δύο φίλοι τρέχουν');
+  assert.equal(recordChunk(seen('m2', '2026-10-12T10:00:00Z', 'γεια'), [], opts).text, 'Ελένη: γεια');
+});
+
 test('contextFor: the preceding lines of the channel by time, never the line itself or a later one', () => {
   const lines = [
     seen('m4', '2026-10-12T10:04:00Z', 'd'),

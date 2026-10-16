@@ -1644,6 +1644,31 @@ function meaningRows(meaning) {
   return out;
 }
 
+/**
+ * The links of a record line (src/memory/record.js#recordLinks) as normalized chat links: a
+ * `link` with its site, title and description (`text`), rendered like a live link preview; a line
+ * without `links` has none.
+ */
+function recordLinkItems(line) {
+  const str = (value) => (typeof value === 'string' ? value : '');
+  return (Array.isArray(line.links) ? line.links : [])
+    .filter((link) => isPlainObject(link) && (str(link.title) || str(link.description)))
+    .map((link, i) => ({
+      id: str(link.id) || `${line.messageId}#l${i}`,
+      kind: 'link',
+      site: str(link.site),
+      title: str(link.title),
+      text: str(link.description),
+      url: str(link.url) || null,
+      thumbnailUrl: null,
+    }));
+}
+
+/** The searchable texts of a record message: its text, then each link's title and description. */
+function recordTexts(message) {
+  return [message.content, ...message.links.flatMap((link) => [link.title, link.text])];
+}
+
 /** A record line (src/memory/record.js) as a normalized chat message (the shape renderRecallWindows reads). */
 function recordMessage(line, { nameOf, selfName }) {
   const self = line.kind === 'said';
@@ -1661,7 +1686,7 @@ function recordMessage(line, { nameOf, selfName }) {
     replyToId: typeof line.replyTo === 'string' && line.replyTo ? line.replyTo : null,
     mentionedUserIds: Array.isArray(line.mentions) ? line.mentions : [],
     attachments: [],
-    links: [],
+    links: recordLinkItems(line),
     stickers: [],
     emojis: [],
     forwarded: [],
@@ -1680,8 +1705,9 @@ function recordMessage(line, { nameOf, selfName }) {
  * audience and private-owner rule); the newest revision of a message
  * stands, a deleted message goes, `felt` lines are not chat. A line matches
  * when a form of `forms` (the topic) or `aliases` (the name forms: the
- * `who:` forms, the members' names and alias names) occurs in its text, word
- * endings allowed (occursAsWordStem), both folded, or when its author or
+ * `who:` forms, the members' names and alias names) occurs in its text or in the
+ * title or description of a link it carries (its `links`, shown in its window as a
+ * link preview), word endings allowed (occursAsWordStem), both folded, or when its author or
  * `participants` name one of `participants`; `score` = topic forms matched
  * + RECORD_NAME_WEIGHT when a name form or a member matches (once): a name
  * or member match only locates the person, below any topic match. Lines whose id is in `exclude` (the turn's own chat) are never
@@ -1849,8 +1875,9 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   for (const message of byId.values()) {
     if (excluded.has(message.id) || !scannedIds.has(message.id)) continue;
     const person = (named.get(message.id) ?? []).some((id) => people.has(id));
-    const locates = person || formsMatched([message.content], nameForms) > 0;
-    const topic = formsMatched([message.content], textForms);
+    const texts = recordTexts(message);
+    const locates = person || formsMatched(texts, nameForms) > 0;
+    const topic = formsMatched(texts, textForms);
     const score = topic + (locates ? RECORD_NAME_WEIGHT : 0);
     if (score > 0) hits.push({ message, score, topic });
   }

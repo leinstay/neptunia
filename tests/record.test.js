@@ -7,7 +7,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createAppendStore } from '../src/memory/append-store.js';
-import { createRecord, toRecordLine } from '../src/memory/record.js';
+import { RECORD_LINKS_MAX, createRecord, recordLinks, toRecordLine } from '../src/memory/record.js';
+import { normalizeMessage } from '../src/discord/collect.js';
+import { slimMessage } from '../src/memory/update.js';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const T1 = Date.UTC(2026, 9, 11, 11, 55, 51, 568);
@@ -116,6 +118,41 @@ test('record: toRecordLine keeps only the whitelisted fields and lists participa
     ['guildId', 'id', 'kind', 'messageId', 'occurredAt', 'origin', 'participants', 'recordedAt', 'scope', 'sourceMessageIds', 'v'].sort(),
   );
   assert.deepEqual(deleted.participants, ['u1']);
+});
+
+test('record: a message with link embeds keeps a compact links field (url, title, description, site)', () => {
+  const embeds = [
+    { url: 'https://video.example/watch?v=1', title: 'Course de montagne épique', description: 'Δύο παίκτες τρέχουν. '.repeat(30), provider: { name: 'VideoSite' } },
+    { url: 'https://media.example/cat.gif', title: 'Gato', provider: { name: 'Tenor' } },
+    { url: 'https://news.example/a', title: '', description: '' },
+    { url: 'https://news.example/b', title: 'Deuxième', description: 'texte' },
+    { url: 'https://news.example/c', title: 'Troisième' },
+    { url: 'https://news.example/d', title: 'Quatrième' },
+  ];
+  const message = {
+    id: 'm1',
+    channelId: 'c1',
+    channel: { name: 'général' },
+    author: { id: 'u1', bot: false, username: 'zoe' },
+    cleanContent: 'κοίτα https://video.example/watch?v=1',
+    content: 'κοίτα https://video.example/watch?v=1',
+    createdTimestamp: T1,
+    embeds,
+  };
+  const line = toRecordLine(slimMessage(normalizeMessage(message, 'self1')), { now: () => NOW, uuid: () => 'u-1' });
+  assert.equal(line.links.length, RECORD_LINKS_MAX, 'at most three links');
+  assert.deepEqual(line.links.map((l) => l.title), ['Course de montagne épique', 'Deuxième', 'Troisième'], 'a GIF and an embed with nothing to say are skipped');
+  const [first] = line.links;
+  assert.equal(first.url, 'https://video.example/watch?v=1');
+  assert.equal(first.site, 'VideoSite');
+  assert.ok([...first.description].length <= 200, 'the description is clamped');
+  assert.ok(first.description.startsWith('Δύο παίκτες'));
+  assert.deepEqual(Object.keys(first).sort(), ['description', 'id', 'site', 'title', 'url']);
+  assert.equal(line.text, 'κοίτα https://video.example/watch?v=1', 'the text stays as posted');
+
+  const plain = toRecordLine(slim(), { now: () => NOW, uuid: () => 'u-2' });
+  assert.equal('links' in plain, false, 'a message without link embeds has no links field');
+  assert.deepEqual(recordLinks([{ kind: 'link', title: 42, text: null, url: 'https://x.example' }]), [], 'nothing readable, nothing kept');
 });
 
 test('record: append writes to the day of occurredAt under the month directory and refuses a duplicate messageId+revision', async () => {

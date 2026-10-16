@@ -52,7 +52,7 @@ import { topEpisodes } from './episodes.js';
 import { ID_DIGITS, occursAsWholeWord, teacherToken, toTokens, fromTokens, tokenIds } from './mentions.js';
 import { INJOKE_CHARS, MEMORY_LIMIT_DEFAULTS, SELF_CHARS } from './text-limits.js';
 import { clampText } from './clamp.js';
-import { toRecordLine } from './record.js';
+import { recordLinks, toRecordLine } from './record.js';
 import { acceptProse } from './prose.js';
 import { RECENT_DEFAULTS, foldText, liveRecent, recentSettings } from './recent.js';
 import { videoStateFromCache } from './describe.js';
@@ -2757,13 +2757,16 @@ function slimMedia(part) {
 /**
  * One normalized message as the memory buffer keeps it: ids, author, content, `ts`, the
  * reply target and its media without any URL (slimMedia), the forwarded snapshots stripped
- * the same way, and `direct`. The one shape `observe()` pushes and the late-embed fold
+ * the same way, and `direct`; a message whose links carry a preview title or description also
+ * keeps them as `linkCards` (src/memory/record.js#recordLinks: URL, title, description, site),
+ * which only the record reads. The one shape `observe()` pushes and the late-embed fold
  * (src/discord/events.js#onMessageUpdate) writes back over a buffered entry.
  * @param {object} normalized  A normalized message (src/discord/collect.js#normalizeMessage).
  * @param {boolean} [direct]   Whether the message was addressed to the persona.
  * @returns {object}
  */
 export function slimMessage(normalized, direct = false) {
+  const linkCards = recordLinks(normalized.links);
   const forwarded = (normalized.forwarded ?? []).map((snapshot) => ({
     content: snapshot.content ?? '',
     ...slimMedia(snapshot),
@@ -2782,6 +2785,8 @@ export function slimMessage(normalized, direct = false) {
     // The members the message mentions (the record's `mentions`); absent when none.
     ...(Array.isArray(normalized.mentionedUserIds) && normalized.mentionedUserIds.length > 0 ? { mentionedUserIds: [...normalized.mentionedUserIds] } : {}),
     ...slimMedia(normalized),
+    // The link previews the record keeps (toRecordLine's `links`); absent when none.
+    ...(linkCards.length > 0 ? { linkCards } : {}),
     // A forwarded message's snapshots (src/discord/collect.js
     // #normalizeSnapshot), stripped the same way, so the analyzer's
     // transcript renders a forward like the live one. Absent for a message
