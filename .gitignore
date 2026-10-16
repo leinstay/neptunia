@@ -1,6 +1,7 @@
 /CLAUDE.md
 /AGENTS.md
 /.claude/
+/.opencode/
 
 .env
 .env.*

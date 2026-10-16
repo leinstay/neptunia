@@ -21,6 +21,11 @@ jobs:
         node: ['20.x', '22.x']
     steps:
       - uses: actions/checkout@v4
+      - name: No private files tracked
+        # The per-deployment private layer (agent rules, personality, live config, state) must never be committed.
+        run: |
+          bad=$(git ls-files -- CLAUDE.md AGENTS.md .claude .opencode prompts.local config.local.json data .env '.env.*' workspace-map.yaml | grep -vx '.env.example' || true)
+          if [ -n "$bad" ]; then echo "::error::private files are tracked:"; echo "$bad"; exit 1; fi
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
