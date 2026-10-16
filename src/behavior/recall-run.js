@@ -577,8 +577,9 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * one reads its `when:` range, any other the last `recall.recordDays`
    * days (a dateless, not-recent one keeps the window of its earliest
    * match); none without `deps.record` or with `recall.recordDays` 0. The
-   * forms are the server forms and the name forms; the members are the
-   * people found, matched by id and by their stored names and aliases. Read
+   * topic forms are the server forms; the name forms (the `who:` forms and
+   * the stored names and aliases of the people found) and the people's ids
+   * only locate the person, ranking below a topic match. Read
    * through `allowLine` (the audience and private-owner rule) before
    * matching; on a private turn the partner's private record is read after
    * the guild's. At most `recall.maxClusters` windows. A read that throws
@@ -610,8 +611,8 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         range: locator ? { from: null, to: null } : { from: server.from ?? null, to: server.to ?? null },
         locator,
         participants: [...ids],
-        forms: [...(server.forms ?? []), ...(server.who ?? [])],
-        aliases,
+        forms: server.forms ?? [],
+        aliases: [...(server.who ?? []), ...aliases],
         recordDays: settings.recordDays,
         recordContext: settings.recordContext,
         followMessages: settings.followMessages,
