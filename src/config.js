@@ -4,13 +4,16 @@
 // settings. Secrets are read once at startup; the JSON config is re-read by
 // src/hot.js whenever the files change, so nothing here caches it. The model keys a
 // config.local.json may still carry from before the eight model roles are read under their new
-// names (`adaptLegacyModelKeys`).
-// Pure helpers (parseEnv, applyEnv, deepMerge) are exported separately so they
+// names (`adaptLegacyModelKeys`). Every string value of the merged config may reference an
+// environment variable as `${env:NAME}` (`resolveEnvRefs`), so a value that holds credentials
+// (e.g. `media.video.proxy`) can stay in .env.
+// Pure helpers (parseEnv, applyEnv, deepMerge, resolveEnvRefs) are exported separately so they
 // can be unit-tested without touching the filesystem.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { log } from './log.js';
 
 export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -95,6 +98,51 @@ export function deepMerge(base, override) {
     return result;
   }
   return override;
+}
+
+/** `${env:NAME}` inside a config string: NAME as a .env key may spell it. */
+const ENV_REF_RE = /\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+/**
+ * `value` with every `${env:NAME}` inside each string replaced by `env[NAME]`, walking plain
+ * objects and arrays (keys stay as they are). An unset name (undefined in `env`) becomes an
+ * empty string and is passed to `onUnset` at each occurrence; a name set to an empty string is
+ * not reported. Strings without a reference and non-string values come back as they are. Pure:
+ * `value` is never mutated.
+ * @param {unknown} value
+ * @param {Record<string, string | undefined>} [env]
+ * @param {(name: string) => void} [onUnset]
+ * @returns {unknown}
+ */
+export function resolveEnvRefs(value, env = process.env, onUnset = () => {}) {
+  if (typeof value === 'string') {
+    if (!value.includes('${env:')) return value;
+    return value.replace(ENV_REF_RE, (_, name) => {
+      const found = env[name];
+      if (found === undefined) {
+        onUnset(name);
+        return '';
+      }
+      return String(found);
+    });
+  }
+  if (Array.isArray(value)) return value.map((item) => resolveEnvRefs(item, env, onUnset));
+  if (isPlainObject(value)) {
+    const result = {};
+    for (const [key, item] of Object.entries(value)) result[key] = resolveEnvRefs(item, env, onUnset);
+    return result;
+  }
+  return value;
+}
+
+/** The unset names `${env:NAME}` references were already warned about in this process. */
+const warnedUnsetEnvRefs = new Set();
+
+/** One warning per unset name per process: the name only, never a value. */
+function warnUnsetEnvRef(name) {
+  if (warnedUnsetEnvRefs.has(name)) return;
+  warnedUnsetEnvRefs.add(name);
+  log.warn('config: env ref unset', { name });
 }
 
 /** Load `<rootDir>/.env` into process.env (no-op when the file is absent). */
@@ -236,12 +284,20 @@ export function adaptLegacyModelKeys(local) {
 
 /**
  * Read config.json merged with config.local.json, the local layer read through
- * `adaptLegacyModelKeys` first. Throws on invalid JSON.
+ * `adaptLegacyModelKeys` first, then every `${env:NAME}` in a string value replaced from
+ * process.env (`resolveEnvRefs`; an unset name becomes '' and is warned about once per
+ * process). Throws on invalid JSON.
  * @param {string} [rootDir]
  * @returns {{ config: object, renamed: Array<{ key: string, use: string }> }}  `renamed`: the old
  *   model keys and role names config.local.json still carries, with their new names.
  */
 export function loadConfig(rootDir = ROOT_DIR) {
+  const { config, renamed } = mergeConfigFiles(rootDir);
+  return { config: resolveEnvRefs(config, process.env, warnUnsetEnvRef), renamed };
+}
+
+/** config.json deep-merged with config.local.json (read through `adaptLegacyModelKeys`), env references unresolved. */
+function mergeConfigFiles(rootDir) {
   const base = JSON.parse(fs.readFileSync(path.join(rootDir, 'config.json'), 'utf8'));
   const localPath = path.join(rootDir, 'config.local.json');
   if (!fs.existsSync(localPath)) return { config: base, renamed: [] };
