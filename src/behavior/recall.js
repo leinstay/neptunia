@@ -1669,8 +1669,16 @@ function recordTexts(message) {
   return [message.content, ...message.links.flatMap((link) => [link.title, link.text])];
 }
 
-/** A record line (src/memory/record.js) as a normalized chat message (the shape renderRecallWindows reads). */
-function recordMessage(line, { nameOf, selfName }) {
+/**
+ * A record line (src/memory/record.js) as a normalized chat message (the shape renderRecallWindows
+ * reads): the persona's own `said` line marked `self` under `selfName`, any other author under
+ * `nameOf(by)`, else `-`; its `links` as link previews. The one copy: tools/recall-eval.mjs reads
+ * the record's chat through it too. `line.scope.channel` must be set.
+ * @param {object} line
+ * @param {{ nameOf?: ((id: string) => string|null)|null, selfName?: string }} options
+ * @returns {object}
+ */
+export function recordMessage(line, { nameOf, selfName }) {
   const self = line.kind === 'said';
   const by = typeof line.by === 'string' && line.by ? line.by : null;
   const name = self ? oneLine(selfName ?? '') : by && typeof nameOf === 'function' ? oneLine(nameOf(by) ?? '') : '';
