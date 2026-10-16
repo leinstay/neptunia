@@ -56,6 +56,23 @@
 //   report   [--since <day>] [--until <day>]
 //            Per channel the lines recorded by the backfill, the gaps, windows, candidates,
 //            archived items per kind, duplicates dropped, tokens and USD spent. Read only.
+//   links    [--since <day>] [--until <day>] [--write]
+//            Link previews for record lines written before the record kept them (`links`,
+//            src/memory/record.js#recordLinks). The candidates are the newest revisions of the
+//            range's messages whose text has a URL (not only a GIF site's) and that have no
+//            `links` (tools/lib/backfill.mjs#linkCandidates). Each is fetched again over REST by
+//            its id (no gateway, GET only, the bot token from .env; discord.js waits out the rate
+//            limits), one at a time, grouped by channel; its links are built as the live record
+//            builds them (src/discord/collect.js#normalizeMessage, src/memory/update.js
+//            #slimMessage, src/memory/record.js#toRecordLine). A message with a preview gets a new
+//            revision (revision + 1, every other field of the newest revision, plus `links`:
+//            tools/lib/backfill.mjs#linkRevision) through the record's append, so recall reads it.
+//            The vector index (a row per `messageId:revision`) takes it only from
+//            `embed-index.mjs build`: `--rebuild` for a month already indexed, `--include-live`
+//            for a month the live queue manages (its catch-up reads only recent lines). A
+//            deleted or unreachable message, or one with no preview, is skipped and counted. Dry
+//            run by default (counts, nothing written); `--write` appends, with the bot stopped.
+//            No model request. A rerun finds only the lines still without `links`.
 //
 // Before writing anything every subcommand but `report` (and a dry run) refuses while a forget is
 // under way (a `forgetting/` marker) and re-applies the deletion ledger (src/memory/store.js
@@ -65,17 +82,22 @@
 // dropped. Model requests go through the bot's client with its rails (the per-request token
 // cap), marked `origin: 'backfill'`, never counted against `llm.maxRequestsPerDay`.
 //
+// `links --write` also refuses while the bot runs (its journal's `.running` marker): the running
+// bot holds the record's id index in memory.
+//
 // Output: the report or summary on stdout; logs and estimates on stderr. `--pilot` and `report`
 // print what members said and what the model made of it: for the owner's eyes on the server.
+// `links` prints and logs counts only.
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { simKey, CliError, REFUSED_EXIT, daysBetween, parseFlags, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
 import {
   WINDOW_MAX_LINES, advanceCursor, archiveItemOf, buildExtractRequest, candidateItemId, dedupeCandidates, estimate,
-  DEDUPE_REASONS, ledgerDrops, readExtractAnswer, rosterOf, snowflakeAt, windowsOf,
+  DEDUPE_REASONS, ledgerDrops, linkCandidates, linkRevision, readExtractAnswer, rosterOf, snowflakeAt, windowsOf,
 } from './lib/backfill.mjs';
 import { isPlainObject } from '../src/config.js';
 import { log as defaultLog } from '../src/log.js';
@@ -98,8 +120,9 @@ const USAGE =
   '       node tools/backfill.mjs extract --since <day> [--until <day>] --max-usd <n> --max-windows <n> --max-tokens <n> [--pilot <day>] [--redo <day>] [--include-thin] [--window-max 120] [--usd-per-ktok 0.005] [--dry-run] [--guild <id>]\n' +
   '       node tools/backfill.mjs dedupe [--guild <id>]\n' +
   '       node tools/backfill.mjs voice --spend <usd> [--min-weight 4] [--guild <id>]\n' +
-  '       node tools/backfill.mjs report [--since <day>] [--until <day>] [--guild <id>]   (cwd: the bot directory)';
-const SUBCOMMANDS = ['fetch', 'merge', 'extract', 'dedupe', 'voice', 'report'];
+  '       node tools/backfill.mjs report [--since <day>] [--until <day>] [--guild <id>]\n' +
+  '       node tools/backfill.mjs links [--since <day>] [--until <day>] [--write] [--guild <id>]   (cwd: the bot directory)';
+const SUBCOMMANDS = ['fetch', 'merge', 'extract', 'dedupe', 'voice', 'report', 'links'];
 const DAY_MS = 86_400_000;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Price of a thousand tokens on the analyzer model, for the estimate and the spend count (`--usd-per-ktok`). */
@@ -109,8 +132,10 @@ const EXTRACT_OUTPUT_TOKENS = 1500;
 /** One voice reconstruction on the voice model, in USD, as the estimate counts it. */
 const VOICE_USD_PER_ITEM = 0.05;
 const DEFAULT_MIN_WEIGHT = 4;
-/** Extract requests failing in a row before the run stops. */
+/** Extract requests (and `links` fetches failing with `error`) in a row before the run stops. */
 const MAX_FAILURES_IN_A_ROW = 3;
+/** The reasons `links` skips a candidate for, in the order its summary lists them. */
+const LINK_SKIPS = ['forgotten', 'deleted', 'no-channel', 'no-access', 'no-preview', 'error'];
 
 /** A non-negative number from a flag, `fallback` when absent; a CliError otherwise. */
 function numberFlag(value, fallback, { integer = false } = {}) {
@@ -165,6 +190,80 @@ function monthsBetween(firstDay, lastDay) {
       y += 1;
     }
   }
+}
+
+/** The options of src/discord/collect.js#normalizeMessage the live gateway path passes, from the config. */
+function normalizeOptions(config) {
+  return { embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites ?? [], maxUrlChars: config.context?.maxUrlChars };
+}
+
+/** Why a Discord REST fetch failed, as a `links` skip reason. */
+function restSkipReason(err, what) {
+  const code = Number(err?.code);
+  const status = Number(err?.status);
+  if (code === 10008) return 'deleted';
+  if (code === 10003) return 'no-channel';
+  if (code === 50001 || code === 50013 || status === 403) return 'no-access';
+  if (status === 404) return what === 'message' ? 'deleted' : 'no-channel';
+  return 'error';
+}
+
+/**
+ * The Discord side of `links` over REST: no login, no gateway, GET only. The served guild and the
+ * bot's own user, then one message by its channel and id, normalized as a live message is
+ * (`{ status: 'ok', message }`), or the reason it cannot be read (`{ status }`: `deleted`,
+ * `no-channel`, `no-access`, `error`). Each channel is fetched once.
+ */
+function restMessageSource({ root, token }) {
+  return {
+    async connect({ config, guildId }) {
+      const discord = createRequire(path.join(root, 'package.json'))('discord.js');
+      const { normalizeMessage } = await import('../src/discord/collect.js');
+      const { Client, Routes } = discord;
+      const client = new Client({ intents: [] });
+      client.rest.setToken(token);
+      const restRequest = client.rest.request.bind(client.rest);
+      client.rest.request = (options) => {
+        if (String(options?.method ?? 'GET').toUpperCase() !== 'GET') throw new Error('backfill: only GET requests reach Discord');
+        return restRequest(options);
+      };
+      try {
+        // The guild first: a channel fetched by id resolves only in a cached guild.
+        await client.guilds.fetch(guildId);
+        const me = await client.rest.get(Routes.user());
+        const selfId = String(me.id);
+        const options = normalizeOptions(config);
+        const channels = new Map(); // id -> the channel, or { failed: reason }
+        return {
+          self: { id: selfId },
+          async message(channelId, messageId) {
+            if (!channels.has(channelId)) {
+              try {
+                const channel = await client.channels.fetch(channelId);
+                channels.set(channelId, channel?.messages?.fetch ? channel : { failed: 'no-channel' });
+              } catch (err) {
+                channels.set(channelId, { failed: restSkipReason(err, 'channel') });
+              }
+            }
+            const channel = channels.get(channelId);
+            if (channel.failed) return { status: channel.failed };
+            try {
+              const message = await channel.messages.fetch({ message: messageId, cache: false, force: true });
+              return message?.id === messageId ? { status: 'ok', message: normalizeMessage(message, selfId, options) } : { status: 'deleted' };
+            } catch (err) {
+              return { status: restSkipReason(err, 'message') };
+            }
+          },
+          async close() {
+            await client.destroy().catch(() => {});
+          },
+        };
+      } catch (err) {
+        await client.destroy().catch(() => {});
+        throw err;
+      }
+    },
+  };
 }
 
 /**
@@ -226,7 +325,7 @@ function restSource({ root, token, log }) {
           byId.set(channel.id, channel);
           channels.push({ id: channel.id, name: channel.name ?? null, parentId: parent?.id ?? null, thread: Boolean(parent), readable: canRead(channel) });
         }
-        const options = { embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites ?? [], maxUrlChars: config.context?.maxUrlChars };
+        const options = normalizeOptions(config);
         return {
           guildId,
           self,
@@ -278,15 +377,16 @@ function openStores(dataDir, now, log) {
  * The whole tool: the subcommand's report (or a refusal, as a CliError).
  * @param {string[]} argv
  * @param {{ cwd?: string, now?: () => number, hot?: object, llmClient?: { complete: Function },
- *   source?: { connect: Function }, log?: object, rootDir?: string }} [options]
+ *   source?: { connect: Function }, log?: object, rootDir?: string, uuid?: () => string }} [options]
  *   `hot` stands in for the live config and prompts, `llmClient` for the OpenRouter client,
- *   `source` for Discord (test fakes); the gates still apply.
+ *   `source` for Discord (test fakes: `page` for `fetch`, `message` for `links`); the gates still
+ *   apply. `uuid` makes the ids of the lines `links` appends.
  * @returns {Promise<string>}
  */
-export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: givenHot = null, llmClient = null, source = null, log = defaultLog, rootDir = ROOT } = {}) {
+export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: givenHot = null, llmClient = null, source = null, log = defaultLog, rootDir = ROOT, uuid = randomUUID } = {}) {
   const flags = parseFlags(argv, {
     values: ['--guild', '--since', '--until', '--max-usd', '--max-windows', '--max-tokens', '--pilot', '--redo', '--spend', '--min-weight', '--window-max', '--usd-per-ktok', '--data'],
-    switches: ['--dry-run', '--include-thin'],
+    switches: ['--dry-run', '--include-thin', '--write'],
     usage: USAGE,
   });
   const sub = flags._[0];
@@ -306,6 +406,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
   const redo = flags['--redo'];
   for (const day of [pilot, redo]) if (day !== undefined && (sub !== 'extract' || !DAY_RE.test(day))) throw new CliError(USAGE);
   if (flags['--include-thin'] === true && sub !== 'extract') throw new CliError(USAGE);
+  if (flags['--write'] === true && sub !== 'links') throw new CliError(USAGE);
   if (pilot !== undefined && redo !== undefined && pilot !== redo) throw new CliError(USAGE);
   const single = pilot ?? redo;
   const needsRange = ['fetch', 'merge', 'extract'].includes(sub);
@@ -314,7 +415,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
 
   const guildDir = path.join(dataDir, 'guilds', guildId);
   const ctx = {
-    flags, sub, dryRun, hot, dataDir, guildId, guildDir, days, now, log, llmClient, source, rootDir, pilot, redo,
+    flags, sub, dryRun, hot, dataDir, guildId, guildDir, days, now, log, llmClient, source, rootDir, pilot, redo, uuid,
     cursorFile: path.join(guildDir, 'record', 'backfill.json'),
     workDir: path.join(guildDir, 'backfill'),
   };
@@ -328,6 +429,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
     if (sub === 'extract') return await cmdExtract(ctx);
     if (sub === 'dedupe') return await cmdDedupe(ctx);
     if (sub === 'voice') return await cmdVoice(ctx);
+    if (sub === 'links') return await cmdLinks(ctx);
     return await cmdReport(ctx);
   } finally {
     await stores.close();
@@ -977,6 +1079,113 @@ async function cmdReport(ctx) {
     '',
   ];
   return out.join('\n');
+}
+
+// ---- links -------------------------------------------------------------------------------------
+
+/** The `links` of a fetched message exactly as the live record builds them, [] when it has no preview. */
+function liveLinks(normalized, now) {
+  return toRecordLine(slimMessage(normalized, false), { now }).links ?? [];
+}
+
+async function cmdLinks(ctx) {
+  const { flags, now, log } = ctx;
+  const write = flags['--write'] === true;
+  for (const day of [flags['--since'], flags['--until']]) if (day !== undefined && !DAY_RE.test(day)) throw new CliError(USAGE);
+  await refuseWhileForgetting(ctx);
+  if (write && botRunning(ctx)) {
+    throw new CliError("backfill: the bot is running (the journal's .running marker); stop it first: sudo systemctl stop neptunia-bot");
+  }
+  const ledger = write ? await guard(ctx) : readLedger(ctx.dataDir, ctx.guildId);
+  const latest = ledgerTimes(ledger);
+  const from = flags['--since'] ? `${flags['--since']}T00:00:00.000Z` : null;
+  const to = flags['--until'] ? new Date(Date.parse(`${flags['--until']}T00:00:00Z`) + DAY_MS - 1).toISOString() : null;
+  const range = `${flags['--since'] ?? 'start'}..${flags['--until'] ?? 'now'}`;
+
+  const lines = [];
+  for await (const line of ctx.record.iterate(ctx.guildId, { from, to })) lines.push(line);
+  const { candidates, counts } = linkCandidates(lines);
+  const skipped = Object.fromEntries(LINK_SKIPS.map((reason) => [reason, 0]));
+  const totals = { fetched: 0, withPreview: 0, toAppend: 0, appended: 0, duplicates: 0, stopped: null };
+  const forgotten = (line) => [...latest].some(([id, at]) => recordDrops(line, id, at));
+  const asked = candidates.filter((line) => {
+    if (!forgotten(line)) return true;
+    skipped.forgotten += 1;
+    return false;
+  });
+
+  if (asked.length > 0) {
+    let source = ctx.source;
+    if (!source) {
+      const { loadDotEnv } = await import('../src/config.js');
+      loadDotEnv(ctx.rootDir);
+      if (!process.env.DISCORD_TOKEN) throw new CliError('backfill: DISCORD_TOKEN is not set (.env)');
+      source = restMessageSource({ root: ctx.rootDir, token: process.env.DISCORD_TOKEN });
+    }
+    const conn = await source.connect({ config: ctx.hot.config, guildId: ctx.guildId });
+    try {
+      const byChannel = new Map();
+      for (const line of asked) {
+        const channelId = String(line.scope?.channel ?? '');
+        if (!byChannel.has(channelId)) byChannel.set(channelId, []);
+        byChannel.get(channelId).push(line);
+      }
+      let errorsInRow = 0;
+      for (const [channelId, group] of byChannel) {
+        if (totals.stopped) break;
+        // A forget started meanwhile: stop here; the next run applies the ledger first.
+        await refuseWhileForgetting(ctx);
+        const revisions = [];
+        for (const line of group) {
+          if (!channelId) {
+            skipped['no-channel'] += 1;
+            continue;
+          }
+          const got = await conn.message(channelId, line.messageId);
+          if (got?.status !== 'ok') {
+            const reason = LINK_SKIPS.includes(got?.status) ? got.status : 'error';
+            skipped[reason] += 1;
+            errorsInRow = reason === 'error' ? errorsInRow + 1 : 0;
+            if (errorsInRow >= MAX_FAILURES_IN_A_ROW) {
+              totals.stopped = 'errors-in-a-row';
+              break;
+            }
+            continue;
+          }
+          errorsInRow = 0;
+          totals.fetched += 1;
+          const links = liveLinks(got.message, now);
+          if (links.length === 0) {
+            skipped['no-preview'] += 1;
+            continue;
+          }
+          totals.withPreview += 1;
+          revisions.push(linkRevision(line, links, { id: ctx.uuid(), recordedAt: new Date(now()).toISOString() }));
+        }
+        totals.toAppend += revisions.length;
+        if (!write || revisions.length === 0) continue;
+        const outcome = await durableAppend(ctx, revisions);
+        if (!outcome.durable) throw new CliError(`backfill: the record did not confirm the link revisions of channel ${channelId}; run again (the lines already appended are not fetched twice)`);
+        totals.appended += outcome.written;
+        totals.duplicates += outcome.duplicates;
+      }
+    } finally {
+      await conn.close();
+    }
+  }
+
+  log.info('backfill: links', { guildId: ctx.guildId, write, ...counts, ...totals, skipped });
+  return [
+    `backfill links${write ? '' : ' (dry run: nothing written)'}: ${range}`,
+    `record messages: ${counts.messages} (deleted ${counts.deleted}, already with links ${counts.withLinks}, GIF links only ${counts.gifOnly})`,
+    `candidates: ${counts.candidates}`,
+    `fetched: ${totals.fetched}`,
+    `with links: ${totals.withPreview}`,
+    `skipped: ${LINK_SKIPS.map((reason) => `${reason} ${skipped[reason]}`).join(', ')}`,
+    write ? `appended: ${totals.appended} (duplicates ${totals.duplicates})` : `lines to append: ${totals.toAppend}`,
+    ...(totals.stopped ? [`stopped: ${totals.stopped} (run again to go on)`] : []),
+    '',
+  ].join('\n');
 }
 
 runCli(import.meta.url, (argv) => main(argv));
