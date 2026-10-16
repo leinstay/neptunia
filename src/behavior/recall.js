@@ -1602,6 +1602,8 @@ export function cutStretch(lines, maxChars) {
 const REPLY_CHAIN_MAX = 10;
 /** How many record hits per kept window are turned into windows before the ranking. */
 const RECORD_HITS_PER_WINDOW = 4;
+/** What a record line naming a sought member (a name form, an alias or the member) adds: less than one topic form, so it only locates the person. */
+const RECORD_NAME_WEIGHT = 0.5;
 /** How far before a meaning row's line the record is read for its reply chain and neighbours. */
 const MEANING_READ_BEFORE_MS = 6 * 60 * MINUTE_MS;
 /** How far after it: room for the neighbours and a whole followed conversation. */
@@ -1677,10 +1679,12 @@ function recordMessage(line, { nameOf, selfName }) {
  * line `allowLine` refuses is skipped before it is matched (the caller's
  * audience and private-owner rule); the newest revision of a message
  * stands, a deleted message goes, `felt` lines are not chat. A line matches
- * when a form of `forms` or `aliases` (the members' names and alias names)
- * occurs in its text, word endings allowed (occursAsWordStem), both folded, or when its author or
- * `participants` name one of `participants`; `score` = forms matched + 1 for
- * a member. Lines whose id is in `exclude` (the turn's own chat) are never
+ * when a form of `forms` (the topic) or `aliases` (the name forms: the
+ * `who:` forms, the members' names and alias names) occurs in its text, word
+ * endings allowed (occursAsWordStem), both folded, or when its author or
+ * `participants` name one of `participants`; `score` = topic forms matched
+ * + RECORD_NAME_WEIGHT when a name form or a member matches (once): a name
+ * or member match only locates the person, below any topic match. Lines whose id is in `exclude` (the turn's own chat) are never
  * hits nor shown; a window that lost one is `overlapsChat`. Each hit's
  * window, in its channel: its reply chain (`replyTo` within the scanned
  * days, at most REPLY_CHAIN_MAX parents), the `recordContext` lines before
@@ -1737,7 +1741,8 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   const around = intAtLeast(recordContext, RECALL_DEFAULTS.recordContext, 0);
   const keep = intAtLeast(maxWindows, RECALL_DEFAULTS.maxClusters, 1);
   if (typeof record?.iterate !== 'function' || !Number.isFinite(now)) return none;
-  const textForms = foldedForms([...(Array.isArray(forms) ? forms : []), ...(Array.isArray(aliases) ? aliases : [])]);
+  const textForms = foldedForms(forms);
+  const nameForms = foldedForms(aliases).filter((form) => !textForms.includes(form));
   const people = new Set((Array.isArray(participants) ? participants : []).filter((id) => typeof id === 'string' && id));
   const wanted = meaningRows(meaning);
   const near = usableLocator(locator);
@@ -1758,7 +1763,7 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
       mainSpans.sort((a, b) => a.from - b.from);
     }
   }
-  const words = days > 0 && (textForms.length > 0 || people.size > 0) && mainSpans.length > 0;
+  const words = days > 0 && (textForms.length > 0 || nameForms.length > 0 || people.size > 0) && mainSpans.length > 0;
   if (!words && wanted.length === 0) return none;
   const excluded = exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []);
 
@@ -1841,7 +1846,8 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
   for (const message of byId.values()) {
     if (excluded.has(message.id) || !scannedIds.has(message.id)) continue;
     const person = (named.get(message.id) ?? []).some((id) => people.has(id));
-    const score = formsMatched([message.content], textForms) + (person ? 1 : 0);
+    const locates = person || formsMatched([message.content], nameForms) > 0;
+    const score = formsMatched([message.content], textForms) + (locates ? RECORD_NAME_WEIGHT : 0);
     if (score > 0) hits.push({ message, score });
   }
   // The meaning rows that stand: found, not shown in the chat, every source line allowed.

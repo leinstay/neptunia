@@ -1040,6 +1040,24 @@ test('recall: a dateless, not-recent record read keeps the window of the earlies
   assert.equal(near.windows.length, 11, 'the earliest already kept: nothing changes');
 });
 
+test('matchRecord: a name or member match only locates the person and ranks below any topic match', async () => {
+  const D = 24 * HOUR;
+  const lines = [
+    rec('both', NOW - 20 * D, { channelId: 'c4', text: 'ακτίνες καλοσύνης για Κιτέζου' }),
+    rec('topic', NOW - 12 * D, { channelId: 'c1', text: 'έστειλα ακτίνες καλοσύνης' }),
+    rec('n1', NOW - 1 * D, { by: ELO, text: 'ask Κιτέζου one' }),
+    rec('n2', NOW - 2 * D, { by: ELO, text: 'ask Κιτέζου two' }),
+    rec('k1', NOW - 3 * D, { channelId: 'c3', by: KITE, text: 'hello there' }),
+  ];
+  const base = { range: { from: NOW - 30 * D, to: NOW }, participants: [KITE], forms: ['ακτίνες καλοσύνης'], aliases: ['κιτέζου'], recordDays: 30, recordContext: 0, followMessages: 0, now: NOW };
+  const two = await matchRecord('g1', { ...base, record: fakeRecord(lines.slice(1)), maxWindows: 2 });
+  assert.deepEqual(two.windows.map((w) => [...w.hitIds]), [['n1'], ['topic']], 'the older topic line beats the newer name and member lines');
+  const one = await matchRecord('g1', { ...base, record: fakeRecord(lines), maxWindows: 1 });
+  assert.deepEqual(one.windows.map((w) => [...w.hitIds]), [['both']], 'a topic match with the name beats the topic alone');
+  const who = await matchRecord('g1', { ...base, record: fakeRecord(lines.slice(2)), forms: [], maxWindows: 3 });
+  assert.deepEqual(who.windows.map((w) => [...w.hitIds]), [['n1'], ['n2'], ['k1']], 'without a topic form the name and member lines still match, newest first');
+});
+
 test('recall: a record line outside the range is not scanned', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-recall-record-'));
   const quiet = { info() {}, warn() {} };
