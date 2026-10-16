@@ -3,16 +3,18 @@
 // checked against their message, the persona's name turned into her token, participants told
 // apart from the mentioned), the dedupe of candidates against hot episodes and the archive (by
 // shared sources and by meaning), the stable item ids of what survives, the per-channel cursor of
-// the fetch, the deletion ledger's rule on candidates, and the cost estimate. No I/O, no clock, no
+// the fetch, the deletion ledger's rule on candidates, the cost estimate, and for `links` the record
+// lines whose link previews are missing and the revision that adds them. No I/O, no clock, no
 // randomness.
 
 import { createHash } from 'node:crypto';
+import { isGifHostUrl } from '../../src/discord/media.js';
 import { block, fillPromptTemplate } from '../../src/behavior/prompt.js';
 import { parseJsonObject } from '../../src/llm/parse.js';
 import { clampText } from '../../src/memory/clamp.js';
 import { EPISODE_CHARS, isSameEpisode } from '../../src/memory/episodes.js';
 import { normalizeTopic } from '../../src/memory/interests.js';
-import { ID_DIGITS, TEACHER_TOKEN_RE, redactUser, tokenIds } from '../../src/memory/mentions.js';
+import { ID_DIGITS, TEACHER_TOKEN_RE, URL_PATTERN, redactUser, tokenIds } from '../../src/memory/mentions.js';
 import { MEMORY_LIMIT_DEFAULTS } from '../../src/memory/text-limits.js';
 
 /** The longest window, in lines (`--window-max`). */
@@ -600,4 +602,93 @@ export function estimate(windows, tokensPerWindow, usdPerKTok) {
   const tokens = list.reduce((sum, window) => sum + Math.max(0, Number(each(window)) || 0), 0);
   const usd = Math.round(((tokens / 1000) * (Number(usdPerKTok) || 0)) * 1e6) / 1e6;
   return { windows: list.length, tokens, usd };
+}
+
+// ---- links: link previews for record lines written before the record kept them -----------------
+
+/**
+ * The URLs of `text` (src/memory/mentions.js#URL_PATTERN) a link preview could come from: every
+ * one but a GIF site's (src/discord/media.js#isGifHostUrl), whose URL the record already drops.
+ * @param {unknown} text
+ * @returns {string[]}
+ */
+export function linkUrls(text) {
+  if (typeof text !== 'string' || !text) return [];
+  return (text.match(new RegExp(URL_PATTERN, 'g')) ?? []).filter((url) => !isGifHostUrl(url));
+}
+
+const revisionNumber = (line) => (Number.isInteger(line?.revision) && line.revision > 0 ? line.revision : 1);
+
+/**
+ * The record lines whose link previews `links` should fetch: per message the newest revision of
+ * its `seen` or `said` line (a message with a `deleted` line is left out), kept when its text has
+ * a URL (linkUrls: not only GIF sites') and it has no `links`. `counts`: the messages standing,
+ * the deleted ones, those already with `links`, those whose only URLs are GIF sites', and the
+ * candidates. Candidates in channel order, then by message id.
+ * @param {Iterable<object>} lines  Record lines (src/memory/record.js).
+ * @returns {{ candidates: object[], counts: { messages: number, deleted: number, withLinks: number, gifOnly: number, candidates: number } }}
+ */
+export function linkCandidates(lines) {
+  const newest = new Map();
+  const deleted = new Set();
+  for (const line of lines ?? []) {
+    if (!line || typeof line !== 'object' || typeof line.messageId !== 'string' || !line.messageId) continue;
+    if (line.kind === 'deleted') {
+      deleted.add(line.messageId);
+      continue;
+    }
+    if (line.kind !== 'seen' && line.kind !== 'said') continue;
+    const held = newest.get(line.messageId);
+    if (!held || revisionNumber(line) > revisionNumber(held)) newest.set(line.messageId, line);
+  }
+  const counts = { messages: 0, deleted: 0, withLinks: 0, gifOnly: 0, candidates: 0 };
+  const candidates = [];
+  for (const [messageId, line] of newest) {
+    if (deleted.has(messageId)) {
+      counts.deleted += 1;
+      continue;
+    }
+    counts.messages += 1;
+    if (Array.isArray(line.links)) {
+      counts.withLinks += 1;
+      continue;
+    }
+    if (linkUrls(line.text).length > 0) candidates.push(line);
+    else if (new RegExp(URL_PATTERN).test(String(line.text ?? ''))) counts.gifOnly += 1;
+  }
+  const channelOfLine = (line) => String(line.scope?.channel ?? '');
+  const byId = (a, b) => (a.messageId.length - b.messageId.length) || (a.messageId < b.messageId ? -1 : a.messageId > b.messageId ? 1 : 0);
+  candidates.sort((a, b) => (channelOfLine(a) < channelOfLine(b) ? -1 : channelOfLine(a) > channelOfLine(b) ? 1 : byId(a, b)));
+  counts.candidates = candidates.length;
+  return { candidates, counts };
+}
+
+/**
+ * The next revision of a record line with its link previews: revision + 1, a new line `id` and
+ * `recordedAt`, `links` after `media` (src/memory/record.js#toRecordLine's order), every other
+ * field as `newest` has it. `newest` is not changed.
+ * @param {object} newest  The newest revision of the message.
+ * @param {object[]} links  src/memory/record.js#recordLinks items.
+ * @param {{ id: string, recordedAt: string }} stamp
+ * @returns {object}
+ */
+export function linkRevision(newest, links, { id, recordedAt }) {
+  const out = {};
+  let placed = false;
+  for (const [key, value] of Object.entries(newest)) {
+    if (key === 'links') continue;
+    if (key === 'id') out.id = id;
+    else if (key === 'revision') out.revision = revisionNumber(newest) + 1;
+    else if (key === 'recordedAt') out.recordedAt = recordedAt;
+    else out[key] = value;
+    if (key === 'media') {
+      out.links = links;
+      placed = true;
+    }
+  }
+  out.id = id;
+  out.revision = revisionNumber(newest) + 1;
+  out.recordedAt = recordedAt;
+  if (!placed) out.links = links;
+  return out;
 }

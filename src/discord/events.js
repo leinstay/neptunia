@@ -48,7 +48,7 @@ import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
 import { slimMessage } from '../memory/update.js';
-import { toRecordLine } from '../memory/record.js';
+import { appendRevision, toRecordLine } from '../memory/record.js';
 import { gifOpts } from '../memory/gifs.js';
 import { participationSettings, recordFollowing } from '../memory/participation.js';
 
@@ -271,7 +271,8 @@ export function createMessageHandler({
 }) {
   // The record's edits (recordEdit): messageId -> the last revision written, for the UTC day
   // `revisionsDay`; cleared when the day turns, so it stays small. An edit of a message not in
-  // it is revision 2 (the message itself was revision 1).
+  // it is revision 2 (the message itself was revision 1); one the record already holds moves
+  // past the record's newest (src/memory/record.js#appendRevision) and the count continues there.
   const revisions = new Map();
   let revisionsDay = null;
 
@@ -2656,8 +2657,10 @@ export function createMessageHandler({
       }
       const revision = (revisions.get(normalized.id) ?? 1) + 1;
       revisions.set(normalized.id, revision);
-      const line = toRecordLine(slimMessage(normalized, buffered?.direct === true), { revision, now });
-      await record.append(guildId, [line]);
+      const slim = slimMessage(normalized, buffered?.direct === true);
+      // A revision the record already holds (a tool appended one) moves the edit past it; later edits continue from there.
+      const landed = await appendRevision(record, guildId, (next) => toRecordLine(slim, { revision: next, now }), revision);
+      if (landed.revision > (revisions.get(normalized.id) ?? 0)) revisions.set(normalized.id, landed.revision);
     } catch (err) {
       log.warn('events: record failed', { kind: 'seen', lines: 1, code: err?.code ?? null });
     }

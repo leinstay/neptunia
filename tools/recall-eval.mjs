@@ -5,7 +5,7 @@
 // live turns.
 //
 //   cd /opt/neptunia-bot && node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3]
-//        [--dry] [--discord] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]
+//        [--dry] [--discord] [--web] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]
 //   cd /opt/neptunia-bot && node tools/recall-eval.mjs sample [--n 80] [--days 30]
 //        [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]
 //
@@ -23,7 +23,21 @@
 // direct call. The channel's lines are the record's last `context.channelMessages` lines of it
 // (the live turn reads them from Discord). Not reproduced: the turn planner
 // (features.turnPlanner: its lookup block is not asked here), skills discovery (`{{skills}}` is
-// empty), pictures, videos and read links in the classifier's transcript, the web search.
+// empty), pictures, videos and read links in the classifier's transcript, and -- without `--web`
+// -- the web search.
+//
+// `--web`: the classifier's `web:` query, when it gives one, goes to the live web lookup
+// (src/web/lookup.js#createLookup `search`: one Brave Search request with BRAVE_SEARCH_API_KEY
+// from .env, its results condensed through prompts.search-summary), as the live turn runs it
+// beside the server part, with features.webLookup switched on for this process only; its daily
+// counter is a throwaway copy per question and its media cache an in-memory copy of the stored
+// one (a cached search answers as it would live; nothing is written back). The result is kept per
+// question (`web`: query, found, the number of sources, the text) and counted as answered by the
+// web; it never counts as a hit.
+//
+// Answered by the chat: an expected line among the asking channel's chat lines (the record's last
+// `context.channelMessages` lines below) is visible to the live voice whether a search runs or
+// not; such a question is `in-chat`, not a miss, and the hits are reported with and without it.
 //
 // Stages. Local (always): stored memory and the archive, the record of the last
 // `recall.recordDays` days, and -- with features.meaningSearch exactly true and not `--dry` --
@@ -78,7 +92,7 @@ import {
 } from './lib/recall-eval.mjs';
 
 const USAGE =
-  'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
+  'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--web] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
   '       node tools/recall-eval.mjs sample [--n 80] [--days 30] [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'recall-eval';
@@ -223,7 +237,7 @@ async function sample(flags, { dataDir, guildId, now }) {
 export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const flags = parseFlags(argv, {
     values: ['--limit', '--max-usd', '--guild', '--data', '--self-id', '--self-name', '--n', '--days', '--seed'],
-    switches: ['--dry', '--discord'],
+    switches: ['--dry', '--discord', '--web'],
     usage: USAGE,
   });
   if (flags._.length > 1) throw new CliError(USAGE);
@@ -245,6 +259,8 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const maxUsd = numberFlag(flags['--max-usd'], DEFAULT_MAX_USD);
   const dry = flags['--dry'] === true;
   const useDiscord = flags['--discord'] === true;
+  const useWeb = flags['--web'] === true;
+  if (useWeb && dry) throw new CliError(`recall-eval: --web needs the classifier, which --dry leaves out\n${USAGE}`);
 
   const { createHot } = await import('../src/hot.js');
   const { loadDotEnv } = await import('../src/config.js');
@@ -263,7 +279,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const evalHot = {
     get config() {
       const live = hot.config;
-      return { ...live, features: { ...(live.features ?? {}), recallTrace: true } };
+      return { ...live, features: { ...(live.features ?? {}), recallTrace: true, ...(useWeb ? { webLookup: true } : {}) } };
     },
     get prompts() {
       return hot.prompts;
@@ -274,6 +290,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   if (!settings) throw new CliError('recall-eval: features.recall is off: there is no recall to measure');
   if (!hot.prompts?.['recall-summary']) throw new CliError('recall-eval: prompts.recall-summary is missing');
   if (!dry && !hot.prompts?.lookup) throw new CliError('recall-eval: prompts.lookup is missing');
+  if (useWeb && !hot.prompts?.['search-summary']) throw new CliError('recall-eval: --web needs prompts.search-summary');
   const meaningOn = !dry && config.features?.meaningSearch === true;
   const stages = {
     classifier: !dry,
@@ -282,15 +299,18 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     record: settings.recordDays > 0,
     meaning: meaningOn,
     discord: useDiscord,
+    web: useWeb,
     summary: !dry,
   };
   const asking = Math.min(limit, questions.length);
   process.stderr.write(
-    `recall-eval: ${asking} question(s); ${dry ? 'dry: no model request' : `up to ${asking * REQUESTS_PER_QUESTION} model request(s)${meaningOn ? ` and ${asking} embedding(s)` : ''}, none asked once the cost passes ${maxUsd} USD`}\n`,
+    `recall-eval: ${asking} question(s); ${dry ? 'dry: no model request' : `up to ${asking * (REQUESTS_PER_QUESTION + (useWeb ? 1 : 0))} model request(s)${useWeb ? ` and ${asking} web search(es)` : ''}${meaningOn ? ` and ${asking} embedding(s)` : ''}, none asked once the cost passes ${maxUsd} USD`}\n`,
   );
 
-  // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN) only when something is sent.
+  // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN, BRAVE_SEARCH_API_KEY) only when something is sent.
   if (!dry || useDiscord) loadDotEnv(ROOT);
+  const braveApiKey = useWeb ? (process.env.BRAVE_SEARCH_API_KEY || '').trim() : '';
+  if (useWeb && !braveApiKey) throw new CliError('recall-eval: --web needs BRAVE_SEARCH_API_KEY (.env)');
   const { record, archive, vectors, store } = await openSources(dataDir);
   const names = namesOf(store, guildId);
   const nameOf = (id) => names.get(String(id)) ?? null;
@@ -331,6 +351,20 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
         return embedder.embed(texts, { ...options, origin: ORIGIN, countAgainstDailyCap: false });
       };
     }
+  }
+
+  // The web lookup (--web): the live module over an in-memory copy of the media cache, a fresh
+  // daily counter per question (webSearch), nothing written back.
+  let webSearch = null;
+  if (useWeb) {
+    const { createLookup } = await import('../src/web/lookup.js');
+    const { createPageFetcher } = await import('../src/web/fetch-page.js');
+    const { createBraveSearch } = await import('../src/web/brave.js');
+    const media = { ...(store.getMediaCache(guildId) ?? {}) };
+    const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
+    const pageFetcher = createPageFetcher();
+    const braveSearch = createBraveSearch();
+    webSearch = (query) => createLookup({ hot: evalHot, store: webStore, llm, state: { data: {}, markDirty() {} }, pageFetcher, braveSearch, braveApiKey, now }).search(guildId, query);
   }
 
   // The guild: Discord over REST, or the local one.
@@ -402,7 +436,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     }
     if (!String(completion?.text ?? '').trim()) return fallback('empty');
     const parsed = parseLookupAnswer(completion.text, { timezone: hot.config.bot?.timezone, now: now(), maxForms: settings.maxForms });
-    return { server: parsed.server ?? null, how: 'classifier', reason: parsed.reason ?? null, raw: completion.text };
+    return { server: parsed.server ?? null, web: parsed.web ?? null, how: 'classifier', reason: parsed.reason ?? null, raw: completion.text };
   }
 
   /** One question asked and scored. */
@@ -437,10 +471,23 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
         forwarded: [],
         reactions: [],
       };
-      const history = [...(await channelHistory(q.channelId)), trigger];
+      const chat = await channelHistory(q.channelId);
+      // The asking channel's visible chat: an expected line in it is answered by the chat.
+      const chatIds = chat.map((m) => m.id);
+      const history = [...chat, trigger];
       const classified = await classify(trigger, history);
-      const lookup = { how: classified.how, reason: classified.reason ?? null, raw: classified.raw ?? null, server: classified.server ?? null };
-      if (!classified.server) return finish({ lookup, ran: false, score: scoreQuestion(q, {}), confident: false, answer: null });
+      const lookup = { how: classified.how, reason: classified.reason ?? null, raw: classified.raw ?? null, server: classified.server ?? null, web: classified.web ?? null };
+      // The web part runs beside the server part, as the live turn runs both.
+      const webRun = webSearch && classified.web
+        ? webSearch(classified.web).then(
+            (result) => ({ query: result?.query ?? classified.web, found: Boolean(result?.text), sources: Array.isArray(result?.sources) ? result.sources.length : 0, text: result?.text ?? null }),
+            (err) => ({ query: classified.web, found: false, sources: 0, text: null, error: err?.name ?? 'Error' }),
+          )
+        : null;
+      if (!classified.server) {
+        const web = webRun ? await webRun : null;
+        return finish({ lookup, ran: false, score: scoreQuestion(q, { chatIds }), confident: false, answer: null, ...(web ? { web } : {}) });
+      }
       // A fresh store view per question: the daily recall counter starts at zero, the trace is caught here.
       let trace = null;
       const recallStore = {
@@ -473,11 +520,13 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       for (const window of trace?.record ?? []) if (window.kept) for (const hit of window.hitIds ?? []) matched.add(hit);
       for (const row of trace?.meaning?.kept ?? []) if (row.kind === 'record') matched.add(row.id);
       const confident = typeof found?.text === 'string' && found.text.length > 0;
+      const web = webRun ? await webRun : null;
       return finish({
         lookup,
         ran: true,
+        ...(web ? { web } : {}),
         skipped: trace?.skipped ?? null,
-        score: scoreQuestion(q, { windows, matched, confident }),
+        score: scoreQuestion(q, { windows, matched, confident, chatIds }),
         confident,
         answer: found?.text ?? null,
         summary: found?.stats?.summary ?? null,
@@ -500,7 +549,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       ask: (q) => ask(q, index++),
       onResult: (r) =>
         process.stderr.write(
-          `recall-eval: ${r.id} ${r.error ? `error ${r.error}` : `rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}`} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`,
+          `recall-eval: ${r.id} ${r.error ? `error ${r.error}` : `${r.score?.outcome ?? r.kind} rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}${r.web ? ` web ${r.web.found}` : ''}`} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`,
         ),
     });
   } finally {
@@ -515,7 +564,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     at: new Date(now()).toISOString(),
     guildId,
     questionsFile,
-    mode: { dry, discord: useDiscord },
+    mode: { dry, discord: useDiscord, web: useWeb },
     stages,
     settings: { recall: settings, meaningSearch: config.features?.meaningSearch === true, channelMessages: historyCount },
     stopped: outcome.stopped,

@@ -7,7 +7,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createAppendStore } from '../src/memory/append-store.js';
-import { RECORD_LINKS_MAX, createRecord, recordLinks, toRecordLine } from '../src/memory/record.js';
+import { RECORD_LINKS_MAX, appendRevision, createRecord, recordLinks, toRecordLine } from '../src/memory/record.js';
+import { newestRevisions } from '../src/memory/chunks.js';
 import { normalizeMessage } from '../src/discord/collect.js';
 import { slimMessage } from '../src/memory/update.js';
 
@@ -266,5 +267,37 @@ test('record: forgetUser drops the user\'s lines and finishes under the marker',
   assert.equal(fs.existsSync(path.join(dataDir, 'guilds', 'g1', 'private', 'u1', 'record')), false, 'the private record is gone');
   const ids = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'record', '2026-10', 'ids.json'), 'utf8'));
   assert.deepEqual(ids, ['m3:1'], 'the index forgets the dropped lines');
+  await appendStore.close();
+});
+
+test('record: an edit refused as a duplicate revision lands after the newest one the index holds', async () => {
+  const { dataDir, appendStore, record } = scene();
+  const logs = [];
+  const log = { info: (msg, fields) => logs.push({ msg, fields }), warn() {}, error() {} };
+  await record.append('g1', [toRecordLine(slim({ content: 'first' }))]);
+  // A backfill (tools/backfill.mjs links) already wrote revision 2; the bot restarts and an edit comes in.
+  await record.append('g1', [{ ...toRecordLine(slim({ content: 'first' }), { revision: 2 }), links: [{ url: 'https://example.org', title: 'Τίτλος', description: '', site: 'example.org' }] }]);
+  const reopened = createRecord({ appendStore, dataDir, log: quiet, now: () => NOW, uuid: counter('r-') });
+  assert.equal(await reopened.newestRevision('g1', 'm1', new Date(T1).toISOString()), 2);
+  assert.equal(await reopened.newestRevision('g1', 'm9', new Date(T1).toISOString()), null);
+  const edited = slim({ content: 'edited' });
+  const out = await appendRevision(reopened, 'g1', (revision) => toRecordLine(edited, { revision, now: () => NOW }), 2, { log });
+  assert.deepEqual(out, { revision: 3, written: 1, duplicates: 0, bumps: 1 });
+  assert.deepEqual(logs, [{ msg: 'record: edit revision bumped', fields: { guildId: 'g1', bumps: 1, written: 1 } }], 'counts only');
+  await appendStore.flush();
+  const lines = await collect(reopened.iterate('g1', OCTOBER));
+  assert.deepEqual(lines.map((l) => l.revision), [1, 2, 3]);
+  const [newest] = newestRevisions(lines);
+  assert.deepEqual([newest.revision, newest.text], [3, 'edited']);
+
+  // A free revision is written at once, with no log.
+  logs.length = 0;
+  assert.deepEqual(await appendRevision(reopened, 'g1', (revision) => toRecordLine(slim({ content: 'again' }), { revision }), 4, { log }), { revision: 4, written: 1, duplicates: 0, bumps: 0 });
+  assert.equal(logs.length, 0);
+  // A record without newestRevision still moves on, one revision at a time, at most EDIT_REVISION_RETRIES.
+  let calls = 0;
+  const stubborn = { append: async () => ((calls += 1), { written: 0, duplicates: 1 }) };
+  const refused = await appendRevision(stubborn, 'g1', (revision) => ({ revision }), 2, { log });
+  assert.deepEqual([refused.written, refused.bumps, calls], [0, 5, 6]);
   await appendStore.close();
 });

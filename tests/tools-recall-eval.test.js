@@ -8,6 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   latestLines,
+  recordMessage,
+  renderSummary,
   localGuild,
   parseQuestions,
   percentile,
@@ -255,4 +257,51 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
   assert.deepEqual([traces[0].hits, traces[0].clusters.length], [0, 0], 'and found nothing');
   const score = scoreQuestion(question({ expected: [id(1)] }), { windows, matched: traces[0].record.flatMap((w) => w.hitIds), confident: Boolean(out.text) });
   assert.deepEqual([score.rank, score.hit1], [1, true]);
+});
+
+test('recall-eval: an expected line in the asking channel\'s chat is answered by the chat, never a miss', () => {
+  const q = question({ expected: [id(7)] });
+  const chat = [id(5), id(7), id(9)];
+  const byChat = scoreQuestion(q, { windows: [win(1)], matched: [id(1)], chatIds: chat });
+  assert.deepEqual([byChat.inChat, byChat.hit5, byChat.outcome], [true, false, 'in-chat']);
+  const asked = scoreQuestion(q, { chatIds: chat });
+  assert.deepEqual([asked.inChat, asked.outcome], [true, 'in-chat'], 'also when the classifier asked no search');
+  const both = scoreQuestion(q, { windows: [win(7)], matched: [id(7)], chatIds: chat });
+  assert.deepEqual([both.inChat, both.outcome], [true, 'hit'], 'a hit stays a hit');
+  const missed = scoreQuestion(q, { windows: [win(7)], matched: [], chatIds: [id(5)] });
+  assert.deepEqual([missed.inChat, missed.outcome], [false, 'miss']);
+  const none = scoreQuestion(question({ kind: 'none', expected: [] }), { chatIds: chat });
+  assert.deepEqual([none.inChat, none.outcome], [null, null]);
+});
+
+test('recall-eval: the summary counts answered by chat, hits with and without it, and web answers', () => {
+  const chat = [id(3)];
+  const results = [
+    { id: 'a1', kind: 'exact', question: 'α;', score: scoreQuestion(question(), { windows: [win(1)], matched: [id(1)], chatIds: chat }), latencyMs: 1, costUsd: 0 },
+    { id: 'a2', kind: 'exact', question: 'β;', score: scoreQuestion(question({ expected: [id(3)] }), { windows: [win(3)], matched: [], chatIds: chat }), latencyMs: 1, costUsd: 0 },
+    { id: 'a3', kind: 'fuzzy', question: 'γ;', score: scoreQuestion(question({ expected: [id(4)] }), { windows: [win(4)], matched: [], chatIds: chat }), latencyMs: 1, costUsd: 0, web: { query: 'δ', found: true, sources: 3 } },
+    { id: 'n1', kind: 'none', question: 'ε;', score: scoreQuestion(question({ kind: 'none', expected: [] }), { chatIds: chat }), latencyMs: 1, costUsd: 0, web: { query: 'ζ', found: false, sources: 0 } },
+  ];
+  const summary = summarize(results);
+  assert.deepEqual(
+    [summary.hit1, summary.hit5, summary.seen, summary.answeredByChat, summary.hit1OrChat, summary.hit5OrChat, summary.seenOrChat, summary.webAnswered],
+    [1, 1, 3, 1, 2, 2, 3, 1],
+  );
+  assert.deepEqual(summary.misses.map((m) => m.id), ['a3'], 'the chat-answered question is not a miss');
+  const text = renderSummary(summary, { reportPath: 'r.json', stages: { record: true, web: true } });
+  assert.match(text, /\| answered by the chat .*\| 1\/3 \(33 %\) \|/);
+  assert.match(text, /\| hit@5 or answered by the chat \| 2\/3 \(67 %\) \|/);
+  assert.match(text, /\| answered by the web \| 1\/4 \(25 %\) \|/);
+  assert.doesNotMatch(renderSummary(summary, { reportPath: 'r.json', stages: { record: true, web: false } }), /answered by the web/);
+});
+
+test('recall-eval: a record line becomes a chat message with its link previews, as the live recall reads it', () => {
+  const line = toRecordLine(
+    { id: id(1), channelId: C1, authorId: ANA, content: 'δες https://example.org/faros', ts: NOW - DAY, linkCards: [{ kind: 'link', url: 'https://example.org/faros', title: 'Ο φάρος', text: 'Ένα θαύμα.', site: 'example.org' }] },
+    { now: () => NOW, uuid: () => 'u-1' },
+  );
+  const message = recordMessage(line, { nameOf: () => 'Ana', selfName: 'Zoë' });
+  assert.equal(message.authorName, 'Ana');
+  assert.deepEqual(message.links.map((l) => [l.kind, l.title, l.text, l.site, l.url]), [['link', 'Ο φάρος', 'Ένα θαύμα.', 'example.org', 'https://example.org/faros']]);
+  assert.deepEqual(recordMessage(recLine(2, NOW, 'χωρίς'), { nameOf: () => null, selfName: 'Zoë' }).links, []);
 });

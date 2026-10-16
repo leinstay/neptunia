@@ -1,8 +1,11 @@
 // The pure parts of tools/recall-eval.mjs: the questions file checked, record lines turned
 // into chat messages, the ids a recall run surfaced scored against the expected ones, the run
-// summed up (hit@1, hit@5, false confident recalls, latency, cost), the question loop with its
-// spend stop, the candidate sample for writing questions by hand, and the offline guild the
-// local stages run against. Nothing here reads a file, the network or the clock.
+// summed up (hit@1, hit@5, answered by the chat, false confident recalls, web answers, latency,
+// cost), the question loop with its spend stop, the candidate sample for writing questions by
+// hand, and the offline guild the local stages run against. Nothing here reads a file, the
+// network or the clock.
+
+import { recordMessage } from '../../src/behavior/recall.js';
 
 /** The kinds of a question: the answer is one exact message, a looser stretch, or not in memory at all. */
 export const QUESTION_KINDS = Object.freeze(['exact', 'fuzzy', 'none']);
@@ -10,8 +13,6 @@ export const QUESTION_KINDS = Object.freeze(['exact', 'fuzzy', 'none']);
 export const HIT_AT = 5;
 const SNOWFLAKE = /^\d{17,20}$/;
 const DAY_MS = 86_400_000;
-/** The author mark of a line whose author has no stored name (src/behavior/recall.js NO_FIELD). */
-const NO_NAME = '-';
 
 /** Whether `value` is a Discord id. */
 export function isSnowflake(value) {
@@ -101,35 +102,11 @@ export function latestLines(lines) {
 }
 
 /**
- * A record line as a normalized chat message (the shape src/behavior/recall.js reads its record
- * windows in): the persona's own `said` line marked `self` under `selfName`, any other author
- * under `nameOf(by)`, else `-`.
- * @param {object} line
- * @param {{ nameOf?: (id: string) => string|null, selfName?: string }} [options]
+ * A record line as a normalized chat message, its link previews included: the live recall's own
+ * function (src/behavior/recall.js#recordMessage), so the chat the tool shows the classifier reads
+ * as the record windows do. The line needs a channel (latestLines keeps only such lines).
  */
-export function recordMessage(line, { nameOf = null, selfName = '' } = {}) {
-  const self = line.kind === 'said';
-  const by = typeof line.by === 'string' && line.by ? line.by : null;
-  const name = self ? String(selfName ?? '') : by && typeof nameOf === 'function' ? String(nameOf(by) ?? '') : '';
-  return {
-    id: line.messageId,
-    channelId: line.scope?.channel ?? null,
-    authorId: by,
-    authorName: name || NO_NAME,
-    self,
-    bot: false,
-    content: typeof line.text === 'string' ? line.text : '',
-    ts: Date.parse(line.occurredAt),
-    replyToId: typeof line.replyTo === 'string' && line.replyTo ? line.replyTo : null,
-    mentionedUserIds: Array.isArray(line.mentions) ? line.mentions : [],
-    attachments: [],
-    links: [],
-    stickers: [],
-    emojis: [],
-    forwarded: [],
-    reactions: [],
-  };
-}
+export { recordMessage };
 
 /**
  * The ids a run surfaced, in order: first the matched ones (a search hit, a record match, a
@@ -159,26 +136,33 @@ export function surfacedIds(windows, matched) {
  * One question scored. `rank`: the 1-based place of the first expected id among the matched
  * ids (null when none is); `hit1` / `hit5` from it; `seen`: whether an expected id is anywhere
  * in the windows the summary read; `windowRank`: the 1-based window holding the first one.
+ * `inChat`: whether an expected id is among `chatIds`, the asking channel's visible chat window
+ * (the live voice reads the answer there, search or not). `outcome`: `hit` (hit@5), else
+ * `in-chat` (answered by the chat, not a miss), else `miss`.
  * A `none` question has no hits (null) and counts a confident answer as a false one.
  * @param {{ kind: string, expected: string[] }} question
- * @param {{ windows?: object[][], matched?: Iterable<string>, confident?: boolean }} run
+ * @param {{ windows?: object[][], matched?: Iterable<string>, confident?: boolean, chatIds?: Iterable<string> }} run
  */
-export function scoreQuestion(question, { windows = [], matched = [], confident = false } = {}) {
+export function scoreQuestion(question, { windows = [], matched = [], confident = false, chatIds = [] } = {}) {
   const { surfaced, matched: hitOrder } = surfacedIds(windows, new Set(matched));
   if (question.kind === 'none') {
-    return { surfaced, rank: null, hit1: null, hit5: null, seen: null, windowRank: null, falseConfident: confident === true };
+    return { surfaced, rank: null, hit1: null, hit5: null, seen: null, windowRank: null, inChat: null, outcome: null, falseConfident: confident === true };
   }
   const expected = new Set(question.expected);
   const at = hitOrder.findIndex((id) => expected.has(id));
   const rank = at === -1 ? null : at + 1;
   const windowAt = (windows ?? []).findIndex((window) => (window ?? []).some((m) => expected.has(m?.id)));
+  const hit5 = rank !== null && rank <= HIT_AT;
+  const inChat = [...(chatIds ?? [])].some((id) => expected.has(id));
   return {
     surfaced,
     rank,
     hit1: rank === 1,
-    hit5: rank !== null && rank <= HIT_AT,
+    hit5,
     seen: windowAt !== -1,
     windowRank: windowAt === -1 ? null : windowAt + 1,
+    inChat,
+    outcome: hit5 ? 'hit' : inChat ? 'in-chat' : 'miss',
     falseConfident: null,
   };
 }
@@ -201,20 +185,30 @@ export function costOf(usage) {
  * The run summed up from its per-question results (`{ id, question, kind, score, confident,
  * latencyMs, costUsd, error?, surfaced?, answer? }`): hit@1 and hit@5 over the answerable
  * questions (`exact` and `fuzzy`; one that failed counts as a miss), how many of those had an
- * expected id anywhere in the windows, the confident answers on `none` questions, the latency
- * median and p90, the total cost, and the misses (no hit in the first five).
+ * expected id anywhere in the windows, how many were answered by the chat (`answeredByChat`: no
+ * hit@5, an expected id in the asking channel's chat window), the same three hit counts with
+ * those added (`hit1OrChat`, `hit5OrChat`, `seenOrChat`), the confident answers on `none`
+ * questions, the questions the web search answered (`webAnswered`: a result with `web.found`),
+ * the latency median and p90, the total cost, and the misses (no hit in the first five, not
+ * answered by the chat).
  * @param {object[]} results
  */
 export function summarize(results) {
   const answerable = results.filter((r) => r.kind !== 'none');
   const none = results.filter((r) => r.kind === 'none');
   const count = (list, pick) => list.filter(pick).length;
+  const inChat = (r) => r.score?.inChat === true;
   return {
     questions: results.length,
     answerable: answerable.length,
     hit1: count(answerable, (r) => r.score?.hit1 === true),
     hit5: count(answerable, (r) => r.score?.hit5 === true),
     seen: count(answerable, (r) => r.score?.seen === true),
+    answeredByChat: count(answerable, (r) => r.score?.outcome === 'in-chat'),
+    hit1OrChat: count(answerable, (r) => r.score?.hit1 === true || inChat(r)),
+    hit5OrChat: count(answerable, (r) => r.score?.hit5 === true || inChat(r)),
+    seenOrChat: count(answerable, (r) => r.score?.seen === true || inChat(r)),
+    webAnswered: count(results, (r) => r.web?.found === true),
     noneQuestions: none.length,
     falseConfident: count(none, (r) => r.score?.falseConfident === true),
     failed: count(results, (r) => Boolean(r.error)),
@@ -224,7 +218,7 @@ export function summarize(results) {
     },
     costUsd: Math.round(results.reduce((sum, r) => sum + (Number.isFinite(r.costUsd) ? r.costUsd : 0), 0) * 1e6) / 1e6,
     misses: answerable
-      .filter((r) => r.score?.hit5 !== true)
+      .filter((r) => r.score?.hit5 !== true && !inChat(r))
       .map((r) => ({ id: r.id, question: r.question, surfaced: (r.score?.surfaced ?? []).slice(0, HIT_AT), seen: r.score?.seen === true, answer: r.answer ?? null, error: r.error ?? null })),
   };
 }
@@ -434,6 +428,11 @@ export function renderSummary(summary, { reportPath, stages, stopped = null, ski
     `| hit@1 | ${share(summary.hit1, summary.answerable)} |`,
     `| hit@${HIT_AT} | ${share(summary.hit5, summary.answerable)} |`,
     `| expected line anywhere in the windows | ${share(summary.seen, summary.answerable)} |`,
+    `| answered by the chat (expected line in the asking channel's chat, no hit@${HIT_AT}) | ${share(summary.answeredByChat, summary.answerable)} |`,
+    `| hit@1 or answered by the chat | ${share(summary.hit1OrChat, summary.answerable)} |`,
+    `| hit@${HIT_AT} or answered by the chat | ${share(summary.hit5OrChat, summary.answerable)} |`,
+    `| in the windows or answered by the chat | ${share(summary.seenOrChat, summary.answerable)} |`,
+    ...(stages.web ? [`| answered by the web | ${share(summary.webAnswered, summary.questions)} |`] : []),
     `| false confident recalls | ${share(summary.falseConfident, summary.noneQuestions)} |`,
     `| latency median / p90 | ${summary.latencyMs.median ?? 'N/A'} ms / ${summary.latencyMs.p90 ?? 'N/A'} ms |`,
     `| total cost | ${summary.costUsd.toFixed(4)} USD |`,
