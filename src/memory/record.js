@@ -207,6 +207,41 @@ export function feltLine({ userId, itemId = null, text, date = null, sourceMessa
   };
 }
 
+/** How many times appendRevision moves an edit past a revision the record already holds. */
+export const EDIT_REVISION_RETRIES = 5;
+
+/**
+ * Append an edit's line at `revision`, or after the newest revision the record holds when that
+ * one is taken (a tool such as `tools/backfill.mjs links` appended revisions the caller's own
+ * count does not know): on a duplicate the line is rebuilt with the record's newest revision of
+ * the message + 1 (`record.newestRevision`, else the refused revision + 1) and appended again, at
+ * most EDIT_REVISION_RETRIES times. A bump is logged as `record: edit revision bumped` (counts
+ * only). The caller continues its own count from the returned `revision`.
+ * @param {{ append: Function, newestRevision?: Function }} record  From createRecord.
+ * @param {string} guildId
+ * @param {(revision: number) => object} lineAt  The line at a revision (toRecordLine).
+ * @param {number} revision  The revision to try first.
+ * @param {{ log?: { info: Function }, privateUserId?: string|null }} [options]
+ * @returns {Promise<{ revision: number, written: number, duplicates: number, bumps: number }>}
+ */
+export async function appendRevision(record, guildId, lineAt, revision, { log = defaultLog, privateUserId = null } = {}) {
+  const opts = privateUserId ? { privateUserId } : undefined;
+  let current = revision;
+  let line = lineAt(current);
+  let result = await record.append(guildId, [line], opts);
+  let bumps = 0;
+  while ((result?.duplicates ?? 0) > 0 && bumps < EDIT_REVISION_RETRIES) {
+    bumps += 1;
+    const known = typeof record.newestRevision === 'function' ? await record.newestRevision(guildId, line.messageId, line.occurredAt, { privateUserId }) : null;
+    current = Math.max(current, Number.isInteger(known) ? known : current) + 1;
+    line = lineAt(current);
+    result = await record.append(guildId, [line], opts);
+  }
+  const written = result?.written ?? 0;
+  if (bumps > 0) log.info('record: edit revision bumped', { guildId: String(guildId), bumps, written });
+  return { revision: current, written, duplicates: result?.duplicates ?? 0, bumps };
+}
+
 /** The dedupe key of a line: `messageId:revision`, `messageId:deleted`, or null (a `felt` line). */
 function keyOf(line) {
   if (typeof line?.messageId !== 'string' || !line.messageId) return null;
@@ -272,6 +307,7 @@ export async function forgettingIds(fs, dataDir, guildId) {
  *   append(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,
  *   dayFile(guildId: string, occurredAtIso: string, privateUserId?: string|null): string,
  *   iterate(guildId: string, query?: { from?: string, to?: string, channelIds?: string[], privateUserId?: string|null }): AsyncIterable<object>,
+ *   newestRevision(guildId: string, messageId: string, occurredAtIso: string, opts?: { privateUserId?: string|null }): Promise<number|null>,
  *   rebuildIndex(guildId: string, month: string, privateUserId?: string|null): Promise<number>,
  *   forgetUser(guildId: string, userId: string, opts?: { before?: number|null }): Promise<{ dropped: number }>,
  * }}
@@ -284,7 +320,9 @@ export async function forgettingIds(fs, dataDir, guildId) {
  *   to their day files and then the touched months' `ids.json`; it rejects when the append
  *   store refuses a line (the lines before it are written and indexed). `iterate` streams the
  *   parsed lines whose `occurredAt` lies in `[from, to]` (and whose channel is one of
- *   `channelIds` when given), day file by day file. `rebuildIndex` rewrites a month's
+ *   `channelIds` when given), day file by day file. `newestRevision` is the highest revision the
+ *   id index of the month of `occurredAtIso` holds for the message (null when none; a `deleted`
+ *   key does not count). `rebuildIndex` rewrites a month's
  *   `ids.json` from its segments and returns the number of keys. `forgetUser` writes the
  *   marker `data/guilds/<id>/forgetting/<userId>.json` first (unless one exists: then the
  *   caller owns it and it is left in place), rewrites every guild segment without the lines
@@ -483,6 +521,20 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
     return { dropped };
   }
 
+  function newestRevision(guildId, messageId, occurredAtIso, { privateUserId = null } = {}) {
+    return serial(async () => {
+      const keys = await loadIndex(baseDir(guildId, privateUserId), dayOf(occurredAtIso).slice(0, 7));
+      const prefix = `${messageId}:`;
+      let newest = null;
+      for (const key of keys) {
+        if (!key.startsWith(prefix)) continue;
+        const n = Number(key.slice(prefix.length));
+        if (Number.isInteger(n) && n > (newest ?? 0)) newest = n;
+      }
+      return newest;
+    });
+  }
+
   function rebuildIndex(guildId, month, privateUserId = null) {
     return serial(() => rebuild(baseDir(guildId, privateUserId), month));
   }
@@ -531,5 +583,5 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
     });
   }
 
-  return { append, dayFile, iterate, rebuildIndex, forgetUser };
+  return { append, dayFile, iterate, newestRevision, rebuildIndex, forgetUser };
 }
