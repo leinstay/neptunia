@@ -11,7 +11,9 @@
 //   - `felt`: the feeling she attached to a stored moment, with its own id.
 //
 // Only a whitelist of a message's fields enters a line (toRecordLine): ids, time, channel,
-// author, reply target, text, media kinds (never a URL), mentions, `direct`. A per-month id
+// author, reply target, text, media kinds (never a URL of a file), mentions, `direct`, and for a
+// posted link with a preview the compact `links` (recordLinks: its URL, as posted in the text, with
+// the preview's title, description and site, so a link post is found by what it shows). A per-month id
 // index (`record/<YYYY-MM>/ids.json`, a sorted array of `messageId:revision` keys, held in
 // memory per month and rebuilt from the segments when missing) refuses a line already
 // recorded. `forgetUser` drops every line naming a member, under a forgetting marker; `iterate`
@@ -24,6 +26,7 @@ import * as nodeFs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
+import { clampChars, clampWithEllipsis, oneLine } from './clamp.js';
 
 /** The schema version every line carries. */
 export const RECORD_VERSION = 1;
@@ -32,6 +35,15 @@ const MONTH_RE = /^\d{4}-\d{2}$/;
 const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}/;
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The most links one record line keeps. */
+export const RECORD_LINKS_MAX = 3;
+/** The longest title or description of a recorded link, in code points (the ellipsis included). */
+const LINK_TEXT_CHARS = 200;
+/** The longest URL and cache id of a recorded link, in code points. */
+const LINK_URL_CHARS = 500;
+/** The longest site name of a recorded link, in code points. */
+const LINK_SITE_CHARS = 100;
 
 /** Distinct non-empty strings of `values` (arrays), in order. */
 function idList(...values) {
@@ -71,11 +83,44 @@ function mediaKinds(slim) {
 }
 
 /**
+ * The compact links of a record line, from a normalized message's links (src/discord/collect.js:
+ * `{ id, kind, url, title, text, site }`) or from links already in this shape (`description`
+ * instead of `text`): each `{ id?, url, title, description, site }` on one line, the title and the
+ * description clamped to LINK_TEXT_CHARS at a boundary (clampWithEllipsis). Only a link (`kind`
+ * `link`, or no kind: never a GIF, whose URL leaves the text) with a title or a description is
+ * kept, at most RECORD_LINKS_MAX, in order. `id` is the link's media-cache key, when it has one.
+ * Pure.
+ * @param {unknown} items
+ * @returns {{ id?: string, url: string, title: string, description: string, site: string }[]}
+ */
+export function recordLinks(items) {
+  const out = [];
+  const str = (value) => (typeof value === 'string' ? oneLine(value) : '');
+  for (const item of Array.isArray(items) ? items : []) {
+    if (out.length >= RECORD_LINKS_MAX) break;
+    if (!item || typeof item !== 'object' || (item.kind !== undefined && item.kind !== 'link')) continue;
+    const title = clampWithEllipsis(str(item.title), LINK_TEXT_CHARS);
+    const description = clampWithEllipsis(str(item.description ?? item.text), LINK_TEXT_CHARS);
+    if (!title && !description) continue;
+    const id = clampChars(str(item.id), LINK_URL_CHARS);
+    out.push({
+      ...(id ? { id } : {}),
+      url: clampChars(str(item.url), LINK_URL_CHARS),
+      title,
+      description,
+      site: clampChars(str(item.site), LINK_SITE_CHARS),
+    });
+  }
+  return out;
+}
+
+/**
  * One record line from a slim message (src/memory/update.js#slimMessage; `mentionedUserIds`
  * and `replyToAuthorId` are read when the slim has them). Only the whitelisted fields are
  * copied: `messageId`, `revision`, `occurredAt` (the slim's `ts`), the channel (as `scope`),
- * `by`, `replyTo`, `text`, `media` (kinds only), `mentions`, `direct`; `participants` = the
- * author, the mentioned members and the reply target's author when known. A `said` line names
+ * `by`, `replyTo`, `text`, `media` (kinds only), `links` (recordLinks of the slim's `linkCards`,
+ * only when there are some: a line without the key has no link preview), `mentions`, `direct`;
+ * `participants` = the author, the mentioned members and the reply target's author when known. A `said` line names
  * no author (it is the persona's) and carries `turnId` / `opId`; a `deleted` line keeps only
  * the message id and its author as a participant. `guildId` is stamped on append.
  *
@@ -108,6 +153,7 @@ export function toRecordLine(slim, { kind = 'seen', revision = 1, origin = 'live
   const tail = { sourceMessageIds: idList(messageId), origin: origin === 'backfill' ? 'backfill' : 'live' };
   if (kind === 'deleted') return { ...head, ...envelope, participants: idList(by), ...tail };
   const rev = Number.isInteger(revision) && revision > 0 ? revision : 1;
+  const links = recordLinks(source.linkCards);
   const body = {
     ...head,
     revision: rev,
@@ -116,6 +162,7 @@ export function toRecordLine(slim, { kind = 'seen', revision = 1, origin = 'live
     replyTo,
     text: typeof source.content === 'string' ? source.content : '',
     media: mediaKinds(source),
+    ...(links.length > 0 ? { links } : {}),
     mentions,
   };
   if (kind === 'said') {

@@ -5,7 +5,9 @@
 // embedded alone. Pure: names are resolved by the caller's `nameOf`, nothing is read or written.
 //
 // A chunk line is `author: text`, the text on one line with every `<@id>` token resolved to the
-// member's name, cut to `CHUNK_LINE_CHARS`; the persona's own lines carry `selfName`. Row meta:
+// member's name, cut to `CHUNK_LINE_CHARS`, then the title and description of each link preview
+// the line carries (its `links`, src/memory/record.js#recordLinks), cut to the same length, so a
+// link post is found by what it shows; the persona's own lines carry `selfName`. Row meta:
 // `{ kind, id, revision, occurredAt, channelId, by, participants, sourceIds }`, where
 // `participants` is the union over every line of the chunk and `sourceIds` the message ids of
 // those lines, so a forget reaches a row through any line it holds.
@@ -122,13 +124,15 @@ export function contextFor(line, channelLines, count = CHUNK_CONTEXT_LINES) {
   return count > 0 ? before.slice(-count) : [];
 }
 
-/** One chunk line: `author: text`. */
+/** One chunk line: `author: text`, then the line's link titles and descriptions. */
 function chunkLine(line, { nameOf, selfName, lineChars }) {
   const resolve = (id) => (typeof nameOf === 'function' ? nameOf(id) : null);
   const by = typeof line.by === 'string' && line.by ? line.by : null;
   const author = line.kind === 'said' ? selfName : (by && oneLine(resolve(by))) || by || '';
   const text = clampChars(oneLine(fromTokens(line.text, resolve, 'chat')), lineChars);
-  return `${oneLine(author)}: ${text}`;
+  const links = (Array.isArray(line.links) ? line.links : []).flatMap((link) => [link?.title, link?.description]).filter((part) => typeof part === 'string' && part);
+  const shown = links.length > 0 ? clampChars(oneLine(links.join(' ')), lineChars) : '';
+  return shown ? `${oneLine(author)}: ${text} ${shown}` : `${oneLine(author)}: ${text}`;
 }
 
 /**

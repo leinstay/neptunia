@@ -1058,6 +1058,27 @@ test('matchRecord: a name or member match only locates the person and ranks belo
   assert.deepEqual(who.windows.map((w) => [...w.hitIds]), [['n1'], ['n2'], ['k1']], 'without a topic form the name and member lines still match, newest first');
 });
 
+test('matchRecord: a link title or description matches as topic text and the window shows the link', async () => {
+  const D = 24 * HOUR;
+  const card = { id: 'video:url:abc', url: 'https://video.example/watch?v=7', title: 'Carrera de monturas épica', description: 'Δύο φίλοι τρέχουν στο βουνό', site: 'VideoSite' };
+  const linked = toRecordLine(
+    { id: 'v1', channelId: 'c2', authorId: KITE, content: 'https://video.example/watch?v=7', ts: NOW - 3 * D, linkCards: [card] },
+    { now: () => NOW, uuid: () => 'x-v1' },
+  );
+  const lines = [linked, rec('p1', NOW - 2 * D, { by: KITE, text: 'plain words' })];
+  const base = { range: { from: null, to: null }, participants: [], aliases: [], recordDays: 30, recordContext: 0, followMessages: 0, now: NOW, maxWindows: 3 };
+  const byTitle = await matchRecord('g1', { ...base, record: fakeRecord(lines), forms: ['monturas'] });
+  assert.deepEqual(byTitle.windows.map((w) => [...w.hitIds]), [['v1']], 'the title matches');
+  const byDescription = await matchRecord('g1', { ...base, record: fakeRecord(lines), forms: ['τρέχουν'] });
+  assert.deepEqual(byDescription.windows.map((w) => [...w.hitIds]), [['v1']], 'the description matches');
+  const [message] = byTitle.windows[0].messages;
+  assert.deepEqual(message.links.map((l) => [l.kind, l.site, l.title, l.text]), [['link', 'VideoSite', card.title, card.description]]);
+  const [rendered] = renderRecallWindows(byTitle.windows, { labels, timezone: 'UTC', indexed: false });
+  assert.ok(rendered.lines[0].text.includes(card.title), 'the window line carries the link title');
+  const old = await matchRecord('g1', { ...base, record: fakeRecord([rec('o1', NOW - D, { text: 'monturas here' })]), forms: ['monturas'] });
+  assert.deepEqual(old.windows.map((w) => w.messages[0].links), [[]], 'a line without links reads as before');
+});
+
 test('recall: a record line outside the range is not scanned', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-recall-record-'));
   const quiet = { info() {}, warn() {} };
