@@ -1235,6 +1235,27 @@ test('recall: record rows found by meaning are read around their time, fused wit
   assert.deepEqual(ids(noDays), [['m1']], 'recordDays 0 reads no word hit, the meaning rows still');
 });
 
+test('matchRecord: fused with meaning rows, the best topic-matched word hit keeps a window the fused order would drop', async () => {
+  const D = 24 * HOUR;
+  const lines = [
+    rec('gift', NOW - 9 * D, { channelId: 'c5', by: ELO, text: 'έστειλα ακτίνες καλοσύνης σε όλους' }),
+    rec('k1', NOW - 1 * D, { channelId: 'c1', by: KITE, text: 'hello one' }),
+    rec('k2', NOW - 2 * D, { channelId: 'c2', by: KITE, text: 'hello two' }),
+    rec('k3', NOW - 3 * D, { channelId: 'c3', by: KITE, text: 'hello three' }),
+    rec('k4', NOW - 4 * D, { channelId: 'c4', by: KITE, text: 'hello four' }),
+  ];
+  const meaning = [meantRow('k1', NOW - 1 * D, { channelId: 'c1' }), meantRow('k2', NOW - 2 * D, { channelId: 'c2' }), meantRow('k3', NOW - 3 * D, { channelId: 'c3' }), meantRow('k4', NOW - 4 * D, { channelId: 'c4' })];
+  const base = { range: { from: null, to: null }, participants: [KITE], forms: ['ακτίνες καλοσύνης'], aliases: [], recordDays: 30, recordContext: 0, followMessages: 0, now: NOW, maxWindows: 3 };
+  const ids = (result) => result.windows.map((w) => [...w.hitIds]);
+
+  const fused = await matchRecord('g1', { ...base, record: fakeRecord(lines), meaning });
+  assert.deepEqual(ids(fused), [['k1'], ['k2'], ['gift']], 'the member lines found by both outrank it, yet the topic line keeps the last slot');
+  const roomy = await matchRecord('g1', { ...base, record: fakeRecord(lines), meaning, maxWindows: 5 });
+  assert.deepEqual(ids(roomy), [['k1'], ['k2'], ['k3'], ['k4'], ['gift']], 'kept anyway: nothing changes');
+  const noTopic = await matchRecord('g1', { ...base, record: fakeRecord(lines), meaning, forms: [] });
+  assert.deepEqual(ids(noTopic), [['k1'], ['k2'], ['k3']], 'no topic-matched hit: the fused order alone decides');
+});
+
 test('matchMemory: archive rows found by meaning join the items by reciprocal rank fusion within max', () => {
   const lore = [{ title: 'κουνέλι', keys: ['καρότο'], text: 'the rabbit and the carrot' }];
   const word = archived('episode', 'ep-word', { what: 'fed the κουνέλι' });
