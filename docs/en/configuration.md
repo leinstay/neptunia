@@ -2,6 +2,8 @@
 
 Every key in `config.json` with its default, grouped by section.
 
+Any string value in `config.json` or `config.local.json` may reference an environment variable as `${env:NAME}` (`NAME` is letters, digits and `_`, not starting with a digit). After the two files are merged, each reference is replaced with the variable's value, so a value that holds credentials can stay in `.env` while the config file holds only the reference. A reference can make up the whole value or part of a longer string. An unset variable becomes an empty string and is logged once as `config: env ref unset` with its name, never a value. Config written by `/nep set` keeps the reference in `config.local.json`; it is resolved again on every reload.
+
 ## `features`
 
 | Key | Default | Meaning |
@@ -465,7 +467,7 @@ Settings for the video describer (`features.videoDescriptions`). Video vision ne
 | `canaryUrl` | `"https://www.youtube.com/watch?v=jNQXAC9IVRw"` | A fixed YouTube video probed at startup to test the YouTube API key and duration sources |
 | `ytdlpPath` | `"yt-dlp"` | Path to the `yt-dlp` binary; needed for site video links and for probing duration |
 | `ffmpegPath` | `"ffmpeg"` | Path to `ffmpeg`; needed for trimming and downscaling long or large attachments |
-| `proxy` | `""` | A proxy URL for `yt-dlp`, in any format it accepts (`socks5h://user:pass@host:port`, `http://host:port`); `""` = no proxy. Needed when a site refuses the server's own address (YouTube returns "confirm you're not a bot" on datacenter IPs). Only links to `proxySites` use it. The value may hold credentials and never appears in the log. A proxied download fetches the whole video and `ffmpeg` cuts the first `maxSeconds` locally, because yt-dlp's section-download mode runs ffmpeg, which cannot use a SOCKS proxy; so the download ceiling (4x `maxBytes`) decides whether a long video fits |
+| `proxy` | `""` | A proxy URL for `yt-dlp`, in any format it accepts (`socks5h://user:pass@host:port`, `http://host:port`); `""` = no proxy. Needed when a site refuses the server's own address (YouTube returns "confirm you're not a bot" on datacenter IPs). Only links to `proxySites` use it. The value may hold credentials and never appears in the log; to keep them out of the config file, put the URL in `.env` and set `proxy` to a reference such as `"${env:VIDEO_PROXY}"`. A proxied download fetches the whole video and `ffmpeg` cuts the first `maxSeconds` locally, because yt-dlp's section-download mode runs ffmpeg, which cannot use a SOCKS proxy; so the download ceiling (4x `maxBytes`) decides whether a long video fits |
 | `proxySites` | `["youtube.com", "youtu.be"]` | Sites whose links use `proxy` for the duration probe and the download. A host matches when it equals a listed site or ends with `.<site>`. Links to other sites go direct. `[]` turns the proxy off |
 | `proxyRetryMinutes` | `10` | After a proxied download or probe fails, the bot checks whether the proxy still accepts a connection. If it does, the video itself is the problem and the link is reported as not loaded. If the proxy is down, the link is retried without it at once, and all links skip the proxy for this many minutes (`fetch-video: proxy failed`, then one `fetch-video: proxy skipped` for the window). Kept in memory; a restart clears it |
 | `errorRetryMinutes` | `60` | Minutes before an error-cached video is retried on its own; a forced retry from the re-watch classifier ignores this |
