@@ -4,14 +4,14 @@
 // confident answers to questions memory cannot answer, latency, cost -- instead of by a few
 // live turns.
 //
-//   cd /opt/neptunia-bot && node tools/recall-test.mjs [<questions.json>] [--limit N] [--max-usd 3]
+//   cd /opt/neptunia-bot && node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3]
 //        [--dry] [--discord] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]
-//   cd /opt/neptunia-bot && node tools/recall-test.mjs sample [--n 80] [--days 30]
+//   cd /opt/neptunia-bot && node tools/recall-eval.mjs sample [--n 80] [--days 30]
 //        [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]
 //
 // The questions file (default data/recall-eval/questions.json): `[{ id, channelId, askerId,
 // question, expected: [messageId...], kind: 'exact'|'fuzzy'|'none', note? }]`, checked by
-// tools/lib/recall-test.mjs#parseQuestions; `none` means the answer is not in memory.
+// tools/lib/recall-eval.mjs#parseQuestions; `none` means the answer is not in memory.
 //
 // Each question is asked as a live turn asks it (src/behavior/turn.js#maybeLookup): the search
 // classifier (prompts.lookup, purpose `lookup`) reads the channel's last lines and the question
@@ -29,7 +29,7 @@
 // `recall.recordDays` days, and -- with features.meaningSearch exactly true and not `--dry` --
 // the meaning search. Discord (`--discord` only): the guild's message and member searches and
 // the windows around their hits, over REST with DISCORD_TOKEN, no gateway session, GET only.
-// Without it the guild is tools/lib/recall-test.mjs#localGuild: every channel readable and
+// Without it the guild is tools/lib/recall-eval.mjs#localGuild: every channel readable and
 // viewable by everyone (the audience rail lets every channel through), every Discord search
 // answers nothing. `--dry`: no model or embedding request: no classifier (the fallback plan
 // stands in for its answer), no meaning search, the summary refused (the run returns its
@@ -43,7 +43,7 @@
 //
 // Rails: concurrency 1; `--limit N` questions; no question is asked once the summed cost has
 // passed `--max-usd` (default 3); the model and embedding clients spend OPENROUTER_SIM_KEY
-// (tools/lib/cli.mjs#simKey), every request `origin: 'recall-test'`, never counted against
+// (tools/lib/cli.mjs#simKey), every request `origin: 'recall-eval'`, never counted against
 // llm.maxRequestsPerDay, no calibration, no prompt-cache marker; the daily counters (the
 // requests, recall.maxPerDay) are throwaway copies, fresh per question. Nothing under
 // data/guilds/ is written: the store is read through its read methods only and never flushed,
@@ -54,7 +54,7 @@
 // Logs carry ids and counts only.
 //
 // `sample`: no request. Writes data/recall-eval/candidates.json: `--n` record messages
-// (tools/lib/recall-test.mjs#sampleCandidates: at least 40 characters of text, not the
+// (tools/lib/recall-eval.mjs#sampleCandidates: at least 40 characters of text, not the
 // persona's own, from the last `--days` days but not the last two, spread across channels and
 // days) with their three neighbours on each side, the raw material for writing questions.
 // The record holds no picture captions, so a picture without text is never a candidate.
@@ -75,13 +75,13 @@ import {
   scoreQuestion,
   summarize,
   costOf,
-} from './lib/recall-test.mjs';
+} from './lib/recall-eval.mjs';
 
 const USAGE =
-  'usage: node tools/recall-test.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
-  '       node tools/recall-test.mjs sample [--n 80] [--days 30] [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]';
+  'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
+  '       node tools/recall-eval.mjs sample [--n 80] [--days 30] [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ORIGIN = 'recall-test';
+const ORIGIN = 'recall-eval';
 const DEFAULT_MAX_USD = 3;
 const DEFAULT_SAMPLE = 80;
 const DEFAULT_SAMPLE_DAYS = 30;
@@ -120,7 +120,7 @@ function fileTime(ms) {
 function evalPath(dataDir, ...parts) {
   const base = path.join(dataDir, 'recall-eval');
   const file = path.join(base, ...parts);
-  if (!file.startsWith(`${base}${path.sep}`)) throw new CliError('recall-test: the output must stay under data/recall-eval/');
+  if (!file.startsWith(`${base}${path.sep}`)) throw new CliError('recall-eval: the output must stay under data/recall-eval/');
   return file;
 }
 
@@ -171,7 +171,7 @@ async function connectDiscord({ token, guildId }) {
   client.rest.setToken(token);
   const restRequest = client.rest.request.bind(client.rest);
   client.rest.request = (options) => {
-    if (String(options?.method ?? 'GET').toUpperCase() !== 'GET') throw new Error('recall-test: only GET requests reach Discord');
+    if (String(options?.method ?? 'GET').toUpperCase() !== 'GET') throw new Error('recall-eval: only GET requests reach Discord');
     return restRequest(options);
   };
   try {
@@ -211,7 +211,7 @@ async function sample(flags, { dataDir, guildId, now }) {
   fs.writeFileSync(file, `${JSON.stringify({ at: new Date(now()).toISOString(), guildId, days, seed, candidates }, null, 2)}\n`);
   const channels = new Set(candidates.map((c) => c.channelId)).size;
   const dayCount = new Set(candidates.map((c) => c.occurredAt.slice(0, 10))).size;
-  return `recall-test: ${candidates.length} candidate(s) from ${lines.length} record message(s), ${channels} channel(s), ${dayCount} day(s), seed ${seed}\n${file}\n`;
+  return `recall-eval: ${candidates.length} candidate(s) from ${lines.length} record message(s), ${channels} channel(s), ${dayCount} day(s), seed ${seed}\n${file}\n`;
 }
 
 /**
@@ -228,7 +228,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   });
   if (flags._.length > 1) throw new CliError(USAGE);
   const dataDir = flags['--data'] ? path.resolve(cwd, flags['--data']) : path.join(ROOT, 'data');
-  if (!fs.existsSync(path.join(dataDir, 'guilds'))) throw new CliError(`recall-test: no guilds/ under ${dataDir}`);
+  if (!fs.existsSync(path.join(dataDir, 'guilds'))) throw new CliError(`recall-eval: no guilds/ under ${dataDir}`);
   const guildId = resolveGuildId(dataDir, flags['--guild']);
   if (flags._[0] === 'sample') return sample(flags, { dataDir, guildId, now });
 
@@ -237,10 +237,10 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   try {
     raw = JSON.parse(fs.readFileSync(questionsFile, 'utf8'));
   } catch (err) {
-    throw new CliError(`recall-test: cannot read the questions file ${questionsFile} (${err?.name ?? 'Error'})`);
+    throw new CliError(`recall-eval: cannot read the questions file ${questionsFile} (${err?.name ?? 'Error'})`);
   }
   const { questions, errors } = parseQuestions(raw);
-  if (errors.length > 0) throw new CliError(`recall-test: the questions file has ${errors.length} problem(s):\n${errors.slice(0, 20).join('\n')}`);
+  if (errors.length > 0) throw new CliError(`recall-eval: the questions file has ${errors.length} problem(s):\n${errors.slice(0, 20).join('\n')}`);
   const limit = numberFlag(flags['--limit'], questions.length, { min: 1, integer: true });
   const maxUsd = numberFlag(flags['--max-usd'], DEFAULT_MAX_USD);
   const dry = flags['--dry'] === true;
@@ -271,9 +271,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   };
   const config = hot.config;
   const settings = recallSettings(config);
-  if (!settings) throw new CliError('recall-test: features.recall is off: there is no recall to measure');
-  if (!hot.prompts?.['recall-summary']) throw new CliError('recall-test: prompts.recall-summary is missing');
-  if (!dry && !hot.prompts?.lookup) throw new CliError('recall-test: prompts.lookup is missing');
+  if (!settings) throw new CliError('recall-eval: features.recall is off: there is no recall to measure');
+  if (!hot.prompts?.['recall-summary']) throw new CliError('recall-eval: prompts.recall-summary is missing');
+  if (!dry && !hot.prompts?.lookup) throw new CliError('recall-eval: prompts.lookup is missing');
   const meaningOn = !dry && config.features?.meaningSearch === true;
   const stages = {
     classifier: !dry,
@@ -286,7 +286,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   };
   const asking = Math.min(limit, questions.length);
   process.stderr.write(
-    `recall-test: ${asking} question(s); ${dry ? 'dry: no model request' : `up to ${asking * REQUESTS_PER_QUESTION} model request(s)${meaningOn ? ` and ${asking} embedding(s)` : ''}, none asked once the cost passes ${maxUsd} USD`}\n`,
+    `recall-eval: ${asking} question(s); ${dry ? 'dry: no model request' : `up to ${asking * REQUESTS_PER_QUESTION} model request(s)${meaningOn ? ` and ${asking} embedding(s)` : ''}, none asked once the cost passes ${maxUsd} USD`}\n`,
   );
 
   // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN) only when something is sent.
@@ -304,7 +304,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     llm = {
       capLeft: () => Infinity,
       complete: async () => {
-        throw Object.assign(new Error('recall-test: dry run, no model request'), { name: 'DryRun' });
+        throw Object.assign(new Error('recall-eval: dry run, no model request'), { name: 'DryRun' });
       },
     };
   } else {
@@ -340,7 +340,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const discordHits = new Set();
   if (useDiscord) {
     const token = process.env.DISCORD_TOKEN;
-    if (!token) throw new CliError('recall-test: --discord needs DISCORD_TOKEN (.env)');
+    if (!token) throw new CliError('recall-eval: --discord needs DISCORD_TOKEN (.env)');
     connection = await connectDiscord({ token, guildId });
     guild = connection.guild;
     self = { id: self.id ?? connection.self.id, name: self.name ?? connection.self.name };
@@ -420,7 +420,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       const channel = guild.channels.cache.get(q.channelId);
       if (!channel) return finish({ error: 'no-channel', score: null });
       const trigger = {
-        id: `recall-test-${index + 1}`,
+        id: `recall-eval-${index + 1}`,
         channelId: q.channelId,
         authorId: q.askerId,
         authorName: nameOf(q.askerId) ?? '-',
@@ -500,7 +500,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       ask: (q) => ask(q, index++),
       onResult: (r) =>
         process.stderr.write(
-          `recall-test: ${r.id} ${r.error ? `error ${r.error}` : `rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}`} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`,
+          `recall-eval: ${r.id} ${r.error ? `error ${r.error}` : `rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}`} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`,
         ),
     });
   } finally {

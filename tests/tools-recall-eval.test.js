@@ -1,4 +1,4 @@
-// Tests for tools/lib/recall-test.mjs: the pure part of tools/recall-test.mjs (the questions
+// Tests for tools/lib/recall-eval.mjs: the pure part of tools/recall-eval.mjs (the questions
 // file, hit@k scoring, false confident recalls, the spend stop, the candidate sample) and the
 // offline guild the local stages run against, through the real recall runner with fakes.
 import { test } from 'node:test';
@@ -16,7 +16,7 @@ import {
   sampleCandidates,
   scoreQuestion,
   summarize,
-} from '../tools/lib/recall-test.mjs';
+} from '../tools/lib/recall-eval.mjs';
 import { createRecall } from '../src/behavior/recall-run.js';
 import { toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
@@ -47,7 +47,7 @@ function recLine(n, ts, text, { channelId = C1, by = ANA, kind = 'seen', revisio
 /** A message list with these ids. */
 const win = (...ns) => ns.map((n) => ({ id: id(n) }));
 
-test('recall-test: a valid questions file parses, every problem is named by position and id', () => {
+test('recall-eval: a valid questions file parses, every problem is named by position and id', () => {
   const ok = parseQuestions([question(), question({ id: 'q2', kind: 'none', expected: [], note: 'not there' }), question({ id: 'q3', kind: 'fuzzy', expected: [id(1), id(1), id(2)] })]);
   assert.deepEqual(ok.errors, []);
   assert.equal(ok.questions.length, 3);
@@ -75,7 +75,7 @@ test('recall-test: a valid questions file parses, every problem is named by posi
   assert.deepEqual(parseQuestions({}).errors, ['the file is not a JSON array']);
 });
 
-test('recall-test: hit@1 and hit@5 count the matched ids in window order, the rest of a window only as seen', () => {
+test('recall-eval: hit@1 and hit@5 count the matched ids in window order, the rest of a window only as seen', () => {
   const q = question({ expected: [id(7)] });
   // Matched ids come first, in window order, then the other lines.
   const first = scoreQuestion(q, { windows: [win(1, 7, 2), win(3)], matched: [id(7), id(3)] });
@@ -96,7 +96,7 @@ test('recall-test: hit@1 and hit@5 count the matched ids in window order, the re
   assert.deepEqual([nothing.rank, nothing.hit1, nothing.hit5, nothing.seen, nothing.windowRank], [null, false, false, false, null]);
 });
 
-test('recall-test: a confident answer to a none question is a false confident recall, answerable ones never count', () => {
+test('recall-eval: a confident answer to a none question is a false confident recall, answerable ones never count', () => {
   const none = question({ id: 'n1', kind: 'none', expected: [] });
   const results = [
     { id: 'n1', kind: 'none', score: scoreQuestion(none, { confident: true }), latencyMs: 100, costUsd: 0.01 },
@@ -123,7 +123,7 @@ test('recall-test: a confident answer to a none question is a false confident re
   assert.equal(costOf(null), 0);
 });
 
-test('recall-test: the run stops asking once the summed cost passes --max-usd, and keeps to --limit', async () => {
+test('recall-eval: the run stops asking once the summed cost passes --max-usd, and keeps to --limit', async () => {
   const questions = ['a', 'b', 'c', 'd', 'e'].map((q) => question({ id: q }));
   const asked = [];
   const ask = async (q) => {
@@ -157,7 +157,7 @@ test('recall-test: the run stops asking once the summed cost passes --max-usd, a
   assert.equal(most, 1);
 });
 
-test('recall-test: the newest revision of a message stands and a deleted one is gone', () => {
+test('recall-eval: the newest revision of a message stands and a deleted one is gone', () => {
   const lines = latestLines([
     recLine(1, NOW - 5 * DAY, 'πρώτη μορφή'),
     recLine(1, NOW - 5 * DAY, 'δεύτερη μορφή', { revision: 2 }),
@@ -168,7 +168,7 @@ test('recall-test: the newest revision of a message stands and a deleted one is 
   assert.deepEqual(lines.map((l) => [l.messageId, l.text]), [[id(1), 'δεύτερη μορφή']]);
 });
 
-test('recall-test: the sample keeps substantive lines of members only, outside the last two days, spread across channels', () => {
+test('recall-eval: the sample keeps substantive lines of members only, outside the last two days, spread across channels', () => {
   const long = (word) => `${word} ${'λέξη '.repeat(10)}`.trim();
   const lines = latestLines([
     recLine(1, NOW - 40 * DAY, long('πολύ παλιά')),
@@ -203,7 +203,7 @@ test('recall-test: the sample keeps substantive lines of members only, outside t
   }
 });
 
-test('recall-test: the local guild runs the record stage of the real recall, surfaces its window and searches no Discord', async () => {
+test('recall-eval: the local guild runs the record stage of the real recall, surfaces its window and searches no Discord', async () => {
   const record = {
     async *iterate() {
       yield recLine(1, NOW - DAY, 'το κουνέλι κρύφτηκε στον κήπο');

@@ -1,4 +1,4 @@
-// The pure parts of tools/recall-test.mjs: the questions file checked, record lines turned
+// The pure parts of tools/recall-eval.mjs: the questions file checked, record lines turned
 // into chat messages, the ids a recall run surfaced scored against the expected ones, the run
 // summed up (hit@1, hit@5, false confident recalls, latency, cost), the question loop with its
 // spend stop, the candidate sample for writing questions by hand, and the offline guild the
