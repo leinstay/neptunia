@@ -753,7 +753,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * (the run's trace record, or null with `features.recallTrace` off) gets
    * the clusters and the summary's answer as they are known.
    */
-  async function recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, context, contextDescriptions, candidate, server, signal, searchSignal, progress, started, stats, trace }) {
+  async function recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, context, contextDescriptions, candidate, server, signal, searchSignal, progress, started, stats, trace, decorate = null }) {
     const channelId = channel.id;
     const searchUntil = started + settings.timeoutMs * SEARCH_SHARE;
     let counted = false;
@@ -1245,6 +1245,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
         started,
         stats,
         trace,
+        decorate,
       });
       work.catch(() => {});
       const outcome = await Promise.race([work, deadline]);

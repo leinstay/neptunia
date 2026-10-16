@@ -1,0 +1,530 @@
+#!/usr/bin/env node
+// Operations tool: measure recall against questions whose answers are known. Exists so a change
+// to the server search (src/behavior/recall-run.js) can be judged by numbers -- hit@1, hit@5,
+// confident answers to questions memory cannot answer, latency, cost -- instead of by a few
+// live turns.
+//
+//   cd /opt/neptunia-bot && node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3]
+//        [--dry] [--discord] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]
+//   cd /opt/neptunia-bot && node tools/recall-eval.mjs sample [--n 80] [--days 30]
+//        [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]
+//
+// The questions file (default data/recall-eval/questions.json): `[{ id, channelId, askerId,
+// question, expected: [messageId...], kind: 'exact'|'fuzzy'|'none', note? }]`, checked by
+// tools/lib/recall-eval.mjs#parseQuestions; `none` means the answer is not in memory.
+//
+// Each question is asked as a live turn asks it (src/behavior/turn.js#maybeLookup): the search
+// classifier (prompts.lookup, purpose `lookup`) reads the channel's last lines and the question
+// as a new message of `askerId` in `channelId`, now; its server part goes to the real recall
+// runner (src/behavior/recall-run.js#createRecall `run`), wired as src/index.js wires it: the
+// stored memory, the record, the archive, the vector index and the embedding client, all over
+// the live data/ and read only. A failed or empty classifier answer takes the live fallback
+// (recall.fallbackOnClassifierFailure: the question's own words, fallbackLookupPlan), as for a
+// direct call. The channel's lines are the record's last `context.channelMessages` lines of it
+// (the live turn reads them from Discord). Not reproduced: the turn planner
+// (features.turnPlanner: its lookup block is not asked here), skills discovery (`{{skills}}` is
+// empty), pictures, videos and read links in the classifier's transcript, the web search.
+//
+// Stages. Local (always): stored memory and the archive, the record of the last
+// `recall.recordDays` days, and -- with features.meaningSearch exactly true and not `--dry` --
+// the meaning search. Discord (`--discord` only): the guild's message and member searches and
+// the windows around their hits, over REST with DISCORD_TOKEN, no gateway session, GET only.
+// Without it the guild is tools/lib/recall-eval.mjs#localGuild: every channel readable and
+// viewable by everyone (the audience rail lets every channel through), every Discord search
+// answers nothing. `--dry`: no model or embedding request: no classifier (the fallback plan
+// stands in for its answer), no meaning search, the summary refused (the run returns its
+// fallback stretch), so only the local word stages are measured.
+//
+// What surfaced: the windows the summary read, in its order (the runner's `decorate` hook), the
+// matched lines first -- Discord's hits, the record's word and meaning hits (the run's trace,
+// captured in memory and never written) -- then the rest of each window. Confident: the summary
+// answered with a text. Cost: OpenRouter's upstream cost per completion, else its `cost`;
+// embeddings are not priced.
+//
+// Rails: concurrency 1; `--limit N` questions; no question is asked once the summed cost has
+// passed `--max-usd` (default 3); the model and embedding clients spend OPENROUTER_SIM_KEY
+// (tools/lib/cli.mjs#simKey), every request `origin: 'recall-eval'`, never counted against
+// llm.maxRequestsPerDay, no calibration, no prompt-cache marker; the daily counters (the
+// requests, recall.maxPerDay) are throwaway copies, fresh per question. Nothing under
+// data/guilds/ is written: the store is read through its read methods only and never flushed,
+// the record, the archive and the index are only iterated or searched.
+//
+// Output: the whole run to data/recall-eval/runs/<time>.json (question texts, answers and
+// stretches: memory about real people, it stays on the server), a markdown summary on stdout.
+// Logs carry ids and counts only.
+//
+// `sample`: no request. Writes data/recall-eval/candidates.json: `--n` record messages
+// (tools/lib/recall-eval.mjs#sampleCandidates: at least 40 characters of text, not the
+// persona's own, from the last `--days` days but not the last two, spread across channels and
+// days) with their three neighbours on each side, the raw material for writing questions.
+// The record holds no picture captions, so a picture without text is never a candidate.
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { CliError, parseFlags, resolveGuildId, runCli, simKey } from './lib/cli.mjs';
+import {
+  HIT_AT,
+  latestLines,
+  localGuild,
+  parseQuestions,
+  recordMessage,
+  renderSummary,
+  runQuestions,
+  sampleCandidates,
+  scoreQuestion,
+  summarize,
+  costOf,
+} from './lib/recall-eval.mjs';
+
+const USAGE =
+  'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
+  '       node tools/recall-eval.mjs sample [--n 80] [--days 30] [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ORIGIN = 'recall-eval';
+const DEFAULT_MAX_USD = 3;
+const DEFAULT_SAMPLE = 80;
+const DEFAULT_SAMPLE_DAYS = 30;
+/** How far back the record is read for a channel's last lines. */
+const HISTORY_DAYS = 30;
+const DAY_MS = 86_400_000;
+/** The requests one question may send: the classifier and the summary. */
+const REQUESTS_PER_QUESTION = 2;
+
+/** A number from a flag in [min, max], `fallback` when absent; a CliError otherwise. */
+function numberFlag(value, fallback, { min = 0, max = Infinity, integer = false } = {}) {
+  if (value === undefined) return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < min || n > max || (integer && !Number.isInteger(n))) throw new CliError(USAGE);
+  return n;
+}
+
+/** A small seeded generator (mulberry32) for a reproducible sample. */
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** The file time of a report: an ISO time with `:` and `.` replaced. */
+function fileTime(ms) {
+  return new Date(ms).toISOString().replace(/[:.]/g, '-');
+}
+
+/** `dir` resolved, refused when it is not under `dataDir/recall-eval`. */
+function evalPath(dataDir, ...parts) {
+  const base = path.join(dataDir, 'recall-eval');
+  const file = path.join(base, ...parts);
+  if (!file.startsWith(`${base}${path.sep}`)) throw new CliError('recall-eval: the output must stay under data/recall-eval/');
+  return file;
+}
+
+/** The read-only sources over data/: the record, the archive, the vector index, the store's read methods. */
+async function openSources(dataDir) {
+  const { createAppendStore } = await import('../src/memory/append-store.js');
+  const { createRecord } = await import('../src/memory/record.js');
+  const { createArchive } = await import('../src/memory/archive.js');
+  const { createVectors } = await import('../src/memory/vectors.js');
+  const { createStore } = await import('../src/memory/store.js');
+  // Iteration only: the append stores never get an append, so they never open a file for writing.
+  const record = createRecord({ appendStore: createAppendStore(), dataDir });
+  const archive = createArchive({ appendStore: createAppendStore(), dataDir });
+  const vectors = createVectors({ dataDir });
+  const store = createStore({ dataDir });
+  return {
+    record: { iterate: (...args) => record.iterate(...args) },
+    archive: { iterate: (...args) => archive.iterate(...args) },
+    vectors: { search: (...args) => vectors.search(...args) },
+    store,
+  };
+}
+
+/** The stored members' first names by id. */
+function namesOf(store, guildId) {
+  const names = new Map();
+  for (const profile of store.listUserProfiles(guildId) ?? []) {
+    if (profile?.id && typeof profile.names?.[0] === 'string' && profile.names[0]) names.set(String(profile.id), profile.names[0]);
+  }
+  return names;
+}
+
+/** The record's messages from `from` on (latestLines), optionally of the given channels. */
+async function readRecord(record, guildId, { from, channelIds = null }) {
+  const lines = [];
+  for await (const line of record.iterate(guildId, { from: new Date(from).toISOString(), ...(channelIds ? { channelIds } : {}) })) lines.push(line);
+  return latestLines(lines);
+}
+
+/**
+ * A REST-only Discord connection (no login, no gateway): the guild, its channels, the bot's own
+ * user and member. Every request but GET is refused. As tools/replay.mjs connects.
+ */
+async function connectDiscord({ token, guildId }) {
+  const discord = await import('discord.js');
+  const { Client, Routes } = discord;
+  const client = new Client({ intents: [] });
+  client.rest.setToken(token);
+  const restRequest = client.rest.request.bind(client.rest);
+  client.rest.request = (options) => {
+    if (String(options?.method ?? 'GET').toUpperCase() !== 'GET') throw new Error('recall-eval: only GET requests reach Discord');
+    return restRequest(options);
+  };
+  try {
+    const guild = await client.guilds.fetch(guildId);
+    await guild.channels.fetch();
+    const me = await client.rest.get(Routes.user());
+    try {
+      client.user = new discord.ClientUser(client, me);
+    } catch {
+      // Only guild.members.me needs it.
+    }
+    let member = null;
+    try {
+      member = await guild.members.fetch(me.id);
+    } catch {
+      member = null;
+    }
+    return { client, guild, self: { id: String(me.id), name: member?.displayName ?? me.username ?? null } };
+  } catch (err) {
+    await client.destroy().catch(() => {});
+    throw err;
+  }
+}
+
+/** The `sample` subcommand. */
+async function sample(flags, { dataDir, guildId, now }) {
+  const n = numberFlag(flags['--n'], DEFAULT_SAMPLE, { min: 1, max: 1000, integer: true });
+  const days = numberFlag(flags['--days'], DEFAULT_SAMPLE_DAYS, { min: 3, max: 366, integer: true });
+  const seed = numberFlag(flags['--seed'], now() % 2147483647, { min: 0, integer: true });
+  const { record, store } = await openSources(dataDir);
+  const names = namesOf(store, guildId);
+  // One extra day back, so the oldest candidates have their neighbours too.
+  const lines = await readRecord(record, guildId, { from: now() - (days + 1) * DAY_MS });
+  const candidates = sampleCandidates(lines, { n, days, now: now(), rng: seeded(seed), selfId: flags['--self-id'] ?? null, nameOf: (id) => names.get(id) ?? null });
+  const file = evalPath(dataDir, 'candidates.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({ at: new Date(now()).toISOString(), guildId, days, seed, candidates }, null, 2)}\n`);
+  const channels = new Set(candidates.map((c) => c.channelId)).size;
+  const dayCount = new Set(candidates.map((c) => c.occurredAt.slice(0, 10))).size;
+  return `recall-eval: ${candidates.length} candidate(s) from ${lines.length} record message(s), ${channels} channel(s), ${dayCount} day(s), seed ${seed}\n${file}\n`;
+}
+
+/**
+ * The whole tool: the markdown summary on stdout (or the `sample` line).
+ * @param {string[]} argv
+ * @param {{ cwd?: string, now?: () => number }} [options]
+ * @returns {Promise<string>}
+ */
+export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
+  const flags = parseFlags(argv, {
+    values: ['--limit', '--max-usd', '--guild', '--data', '--self-id', '--self-name', '--n', '--days', '--seed'],
+    switches: ['--dry', '--discord'],
+    usage: USAGE,
+  });
+  if (flags._.length > 1) throw new CliError(USAGE);
+  const dataDir = flags['--data'] ? path.resolve(cwd, flags['--data']) : path.join(ROOT, 'data');
+  if (!fs.existsSync(path.join(dataDir, 'guilds'))) throw new CliError(`recall-eval: no guilds/ under ${dataDir}`);
+  const guildId = resolveGuildId(dataDir, flags['--guild']);
+  if (flags._[0] === 'sample') return sample(flags, { dataDir, guildId, now });
+
+  const questionsFile = flags._[0] ? path.resolve(cwd, flags._[0]) : evalPath(dataDir, 'questions.json');
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(questionsFile, 'utf8'));
+  } catch (err) {
+    throw new CliError(`recall-eval: cannot read the questions file ${questionsFile} (${err?.name ?? 'Error'})`);
+  }
+  const { questions, errors } = parseQuestions(raw);
+  if (errors.length > 0) throw new CliError(`recall-eval: the questions file has ${errors.length} problem(s):\n${errors.slice(0, 20).join('\n')}`);
+  const limit = numberFlag(flags['--limit'], questions.length, { min: 1, integer: true });
+  const maxUsd = numberFlag(flags['--max-usd'], DEFAULT_MAX_USD);
+  const dry = flags['--dry'] === true;
+  const useDiscord = flags['--discord'] === true;
+
+  const { createHot } = await import('../src/hot.js');
+  const { loadDotEnv } = await import('../src/config.js');
+  const { createRecall } = await import('../src/behavior/recall-run.js');
+  const { recallSettings, parseLookupAnswer } = await import('../src/behavior/recall.js');
+  const { fallbackLookupPlan } = await import('../src/behavior/turn.js');
+  const { classifierTranscript, fillPromptTemplate } = await import('../src/behavior/prompt.js');
+  const { createLlm, helperRequestOptions, railReason } = await import('../src/llm/openrouter.js');
+  const { createEmbedder } = await import('../src/llm/embed.js');
+  const { createCalibrator } = await import('../src/llm/tokens.js');
+  const { roleModel } = await import('../src/llm/roles.js');
+  const { zonedDay } = await import('../src/time.js');
+
+  const hot = createHot({ rootDir: ROOT });
+  // The recall's own trace switched on for this process only: its lines are caught in memory below.
+  const evalHot = {
+    get config() {
+      const live = hot.config;
+      return { ...live, features: { ...(live.features ?? {}), recallTrace: true } };
+    },
+    get prompts() {
+      return hot.prompts;
+    },
+  };
+  const config = hot.config;
+  const settings = recallSettings(config);
+  if (!settings) throw new CliError('recall-eval: features.recall is off: there is no recall to measure');
+  if (!hot.prompts?.['recall-summary']) throw new CliError('recall-eval: prompts.recall-summary is missing');
+  if (!dry && !hot.prompts?.lookup) throw new CliError('recall-eval: prompts.lookup is missing');
+  const meaningOn = !dry && config.features?.meaningSearch === true;
+  const stages = {
+    classifier: !dry,
+    memory: true,
+    archive: settings.archiveMonths > 0,
+    record: settings.recordDays > 0,
+    meaning: meaningOn,
+    discord: useDiscord,
+    summary: !dry,
+  };
+  const asking = Math.min(limit, questions.length);
+  process.stderr.write(
+    `recall-eval: ${asking} question(s); ${dry ? 'dry: no model request' : `up to ${asking * REQUESTS_PER_QUESTION} model request(s)${meaningOn ? ` and ${asking} embedding(s)` : ''}, none asked once the cost passes ${maxUsd} USD`}\n`,
+  );
+
+  // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN) only when something is sent.
+  if (!dry || useDiscord) loadDotEnv(ROOT);
+  const { record, archive, vectors, store } = await openSources(dataDir);
+  const names = namesOf(store, guildId);
+  const nameOf = (id) => names.get(String(id)) ?? null;
+
+  // The model clients on throwaway counters; per-role keys are not looked up (env {}): the simulator key pays.
+  const counters = { data: {}, markDirty() {} };
+  let usage = null;
+  let llm;
+  let embed = null;
+  if (dry) {
+    llm = {
+      capLeft: () => Infinity,
+      complete: async () => {
+        throw Object.assign(new Error('recall-eval: dry run, no model request'), { name: 'DryRun' });
+      },
+    };
+  } else {
+    const apiKey = simKey(ORIGIN);
+    const calibrator = createCalibrator(store.state.data?.calibration);
+    const realLlm = createLlm({ apiKey, env: {}, getConfig: () => hot.config, calibrator, state: counters });
+    llm = {
+      capLeft: () => Infinity,
+      async complete(messages, options = {}) {
+        const completion = await realLlm.complete(messages, { ...options, origin: ORIGIN, countAgainstDailyCap: false, skipCalibration: true, cache: false });
+        if (usage) {
+          usage.requests += 1;
+          usage.promptTokens += Number(completion?.usage?.prompt_tokens) || 0;
+          usage.completionTokens += Number(completion?.usage?.completion_tokens) || 0;
+          usage.costUsd += costOf(completion?.usage);
+        }
+        return completion;
+      },
+    };
+    if (meaningOn) {
+      const embedder = createEmbedder({ apiKey, env: {}, state: counters });
+      embed = async (texts, options = {}) => {
+        if (usage) usage.embeddings += 1;
+        return embedder.embed(texts, { ...options, origin: ORIGIN, countAgainstDailyCap: false });
+      };
+    }
+  }
+
+  // The guild: Discord over REST, or the local one.
+  let connection = null;
+  let guild;
+  let self = { id: flags['--self-id'] ?? null, name: flags['--self-name'] ?? null };
+  const discordHits = new Set();
+  if (useDiscord) {
+    const token = process.env.DISCORD_TOKEN;
+    if (!token) throw new CliError('recall-eval: --discord needs DISCORD_TOKEN (.env)');
+    connection = await connectDiscord({ token, guildId });
+    guild = connection.guild;
+    self = { id: self.id ?? connection.self.id, name: self.name ?? connection.self.name };
+    // The message search's hits, by id, on the way through (src/discord/search.js reads the same body).
+    const rest = guild.client.rest;
+    const restGet = rest.get.bind(rest);
+    rest.get = async (route, options) => {
+      const body = await restGet(route, options);
+      if (/\/messages\/search$/.test(String(route)) && Array.isArray(body?.messages)) {
+        for (const group of body.messages) for (const m of Array.isArray(group) ? group : [group]) if (m?.id) discordHits.add(m.id);
+      }
+      return body;
+    };
+  } else {
+    const channelNames = new Map((store.listChannels?.(guildId) ?? []).filter((c) => c?.id).map((c) => [String(c.id), c.name || null]));
+    guild = localGuild({ guildId, selfId: self.id, channelNameOf: (id) => channelNames.get(id) ?? null });
+  }
+  const selfName = self.name ?? config.bot?.nameTriggers?.[0] ?? 'bot';
+  const historyCount = Math.max(1, Math.floor(config.context?.channelMessages ?? 100));
+  const historyOf = new Map();
+
+  /** The channel's last lines from the record, as the turn's chat. */
+  async function channelHistory(channelId) {
+    if (!historyOf.has(channelId)) {
+      const lines = await readRecord(record, guildId, { from: now() - HISTORY_DAYS * DAY_MS, channelIds: [channelId] });
+      historyOf.set(channelId, lines.slice(-historyCount).map((line) => recordMessage(line, { nameOf, selfName })));
+    }
+    return historyOf.get(channelId);
+  }
+
+  /** The search classifier's server part for `trigger`, as maybeLookup asks it; `fallback` on a failed or empty answer. */
+  async function classify(trigger, history) {
+    const searchCfg = hot.config.web?.search ?? {};
+    const contextMessages = Math.max(0, Math.floor(searchCfg.contextMessages ?? 50));
+    const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
+    const triggerText = [...String(trigger.content ?? '')].slice(0, hot.config.context?.maxMessageChars ?? 2000).join('');
+    const transcript = context.length === 0 ? '' : `<transcript>\n${classifierTranscript(context, { config: hot.config, selfName, labels: hot.prompts.labels })}\n</transcript>\n`;
+    // A dry run has no classifier: the fallback plan always stands in for its answer.
+    const fallback = (reason) => {
+      if (!dry && !settings.fallbackOnClassifierFailure) return { server: null, how: 'failed', reason };
+      const plan = fallbackLookupPlan({ text: triggerText, profiles: store.listUserProfiles(guildId) ?? [], selfId: self.id, selfName, maxForms: settings.maxForms });
+      return { server: plan, how: 'fallback', reason };
+    };
+    if (dry) return fallback('dry');
+    let completion;
+    try {
+      completion = await llm.complete(
+        [
+          { role: 'system', content: fillPromptTemplate(hot.prompts.lookup, { today: zonedDay(now(), hot.config.bot?.timezone), name: selfName, skills: '' }) },
+          { role: 'user', content: `${transcript}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>` },
+        ],
+        {
+          model: roleModel(hot.config, 'reasoner', 'lookup'),
+          ...helperRequestOptions(hot.config, { role: 'reasoner', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }),
+        },
+      );
+    } catch (err) {
+      return fallback(railReason(err, 'classifier-failed'));
+    }
+    if (!String(completion?.text ?? '').trim()) return fallback('empty');
+    const parsed = parseLookupAnswer(completion.text, { timezone: hot.config.bot?.timezone, now: now(), maxForms: settings.maxForms });
+    return { server: parsed.server ?? null, how: 'classifier', reason: parsed.reason ?? null, raw: completion.text };
+  }
+
+  /** One question asked and scored. */
+  async function ask(q, index) {
+    const started = now();
+    usage = { requests: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, embeddings: 0 };
+    discordHits.clear();
+    const base = { id: q.id, kind: q.kind, channelId: q.channelId, question: q.question, expected: q.expected, ...(q.note ? { note: q.note } : {}) };
+    const finish = (extra) => {
+      const out = { ...base, ...extra, latencyMs: now() - started, usage: { ...usage }, costUsd: usage.costUsd };
+      usage = null;
+      return out;
+    };
+    try {
+      const channel = guild.channels.cache.get(q.channelId);
+      if (!channel) return finish({ error: 'no-channel', score: null });
+      const trigger = {
+        id: `recall-eval-${index + 1}`,
+        channelId: q.channelId,
+        authorId: q.askerId,
+        authorName: nameOf(q.askerId) ?? '-',
+        content: q.question,
+        ts: now(),
+        self: false,
+        bot: false,
+        replyToId: null,
+        mentionedUserIds: [],
+        attachments: [],
+        links: [],
+        stickers: [],
+        emojis: [],
+        forwarded: [],
+        reactions: [],
+      };
+      const history = [...(await channelHistory(q.channelId)), trigger];
+      const classified = await classify(trigger, history);
+      const lookup = { how: classified.how, reason: classified.reason ?? null, raw: classified.raw ?? null, server: classified.server ?? null };
+      if (!classified.server) return finish({ lookup, ran: false, score: scoreQuestion(q, {}), confident: false, answer: null });
+      // A fresh store view per question: the daily recall counter starts at zero, the trace is caught here.
+      let trace = null;
+      const recallStore = {
+        state: { data: {}, markDirty() {} },
+        listUserProfiles: (id) => store.listUserProfiles(id),
+        getLore: (id) => store.getLore(id),
+        getGuild: (id) => store.getGuild(id),
+        getRecent: (id) => store.getRecent(id),
+        appendRecallTrace: (id, line) => {
+          trace = line;
+        },
+      };
+      const recall = createRecall({ hot: evalHot, store: recallStore, llm, archive, record, vectors, embed, now });
+      const windows = [];
+      const found = await recall.run({
+        guild,
+        guildId,
+        channel,
+        selfId: self.id,
+        selfName,
+        history,
+        candidate: trigger,
+        server: classified.server,
+        decorate: (messages) => {
+          windows.push(messages);
+          return messages;
+        },
+      });
+      const matched = new Set(discordHits);
+      for (const window of trace?.record ?? []) if (window.kept) for (const hit of window.hitIds ?? []) matched.add(hit);
+      for (const row of trace?.meaning?.kept ?? []) if (row.kind === 'record') matched.add(row.id);
+      const confident = typeof found?.text === 'string' && found.text.length > 0;
+      return finish({
+        lookup,
+        ran: true,
+        skipped: trace?.skipped ?? null,
+        score: scoreQuestion(q, { windows, matched, confident }),
+        confident,
+        answer: found?.text ?? null,
+        summary: found?.stats?.summary ?? null,
+        stretch: found?.stretch ?? null,
+        windows: windows.map((w) => w.map((m) => ({ id: m.id, channelId: m.channelId ?? null, authorId: m.authorId ?? null, ts: m.ts ?? null, self: m.self === true, text: m.content ?? '' }))),
+        memory: trace?.memory ?? [],
+        stats: found?.stats ?? null,
+      });
+    } catch (err) {
+      return finish({ error: err?.name ?? 'Error', score: null });
+    }
+  }
+
+  let outcome;
+  try {
+    let index = 0;
+    outcome = await runQuestions(questions, {
+      limit,
+      maxUsd,
+      ask: (q) => ask(q, index++),
+      onResult: (r) =>
+        process.stderr.write(
+          `recall-eval: ${r.id} ${r.error ? `error ${r.error}` : `rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}`} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`,
+        ),
+    });
+  } finally {
+    if (connection) await connection.client.destroy().catch(() => {});
+    hot.close?.();
+  }
+
+  const summary = summarize(outcome.results);
+  const reportPath = evalPath(dataDir, 'runs', `${fileTime(now())}.json`);
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  const report = {
+    at: new Date(now()).toISOString(),
+    guildId,
+    questionsFile,
+    mode: { dry, discord: useDiscord },
+    stages,
+    settings: { recall: settings, meaningSearch: config.features?.meaningSearch === true, channelMessages: historyCount },
+    stopped: outcome.stopped,
+    skipped: outcome.skipped,
+    summary,
+    results: outcome.results,
+  };
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  return renderSummary(summary, { reportPath, stages, stopped: outcome.stopped, skipped: outcome.skipped });
+}
+
+runCli(import.meta.url, main);
