@@ -1,6 +1,9 @@
 /CLAUDE.md
 /AGENTS.md
 /.claude/
+/.opencode/
+/.agents/
+/.local.git/
 
 .env
 .env.*
