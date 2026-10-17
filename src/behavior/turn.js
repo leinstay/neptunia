@@ -52,6 +52,7 @@ import { parseLookupAnswer, recallSettings } from './recall.js';
 import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
 import { captionedEntries, gifPickSettings, parseGifPick, pickCandidates, pickContext, renderGifLibrary } from './gif-pick.js';
 import { turnRequestInput } from './turn-input.js';
+import { DEFAULT_RESULT_MAX_CHARS, tasksBlockText, taskResultText } from '../errands/blocks.js';
 import { parseJsonObject, parseOutput } from '../llm/parse.js';
 import { DailyCapError, REPLY_REQUEST, TokenLimitError, RETRY_STATUS, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
 import { ImageCapError, ImageGenError } from '../llm/images.js';
@@ -112,7 +113,7 @@ import { createDiscordAdapter } from '../interface/discord.js';
  * or to the room (`overheard`), a private chat message, the second turn
  * after a drawing that failed, or a message to the persona left unanswered
  * earlier (`missed`, src/behavior/missed.js). Each has a `labels.triggers` entry.
- * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'drawFailed'|'missed'} TriggerKind
+ * @typedef {'mention'|'reply'|'name'|'followUp'|'overheard'|'private'|'drawFailed'|'missed'|'task'} TriggerKind
  */
 
 /**
@@ -1034,11 +1035,12 @@ export function requesterOf(trigger, channel) {
  * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
  * profiles (only with memory on), her own id (`selfId`), the guild's roles, the request's channel
  * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name) and the skill registry
- * (`skills`: a derived skill's options are resolved by its command). Reads `store` only. Exported
+ * (`skills`: a derived skill's options are resolved by its command), and `fileOf` (a file handle
+ * of one of her errands -> the file, null when this conversation may not use it). Reads `store` only. Exported
  * for the replay's skill scenarios, which resolve a call exactly as a live turn does.
  * @returns {object}
  */
-export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills, channelHandles = null }) {
+export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills, channelHandles = null, fileOf = null }) {
   const conversations = [];
   const cache = channel?.guild?.channels?.cache;
   if (cache && typeof cache.values === 'function') {
@@ -1071,6 +1073,8 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
     selfId: selfId ?? null,
     roles,
     skills,
+    // A file handle of one of her errands (`file:<task id>/<name>`), resolved for this conversation.
+    ...(typeof fileOf === 'function' ? { fileOf } : {}),
   };
 }
 
@@ -1600,6 +1604,7 @@ export function createTurnRunner({
   runOwnCommand = null,
   around = null,
   reactors = null,
+  errands = null,
 }) {
   const busy = new Set();
   // The channels the default adapter may resolve by id without the client (the turn's own and a
@@ -1682,9 +1687,35 @@ export function createTurnRunner({
     return proposedRows(proposals, rows);
   }
 
+  /**
+   * The request's `errands` input (buildRequest): the `<tasks>` body -- her open errands and the
+   * finished ones she has not seen (`errands.view`: a private chat's only in that chat), the one
+   * `taskResult` brings left out -- and, on the turn an errand's end opened (`taskResult`, trigger
+   * kind `task`), the `<task_result>` body cut to `agents.resultMaxChars` (read now). The
+   * finished ones listed are noted in the draft (`tasksShown`) to be marked seen once the turn
+   * ran. Null when there is nothing to show.
+   */
+  function errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels, now, draft }) {
+    let shown = [];
+    try {
+      shown = typeof errands?.view === 'function' ? errands.view({ guildId, privateChannelId: isPrivate ? String(channel.id) : null }) : [];
+    } catch (err) {
+      log.warn('turn: tasks view failed', { channel: channel.id, error: err });
+    }
+    const listed = (Array.isArray(shown) ? shown : []).filter((task) => task?.id !== taskResult?.id);
+    const tasks = tasksBlockText(listed, labels, { now });
+    const result = taskResult ? taskResultText(taskResult, labels, { maxChars: config.agents?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS }) : '';
+    if (tasks && draft) {
+      draft.tasksShown = listed.filter((task) => task.state !== 'queued' && task.state !== 'running').map((task) => task.id);
+      draft.tasksGuildId = guildId;
+    }
+    return tasks || result ? { tasks, result } : null;
+  }
+
   /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, id and registry. */
   function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles = null }) {
-    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills(), channelHandles });
+    const fileOf = typeof errands?.fileOf === 'function' ? (handle) => errands.fileOf({ guildId, handle, privateChannelId: channel.guild ? null : String(channel.id) }) : null;
+    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills(), channelHandles, fileOf });
   }
 
   /**
@@ -1709,6 +1740,8 @@ export function createTurnRunner({
         lastRunAt: destructiveRuns.get(`${resolved.skill}:${envelope.originChannelId}`) ?? null,
         now: clock(),
         ...(images ? { images } : {}),
+        // An errand's caps are its budget (src/errands/service.js#budget), in the turn's guild.
+        ...(errands ? { tasks: { budget: (agent) => errands.budget({ guildId: channel.guild?.id ?? null, agent }) } } : {}),
       },
     });
     if (!verdict.ok) log.info('skill: refused', { skill: resolved.skill, code: verdict.code, reason: verdict.reason, channel: channel.id });
@@ -1788,7 +1821,7 @@ export function createTurnRunner({
           envelope,
           runCommand,
           runOwnCommand,
-          opContext: { guildId, channelId: String(channel.id) },
+          opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
           timeoutMs: hot.config.skills?.callTimeoutMs ?? 120000,
         });
       }
@@ -4748,6 +4781,11 @@ export function createTurnRunner({
     let result;
     try {
       result = await runTurnAttempt(args, draft);
+      // The finished errands her request showed are seen once a turn of hers ran with them
+      // (spoke or chose silence), never on a rehearsal.
+      if (draft.tasksShown?.length > 0 && (result?.outcome === 'spoke' || result?.outcome === 'skip') && result?.dryRun !== true) {
+        errands?.markSeen?.({ guildId: draft.tasksGuildId, ids: draft.tasksShown });
+      }
     } finally {
       // An attempt whose turn.start was written closes with its turn record at runTurn's exit,
       // whatever it returned (a throw counts as `error`).
@@ -4786,6 +4824,7 @@ export function createTurnRunner({
     missed = null,
     stillDue = null,
     requester: requesterParam = null,
+    taskResult = null,
   }, draft = {}) {
     // A server channel carries its guild; a private chat is served on behalf of the pinned one.
     const guildId = channel.guild?.id ?? guildIdParam;
@@ -5699,6 +5738,8 @@ export function createTurnRunner({
         skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
         // `<people_now>`'s live part: the voice and status snapshot (null: none).
         around: aroundInputFor({ channel, config, mode: finalMode, isPrivate }),
+        // `<tasks>` and `<task_result>`: her errands (none on a diary post).
+        errands: finalMode === 'diary' ? null : errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now, draft }),
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
         continuation: null,
       });

@@ -1,6 +1,6 @@
 # Commands
 
-One slash command, `/nep`, with 18 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
+One slash command, `/nep`, with 19 top-level entries. Every reply is ephemeral (only the caller sees it). Channels, roles and users are picked from Discord's own pickers. Several options autocomplete: `set`/`unset` autocomplete `path`, `access grant`/`access revoke` autocomplete `command`, `model set` autocompletes `id` (the model ids in use), `route set`/`route remove` autocomplete `model`, and `memory restore` autocompletes `id` (the newest archive entries).
 
 ## Access
 
@@ -96,8 +96,12 @@ A group name or `*` stores the read operations under it, one entry each, the sam
 
 ## Member commands
 
-`/nep pings` is the one command every server member may run without a `bot.access` grant. `features.memberCommands: false` restricts it to owners.
+`/nep pings` and the `/nep task` group are the commands every server member may run without a `bot.access` grant. `features.memberCommands: false` restricts them to owners.
 
 | Command | What it does |
 |---|---|
 | `/nep pings [mode]` | Show or change whether the persona's messages notify you. Without `mode`: your current setting. `on` / `off`: set the preference. When off, replies to your messages carry no reply ping and @mentions of you in the persona's text still render but send no notification. The wording is the same either way. Ephemeral reply: `Pings: on` or `Pings: off`. Stored per server, survives restarts, cleared by `/nep memory wipe` |
+| `/nep task run <agent:web\|server> <goal>` | Hand an errand to one of the persona's agents ([Errand agents](agents.md)): `web` searches the internet, reads pages and downloads files; `server` reads this machine and is for owners only (`owner-only` for anyone else). Answers at once with the task id and `queued`; the errand runs in the background, and when it ends the persona gets her own turn where it was asked, with the result. Refused when a cap is reached: `cap-open` (`agents.maxOpen`), `cap-tasks` / `cap-usd` (`agents.<agent>.daily`), or `not-configured` when the agent is not enabled. Operation `task.run` (paid) |
+| `/nep task status [id]` | One task (state, age, goal, the size of its result, its usage), or every open one. A task asked in a private chat is shown only to its requester and owners. Operation `task.status` |
+| `/nep task cancel <id>` | Cancel an open task; only its requester or an owner (`not-requester` otherwise). Operation `task.cancel` |
+| `/nep task list` | The latest ten tasks, newest first. Operation `task.list` |

@@ -64,6 +64,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'skillsInventory',
   'skillsGranted',
   'around',
+  'errands',
   'continuation',
 ]);
 

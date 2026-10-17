@@ -135,6 +135,7 @@ export const SANDBOX_OMITS = Object.freeze({
   skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
   around: 'a replay has no live gateway: no voice channels or statuses, so <people_now> has no live fields (its fields from memory stay)',
   skillsGranted: 'no skill registry: no <skills_granted> block of her granted skills (a skill scenario hands them in: SKILL_SCENARIO_OMITS)',
+  errands: 'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -732,6 +733,8 @@ export function sandboxRequestInput({
     skillsGranted: Array.isArray(skillsGranted) && skillsGranted.length > 0 ? skillsGranted : null,
     // A skill scenario's turn continued after her call (answerSkillScenario); null otherwise.
     continuation: continuation && typeof continuation.skill === 'string' ? { skill: continuation.skill } : null,
+    // Absent: a replay has no task store, so no errands of hers (SANDBOX_OMITS).
+    errands: null,
   };
 }
 

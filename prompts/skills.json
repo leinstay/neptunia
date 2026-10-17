@@ -278,5 +278,25 @@
     "title": "Remove your reaction",
     "whenToUse": "Take back one of your own reactions from a message; takes a #N or a message link.",
     "whenNotToUse": "Only your own reactions."
+  },
+  "task.run": {
+    "title": "Hand off an errand",
+    "whenToUse": "Give an agent a job that takes a while: web searches the internet, reads pages, looks at pictures and downloads files; server reads this machine. You get the result later in a turn of your own; costs money.",
+    "whenNotToUse": "Not for what you can answer now; server only when an owner asks; daily and open-task limits apply."
+  },
+  "task.status": {
+    "title": "Check an errand",
+    "whenToUse": "Read the state of one errand by its id, or of the open ones.",
+    "whenNotToUse": "Open and newly finished errands are already in your tasks block."
+  },
+  "task.cancel": {
+    "title": "Cancel an errand",
+    "whenToUse": "Stop an open errand by its id.",
+    "whenNotToUse": "Only for its requester or an owner; a finished errand cannot be cancelled."
+  },
+  "task.list": {
+    "title": "List errands",
+    "whenToUse": "Read the latest ten errands with their states.",
+    "whenNotToUse": "Does not show their results."
   }
 }

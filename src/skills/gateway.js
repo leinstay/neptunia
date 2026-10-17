@@ -5,7 +5,8 @@
 // checked, in that order, right before execution (the operation then applies its own rules when
 // it runs). The effects of her ordinary reply pass `checkReplyEffect`, carried over. Pure: the
 // caller passes the live config (her grants included, `bot.access`) read at the moment of use,
-// the bot's own user id, and the image client whose daily caps are the drawing budget. Codes are
+// the bot's own user id, the image client whose daily caps are the drawing budget, and the errand
+// tasks whose caps are an errand's budget (src/errands/store.js#budget). Codes are
 // kebab-case; `reason` is a short machine-readable detail (a schema path, a config key, an ops
 // refusal code), never wording.
 
@@ -66,11 +67,15 @@ function requesterRefusal(skill, requester, context) {
 }
 
 /**
- * The budget of each paid skill: a function of the call's context and requester answering the
- * caps as src/llm/images.js#quota does (`{ spent, userSpent }`), or null when unavailable.
+ * The budget of each paid skill: a function of the call's context, requester and arguments
+ * answering the caps as src/llm/images.js#quota does (`{ spent, userSpent }`; `code` and `key`
+ * naming the refusal and the cap that is spent when they are not the drawing's), or null when
+ * unavailable.
  */
 const drawBudget = (context, requester) => (typeof context?.images?.quota === 'function' ? context.images.quota({ userId: requester?.id ?? null }) : null);
-const BUDGETS = Object.freeze({ 'draw.create': drawBudget });
+/** An errand's budget: its agent's caps (open tasks, tasks and dollars a day), `context.tasks`. */
+const taskBudget = (context, requester, args) => (typeof context?.tasks?.budget === 'function' ? context.tasks.budget(args?.agent) : null);
+const BUDGETS = Object.freeze({ 'draw.create': drawBudget, 'task.run': taskBudget });
 
 /** Minutes between two destructive calls from one channel (`skills.destructiveCooldownMinutes`; config.json's value). */
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
@@ -87,11 +92,11 @@ function cooldownRefusal(skill, context) {
 }
 
 /** Null when a paid skill still has budget today, else the refusal. Fails closed. */
-function budgetRefusal(skill, requester, context) {
+function budgetRefusal(skill, requester, context, args) {
   if (skill.costClass !== 'paid') return null;
-  const budget = Object.hasOwn(BUDGETS, skill.name) ? BUDGETS[skill.name](context, requester) : null;
+  const budget = Object.hasOwn(BUDGETS, skill.name) ? BUDGETS[skill.name](context, requester, args) : null;
   if (!budget || typeof budget !== 'object') return refused('no-budget', 'unavailable');
-  if (budget.spent === true) return refused('daily-cap', 'image.maxPerDay');
+  if (budget.spent === true) return refused(typeof budget.code === 'string' && budget.code ? budget.code : 'daily-cap', typeof budget.key === 'string' && budget.key ? budget.key : 'image.maxPerDay');
   if (budget.userSpent === true) return refused('daily-cap', 'image.maxPerUserPerDay');
   return null;
 }
@@ -109,7 +114,7 @@ function budgetRefusal(skill, requester, context) {
  * the operation's own rule (src/ops/message.js), checked when it runs. Never throws.
  * @param {{ skill: string, args: object, principal: { kind: string }, requester: { id: string, roleIds?: string[] } | null,
  *   audience: { conversationId: string, memberIds?: string[] }, context: { config: object, selfId?: string,
- *   images?: object, registry?: Map<string, object>, getOp?: Function, mixedRequesters?: boolean,
+ *   images?: object, tasks?: { budget(agent: string): object|null }, registry?: Map<string, object>, getOp?: Function, mixedRequesters?: boolean,
  *   lastRunAt?: number|null, now?: number } }} call
  * @returns {{ ok: true } | { ok: false, code: string, reason: string }}
  */
@@ -132,7 +137,7 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
   const argsError = schemaError(args, skill.argsSchema);
   if (argsError) return refused('invalid-args', argsError);
 
-  return requesterRefusal(skill, requester, context) ?? cooldownRefusal(skill, context) ?? budgetRefusal(skill, requester, context) ?? { ok: true };
+  return requesterRefusal(skill, requester, context) ?? cooldownRefusal(skill, context) ?? budgetRefusal(skill, requester, context, args) ?? { ok: true };
 }
 
 /**

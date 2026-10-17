@@ -117,6 +117,9 @@ function makeProfile({ name, agentId, promptFiles, envNames, defaultModel, defau
     defaultLimits,
     defaultDaily,
     defaultSearchProvider,
+    // Where the runner listens and writes its files when `agents.<profile>.socket` / `.out` are unset.
+    defaultSocket: `/run/neptunia-agent-${name}/sock`,
+    defaultOut: `/var/lib/neptunia-agent-${name}/out`,
     /**
      * The OpenCode config (V1 shape) for one task, to pass as
      * OPENCODE_CONFIG_CONTENT. `providerModel` is `provider/model`; `cost`

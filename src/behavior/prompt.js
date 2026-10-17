@@ -1171,7 +1171,8 @@ function nowBlock(now, timezone, labels, periods) {
  * user text. `cacheSegment` is a neutral tag: src/llm/openrouter.js#withCacheMarker
  * turns it into the provider's marker under the cache policy and never sends it.
  * Factored out so a fallback rendering (see `textFallback` below) can reuse
- * every block untouched except `<chat>`. `diary` (a diary post only): the
+ * every block untouched except `<chat>`. `errands`: the `<tasks>` and `<task_result>` bodies
+ * (buildRequest's `input.errands`), in the tail before `<people_now>`. `diary` (a diary post only): the
  * `<diary>` block's intro, shown above its kept lines, the `<plan>` body and
  * the `<seeds>` body (a set post's seed combinations, right after the plan).
  * A pulled channel's lines never carry
@@ -1180,7 +1181,7 @@ function nowBlock(now, timezone, labels, periods) {
  * the chat (see `textFallback`).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null }) {
+function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null }) {
   const stable = [
     block('senses', senses.stable),
     // How the persona's skills reach her: static text, so a grant never changes this part.
@@ -1224,6 +1225,9 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('lookup', (kept.lookup ?? []).join('\n')),
     // The persona's skills with her access here, when she was asked what she can do.
     block('skills', (kept.skills ?? []).join('\n')),
+    // Her errands under way or newly finished, then the one whose end opened this turn: per turn (ages move).
+    block('tasks', errands?.tasks ?? ''),
+    block('task_result', errands?.result ?? ''),
     // What is current about each person: the live snapshot and what changes from turn to turn
     // in memory. Tail only, right before the chat.
     block('people_now', (kept.peopleNow ?? []).join('\n')),
@@ -2762,6 +2766,11 @@ function seenOf({ history, keptChat, pictures }) {
  *   `labels.peopleNow.lead` and the notices (liveNotices) open the block when it has an entry,
  *   the entries separated by a blank line. `features.around` off, a private chat, a diary post,
  *   an omitted or null input or no `labels.peopleNow`: no live fields, the fields of memory alone.
+ * @param {{ tasks?: string, result?: string }|null} [input.errands]  The persona's errands
+ *   (src/errands/blocks.js, rendered by the turn): `tasks`, the `<tasks>` block's body (her open
+ *   errands and the finished ones she has not seen), and `result`, the `<task_result>` block's
+ *   body on the turn an errand's end opened. Both sit in the tail right before `<people_now>`,
+ *   paid for with the fixed part and never cut; '' or a missing key leaves its block out.
  * @param {{ skill: string }|null} [input.continuation]  The same turn continued after the
  *   persona's skill call (src/behavior/turn.js#followUp under continuesTurn): the request is the
  *   turn's own, rebuilt over the turn's history as it stands now (her lines of the turn with the
@@ -3115,6 +3124,8 @@ export function buildRequest(input) {
     ...pulledChannels.filter((channel) => channel.entry.readOnly === true).map((channel) => channel.channelId),
   ]);
 
+  // `<tasks>` and `<task_result>`: rendered by the turn (src/errands/blocks.js), never cut.
+  const errandsText = { tasks: typeof input.errands?.tasks === 'string' ? input.errands.tasks : '', result: typeof input.errands?.result === 'string' ? input.errands.result : '' };
   const caps = config.context.caps;
   const cost = sectionCost(calibrator);
   const limit = requestTokenLimit(config) - pictures.length * (visionCfg.tokensPerImage ?? 400) - TAG_OVERHEAD;
@@ -3173,9 +3184,9 @@ export function buildRequest(input) {
   const fixedSection = {
     name: 'fixed',
     required: true,
-    // The skills granted to her, the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro and the
-    // interlocutor's `<people_now>` entry are never cut.
-    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed].filter(Boolean)],
+    // The skills granted to her, the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro, the
+    // interlocutor's `<people_now>` entry and her errands' blocks are never cut.
+    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed, errandsText.tasks, errandsText.result].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -3737,7 +3748,7 @@ export function buildRequest(input) {
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
   const seen = seenOf({ history, keptChat, pictures });
-  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts });
+  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText });
 
   // A provider that rejects the images (see src/behavior/turn.js's 4xx
   // retry) must never resend a <chat> claiming a picture is attached with
@@ -3754,7 +3765,7 @@ export function buildRequest(input) {
   if (pictures.length) {
     const chatItemsBlind = formatTranscript(history, { ...formatOptions, attachedIndex: undefined });
     const keptChatBlind = chatItemsBlind.slice(chatItemsBlind.length - kept.chat.length);
-    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts });
+    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts, errands: errandsText });
   }
 
   // A sticker's URL is already fully sized (see src/discord/media.js

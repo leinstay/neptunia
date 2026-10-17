@@ -22,8 +22,14 @@ import { SELF_OWNED_OPS } from '../ops/effects.js';
 /** The options whose value may be a transcript number `#N`: a message she can see. */
 const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
 
-/** The operations whose success is its own answer: a message or a picture that went out. */
-export const QUIET_ON_OK = Object.freeze(['message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'draw.create']);
+/** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
+const FILE_OPTIONS = Object.freeze(['file']);
+
+/**
+ * The operations whose success is its own answer: a message or a picture that went out, and an
+ * errand accepted (its id is in her `<tasks>` block from her next turn on; she does not wait).
+ */
+export const QUIET_ON_OK = Object.freeze(['message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'draw.create', 'task.run']);
 
 /** The operations whose `text` is the persona's own writing, posted as a `<msg>` of hers is (mentions, custom emoji, links). */
 const WRITTEN = Object.freeze(['message.create', 'message.edit']);
@@ -35,7 +41,7 @@ export const RESULT_STATUSES = Object.freeze(['ok', 'denied', 'not_configured', 
 const NOT_CONFIGURED_CODES = Object.freeze(['not-configured', 'unsupported', 'no-guild']);
 
 /** The refusal codes of a call that was not right, as opposed to a rule that said no. */
-const INVALID_CODES = Object.freeze(['invalid-args', 'unknown-skill', 'unknown-member', 'unknown-message', 'target-ambiguous', 'unknown-op', 'not-found']);
+const INVALID_CODES = Object.freeze(['invalid-args', 'unknown-skill', 'unknown-member', 'unknown-message', 'unknown-file', 'target-ambiguous', 'unknown-op', 'not-found']);
 
 /** Milliseconds a call may run before its outcome is `unknown` (`skills.callTimeoutMs`; config.json's value). */
 const CALL_TIMEOUT_MS = 120_000;
@@ -161,7 +167,8 @@ export function bodyArguments(body, names) {
  * `target-ambiguous` (a channel name several share), `unknown-member` (no stored profile by that
  * name, or several), `unknown-message` (a `#N` not in this turn's transcript, or in another
  * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
- * is not hers). A `#N` of a `message` or `reply` option becomes the line's message id and, when
+ * is not hers), `unknown-file` (a `file` handle that names no file of an errand of hers this
+ * conversation may see, `view.fileOf`). A `#N` of a `message` or `reply` option becomes the line's message id and, when
  * the command has a `channel` option the call left out, its channel; a reply records the replied
  * author. A Discord message link there (MESSAGE_LINK_RE, bare or in angle brackets) becomes its
  * message id and names its channel the same way (`unknown-message` when the call named another);
@@ -177,7 +184,7 @@ export function bodyArguments(body, names) {
  * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[], channelHandles?: Map<string, string>|null,
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
- *   selfId?: string|null }} view
+ *   selfId?: string|null, fileOf?: (handle: string) => object|null }} view
  * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyIgnored?: true, bodyArgs?: number }
  *   | { ok: false, code: string, reason: string }}
  */
@@ -240,6 +247,13 @@ export function resolveCall(call, view) {
         break;
       }
       default: {
+        // A file handle must name a file of one of her errands this conversation may see.
+        if (FILE_OPTIONS.includes(option)) {
+          const file = typeof view?.fileOf === 'function' ? view.fileOf(text) : null;
+          if (!file) return refused('unknown-file', option);
+          args[option] = text;
+          break;
+        }
         const n = MESSAGE_OPTIONS.includes(option) ? transcriptNumber(text) : null;
         // A message link (in angle brackets too) names the message and its channel.
         const link = MESSAGE_OPTIONS.includes(option) && n === null ? MESSAGE_LINK_RE.exec(text.replace(/^<(.*)>$/, '$1')) : null;
@@ -370,6 +384,8 @@ export async function executeCall(resolved, deps) {
       roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
       actor: 'persona',
       ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
+      // The message her turn answers: where an errand she starts brings its result back (src/ops/task.js).
+      ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0 ? { sourceMessageId: String(envelope.sourceMessageIds[0]) } : {}),
       ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),
       ...(mentionUserIds.length > 0 ? { mentionUserIds } : {}),
     }), deps.timeoutMs ?? CALL_TIMEOUT_MS);

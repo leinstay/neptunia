@@ -53,6 +53,10 @@ import { createPageFetcher } from './web/fetch-page.js';
 import { createBraveSearch } from './web/brave.js';
 import { createLookup } from './web/lookup.js';
 import { createAdmin } from './admin.js';
+import { createErrandClient } from './errands/client.js';
+import { createTaskStores } from './errands/store.js';
+import { createErrandService } from './errands/service.js';
+import { createTaskTurns } from './errands/turns.js';
 import { skillRegistry } from './skills/registry.js';
 import { createDiscordAdapter } from './interface/discord.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
@@ -319,6 +323,12 @@ const activity = createActivity();
 // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
 // after the skill gateway (src/skills/gateway.js) let the call pass.
 const iface = createDiscordAdapter({ client });
+// The persona's errands (agents.*): a task she or a member asks for goes to its agent runner over
+// its socket in the background (src/errands/); the tasks live in data/guilds/<id>/tasks.json.
+const errandClient = createErrandClient({ hot, log });
+const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal, log });
+// An errand's end opens her own turn where it was asked (the task turns, created below the runner).
+const errands = createErrandService({ client: errandClient, stores: taskStores, hot, getGuildId, log, onFinished: (task, guildId) => taskTurns.onFinished(task, guildId) });
 const turns = createTurnRunner({
   hot,
   store,
@@ -347,6 +357,8 @@ const turns = createTurnRunner({
   runCommand: (key, args, context) => admin.runCommand(key, args, context),
   // Her own messages, drawings and diary run on her grant alone (src/ops/effects.js#SELF_OWNED_OPS).
   runOwnCommand: (key, args, context) => admin.runOwnCommand(key, args, context),
+  // `<tasks>`: her open and newly finished errands; an errand's caps are its skill's budget.
+  errands,
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
@@ -374,6 +386,8 @@ const memory = createMemoryUpdater({
   // A status line for the development channel (bot.dryRunChannelId, read now).
   notify: (text) => mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header: 'memory', body: text }),
 });
+// The turn an errand's end opens, through the one attention and a cooldown per conversation.
+const taskTurns = createTaskTurns({ hot, client, turns, errands, getGuildId, log });
 const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
@@ -424,6 +438,8 @@ const admin = createAdmin({
   client,
   // /nep message and /nep draw channel: post through the persona's interface, as her.
   port: iface,
+  // /nep task: the persona's errands.
+  errands,
   spontaneous,
   // /nep diary: the day plan, a forced post.
   diary,
@@ -695,6 +711,10 @@ client.once(Events.ClientReady, async () => {
   // last hour once the forgets are settled; a sweep armed where a candidate waits.
   await startupStep('missed.start', () => missed.start(instance.guildId));
 
+  // The errands a restart left open: their runner can no longer answer this process, so they fail
+  // (`restarted`) and show in her `<tasks>` block as failed.
+  await startupStep('errands.start', () => errands.start(instance.guildId), { wait: true });
+
   // The meaning index caught up with what the record took while the queue was down (the last
   // embed.catchUpHours), once the forgets are settled. Fire-and-forget; nothing while paused or
   // with the switches off.
@@ -837,6 +857,8 @@ async function shutdown(signal) {
   diary.stop();
   onMessage.stop();
   missed.stop();
+  errandClient.close();
+  taskTurns.stop();
   await missed.save().catch((err) => log.warn('index: missed registry not saved', { error: err }));
   // The embedding queue flushes what waits once (a short wait at most), before the stores close.
   await embedQueue.close().catch((err) => log.warn('index: embed queue close failed', { error: err }));
