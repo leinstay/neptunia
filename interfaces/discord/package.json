@@ -5,5 +5,8 @@
   "private": true,
   "type": "module",
   "exports": "./index.js",
+  "dependencies": {
+    "discord.js": "^14.27.0"
+  },
   "license": "MIT"
 }

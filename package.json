@@ -21,8 +21,9 @@
     "dev": "node --watch src/index.js",
     "test": "node --test"
   },
-  "dependencies": {
-    "discord.js": "^14.27.0"
-  },
+  "workspaces": [
+    "packages/*",
+    "interfaces/*"
+  ],
   "license": "MIT"
 }
