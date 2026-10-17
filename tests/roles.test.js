@@ -15,7 +15,7 @@ import { MEMORY_VOICE_REQUEST, REPLY_REQUEST, cacheTtlFor, hedgeSettings, resolv
 import { EMBED_ROLE } from '../src/llm/embed.js';
 import { IMAGE_ROLE } from '../src/llm/images.js';
 import { warmupRoute } from '../src/memory/warmup.js';
-import { MODEL_SET_ROLES } from '../src/discord/commands.js';
+import { MODEL_SET_ROLES } from '../src/ops/catalog.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

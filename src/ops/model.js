@@ -2,7 +2,7 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { MODEL_ROLES, MODEL_SET_PATHS, MODEL_SET_ROLES } from '../discord/commands.js';
+import { MODEL_ROLES, MODEL_SET_PATHS, MODEL_SET_ROLES } from './catalog.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { AGENT_ROLES, roleModel } from '../llm/roles.js';
 import { onOff, reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.js';

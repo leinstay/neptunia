@@ -2,7 +2,7 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { leafPaths } from '../discord/commands.js';
+import { leafPaths } from './catalog.js';
 import { isOwnerId } from './grants.js';
 import { governsPersona } from './rights.js';
 import { splitPath, unsetPath, ownValueAt, jsonTypeOf, withArticle, touchesOwnerOnlyConfig, reloadNote } from './shared.js';
@@ -25,7 +25,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep set`: one leaf of the live config (a path autocomplete offers, src/discord/commands.js
+   * `/nep set`: one leaf of the live config (a path autocomplete offers, src/ops/catalog.js
    * #leafPaths, walked over own keys only) overridden in config.local.json. The value is JSON, or
    * the raw text when it does not parse -- or when the setting is a string, so an id typed bare
    * stays text. Its JSON type must be the current one's (any type when the current is null).

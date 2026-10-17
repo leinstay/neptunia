@@ -68,7 +68,8 @@ import { normalizeOptions, reactionEvent, toEvent } from './discord/collect.js';
 import { validateEvent } from './protocol.js';
 import { resolveGuild } from './discord/guild.js';
 import { createAudienceWarmer } from './discord/audience-warm.js';
-import { isValidCommandName, registerCommands, createInteractionHandler } from './discord/commands.js';
+import { registerCommands, createInteractionHandler } from './discord/commands.js';
+import { isValidCommandName } from './ops/catalog.js';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate', 'memory'];
 

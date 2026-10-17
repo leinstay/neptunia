@@ -9,7 +9,7 @@ import path from 'node:path';
 import { emptyAffinity, affinityBand, roundScore } from '../memory/index.js';
 import { topByRank } from '../memory/ranking.js';
 import { fromTokens, MESSAGE_LINK_RE } from '../memory/mentions.js';
-import { MODEL_ROLES } from '../discord/commands.js';
+import { MODEL_ROLES } from './catalog.js';
 import { roleModel } from '../llm/roles.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { oneLine } from '../memory/clamp.js';

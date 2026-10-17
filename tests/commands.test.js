@@ -8,19 +8,21 @@ import { MessageFlags } from 'discord.js';
 
 import {
   buildCommandTree,
-  isValidCommandName,
   registerCommands,
   createInteractionHandler,
-  leafPaths,
   commandKeys,
+  commandEvent,
+} from '../src/discord/commands.js';
+import {
+  isValidCommandName,
+  leafPaths,
   commandSize,
   COMMAND_TABLE,
   MODEL_ROLES,
   MODEL_SET_ROLES,
   STATUS_FIELDS,
   readFlag,
-  commandEvent,
-} from '../src/discord/commands.js';
+} from '../src/ops/catalog.js';
 import { validateEvent } from '../src/protocol.js';
 import { isAllowed as accessIsAllowed } from '../src/ops/grants.js';
 import { resolveCommand, asResult, listOps } from '../src/ops/index.js';

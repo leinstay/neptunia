@@ -9,7 +9,7 @@
 // operation is a skill whose arguments are its command's options.
 
 import { log } from '../log.js';
-import { COMMAND_TABLE } from '../discord/commands.js';
+import { COMMAND_TABLE } from './catalog.js';
 import { commandSources } from '../skills/derive.js';
 import { useCommandTree } from '../skills/registry.js';
 import { OpError, STATUSES, getOp, listOps } from './registry.js';
@@ -64,7 +64,7 @@ const byAction = (actions) => byOption('action', actions);
 const byKind = (kinds) => byOption('kind', kinds);
 
 /**
- * The command keys of the tree (src/discord/commands.js#COMMAND_TABLE, `<group>.<name>` or a bare
+ * The command keys of the tree (src/ops/catalog.js#COMMAND_TABLE, `<group>.<name>` or a bare
  * `<name>`) -> operation: an operation name (same arguments), or `(args) => ({ op, args })` where
  * the arguments pick the operation (`media`, `memory.private` and `message.react` by `action`, `memory.refresh`
  * by `kind`, `pings` by `mode`), or `{ invalid }` when they cannot. A key not listed

@@ -11,7 +11,7 @@
 // owner. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line.
 
 import { isOwnerId } from './grants.js';
-import { TASK_AGENTS } from '../discord/commands.js';
+import { TASK_AGENTS } from './catalog.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';

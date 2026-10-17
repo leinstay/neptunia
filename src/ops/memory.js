@@ -18,7 +18,7 @@ import {
   DEFAULT_VAULT_DIR,
   SNAPSHOTS_DIR,
 } from '../memory/index.js';
-import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from '../discord/commands.js';
+import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.js';
 import { isOwnerId } from './grants.js';
 import { effectiveAffinity, privateRepliesToday } from '../behavior/private.js';
 import { PAGE } from '../discord/collect.js';
@@ -36,7 +36,7 @@ const handlers = perEnv((env) => {
 
   /**
    * Sectioned, human-readable view of one member's profile — see
-   * src/discord/commands.js#MEMORY_SHOW_SECTIONS for the choices and the header
+   * src/ops/catalog.js#MEMORY_SHOW_SECTIONS for the choices and the header
    * comments of `buildProfileSummary`/`orderedSectionLines`/
    * `rawMemoryShowView` for what each section does. `section` defaults to
    * `'summary'`; `order` to `'rank'`; `limit` to 25 (1..100) — anything else

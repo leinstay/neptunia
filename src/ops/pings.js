@@ -2,7 +2,7 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { PINGS_MODES } from '../discord/commands.js';
+import { PINGS_MODES } from './catalog.js';
 import { log } from '../log.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
