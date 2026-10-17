@@ -65,7 +65,8 @@ export function leaseSeconds(limits) {
  * The args of `task.add` for a queued errand: the `errand` lane, no project, the goal as the
  * description and (cut to TITLE_CHARS) the title, the asker as `persona:<userId>` (`persona:self`
  * for her own errand), the agent as the role, the conversation as the subscriber
- * (`core:<guildId>:<channelId>`), and `{ coreId, scope, agent }` as metadata.
+ * (`core:<guildId>:<channelId>`), and `{ coreId, scope, agent }` as metadata (with `adult: true`
+ * for an adult errand).
  */
 export function addArgs(task, guildId) {
   const channel = task.origin?.channelId ?? null;
@@ -77,7 +78,7 @@ export function addArgs(task, guildId) {
     requester: `persona:${task.requester?.userId ?? 'self'}`,
     role: task.agent,
     subscriber: channel ? `core:${guildId}:${channel}` : `core:${guildId}`,
-    metadata: { coreId: task.id, scope: task.scope, agent: task.agent },
+    metadata: { coreId: task.id, scope: task.scope, agent: task.agent, ...(task.adult === true ? { adult: true } : {}) },
   };
 }
 

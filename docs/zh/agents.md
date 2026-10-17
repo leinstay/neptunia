@@ -53,7 +53,7 @@
 每个工作器作为独立的 systemd 服务和 Unix 用户运行（`deploy/neptunia-agent-web.service`、`deploy/neptunia-agent-server.service`；安装说明在 unit 头部）：
 
 - `neptunia-agent-web`：有网络；到 localhost 和私有范围的出站流量被 unit（`IPAddressDeny=`）和代码拒绝。文件系统除状态目录外只读（`ProtectSystem=strict`、`ProtectHome=yes`、`InaccessiblePaths=` 用于 `/srv`、机器人的数据和 `.env`、`/var/www`、nginx 和 Let's Encrypt）。
-- `neptunia-agent-server`：网络仅限本地解析器和模型 API（`IPAddressDeny=any` 加 Cloudflare 范围的 `IPAddressAllow=`（OpenRouter 所在地）；shell 在允许列表之上还拒绝 `find -exec`、`awk` 网络路径和 `gawk`）。整个系统只读（`ProtectSystem=strict`，除状态目录外无写入路径）。它拥有 `CAP_DAC_READ_SEARCH`，无需 root 即可读取任何文件。只读保证由 unit 提供，而非命令过滤器。
+- `neptunia-agent-server`：网络仅限本地解析器和模型 API（`IPAddressDeny=any` 加 Cloudflare 范围的 `IPAddressAllow=`（OpenRouter 所在地）；shell 在允许列表之上还拒绝 `find -exec`、`awk` 网络路径和 `gawk`）。整个系统只读（`ProtectSystem=strict`，除状态目录和私有 `/tmp` 外无写入路径）；其唯一的写入命令 `cp` 只能将文件复制到任务文件夹中，文件从那里作为结果文件返回，而在过滤范围中，隐藏路径对 `cp` 的拒绝与对 `cat` 相同。它拥有 `CAP_DAC_READ_SEARCH`，无需 root 即可读取任何文件。只读保证由 unit 提供，而非命令过滤器。
 
 两者均由 `bin/agent-runner.mjs --profile <name>` 启动。它们从配置的 `agents.<profile>` 读取上限、模型价格和 socket，从 `agent.web` 和 `agent.server` 模型角色读取模型（通过 `/nep model set` 设置，每个任务重新读取；`run` 可以携带自己的 `model`）。设置详见[配置: `agents`](configuration.md#agents)。
 
@@ -73,14 +73,14 @@ unit 的 `EnvironmentFile`（`/etc/neptunia/agent-<profile>.env`，root 所有�
 
 核心到运行器：
 
-- `{ "op": "run", "id", "goal", "context": { "scope", "channel", "asker", ... }, "limits": { "steps", "usd", "seconds" }, "tools": [...], "model"?, "cost"?, "searchProvider"?, "secrets"?: { "openrouterKey", "proxy"?, "searchKey"? } }`（`secrets`：非空字符串，无其他键；被拒绝的 `run` 只返回错误码，不返回值）
+- `{ "op": "run", "id", "goal", "context": { "scope", "channel", "asker", ... }, "limits": { "steps", "usd", "seconds" }, "tools": [...], "model"?, "cost"?, "searchProvider"?, "secrets"?: { "openrouterKey", "proxy"?, "searchKey"? }, "preamble"? }`（`secrets`：非空字符串，无其他键；被拒绝的 `run` 只返回错误码，不返回值；`preamble`：下述共享前导语，裁剪后不超过 8000 字符的字符串，否则 run 以 `bad-preamble` 或 `preamble-too-long` 拒绝）
 - `{ "op": "cancel", "id" }`
 - `{ "op": "ping", "ids": [...] }`
 
 运行器到核心：
 
 - `{ "id", "event": "progress", "step", "tool", "note" }`：任务执行中发送；
-- 一次 `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }], "withheld"?: [path...] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }`（`withheld`：在过滤范围内代理被拒绝的路径，最多 50 个）；
+- 一次 `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }], "withheld"?: [path...], "filesDropped"?: [{ "name", "reason" }] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }`（`withheld`：在过滤范围内代理被拒绝的路径，最多 50 个；`filesDropped`：运行器未交付的结果文件，原因 `withheld` 表示过滤范围运行访问了隐藏路径（此时不交付任何文件），`secret` 表示不超过 2 MB 的文本文件包含秘密，适用于所有范围）；
 - `{ "event": "pong", "profile", "busy", "queued" }`：对 `ping` 的响应。
 
 重启过的运行器对它不再认识的 `ping` 中的 id 返回 `status: "failed", error: "restarted"` 的 `end`，使核心停止等待。收到 `SIGTERM` 时，运行器以同样方式结束所有开放任务并退出。输出文件放在 `<out>/<id>/` 中，核心在 `agents.keepFilesHours` 后删除它们。
@@ -97,6 +97,8 @@ unit 的 `EnvironmentFile`（`/etc/neptunia/agent-<profile>.env`，root 所有�
 ## 任务如何运行
 
 每个任务是配置文件输出目录下新工作目录中的一个 `opencode run` 子进程，禁用了项目/`.claude` 配置、自动更新和价格目录获取，确保服务器上的信息不会泄露到工作器中。引擎构建 OpenCode 配置（来自 `agents/<profile>/prompt.md` 或部署的 `prompts.local/agent-<profile>.md` 的代理提示词、步骤上限、范围的权限规则集、模型及其成本）并通过 `OPENCODE_CONFIG_CONTENT` 传递。子进程输出 JSON 事件流；运行器汇总每步的成本和 token，转发进度，将最终助手文本作为结果，列出代理保存的文件，并在达到上限时停止子进程。基于 OpenCode v1.19.3 构建。
+
+部署可以为每个差遣代理提供一份共享前导语：可选文件 `prompts.local/agents.md`（没有受追踪的默认值；没有该文件或文件为空时不产生任何变化）。核心通过实时提示词加载器读取该文件，因此编辑无需重启即可到达下一个任务，并将其文本作为 `run` 消息的 `preamble` 随每个任务发送。运行器将其置于代理系统提示词的最前面，后接空行和代理自身的提示词。运行器从不为此读取 `prompts.local/`：只有核心读取该文件，因此 unit 将私有目录排除在运行器访问范围之外的运行器仍能获得前导语。前导语不会被记录到日志中；核心的 `errands: sent` 行仅包含其长度。
 
 ## 角色一侧
 

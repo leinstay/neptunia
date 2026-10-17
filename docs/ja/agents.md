@@ -53,7 +53,7 @@
 各ワーカーは独自の systemd サービスと Unix ユーザーとして動作します（`deploy/neptunia-agent-web.service`, `deploy/neptunia-agent-server.service`。インストール手順はユニットヘッダーに記載）:
 
 - `neptunia-agent-web`: ネットワークあり。localhost およびプライベート範囲への送信はユニット（`IPAddressDeny=`）とコードで拒否されます。ファイルシステムはステートディレクトリを除き読み取り専用です（`ProtectSystem=strict`, `ProtectHome=yes`, `InaccessiblePaths=`（`/srv`、ボットのデータと `.env`、`/var/www`、nginx、Let's Encrypt 用））。
-- `neptunia-agent-server`: ネットワークはローカルリゾルバとモデル API のみ（`IPAddressDeny=any` + Cloudflare のレンジの `IPAddressAllow=`（OpenRouter の所在地）。シェルは許可リストに加えて `find -exec`、`awk` のネットワークパス、`gawk` も拒否します）。システム全体が読み取り専用です（`ProtectSystem=strict`、ステートディレクトリ以外に書き込みパスなし）。`CAP_DAC_READ_SEARCH` を持ち、root なしで任意のファイルを読めます。読み取り専用の保証はコマンドフィルターではなくユニットが提供します。
+- `neptunia-agent-server`: ネットワークはローカルリゾルバとモデル API のみ（`IPAddressDeny=any` + Cloudflare のレンジの `IPAddressAllow=`（OpenRouter の所在地）。シェルは許可リストに加えて `find -exec`、`awk` のネットワークパス、`gawk` も拒否します）。システム全体が読み取り専用です（`ProtectSystem=strict`、ステートディレクトリとプライベート `/tmp` 以外に書き込みパスなし）。唯一の書き込みコマンド `cp` はファイルをタスクフォルダにコピーすることしかできず、そこから結果ファイルとして返されます。フィルタされたスコープでは、秘匿パスは `cat` と同様に `cp` でも拒否されます。`CAP_DAC_READ_SEARCH` を持ち、root なしで任意のファイルを読めます。読み取り専用の保証はコマンドフィルターではなくユニットが提供します。
 
 どちらも `bin/agent-runner.mjs --profile <name>` で起動します。上限、モデル価格、ソケットは設定の `agents.<profile>` から、モデルは `agent.web` と `agent.server` のモデルロールから読み取ります（`/nep model set` で設定、タスクごとに再読み込み。`run` が独自の `model` を持参することもあります）。設定の詳細は[設定: `agents`](configuration.md#agents)を参照。
 
@@ -73,14 +73,14 @@ OpenRouter キーはタスクのモデルロールのキーで、ボットが任
 
 コアからランナー:
 
-- `{ "op": "run", "id", "goal", "context": { "scope", "channel", "asker", ... }, "limits": { "steps", "usd", "seconds" }, "tools": [...], "model"?, "cost"?, "searchProvider"?, "secrets"?: { "openrouterKey", "proxy"?, "searchKey"? } }`（`secrets`: 空でない文字列、他のキーなし。拒否された `run` にはエラーコードのみで値は返さない）
+- `{ "op": "run", "id", "goal", "context": { "scope", "channel", "asker", ... }, "limits": { "steps", "usd", "seconds" }, "tools": [...], "model"?, "cost"?, "searchProvider"?, "secrets"?: { "openrouterKey", "proxy"?, "searchKey"? }, "preamble"? }`（`secrets`: 空でない文字列、他のキーなし。拒否された `run` にはエラーコードのみで値は返さない。`preamble`: 後述の共有プリアンブル、トリム後最大 8000 文字の文字列。それ以外の場合は `bad-preamble` または `preamble-too-long` で run が拒否される）
 - `{ "op": "cancel", "id" }`
 - `{ "op": "ping", "ids": [...] }`
 
 ランナーからコア:
 
 - `{ "id", "event": "progress", "step", "tool", "note" }`: タスク進行中に送信;
-- 1 回の `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }], "withheld"?: [path...] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }`（`withheld`: フィルタされたスコープ内でエージェントが拒否されたパス、最大 50）;
+- 1 回の `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }], "withheld"?: [path...], "filesDropped"?: [{ "name", "reason" }] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }`（`withheld`: フィルタされたスコープ内でエージェントが拒否されたパス、最大 50。`filesDropped`: ランナーが配信しなかった結果ファイル。理由 `withheld` はフィルタされたスコープの実行が秘匿パスに到達した場合（この場合ファイルは一切配信されない）、`secret` は 2 MB 以下のテキストファイルにシークレットが含まれる場合で、すべてのスコープに適用）;
 - `{ "event": "pong", "profile", "busy", "queued" }`: `ping` に対する応答。
 
 再起動したランナーは、もう知らない `ping` の id に対して `status: "failed", error: "restarted"` の `end` を返し、コアが待機を停止できるようにします。`SIGTERM` でランナーは開いているすべてのタスクを同様に終了させて終了します。出力ファイルは `<out>/<id>/` に置かれ、コアは `agents.keepFilesHours` 後に削除します。
@@ -97,6 +97,8 @@ OpenRouter キーはタスクのモデルロールのキーで、ボットが任
 ## タスクの実行方法
 
 1 つのタスクはプロファイルの出力ディレクトリ内の新しい作業ディレクトリで実行される 1 つの `opencode run` 子プロセスです。プロジェクト/`.claude` 設定、自動更新、価格カタログの取得は無効化されており、このサーバーの情報がワーカーに漏れることはありません。エンジンは OpenCode 設定（`agents/<profile>/prompt.md` またはデプロイの `prompts.local/agent-<profile>.md` からのエージェントプロンプト、ステップ上限、スコープのパーミッションルールセット、モデルとそのコスト）を構築し、`OPENCODE_CONFIG_CONTENT` を通じて渡します。子プロセスは JSON イベントストリームを出力します。ランナーはステップごとのコストとトークンを合計し、進捗を転送し、最終のアシスタントテキストを結果として取得し、エージェントが保存したファイルをリストし、上限に達したら子プロセスを停止します。OpenCode v1.19.3 で構築。
+
+デプロイは各エラントエージェントに 1 つの共有プリアンブルを渡せます。オプションファイル `prompts.local/agents.md` です（追跡されたデフォルトはありません。ファイルがないか空の場合、何も変わりません）。コアはライブプロンプトローダーを通じてこのファイルを読み、編集は再起動なしで次のタスクに届きます。テキストは各タスクの `run` メッセージの `preamble` として送信されます。ランナーはそれをエージェントのシステムプロンプトの先頭に配置し、空行の後にエージェント自身のプロンプトが続きます。ランナーはプリアンブルのために `prompts.local/` を読むことはありません。ファイルを読むのはコアだけなので、ユニットがプライベートディレクトリへのアクセスを遮断しているランナーでもプリアンブルを受け取れます。プリアンブルはログに記録されません。コアの `errands: sent` 行にはその長さのみが含まれます。
 
 ## ペルソナ側
 

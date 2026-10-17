@@ -11,7 +11,7 @@
 // also carry the deployment's shared preamble (the core reads it from its
 // private prompt layer; the runner never reads that layer itself).
 
-import { isPlainObject } from '../config.js';
+import { isPlainObject, OPENCODE_MODEL_ID } from '../config.js';
 import { SCOPES } from './policy.js';
 
 /** The operations the core may send. */
@@ -123,7 +123,7 @@ function validateRun(msg) {
     out.tools = [...new Set(msg.tools)];
   }
   if (msg.model !== undefined) {
-    if (typeof msg.model !== 'string' || !/^[\w.:/-]{1,128}$/.test(msg.model)) return refuse('bad-model');
+    if (typeof msg.model !== 'string' || !OPENCODE_MODEL_ID.test(msg.model)) return refuse('bad-model');
     out.model = msg.model;
   }
   if (msg.cost !== undefined) {
