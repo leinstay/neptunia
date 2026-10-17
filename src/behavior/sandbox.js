@@ -1402,7 +1402,7 @@ const MAX_PENDING = 6;
 /**
  * The turns one step of a skill scenario gets when its messages (`incoming`, normalized lines in
  * arrival order, all of one channel) come in a burst, as the live queue gives them
- * (src/discord/events.js, src/behavior/pending.js). How each message calls her is read as the
+ * (src/behavior/pipeline.js, src/behavior/pending.js). How each message calls her is read as the
  * live pipeline reads it (src/behavior/mention.js#detectTrigger, each input masked by its switch:
  * a tag of hers among `mentionedUserIds` with features.mentions on, a reply to a line of hers in
  * `history` or the burst with features.replies on, one of `bot.nameTriggers` as a whole word with
@@ -1413,7 +1413,7 @@ const MAX_PENDING = 6;
  * `full`), a follow-up takes the channel's one follow-up slot (followUpSlot: a newer one takes an
  * older one's place, which is `replaced` -- live, a missed-answer candidate -- by the newer's id).
  * The queue is then drained oldest first (popOldest), each entry its own turn. Each turn's
- * `queued` is what still waits besides it, arrival order, as src/discord/events.js#queuedFor lists
+ * `queued` is what still waits besides it, arrival order, as src/behavior/pipeline.js#queuedFor lists
  * it: the trigger author's own as `{ id, text }`, another member's as `{ id, text, author }`
  * (their display name), the text on one line cut to `context.maxMessageChars`. Not modelled: the
  * ignore rolls, the merge classifier folding a call into an earlier one, a follow-up's window and

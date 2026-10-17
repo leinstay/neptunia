@@ -1,5 +1,5 @@
 // Tests for src/memory/store.js#updateBuffered: a late embed folded over the
-// buffered copy of a message (src/discord/events.js#onMessageUpdate).
+// buffered copy of a message (src/behavior/pipeline.js#onMessageUpdate).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

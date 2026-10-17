@@ -242,7 +242,7 @@ function rawMessage({
   };
 }
 
-/** The normalized shape events.js would hand to runTurn as `trigger`. */
+/** The normalized shape pipeline.js would hand to runTurn as `trigger`. */
 function normalizedTrigger(raw) {
   return {
     id: raw.id,
@@ -5497,7 +5497,7 @@ test('runTurn: a routed turn stamps the other calls it showed and leaves its own
     const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
     assert.equal(result.outcome, outcome, label);
-    assert.deepEqual(ringStates(scene.store), states, `${label}: the routed call is stamped by its caller (src/discord/events.js)`);
+    assert.deepEqual(ringStates(scene.store), states, `${label}: the routed call is stamped by its caller (src/behavior/pipeline.js)`);
     assert.deepEqual(markedLines(logs), [[DIARY, 'e1', states.e1]], label);
     assert.equal('sourceShownIds' in result, false, label);
   }

@@ -3816,7 +3816,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
     /**
      * Replace the buffered entry with the same `id` by `message` (an embed Discord attached
-     * after the message arrived, see src/discord/events.js#onMessageUpdate), in place: the
+     * after the message arrived, see src/behavior/pipeline.js#onMessageUpdate), in place: the
      * buffer keeps its order and length. Marks the file dirty only when an entry was replaced.
      * @param {string} guildId
      * @param {object} message  A slim buffered message (src/memory/update.js#slimMessage).

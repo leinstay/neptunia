@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createMessageHandler } from '../src/discord/events.js';
+import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { fill } from '../src/format.js';
@@ -19,8 +19,11 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createStore } from '../src/memory/store.js';
 import { slimMessage } from '../src/memory/update.js';
-import { normalizeMessage, normalizeOptions, toEvent } from '../src/interface/discord.js';
+import { canSend, fetchHistory, fetchMessage, normalizeMessage, normalizedOf, normalizeOptions, toEvent } from '../src/interface/discord.js';
 import { createActivity } from '../src/behavior/activity.js';
+
+/** The Discord functions the pipeline is given, the real ones src/index.js passes. */
+const DISCORD = { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent };
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -215,6 +218,7 @@ function makeHandler({
     hot,
     store: store ?? fakeStore(),
     client: discord,
+    discord: DISCORD,
     turns: turns ?? fakeTurns(),
     spontaneous: spontaneous ?? fakeSpontaneous(),
     memory: memory ?? fakeMemory(),
@@ -6204,6 +6208,7 @@ test('events: a refused routed turn posts the notice in the destination, not as 
     hot: mirrorHot,
     store: scene.store,
     client: mirrorClient,
+    discord: DISCORD,
     turns,
     spontaneous: fakeSpontaneous(),
     memory: fakeMemory(),
@@ -7067,6 +7072,7 @@ function liveScene({ dm = false, talk = () => '<msg>ok</msg>', split, merge, lab
     hot,
     store,
     client,
+    discord: DISCORD,
     turns,
     spontaneous: fakeSpontaneous(),
     memory: fakeMemory(),

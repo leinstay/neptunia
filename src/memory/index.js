@@ -1,5 +1,5 @@
 // The memory's public API: the one module the rest of the engine imports the memory through
-// (src/index.js, src/behavior/, src/discord/, src/ops/, src/errands/), so that the memory can
+// (src/index.js, src/behavior/, src/ops/, src/errands/), so that the memory can
 // replace an implementation behind it without touching a caller. It re-exports and defines
 // nothing; nothing in src/memory/ imports it. The pure helpers that are not memory (clamp.js,
 // mentions.js, ranking.js, recent.js, text-limits.js, prose.js, sample.js) stay direct imports.

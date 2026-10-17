@@ -425,8 +425,9 @@ export function normalizeMessage(message, selfId, options = {}) {
 // ---------------------------------------------------------------------------
 // Inbound protocol events (packages/protocol/events.js). Building them is the Discord adapter's
 // job; it lives here, beside the normaliser it reads. Every event carries `raw`: the discord.js
-// object(s) it came from, private to the Discord side -- the message pipeline still needs them
-// for history fetches and sends, src/behavior/* never reads them, and they go in stage 4.
+// object(s) it came from, private to the Discord side -- the message pipeline
+// (src/behavior/pipeline.js) still needs them for history fetches and sends, no other behavior
+// reads them, and they go in stage 4.
 
 /** An id as the protocol carries it: a string, or null when there is none. */
 const idString = (value) => (value === undefined || value === null ? null : String(value));

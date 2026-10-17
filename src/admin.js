@@ -62,7 +62,7 @@ const ARCHIVE_CHOICES = 25;
  *   arrives once paused writes nothing) before the pause flushes and drops the store's caches, and by `/nep memory forget`,
  *   `/nep private forget` and `/nep memory wipe` before they delete (the run would re-create what
  *   they removed). Absent -> the wait is skipped.
- * `pending` — `{ clear() }`, optional: clears src/discord/events.js's pending-ping queue on pause.
+ * `pending` — `{ clear() }`, optional: clears src/behavior/pipeline.js's pending-ping queue on pause.
  *   Absent -> nothing to clear.
  * `warmup` — from createWarmup() (src/memory/warmup.js), optional: the sample-based
  *   memory warmup's engine -- `refreshPortrait` (`/nep memory refresh kind:user`),

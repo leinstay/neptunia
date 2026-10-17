@@ -8,7 +8,7 @@
 // helpers come first; `postLimitNotice`, `postPauseNotice` (one sender,
 // `sendNotice`) and `mirrorDryRun` are the one copy of the posting side,
 // shared by the turn runner (src/behavior/turn.js) and the message pipeline
-// (src/discord/events.js).
+// (src/behavior/pipeline.js).
 
 import { fill } from '../format.js';
 import { log } from '../log.js';

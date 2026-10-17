@@ -15,9 +15,11 @@
 // driven by `interactionCreate`, not `messageCreate`). Kept free of
 // discord.js-specific assumptions beyond the shape already used by
 // interfaces/discord/collect.js, so it can be driven with plain fake objects in
-// tests.
+// tests. The few Discord functions it calls (a permission check, the history
+// and message fetches, the normalization and the event builder) come injected
+// as `discord` by its caller, src/index.js: nothing here imports the Discord
+// interface package.
 
-import { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent } from '../interface/discord.js';
 import { isOwnerId } from '../ops/grants.js';
 import { collectPictures, collectEmojiItems, collectVideos, collectReadableLinks, isDescribable } from '../media/classify.js';
 import {
@@ -31,26 +33,26 @@ import {
   followUpTriggerKind,
   isTaggedCall,
   roomPreFilter,
-} from '../behavior/mention.js';
+} from './mention.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
 import { topByRank } from '../memory/ranking.js';
-import { addPending, authorCalls, foldInto, followUpSlot, isExpired, parseMergeAnswer, popOldest, requeuePending } from '../behavior/pending.js';
-import { between } from '../behavior/random.js';
-import { block, fillPromptTemplate } from '../behavior/prompt.js';
-import { roomQuestionChance } from '../behavior/spontaneous.js';
-import { routeFor } from '../behavior/turn.js';
-import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from '../behavior/elsewhere.js';
-import { privateGate } from '../behavior/private.js';
-import { isLimitNotice, pauseNotice, pauseNoticeMinutes, postLimitNotice, postPauseNotice } from '../behavior/limits.js';
+import { addPending, authorCalls, foldInto, followUpSlot, isExpired, parseMergeAnswer, popOldest, requeuePending } from './pending.js';
+import { between } from './random.js';
+import { block, fillPromptTemplate } from './prompt.js';
+import { roomQuestionChance } from './spontaneous.js';
+import { routeFor } from './turn.js';
+import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from './elsewhere.js';
+import { privateGate } from './private.js';
+import { isLimitNotice, pauseNotice, pauseNoticeMinutes, postLimitNotice, postPauseNotice } from './limits.js';
 import { isVideoVisionOn, slimMessage, appendRevision, toRecordLine, gifOpts, participationSettings, recordFollowing } from '../memory/index.js';
 import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
 
-/** @typedef {import('../behavior/turn.js').TurnOutcome} TurnOutcome */
-/** @typedef {import('../behavior/turn.js').TriggerKind} TriggerKind */
+/** @typedef {import('./turn.js').TurnOutcome} TurnOutcome */
+/** @typedef {import('./turn.js').TriggerKind} TriggerKind */
 
 // The most links one observed message has read ahead of time (web.links.prefill).
 const MAX_WARM_LINKS_PER_MESSAGE = 1;
@@ -180,10 +182,15 @@ function bufferedMediaIds(buffered) {
  * @param {import('../hot.js').createHot extends (...args: any) => infer R ? R : never} deps.hot
  * @param {ReturnType<import('../memory/store.js').createStore>} deps.store
  * @param {import('discord.js').Client} deps.client
- * @param {ReturnType<import('../behavior/turn.js').createTurnRunner>} deps.turns
- * @param {ReturnType<import('../behavior/spontaneous.js').createSpontaneous>} deps.spontaneous
+ * @param {object} deps.discord  The Discord functions the pipeline calls, by name, from the
+ *   Discord interface package (interfaces/discord/collect.js; src/index.js passes them, tests pass
+ *   the same functions or fakes of them): `canSend(channel)`, `fetchHistory(channel, options)`,
+ *   `fetchMessage(channel, id)`, `normalizeOptions(config)`, `normalizedOf(event)` and
+ *   `toEvent(message, selfId, options)`. Required.
+ * @param {ReturnType<import('./turn.js').createTurnRunner>} deps.turns
+ * @param {ReturnType<import('./spontaneous.js').createSpontaneous>} deps.spontaneous
  * @param {ReturnType<import('../memory/update.js').createMemoryUpdater>} deps.memory
- * @param {ReturnType<import('../behavior/mention.js').createTagHistory>} deps.tagHistory
+ * @param {ReturnType<import('./mention.js').createTagHistory>} deps.tagHistory
  * @param {object} [deps.llm]  From createLlm() (src/llm/openrouter.js), used for the address
  *   classifier (`features.followUp`): a message with no trigger, arriving while a
  *   conversation window this instance opened by answering is still open, is checked here before
@@ -253,6 +260,7 @@ export function createMessageHandler({
   hot,
   store,
   client,
+  discord,
   turns,
   spontaneous,
   memory,
@@ -271,6 +279,8 @@ export function createMessageHandler({
   record = null,
   missed = null,
 }) {
+  const { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent } = discord;
+
   // The record's edits (recordEdit): messageId -> the last revision written, for the UTC day
   // `revisionsDay`; cleared when the day turns, so it stays small. An edit of a message not in
   // it is revision 2 (the message itself was revision 1); one the record already holds moves

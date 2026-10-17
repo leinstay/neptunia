@@ -2740,7 +2740,7 @@ export function touchMemory(store, guildId, normalized, memoryCfg) {
  * The media of one normalized message part (the message itself or one
  * forwarded snapshot) as the memory buffer keeps it. No URL ever survives
  * into the buffer -- but the item `id` does, so the live analyzer can look up
- * a describer caption already warmed into the cache by src/discord/events.js
+ * a describer caption already warmed into the cache by src/behavior/pipeline.js
  * (see analyze() below). A sticker keeps `id`/`name`/`format` (its URL is
  * rebuilt from those via stickerUrl when needed); a custom emoji keeps only
  * `id`/`name` (its URL is rebuilt via emojiUrl).
@@ -2760,7 +2760,7 @@ function slimMedia(part) {
  * the same way, and `direct`; a message whose links carry a preview title or description also
  * keeps them as `linkCards` (src/memory/record.js#recordLinks: URL, title, description, site),
  * which only the record reads. The one shape `observe()` pushes and the late-embed fold
- * (src/discord/events.js#onMessageUpdate) writes back over a buffered entry.
+ * (src/behavior/pipeline.js#onMessageUpdate) writes back over a buffered entry.
  * @param {object} normalized  A normalized message (interfaces/discord/collect.js#normalizeMessage).
  * @param {boolean} [direct]   Whether the message was addressed to the persona.
  * @returns {object}
@@ -3449,7 +3449,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   function cachedMedia(guildId, messages) {
     // The live analyzer never triggers a NEW description request itself --
     // the buffered messages carry no URL to describe from anyway (see
-    // observe() above). It only reads whatever src/discord/events.js has
+    // observe() above). It only reads whatever src/behavior/pipeline.js has
     // already warmed into the cache for these item ids, fire-and-forget, as
     // the messages came in; a cache miss just renders blind.
     let descriptions = null;

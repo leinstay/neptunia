@@ -28,8 +28,8 @@ import { createParticipationPicker } from '../src/behavior/participation-pick.js
 import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
-import { createMessageHandler } from '../src/discord/events.js';
-import { normalizeMessage, normalizeOptions, toEvent, withTextPreviews } from '../src/interface/discord.js';
+import { createMessageHandler } from '../src/behavior/pipeline.js';
+import { canSend, fetchHistory, fetchMessage, normalizeMessage, normalizedOf, normalizeOptions, toEvent, withTextPreviews } from '../src/interface/discord.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { buildMemoryRequest, characterText } from '../src/memory/update.js';
 import { buildVoiceRequest } from '../src/memory/voice.js';
@@ -85,9 +85,9 @@ function tempStore(name) {
 
 /** Tracked prompt files no request here can build, each with the reason. */
 const NOT_BUILT = {
-  // Built inside the createMessageHandler closure of src/discord/events.js (buildFollowUpRequest),
+  // Built inside the createMessageHandler closure of src/behavior/pipeline.js (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
-  address: 'built inside the src/discord/events.js closure (O-9)',
+  address: 'built inside the src/behavior/pipeline.js closure (O-9)',
   // Split into families and drawn from line by line (src/behavior/diary.js#pickSeeds): the plan
   // request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.js#pickSeeds), never sent whole',
@@ -1207,6 +1207,7 @@ test('createMessageHandler: the room classifier fills room.md', async () => {
     hot,
     store,
     client,
+    discord: { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent },
     turns,
     spontaneous,
     memory: { observe() {} },
@@ -1368,6 +1369,7 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     hot,
     store: { state: { data: {}, markDirty() {} }, getUser: () => null },
     client,
+    discord: { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent },
     turns,
     spontaneous: { onMessage: () => false },
     memory: { observe() {} },

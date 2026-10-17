@@ -2260,7 +2260,7 @@ test('describe: {{today}} in the describe prompt is filled with the date of the 
 });
 
 // cachedDescriptions / cachedVideos: the cache-only accessors the address
-// classifier (src/discord/events.js) reads -- never a download, never a request.
+// classifier (src/behavior/pipeline.js) reads -- never a download, never a request.
 
 test('cachedDescriptions: returns only cached captions, skips misses and unknown items, makes no request', async () => {
   const store = createStore({ dataDir: tmpDataDir() });

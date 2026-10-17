@@ -1503,7 +1503,7 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * deadline and no bar: it waits for every helper. Every turn that reaches the reply request logs `turn: timings`.
  * `schedule(fn, ms)` (default: setTimeout) runs that deadline and the typing
  * indicator's refresh; it resolves a function that cancels it.
- * `activity` (src/behavior/activity.js#createActivity, fed by src/discord/events.js; optional)
+ * `activity` (src/behavior/activity.js#createActivity, fed by src/behavior/pipeline.js; optional)
  * tells when each person last wrote in each channel: a turn answering a person waits on it
  * (pace.settleMs, settleAuthor below); absent, no turn waits.
  * `journal` (src/memory/journal.js#createJournal; optional): with features.journal exactly
@@ -2020,7 +2020,7 @@ export function createTurnRunner({
   // channelId -> ids of the messages in the history of the last turn that spoke there; for a
   // channel the bot cannot write in, the lines its `<channel_view>` block showed in the last
   // turn that spoke anywhere while showing it (noteSpokeSaw). The pending-ping drain
-  // (src/discord/events.js) skips a ping such a turn already had in view.
+  // (src/behavior/pipeline.js) skips a ping such a turn already had in view.
   const spokeSaw = new Map();
   // Whether the last turn that wanted prompts['follow-up'] found it missing or blank: `turn:
   // prompt missing` is warned once each time this turns true (the turn falls back to reply.md).
@@ -4439,7 +4439,7 @@ export function createTurnRunner({
    * (src/behavior/elsewhere.js#stampPings: an answer wins over a skip, a stamp
    * never moves). A pulled channel the bot can write in is left alone (a call
    * there is answered there), and so is `exceptId`: a routed turn's own call,
-   * which its caller (src/discord/events.js) stamps by the turn's outcome.
+   * which its caller (src/behavior/pipeline.js) stamps by the turn's outcome.
    * Nothing changes while paused (the owner may be editing data/). Each call
    * whose state changed logs `elsewhere: marked`; the state is marked dirty
    * once.
@@ -4486,14 +4486,14 @@ export function createTurnRunner({
    *   initiate`) -- passed straight through to buildRequest, which appends prompts.forced (when
    *   present) to the task text so the model knows `<skip/>` is not the expected outcome this time.
    * @param {(() => { id: string, text: string, author?: string }[])|null} [params.queued]  The calls
-   *   still waiting in the queue in this channel (src/discord/events.js), read when the request is
+   *   still waiting in the queue in this channel (src/behavior/pipeline.js), read when the request is
    *   built: the trigger author's own (no `author`) named under `labels.task.queued` (on a part, in
    *   `labels.task.part`'s `{others}`), another member's (`author`: their display name) under
    *   `labels.task.queuedOthers`, so the persona leaves them to their own turns; a call so named is
    *   not counted as answered by this turn (spokeAfterSeeing). Without its label a call is not
    *   named and the old rule holds for it.
    * @param {{ id: string, text: string, ts: number }[]|null} [params.added]  Later messages of the
-   *   author folded into this call (src/discord/events.js): `labels.task.added` names them.
+   *   author folded into this call (src/behavior/pipeline.js): `labels.task.added` names them.
    * @param {{ author: string, text: string }[]|null} [params.missed]  A recovery turn's messages
    *   (trigger kind `missed`, src/behavior/missed.js), the trigger first: `labels.task.missed`
    *   names them.
@@ -4743,7 +4743,7 @@ export function createTurnRunner({
   /**
    * Tell whoever waits that a turn has finished: onIdle (fire-and-forget, same
    * as the caller of runTurn itself: whatever wants to run next --
-   * src/discord/events.js's pending-ping drain, wired in src/index.js -- must
+   * src/behavior/pipeline.js's pending-ping drain, wired in src/index.js -- must
    * never hold up, or throw into, the turn that just freed the channel), and
    * the waitIdle() waiters once no turn is in flight anywhere.
    */
@@ -4850,7 +4850,7 @@ export function createTurnRunner({
     if (!owned) {
       if (busy.has(channel.id)) return { outcome: 'busy' };
       // One attention (config.mention.oneAtATime, default on): while a turn is
-      // running anywhere else, nothing else may start. src/discord/events.js
+      // running anywhere else, nothing else may start. src/behavior/pipeline.js
       // is the only caller that turns a direct ping caught by this into a
       // pending one instead of just dropping it -- this rail applies to every
       // caller (a reply, an interject, an initiate, an eavesdrop) alike.
@@ -5635,7 +5635,7 @@ export function createTurnRunner({
       const notAnswered =
         triggerAt === -1 ? tasks.deferred : new Set([...tasks.deferred, ...history.slice(triggerAt + 1).map((m) => m.id)]);
       const guildMemory = memoryOn ? store.getGuild(guildId) : null;
-      // Whether the call tags the persona, read as decideMention reads it (events.js decideAndLog):
+      // Whether the call tags the persona, read as decideMention reads it (pipeline.js decideAndLog):
       // an untagged reply takes the follow-up task (usesFollowUpTask).
       const taggedCall = trigger ? isTaggedCall(trigger, selfId) : null;
       if (usesFollowUpTask({ mode: finalMode, triggerKind, taggedCall, routed: source?.reason === 'routed', privateChat: isPrivate })) {

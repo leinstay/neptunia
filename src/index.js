@@ -2,7 +2,8 @@
 // OpenRouter client, discord.js and the turn/spontaneous/memory subsystems
 // together, and owns the process lifecycle (startup checks, timers, graceful
 // shutdown). No decision logic lives here — everything is imported from
-// src/behavior, src/memory, src/llm and src/discord.
+// src/behavior, src/memory, src/llm and the Discord interface (interfaces/discord/, through
+// src/interface/discord.js).
 
 import fs from 'node:fs';
 import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
@@ -47,12 +48,16 @@ import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
 import {
   applyReactionEvent,
+  canSend,
   createAroundStore,
   createAudienceWarmer,
   createDiscordAdapter,
   createEmojiIndex,
   createInteractionHandler,
   createReactorStore,
+  fetchHistory,
+  fetchMessage,
+  normalizedOf,
   normalizeOptions,
   reactionEvent,
   reactionEventOf,
@@ -74,7 +79,7 @@ import { createErrandService } from './errands/service.js';
 import { createTaskTurns } from './errands/turns.js';
 import { skillRegistry } from './skills/registry.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
-import { createMessageHandler } from './discord/events.js';
+import { createMessageHandler } from './behavior/pipeline.js';
 import { validateEvent } from './protocol.js';
 import { isValidCommandName } from './ops/catalog.js';
 
@@ -432,6 +437,8 @@ const onMessage = createMessageHandler({
   hot,
   store,
   client,
+  // The Discord functions the pipeline calls (src/behavior/pipeline.js imports none of them).
+  discord: { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent },
   turns,
   spontaneous,
   memory,

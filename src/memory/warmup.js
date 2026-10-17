@@ -18,7 +18,7 @@
 // for `people`. `createWarmup().run()` is the write path: channels →
 // people → server, in order, resumable (progress in `state.warmup`,
 // flushed after every request), muting the persona for as long as it is in
-// flight (`isWarmingUp()`, wired into src/discord/events.js,
+// flight (`isWarmingUp()`, wired into src/behavior/pipeline.js,
 // src/behavior/spontaneous.js and src/admin.js). `runPerson`/`runChannel`/
 // `runServer` (re)do exactly one target now, synchronously, for `users
 // --user` / `channels --channel` / `server` (and `/nep memory refresh

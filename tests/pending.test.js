@@ -1,5 +1,5 @@
 // Tests for src/behavior/pending.js: the pure queue of pending calls
-// (see mention.oneAtATime in src/discord/events.js).
+// (see mention.oneAtATime in src/behavior/pipeline.js).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addPending, authorCalls, foldInto, followUpSlot, isExpired, parseMergeAnswer, popOldest, requeuePending } from '../src/behavior/pending.js';

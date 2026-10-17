@@ -133,12 +133,12 @@ export const repeatWindowMs = (cfg) => cfg.repeatWindowMinutes * MINUTE_MS;
 // --- The address classifier --------------------------------------------------
 // After the persona answers in a channel, a conversation window stays open for
 // a little while: an UNTAGGED message inside it is not answered blindly, it is
-// checked by a cheap classifier first (see events.js and
+// checked by a cheap classifier first (see pipeline.js and
 // docs/prompt-contract.md, "The address classifier"). The functions
 // below are the pure pieces of that decision.
 
 /**
- * Whether a follow-up window (per channel; see events.js) is currently open:
+ * Whether a follow-up window (per channel; see pipeline.js) is currently open:
  * the persona answered recently enough, and has not been ignored
  * `cfg.followUpNoStreak` times in a row since.
  * @param {{ lastAnswerAt: number, noStreak: number }|null|undefined} state
@@ -221,7 +221,7 @@ export function followUpTriggerKind(answer, cfg) {
 // --- Room questions ------------------------------------------------------------
 // Outside a conversation window, an untagged line put to everyone present may
 // get a higher chance of an unprompted answer (spontaneous.roomQuestionChance,
-// src/discord/events.js): a cheap classifier (prompts/room.md) is asked first.
+// src/behavior/pipeline.js): a cheap classifier (prompts/room.md) is asked first.
 // The check below runs before any money is spent on it.
 
 /**

@@ -938,7 +938,7 @@ export function createDescriber({
    * items are left out; a hit is LRU-touched as describe() does. Empty
    * when describe() would not run (features.mediaDescriptions off, no
    * describe prompt). Used where a caption helps but may not cost a request
-   * (the address classifier, src/discord/events.js).
+   * (the address classifier, src/behavior/pipeline.js).
    * @param {string} guildId
    * @param {object[]} items
    * @returns {Map<string, string>}
