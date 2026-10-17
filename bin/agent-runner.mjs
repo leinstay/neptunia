@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The agent runner process: one per profile (`web` or `server`), started by
 // its systemd unit (deploy/neptunia-agent-<profile>.service). It reads the
-// engine config and .env, opens the Unix socket the core connects to
+// engine config (never the bot's .env), opens the Unix socket the core connects to
 // (src/agent-runner/server.js), and works each task it receives by spawning
 // one `opencode run` child (src/agent-runner/opencode.js). It never imports
 // discord.js or the bot; it shares only config/log/web helpers.
