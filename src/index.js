@@ -62,6 +62,8 @@ import { skillRegistry } from './skills/registry.js';
 import { createDiscordAdapter } from './interface/discord.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './discord/events.js';
+import { normalizeOptions, reactionEvent, toEvent } from './discord/collect.js';
+import { validateEvent } from './protocol.js';
 import { resolveGuild } from './discord/guild.js';
 import { createAudienceWarmer } from './discord/audience-warm.js';
 import { isValidCommandName, registerCommands, createInteractionHandler } from './discord/commands.js';
@@ -337,6 +339,9 @@ const iface = createDiscordAdapter({ client });
 const errandClient = createErrandClient({ hot, log });
 const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal, log });
 // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
+// TODO(.agents spec 2026-10-17-protocol-package, "Code"): an errand's end becomes a
+// `task.completed` event through one core dispatcher; the turn it opens needs the whole task, not
+// the event's id/status/result, so the call stays direct in this stage.
 const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, getGuildId, log, onFinished: (task, guildId) => taskTurns.onFinished(task, guildId) });
 const turns = createTurnRunner({
   hot,
@@ -665,6 +670,8 @@ client.once(Events.ClientReady, async () => {
   // The periodic work first, before anything below can throw or wait: the
   // flush, the spontaneous, diary, memory and portrait ticks, the hourly affinity decay.
   every(30_000, () => store.flush(), 'store.flush');
+  // TODO(.agents spec 2026-10-17-protocol-package, "Code"): the scheduler's clock becomes a
+  // `scheduler.tick` event through the same dispatcher as an errand's end (see the errands above).
   every(30_000, () => spontaneous.tick(), 'spontaneous.tick');
   every(30_000, () => diary.tick(), 'diary.tick');
   // The tick still runs on schedule even with the switch off, so flipping it
@@ -794,11 +801,40 @@ hot.on('change', ({ what }) => {
   }
 });
 
-client.on('messageCreate', onMessage);
+// The gateway's messages and reactions reach the core as protocol events (packages/protocol/,
+// built by src/discord/collect.js): `inbound` builds one and checks it at the boundary. An event
+// that cannot be built or is malformed is dropped with one warn line (its kind and the reason,
+// never its content), so nothing behind it ever sees a half-formed one.
+function inbound(kind, build) {
+  let event;
+  try {
+    event = build();
+  } catch (err) {
+    log.warn('interface: invalid event', { kind, reason: 'build-failed', name: err?.name ?? null });
+    return null;
+  }
+  const verdict = validateEvent(event);
+  if (!verdict.ok) {
+    log.warn('interface: invalid event', { kind: event?.kind ?? kind, reason: verdict.reason });
+    return null;
+  }
+  return event;
+}
+const selfIdNow = () => client.user?.id ?? null;
+client.on('messageCreate', (message) => {
+  const event = inbound('message.received', () => toEvent(message, selfIdNow(), normalizeOptions(hot.config)));
+  if (event) onMessage(event);
+});
 // Discord attaches some embeds (a Tenor GIF's) after the message arrived: fold them into memory.
-client.on('messageUpdate', onMessage.onMessageUpdate);
+client.on('messageUpdate', (oldMessage, newMessage) => {
+  const event = inbound('message.received', () => toEvent(newMessage, selfIdNow(), { ...normalizeOptions(hot.config), edit: true, previous: oldMessage }));
+  if (event) onMessage.onMessageUpdate(event);
+});
 // A deleted message is a `deleted` line of the record (features.record).
-client.on('messageDelete', onMessage.onMessageDelete);
+client.on('messageDelete', (message) => {
+  const event = inbound('message.received', () => toEvent(message, selfIdNow(), { deleted: true }));
+  if (event) onMessage.onMessageDelete(event);
+});
 // A new or edited channel of the served guild may name a member the cache has not seen.
 const warmOnChannel = (channel) => {
   if (instance.guildId && channel?.guild?.id === instance.guildId) audienceWarmer.warm({ quiet: true });
@@ -846,7 +882,10 @@ const feedReactors = (kind, parts) => {
     log.warn('reactors: event failed', { kind, code: err?.code ?? null });
   }
 };
-client.on(Events.MessageReactionAdd, (reaction, user) => feedReactors('add', { reaction, user }));
+client.on(Events.MessageReactionAdd, (reaction, user) => {
+  const event = inbound('reaction.changed', () => reactionEvent(reaction, user, true));
+  if (event) feedReactors('add', event.raw);
+});
 client.on(Events.MessageReactionRemove, (reaction, user) => feedReactors('remove', { reaction, user }));
 client.on(Events.MessageReactionRemoveAll, (message) => feedReactors('removeAll', { message }));
 client.on(Events.MessageReactionRemoveEmoji, (reaction) => feedReactors('removeEmoji', { reaction }));

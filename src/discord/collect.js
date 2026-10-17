@@ -2,7 +2,9 @@
 // normalized objects and fetching the context of a turn — the last N messages
 // of the current channel plus a few fresh messages from neighbouring channels —
 // and what the bot may do in a channel (read, send, attach, react) and who else
-// can view it (the audience the pulled-channel rail compares).
+// can view it (the audience the pulled-channel rail compares). Also the inbound
+// protocol events built from discord.js messages and reactions (toEvent,
+// reactionEvent), until the Discord adapter becomes its own package.
 
 import { PermissionFlagsBits, SnowflakeUtil, MessageReferenceType, OverwriteType } from 'discord.js';
 import { log } from '../log.js';
@@ -23,6 +25,8 @@ import {
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from './video-sites.js';
 import { CUSTOM_EMOJI_MARKUP } from './emoji.js';
 import { backfillPlan, emojiOf, reactionKey, runBackfill, withReactors } from './reactors.js';
+import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../protocol.js';
+import { DISCORD_IFACE } from '../interface/discord.js';
 
 const TEXT_PREVIEW_SIZE_GUARD = 256 * 1024; // 256 KB — never fetch a bigger "text" attachment
 /** Discord's REST page size for a message list. */
@@ -415,6 +419,196 @@ export function normalizeMessage(message, selfId, options = {}) {
     // Fresh on every history fetch (a REST call); a message straight from
     // messageCreate has none yet. Forwarded snapshots carry none.
     reactions: normalizeReactions(message.reactions),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Inbound protocol events (packages/protocol/events.js). Building them is the Discord adapter's
+// job; it lives here, beside the normaliser it reads, until src/discord/ moves into its own
+// interface package (stage 4 of the structure rework). Every event carries `raw`: the discord.js
+// object(s) it came from, private to the Discord side -- the message pipeline still needs them
+// for history fetches and sends, src/behavior/* never reads them, and they go in stage 4.
+
+/** An id as the protocol carries it: a string, or null when there is none. */
+const idString = (value) => (value === undefined || value === null ? null : String(value));
+
+/**
+ * The normalizeMessage options from the live config (`media.embedTextChars`,
+ * `media.video.sites`, `context.maxUrlChars`): the one copy every caller reads.
+ * @param {object} config
+ * @returns {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number }}
+ */
+export function normalizeOptions(config) {
+  return {
+    embedTextChars: config?.media?.embedTextChars,
+    videoSites: config?.media?.video?.sites,
+    maxUrlChars: config?.context?.maxUrlChars,
+  };
+}
+
+/**
+ * The protocol conversation of a discord.js message: its channel id as Discord gives it, `dm`
+ * outside a guild, `thread` for a thread, else `channel`; the channel's name, topic and category
+ * read exactly as normalizeMessage reads them.
+ */
+function conversationOf(message) {
+  const channel = message?.channel ?? null;
+  const guildId = message?.guild?.id ?? message?.guildId ?? null;
+  const kind = guildId === null ? 'dm' : channel?.isThread?.() ? 'thread' : 'channel';
+  return {
+    id: message?.channelId,
+    kind,
+    guildId: idString(guildId),
+    name: channel?.name ?? null,
+    topic: channel?.topic ?? null,
+    category: channel?.parent?.name ?? null,
+  };
+}
+
+/**
+ * Whether the message `replyToId` names is one of the persona's own, as far as the channel's
+ * cache knows (the first step of fetchMessage, without its fetch): a missing or partial cached
+ * message is no answer here, and the message pipeline still asks fetchMessage then.
+ */
+function cachedReplyToSelf(message, replyToId, selfId) {
+  if (!replyToId) return false;
+  try {
+    const cached = message.channel?.messages?.cache?.get?.(replyToId);
+    return Boolean(cached && !cached.partial && cached.author?.id === selfId);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The `message.received` event of a discord.js message, built from normalizeMessage's result
+ * field for field: the channel becomes the event's `conversation`, the author `message.author`,
+ * `ts` `message.at`, the mentions `addressing` (`mentioned`: the persona is among the mentioned
+ * users, as Discord reports them; `replyToSelf`: see cachedReplyToSelf). `options` are
+ * normalizeMessage's plus `edit: true` (a `messageUpdate`; `previous` is the old message, kept
+ * as `rawPrevious`), `deleted: true` (a `messageDelete`: only the message id) and `now` (the
+ * clock of an edit or a deletion). An edit of a partial message (no author or content yet)
+ * carries only the id with `partial: true`. Throws only what normalizeMessage throws.
+ * @param {object} message  A discord.js Message (or PartialMessage for an edit or a deletion).
+ * @param {string} selfId
+ * @param {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number, edit?: boolean,
+ *   deleted?: boolean, previous?: object|null, now?: () => number }} [options]
+ * @returns {import('../protocol.js').MessageReceived & { raw: object, rawPrevious?: object|null }}
+ */
+export function toEvent(message, selfId, options = {}) {
+  const now = options.now ?? Date.now;
+  const conversation = conversationOf(message);
+  const base = { kind: MESSAGE_RECEIVED, iface: DISCORD_IFACE };
+  if (options.deleted === true) {
+    return { ...base, at: now(), id: `${DISCORD_IFACE}:delete:${message?.id}`, conversation, message: { id: message?.id }, deleted: true, raw: message };
+  }
+  const edit = options.edit === true;
+  const editAt = edit ? (Number.isFinite(message?.editedTimestamp) ? message.editedTimestamp : now()) : null;
+  const editPart = edit ? { edit: true } : {};
+  const editRaw = edit ? { rawPrevious: options.previous ?? null } : {};
+  if (edit && message?.partial) {
+    return { ...base, at: editAt, id: `${DISCORD_IFACE}:edit:${message.id}:${editAt}`, conversation, message: { id: message.id }, ...editPart, partial: true, raw: message, ...editRaw };
+  }
+  const normalized = normalizeMessage(message, selfId, options);
+  return {
+    ...base,
+    at: edit ? editAt : normalized.ts,
+    id: edit ? `${DISCORD_IFACE}:edit:${normalized.id}:${editAt}` : `${DISCORD_IFACE}:message:${normalized.id}`,
+    conversation,
+    message: {
+      id: normalized.id,
+      author: { id: normalized.authorId, name: normalized.authorName, self: normalized.self, bot: normalized.bot },
+      content: normalized.content,
+      at: normalized.ts,
+      replyToId: normalized.replyToId,
+      replyPingUserId: normalized.replyPingUserId,
+      forwardedFrom: normalized.forwardedFrom,
+      attachments: normalized.attachments,
+      links: normalized.links,
+      forwarded: normalized.forwarded,
+      stickers: normalized.stickers,
+      emojis: normalized.emojis,
+      reactions: normalized.reactions,
+    },
+    addressing: {
+      mentioned: message.mentions?.users?.has?.(selfId) === true,
+      replyToSelf: cachedReplyToSelf(message, normalized.replyToId, selfId),
+      mentionedUserIds: normalized.mentionedUserIds,
+      mentionedConversationIds: normalized.mentionedChannelIds,
+    },
+    ...editPart,
+    raw: message,
+    ...editRaw,
+  };
+}
+
+/**
+ * The normalised message (normalizeMessage's shape, key for key and in its key order) of a whole
+ * `message.received` event: what the memory, the turn and the prompt builders still read until
+ * they read the event itself (stage 4). normalizedOf(toEvent(m, selfId, options)) equals
+ * normalizeMessage(m, selfId, options).
+ * @param {import('../protocol.js').MessageReceived} event
+ * @returns {object}
+ */
+export function normalizedOf(event) {
+  const { conversation, message, addressing } = event;
+  return {
+    id: message.id,
+    channelId: conversation.id,
+    channelName: conversation.name,
+    channelCategory: conversation.category,
+    channelTopic: conversation.topic,
+    authorId: message.author.id,
+    authorName: message.author.name,
+    self: message.author.self,
+    bot: message.author.bot,
+    content: message.content,
+    ts: message.at,
+    mentionedUserIds: addressing.mentionedUserIds,
+    mentionedChannelIds: addressing.mentionedConversationIds,
+    replyToId: message.replyToId,
+    replyPingUserId: message.replyPingUserId,
+    forwardedFrom: message.forwardedFrom,
+    attachments: message.attachments,
+    links: message.links,
+    forwarded: message.forwarded,
+    stickers: message.stickers,
+    emojis: message.emojis,
+    reactions: message.reactions,
+  };
+}
+
+/**
+ * The `reaction.changed` event of a gateway reaction (`MessageReactionAdd` with `added` true,
+ * `MessageReactionRemove` with false): the message's conversation and id, the emoji (`name`: a
+ * unicode emoji itself or a custom emoji's name; `id`: a custom emoji's), who reacted, and `raw`
+ * `{ reaction, user }` for the reactor store. Never throws: an emoji that cannot be read
+ * (emojiOf) leaves `name` null, which validateEvent refuses.
+ * @param {object} reaction  A discord.js MessageReaction (possibly partial).
+ * @param {object} user  A discord.js User (possibly partial).
+ * @param {boolean} added
+ * @param {{ now?: () => number }} [options]
+ * @returns {import('../protocol.js').ReactionChanged & { raw: { reaction: object, user: object } }}
+ */
+export function reactionEvent(reaction, user, added, { now = Date.now } = {}) {
+  const message = reaction?.message ?? null;
+  const emoji = emojiOf(reaction);
+  const emojiId = idString(emoji?.id);
+  const name = typeof emoji?.name === 'string' ? emoji.name : null;
+  const at = now();
+  const messageId = idString(message?.id);
+  const userId = idString(user?.id);
+  return {
+    kind: REACTION_CHANGED,
+    iface: DISCORD_IFACE,
+    at,
+    id: `${DISCORD_IFACE}:reaction:${messageId}:${userId}:${emojiId ?? name}:${added ? 'add' : 'remove'}:${at}`,
+    conversation: conversationOf(message),
+    messageId,
+    emoji: { name, ...(emojiId ? { id: emojiId } : {}) },
+    userId,
+    added: added === true,
+    raw: { reaction, user },
   };
 }
 

@@ -7,6 +7,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizeMessage,
+  normalizeOptions,
+  normalizedOf,
+  toEvent,
+  reactionEvent,
   fetchTextPreview,
   withTextPreviews,
   fetchHistory,
@@ -30,6 +34,7 @@ import { emptyGifs, mergeGifs } from '../src/memory/gifs.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { formatTranscript } from '../src/discord/format.js';
 import { labels } from './fixtures/labels.js';
+import { validateEvent } from '../src/protocol.js';
 
 function flagsWith(names) {
   const set = new Set(names);
@@ -1442,4 +1447,131 @@ test("normalizeMessage: the persona's own posted link reads in her line like any
   assert.equal(m.self, true);
   assert.equal(m.content, `να το ${url}`);
   assert.ok(lineOf([m]).endsWith(`Bot (you): να το ${url} [link: YouTube — Cool video]`), lineOf([m]));
+});
+
+// ---------------------------------------------------------------------------
+// Inbound protocol events (toEvent, reactionEvent, normalizedOf).
+
+/** A guild message with everything the event reads: a channel with a topic and a category, mentions, a reply. */
+function guildMessage(overrides = {}) {
+  const channel = {
+    id: 'c1',
+    name: 'γενικά',
+    topic: 'κουβέντα',
+    parent: { name: 'κοινότητα' },
+    isThread: () => false,
+    messages: { cache: new Map() },
+  };
+  return rawMessage({
+    guild: { id: 'g1' },
+    guildId: 'g1',
+    channel,
+    content: 'hello <@self> <#222222222222222222>',
+    cleanContent: 'hello @Bot #news',
+    mentions: { users: new Map([['self', { id: 'self' }], ['u2', { id: 'u2' }]]) },
+    reference: { messageId: 'm0' },
+    ...overrides,
+  });
+}
+
+test('toEvent: a message becomes a valid message.received event, field for field', () => {
+  const raw = guildMessage();
+  const event = toEvent(raw, 'self', { maxUrlChars: 200 });
+  assert.deepEqual(validateEvent(event), { ok: true });
+  assert.equal(event.kind, 'message.received');
+  assert.equal(event.iface, 'discord');
+  assert.equal(event.id, 'discord:message:m1');
+  assert.equal(event.at, 1000);
+  assert.deepEqual(event.conversation, { id: 'c1', kind: 'channel', guildId: 'g1', name: 'γενικά', topic: 'κουβέντα', category: 'κοινότητα' });
+  assert.deepEqual(event.message.author, { id: 'u1', name: 'Alice', self: false, bot: false });
+  assert.equal(event.message.content, 'hello @Bot #news');
+  assert.equal(event.message.at, 1000);
+  assert.equal(event.message.replyToId, 'm0');
+  assert.deepEqual(event.addressing, { mentioned: true, replyToSelf: false, mentionedUserIds: ['self', 'u2'], mentionedConversationIds: ['222222222222222222'] });
+  assert.equal(event.raw, raw, 'the discord.js message rides along for the Discord side only');
+  for (const key of ['channelId', 'authorId', 'authorName', 'ts', 'channelName', 'mentionedUserIds']) assert.ok(!(key in event.message), key);
+});
+
+test('normalizedOf: the event gives back normalizeMessage\'s result, key for key and in order', () => {
+  for (const raw of [guildMessage(), rawMessage(), guildMessage({ author: { id: 'self', bot: true, globalName: 'Bot', username: 'bot' } })]) {
+    const options = normalizeOptions({ media: { embedTextChars: 50, video: { sites: ['youtube.com'] } }, context: { maxUrlChars: 30 } });
+    assert.equal(JSON.stringify(normalizedOf(toEvent(raw, 'self', options))), JSON.stringify(normalizeMessage(raw, 'self', options)));
+    assert.deepEqual(normalizedOf(toEvent(raw, 'self', options)), normalizeMessage(raw, 'self', options));
+  }
+});
+
+test('normalizeOptions: the three normaliser settings from the config, absent ones left to its defaults', () => {
+  assert.deepEqual(normalizeOptions({ media: { embedTextChars: 50, video: { sites: ['a'] } }, context: { maxUrlChars: 30 } }), { embedTextChars: 50, videoSites: ['a'], maxUrlChars: 30 });
+  assert.deepEqual(normalizeOptions({}), { embedTextChars: undefined, videoSites: undefined, maxUrlChars: undefined });
+});
+
+test('toEvent: a direct chat is a dm conversation, a thread a thread', () => {
+  const dm = toEvent(rawMessage({ guild: null, channel: { id: 'd1' }, channelId: 'd1' }), 'self');
+  assert.deepEqual(dm.conversation, { id: 'd1', kind: 'dm', guildId: null, name: null, topic: null, category: null });
+  assert.deepEqual(validateEvent(dm), { ok: true });
+  const thread = toEvent(guildMessage({ channel: { id: 't1', name: 'νήμα', isThread: () => true } , channelId: 't1' }), 'self');
+  assert.equal(thread.conversation.kind, 'thread');
+});
+
+test('toEvent: replyToSelf is the cached answer only; a forward replies to nothing', () => {
+  const channel = { id: 'c1', isThread: () => false, messages: { cache: new Map([['m0', { author: { id: 'self' } }], ['m9', { partial: true, author: { id: 'self' } }]]) } };
+  assert.equal(toEvent(guildMessage({ channel }), 'self').addressing.replyToSelf, true);
+  assert.equal(toEvent(guildMessage({ channel, reference: { messageId: 'm9' } }), 'self').addressing.replyToSelf, false, 'a partial cached message is no answer');
+  assert.equal(toEvent(guildMessage({ channel, reference: { messageId: 'other' } }), 'self').addressing.replyToSelf, false);
+  const forward = toEvent(guildMessage({ channel, reference: { messageId: 'm0', channelId: 'c2', type: MessageReferenceType.Forward } }), 'self');
+  assert.equal(forward.message.replyToId, null);
+  assert.equal(forward.addressing.replyToSelf, false);
+});
+
+test('toEvent: no mention of the persona is mentioned false, whatever else is mentioned', () => {
+  const event = toEvent(guildMessage({ mentions: { users: new Map([['u2', { id: 'u2' }]]) } }), 'self');
+  assert.equal(event.addressing.mentioned, false);
+  assert.deepEqual(event.addressing.mentionedUserIds, ['u2']);
+  assert.equal(toEvent(rawMessage(), 'self').addressing.mentioned, false, 'no mentions at all');
+});
+
+test('toEvent: an edit carries the same message id, its edit time and the old message', () => {
+  const previous = guildMessage({ cleanContent: 'helo' });
+  const event = toEvent(guildMessage({ editedTimestamp: 5000 }), 'self', { edit: true, previous });
+  assert.deepEqual(validateEvent(event), { ok: true });
+  assert.equal(event.edit, true);
+  assert.equal(event.message.id, 'm1');
+  assert.equal(event.at, 5000);
+  assert.equal(event.id, 'discord:edit:m1:5000');
+  assert.equal(event.rawPrevious, previous);
+  assert.equal(toEvent(guildMessage(), 'self', { edit: true, now: () => 7000 }).at, 7000, 'no edit stamp: now');
+});
+
+test('toEvent: an edit of a partial message carries only its id, and a deletion only its id', () => {
+  const partial = { id: 'm1', channelId: 'c1', guildId: 'g1', partial: true, author: null };
+  const edit = toEvent(partial, 'self', { edit: true, now: () => 7000 });
+  assert.deepEqual(validateEvent(edit), { ok: true });
+  assert.deepEqual([edit.message, edit.edit, edit.partial, edit.raw], [{ id: 'm1' }, true, true, partial]);
+  const deleted = toEvent(partial, 'self', { deleted: true, now: () => 8000 });
+  assert.deepEqual(validateEvent(deleted), { ok: true });
+  assert.deepEqual([deleted.message, deleted.deleted, deleted.at, deleted.id], [{ id: 'm1' }, true, 8000, 'discord:delete:m1']);
+  assert.deepEqual(deleted.conversation, { id: 'c1', kind: 'channel', guildId: 'g1', name: null, topic: null, category: null });
+});
+
+test('reactionEvent: a reaction becomes a valid reaction.changed event, its parts kept for the reactor store', () => {
+  const message = { id: 'm1', channelId: 'c1', guildId: 'g1', channel: { id: 'c1', name: 'γενικά', isThread: () => false } };
+  const reaction = { message, emoji: { name: '\u{1F389}', id: null } };
+  const user = { id: 'u2' };
+  const event = reactionEvent(reaction, user, true, { now: () => 3000 });
+  assert.deepEqual(validateEvent(event), { ok: true });
+  assert.deepEqual(
+    { kind: event.kind, at: event.at, conversation: event.conversation.id, messageId: event.messageId, emoji: event.emoji, userId: event.userId, added: event.added },
+    { kind: 'reaction.changed', at: 3000, conversation: 'c1', messageId: 'm1', emoji: { name: '\u{1F389}' }, userId: 'u2', added: true },
+  );
+  assert.deepEqual(event.raw, { reaction, user });
+  const custom = reactionEvent({ message, emoji: { name: 'party', id: '42' } }, user, false, { now: () => 3000 });
+  assert.deepEqual([custom.emoji, custom.added], [{ name: 'party', id: '42' }, false]);
+  assert.notEqual(custom.id, event.id);
+});
+
+test('reactionEvent: an unreadable emoji or a missing message never throws and fails validation', () => {
+  const broken = { message: null, get emoji() { throw new Error('REST-only client'); } };
+  const event = reactionEvent(broken, { id: 'u2' }, true);
+  assert.equal(validateEvent(event).ok, false);
+  assert.equal(validateEvent(reactionEvent({ message: { id: 'm1', channelId: 'c1', guildId: 'g1' }, emoji: { name: null } }, { id: 'u2' }, true)).ok, false);
 });
