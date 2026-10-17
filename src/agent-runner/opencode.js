@@ -263,6 +263,8 @@ export function createOpencodeRunner({
       const proxy = httpProxyForm(pick(given.proxy, proxyEnv));
       if (proxy) {
         for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) childEnv[name] = proxy;
+        // The model API goes direct, never through the residential proxy; so does anything local.
+        for (const name of ['NO_PROXY', 'no_proxy']) childEnv[name] = 'openrouter.ai,localhost,127.0.0.1';
       }
     }
 
