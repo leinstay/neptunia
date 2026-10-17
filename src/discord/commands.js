@@ -353,8 +353,12 @@ export const COMMAND_TABLE = Object.freeze([
         options: [channelOption('Channel (default: this one).'), { type: STRING, name: 'reply', description: 'Message id or link to answer.', required: false }],
         // When the persona herself calls it, she gives her text: an argument only she has
         // (src/skills/derive.js), never shown to Discord; the operation picks its mode by who acts.
-        personaOptions: [{ type: STRING, name: 'text', description: 'Her text.', required: true, max_length: 2000 }],
-        args: (options) => ({ channelId: options.getChannel('channel')?.id, replyTo: options.getString('reply') ?? undefined, text: options.getString('text') ?? undefined }),
+        // With it, a file one of her errands brought back (`file:<task id>/<name>`, src/errands/store.js).
+        personaOptions: [
+          { type: STRING, name: 'text', description: 'Her text.', required: true, max_length: 2000 },
+          { type: STRING, name: 'file', description: 'A file handle of one of her errands.', required: false, max_length: 300 },
+        ],
+        args: (options) => ({ channelId: options.getChannel('channel')?.id, replyTo: options.getString('reply') ?? undefined, text: options.getString('text') ?? undefined, file: options.getString('file') ?? undefined }),
       },
       {
         name: 'edit',

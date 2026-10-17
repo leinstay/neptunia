@@ -96,7 +96,7 @@ test('skills effects: one effect class per operation, by its actual effect, in o
   const of = (effect) => Object.keys(OP_EFFECTS).filter((name) => OP_EFFECTS[name] === effect).sort();
   assert.deepEqual(of('destructive'), ['alias.remove', 'learning.remove', 'lore.remove', 'memory.forget', 'memory.private.forget', 'memory.private.purge', 'memory.restore', 'memory.wipe', 'message.delete', 'rule.remove']);
   for (const name of ['config.set', 'config.unset', 'model.set', 'route.set', 'route.remove', 'access.grant', 'access.revoke', 'bot.pause', 'bot.resume']) assert.equal(OP_EFFECTS[name], 'administrative', name);
-  assert.deepEqual(of('paid'), ['draw.create']);
+  assert.deepEqual(of('paid'), ['draw.create', 'task.run']);
   for (const op of listOps()) if (op.rights.kind === 'read') assert.equal(OP_EFFECTS[op.name], 'read', op.name);
   // a skill carries its operation's class
   assert.equal(skillRegistry().get('memory.wipe').effects, 'destructive');
@@ -256,9 +256,10 @@ test('skills derived: the real tree -- every schema is generated from the slash 
   assert.deepEqual(Object.keys(skillRegistry().get('media.status').argsSchema.properties), ['kind', 'days']);
   // `/nep diary post`: kind and topic, as the command offers them
   assert.deepEqual(skillRegistry().get('diary.post').argsSchema.properties, { kind: { type: 'string', minLength: 1, maxLength: 6000 }, topic: { type: 'string', minLength: 1, maxLength: 1000 } });
-  // `/nep message create`: a channel and a message to answer, and her own text, required, the body of her call
+  // `/nep message create`: a channel and a message to answer, and her own text, required, the body of her call;
+  // a file one of her errands brought back, optional
   const create = skillRegistry().get('message.create');
-  assert.deepEqual(Object.keys(create.argsSchema.properties), ['channel', 'reply', 'text']);
+  assert.deepEqual(Object.keys(create.argsSchema.properties), ['channel', 'reply', 'text', 'file']);
   assert.deepEqual(create.argsSchema.required, ['text']);
   assert.equal(create.command.body, 'text');
   // `/nep draw`: a channel to post the picture in, the owner's too
@@ -436,7 +437,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   const channel = { name: 'channel', required: false };
   const body = { name: 'text', required: true, body: true };
   const message = { name: 'message', required: true };
-  assert.deepEqual(byName.get('message.create'), { name: 'message.create', title: 'Στείλε', whenToUse: 'όταν θέλεις', allowed: true, reason: 'carried-over', args: [channel, { name: 'reply', required: false }, body] });
+  assert.deepEqual(byName.get('message.create'), { name: 'message.create', title: 'Στείλε', whenToUse: 'όταν θέλεις', allowed: true, reason: 'carried-over', args: [channel, { name: 'reply', required: false }, body, { name: 'file', required: false }] });
   assert.deepEqual(byName.get('message.edit'), { name: 'message.edit', title: '', whenToUse: '', allowed: true, reason: 'allowed', args: [message, body, channel] });
   assert.deepEqual(byName.get('message.delete'), { name: 'message.delete', title: '', whenToUse: '', allowed: false, reason: 'not-allowed', args: [message, channel] });
   assert.deepEqual(byName.get('memory.wipe'), { name: 'memory.wipe', title: '', whenToUse: '', allowed: false, reason: 'not-grantable', args: [{ name: 'confirm', required: true }] });

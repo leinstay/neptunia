@@ -68,8 +68,9 @@ function requesterRefusal(skill, requester, context) {
 
 /**
  * The budget of each paid skill: a function of the call's context, requester and arguments
- * answering the caps as src/llm/images.js#quota does (`{ spent, userSpent }`, `key` naming the
- * cap that is spent when it is not the drawing's), or null when unavailable.
+ * answering the caps as src/llm/images.js#quota does (`{ spent, userSpent }`; `code` and `key`
+ * naming the refusal and the cap that is spent when they are not the drawing's), or null when
+ * unavailable.
  */
 const drawBudget = (context, requester) => (typeof context?.images?.quota === 'function' ? context.images.quota({ userId: requester?.id ?? null }) : null);
 /** An errand's budget: its agent's caps (open tasks, tasks and dollars a day), `context.tasks`. */
@@ -95,7 +96,7 @@ function budgetRefusal(skill, requester, context, args) {
   if (skill.costClass !== 'paid') return null;
   const budget = Object.hasOwn(BUDGETS, skill.name) ? BUDGETS[skill.name](context, requester, args) : null;
   if (!budget || typeof budget !== 'object') return refused('no-budget', 'unavailable');
-  if (budget.spent === true) return refused('daily-cap', typeof budget.key === 'string' && budget.key ? budget.key : 'image.maxPerDay');
+  if (budget.spent === true) return refused(typeof budget.code === 'string' && budget.code ? budget.code : 'daily-cap', typeof budget.key === 'string' && budget.key ? budget.key : 'image.maxPerDay');
   if (budget.userSpent === true) return refused('daily-cap', 'image.maxPerUserPerDay');
   return null;
 }

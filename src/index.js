@@ -56,6 +56,7 @@ import { createAdmin } from './admin.js';
 import { createErrandClient } from './errands/client.js';
 import { createTaskStores } from './errands/store.js';
 import { createErrandService } from './errands/service.js';
+import { createTaskTurns } from './errands/turns.js';
 import { skillRegistry } from './skills/registry.js';
 import { createDiscordAdapter } from './interface/discord.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
@@ -326,7 +327,8 @@ const iface = createDiscordAdapter({ client });
 // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/tasks.json.
 const errandClient = createErrandClient({ hot, log });
 const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal, log });
-const errands = createErrandService({ client: errandClient, stores: taskStores, hot, getGuildId, log });
+// An errand's end opens her own turn where it was asked (the task turns, created below the runner).
+const errands = createErrandService({ client: errandClient, stores: taskStores, hot, getGuildId, log, onFinished: (task, guildId) => taskTurns.onFinished(task, guildId) });
 const turns = createTurnRunner({
   hot,
   store,
@@ -384,6 +386,8 @@ const memory = createMemoryUpdater({
   // A status line for the development channel (bot.dryRunChannelId, read now).
   notify: (text) => mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header: 'memory', body: text }),
 });
+// The turn an errand's end opens, through the one attention and a cooldown per conversation.
+const taskTurns = createTaskTurns({ hot, client, turns, errands, getGuildId, log });
 const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
@@ -854,6 +858,7 @@ async function shutdown(signal) {
   onMessage.stop();
   missed.stop();
   errandClient.close();
+  taskTurns.stop();
   await missed.save().catch((err) => log.warn('index: missed registry not saved', { error: err }));
   // The embedding queue flushes what waits once (a short wait at most), before the stores close.
   await embedQueue.close().catch((err) => log.warn('index: embed queue close failed', { error: err }));

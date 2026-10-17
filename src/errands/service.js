@@ -129,6 +129,28 @@ export function createErrandService({ client, stores, hot, getGuildId = () => nu
     return [...store.open(), ...store.unseen()].filter(visible);
   }
 
+  /**
+   * The file a handle `file:<task id>/<name>` names (src/errands/store.js#fileOf), for a
+   * conversation that may see its task (view's rule: a private chat's task only in that chat);
+   * null otherwise.
+   */
+  function fileOf({ guildId = null, handle, privateChannelId = null } = {}) {
+    const store = storeOf(guildId);
+    const file = store ? store.fileOf(handle) : null;
+    if (!file) return null;
+    if (file.task.scope === 'dm' && (privateChannelId === null || file.task.origin?.channelId !== String(privateChannelId))) return null;
+    return file;
+  }
+
+  /** The tasks `ids` marked as seen by the persona (a turn of hers showed them). */
+  function markSeen({ guildId = null, ids = [] } = {}) {
+    const store = storeOf(guildId);
+    if (!store) return 0;
+    let marked = 0;
+    for (const id of ids) if (store.markSeen(id)) marked += 1;
+    return marked;
+  }
+
   /** The tasks of the served guild a restart left open, failed (`restarted`). */
   function start(guildId) {
     const store = storeOf(guildId);
@@ -143,5 +165,5 @@ export function createErrandService({ client, stores, hot, getGuildId = () => nu
     while (running.size > 0) await Promise.allSettled([...running.values()]);
   }
 
-  return { submit, cancel, budget, view, start, idle, store: storeOf, limitsOf };
+  return { submit, cancel, budget, view, fileOf, markSeen, start, idle, store: storeOf, limitsOf };
 }

@@ -6,6 +6,9 @@
 // structured status; the `/nep message` operations go through a fake interface adapter.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { PermissionFlagsBits } from 'discord.js';
 
 import '../src/ops/index.js';
@@ -294,6 +297,48 @@ test('executeCall: message.create posts her own text where she may, the reply no
   port.failNext('send', { status: 'unknown', error: { code: 'timeout', retryable: false } });
   const lost = await executeCall(resolve('message.create', {}, 'ξανά'), deps(admin, port));
   assert.deepEqual([lost.status, lost.code], ['unknown', 'timeout']);
+});
+
+test('resolveCall and executeCall: a file handle of one of her errands attaches its file; an unknown handle or a file too large is refused', async () => {
+  const known = 'file:tab1/meme.png';
+  const fileOf = (handle) => (handle === known ? { name: 'meme.png' } : null);
+  const call = resolve('message.create', { file: known, channel: '#νέα' }, 'βρήκα', { fileOf });
+  assert.deepEqual([call.ok, call.args], [true, { file: known, channel: NEWS, text: 'βρήκα' }]);
+  const unknown = resolve('message.create', { file: 'file:tab1/other.png' }, 'βρήκα', { fileOf });
+  assert.deepEqual([unknown.ok, unknown.code, unknown.reason], [false, 'unknown-file', 'file']);
+  assert.equal(refusalStatus('unknown-file'), 'invalid', 'a call that was not right');
+  assert.equal(resolve('message.create', { file: known }, 'βρήκα').code, 'unknown-file', 'no errands in view, no file');
+  // The operation reads the file from the errand's out directory and sends it through the port.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'errand-file-'));
+  const filePath = path.join(dir, 'meme.png');
+  fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
+  const asked = [];
+  const errands = {
+    fileOf: ({ handle, privateChannelId }) => {
+      asked.push({ handle, privateChannelId });
+      return handle === known ? { path: filePath, name: 'meme.png', contentType: 'image/png', bytes: 4 } : null;
+    },
+  };
+  const { admin, port } = makeAdmin({ extra: { errands } });
+  const result = await executeCall(call, deps(admin, port));
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(asked, [{ handle: known, privateChannelId: NEWS }], 'resolved for the conversation it goes to');
+  const [posted] = port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
+  assert.equal(posted.text, 'βρήκα');
+  assert.equal(posted.attachments.length, 1);
+  assert.equal(posted.attachments[0].name, 'meme.png');
+  assert.equal(posted.attachments[0].contentType, 'image/png');
+  assert.deepEqual([...posted.attachments[0].data], [1, 2, 3, 4]);
+  // Larger than the interface takes: failed with its code, nothing sent.
+  const small = createFakeAdapter({ iface: 'fake', selfId: SELF, limits: { maxAttachmentBytes: 2 } });
+  const tight = makeAdmin({ port: small, extra: { errands } });
+  const big = await executeCall(call, deps(tight.admin, small));
+  assert.deepEqual([big.status, big.code], ['failed', 'attachment-too-large']);
+  assert.equal(small.messagesIn(NEWS).length, 0);
+  // A handle the errands do not know by the time it runs: invalid, nothing sent.
+  const gone = await executeCall(call, deps(makeAdmin({ port: small, extra: { errands: { fileOf: () => null } } }).admin, small));
+  assert.deepEqual([gone.status, gone.code], ['invalid', 'unknown-file']);
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('executeCall: her written text goes out as rendered; only the members the rendering resolved are notified, never one with pings off', async () => {

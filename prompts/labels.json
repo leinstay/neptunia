@@ -259,7 +259,8 @@
     "overheard": "talked about you, not to you",
     "drawFailed": "was about to get a picture, but the drawing sub-process failed: {reason}",
     "private": "wrote to you privately",
-    "missed": "wrote to you earlier and got no answer from you"
+    "missed": "wrote to you earlier and got no answer from you",
+    "task": "asked you for the errand whose result just came back"
   },
   "status": {
     "probe": "Reply with the single word pong.",
@@ -392,6 +393,26 @@
     "missed": "Earlier messages to you got no answer from you ({missed}). You can answer them now, briefly and together in one reply, or let them pass.",
     "continue": "This is the same turn, continued after your {skill} call. Your messages above were delivered, and how the call went is marked on your line. Do not answer the message that started this turn again, and make no more calls this turn. Messages that came in after it are context, not new requests. Write only if the outcome changes what people need to know: a correction of what you said, an answer they asked for, or a clarification. Otherwise <skip/>."
   },
+  "tasks": {
+    "header": "Your errands, handed to your agents (open, or finished and not yet seen by you):",
+    "line": "{id} · {agent} · {state} · asked {age} min ago · {goal}",
+    "states": {
+      "queued": "waiting",
+      "running": "in progress",
+      "done": "done",
+      "failed": "failed",
+      "cancelled": "cancelled"
+    },
+    "result": {
+      "header": "Your errand {id} for the {agent} agent has ended: {state}. It was: {goal}",
+      "text": "What it brought back:",
+      "empty": "It brought back no text.",
+      "error": "Reason: {error}",
+      "sources": "Its sources:",
+      "files": "Files it saved; to post one, give its handle as the file of message.create:",
+      "file": "{handle} ({contentType}, {bytes} bytes)"
+    }
+  },
   "journal": {
     "offLead": "You were away:",
     "offPaused": "Paused by the owner, {from} to {to} ({length})",
@@ -451,6 +472,14 @@
         "cooldown": "a destructive skill was used recently in this channel",
         "self-grant": "the persona cannot change her own rights",
         "timeout": "the chat did not answer in time",
+        "cap-open": "too many of your errands are open already",
+        "cap-tasks": "today's errands for that agent are used up",
+        "cap-usd": "today's budget for that agent is spent",
+        "not-requester": "only the person who asked for it or an owner can do that",
+        "not-open": "that errand has already ended",
+        "unknown-file": "no errand of yours brought back that file for this chat",
+        "attachment-too-large": "the file is too large for this chat",
+        "file-unreadable": "the file could not be read",
         "other": "something went wrong"
       }
     }

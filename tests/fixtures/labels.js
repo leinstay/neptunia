@@ -260,6 +260,7 @@ export const labels = {
     drawFailed: 'asked for a picture, the drawing failed: {reason}',
     private: 'wrote to you privately',
     missed: 'wrote to you earlier, unanswered',
+    task: 'asked for the errand that just ended',
   },
   draw: {
     reasons: {
@@ -345,6 +346,20 @@ export const labels = {
     added: 'they asked about this again meanwhile:\n{added}',
     missed: 'unanswered earlier, answer now or let pass: {missed}',
     continue: 'continue this turn after your {skill} call; no new call; skip unless the outcome changes something',
+  },
+  tasks: {
+    header: 'your errands:',
+    line: '{id} | {agent} | {state} | {age} min | {goal}',
+    states: { queued: 'waiting', running: 'running', done: 'done', failed: 'failed', cancelled: 'cancelled' },
+    result: {
+      header: 'errand {id} ({agent}) ended {state}: {goal}',
+      text: 'result:',
+      empty: 'no result text',
+      error: 'error: {error}',
+      sources: 'sources:',
+      files: 'files:',
+      file: '{handle} | {contentType} | {bytes} bytes',
+    },
   },
   recent: {
     header: 'what you remember from the last {hours} hours, oldest first:',

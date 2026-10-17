@@ -15,8 +15,12 @@
 // delete reach only her own messages (the port refuses anyone else's). A message is named by its
 // id or its link; for an edit or a deletion also by `last`, her own most recent message in that
 // channel. A port answer that may have taken effect is `failed` with `data.unknown` true:
-// never retried.
+// never retried. Her post may carry one file an errand of hers brought back (`file`, a handle
+// `file:<task id>/<name>`, src/errands/store.js): read from the agent's out directory, refused
+// when unknown here (`unknown-file`: a private chat's file goes only back to that chat), larger
+// than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`).
 
+import fsp from 'node:fs/promises';
 import { normalizeMessage } from '../discord/collect.js';
 import { channelById, messageRefOf, portAnswer, postingConversation } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
@@ -30,7 +34,7 @@ function isLast(value) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, spontaneous, turns, port, assertNotPaused, resolvedGuildId } = env;
+  const { hot, store, client, spontaneous, turns, port, errands, assertNotPaused, resolvedGuildId } = env;
 
   /** True when member `userId` turned pings off here. */
   function pingsOff(context, userId) {
@@ -44,6 +48,25 @@ const handlers = perEnv((env) => {
     return context.mentionUserIds.map(String).filter((id) => id && !pingsOff(context, id));
   }
 
+  /**
+   * The attachment of a post's `file` handle bound for `channelId`, or null without one: the
+   * errand's file (src/errands/service.js#fileOf), its size checked against the interface's
+   * `maxAttachmentBytes` before it is read.
+   */
+  async function errandFile(args, context, channelId, p) {
+    const handle = String(args?.file ?? '').trim();
+    if (!handle) return null;
+    const file = typeof errands?.fileOf === 'function' ? errands.fileOf({ guildId: resolvedGuildId(context), handle, privateChannelId: channelId }) : null;
+    if (!file) throw invalid(`no file ${handle}`, 'unknown-file');
+    const limit = p.capabilities?.()?.limits?.maxAttachmentBytes;
+    const stat = await fsp.stat(file.path).catch(() => null);
+    if (!stat?.isFile()) throw Object.assign(new Error(`cannot read ${handle}`), { code: 'file-unreadable' });
+    if (Number.isFinite(limit) && stat.size > limit) throw Object.assign(new Error(`${handle} is ${stat.size} bytes, over the ${limit} this interface takes`), { code: 'attachment-too-large' });
+    const data = await fsp.readFile(file.path).catch(() => null);
+    if (!data) throw Object.assign(new Error(`cannot read ${handle}`), { code: 'file-unreadable' });
+    return { name: file.name, data, ...(file.contentType ? { contentType: file.contentType } : {}) };
+  }
+
   /** The persona's own text posted as hers: the channel checked, the reply target in it. */
   async function post(args, context) {
     const p = requirePort();
@@ -54,8 +77,10 @@ const handlers = perEnv((env) => {
     if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', 'unknown-message');
     const channelId = await postingConversation({ client, guildId: resolvedGuildId(context), channelId: given ?? reply?.channelId ?? null, context, need: reply ? 'reply' : 'send' });
     const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
+    const attachment = await errandFile(args, context, channelId, p);
     const content = {
       text,
+      ...(attachment ? { attachments: [attachment] } : {}),
       ...(reply ? { replyTo: { iface: p.iface, conversationId: channelId, messageId: reply.messageId } } : {}),
       mentions: { users: mentionedUsers(context), repliedUser },
     };
