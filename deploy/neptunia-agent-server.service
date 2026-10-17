@@ -1,0 +1,62 @@
+# systemd unit for the persona's server-read errand agent (src/agent-runner/, profile server).
+#
+# A separate, unprivileged process that runs read-only errands on this server
+# through OpenCode: it reads files and runs read-only shell commands to answer
+# the owner's questions about the machine. It has NO network (PrivateNetwork),
+# holds only its own OpenRouter key, and writes only its own out dir. It is
+# granted CAP_DAC_READ_SEARCH so it can read any file like root WITHOUT being
+# root -- the read-only guarantee is this unit (ProtectSystem=strict, no
+# write paths), not a command filter. What it may DISCLOSE is cut by the
+# engine per scope (src/agent-runner/policy.js), not by the OS here.
+#
+# Install:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin neptunia-agent-server
+#   sudo install -d -o root -g root -m 0750 /etc/neptunia
+#   sudo install -o root -g root -m 0600 /dev/null /etc/neptunia/agent-server.env
+#   # add to it: OPENROUTER_AGENT_KEY=
+#   sudo cp deploy/neptunia-agent-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-agent-server
+# Logs:    journalctl -u neptunia-agent-server -f
+#
+# OpenCode needs the model price catalog; with PrivateNetwork it cannot fetch
+# it, so the runner passes the model cost in the config (agents.<profile>.cost)
+# and the model fetch is disabled.
+
+[Unit]
+Description=neptunia server-read errand agent (OpenCode worker)
+After=network.target
+
+[Service]
+Type=simple
+User=neptunia-agent-server
+Group=neptunia-discord-interface
+WorkingDirectory=/opt/neptunia-bot
+ExecStart=/opt/node/bin/node bin/agent-runner.mjs --profile server
+EnvironmentFile=/etc/neptunia/agent-server.env
+Restart=on-failure
+RestartSec=5
+
+# Read everything like root, without being root.
+AmbientCapabilities=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+
+# No network at all.
+PrivateNetwork=yes
+
+# The whole system is read-only; the agent writes only its own state (out) dir
+# and the runtime socket dir.
+ProtectSystem=strict
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+StateDirectory=neptunia-agent-server
+RuntimeDirectory=neptunia-agent-server
+RuntimeDirectoryMode=0750
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=neptunia-agent-server
+
+[Install]
+WantedBy=multi-user.target

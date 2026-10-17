@@ -851,6 +851,42 @@ With `features.relationships` off, public scores stay at 0, so with the default 
 | `rateLimitWaitMinutes` | `10` | Minutes to wait on a rate limit |
 | `rateLimitMaxWaits` | `36` | Consecutive waits before the run aborts |
 
+## `agents`
+
+The persona's errand agents: two separate processes (`web` and `server`), each an OpenCode worker behind a Unix socket, that run tasks the persona hands off (`src/agent-runner/`). Disabled until the core side ships. The agents hold their own OpenRouter key (`OPENROUTER_AGENT_KEY`), never the persona's; `web` also reads `OPENCODE_WEBSEARCH_KEY` (optional) and `PROXY_URL`. See [Errand agents](agents.md).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `opencodePath` | `"/opt/opencode/bin/opencode"` | Path to the OpenCode binary each task runs as a child process |
+| `toolResultChars` | `6000` | Cap on each tool result the agent's model sees (OpenCode `tool_output.max_bytes`) |
+| `maxDownloadBytes` | `20000000` | Size cap for a file the `web` agent downloads (bytes) |
+| `keepFilesHours` | `24` | Hours a task's output files are kept before deletion (applied core-side) |
+
+### `agents.web`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Run the web errand agent |
+| `model` | `"openrouter/x-ai/grok-4.7"` | OpenCode model id (`provider/model`) the agent runs on |
+| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode so its cost estimate is right (OpenCode cannot fetch the price catalog in the sandbox) |
+| `socket` | `"/run/neptunia-agent-web/sock"` | Unix socket the runner listens on |
+| `out` | `"/var/lib/neptunia-agent-web/out"` | Directory for per-task working dirs and output files |
+| `limits` | `{ "steps": 25, "usd": 0.5, "seconds": 300 }` | Per-task caps: model calls, estimated spend (soft cap; the hard cap is the key's OpenRouter credit limit), wall-clock seconds |
+| `daily` | `{ "tasks": 40, "usd": 8 }` | Per-day caps, applied core-side |
+| `search` | `{ "provider": "exa" }` | OpenCode web search provider: `exa` (no key) or `parallel` (needs a key in `OPENCODE_WEBSEARCH_KEY`) |
+
+### `agents.server`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Run the server-read errand agent |
+| `model` | `"openrouter/x-ai/grok-4.7"` | OpenCode model id (`provider/model`) the agent runs on |
+| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode for its cost estimate |
+| `socket` | `"/run/neptunia-agent-server/sock"` | Unix socket the runner listens on |
+| `out` | `"/var/lib/neptunia-agent-server/out"` | Directory for per-task working dirs and output files |
+| `limits` | `{ "steps": 20, "usd": 0.2, "seconds": 120 }` | Per-task caps: model calls, estimated spend, wall-clock seconds |
+| `daily` | `{ "tasks": 40, "usd": 3 }` | Per-day caps, applied core-side |
+
 ## `appendStore`
 
 The journal, record and archive are written through a shared append-only file writer. These settings control how it flushes and recovers.
