@@ -1,6 +1,6 @@
 # Errand agents
 
-The engine can hand a task off to a separate **errand agent**: a standalone process that does one job (read the web, or read this server) and reports back. Each agent is an [OpenCode](https://opencode.ai) worker driven by the runner code in `src/agent-runner/`; it never imports the bot and holds its own OpenRouter key, never the persona's. Two profiles ship:
+The engine can hand a task off to a separate **errand agent**: a standalone process that does one job (read the web, or read this server) and reports back. Each agent is an [OpenCode](https://opencode.ai) worker driven by the runner code in `src/agent-runner/`; it never imports the bot and runs on the agents' own OpenRouter key, never the persona's. Two profiles ship:
 
 | Profile | Does | Reaches | Tools |
 |---|---|---|---|
@@ -16,7 +16,9 @@ Each profile runs as its own systemd service and Unix user (`deploy/neptunia-age
 - **web** (`neptunia-agent-web`): has network, egress to localhost and private ranges refused by the unit (`IPAddressDeny=`) and in code; the filesystem is read-only except its state dir (`ProtectSystem=strict`, `ProtectHome=yes`, `InaccessiblePaths=` for `/srv`, the bot's data and `.env`, `/var/www`, nginx and Let's Encrypt).
 - **server** (`neptunia-agent-server`): network only to the local resolver and the model API (`IPAddressDeny=any` plus `IPAddressAllow=` for Cloudflare's ranges, where OpenRouter lives; the shell's `find -exec`, `awk` network paths and `gawk` are denied on top of the allow-list); the whole system is read-only (`ProtectSystem=strict`, no write paths but its state dir). It is granted `CAP_DAC_READ_SEARCH` so it can read any file like root without being root. The read-only guarantee is the unit, not a command filter.
 
-Both are launched by `bin/agent-runner.mjs --profile <name>`, read their caps, model price and socket from `agents.<profile>` in the config and their model from the model roles `agent.web` and `agent.server` (set with `/nep model set`, read again at each task; a `run` may carry its own `model`), and take their keys from the unit's `EnvironmentFile` (`/etc/neptunia/agent-<profile>.env`, root-owned, 0600): `OPENROUTER_AGENT_KEY` for both, plus `OPENCODE_WEBSEARCH_KEY` and `PROXY_URL` for `web`. Settings are in [Configuration: `agents`](configuration.md#agents). With the same key in the bot's `.env`, the owner's `/nep status` card shows its limit and spend as the `agents` key (`llm.keyByRole` maps the agent roles to `OPENROUTER_AGENT_KEY`); the bot never sends a request with it.
+Both are launched by `bin/agent-runner.mjs --profile <name>`, read their caps, model price and socket from `agents.<profile>` in the config and their model from the model roles `agent.web` and `agent.server` (set with `/nep model set`, read again at each task; a `run` may carry its own `model`). Settings are in [Configuration: `agents`](configuration.md#agents).
+
+Every key lives in the core, in the bot's `.env`, which the runners (unprivileged, with the file made inaccessible to them) cannot read: the core sends the keys with each task, in the `secrets` of the `run` message. The OpenRouter key is the one of the task's model role, resolved as the bot resolves any role's key (`llm.keyByRole`: `agent.web` and `agent.server` on `OPENROUTER_AGENT_KEY`; never the persona's main key: without that variable no secrets are sent). The `web` agent also gets the proxy, `MEDIA_VIDEO_PROXY` (the residential proxy serves the video fetches and this agent alike; a `socks5h://` URL is sent as the `http://` URL with the same host and port, which the proxy also serves), and `OPENCODE_WEBSEARCH_KEY` when set. The runner gives the OpenCode child the key as `OPENROUTER_API_KEY`, the proxy as `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms, the ones curl reads) and the search key to the search provider. The unit's `EnvironmentFile` (`/etc/neptunia/agent-<profile>.env`, root-owned, 0600) is optional: its `OPENROUTER_AGENT_KEY`, `OPENCODE_WEBSEARCH_KEY` and `PROXY_URL` are used only for what a task does not bring; a task with no key from either fails `no-key`, with one warning per runner. No secret is ever logged, journaled or sent back in an event. The owner's `/nep status` card shows the agents' key as the `agents` key and the coding worker's `OPENROUTER_DEV_KEY` (role `agent.dev`) as the `development` key; the bot never sends a request of its own with either.
 
 ## The protocol
 
@@ -24,7 +26,7 @@ The core connects to the runner's Unix socket (`agents.<profile>.socket`, group 
 
 Core to runner:
 
-- `{ "op": "run", "id", "goal", "context": { "scope", "channel", "asker", ... }, "limits": { "steps", "usd", "seconds" }, "tools": [...], "model"?, "cost"?, "searchProvider"? }`
+- `{ "op": "run", "id", "goal", "context": { "scope", "channel", "asker", ... }, "limits": { "steps", "usd", "seconds" }, "tools": [...], "model"?, "cost"?, "searchProvider"?, "secrets"?: { "openrouterKey", "proxy"?, "searchKey"? } }` (`secrets`: non-empty strings, no other key; a refused `run` is answered with its error code alone, never a value)
 - `{ "op": "cancel", "id" }`
 - `{ "op": "ping", "ids": [...] }`
 

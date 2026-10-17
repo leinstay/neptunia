@@ -4,7 +4,10 @@
 // works and exactly one `end` per task. This module only validates what comes
 // in and shapes what goes out: no I/O, so a malformed line from either side is
 // refused here before anything acts on it. The task id ends up in a file path
-// (`<outDir>/<id>/`), so it is restricted to a safe character set.
+// (`<outDir>/<id>/`), so it is restricted to a safe character set. A `run` may
+// carry the task's secrets (the model key, the proxy, the search key: every key
+// lives in the core, the runner cannot read the bot's .env); a refusal names
+// only its code, never a value, and nothing here logs a message.
 
 import { isPlainObject } from '../config.js';
 import { SCOPES } from './policy.js';
@@ -32,6 +35,10 @@ const MAX_NOTE_CHARS = 200;
 /** The most withheld paths a result lists (each cut to MAX_NOTE_CHARS). */
 const MAX_WITHHELD = 50;
 const MAX_NAME_CHARS = 64;
+/** The secrets a `run` may carry: `openrouterKey` always, `proxy` and `searchKey` when set. */
+export const SECRET_KEYS = Object.freeze(['openrouterKey', 'proxy', 'searchKey']);
+/** The longest secret value (characters). */
+const MAX_SECRET_CHARS = 2048;
 
 /** Whether `value` is a positive finite number. */
 function isPositive(value) {
@@ -41,6 +48,33 @@ function isPositive(value) {
 /** Whether `value` is a non-negative finite number (a price in USD per million tokens). */
 function isPrice(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+/** Whether `value` may be a secret: a non-empty string without whitespace, at most MAX_SECRET_CHARS. */
+function isSecret(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_SECRET_CHARS && !/\s/.test(value);
+}
+
+/**
+ * The http form of a proxy URL for HTTPS_PROXY / HTTP_PROXY: a `socks5h://` URL becomes the
+ * `http://` one with the same credentials, host and port (the residential proxy serves both on
+ * one port), an `http://` or `https://` URL stays as it is; anything else, or a blank value, is
+ * null. Pure; never logs the URL (it may carry credentials).
+ * @param {unknown} url
+ * @returns {string|null}
+ */
+export function httpProxyForm(url) {
+  if (typeof url !== 'string' || !url.trim()) return null;
+  let parsed;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return null;
+  }
+  if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return url.trim();
+  if (parsed.protocol !== 'socks5h:' || !parsed.hostname || !parsed.port) return null;
+  const auth = parsed.username ? `${parsed.username}${parsed.password ? `:${parsed.password}` : ''}@` : '';
+  return `http://${auth}${parsed.host}`;
 }
 
 /** `{ ok: false, error }`. */
@@ -84,6 +118,19 @@ function validateRun(msg) {
     if (typeof msg.searchProvider !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(msg.searchProvider)) return refuse('bad-search-provider');
     out.searchProvider = msg.searchProvider;
   }
+  if (msg.secrets !== undefined) {
+    // Only the code on a refusal: a secret never travels back in an error.
+    const s = msg.secrets;
+    if (!isPlainObject(s) || !isSecret(s.openrouterKey)) return refuse('bad-secrets');
+    if (!Object.keys(s).every((key) => SECRET_KEYS.includes(key))) return refuse('bad-secrets');
+    const secrets = { openrouterKey: s.openrouterKey };
+    for (const key of ['proxy', 'searchKey']) {
+      if (s[key] === undefined) continue;
+      if (!isSecret(s[key])) return refuse('bad-secrets');
+      secrets[key] = s[key];
+    }
+    out.secrets = secrets;
+  }
   return { ok: true, message: out };
 }
 
@@ -93,8 +140,11 @@ function validateRun(msg) {
  * at most MAX_CONTEXT_CHARS as JSON, whose `scope` is one of SCOPES when
  * present), `limits` (only LIMIT_KEYS, each a positive number), `tools` (a
  * non-empty list of names), `model` (an OpenCode model id), `cost`
- * (`{ input, output }` in USD per million tokens) and `searchProvider` (an
- * OpenCode web search provider id). `cancel` needs an id. `ping` may carry `ids` (task ids
+ * (`{ input, output }` in USD per million tokens), `searchProvider` (an
+ * OpenCode web search provider id) and `secrets` (`{ openrouterKey, proxy?,
+ * searchKey? }`, each a non-empty string without whitespace, no other key;
+ * `proxy` in the http form, see httpProxyForm). A refusal carries its code
+ * only, never a value of the message. `cancel` needs an id. `ping` may carry `ids` (task ids
  * the core still waits for). Unknown top-level keys are ignored.
  * @param {unknown} msg
  * @returns {{ ok: true, message: object } | { ok: false, error: string }}

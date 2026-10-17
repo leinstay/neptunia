@@ -328,7 +328,7 @@ const iface = createDiscordAdapter({ client });
 const errandClient = createErrandClient({ hot, log });
 const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal, log });
 // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
-const errands = createErrandService({ client: errandClient, stores: taskStores, hot, getGuildId, log, onFinished: (task, guildId) => taskTurns.onFinished(task, guildId) });
+const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, getGuildId, log, onFinished: (task, guildId) => taskTurns.onFinished(task, guildId) });
 const turns = createTurnRunner({
   hot,
   store,

@@ -4,17 +4,21 @@
 # through OpenCode: it reads files and runs read-only shell commands to answer
 # the owner's questions about the machine. Its network reaches only the local
 # resolver and the model provider (IPAddressAllow; everything else denied),
-# holds only its own OpenRouter key, and writes only its own out dir. It is
+# holds only the agents' OpenRouter key, and writes only its own out dir. It is
 # granted CAP_DAC_READ_SEARCH so it can read any file like root WITHOUT being
 # root -- the read-only guarantee is this unit (ProtectSystem=strict, no
 # write paths), not a command filter. What it may DISCLOSE is cut by the
 # engine per scope (src/agent-runner/policy.js), not by the OS here.
 #
+# Keys: every key lives in the bot's .env, which this process cannot read. The
+# core sends the agents' key (OPENROUTER_AGENT_KEY) with each task. The
+# EnvironmentFile is optional: an OPENROUTER_AGENT_KEY= there is used only when
+# a task brings none.
+#
 # Install:
 #   sudo useradd --system --no-create-home --shell /usr/sbin/nologin neptunia-agent-server
 #   sudo install -d -o root -g root -m 0750 /etc/neptunia
-#   sudo install -o root -g root -m 0600 /dev/null /etc/neptunia/agent-server.env
-#   # add to it: OPENROUTER_AGENT_KEY=
+#   # optional override: sudo install -o root -g root -m 0600 /dev/null /etc/neptunia/agent-server.env
 #   sudo cp deploy/neptunia-agent-server.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-agent-server
 # Logs:    journalctl -u neptunia-agent-server -f
@@ -33,7 +37,8 @@ User=neptunia-agent-server
 Group=neptunia-discord-interface
 WorkingDirectory=/opt/neptunia-bot
 ExecStart=/opt/node/bin/node bin/agent-runner.mjs --profile server
-EnvironmentFile=/etc/neptunia/agent-server.env
+# Optional override (the leading '-': the file may be absent); the key comes from the core.
+EnvironmentFile=-/etc/neptunia/agent-server.env
 Restart=on-failure
 RestartSec=5
 

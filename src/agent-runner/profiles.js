@@ -1,6 +1,6 @@
 // The two agent profiles, `web` and `server`, each a set of OpenCode tools,
 // default limits, a system-prompt file, the environment variable names its
-// run needs, the model role it runs on (`agent.web`, `agent.server`), and an
+// run may fall back on (the core sends the keys with each task), the model role it runs on (`agent.web`, `agent.server`), and an
 // out/socket default. A profile also builds the OpenCode
 // config for one task (`buildConfig`): one agent definition carrying the
 // prompt, the step cap, and a permission map that starts every tool at deny

@@ -7,8 +7,12 @@
 // the permission ruleset for the scope)
 // and a per-task database, with project/claude config, auto-update and the
 // price fetch disabled so nothing of this server leaks into the worker and
-// the run is reproducible. The agent's OpenRouter key is the runner's own
-// (never the persona's), passed as OPENROUTER_API_KEY.
+// the run is reproducible. The agent's OpenRouter key (its own, never the
+// persona's) comes from the core with each task (`secrets.openrouterKey`; the
+// runner cannot read the bot's .env), else from the runner's environment, and
+// is passed as OPENROUTER_API_KEY; the web agent's proxy (HTTPS_PROXY /
+// HTTP_PROXY, http form) and search key likewise. A task with no key from
+// either fails `no-key` (one warning per runner). No secret is ever logged.
 //
 // The child prints one JSON event per line (`--format json`): `step_finish`
 // gives tokens and the cost OpenCode estimates per step (summed; a step
@@ -37,6 +41,7 @@ import { log } from '../log.js';
 import { isPlainObject } from '../config.js';
 import { roleModel } from '../llm/roles.js';
 import { redactorFor, scopeOf, withheldInToolUse } from './policy.js';
+import { httpProxyForm } from './protocol.js';
 
 /** The OpenCode binary by default. */
 export const DEFAULT_OPENCODE_PATH = '/opt/opencode/bin/opencode';
@@ -150,10 +155,12 @@ async function collectFiles(dir, id) {
  * @param {object} options
  * @param {object} options.profile  A profile from src/agent-runner/profiles.js.
  * @param {string} options.outDir  The runner's out dir (`<outDir>/<id>/` is a task's working dir).
- * @param {Record<string,string>} [options.env]  The base environment (the runner's key lives here).
+ * @param {Record<string,string>} [options.env]  The base environment (the child's; may hold the keys a
+ *   task's `secrets` do not bring).
  * @param {string} [options.opencodePath]  `agents.opencodePath`.
- * @param {string} [options.openrouterKeyEnv]  The env name that holds the runner's OpenRouter key.
- * @param {string} [options.searchKeyEnv]  The env name of the web-search provider key (web profile).
+ * @param {string} [options.openrouterKeyEnv]  The env name of the OpenRouter key when a task brings none.
+ * @param {string} [options.searchKeyEnv]  The env name of the web-search provider key (web profile) when a task brings none.
+ * @param {string} [options.proxyEnv]  The env name of the web profile's proxy when a task brings none.
  * @param {() => object} [options.getConfig]  The engine config, read at each task: the model of a task
  *   without one is `roles.<profile.modelRole>` (src/llm/roles.js#roleModel), else the profile's default.
  * @param {() => number} [options.now]
@@ -166,11 +173,13 @@ export function createOpencodeRunner({
   opencodePath = DEFAULT_OPENCODE_PATH,
   openrouterKeyEnv = 'OPENROUTER_AGENT_KEY',
   searchKeyEnv = 'OPENCODE_WEBSEARCH_KEY',
+  proxyEnv = 'PROXY_URL',
   getConfig = () => ({}),
   now = Date.now,
   spawnImpl = spawn,
 }) {
   if (!profile) throw new Error('agent-runner: no profile');
+  let warnedNoKey = false;
 
   /** The model of the profile's role in the config read now; undefined when the config cannot be read. */
   function modelOfRole() {
@@ -186,10 +195,12 @@ export function createOpencodeRunner({
 
   /**
    * Work one task through an OpenCode child.
-   * @param {{ id, goal, context?, limits?, model?, cost?, searchProvider?, signal?, onProgress? }} task
+   * @param {{ id, goal, context?, limits?, model?, cost?, searchProvider?, secrets?, signal?, onProgress? }} task
+   *   `secrets` (src/agent-runner/protocol.js): `{ openrouterKey, proxy?, searchKey? }`, each over the
+   *   environment's.
    * @returns {Promise<{ status, result: { text, sources, files }, usage, error? }>}
    */
-  async function run({ id, goal, context, limits = {}, model, cost, searchProvider, signal, onProgress = () => {} }) {
+  async function run({ id, goal, context, limits = {}, model, cost, searchProvider, secrets, signal, onProgress = () => {} }) {
     const startedAt = now();
     const scope = scopeOf(context);
     const redact = redactorFor(scope);
@@ -227,14 +238,32 @@ export function createOpencodeRunner({
       XDG_CONFIG_HOME: path.join(dir, '.config'),
       XDG_CACHE_HOME: path.join(dir, '.cache'),
     };
-    if (env[openrouterKeyEnv]) childEnv.OPENROUTER_API_KEY = env[openrouterKeyEnv];
+    // The core's secrets first, the runner's environment after; never a value in a log.
+    const given = isPlainObject(secrets) ? secrets : {};
+    const pick = (value, name) => (typeof value === 'string' && value ? value : (env[name] || ''));
+    const openrouterKey = pick(given.openrouterKey, openrouterKeyEnv);
+    if (!openrouterKey) {
+      if (!warnedNoKey) {
+        warnedNoKey = true;
+        log.warn('agent-runner: no model key', { profile: profile.name, env: openrouterKeyEnv });
+      }
+      return finish('failed', '', 'no-key');
+    }
+    childEnv.OPENROUTER_API_KEY = openrouterKey;
     if (profile.name === 'web') {
       // v1.19.3 picks the web search provider from OPENCODE_WEBSEARCH_PROVIDER
       // (`exa`, keyless, or `parallel`, which needs PARALLEL_API_KEY). The
       // provider key, when set, goes to that provider's own env name.
       const provider = typeof searchProvider === 'string' && searchProvider ? searchProvider : (profile.defaultSearchProvider ?? 'exa');
       childEnv.OPENCODE_WEBSEARCH_PROVIDER = provider;
-      if (env[searchKeyEnv]) childEnv[provider === 'parallel' ? 'PARALLEL_API_KEY' : 'EXA_API_KEY'] = env[searchKeyEnv];
+      const searchKey = pick(given.searchKey, searchKeyEnv);
+      if (searchKey) childEnv[provider === 'parallel' ? 'PARALLEL_API_KEY' : 'EXA_API_KEY'] = searchKey;
+      // The proxy in its http form, under the names curl and OpenCode read (curl reads only the
+      // lowercase http_proxy); without one the environment's own proxy variables stay.
+      const proxy = httpProxyForm(pick(given.proxy, proxyEnv));
+      if (proxy) {
+        for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) childEnv[name] = proxy;
+      }
     }
 
     const args = ['run', '--format', 'json', '--agent', profile.agentId, '--model', providerModel, '--title', id, taskPrompt(goal, context)];

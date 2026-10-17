@@ -9,9 +9,12 @@
 //   node bin/agent-runner.mjs --profile web|server [--socket PATH] [--out DIR]
 //                             [--journal FILE] [--opencode PATH]
 //
-// Keys come from the environment (the unit's EnvironmentFile): the runner's
-// own OpenRouter key in OPENROUTER_AGENT_KEY (never the persona's), and for
-// the web profile OPENCODE_WEBSEARCH_KEY and PROXY_URL. Caps and the model's
+// Keys come from the core with each task (`secrets` of the `run` message: the
+// agents' OpenRouter key, never the persona's, and for the web profile the
+// proxy and the search key), since every key lives in the bot's .env, which
+// this process cannot read. Its own environment (the unit's optional
+// EnvironmentFile: OPENROUTER_AGENT_KEY, OPENCODE_WEBSEARCH_KEY, PROXY_URL) is
+// used only for what a task does not bring. Caps and the model's
 // cost come from `agents.<profile>` in config; the model from the profile's
 // model role (`agent.web`, `agent.server`), read again at each task
 // so a `/nep model set` reaches the next one. It prints one ready line
@@ -59,9 +62,9 @@ async function main() {
   const profile = profileOf(name);
   if (!profile) fail(`unknown profile: ${name ?? '(none)'} (expected web or server)`);
 
-  // The runner never reads the bot's .env: its environment comes from its own unit (the agent key, the
-  // search key, the proxy), and the bot's secrets file is inaccessible to it by design. Config `${env:NAME}`
-  // references it cannot resolve become empty strings with one warning each.
+  // The runner never reads the bot's .env: the bot's secrets file is inaccessible to it by design, and
+  // the keys come with each task. Config `${env:NAME}` references it cannot resolve become empty
+  // strings with one warning each.
   const { config, renamed } = loadConfig();
   // An agent role config.local.json still names the old way (`roles.agentWeb`), read under its new name.
   const roleRenames = renamed.filter((entry) => entry.role === true).map(({ key, use }) => ({ key, use }));
@@ -76,8 +79,10 @@ async function main() {
   const opencodePath = args.opencode || agents.opencodePath || DEFAULT_OPENCODE_PATH;
   const journalFile = typeof args.journal === 'string' ? args.journal : null;
 
-  // The runner's own key must be present: the worker spends it, never the persona's.
-  if (!process.env.OPENROUTER_AGENT_KEY) fail('OPENROUTER_AGENT_KEY is not set');
+  // No key of its own is needed: the core sends one with each task. A task that brings none
+  // while this environment has none either fails `no-key`, with one warning
+  // (src/agent-runner/opencode.js).
+  if (!process.env.OPENROUTER_AGENT_KEY) log.info('agent-runner: no key in the environment, each task brings its own', { profile: name });
 
   try {
     fs.mkdirSync(outDir, { recursive: true });

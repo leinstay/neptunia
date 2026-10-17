@@ -10,6 +10,8 @@
 // it); on SIGTERM every open task ends `failed`/`restarted` and the process
 // exits. The task engine (`run`) is injected (src/agent-runner/opencode.js in
 // production, a fake in tests); this module is the transport and the queue.
+// A task's `secrets` pass to the engine and nowhere else: no log line here
+// carries a request.
 
 import net from 'node:net';
 import fs from 'node:fs';
@@ -24,7 +26,7 @@ const FINISHED_MEMORY = 500;
 /**
  * @param {object} options
  * @param {string} options.profile  The profile name (for `pong` and logs).
- * @param {{ run: Function }} options.runner  The task engine; `run({ id, goal, context, limits, model, cost, searchProvider, signal, onProgress })`.
+ * @param {{ run: Function }} options.runner  The task engine; `run({ id, goal, context, limits, model, cost, searchProvider, secrets, signal, onProgress })`.
  * @param {string} options.socketPath
  * @param {number} [options.socketMode]  The socket file mode (default 0o660).
  * @param {() => number} [options.now]
@@ -73,6 +75,7 @@ export function createRunnerServer({ profile, runner, socketPath, socketMode = 0
         model: task.model,
         cost: task.cost,
         searchProvider: task.searchProvider,
+        secrets: task.secrets,
         signal: abort.signal,
         onProgress: (p) => send(conn, progressEvent({ id: task.id, step: p.step, tool: p.tool, note: p.note })),
       });
