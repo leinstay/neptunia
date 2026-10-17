@@ -182,3 +182,30 @@ test('task.status: a finished task whose files the runner deleted says files-exp
     assert.ok(one.summary.startsWith(`${id} web done (files-expired) `), one.summary);
   });
 });
+
+test('task.status: a task mirrored into the ledger shows its ledger id; task.cancel tells the service who cancelled', async () => {
+  const { env, errands, stores } = makeEnv();
+  await withCapturedLogs(async () => {
+    const id = (await runOp('task.run', { agent: 'web', goal: 'mirrored' }, ctx(env, MEMBER))).data.task.id;
+    const plain = await runOp('task.status', { id }, ctx(env, MEMBER));
+    assert.ok(!plain.summary.includes('ledger:'), 'no line without a ledger id');
+    stores.get('g1').setLedgerId(id, 'L42');
+    const one = await runOp('task.status', { id }, ctx(env, MEMBER));
+    assert.ok(one.summary.split('\n').includes('ledger: L42'), one.summary);
+    const listed = await runOp('task.list', {}, ctx(env, MEMBER));
+    assert.ok(!listed.summary.includes('ledger:'), 'task.list unchanged');
+    const seen = [];
+    const cancel = errands.cancel;
+    errands.cancel = (args) => {
+      seen.push(args.by);
+      return cancel(args);
+    };
+    const other = (await runOp('task.run', { agent: 'web', goal: 'two' }, ctx(env, MEMBER))).data.task.id;
+    const hers = (await runOp('task.run', { agent: 'web', goal: 'three' }, ctx(env, null, { actor: 'persona' }))).data.task.id;
+    await runOp('task.cancel', { id }, ctx(env, MEMBER));
+    await runOp('task.cancel', { id: other }, ctx(env, OWNER));
+    await runOp('task.cancel', { id: hers }, ctx(env, null, { actor: 'persona' }));
+    assert.deepEqual(seen, ['requester', 'owner', 'persona']);
+    await errands.idle();
+  });
+});

@@ -883,6 +883,7 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | `resultMaxChars` | `3000` | Characters of an errand's result text in the `<task_result>` block of the turn its end opens |
 | `resultRetrySeconds` | `30` | Seconds before an errand's result turn is tried again while another turn holds the persona's attention (at most 20 tries; then the result waits in her `<tasks>` block) |
 | `resultCooldownSeconds` | `60` | Seconds between two result turns in the same conversation |
+| `ledger` | `{ "socket": null }` | The ledger mirror of the errands: `socket` is the ledger's Unix socket for the `core` principal (for example `/run/neptunia-ledger/core.sock`). With `null`, the errands are not mirrored. Read at the moment of use. See [Errand agents: the ledger mirror](agents.md#the-ledger-mirror) |
 
 ### `agents.web`
 

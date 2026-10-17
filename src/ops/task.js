@@ -8,7 +8,8 @@
 // with the id and `queued`: the errand runs in the background (src/errands/service.js) and its
 // end opens her own turn where it was asked. `task.cancel` is for the requester of the task or an
 // owner; `task.status` and `task.list` show a private chat's tasks only to their requester or an
-// owner. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line.
+// owner. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
+// `task.status` of one task adds `ledger: <id>` when the task is mirrored into the ledger.
 
 import { isOwnerId } from './grants.js';
 import { TASK_AGENTS } from './catalog.js';
@@ -111,6 +112,8 @@ const handlers = perEnv((env) => {
         lines.push(`result: ${task.result.text ? `${task.result.text.length} chars` : 'empty'}, ${task.result.sources?.length ?? 0} sources, ${task.result.files?.length ?? 0} files`);
       }
       if (task.usage) lines.push(`usage: ${task.usage.steps ?? 0} steps, ${(task.usage.usd ?? 0).toFixed(3)} USD, ${Math.round(task.usage.seconds ?? 0)} s`);
+      // The ledger's id of the task's mirror (src/errands/ledger.js), when it has one.
+      if (task.ledgerId) lines.push(`ledger: ${task.ledgerId}`);
       return lines.join('\n');
     }
     const open = store.open().filter((task) => mayView(task, context));
@@ -128,7 +131,9 @@ const handlers = perEnv((env) => {
     const own = Boolean(context?.userId) && String(context.userId) === task.requester?.userId;
     const hers = context?.actor === 'persona' && task.requester?.kind === 'persona';
     if (!ownerCalls(context) && !own && !hers) throw denied('only the requester of the task or an owner may cancel it', 'not-requester');
-    const cancelled = service.cancel({ guildId: resolvedGuildId(context), id });
+    // Who cancelled it, for the ledger's close reason.
+    const by = context?.actor === 'persona' ? 'persona' : ownerCalls(context) ? 'owner' : 'requester';
+    const cancelled = service.cancel({ guildId: resolvedGuildId(context), id, by });
     if (!cancelled.ok) return { status: 'failed', code: cancelled.code, summary: `task ${id}: ${cancelled.code === 'not-open' ? `already ${task.state}` : cancelled.code}`, data: null };
     return `task ${id}: cancelled`;
   }
