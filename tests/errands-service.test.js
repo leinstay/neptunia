@@ -3,15 +3,20 @@
 // a run carries the key of its agent's model role as the bot resolves a role's key
 // (`llm.keyByRole`), never the persona's main key; the web agent also gets the proxy in its http
 // form and the search key, the server agent neither; without the role's key no secrets go out;
-// and no secret reaches a log call, a journal line or the store's files.
+// and no secret reaches a log call, a journal line or the store's files. The runner's health flag
+// (over a real errand client and a fake runner socket): a runner known unreachable refuses a new
+// task at once with `runner-down`, and a ping that succeeds flips the flag back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 
 import { createTaskStores } from '../src/errands/store.js';
-import { createErrandService } from '../src/errands/service.js';
+import { createErrandService, RUNNER_RECHECK_MS } from '../src/errands/service.js';
+import { createErrandClient } from '../src/errands/client.js';
+import { encodeLine } from '../src/agent-runner/protocol.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const SECRETS = ['sk-agent-SECRET', 'sk-persona-SECRET', 'pw-SECRET', 'search-SECRET', 'sk-dev-SECRET'];
@@ -360,5 +365,121 @@ test('errands service: without agents.ledger the default mirror is disabled and 
     assert.equal(errands.store('g1').recent(1)[0].ledgerId, undefined);
   } finally {
     cleanup();
+  }
+});
+
+// The runner's health flag: a runner known unreachable refuses a new task at once.
+
+/** A fake runner on a Unix socket at `sock` that answers every ping with a pong. */
+async function pongRunner(sock) {
+  const connections = [];
+  const server = net.createServer((conn) => {
+    connections.push(conn);
+    conn.setEncoding('utf8');
+    let buffer = '';
+    conn.on('data', (chunk) => {
+      buffer += chunk;
+      let nl;
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const request = JSON.parse(buffer.slice(0, nl));
+        buffer = buffer.slice(nl + 1);
+        if (request.op === 'ping') conn.write(encodeLine({ event: 'pong', profile: 'web', busy: false, queued: 0 }));
+      }
+    });
+    conn.on('error', () => {});
+  });
+  await new Promise((resolve) => server.listen(sock, resolve));
+  return {
+    close: () => new Promise((resolve) => {
+      for (const conn of connections) conn.destroy();
+      server.close(() => resolve());
+      if (fs.existsSync(sock)) fs.unlinkSync(sock);
+    }),
+  };
+}
+
+test('errands service: with the runner socket absent the flag goes down, submit refuses runner-down at once and writes no task; a ping that succeeds flips it back', async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const sock = path.join(os.tmpdir(), `errand-health-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
+  const hot = { config: { agents: { maxOpen: 3, web: { enabled: true, socket: sock, daily: { tasks: 10, usd: 5 } }, server: { enabled: false } } } };
+  let clock = 1_000_000;
+  const log = fakeLog();
+  const client = createErrandClient({ hot, log, setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)) });
+  const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log });
+  const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, now: () => clock });
+  let runner = null;
+  try {
+    assert.equal(errands.runnerUp('web'), null, 'unknown before anything is known');
+    assert.equal(await errands.check('web'), false);
+    assert.equal(errands.runnerUp('web'), false);
+    const refused = errands.submit(ask('web'));
+    assert.deepEqual(refused, { ok: false, code: 'runner-down' }, 'refused synchronously');
+    assert.deepEqual(errands.store('g1').recent(10), [], 'no task row');
+    const downs = log.calls.filter((c) => c.msg === 'errands: runner down');
+    assert.equal(downs.length, 1, 'logged once per change');
+    assert.equal(downs[0].fields.agent, 'web');
+
+    // Another refusal within RUNNER_RECHECK_MS sends no recheck and logs nothing new.
+    errands.submit(ask('web'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(log.calls.filter((c) => c.msg === 'errands: runner down').length, 1);
+
+    // The runner is back; past RUNNER_RECHECK_MS the next refusal rechecks it and the flag flips up.
+    runner = await pongRunner(sock);
+    clock += RUNNER_RECHECK_MS;
+    assert.equal(errands.submit(ask('web')).code, 'runner-down', 'the asking refusal itself still falls back');
+    for (let i = 0; i < 100 && errands.runnerUp('web') !== true; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(errands.runnerUp('web'), true);
+    assert.equal(log.calls.filter((c) => c.msg === 'errands: runner up').length, 1);
+    const queued = errands.submit(ask('web'));
+    assert.equal(queued.ok, true);
+    assert.equal(errands.store('g1').recent(10).length, 1);
+    errands.cancel({ guildId: 'g1', id: queued.task.id, by: 'owner' });
+  } finally {
+    client.close();
+    await errands.idle();
+    if (runner) await runner.close();
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('errands service: the connect loop\'s outcomes set the flag; start pings the enabled agents; a fake client without ping or onLink never refuses', async () => {
+  let linkListener = null;
+  const pinged = [];
+  const log = fakeLog();
+  const client = {
+    configured: (agent) => agent === 'web',
+    onLink: (fn) => { linkListener = fn; },
+    ping: async (agent) => (pinged.push(agent), { ok: false, error: 'disconnected' }),
+    run: async () => ({ status: 'done', result: { text: '' }, usage: {} }),
+  };
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const hot = { config: { agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
+  const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log });
+  const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn() });
+  try {
+    errands.start('g1');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(pinged, ['web'], 'only the enabled agent');
+    assert.equal(errands.runnerUp('web'), false);
+    linkListener({ agent: 'web', up: true });
+    linkListener({ agent: 'web', up: true });
+    assert.equal(errands.runnerUp('web'), true);
+    assert.equal(log.calls.filter((c) => c.msg === 'errands: runner up').length, 1, 'once per change');
+    assert.equal(errands.submit(ask('web')).ok, true);
+    linkListener({ agent: 'web', up: false, code: 'ENOENT' });
+    assert.equal(errands.submit(ask('web')).code, 'runner-down');
+    assert.equal(log.calls.find((c) => c.msg === 'errands: runner down').fields.code, 'disconnected', 'the first down came from the ping');
+    await errands.idle();
+
+    const plain = makeService(ENV);
+    try {
+      assert.equal(plain.errands.submit(ask('web')).ok, true);
+      await plain.errands.idle();
+    } finally {
+      plain.cleanup();
+    }
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
   }
 });

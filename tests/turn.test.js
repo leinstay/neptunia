@@ -38,6 +38,7 @@ import { createAdmin } from '../src/admin.js';
 import { createDiary } from '../src/behavior/diary.js';
 import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
+import { createErrandClient } from '../src/errands/client.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
@@ -2794,9 +2795,9 @@ function fakeErrandClient() {
  * the errand operation runs for real over a real errand service and task store (a temp data/
  * directory) and a fake errand client, through a real admin's runCommand; `task.run` granted to
  * the persona; the web lane `agents.web` (enabled unless `web` says otherwise); `before(errands)`
- * may queue errands first.
+ * may queue errands first; `makeErrandClient(hot)` gives another errand client.
  */
-async function runAgentTurn({ classifier, lookup = fakeLookup(), web = {}, granted = ['task.run'], before = null } = {}) {
+async function runAgentTurn({ classifier, lookup = fakeLookup(), web = {}, granted = ['task.run'], before = null, makeErrandClient = null } = {}) {
   const hot = lookupHot({ typingSimulation: false }, {}, {
     skills: { safeMode: false, resultMaxChars: 2000 },
     agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 }, ...web } },
@@ -2805,7 +2806,7 @@ async function runAgentTurn({ classifier, lookup = fakeLookup(), web = {}, grant
   hot.config.bot.access = personaGrants(granted);
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-turn-agent-'));
   const stores = createTaskStores({ dataDir, config: () => hot.config });
-  const errandClient = fakeErrandClient();
+  const errandClient = makeErrandClient ? makeErrandClient(hot) : fakeErrandClient();
   const errands = createErrandService({ client: errandClient, stores, hot, getGuildId: () => 'g1' });
   if (before) await before(errands);
   const messages = [
@@ -2928,6 +2929,31 @@ test('createTurnRunner: agent -- agent: beside web: runs both: the web query sea
   const off = await runAgentTurn({ classifier: `web: champions final\nagent: ${AGENT_TASK}`, web: { enabled: false } });
   assert.deepEqual(off.lookup.searchCalls.map((c) => c.query), ['champions final']);
   assert.equal(off.classified.agentFallback, 'off');
+});
+
+test('createTurnRunner: agent -- the runner socket absent: task.run refuses runner-down at once, the task is the fast search with agentFallback failed, no task written', async () => {
+  const sock = path.join(os.tmpdir(), `nep-turn-agent-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
+  let errandClient = null;
+  try {
+    const run = await runAgentTurn({
+      classifier: `agent: ${AGENT_TASK}`,
+      web: { socket: sock },
+      makeErrandClient: (hot) => (errandClient = createErrandClient({ hot, setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)) })),
+      before: async (errands) => assert.equal(await errands.check('web'), false, 'the runner is known down'),
+    });
+    assert.equal(run.result.outcome, 'spoke');
+    assert.equal(run.tasks.length, 0, 'no task row');
+    assert.deepEqual(run.lookup.searchCalls.map((c) => c.query), [AGENT_TASK]);
+    assert.equal(turnLookupOfText(run.request), webPartOf(AGENT_TASK));
+    assert.equal(run.classified.route, 'fast');
+    assert.equal(run.classified.agentFallback, 'failed');
+    const blocks = resultBlocksOf(run.request);
+    assert.deepEqual(blocks.map((b) => b.skill), ['task.run']);
+    assert.notEqual(blocks[0].status, 'ok');
+    assert.ok(blocks[0].body.includes('runner-down'), blocks[0].body);
+  } finally {
+    errandClient?.close();
+  }
 });
 
 /** The `<lookup>` block of a request's text, or null. */
