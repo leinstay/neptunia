@@ -115,7 +115,7 @@ export function rowChat(row, { now, selfName }) {
 
 /**
  * The classifier's decision from its parsed answer (src/behavior/recall.js#parseLookupAnswer):
- * an `agent` part (the policy layer, once it exists) -> `agent`; a `web:` query -> `fast`; a
+ * an `agent:` task -> `agent`; a `web:` query -> `fast`; a
  * server part (`server:`, `who:` or a range) without `web:` -> `memory`; nothing -> `none`.
  * @param {{ web?: string|null, server?: object|null, agent?: unknown }|null} parsed
  * @returns {'none'|'fast'|'memory'|'agent'}
