@@ -6,6 +6,9 @@
 // them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
 import {
   resolveMentions,
@@ -33,6 +36,8 @@ import '../src/ops/index.js';
 import { loadSkills, skillRegistry } from '../src/skills/registry.js';
 import { createAdmin } from '../src/admin.js';
 import { createDiary } from '../src/behavior/diary.js';
+import { createTaskStores } from '../src/errands/store.js';
+import { createErrandService } from '../src/errands/service.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
@@ -2773,6 +2778,163 @@ test('createTurnRunner: recall -- lookup: classified carries what was asked as f
   const all = JSON.stringify(logs);
   for (const secret of ['secrète', 'λαγ', 'λέξανδρ']) assert.ok(!all.includes(secret), secret);
 });
+
+// The search policy's errand: an `agent:` task queued on the web agent as her own `task.run` call is.
+
+const AGENT_TASK = 'find a calm piano track for studying, under five minutes';
+
+/** A fake errand client (the agent runner's side): records each run, which never ends here. */
+function fakeErrandClient() {
+  const runs = [];
+  return { runs, configured: () => true, run: (task) => (runs.push(task), new Promise(() => {})), cancel: () => true };
+}
+
+/**
+ * One mention by the member u1 (Alice, m2) in c1 whose search classifier answers `classifier`:
+ * the errand operation runs for real over a real errand service and task store (a temp data/
+ * directory) and a fake errand client, through a real admin's runCommand; `task.run` granted to
+ * the persona; the web lane `agents.web` (enabled unless `web` says otherwise); `before(errands)`
+ * may queue errands first.
+ */
+async function runAgentTurn({ classifier, lookup = fakeLookup(), web = {}, granted = ['task.run'], before = null } = {}) {
+  const hot = lookupHot({ typingSimulation: false }, {}, {
+    skills: { safeMode: false, resultMaxChars: 2000 },
+    agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 }, ...web } },
+  });
+  hot.config.bot.owners = ['o9'];
+  hot.config.bot.access = personaGrants(granted);
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-turn-agent-'));
+  const stores = createTaskStores({ dataDir, config: () => hot.config });
+  const errandClient = fakeErrandClient();
+  const errands = createErrandService({ client: errandClient, stores, hot, getGuildId: () => 'g1' });
+  if (before) await before(errands);
+  const messages = [
+    rawMessage({ id: 'm1', ts: NOW - 5000, content: 'καλημέρα' }),
+    rawMessage({ id: 'm2', ts: NOW - 1000, content: 'βρες μου μουσική για διάβασμα' }),
+  ];
+  const channel = fakeTurnChannel({ historyMessages: messages });
+  const store = fakeStore();
+  const client = fakeClient();
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', errands });
+  const llm = lookupLlm(classifier);
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client, lookup, errands, skills: skillRegistry(), runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, now: () => NOW });
+  const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(messages[1]), triggerKind: 'mention' }));
+  const tasks = errands.store('g1').recent(10);
+  const request = textOf(llm.turnCalls[0].messages[1].content);
+  const classified = logs.find((l) => l.msg === 'lookup: classified');
+  return { result, logs, llm, lookup, errands, tasks, request, classified, errandClient };
+}
+
+/** The `<result ...>` blocks of a request's text. */
+function resultBlocksOf(text) {
+  return [...text.matchAll(/<result skill="([^"]+)" status="([^"]+)">\n([\s\S]*?)\n<\/result>/g)].map((m) => ({ skill: m[1], status: m[2], body: m[3] }));
+}
+
+test('createTurnRunner: agent -- an agent: answer queues one web errand for the asker from this channel and message; the request carries the task.run result block', async () => {
+  const run = await runAgentTurn({ classifier: `agent: ${AGENT_TASK}` });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.equal(run.tasks.length, 1);
+  const [task] = run.tasks;
+  assert.equal(task.agent, 'web');
+  assert.equal(task.goal, AGENT_TASK);
+  assert.deepEqual(task.requester, { userId: 'u1', kind: 'member' });
+  assert.deepEqual(task.origin, { channelId: 'c1', messageId: 'm2' });
+  assert.equal(task.scope, 'group');
+  assert.equal(run.lookup.searchCalls.length, 0, 'no fast search');
+  const blocks = resultBlocksOf(run.request);
+  assert.deepEqual(blocks.map((b) => [b.skill, b.status]), [['task.run', 'ok']]);
+  assert.ok(blocks[0].body.startsWith(labels.skills.result.ok), blocks[0].body);
+  assert.ok(blocks[0].body.includes(`task ${task.id}: queued (web)`), blocks[0].body);
+  assert.ok(run.request.indexOf('<result skill="task.run"') < run.request.lastIndexOf('<task>\n'), 'before <task>');
+  assert.equal(run.classified.route, 'agent');
+  assert.equal('agentFallback' in run.classified, false);
+  assert.ok(run.logs.some((l) => l.msg === 'skills: called' && l.skill === 'task.run' && l.status === 'ok'), 'her own call path');
+  assert.ok(!JSON.stringify(run.logs).includes('piano'), 'the task is never logged');
+});
+
+test('createTurnRunner: agent -- a pending errand of the asker in this channel queues nothing; the block is its task.status answer', async () => {
+  let pendingId = null;
+  const run = await runAgentTurn({
+    classifier: `agent: ${AGENT_TASK}`,
+    before: (errands) => {
+      const submitted = errands.submit({ guildId: 'g1', agent: 'web', goal: 'an earlier errand', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: 'm0' }, scope: 'group' });
+      pendingId = submitted.task.id;
+    },
+  });
+  assert.deepEqual(run.tasks.map((t) => t.id), [pendingId], 'nothing new queued');
+  const blocks = resultBlocksOf(run.request);
+  assert.deepEqual(blocks.map((b) => [b.skill, b.status]), [['task.status', 'ok']]);
+  assert.match(blocks[0].body, new RegExp(`${pendingId} web (queued|running) 0m: an earlier errand`));
+  assert.equal(run.classified.route, 'agent');
+  assert.equal(run.lookup.searchCalls.length, 0);
+});
+
+test('createTurnRunner: agent -- another member\'s errand, or the asker\'s in another channel, is not pending: one is queued', async () => {
+  const run = await runAgentTurn({
+    classifier: `agent: ${AGENT_TASK}`,
+    before: (errands) => {
+      errands.submit({ guildId: 'g1', agent: 'web', goal: 'theirs', requester: { userId: 'u2', kind: 'member' }, origin: { channelId: 'c1', messageId: 'm0' }, scope: 'group' });
+      errands.submit({ guildId: 'g1', agent: 'web', goal: 'elsewhere', requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c7', messageId: 'm9' }, scope: 'group' });
+    },
+  });
+  assert.equal(run.tasks.length, 3);
+  assert.deepEqual(resultBlocksOf(run.request).map((b) => [b.skill, b.status]), [['task.run', 'ok']]);
+});
+
+test('createTurnRunner: agent -- the lane off: the agent text is the fast search, agentFallback off, nothing queued, no result block', async () => {
+  const run = await runAgentTurn({ classifier: `agent: ${AGENT_TASK}`, web: { enabled: false } });
+  assert.deepEqual(run.lookup.searchCalls.map((c) => c.query), [AGENT_TASK]);
+  assert.equal(run.tasks.length, 0);
+  assert.deepEqual(resultBlocksOf(run.request), []);
+  assert.equal(turnLookupOfText(run.request), webPartOf(AGENT_TASK));
+  assert.equal(run.classified.route, 'fast');
+  assert.equal(run.classified.agentFallback, 'off');
+});
+
+test('createTurnRunner: agent -- a spent cap or a refusal falls back to the fast search with its code; the refusal reaches the request', async () => {
+  const capped = await runAgentTurn({ classifier: `agent: ${AGENT_TASK}`, web: { daily: { tasks: 0, usd: 5 } } });
+  assert.equal(capped.tasks.length, 0);
+  assert.deepEqual(capped.lookup.searchCalls.map((c) => c.query), [AGENT_TASK]);
+  assert.equal(capped.classified.agentFallback, 'cap');
+  assert.deepEqual(resultBlocksOf(capped.request).map((b) => [b.skill, b.status]), [['task.run', 'denied']]);
+
+  const ungranted = await runAgentTurn({ classifier: `agent: ${AGENT_TASK}`, granted: [] });
+  assert.equal(ungranted.tasks.length, 0);
+  assert.deepEqual(ungranted.lookup.searchCalls.map((c) => c.query), [AGENT_TASK]);
+  assert.equal(ungranted.classified.agentFallback, 'denied');
+  assert.equal(ungranted.classified.route, 'fast');
+});
+
+test('createTurnRunner: agent -- a web: search that fails never queues an errand', async () => {
+  for (const lookup of [fakeLookup({ searchResult: null }), { ...fakeLookup(), search: async () => { throw new Error('search down'); } }]) {
+    const run = await runAgentTurn({ classifier: 'web: champions final', lookup });
+    assert.equal(run.result.outcome, 'spoke');
+    assert.equal(run.tasks.length, 0);
+    assert.deepEqual(resultBlocksOf(run.request), []);
+    assert.equal(run.classified.route, 'fast');
+    assert.equal('agentFallback' in run.classified, false);
+  }
+});
+
+test('createTurnRunner: agent -- agent: beside web: runs both: the web query searched, the errand queued, both in the request', async () => {
+  const run = await runAgentTurn({ classifier: `web: champions final\nagent: ${AGENT_TASK}` });
+  assert.deepEqual(run.lookup.searchCalls.map((c) => c.query), ['champions final'], 'the web line, not the task');
+  assert.deepEqual(run.tasks.map((t) => t.goal), [AGENT_TASK]);
+  assert.equal(turnLookupOfText(run.request), webPartOf('champions final'));
+  assert.deepEqual(resultBlocksOf(run.request).map((b) => [b.skill, b.status]), [['task.run', 'ok']]);
+  assert.equal(run.classified.route, 'fast+agent');
+
+  // The lane off beside web: the web line is searched alone; the task is not searched instead.
+  const off = await runAgentTurn({ classifier: `web: champions final\nagent: ${AGENT_TASK}`, web: { enabled: false } });
+  assert.deepEqual(off.lookup.searchCalls.map((c) => c.query), ['champions final']);
+  assert.equal(off.classified.agentFallback, 'off');
+});
+
+/** The `<lookup>` block of a request's text, or null. */
+function turnLookupOfText(text) {
+  const match = /<lookup>\n([\s\S]*?)\n<\/lookup>/.exec(text);
+  return match ? match[1] : null;
+}
 
 // The fallback: a failed search classifier still gets a direct question a server search on its own words.
 

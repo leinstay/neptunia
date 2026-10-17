@@ -123,6 +123,25 @@ test('search-policy-eval: three rows -> decisions, results.jsonl, the confusion 
   assert.equal(llm.calls[0].messages[1].content, '<candidate>\n-: what is the weather in Lisboa today\n</candidate>');
 });
 
+test('search-policy-eval: an agent: answer is decided agent, beside web: too; the summary no longer says agent cannot be said', async () => {
+  const rows = [
+    { id: 'a1', source: 'owner', question: 'find me a calm piano track for studying', context: [], tier: 'agent', note: '' },
+    { id: 'a2', source: 'owner', question: 'is the café open and find a photo of its terrace', context: [], tier: 'agent', note: '' },
+  ];
+  const { dir, sheet } = tempSheet(rows);
+  ANSWERS.set(rows[0].question, 'agent: find a calm piano track for studying, under five minutes');
+  ANSWERS.set(rows[1].question, 'web: café opening hours\nagent: find a photo of the café terrace');
+  try {
+    const out = await run([sheet, '--out', 'agent'], { dir, llmClient: fakeLlm() });
+    const results = fs.readFileSync(path.join(dir, 'agent', 'results.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.deepEqual(results.map((r) => [r.id, r.decision, r.query]), [['a1', 'agent', null], ['a2', 'agent', 'café opening hours']]);
+    assert.match(out, /agreement: 2\/2 \(100%\)/);
+    assert.doesNotMatch(out, /cannot say `agent`/);
+  } finally {
+    for (const row of rows) ANSWERS.delete(row.question);
+  }
+});
+
 test('search-policy-eval: --dry-run prints the first request and sends nothing', async () => {
   const { dir, sheet } = tempSheet([ROWS[1], ROWS[0]]);
   const llm = fakeLlm();
