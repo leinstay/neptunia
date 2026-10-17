@@ -242,6 +242,36 @@ test('filtered scope: under OpenCode\'s last-match rule a read of a withheld pat
   assert.equal(actionOf(dm, 'rm -rf /tmp/x'), 'deny');
 });
 
+test('server shell: git reads another checkout by path (git -C); no write subcommand, config or output file passes, whatever the words around it', () => {
+  for (const form of ['git -C * log *', 'git -C * show *', 'git -C * status', 'git -C * status *', 'git -C * diff *', 'git -C * branch *', 'git -C * rev-parse *']) {
+    assert.ok(SERVER_SHELL_ALLOW.includes(form), form);
+  }
+  for (const scope of ['core', 'dm']) {
+    const bash = SERVER.buildConfig({ systemPrompt: 'x', scope }).agent['errand-server'].permission.bash;
+    for (const command of [
+      'git -C /srv/app log --oneline -5', 'git -C /srv/app log -5 --format="%h %s"', 'git -C /srv/app show --stat HEAD', 'git -C /srv/app status',
+      'git -C /srv/app status --short', 'git -C /srv/app diff HEAD~1 --stat', 'git -C /srv/app branch -a', 'git -C /srv/app branch --show-current',
+      'git -C /srv/app rev-parse HEAD', 'git -C /srv/app log --oneline -- src/reset.js',
+    ]) assert.equal(actionOf(bash, command), 'allow', `${scope}: ${command}`);
+    for (const command of [
+      'git -C /x commit', 'git -C /x commit -m log x', 'git -C /x push', 'git -C /x push origin status', 'git -C /x checkout main', 'git -C /x checkout -- status',
+      'git -C /x reset --hard', 'git -C /x reset --hard log x', 'git -C /x config user.name x', 'git -C /x config --get log x', 'git -C /x add log x',
+      'git -C /x stash', 'git -C /x clean -fdx status', 'git -C /x -c core.fsmonitor=x status', 'git -C /x -c core.pager=x log -1',
+      'git -C /x --config-env=core.pager=X log -1', 'git -C /x log --output=/tmp/x', 'git -C /x diff --output /tmp/x HEAD',
+      'git -C /x branch -D main', 'git -C /x branch --delete main', 'git -C /x branch -m a b', 'git -C /x branch --set-upstream-to=origin/x',
+      'git -C /x branch -f main HEAD~3', 'git -C /x tag -d v1 log',
+    ]) assert.equal(actionOf(bash, command), 'deny', `${scope}: ${command}`);
+  }
+  const dm = SERVER.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-server'].permission.bash;
+  assert.equal(actionOf(dm, 'git -C /srv/git/core.git log -5'), 'deny', 'a withheld repository stays withheld in a filtered scope');
+});
+
+test('child env: the server profile carries safe.directory=* (GIT_CONFIG_COUNT) and GIT_PAGER=cat; the web profile none', () => {
+  assert.deepEqual({ ...SERVER.childEnv }, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.directory', GIT_CONFIG_VALUE_0: '*', GIT_PAGER: 'cat' });
+  assert.deepEqual({ ...WEB.childEnv }, {});
+  assert.ok(Object.isFrozen(SERVER.childEnv));
+});
+
 // ---- the agents/ folder ---------------------------------------------------------------
 
 /** A worker profile.json that passes every check, `changes` merged over it (an `undefined` value drops the key). */

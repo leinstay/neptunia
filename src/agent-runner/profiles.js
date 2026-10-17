@@ -20,7 +20,8 @@
 // right). In a filtered scope (`dm`/`group`) the path tools also deny the
 // withheld paths, and the read-only server shell's `bash` denies a
 // content-reading command on one (src/agent-runner/policy.js), so OpenCode
-// refuses that step and the agent goes on.
+// refuses that step and the agent goes on. A shell class also names the
+// variables its OpenCode child runs with (the server agent's git settings).
 //
 // This matches OpenCode release v1.19.3 (the version installed on the
 // server), whose config is the V1 shape: the top-level key is `agent`
@@ -78,7 +79,11 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
   'awk', 'awk *', 'sed -n *', 'ss -ln', 'ss -ln *', 'ss *', 'journalctl', 'journalctl *',
   'systemctl status', 'systemctl status *', 'systemctl show', 'systemctl show *', 'systemctl cat *',
   'systemctl list-units *', 'systemctl list-unit-files *', 'systemctl list-*', 'systemctl is-* *',
-  'git log *', 'git show *', 'git status', 'git status *', 'git diff', 'git diff *', 'readlink *', 'realpath *',
+  'git log *', 'git show *', 'git status', 'git status *', 'git diff', 'git diff *',
+  // The same reads of another checkout by path, so the agent never changes directory (OpenCode
+  // refuses a workdir outside its own as external_directory); GIT_WRITE_DENIES keeps writes out.
+  'git -C * log *', 'git -C * show *', 'git -C * status', 'git -C * status *', 'git -C * diff *', 'git -C * branch *', 'git -C * rev-parse *',
+  'readlink *', 'realpath *',
   'file *', 'echo *', 'basename *', 'dirname *', 'date', 'date *', 'free', 'free *', 'uptime', 'hostname',
 ]);
 
@@ -95,8 +100,33 @@ function pathPermission(scope) {
   return map;
 }
 
+/** The git subcommands that write (a repository, a working tree, a remote or a config): never run through `git -C`. */
+const GIT_WRITE_SUBCOMMANDS = Object.freeze([
+  'commit', 'push', 'pull', 'fetch', 'checkout', 'switch', 'restore', 'reset', 'config', 'merge', 'rebase', 'cherry-pick',
+  'revert', 'am', 'apply', 'add', 'rm', 'mv', 'clean', 'stash', 'tag', 'gc', 'prune', 'repack', 'worktree', 'submodule',
+  'remote', 'update-ref', 'update-index', 'symbolic-ref', 'notes', 'init', 'clone', 'filter-branch', 'replace', 'bisect',
+]);
+
+/** The `git branch` options that create, rename, copy, delete or retarget a branch. */
+const GIT_BRANCH_WRITE_OPTIONS = Object.freeze([
+  '-d', '-D', '--delete', '-m', '-M', '--move', '-c', '-C', '--copy', '-f', '--force', '-u', '--set-upstream-to', '--unset-upstream', '--edit-description', '--track', '--no-track',
+]);
+
+/**
+ * The denies that keep the `git -C * <read> *` allows read-only. OpenCode's `*` matches any text,
+ * spaces included, so `git -C * log *` alone would also pass `git -C /x commit -m log`: each write
+ * subcommand is denied as a word after `-C`, and so are a config set on the command line (`-c`,
+ * `--config-env`: a hook, a pager or an fsmonitor command would run), `--exec-path`, an `--output`
+ * file, and the `git branch` options that change a branch.
+ */
+export const GIT_WRITE_DENIES = Object.freeze([
+  ...GIT_WRITE_SUBCOMMANDS.flatMap((command) => [`git -C * ${command}`, `git -C * ${command} *`]),
+  'git -C * -c *', 'git -C * --config-env*', 'git -C * --exec-path*', 'git -C *--output*',
+  ...GIT_BRANCH_WRITE_OPTIONS.flatMap((option) => [`git -C * branch* ${option}`, `git -C * branch* ${option} *`, `git -C * branch* ${option}=*`]),
+]);
+
 /** Patterns denied after the allows (the last match wins): the ways an allowed read-only command could write or reach the network. */
-export const SHELL_DENY_AFTER = Object.freeze(['find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
+export const SHELL_DENY_AFTER = Object.freeze([...GIT_WRITE_DENIES, 'find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
 
 /** The allowed shell commands that open file contents: in a filtered scope each is refused on a withheld path. */
 export const SHELL_CONTENT_COMMANDS = Object.freeze(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git']);
@@ -136,6 +166,19 @@ const PATH_TOOLS = Object.freeze(['read', 'grep', 'glob', 'list']);
 /** The network tools: a plain allow when granted. */
 const NETWORK_TOOLS = Object.freeze(['websearch', 'webfetch']);
 
+/**
+ * The environment the server agent's child runs with (src/agent-runner/opencode.js): git trusts
+ * every repository (`safe.directory=*`, set through GIT_CONFIG_COUNT), since its shell only reads
+ * and the checkouts it reads belong to other users, which git otherwise refuses as "dubious
+ * ownership"; and git never pages.
+ */
+export const SERVER_CHILD_ENV = Object.freeze({
+  GIT_CONFIG_COUNT: '1',
+  GIT_CONFIG_KEY_0: 'safe.directory',
+  GIT_CONFIG_VALUE_0: '*',
+  GIT_PAGER: 'cat',
+});
+
 /** The tools denied to every agent whatever its profile asks: no profile can grant one. */
 const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'question', 'external_directory']);
 
@@ -145,8 +188,9 @@ const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'question
  * `withheldDenies`, whether a filtered scope adds the per-command withheld-path denies to its
  * `bash` (withheldShellDenies); `tools`, the OpenCode tools a profile of the class may ask for,
  * the most it can get; and `order`, the tools its permission map names before ALWAYS_DENIED, in
- * that order (a tool of `order` the profile does not ask for, or outside `tools`, is denied). A
- * profile picks a class by name and never carries a pattern itself.
+ * that order (a tool of `order` the profile does not ask for, or outside `tools`, is denied); and
+ * `env`, the variables its OpenCode child runs with over the runner's environment. A profile
+ * picks a class by name and never carries a pattern itself.
  */
 export const SHELL_CLASSES = Object.freeze({
   'server-read-only': Object.freeze({
@@ -154,12 +198,14 @@ export const SHELL_CLASSES = Object.freeze({
     withheldDenies: true,
     tools: Object.freeze(['read', 'grep', 'glob', 'list', 'bash']),
     order: Object.freeze(['read', 'grep', 'glob', 'list', 'bash', 'webfetch', 'websearch']),
+    env: SERVER_CHILD_ENV,
   }),
   'web-download': Object.freeze({
     allow: WEB_SHELL_ALLOW,
     withheldDenies: false,
     tools: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'bash']),
     order: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'grep', 'bash']),
+    env: Object.freeze({}),
   }),
 });
 
@@ -374,6 +420,8 @@ function makeProfile(definition, { rootDir, env }) {
     // The tools the profile asks for and its shell class (SHELL_CLASSES): what buildConfig grants.
     tools: definition.tools,
     shell: definition.shell,
+    // The variables its OpenCode child runs with over the runner's environment (its shell class's `env`).
+    childEnv: SHELL_CLASSES[definition.shell].env,
     defaultLimits: definition.limits,
     defaultDaily: definition.daily,
     defaultSearchProvider: definition.searchProvider,

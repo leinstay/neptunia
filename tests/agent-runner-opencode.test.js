@@ -4,8 +4,9 @@
 // the usd cap stopping the child, cancel, the per-step refusal of a withheld
 // path in a filtered scope (the task goes on), the secret redaction of the
 // result, missing prompt file, files collected from the task dir, the model
-// taken from the profile's model role, and the task's secrets from the core
-// taking over the runner's environment. No real OpenCode, no network.
+// taken from the profile's model role, the task's secrets from the core
+// taking over the runner's environment, and the server agent's git variables.
+// No real OpenCode, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -15,6 +16,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createOpencodeRunner } from '../src/agent-runner/opencode.js';
+import { SERVER, WEB } from '../src/agent-runner/profiles.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
@@ -316,6 +318,24 @@ test('opencode: the task\'s secrets from the core take over the runner\'s enviro
   assert.equal(onServer.env.OPENROUTER_API_KEY, 'core-key');
   assert.equal(onServer.env.HTTPS_PROXY, undefined, 'the server agent never goes through the proxy');
   assert.equal(onServer.env.EXA_API_KEY, undefined);
+  await ws.cleanup();
+});
+
+test('opencode: the server agent\'s child trusts every git repository and never pages; the web agent\'s child gets neither', async () => {
+  const ws = await workspace();
+  const spawn = fakeSpawn();
+  const env = { OPENROUTER_AGENT_KEY: 'k', GIT_CONFIG_COUNT: '3', GIT_PAGER: 'less' };
+  const server = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile, 'server'), childEnv: SERVER.childEnv }, outDir: ws.outDir, env, spawnImpl: spawn.spawnImpl });
+  const onServer = (await envOfRun(server, spawn, { id: 'g1' })).env;
+  assert.equal(onServer.GIT_CONFIG_COUNT, '1', 'over the runner\'s own');
+  assert.equal(onServer.GIT_CONFIG_KEY_0, 'safe.directory');
+  assert.equal(onServer.GIT_CONFIG_VALUE_0, '*');
+  assert.equal(onServer.GIT_PAGER, 'cat');
+  assert.equal(onServer.OPENCODE_DISABLE_PROJECT_CONFIG, '1', 'the isolation env stays');
+
+  const web = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile), childEnv: WEB.childEnv }, outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl });
+  const onWeb = (await envOfRun(web, spawn, { id: 'g2' })).env;
+  for (const name of ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_PAGER']) assert.equal(onWeb[name], undefined, name);
   await ws.cleanup();
 });
 
