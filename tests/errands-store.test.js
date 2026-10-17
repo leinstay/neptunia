@@ -219,3 +219,41 @@ test('task store: recent lists newest first; failOpen fails what a restart left 
     }
   });
 });
+
+test('task store: a finished task\'s files expire once the runner removed its directory; the handle then names nothing', async () => {
+  await withCapturedLogs(() => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'errands-out-'));
+    const { store, dataDir } = makeStore({ agents: { maxOpen: 5, web: { daily: { tasks: 5, usd: 1 }, out } } });
+    const files = [{ path: '/elsewhere/meme.png', name: 'meme.png', contentType: 'image/png', bytes: 12 }];
+    const kept = store.add(asked).task;
+    const gone = store.add(asked).task;
+    const bare = store.add(asked).task;
+    const open = store.add(asked).task;
+    for (const id of [kept.id, gone.id]) store.finish(id, { status: 'done', result: { text: 'ok', files } });
+    store.finish(bare.id, { status: 'done', result: { text: 'no files' } });
+    fs.mkdirSync(path.join(out, kept.id));
+    // The directory of `gone` was never there (as after the runner's sweep), nor that of `bare` or `open`.
+    assert.equal(store.get(gone.id).filesExpired, true);
+    assert.equal(store.get(kept.id).filesExpired, undefined);
+    assert.equal(store.get(bare.id).filesExpired, undefined, 'a task without files has nothing to expire');
+    assert.equal(store.get(open.id).filesExpired, undefined, 'an open task is never marked');
+    assert.equal(store.fileOf(fileHandle(gone.id, 'meme.png')), null);
+    assert.ok(store.fileOf(fileHandle(kept.id, 'meme.png')));
+    assert.ok(store.unseen().find((t) => t.id === gone.id).filesExpired);
+    const saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8'));
+    assert.equal(saved.tasks.find((t) => t.id === gone.id).filesExpired, true, 'written to tasks.json');
+    assert.equal(store.expireFiles(), 0, 'marked once');
+    fs.rmSync(path.join(out, kept.id), { recursive: true });
+    assert.equal(store.recent(10).find((t) => t.id === kept.id).filesExpired, true);
+  });
+});
+
+test('task store: no out dir at all (no runner on this host) expires nothing', async () => {
+  await withCapturedLogs(() => {
+    const { store } = makeStore({ agents: { web: { daily: { tasks: 5, usd: 1 }, out: path.join(os.tmpdir(), 'errands-no-such-out-dir') } } });
+    const { task } = store.add(asked);
+    store.finish(task.id, { status: 'done', result: { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png' }] } });
+    assert.equal(store.expireFiles(), 0);
+    assert.equal(store.get(task.id).filesExpired, undefined);
+  });
+});

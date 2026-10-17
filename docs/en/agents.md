@@ -83,7 +83,7 @@ Runner to core:
 - one `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }], "withheld"?: [path...] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }` (`withheld`: the paths the agent was refused in a filtered scope, at most 50);
 - `{ "event": "pong", "profile", "busy", "queued" }` for a `ping`.
 
-A runner that has restarted answers `end` with `status: "failed", error: "restarted"` for any id in a `ping` it no longer knows, so the core stops waiting. On `SIGTERM` the runner ends every open task the same way and exits. Output files land in `<out>/<id>/`, and the core deletes them after `agents.keepFilesHours`.
+A runner that has restarted answers `end` with `status: "failed", error: "restarted"` for any id in a `ping` it no longer knows, so the core stops waiting. On `SIGTERM` the runner ends every open task the same way and exits. Output files land in `<out>/<id>/`. The runner deletes them, since the directory belongs to its own user and the core can only read it: at start and then once an hour it removes each task directory whose newest file is older than `agents.keepFilesHours` (read from its own config at each sweep, like its caps; never the directory of a task it is running or has queued), and logs one `agent-runner: swept` line with counts. A finished task whose directory is gone has its files marked expired in the core: its file handles name nothing any more, `<tasks>` and `<task_result>` show its state as expired, and `task.status` says `files-expired`.
 
 ## Scope and redaction
 

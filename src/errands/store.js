@@ -13,7 +13,11 @@
 // `proposed` when queued, `started` when running, then one closing `succeeded` or `failed`
 // (with the code), counts only -- never the goal or the result. A task's files are named to the
 // persona by a handle `file:<task id>/<name>` (fileOf resolves it, only for a name the task's
-// result lists, inside `agents.<profile>.out`). Logs carry ids and codes, never text.
+// result lists, inside `agents.<profile>.out`). The runner deletes a task's directory after
+// `agents.keepFilesHours` (src/agent-runner/sweep.js); a finished task whose result lists files
+// is marked `filesExpired` once its directory is gone from an out dir that is still there (checked
+// when the tasks are read), and its handles name nothing from then on. Logs carry ids and codes,
+// never text.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -145,6 +149,43 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   /** The live `agents` section. */
   function agentsConfig() {
     return config()?.agents ?? {};
+  }
+
+  /** The out directory of `agent`: `agents.<agent>.out`, else the profile's; null when there is none. */
+  function outDirOf(agent) {
+    return agentsConfig()?.[agent]?.out || profileOf(agent)?.defaultOut || null;
+  }
+
+  /** Whether `file` is missing (ENOENT); false when it is there or cannot be told. */
+  function missing(file) {
+    try {
+      fs.statSync(file);
+      return false;
+    } catch (err) {
+      return err?.code === 'ENOENT';
+    }
+  }
+
+  /**
+   * The finished tasks whose files the runner has deleted, marked `filesExpired` (and the list
+   * written once when any is): a task with files whose `<out>/<id>/` is gone while `<out>` itself
+   * is there (an out dir missing altogether, as on a host without the runner, expires nothing).
+   */
+  function expireFiles() {
+    let changed = 0;
+    for (const task of state.tasks) {
+      if (isOpenState(task.state) || task.filesExpired === true) continue;
+      if (!Array.isArray(task.result?.files) || task.result.files.length === 0) continue;
+      const outDir = outDirOf(task.agent);
+      if (!outDir || missing(outDir) || !missing(path.join(outDir, task.id))) continue;
+      task.filesExpired = true;
+      changed += 1;
+    }
+    if (changed > 0) {
+      persist(null);
+      log.info('errands: task files expired', { guildId: String(guildId), count: changed });
+    }
+    return changed;
   }
 
   /** `agents.<agent>.daily` with the profile's defaults under it. */
@@ -289,6 +330,7 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
 
   /** The latest `n` tasks, newest first. */
   function recent(n = 10) {
+    expireFiles();
     const count = Number.isInteger(n) && n > 0 ? n : 10;
     // Reversed first, so tasks of the same millisecond keep the later one first.
     return [...state.tasks].reverse().sort((a, b) => b.createdAt - a.createdAt).slice(0, count).map(copy);
@@ -296,11 +338,13 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
 
   /** The finished tasks the persona has not seen yet, oldest first. */
   function unseen() {
+    expireFiles();
     return state.tasks.filter((task) => !isOpenState(task.state) && task.seen !== true).map(copy);
   }
 
   /** Task `id`, or null. */
   function get(id) {
+    expireFiles();
     return copy(find(id));
   }
 
@@ -321,16 +365,18 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
 
   /**
    * The file a handle `file:<task id>/<name>` names: `{ path, name, contentType, bytes, task }`
-   * when the task exists and its result lists that name, the path inside the agent's out
-   * directory (`agents.<agent>.out`, else the profile's); null otherwise.
+   * when the task exists, its files have not expired and its result lists that name, the path
+   * inside the agent's out directory (`agents.<agent>.out`, else the profile's); null otherwise.
    */
   function fileOf(handle) {
     const parsed = parseFileHandle(handle);
     if (!parsed) return null;
+    expireFiles();
     const task = find(parsed.id);
+    if (task?.filesExpired === true) return null;
     const file = task?.result?.files?.find((entry) => entry?.name === parsed.name) ?? null;
     if (!file) return null;
-    const outDir = agentsConfig()?.[task.agent]?.out || profileOf(task.agent)?.defaultOut;
+    const outDir = outDirOf(task.agent);
     if (!outDir) return null;
     const base = path.resolve(outDir, task.id);
     const full = path.resolve(base, parsed.name);
@@ -348,7 +394,7 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return ids.length;
   }
 
-  return { add, start, finish, cancel, markSeen, open, recent, unseen, get, budget, today, fileOf, failOpen, guildId: String(guildId) };
+  return { add, start, finish, cancel, markSeen, open, recent, unseen, get, budget, today, fileOf, failOpen, expireFiles, guildId: String(guildId) };
 }
 
 /**

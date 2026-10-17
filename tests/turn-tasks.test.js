@@ -170,6 +170,18 @@ test('tasksBlockText / taskResultText: every word from labels.tasks; none withou
   assert.equal(taskResultText(doneTask, {}), '');
 });
 
+test('tasksBlockText / taskResultText: expired files show the expired state word and no handle', () => {
+  const expired = { ...doneTask, filesExpired: true };
+  const withWord = { ...labels, tasks: { ...labels.tasks, states: { ...labels.tasks.states, expired: 'done, files gone' } } };
+  assert.ok(tasksBlockText([expired], withWord, { now: NOW }).split('\n')[1].startsWith('tab02 | web | done, files gone | 3 min'));
+  const result = taskResultText(expired, withWord).split('\n');
+  assert.equal(result[0], 'errand tab02 (web) ended done, files gone: find a meme');
+  assert.ok(!result.includes('files:') && !result.some((line) => line.startsWith('file:')), 'no handle of an expired file');
+  // Without the label, the state's own word.
+  assert.ok(tasksBlockText([expired], labels, { now: NOW }).split('\n')[1].startsWith('tab02 | web | done | 3 min'));
+  assert.equal(taskResultText(expired, labels).split('\n')[0], 'errand tab02 (web) ended done: find a meme');
+});
+
 test('<tasks>: an open errand is in the request tail; with none, the block is gone', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeChannel({ historyMessages: [raw] });

@@ -215,3 +215,25 @@ test('server: stop ends an open task with restarted', async () => {
   });
   if (fs.existsSync(sock)) fs.unlinkSync(sock);
 });
+
+test('server: liveIds names the running task and the queued ones, never a finished one', async () => {
+  const { runner, finish } = controllableRunner();
+  await withCapturedLogs(() => withServer(runner, async (sock, server) => {
+    assert.deepEqual(server.liveIds(), []);
+    const c = connect(sock);
+    await c.ready;
+    c.send({ op: 'run', id: 'first', goal: 'one' });
+    c.send({ op: 'run', id: 'second', goal: 'two' });
+    await c.next((e) => e.event === 'progress' && e.id === 'first');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(server.liveIds(), ['first', 'second']);
+    finish('first');
+    await c.next((e) => e.event === 'end' && e.id === 'first');
+    await c.next((e) => e.event === 'progress' && e.id === 'second');
+    assert.deepEqual(server.liveIds(), ['second']);
+    finish('second');
+    await c.next((e) => e.event === 'end' && e.id === 'second');
+    assert.deepEqual(server.liveIds(), []);
+    c.end();
+  }));
+});
