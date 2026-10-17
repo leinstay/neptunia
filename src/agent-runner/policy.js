@@ -34,10 +34,10 @@ export const REDACTED = '[redacted]';
 /** Absolute paths whose content is withheld in `dm` and `group` (everything under them too). */
 export const WITHHELD_ROOTS = Object.freeze([
   '/var/www', '/srv/git', '/srv/neptunia-backups', '/etc/shadow', '/etc/gshadow', '/etc/nginx/htpasswd',
-  '/etc/letsencrypt', '/etc/neptunia',
+  '/etc/letsencrypt', '/etc/neptunia', '/opt/neptunia-bot/data',
 ]);
 /** Path components that withhold the path wherever they appear. */
-export const WITHHELD_NAMES = Object.freeze(['.git', '.local.git', '.secrets', '.ssh', 'config.local.json']);
+export const WITHHELD_NAMES = Object.freeze(['.git', '.local.git', '.secrets', '.ssh', 'config.local.json', 'scratch']);
 /** A `.env` file (`.env`, `.env.local`, ...) is withheld wherever it is. */
 const ENV_FILE = /^\.env(?:\..+)?$/;
 /** The glob patterns a config denies for a path tool in a filtered scope (OpenCode's `read`/`grep`/... resources). */
@@ -47,6 +47,7 @@ export const WITHHELD_GLOBS = Object.freeze([
   '/etc/letsencrypt/**', '/etc/neptunia', '/etc/neptunia/**',
   '**/.git', '**/.git/**', '**/.local.git', '**/.local.git/**', '**/.secrets', '**/.secrets/**',
   '**/.ssh', '**/.ssh/**', '**/config.local.json', '**/.env', '**/.env.*',
+  '/opt/neptunia-bot/data', '/opt/neptunia-bot/data/**', '**/data/guilds', '**/data/guilds/**', '**/.agents/scratch', '**/.agents/scratch/**',
 ]);
 
 /** Bash command words that open file contents (so their path arguments are checked). */

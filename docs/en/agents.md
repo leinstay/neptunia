@@ -40,7 +40,7 @@ A runner that restarted answers `end` with `status: "failed", error: "restarted"
 
 A `run` carries `context.scope`, one of `core`, `dm`, `group` (`src/agent-runner/policy.js`). In `core` nothing is withheld. In `dm` and `group`:
 
-- the `server` agent's file tools deny the content of sensitive paths (`/var/www`, `/srv/git`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`); listing names is still allowed. A task whose command would open such a path is stopped and ends `failed`, `error: "withheld-path"` (visible by name, not readable in this scope);
+- the `server` agent's file tools deny the content of sensitive paths (`/var/www`, `/srv/git`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`, the persona's own `data/` (memory about real people) and any `.agents/scratch`); listing names is still allowed. A task whose command would open such a path is stopped and ends `failed`, `error: "withheld-path"` (visible by name, not readable in this scope);
 - every result the runner returns passes a redaction pass that replaces key-, token- and password-looking strings, private-key blocks, SSH key material and URL credentials with `[redacted]`.
 
 A command that reads a withheld path through `bash` (rather than a file tool) is caught after the fact and the task fails; its output is redacted either way.
