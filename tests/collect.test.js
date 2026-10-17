@@ -180,6 +180,30 @@ test('normalizeMessage: a GIF-picker post (a gifv embed of an unknown provider) 
   assert.equal(picture.url, 'https://static.gifs.example.net/x/still.webp', 'the still frame');
 });
 
+test('normalizeMessage: a pasted Discord-hosted .gif link is a gif item to watch, a .png link stays a link', () => {
+  const url = 'https://media.discordapp.net/attachments/1/2/dance.gif?ex=1&is=2&hm=3';
+  const proxy = 'https://media.discordapp.net/attachments/1/2/dance.gif?ex=1&is=2&hm=3&width=498&height=280';
+  const embed = new Embed({ type: 'image', url, thumbnail: { url, proxy_url: proxy, width: 498, height: 280, content_type: 'image/gif' } });
+  const m = normalizeMessage(rawMessage({ cleanContent: url, content: url, embeds: [embed] }), 'self');
+  assert.deepEqual(m.attachments, []);
+  assert.equal(m.links.length, 1);
+  assert.equal(m.links[0].kind, 'gif');
+  assert.equal(m.links[0].id, 'm1#e0');
+  assert.equal(m.links[0].thumbnailUrl, proxy);
+  assert.equal(m.content, '', 'the URL is not left in the text');
+  const [picture] = collectPictures(m);
+  assert.equal(picture.kind, 'gif');
+  assert.equal(picture.url, proxy, 'the still frame, the fallback');
+  assert.equal(picture.animationUrl, url, 'what the GIF watch downloads');
+
+  const png = 'https://media.discordapp.net/attachments/1/3/photo.png?ex=1&is=2&hm=3';
+  const pngEmbed = new Embed({ type: 'image', url: png, thumbnail: { url: png, proxy_url: png, width: 10, height: 10, content_type: 'image/png' } });
+  const p = normalizeMessage(rawMessage({ cleanContent: png, content: png, embeds: [pngEmbed] }), 'self');
+  assert.equal(p.links[0].kind, 'link');
+  assert.equal('animationUrl' in p.links[0], false);
+  assert.equal(collectPictures(p)[0].kind, 'link');
+});
+
 test('normalizeMessage: a gifv embed on a configured video site stays a video link', () => {
   const url = 'https://x.com/someone/status/1';
   const embed = new Embed({ type: 'gifv', url, thumbnail: { url: 'https://pbs.example.net/t.jpg' }, video: { url: 'https://video.example.net/v.mp4' } });

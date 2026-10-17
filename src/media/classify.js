@@ -208,6 +208,26 @@ export function isGifHostUrl(url) {
   return GIF_HOST_RE.test(siteOf(url ?? ''));
 }
 
+/**
+ * The content type of an embed's thumbnail, lowercased: a plain object's
+ * `thumbnail.contentType`, a discord.js Embed's `data.thumbnail.content_type`
+ * (its `thumbnail` getter drops the field); '' when neither is there.
+ */
+function thumbnailContentTypeOf(embed) {
+  return String(embed?.thumbnail?.contentType ?? embed?.data?.thumbnail?.content_type ?? '').toLowerCase();
+}
+
+/**
+ * Whether an embed is a link to a GIF file on the Discord CDN
+ * (DISCORD_CDN_HOSTS): its URL's path ends in `.gif`, or its thumbnail's
+ * content type is `image/gif`. A member pasting such a link gets an image
+ * embed, no attachment; it is still a GIF to watch, not a page preview.
+ */
+function isDiscordGifFile(embed, url) {
+  if (!url || !DISCORD_CDN_HOSTS.has(siteOf(url).toLowerCase())) return false;
+  return isGifFileUrl(url) || thumbnailContentTypeOf(embed) === 'image/gif';
+}
+
 /** An embed's Discord type (`gifv`, `rich`, ...), lowercased: a plain object's `type`, a discord.js Embed's `data.type`. */
 function embedTypeOf(embed) {
   return String(embed?.type ?? embed?.data?.type ?? '').toLowerCase();
@@ -219,7 +239,10 @@ function embedTypeOf(embed) {
  * the frame to describe), else `'link'` — a video-site embed (e.g. YouTube)
  * keeps `kind: 'link'` but still carries `thumbnailUrl`. An embed is a GIF
  * when its Discord type is `gifv` (a GIF-picker post, whatever the site),
- * its provider is tenor/giphy, or its URL is on a GIF site (isGifHostUrl).
+ * its provider is tenor/giphy, its URL is on a GIF site (isGifHostUrl), or
+ * it is a pasted link to a GIF file on the Discord CDN (isDiscordGifFile:
+ * a `.gif` path or an `image/gif` thumbnail; its own URL is then the
+ * animation). Any other Discord CDN link (a `.png`, ...) stays a link.
  * A `gifv` embed whose URL is on one of `videoSites` stays a link: the video
  * describer owns that site. `url` stays the page Discord embeds again when
  * it is posted.
@@ -227,12 +250,13 @@ function embedTypeOf(embed) {
  * exposes one: Discord's own embed proxy (`media.discordapp.net` /
  * `images-ext-*.discordapp.net`) is reliably fetchable, unlike some
  * third-party thumbnail hosts. A gif embed that carries its animation (see
- * gifAnimationUrl: the `gifv` video, or a `.gif` link) adds `animationUrl`,
+ * gifAnimationUrl: the `gifv` video, or a `.gif` link; or a Discord CDN GIF
+ * file's own URL) adds `animationUrl`,
  * the file the GIF watch downloads; no other item ever has the key.
  * `thumbnailWidth` / `thumbnailHeight` are the thumbnail's pixel size when
  * Discord reports it (else null), for fitBox.
  * @param {{ url?: string|null, title?: string|null, description?: string|null,
- *   thumbnail?: { url?: string|null, proxyURL?: string|null, width?: number|null, height?: number|null }|null,
+ *   thumbnail?: { url?: string|null, proxyURL?: string|null, width?: number|null, height?: number|null, contentType?: string|null }|null,
  *   video?: { url?: string|null, proxyURL?: string|null }|null,
  *   provider?: { name?: string|null }|null }} embed
  * @param {{ embedTextChars?: number, videoSites?: string[] }} [options]
@@ -243,9 +267,10 @@ export function classifyEmbed(embed, { embedTextChars = 200, videoSites = [] } =
   const providerName = String(embed?.provider?.name ?? '');
   const onVideoSite = Boolean(url) && Array.isArray(videoSites) && videoSites.length > 0 && videoSiteFor(url, videoSites) !== null;
   const isGifv = embedTypeOf(embed) === GIF_EMBED_TYPE && !onVideoSite;
-  const isGif = isGifv || GIF_PROVIDERS.has(providerName.toLowerCase()) || isGifHostUrl(url);
+  const discordGif = isDiscordGifFile(embed, url);
+  const isGif = isGifv || GIF_PROVIDERS.has(providerName.toLowerCase()) || isGifHostUrl(url) || discordGif;
   const site = providerName || host || '';
-  const animationUrl = isGif ? gifAnimationUrl(embed, url) : null;
+  const animationUrl = isGif ? (gifAnimationUrl(embed, url) ?? (discordGif ? url : null)) : null;
   return {
     site,
     title: clipWithEllipsis(String(embed?.title ?? '').trim(), embedTextChars),

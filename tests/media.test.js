@@ -162,6 +162,47 @@ test('classifyEmbed: a link embed never carries animationUrl, even with a video 
   assert.equal('animationUrl' in other, false);
 });
 
+/** A pasted link to a file on the Discord CDN as Discord embeds it: an `image` embed whose thumbnail is the file itself. */
+function discordFileEmbed(url, { contentType = 'image/gif', proxyURL = url } = {}) {
+  return { type: 'image', url, thumbnail: { url, proxyURL, width: 498, height: 280 }, data: { type: 'image', thumbnail: { content_type: contentType } } };
+}
+
+test('classifyEmbed: a Discord-hosted .gif link is a gif: the proxy URL as the still, the file as the animation', () => {
+  const url = 'https://media.discordapp.net/attachments/1/2/dance.gif?ex=1&is=2&hm=3';
+  const proxyURL = 'https://media.discordapp.net/attachments/1/2/dance.gif?ex=1&is=2&hm=3&width=498&height=280';
+  const item = classifyEmbed(discordFileEmbed(url, { proxyURL }));
+  assert.equal(item.kind, 'gif');
+  assert.equal(item.thumbnailUrl, proxyURL);
+  assert.equal(item.animationUrl, url);
+  assert.equal(item.url, url);
+  const cdn = classifyEmbed({ url: 'https://cdn.discordapp.com/attachments/1/2/Dance.GIF', thumbnail: { url: 'https://cdn.discordapp.com/attachments/1/2/Dance.GIF' } });
+  assert.equal(cdn.kind, 'gif', 'cdn.discordapp.com, an upper-case extension, no content type');
+  assert.equal(cdn.animationUrl, 'https://cdn.discordapp.com/attachments/1/2/Dance.GIF');
+});
+
+test('classifyEmbed: a Discord-hosted link whose thumbnail is image/gif is a gif whatever its path', () => {
+  const url = 'https://media.discordapp.net/attachments/1/2/dance';
+  const viaData = classifyEmbed(discordFileEmbed(url));
+  assert.equal(viaData.kind, 'gif', "a discord.js Embed's data.thumbnail.content_type");
+  assert.equal(viaData.animationUrl, url);
+  const viaField = classifyEmbed({ url, thumbnail: { url, contentType: 'IMAGE/GIF' } });
+  assert.equal(viaField.kind, 'gif', 'a plain thumbnail.contentType');
+});
+
+test('classifyEmbed: any other Discord-hosted file, or a .gif elsewhere, stays a link', () => {
+  const rows = [
+    { label: 'a .png on media.discordapp.net', embed: discordFileEmbed('https://media.discordapp.net/attachments/1/2/a.png', { contentType: 'image/png' }) },
+    { label: 'a .png on cdn.discordapp.com', embed: { url: 'https://cdn.discordapp.com/attachments/1/2/a.png', thumbnail: { url: 'https://cdn.discordapp.com/attachments/1/2/a.png' } } },
+    { label: 'a gif content type off Discord', embed: { url: 'https://example.com/a', thumbnail: { url: 'https://example.com/a', contentType: 'image/gif' } } },
+    { label: 'a lookalike host', embed: { url: 'https://media.discordapp.net.example.com/a.gif' } },
+  ];
+  for (const { label, embed } of rows) {
+    const item = classifyEmbed(embed);
+    assert.equal(item.kind, 'link', label);
+    assert.equal('animationUrl' in item, false, label);
+  }
+});
+
 /** A GIF-picker post as Discord delivers it: a `gifv` embed of a provider the code has no name for. */
 function pickerEmbed(overrides = {}) {
   return {
