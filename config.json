@@ -434,6 +434,10 @@
     "toolResultChars": 6000,
     "maxDownloadBytes": 20000000,
     "keepFilesHours": 24,
+    "maxOpen": 3,
+    "resultMaxChars": 3000,
+    "resultRetrySeconds": 30,
+    "resultCooldownSeconds": 60,
     "web": {
       "enabled": false,
       "model": "openrouter/x-ai/grok-4.7",
