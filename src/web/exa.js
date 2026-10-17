@@ -15,11 +15,14 @@
 // successful `content[0].text` was not seen: it is parsed in both documented
 // forms -- a JSON string (`{ results: [{ title, url, publishedDate, text |
 // snippet | summary | highlights }] }`, or the bare array) or a formatted text
-// of `Title:` / `URL:` / `Published Date:` / `Text:` lines per result.
+// of `Title:` / `URL:` / `Published Date:` / `Text:` lines per result. The
+// live answer's formatted text uses `Title:` / `URL:` / `Published:` /
+// `Author:` / `Highlights:` followed by page text; both label sets are read.
 // A plain JSON body (not a stream) is read the same way.
 //
 // Items are `{ title, url, snippet, age? }` exactly as Brave's: `age` is Exa's
-// published date as it comes (an ISO date string), left out when absent;
+// published date as it comes (an ISO date string), left out when absent,
+// empty or `N/A` (any case);
 // snippets are cut to SNIPPET_MAX_CHARS, since Exa returns page text where
 // Brave returns a one-line description, and the summary prompt reads them all.
 //
@@ -60,6 +63,8 @@ const TEXT_KEYS = new Map([
   ['score', null],
 ]);
 const KEY_LINE = /^\s*([A-Za-z][A-Za-z ]{0,20}?)\s*:\s?(.*)$/;
+// A published value that says there is none (`N/A`, any case): no `age`, as when the field is absent.
+const NO_DATE = /^n\/a$/i;
 const SEPARATOR_LINE = /^\s*(?:-{3,}|={3,}|\*{3,})\s*$/;
 
 /** Collapse whitespace to one line. */
@@ -91,7 +96,7 @@ function itemOf({ title, url, snippet, age }) {
   if (!isWebUrl(link)) return null;
   const item = { title: inlineText(title), url: link, snippet: clampText(inlineText(snippet), SNIPPET_MAX_CHARS, { tolerance: 1 }) };
   const date = inlineText(age);
-  if (date) item.age = date;
+  if (date && !NO_DATE.test(date)) item.age = date;
   return item;
 }
 
