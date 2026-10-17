@@ -19,7 +19,9 @@ import {
   MODEL_SET_ROLES,
   STATUS_FIELDS,
   readFlag,
+  commandEvent,
 } from '../src/discord/commands.js';
+import { validateEvent } from '../src/protocol.js';
 import { isAllowed as accessIsAllowed } from '../src/discord/access.js';
 import { resolveCommand, asResult, listOps } from '../src/ops/index.js';
 import { getOp } from '../src/ops/registry.js';
@@ -1337,4 +1339,54 @@ test('interaction handler: a command still running after deferAfterMs is deferre
   await handler(interaction);
   assert.equal(interaction.deferred, true);
   assert.equal(interaction.edits.at(-1).content, 'slow result');
+});
+
+// ---------------------------------------------------------------------------
+// The command.requested event (packages/protocol/)
+// ---------------------------------------------------------------------------
+
+test('commandEvent: an interaction becomes a valid command.requested event', () => {
+  const interaction = fakeInteraction({
+    id: 'i-event',
+    user: { id: 'helper1', globalName: 'Ελένη' },
+    member: { displayName: 'Λένα', roles: { cache: new Map([['staff', {}], ['mods', {}]]) } },
+    group: 'memory',
+    subcommand: 'show',
+  });
+  const event = commandEvent(interaction, 'memory.show', { userId: 'u2' }, baseHot().config, 'command-7', 1234);
+  assert.deepEqual(validateEvent(event), { ok: true });
+  assert.deepEqual(event, {
+    kind: 'command.requested',
+    iface: 'discord',
+    at: 1234,
+    id: 'discord:command:i-event',
+    conversation: { id: 'c1', kind: 'channel', guildId: 'g1', name: null },
+    name: 'memory.show',
+    args: { userId: 'u2' },
+    requester: { id: 'helper1', name: 'Λένα', roles: ['staff', 'mods'], owner: false },
+    replyRef: 'command-7',
+  });
+  const owner = commandEvent(fakeInteraction({ id: undefined }), 'status', {}, baseHot().config, 'command-8', 1);
+  assert.equal(owner.requester.owner, true, 'bot.owners names the requester');
+  assert.equal(owner.requester.name, null, 'no display name known');
+});
+
+test('interaction handler: the operation runs on the event\'s name, args and requester; the reply reaches the interaction', async () => {
+  const admin = fakeAdmin({ owners: ['owner1'], access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } } });
+  const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1', now: () => 5000 });
+  const interaction = fakeInteraction({ user: { id: 'helper1' }, member: { roles: ['staff'] }, channelId: 'c7', subcommand: 'status', optionValues: { field: 'limits' } });
+  await handler(interaction);
+  assert.deepEqual(admin.runCalls, [['status', { field: 'limits' }, { guildId: 'g1', channelId: 'c7', userId: 'helper1', roleIds: ['staff'] }]]);
+  assert.equal(interaction.replies[0].content, 'ok: status');
+});
+
+test('interaction handler: a malformed command event is dropped with one warn line, no operation, no content', async () => {
+  const admin = fakeAdmin();
+  const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
+  const interaction = fakeInteraction({ user: { id: 42 }, subcommand: 'status' });
+  const { logs } = await withCapturedLogs(() => handler(interaction));
+  assert.equal(admin.runCalls.length, 0);
+  assert.equal(interaction.replies.length, 0);
+  const warned = logs.filter((line) => line.msg === 'interface: invalid event');
+  assert.deepEqual(warned.map((line) => [line.kind, line.reason]), [['command.requested', 'requester.id:type']]);
 });

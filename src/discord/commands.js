@@ -22,6 +22,10 @@
 
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { isPlainObject } from '../config.js';
+import { COMMAND_REQUESTED, validateEvent } from '../protocol.js';
+import { DISCORD_IFACE } from '../interface/discord.js';
+import { displayNameOf } from './collect.js';
+import { isOwnerId } from './access.js';
 import { AGENT_ROLES, roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
 import { MINUTE_MS } from '../time.js';
@@ -857,6 +861,40 @@ function roleIdsFor(interaction) {
   return [];
 }
 
+/**
+ * The `command.requested` event of a chat-input interaction (packages/protocol/events.js): the
+ * command key as its `name`, the mapped options as `args`, the requester with their role ids and
+ * whether `config.bot.owners` names them (informational: the operation's own runOp still checks
+ * the rights), and `replyRef`, the opaque token the handler maps back to the interaction. Ids are
+ * kept as Discord gives them, so the context built from the event is the one built before.
+ * @param {object} interaction  A discord.js ChatInputCommandInteraction.
+ * @param {string} commandKey
+ * @param {object} args
+ * @param {object} config  The live config.
+ * @param {string} replyRef
+ * @param {number} at
+ * @returns {import('../protocol.js').CommandRequested}
+ */
+export function commandEvent(interaction, commandKey, args, config, replyRef, at) {
+  const userId = interaction.user?.id;
+  return {
+    kind: COMMAND_REQUESTED,
+    iface: DISCORD_IFACE,
+    at,
+    id: `${DISCORD_IFACE}:command:${interaction.id ?? replyRef}`,
+    conversation: {
+      id: interaction.channelId,
+      kind: interaction.guildId ? (interaction.channel?.isThread?.() ? 'thread' : 'channel') : 'dm',
+      guildId: interaction.guildId ?? null,
+      name: interaction.channel?.name ?? null,
+    },
+    name: commandKey,
+    args,
+    requester: { id: userId, name: displayNameOf(interaction.member, interaction.user), roles: roleIdsFor(interaction), owner: isOwnerId(config, userId) },
+    replyRef,
+  };
+}
+
 /** `command`-option autocomplete choices for `/nep access grant|revoke`: `*`, the groups and
  * every grantable operation name (`admin.accessKeys`, src/ops/access.js#grantKeys), filtered by the
  * typed text. Owner-only operations are never offered: no grant can open them; nor are the member
@@ -894,6 +932,10 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
   // Interaction ids seen in the last RETRY_WINDOW_MS, oldest first: Discord may deliver one
   // interaction twice, and the second delivery must not run its operation again.
   const seen = new Map();
+  // The interactions of the commands in flight by their `replyRef` (commandEvent): the token
+  // the core answers by, mapped back to the interaction here, the Discord side.
+  const replies = new Map();
+  let nextReply = 0;
 
   /** True the first time `id` arrives within the window; an interaction with no id always runs. */
   function firstDelivery(id) {
@@ -978,14 +1020,25 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
     }
 
     let mode = { deferred: false };
+    nextReply += 1;
+    const replyRef = `command-${nextReply}`;
+    replies.set(replyRef, interaction);
     try {
-      const args = buildArgs(commandKey, interaction);
-      const op = typeof admin.operationFor === 'function' ? admin.operationFor(commandKey, args) : null;
+      // The command reaches the operations as a protocol event; a malformed one is dropped at
+      // this boundary with one warn line, like any inbound event (src/index.js).
+      const event = commandEvent(interaction, commandKey, buildArgs(commandKey, interaction), config, replyRef, now());
+      const verdict = validateEvent(event);
+      if (!verdict.ok) {
+        log.warn('interface: invalid event', { kind: event.kind, reason: verdict.reason });
+        return;
+      }
+      const { name, args, requester, conversation } = event;
+      const op = typeof admin.operationFor === 'function' ? admin.operationFor(name, args) : null;
       mode = { deferred: op !== null && DEFERRED_OPS.has(op) };
       if (mode.deferred) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const context = { guildId: interaction.guildId, channelId: interaction.channelId, userId: interaction.user.id, roleIds: roleIdsFor(interaction) };
+      const context = { guildId: conversation.guildId, channelId: conversation.id, userId: requester.id, roleIds: requester.roles };
       // The rights are checked by the operation's own runOp (src/ops/index.js), every time.
-      const run = admin.runCommand(commandKey, args, context);
+      const run = admin.runCommand(name, args, context);
       let result;
       if (mode.deferred) result = await run;
       else {
@@ -1002,17 +1055,24 @@ export function createInteractionHandler({ hot, admin, getGuildId, now = Date.no
           clearTimeout(timer);
         }
       }
+      // TODO(.agents spec 2026-10-17-protocol-package, "Code"): the answer goes out as a
+      // `command.result` action ({ replyRef, text, files, ephemeral }) the adapter translates. It
+      // stays a direct reply here: the status card's embeds and the deferral this handler decides
+      // mid-run (DEFERRED_OPS, deferAfterMs) have no place in that action yet.
+      const target = replies.get(replyRef);
       if (result.status === 'ok') {
-        await respond(interaction, result.data?.files || result.data?.embeds ? result.data : result.summary, mode);
+        await respond(target, result.data?.files || result.data?.embeds ? result.data : result.summary, mode);
       } else if (result.status === 'denied') {
-        await respond(interaction, NOT_ALLOWED_MESSAGE, mode);
+        await respond(target, NOT_ALLOWED_MESSAGE, mode);
       } else {
         log.warn('commands: command failed', { command: commandKey, status: result.status, code: result.code, error: new Error(result.summary) });
-        await respond(interaction, `Error: ${result.summary}`, mode).catch(() => {});
+        await respond(target, `Error: ${result.summary}`, mode).catch(() => {});
       }
     } catch (err) {
       log.warn('commands: command failed', { command: commandKey, error: err });
       await respond(interaction, `Error: ${err?.message ?? String(err)}`, mode).catch(() => {});
+    } finally {
+      replies.delete(replyRef);
     }
   }
 
