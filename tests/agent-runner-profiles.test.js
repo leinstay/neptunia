@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.js';
 import { onLog } from '../src/log.js';
-import { WEB, SERVER, PROFILES, AgentProfileError, SHELL_CLASSES, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, withheldShellDenies } from '../src/agent-runner/profiles.js';
+import { WEB, SERVER, PROFILES, AgentProfileError, SHELL_CLASSES, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, WEB_SHELL_ALLOW, YT_DLP_DENIES, withheldShellDenies } from '../src/agent-runner/profiles.js';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldGlobsOf, withheldRootsOf } from '../src/agent-runner/policy.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { resolvePaths } from '../src/paths.js';
@@ -67,6 +67,29 @@ test('web permission: web tools allowed, edit/write/task/question denied, bash a
   assert.equal(keys[keys.length - 1], 'gawk *');
   assert.equal(p.bash['find * -exec*'], 'deny');
   assert.equal(p.bash['awk */inet/*'], 'deny');
+});
+
+test('web shell: yt-dlp downloads a video page; no option that runs another program passes, abbreviated or in = form', () => {
+  assert.ok(WEB_SHELL_ALLOW.includes('yt-dlp *'));
+  for (const pattern of YT_DLP_DENIES) assert.ok(SHELL_DENY_AFTER.includes(pattern), pattern);
+  for (const scope of ['core', 'dm']) {
+    const bash = WEB.buildConfig({ systemPrompt: 'x', scope }).agent['errand-web'].permission.bash;
+    assert.equal(bash['yt-dlp *'], 'allow');
+    for (const command of [
+      'yt-dlp -f "bv*[height<=720]+ba/b[height<=720]" -o "trailer.%(ext)s" https://www.youtube.com/watch?v=abc',
+      'yt-dlp --merge-output-format mp4 https://www.youtube.com/watch?v=abc', 'yt-dlp -F https://youtu.be/abc',
+      'yt-dlp --no-exec --no-plugin-dirs --ignore-config https://youtu.be/abc', 'yt-dlp --netrc --netrc-location x https://youtu.be/abc',
+    ]) assert.equal(actionOf(bash, command), 'allow', `${scope}: ${command}`);
+    for (const command of [
+      'yt-dlp --exec "rm -rf ~" https://youtu.be/abc', 'yt-dlp https://youtu.be/abc --exec "sh -c id"', 'yt-dlp --exec=id https://youtu.be/abc',
+      'yt-dlp --exec-before-download id https://youtu.be/abc', 'yt-dlp --exec-b id https://youtu.be/abc', 'yt-dlp --exe id https://youtu.be/abc',
+      'yt-dlp --netrc-cmd "sh x" https://youtu.be/abc', 'yt-dlp --netrc-c id https://youtu.be/abc',
+      'yt-dlp --config-location x.conf https://youtu.be/abc', 'yt-dlp --config-locations=x.conf https://youtu.be/abc', 'yt-dlp --conf x.conf https://youtu.be/abc',
+      'yt-dlp --plugin-dirs ./p https://youtu.be/abc', 'yt-dlp --plu ./p https://youtu.be/abc',
+    ]) assert.equal(actionOf(bash, command), 'deny', `${scope}: ${command}`);
+  }
+  const server = SERVER.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-server'].permission.bash;
+  assert.equal(actionOf(server, 'yt-dlp https://youtu.be/abc'), 'deny', 'the server shell has no yt-dlp');
 });
 
 test('server permission: read tools allowed, no network tools, read-only bash', () => {
