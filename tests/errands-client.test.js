@@ -113,6 +113,27 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
   }
 });
 
+test('errands client: a run\'s secrets go out on its line and into no log line', async () => {
+  const sock = socketPath();
+  const runner = await fakeRunner(sock);
+  const client = createErrandClient({ hot: hotFor(sock) });
+  const secrets = { openrouterKey: 'sk-SECRET', proxy: 'http://u:SECRET@proxy.example:8000' };
+  try {
+    const { logs } = await withCapturedLogs(async () => {
+      const running = client.run({ agent: 'web', id: 'task-s', goal: 'look', secrets });
+      const request = await runner.next((r) => r.op === 'run');
+      assert.deepEqual(request.secrets, secrets);
+      runner.reply({ id: 'task-s', event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
+      await running;
+    });
+    assert.ok(logs.some((entry) => entry.msg === 'errands: sent'), 'the run was logged');
+    assert.ok(!JSON.stringify(logs).includes('SECRET'));
+  } finally {
+    client.close();
+    await runner.close();
+  }
+});
+
 test('errands client: cancel and ping go out as lines; a pong answers the ping', async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
