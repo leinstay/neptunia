@@ -1,11 +1,11 @@
-// Tests for src/discord/access.js: the pure owner-managed access decision (isAllowed, keyed by
+// Tests for src/ops/grants.js: the pure owner-managed access decision (isAllowed, keyed by
 // operation name), the expansion of a group or `*` grant at grant time, the one-time migration of
 // the old command-key grants, the access list with each right's source, and the immutable
 // grant/revoke helpers.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isAllowed, grant, revoke, hasGrant, isOwnerId, expandGrant, migrateGrants, describeGrants } from '../src/discord/access.js';
+import { isAllowed, grant, revoke, hasGrant, isOwnerId, expandGrant, migrateGrants, describeGrants } from '../src/ops/grants.js';
 
 /** One operation descriptor as src/ops/registry.js#listOps gives it. */
 function op(name, rights = {}) {

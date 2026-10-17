@@ -1,6 +1,6 @@
 // The operations layer: one typed operation behind every owner command, the same ones the
 // persona's adapter will call later. `runOp(name, args, ctx)` checks the caller's rights
-// (owner-only before any grant; grants are stored per operation name, src/discord/access.js),
+// (owner-only before any grant; grants are stored per operation name, src/ops/grants.js),
 // runs the operation and always answers
 // `{ status, code, summary, data }` -- it never throws. The slash commands arrive under
 // their command keys (`memory.show`, `media`, ...): COMMAND_TO_OP maps each one onto its
@@ -128,7 +128,7 @@ export const COMMAND_TO_OP = Object.freeze({
 /**
  * The slash-command keys of the tree before the operations layer -> operation, the same shape as
  * COMMAND_TO_OP: kept only so `legacyGrantOps` can read the grants stored under those keys (the
- * one-time migration, src/discord/access.js#migrateGrants). Never dispatched.
+ * one-time migration, src/ops/grants.js#migrateGrants). Never dispatched.
  */
 const LEGACY_COMMAND_TO_OP = Object.freeze({
   status: 'status.show',
@@ -205,7 +205,7 @@ export function resolveCommand(commandKey, args = {}) {
 
 /**
  * The operations an old (slash-command key) grant covered, for the one-time migration of the
- * stored grants (src/discord/access.js#migrateGrants): `*` -> every operation (`from: '*'`); an
+ * stored grants (src/ops/grants.js#migrateGrants): `*` -> every operation (`from: '*'`); an
  * old command key -> the operation it runs with no optional argument (`memory.affinity` ->
  * `memory.affinity.read`); an old group -> its keys' operations (`from` the group); a key with
  * no operation (`ping`, `reload`, `learned.list` and the other removed commands) -> null: such a

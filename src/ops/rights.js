@@ -3,10 +3,10 @@
 // so she is never a way around the member's own rights). Pure over the live config the caller
 // reads at the moment of use; imports nothing that registers operations, so any module may use it.
 
-import { isAllowed } from '../discord/access.js';
+import { isAllowed } from './grants.js';
 
 /**
- * Null when the caller may run `op`, else the refusal code: src/discord/access.js#isAllowed over
+ * Null when the caller may run `op`, else the refusal code: src/ops/grants.js#isAllowed over
  * `bot.owners`, `bot.access` and `features`. `owner-only` for an owner-only operation,
  * `not-grantable` for one no grant opens (a member operation while `features.memberCommands` is
  * off included), else `not-granted`.

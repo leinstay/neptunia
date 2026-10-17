@@ -49,7 +49,7 @@ import { resolveHandles } from './handles.js';
 import { linkChannels } from '../memory/mentions.js';
 import { continuationHistory, firstPass, pickOtherProfiles, taskInput } from './turn.js';
 import { withCalls } from '../format.js';
-import { grant as accessGrant, revoke as accessRevoke } from '../discord/access.js';
+import { grant as accessGrant, revoke as accessRevoke } from '../ops/grants.js';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
@@ -922,7 +922,7 @@ const RESULT_MAX_CHARS = 4500;
 /**
  * A copy of `config` whose persona grants are exactly `names`: her user id (`selfId`) taken
  * off every `bot.access` entry, then granted on each name -- with the very grant and revoke
- * `/nep access` stores (src/discord/access.js). People's grants are kept. The names are used as
+ * `/nep access` stores (src/ops/grants.js). People's grants are kept. The names are used as
  * given (the caller expands `*` and groups, as `/nep access grant` does); a name no grant opens
  * for her (src/skills/access.js#NOT_GRANTABLE_TO_PERSONA) is stored too, so the gateway's own
  * refusal of it shows. `config` is never changed. Pure.

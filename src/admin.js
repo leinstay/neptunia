@@ -31,7 +31,7 @@
 // functions (listRules, appendRule, removeRule, setPath, unsetPath,
 // buildProfileSummary) live in src/ops/shared.js and are re-exported from here.
 
-import { isAllowed as accessIsAllowed } from './discord/access.js';
+import { isAllowed as accessIsAllowed } from './ops/grants.js';
 import { createOpsEnv } from './ops/env.js';
 import { resolveCommand, runOp, runOpPrechecked, legacyGrantOps } from './ops/index.js';
 import { getOp, listOps } from './ops/registry.js';
@@ -150,7 +150,7 @@ export function createAdmin(deps) {
   }
 
   /** Whether the caller may run `commandKey` (with `args`, which pick the operation for
-   * `pings`): src/discord/access.js#isAllowed on its operation, every input
+   * `pings`): src/ops/grants.js#isAllowed on its operation, every input
    * read now. For the autocomplete, which runs nothing; a command itself goes through
    * `runCommand`. `roleIds` -- the caller's Discord role ids -- comes from
    * src/discord/commands.js#createInteractionHandler, which reads them off the interaction. */

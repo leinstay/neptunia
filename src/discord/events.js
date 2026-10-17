@@ -18,7 +18,7 @@
 // tests.
 
 import { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent } from './collect.js';
-import { isOwnerId } from './access.js';
+import { isOwnerId } from '../ops/grants.js';
 import { collectPictures, collectEmojiItems, collectVideos, collectReadableLinks, isDescribable } from '../media/classify.js';
 import {
   detectTrigger,

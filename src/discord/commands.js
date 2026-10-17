@@ -25,7 +25,7 @@ import { isPlainObject } from '../config.js';
 import { COMMAND_REQUESTED, validateEvent } from '../protocol.js';
 import { DISCORD_IFACE } from '../interface/discord.js';
 import { displayNameOf } from './collect.js';
-import { isOwnerId } from './access.js';
+import { isOwnerId } from '../ops/grants.js';
 import { AGENT_ROLES, roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
 import { MINUTE_MS } from '../time.js';

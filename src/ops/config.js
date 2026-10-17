@@ -3,7 +3,7 @@
 // the operation's `ctx` as the command context.
 
 import { leafPaths } from '../discord/commands.js';
-import { isOwnerId } from '../discord/access.js';
+import { isOwnerId } from './grants.js';
 import { governsPersona } from './rights.js';
 import { splitPath, unsetPath, ownValueAt, jsonTypeOf, withArticle, touchesOwnerOnlyConfig, reloadNote } from './shared.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';

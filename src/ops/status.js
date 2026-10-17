@@ -26,7 +26,7 @@ import { countToday, DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../ti
 import { VIDEO_DAILY, ARCHIVE_EVENTS } from '../memory/index.js';
 import { WEB_DAILY } from '../web/lookup.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
-import { isOwnerId } from '../discord/access.js';
+import { isOwnerId } from './grants.js';
 import { MODEL_ROLES, STATUS_FIELDS } from '../discord/commands.js';
 import { AGENT_ROLES, OPENCODE_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
