@@ -2,7 +2,8 @@
 // directory) and a FAKE errand client. The rights: a member may run the web agent but not the
 // server one, an owner may run both; a cap refuses with its code; the answer is at once (id and
 // `queued`) while the errand runs in the background; a cancel is for the requester or an owner;
-// a private chat's task is shown only to its requester or an owner.
+// a private chat's task is shown only to its requester or an owner. `task.show` (owner-only) reads
+// one ledger task whole over a FAKE ledger socket: inline, or as a file when long; off without one.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -15,6 +16,9 @@ import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { SHOW_INLINE_CHARS } from '../src/ops/task.js';
+import { labels } from './fixtures/labels.js';
+import { startFakeLedger, deadSocket } from './fixtures/fake-ledger.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -208,4 +212,87 @@ test('task.status: a task mirrored into the ledger shows its ledger id; task.can
     assert.deepEqual(seen, ['requester', 'owner', 'persona']);
     await errands.idle();
   });
+});
+
+// ---- task.show: one ledger task whole, over a FAKE ledger socket ------------------------
+
+/** A ledger task as `task.show` answers it, its description `size` characters long. */
+function shownTask(id, size = 40) {
+  return {
+    task: { id, lane: 'dev', status: 'done', title: 'a ledger task', description: 'd'.repeat(size), acceptance_criteria: 'it works' },
+    attempts: [{ id: 'A-1', role: 'nep-implementer', model: 'm', outcome: 'done', steps: 3, cost_usd: 0.25 }],
+    results: [{ kind: 'prompt', body: 'the prompt' }, { kind: 'spec', body: 'the spec' }],
+    questions: [],
+    events: [{ seq: 1, actor: 'lead', type: 'created' }],
+  };
+}
+
+/** An env whose ledger socket is `socket` and whose labels are the fixture's. */
+function showEnv(socket) {
+  const made = makeEnv();
+  made.env.hot.config.agents.ledger = { socket };
+  made.env.hot.prompts.labels = labels;
+  return made;
+}
+
+test('task.show: the owner gets the ledger task whole through task.show; a member is refused owner-only', async () => {
+  const ledger = await startFakeLedger((request) => (request.op === 'task.show' ? { ok: true, result: shownTask(request.args.id) } : null));
+  try {
+    const { env } = showEnv(ledger.socket);
+    const result = await runOp('task.show', { id: ' T-q3moxl ' }, ctx(env, OWNER));
+    assert.equal(result.status, 'ok', result.summary);
+    const lines = result.summary.split('\n');
+    assert.equal(lines[0], 'T-q3moxl | dev | done | a ledger task');
+    for (const part of ['description:\n' + 'd'.repeat(40), 'acceptance:\nit works', 'A-1 | nep-implementer | m | done | 3 steps | 0.250 USD', '[prompt]', 'the prompt', '[spec]', 'the spec', 'questions:\n(none)', 'events:\n1 | - | lead | created']) {
+      assert.ok(result.summary.includes(part), part);
+    }
+    assert.equal(result.data.files, undefined, 'short: inline');
+    assert.deepEqual(ledger.requests.map(({ op, args }) => [op, args]), [['task.show', { id: 'T-q3moxl', full: true }]]);
+    const member = await runOp('task.show', { id: 'T-q3moxl' }, ctx(env, MEMBER));
+    assert.equal(member.status, 'denied');
+    assert.equal(member.code, 'owner-only');
+    assert.equal(ledger.requests.length, 1, 'no read for a refused caller');
+  } finally {
+    await ledger.close();
+  }
+});
+
+test('task.show: a text over the inline limit comes as a file attachment with one short line', async () => {
+  const ledger = await startFakeLedger((request) => ({ ok: true, result: shownTask(request.args.id, SHOW_INLINE_CHARS + 500) }));
+  try {
+    const { env } = showEnv(ledger.socket);
+    const result = await runOp('task.show', { id: 'T-big' }, ctx(env, OWNER));
+    assert.equal(result.status, 'ok');
+    assert.equal(result.data.files.length, 1);
+    const [file] = result.data.files;
+    assert.equal(file.name, 'T-big.txt');
+    const whole = file.attachment.toString('utf8');
+    assert.ok(whole.startsWith('T-big | dev | done | a ledger task'));
+    assert.ok(whole.includes('d'.repeat(SHOW_INLINE_CHARS + 500)), 'the description whole in the file');
+    assert.equal(result.summary, `task T-big: ${whole.length} chars in T-big.txt`);
+    assert.ok(result.summary.length < 2000);
+  } finally {
+    await ledger.close();
+  }
+});
+
+test('task.show: without a socket or an answer it says ledger off; an unknown id and a refusal answer through their labels', async () => {
+  const { env } = showEnv(null);
+  const off = await runOp('task.show', { id: 'T-1' }, ctx(env, OWNER));
+  assert.deepEqual([off.status, off.code, off.summary], ['failed', 'ledger-off', 'ledger: off']);
+  env.hot.config.agents.ledger.socket = deadSocket();
+  const dead = await runOp('task.show', { id: 'T-1' }, ctx(env, OWNER));
+  assert.deepEqual([dead.status, dead.code, dead.summary], ['failed', 'ledger-unreachable', 'ledger: off']);
+  const missing = await runOp('task.show', { id: '  ' }, ctx(env, OWNER));
+  assert.deepEqual([missing.status, missing.summary], ['invalid', 'id required']);
+  const ledger = await startFakeLedger((request) => ({ ok: false, error: { code: request.args.id === 'T-none' ? 'not-found' : 'forbidden' } }));
+  try {
+    env.hot.config.agents.ledger.socket = ledger.socket;
+    const unknown = await runOp('task.show', { id: 'T-none' }, ctx(env, OWNER));
+    assert.deepEqual([unknown.status, unknown.code, unknown.summary], ['invalid', 'not-found', 'no ledger task T-none']);
+    const refused = await runOp('task.show', { id: 'T-other' }, ctx(env, OWNER));
+    assert.deepEqual([refused.status, refused.code, refused.summary], ['failed', 'ledger-refused', 'ledger refused: forbidden']);
+  } finally {
+    await ledger.close();
+  }
 });

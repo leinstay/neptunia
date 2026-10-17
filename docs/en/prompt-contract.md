@@ -281,6 +281,8 @@ status.costs.roleNames                     role -> the name an extra key's lead 
 status.costs.reasons.timeout | network | noClient | badAnswer | http   the {reason} words; http has {status}
 status.costs.byRoleEmpty                 the `costs` field alone when no request was made today (UTC day)
 status.costs.role                        {role} {requests} {in} {cached} {out} {cost} {avg}: one role's requests today, tokens compact (`9.3k`, `974k`, `1.23M`), cost in USD; a role with no tokens (`drawing`: generated pictures, counted with their cost) shows them as `-`; the roles by cost, no header and no total; {avg} is `avg` ({usd}: cost per request, 3 decimals), empty with no requests
+status.ledger.off | empty                the owner's `/nep status` `tasks` field after the long tasks: `off` alone when `agents.ledger.socket` is not set or the ledger does not answer (src/errands/ledger-view.js#ledgerStatusLines), `empty` alone when `task.list` gives no task; read by the owner, never sent to a model
+status.ledger.header | line              the header, then {id} {lane} {status} {title} (cut to 60 characters) per task: the last five ledger tasks of both lanes, newest first
 self                                     {name}
 units.lessThanMinute | minute | hour | day
 transcript.gap                           {duration}: the time between two consecutive lines at least `context.gapMarkerMinutes` apart, worded so it cannot pass for an age
@@ -508,6 +510,14 @@ tasks.result.header                      {id} {agent} {state} {goal}: the first 
 tasks.result.text | empty | error        the lead of the result text, the line for none, {error} the code of a task that did not end done
 tasks.result.sources | files | file      the leads of the numbered sources and of the files; file is {handle} {contentType} {bytes}
 tasks.result.withheld                    {paths}: shown when the engine's scope policy withheld paths from the agent; paths is a comma-separated list filled by code
+tasks.ledger.*                           the owner's `/nep task show <id>` (src/errands/ledger-view.js#ledgerTaskText, src/ops/task.js); read by the owner, never sent to a model. A missing key leaves its line out
+tasks.ledger.off | noId | notFound | refused | attached   the answers without a task: no socket or no answer; no id; {id} unknown to the ledger; {code} of another refusal; {id} {chars} {file}: the line above a text too long for one message, sent as the file
+tasks.ledger.header | meta | closed      {id} {lane} {status} {title}; {project} {requester} {role} {created} {updated}; {reason}: the close reason, only when there is one
+tasks.ledger.description | acceptance | attempts | results | questions | events   the section titles, in that order; `none` is the one line of an empty section
+tasks.ledger.attempt                     {id} {role} {model} {outcome} {steps} {cost} (USD, 3 decimals) {started} {ended}
+tasks.ledger.result | resultUri | resultMetadata   {kind} {at} {attempt}, then the result's whole body; {uri}; {metadata} as compact JSON
+tasks.ledger.question | answer | unanswered   {id} {by} {text}; {by} {at} {text}; the line of a question with no answer yet
+tasks.ledger.event | eventChange         {seq} {at} {actor} {type} {change}; {old} {new} of an event that carries them (compact JSON), else {change} is empty
 directory.lead                           OPTIONAL: the first line of `<directory>`, before the member lines
 directory.line                           {handle} {names}: one member of `<directory>`; {handle} is the exact mention token, `@` included; {names} their stored names as JSON strings joined by ", ". Without this label no `<directory>` block
 directory.lineAliases                    {handle} {names} {aliases}: the same for a member with open aliases ({aliases} like {names}). Missing or blank: `directory.line`
