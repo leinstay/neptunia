@@ -47,8 +47,8 @@
 //
 // `--skills <file>`: a JSON array of scenarios (tools/prompts/skill-scenarios.example.json
 // shows the shape; parseScenarios checks it), each `{ id, channelId, before?,
-// author, text, grants, runs?, result?, discovery? }` (or `steps` for `author`
-// and `text`, see below). For each one: the last
+// author, text, grants, runs?, result?, discovery? }` (or `steps` or
+// `taskResult` for `author` and `text`, see below). For each one: the last
 // `--before` messages of the channel up to and including the message `before`
 // names (omitted: the newest ones), fetched and normalized as in the message
 // mode; then `text` as a new message by the member `author` (their real
@@ -59,6 +59,12 @@
 // and `*` expanded as `/nep access grant` expands them for her
 // (src/ops/access.js#expandPersonaGrant: a group or `*` is its read skills); a
 // name no grant opens for her is kept, so the gateway refuses it as live.
+// An errand (`task.run`) passes the gateway's budget exactly as live: the
+// open tasks against `agents.maxOpen` and today's tasks and dollars against
+// `agents.<agent>.daily` (agents.web, agents.server; the profile's defaults
+// under them), from the guild's data/guilds/<id>/tasks.json of the data read
+// (--snapshot's when given) and the config, read only
+// (sandboxErrandBudget, src/errands/store.js#budget); nothing is ever queued.
 // Her `<skills>` block is the catalogue of that requester as the live turn
 // lists it (src/behavior/sandbox.js#scenarioInventory): whole, as after
 // `skills: inventory` (`discovery` "inventory", the default), the named ones
@@ -114,6 +120,24 @@
 // trigger), and no turn is run for it: no request, no record, no letter in the
 // pattern. So a decision can be put after her own question. A scenario needs at
 // least one step with a message that is not hers.
+// A task-result scenario has `taskResult` instead of `author` / `text` /
+// `steps`: `{ agent, goal, state, text?, files?, asker }` (parseScenarios),
+// one of her errands ended `done` or `failed` -- what was asked, what it
+// brought back, the files it saved (`{ name, contentType?, bytes? }`), the
+// member who asked; its origin channel is the scenario's `channelId`. Instead
+// of a mention it runs the turn an errand's end opens (src/errands/turns.js):
+// one minute after the anchor (now, without `before`), in that channel, an
+// interjection of trigger kind `task` (no message of the chat to reply to)
+// whose request carries the `<task_result>` block
+// (src/errands/blocks.js#taskResultText), the asker its requester. The
+// errand is named `t<8 hex>` from the scenario's id (scenarioTaskId) and its
+// files by their live handles `file:<task id>/<name>`, which her calls
+// resolve to as live (scenarioFileOf; the files are not on disk and nothing
+// reads them); a `message.create` with a file handle, its channel and body
+// passes the real resolution and gateway and is recorded like any call
+// (runs.jsonl's `executed`, the report). Runs, results, follow-ups and the
+// report as a single-turn scenario; `--dry` adds the errand's id, whether
+// the request holds `<task_result>` and its file count.
 // `--prompts <dir>`: every scenario answered with `<dir>` laid over a copy of
 // the live prompts.local/ (a file of the same name replaces the private one,
 // the others stay; labels.json and skills.json deep-merge over the private
@@ -344,6 +368,7 @@
 // error (the message on stderr). Ctrl-C once stops the sampling; twice exits.
 
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -1724,7 +1749,20 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 // ---- skill scenarios (--skills) ----------------------------------------------------
 
 /** The fields a scenario may have. */
-const SCENARIO_KEYS = Object.freeze(['id', 'channelId', 'before', 'author', 'text', 'steps', 'grants', 'runs', 'result', 'discovery']);
+const SCENARIO_KEYS = Object.freeze(['id', 'channelId', 'before', 'author', 'text', 'steps', 'taskResult', 'grants', 'runs', 'result', 'discovery']);
+/** The fields of a task-result scenario's errand, and those of one of its files. */
+const TASK_RESULT_KEYS = Object.freeze(['agent', 'goal', 'state', 'text', 'files', 'asker']);
+const TASK_FILE_KEYS = Object.freeze(['name', 'contentType', 'bytes']);
+/** The ends an errand's result turn follows (src/errands/store.js: a cancelled one opens none). */
+const TASK_RESULT_STATES = Object.freeze(['done', 'failed']);
+/** An agent's name (src/agent-runner/profiles.js: the profile's key), the longest result text, the most files. */
+const AGENT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
+const MAX_TASK_TEXT = 20_000;
+const MAX_TASK_FILES = 10;
+/** A file name a handle may carry (src/errands/store.js#parseFileHandle): no slash, no line break. */
+const TASK_FILE_NAME = /^[^/\\\r\n]{1,200}$/;
+/** The error code of a failed errand when it gives none (src/errands/store.js#finish's). */
+const TASK_FAILED_CODE = 'failed';
 /** The fields a step of a multi-step scenario may have, and those of a burst message. */
 const STEP_KEYS = Object.freeze(['author', 'text', 'gapMinutes', 'burst', 'result', 'self']);
 const BURST_KEYS = Object.freeze(['author', 'text', 'self']);
@@ -1768,11 +1806,20 @@ const SKILL_REQUESTS_PER_RUN = 2;
  * at least one step must hold a message that is not hers. Parsed, a step is `{ messages:
  * [{ author, text } | { self: true, text }], own, gapMinutes, result: string|null }` (`own`: its
  * first message is the step's own `author` / `text`, which tags the persona) and the scenario
- * has no `author` / `text`. Any other field, type or value is a CliError naming the scenario
- * (and the step). Names are checked against the registry later (scenarioGrants, scenarioDiscovery).
+ * has no `author` / `text`. A task-result scenario has `taskResult` instead of `author` /
+ * `text` / `steps`: `{ agent, goal, state, text?, files?, asker }` -- `agent` an agent's name
+ * (1..32 of `A-Z a-z 0-9 _ -`), `goal` what was asked (1..4000 characters), `state` `"done"` or
+ * `"failed"`, `text` what it brought back (at most 20000 characters, default ''), `files` up to
+ * 10 `{ name, contentType?, bytes? }` (a name of 1..200 characters without a slash or a line
+ * break, unique; `contentType` text, default ''; `bytes` a whole number >= 0, default 0), `asker`
+ * the member id who asked; its origin channel is the scenario's `channelId`. Parsed, it is
+ * `{ agent, goal, state, text, files: [{ name, contentType, bytes }], asker }`. Any other field,
+ * type or value is a CliError naming the scenario (and the step). Names are checked against the
+ * registry later (scenarioGrants, scenarioDiscovery).
  * @param {string} text
  * @returns {{ id: string, channelId: string, before: string|null, author?: string, text?: string,
  *   steps?: { messages: ({ author: string, text: string } | { self: true, text: string })[], own: boolean, gapMinutes: number, result: string|null }[],
+ *   taskResult?: { agent: string, goal: string, state: 'done'|'failed', text: string, files: { name: string, contentType: string, bytes: number }[], asker: string },
  *   grants: string[], runs: number, result: string, discovery: 'inventory'|'none'|string[] }[]}
  */
 export function parseScenarios(text) {
@@ -1794,10 +1841,14 @@ export function parseScenarios(text) {
     if (typeof raw.channelId !== 'string' || !SNOWFLAKE.test(raw.channelId)) throw bad('channelId must be a channel id');
     if (raw.before !== undefined && raw.before !== null && (typeof raw.before !== 'string' || !SNOWFLAKE.test(raw.before))) throw bad('before must be a message id or omitted');
     const multi = raw.steps !== undefined;
+    const errand = raw.taskResult !== undefined;
+    if (errand && (multi || raw.author !== undefined || raw.text !== undefined)) throw bad('taskResult replaces author, text and steps: give one or the other');
     if (multi && (raw.author !== undefined || raw.text !== undefined)) throw bad('steps replace author and text: give one or the other');
     const steps = multi ? parseSteps(raw.steps, bad) : null;
-    if (!multi && (typeof raw.author !== 'string' || !SNOWFLAKE.test(raw.author))) throw bad('author must be a member id');
-    if (!multi && !isScenarioText(raw.text)) throw bad(`text must be 1..${MAX_SCENARIO_TEXT} characters`);
+    const taskResult = errand ? parseTaskResult(raw.taskResult, bad) : null;
+    const single = !multi && !errand;
+    if (single && (typeof raw.author !== 'string' || !SNOWFLAKE.test(raw.author))) throw bad('author must be a member id');
+    if (single && !isScenarioText(raw.text)) throw bad(`text must be 1..${MAX_SCENARIO_TEXT} characters`);
     if (!Array.isArray(raw.grants) || raw.grants.some((g) => typeof g !== 'string' || !g.trim())) throw bad('grants must be a list of skill names, groups or "*"');
     const runs = raw.runs ?? 1;
     if (!Number.isInteger(runs) || runs < 1 || runs > MAX_RUNS) throw bad(`runs must be a whole number 1..${MAX_RUNS}`);
@@ -1810,13 +1861,45 @@ export function parseScenarios(text) {
       id: raw.id,
       channelId: raw.channelId,
       before: raw.before ?? null,
-      ...(multi ? { steps } : { author: raw.author, text: raw.text }),
+      ...(multi ? { steps } : errand ? { taskResult } : { author: raw.author, text: raw.text }),
       grants: raw.grants.map((g) => g.trim()),
       runs,
       result,
       discovery: named ? discovery.map((n) => n.trim()) : discovery,
     };
   });
+}
+
+/** The `taskResult` of a task-result scenario (see parseScenarios), a CliError made by `bad` when wrong. */
+function parseTaskResult(raw, bad) {
+  const wrong = (what) => bad(`taskResult: ${what}`);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw wrong('not an object');
+  for (const key of Object.keys(raw)) if (!TASK_RESULT_KEYS.includes(key)) throw wrong(`unknown field ${key}`);
+  if (typeof raw.agent !== 'string' || !AGENT_NAME.test(raw.agent)) throw wrong('agent must be an agent\'s name');
+  if (!isScenarioText(raw.goal)) throw wrong(`goal must be 1..${MAX_SCENARIO_TEXT} characters`);
+  if (!TASK_RESULT_STATES.includes(raw.state)) throw wrong(`state must be ${TASK_RESULT_STATES.map((state) => `"${state}"`).join(' or ')}`);
+  const text = raw.text ?? '';
+  if (typeof text !== 'string' || text.length > MAX_TASK_TEXT) throw wrong(`text must be text of at most ${MAX_TASK_TEXT} characters`);
+  const files = raw.files ?? [];
+  if (!Array.isArray(files) || files.length > MAX_TASK_FILES) throw wrong(`files must be a list of at most ${MAX_TASK_FILES} files`);
+  const names = new Set();
+  const parsed = files.map((file, index) => {
+    const where = `file ${index + 1}`;
+    if (!file || typeof file !== 'object' || Array.isArray(file)) throw wrong(`${where} is not an object`);
+    for (const key of Object.keys(file)) if (!TASK_FILE_KEYS.includes(key)) throw wrong(`${where}: unknown field ${key}`);
+    if (typeof file.name !== 'string' || !TASK_FILE_NAME.test(file.name) || file.name.trim() !== file.name || file.name === '.' || file.name === '..') {
+      throw wrong(`${where}: name must be 1..200 characters without a slash or a line break`);
+    }
+    if (names.has(file.name)) throw wrong(`${where}: the name is used twice`);
+    names.add(file.name);
+    const contentType = file.contentType ?? '';
+    if (typeof contentType !== 'string' || contentType.length > 200) throw wrong(`${where}: contentType must be text`);
+    const bytes = file.bytes ?? 0;
+    if (!Number.isInteger(bytes) || bytes < 0) throw wrong(`${where}: bytes must be a whole number of 0 or more`);
+    return { name: file.name, contentType, bytes };
+  });
+  if (typeof raw.asker !== 'string' || !SNOWFLAKE.test(raw.asker)) throw wrong('asker must be a member id');
+  return { agent: raw.agent, goal: raw.goal, state: raw.state, text, files: parsed, asker: raw.asker };
 }
 
 /** Whether `value` is an invented message's text: 1..MAX_SCENARIO_TEXT characters, not blank. */
@@ -1947,6 +2030,82 @@ export function scenarioTrigger({ text, authorId, authorName, channel, selfId, a
     emojis: [],
     reactions: [],
   };
+}
+
+/**
+ * The id of a task-result scenario's errand: `t` and 8 hex digits, as src/errands/store.js names
+ * a task, taken from the scenario's id so every run (and both sides of a pair) names the same
+ * files. Pure.
+ * @param {string} scenarioId
+ * @returns {string}
+ */
+export function scenarioTaskId(scenarioId) {
+  return `t${createHash('sha256').update(String(scenarioId)).digest('hex').slice(0, 8)}`;
+}
+
+/**
+ * A task-result scenario's errand as src/errands/store.js keeps a finished task: its id
+ * (scenarioTaskId), agent and goal; asked by `asker` (a member) in the scenario's channel, from
+ * no message she can reply to (src/errands/turns.js then opens an interjection); `group` scope;
+ * ended at `at` in `state` (`failed` with the store's default code), its result's text and files
+ * (no sources), not seen. A file has no path: nothing is on disk, and nothing reads one. Pure.
+ * @param {{ id: string, channelId: string, taskResult: { agent: string, goal: string, state: string, text: string,
+ *   files: { name: string, contentType: string, bytes: number }[], asker: string } }} scenario
+ * @param {{ at: number }} options
+ * @returns {object}
+ */
+export function scenarioTask(scenario, { at }) {
+  const errand = scenario.taskResult;
+  return {
+    id: scenarioTaskId(scenario.id),
+    agent: errand.agent,
+    goal: errand.goal,
+    requester: { userId: errand.asker, kind: 'member' },
+    origin: { channelId: String(scenario.channelId), messageId: null },
+    scope: 'group',
+    state: errand.state,
+    createdAt: at,
+    startedAt: at,
+    endedAt: at,
+    usage: null,
+    result: { text: errand.text, sources: [], files: errand.files.map((file) => ({ path: null, name: file.name, contentType: file.contentType, bytes: file.bytes })) },
+    error: errand.state === 'done' ? null : TASK_FAILED_CODE,
+    seen: false,
+  };
+}
+
+/**
+ * The call view's `fileOf` for a task-result scenario (src/behavior/turn.js#callViewOf): a handle
+ * `file:<task id>/<name>` (read by `parseFileHandle`, src/errands/store.js's) that names a file of
+ * `task` resolves as src/errands/service.js#fileOf resolves a live one -- `{ path, name,
+ * contentType, bytes, task }`, `path` null --, any other handle to null. Pure.
+ * @param {object} task  scenarioTask's.
+ * @param {(handle: string) => ({ id: string, name: string }|null)} parseFileHandle
+ * @returns {(handle: string) => object|null}
+ */
+export function scenarioFileOf(task, parseFileHandle) {
+  return (handle) => {
+    const parsed = parseFileHandle(handle);
+    if (!parsed || parsed.id !== task.id) return null;
+    const file = task.result.files.find((entry) => entry.name === parsed.name);
+    return file ? { path: null, name: file.name, contentType: file.contentType, bytes: file.bytes, task: structuredClone(task) } : null;
+  };
+}
+
+/**
+ * The errands' budget the sandbox gateway reads (src/skills/gateway.js, `context.tasks`), read
+ * only: a task store of `guildId` over `dataDir` (src/errands/store.js#createTaskStore: its
+ * tasks.json read once, the live data/ or a snapshot) whose `budget(agent)` -- the open tasks
+ * against `agents.maxOpen`, today's tasks and dollars against `agents.<agent>.daily` (the
+ * profile's defaults under them), read from `config()` at the moment of use -- answers a
+ * `task.run` exactly as a live turn's (src/errands/service.js#budget). Only `budget` is handed
+ * out: nothing is ever queued, and the store writes nothing for it.
+ * @param {{ createTaskStore: Function, dataDir: string, guildId: string, config: () => object, now?: () => number, log?: object }} input
+ * @returns {{ budget(agent: string): { spent: boolean, key: string|null, code: string|null } }}
+ */
+export function sandboxErrandBudget({ createTaskStore, dataDir, guildId, config, now = Date.now, log }) {
+  const store = createTaskStore({ dataDir, guildId: String(guildId), config, now, journal: null, ...(log ? { log } : {}) });
+  return Object.freeze({ budget: (agent) => store.budget(agent) });
 }
 
 /**
@@ -2267,6 +2426,22 @@ function recordLines(record, heading, { detail = false } = {}) {
 }
 
 /**
+ * What a scenario puts to her, as markdown lines: its steps (stepsLines), the end of its errand
+ * (`errand <id> (<agent>, <state>) asked by <asker>`, the goal, the result's text, each file's
+ * handle), or its message.
+ */
+function stimulusLines(scenario) {
+  if (scenario.steps) return stepsLines(scenario.steps);
+  if (!scenario.taskResult) return [quoted(scenario.text), ''];
+  const errand = scenario.taskResult;
+  const id = scenarioTaskId(scenario.id);
+  const lines = [`errand ${id} (${errand.agent}, ${errand.state}) asked by ${errand.asker}:`, '', quoted(errand.goal), ''];
+  if (errand.text) lines.push('result:', '', quoted(errand.text), '');
+  if (errand.files.length > 0) lines.push(`files: ${errand.files.map((file) => `\`file:${id}/${cell(file.name)}\``).join(', ')}`, '');
+  return lines;
+}
+
+/**
  * A multi-step scenario's steps as markdown lines: each message by its author (a seeded line of
  * hers by `persona (seeded)`), the gap before it, a step of only her lines marked as running no turn.
  */
@@ -2311,7 +2486,7 @@ export function renderSkillsReport(entries) {
     }
   }
   for (const { scenario, grantNames, records = [], error } of entries) {
-    const stimulus = scenario.steps ? stepsLines(scenario.steps) : [quoted(scenario.text), ''];
+    const stimulus = stimulusLines(scenario);
     lines.push('', `## ${scenario.id}`, '', ...stimulus, `grants: ${grantNames?.length ? grantNames.join(', ') : '(none)'}; discovery: ${Array.isArray(scenario.discovery) ? scenario.discovery.join(', ') : scenario.discovery}`, '');
     if (error) {
       lines.push(`failed: ${cell(error)}`);
@@ -2420,7 +2595,7 @@ export function renderPairReport(entries, { a, b }) {
     lines.push(`| ${cell(scenario.id)} | ${Math.max(left.runs, right.runs)} | ${left.pattern} | ${right.pattern} | ${left.declines} | ${right.declines} | ${left.cost} | ${right.cost} |`);
   }
   for (const { scenario, grantNames, sides, error } of entries) {
-    const stimulus = scenario.steps ? stepsLines(scenario.steps) : [quoted(scenario.text), ''];
+    const stimulus = stimulusLines(scenario);
     lines.push('', `## ${scenario.id}`, '', ...stimulus, `grants: ${grantNames?.length ? grantNames.join(', ') : '(none)'}; discovery: ${Array.isArray(scenario.discovery) ? scenario.discovery.join(', ') : scenario.discovery}`, '');
     if (error) {
       lines.push(`failed: ${cell(error)}`);
@@ -2455,10 +2630,11 @@ export function renderPairReport(entries, { a, b }) {
  * the same fetched chat, the same config and memory, the same number of runs). Returns
  * `{ code, result }`: code 1 when a scenario failed or the runs were stopped.
  */
-async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, before, log, signal, budget, viewMods, channelOf, channelDirectory = null }) {
+async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, sides, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, before, log, signal, budget, viewMods, channelOf, channelDirectory = null }) {
   const {
     answerSkillScenario, skillScenarioRequest, scenarioInventory, simulateCall, personaGrantsConfig, replayMedia,
     fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen, grantedSkillNames,
+    createTaskStore, parseFileHandle,
   } = mods;
   const registry = skillRegistry();
   const names = [...registry.keys()];
@@ -2526,13 +2702,14 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, st
     let moment;
     try {
       const channel = await readableChannel({ client, guild, guildId, channelId: scenario.channelId });
-      // Every member who writes in the scenario: one, or each step's authors.
+      // Every member who writes in the scenario: one, or each step's authors; for an errand's end, who asked for it.
       const authors = scenario.steps
         ? [...new Set(scenario.steps.flatMap((step) => step.messages.filter((message) => message.self !== true).map((message) => message.author)))]
-        : [scenario.author];
-      if (authors.includes(self.id)) throw new CliError('replay-cli: the author is the persona');
+        : [scenario.taskResult ? scenario.taskResult.asker : scenario.author];
+      if (authors.includes(self.id)) throw new CliError(`replay-cli: the ${scenario.taskResult ? 'asker' : 'author'} is the persona`);
       const history = await fetchWindow({ guild, channel, self, anchorId: scenario.before, limit: Math.max(1, before), config: hot.config, fetchHistoryWindow, log, memberIds: authors });
       if (scenario.before && history[history.length - 1]?.id !== scenario.before) throw new CliError('replay-cli: the anchor message was not found in that channel');
+      if (scenario.taskResult && history.length === 0) throw new CliError('replay-cli: the channel has no message to put the errand\'s end after');
       const last = history[history.length - 1] ?? null;
       const firstGapMs = scenario.steps ? scenario.steps[0].gapMinutes * 60_000 : SCENARIO_AFTER_MS;
       const at = scenario.before && last ? last.ts + firstGapMs : Date.now();
@@ -2554,28 +2731,39 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, st
     const planBurst = (incoming, { history: before }) => mods.burstTurns(incoming, { selfId: self.id, config: scenarioConfig, history: before });
     // A line of hers the scenario seeds: shaped as her live lines, no turn run for it.
     const seedLine = (message, ts) => mods.seededSelfLine({ text: message.text, at: ts, selfId: self.id, selfName: self.name, channel: channelOf(channel) });
+    // An errand's end (a task-result scenario): the turn src/errands/turns.js opens at `at` in its
+    // origin channel -- no message of the chat to reply to, so an interjection of kind `task` --,
+    // asked for by its asker (the requester a live result turn hands in: the id, no roles).
+    const task = scenario.taskResult ? scenarioTask(scenario, { at }) : null;
     // A single-turn scenario's message, or the steps up to the first that runs her turn (5 s apart within one): what the first request reads.
     const first = scenario.steps
       ? firstDecision({ scenario, history, firstAt: at, lineOf, seedLine, planBurst })
-      : { lines: [...history, lineOf(scenario, at)], turn: null };
-    const firstTurn = first.turn ?? { line: first.lines[first.lines.length - 1], kind: 'mention', queued: [] };
-    const trigger = firstTurn.line;
-    const situation = { history: first.lines, triggerId: trigger.id, kind: firstTurn.kind, mode: 'reply' };
+      : task
+        ? { lines: history, turn: null }
+        : { lines: [...history, lineOf(scenario, at)], turn: null };
+    const firstTurn = task ? null : (first.turn ?? { line: first.lines[first.lines.length - 1], kind: 'mention', queued: [] });
+    const trigger = firstTurn?.line ?? null;
+    const situation = task ? { history: first.lines, mode: 'interject' } : { history: first.lines, triggerId: trigger.id, kind: firstTurn.kind, mode: 'reply' };
     // `<skills_granted>`: the names of the skills the scenario grants her, as a live turn lists them.
     const skillsGranted = grantedSkillNames({ config: scenarioConfig, selfId: self.id, registry });
     const images = { quota: createImageGen({ apiKey: '', getConfig: () => scenarioConfig, state: frozenState, fetchImpl: refusing }).quota };
+    // An errand's budget as live: the guild's tasks.json of the data read (live or --snapshot) against the scenario's config, never queued into.
+    const tasks = sandboxErrandBudget({ createTaskStore, dataDir, guildId, config: () => scenarioConfig, log });
+    // The files of the scenario's errand, named by their handles as live (`file:<task id>/<name>`).
+    const fileOf = task ? scenarioFileOf(task, parseFileHandle) : null;
     const memoryOn = scenarioConfig.features?.memory !== false;
     // Her call taken through the real resolution and gateway at `now`, never run: answered with `resultText`.
     const onCallOf = (callRequester, now, resultText) => (call, { idByIndex, history: lines, channelHandles = null }) =>
       simulateCall({
         call,
-        view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, selfId: self.id, skills: registry, channelHandles }),
+        view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn, store, selfId: self.id, skills: registry, channelHandles, fileOf }),
         config: scenarioConfig,
         selfId: self.id,
         requester: callRequester,
         conversationId: channel.id,
         now,
         images,
+        tasks,
         resultText,
       });
 
@@ -2590,29 +2778,32 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, st
           return scenarioConfig;
         },
       };
-      // The first decision is answered once the first step's messages are in: at the newest of them.
-      const firstAt = newestTs(situation.history, trigger.ts);
+      // The first decision is answered once the first step's messages are in: at the newest of them (an errand's end: when it ended).
+      const firstAt = task ? at : newestTs(situation.history, trigger.ts);
       // The memory as it stands at the scenario's first decision, for every step: nothing is learned in between.
       const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at: firstAt, args: { asOfMoment: args.asOfMoment, hideSelf: [], hideSelfAll: false }, mods: viewMods });
       // One decision's request inputs: the requester's catalogue (the trigger's author), the media of the channel so far.
       const turnInput = (turnMoment, turnAt, turnTrigger) => {
-        const requester = requesterOf(turnTrigger, channel);
+        // An errand's end: who asked for it, as src/errands/turns.js hands them in (no roles: src/behavior/turn.js#callEnvelope).
+        const requester = task ? { id: task.requester.userId, roleIds: [] } : requesterOf(turnTrigger, channel);
         const inventory = scenarioInventory({ config: scenarioConfig, selfId: self.id, texts: sideHot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
         const media = replayMedia(turnMoment.history, { cache: mediaCache, sites: scenarioConfig.media?.video?.sites, before: null });
         const input = {
           view, situation: turnMoment, selfId: self.id, selfName: self.name, channel: channelOf(channel), at: turnAt,
           descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, skillsInventory: inventory, skillsGranted, channelDirectory,
+          ...(task ? { taskResult: task } : {}),
         };
         return { input, requester, shown: { rows: inventory?.length ?? 0, allowed: (inventory ?? []).filter((row) => row.allowed).length } };
       };
       const { input, requester, shown } = turnInput(situation, firstAt, trigger);
       if (args.dry) {
-        const request = skillScenarioRequest({ ...input, queued: firstTurn.queued });
+        const request = skillScenarioRequest({ ...input, queued: firstTurn?.queued ?? null });
         return {
           dry: {
             id: scenario.id, channelId: channel.id, lines: history.length, systemChars: request.system.length, userChars: request.user.length,
             tokens: request.tokens, limit: request.limit, skillsBlock: blockOf(request.user, 'skills') !== null, skills: shown, runs: scenario.runs,
             ...(scenario.steps ? { steps: scenario.steps.length } : {}),
+            ...(task ? { taskResult: { id: task.id, block: blockOf(request.user, 'task_result') !== null, files: task.result.files.length } } : {}),
           },
         };
       }
@@ -2648,7 +2839,7 @@ async function runSkills({ args, scenarios, root, liveData, mods, hot, sides, st
         const summary = sequenceSummary(records, scenario.steps.length, { seededSteps: scenario.steps.filter((step) => !runsTurn(step)).length });
         return { records, summary: { ...summary, skills: shown, tokensEstimate }, stopped };
       }
-      const answered = await answerSkillScenario({ ...input, llm: capped, runs: scenario.runs, signal: runSignal, onCall: onCallOf(requester, trigger.ts, scenario.result) });
+      const answered = await answerSkillScenario({ ...input, llm: capped, runs: scenario.runs, signal: runSignal, onCall: onCallOf(requester, task ? at : trigger.ts, scenario.result) });
       const records = answered.runs.map((run, index) => runRecord(scenario.id, index, run));
       writeRecords(records, label);
       return { records, summary: { ...scenarioSummary(records), skills: shown, tokensEstimate: answered.request.tokens }, stopped: answered.stopped };
@@ -2868,9 +3059,12 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     const { requesterOf, callViewOf } = await load('behavior/turn.js');
     const { createImageGen } = await load('llm/images.js');
     const { grantedSkillNames } = await load('skills/discovery.js');
+    // The errands' budget (every scenario: a task.run is checked as live) and the handles of an errand's files.
+    const { createTaskStore, parseFileHandle } = await load('errands/store.js');
     skillMods = {
       answerSkillScenario, skillScenarioRequest, scenarioInventory, simulateCall, personaGrantsConfig, replayMedia,
       fetchHistoryWindow, requesterOf, callViewOf, skillRegistry, expandPersonaGrant, createImageGen, grantedSkillNames,
+      createTaskStore, parseFileHandle,
       // Only a multi-step scenario carries a turn into the next one, and plays its bursts as the live queue does.
       ...(scenarios.some((scenario) => scenario.steps) ? { afterScenarioTurn, burstTurns } : {}),
       // Only a scenario that seeds a line of hers needs it.
@@ -3026,7 +3220,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       }
       if (skillSides.length === 0) skillSides.push({ label: null, hot });
       return await runSkills({
-        args, scenarios, root, liveData, mods: skillMods, hot, sides: skillSides, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji,
+        args, scenarios, root, liveData, dataDir, mods: skillMods, hot, sides: skillSides, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji,
         searchAvailable, before, log, signal, budget: spendBudget, viewMods, channelOf, channelDirectory,
       });
     }

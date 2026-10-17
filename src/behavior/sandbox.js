@@ -39,7 +39,13 @@
 // (`burstTurns`: each call its own turn in arrival order, the waiting ones
 // named under the task labels, one follow-up slot per channel). A line of hers
 // the scenario seeds is shaped as her live lines (`seededSelfLine`) without a
-// turn run for it.
+// turn run for it. A task-result scenario hands in a finished errand of hers
+// (`taskResult`, a task as src/errands/store.js keeps one): the turn its end
+// opens is built as src/errands/turns.js opens it -- trigger kind `task`, the
+// `<task_result>` block (src/errands/blocks.js#taskResultText) -- and the
+// caller resolves her calls with its files' handles (`file:<task id>/<name>`)
+// as a live turn does; the gateway reads an errand's budget through `tasks`
+// (simulateCall).
 
 import { buildRequest, continuesTurn, skillResultBlock, userText as userTextOf, withSkillResult } from './prompt.js';
 import { detectTrigger, isTaggedCall } from './mention.js';
@@ -64,6 +70,7 @@ import { discoveryOn, proposalVerdicts, proposedRows } from '../skills/discovery
 import { QUIET_ON_OK, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
 import { isPlainObject } from '../config.js';
 import { utcDay } from '../time.js';
+import { DEFAULT_RESULT_MAX_CHARS, taskResultText } from '../errands/blocks.js';
 
 // Token estimates taken as they are: the calibrator of a view built without a live one.
 const IDENTITY_CALIBRATOR = Object.freeze({ ratio: 1, apply: (n) => n, observe: () => 1 });
@@ -135,7 +142,7 @@ export const SANDBOX_OMITS = Object.freeze({
   skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
   around: 'a replay has no live gateway: no voice channels or statuses, so <people_now> has no live fields (its fields from memory stay)',
   skillsGranted: 'no skill registry: no <skills_granted> block of her granted skills (a skill scenario hands them in: SKILL_SCENARIO_OMITS)',
-  errands: 'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block',
+  errands: 'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -635,10 +642,15 @@ function sandboxChannels(given, view, channel) {
  * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). Never an
  * owner-forced turn. `<channel_directory>` lists `channelDirectory` (the guild's readable text
  * channels, interfaces/discord/collect.js#channelDirectoryOf, as a live turn passes them) when given, else
- * the view's stored channel map with the turn's channel (sandboxChannels). The view is read now
- * and nothing is written.
+ * the view's stored channel map with the turn's channel (sandboxChannels). `taskResult`
+ * (a finished task, as src/errands/store.js keeps one) makes it the turn that errand's end
+ * opens, as src/errands/turns.js runs it: trigger kind `task` whatever the mode, and `errands`
+ * carrying its `<task_result>` body (src/errands/blocks.js#taskResultText, cut to
+ * `agents.resultMaxChars` read now) with no `<tasks>` list -- a replay knows no other errand of
+ * hers. The view is read now and nothing is written.
  * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
- *   `skillsInventory`, `skillsGranted`, `continuation` and `queued` (`answerSkillScenario`'s).
+ *   `skillsInventory`, `skillsGranted`, `continuation`, `queued` and `taskResult`
+ *   (`answerSkillScenario`'s).
  * @returns {object}
  */
 export function sandboxRequestInput({
@@ -660,9 +672,12 @@ export function sandboxRequestInput({
   continuation = null,
   queued = null,
   channelDirectory = null,
+  taskResult = null,
 }) {
   const config = view.config;
   const memory = view.memory;
+  // The turn an errand's end opens: its `<task_result>` body, as src/behavior/turn.js#errandsInputFor renders it.
+  const resultText = taskResult ? taskResultText(taskResult, view.prompts?.labels, { maxChars: config.agents?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS }) : '';
   // A burst's calls still waiting, named as a live turn names its queued calls; absent otherwise.
   const waiting = Array.isArray(queued) && queued.length > 0 ? queued : null;
   const tasks = waiting ? taskInput({ part: null, queued: () => waiting, added: null, labels: view.prompts?.labels, channelId: channel.id }).input : null;
@@ -682,7 +697,8 @@ export function sandboxRequestInput({
     selfId: selfId ?? null,
     history,
     trigger,
-    triggerKind,
+    // An errand's end opens a turn of kind `task` (src/errands/turns.js), with or without a trigger.
+    triggerKind: taskResult ? 'task' : triggerKind,
     // As a live turn reads it: an untagged reply takes the follow-up task.
     taggedCall: trigger ? isTaggedCall(trigger, selfId) : null,
     guildMemory: memoryOn ? memory.getGuild() : {},
@@ -733,8 +749,8 @@ export function sandboxRequestInput({
     skillsGranted: Array.isArray(skillsGranted) && skillsGranted.length > 0 ? skillsGranted : null,
     // A skill scenario's turn continued after her call (answerSkillScenario); null otherwise.
     continuation: continuation && typeof continuation.skill === 'string' ? { skill: continuation.skill } : null,
-    // Absent: a replay has no task store, so no errands of hers (SANDBOX_OMITS).
-    errands: null,
+    // Absent (a replay has no task store: SANDBOX_OMITS) but on a task-result scenario's turn.
+    errands: resultText ? { tasks: '', result: resultText } : null,
   };
 }
 
@@ -966,7 +982,10 @@ export function scenarioInventory({ config, selfId, texts, requester, conversati
  * server's side over `view` (src/skills/executors.js#resolveCall; src/behavior/turn.js#callViewOf),
  * checked by the gateway (src/skills/gateway.js#checkSkill: the persona as principal, `requester`,
  * `conversationId` as the audience, `config` with her grants, `selfId`, the registry of `view`,
- * no mixed requesters, no earlier destructive run, `now`, the image quota of `images`), then
+ * no mixed requesters, no earlier destructive run, `now`, the image quota of `images`, the
+ * errands' budget of `tasks` -- `{ budget(agent) }`, src/errands/store.js#budget's answer, as a
+ * live turn hands in src/errands/service.js#budget; without it a `task.run` is refused
+ * `no-budget`), then
  * mapped by its command (`command.toCall` must reach this very operation). The operation never
  * runs: a call that passed is recorded (`executed`: the skill and its resolved arguments) and
  * answered with a canned `ok` whose text is `resultText`. `verdict` says where it stopped
@@ -974,15 +993,15 @@ export function scenarioInventory({ config, selfId, texts, requester, conversati
  * live turn would ask her again with that result: a refusal as
  * src/skills/executors.js#needsFollowUp says, an `ok` unless the operation is one whose success
  * is its own answer (QUIET_ON_OK: a live operation of any other kind answers with text). Never
- * throws; pure but for the gateway's reads of `images`.
+ * throws; pure but for the gateway's reads of `images` and `tasks`.
  * @param {{ call: { skill: string, args: object, body: string }, view: object, config: object, selfId: string,
  *   requester: { id: string, roleIds: string[] }|null, conversationId: string, now: number, images?: object,
- *   getOp?: Function, resultText?: string }} input
+ *   tasks?: { budget(agent: string): object|null }, getOp?: Function, resultText?: string }} input
  * @returns {{ verdict: { stage: string, ok: boolean, code?: string, reason?: string },
  *   executed: { skill: string, args: object }|null, result: { skill: string, status: string, code?: string, data?: { text: string } },
  *   followUp: boolean }}
  */
-export function simulateCall({ call, view, config, selfId, requester, conversationId, now, images = null, getOp, resultText = '' }) {
+export function simulateCall({ call, view, config, selfId, requester, conversationId, now, images = null, tasks = null, getOp, resultText = '' }) {
   const skill = String(call?.skill ?? '');
   const refused = (stage, code, reason) => {
     // The machine reason rides along, as a live call keeps it for its mark (outcomeDetail).
@@ -1005,6 +1024,8 @@ export function simulateCall({ call, view, config, selfId, requester, conversati
       lastRunAt: null,
       now,
       ...(images ? { images } : {}),
+      // An errand's caps are its budget, as a live turn hands them in (src/behavior/turn.js#checkCall).
+      ...(tasks ? { tasks } : {}),
       ...(getOp ? { getOp } : {}),
     },
   });
@@ -1143,10 +1164,11 @@ function channelNamesOf(view, channel) {
  * attribute of a message.create / message.edit -- carries what it would mention
  * (`callMentions`, handleMentions over the request's handles). Each run keeps
  * what afterScenarioTurn needs to carry the turn on (`refs`: the transcript numbers and mention
- * handles of the request each pass answered).
+ * handles of the request each pass answered). A task-result scenario hands in its errand
+ * (`taskResult`, sandboxRequestInput): both requests are the turn its end opens.
  * @param {object} input  answerReply's inputs (`samples` is `runs`), `skillsInventory`, `skillsGranted`
  *   (the names of the skills her scenario grants, src/skills/discovery.js#grantedSkillNames), `onCall`,
- *   `callMarks` and `queued`.
+ *   `callMarks`, `queued` and `taskResult`.
  * @returns {Promise<{ request: { system: string, user: string, tokens: number|null, limit: number|null },
  *   runs: { answer: object, call: object|null, callError: string|null, extraCalls: number, usage: object|null,
  *     callMentions?: { mentions: string[], unknownHandles: number },
@@ -1177,11 +1199,12 @@ export async function answerSkillScenario({
   callMarks = null,
   queued = null,
   channelDirectory = null,
+  taskResult = null,
 }) {
   // The earlier steps' calls on her lines, as a live turn's history carries them (linkCalls).
   const earlier = Array.isArray(callMarks) && view.config.features?.callMarkers !== false ? callMarks : [];
   const moment = earlier.length > 0 ? { ...situation, history: withCalls(situationHistory(situation).history, { calls: earlier }, { nameOf: channelNamesOf(view, channel) }) } : situation;
-  const requestArgs = { view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted, queued, channelDirectory };
+  const requestArgs = { view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted, queued, channelDirectory, taskResult };
   const built = sandboxMessages(requestArgs, runs);
   const { request, messages, systemMessage, userMessage, userText } = built;
   const history = situationHistory(moment).history;
