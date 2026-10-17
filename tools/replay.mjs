@@ -153,7 +153,9 @@
 // lays the directory over the live prompts.local/ (a file of the same name
 // replaces it whole, labels.json included); `--skills --prompts` and
 // `--pair-prompts` lay it the same way but merge labels.json and skills.json
-// (overlayPromptsHot). Nothing in the checkout changes. A prompts.local/ (or a
+// (overlayPromptsHot). The live config.local.json and prompts.local/ are the
+// private directory's (NEPTUNIA_PRIVATE_DIR, else the checkout; privateDirOf).
+// Nothing in the checkout changes. A prompts.local/ (or a
 // directory given) that is a link -- a separate checkout linking to the live
 // layer -- is read through it and copied as files, never linked to or written.
 //
@@ -1377,13 +1379,18 @@ export function diaryTurnParams(args, { diaryTopic }) {
 
 /**
  * The prompt layers of a `--diary --prompts <dir>` run, for promptLayersHot:
- * the live prompts.local/ (when the checkout has one), then `promptsDir`.
+ * the live prompts.local/ (when the private directory has one: NEPTUNIA_PRIVATE_DIR, else the
+ * checkout; tools/lib/cli.mjs#privateDirOf), then `promptsDir`. The live layer is named
+ * `prompts.local` when it is in the checkout, by its absolute path when it is apart.
  * @param {string} root
  * @param {string} promptsDir
+ * @param {Record<string, string | undefined>} [env]
  * @returns {string[]}
  */
-export function diaryPromptLayers(root, promptsDir) {
-  return fs.existsSync(path.join(root, 'prompts.local')) ? ['prompts.local', promptsDir] : [promptsDir];
+export function diaryPromptLayers(root, promptsDir, env = process.env) {
+  const privateDir = privateDirOf(root, env);
+  const local = privateDir === path.resolve(root) ? 'prompts.local' : path.join(privateDir, 'prompts.local');
+  return fs.existsSync(path.resolve(root, local)) ? [local, promptsDir] : [promptsDir];
 }
 
 /**

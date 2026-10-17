@@ -4,6 +4,10 @@ Operations scripts for measuring what the bot does, and for the jobs that run on
 server from the bot's checkout, next to the running service, and never change it; the one exception is `warmup.mjs`,
 which writes hot memory and so runs with the bot stopped.
 
+The tools find a deployment's files as the bot does: `NEPTUNIA_PRIVATE_DIR` for `.env`, `config.local.json` and
+`prompts.local/`, `NEPTUNIA_DATA_DIR` for `data/` (both default to the checkout; see `src/paths.js`). Run them with
+the same values the unit sets. A `--data <dir>` given on the command line still wins.
+
 ## Rules every tool keeps
 
 - **Run as the service user, from the checkout:** run them as the user your unit runs as (`User=` in

@@ -209,7 +209,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now neptunia-bot
 ```
 
-The private layer lives alongside the code by default: `.env`, `config.local.json`, `prompts.local/`, `data/`. The example unit instead keeps it outside the checkout, in `/etc/neptunia` and `/var/lib/neptunia`, through the `NEPTUNIA_PRIVATE_DIR` and `NEPTUNIA_DATA_DIR` variables (see "Where the private files live" in [`docs/en/configuration.md`](docs/en/configuration.md)). To update:
+The private layer lives alongside the code by default: `.env`, `config.local.json`, `prompts.local/`, `data/`. The example unit instead keeps it outside the checkout, in `/etc/neptunia` and `/var/lib/neptunia`, through the `NEPTUNIA_PRIVATE_DIR` and `NEPTUNIA_DATA_DIR` variables (see "Where the private files live" in [`docs/en/configuration.md`](docs/en/configuration.md)). `sudo deploy/install.sh` sets up that layout in one go (the service user, both directories, the unit for this checkout) without starting the bot; `--dry-run` shows its commands first. To update:
 
 ```bash
 git pull && sudo systemctl restart neptunia-bot

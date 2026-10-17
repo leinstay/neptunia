@@ -5,13 +5,17 @@
 // so the last match wins), the withheld-path denies added only in a
 // filtered scope (the path tools' globs and the server shell's per-command
 // patterns, checked through a copy of OpenCode's wildcard and last-match
-// rule), and each profile's model role. Pure but for reading config.json.
+// rule), each profile's model role, and where its system-prompt files are
+// (the override under the private directory). Pure but for reading
+// config.json and a temporary directory.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WEB, SERVER, profileOf, SERVER_SHELL_ALLOW, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, withheldShellDenies } from '../src/agent-runner/profiles.js';
+import { readPromptFile } from '../src/agent-runner/opencode.js';
+import { WEB, SERVER, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, withheldShellDenies } from '../src/agent-runner/profiles.js';
 import { WITHHELD_NAMES, WITHHELD_ROOTS } from '../src/agent-runner/policy.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 
@@ -103,6 +107,33 @@ test('model: each profile runs on its model role, whose default is its default m
   for (const name of ['web', 'server']) {
     assert.equal(Object.hasOwn(shipped[name], 'model'), false, `${name}: the model is roles.${profileOf(name).modelRole}`);
     assert.deepEqual(shipped[name].cost, { input: 2, output: 6 }, `${name}: the cost stays (OpenCode's price table is off)`);
+  }
+});
+
+test('promptFilesOf: the override is read from NEPTUNIA_PRIVATE_DIR, the tracked prompt from the root; the profiles use it', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-profiles-'));
+  try {
+    const rootDir = path.join(base, 'checkout');
+    const privateDir = path.join(base, 'private');
+    const write = (file, text) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+    };
+    write(path.join(rootDir, 'prompts', 'agent-web.md'), 'tracked');
+    write(path.join(rootDir, 'prompts.local', 'agent-web.md'), 'checkout override');
+    write(path.join(privateDir, 'prompts.local', 'agent-web.md'), 'private override');
+
+    const apart = promptFilesOf('web', { rootDir, env: { NEPTUNIA_PRIVATE_DIR: privateDir } });
+    assert.deepEqual(apart, [path.join(privateDir, 'prompts.local', 'agent-web.md'), path.join(rootDir, 'prompts', 'agent-web.md')]);
+    assert.equal(readPromptFile(apart), 'private override', 'the checkout prompts.local/ is not read');
+    assert.equal(readPromptFile(promptFilesOf('web', { rootDir, env: {} })), 'checkout override', 'unset: the root is the private directory');
+    fs.rmSync(path.join(privateDir, 'prompts.local', 'agent-web.md'));
+    assert.equal(readPromptFile(apart), 'tracked', 'no override: the tracked prompt under the root');
+
+    assert.deepEqual(WEB.promptFiles, promptFilesOf('web'));
+    assert.deepEqual(SERVER.promptFiles, promptFilesOf('server'));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
   }
 });
 
