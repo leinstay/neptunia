@@ -318,8 +318,10 @@
 // or link reading, no server recall, no pictures sent to the model, no
 // neighbouring channels or pulled channels, no variety pass (`<worn>`), no
 // owner-forced text, no private chat, no line on where a read-only channel's
-// call is answered. `<senses>` still says whether a search key is configured
-// (BRAVE_SEARCH_API_KEY present), as a live turn's does; no search is run.
+// call is answered. `<senses>` still says whether a web search could run
+// (the lookup's hasSearch() for web.search.engine: `brave` needs
+// BRAVE_SEARCH_API_KEY, `exa` and `openrouter` no key), as a live turn's
+// does; no search is run.
 //
 // What keeps the running bot undisturbed: no gateway session (a discord.js
 // Client that never logs in, its token on REST only); the memory store is the
@@ -1429,6 +1431,30 @@ export function dryRunHot(hot) {
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
+}
+
+/**
+ * Whether a live turn's web search could run (`<senses>`'s search line): the
+ * lookup's own `hasSearch()` for the configured `web.search.engine`, wired as
+ * src/index.js wires it (`brave` needs BRAVE_SEARCH_API_KEY, `exa` and
+ * `openrouter` need no key). Builds the lookup only to ask; no search is run
+ * and nothing is read or written (its llm and store refuse everything).
+ * @param {{ hot: object, createLookup: Function, searches: object, env?: object }} input
+ *   `createLookup` from src/web/lookup.js; `searches` the engine clients (`{ brave, exa }`).
+ * @returns {boolean}
+ */
+export function searchAvailableOf({ hot, createLookup, searches, env = process.env }) {
+  const refuse = () => {
+    throw new Error('replay-cli: no search from the availability check');
+  };
+  const lookup = createLookup({
+    hot,
+    store: { getMediaCache: refuse, markMediaCacheDirty: refuse },
+    llm: { complete: async () => refuse() },
+    searches,
+    keys: { brave: env.BRAVE_SEARCH_API_KEY || null, exa: env.EXA_API_KEY || null },
+  });
+  return lookup.hasSearch() === true;
 }
 
 /**
@@ -2791,7 +2817,11 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
   const keyNeeded = args.showRequestTurn === null && !args.dry;
   const openrouterKey = keyNeeded ? simKey('replay-cli') : (process.env.OPENROUTER_SIM_KEY || undefined);
-  const searchAvailable = typeof process.env.BRAVE_SEARCH_API_KEY === 'string' && process.env.BRAVE_SEARCH_API_KEY.trim().length > 0;
+  const searchAvailable = searchAvailableOf({
+    hot,
+    createLookup: (await load('web/lookup.js')).createLookup,
+    searches: { brave: (await load('web/brave.js')).createBraveSearch(), exa: (await load('web/exa.js')).createExaSearch() },
+  });
 
   const { createStore } = await load('memory/store.js');
   const { createCalibrator } = await load('llm/tokens.js');

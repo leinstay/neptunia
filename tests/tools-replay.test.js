@@ -8,7 +8,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHot } from '../src/hot.js';
 import { diaryTopic } from '../src/behavior/diary.js';
-import { parseArgs, diaryTurnParams, diaryPromptLayers, dryRunHot } from '../tools/replay.mjs';
+import { createLookup } from '../src/web/lookup.js';
+import { createBraveSearch } from '../src/web/brave.js';
+import { createExaSearch } from '../src/web/exa.js';
+import { parseArgs, diaryTurnParams, diaryPromptLayers, dryRunHot, searchAvailableOf } from '../tools/replay.mjs';
 import { promptLayersHot } from '../tools/lib/prompt-layers.mjs';
 
 const quietHot = createHot; // never watched: createHot watches only on .watch()
@@ -132,4 +135,14 @@ test('replay: with NEPTUNIA_PRIVATE_DIR apart, --diary and --pair take config.lo
     fs.rmSync(privateDir, { recursive: true, force: true });
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+test('replay: search availability follows web.search.engine through the lookup, not the Brave key alone', () => {
+  const searches = { brave: createBraveSearch(), exa: createExaSearch() };
+  const hotOf = (engine) => ({ config: { web: { search: { engine } } }, prompts: {} });
+  const available = (engine, env) => searchAvailableOf({ hot: hotOf(engine), createLookup, searches, env });
+  assert.equal(available('openrouter', {}), true, 'openrouter needs no Brave key');
+  assert.equal(available('exa', {}), true, 'exa needs no key');
+  assert.equal(available('brave', {}), false, 'brave without its key cannot search');
+  assert.equal(available('brave', { BRAVE_SEARCH_API_KEY: 'k' }), true);
 });
