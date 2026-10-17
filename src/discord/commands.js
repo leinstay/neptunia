@@ -22,7 +22,7 @@
 
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { isPlainObject } from '../config.js';
-import { roleModel } from '../llm/roles.js';
+import { AGENT_ROLES, roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
 import { MINUTE_MS } from '../time.js';
 
@@ -95,11 +95,16 @@ export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
 /**
  * The roles whose model `/nep model show|set` lists and changes, each with the config path
  * `set` writes: the chat and embedding roles, then the drawing model (`drawing`,
- * src/llm/images.js#IMAGE_ROLE), which takes no chat completion.
+ * src/llm/images.js#IMAGE_ROLE), which takes no chat completion, then the agent roles
+ * (src/llm/roles.js#AGENT_ROLES), whose OpenCode workers take no request of the bot.
  */
-export const MODEL_SET_PATHS = Object.freeze({ ...MODEL_ROLE_PATHS, drawing: 'roles.drawing' });
+export const MODEL_SET_PATHS = Object.freeze({
+  ...MODEL_ROLE_PATHS,
+  drawing: 'roles.drawing',
+  ...Object.fromEntries(AGENT_ROLES.map((role) => [role, `roles.${role}`])),
+});
 
-/** The roles of `MODEL_SET_PATHS`, in order: the choices of `/nep model set` and `/nep route`. */
+/** The roles of `MODEL_SET_PATHS`, in order: the choices of `/nep model set`. */
 export const MODEL_SET_ROLES = Object.freeze(Object.keys(MODEL_SET_PATHS));
 
 /** The `section` choices of `/nep memory show`, in display order (src/admin.js falls back to `summary`). */
@@ -128,7 +133,9 @@ function choicesOf(values) {
   return values.map((value) => ({ name: value, value }));
 }
 
-const ROUTE_ROLES = MODEL_SET_ROLES;
+/** The choices of `/nep route`: the `/nep model set` roles but the agent roles, whose OpenCode
+ * workers never read `llm.providerByModel`. */
+const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !AGENT_ROLES.includes(role));
 
 /** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'all']);
@@ -861,14 +868,14 @@ function accessKeyChoices(admin, typed) {
 }
 
 /** `model`-option autocomplete choices for `/nep route set|remove`: the model prefixes of the
- * routes in `llm.providerByModel` (the part before `@`), then the model ids the roles are
- * configured with, each once, filtered by the typed text. */
+ * routes in `llm.providerByModel` (the part before `@`), then the model ids the routed roles
+ * (`ROUTE_ROLES`) are configured with, each once, filtered by the typed text. */
 function routeModelChoices(config, typed) {
   const byModel = config?.llm?.providerByModel;
   const prefixes = byModel && typeof byModel === 'object' && !Array.isArray(byModel)
     ? Object.keys(byModel).map((key) => (key.includes('@') ? key.slice(0, key.lastIndexOf('@')) : key))
     : [];
-  const models = MODEL_SET_ROLES.map((role) => roleModel(config, role));
+  const models = ROUTE_ROLES.map((role) => roleModel(config, role));
   const all = [...new Set([...prefixes, ...models].filter((value) => typeof value === 'string' && value))];
   return all
     .filter((value) => value.toLowerCase().includes(typed))

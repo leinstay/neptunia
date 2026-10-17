@@ -29,6 +29,8 @@ export const MAX_LINE_CHARS = 1_000_000;
 /** The most ids one `ping` may ask about. */
 export const MAX_PING_IDS = 100;
 const MAX_NOTE_CHARS = 200;
+/** The most withheld paths a result lists (each cut to MAX_NOTE_CHARS). */
+const MAX_WITHHELD = 50;
 const MAX_NAME_CHARS = 64;
 
 /** Whether `value` is a positive finite number. */
@@ -90,7 +92,7 @@ function validateRun(msg) {
  * goal (at most MAX_GOAL_CHARS), and may carry `context` (a plain object,
  * at most MAX_CONTEXT_CHARS as JSON, whose `scope` is one of SCOPES when
  * present), `limits` (only LIMIT_KEYS, each a positive number), `tools` (a
- * non-empty list of names), `model` (an OpenRouter model id), `cost`
+ * non-empty list of names), `model` (an OpenCode model id), `cost`
  * (`{ input, output }` in USD per million tokens) and `searchProvider` (an
  * OpenCode web search provider id). `cancel` needs an id. `ping` may carry `ids` (task ids
  * the core still waits for). Unknown top-level keys are ignored.
@@ -163,7 +165,9 @@ export function progressEvent({ id, step, tool = null, note = '' }) {
   };
 }
 
-/** A result in its protocol shape: `{ text, sources: [url], files: [{ path, name, contentType, bytes }] }`. */
+/** A result in its protocol shape: `{ text, sources: [url], files: [{ path, name, contentType, bytes }] }`,
+ * plus `withheld: [path]` (the withheld paths the agent reached for in a filtered scope, at most
+ * MAX_WITHHELD) when any. */
 export function normalizeResult(result) {
   const r = isPlainObject(result) ? result : {};
   const sources = Array.isArray(r.sources) ? [...new Set(r.sources.filter((url) => typeof url === 'string' && url))] : [];
@@ -175,7 +179,10 @@ export function normalizeResult(result) {
       bytes: count(f.bytes),
     }))
     : [];
-  return { text: typeof r.text === 'string' ? r.text : '', sources, files };
+  const out = { text: typeof r.text === 'string' ? r.text : '', sources, files };
+  const withheld = Array.isArray(r.withheld) ? [...new Set(r.withheld.filter((p) => typeof p === 'string' && p).map((p) => p.slice(0, MAX_NOTE_CHARS)))].slice(0, MAX_WITHHELD) : [];
+  if (withheld.length > 0) out.withheld = withheld;
+  return out;
 }
 
 /** A usage in its protocol shape: `{ input, output, usd, steps, seconds }` plus `costUnknown` when above 0. */

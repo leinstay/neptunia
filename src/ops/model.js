@@ -4,7 +4,7 @@
 
 import { MODEL_ROLES, MODEL_SET_PATHS, MODEL_SET_ROLES } from '../discord/commands.js';
 import { IMAGE_ROLE } from '../llm/images.js';
-import { roleModel } from '../llm/roles.js';
+import { AGENT_ROLES, roleModel } from '../llm/roles.js';
 import { onOff, reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
@@ -19,6 +19,7 @@ const handlers = perEnv((env) => {
     const lines = [
       ...MODEL_ROLES.map((role) => `${role}: ${modelForRole(role, cfg) ?? '-'}`),
       `${IMAGE_ROLE}: ${imageModelLabel(cfg)}`,
+      ...AGENT_ROLES.map((role) => `${role}: ${modelForRole(role, cfg) ?? '-'}`),
       `mediaDescriptions: ${onOff(cfg?.features?.mediaDescriptions === true)}`,
     ];
     return lines.join('\n');

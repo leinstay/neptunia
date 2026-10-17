@@ -1,4 +1,5 @@
-// Tests for src/llm/roles.js (the eight model roles, one resolver, no cross-role fallback) and
+// Tests for src/llm/roles.js (the model roles: eight the bot's own requests go out on, three its
+// OpenCode workers run on; one resolver, no cross-role fallback) and
 // src/config.js#adaptLegacyModelKeys (a config.local.json written under the old model keys),
 // plus the rename check: every purpose resolves, under config.json and under a deployment that
 // still uses the old keys, to what the code before the rename produced.
@@ -8,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ROLES, ROLE_DEFAULTS, PURPOSE_ROLES, isRole, roleModel } from '../src/llm/roles.js';
+import { AGENT_ROLES, ROLES, ROLE_DEFAULTS, PURPOSE_ROLES, isRole, roleModel } from '../src/llm/roles.js';
 import { adaptLegacyModelKeys, loadConfig } from '../src/config.js';
 import { MEMORY_VOICE_REQUEST, REPLY_REQUEST, cacheTtlFor, hedgeSettings, resolveProvider } from '../src/llm/openrouter.js';
 import { EMBED_ROLE } from '../src/llm/embed.js';
@@ -87,6 +88,21 @@ test('roles: the built-in defaults equal config.json, and every role has one', (
   assert.deepEqual(Object.keys(ROLE_DEFAULTS), [...ROLES]);
   assert.deepEqual([...MODEL_SET_ROLES], [...ROLES], '/nep model set offers every role');
   for (const role of Object.values(PURPOSE_ROLES)) assert.ok(isRole(role), role);
+});
+
+test('roles: the agent roles follow drawing, with OpenCode model ids, resolved like any role, no purpose on them', () => {
+  assert.deepEqual([...AGENT_ROLES], ['agentWeb', 'agentServer', 'agentDev']);
+  assert.deepEqual(ROLES.slice(ROLES.indexOf('drawing') + 1), [...AGENT_ROLES]);
+  assert.equal(ROLE_DEFAULTS.agentWeb, 'openrouter/openai/gpt-6.1-sol');
+  assert.equal(ROLE_DEFAULTS.agentServer, 'openrouter/openai/gpt-6.1-sol');
+  assert.equal(ROLE_DEFAULTS.agentDev, 'openrouter/anthropic/claude-opus-5.5');
+  for (const role of AGENT_ROLES) {
+    assert.match(ROLE_DEFAULTS[role], /^openrouter\/[\w.-]+\/[\w.:-]+$/, `${role}: an OpenCode id, provider first`);
+    assert.equal(roleModel({}, role), ROLE_DEFAULTS[role], role);
+    assert.equal(roleModel({ roles: { [role]: 'openrouter/x/y' } }, role), 'openrouter/x/y', role);
+  }
+  assert.equal(roleModel({ roles: { agentWeb: 'openrouter/x/web' } }, 'agentServer'), ROLE_DEFAULTS.agentServer, 'never another agent role\'s model');
+  assert.ok(!Object.values(PURPOSE_ROLES).some((role) => AGENT_ROLES.includes(role)), 'no request purpose goes out on an agent role');
 });
 
 test('roles: config.json carries none of the old model keys', () => {
@@ -352,12 +368,13 @@ function sources() {
   return out;
 }
 
-test('call sites: every request role is one of the eight, every purpose goes out on its own role', () => {
+test('call sites: every request role is one of the roles, every purpose goes out on its own role', () => {
   const chatRoles = new Set(['system', 'user', 'assistant']);
   let pairs = 0;
   for (const [file, text] of sources()) {
     for (const [, role] of text.matchAll(/\brole: '([\w.-]+)'/g)) {
       if (!chatRoles.has(role)) assert.ok(isRole(role), `${file}: role '${role}'`);
+      assert.ok(!AGENT_ROLES.includes(role), `${file}: no request of the bot goes out on the agent role '${role}'`);
     }
     for (const [, role, purpose] of text.matchAll(/roleModel\([\w.]+, '([\w-]+)', '([\w-]+)'\)/g)) {
       assert.equal(PURPOSE_ROLES[purpose], role, `${file}: roleModel for ${purpose}`);

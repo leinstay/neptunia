@@ -12,8 +12,9 @@
 // give on its own:
 // - `withheldInToolUse(event, scope)`: whether a tool-call event OpenCode
 //   reports names a withheld path (`WITHHELD_ROOTS`, `WITHHELD_NAMES`). When
-//   it does in `dm`/`group`, the runner interrupts the task and fails it with
-//   `withheld-path`, which she reads as "visible, not readable here". Listing
+//   it does in `dm`/`group`, the runner records that step as refused and lists
+//   the path in the result's `withheld` (the task goes on), which she reads as
+//   "visible, not readable here". Listing
 //   names is allowed; opening content is not, so a `bash` command is examined
 //   only when it reads (`cat`, `grep`, ...), not when it lists (`ls`, `find`
 //   without `-exec`).

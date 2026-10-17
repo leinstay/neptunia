@@ -16,7 +16,7 @@ Each profile runs as its own systemd service and Unix user (`deploy/neptunia-age
 - **web** (`neptunia-agent-web`): has network, egress to localhost and private ranges refused by the unit (`IPAddressDeny=`) and in code; the filesystem is read-only except its state dir (`ProtectSystem=strict`, `ProtectHome=yes`, `InaccessiblePaths=` for `/srv`, the bot's data and `.env`, `/var/www`, nginx and Let's Encrypt).
 - **server** (`neptunia-agent-server`): network only to the local resolver and the model API (`IPAddressDeny=any` plus `IPAddressAllow=` for Cloudflare's ranges, where OpenRouter lives; the shell's `find -exec`, `awk` network paths and `gawk` are denied on top of the allow-list); the whole system is read-only (`ProtectSystem=strict`, no write paths but its state dir). It is granted `CAP_DAC_READ_SEARCH` so it can read any file like root without being root. The read-only guarantee is the unit, not a command filter.
 
-Both are launched by `bin/agent-runner.mjs --profile <name>`, read their caps, model and socket from `agents.<profile>` in the config, and take their keys from the unit's `EnvironmentFile` (`/etc/neptunia/agent-<profile>.env`, root-owned, 0600): `OPENROUTER_AGENT_KEY` for both, plus `OPENCODE_WEBSEARCH_KEY` and `PROXY_URL` for `web`. Settings are in [Configuration: `agents`](configuration.md#agents).
+Both are launched by `bin/agent-runner.mjs --profile <name>`, read their caps, model price and socket from `agents.<profile>` in the config and their model from the model roles `roles.agentWeb` and `roles.agentServer` (set with `/nep model set`, read again at each task; a `run` may carry its own `model`), and take their keys from the unit's `EnvironmentFile` (`/etc/neptunia/agent-<profile>.env`, root-owned, 0600): `OPENROUTER_AGENT_KEY` for both, plus `OPENCODE_WEBSEARCH_KEY` and `PROXY_URL` for `web`. Settings are in [Configuration: `agents`](configuration.md#agents). With the same key in the bot's `.env`, the owner's `/nep status` card shows its limit and spend as the `agents` key (`llm.keyByRole` maps the agent roles to `OPENROUTER_AGENT_KEY`); the bot never sends a request with it.
 
 ## The protocol
 
@@ -31,7 +31,7 @@ Core to runner:
 Runner to core:
 
 - `{ "id", "event": "progress", "step", "tool", "note" }` as the task works;
-- one `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }`;
+- one `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }], "withheld"?: [path...] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }` (`withheld`: the withheld paths the agent was refused in a filtered scope, at most 50);
 - `{ "event": "pong", "profile", "busy", "queued" }` for a `ping`.
 
 A runner that restarted answers `end` with `status: "failed", error: "restarted"` for any id in a `ping` it no longer knows, so the core stops waiting. On `SIGTERM` the runner ends every open task the same way and exits. Output files land in `<out>/<id>/` and the core deletes them after `agents.keepFilesHours`.
@@ -40,10 +40,10 @@ A runner that restarted answers `end` with `status: "failed", error: "restarted"
 
 A `run` carries `context.scope`, one of `core`, `dm`, `group` (`src/agent-runner/policy.js`). In `core` nothing is withheld. In `dm` and `group`:
 
-- the `server` agent's file tools deny the content of sensitive paths (`/var/www`, `/srv/git`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`, the persona's own `data/` (memory about real people) and any `.agents/scratch`); listing names is still allowed. A task whose command would open such a path is stopped and ends `failed`, `error: "withheld-path"` (visible by name, not readable in this scope);
+- the `server` agent's file tools deny the content of sensitive paths (`/var/www`, `/srv/git`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`, the persona's own `data/` (memory about real people) and any `.agents/scratch`), and its `bash` denies the content commands (`cat`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `sed`, `awk`, `cut`, `sort`, `uniq`, `wc`, `file`, `git`) on any argument naming one of them; listing names (`ls`, `find`, `stat`, `du`, `readlink`, `realpath`) is still allowed. The refusal is per step: OpenCode refuses that one tool call, the agent gets the refusal and goes on with the task (visible by name, not readable in this scope), and the result's `withheld` lists the paths it was refused;
 - every result the runner returns passes a redaction pass that replaces key-, token- and password-looking strings, private-key blocks, SSH key material and URL credentials with `[redacted]`.
 
-A command that reads a withheld path through `bash` (rather than a file tool) is caught after the fact and the task fails; its output is redacted either way.
+A command that reaches a withheld path past those rules (a `bash -c`, a pipe into a reader) is caught after the fact: its output is not kept by the runner (its progress event says `withheld` and the path), the path joins the result's `withheld`, and the task goes on; the agent has seen that output, so the final text passing the redaction is what keeps a secret in it out of the answer.
 
 ## How a task runs
 

@@ -1,12 +1,15 @@
 // The two agent profiles, `web` and `server`, each a set of OpenCode tools,
 // default limits, a system-prompt file, the environment variable names its
-// run needs, and an out/socket default. A profile also builds the OpenCode
+// run needs, the model role it runs on (`agentWeb`, `agentServer`), and an
+// out/socket default. A profile also builds the OpenCode
 // config for one task (`buildConfig`): one agent definition carrying the
 // prompt, the step cap, and a permission map that starts every tool at deny
 // and allow-lists only what the profile needs, plus the model and its cost
 // (so OpenCode's local cost estimate is right). In a filtered scope
-// (`dm`/`group`) the path tools also deny the withheld paths
-// (src/agent-runner/policy.js).
+// (`dm`/`group`) the path tools also deny the withheld paths, and the server
+// agent's `bash` denies a content-reading command on one
+// (src/agent-runner/policy.js), so OpenCode refuses that step and the agent
+// goes on.
 //
 // This matches OpenCode release v1.19.3 (the version installed on the
 // server), whose config is the V1 shape: the top-level key is `agent`
@@ -25,7 +28,8 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WITHHELD_GLOBS } from './policy.js';
+import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS } from './policy.js';
+import { ROLE_DEFAULTS } from '../llm/roles.js';
 
 /** The engine root (two levels up from this file). */
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -55,13 +59,34 @@ function pathPermission(scope) {
   return map;
 }
 
-/** A permission value for `bash`: deny-all first, then the allowed command patterns. */
 /** Patterns denied after the allows (the last match wins): the ways an allowed read-only command could write or reach the network. */
 export const SHELL_DENY_AFTER = Object.freeze(['find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
 
-function bashPermission(allow) {
+/** The allowed shell commands that open file contents: in a filtered scope each is refused on a withheld path. */
+export const SHELL_CONTENT_COMMANDS = Object.freeze(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git']);
+
+/** The `.env` forms policy.js withholds (`.env`, `.env.<anything>`): one substring matches them all. */
+const ENV_FORM = '.env';
+
+/**
+ * The `bash` deny patterns of a filtered scope: one `<command> *<withheld>*` per content command
+ * (SHELL_CONTENT_COMMANDS) and withheld root, name or `.env` form (src/agent-runner/policy.js), so
+ * OpenCode itself refuses such a read and the model gets the refusal and goes on. OpenCode's `*`
+ * matches any text, `/` and spaces included. Listing commands (`ls`, `find`, `stat`, `du`,
+ * `readlink`, `realpath`) get none: names stay visible.
+ * @returns {string[]}
+ */
+export function withheldShellDenies() {
+  const withheld = [...WITHHELD_ROOTS, ...WITHHELD_NAMES, ENV_FORM];
+  return SHELL_CONTENT_COMMANDS.flatMap((command) => withheld.map((part) => `${command} *${part}*`));
+}
+
+/** A permission value for `bash`: deny-all first, then the allowed command patterns, then `denies`
+ * (the withheld-path ones of a filtered scope), then SHELL_DENY_AFTER. */
+function bashPermission(allow, denies = []) {
   const map = { '*': 'deny' };
   for (const pattern of allow) map[pattern] = 'allow';
+  for (const pattern of denies) map[pattern] = 'deny';
   for (const pattern of SHELL_DENY_AFTER) map[pattern] = 'deny';
   return map;
 }
@@ -90,7 +115,7 @@ function permissionFor(name, scope) {
     grep: pathPermission(scope),
     glob: pathPermission(scope),
     list: pathPermission(scope),
-    bash: bashPermission(SERVER_SHELL_ALLOW),
+    bash: bashPermission(SERVER_SHELL_ALLOW, scope === 'core' ? [] : withheldShellDenies()),
     webfetch: 'deny',
     websearch: 'deny',
     edit: 'deny',
@@ -107,12 +132,16 @@ function permissionFor(name, scope) {
  * @param {object} definition
  * @returns {object}
  */
-function makeProfile({ name, agentId, promptFiles, envNames, defaultModel, defaultLimits, defaultDaily, defaultSearchProvider }) {
+function makeProfile({ name, agentId, promptFiles, envNames, modelRole, defaultLimits, defaultDaily, defaultSearchProvider }) {
+  const defaultModel = ROLE_DEFAULTS[modelRole];
   return {
     name,
     agentId,
     promptFiles,
     envNames,
+    // The model role (src/llm/roles.js) whose model the agent runs on: `roles.<modelRole>`,
+    // else its default, which is `defaultModel`.
+    modelRole,
     defaultModel,
     defaultLimits,
     defaultDaily,
@@ -157,7 +186,7 @@ export const WEB = makeProfile({
   agentId: 'errand-web',
   promptFiles: [path.join(ROOT_DIR, 'prompts.local', 'agent-web.md'), path.join(ROOT_DIR, 'prompts', 'agent-web.md')],
   envNames: Object.freeze(['OPENROUTER_AGENT_KEY', 'OPENCODE_WEBSEARCH_KEY', 'PROXY_URL']),
-  defaultModel: 'openrouter/x-ai/grok-4.7',
+  modelRole: 'agentWeb',
   defaultLimits: Object.freeze({ steps: 25, usd: 0.5, seconds: 300 }),
   defaultDaily: Object.freeze({ tasks: 40, usd: 8 }),
   defaultSearchProvider: 'exa',
@@ -169,7 +198,7 @@ export const SERVER = makeProfile({
   agentId: 'errand-server',
   promptFiles: [path.join(ROOT_DIR, 'prompts.local', 'agent-server.md'), path.join(ROOT_DIR, 'prompts', 'agent-server.md')],
   envNames: Object.freeze(['OPENROUTER_AGENT_KEY']),
-  defaultModel: 'openrouter/x-ai/grok-4.7',
+  modelRole: 'agentServer',
   defaultLimits: Object.freeze({ steps: 20, usd: 0.2, seconds: 120 }),
   defaultDaily: Object.freeze({ tasks: 40, usd: 3 }),
   defaultSearchProvider: null,

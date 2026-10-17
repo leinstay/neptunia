@@ -110,7 +110,7 @@ The voice-state intent (the voice channels in `<people_now>`) is not privileged 
 
 ## `roles`
 
-Eight model roles. Each is set independently under `roles.<name>` with its own default, so no role ever takes another role's model. `roles.byPurpose` pins a single purpose to a model of its own whatever its role.
+Eleven model roles: eight the bot's own requests go out on, and three agent roles (`agentWeb`, `agentServer`, `agentDev`) whose models an [OpenCode](https://opencode.ai) worker runs. Each is set independently under `roles.<name>` with its own default, so no role ever takes another role's model. `roles.byPurpose` pins a single purpose to a model of its own whatever its role. The agent roles take OpenCode model ids (`openrouter/<vendor>/<model>`: the provider first), unlike the other roles' bare OpenRouter ids (`<vendor>/<model>`); no request of the bot goes out on them, so `/nep status` does not probe them and `/nep route` cannot route them.
 
 | Key | Default | What it does |
 |---|---|---|
@@ -122,6 +122,9 @@ Eight model roles. Each is set independently under `roles.<name>` with its own d
 | `video` | `"google/gemini-3.8-flash"` | Watches a video and looks at it again |
 | `embedding` | `"openai/text-embedding-3-large"` | Turns text into vectors for search by meaning. `embed.dimensions` (default 1024) sets the width. Probed by `/nep status` with a one-input embedding request; without an embedding client the line says it was not checked |
 | `drawing` | `"openai/gpt-image-2.5-flare"` | Generates the persona's pictures through OpenRouter's Images API. Only `openai/*` and `google/*` families are supported |
+| `agentWeb` | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the `web` errand agent. See [Errand agents](agents.md) |
+| `agentServer` | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the `server` errand agent |
+| `agentDev` | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the coding worker, which runs outside this engine and reads it from here |
 | `byPurpose` | `{}` | Per-purpose model override: an object whose keys are purpose strings (e.g. `lookup`, `recall-summary`, `diary-plan`, `planner`) and whose values are model ids. A match on purpose wins over the role's model. Not probed by `/nep status` |
 
 **Migration from old keys.** One release reads the deprecated keys `llm.model`, `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`, `classifier.embed`, `classifier.byPurpose`, `memory.model` and `image.model`. When any of them is present, the bot logs a startup warning naming the key and the `roles.*` entry it maps to. An old `classifier.text` maps to `roles.analyzer`; an old `classifier.reason` to `roles.reasoner`; `classifier.media` to `roles.vision`; `classifier.video` to `roles.video`; `classifier.embed` to `roles.embedding`; `classifier.byPurpose` to `roles.byPurpose`; `memory.model` to `roles.extractor`; `image.model` to `roles.drawing`; `llm.model` to `roles.voice`. An old `classifier.reason` entry that was `null` (the old "use classifier.text" fallback) maps to the `roles.reasoner` default instead. Move the values by hand and remove the old keys.
@@ -142,7 +145,7 @@ Eight model roles. Each is set independently under `roles.<name>` with its own d
 | `maxRequestsPerDay` | `5000` | Daily request cap |
 | `provider` | `null` | OpenRouter `provider` routing object, passed verbatim; `null` sends nothing |
 | `providerByModel` | `{}` | Per-model provider routing; see below |
-| `keyByRole` | `{}` | A separate OpenRouter key per model role: maps a role name (`voice`, `analyzer`, `reasoner`, `extractor`, `vision`, `video`, `embedding`) to the NAME of a `.env` variable holding that key, e.g. `{ "voice": "OPENROUTER_VOICE_KEY" }`. Read at every request. Only names matching `OPENROUTER_[A-Z0-9_]+` are accepted; a role not in the map, a bad name or an unset variable uses `OPENROUTER_API_KEY` (a bad or unset one logs `llm: role key missing` once). The owner's `/nep status` card shows each extra key's limit and rolling spend |
+| `keyByRole` | `{ "agentWeb": "OPENROUTER_AGENT_KEY", "agentServer": "OPENROUTER_AGENT_KEY", "agentDev": "OPENROUTER_AGENT_KEY" }` | A separate OpenRouter key per model role: maps a role name (`voice`, `analyzer`, `reasoner`, `extractor`, `vision`, `video`, `embedding`, or an agent role) to the NAME of a `.env` variable holding that key, e.g. `{ "voice": "OPENROUTER_VOICE_KEY" }`. Read at every request. Only names matching `OPENROUTER_[A-Z0-9_]+` are accepted; a role not in the map, a bad name or an unset variable uses `OPENROUTER_API_KEY` (a bad or unset one logs `llm: role key missing` once). The owner's `/nep status` card shows each extra key's limit and rolling spend. The agent roles' entries only name the agents' own key (`OPENROUTER_AGENT_KEY`, the one their runners spend) so the card shows it as the `agents` key: the bot sends no request on them, and with the variable unset in the bot's `.env` the card shows no line for it (the main key is never shown as theirs) |
 | `cache.ttl` | `"1h"` | Cache TTL of the markers on the system message and on the reply's stable user prefix (the stable `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`): `"1h"` or `"5m"` |
 | `cache.profilesTtl` | `"1h"` | Cache TTL of the separate marker on the reply's profiles (`<people>`): `"1h"` or `"5m"`; `null` or `false` = no marker there. Never longer than `cache.ttl` (a `"5m"` `cache.ttl` makes it `"5m"`) |
 | `cache.roles` | `["voice"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached. Add `analyzer` and `reasoner` to cache the helpers' stable parts too |
@@ -853,7 +856,7 @@ With `features.relationships` off, public scores stay at 0, so with the default 
 
 ## `agents`
 
-The persona's errand agents: two separate processes (`web` and `server`), each an OpenCode worker behind a Unix socket, that run tasks the persona hands off (`src/agent-runner/`); the core side (`src/errands/`) queues the tasks, sends them to the runner of an enabled profile and brings the results back to her. A profile with `enabled` off answers every task `not-configured`. The agents hold their own OpenRouter key (`OPENROUTER_AGENT_KEY`), never the persona's; `web` also reads `OPENCODE_WEBSEARCH_KEY` (optional) and `PROXY_URL`. See [Errand agents](agents.md).
+The persona's errand agents: two separate processes (`web` and `server`), each an OpenCode worker behind a Unix socket, that run tasks the persona hands off (`src/agent-runner/`); the core side (`src/errands/`) queues the tasks, sends them to the runner of an enabled profile and brings the results back to her. A profile with `enabled` off answers every task `not-configured`. The agents hold their own OpenRouter key (`OPENROUTER_AGENT_KEY`), never the persona's; `web` also reads `OPENCODE_WEBSEARCH_KEY` (optional) and `PROXY_URL`. Their models are the model roles `roles.agentWeb` and `roles.agentServer` (set with `/nep model set`; a runner reads the config again at each task, so a change reaches its next task without a restart). See [Errand agents](agents.md).
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -871,8 +874,7 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | `false` | Run the web errand agent |
-| `model` | `"openrouter/x-ai/grok-4.7"` | OpenCode model id (`provider/model`) the agent runs on |
-| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode so its cost estimate is right (OpenCode cannot fetch the price catalog in the sandbox) |
+| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode so its cost estimate is right (OpenCode's price catalog fetch is disabled in the sandbox). Set it to the price of the model in `roles.agentWeb` |
 | `socket` | `"/run/neptunia-agent-web/sock"` | Unix socket the runner listens on and the core connects to |
 | `out` | `"/var/lib/neptunia-agent-web/out"` | Directory for per-task working dirs and output files; the core reads a task's files from `<out>/<task id>/` |
 | `limits` | `{ "steps": 25, "usd": 0.5, "seconds": 300 }` | Per-task caps: model calls, estimated spend (soft cap; the hard cap is the key's OpenRouter credit limit), wall-clock seconds |
@@ -884,8 +886,7 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | `false` | Run the server-read errand agent |
-| `model` | `"openrouter/x-ai/grok-4.7"` | OpenCode model id (`provider/model`) the agent runs on |
-| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode for its cost estimate |
+| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode for its cost estimate; the price of the model in `roles.agentServer` |
 | `socket` | `"/run/neptunia-agent-server/sock"` | Unix socket the runner listens on and the core connects to |
 | `out` | `"/var/lib/neptunia-agent-server/out"` | Directory for per-task working dirs and output files; the core reads a task's files from `<out>/<task id>/` |
 | `limits` | `{ "steps": 20, "usd": 0.2, "seconds": 120 }` | Per-task caps: model calls, estimated spend, wall-clock seconds |
@@ -931,7 +932,7 @@ Before anything leaves hot memory (an episode, interest, detail, alias, real nam
 
 ## Models
 
-The engine uses eight model roles (`roles.*`). Each is set independently, so the voice can use a premium model while the helpers stay cheap. No role takes another role's model: an unset role keeps its own default.
+The engine uses eight model roles for its own requests (`roles.*`), plus the three agent roles its OpenCode workers run on (see [`roles`](#roles)). Each is set independently, so the voice can use a premium model while the helpers stay cheap. No role takes another role's model: an unset role keeps its own default.
 
 ### Voice
 

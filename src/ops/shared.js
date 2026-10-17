@@ -508,7 +508,8 @@ export function oldestMessageId(batch) {
 
 export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
 
-/** Every role a route may name: the `/nep model` roles, then the drawing model's. */
+/** Every role a route may name: the chat and embedding roles, then the drawing model's; never an
+ * agent role (src/llm/roles.js#AGENT_ROLES), whose OpenCode worker reads no route. */
 export const ROUTE_ROLES = [...MODEL_ROLES, IMAGE_ROLE];
 
 /** A provider slug as OpenRouter writes it: lowercase letters, digits and `-`. */

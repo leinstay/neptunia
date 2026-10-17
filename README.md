@@ -353,7 +353,7 @@ src/
     budget.js              priority-ordered section trimming
     openrouter.js          chat completions, safety rails
     parse.js               output tags to actions
-    roles.js               the eight model roles with their defaults and per-purpose mapping
+    roles.js               the model roles (eight for the bot, three for its OpenCode agents) with their defaults and per-purpose mapping
     embed.js               OpenRouter embeddings client (embedding role)
   discord/
     guild.js               single-guild resolution
