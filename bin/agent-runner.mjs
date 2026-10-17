@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The agent runner process: one per profile (`web` or `server`), started by
 // its systemd unit (deploy/neptunia-agent-<profile>.service). It reads the
-// engine config and .env, opens the Unix socket the core connects to
+// engine config (never the bot's .env), opens the Unix socket the core connects to
 // (src/agent-runner/server.js), and works each task it receives by spawning
 // one `opencode run` child (src/agent-runner/opencode.js). It never imports
 // discord.js or the bot; it shares only config/log/web helpers.
@@ -18,7 +18,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadDotEnv, loadConfig } from '../src/config.js';
+import { loadConfig } from '../src/config.js';
 import { log } from '../src/log.js';
 import { createRunnerServer } from '../src/agent-runner/server.js';
 import { createOpencodeRunner, DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.js';
@@ -57,7 +57,9 @@ async function main() {
   const profile = profileOf(name);
   if (!profile) fail(`unknown profile: ${name ?? '(none)'} (expected web or server)`);
 
-  loadDotEnv();
+  // The runner never reads the bot's .env: its environment comes from its own unit (the agent key, the
+  // search key, the proxy), and the bot's secrets file is inaccessible to it by design. Config `${env:NAME}`
+  // references it cannot resolve become empty strings with one warning each.
   const config = loadConfig();
   const agents = config.agents ?? {};
   const settings = agents[name] ?? {};
