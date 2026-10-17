@@ -1,50 +1,71 @@
 # Errand agents
 
-The engine can hand a task off to a separate **errand agent**: a standalone process that does one job (read the web, or read this server) and reports back. Each agent is an [OpenCode](https://opencode.ai) worker driven by the runner code in `src/agent-runner/`; it never imports the bot and runs on the agents' own OpenRouter key, never the persona's. Two profiles ship:
+The engine can hand a task to a separate errand agent: a standalone process that does one job (search the web, read the local filesystem) and reports back. Each agent is an [OpenCode](https://opencode.ai) worker driven by the runner code in `src/agent-runner/`. It never imports the bot and runs on its own OpenRouter key, not the persona's. Two worker profiles ship with the engine:
 
-| Profile | Does | Reaches | Tools |
+| Profile | What it does | What it can reach | Tools |
 |---|---|---|---|
-| `web` | internet errands (search, read pages, look at images, download a file) | the public internet, through a proxy; its own output folder | OpenCode `websearch`, `webfetch`, `read`, and a `bash` limited to `curl`/`wget`/`ffmpeg`/`ffprobe`/`file`/`ls`/`mkdir` for downloads |
+| `web` | internet errands (search, read pages, look at images, download a file) | the public internet through a proxy; its own output folder | OpenCode `websearch`, `webfetch`, `read`, and a `bash` limited to `curl`/`wget`/`ffmpeg`/`ffprobe`/`file`/`ls`/`mkdir` for downloads |
 | `server` | read-only questions about this machine | the local filesystem (read-only); network only to the model API | OpenCode `read`, `grep`, `glob`, `list`, and a `bash` limited to read-only commands (`ls`, `cat`, `head`, `tail`, `grep`, `find`, `ps`, `systemctl status`, `journalctl`, `df`, `du`, `stat`, `git log`, ...) |
 
-Both run one task at a time; further requests queue. Each task has per-task caps (`agents.<profile>.limits`: model steps, estimated USD, wall-clock seconds) and the engine applies per-day caps (`agents.<profile>.daily`). The USD cap is a **soft** cap on OpenCode's own cost estimate; the hard spend cap is the credit limit on the runner's OpenRouter key.
+Both run one task at a time; further requests queue. Each task has per-task caps (`agents.<profile>.limits`: model steps, estimated USD, wall-clock seconds) and the engine enforces per-day caps (`agents.<profile>.daily`). The USD cap is a soft cap on OpenCode's own cost estimate; the hard spending limit is the credit limit on the runner's OpenRouter key.
 
 ## The agents folder
 
-Each agent is one folder under `agents/` at the engine root (`agents/README.md` says the same for a newcomer): `agents/web/` and `agents/server/` are the two workers, `agents/advice/` the consultation. A folder holds the agent's tracked prompt (`prompt.md`) and its description (`profile.json`). The runner builds its profiles from this folder when it starts (`src/agent-runner/profiles.js#loadProfiles`); the core reads the same folder for the defaults it needs (socket, out dir, limits, daily caps). `listAgents` returns every agent, workers and consultations, for the docs, the tools and later the persona.
+Each agent lives in its own folder under `agents/` at the engine root: `agents/web/` and `agents/server/` are the two workers, `agents/advice/` a consultation. A folder holds the agent's tracked prompt (`prompt.md`) and its description (`profile.json`). The runner builds its profiles from this folder when it starts (`src/agent-runner/profiles.js#loadProfiles`); the bot reads the same folder for the defaults it needs (socket, output dir, limits, daily caps). `listAgents` returns every agent, workers and consultations alike.
 
-`profile.json` describes a request; it never authorizes one. Every key is required:
+There are two kinds. A worker runs as its own process (`bin/agent-runner.mjs --profile <id>`) and takes tasks on a Unix socket. A consultation has no process: tools call its model role directly. The runner skips consultations.
 
-| Key | Meaning |
+## Profile keys
+
+`profile.json` describes what an agent asks for; it never authorizes anything. Every key is required:
+
+| Key | What it holds |
 |---|---|
 | `id` | the folder name (`web`) |
 | `kind` | `worker` (runs under the agent runner on a socket) or `consultation` (a model role that tools call directly; no process, skipped by the runner) |
 | `role` | the model role in `src/llm/roles.js` (`agent.web`, `agent.server`, `agent.advice`) |
 | `prompt` | the prompt file inside the folder (`prompt.md`); `null` for a consultation without one |
-| `override` | the deployment's override file under `prompts.local/` (`agent-web.md`), tried before `prompt`; `null` for a consultation without a prompt |
+| `override` | the name a deployment may put under `prompts.local/` to replace the prompt (`agent-web.md`); `null` when there is no prompt |
 | `description` | one sentence saying what the agent does |
 | `tools` | worker only: the OpenCode tools it asks for, at most the ones its shell class allows |
 | `shell` | worker only: the name of a shell class the runner defines in code (`server-read-only`, `web-download`) |
-| `limits` | worker only: the default per-task caps `{ steps, usd, seconds }`, overridden by `agents.<id>.limits` |
-| `daily` | worker only: the default per-day caps `{ tasks, usd }`, overridden by `agents.<id>.daily` |
+| `limits` | worker only: default per-task caps `{ steps, usd, seconds }`, overridden by `agents.<id>.limits` in config |
+| `daily` | worker only: default per-day caps `{ tasks, usd }`, overridden by `agents.<id>.daily` |
 | `searchProvider` | worker only: the default web search provider (`exa`), or `null` |
-| `socket`, `out` | worker only: the default socket and out dir, overridden by `agents.<id>.socket` / `.out` |
+| `socket`, `out` | worker only: the default socket path and output folder, overridden by `agents.<id>.socket` / `.out` |
 | `env` | worker only: the environment variable names the runner falls back on when a task brings no key |
 
-Never declarative, always in the code (`src/agent-runner/profiles.js`, `src/agent-runner/policy.js`): the permission ceiling of each shell class (its allowed commands and the tools it may grant), the shell deny patterns, the tools denied to every agent (`edit`, `write`, `patch`, `task`, `question`, `external_directory`), the scope filters and withheld paths, the redaction, any command to run, and any path outside the folder. A profile can only narrow: a tool it leaves out is denied. A profile with a missing key, an unknown key, a tool its class does not allow or a shell class the runner does not know stops the runner (and the bot, which reads the same folder) at start, with one error line naming the agent and the key.
+A profile with a missing key, an unknown key, a tool its shell class does not allow, or a shell class the runner does not know stops the runner (and the bot, which reads the same folder) at start, with one error line naming the agent and the key.
 
-To add an agent: create `agents/<id>/` with `profile.json` and, for a worker, `prompt.md`; give it a model role in `src/llm/roles.js` if it needs a new one; for a worker, add its `agents.<id>` block to `config.json`, a systemd unit like `deploy/neptunia-agent-web.service`, and, for the persona to reach it, its name in `/nep task run`'s choices (`TASK_AGENTS` in `src/discord/commands.js`) and who may ask for it in `src/ops/task.js`. A worker that needs a shell class the runner does not have needs a code change, never a profile key.
+## What is never in a profile
+
+Permissions and security stay in the code (`src/agent-runner/profiles.js`, `src/agent-runner/policy.js`), and no profile key can change them:
+
+- the permission ceiling: which tools a shell class may grant and which shell commands it allows;
+- the shell deny patterns, and the tools denied to every agent (`edit`, `write`, `patch`, `task`, `question`, `external_directory`);
+- the scope filters, the withheld paths and the redaction of results;
+- any command to run, and any path outside the folder (`socket` and `out` are only defaults the config overrides).
+
+A profile can only narrow what the code allows: a tool the profile leaves out is denied. A tool its shell class does not allow, or a shell class the code does not define, is refused at start.
 
 ## The two services
 
-Each profile runs as its own systemd service and Unix user (`deploy/neptunia-agent-web.service`, `deploy/neptunia-agent-server.service`; install instructions are in the unit headers):
+Each worker runs as its own systemd service and Unix user (`deploy/neptunia-agent-web.service`, `deploy/neptunia-agent-server.service`; install instructions are in the unit headers):
 
-- **web** (`neptunia-agent-web`): has network, egress to localhost and private ranges refused by the unit (`IPAddressDeny=`) and in code; the filesystem is read-only except its state dir (`ProtectSystem=strict`, `ProtectHome=yes`, `InaccessiblePaths=` for `/srv`, the bot's data and `.env`, `/var/www`, nginx and Let's Encrypt).
-- **server** (`neptunia-agent-server`): network only to the local resolver and the model API (`IPAddressDeny=any` plus `IPAddressAllow=` for Cloudflare's ranges, where OpenRouter lives; the shell's `find -exec`, `awk` network paths and `gawk` are denied on top of the allow-list); the whole system is read-only (`ProtectSystem=strict`, no write paths but its state dir). It is granted `CAP_DAC_READ_SEARCH` so it can read any file like root without being root. The read-only guarantee is the unit, not a command filter.
+- `neptunia-agent-web`: has network; egress to localhost and private ranges is refused by the unit (`IPAddressDeny=`) and in code. The filesystem is read-only except its state dir (`ProtectSystem=strict`, `ProtectHome=yes`, `InaccessiblePaths=` for `/srv`, the bot's data and `.env`, `/var/www`, nginx and Let's Encrypt).
+- `neptunia-agent-server`: network only to the local resolver and the model API (`IPAddressDeny=any` plus `IPAddressAllow=` for Cloudflare's ranges, where OpenRouter lives; the shell also denies `find -exec`, `awk` network paths and `gawk` on top of the allow-list). The whole system is read-only (`ProtectSystem=strict`, no write paths but its state dir). It has `CAP_DAC_READ_SEARCH` so it can read any file without being root. The read-only guarantee comes from the unit, not from the command filter.
 
-Both are launched by `bin/agent-runner.mjs --profile <name>`, read their caps, model price and socket from `agents.<profile>` in the config and their model from the model roles `agent.web` and `agent.server` (set with `/nep model set`, read again at each task; a `run` may carry its own `model`). Settings are in [Configuration: `agents`](configuration.md#agents).
+Both are launched by `bin/agent-runner.mjs --profile <name>`. They read their caps, model price and socket from `agents.<profile>` in the config, and their model from the model roles `agent.web` and `agent.server` (set with `/nep model set`, read again at each task; a `run` may carry its own `model`). Settings are in [Configuration: `agents`](configuration.md#agents).
 
-Every key lives in the core, in the bot's `.env`, which the runners (unprivileged, with the file made inaccessible to them) cannot read: the core sends the keys with each task, in the `secrets` of the `run` message. The OpenRouter key is the one of the task's model role, resolved as the bot resolves any role's key (`llm.keyByRole`: `agent.web` and `agent.server` on `OPENROUTER_AGENT_KEY`; never the persona's main key: without that variable no secrets are sent). The `web` agent also gets the proxy, `MEDIA_VIDEO_PROXY` (the residential proxy serves the video fetches and this agent alike; a `socks5h://` URL is sent as the `http://` URL with the same host and port, which the proxy also serves), and `OPENCODE_WEBSEARCH_KEY` when set. The runner gives the OpenCode child the key as `OPENROUTER_API_KEY`, the proxy as `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms, the ones curl reads) and the search key to the search provider. The unit's `EnvironmentFile` (`/etc/neptunia/agent-<profile>.env`, root-owned, 0600) is optional: its `OPENROUTER_AGENT_KEY`, `OPENCODE_WEBSEARCH_KEY` and `PROXY_URL` are used only for what a task does not bring; a task with no key from either fails `no-key`, with one warning per runner. No secret is ever logged, journaled or sent back in an event. The owner's `/nep status` card shows the agents' key as the `agents` key and the coding worker's `OPENROUTER_DEV_KEY` (role `agent.dev`) as the `development` key; the bot never sends a request of its own with either. A fourth agent role, `agent.advice`, names the model of the consultation tools outside the bot (a bare OpenRouter id, on the simulator's `OPENROUTER_SIM_KEY`); no errand agent and no request of the bot uses it.
+## Keys
+
+Every key lives in the core, in the bot's `.env`, which the runners (unprivileged, with the file made inaccessible to them) cannot read. The core sends the keys with each task, in the `secrets` of the `run` message.
+
+The OpenRouter key is the one of the task's model role, resolved the same way the bot resolves any role's key (`llm.keyByRole`): `agent.web` and `agent.server` use `OPENROUTER_AGENT_KEY`; without that variable, no secrets are sent. The bot never sends a request of its own on the agent keys. The `web` agent also gets the proxy (`MEDIA_VIDEO_PROXY`, sent as an `http://` URL the proxy also serves), and `OPENCODE_WEBSEARCH_KEY` when set. The runner passes the OpenCode child the key as `OPENROUTER_API_KEY`, the proxy as `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms, the ones curl reads), and the search key to the search provider.
+
+The unit's `EnvironmentFile` (`/etc/neptunia/agent-<profile>.env`, root-owned, 0600) is optional: its `OPENROUTER_AGENT_KEY`, `OPENCODE_WEBSEARCH_KEY` and `PROXY_URL` are used only for what a task does not bring. A task with no key from either source fails `no-key`, with one warning per runner. No secret is ever logged, journaled or sent back in an event.
+
+The owner's `/nep status` card shows the agents' key as the `agents` key and the coding worker's `OPENROUTER_DEV_KEY` (role `agent.dev`) as the `development` key. A fourth agent role, `agent.advice`, names the model of the consultation tools outside the bot (a bare OpenRouter id, on the simulator's `OPENROUTER_SIM_KEY`); no errand agent and no request of the bot uses it.
 
 ## The protocol
 
@@ -59,29 +80,37 @@ Core to runner:
 Runner to core:
 
 - `{ "id", "event": "progress", "step", "tool", "note" }` as the task works;
-- one `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }], "withheld"?: [path...] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }` (`withheld`: the withheld paths the agent was refused in a filtered scope, at most 50);
+- one `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }], "withheld"?: [path...] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }` (`withheld`: the paths the agent was refused in a filtered scope, at most 50);
 - `{ "event": "pong", "profile", "busy", "queued" }` for a `ping`.
 
-A runner that restarted answers `end` with `status: "failed", error: "restarted"` for any id in a `ping` it no longer knows, so the core stops waiting. On `SIGTERM` the runner ends every open task the same way and exits. Output files land in `<out>/<id>/` and the core deletes them after `agents.keepFilesHours`.
+A runner that has restarted answers `end` with `status: "failed", error: "restarted"` for any id in a `ping` it no longer knows, so the core stops waiting. On `SIGTERM` the runner ends every open task the same way and exits. Output files land in `<out>/<id>/`, and the core deletes them after `agents.keepFilesHours`.
 
 ## Scope and redaction
 
 A `run` carries `context.scope`, one of `core`, `dm`, `group` (`src/agent-runner/policy.js`). In `core` nothing is withheld. In `dm` and `group`:
 
-- the `server` agent's file tools deny the content of sensitive paths (`/var/www`, `/srv/git`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`, the persona's own `data/` (memory about real people) and any `.agents/scratch`), and its `bash` denies the content commands (`cat`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `sed`, `awk`, `cut`, `sort`, `uniq`, `wc`, `file`, `git`) on any argument naming one of them; listing names (`ls`, `find`, `stat`, `du`, `readlink`, `realpath`) is still allowed. The refusal is per step: OpenCode refuses that one tool call, the agent gets the refusal and goes on with the task (visible by name, not readable in this scope), and the result's `withheld` lists the paths it was refused;
+- the `server` agent's file tools deny the content of sensitive paths (`/var/www`, `/srv/git`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`, the persona's own `data/` and any `.agents/scratch`), and its `bash` denies content commands (`cat`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `sed`, `awk`, `cut`, `sort`, `uniq`, `wc`, `file`, `git`) on any argument naming one of those paths. Listing names (`ls`, `find`, `stat`, `du`, `readlink`, `realpath`) is still allowed. The refusal happens per step: OpenCode refuses that one tool call, the agent sees the refusal and continues, and the result's `withheld` lists the paths it was refused;
 - every result the runner returns passes a redaction pass that replaces key-, token- and password-looking strings, private-key blocks, SSH key material and URL credentials with `[redacted]`.
 
-A command that reaches a withheld path past those rules (a `bash -c`, a pipe into a reader) is caught after the fact: its output is not kept by the runner (its progress event says `withheld` and the path), the path joins the result's `withheld`, and the task goes on; the agent has seen that output, so the final text passing the redaction is what keeps a secret in it out of the answer.
+A command that reaches a withheld path despite these rules (a `bash -c`, a pipe into a reader) is caught after the fact: the runner does not keep that output (its progress event says `withheld` and the path), the path joins the result's `withheld`, and the task continues. The agent has seen the output, so the final redaction pass is what keeps a secret out of the answer.
 
 ## How a task runs
 
-One task is one `opencode run` child process in a fresh working directory under the profile's out dir, with project/`.claude` config, auto-update and the price-catalog fetch disabled so nothing of this server leaks into the worker. The engine builds the OpenCode config (the agent's prompt from `agents/<profile>/prompt.md`, or the deployment's `prompts.local/agent-<profile>.md` when present, the step cap, the permission ruleset for the scope, the model and its cost) and passes it through `OPENCODE_CONFIG_CONTENT`. The child prints a JSON event stream; the runner sums the per-step cost and tokens, forwards progress, takes the final assistant text as the result, lists the files the agent saved, and stops the child when a cap is passed. Built against OpenCode v1.19.3.
+One task is one `opencode run` child process in a fresh working directory under the profile's output dir, with project/`.claude` config, auto-update and the price-catalog fetch disabled so nothing of this server leaks into the worker. The engine builds the OpenCode config (the agent's prompt from `agents/<profile>/prompt.md`, or the deployment's `prompts.local/agent-<profile>.md` when present, the step cap, the permission ruleset for the scope, the model and its cost) and passes it through `OPENCODE_CONFIG_CONTENT`. The child prints a JSON event stream; the runner sums the per-step cost and tokens, forwards progress, takes the final assistant text as the result, lists the files the agent saved, and stops the child when a cap is hit. Built against OpenCode v1.19.3.
 
 ## The persona's side
 
 The core (`src/errands/`) keeps the persona's tasks per server in `data/guilds/<id>/tasks.json` (the open ones and the latest finished) and `tasks.jsonl` (one line per transition), and journals every transition as one `task` operation (counts only, never the goal or the result). A task is `queued`, `running`, then `done`, `failed` or `cancelled`.
 
-- **Operations** (also her skills, closed until granted to her; see [Commands](owner-commands.md#member-commands)): `task.run` (`agent`, `goal`; paid), `task.status` (`id` optional), `task.cancel` (`id`), `task.list`. Any member may ask for `web`; only an owner may ask for `server`, through her or not. `task.run` answers at once with the id and `queued`, and the task runs in the background with the limits of `agents.<profile>.limits`. A task asked in a private chat runs in the `dm` scope, any other in `group`. The caps are `agents.maxOpen` open tasks and `agents.<profile>.daily` per UTC day.
-- **`<tasks>`**: in the tail of every request while she has an open task or a finished one she has not seen, one line each (id, agent, state, age in minutes, the goal cut to 120 characters). A private chat's tasks show only in that chat. A finished task counts as seen after a turn of hers showed it.
-- **`<task_result>`**: when a task ends, she gets her own turn in the conversation it was asked in, replying to the message that asked (an interjection when there is none), through the same one attention as every turn and `agents.resultCooldownSeconds` between two such turns in one conversation. The block carries the id, agent, goal and state, the result text cut to `agents.resultMaxChars`, the sources as a numbered list and each file as a handle. She may answer or stay silent; the task is then seen. A cancelled task opens no turn; a task a restart of the core left open fails with `restarted`.
-- **File handles**: `file:<task id>/<name>` names a file a task saved. `message.create` takes it as its `file` attribute and attaches the file from `<agents.<profile>.out>/<task id>/<name>`. A handle that names no file of her tasks (or a private chat's file outside that chat) is refused `unknown-file`; a file larger than the interface takes is refused `attachment-too-large`.
+- Operations (also her skills, closed until granted to her; see [Commands](owner-commands.md#member-commands)): `task.run` (`agent`, `goal`; paid), `task.status` (`id` optional), `task.cancel` (`id`), `task.list`. Any member may ask for `web`; only an owner may ask for `server`, through her or not. `task.run` answers at once with the id and `queued`, and the task runs in the background with the limits of `agents.<profile>.limits`. A task asked in a private chat runs in the `dm` scope, any other in `group`. The caps are `agents.maxOpen` open tasks and `agents.<profile>.daily` per UTC day.
+- `<tasks>`: in the tail of every request while she has an open task or a finished one she has not seen, one line each (id, agent, state, age in minutes, the goal cut to 120 characters). A private chat's tasks show only in that chat. A finished task counts as seen after a turn of hers showed it.
+- `<task_result>`: when a task ends, the persona gets her own turn in the conversation it was asked in, replying to the message that started it (an interjection when there is none). The turn follows the same attention as every turn and observes `agents.resultCooldownSeconds` between two such turns in one conversation. The block carries the id, agent, goal and state, the result text cut to `agents.resultMaxChars`, the sources as a numbered list and each file as a handle. The persona may answer or stay silent; the task is then seen. A cancelled task opens no turn; a task a restart of the core left open fails with `restarted`.
+- File handles: `file:<task id>/<name>` names a file a task saved. `message.create` takes it as its `file` attribute and attaches the file from `<agents.<profile>.out>/<task id>/<name>`. A handle that names no file of her tasks (or a private chat's file outside that chat) is refused `unknown-file`; a file larger than the interface accepts is refused `attachment-too-large`.
+
+## Adding an agent
+
+1. Create `agents/<id>/` with a `profile.json` (copy one of the existing ones) and, for a worker, a `prompt.md`.
+2. If it needs a model role that does not exist yet, add it to `src/llm/roles.js`.
+3. For a worker: add an `agents.<id>` block to `config.json`, a systemd unit like `deploy/neptunia-agent-web.service`, and, for the persona to reach it, its name in `TASK_AGENTS` (`src/discord/commands.js`) and who may ask for it in `src/ops/task.js`.
+4. If no existing shell class fits, that is a code change in `src/agent-runner/profiles.js`, not a profile key.
+5. Run `tests/agent-runner-profiles.test.js`.

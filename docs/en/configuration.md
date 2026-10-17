@@ -6,14 +6,14 @@ Any string value in `config.json` or `config.local.json` may reference an enviro
 
 ## Where the private files live
 
-By default everything sits in the checkout: `config.json` and `prompts/` (tracked), your `.env`, `config.local.json` and `prompts.local/`, and the `data/` directory the bot writes its memory to. Two optional environment variables move the private parts elsewhere, so a checkout or a deploy carries only the code:
+By default everything sits in the checkout: `config.json` and `prompts/` (tracked), your `.env`, `config.local.json` and `prompts.local/`, and the `data/` directory the bot writes its memory to. Two optional environment variables let you move the private parts out of the checkout, so a clone or a deploy carries only the code:
 
 | Variable | Default | What lives there |
 |---|---|---|
 | `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `config.local.json`, `prompts.local/` |
 | `NEPTUNIA_DATA_DIR` | `data/` in the checkout | everything the bot writes: `guilds/`, `state.json`, `usage.json`, `metrics.json`, caches |
 
-Set them in the process environment (for example with `Environment=` in the systemd unit), not in `.env`: the bot reads `.env` from the private directory, so it has to know that directory first. A relative path is taken from the checkout. Live edits work as before: changing `config.local.json` or a file in `prompts.local/` inside the private directory reloads without a restart. The tools under `tools/` read the same two variables; a tool's `--data` flag still wins. At start the bot logs the three directories it uses (`index: paths`). `deploy/neptunia-bot.service` shows the recommended layout, one root `/opt/neptunia` with the checkout in `app/`, the private directory in `etc/` and the data directory in `data/`; `deploy/install.sh` sets it up.
+Set them in the process environment (for example with `Environment=` in the systemd unit), not in `.env`: the bot reads `.env` from the private directory, so it needs to know that directory before it reads the file. A relative path is resolved against the checkout (`src/paths.js`). Editing `config.local.json` or a file in `prompts.local/` inside the private directory still reloads live, without a restart. The tools under `tools/` read the same two variables; a tool's `--data` flag overrides the data path. At start the bot logs the three resolved directories (`index: paths`). `deploy/neptunia-bot.service` shows the recommended layout: one root `/opt/neptunia` with the checkout in `app/`, the private files in `etc/` and the data in `data/`; `deploy/install.sh` sets it up.
 
 ## `features`
 

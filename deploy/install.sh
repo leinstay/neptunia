@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
-# Prepares a server for neptunia-bot with the private files kept out of the checkout, all under
-# one root (the layout of deploy/neptunia-bot.service):
+# Sets up a server for neptunia-bot with the private files outside the checkout, under one root
+# (the layout described in deploy/neptunia-bot.service):
 #   /opt/neptunia/
 #     app/    the engine checkout (root-owned, read-only to the service)
 #     etc/    .env, config.local.json, prompts.local/   (NEPTUNIA_PRIVATE_DIR)
 #     data/   everything the bot writes                 (NEPTUNIA_DATA_DIR)
 #
 # Usage:     sudo deploy/install.sh [--root DIR] [--user NAME] [--prefix DIR] [--dry-run]
-#   --root DIR    the one root of the layout (default /opt/neptunia)
-#   --user NAME   the service user (default neptunia-bot): a system user, no login, no home
+#   --root DIR    the top directory of the layout (default /opt/neptunia)
+#   --user NAME   the service user (default neptunia-bot): created as a system user, no login, no home
 #   --prefix DIR  the checkout the service runs from (default <root>/app; clone it there first)
-#   --dry-run     print the commands only; change nothing (needs no root)
+#   --dry-run     print the commands without running them (does not need root)
 #
-# What it does, every step safe to repeat:
-#   - creates the service user (and its group) when absent;
+# Every step is safe to repeat:
+#   - creates the service user (and its group) if absent;
 #   - creates <root> (root:root 755);
 #   - creates <root>/etc (root:root 755) with .env copied from .env.example when absent
-#     (root:<user> 640), prompts.local/ (<user> 750) and config.local.json ({} when absent,
-#     <user> 640); an existing file is never overwritten;
+#     (root:<user> 640), prompts.local/ (<user> 750), and config.local.json ({} when absent,
+#     <user> 640); existing files are left alone;
 #   - creates <root>/data (<user>:<user> 750);
 #   - installs deploy/neptunia-bot.service into /etc/systemd/system/ with User=, Group=,
 #     WorkingDirectory=, the two directory variables, EnvironmentFile= and ReadWritePaths= set
-#     to the given user, checkout and root, then runs systemctl daemon-reload.
-# It never starts or enables the service: fill in the private files first (it prints which).
+#     for the given user, checkout and root, then runs systemctl daemon-reload.
+# It does not start or enable the service: fill in the private files first (it prints which).
 
 set -euo pipefail
 
@@ -51,7 +51,7 @@ while [ $# -gt 0 ]; do
 done
 
 if ! [[ $SERVICE_USER =~ ^[a-z_][a-z0-9_-]*$ ]]; then
-  echo "install: not a valid user name: $SERVICE_USER" >&2
+  echo "install: invalid user name: $SERVICE_USER" >&2
   exit 2
 fi
 case "$ROOT" in
@@ -59,42 +59,42 @@ case "$ROOT" in
   *) echo "install: --root must be an absolute path: $ROOT" >&2; exit 2 ;;
 esac
 case "$ROOT" in
-  *'|'*|*'&'*|*'\'*|*[[:space:]]*) echo "install: --root may not contain |, &, \\ or spaces: $ROOT" >&2; exit 2 ;;
+  *'|'*|*'&'*|*'\'*|*[[:space:]]*) echo "install: --root must not contain |, &, \\ or spaces: $ROOT" >&2; exit 2 ;;
 esac
 ROOT=${ROOT%"${ROOT##*[!/]}"}
 if [ -z "$ROOT" ]; then
-  echo "install: --root may not be /" >&2
+  echo "install: --root must not be /" >&2
   exit 2
 fi
 PRIVATE_DIR=$ROOT/etc
 DATA_DIR=$ROOT/data
 [ -n "$PREFIX" ] || PREFIX=$ROOT/app
 if [ ! -d "$PREFIX" ]; then
-  echo "install: the checkout is not a directory: $PREFIX (clone the engine to <root>/app, or name it with --prefix)" >&2
+  echo "install: checkout directory not found: $PREFIX (clone the engine to <root>/app, or pass --prefix)" >&2
   exit 2
 fi
 PREFIX=$(cd -- "$PREFIX" && pwd -P)
 case "$PREFIX" in
-  *'|'*|*'&'*|*'\'*|*[[:space:]]*) echo "install: --prefix may not contain |, &, \\ or spaces: $PREFIX" >&2; exit 2 ;;
+  *'|'*|*'&'*|*'\'*|*[[:space:]]*) echo "install: --prefix must not contain |, &, \\ or spaces: $PREFIX" >&2; exit 2 ;;
 esac
 if [ ! -f "$PREFIX/src/index.js" ] || [ ! -f "$PREFIX/deploy/$UNIT_NAME" ]; then
-  echo "install: $PREFIX is not a neptunia-bot checkout (no src/index.js or deploy/$UNIT_NAME)" >&2
+  echo "install: $PREFIX does not look like a neptunia-bot checkout (missing src/index.js or deploy/$UNIT_NAME)" >&2
   exit 2
 fi
 if [ "$DRY_RUN" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
-  echo "install: must be run as root (sudo deploy/install.sh ...), or with --dry-run" >&2
+  echo "install: run as root (sudo deploy/install.sh ...), or use --dry-run" >&2
   exit 1
 fi
 
-# Runs a command, printing it first; with --dry-run only prints it.
+# Prints a command and runs it; with --dry-run, only prints it.
 run() {
   echo "+ $*"
   if [ "$DRY_RUN" -eq 0 ]; then "$@"; fi
 }
 
-# The bot's unit with User=, Group=, WorkingDirectory=, NEPTUNIA_PRIVATE_DIR, NEPTUNIA_DATA_DIR,
-# EnvironmentFile= and ReadWritePaths= set (a Group= line is added after User= when the unit has
-# none), on stdout.
+# Writes the bot's unit with User=, Group=, WorkingDirectory=, NEPTUNIA_PRIVATE_DIR,
+# NEPTUNIA_DATA_DIR, EnvironmentFile= and ReadWritePaths= set for this layout (adds a Group=
+# line after User= when the unit has none).
 render_unit() {
   local add_group=()
   if ! grep -q '^Group=' "$PREFIX/deploy/$UNIT_NAME"; then add_group=(-e "/^User=/a Group=$SERVICE_USER"); fi
@@ -109,26 +109,26 @@ render_unit() {
       "$PREFIX/deploy/$UNIT_NAME"
 }
 
-echo "neptunia-bot install: user $SERVICE_USER, root $ROOT, checkout $PREFIX$([ "$DRY_RUN" -eq 1 ] && echo ' (dry run: nothing is changed)')"
+echo "neptunia-bot install: user=$SERVICE_USER root=$ROOT checkout=$PREFIX$([ "$DRY_RUN" -eq 1 ] && echo ' (dry run)')"
 
-# The service user.
+# Service user.
 if id -u "$SERVICE_USER" >/dev/null 2>&1; then
-  echo "= user $SERVICE_USER exists"
+  echo "= user $SERVICE_USER already exists"
 else
   run useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
 
-# The root, then the private directory and its files; an existing file is kept as it is.
+# Root directory, then private directory and its files. Existing files are left alone.
 run install -d -o root -g root -m 0755 "$ROOT"
 run install -d -o root -g root -m 0755 "$PRIVATE_DIR"
 if [ -e "$PRIVATE_DIR/.env" ]; then
-  echo "= $PRIVATE_DIR/.env exists, kept"
+  echo "= $PRIVATE_DIR/.env already exists, not overwritten"
 else
   run install -o root -g "$SERVICE_USER" -m 0640 "$PREFIX/.env.example" "$PRIVATE_DIR/.env"
 fi
 run install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$PRIVATE_DIR/prompts.local"
 if [ -e "$PRIVATE_DIR/config.local.json" ]; then
-  echo "= $PRIVATE_DIR/config.local.json exists, kept"
+  echo "= $PRIVATE_DIR/config.local.json already exists, not overwritten"
 else
   echo "+ echo '{}' > $PRIVATE_DIR/config.local.json"
   if [ "$DRY_RUN" -eq 0 ]; then echo '{}' > "$PRIVATE_DIR/config.local.json"; fi
@@ -136,10 +136,10 @@ else
   run chmod 0640 "$PRIVATE_DIR/config.local.json"
 fi
 
-# The data directory.
+# Data directory.
 run install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$DATA_DIR"
 
-# The unit, rewritten for this user and checkout (replaced on every run).
+# Unit file, rewritten for this user and checkout (replaced on every run).
 echo "+ render $PREFIX/deploy/$UNIT_NAME (User=$SERVICE_USER, Group=$SERVICE_USER, WorkingDirectory=$PREFIX, NEPTUNIA_PRIVATE_DIR=$PRIVATE_DIR, NEPTUNIA_DATA_DIR=$DATA_DIR) > $UNIT_DIR/$UNIT_NAME"
 if [ "$DRY_RUN" -eq 0 ]; then
   unit_tmp=$(mktemp)
@@ -151,10 +151,10 @@ run systemctl daemon-reload
 
 cat <<EOF
 
-Done$([ "$DRY_RUN" -eq 1 ] && echo ' (dry run)'). The service is not started. Fill in next:
-  $PRIVATE_DIR/.env                the Discord token and the OpenRouter key (see .env.example)
-  $PRIVATE_DIR/config.local.json   this deployment's settings over config.json
-  $PRIVATE_DIR/prompts.local/      the character: files that replace prompts/ file by file
+Done$([ "$DRY_RUN" -eq 1 ] && echo ' (dry run)'). The service is not started yet. Fill in:
+  $PRIVATE_DIR/.env                Discord token and OpenRouter key (see .env.example)
+  $PRIVATE_DIR/config.local.json   settings that override config.json for this deployment
+  $PRIVATE_DIR/prompts.local/      the character: files that replace those in prompts/
 Then: sudo systemctl enable --now ${UNIT_NAME%.service}
       journalctl -u ${UNIT_NAME%.service} -f
 EOF
