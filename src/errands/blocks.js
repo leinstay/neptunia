@@ -61,7 +61,9 @@ export function tasksBlockText(tasks, labels, { now, goalChars = TASK_GOAL_CHARS
  * the code) when it did not end `done`, the sources as a numbered list under `result.sources`,
  * and each file as `result.file` (`{handle}`: `file:<task id>/<name>`, `{contentType}`,
  * `{bytes}`) under `result.files` unless the files have expired (`filesExpired`: the state's word
- * is then `states.expired`, when present). A part without its label is left out; '' without the header.
+ * is then `states.expired`, when present), then one `result.withheld` line (`{paths}`: the paths
+ * the runner withheld in a filtered scope, joined by `, `) when there are any. A part without its
+ * label is left out; '' without the header.
  * @param {object} task
  * @param {object} labels
  * @param {{ maxChars?: number }} [options]
@@ -82,5 +84,7 @@ export function taskResultText(task, labels, { maxChars = DEFAULT_RESULT_MAX_CHA
   if (files.length > 0 && typeof r.files === 'string' && typeof r.file === 'string') {
     parts.push(r.files, ...files.map((file) => fill(r.file, { handle: fileHandle(task.id, file.name), contentType: file.contentType || '-', bytes: Number(file.bytes) || 0 })));
   }
+  const withheld = Array.isArray(task.result?.withheld) ? task.result.withheld.filter((entry) => typeof entry === 'string' && entry) : [];
+  if (withheld.length > 0 && typeof r.withheld === 'string') parts.push(fill(r.withheld, { paths: withheld.join(', ') }));
   return parts.join('\n');
 }
