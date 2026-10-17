@@ -73,7 +73,7 @@ The core connects to the runner's Unix socket (`agents.<profile>.socket`, group 
 
 Core to runner:
 
-- `{ "op": "run", "id", "goal", "context": { "scope", "channel", "asker", "recent", ... }, "limits": { "steps", "usd", "seconds" }, "tools": [...], "model"?, "cost"?, "searchProvider"?, "secrets"?: { "openrouterKey", "proxy"?, "searchKey"? } }` (`secrets`: non-empty strings, no other key; a refused `run` is answered with its error code alone, never a value; `context.recent`: the last `agents.recentLines` lines of the channel the task was asked in, `[{ "author", "text" }]`, each string cut to 200 characters, at most 20 kept (the latest), `[]` for a task asked in a private chat; a malformed line refuses the run `bad-recent`. The runner shows the context to the agent as data, inside `<context>`)
+- `{ "op": "run", "id", "goal", "context": { "scope", "channel", "asker", "recent", ... }, "limits": { "steps", "usd", "seconds" }, "tools": [...], "model"?, "cost"?, "searchProvider"?, "secrets"?: { "openrouterKey", "proxy"?, "searchKey"? }, "preamble"? }` (`secrets`: non-empty strings, no other key; a refused `run` is answered with its error code alone, never a value; `preamble`: the shared preamble below, a string of at most 8000 characters after trimming, else the run is refused `bad-preamble` or `preamble-too-long`; `context.recent`: the last `agents.recentLines` lines of the channel the task was asked in, `[{ "author", "text" }]`, each string cut to 200 characters, at most 20 kept (the latest), `[]` for a task asked in a private chat; a malformed line refuses the run `bad-recent`. The runner shows the context to the agent as data, inside `<context>`)
 - `{ "op": "cancel", "id" }`
 - `{ "op": "ping", "ids": [...] }`
 
@@ -97,6 +97,8 @@ A command that reaches a withheld path despite these rules (a `bash -c`, a pipe 
 ## How a task runs
 
 One task is one `opencode run` child process in a fresh working directory under the profile's output dir, with project/`.claude` config, auto-update and the price-catalog fetch disabled so nothing of this server leaks into the worker. The engine builds the OpenCode config (the agent's prompt from `agents/<profile>/prompt.md`, or the deployment's `prompts.local/agent-<profile>.md` when present, the step cap, the permission ruleset for the scope, the model and its cost) and passes it through `OPENCODE_CONFIG_CONTENT`. The child prints a JSON event stream; the runner sums the per-step cost and tokens, forwards progress, takes the final assistant text as the result, lists the files the agent saved, and stops the child when a cap is hit. Built against OpenCode v1.19.3.
+
+A deployment may give every errand agent one shared preamble: the optional file `prompts.local/agents.md` (there is no tracked default; without the file, or with an empty one, nothing changes). The core reads it through the live prompt loader, so an edit reaches the next task without a restart, and sends its text with each task as the `preamble` of the `run` message. The runner puts it first in the agent's system prompt, followed by a blank line and the agent's own prompt. The runners never read `prompts.local/` for it: the core is the only process that reads the file, so a runner whose unit keeps the private directory out of its reach still gets the preamble. The preamble is never logged; the core's `errands: sent` line carries only its length.
 
 ## The persona's side
 

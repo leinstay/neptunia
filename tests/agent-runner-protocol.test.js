@@ -1,6 +1,7 @@
 // Tests for src/agent-runner/protocol.js: validation of the core's `run`,
 // `cancel` and `ping` (ids, goal length, context scope, limit keys, model,
-// cost, search provider, secrets -- never echoed back), the decode of a line
+// cost, search provider, secrets -- never echoed back -- and the shared
+// preamble), the decode of a line
 // (bad JSON, oversize), the http form of a proxy URL, and the shapes of the
 // runner's `progress`, `end`, `pong`, `restarted` and `error` events, including
 // the frozen RESULT_STATUSES. Pure; no I/O.
@@ -9,7 +10,7 @@ import assert from 'node:assert/strict';
 import {
   RESULT_STATUSES, OPS, validateRequest, parseRequestLine, encodeLine,
   progressEvent, endEvent, restartedEvent, pongEvent, errorEvent, normalizeUsage, normalizeResult,
-  SECRET_KEYS, httpProxyForm,
+  SECRET_KEYS, httpProxyForm, MAX_PREAMBLE_CHARS,
 } from '../src/agent-runner/protocol.js';
 
 test('RESULT_STATUSES: the three final states, frozen', () => {
@@ -181,4 +182,25 @@ test('validateRequest: context.recent passes as { author, text } lines, the late
   for (const bad of ['text', [{ author: 'a' }], [{ author: 'a', text: 3 }], [null], [['a', 'b']], [{ author: 'a', text: 'b' }, 'c']]) {
     assert.deepEqual(validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: bad } }), { ok: false, error: 'bad-recent' }, JSON.stringify(bad));
   }
+});
+
+test('validateRequest: a run carries the shared preamble trimmed; a blank one is dropped, none given none passed on', () => {
+  assert.equal(MAX_PREAMBLE_CHARS, 8000);
+  const ok = validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: '  Shared text for every agent.\n' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.message.preamble, 'Shared text for every agent.');
+  assert.equal(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: 'é'.repeat(8000) }).message.preamble.length, 8000, 'at the cap: kept');
+  assert.equal(Object.hasOwn(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: '   ' }).message, 'preamble'), false);
+  assert.equal(Object.hasOwn(validateRequest({ op: 'run', id: 'a', goal: 'x' }).message, 'preamble'), false);
+});
+
+test('validateRequest / parseRequestLine: a non-string or over-long preamble is refused with its code, never its text', () => {
+  for (const preamble of [42, null, ['PREAMBLE-TEXT'], { text: 'PREAMBLE-TEXT' }, true]) {
+    assert.deepEqual(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble }), { ok: false, error: 'bad-preamble' }, JSON.stringify(preamble));
+  }
+  const long = `PREAMBLE-TEXT${'x'.repeat(8000)}`;
+  assert.deepEqual(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: long }), { ok: false, error: 'preamble-too-long' });
+  const parsed = parseRequestLine(JSON.stringify({ op: 'run', id: 'task-p', goal: 'g', preamble: long }));
+  assert.deepEqual(parsed, { ok: false, error: 'preamble-too-long', id: 'task-p' });
+  assert.ok(!encodeLine(errorEvent(parsed.error, parsed.id)).includes('PREAMBLE-TEXT'));
 });
