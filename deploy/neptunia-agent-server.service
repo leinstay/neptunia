@@ -2,7 +2,8 @@
 #
 # A separate, unprivileged process that runs read-only errands on this server
 # through OpenCode: it reads files and runs read-only shell commands to answer
-# the owner's questions about the machine. It has NO network (PrivateNetwork),
+# the owner's questions about the machine. Its network reaches only the local
+# resolver and the model provider (IPAddressAllow; everything else denied),
 # holds only its own OpenRouter key, and writes only its own out dir. It is
 # granted CAP_DAC_READ_SEARCH so it can read any file like root WITHOUT being
 # root -- the read-only guarantee is this unit (ProtectSystem=strict, no
@@ -18,9 +19,9 @@
 #   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-agent-server
 # Logs:    journalctl -u neptunia-agent-server -f
 #
-# OpenCode needs the model price catalog; with PrivateNetwork it cannot fetch
-# it, so the runner passes the model cost in the config (agents.<profile>.cost)
-# and the model fetch is disabled.
+# OpenCode's model price catalog fetch is disabled (the runner passes the model
+# cost in the config, agents.<profile>.cost), so the only outbound traffic is
+# the model API.
 
 [Unit]
 Description=neptunia server-read errand agent (OpenCode worker)
@@ -40,8 +41,13 @@ RestartSec=5
 AmbientCapabilities=CAP_DAC_READ_SEARCH
 CapabilityBoundingSet=CAP_DAC_READ_SEARCH
 
-# No network at all.
-PrivateNetwork=yes
+# Network only to the local resolver stub and to the model API (OpenRouter sits
+# behind Cloudflare; these are Cloudflare's published IPv4 ranges). Everything
+# else, the private ranges and the cloud metadata address included, is denied.
+IPAddressDeny=any
+IPAddressAllow=127.0.0.53/32
+IPAddressAllow=173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 # The whole system is read-only; the agent writes only its own state (out) dir
 # and the runtime socket dir.

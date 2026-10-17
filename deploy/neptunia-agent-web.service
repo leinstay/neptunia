@@ -48,6 +48,8 @@ RuntimeDirectoryMode=0750
 
 # Network: the agent reaches the public internet only. Localhost, link-local
 # and private ranges are refused here as well as in code.
+# The local resolver stub (systemd-resolved) is the one localhost address it may reach.
+IPAddressAllow=127.0.0.53/32
 IPAddressDeny=localhost
 IPAddressDeny=link-local
 IPAddressDeny=multicast

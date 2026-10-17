@@ -41,6 +41,10 @@ test('web permission: web tools allowed, edit/write/task/question denied, bash a
   assert.equal(keys[0], '*');
   assert.equal(p.bash['*'], 'deny');
   assert.equal(p.bash['curl *'], 'allow');
+  // the denies that must beat an allow come last
+  assert.equal(keys[keys.length - 1], 'gawk *');
+  assert.equal(p.bash['find * -exec*'], 'deny');
+  assert.equal(p.bash['awk */inet/*'], 'deny');
 });
 
 test('server permission: read tools allowed, no network tools, read-only bash', () => {
