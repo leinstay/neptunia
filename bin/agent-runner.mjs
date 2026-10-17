@@ -13,7 +13,7 @@
 // own OpenRouter key in OPENROUTER_AGENT_KEY (never the persona's), and for
 // the web profile OPENCODE_WEBSEARCH_KEY and PROXY_URL. Caps and the model's
 // cost come from `agents.<profile>` in config; the model from the profile's
-// model role (`roles.agentWeb`, `roles.agentServer`), read again at each task
+// model role (`agent.web`, `agent.server`), read again at each task
 // so a `/nep model set` reaches the next one. It prints one ready line
 // (a log line) when it is listening, and on SIGTERM ends open tasks and
 // exits.
@@ -62,7 +62,10 @@ async function main() {
   // The runner never reads the bot's .env: its environment comes from its own unit (the agent key, the
   // search key, the proxy), and the bot's secrets file is inaccessible to it by design. Config `${env:NAME}`
   // references it cannot resolve become empty strings with one warning each.
-  const { config } = loadConfig();
+  const { config, renamed } = loadConfig();
+  // An agent role config.local.json still names the old way (`roles.agentWeb`), read under its new name.
+  const roleRenames = renamed.filter((entry) => entry.role === true).map(({ key, use }) => ({ key, use }));
+  if (roleRenames.length > 0) log.warn('config: role renamed', { keys: roleRenames });
   const agents = config.agents ?? {};
   const settings = agents[name] ?? {};
 

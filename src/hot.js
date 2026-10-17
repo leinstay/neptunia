@@ -165,13 +165,16 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
   hot.config = loaded.config;
   // The old model keys and role names config.local.json still carries (src/config.js#adaptLegacyModelKeys,
   // read under their new names): one warning listing them, key names only, at startup and again
-  // at a reload that changes the list.
+  // at a reload that changes the list; the renamed agent roles on a line of their own.
   let reportedLegacy = '';
   const reportLegacyKeys = (renamed) => {
     const listed = JSON.stringify(renamed);
     if (listed === reportedLegacy) return;
     reportedLegacy = listed;
-    if (renamed.length > 0) log.warn('config: old model keys read under their new names', { keys: renamed });
+    const roles = renamed.filter((entry) => entry.role === true).map(({ key, use }) => ({ key, use }));
+    const keys = renamed.filter((entry) => entry.role !== true);
+    if (roles.length > 0) log.warn('config: role renamed', { keys: roles });
+    if (keys.length > 0) log.warn('config: old model keys read under their new names', { keys });
   };
   reportLegacyKeys(loaded.renamed);
   // The retired keys reported for the config now live: one warning when a key appears (at

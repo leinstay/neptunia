@@ -3,7 +3,7 @@
 // working directory under the profile's out dir. The child gets, through its
 // environment, the OpenCode config this task needs (the profile's agent
 // definition, the model -- the task's own, else the profile's model role,
-// `roles.agentWeb` / `roles.agentServer`, read at each task -- and its cost,
+// `roles["agent.web"]` / `roles["agent.server"]`, read at each task -- and its cost,
 // the permission ruleset for the scope)
 // and a per-task database, with project/claude config, auto-update and the
 // price fetch disabled so nothing of this server leaks into the worker and

@@ -4,7 +4,7 @@
 // for the others. A member (anyone not in `bot.owners`) gets the card without the storage line,
 // the costs, memory and speed fields. Every field lists one item per line; the state field ends
 // with the gateway and the uptime. The models field lists one line per role, `<role> · <model> ...` (voice,
-// analyzer, reasoner, extractor, vision, video, embedding, drawing, then the agent roles agentWeb, agentServer, agentDev,
+// analyzer, reasoner, extractor, vision, video, embedding, drawing, then the agent roles agent.web, agent.server, agent.dev,
 // which are never probed: an OpenCode worker runs them, not the bot). The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding

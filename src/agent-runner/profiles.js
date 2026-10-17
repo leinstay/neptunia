@@ -1,6 +1,6 @@
 // The two agent profiles, `web` and `server`, each a set of OpenCode tools,
 // default limits, a system-prompt file, the environment variable names its
-// run needs, the model role it runs on (`agentWeb`, `agentServer`), and an
+// run needs, the model role it runs on (`agent.web`, `agent.server`), and an
 // out/socket default. A profile also builds the OpenCode
 // config for one task (`buildConfig`): one agent definition carrying the
 // prompt, the step cap, and a permission map that starts every tool at deny
@@ -186,7 +186,7 @@ export const WEB = makeProfile({
   agentId: 'errand-web',
   promptFiles: [path.join(ROOT_DIR, 'prompts.local', 'agent-web.md'), path.join(ROOT_DIR, 'prompts', 'agent-web.md')],
   envNames: Object.freeze(['OPENROUTER_AGENT_KEY', 'OPENCODE_WEBSEARCH_KEY', 'PROXY_URL']),
-  modelRole: 'agentWeb',
+  modelRole: 'agent.web',
   defaultLimits: Object.freeze({ steps: 25, usd: 0.5, seconds: 300 }),
   defaultDaily: Object.freeze({ tasks: 40, usd: 8 }),
   defaultSearchProvider: 'exa',
@@ -198,7 +198,7 @@ export const SERVER = makeProfile({
   agentId: 'errand-server',
   promptFiles: [path.join(ROOT_DIR, 'prompts.local', 'agent-server.md'), path.join(ROOT_DIR, 'prompts', 'agent-server.md')],
   envNames: Object.freeze(['OPENROUTER_AGENT_KEY']),
-  modelRole: 'agentServer',
+  modelRole: 'agent.server',
   defaultLimits: Object.freeze({ steps: 20, usd: 0.2, seconds: 120 }),
   defaultDaily: Object.freeze({ tasks: 40, usd: 3 }),
   defaultSearchProvider: null,

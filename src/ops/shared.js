@@ -142,15 +142,43 @@ export function removeRule(rulesText, n) {
   return { text: trimmed ? `${trimmed}\n` : '', removed };
 }
 
-export function splitPath(dottedPath) {
-  const parts = String(dottedPath).split('.').filter((part) => part.length > 0);
-  for (const part of parts) {
+/**
+ * The keys of a dotted config path. With `reference` (the live config) a key that itself holds a
+ * dot is read whole: at each level the longest run of the remaining segments that is an own key
+ * of the node there wins (`roles.agent.web` -> `roles`, `agent.web`), and a segment the reference
+ * does not hold is one key. Without it every dot separates keys. A path given as an array of keys
+ * is taken as it is. Throws on a forbidden segment.
+ * @param {string|string[]} dottedPath
+ * @param {object} [reference]
+ * @returns {string[]}
+ */
+export function splitPath(dottedPath, reference) {
+  const segments = Array.isArray(dottedPath) ? dottedPath.map(String) : String(dottedPath).split('.').filter((part) => part.length > 0);
+  for (const part of segments) {
     if (FORBIDDEN_SEGMENTS.has(part)) throw invalid(`forbidden path segment: ${part}`);
+  }
+  if (Array.isArray(dottedPath) || reference === undefined) return segments;
+  const parts = [];
+  let node = reference;
+  for (let i = 0; i < segments.length;) {
+    let take = 1;
+    if (node !== null && typeof node === 'object' && !Array.isArray(node)) {
+      for (let end = segments.length; end > i + 1; end -= 1) {
+        if (Object.hasOwn(node, segments.slice(i, end).join('.'))) {
+          take = end - i;
+          break;
+        }
+      }
+    }
+    const key = segments.slice(i, i + take).join('.');
+    parts.push(key);
+    node = node !== null && typeof node === 'object' && Object.hasOwn(node, key) ? node[key] : undefined;
+    i += take;
   }
   return parts;
 }
 
-/** Deep copy of `object` with `value` set at `dottedPath`, creating intermediate objects. */
+/** Deep copy of `object` with `value` set at `dottedPath` (or an array of keys, see splitPath), creating intermediate objects. */
 export function setPath(object, dottedPath, value) {
   const parts = splitPath(dottedPath);
   const root = structuredClone(object ?? {});
@@ -165,7 +193,7 @@ export function setPath(object, dottedPath, value) {
   return root;
 }
 
-/** Deep copy of `object` with the key at `dottedPath` removed; empty parent objects are pruned. */
+/** Deep copy of `object` with the key at `dottedPath` (or an array of keys) removed; empty parent objects are pruned. */
 export function unsetPath(object, dottedPath) {
   const parts = splitPath(dottedPath);
   const root = structuredClone(object ?? {});

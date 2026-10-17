@@ -501,6 +501,28 @@ test('createHot: a config.local.json under the old model keys is read under the 
   }
 });
 
+test('createHot: an agent role under its old name is read under the dotted one, with one `config: role renamed` line', async () => {
+  const dir = makeRoot({ config: { roles: { 'agent.web': 'openrouter/x/default' } } });
+  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ roles: { agentWeb: 'openrouter/x/old-name' } }));
+  let hot;
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+    });
+    assert.equal(hot.config.roles['agent.web'], 'openrouter/x/old-name');
+    assert.equal(Object.hasOwn(hot.config.roles, 'agentWeb'), false);
+    const lines = started.logs.filter((entry) => entry.msg === 'config: role renamed');
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].level, 'warn');
+    assert.deepEqual(lines[0].keys, [{ key: 'roles.agentWeb', use: 'roles.agent.web' }]);
+    assert.equal(started.logs.filter((entry) => entry.msg === 'config: old model keys read under their new names').length, 0);
+    assert.ok(!JSON.stringify(started.logs).includes('old-name'), 'the key, never its value');
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('hot: exposes promptsHash and configHash that change when a prompt or the config changes', () => {
   const dir = makeRoot({ config: { a: 1, b: { c: 2 } }, prompts: { persona: 'Είσαι η Ζωή.' } });
   const hot = createHot({ rootDir: dir });

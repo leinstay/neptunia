@@ -28,6 +28,7 @@ import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { createMetrics } from '../src/ops/metrics.js';
 import { resolveCommand } from '../src/ops/index.js';
 import { getOp } from '../src/ops/registry.js';
+import { splitPath } from '../src/ops/shared.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
@@ -112,6 +113,19 @@ test('setPath: rejects paths containing __proto__, constructor or prototype', ()
   assert.throws(() => setPath({}, 'a.__proto__.polluted', 1));
   assert.throws(() => setPath({}, 'constructor.prototype.polluted', 1));
   assert.throws(() => setPath({}, 'a.prototype.b', 1));
+});
+
+test('setPath / unsetPath / splitPath: a key holding a dot, given as an array of keys or read against a reference, is one key', () => {
+  assert.deepEqual(setPath({ roles: { voice: 'v' } }, ['roles', 'agent.web'], 'w'), { roles: { voice: 'v', 'agent.web': 'w' } });
+  assert.deepEqual(unsetPath({ roles: { 'agent.web': 'w', voice: 'v' } }, ['roles', 'agent.web']), { roles: { voice: 'v' } });
+  const reference = { roles: { 'agent.web': 'w', agent: { x: 1 } }, llm: { keyByRole: { 'agent.dev': 'K' } } };
+  assert.deepEqual(splitPath('roles.agent.web', reference), ['roles', 'agent.web'], 'the longest own key wins');
+  assert.deepEqual(splitPath('roles.agent.x', reference), ['roles', 'agent', 'x']);
+  assert.deepEqual(splitPath('llm.keyByRole.agent.dev', reference), ['llm', 'keyByRole', 'agent.dev']);
+  assert.deepEqual(splitPath('roles.new.key', reference), ['roles', 'new', 'key'], 'a key the reference lacks: every dot separates');
+  assert.deepEqual(splitPath('roles.agent.web'), ['roles', 'agent', 'web'], 'no reference: every dot separates');
+  assert.throws(() => splitPath(['roles', '__proto__']), /forbidden path segment/);
+  assert.throws(() => setPath({}, ['a', 'constructor'], 1), /forbidden path segment/);
 });
 
 test('unsetPath: removes a key and prunes an emptied parent object', () => {
@@ -486,6 +500,22 @@ test('run: unset removes a previously set override', async () => {
   assert.equal(hot.reloadConfigCalls, 2);
 });
 
+test('run: set and unset read a role name with a dot as one key, never a path', async () => {
+  const rootDir = makeRoot();
+  const { admin, hot } = makeAdmin(rootDir);
+  hot.config.roles = { ...hot.config.roles, 'agent.web': 'openrouter/a/b', 'agent.dev': 'openrouter/c/d' };
+  hot.config.llm.keyByRole = { 'agent.web': 'OPENROUTER_AGENT_KEY' };
+
+  const result = await admin.run('set', { path: 'roles.agent.web', value: 'openrouter/x-ai/web-model' }, {});
+  assert.ok(result.startsWith('Set roles.agent.web = "openrouter/x-ai/web-model"'), result);
+  await admin.run('set', { path: 'llm.keyByRole.agent.web', value: 'OPENROUTER_OTHER_KEY' }, {});
+  assert.deepEqual(readLocal(rootDir), { roles: { 'agent.web': 'openrouter/x-ai/web-model' }, llm: { keyByRole: { 'agent.web': 'OPENROUTER_OTHER_KEY' } } });
+
+  await admin.run('unset', { path: 'roles.agent.web' }, {});
+  assert.deepEqual(readLocal(rootDir), { llm: { keyByRole: { 'agent.web': 'OPENROUTER_OTHER_KEY' } } });
+  await assert.rejects(() => admin.run('set', { path: 'roles.agent', value: '"x/y"' }, {}), /unknown config path: roles\.agent/);
+});
+
 test('set: a non-owner granted set cannot touch bot.owners or bot.access; an owner can', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
@@ -559,9 +589,9 @@ test('run: model.show lists each role with its own model; an unset role shows it
   assert.ok(lines.includes(`reasoner: ${ROLE_DEFAULTS.reasoner}`));
   assert.deepEqual(lines.slice(0, 8).map((line) => line.split(':')[0]), ['voice', 'analyzer', 'reasoner', 'extractor', 'vision', 'video', 'embedding', 'drawing']);
   assert.deepEqual(lines.slice(8, 11), [
-    `agentWeb: ${ROLE_DEFAULTS.agentWeb}`,
-    `agentServer: ${ROLE_DEFAULTS.agentServer}`,
-    `agentDev: ${ROLE_DEFAULTS.agentDev}`,
+    `agent.web: ${ROLE_DEFAULTS['agent.web']}`,
+    `agent.server: ${ROLE_DEFAULTS['agent.server']}`,
+    `agent.dev: ${ROLE_DEFAULTS['agent.dev']}`,
   ], 'the agent roles after drawing, each with its OpenCode model id');
 });
 
@@ -598,9 +628,9 @@ test('run: model.set writes the roles path of each role', async () => {
   await admin.run('model.set', { role: 'video', id: 'openrouter/video-model' }, {});
   await admin.run('model.set', { role: 'embedding', id: 'openai/text-embedding-3-small' }, {});
   await admin.run('model.set', { role: 'drawing', id: 'openai/gpt-image-x' }, {});
-  await admin.run('model.set', { role: 'agentWeb', id: 'openrouter/x-ai/web-model' }, {});
-  await admin.run('model.set', { role: 'agentServer', id: 'openrouter/x-ai/server-model' }, {});
-  await admin.run('model.set', { role: 'agentDev', id: 'openrouter/anthropic/dev-model' }, {});
+  await admin.run('model.set', { role: 'agent.web', id: 'openrouter/x-ai/web-model' }, {});
+  await admin.run('model.set', { role: 'agent.server', id: 'openrouter/x-ai/server-model' }, {});
+  await admin.run('model.set', { role: 'agent.dev', id: 'openrouter/anthropic/dev-model' }, {});
   assert.deepEqual(readLocal(rootDir), {
     roles: {
       voice: 'anthropic/claude-opus-4.6',
@@ -611,9 +641,9 @@ test('run: model.set writes the roles path of each role', async () => {
       video: 'openrouter/video-model',
       embedding: 'openai/text-embedding-3-small',
       drawing: 'openai/gpt-image-x',
-      agentWeb: 'openrouter/x-ai/web-model',
-      agentServer: 'openrouter/x-ai/server-model',
-      agentDev: 'openrouter/anthropic/dev-model',
+      'agent.web': 'openrouter/x-ai/web-model',
+      'agent.server': 'openrouter/x-ai/server-model',
+      'agent.dev': 'openrouter/anthropic/dev-model',
     },
     // The video model changed (the vision one was set to the model it already had).
     media: { recacheBefore: new Date(changedAt).toISOString() },
@@ -634,7 +664,7 @@ test('run: model.set vision or video sets media.recacheBefore to the moment of t
     assert.match(reply, /^Set (vision|video) model to google\/a-new-model \(reload ok\)\n/);
     assert.ok(reply.includes(`media.recacheBefore set to ${iso}`), role);
   }
-  for (const role of ['voice', 'analyzer', 'reasoner', 'extractor', 'embedding', 'drawing', 'agentWeb', 'agentServer', 'agentDev']) {
+  for (const role of ['voice', 'analyzer', 'reasoner', 'extractor', 'embedding', 'drawing', 'agent.web', 'agent.server', 'agent.dev']) {
     const rootDir = makeRoot();
     const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => changedAt });
     const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
@@ -654,10 +684,10 @@ test('run: model.set rejects an unknown role and the old role names, and writes 
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
 
-  for (const role of ['bogus', 'followup', 'media', 'classifier', 'classifier.text', 'classifier.media', 'image', 'talk']) {
+  for (const role of ['bogus', 'followup', 'media', 'classifier', 'classifier.text', 'classifier.media', 'image', 'talk', 'agentWeb', 'agentDev']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
-      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(voice, analyzer, reasoner, extractor, vision, video, embedding, drawing, agentWeb, agentServer, agentDev\\)`),
+      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(voice, analyzer, reasoner, extractor, vision, video, embedding, drawing, agent.web, agent.server, agent.dev\\)`),
       role,
     );
   }
@@ -1946,9 +1976,9 @@ test('status: the card carries the fields in order and the member variant drops 
       `video · ${ROLE_DEFAULTS.video}`,
       `embedding · ${ROLE_DEFAULTS.embedding}`,
       `drawing · ${ROLE_DEFAULTS.drawing}`,
-      `agentWeb · ${ROLE_DEFAULTS.agentWeb}`,
-      `agentServer · ${ROLE_DEFAULTS.agentServer}`,
-      `agentDev · ${ROLE_DEFAULTS.agentDev}`,
+      `agent.web · ${ROLE_DEFAULTS['agent.web']}`,
+      `agent.server · ${ROLE_DEFAULTS['agent.server']}`,
+      `agent.dev · ${ROLE_DEFAULTS['agent.dev']}`,
     ].join('\n'),
     'no llm client: one line per role with its own model, unprobed',
   );
@@ -2317,9 +2347,9 @@ test('status: the card lists one item per line in every field, the models one li
     'video · x/video',
     'embedding · x/embed',
     'drawing · openai/gpt-image-1',
-    `agentWeb · ${ROLE_DEFAULTS.agentWeb}`,
-    `agentServer · ${ROLE_DEFAULTS.agentServer}`,
-    `agentDev · ${ROLE_DEFAULTS.agentDev}`,
+    `agent.web · ${ROLE_DEFAULTS['agent.web']}`,
+    `agent.server · ${ROLE_DEFAULTS['agent.server']}`,
+    `agent.dev · ${ROLE_DEFAULTS['agent.dev']}`,
   ], 'each line starts with its role and its model');
   assert.ok(!lines('models').some((line) => line.startsWith(' ')), 'no detail line under a role');
   for (const field of embeds[0].fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
@@ -2355,9 +2385,9 @@ test('status: the owner card probes every role\'s model and shows its provider a
   assert.ok(lines.includes('vision · x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
   assert.match(lines.at(-4), /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
   assert.deepEqual(lines.slice(-3), [
-    `agentWeb · ${ROLE_DEFAULTS.agentWeb} · not probed (runs on OpenCode)`,
-    `agentServer · ${ROLE_DEFAULTS.agentServer} · not probed (runs on OpenCode)`,
-    `agentDev · ${ROLE_DEFAULTS.agentDev} · not probed (runs on OpenCode)`,
+    `agent.web · ${ROLE_DEFAULTS['agent.web']} · not probed (runs on OpenCode)`,
+    `agent.server · ${ROLE_DEFAULTS['agent.server']} · not probed (runs on OpenCode)`,
+    `agent.dev · ${ROLE_DEFAULTS['agent.dev']} · not probed (runs on OpenCode)`,
   ], 'the agent roles last, never probed');
   assert.ok(!llm.calls.some((call) => call.options.role.startsWith('agent')), 'no request goes out on an agent role');
 
@@ -2387,9 +2417,9 @@ test('status: the member card shows the models one line per role without probing
       'video · x/video',
       'embedding · x/embed',
       'drawing · openai/gpt-image-1',
-      `agentWeb · ${ROLE_DEFAULTS.agentWeb}`,
-      `agentServer · ${ROLE_DEFAULTS.agentServer}`,
-      `agentDev · ${ROLE_DEFAULTS.agentDev}`,
+      `agent.web · ${ROLE_DEFAULTS['agent.web']}`,
+      `agent.server · ${ROLE_DEFAULTS['agent.server']}`,
+      `agent.dev · ${ROLE_DEFAULTS['agent.dev']}`,
     ].join('\n'),
   );
   assert.equal(llm.calls.length, 0, 'no probe request');
@@ -3548,8 +3578,8 @@ test('run: route.set validates the prefix, the providers and the role, writing n
     [{ model: 'google/', providers: 'google-vertex', role: 'classifier' }, /unknown role/],
     [{ model: 'google/', providers: 'google-vertex', role: 'talk' }, /unknown role: talk/],
     // An agent role's OpenCode worker never reads llm.providerByModel: no route may name it.
-    [{ model: 'openrouter/', providers: 'openai', role: 'agentWeb' }, /unknown role: agentWeb/],
-    [{ model: 'openrouter/', providers: 'openai', role: 'agentDev' }, /unknown role: agentDev/],
+    [{ model: 'openrouter/', providers: 'openai', role: 'agent.web' }, /unknown role: agent\.web/],
+    [{ model: 'openrouter/', providers: 'openai', role: 'agent.dev' }, /unknown role: agent\.dev/],
   ];
   for (const [args, message] of bad) {
     await assert.rejects(() => admin.run('route.set', args, {}), message, JSON.stringify(args));
@@ -3638,9 +3668,9 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     '  video: google/gemini-3.8-flash -> google/@video (only google-ai-studio, fallbacks: off); direct-URL videos: media.video.provider (order google-ai-studio, fallbacks: off)',
     '  embedding: openai/text-embedding-x -> llm.provider (ignore some-provider, fallbacks: on)',
     '  drawing: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
-    `  agentWeb: ${ROLE_DEFAULTS.agentWeb} -> OpenCode's own routing (llm.providerByModel not read)`,
-    `  agentServer: ${ROLE_DEFAULTS.agentServer} -> OpenCode's own routing (llm.providerByModel not read)`,
-    `  agentDev: ${ROLE_DEFAULTS.agentDev} -> OpenCode's own routing (llm.providerByModel not read)`,
+    `  agent.web: ${ROLE_DEFAULTS['agent.web']} -> OpenCode's own routing (llm.providerByModel not read)`,
+    `  agent.server: ${ROLE_DEFAULTS['agent.server']} -> OpenCode's own routing (llm.providerByModel not read)`,
+    `  agent.dev: ${ROLE_DEFAULTS['agent.dev']} -> OpenCode's own routing (llm.providerByModel not read)`,
   ]);
 });
 
