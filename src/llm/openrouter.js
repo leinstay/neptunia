@@ -1154,6 +1154,11 @@ export function createLlm({
    * describer (`media.video.reasoning`), whose model otherwise spends the
    * output budget on reasoning, and by the two-stage analyzer's stage A and
    * the warmup's neutral route (`memory.reasoning`).
+   * `options.plugins` — OpenRouter's plugins for this one call (e.g. `[{ id: 'web', engine:
+   *   'exa', max_results: 5 }]`); a non-empty array is sent verbatim as `body.plugins`,
+   *   anything else omits the field. Used by the web lookup's `openrouter` engine
+   *   (src/web/lookup.js), whose one request searches and summarizes; the answer then carries the
+   *   message's annotations (`annotations`, only when OpenRouter returned some).
    * `options.videoSeconds` — seconds of video the request carries. A finite,
    * non-negative value adds `ceil(videoSeconds * tokensPerSecond)` to the raw
    * estimate before calibration, because `estimateMessages` cannot size a
@@ -1233,6 +1238,7 @@ export function createLlm({
     });
     if (provider) body.provider = providerBodyOf(provider);
     if (isPlainObject(options.reasoning)) body.reasoning = options.reasoning;
+    if (Array.isArray(options.plugins) && options.plugins.length) body.plugins = options.plugins;
     // `options.purpose` and `options.origin` are for the usage line only: never put on `body`.
 
     // The key of this request's role (`llm.keyByRole`, read now), else the main key.
@@ -1265,6 +1271,8 @@ export function createLlm({
         throw choiceError;
       }
       const text = json.choices?.[0]?.message?.content ?? '';
+      // The message's `url_citation` annotations (OpenRouter's web plugin); only a non-empty array is passed on.
+      const annotations = json.choices?.[0]?.message?.annotations;
       const usage = json.usage ?? {};
       const finishReason = json.choices?.[0]?.finish_reason ?? undefined;
       // The whole prompt as the provider counted it, its cached part included (see fullPromptTokens).
@@ -1282,7 +1290,10 @@ export function createLlm({
       // `json.provider` is OpenRouter's own name for whichever upstream provider
       // actually served the request (undefined when the response omits it) --
       // surfaced so `/nep ping` can report it without a second request shape.
-      return { text: typeof text === 'string' ? text : '', usage, estimated, finishReason, provider: json.provider, promptTokens };
+      return {
+        text: typeof text === 'string' ? text : '', usage, estimated, finishReason, provider: json.provider, promptTokens,
+        ...(Array.isArray(annotations) && annotations.length ? { annotations } : {}),
+      };
     };
 
     // A helper request on a hedged role, or a request with an explicit hedge: two attempts at most,

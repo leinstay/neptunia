@@ -46,6 +46,7 @@ export function createOpsEnv({
   embedQueue = null,
   record = null,
   metrics = null,
+  lookup = null,
   usage = null,
   simKey = null,
   managementKey = null,
@@ -234,6 +235,8 @@ export function createOpsEnv({
     embedQueue,
     record,
     metrics,
+    // The web lookup, read only by the status card's search line.
+    lookup,
     usage,
     // The simulator key, read only by the status card's one GET of its limit; never logged.
     simKey,

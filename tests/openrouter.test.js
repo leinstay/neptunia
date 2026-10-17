@@ -1307,6 +1307,32 @@ test('complete: options.reasoning (a plain object) is sent verbatim as body.reas
   for (const body of bodies.slice(1)) assert.equal('reasoning' in body, false);
 });
 
+test('complete: options.plugins (a non-empty array) is sent verbatim as body.plugins; the answer carries the message annotations', async () => {
+  const bodies = [];
+  const annotations = [{ type: 'url_citation', url_citation: { url: 'https://example.org/a', title: 'A' } }];
+  const llm = createLlm({
+    apiKey: 'k',
+    getConfig: () => baseConfig(),
+    calibrator: fakeCalibrator(),
+    state: fakeState(),
+    fetchImpl: async (url, init) => {
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      const message = body.plugins ? { content: 'hi', annotations } : { content: 'hi', annotations: [] };
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message }], usage: { prompt_tokens: 42 } }) };
+    },
+  });
+  const plugins = [{ id: 'web', engine: 'exa', max_results: 3 }];
+  const withPlugin = await llm.complete([{ role: 'user', content: 'hi' }], { plugins });
+  const plain = await llm.complete([{ role: 'user', content: 'hi' }]);
+  await llm.complete([{ role: 'user', content: 'hi' }], { plugins: [] });
+  await llm.complete([{ role: 'user', content: 'hi' }], { plugins: { id: 'web' } });
+  assert.deepEqual(bodies[0].plugins, plugins);
+  for (const body of bodies.slice(1)) assert.equal('plugins' in body, false);
+  assert.deepEqual(withPlugin.annotations, annotations);
+  assert.equal('annotations' in plain, false, 'an empty annotation list is left out');
+});
+
 // --- provider routing per model family (llm.providerByModel) ---
 
 const BEDROCK = { only: ['amazon-bedrock'], allow_fallbacks: false };

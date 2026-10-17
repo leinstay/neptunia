@@ -67,6 +67,7 @@ import { createImageFetcher } from './media/fetch-image.js';
 import { createVideoFetcher } from './media/fetch-video.js';
 import { createPageFetcher } from './web/fetch-page.js';
 import { createBraveSearch } from './web/brave.js';
+import { createExaSearch } from './web/exa.js';
 import { createLookup } from './web/lookup.js';
 import { createAdmin } from './admin.js';
 import { createErrandClient } from './errands/client.js';
@@ -109,8 +110,10 @@ const discordToken = needOrFail('DISCORD_TOKEN');
 const openrouterKey = needOrFail('OPENROUTER_API_KEY');
 // Optional: without it a YouTube duration comes from the watch page only.
 const youtubeApiKey = env.YOUTUBE_API_KEY || null;
-// Optional: without it the web lookup reads links but never searches. Never logged.
+// Optional: without it the `brave` search engine never runs (the web lookup still reads links). Never logged.
 const braveApiKey = env.BRAVE_SEARCH_API_KEY || null;
+// Optional: the `exa` engine runs keyless; with a key it is sent as a bearer header. Never logged.
+const exaApiKey = env.EXA_API_KEY || null;
 // Optional: the simulator key, used only for one read-only GET of its limit on the owner's status
 // card, never for a model request. Never logged.
 const simApiKey = env.OPENROUTER_SIM_KEY || null;
@@ -317,8 +320,9 @@ const lookup = createLookup({
   llm,
   state: store.state,
   pageFetcher: createPageFetcher(),
-  braveSearch: createBraveSearch(),
-  braveApiKey,
+  // web.search.engine picks one of these; web.search.fallback orders the others.
+  searches: { brave: createBraveSearch(), exa: createExaSearch() },
+  keys: { brave: braveApiKey, exa: exaApiKey },
 });
 // The live glance at the voice channels and the scene's statuses (features.around): a snapshot
 // in process memory, fed by the gateway events below, never written anywhere.
@@ -511,6 +515,8 @@ const admin = createAdmin({
   record: recordWriter,
   // /nep status: the speed field.
   metrics,
+  // /nep status: the web search engine on the limits field.
+  lookup,
   // /nep status: the costs field's per-role lines.
   usage,
   // /nep status: the simulator key's limit line (one GET, nothing else).

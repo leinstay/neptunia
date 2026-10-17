@@ -80,6 +80,8 @@ function fakeBrave(result = { ok: true, results: [
   };
 }
 
+const EXA_RESULTS = { ok: true, results: [{ title: 'Exa one', url: 'https://exa.example.net/one', snippet: 'exa extract', age: '2026-09-01T00:00:00.000Z' }] };
+
 function fakeLlm(text = 'An article about a simple recipe: three eggs, flour, ten minutes.') {
   const calls = [];
   return {
@@ -99,11 +101,11 @@ function setup(overrides = {}) {
     llm: fakeLlm(overrides.llmText),
     state: fakeState(),
     pageFetcher: fakePageFetcher(overrides.page),
-    braveSearch: fakeBrave(overrides.brave),
-    braveApiKey: 'braveApiKey' in overrides ? overrides.braveApiKey : 'test-key',
+    searches: { brave: fakeBrave(overrides.brave), exa: fakeBrave(overrides.exa ?? EXA_RESULTS) },
+    keys: { brave: 'braveApiKey' in overrides ? overrides.braveApiKey : 'test-key', exa: overrides.exaApiKey ?? null },
     now: overrides.now ?? (() => NOW),
   };
-  return { ...deps, lookup: createLookup(deps) };
+  return { ...deps, braveSearch: deps.searches.brave, exaSearch: deps.searches.exa, lookup: createLookup(deps) };
 }
 
 const LINK = { id: 'm1#e0', url: 'https://example.org/a', site: 'example.org', title: 'Ricetta' };
@@ -217,7 +219,7 @@ test('readLinks / search: a web.maxPerDay that is not a finite number counts as 
     const pageFetcher = fakePageFetcher();
     const braveSearch = fakeBrave();
     const state = fakeState();
-    const lookup = createLookup({ hot, store: fakeStore(), llm: fakeLlm(), state, pageFetcher, braveSearch, braveApiKey: 'k', now: () => NOW });
+    const lookup = createLookup({ hot, store: fakeStore(), llm: fakeLlm(), state, pageFetcher, searches: { brave: braveSearch }, keys: { brave: 'k' }, now: () => NOW });
     assert.equal(await readOne(lookup, LINK), null);
     assert.equal(await lookup.search('g1', 'x y'), null);
     assert.equal(pageFetcher.calls.length, 0);
@@ -302,7 +304,7 @@ test('readLinks: feature off (false or missing), links.enabled off or no read-li
   for (const hot of cases) {
     const pageFetcher = fakePageFetcher();
     const llm = fakeLlm();
-    const lookup = createLookup({ hot, store: fakeStore(), llm, state: fakeState(), pageFetcher, braveSearch: fakeBrave(), braveApiKey: 'k', now: () => NOW });
+    const lookup = createLookup({ hot, store: fakeStore(), llm, state: fakeState(), pageFetcher, searches: { brave: fakeBrave() }, keys: { brave: 'k' }, now: () => NOW });
     assert.equal(await readOne(lookup, LINK), null);
     assert.deepEqual(await lookup.readLinks('g1', [LINK]), { reads: new Map(), newCount: 0 });
     assert.equal(pageFetcher.calls.length, 0);
@@ -568,7 +570,7 @@ test('search: feature off, search.enabled off, no prompt or a blank query -> nul
   for (const hot of cases) {
     const braveSearch = fakeBrave();
     const llm = fakeLlm();
-    const lookup = createLookup({ hot, store: fakeStore(), llm, state: fakeState(), pageFetcher: fakePageFetcher(), braveSearch, braveApiKey: 'k', now: () => NOW });
+    const lookup = createLookup({ hot, store: fakeStore(), llm, state: fakeState(), pageFetcher: fakePageFetcher(), searches: { brave: braveSearch }, keys: { brave: 'k' }, now: () => NOW });
     assert.equal(await lookup.search('g1', 'x y'), null);
     assert.equal(braveSearch.calls.length, 0);
     assert.equal(llm.calls.length, 0);
@@ -590,6 +592,166 @@ test('search: logs counts and codes, never the query, the summary or the key', a
   assert.ok(!all.includes('mystérieuse'));
   assert.ok(!all.includes('Résumé'));
   assert.ok(!all.includes('test-key'));
+});
+
+// --- the engines and the fallback (web.search.engine, web.search.fallback) ---------
+
+/** setup() with web.search.engine / fallback set. */
+function engineSetup(search, overrides = {}) {
+  return setup({ ...overrides, hotOptions: { ...overrides.hotOptions, web: { search } } });
+}
+
+test('search: engine exa -- the Exa client searches (its key, the count, the timeout), Brave is never called', async () => {
+  const { lookup, braveSearch, exaSearch, llm } = engineSetup({ engine: 'exa' }, { braveApiKey: null, exaApiKey: 'exa-k' });
+  assert.equal(lookup.hasSearch(), true, 'exa needs no Brave key');
+  assert.equal(lookup.searchEngine(), 'exa');
+  const { result, logs } = await withCapturedLogs(() => lookup.search('g1', 'la finale'));
+  assert.deepEqual(result.sources, [{ title: 'Exa one', url: 'https://exa.example.net/one', site: 'exa.example.net' }]);
+  assert.equal(braveSearch.calls.length, 0);
+  assert.equal(exaSearch.calls.length, 1);
+  assert.deepEqual(exaSearch.calls[0].options, { apiKey: 'exa-k', count: 5, timeoutMs: 10_000 });
+  assert.equal(llm.calls[0].messages[1].content, '1. Exa one\nhttps://exa.example.net/one\nexa extract\n2026-09-01T00:00:00.000Z');
+  const line = logs.find((l) => l.msg === 'lookup: search');
+  assert.deepEqual([line.state, line.engine, line.fallback], ['found', 'exa', false]);
+  const keyless = engineSetup({ engine: 'exa' });
+  await keyless.lookup.search('g1', 'x y');
+  assert.equal(keyless.exaSearch.calls[0].options.apiKey, null);
+});
+
+test('search: engine openrouter -- one reasoner request with the Exa web plugin; the annotations are the sources', async () => {
+  const annotations = [
+    { type: 'url_citation', url_citation: { url: 'https://www.example.com/one', title: 'Cited one' } },
+    { type: 'url_citation', url_citation: { url: 'https://www.example.com/one', title: 'Twice' } },
+    { type: 'url_citation', url_citation: { url: 'javascript:alert(1)', title: 'Bad' } },
+    { type: 'other' },
+  ];
+  const { lookup, braveSearch, exaSearch, llm, store } = engineSetup({ engine: 'openrouter', results: 3 }, { braveApiKey: null });
+  llm.complete = async (messages, options) => {
+    llm.calls.push({ messages, options });
+    return { text: 'The answer, searched and condensed.', usage: {}, estimated: 5, annotations };
+  };
+  assert.equal(lookup.hasSearch(), true);
+  const result = await lookup.search('g1', 'Qui a gagné ?');
+  assert.deepEqual(result, {
+    query: 'Qui a gagné ?',
+    text: 'The answer, searched and condensed.',
+    sources: [{ title: 'Cited one', url: 'https://www.example.com/one', site: 'example.com' }],
+  });
+  assert.equal(braveSearch.calls.length + exaSearch.calls.length, 0);
+  assert.equal(llm.calls.length, 1);
+  const { messages, options } = llm.calls[0];
+  assert.equal(messages[0].content, 'The query: Qui a gagné ?. Up to 900 characters.', 'the same system prompt');
+  assert.equal(messages[1].content, 'Qui a gagné ?', 'the user content is the question');
+  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'exa', max_results: 3 }]);
+  assert.equal(options.model, 'x/reason');
+  assert.equal(options.role, 'reasoner');
+  assert.equal(options.purpose, 'search-summary');
+  assert.equal(options.helper, false, 'never hedged: the search is billed once');
+  assert.ok(Object.keys(store.getMediaCache('g1')).some((k) => k.startsWith('search:')));
+
+  const bare = engineSetup({ engine: 'openrouter' });
+  assert.deepEqual((await bare.lookup.search('g1', 'x y')).sources, [], 'no annotations -> no sources');
+  assert.equal(bare.llm.calls[0].options.plugins[0].max_results, 5);
+});
+
+test('search: hasSearch follows the chosen engine; an unknown engine reads as brave', async () => {
+  const cases = [
+    [{ engine: 'brave' }, 'k', true, 'brave'],
+    [{ engine: 'brave' }, null, false, 'brave'],
+    [{ engine: 'exa' }, null, true, 'exa'],
+    [{ engine: 'openrouter' }, null, true, 'openrouter'],
+    [{ engine: 'bing' }, null, false, 'brave'],
+    [{ engine: 'brave', fallback: ['exa'] }, null, false, 'brave'],
+  ];
+  for (const [search, braveApiKey, has, engine] of cases) {
+    const { lookup } = engineSetup(search, { braveApiKey });
+    assert.equal(lookup.hasSearch(), has, JSON.stringify(search));
+    assert.equal(lookup.searchEngine(), engine, JSON.stringify(search));
+  }
+});
+
+test('search: the fallback order is tried on rate-limited, timeout, network and a Brave 429; one daily slot; one journal line per attempt', async () => {
+  for (const failure of [{ ok: false, reason: 'rate-limited', status: 429 }, { ok: false, reason: 'timeout' }, { ok: false, reason: 'network' }, { ok: false, reason: 'http', status: 429 }]) {
+    const { lookup, braveSearch, exaSearch, state } = engineSetup({ engine: 'brave', fallback: ['exa'] }, { brave: failure });
+    const { result, logs } = await withCapturedLogs(() => lookup.search('g1', 'x y'));
+    assert.equal(result.sources[0].url, 'https://exa.example.net/one', JSON.stringify(failure));
+    assert.equal(braveSearch.calls.length, 1);
+    assert.equal(exaSearch.calls.length, 1);
+    assert.equal(state.data.webCount, 1, 'the cap is spent once per lookup');
+    const lines = logs.filter((l) => l.msg === 'lookup: search');
+    assert.deepEqual(lines.map((l) => [l.state, l.reason, l.engine, l.fallback]), [['error', failure.reason, 'brave', false], ['found', null, 'exa', true]]);
+  }
+});
+
+test('search: the fallback list runs in its order, each engine once, past a second failure; all failing -> null', async () => {
+  const { lookup, exaSearch, llm, state } = engineSetup(
+    { engine: 'brave', fallback: ['brave', 'nope', 'exa', 'exa', 'openrouter'] },
+    { brave: { ok: false, reason: 'timeout' }, exa: { ok: false, reason: 'rate-limited', status: 429 } },
+  );
+  const { result, logs } = await withCapturedLogs(() => lookup.search('g1', 'x y'));
+  assert.equal(exaSearch.calls.length, 1);
+  assert.equal(llm.calls.length, 1);
+  assert.ok(llm.calls[0].options.plugins, 'the openrouter engine answered last');
+  assert.ok(result.text);
+  assert.equal(state.data.webCount, 1);
+  assert.deepEqual(logs.filter((l) => l.msg === 'lookup: search').map((l) => [l.engine, l.fallback]), [['brave', false], ['exa', true], ['openrouter', true]]);
+
+  const allFail = engineSetup({ engine: 'exa', fallback: ['brave'] }, { exa: { ok: false, reason: 'network' }, brave: { ok: false, reason: 'timeout' } });
+  assert.equal(await allFail.lookup.search('g1', 'x y'), null);
+  assert.equal(allFail.braveSearch.calls.length, 1);
+  assert.equal(allFail.state.data.webCount, 1);
+  assert.deepEqual(Object.keys(allFail.store.getMediaCache('g1')), []);
+});
+
+test('search: no fallback on empty (nothing found is the answer, no summary), nor on any other failure', async () => {
+  const empty = engineSetup({ engine: 'brave', fallback: ['exa', 'openrouter'] }, { brave: { ok: false, reason: 'empty' } });
+  assert.deepEqual(await empty.lookup.search('g1', 'x y'), { query: 'x y', text: '', sources: [] });
+  assert.equal(empty.exaSearch.calls.length, 0);
+  assert.equal(empty.llm.calls.length, 0);
+
+  const http = engineSetup({ engine: 'brave', fallback: ['exa'] }, { brave: { ok: false, reason: 'http', status: 500 } });
+  assert.equal(await http.lookup.search('g1', 'x y'), null);
+  assert.equal(http.exaSearch.calls.length, 0);
+
+  const summary = engineSetup({ engine: 'brave', fallback: ['exa'] }, { llmText: new Error('boom') });
+  assert.equal(await summary.lookup.search('g1', 'x y'), null);
+  assert.equal(summary.exaSearch.calls.length, 0, 'a failed summary is not the engine\'s failure');
+
+  const blankSummary = engineSetup({ engine: 'brave', fallback: ['exa'] }, { llmText: '   ' });
+  assert.equal(await blankSummary.lookup.search('g1', 'x y'), null);
+  assert.equal(blankSummary.exaSearch.calls.length, 0);
+});
+
+test('search: a fallback engine that cannot run is skipped; the fallback with maxPerDay 1 still runs (one slot)', async () => {
+  const { lookup, braveSearch, exaSearch } = engineSetup({ engine: 'exa', fallback: ['brave'] }, { braveApiKey: null, exa: { ok: false, reason: 'timeout' } });
+  assert.equal(await lookup.search('g1', 'x y'), null);
+  assert.equal(exaSearch.calls.length, 1);
+  assert.equal(braveSearch.calls.length, 0, 'brave without its key is not a fallback');
+
+  const capped = setup({ brave: { ok: false, reason: 'timeout' }, hotOptions: { web: { maxPerDay: 1, search: { fallback: ['exa'] } } } });
+  assert.ok(await capped.lookup.search('g1', 'x y'));
+  assert.equal(capped.exaSearch.calls.length, 1);
+  assert.equal(capped.state.data.webCount, 1);
+});
+
+test('search: the openrouter engine maps a 429 and a timeout to fallback reasons; the daily request cap stops a fallback', async () => {
+  for (const [error, reason] of [[Object.assign(new Error('HTTP 429'), { statusCode: 429 }), 'rate-limited'], [Object.assign(new Error('t'), { name: 'TimeoutError' }), 'timeout']]) {
+    const { lookup, exaSearch } = engineSetup({ engine: 'openrouter', fallback: ['exa'] }, { llmText: error });
+    const { logs } = await withCapturedLogs(() => lookup.search('g1', 'x y'));
+    assert.equal(exaSearch.calls.length, 1);
+    assert.equal(logs.find((l) => l.msg === 'lookup: search').reason, reason);
+  }
+  const refused = engineSetup({ engine: 'openrouter', fallback: ['exa'] }, { llmText: new DailyCapError('cap') });
+  assert.equal(await refused.lookup.search('g1', 'x y'), null);
+  assert.equal(refused.exaSearch.calls.length, 0);
+
+  // The first attempt spends the last request of the day: the fallback is not sent.
+  let left = 1;
+  const spent = engineSetup({ engine: 'brave', fallback: ['exa'] }, { brave: () => { left = 0; return { ok: false, reason: 'timeout' }; } });
+  spent.llm.capLeft = () => left;
+  const { logs } = await withCapturedLogs(() => spent.lookup.search('g1', 'x y'));
+  assert.equal(spent.exaSearch.calls.length, 0);
+  assert.deepEqual(logs.filter((l) => l.msg === 'lookup: search').map((l) => [l.state, l.reason, l.engine]), [['error', 'timeout', 'brave'], ['limit', 'daily-cap', 'exa']]);
 });
 
 // --- the daily request cap, the helper options, the read-only web cap ------------
