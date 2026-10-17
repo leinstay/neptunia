@@ -174,3 +174,43 @@ test('errands service: forgetUser cancels the member\'s running task at its runn
   assert.deepEqual(errands.store('g1').recent(10), []);
   fs.rmSync(rootDir, { recursive: true, force: true });
 });
+
+test('errands service: a task carries context.recent, the origin channel\'s last agents.recentLines lines as of its queuing; a dm task sends none', async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const hot = { config: { agents: { maxOpen: 5, recentLines: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
+  const buffer = [
+    { channelId: 'c1', authorName: 'Ελένη', content: 'πρώτη' },
+    { channelId: 'c2', authorName: 'Νίκος', content: 'elsewhere' },
+    { channelId: 'c1', authorName: 'Νίκος', content: 'δεύτερη\n  με   κενά' },
+    { channelId: 'c1', authorName: 'Ελένη', content: '' },
+    { channelId: 'c1', authorName: 'A'.repeat(250), content: 'x'.repeat(250) },
+    { channelId: 'c1', authorName: 'Ελένη', content: 'τελευταία' },
+    { channelId: 'dm1', authorName: 'Ελένη', content: 'ιδιωτικό' },
+  ];
+  const memory = { getBuffer: (guildId) => (guildId === 'g1' ? buffer : []) };
+  const client = fakeClient();
+  const deferred = [];
+  const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log: fakeLog() });
+  const errands = createErrandService({ client, stores, hot, memory, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => deferred.push(fn) });
+  errands.submit(ask('web'));
+  errands.submit({ ...ask('web'), origin: { channelId: 'dm1', messageId: null }, scope: 'dm' });
+  // A line after the queuing is not in the task's context.
+  buffer.push({ channelId: 'c1', authorName: 'Νίκος', content: 'later' });
+  for (const fn of deferred.splice(0)) fn();
+  await errands.idle();
+  const [group, dm] = client.runs;
+  assert.deepEqual(group.context.recent, [
+    { author: 'Νίκος', text: 'δεύτερη με κενά' },
+    { author: 'A'.repeat(200), text: 'x'.repeat(200) },
+    { author: 'Ελένη', text: 'τελευταία' },
+  ]);
+  assert.deepEqual([group.context.scope, group.context.channel, group.context.asker], ['group', 'c1', '7']);
+  assert.deepEqual(dm.context.recent, [], 'nothing of a private chat');
+  assert.equal(dm.context.scope, 'dm');
+  hot.config.agents.recentLines = 0;
+  errands.submit(ask('web'));
+  for (const fn of deferred.splice(0)) fn();
+  await errands.idle();
+  assert.deepEqual(client.runs[2].context.recent, []);
+  fs.rmSync(rootDir, { recursive: true, force: true });
+});

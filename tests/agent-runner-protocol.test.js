@@ -166,3 +166,19 @@ test('normalizeResult: the withheld paths pass, each once and cut, at most 50; n
 test('encodeLine: one JSON object and a newline', () => {
   assert.equal(encodeLine({ a: 1 }), '{"a":1}\n');
 });
+
+test('validateRequest: context.recent passes as { author, text } lines, the latest 20 kept, each cut; a malformed line refuses bad-recent', () => {
+  const line = (i) => ({ author: `Ελένη ${i}`, text: `γραμμή ${i}`, extra: 'dropped' });
+  const many = Array.from({ length: 25 }, (_, i) => line(i));
+  const ok = validateRequest({ op: 'run', id: 't1', goal: 'g', context: { scope: 'group', channel: 'c1', recent: many } });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.message.context.recent.length, 20);
+  assert.deepEqual(ok.message.context.recent[0], { author: 'Ελένη 5', text: 'γραμμή 5' }, 'the earliest dropped, other keys too');
+  assert.equal(ok.message.context.channel, 'c1');
+  const long = validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: [{ author: 'a'.repeat(300), text: 'b'.repeat(300) }] } });
+  assert.deepEqual([long.message.context.recent[0].author.length, long.message.context.recent[0].text.length], [200, 200]);
+  assert.deepEqual(validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: [] } }).message.context.recent, []);
+  for (const bad of ['text', [{ author: 'a' }], [{ author: 'a', text: 3 }], [null], [['a', 'b']], [{ author: 'a', text: 'b' }, 'c']]) {
+    assert.deepEqual(validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: bad } }), { ok: false, error: 'bad-recent' }, JSON.stringify(bad));
+  }
+});

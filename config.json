@@ -438,6 +438,7 @@
     "toolResultChars": 6000,
     "maxDownloadBytes": 20000000,
     "keepFilesHours": 24,
+    "recentLines": 6,
     "maxOpen": 3,
     "resultMaxChars": 3000,
     "resultRetrySeconds": 30,

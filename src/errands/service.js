@@ -15,16 +15,23 @@
 // (MEDIA_VIDEO_PROXY, the same proxy serving http too, so a `socks5h://` URL is sent in its http
 // form) and the search key (OPENCODE_WEBSEARCH_KEY) when set. Without the role's key no secrets
 // are sent (the runner falls back to its own environment). Settings are read at the moment of
-// use; logs carry ids and codes, never a goal, a result or a secret.
+// use; logs carry ids and codes, never a goal, a result or a secret. The context also carries
+// `recent`: the last `agents.recentLines` lines of the origin channel as `[{ author, text }]`
+// (display names and text on one line, cut to RECENT_CHARS), read from the memory's buffer
+// (`store.getBuffer`) at the moment the task is queued and kept in memory only until it is sent;
+// a `dm`-scoped task sends `recent: []` (nothing of a private chat reaches a runner this way).
 
 import { log as defaultLog } from '../log.js';
 import { profileOf } from '../agent-runner/profiles.js';
-import { httpProxyForm } from '../agent-runner/protocol.js';
 import { roleApiKey } from '../llm/openrouter.js';
+import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.js';
+import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOpenState } from './store.js';
 
 /** The limit keys a task may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
 const TASK_LIMIT_KEYS = Object.freeze(['steps', 'usd', 'seconds']);
+/** `agents.recentLines` when it is missing (config.json carries the same). */
+export const DEFAULT_RECENT_LINES = 6;
 
 /**
  * @param {object} options
@@ -33,14 +40,18 @@ const TASK_LIMIT_KEYS = Object.freeze(['steps', 'usd', 'seconds']);
  * @param {{ config: object }} options.hot
  * @param {Record<string, string|undefined>} [options.env]  The parsed environment (src/config.js#env):
  *   the keys and the proxy a run carries.
+ * @param {{ getBuffer(guildId: string): object[] }|null} [options.memory]  The memory store
+ *   (src/memory/store.js): its buffer gives a task's `context.recent`.
  * @param {() => string|null} [options.getGuildId]  The served guild, when a caller gives none.
  * @param {(task: object, guildId: string) => unknown} [options.onFinished]
  * @param {{ info: Function, warn: Function }} [options.log]
  * @param {(fn: Function) => void} [options.defer]  How the background run starts (default setImmediate).
  */
-export function createErrandService({ client, stores, hot, env = {}, getGuildId = () => null, onFinished = null, log = defaultLog, defer = (fn) => setImmediate(fn) }) {
+export function createErrandService({ client, stores, hot, env = {}, memory = null, getGuildId = () => null, onFinished = null, log = defaultLog, defer = (fn) => setImmediate(fn) }) {
   // task id -> the promise of its run, while it runs (tests and the shutdown wait on them).
   const running = new Map();
+  // task id -> its `context.recent`, from its queuing until it is sent (never written to disk).
+  const recentById = new Map();
 
   /** The store of `guildId`, else of the served guild. */
   function storeOf(guildId) {
@@ -76,8 +87,35 @@ export function createErrandService({ client, stores, hot, env = {}, getGuildId 
     return secrets;
   }
 
+  /**
+   * The last `agents.recentLines` lines (read now; at most MAX_RECENT_ENTRIES) of channel
+   * `channelId` in the memory's buffer of `guildId`, oldest first, as `{ author, text }` (the
+   * display name and the text on one line, each cut to RECENT_CHARS; a line without text left
+   * out). [] for a `dm` scope, without a channel or a buffer.
+   */
+  function recentOf(guildId, channelId, scope) {
+    if (scope === 'dm' || !channelId || typeof memory?.getBuffer !== 'function') return [];
+    const set = hot.config?.agents?.recentLines;
+    const count = Math.min(MAX_RECENT_ENTRIES, Number.isFinite(set) && set >= 0 ? Math.floor(set) : DEFAULT_RECENT_LINES);
+    if (count === 0) return [];
+    let buffer;
+    try {
+      buffer = memory.getBuffer(guildId);
+    } catch (err) {
+      log.warn('errands: buffer unreadable', { guildId: String(guildId), error: err });
+      return [];
+    }
+    const lines = (Array.isArray(buffer) ? buffer : [])
+      .filter((message) => message && String(message.channelId ?? '') === String(channelId))
+      .map((message) => ({ author: clampChars(oneLine(message.authorName ?? ''), RECENT_CHARS), text: clampChars(oneLine(message.content ?? ''), RECENT_CHARS) }))
+      .filter((line) => line.text);
+    return lines.slice(-count);
+  }
+
   /** One queued task sent to its runner and closed with its end. Never throws. */
   async function runTask(store, id) {
+    const recent = recentById.get(id) ?? [];
+    recentById.delete(id);
     const task = store.start(id);
     if (!task) return null;
     const secrets = secretsOf(task.agent);
@@ -87,7 +125,7 @@ export function createErrandService({ client, stores, hot, env = {}, getGuildId 
         agent: task.agent,
         id: task.id,
         goal: task.goal,
-        context: { scope: task.scope, channel: task.origin?.channelId ?? null, asker: task.requester?.userId ?? null },
+        context: { scope: task.scope, channel: task.origin?.channelId ?? null, asker: task.requester?.userId ?? null, recent: task.scope === 'dm' ? [] : recent },
         limits: limitsOf(task.agent),
         ...(secrets ? { secrets } : {}),
       });
@@ -121,6 +159,8 @@ export function createErrandService({ client, stores, hot, env = {}, getGuildId 
     const added = store.add({ agent, goal, requester, origin, scope });
     if (!added.ok) return added;
     const id = added.task.id;
+    // The channel as it was when the task was asked for, not when it is sent.
+    recentById.set(id, recentOf(store.guildId, added.task.origin?.channelId ?? null, added.task.scope));
     // After the operation's answer: the persona never waits for her errand.
     const run = new Promise((resolve) => defer(resolve))
       .then(() => runTask(store, id))

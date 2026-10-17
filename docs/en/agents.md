@@ -73,7 +73,7 @@ The core connects to the runner's Unix socket (`agents.<profile>.socket`, group 
 
 Core to runner:
 
-- `{ "op": "run", "id", "goal", "context": { "scope", "channel", "asker", ... }, "limits": { "steps", "usd", "seconds" }, "tools": [...], "model"?, "cost"?, "searchProvider"?, "secrets"?: { "openrouterKey", "proxy"?, "searchKey"? } }` (`secrets`: non-empty strings, no other key; a refused `run` is answered with its error code alone, never a value)
+- `{ "op": "run", "id", "goal", "context": { "scope", "channel", "asker", "recent", ... }, "limits": { "steps", "usd", "seconds" }, "tools": [...], "model"?, "cost"?, "searchProvider"?, "secrets"?: { "openrouterKey", "proxy"?, "searchKey"? } }` (`secrets`: non-empty strings, no other key; a refused `run` is answered with its error code alone, never a value; `context.recent`: the last `agents.recentLines` lines of the channel the task was asked in, `[{ "author", "text" }]`, each string cut to 200 characters, at most 20 kept (the latest), `[]` for a task asked in a private chat; a malformed line refuses the run `bad-recent`. The runner shows the context to the agent as data, inside `<context>`)
 - `{ "op": "cancel", "id" }`
 - `{ "op": "ping", "ids": [...] }`
 

@@ -29,6 +29,10 @@ export const MAX_GOAL_CHARS = 4000;
 export const MAX_CONTEXT_CHARS = 20_000;
 /** The longest line either side reads (characters). */
 export const MAX_LINE_CHARS = 1_000_000;
+/** The most lines a `run`'s `context.recent` keeps (the latest; the earlier ones are dropped). */
+export const MAX_RECENT_ENTRIES = 20;
+/** The longest author or text of one `context.recent` line (characters). */
+export const RECENT_CHARS = 200;
 /** The most ids one `ping` may ask about. */
 export const MAX_PING_IDS = 100;
 const MAX_NOTE_CHARS = 200;
@@ -91,6 +95,14 @@ function validateRun(msg) {
     if (JSON.stringify(msg.context).length > MAX_CONTEXT_CHARS) return refuse('context-too-long');
     if (msg.context.scope !== undefined && !SCOPES.includes(msg.context.scope)) return refuse('bad-scope');
     out.context = msg.context;
+    if (msg.context.recent !== undefined) {
+      const recent = msg.context.recent;
+      if (!Array.isArray(recent) || !recent.every((line) => isPlainObject(line) && typeof line.author === 'string' && typeof line.text === 'string')) return refuse('bad-recent');
+      out.context = {
+        ...msg.context,
+        recent: recent.slice(-MAX_RECENT_ENTRIES).map((line) => ({ author: line.author.slice(0, RECENT_CHARS), text: line.text.slice(0, RECENT_CHARS) })),
+      };
+    }
   }
   if (msg.limits !== undefined) {
     if (!isPlainObject(msg.limits)) return refuse('bad-limits');
@@ -138,7 +150,9 @@ function validateRun(msg) {
  * Validate one decoded message from the core. `run` needs an id, a non-empty
  * goal (at most MAX_GOAL_CHARS), and may carry `context` (a plain object,
  * at most MAX_CONTEXT_CHARS as JSON, whose `scope` is one of SCOPES when
- * present), `limits` (only LIMIT_KEYS, each a positive number), `tools` (a
+ * present and whose `recent`, when present, is a list of `{ author, text }`
+ * strings: the latest MAX_RECENT_ENTRIES kept, each cut to RECENT_CHARS, any
+ * other key of a line dropped; a malformed one refuses `bad-recent`), `limits` (only LIMIT_KEYS, each a positive number), `tools` (a
  * non-empty list of names), `model` (an OpenCode model id), `cost`
  * (`{ input, output }` in USD per million tokens), `searchProvider` (an
  * OpenCode web search provider id) and `secrets` (`{ openrouterKey, proxy?,
