@@ -21,7 +21,12 @@
 // withheld paths, and the read-only server shell's `bash` denies a
 // content-reading command on one (src/agent-runner/policy.js), so OpenCode
 // refuses that step and the agent goes on. A shell class also names the
-// variables its OpenCode child runs with (the server agent's git settings).
+// variables its OpenCode child runs with (the server agent's git settings),
+// and whether its agent may reach paths outside its own working directory
+// (`external_directory`, which OpenCode asks for a path-tool target or a bash
+// workdir outside it, with a `<dir>/*` resource): the read-only server class
+// gets it under the same value as its path tools (the withheld denies in a
+// filtered scope), every other class has it denied.
 //
 // This matches OpenCode release v1.19.3 (the version installed on the
 // server), whose config is the V1 shape: the top-level key is `agent`
@@ -33,8 +38,8 @@
 // `edit`, `write`, `patch`, `task` (subagents), `question`,
 // `external_directory`. The permission runtime takes the LAST matching rule,
 // so for `bash` a catch-all `*: deny` comes first and the allowed commands
-// after, and for a path tool `*: allow` comes first and the withheld-path
-// denies after. The web search provider is chosen by an environment variable
+// after, and for a path tool (and the server class's `external_directory`)
+// `*: allow` comes first and the withheld-path denies after. The web search provider is chosen by an environment variable
 // at run time (src/agent-runner/opencode.js), not in this config, because
 // v1.19.3 has no websearch config key. Keep in sync with docs/en/agents.md.
 
@@ -180,7 +185,7 @@ export const SERVER_CHILD_ENV = Object.freeze({
 });
 
 /** The tools denied to every agent whatever its profile asks: no profile can grant one. */
-const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'question', 'external_directory']);
+const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'question']);
 
 /**
  * The shell classes a worker profile names in `shell`, the permission ceiling of this runner.
@@ -188,14 +193,17 @@ const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'question
  * `withheldDenies`, whether a filtered scope adds the per-command withheld-path denies to its
  * `bash` (withheldShellDenies); `tools`, the OpenCode tools a profile of the class may ask for,
  * the most it can get; and `order`, the tools its permission map names before ALWAYS_DENIED, in
- * that order (a tool of `order` the profile does not ask for, or outside `tools`, is denied); and
- * `env`, the variables its OpenCode child runs with over the runner's environment. A profile
- * picks a class by name and never carries a pattern itself.
+ * that order (a tool of `order` the profile does not ask for, or outside `tools`, is denied);
+ * `externalDirectory`, whether `external_directory` (paths outside the agent's working
+ * directory) takes the path tools' value (pathPermission) instead of deny; and `env`, the
+ * variables its OpenCode child runs with over the runner's environment. A profile picks a class
+ * by name and never carries a pattern itself.
  */
 export const SHELL_CLASSES = Object.freeze({
   'server-read-only': Object.freeze({
     allow: SERVER_SHELL_ALLOW,
     withheldDenies: true,
+    externalDirectory: true,
     tools: Object.freeze(['read', 'grep', 'glob', 'list', 'bash']),
     order: Object.freeze(['read', 'grep', 'glob', 'list', 'bash', 'webfetch', 'websearch']),
     env: SERVER_CHILD_ENV,
@@ -203,6 +211,7 @@ export const SHELL_CLASSES = Object.freeze({
   'web-download': Object.freeze({
     allow: WEB_SHELL_ALLOW,
     withheldDenies: false,
+    externalDirectory: false,
     tools: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'bash']),
     order: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'grep', 'bash']),
     env: Object.freeze({}),
@@ -212,7 +221,8 @@ export const SHELL_CLASSES = Object.freeze({
 /**
  * The V1 permission map of a worker for `scope`: each tool of its class's `order` allowed when
  * the profile asks for it (a path tool with the withheld denies of a filtered scope, `bash` with
- * its class's allow list), else denied; then every tool of ALWAYS_DENIED denied.
+ * its class's allow list), else denied; then `external_directory`, the path tools' value when
+ * the class has `externalDirectory`, else denied; then every tool of ALWAYS_DENIED denied.
  * @param {{ shell: string, tools: readonly string[] }} worker
  * @param {string} scope
  */
@@ -226,6 +236,7 @@ function permissionFor({ shell, tools }, scope) {
     else if (NETWORK_TOOLS.includes(tool)) map[tool] = 'allow';
     else if (tool === 'bash') map[tool] = bashPermission(shellClass.allow, shellClass.withheldDenies && scope !== 'core' ? withheldShellDenies() : []);
   }
+  map.external_directory = shellClass.externalDirectory ? pathPermission(scope) : 'deny';
   for (const tool of ALWAYS_DENIED) map[tool] = 'deny';
   return map;
 }
