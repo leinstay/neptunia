@@ -143,6 +143,16 @@ test('renderChannel: fact lines appear in the documented order: category, topic,
   );
 });
 
+test('renderChannel: an age-restricted channel carries labels.channels.ageRestricted on its heading, the current one too', () => {
+  const c = channel({ name: 'general' });
+  const mark = labels.channels.ageRestricted;
+  assert.equal(renderChannel(c, labels, { activity: 'slow', ageRestricted: true }), `# general ${mark}\nactivity: slow`);
+  assert.ok(renderChannel(c, labels, { current: true, activity: 'slow', ageRestricted: true }).startsWith(`# general ${mark}${labels.server.currentMark}\n`));
+  assert.equal(renderChannel(c, labels, { activity: 'slow' }), '# general\nactivity: slow', 'not age-restricted: no mark');
+  const { channels: _omit, ...withoutLabel } = labels;
+  assert.equal(renderChannel(c, withoutLabel, { activity: 'slow', ageRestricted: true }), '# general\nactivity: slow', 'no label: no mark');
+});
+
 test('renderChannel: the current channel gets labels.server.currentMark appended to the heading', () => {
   const c = channel({ name: 'general' });
   const text = renderChannel(c, labels, { current: true, activity: 'live' });

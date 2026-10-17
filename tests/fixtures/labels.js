@@ -113,6 +113,9 @@ export const labels = {
     line: '{handle} {name}',
     lineCategory: '{handle} {name} in {category}',
   },
+  channels: {
+    ageRestricted: '(age-restricted)',
+  },
   senses: {
     imageSee: 'you can see pictures attached to a request with your own eyes',
     imageDescribed: 'pictures not attached to you come with a helper\'s one-line caption',

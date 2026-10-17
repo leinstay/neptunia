@@ -218,12 +218,13 @@ export function assignChannelHandles(ids) {
 }
 
 /**
- * The channel directory's entries: one per channel id of `channels` (`{ id, name, category? }`)
+ * The channel directory's entries: one per channel id of `channels` (`{ id, name, category?, nsfw? }`)
  * with a non-blank name, the first given winning; `name` and `category` one-line (`category`
- * null when blank or missing). Sorted by id (oldest first), so the text moves only when a channel
- * is added, removed or renamed -- never with activity, position or time. Pure.
- * @param {Iterable<{ id: string, name: string, category?: string|null }>} channels
- * @returns {{ id: string, name: string, category: string|null }[]}
+ * null when blank or missing); `nsfw: true` kept for an age-restricted channel (no key otherwise).
+ * Sorted by id (oldest first), so the text moves only when a channel is added, removed, renamed or
+ * its age restriction changes -- never with activity, position or time. Pure.
+ * @param {Iterable<{ id: string, name: string, category?: string|null, nsfw?: boolean }>} channels
+ * @returns {{ id: string, name: string, category: string|null, nsfw?: true }[]}
  */
 export function channelDirectoryEntries(channels) {
   const byId = new Map();
@@ -233,7 +234,7 @@ export function channelDirectoryEntries(channels) {
     const name = typeof channel.name === 'string' ? oneLine(channel.name) : '';
     if (id === '' || !name || byId.has(id)) continue;
     const category = typeof channel.category === 'string' ? oneLine(channel.category) : '';
-    byId.set(id, { id, name, category: category || null });
+    byId.set(id, { id, name, category: category || null, ...(channel.nsfw === true ? { nsfw: true } : {}) });
   }
   return [...byId.values()].sort((a, b) => compareIds(a.id, b.id));
 }
@@ -243,9 +244,10 @@ export function channelDirectoryEntries(channels) {
  * per entry with a handle -- `labels.channelDirectory.lineCategory` (`{handle}` `{name}`
  * `{category}`) for a channel with a category when that label is set, else
  * `labels.channelDirectory.line` (`{handle}` `{name}`). `{handle}` is the exact token to write,
- * `#` included; `{name}` and `{category}` are JSON strings (quoted, escaped). '' without
- * `labels.channelDirectory.line` or without a line. Pure.
- * @param {{ id: string, name: string, category: string|null }[]} entries  channelDirectoryEntries'.
+ * `#` included; `{name}` and `{category}` are JSON strings (quoted, escaped). An age-restricted
+ * channel's line (`nsfw: true`) ends with `labels.channels.ageRestricted` after a space, when that
+ * label is set. '' without `labels.channelDirectory.line` or without a line. Pure.
+ * @param {{ id: string, name: string, category: string|null, nsfw?: true }[]} entries  channelDirectoryEntries'.
  * @param {Map<string, string>} handles  channel id -> handle (assignChannelHandles').
  * @param {object} labels
  * @returns {string}
@@ -253,16 +255,17 @@ export function channelDirectoryEntries(channels) {
 export function renderChannelDirectory(entries, handles, labels) {
   const l = labels?.channelDirectory;
   if (typeof l?.line !== 'string' || !l.line) return '';
+  const ageRestricted = typeof labels?.channels?.ageRestricted === 'string' ? labels.channels.ageRestricted.trim() : '';
   const lines = [];
   for (const entry of entries ?? []) {
     const handle = handles?.get(entry.id);
     if (!handle) continue;
     const values = { handle: `#${handle}`, name: JSON.stringify(entry.name) };
-    lines.push(
+    const line =
       entry.category && typeof l.lineCategory === 'string' && l.lineCategory
         ? fill(l.lineCategory, { ...values, category: JSON.stringify(entry.category) })
-        : fill(l.line, values),
-    );
+        : fill(l.line, values);
+    lines.push(entry.nsfw === true && ageRestricted ? `${line} ${ageRestricted}` : line);
   }
   if (lines.length === 0) return '';
   return [typeof l.lead === 'string' ? l.lead : '', ...lines].filter(Boolean).join('\n');

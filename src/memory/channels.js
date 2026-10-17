@@ -62,7 +62,7 @@ function topWritersText(topWriters, nameOf) {
  *   topWriters?: {id: string, count: number}[] }} channel
  * @param {object} labels  Live `prompts.labels`; uses `labels.server.*`/`labels.units`.
  * @param {{ current?: boolean, activity: 'live'|'slow'|'dead', now?: number,
- *   nameOf?: (id: string) => (string|null), readOnly?: boolean }} options  `now` and
+ *   nameOf?: (id: string) => (string|null), readOnly?: boolean, diary?: boolean, ageRestricted?: boolean }} options  `now` and
  *   `labels.server.lastMessage` together render "how long ago the last message was"
  *   (`formatDuration`, the same humanised-age helper the `<tempo>` block uses); `nameOf` and
  *   `labels.server.topWriters` together render who writes here most. Either fact is omitted --
@@ -74,13 +74,18 @@ function topWritersText(topWriters, nameOf) {
  *   channel (the turn is answering there, so it is never shown as one the persona cannot write in).
  *   `diary` (the caller's `channel.id === config.diary.channelId`) adds the `labels.server.diary`
  *   line, with `{channel}` the channel's name, right before the read-only line, on any channel
- *   including the current one; nothing is added when that label is missing.
+ *   including the current one; nothing is added when that label is missing. `ageRestricted` (the
+ *   channel is age-restricted on Discord, decided by the caller) appends
+ *   `labels.channels.ageRestricted` after a space to the heading, before `currentMark`, on any
+ *   channel including the current one; nothing when that label is missing or blank.
  * @returns {string}
  */
-export function renderChannel(channel, labels, { current = false, activity, now: nowMs, nameOf, readOnly = false, diary = false } = {}) {
+export function renderChannel(channel, labels, { current = false, activity, now: nowMs, nameOf, readOnly = false, diary = false, ageRestricted = false } = {}) {
   const s = labels.server;
   const mark = current ? s.currentMark : '';
-  const lines = [`# ${channel.name}${mark}`];
+  const ageLabel = typeof labels.channels?.ageRestricted === 'string' ? labels.channels.ageRestricted.trim() : '';
+  const ageMark = ageRestricted === true && ageLabel ? ` ${ageLabel}` : '';
+  const lines = [`# ${channel.name}${ageMark}${mark}`];
 
   if (channel.category) lines.push(fill(s.category, { text: channel.category }));
   if (channel.topic) lines.push(fill(s.topic, { text: channel.topic }));

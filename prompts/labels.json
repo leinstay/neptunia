@@ -116,6 +116,9 @@
     "line": "{handle}: {name}",
     "lineCategory": "{handle}: {name} ({category})"
   },
+  "channels": {
+    "ageRestricted": "(age-restricted)"
+  },
   "senses": {
     "imageSee": "Pictures marked as attached you see yourself; they may carry a helper's note, which is a fallible reading whose confident wording is not evidence. Check identities and claims against what you see, and when a region is too small or unclear to make out, do not adopt a name or story from the note or the chat as fact. The helper may have seen more detail, so a vague view is inconclusive.",
     "imageDescribed": "Other pictures come with a short description from a helper; you did not see them yourself.",
