@@ -2,7 +2,6 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { canAttach, canRead, canSend } from '../interface/discord.js';
 import { backfillDiary } from '../behavior/diary.js';
 import { log } from '../log.js';
 import { formatClock } from '../format.js';
@@ -10,7 +9,7 @@ import { unsetPath, reloadNote } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, diary, turns, assertNotPaused, freshenIfPaused, resolvedGuildId, requireGuildId, editLocalConfig, writeLocalPath, journalSystem } = env;
+  const { hot, store, client, discord, diary, turns, assertNotPaused, freshenIfPaused, resolvedGuildId, requireGuildId, editLocalConfig, writeLocalPath, journalSystem } = env;
 
   // Invocation ids of the persona's posts queued for after her turn: each is queued once.
   const queued = new Set();
@@ -44,9 +43,9 @@ const handlers = perEnv((env) => {
     if (!channelId) throw invalid('a channel is required');
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel) throw invalid(`no channel ${channelId}`, 'not-found');
-    if (!canRead(channel)) throw new Error(`cannot view or read the history of ${channelId}; nothing was changed`);
-    if (!canSend(channel)) throw new Error(`cannot send messages in ${channelId}; nothing was changed`);
-    if (!canAttach(channel)) throw new Error(`cannot attach files in ${channelId}; nothing was changed`);
+    if (!discord.canRead(channel)) throw new Error(`cannot view or read the history of ${channelId}; nothing was changed`);
+    if (!discord.canSend(channel)) throw new Error(`cannot send messages in ${channelId}; nothing was changed`);
+    if (!discord.canAttach(channel)) throw new Error(`cannot attach files in ${channelId}; nothing was changed`);
 
     const ok = writeLocalPath('diary.channelId', channelId);
     let backfilled = 0;
@@ -59,6 +58,7 @@ const handlers = perEnv((env) => {
         selfId: client.user?.id,
         config: hot.config,
         labels: hot.prompts?.labels,
+        fetchHistoryImpl: discord.fetchHistory,
       });
     } catch (err) {
       log.warn('admin: diary backfill failed', { error: err });

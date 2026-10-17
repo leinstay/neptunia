@@ -48,6 +48,12 @@ const ARCHIVE_CHOICES = 25;
  * `hot`, `store` — see src/hot.js, src/memory/store.js.
  * `client` — a discord.js Client (used for channels.fetch, guilds.cache, and users.fetch +
  *   createDM for `/nep private purge`).
+ * `discord` — the Discord interface's capabilities object (interfaces/discord/index.js#
+ *   createDiscordInterface; src/index.js passes the one it builds): the permission checks of
+ *   `/nep diary set` and of an operation posting in another channel (src/ops/shared.js#
+ *   postingConversation), the diary backfill's history fetch, `normalizeMessage` for a turn asked
+ *   on a message (src/ops/message.js) and `PAGE` for `/nep private purge`. The operations read it
+ *   as `env.discord`.
  * `spontaneous` — the spontaneous scheduler: `force(channel, mode)` and `status()`.
  * `calibrator` — token calibrator (src/llm/tokens.js), read for `.ratio`.
  * `getGuildId` — the single guild this instance serves, or null before it resolves.

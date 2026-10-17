@@ -21,7 +21,6 @@
 // than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`).
 
 import fsp from 'node:fs/promises';
-import { normalizeMessage } from '../interface/discord.js';
 import { channelById, messageRefOf, portAnswer, postingConversation } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
@@ -34,7 +33,7 @@ function isLast(value) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, spontaneous, turns, port, errands, assertNotPaused, resolvedGuildId } = env;
+  const { hot, store, client, discord, spontaneous, turns, port, errands, assertNotPaused, resolvedGuildId } = env;
 
   /** True when member `userId` turned pings off here. */
   function pingsOff(context, userId) {
@@ -75,7 +74,7 @@ const handlers = perEnv((env) => {
     const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', 'unknown-message');
-    const channelId = await postingConversation({ client, guildId: resolvedGuildId(context), channelId: given ?? reply?.channelId ?? null, context, need: reply ? 'reply' : 'send' });
+    const channelId = await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: given ?? reply?.channelId ?? null, context, need: reply ? 'reply' : 'send' });
     const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
     const attachment = await errandFile(args, context, channelId, p);
     const content = {
@@ -105,7 +104,7 @@ const handlers = perEnv((env) => {
     const message = await channel.messages?.fetch?.(reply.messageId).catch(() => null);
     if (!message) throw invalid(`no message ${reply.messageId} in ${channel.id}`, 'unknown-message');
     const media = hot.config.media ?? {};
-    const trigger = normalizeMessage(message, client.user?.id, { embedTextChars: media.embedTextChars, videoSites: media.video?.sites, maxUrlChars: hot.config.context?.maxUrlChars });
+    const trigger = discord.normalizeMessage(message, client.user?.id, { embedTextChars: media.embedTextChars, videoSites: media.video?.sites, maxUrlChars: hot.config.context?.maxUrlChars });
     const result = await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention', forced: true, ...(requester ? { requester } : {}) });
     return `message create on ${channel.id}: ${JSON.stringify(result) ?? 'ok'}`;
   }
@@ -131,7 +130,7 @@ const handlers = perEnv((env) => {
     const message = messageRefOf(args?.messageId);
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && message.channelId && given !== message.channelId) throw invalid('the message is not in that channel', 'unknown-message');
-    const channelId = await postingConversation({ client, guildId: resolvedGuildId(context), channelId: given ?? message.channelId, context, need });
+    const channelId = await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: given ?? message.channelId, context, need });
     return { channelId, messageId: message.messageId, ref: { iface: port.iface, conversationId: channelId, messageId: message.messageId } };
   }
 
@@ -141,7 +140,7 @@ const handlers = perEnv((env) => {
    * none of hers there is `invalid` with `no-own-message`.
    */
   async function lastTarget(args, context, need) {
-    const channelId = await postingConversation({ client, guildId: resolvedGuildId(context), channelId: args?.channelId ? String(args.channelId) : null, context, need });
+    const channelId = await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: args?.channelId ? String(args.channelId) : null, context, need });
     const channel = await channelById(client, channelId);
     const fetched = await Promise.resolve(channel?.messages?.fetch?.({ limit: LAST_LOOKBACK })).catch(() => null);
     const selfId = client?.user?.id ? String(client.user.id) : null;

@@ -13,6 +13,10 @@ import { createJournal, turnOfMessage, turnView } from '../src/memory/journal.js
 import { snowflakeAt } from '../src/behavior/recall.js';
 import { executeCall, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const OWNER = '42';
 const SELF = 'self-1';
@@ -88,7 +92,7 @@ async function writeTurn(journal, clock, { startMs, postMs, endMs, triggerId, po
 function makeAdmin(journal) {
   const hot = { config: { features: { skills: true, journal: true }, skills: { safeMode: false }, bot: { owners: [OWNER], access: {} } }, prompts: { labels: {} } };
   const store = { state: { data: {}, markDirty() {} }, getUser: () => null, getGuild: () => ({}), isPingsOff: () => false };
-  return createAdmin({ hot, store, client: { user: { id: SELF } }, getGuildId: () => 'g1', journal });
+  return createAdmin({ discord: DISCORD, hot, store, client: { user: { id: SELF } }, getGuildId: () => 'g1', journal });
 }
 
 const D = Date.UTC(2026, 9, 13, 12, 0, 0);

@@ -352,6 +352,7 @@ function makeAdmin(rootDir, extra = {}) {
   const hot = extra.hot ?? makeHot(rootDir);
   const store = extra.store ?? makeStore();
   const admin = createAdmin({
+    discord: DISCORD,
     hot,
     store,
     client: extra.client ?? {},

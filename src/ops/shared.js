@@ -14,7 +14,6 @@ import { roleModel } from '../llm/roles.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { oneLine } from '../memory/clamp.js';
 import { utcDay } from '../time.js';
-import { canAttach, canRead, canReact, canSend } from '../interface/discord.js';
 import { denied, invalid } from './registry.js';
 
 /** `/nep memory journal`'s `n`: default and bounds. */
@@ -694,14 +693,15 @@ export function learnedLine(item, resolve) {
  * the Discord permissions it needs there (interfaces/discord/collect.js: each check needs View Channel
  * too): `send` a message, `reply` to one (send, and read the history the reply points into),
  * `attach` a picture (send with a file), `read` the history to find a message (an edit, a
- * deletion, a reaction taken back), `react` to one.
+ * deletion, a reaction taken back), `react` to one. Each check is asked of `discord`, the Discord
+ * interface's capabilities object (the operations' `env.discord`).
  */
 export const CHANNEL_NEEDS = Object.freeze({
-  send: (channel) => canSend(channel),
-  reply: (channel) => canSend(channel) && canRead(channel),
-  attach: (channel) => canSend(channel) && canAttach(channel),
-  read: (channel) => canRead(channel),
-  react: (channel) => canReact(channel),
+  send: (channel, discord) => discord.canSend(channel),
+  reply: (channel, discord) => discord.canSend(channel) && discord.canRead(channel),
+  attach: (channel, discord) => discord.canSend(channel) && discord.canAttach(channel),
+  read: (channel, discord) => discord.canRead(channel),
+  react: (channel, discord) => discord.canReact(channel),
 });
 
 /** The channel `id` the client knows (its cache, else a fetch), or null. */
@@ -719,11 +719,12 @@ export async function channelById(client, id) {
  * the bot holds the permissions `need` names (CHANNEL_NEEDS), looked up through `client` --
  * Discord's permissions are the only limit on where. Otherwise a `denied` error
  * (`channel-no-permission`), a channel the bot cannot find included; nothing was done.
- * @param {{ client: object, guildId: string|null, channelId: string|null|undefined,
+ * `discord` is the Discord interface's capabilities object the permission checks are asked of.
+ * @param {{ client: object, discord: object, guildId: string|null, channelId: string|null|undefined,
  *   context: { channelId?: string }, need: keyof typeof CHANNEL_NEEDS }} args
  * @returns {Promise<string>}
  */
-export async function postingConversation({ client, guildId, channelId, context, need }) {
+export async function postingConversation({ client, discord, guildId, channelId, context, need }) {
   const id = channelId ? String(channelId) : context?.channelId ? String(context.channelId) : null;
   if (!id) throw invalid('a channel is required');
   if (id === String(context?.channelId ?? '')) return id;
@@ -733,7 +734,7 @@ export async function postingConversation({ client, guildId, channelId, context,
   const served = Boolean(channel?.guild) && Boolean(guildId) && String(channel.guild.id) === String(guildId);
   const isDm = typeof channel?.isDMBased === 'function' && channel.isDMBased();
   const text = typeof channel?.isTextBased === 'function' && channel.isTextBased() && !isDm;
-  if (!served || !text || !allowedThere(channel)) {
+  if (!served || !text || !allowedThere(channel, discord)) {
     throw denied(`the bot may not ${need} in channel ${id}`, 'channel-no-permission');
   }
   return id;

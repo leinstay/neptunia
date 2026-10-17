@@ -24,6 +24,7 @@ export function createOpsEnv({
   hot,
   store,
   client,
+  discord = null,
   spontaneous,
   calibrator,
   getGuildId,
@@ -210,6 +211,8 @@ export function createOpsEnv({
     hot,
     store,
     client,
+    // The Discord interface's capabilities object (src/index.js injects it): never imported here.
+    discord,
     spontaneous,
     calibrator,
     getGuildId,

@@ -8822,7 +8822,7 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
   }
   const noSend = { ...fakeTurnChannel({ id: 'c8', name: 'αλλού' }), permissionsFor: () => ({ has: (flag) => flag !== PermissionFlagsBits.SendMessages }) };
   const client = clientWithChannels(fakeTurnChannel({ id: 'c9', name: '💖νέα' }), noSend);
-  const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', port, ...(images ? { images } : {}), ...(diary ? { diary: diary(hot) } : {}) });
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, ...(images ? { images } : {}), ...(diary ? { diary: diary(hot) } : {}) });
   const llm = sequenceLlm(answers);
   const complete = llm.complete;
   llm.complete = async (...args) => {
@@ -9183,7 +9183,7 @@ function callMarkScene({ answers, allowed = ['message.create'], features = {}, j
   const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners: ['u1'], access: personaGrants(allowed) }, { skills: { safeMode: false, resultMaxChars: 2000 } });
   const store = fakeStore();
   const client = clientWithChannels(news);
-  const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', port });
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port });
   const llm = sequenceLlm(answers);
   const clock = { ms: NOW };
   const runner = () => createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator: identityCalibrator(), client, now: () => clock.ms, port, skills: skillRegistry(), journal, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand });

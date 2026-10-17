@@ -190,7 +190,7 @@ test('resolveCall: a transcript number names a message she saw and its channel; 
 function makeAdmin({ cfg = config(), diary = null, port = createFakeAdapter({ iface: 'fake', selfId: SELF, now: () => 1000 }), channels = clientChannels(), extra = {} } = {}) {
   const hot = { config: cfg, prompts: { labels: {} } };
   const store = { state: { data: {}, markDirty() {} }, getUser: () => null, getGuild: () => ({}), isPingsOff: (guildId, userId) => userId === '8' };
-  const admin = createAdmin({ hot, store, client: { user: { id: SELF }, channels: { cache: channels } }, getGuildId: () => 'g1', diary, port, ...extra });
+  const admin = createAdmin({ discord: DISCORD, hot, store, client: { user: { id: SELF }, channels: { cache: channels } }, getGuildId: () => 'g1', diary, port, ...extra });
   return { admin, hot, store, port };
 }
 
