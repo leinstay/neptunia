@@ -90,6 +90,9 @@
     "video": "google/gemini-3.8-flash",
     "embedding": "openai/text-embedding-3-large",
     "drawing": "openai/gpt-image-2.5-flare",
+    "agentWeb": "openrouter/openai/gpt-6.1-sol",
+    "agentServer": "openrouter/openai/gpt-6.1-sol",
+    "agentDev": "openrouter/anthropic/claude-opus-5.5",
     "byPurpose": {}
   },
   "llm": {

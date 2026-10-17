@@ -117,14 +117,16 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   const values = (option) => option.choices.map((c) => c.value);
   const names = (option) => option.choices.map((c) => c.name);
   const setRole = findOption(findOption(findOption(command.options, 'model').options, 'set').options, 'role');
-  assert.deepEqual(values(setRole), [...MODEL_ROLES, 'drawing'], 'the chat and embedding roles, then the drawing model');
-  assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, 'drawing']);
+  const agents = ['agentWeb', 'agentServer', 'agentDev'];
+  assert.deepEqual(values(setRole), [...MODEL_ROLES, 'drawing', ...agents], 'the chat and embedding roles, then the drawing model, then the agent roles');
+  assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, 'drawing', ...agents]);
   assert.ok(MODEL_ROLES.includes('voice') && !MODEL_ROLES.includes('talk') && !MODEL_ROLES.includes('drawing'));
   assert.ok(MODEL_ROLES.includes('reasoner') && MODEL_ROLES.includes('embedding'), 'the reasoning and the embedding roles are set and routed like the others');
+  assert.ok(!agents.some((role) => MODEL_ROLES.includes(role)), 'the agent roles are never probed');
   const route = findOption(command.options, 'route');
   for (const sub of ['set', 'remove']) {
     const role = findOption(findOption(route.options, sub).options, 'role');
-    assert.deepEqual(values(role), [...MODEL_ROLES, 'drawing'], sub);
+    assert.deepEqual(values(role), [...MODEL_ROLES, 'drawing'], `${sub}: no agent role (OpenCode reads no route)`);
     assert.deepEqual(names(role), values(role), sub);
   }
 });

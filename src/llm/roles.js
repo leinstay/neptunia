@@ -13,13 +13,22 @@
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
 // - `embedding`  turns text into vectors for search by meaning;
-// - `drawing`    generates the persona's pictures.
+// - `drawing`    generates the persona's pictures;
+// - `agentWeb`, `agentServer`  run the persona's errand agents (src/agent-runner/, profiles
+//                `web` and `server`);
+// - `agentDev`   runs the coding worker (outside this repository).
+// The three agent roles (AGENT_ROLES) run on OpenCode, not through the bot's OpenRouter client:
+// their models are OpenCode model ids (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter
+// ids of the other roles, and no request of the bot goes out on them.
 // Pure; every reader passes the live config read at the moment of use.
 
 import { isPlainObject } from '../config.js';
 
+/** The roles whose model an OpenCode worker runs on, never the bot's own client. */
+export const AGENT_ROLES = Object.freeze(['agentWeb', 'agentServer', 'agentDev']);
+
 /** The roles, in display order (`/nep model`, `/nep route`, the status card). */
-export const ROLES = Object.freeze(['voice', 'analyzer', 'reasoner', 'extractor', 'vision', 'video', 'embedding', 'drawing']);
+export const ROLES = Object.freeze(['voice', 'analyzer', 'reasoner', 'extractor', 'vision', 'video', 'embedding', 'drawing', ...AGENT_ROLES]);
 
 /** Each role's model while `roles.<role>` is unset: config.json's values. */
 export const ROLE_DEFAULTS = Object.freeze({
@@ -31,6 +40,9 @@ export const ROLE_DEFAULTS = Object.freeze({
   video: 'google/gemini-3.8-flash',
   embedding: 'openai/text-embedding-3-large',
   drawing: 'openai/gpt-image-2.5-flare',
+  agentWeb: 'openrouter/openai/gpt-6.1-sol',
+  agentServer: 'openrouter/openai/gpt-6.1-sol',
+  agentDev: 'openrouter/anthropic/claude-opus-5.5',
 });
 
 /**

@@ -110,7 +110,7 @@ The voice-state intent (the voice channels in `<people_now>`) is not privileged 
 
 ## `roles`
 
-Eight model roles. Each is set independently under `roles.<name>` with its own default, so no role ever takes another role's model. `roles.byPurpose` pins a single purpose to a model of its own whatever its role.
+Eleven model roles: eight the bot's own requests go out on, and three agent roles (`agentWeb`, `agentServer`, `agentDev`) whose models an [OpenCode](https://opencode.ai) worker runs. Each is set independently under `roles.<name>` with its own default, so no role ever takes another role's model. `roles.byPurpose` pins a single purpose to a model of its own whatever its role. The agent roles take OpenCode model ids (`openrouter/<vendor>/<model>`: the provider first), unlike the other roles' bare OpenRouter ids (`<vendor>/<model>`); no request of the bot goes out on them, so `/nep status` does not probe them and `/nep route` cannot route them.
 
 | Key | Default | What it does |
 |---|---|---|
@@ -122,6 +122,9 @@ Eight model roles. Each is set independently under `roles.<name>` with its own d
 | `video` | `"google/gemini-3.8-flash"` | Watches a video and looks at it again |
 | `embedding` | `"openai/text-embedding-3-large"` | Turns text into vectors for search by meaning. `embed.dimensions` (default 1024) sets the width. Probed by `/nep status` with a one-input embedding request; without an embedding client the line says it was not checked |
 | `drawing` | `"openai/gpt-image-2.5-flare"` | Generates the persona's pictures through OpenRouter's Images API. Only `openai/*` and `google/*` families are supported |
+| `agentWeb` | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the `web` errand agent. See [Errand agents](agents.md) |
+| `agentServer` | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the `server` errand agent |
+| `agentDev` | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the coding worker, which runs outside this engine and reads it from here |
 | `byPurpose` | `{}` | Per-purpose model override: an object whose keys are purpose strings (e.g. `lookup`, `recall-summary`, `diary-plan`, `planner`) and whose values are model ids. A match on purpose wins over the role's model. Not probed by `/nep status` |
 
 **Migration from old keys.** One release reads the deprecated keys `llm.model`, `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`, `classifier.embed`, `classifier.byPurpose`, `memory.model` and `image.model`. When any of them is present, the bot logs a startup warning naming the key and the `roles.*` entry it maps to. An old `classifier.text` maps to `roles.analyzer`; an old `classifier.reason` to `roles.reasoner`; `classifier.media` to `roles.vision`; `classifier.video` to `roles.video`; `classifier.embed` to `roles.embedding`; `classifier.byPurpose` to `roles.byPurpose`; `memory.model` to `roles.extractor`; `image.model` to `roles.drawing`; `llm.model` to `roles.voice`. An old `classifier.reason` entry that was `null` (the old "use classifier.text" fallback) maps to the `roles.reasoner` default instead. Move the values by hand and remove the old keys.
@@ -931,7 +934,7 @@ Before anything leaves hot memory (an episode, interest, detail, alias, real nam
 
 ## Models
 
-The engine uses eight model roles (`roles.*`). Each is set independently, so the voice can use a premium model while the helpers stay cheap. No role takes another role's model: an unset role keeps its own default.
+The engine uses eight model roles for its own requests (`roles.*`), plus the three agent roles its OpenCode workers run on (see [`roles`](#roles)). Each is set independently, so the voice can use a premium model while the helpers stay cheap. No role takes another role's model: an unset role keeps its own default.
 
 ### Voice
 
