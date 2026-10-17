@@ -29,6 +29,10 @@
 //                                            (src/memory/participation.js)
 //   data/guilds/<guildId>/diary.json          the persona's diary posts, newest last, one-line gists
 //                                            (src/behavior/diary.js); never deleted by code
+//   data/guilds/<guildId>/tasks.json          the persona's errand tasks: the open ones and the latest
+//                                            finished, with the day's counters (src/errands/store.js,
+//                                            which owns it and tasks.jsonl, one line per transition;
+//                                            not cached here, not touched by a forget or a wipe yet)
 //   data/guilds/<guildId>/recall-trace.jsonl  one JSON line per recall run when `features.recallTrace` is on
 //                                            (appendRecallTrace): the newest `recall.traceMaxLines`, written
 //                                            at once, not cached; a wipe deletes it
