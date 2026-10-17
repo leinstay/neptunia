@@ -251,6 +251,44 @@ test('opencode: files the agent saved under the task dir come back as result fil
   await ws.cleanup();
 });
 
+test('opencode: a file the server agent copied into its task dir comes back as a result file, a big one too', async () => {
+  const ws = await workspace();
+  const spawn = fakeSpawn();
+  const source = path.join(ws.base, 'north-star.md');
+  await fsp.writeFile(source, '# North star\n'.repeat(6500)); // about 81 KB, the measured case
+  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl });
+  const { result } = await withCapturedLogs(async () => {
+    const p = runner.run({ id: 'task-copy', goal: 'send me the whole north-star.md', context: { scope: 'dm' } });
+    const child = await spawn.waitForChild();
+    const taskDir = path.join(ws.outDir, 'task-copy');
+    // what `cp <source> north-star.md` and `cp <big log> big.log` leave in the working dir
+    emit(child, { type: 'tool_use', part: { tool: 'bash', state: { status: 'completed', input: { command: `cp ${source} north-star.md` } } } });
+    await fsp.copyFile(source, path.join(taskDir, 'north-star.md'));
+    const big = await fsp.open(path.join(taskDir, 'big.log'), 'w');
+    await big.truncate(200 * 1024 * 1024); // sparse: 200 MB on paper, nothing on disk
+    await big.close();
+    emit(child, { type: 'step_finish', part: { cost: 0.01, tokens: { input: 1, output: 1, reasoning: 0 } } });
+    emit(child, { type: 'text', part: { text: 'north-star.md is attached.', time: { end: 1 } } });
+    await new Promise((r) => setImmediate(r));
+    child.emit('close', 0);
+    return p;
+  });
+  assert.equal(result.status, 'done');
+  assert.equal(Object.hasOwn(result.result, 'withheld'), false, 'a readable path is not withheld');
+  const doc = result.result.files.find((f) => f.name === 'north-star.md');
+  assert.ok(doc, 'north-star.md listed');
+  assert.equal(doc.contentType, 'text/markdown');
+  assert.equal(doc.bytes, (await fsp.stat(source)).size);
+  assert.equal(doc.path, path.join(ws.outDir, 'task-copy', 'north-star.md'));
+  // The runner collects a file of any size with its true size; delivery refuses one over the
+  // interface's limit with `attachment-too-large` (src/ops/message.js).
+  const log = result.result.files.find((f) => f.name === 'big.log');
+  assert.ok(log, 'big.log listed');
+  assert.equal(log.bytes, 200 * 1024 * 1024);
+  assert.equal(result.result.files.some((f) => f.name.startsWith('opencode.db') || f.name.startsWith('.')), false);
+  await ws.cleanup();
+});
+
 test('opencode: the child gets the runner key, config content and isolation env, not the persona key', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
