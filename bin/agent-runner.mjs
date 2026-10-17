@@ -60,7 +60,7 @@ async function main() {
   // The runner never reads the bot's .env: its environment comes from its own unit (the agent key, the
   // search key, the proxy), and the bot's secrets file is inaccessible to it by design. Config `${env:NAME}`
   // references it cannot resolve become empty strings with one warning each.
-  const config = loadConfig();
+  const { config } = loadConfig();
   const agents = config.agents ?? {};
   const settings = agents[name] ?? {};
 
