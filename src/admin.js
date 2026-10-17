@@ -123,6 +123,8 @@ const ARCHIVE_CHOICES = 25;
  * `port` — the persona's interface (src/interface/port.js), optional: what `/nep message
  *   send|edit|delete|react` and `/nep draw channel:` post through, as the persona. Absent -> those
  *   report they are not available.
+ * `errands` — from createErrandService() (src/errands/service.js), optional: what `/nep task
+ *   run|status|cancel|list` submit to and read. Absent -> those report they are not available.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
  * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
  *

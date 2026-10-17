@@ -30,6 +30,7 @@ import './learning.js';
 import './lore.js';
 import './memory.js';
 import './message.js';
+import './task.js';
 
 export { defineOp, listOps, OpError, invalid, denied } from './registry.js';
 
@@ -118,6 +119,10 @@ export const COMMAND_TO_OP = Object.freeze({
   'message.edit': 'message.edit',
   'message.delete': 'message.delete',
   'message.react': byAction({ add: 'message.react.add', remove: 'message.react.remove' }),
+  'task.run': 'task.run',
+  'task.status': 'task.status',
+  'task.cancel': 'task.cancel',
+  'task.list': 'task.list',
 });
 
 /**

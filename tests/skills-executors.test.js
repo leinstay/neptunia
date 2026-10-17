@@ -505,7 +505,7 @@ test('executeCall: an operation that does not answer in time is unknown, never r
 });
 
 test('needsFollowUp: an operation\'s answer or any failure brings the follow-up; a message or picture that went out does not; never under the full stop', () => {
-  assert.deepEqual([...QUIET_ON_OK].sort(), ['draw.create', 'message.create', 'message.delete', 'message.edit', 'message.react.add', 'message.react.remove']);
+  assert.deepEqual([...QUIET_ON_OK].sort(), ['draw.create', 'message.create', 'message.delete', 'message.edit', 'message.react.add', 'message.react.remove', 'task.run']);
   assert.equal(needsFollowUp('lore.list', { status: 'ok', data: { text: 'none' } }), true);
   assert.equal(needsFollowUp('lore.add', { status: 'ok', data: { text: 'Added' } }), true);
   assert.equal(needsFollowUp('message.create', { status: 'ok', data: { text: 'sent' } }), false);

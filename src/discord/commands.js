@@ -1,6 +1,6 @@
 // The owner's Discord surface: one top-level guild slash command (name from
 // `config.bot.commandName`) whose tree is built here as plain JSON from one
-// declarative table (COMMAND_TABLE: the eighteen top-level entries, each leaf
+// declarative table (COMMAND_TABLE: the nineteen top-level entries, each leaf
 // with its options and its option -> args mapping) — no discord.js builder
 // classes — so `buildCommandTree` is trivially unit-tested.
 // `registerCommands` pushes that tree to the single guild this instance
@@ -13,7 +13,8 @@
 // may outlast Discord's reply window is deferred first (DEFERRED_OPS); an
 // interaction delivered twice runs once.
 // One subcommand, `pings`, is a member's own notification switch, open to
-// every member (its operations' `rights.member`).
+// every member (its operations' `rights.member`); so is the `task` group, the
+// persona's errands (src/ops/task.js rules who may ask what).
 //
 // Adding a command here means one COMMAND_TABLE entry (its options and its
 // `args` mapper) and one src/ops/index.js#COMMAND_TO_OP entry, plus a
@@ -137,6 +138,9 @@ export const MEMORY_REFRESH_KINDS = Object.freeze(['user', 'channel', 'server'])
 
 /** `/nep pings`'s `mode` choices (src/admin.js#cmdPings reads the same list). */
 export const PINGS_MODES = Object.freeze(['on', 'off']);
+
+/** `/nep task run`'s `agent` choices: the errand agents (src/agent-runner/profiles.js; src/ops/task.js reads the same list). */
+export const TASK_AGENTS = Object.freeze(['web', 'server']);
 
 const DISABLED_MESSAGE = 'Owner commands are disabled (features.adminCommands is off).';
 const NOT_ALLOWED_MESSAGE = 'Not allowed';
@@ -405,6 +409,34 @@ export const COMMAND_TABLE = Object.freeze([
           return { kind: options.getString('kind') ?? undefined, ...(topic != null ? { topic } : {}) };
         },
       },
+    ],
+  },
+  {
+    name: 'task',
+    description: "The persona's errands, run by her agents.",
+    subcommands: [
+      {
+        name: 'run',
+        description: 'Hand an errand to an agent (server: owners only).',
+        options: [
+          { type: STRING, name: 'agent', description: 'web or server.', required: true, choices: choicesOf(TASK_AGENTS) },
+          { type: STRING, name: 'goal', description: 'What to find out or fetch.', required: true, max_length: 2000 },
+        ],
+        args: (options) => ({ agent: options.getString('agent', true), goal: options.getString('goal', true) }),
+      },
+      {
+        name: 'status',
+        description: 'One task, or the open ones.',
+        options: [{ type: STRING, name: 'id', description: 'Task id (omit for the open ones).', required: false }],
+        args: (options) => ({ id: options.getString('id') ?? undefined }),
+      },
+      {
+        name: 'cancel',
+        description: 'Cancel an open task (its requester or an owner).',
+        options: [{ type: STRING, name: 'id', description: 'Task id.', required: true }],
+        args: (options) => ({ id: options.getString('id', true) }),
+      },
+      { name: 'list', description: 'The latest ten tasks.', args: none },
     ],
   },
   {

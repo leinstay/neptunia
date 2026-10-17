@@ -49,6 +49,7 @@ export function createOpsEnv({
   simKey = null,
   managementKey = null,
   port = null,
+  errands = null,
   now = Date.now,
   dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
 } = {}) {
@@ -232,6 +233,8 @@ export function createOpsEnv({
     // The management key, read only by the status card's activity GETs; never logged.
     managementKey,
     port,
+    // The persona's errands (src/errands/service.js): `/nep task`.
+    errands,
     now,
     dataDir,
     connection,

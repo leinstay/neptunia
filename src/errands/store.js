@@ -290,7 +290,8 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   /** The latest `n` tasks, newest first. */
   function recent(n = 10) {
     const count = Number.isInteger(n) && n > 0 ? n : 10;
-    return [...state.tasks].sort((a, b) => b.createdAt - a.createdAt).slice(0, count).map(copy);
+    // Reversed first, so tasks of the same millisecond keep the later one first.
+    return [...state.tasks].reverse().sort((a, b) => b.createdAt - a.createdAt).slice(0, count).map(copy);
   }
 
   /** The finished tasks the persona has not seen yet, oldest first. */
@@ -348,4 +349,22 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   }
 
   return { add, start, finish, cancel, markSeen, open, recent, unseen, get, budget, today, fileOf, failOpen, guildId: String(guildId) };
+}
+
+/**
+ * One task store per guild, created on first use over the same `data/` directory, live config
+ * and journal (createTaskStore).
+ * @param {{ dataDir: string, config?: () => object, journal?: object|null, now?: () => number, log?: object }} options
+ * @returns {{ get(guildId: string): ReturnType<typeof createTaskStore> }}
+ */
+export function createTaskStores({ dataDir, config = () => ({}), journal = null, now = Date.now, log = defaultLog }) {
+  const stores = new Map();
+  return {
+    get(guildId) {
+      const key = String(guildId ?? '');
+      if (!key) return null;
+      if (!stores.has(key)) stores.set(key, createTaskStore({ dataDir, guildId: key, config, journal, now, log }));
+      return stores.get(key);
+    },
+  };
 }

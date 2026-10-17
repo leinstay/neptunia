@@ -67,6 +67,10 @@ export const OP_EFFECTS = Object.freeze({
   'message.delete': 'destructive',
   'message.react.add': 'write',
   'message.react.remove': 'write',
+  'task.run': 'paid',
+  'task.status': 'read',
+  'task.cancel': 'write',
+  'task.list': 'read',
 });
 
 /**

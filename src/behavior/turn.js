@@ -1600,6 +1600,7 @@ export function createTurnRunner({
   runOwnCommand = null,
   around = null,
   reactors = null,
+  errands = null,
 }) {
   const busy = new Set();
   // The channels the default adapter may resolve by id without the client (the turn's own and a
@@ -1709,6 +1710,8 @@ export function createTurnRunner({
         lastRunAt: destructiveRuns.get(`${resolved.skill}:${envelope.originChannelId}`) ?? null,
         now: clock(),
         ...(images ? { images } : {}),
+        // An errand's caps are its budget (src/errands/service.js#budget), in the turn's guild.
+        ...(errands ? { tasks: { budget: (agent) => errands.budget({ guildId: channel.guild?.id ?? null, agent }) } } : {}),
       },
     });
     if (!verdict.ok) log.info('skill: refused', { skill: resolved.skill, code: verdict.code, reason: verdict.reason, channel: channel.id });
@@ -1788,7 +1791,7 @@ export function createTurnRunner({
           envelope,
           runCommand,
           runOwnCommand,
-          opContext: { guildId, channelId: String(channel.id) },
+          opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
           timeoutMs: hot.config.skills?.callTimeoutMs ?? 120000,
         });
       }

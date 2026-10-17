@@ -22,8 +22,11 @@ import { SELF_OWNED_OPS } from '../ops/effects.js';
 /** The options whose value may be a transcript number `#N`: a message she can see. */
 const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
 
-/** The operations whose success is its own answer: a message or a picture that went out. */
-export const QUIET_ON_OK = Object.freeze(['message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'draw.create']);
+/**
+ * The operations whose success is its own answer: a message or a picture that went out, and an
+ * errand accepted (its id is in her `<tasks>` block from her next turn on; she does not wait).
+ */
+export const QUIET_ON_OK = Object.freeze(['message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove', 'draw.create', 'task.run']);
 
 /** The operations whose `text` is the persona's own writing, posted as a `<msg>` of hers is (mentions, custom emoji, links). */
 const WRITTEN = Object.freeze(['message.create', 'message.edit']);
@@ -370,6 +373,8 @@ export async function executeCall(resolved, deps) {
       roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
       actor: 'persona',
       ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
+      // The message her turn answers: where an errand she starts brings its result back (src/ops/task.js).
+      ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0 ? { sourceMessageId: String(envelope.sourceMessageIds[0]) } : {}),
       ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),
       ...(mentionUserIds.length > 0 ? { mentionUserIds } : {}),
     }), deps.timeoutMs ?? CALL_TIMEOUT_MS);
