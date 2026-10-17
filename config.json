@@ -429,6 +429,31 @@
     "rateLimitWaitMinutes": 10,
     "rateLimitMaxWaits": 36
   },
+  "agents": {
+    "opencodePath": "/opt/opencode/bin/opencode",
+    "toolResultChars": 6000,
+    "maxDownloadBytes": 20000000,
+    "keepFilesHours": 24,
+    "web": {
+      "enabled": false,
+      "model": "openrouter/x-ai/grok-4.7",
+      "cost": { "input": 2, "output": 6 },
+      "socket": "/run/neptunia-agent-web/sock",
+      "out": "/var/lib/neptunia-agent-web/out",
+      "limits": { "steps": 25, "usd": 0.5, "seconds": 300 },
+      "daily": { "tasks": 40, "usd": 8 },
+      "search": { "provider": "exa" }
+    },
+    "server": {
+      "enabled": false,
+      "model": "openrouter/x-ai/grok-4.7",
+      "cost": { "input": 2, "output": 6 },
+      "socket": "/run/neptunia-agent-server/sock",
+      "out": "/var/lib/neptunia-agent-server/out",
+      "limits": { "steps": 20, "usd": 0.2, "seconds": 120 },
+      "daily": { "tasks": 40, "usd": 3 }
+    }
+  },
   "appendStore": {
     "fsyncMs": 500,
     "retryMax": 1000
