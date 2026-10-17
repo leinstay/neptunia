@@ -2211,6 +2211,36 @@ test('complete: without byokRequired exactly true, an answer with is_byok false 
   }
 });
 
+test('complete: a role listed in llm.byokExempt passes an answer with is_byok false, with no not-byok line', async () => {
+  const { llm, sent } = byokLlm({ byokRequired: true, byokExempt: ['embedding', 'voice'] }, { prompt_tokens: 10, is_byok: false });
+  const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { role: 'voice' }));
+  assert.equal(result.text, 'the answer itself');
+  assert.equal(sent.length, 1);
+  assert.equal(usageLines(logs).length, 1, 'the usage line is logged as usual');
+  assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0);
+});
+
+test('complete: a role not listed in llm.byokExempt, or a request without a role, still throws NotByokError', async () => {
+  for (const role of ['analyzer', undefined]) {
+    const { llm } = byokLlm({ byokRequired: true, byokExempt: ['embedding'] }, { prompt_tokens: 10, is_byok: false });
+    const { logs } = await withCapturedLogs(() =>
+      assert.rejects(llm.complete([{ role: 'user', content: 'hi' }], { role }), (err) => err instanceof NotByokError),
+    );
+    assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 1, String(role));
+  }
+});
+
+test('complete: an absent or non-array llm.byokExempt exempts nothing', async () => {
+  for (const byokExempt of [undefined, 'voice', { voice: true }, null, 1]) {
+    const overrides = byokExempt === undefined ? { byokRequired: true } : { byokRequired: true, byokExempt };
+    const { llm } = byokLlm(overrides, { prompt_tokens: 10, is_byok: false });
+    const { logs } = await withCapturedLogs(() =>
+      assert.rejects(llm.complete([{ role: 'user', content: 'hi' }], { role: 'voice' }), (err) => err instanceof NotByokError),
+    );
+    assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 1, JSON.stringify(byokExempt));
+  }
+});
+
 test('complete: a analyzer request carries no marker even with promptCache on', async () => {
   const { llm, sent } = cachingLlm(() => cachingConfig());
   for (const role of ['analyzer', 'extractor', 'video', undefined]) {

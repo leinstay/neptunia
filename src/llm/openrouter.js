@@ -301,6 +301,9 @@ export class DailyCapError extends Error {}
  * while `llm.byokRequired` is on: the operator routes every model through their own provider
  * accounts, so such an answer is a routing mistake that spent OpenRouter credits. Thrown after
  * the answer arrived, never retried (it was billed already); the caller's ordinary error path runs.
+ * The roles listed in `llm.byokExempt` are left out of the rule: a model the operator has no
+ * provider account of their own for (an embedding model, say) knowingly runs on OpenRouter's
+ * capacity, and refusing its every answer would only stall that role.
  * Message: `not byok: <model> via <provider>`.
  */
 export class NotByokError extends Error {}
@@ -310,13 +313,17 @@ export class NotByokError extends Error {}
  * `is_byok: false`, after a `llm: not byok` warn line with `fields` (the usage line's own fields:
  * counts, ids and codes, never prompt or answer text). A missing or non-boolean `is_byok` passes:
  * an answer without a usage block is not a violation. With the setting off nothing happens.
+ * A request whose role (`fields.role`) is listed in `llm.byokExempt` passes silently: no line,
+ * no throw; a `byokExempt` that is not an array exempts nothing.
  * The one check, shared by the chat client and the embeddings client (src/llm/embed.js).
  * @param {object|undefined} llmConfig  The live `config.llm`.
  * @param {object} usage                The answer's `usage` object (`{}` when absent).
- * @param {object} fields               The fields of the request's `llm: usage` line.
+ * @param {object} fields               The fields of the request's `llm: usage` line (`role` among them).
  */
 export function assertByok(llmConfig, usage, fields) {
   if (llmConfig?.byokRequired !== true || usage?.is_byok !== false) return;
+  const role = fields?.role;
+  if (typeof role === 'string' && Array.isArray(llmConfig.byokExempt) && llmConfig.byokExempt.includes(role)) return;
   log.warn('llm: not byok', fields);
   throw new NotByokError(`not byok: ${fields.model ?? 'unknown model'} via ${fields.provider ?? 'unknown provider'}`);
 }

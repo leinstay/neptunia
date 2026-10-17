@@ -206,6 +206,33 @@ test('embed: with llm.byokRequired, an answer with is_byok false throws NotByokE
   assert.ok(!JSON.stringify(logs).includes('secret'), 'no input text in any log line');
 });
 
+test('embed: with the embedding role in llm.byokExempt, an answer with is_byok false returns its vectors, with no not-byok line', async () => {
+  const answer = embeddingsOf([[1, 0]], { usage: { prompt_tokens: 7, cost: 0.0001, is_byok: false } });
+  const { embedder, sent } = makeEmbedder([answer]);
+  const llm = { byokRequired: true, byokExempt: ['embedding'] };
+  const { result, logs } = await withCapturedLogs(() => embedder.embed(['a'], { config: config({ llm }), purpose: 'search' }));
+  assert.equal(result.length, 1);
+  assert.equal(sent.length, 1);
+  const usage = logs.filter((l) => l.msg === 'llm: usage');
+  assert.equal(usage.length, 1);
+  assert.equal(usage[0].role, 'embedding', 'the usage fields carry the role the exemption is matched on');
+  assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0);
+});
+
+test('embed: llm.byokExempt without the embedding role, or not an array, still refuses is_byok false', async () => {
+  for (const byokExempt of [['voice'], 'embedding', { embedding: true }]) {
+    const answer = embeddingsOf([[1, 0]], { usage: { prompt_tokens: 7, is_byok: false } });
+    const { embedder } = makeEmbedder([answer]);
+    const { logs } = await withCapturedLogs(() =>
+      assert.rejects(
+        embedder.embed(['a'], { config: config({ llm: { byokRequired: true, byokExempt } }) }),
+        (err) => err instanceof NotByokError,
+      ),
+    );
+    assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 1, JSON.stringify(byokExempt));
+  }
+});
+
 test('embed: the attempt is cut at llm.helperTimeoutMs; an external abort is never retried', async () => {
   const { embedder, sent } = makeEmbedder([embeddingsOf([[1]])]);
   await embedder.embed(['a'], { config: config({ llm: { helperTimeoutMs: 5 } }) });
