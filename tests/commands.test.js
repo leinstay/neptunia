@@ -98,7 +98,7 @@ test('buildCommandTree: no BOOLEAN option is left; every yes/no option is a STRI
   walk(command.options);
   assert.deepEqual(all.filter((option) => option.type === 5).map((option) => option.name), []);
   const flags = all.filter((option) => option.type === 3 && option.choices?.some((choice) => choice.value === 'true'));
-  assert.deepEqual(flags.map((option) => option.name).sort(), ['always', 'byok', 'fallbacks', 'self']);
+  assert.deepEqual(flags.map((option) => option.name).sort(), ['adult', 'always', 'byok', 'fallbacks', 'self']);
   for (const option of flags) assert.deepEqual(option.choices, [{ name: 'true', value: 'true' }, { name: 'false', value: 'false' }], option.name);
 });
 
