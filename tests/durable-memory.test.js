@@ -8,7 +8,6 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createStore, readLedger } from '../src/memory/store.js';
 import { createAppendStore } from '../src/memory/append-store.js';
@@ -18,6 +17,7 @@ import { createJournal } from '../src/memory/journal.js';
 import { matchMemory } from '../src/behavior/recall.js';
 import { main as backfill } from '../tools/backfill.mjs';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const GUILD = '600000000000000001';
 const ELENI = '411111111111111111';
@@ -32,7 +32,7 @@ const quietLog = { info() {}, warn() {}, error() {} };
 
 /** A fresh `<root>/data` directory; the backfill tool reads `data/` under its working directory. */
 function tmpRoot() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-durable-'));
+  const root = tempDir('nep-durable-');
   return { root, dir: path.join(root, 'data') };
 }
 

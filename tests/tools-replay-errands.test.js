@@ -6,7 +6,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import '../src/ops/index.js';
@@ -19,6 +18,7 @@ import {
   parseScenarios, renderSkillsReport, runRecord, sandboxErrandBudget, scenarioFileOf, scenarioSummary, scenarioTask, scenarioTaskId, skillRequestEstimate,
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const OWNER = '100000000000000042';
 const MEMBER = '100000000000000007';
@@ -85,7 +85,7 @@ function fakeChannel() {
 
 /** A scratch data/ with the guild's tasks.json as given; returns the data directory. */
 function scratchData(t, tasksJson) {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'replay-errands-'));
+  const dataDir = tempDir('replay-errands-');
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   const dir = path.join(dataDir, 'guilds', GUILD);
   fs.mkdirSync(dir, { recursive: true });

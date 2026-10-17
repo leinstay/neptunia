@@ -4,13 +4,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { RECORD_LINKS_MAX, appendRevision, createRecord, recordLinks, toRecordLine } from '../src/memory/record.js';
 import { newestRevisions } from '../src/memory/chunks.js';
 import { normalizeMessage } from '../src/interface/discord.js';
 import { slimMessage } from '../src/memory/update.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const T1 = Date.UTC(2026, 9, 11, 11, 55, 51, 568);
@@ -44,7 +44,7 @@ function slim(overrides = {}) {
 }
 
 function scene() {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-record-'));
+  const dataDir = tempDir('nep-record-');
   const appendStore = createAppendStore({ fsyncMs: 0, log: quiet });
   const record = createRecord({ appendStore, dataDir, log: quiet, now: () => NOW, uuid: counter('u-') });
   return { dataDir, appendStore, record };

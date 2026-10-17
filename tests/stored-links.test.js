@@ -5,7 +5,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { stripUrls } from '../src/memory/clamp.js';
 import { createStore } from '../src/memory/store.js';
@@ -13,6 +12,7 @@ import { archiveEntry, archiveRevision } from '../src/memory/archive.js';
 import { runOp } from '../src/ops/index.js';
 import { createOpsEnv } from '../src/ops/env.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -20,7 +20,7 @@ const DISCORD = createDiscordInterface().capabilities;
 const URL = 'https://example.com/a?b=1&c=2#d';
 
 function tmpStore() {
-  return createStore({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'nep-links-')) });
+  return createStore({ dataDir: tempDir('nep-links-') });
 }
 
 function noUrl(value) {
@@ -258,7 +258,7 @@ test('restoreArchived: an item restored from an old archive line comes back with
 // ---- the owner's ops (and the persona's skills that run them) ----
 
 function opsEnv(store) {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-links-ops-'));
+  const rootDir = tempDir('nep-links-ops-');
   const hot = {
     config: { bot: { owners: ['42'] }, llm: { model: 'x/y', maxRequestsPerDay: 10 }, memory: { confirmAfter: 2 }, lore: {} },
     prompts: { labels: {} },

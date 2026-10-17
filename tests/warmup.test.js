@@ -13,7 +13,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore } from '../src/memory/store.js';
@@ -47,6 +46,7 @@ import { mergeIntoQueue } from '../src/memory/voice.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -662,7 +662,7 @@ function fakeHot(overrides = {}) {
 }
 
 function tmpDataDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'nep-warmup-store-'));
+  return tempDir('nep-warmup-store-');
 }
 
 /** A fake sleep that resolves immediately but records every requested duration. */
@@ -723,7 +723,7 @@ test('createWarmup: fetched windows are cached for 15 minutes per guild', async 
 });
 
 test('createWarmup: peopleReport never writes anything under a real data/ directory', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-warmup-data-'));
+  const dataDir = tempDir('nep-warmup-data-');
   fs.writeFileSync(path.join(dataDir, 'marker.json'), '{}');
   const before = fs.readdirSync(dataDir).sort();
 

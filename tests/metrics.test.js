@@ -2,17 +2,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 
 import { createMetrics, metricsTap, SPEED_METRICS } from '../src/ops/metrics.js';
 import { log, onLog } from '../src/log.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
 function tmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'nep-metrics-'));
+  return tempDir('nep-metrics-');
 }
 
 /** A clock the test moves by hand. */

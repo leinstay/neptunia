@@ -5,12 +5,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { createEmojiBackfill } from '../src/memory/emoji-backfill.js';
 import { createStore } from '../src/memory/store.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -18,7 +18,7 @@ const DISCORD = createDiscordInterface().capabilities;
 const T0 = Date.UTC(2026, 8, 1);
 
 function withStore(fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-emoji-backfill-'));
+  const dir = tempDir('nep-emoji-backfill-');
   return Promise.resolve()
     .then(() => fn(createStore({ dataDir: dir }), dir))
     .finally(() => fs.rmSync(dir, { recursive: true, force: true }));

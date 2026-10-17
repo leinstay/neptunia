@@ -4,13 +4,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { main } from '../tools/search-policy-eval.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
 import { decisionOf, parseSheet, rowChat, summarize } from '../tools/lib/search-policy-eval.mjs';
 import { lookupClassifierInput } from '../src/behavior/turn.js';
 import { labels } from './fixtures/labels.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const NOW = Date.UTC(2026, 9, 17, 12, 0, 0);
 const ROWS = [
@@ -54,7 +54,7 @@ function fakeLlm({ fail = new Set() } = {}) {
 }
 
 function tempSheet(rows = ROWS) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-search-policy-eval-'));
+  const dir = tempDir('nep-search-policy-eval-');
   const sheet = path.join(dir, 'sheet.jsonl');
   fs.writeFileSync(sheet, `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`);
   return { dir, sheet };

@@ -4,9 +4,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { createVectors, dequantize, quantize } from '../src/memory/vectors.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const OCT = Date.UTC(2026, 9, 13, 9, 0, 0);
@@ -63,7 +63,7 @@ function meta(id, overrides = {}) {
 }
 
 function scene(options = {}) {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-vectors-'));
+  const dataDir = tempDir('nep-vectors-');
   const vectors = createVectors({ dataDir, log: quiet, now: () => OCT, ...options });
   return { dataDir, vectors };
 }

@@ -8,7 +8,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import '../src/ops/index.js';
@@ -25,6 +24,7 @@ import {
   sequenceSummary, skillRequestEstimate,
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const OWNER = '100000000000000042';
 const MEMBER = '100000000000000007';
@@ -652,8 +652,8 @@ test('skillRequestEstimate: up to two requests per decision -- a run, or every t
 // ---- prompt layers: --prompts and --pair-prompts ------------------------------------
 
 test('replay --skills --prompts: the directory is laid over a copy of prompts.local/; a file in it replaces, labels.json merges; nothing live changes', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-skills-'));
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-skills-layers-'));
+  const root = tempDir('nep-replay-skills-');
+  const tmpDir = tempDir('nep-replay-skills-layers-');
   const write = (rel, text) => {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.writeFileSync(path.join(root, rel), text);
@@ -721,9 +721,9 @@ function linkDir(target, link) {
 }
 
 test('replay --skills --prompts: a prompts.local/ that links to the live layer is read through the link and copied; nothing is linked into or written to it', (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-skills-'));
-  const live = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-skills-live-'));
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-skills-layers-'));
+  const root = tempDir('nep-replay-skills-');
+  const live = tempDir('nep-replay-skills-live-');
+  const tmpDir = tempDir('nep-replay-skills-layers-');
   const opened = [];
   try {
     if (!linkDir(live, path.join(root, 'prompts.local'))) {

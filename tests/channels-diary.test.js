@@ -4,12 +4,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { renderChannel } from '../src/memory/channels.js';
 import { touchMemory } from '../src/memory/update.js';
 import { createStore } from '../src/memory/store.js';
 import { labels } from './fixtures/labels.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const channel = { id: 'c1', name: 'journal', category: null, topic: null, purpose: '', topics: '', tone: '' };
 
@@ -32,7 +32,7 @@ test('renderChannel: the diary mark is omitted when its label is missing', () =>
 });
 
 function withStore(fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-diary-map-'));
+  const dir = tempDir('nep-diary-map-');
   try {
     return fn(createStore({ dataDir: dir }));
   } finally {

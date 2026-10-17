@@ -18,6 +18,7 @@ import { createErrandService, RUNNER_RECHECK_MS } from '../src/errands/service.j
 import { createErrandClient } from '../src/errands/client.js';
 import { encodeLine } from '../src/agent-runner/protocol.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const SECRETS = ['sk-agent-SECRET', 'sk-persona-SECRET', 'pw-SECRET', 'search-SECRET', 'sk-dev-SECRET'];
 
@@ -43,7 +44,7 @@ function fakeLog() {
 }
 
 function makeService(env, { keyByRole } = {}) {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const rootDir = tempDir('nep-errands-service-');
   const hot = {
     config: {
       features: { journal: true },
@@ -149,7 +150,7 @@ test('errands service: without the role\'s key no secrets are sent (never the ma
 });
 
 test('errands service: forgetUser cancels the member\'s running task at its runner, then drops their tasks; wipe empties the guild\'s', async () => {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
   const gates = new Map();
   const cancels = [];
@@ -181,7 +182,7 @@ test('errands service: forgetUser cancels the member\'s running task at its runn
 });
 
 test('errands service: a task carries context.recent, the origin channel\'s last agents.recentLines lines as of its queuing; a dm task sends none', async () => {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { agents: { maxOpen: 5, recentLines: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
   const buffer = [
     { channelId: 'c1', authorName: 'Ελένη', content: 'πρώτη' },
@@ -259,7 +260,7 @@ function fakeMirror() {
 }
 
 test('errands service: the ledger mirror is called at the queuing (limits), the start (limits, the role\'s model), each progress, the end, a cancel (who) and a forget; the ledger id is kept on the task', async () => {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { roles: { 'agent.web': 'openrouter/vendor/web-model' }, agents: { maxOpen: 5, resultMaxChars: 1234, web: { enabled: true, daily: { tasks: 10, usd: 5 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } } } };
   const gates = new Map();
   const listeners = [];
@@ -316,7 +317,7 @@ test('errands service: the ledger mirror is called at the queuing (limits), the 
 });
 
 test('errands service: at start the open tasks without a ledger id are mirrored, then each one\'s restart failure; a mirror that throws never stops an errand', async () => {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
   const dataDir = path.join(rootDir, 'data');
   try {
@@ -399,7 +400,7 @@ async function pongRunner(sock) {
 }
 
 test('errands service: with the runner socket absent the flag goes down, submit refuses runner-down at once and writes no task; a ping that succeeds flips it back', async () => {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const rootDir = tempDir('nep-errands-service-');
   const sock = path.join(os.tmpdir(), `errand-health-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
   const hot = { config: { agents: { maxOpen: 3, web: { enabled: true, socket: sock, daily: { tasks: 10, usd: 5 } }, server: { enabled: false } } } };
   let clock = 1_000_000;
@@ -453,7 +454,7 @@ test('errands service: the connect loop\'s outcomes set the flag; start pings th
     ping: async (agent) => (pinged.push(agent), { ok: false, error: 'disconnected' }),
     run: async () => ({ status: 'done', result: { text: '' }, usage: {} }),
   };
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
   const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log });
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn() });

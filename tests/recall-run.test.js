@@ -4,7 +4,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRecall } from '../src/behavior/recall-run.js';
@@ -15,6 +14,7 @@ import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -927,7 +927,7 @@ test('recall: the summary reads the last recall.contextMessages chat lines as <c
 
 /** A real store in a fresh temporary directory (never data/), and its trace file of guild g1. */
 function tempStore() {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-trace-'));
+  const dataDir = tempDir('recall-trace-');
   const store = createStore({ dataDir });
   const file = path.join(dataDir, 'guilds', GUILD, 'recall-trace.jsonl');
   const lines = () => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);

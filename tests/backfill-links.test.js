@@ -6,16 +6,16 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { linkCandidates, linkRevision, linkUrls } from '../tools/lib/backfill.mjs';
 import { main } from '../tools/backfill.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
 import { toRecordLine } from '../src/memory/record.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-backfill-links-'));
+const TEMP = tempDir('nep-backfill-links-');
 after(() => fs.rmSync(TEMP, { recursive: true, force: true }));
 
 const GUILD = '600000000000000001';

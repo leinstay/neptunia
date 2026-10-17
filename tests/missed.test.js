@@ -4,7 +4,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {
   MISSED_REASONS,
@@ -27,6 +26,7 @@ import {
   sweepPlan,
 } from '../src/behavior/missed.js';
 import { labels } from './fixtures/labels.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const T0 = Date.parse('2026-10-14T12:00:00.000Z');
 const MIN = 60_000;
@@ -169,7 +169,7 @@ function fakeLog() {
 }
 
 function tmpData() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'nep-missed-'));
+  return tempDir('nep-missed-');
 }
 
 /** One createMissed with fakes; `history` is what every channel fetch returns. */

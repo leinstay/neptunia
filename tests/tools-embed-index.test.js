@@ -4,13 +4,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { main } from '../tools/embed-index.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { archiveEntry, createArchive } from '../src/memory/archive.js';
 import { createRecord } from '../src/memory/record.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const GUILD = '600000000000000001';
 const ELENI = '411111111111111111';
@@ -24,7 +24,7 @@ function line(messageId, at, text, by, overrides = {}) {
 
 /** A bot directory with a record over September and October, a private layer and one archived episode. */
 async function fixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-embed-index-'));
+  const root = tempDir('nep-embed-index-');
   const dataDir = path.join(root, 'data');
   const stores = [createAppendStore({ fsyncMs: 0, log: quiet }), createAppendStore({ fsyncMs: 0, log: quiet })];
   const record = createRecord({ appendStore: stores[0], dataDir, log: quiet });

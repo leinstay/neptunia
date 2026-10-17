@@ -2,7 +2,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv, applyEnv, deepMerge, readConfig, need, isPlainObject, resolveEnvRefs } from '../src/config.js';
@@ -11,9 +10,10 @@ import { roomQuestionChance } from '../src/behavior/spontaneous.js';
 import { RECALL_DEFAULTS, recallSettings } from '../src/behavior/recall.js';
 import { paceSettings } from '../src/behavior/turn.js';
 import { SPLIT_DEFAULTS, splitSettings } from '../src/behavior/split.js';
+import { tempDir } from './fixtures/tmp.js';
 
 function tmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'nep-'));
+  return tempDir('nep-');
 }
 
 test('parseEnv: skips blank lines and full-line comments', () => {

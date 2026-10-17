@@ -4,13 +4,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { PermissionFlagsBits } from 'discord.js';
 import { createAdmin } from '../src/admin.js';
 import { backfillDiary } from '../src/behavior/diary.js';
 import { buildCommandTree, commandKeys, createDiscordInterface, createInteractionHandler } from '../src/interface/discord.js';
 import { labels } from './fixtures/labels.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -18,7 +18,7 @@ const DISCORD = createDiscordInterface().capabilities;
 const SELF = 'self1';
 
 function makeRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'nep-diary-admin-'));
+  return tempDir('nep-diary-admin-');
 }
 
 function readLocal(rootDir) {

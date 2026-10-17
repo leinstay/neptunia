@@ -3,19 +3,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { createHot } from '../src/hot.js';
 import { createOpsEnv } from '../src/ops/env.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
 
 function makeRoot({ config = { bot: { timezone: 'UTC' } }, prompts = {} } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-hot-'));
+  const dir = tempDir('nep-hot-');
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(config));
   fs.mkdirSync(path.join(dir, 'prompts'));
   for (const [name, text] of Object.entries(prompts)) {
@@ -590,7 +590,7 @@ test('hot: onReload fires with the layer name', async () => {
 
 test('createHot: a privateDir apart from rootDir supplies config.local.json and prompts.local/, a writeLocalPath lands there, and its watcher reloads', async () => {
   const dir = makeRoot({ config: { a: 1, b: 1 }, prompts: { rules: 'base text', persona: 'base persona' } });
-  const privateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-hot-private-'));
+  const privateDir = tempDir('nep-hot-private-');
   fs.writeFileSync(path.join(privateDir, 'config.local.json'), JSON.stringify({ b: 2 }));
   writeLocalPrompt(privateDir, 'rules', 'private text');
   // A local layer left in the checkout is not read once the private directory is elsewhere.
