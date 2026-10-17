@@ -21,7 +21,7 @@ import net from 'node:net';
 import { pipeline } from 'node:stream';
 import zlib from 'node:zlib';
 import { log } from '../log.js';
-import { bareContentType, safeLocation } from '../discord/video-sites.js';
+import { bareContentType, safeLocation } from '../media/video-sites.js';
 import { htmlToText, pageTitle, truncateText } from './readable.js';
 
 const REQUEST_HEADERS = Object.freeze({

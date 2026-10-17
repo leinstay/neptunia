@@ -12,7 +12,7 @@
 // Time gaps and date changes are spelled out because the model must tell a
 // live conversation from a dead chat that somebody has just poked.
 
-import { clipWithEllipsis, mediaLabelFor, stickerLabelFor, stickerUrl } from './discord/media.js';
+import { clipWithEllipsis, mediaLabelFor, stickerLabelFor, stickerUrl } from './media/classify.js';
 import { gifHandleOf } from './memory/index.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.js';
 import { clampWithEllipsis, oneLine } from './memory/clamp.js';
@@ -175,7 +175,7 @@ export function formatDuration(ms, units) {
 /**
  * One rendered tag per attachment/embed/sticker of `message`, most
  * informative form available (see docs/prompt-contract.md, "Media in
- * a transcript line" and src/discord/media.js#mediaLabelFor/stickerLabelFor):
+ * a transcript line" and src/media/classify.js#mediaLabelFor/stickerLabelFor):
  * attached to this request > described > blind, plus one extra tag per
  * distinct described custom emoji unless `context.emojiInline` is false (the
  * request describes them once elsewhere). `context.attachedIndex`/

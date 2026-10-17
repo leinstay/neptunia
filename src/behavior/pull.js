@@ -12,7 +12,7 @@
 // fallbacks exist once. No I/O, no discord.js: callers pass plain normalized
 // messages and the clock.
 
-import { collectEmojiItems, collectPictures, isDescribable } from '../discord/media.js';
+import { collectEmojiItems, collectPictures, isDescribable } from '../media/classify.js';
 import { DAY_MS, MINUTE_MS } from '../time.js';
 
 /**

@@ -67,8 +67,8 @@ import {
   isDescribable,
   lateVideoStates,
   selectPictures,
-} from '../discord/media.js';
-import { avatarReference, createImageFetcher } from '../discord/fetch-image.js';
+} from '../media/classify.js';
+import { avatarReference, createImageFetcher } from '../media/fetch-image.js';
 import { renderCustomEmoji, resolveReactionEmoji } from '../discord/emoji.js';
 import { fill, formatNow, replyMarker, withCalls, withTriggers } from '../format.js';
 import { log } from '../log.js';
@@ -749,7 +749,7 @@ const REWATCH_STATUS_DESCRIBED = 'described';
 export { parseRewatchPickDetailed };
 
 /**
- * The link items of `history` the web lookup may read (src/discord/media.js#collectReadableLinks:
+ * The link items of `history` the web lookup may read (src/media/classify.js#collectReadableLinks:
  * no video-site link, no gif embed), newest message first.
  */
 function readableLinkCandidates(history, sites) {
@@ -878,7 +878,7 @@ function splitForMirror(text, max) {
 
 /**
  * Describable pictures (image/gif/video/sticker/link-thumbnail, plus custom
- * emoji — see src/discord/media.js#isDescribable) of `history` that are NOT
+ * emoji — see src/media/classify.js#isDescribable) of `history` that are NOT
  * among `picked` (the ones already attached as image_url parts), newest
  * message first — so a per-turn cap spends its budget on what the persona
  * just saw. Pictures (collectPictures) come before that message's emoji.
@@ -900,7 +900,7 @@ function describableCandidates(history, picked, { includePicked = false } = {}) 
   return out;
 }
 
-/** The picture kinds (src/discord/media.js) that make a direct call's own media something to look at. */
+/** The picture kinds (src/media/classify.js) that make a direct call's own media something to look at. */
 const LOOKED_AT_KINDS = new Set(['image', 'gif', 'video']);
 
 /**
@@ -3196,7 +3196,7 @@ export function createTurnRunner({
    * after the videos and before the pictures; the describer watches its clip
    * again (describer.rewatchGif) and the answer goes into `imageAnswers`
    * under the GIF's id (rendered as `videoAnswered`, see
-   * src/discord/media.js#mediaLabelFor). A GIF takes a second-look slot and a
+   * src/media/classify.js#mediaLabelFor). A GIF takes a second-look slot and a
    * GIF watch slot (`videoCapsLeft().gif`), never a video one. Videos that
    * did not load (`error` state) are candidates too whenever the describer
    * can fetch one (describer.describeVideo): the classifier's `<n> | retry`

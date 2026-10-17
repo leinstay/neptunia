@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import * as sandbox from '../src/behavior/sandbox.js';
 import { fetchHistoryWindow } from '../src/discord/collect.js';
 import { formatTranscript } from '../src/format.js';
-import { videoUrlCacheKey } from '../src/discord/video-sites.js';
+import { videoUrlCacheKey } from '../src/media/video-sites.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { fill } from '../src/format.js';
 import { buildRequest } from '../src/behavior/prompt.js';

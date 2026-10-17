@@ -19,7 +19,7 @@
 
 import { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent } from './collect.js';
 import { isOwnerId } from './access.js';
-import { collectPictures, collectEmojiItems, collectVideos, collectReadableLinks, isDescribable } from './media.js';
+import { collectPictures, collectEmojiItems, collectVideos, collectReadableLinks, isDescribable } from '../media/classify.js';
 import {
   detectTrigger,
   strippedLength,

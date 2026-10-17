@@ -21,7 +21,7 @@
 // its host or port is ever logged. A GIF (a .gif file
 // or a GIF site's mp4/webm) is downloaded the same way and always converted
 // by ffmpeg into a short mp4, so it can be watched like a video. With an
-// `audioMap` (src/discord/audio-map.js#audioMapSettings) an attachment's or a
+// `audioMap` (src/media/audio-map.js#audioMapSettings) an attachment's or a
 // link's final clip -- never a GIF's, silent by design -- has its sound
 // measured before the temp directory goes: one read-only ffmpeg
 // `silencedetect` pass whose stderr is parsed (never logged), returned as
@@ -30,7 +30,7 @@
 // read YouTube (a bot check), probeYoutube learns the duration without it:
 // the YouTube Data API when a key is configured, else the watch page itself.
 // The argument arrays and parsers come from the pure
-// src/discord/video-sites.js; this module is only the edge (child processes,
+// src/media/video-sites.js; this module is only the edge (child processes,
 // fetch, temp files).
 //
 // Every function resolves to a result object and never rejects. Temp files
@@ -589,7 +589,7 @@ export function createVideoFetcher({
   /**
    * Download a GIF's animation -- a `.gif` file, or the mp4/webm a GIF site
    * (tenor, giphy) serves for it -- and convert it with ffmpeg into a short
-   * mp4 (src/discord/video-sites.js#ffmpegGifArgs: the first `maxSeconds`, at
+   * mp4 (src/media/video-sites.js#ffmpegGifArgs: the first `maxSeconds`, at
    * most 360p, no audio), so the video describer can watch what happens in
    * it. Always converted: a GIF's own length is unknown here, and a .gif is
    * no video a model takes. The download is capped like an attachment's

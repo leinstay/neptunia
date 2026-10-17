@@ -137,7 +137,7 @@ const CDN_ATTACHMENT_PATH_RE = /^\/(?:ephemeral-)?attachments\/(\d+)\/(\d+)\/([^
 
 /**
  * The Discord CDN hosts (`cdn.discordapp.com`, `media.discordapp.net`) as a
- * site list for extractVideoUrls (src/discord/video-sites.js), so a typed CDN
+ * site list for extractVideoUrls (src/media/video-sites.js), so a typed CDN
  * link is found by the same URL extraction as a video-site link.
  */
 export const DISCORD_CDN_SITES = Object.freeze([...DISCORD_CDN_HOSTS]);
@@ -852,7 +852,7 @@ function partVideos(part, messageId, videoSites) {
  * The video candidates of one normalized message (see src/discord/collect.js),
  * in the order they appear in it: every attachment of kind `video`, then every
  * link whose `url` belongs to one of `videoSites` (see videoSiteFor in
- * src/discord/video-sites.js) -- the message's own first, then each forwarded
+ * src/media/video-sites.js) -- the message's own first, then each forwarded
  * snapshot's the same way, all stamped with the outer message's `messageId`.
  * `itemId` is the id the transcript's `videos`
  * state map is keyed by (the attachment's Discord id, or the link's id).

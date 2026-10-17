@@ -35,7 +35,7 @@
 // `media.recacheBefore` set it is still described again when it comes up.
 
 import { normalizeMessage } from '../discord/collect.js';
-import { collectPictures, emojiUrl } from '../discord/media.js';
+import { collectPictures, emojiUrl } from '../media/classify.js';
 import { collectGifItems, normalizeGifs } from './gifs.js';
 import { isStaleDescription, recacheCutoffMs } from './describe.js';
 import { roleModel } from '../llm/roles.js';
@@ -52,7 +52,7 @@ export const RECACHE_DAYS = Object.freeze({ default: 7, min: 1, max: 60 });
 const EMBED_ID_RE = /#e\d+$/;
 // An attachment's item id: its Discord snowflake.
 const ATTACHMENT_ID_RE = /^\d+$/;
-// The other picture item ids (src/discord/media.js#collectPictures, collectEmojiItems).
+// The other picture item ids (src/media/classify.js#collectPictures, collectEmojiItems).
 const PICTURE_KEY_PREFIXES = ['emoji:', 'sticker:', 'link:', 'video:url:'];
 // The start of Discord's snowflake clock.
 const DISCORD_EPOCH_MS = 1_420_070_400_000;

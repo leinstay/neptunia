@@ -1,7 +1,7 @@
 // Pure helpers for the persona's video vision: which links point at a video
 // site, a stable cache key for a video URL (so a repost of the same video
 // shares one cache entry), the exact yt-dlp / ffmpeg argument arrays the
-// fetcher (src/discord/fetch-video.js) runs (a GIF's conversion to a short
+// fetcher (src/media/fetch-video.js) runs (a GIF's conversion to a short
 // mp4 included), which links go through the optional yt-dlp proxy
 // (proxyFor), and the parsers behind the
 // YouTube duration probe that works without yt-dlp (the watch page, the

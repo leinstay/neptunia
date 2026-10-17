@@ -403,7 +403,7 @@ function fakeClient(overrides = {}) {
   return { user: { id: 'self-id', username: 'Bot' }, ...overrides };
 }
 
-/** A fake createImageFetcher()-shaped dependency (see src/discord/fetch-image.js). `result` may be
+/** A fake createImageFetcher()-shaped dependency (see src/media/fetch-image.js). `result` may be
  * `null` (every download fails), a fixed success object, or `(url, options) => result|null`. */
 function fakeImageFetcher(result = { dataUrl: 'data:image/webp;base64,ZmFrZQ==', bytes: 4, contentType: 'image/webp' }) {
   const calls = [];

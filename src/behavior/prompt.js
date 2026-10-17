@@ -89,7 +89,7 @@ import {
 import { topByRank } from '../memory/ranking.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { RECENT_EPISODES_PER_MEMBER, episodeKey, foldText, memberIdOf, recentSettings, recentView } from '../memory/recent.js';
-import { selectPictures, mediaProxyUrl, fitBox, mediaParts } from '../discord/media.js';
+import { selectPictures, mediaProxyUrl, fitBox, mediaParts } from '../media/classify.js';
 import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { mergeProfiles } from './private.js';
 import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, renderChannelDirectory, renderDirectory } from './handles.js';
@@ -3780,7 +3780,7 @@ export function buildRequest(input) {
     textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts, errands: errandsText });
   }
 
-  // A sticker's URL is already fully sized (see src/discord/media.js
+  // A sticker's URL is already fully sized (see src/media/classify.js
   // stickerUrl: `size=`, not width/height/format) -- the media proxy must
   // never touch it again. Any other picture of known size gets its longer
   // side scaled to at most `context.vision.imageSize`, the aspect kept

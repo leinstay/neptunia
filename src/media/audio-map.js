@@ -1,7 +1,7 @@
 // Pure helpers for the measured audio map of a downloaded video clip. A video
 // model told nothing about the sound tends to invent it for a clip with no
 // audio stream, a silent track or a mostly silent one; the fetcher
-// (src/discord/fetch-video.js) therefore measures the clip it sends with one
+// (src/media/fetch-video.js) therefore measures the clip it sends with one
 // read-only ffmpeg `silencedetect` pass, and the describer
 // (src/memory/describe.js) adds a measured note to the video model's system
 // prompt (`labels.videoAudio.none` / `labels.videoAudio.map`). This module
@@ -9,7 +9,7 @@
 // audible stretches and the `m:ss-m:ss` list the note carries. No I/O here.
 
 import { fill } from '../format.js';
-import { formatDurationShort } from './media.js';
+import { formatDurationShort } from './classify.js';
 
 /** `media.video.audioMap` values used for a missing or invalid key (config.json carries the same). */
 export const AUDIO_MAP_DEFAULTS = Object.freeze({

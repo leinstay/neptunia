@@ -99,7 +99,7 @@ async function connectDiscord(token) {
  * Read only: the GIF library and the record are read, never written; Discord over GET.
  */
 async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token }) {
-  const { emojiUrl, collectPictures, collectVideos } = await import('../src/discord/media.js');
+  const { emojiUrl, collectPictures, collectVideos } = await import('../src/media/classify.js');
   const { normalizeMessage } = await import('../src/discord/collect.js');
   const { normalizeGifs } = await import('../src/memory/gifs.js');
   const { recordFinder, snowflakeMs } = await import('../src/memory/gif-recache.js');
@@ -226,8 +226,8 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
 
     const { createLlm } = await import('../src/llm/openrouter.js');
     const { createCalibrator } = await import('../src/llm/tokens.js');
-    const { createImageFetcher } = await import('../src/discord/fetch-image.js');
-    const { createVideoFetcher } = await import('../src/discord/fetch-video.js');
+    const { createImageFetcher } = await import('../src/media/fetch-image.js');
+    const { createVideoFetcher } = await import('../src/media/fetch-video.js');
     const apiKey = simKey(ORIGIN);
     const stored = readJson(path.join(dataDir, 'state.json'), {});
     const calibrator = createCalibrator(stored?.calibration);

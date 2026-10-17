@@ -34,7 +34,7 @@ import { parseJsonObject } from '../llm/parse.js';
 import { DailyCapError, MEMORY_VOICE_REQUEST, TokenLimitError, dailyCapOf, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { createLimits } from '../llm/limits.js';
-import { isDescribable, mediaParts, stickerUrl } from '../discord/media.js';
+import { isDescribable, mediaParts, stickerUrl } from '../media/classify.js';
 import { log } from '../log.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, bumpDaily, dailyCounter } from '../time.js';
 import { emptyAffinity, roundScore, affinityBand, applyDelta, relationshipStaleOf } from './affinity.js';

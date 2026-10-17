@@ -21,8 +21,8 @@ import {
   siteOf,
   positiveDimension,
   clipWithEllipsis,
-} from './media.js';
-import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from './video-sites.js';
+} from '../media/classify.js';
+import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../media/video-sites.js';
 import { CUSTOM_EMOJI_MARKUP } from './emoji.js';
 import { backfillPlan, emojiOf, reactionKey, runBackfill, withReactors } from './reactors.js';
 import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../protocol.js';
@@ -191,7 +191,7 @@ function normalizeEmbedLinks(idPrefix, embeds, embedTextChars, videoSites) {
 /**
  * The embed links (see normalizeEmbedLinks) followed by one synthetic link per
  * video-site URL typed in the text (`videoSites`, see
- * src/discord/video-sites.js) that no embed already carries -- compared by the
+ * src/media/video-sites.js) that no embed already carries -- compared by the
  * exact URL and by its canonical `videoUrlCacheKey`, so a video Discord did
  * embed is never listed twice. A synthetic link's id IS that cache key.
  * `embedLinks` is returned apart for normalizeMedia, which decides which of

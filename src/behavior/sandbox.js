@@ -50,7 +50,7 @@ import { linkChannels } from '../memory/mentions.js';
 import { continuationHistory, firstPass, pickOtherProfiles, taskInput } from './turn.js';
 import { withCalls } from '../format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../discord/access.js';
-import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../discord/media.js';
+import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { parseOutput } from '../llm/parse.js';
@@ -216,7 +216,7 @@ function seenText(entry, { watched, before }) {
 /**
  * The media item ids of one normalized message a live turn could have had
  * described (its forwarded snapshots included), as the live turn collects
- * them: pictures (src/discord/media.js#collectPictures and
+ * them: pictures (src/media/classify.js#collectPictures and
  * #collectEmojiItems, describable ones) and videos (#collectVideos over `sites`).
  */
 function mediaItemsOf(message, sites) {

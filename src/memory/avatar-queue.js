@@ -44,7 +44,7 @@ function nonNegativeOr(value, fallback) {
  * @param {{ config: object, prompts: object }} deps.hot  Read at the moment of use.
  * @param {{ getUser: Function, listUserProfiles: Function, setAvatar: Function }} deps.store
  * @param {{ complete: Function, capLeft?: Function }} deps.llm
- * @param {{ fetchAsDataUrl: Function }} deps.imageFetcher  src/discord/fetch-image.js.
+ * @param {{ fetchAsDataUrl: Function }} deps.imageFetcher  src/media/fetch-image.js.
  * @param {{ data: object, markDirty: Function }} deps.state  Where the daily counter lives.
  * @param {() => string|null} deps.getGuildId
  * @param {() => string|null} deps.selfId  The persona's user id.

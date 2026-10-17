@@ -8,7 +8,7 @@
 // randomness.
 
 import { createHash } from 'node:crypto';
-import { isGifHostUrl } from '../../src/discord/media.js';
+import { isGifHostUrl } from '../../src/media/classify.js';
 import { block, fillPromptTemplate } from '../../src/behavior/prompt.js';
 import { parseJsonObject } from '../../src/llm/parse.js';
 import { clampText } from '../../src/memory/clamp.js';
@@ -608,7 +608,7 @@ export function estimate(windows, tokensPerWindow, usdPerKTok) {
 
 /**
  * The URLs of `text` (src/memory/mentions.js#URL_PATTERN) a link preview could come from: every
- * one but a GIF site's (src/discord/media.js#isGifHostUrl), whose URL the record already drops.
+ * one but a GIF site's (src/media/classify.js#isGifHostUrl), whose URL the record already drops.
  * @param {unknown} text
  * @returns {string[]}
  */

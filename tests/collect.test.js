@@ -27,8 +27,8 @@ import {
   audienceOf,
 } from '../src/discord/collect.js';
 import { Embed, MessageReferenceType, OverwriteType, PermissionFlagsBits, PermissionsBitField, SnowflakeUtil } from 'discord.js';
-import { videoUrlCacheKey } from '../src/discord/video-sites.js';
-import { collectPictures, collectVideos } from '../src/discord/media.js';
+import { videoUrlCacheKey } from '../src/media/video-sites.js';
+import { collectPictures, collectVideos } from '../src/media/classify.js';
 import { audienceCovers } from '../src/behavior/elsewhere.js';
 import { emptyGifs, mergeGifs } from '../src/memory/gifs.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

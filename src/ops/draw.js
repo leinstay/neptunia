@@ -2,7 +2,7 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { avatarReference } from '../discord/fetch-image.js';
+import { avatarReference } from '../media/fetch-image.js';
 import { buildDrawPrompt } from '../behavior/prompt.js';
 import { imageFileName } from '../behavior/turn.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';

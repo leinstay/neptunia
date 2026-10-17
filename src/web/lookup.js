@@ -5,7 +5,7 @@
 //
 // - readLinks: a normal page link (never a video-site link -- the video
 //   describer owns those -- never an embed classified as anything but a link
-//   (a gif), never a GIF site's page (src/discord/media.js#isGifHostUrl),
+//   (a gif), never a GIF site's page (src/media/classify.js#isGifHostUrl),
 //   never a `web.links.skipSites` host, never a URL whose path ends
 //   with a picture/video/audio/archive/pdf extension) is fetched through the
 //   SSRF-guarded page fetcher (src/web/fetch-page.js; `web.acceptLanguage`
@@ -29,8 +29,8 @@
 // Logs carry reason codes, counts and `host/path` -- never page text, an
 // excerpt, a query or the key.
 
-import { isGifHostUrl, siteOf } from '../discord/media.js';
-import { videoSiteFor, safeLocation } from '../discord/video-sites.js';
+import { isGifHostUrl, siteOf } from '../media/classify.js';
+import { videoSiteFor, safeLocation } from '../media/video-sites.js';
 import { roleModel } from '../llm/roles.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
 import { dailyCapOf, helperRequestOptions, railReason } from '../llm/openrouter.js';
@@ -340,7 +340,7 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
    * or the read failed.
    * @param {string} guildId
    * @param {{ id: string, url: string, site?: string, title?: string, kind?: string }[]} links
-   *   Normalized link items (src/discord/media.js#collectReadableLinks).
+   *   Normalized link items (src/media/classify.js#collectReadableLinks).
    * @param {{ maxNew?: number }} [options]
    * @returns {Promise<{ reads: Map<string, string>, newCount: number }>}  link id -> excerpt.
    */

@@ -1,9 +1,9 @@
-// Tests for src/discord/fetch-image.js: content-type allowlist, size guards
+// Tests for src/media/fetch-image.js: content-type allowlist, size guards
 // (header and body), timeout/failure handling, the LRU cache and its
 // query-string-free logging.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { avatarReference, createImageFetcher } from '../src/discord/fetch-image.js';
+import { avatarReference, createImageFetcher } from '../src/media/fetch-image.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const PNG_BYTES = Buffer.from('fake-png-bytes');

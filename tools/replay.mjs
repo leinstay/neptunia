@@ -808,7 +808,7 @@ async function loadRecallMods(load) {
   const turn = await load('behavior/turn.js');
   const describe = await load('memory/describe.js');
   const lookup = await load('web/lookup.js');
-  const media = await load('discord/media.js');
+  const media = await load('media/classify.js');
   const pull = await load('discord/pull-fetch.js');
   const youtube = await load('memory/youtube-check.js');
   const mods = {
@@ -1473,8 +1473,8 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   const { canAttach, canSend } = await load('discord/collect.js');
   const { resolveGuild } = await load('discord/guild.js');
   const { createDescriber } = await load('memory/describe.js');
-  const { createImageFetcher } = await load('discord/fetch-image.js');
-  const { createVideoFetcher } = await load('discord/fetch-video.js');
+  const { createImageFetcher } = await load('media/fetch-image.js');
+  const { createVideoFetcher } = await load('media/fetch-video.js');
   const { createPageFetcher } = await load('web/fetch-page.js');
   const { createBraveSearch } = await load('web/brave.js');
   const { createLookup } = await load('web/lookup.js');

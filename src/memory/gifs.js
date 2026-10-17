@@ -1,6 +1,6 @@
 // The GIF library the persona builds from the chat: every GIF a member posts
 // (a GIF embed -- a `gifv` one of any site, or a tenor/giphy/klipy page, see
-// src/discord/media.js#classifyEmbed -- or an attached .gif) is counted deterministically (no
+// src/media/classify.js#classifyEmbed -- or an attached .gif) is counted deterministically (no
 // LLM) into data/guilds/<id>/gifs.json, and the persona can post one back by
 // its short handle (`<gif>g12</gif>`, see src/llm/parse.js and
 // src/behavior/turn.js). An entry is keyed by the describer's item id of the
@@ -21,7 +21,7 @@
 // attachment URLs expire).
 
 import { isPlainObject } from '../config.js';
-import { DISCORD_CDN_SITES, mediaParts, siteOf } from '../discord/media.js';
+import { DISCORD_CDN_SITES, mediaParts, siteOf } from '../media/classify.js';
 import { sortByRank } from './ranking.js';
 
 /**
@@ -123,11 +123,11 @@ export function normalizeGifs(value) {
  * The GIFs of one normalized message (see src/discord/collect.js), the
  * message's own first, then each forwarded snapshot's: every attachment of
  * kind `gif` (`key` = its Discord id) and every embed link of kind `gif`
- * (see src/discord/media.js#classifyEmbed; `key` = its item id,
+ * (see src/media/classify.js#classifyEmbed; `key` = its item id,
  * `url` = the page link Discord embeds again when posted). Items without an
  * id or a URL are skipped, and so is a gif embed of a Discord CDN link (its
  * signed URL expires, so it could not be posted back). Every item carries the OUTER message's id and
- * channel, like src/discord/media.js#collectPictures.
+ * channel, like src/media/classify.js#collectPictures.
  * @param {object} message
  * @returns {{ key: string, kind: 'link'|'attachment', url: string, site?: string, name?: string,
  *   itemId: string, messageId: string, channelId: string }[]}
