@@ -167,7 +167,7 @@ test('buildCommandTree: the exact top-level list (19 entries, no warmup, no skil
     access: ['grant', 'revoke', 'list'],
     message: ['create', 'edit', 'delete', 'react'],
     diary: ['set', 'show', 'off', 'post'],
-    task: ['run', 'status', 'cancel', 'list'],
+    task: ['run', 'status', 'cancel', 'list', 'show'],
     alias: ['add', 'remove'],
     learning: ['add', 'remove'],
     lore: ['add', 'list', 'show', 'remove'],
