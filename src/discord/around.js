@@ -19,7 +19,7 @@
 // written out ("no", "none") only where the live data can tell, "unavailable" / "stale" where it
 // cannot. Every word the model reads comes from `labels.peopleNow`.
 
-import { fill, formatDuration } from './format.js';
+import { fill, formatDuration } from '../format.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 
 /** Longest member-supplied text kept, in code points. */

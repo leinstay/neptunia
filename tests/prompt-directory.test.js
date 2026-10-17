@@ -1,7 +1,7 @@
 // Tests for the people directory and the mention handles in src/behavior/prompt.js#buildRequest
 // (features.mentionHandles): `<directory>` last in the cached stable part, byte-identical between
 // turns, requesters and channels; each author in view carrying their handle on their lines
-// (src/discord/format.js, `transcript.author`); the request's handle -> member id map; nothing of
+// (src/format.js, `transcript.author`); the request's handle -> member id map; nothing of
 // it with the switch off. Fake prompts and config; the fixture labels plus the keys under test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

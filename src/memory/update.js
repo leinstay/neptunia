@@ -29,7 +29,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isPlainObject } from '../config.js';
 import { fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../llm/budget.js';
-import { formatClock, formatDate, formatTranscript, renderTranscript } from '../discord/format.js';
+import { formatClock, formatDate, formatTranscript, renderTranscript } from '../format.js';
 import { parseJsonObject } from '../llm/parse.js';
 import { DailyCapError, MEMORY_VOICE_REQUEST, TokenLimitError, dailyCapOf, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
@@ -1355,7 +1355,7 @@ function clockKey(value) {
 }
 
 // A channel reference that carries its id: a `<#id>` mention, or the transcript heading's
-// `#name (id:...)` form (src/discord/format.js), whose id decides.
+// `#name (id:...)` form (src/format.js), whose id decides.
 const CHANNEL_MENTION_RE = /^<#([^>]+)>$/;
 const HEADING_ID_RE = /\(id:([^)]+)\)$/;
 

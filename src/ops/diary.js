@@ -5,7 +5,7 @@
 import { canAttach, canRead, canSend } from '../discord/collect.js';
 import { backfillDiary } from '../behavior/diary.js';
 import { log } from '../log.js';
-import { formatClock } from '../discord/format.js';
+import { formatClock } from '../format.js';
 import { unsetPath, reloadNote } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 

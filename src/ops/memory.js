@@ -26,7 +26,7 @@ import { log } from '../log.js';
 import { clampAtBoundary } from '../memory/clamp.js';
 import { SnowflakeUtil } from 'discord.js';
 import { DAY_MS, utcDay, zonedDay } from '../time.js';
-import { formatClock } from '../discord/format.js';
+import { formatClock } from '../format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText, messageRefOf } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';

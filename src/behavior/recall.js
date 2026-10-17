@@ -45,7 +45,7 @@
 import { isPlainObject } from '../config.js';
 import { estimateTokens } from '../llm/tokens.js';
 import { block, fillPromptTemplate } from './prompt.js';
-import { fill, formatTranscript, renderTranscript } from '../discord/format.js';
+import { fill, formatTranscript, renderTranscript } from '../format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { episodeDate } from '../memory/index.js';
 import { TEACHER_TOKEN_RE, fromTokens, occursAsWordStem, tokenIds } from '../memory/mentions.js';
@@ -957,7 +957,7 @@ export function fallbackWindow(windows, among = FALLBACK_AMONG) {
 
 /**
  * A message of a stretch without indices: no reply marker, and its call marks
- * (src/discord/format.js#withCalls) name their target by link or channel, never by a number.
+ * (src/format.js#withCalls) name their target by link or channel, never by a number.
  */
 function unnumbered(message) {
   const out = { ...message, replyToId: null };
@@ -969,7 +969,7 @@ function unnumbered(message) {
 
 /**
  * The windows rendered as transcript lines with the transcript helpers of
- * src/discord/format.js (the chat form: gap and date markers, media tags
+ * src/format.js (the chat form: gap and date markers, media tags
  * with the `descriptions` captions, reactions; wording from `labels`). A
  * message whose id is in the window's `hitIds` gets HIT_MARK at the start
  * of its own first line (`#n [time] Name: ...`, after any gap or date
@@ -1426,7 +1426,7 @@ function timeCueText(cue, labels, timezone) {
  * lines, renderRecallWindows with indices; left
  * out when no window has a line), `<context>` (the chat lines before the
  * question, recallContext's choice made by the caller, rendered as the
- * classifier transcripts are -- src/discord/format.js formatTranscript and
+ * classifier transcripts are -- src/format.js formatTranscript and
  * renderTranscript, the persona's own lines under `labels.self`, the
  * `contextDescriptions` captions -- with their `#n` indices continuing after
  * the last `<found>` line; left out when there is no line), `<time_cue>`

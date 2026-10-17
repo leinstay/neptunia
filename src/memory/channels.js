@@ -4,7 +4,7 @@
 // one channel entry is rendered into the <server> prompt block. No I/O here;
 // `nowMs` and the channel record are always injected.
 
-import { fill, formatDuration } from '../discord/format.js';
+import { fill, formatDuration } from '../format.js';
 import { DAY_MS, utcDay } from '../time.js';
 
 const DEFAULT_ACTIVITY_THRESHOLDS = { liveMessagesPerDay: 20, deadAfterDays: 7 };

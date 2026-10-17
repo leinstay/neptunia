@@ -1,5 +1,5 @@
 // Pure media semantics shared by src/discord/collect.js (normalization),
-// src/discord/format.js (transcript rendering) and src/behavior/prompt.js
+// src/format.js (transcript rendering) and src/behavior/prompt.js
 // (vision selection): classifying an attachment/embed into a kind, choosing
 // which label form a media item takes in a transcript line, rewriting a
 // Discord CDN URL through the media proxy for resizing, recognising a pasted
@@ -395,7 +395,7 @@ function durationOrUnknown(durationSec, unknownDuration) {
  * The reason CODE of a not-watched video state: `'length' | 'size' | 'daily'`
  * for a `limit` state, `'error'` for an `error` state, `'pending'` for a
  * `pending` one (its watch had not finished when the request was built).
- * Label-free on purpose: src/discord/format.js swaps it for
+ * Label-free on purpose: src/format.js swaps it for
  * `labels.transcript.videoReason[code]`.
  */
 function videoReasonCode(video) {
@@ -511,7 +511,7 @@ function extraOf(...extras) {
  * A plain image/thumbnail attached to the request renders as a bare
  * `imageAttached`, or as `imageAttachedDescribed` (`{ n, text }`: the marker
  * and the helper's caption together) when a caption exists -- with that key
- * blanked in prompts.local/labels.json, src/discord/format.js falls back to
+ * blanked in prompts.local/labels.json, src/format.js falls back to
  * `imageAttached`. A video or gif whose still frame is attached keeps its
  * normal form (`video`/`videoDescribed`/`gif`/`gifDescribed` -- so the
  * persona still knows it WAS a video, its name, its duration) and carries a
@@ -529,10 +529,10 @@ function extraOf(...extras) {
  * `videoWatched`, or `videoWatchedPart` when the state's `watchedSeconds` (the
  * downloaded clip's length) is shorter than the item's known `durationSec`
  * (`values.watched` its m:ss, `values.reason` the code `'clip'`, swapped by
- * src/discord/format.js for `transcript.videoPartReason.clip`); one not watched renders `videoNotWatchedFrame` (a still
+ * src/format.js for `transcript.videoPartReason.clip`); one not watched renders `videoNotWatchedFrame` (a still
  * frame caption exists) or `videoNotWatched`, `values.reason` carrying the
  * reason CODE (`'length'|'size'|'daily'|'error'|'pending'`, never a label -- see
- * src/discord/format.js). A `link` with a video state swaps its one extra for
+ * src/format.js). A `link` with a video state swaps its one extra for
  * `linkWatched` / `linkNotWatchedFrame` / `linkNotWatched`; when its
  * thumbnail is also attached, `extra` is an array: `frameAttached` first,
  * the video extra second. A watched video (attachment or link) whose state
@@ -549,7 +549,7 @@ function extraOf(...extras) {
  * src/memory/gifs.js#gifHandleOf) of a `gif` item the persona can post
  * back: it renders `gifKnown` (`{ id, text }`) when a caption exists, else
  * `gifKnownNoText` (`{ id, name }`), in place of `gifDescribed`/`gif` (with
- * those keys blanked in prompts.local/labels.json, src/discord/format.js
+ * those keys blanked in prompts.local/labels.json, src/format.js
  * falls back to them). Every other kind ignores it.
  *
  * `context.gifFields` is that GIF's three caption fields (`{ reaction,
@@ -558,7 +558,7 @@ function extraOf(...extras) {
  * caption whose `reaction` or `screen` is non-empty renders `gifKnownFields`
  * (`{ id, text, reaction, action, screen }`, `text` being the caption
  * gifKnown would show) in place of `gifKnown`; with that key blanked
- * src/discord/format.js falls back to `gifKnown`. A GIF without a handle
+ * src/format.js falls back to `gifKnown`. A GIF without a handle
  * ignores it (`gifDescribed` keeps the caption alone).
  *
  * `context.answer` is a picture's second look on a question (`{ question,

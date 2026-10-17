@@ -20,7 +20,7 @@ import { deepMerge, isPlainObject } from '../src/config.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedDay } from '../src/time.js';
 import { buildDiaryPlanRequest, buildDrawPrompt, buildRequest, hasRequiredLabels } from '../src/behavior/prompt.js';
 import { parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.js';
-import { fill, formatDate } from '../src/discord/format.js';
+import { fill, formatDate } from '../src/format.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createRecall } from '../src/behavior/recall-run.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';

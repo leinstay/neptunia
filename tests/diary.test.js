@@ -30,7 +30,7 @@ import {
 } from '../src/behavior/diary.js';
 import { PermissionFlagsBits } from 'discord.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { fill, localHour } from '../src/discord/format.js';
+import { fill, localHour } from '../src/format.js';
 import { MINUTE_MS, HOUR_MS } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
 import { createStore } from '../src/memory/store.js';

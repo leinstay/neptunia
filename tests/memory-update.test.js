@@ -13,7 +13,7 @@ import { MEMORY_LIMIT_DEFAULTS, isDue, buildMemoryRequest, applyMemoryUpdate, ap
 import { voiceLimits, mergeIntoQueue, retryLater } from '../src/memory/voice.js';
 import { createCalibrator, estimateTokens } from '../src/llm/tokens.js';
 import { SectionsTooLargeError } from '../src/llm/budget.js';
-import { formatClock, formatDate, formatTranscript } from '../src/discord/format.js';
+import { formatClock, formatDate, formatTranscript } from '../src/format.js';
 import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.js';

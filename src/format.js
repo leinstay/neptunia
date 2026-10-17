@@ -12,11 +12,11 @@
 // Time gaps and date changes are spelled out because the model must tell a
 // live conversation from a dead chat that somebody has just poked.
 
-import { clipWithEllipsis, mediaLabelFor, stickerLabelFor, stickerUrl } from './media.js';
-import { gifHandleOf } from '../memory/index.js';
-import { MINUTE_MS, HOUR_MS, DAY_MS } from '../time.js';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
-import { isWordChar, outsideUrls } from '../memory/mentions.js';
+import { clipWithEllipsis, mediaLabelFor, stickerLabelFor, stickerUrl } from './discord/media.js';
+import { gifHandleOf } from './memory/index.js';
+import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.js';
+import { clampWithEllipsis, oneLine } from './memory/clamp.js';
+import { isWordChar, outsideUrls } from './memory/mentions.js';
 
 // config.json's context.replyQuoteChars: how much of a reply's parent its line quotes.
 const DEFAULT_REPLY_QUOTE_CHARS = 80;

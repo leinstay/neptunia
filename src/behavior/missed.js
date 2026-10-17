@@ -31,7 +31,7 @@
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import { fetchHistory as defaultFetchHistory, canSend as defaultCanSend } from '../discord/collect.js';
-import { formatTranscript, renderTranscript, withTriggers } from '../discord/format.js';
+import { formatTranscript, renderTranscript, withTriggers } from '../format.js';
 import { helperRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';

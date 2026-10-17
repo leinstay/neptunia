@@ -10,7 +10,7 @@
 // shared by the turn runner (src/behavior/turn.js) and the message pipeline
 // (src/discord/events.js).
 
-import { fill } from '../discord/format.js';
+import { fill } from '../format.js';
 import { log } from '../log.js';
 
 /**

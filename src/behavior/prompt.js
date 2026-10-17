@@ -61,7 +61,7 @@ import {
   formatTranscript,
   renderTempo,
   renderTranscript,
-} from '../discord/format.js';
+} from '../format.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay } from '../time.js';
 import {
   affinityBand,
@@ -1075,7 +1075,7 @@ export function gifFields(entry, mediaCache, { reactionChars, actionChars }) {
  * The transcript's view of the three-field GIF captions: every entry of the
  * describer cache in that format (gifFields, cut per field by `chars` like
  * the `<gifs>` list) as cache key -> `{ reaction, action, screen }`, ready
- * for formatTranscript's `gifFields` option (src/discord/format.js renders
+ * for formatTranscript's `gifFields` option (src/format.js renders
  * `transcript.gifKnownFields` with them for a GIF of the library). Keys are
  * the item ids the transcript and `descriptions` use. Pure.
  * @param {object|null} mediaCache  The describer cache (store.getMediaCache), read only.
@@ -1097,7 +1097,7 @@ export function gifFieldsMap(mediaCache, chars) {
  * it (src/behavior/gif-pick.js#renderGifLibrary): an
  * entry described in three fields (gifFields) through `labels.gifs.entryFields`
  * (`{id}`, `{reaction}`, `{action}`, `{text}` = the on-screen text; empty
- * fields left out, see src/discord/format.js#fillGifFields); an older one-line caption (gifCaption,
+ * fields left out, see src/format.js#fillGifFields); an older one-line caption (gifCaption,
  * cut to `actionChars`) -- or a three-field one when the labels have no
  * `entryFields` -- through `labels.gifs.entry` (`{id}`/`{text}`); else
  * `labels.gifs.entryNoText` (`{id}`). A GIF the persona itself posted
@@ -1308,7 +1308,7 @@ export function userText(content) {
 /**
  * Fill the double-brace `{{key}}` placeholders of a prompt file (the prompt
  * contract's form; labels.json uses single braces, see fill() in
- * src/discord/format.js). The one `{{key}}` filler of the codebase: a key
+ * src/format.js). The one `{{key}}` filler of the codebase: a key
  * present in `values` (an own property) with a non-null value is replaced by
  * `String(value)`; a key that is absent, null or undefined leaves its
  * placeholder untouched. A missing template reads as ''.
@@ -1328,7 +1328,7 @@ export function fillPromptTemplate(template, values) {
  * route classifier, src/behavior/route.js#routeContext; the re-watch and
  * lookup classifiers, src/behavior/turn.js#classifierContext): `messages`
  * (already chosen by the caller, oldest first) rendered as the chat renders
- * them (src/discord/format.js) under the live `config` -- `bot.timezone`,
+ * them (src/format.js) under the live `config` -- `bot.timezone`,
  * `context.gapMarkerMinutes`, `context.maxMessageChars` (800, config.json's
  * value, when missing), `features.seeReactions`, `context.reactionsPerMessage`
  * -- with the media states the caller already has (`descriptions`, `videos`,
@@ -1365,7 +1365,7 @@ export function classifierTranscript(messages, { config, selfName, labels, descr
  * the result is trimmed. `request` is expected already clamped to
  * `image.maxPromptChars` by the caller (src/behavior/turn.js).
  * @param {{ prompts: object, selfName: string, request: string, self: boolean, when?: string }} args
- *   `when`: the local date and time the picture is made at (src/discord/format.js#formatNow).
+ *   `when`: the local date and time the picture is made at (src/format.js#formatNow).
  * @returns {string}
  */
 export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }) {
@@ -2600,7 +2600,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   none. With features.mentionHandles on each gets a handle (src/behavior/handles.js#assignChannelHandles),
  *   listed in `<channel_directory>` (`labels.channelDirectory`, renderChannelDirectory, sorted by id:
  *   the stable part, before `<directory>`, never cut) and shown beside each channel a line mentions
- *   (`labels.transcript.channel`, src/discord/format.js#formatTranscript); the request's
+ *   (`labels.transcript.channel`, src/format.js#formatTranscript); the request's
  *   `channelHandles` maps each handle back to its channel id.
  * @param {object[]} [input.loreEntries]   The guild's stored lorebook (store.getLore), [] when memory is off.
  * @param {string|null} [input.currentChannelId]  Id of the channel this turn happens in.
@@ -2822,7 +2822,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   last in the stable part and never cut -- and every other author of the chat, the pulled
  *   channels and the neighbours (never the persona, never a bot; a private chat: the chat only)
  *   gets one from the same derivation, shown on their lines through `labels.transcript.author`
- *   (src/discord/format.js#formatTranscript); null with the switch off. `stats.pulled` is the
+ *   (src/format.js#formatTranscript); null with the switch off. `stats.pulled` is the
  *   block's budget line: `used`, `kept` (channels shown), `dropped` (channels offered and not
  *   shown, the budget's cut or a missing header label), `lines` (lines offered) and `linesCut`
  *   (lines offered and not shown), plus `seenFresh` / `seenOlder` (summed over the channels shown

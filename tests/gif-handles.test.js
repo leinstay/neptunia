@@ -1,13 +1,13 @@
 // A GIF of the library seen in a transcript carries its handle
 // (src/memory/gifs.js#gifHandleMap/gifHandleOf, src/discord/media.js#mediaLabelFor,
-// src/discord/format.js#formatTranscript).
+// src/format.js#formatTranscript).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { gifHandleMap, gifHandleOf, matchGifKey, mergeGifs } from '../src/memory/gifs.js';
 import { mediaLabelFor } from '../src/discord/media.js';
-import { formatTranscript } from '../src/discord/format.js';
+import { formatTranscript } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 
 const T0 = Date.UTC(2026, 8, 1);

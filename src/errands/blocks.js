@@ -4,7 +4,7 @@
 // `labels.tasks` (prompts/labels.json); a block whose labels are missing is left out (''). Ids,
 // agent names, states' codes, URLs, file handles, content types and sizes are data, not wording.
 
-import { fill } from '../discord/format.js';
+import { fill } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
 import { fileHandle } from './store.js';

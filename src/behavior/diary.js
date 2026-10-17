@@ -19,7 +19,7 @@
 // day plan in state.json and runs the post through the turn runner.
 
 import { canAttach, canSend, fetchHistory } from '../discord/collect.js';
-import { fill } from '../discord/format.js';
+import { fill } from '../format.js';
 import { log } from '../log.js';
 import { oneLine, clampText, stripUrls } from '../memory/clamp.js';
 import { MINUTE_MS, countToday, zonedDay, zonedEpoch, utcDay } from '../time.js';

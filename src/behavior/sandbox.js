@@ -48,7 +48,7 @@ import { snowflakeAt } from './recall.js';
 import { resolveHandles } from './handles.js';
 import { linkChannels } from '../memory/mentions.js';
 import { continuationHistory, firstPass, pickOtherProfiles, taskInput } from './turn.js';
-import { withCalls } from '../discord/format.js';
+import { withCalls } from '../format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../discord/access.js';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../discord/media.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
@@ -227,7 +227,7 @@ function mediaItemsOf(message, sites) {
 
 /**
  * The caption and video maps a replayed moment's transcript is rendered
- * with (src/discord/format.js#formatTranscript's `descriptions` and
+ * with (src/format.js#formatTranscript's `descriptions` and
  * `videos`, the same the live turn passes): for every media item of the
  * history, the describer's `cache` entry as it stood by `before` (null: any
  * time), read only. A cached miss, a limit or error state and an entry written
@@ -1086,7 +1086,7 @@ function scenarioContinuation({ requestArgs, history, answer, outcome, labels, m
 }
 
 /**
- * The mark one call of hers leaves on the transcript, in src/discord/format.js#withCalls's shape
+ * The mark one call of hers leaves on the transcript, in src/format.js#withCalls's shape
  * and as a live turn notes it (src/behavior/turn.js, `noteCall`): `outcome` (simulateCall's) made
  * in the turn of `channelId`, its result back at `at`; its status and, when it did not work, why
  * (outcomeDetail, `skills.markTextMaxChars` read from `config`); its target from the resolved

@@ -23,7 +23,7 @@
 // only place that touches discord.js, the schedule on disk and the turn
 // runner.
 
-import { localHour } from '../discord/format.js';
+import { localHour } from '../format.js';
 import { readableChannels, canSend, lastActivity, isWritableChannel } from '../discord/collect.js';
 import { routeFor } from './turn.js';
 import { chooseElsewhereMode, elsewhereSettings, hasUnseen, mayBeLive } from './elsewhere.js';

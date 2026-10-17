@@ -35,7 +35,7 @@ import {
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
-import { fill, formatTranscript, renderTranscript } from './format.js';
+import { fill, formatTranscript, renderTranscript } from '../format.js';
 import { topByRank } from '../memory/ranking.js';
 import { addPending, authorCalls, foldInto, followUpSlot, isExpired, parseMergeAnswer, popOldest, requeuePending } from '../behavior/pending.js';
 import { between } from '../behavior/random.js';

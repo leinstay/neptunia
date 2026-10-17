@@ -409,7 +409,7 @@ export function normalizeMessage(message, selfId, options = {}) {
     // reply ping from a real mention of another member.
     replyPingUserId: isForward ? null : replyPingUserId(message, mentionedUserIds),
     // The forwarded snapshot's source channel name, when it resolves in the
-    // same guild -- see src/discord/format.js's `forwardedFrom` rendering.
+    // same guild -- see src/format.js's `forwardedFrom` rendering.
     forwardedFrom: sourceChannel?.name ?? null,
     attachments,
     links,

@@ -11,7 +11,7 @@ import { chunkPictures, createTurnRunner } from '../src/behavior/turn.js';
 import { DIARY_DAILY, DIARY_PICTURES_DAILY } from '../src/behavior/diary.js';
 import { ImageCapError, ImageGenError } from '../src/llm/images.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
-import { fill, formatNow } from '../src/discord/format.js';
+import { fill, formatNow } from '../src/format.js';
 import { countToday, utcDay } from '../src/time.js';
 import { userText } from '../src/behavior/prompt.js';
 import { labels } from './fixtures/labels.js';

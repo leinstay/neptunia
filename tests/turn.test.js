@@ -17,7 +17,7 @@ import {
 } from '../src/behavior/turn.js';
 import { between, typingMs } from '../src/behavior/random.js';
 import { fillPromptTemplate, userText as textOf } from '../src/behavior/prompt.js';
-import { fill, formatClock, formatDate } from '../src/discord/format.js';
+import { fill, formatClock, formatDate } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { handleOf } from '../src/behavior/handles.js';
@@ -9110,7 +9110,7 @@ test('skill call: the continuation shows a read\'s data in <result> before <task
 });
 
 // ---------------------------------------------------------------------------
-// Call marks (src/discord/format.js#withCalls): a later turn's transcript shows the skill calls
+// Call marks (src/format.js#withCalls): a later turn's transcript shows the skill calls
 // she made on her lines of the turn that made them, in the channel where she made them.
 
 /**

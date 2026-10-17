@@ -352,7 +352,7 @@ const CALL_STATUS_RE = /^[a-z_]{1,32}$/;
 
 /**
  * The persona's skill calls, from journal records (parsed lines, any kinds, oldest first), for
- * the call marks of her transcript lines (src/discord/format.js#withCalls): every `skill`
+ * the call marks of her transcript lines (src/format.js#withCalls): every `skill`
  * operation of a guild channel as `{ channelId, at, skill, status, target, postedId, posted }` --
  * `channelId` the channel of its turn (the operation's scope), `at` the time of its last line
  * (epoch ms), `skill` its `input.skill`, `status` the closing line's: `ok` for `succeeded`,

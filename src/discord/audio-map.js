@@ -8,7 +8,7 @@
 // builds that ffmpeg run, reads its stderr, and turns the silences into the
 // audible stretches and the `m:ss-m:ss` list the note carries. No I/O here.
 
-import { fill } from './format.js';
+import { fill } from '../format.js';
 import { formatDurationShort } from './media.js';
 
 /** `media.video.audioMap` values used for a missing or invalid key (config.json carries the same). */
