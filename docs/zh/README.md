@@ -6,12 +6,12 @@
 </p>
 <p align="center"><a href="../../README.md">English</a> | 中文 | <a href="../ja/README.md">日本語</a> | <a href="../ru/README.md">Русский</a></p>
 <p align="center">
-  <a href="https://github.com/leinstay/neptunia-bot/stargazers"><img src="https://img.shields.io/github/stars/leinstay/neptunia-bot" alt="GitHub stars"></a>
-  <a href="https://github.com/leinstay/neptunia-bot/forks"><img src="https://img.shields.io/github/forks/leinstay/neptunia-bot" alt="GitHub forks"></a>
-  <a href="https://github.com/leinstay/neptunia-bot/issues"><img src="https://img.shields.io/github/issues/leinstay/neptunia-bot" alt="GitHub issues"></a>
-  <a href="https://github.com/leinstay/neptunia-bot/pulls"><img src="https://img.shields.io/github/issues-pr/leinstay/neptunia-bot" alt="GitHub pull requests"></a>
-  <a href="https://github.com/leinstay/neptunia-bot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leinstay/neptunia-bot" alt="License"></a>
-  <a href="https://github.com/leinstay/neptunia-bot/actions/workflows/test.yml"><img src="https://github.com/leinstay/neptunia-bot/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/leinstay/neptunia/stargazers"><img src="https://img.shields.io/github/stars/leinstay/neptunia" alt="GitHub stars"></a>
+  <a href="https://github.com/leinstay/neptunia/forks"><img src="https://img.shields.io/github/forks/leinstay/neptunia" alt="GitHub forks"></a>
+  <a href="https://github.com/leinstay/neptunia/issues"><img src="https://img.shields.io/github/issues/leinstay/neptunia" alt="GitHub issues"></a>
+  <a href="https://github.com/leinstay/neptunia/pulls"><img src="https://img.shields.io/github/issues-pr/leinstay/neptunia" alt="GitHub pull requests"></a>
+  <a href="https://github.com/leinstay/neptunia/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leinstay/neptunia" alt="License"></a>
+  <a href="https://github.com/leinstay/neptunia/actions/workflows/test.yml"><img src="https://github.com/leinstay/neptunia/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
 </p>
 
 ---
@@ -29,8 +29,8 @@ Neptunia 是一个本地运行的 Discord 机器人，用 LLM 扮演一个可配
 从 [OpenRouter](https://openrouter.ai/keys)（或任何兼容端点）获取 API 密钥。
 
 ```bash
-git clone https://github.com/leinstay/neptunia-bot.git
-cd neptunia-bot && npm install
+git clone https://github.com/leinstay/neptunia.git
+cd neptunia && npm install
 cp .env.example .env
 ```
 

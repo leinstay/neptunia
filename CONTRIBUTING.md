@@ -3,8 +3,8 @@
 ## Setup
 
 ```bash
-git clone https://github.com/leinstay/neptunia-bot.git
-cd neptunia-bot && npm install
+git clone https://github.com/leinstay/neptunia.git
+cd neptunia && npm install
 npm test
 ```
 
