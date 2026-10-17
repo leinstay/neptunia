@@ -170,7 +170,8 @@ export function createOpsEnv({
     return hot.reloadConfig();
   }
 
-  /** `value` written at `dottedPath` of config.local.json, then reloaded; the reload's outcome. */
+  /** `value` written at `dottedPath` (or an array of keys, src/ops/shared.js#splitPath) of
+   * config.local.json, then reloaded; the reload's outcome. */
   function writeLocalPath(dottedPath, value) {
     return editLocalConfig((local) => setPath(local, dottedPath, value));
   }
@@ -180,7 +181,7 @@ export function createOpsEnv({
    * reload lands. The local file is read as the live config reads it: its old model keys and
    * role names under their new ones (src/config.js#adaptLegacyModelKeys). */
   function localOrLive(dottedPath) {
-    const parts = splitPath(dottedPath);
+    const parts = splitPath(dottedPath, hot.config);
     const local = ownValueAt(adaptLegacyModelKeys(readLocalConfig(localConfigFile())).config, parts);
     return local.found ? local.value : ownValueAt(hot.config, parts).value;
   }

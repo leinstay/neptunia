@@ -186,6 +186,17 @@ const LEGACY_ROLE_NAMES = new Map([
   ['image', 'drawing'],
 ]);
 
+/** Each agent role's name before it took its dot (2026-10): read under the new one in the
+ * `roles` and `llm.keyByRole` maps and wherever a role is named. */
+const LEGACY_AGENT_ROLE_NAMES = new Map([
+  ['agentWeb', 'agent.web'],
+  ['agentServer', 'agent.server'],
+  ['agentDev', 'agent.dev'],
+]);
+
+/** The maps keyed by role name whose old agent role keys are renamed. */
+const ROLE_KEYED_MAPS = Object.freeze([['roles'], ['llm', 'keyByRole']]);
+
 /** The role lists a config may name roles in. */
 const LEGACY_ROLE_LISTS = Object.freeze(['hedge', 'cache']);
 
@@ -220,10 +231,13 @@ function setAt(root, dotted, value) {
  * -> `vision`, `classifier.video` -> `video`, `classifier.embed` -> `embedding`, `image` ->
  * `drawing`, and the old `analyzer` -> `extractor` only while the layer still holds
  * `memory.model` or a `classifier.*` key). A renamed route whose new key is already set is
- * dropped (the new key wins). `renamed` lists what was found, key names and role names only,
- * never a value. Pure: `local` is never mutated.
+ * dropped (the new key wins). The agent roles' old names (`agentWeb`, `agentServer`, `agentDev`)
+ * are read as `agent.web`, `agent.server`, `agent.dev`: as keys of `roles` and `llm.keyByRole`
+ * (the new key wins when both are set; these entries carry `role: true`) and in the role lists
+ * above. `renamed` lists what was found, key names and role names only, never a value. Pure:
+ * `local` is never mutated.
  * @param {unknown} local  The parsed config.local.json.
- * @returns {{ config: unknown, renamed: Array<{ key: string, use: string }> }}
+ * @returns {{ config: unknown, renamed: Array<{ key: string, use: string, role?: true }> }}
  */
 export function adaptLegacyModelKeys(local) {
   if (!isPlainObject(local)) return { config: local, renamed: [] };
@@ -234,8 +248,21 @@ export function adaptLegacyModelKeys(local) {
   const roleName = (name) => {
     if (typeof name !== 'string') return name;
     if (oldNames && name === 'analyzer') return 'extractor';
-    return LEGACY_ROLE_NAMES.get(name) ?? name;
+    return LEGACY_ROLE_NAMES.get(name) ?? LEGACY_AGENT_ROLE_NAMES.get(name) ?? name;
   };
+
+  // The old agent role keys: a role name is one key, its dot included, never a path.
+  for (const keys of ROLE_KEYED_MAPS) {
+    const map = keys.reduce((node, key) => (isPlainObject(node) && Object.hasOwn(node, key) ? node[key] : undefined), config);
+    if (!isPlainObject(map)) continue;
+    for (const [from, to] of LEGACY_AGENT_ROLE_NAMES) {
+      if (!Object.hasOwn(map, from)) continue;
+      const value = map[from];
+      delete map[from];
+      if (!Object.hasOwn(map, to)) map[to] = value;
+      renamed.push({ key: `${keys.join('.')}.${from}`, use: `${keys.join('.')}.${to}`, role: true });
+    }
+  }
 
   for (const [from, to] of LEGACY_MODEL_KEYS) {
     const at = parentOf(config, from);

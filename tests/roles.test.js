@@ -91,17 +91,17 @@ test('roles: the built-in defaults equal config.json, and every role has one', (
 });
 
 test('roles: the agent roles follow drawing, with OpenCode model ids, resolved like any role, no purpose on them', () => {
-  assert.deepEqual([...AGENT_ROLES], ['agentWeb', 'agentServer', 'agentDev']);
+  assert.deepEqual([...AGENT_ROLES], ['agent.web', 'agent.server', 'agent.dev']);
   assert.deepEqual(ROLES.slice(ROLES.indexOf('drawing') + 1), [...AGENT_ROLES]);
-  assert.equal(ROLE_DEFAULTS.agentWeb, 'openrouter/openai/gpt-6.1-sol');
-  assert.equal(ROLE_DEFAULTS.agentServer, 'openrouter/openai/gpt-6.1-sol');
-  assert.equal(ROLE_DEFAULTS.agentDev, 'openrouter/anthropic/claude-opus-5.5');
+  assert.equal(ROLE_DEFAULTS['agent.web'], 'openrouter/openai/gpt-6.1-sol');
+  assert.equal(ROLE_DEFAULTS['agent.server'], 'openrouter/openai/gpt-6.1-sol');
+  assert.equal(ROLE_DEFAULTS['agent.dev'], 'openrouter/anthropic/claude-opus-5.5');
   for (const role of AGENT_ROLES) {
     assert.match(ROLE_DEFAULTS[role], /^openrouter\/[\w.-]+\/[\w.:-]+$/, `${role}: an OpenCode id, provider first`);
     assert.equal(roleModel({}, role), ROLE_DEFAULTS[role], role);
     assert.equal(roleModel({ roles: { [role]: 'openrouter/x/y' } }, role), 'openrouter/x/y', role);
   }
-  assert.equal(roleModel({ roles: { agentWeb: 'openrouter/x/web' } }, 'agentServer'), ROLE_DEFAULTS.agentServer, 'never another agent role\'s model');
+  assert.equal(roleModel({ roles: { 'agent.web': 'openrouter/x/web' } }, 'agent.server'), ROLE_DEFAULTS['agent.server'], 'never another agent role\'s model');
   assert.ok(!Object.values(PURPOSE_ROLES).some((role) => AGENT_ROLES.includes(role)), 'no request purpose goes out on an agent role');
 });
 
@@ -197,6 +197,27 @@ test('adaptLegacyModelKeys: an old analyzer entry is the extractor only while me
 test('adaptLegacyModelKeys: a renamed route whose new key exists is dropped, the new one wins', () => {
   const { config } = adaptLegacyModelKeys({ llm: { providerByModel: { 'g/@classifier.video': { only: ['old'] }, 'g/@video': { only: ['new'] } } } });
   assert.deepEqual(config.llm.providerByModel, { 'g/@video': { only: ['new'] } });
+});
+
+test('adaptLegacyModelKeys: the old agent role names are read as the dotted ones, one key each, the new key winning', () => {
+  const local = {
+    roles: { agentWeb: 'openrouter/x/web', agentDev: 'openrouter/x/dev-old', 'agent.dev': 'openrouter/x/dev-new' },
+    llm: { keyByRole: { agentServer: 'OPENROUTER_OTHER_KEY' } },
+  };
+  const { config, renamed } = adaptLegacyModelKeys(local);
+  assert.deepEqual(config.roles, { 'agent.web': 'openrouter/x/web', 'agent.dev': 'openrouter/x/dev-new' });
+  assert.deepEqual(config.llm.keyByRole, { 'agent.server': 'OPENROUTER_OTHER_KEY' });
+  assert.equal(Object.hasOwn(config.roles, 'agent'), false, 'never a path');
+  assert.deepEqual(renamed, [
+    { key: 'roles.agentWeb', use: 'roles.agent.web', role: true },
+    { key: 'roles.agentDev', use: 'roles.agent.dev', role: true },
+    { key: 'llm.keyByRole.agentServer', use: 'llm.keyByRole.agent.server', role: true },
+  ]);
+  assert.equal(JSON.stringify(renamed).includes('openrouter/'), false, 'never a value');
+  assert.equal(local.roles.agentWeb, 'openrouter/x/web', 'the input is not mutated');
+  const loaded = loadWith({ roles: { agentWeb: 'openrouter/x/web' } });
+  assert.equal(roleModel(loaded.config, 'agent.web'), 'openrouter/x/web');
+  assert.equal(Object.hasOwn(loaded.config.roles, 'agentWeb'), false);
 });
 
 test('loadConfig: config.local.json is read through the adapter, config.json as it is', () => {

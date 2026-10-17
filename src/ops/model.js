@@ -29,6 +29,8 @@ const handlers = perEnv((env) => {
     const role = String(args?.role ?? '');
     const dottedPath = Object.hasOwn(MODEL_SET_PATHS, role) ? MODEL_SET_PATHS[role] : null;
     if (!dottedPath) throw invalid(`unknown role: ${role} (${MODEL_SET_ROLES.join(', ')})`);
+    // The role is one key under `roles`, a dot in its name (`agent.web`) included.
+    const keys = ['roles', role];
 
     const id = String(args?.id ?? '').trim();
     if (!MODEL_ID_RE.test(id)) throw invalid('id must look like a model id, e.g. anthropic/claude-haiku-4.5 (3-100 chars)');
@@ -37,14 +39,14 @@ const handlers = perEnv((env) => {
     // when it comes up (src/memory/describe.js), written in the same config.local.json edit.
     if (MEDIA_ROLES.has(role) && roleModel(hot.config, role) !== id) {
       const at = new Date(now()).toISOString();
-      const ok = editLocalConfig((local) => setPath(setPath(local, dottedPath, id), 'media.recacheBefore', at));
+      const ok = editLocalConfig((local) => setPath(setPath(local, keys, id), 'media.recacheBefore', at));
       return [
         `Set ${role} model to ${id} ${reloadNote(ok)}`,
         `media.recacheBefore set to ${at}: cached picture, GIF and video descriptions written before it are described again when they come up.`,
       ].join('\n');
     }
 
-    const ok = writeLocalPath(dottedPath, id);
+    const ok = writeLocalPath(keys, id);
     return `Set ${role} model to ${id} ${reloadNote(ok)}`;
   }
 

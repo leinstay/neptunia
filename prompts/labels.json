@@ -271,9 +271,9 @@
       "roleKeyLead": "dedicated {roles} key",
       "roleSeparator": ", ",
       "roleNames": {
-        "agentWeb": "agents",
-        "agentServer": "agents",
-        "agentDev": "agents"
+        "agent.web": "agents",
+        "agent.server": "agents",
+        "agent.dev": "development"
       },
       "keyLimit": "{lead}: {spent} / {limit} USD ({notes})",
       "keyLimitPlain": "{lead}: {spent} / {limit} USD",

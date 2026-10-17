@@ -7,11 +7,20 @@
 // asked). Its `end` writes the result into the store and calls `onFinished(task)` -- the turn
 // that brings it back to the persona (src/errands/turns.js); a task cancelled meanwhile ends
 // without one. At start the tasks a restart left open are failed (`restarted`): the runner sends
-// a task's end on the connection that brought it, which is gone. Settings are read at the moment
-// of use; logs carry ids and codes, never a goal or a result.
+// a task's end on the connection that brought it, which is gone. Every run carries the task's
+// secrets (`secrets` of src/agent-runner/protocol.js), since every key lives in the core's .env
+// and the runner cannot read it: the key of the agent's model role (`agent.web`, `agent.server`)
+// as the bot resolves a role's key (src/llm/openrouter.js#roleApiKey over `llm.keyByRole`; never
+// the persona's main key), and for `web` the residential proxy of the video fetches
+// (MEDIA_VIDEO_PROXY, the same proxy serving http too, so a `socks5h://` URL is sent in its http
+// form) and the search key (OPENCODE_WEBSEARCH_KEY) when set. Without the role's key no secrets
+// are sent (the runner falls back to its own environment). Settings are read at the moment of
+// use; logs carry ids and codes, never a goal, a result or a secret.
 
 import { log as defaultLog } from '../log.js';
 import { profileOf } from '../agent-runner/profiles.js';
+import { httpProxyForm } from '../agent-runner/protocol.js';
+import { roleApiKey } from '../llm/openrouter.js';
 import { isOpenState } from './store.js';
 
 /** The limit keys a task may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
@@ -22,12 +31,14 @@ const TASK_LIMIT_KEYS = Object.freeze(['steps', 'usd', 'seconds']);
  * @param {ReturnType<import('./client.js').createErrandClient>} options.client
  * @param {{ get(guildId: string): object|null }} options.stores  src/errands/store.js#createTaskStores
  * @param {{ config: object }} options.hot
+ * @param {Record<string, string|undefined>} [options.env]  The parsed environment (src/config.js#env):
+ *   the keys and the proxy a run carries.
  * @param {() => string|null} [options.getGuildId]  The served guild, when a caller gives none.
  * @param {(task: object, guildId: string) => unknown} [options.onFinished]
  * @param {{ info: Function, warn: Function }} [options.log]
  * @param {(fn: Function) => void} [options.defer]  How the background run starts (default setImmediate).
  */
-export function createErrandService({ client, stores, hot, getGuildId = () => null, onFinished = null, log = defaultLog, defer = (fn) => setImmediate(fn) }) {
+export function createErrandService({ client, stores, hot, env = {}, getGuildId = () => null, onFinished = null, log = defaultLog, defer = (fn) => setImmediate(fn) }) {
   // task id -> the promise of its run, while it runs (tests and the shutdown wait on them).
   const running = new Map();
 
@@ -47,10 +58,29 @@ export function createErrandService({ client, stores, hot, getGuildId = () => nu
     return out;
   }
 
+  /**
+   * The secrets a task of `agent` carries to its runner: `{ openrouterKey, proxy?, searchKey? }`,
+   * or null when the agent's role has no key of its own (never the main key: none is passed).
+   */
+  function secretsOf(agent) {
+    const profile = profileOf(agent);
+    const openrouterKey = profile?.modelRole ? roleApiKey(hot.config, env, profile.modelRole, null) : null;
+    if (typeof openrouterKey !== 'string' || !openrouterKey) return null;
+    const secrets = { openrouterKey };
+    if (profile.name === 'web') {
+      const proxy = httpProxyForm(env?.MEDIA_VIDEO_PROXY);
+      if (proxy) secrets.proxy = proxy;
+      const searchKey = typeof env?.OPENCODE_WEBSEARCH_KEY === 'string' ? env.OPENCODE_WEBSEARCH_KEY.trim() : '';
+      if (searchKey) secrets.searchKey = searchKey;
+    }
+    return secrets;
+  }
+
   /** One queued task sent to its runner and closed with its end. Never throws. */
   async function runTask(store, id) {
     const task = store.start(id);
     if (!task) return null;
+    const secrets = secretsOf(task.agent);
     let outcome;
     try {
       outcome = await client.run({
@@ -59,6 +89,7 @@ export function createErrandService({ client, stores, hot, getGuildId = () => nu
         goal: task.goal,
         context: { scope: task.scope, channel: task.origin?.channelId ?? null, asker: task.requester?.userId ?? null },
         limits: limitsOf(task.agent),
+        ...(secrets ? { secrets } : {}),
       });
     } catch (err) {
       log.warn('errands: run failed', { id: task.id, agent: task.agent, error: err });

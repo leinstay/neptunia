@@ -7,7 +7,8 @@
 // task's end on the connection that brought it, so nothing more can arrive for them). A profile
 // that is not set up (`agents.<profile>.enabled` not true, or no socket) answers `failed`,
 // `not-configured`, without connecting. Settings are read from `hot.config.agents` at the moment
-// of use. Logs carry the profile, ids and codes, never a goal or a result.
+// of use. Logs carry the profile, ids and codes, never a goal, a result or a task's `secrets`
+// (sent on the `run` line and nowhere else).
 
 import net from 'node:net';
 import { log as defaultLog } from '../log.js';
@@ -37,7 +38,7 @@ function failed(error) {
  * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
  * @param {(timer: unknown) => void} [options.clearTimer]
  * @returns {{
- *   run(task: { agent: string, id: string, goal: string, context?: object, limits?: object }):
+ *   run(task: { agent: string, id: string, goal: string, context?: object, limits?: object, secrets?: object }):
  *     Promise<{ status: 'done'|'failed'|'cancelled', result: object, usage: object, error?: string }>,
  *   cancel(task: { agent: string, id: string }): boolean,
  *   ping(agent: string): Promise<{ ok: true, profile: string, busy: boolean, queued: number } | { ok: false, error: string }>,
@@ -228,7 +229,7 @@ export function createErrandClient({
     }
   }
 
-  async function run({ agent, id, goal, context = {}, limits = {} } = {}) {
+  async function run({ agent, id, goal, context = {}, limits = {}, secrets = null } = {}) {
     if (closed || !socketOf(agent)) return failed('not-configured');
     if (pending.has(id)) return failed('duplicate-id');
     try {
@@ -249,6 +250,7 @@ export function createErrandClient({
       pending.set(id, { agent, resolve, timer });
       const request = { op: 'run', id, goal, context };
       if (limits && Object.keys(limits).length > 0) request.limits = limits;
+      if (secrets) request.secrets = secrets;
       if (!send(agent, request)) {
         pending.delete(id);
         clearTimer(timer);

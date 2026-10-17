@@ -1,13 +1,15 @@
 // Tests for src/agent-runner/protocol.js: validation of the core's `run`,
 // `cancel` and `ping` (ids, goal length, context scope, limit keys, model,
-// cost, search provider), the decode of a line (bad JSON, oversize), and the
-// shapes of the runner's `progress`, `end`, `pong`, `restarted` and `error`
-// events, including the frozen RESULT_STATUSES. Pure; no I/O.
+// cost, search provider, secrets -- never echoed back), the decode of a line
+// (bad JSON, oversize), the http form of a proxy URL, and the shapes of the
+// runner's `progress`, `end`, `pong`, `restarted` and `error` events, including
+// the frozen RESULT_STATUSES. Pure; no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   RESULT_STATUSES, OPS, validateRequest, parseRequestLine, encodeLine,
   progressEvent, endEvent, restartedEvent, pongEvent, errorEvent, normalizeUsage, normalizeResult,
+  SECRET_KEYS, httpProxyForm,
 } from '../src/agent-runner/protocol.js';
 
 test('RESULT_STATUSES: the three final states, frozen', () => {
@@ -44,6 +46,56 @@ test('validateRequest: a bad scope, limit, cost or search provider is refused', 
   assert.equal(validateRequest({ op: 'run', id: 'a', goal: 'x', limits: { nope: 1 } }).error, 'bad-limits');
   assert.equal(validateRequest({ op: 'run', id: 'a', goal: 'x', cost: { input: -1, output: 2 } }).error, 'bad-cost');
   assert.equal(validateRequest({ op: 'run', id: 'a', goal: 'x', searchProvider: 'Exa!' }).error, 'bad-search-provider');
+});
+
+test('validateRequest: a run carries its secrets, each a non-empty string; only the known keys', () => {
+  assert.deepEqual([...SECRET_KEYS], ['openrouterKey', 'proxy', 'searchKey']);
+  const full = validateRequest({ op: 'run', id: 'a', goal: 'x', secrets: { openrouterKey: 'sk-or-1', proxy: 'http://u:p@proxy.example:8000', searchKey: 'srch-1' } });
+  assert.equal(full.ok, true);
+  assert.deepEqual(full.message.secrets, { openrouterKey: 'sk-or-1', proxy: 'http://u:p@proxy.example:8000', searchKey: 'srch-1' });
+  const keyOnly = validateRequest({ op: 'run', id: 'a', goal: 'x', secrets: { openrouterKey: 'sk-or-1' } });
+  assert.deepEqual(keyOnly.message.secrets, { openrouterKey: 'sk-or-1' });
+  assert.equal(Object.hasOwn(validateRequest({ op: 'run', id: 'a', goal: 'x' }).message, 'secrets'), false, 'none given: none passed on');
+});
+
+test('validateRequest / parseRequestLine: refused secrets come back as a code, never the secret', () => {
+  const secret = 'sk-or-v1-VERYSECRET';
+  const bad = [
+    { openrouterKey: '' },
+    { openrouterKey: 42 },
+    { proxy: 'http://proxy.example:8000' },
+    { openrouterKey: secret, proxy: '' },
+    { openrouterKey: secret, searchKey: ['x'] },
+    { openrouterKey: secret, other: 'x' },
+    { openrouterKey: `${secret} with space` },
+    { openrouterKey: secret.repeat(200) },
+    'sk-or-v1-VERYSECRET',
+  ];
+  for (const secrets of bad) {
+    const checked = validateRequest({ op: 'run', id: 'a', goal: 'x', secrets });
+    assert.deepEqual(checked, { ok: false, error: 'bad-secrets' }, JSON.stringify(secrets).slice(0, 60));
+    assert.ok(!JSON.stringify(checked).includes('VERYSECRET'));
+  }
+  // A run refused for another reason while carrying good secrets: the refusal and its error event name no secret.
+  const line = JSON.stringify({ op: 'run', id: 'task-7', goal: '', secrets: { openrouterKey: secret, proxy: 'http://u:VERYSECRET@p.example:1', searchKey: secret } });
+  const parsed = parseRequestLine(line);
+  assert.deepEqual(parsed, { ok: false, error: 'bad-goal', id: 'task-7' });
+  assert.ok(!encodeLine(errorEvent(parsed.error, parsed.id)).includes('VERYSECRET'));
+  const badSecrets = parseRequestLine(JSON.stringify({ op: 'run', id: 'task-8', goal: 'g', secrets: { openrouterKey: secret, extra: secret } }));
+  assert.deepEqual(badSecrets, { ok: false, error: 'bad-secrets', id: 'task-8' });
+  assert.ok(!encodeLine(errorEvent(badSecrets.error, badSecrets.id)).includes('VERYSECRET'));
+});
+
+test('httpProxyForm: a socks5h URL becomes the http one with the same credentials, host and port; http stays; anything else is null', () => {
+  assert.equal(httpProxyForm('socks5h://user:pa%40ss@proxy.example:1080'), 'http://user:pa%40ss@proxy.example:1080');
+  assert.equal(httpProxyForm('socks5h://proxy.example:9000'), 'http://proxy.example:9000');
+  assert.equal(httpProxyForm(' http://u:p@proxy.example:8000 '), 'http://u:p@proxy.example:8000');
+  assert.equal(httpProxyForm('https://proxy.example:8443'), 'https://proxy.example:8443');
+  assert.equal(httpProxyForm('socks5h://proxy.example'), null, 'no port: no http form');
+  assert.equal(httpProxyForm('socks4://proxy.example:1080'), null);
+  assert.equal(httpProxyForm('not a url'), null);
+  assert.equal(httpProxyForm(''), null);
+  assert.equal(httpProxyForm(undefined), null);
 });
 
 test('validateRequest: goal over the cap is refused', () => {

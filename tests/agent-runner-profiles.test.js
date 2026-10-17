@@ -95,10 +95,10 @@ test('defaults: limits, daily, model, env names', () => {
 });
 
 test('model: each profile runs on its model role, whose default is its default model; config.json carries no agents.<profile>.model', () => {
-  assert.equal(WEB.modelRole, 'agentWeb');
-  assert.equal(SERVER.modelRole, 'agentServer');
-  assert.equal(WEB.defaultModel, ROLE_DEFAULTS.agentWeb);
-  assert.equal(SERVER.defaultModel, ROLE_DEFAULTS.agentServer);
+  assert.equal(WEB.modelRole, 'agent.web');
+  assert.equal(SERVER.modelRole, 'agent.server');
+  assert.equal(WEB.defaultModel, ROLE_DEFAULTS['agent.web']);
+  assert.equal(SERVER.defaultModel, ROLE_DEFAULTS['agent.server']);
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).agents;
   for (const name of ['web', 'server']) {
     assert.equal(Object.hasOwn(shipped[name], 'model'), false, `${name}: the model is roles.${profileOf(name).modelRole}`);

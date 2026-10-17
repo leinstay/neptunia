@@ -427,7 +427,7 @@ function shownRoles(roles, names) {
  * immediately followed by its own usage line -- the main key (lead `keyLead`), the simulator key
  * (lead `simKeyLead`; the one line `simKeyNotSet` when `sim` is null), then each extra role key
  * (`llm.keyByRole`, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`, each role named
- * through `roleNames` and each name once, so the agent roles show as one word). A limit line is
+ * through `roleNames` and each name once, so the errand agents' roles show as one word). A limit line is
  * `keyLimit` with its `notes` (the reset and whether BYOK counts) or `keyLimitPlain`; `keyNone` /
  * `keyNonePlain` without a limit; `keyUnavailable` on a failed read. A usage line is `usage` of
  * its parts: for the main and the role keys `usageToday` (today from the key's record) and

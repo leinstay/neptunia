@@ -1,16 +1,22 @@
 # systemd unit for the persona's web errand agent (src/agent-runner/, profile web).
 #
 # A separate, unprivileged process that runs internet errands for the bot
-# through OpenCode. It reaches the internet (through the residential proxy in
-# PROXY_URL) but never the server's filesystem beyond its own out dir, never
-# localhost or private networks, and holds only its own OpenRouter key -- never
-# the persona's.
+# through OpenCode. It reaches the internet (through the residential proxy)
+# but never the server's filesystem beyond its own out dir, never localhost or
+# private networks, and holds only the agents' OpenRouter key -- never the
+# persona's.
+#
+# Keys: every key lives in the bot's .env, which this process cannot read. The
+# core sends them with each task (the agents' key OPENROUTER_AGENT_KEY, the
+# proxy MEDIA_VIDEO_PROXY in its http form -- the residential proxy serves the
+# video fetches and this agent alike -- and OPENCODE_WEBSEARCH_KEY when set).
+# The EnvironmentFile is optional: what it sets (OPENROUTER_AGENT_KEY=,
+# OPENCODE_WEBSEARCH_KEY=, PROXY_URL=) is used only when a task brings none.
 #
 # Install:
 #   sudo useradd --system --no-create-home --shell /usr/sbin/nologin neptunia-agent-web
 #   sudo install -d -o root -g root -m 0750 /etc/neptunia
-#   sudo install -o root -g root -m 0600 /dev/null /etc/neptunia/agent-web.env
-#   # add to it: OPENROUTER_AGENT_KEY=, OPENCODE_WEBSEARCH_KEY= (optional), PROXY_URL=
+#   # optional overrides: sudo install -o root -g root -m 0600 /dev/null /etc/neptunia/agent-web.env
 #   sudo cp deploy/neptunia-agent-web.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-agent-web
 # Logs:    journalctl -u neptunia-agent-web -f
@@ -29,7 +35,8 @@ User=neptunia-agent-web
 Group=neptunia-discord-interface
 WorkingDirectory=/opt/neptunia-bot
 ExecStart=/opt/node/bin/node bin/agent-runner.mjs --profile web
-EnvironmentFile=/etc/neptunia/agent-web.env
+# Optional overrides (the leading '-': the file may be absent); the keys come from the core.
+EnvironmentFile=-/etc/neptunia/agent-web.env
 Restart=on-failure
 RestartSec=5
 

@@ -3,8 +3,9 @@
 // canned JSON event stream) -- a done task with summed usage and sources,
 // the usd cap stopping the child, cancel, the per-step refusal of a withheld
 // path in a filtered scope (the task goes on), the secret redaction of the
-// result, missing prompt file, files collected from the task dir, and the
-// model taken from the profile's model role. No real OpenCode, no network.
+// result, missing prompt file, files collected from the task dir, the model
+// taken from the profile's model role, and the task's secrets from the core
+// taking over the runner's environment. No real OpenCode, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -30,7 +31,7 @@ function fakeProfile(promptFile, name = 'web') {
     name,
     agentId: `errand-${name}`,
     promptFiles: [promptFile],
-    modelRole: name === 'web' ? 'agentWeb' : 'agentServer',
+    modelRole: name === 'web' ? 'agent.web' : 'agent.server',
     defaultModel: 'openrouter/x-ai/default-model',
     defaultLimits: { steps: 25, usd: 0.5, seconds: 300 },
     defaultSearchProvider: 'exa',
@@ -270,6 +271,66 @@ test('opencode: the child gets the runner key, config content and isolation env,
   await ws.cleanup();
 });
 
+/** One task through `runner` with a fake child that answers and exits; the child's env and the outcome. */
+async function envOfRun(runner, spawn, task) {
+  const before = spawn.children.length;
+  const { result, logs } = await withCapturedLogs(async () => {
+    const p = runner.run({ goal: 'g', context: { scope: 'core' }, ...task });
+    for (let i = 0; i < 1000 && spawn.children.length === before; i += 1) await new Promise((r) => setTimeout(r, 5));
+    const child = spawn.children[before];
+    emit(child, { type: 'text', part: { text: 'ok', time: { end: 1 } } });
+    await new Promise((r) => setImmediate(r));
+    child.emit('close', 0);
+    return p;
+  });
+  return { env: spawn.children[before].options.env, outcome: result, logs };
+}
+
+test('opencode: the task\'s secrets from the core take over the runner\'s environment; the proxy in its http form', async () => {
+  const ws = await workspace();
+  const spawn = fakeSpawn();
+  const env = { OPENROUTER_AGENT_KEY: 'runner-key', OPENCODE_WEBSEARCH_KEY: 'runner-search', PROXY_URL: 'http://runner-proxy.example:1' };
+  const web = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env, spawnImpl: spawn.spawnImpl });
+  const secrets = { openrouterKey: 'core-key', proxy: 'http://u:p@core-proxy.example:8000', searchKey: 'core-search' };
+  const given = await envOfRun(web, spawn, { id: 's1', secrets });
+  assert.equal(given.env.OPENROUTER_API_KEY, 'core-key');
+  assert.equal(given.env.EXA_API_KEY, 'core-search');
+  for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) assert.equal(given.env[name], 'http://u:p@core-proxy.example:8000', name);
+  assert.equal(given.outcome.status, 'done');
+  for (const text of ['core-key', 'core-search', 'core-proxy']) assert.ok(!JSON.stringify(given.logs).includes(text), `no ${text} in a log line`);
+  assert.ok(!JSON.stringify(given.outcome).includes('core-key'), 'nor in the outcome');
+
+  const keyOnly = await envOfRun(web, spawn, { id: 's2', secrets: { openrouterKey: 'core-key' } });
+  assert.equal(keyOnly.env.OPENROUTER_API_KEY, 'core-key');
+  assert.equal(keyOnly.env.EXA_API_KEY, 'runner-search', 'what the task does not bring comes from the environment');
+  assert.equal(keyOnly.env.HTTPS_PROXY, 'http://runner-proxy.example:1');
+
+  const none = await envOfRun(web, spawn, { id: 's3' });
+  assert.equal(none.env.OPENROUTER_API_KEY, 'runner-key', 'no secrets: the runner\'s environment, as before');
+
+  const socks = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { PROXY_URL: 'socks5h://u:p@proxy.example:1080' }, spawnImpl: spawn.spawnImpl });
+  assert.equal((await envOfRun(socks, spawn, { id: 's4', secrets: { openrouterKey: 'k' } })).env.HTTPS_PROXY, 'http://u:p@proxy.example:1080', 'an environment socks5h proxy in its http form');
+
+  const server = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: {}, spawnImpl: spawn.spawnImpl });
+  const onServer = await envOfRun(server, spawn, { id: 's5', secrets });
+  assert.equal(onServer.env.OPENROUTER_API_KEY, 'core-key');
+  assert.equal(onServer.env.HTTPS_PROXY, undefined, 'the server agent never goes through the proxy');
+  assert.equal(onServer.env.EXA_API_KEY, undefined);
+  await ws.cleanup();
+});
+
+test('opencode: a task with no key from the core nor the environment fails no-key, warned once, nothing spawned', async () => {
+  const ws = await workspace();
+  const spawn = fakeSpawn();
+  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { OPENROUTER_API_KEY: 'persona-key' }, spawnImpl: spawn.spawnImpl });
+  const { result, logs } = await withCapturedLogs(async () => [await runner.run({ id: 'n1', goal: 'g' }), await runner.run({ id: 'n2', goal: 'g' })]);
+  assert.deepEqual(result.map((outcome) => [outcome.status, outcome.error]), [['failed', 'no-key'], ['failed', 'no-key']]);
+  assert.equal(spawn.children.length, 0, 'never the persona key: no child at all');
+  assert.equal(logs.filter((entry) => entry.msg === 'agent-runner: no model key').length, 1);
+  assert.ok(!JSON.stringify(logs).includes('persona-key'));
+  await ws.cleanup();
+});
+
 /** One task through `runner` with a fake child that answers and exits; the child's `--model`. */
 async function modelOfRun(runner, spawn, task) {
   const before = spawn.children.length;
@@ -289,14 +350,14 @@ async function modelOfRun(runner, spawn, task) {
 test('opencode: a task without a model runs on the profile\'s model role, read at each task; a task model wins', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
-  const config = { roles: { agentWeb: 'openrouter/x-ai/web-one', agentServer: 'openrouter/x-ai/server-one' } };
+  const config = { roles: { 'agent.web': 'openrouter/x-ai/web-one', 'agent.server': 'openrouter/x-ai/server-one' } };
   const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });
-  assert.equal(await modelOfRun(runner, spawn, { id: 'm1' }), 'openrouter/x-ai/web-one', 'roles.agentWeb, never the server role');
-  config.roles.agentWeb = 'openrouter/x-ai/web-two';
+  assert.equal(await modelOfRun(runner, spawn, { id: 'm1' }), 'openrouter/x-ai/web-one', 'roles.agent.web, never the server role');
+  config.roles['agent.web'] = 'openrouter/x-ai/web-two';
   assert.equal(await modelOfRun(runner, spawn, { id: 'm2' }), 'openrouter/x-ai/web-two', 'a /nep model set reaches the next task');
   assert.equal(await modelOfRun(runner, spawn, { id: 'm3', model: 'openrouter/x-ai/override' }), 'openrouter/x-ai/override');
-  delete config.roles.agentWeb;
-  assert.equal(await modelOfRun(runner, spawn, { id: 'm4' }), ROLE_DEFAULTS.agentWeb, 'an unset role: its own default');
+  delete config.roles['agent.web'];
+  assert.equal(await modelOfRun(runner, spawn, { id: 'm4' }), ROLE_DEFAULTS['agent.web'], 'an unset role: its own default');
   const broken = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl, getConfig: () => { throw new SyntaxError('bad json'); } });
   assert.equal(await modelOfRun(broken, spawn, { id: 'm5' }), 'openrouter/x-ai/default-model', 'an unreadable config: the profile default, the task still runs');
   await ws.cleanup();

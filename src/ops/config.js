@@ -34,7 +34,8 @@ const handlers = perEnv((env) => {
     const dottedPath = String(args?.path ?? '').trim();
     const rawValue = String(args?.value ?? '').trim();
     if (!dottedPath) throw invalid('a config path is required');
-    const parts = splitPath(dottedPath);
+    // Read against the live config, so a key holding a dot (a model role such as `agent.web`) is one key.
+    const parts = splitPath(dottedPath, hot.config);
     const key = parts.join('.');
     assertMayChangeConfig(parts, context);
 
@@ -54,18 +55,18 @@ const handlers = perEnv((env) => {
       throw invalid(`${key} expects ${withArticle(expected)}, got ${withArticle(jsonTypeOf(value))}`);
     }
 
-    const ok = writeLocalPath(key, value);
+    const ok = writeLocalPath(parts, value);
     return `Set ${key} = ${JSON.stringify(value)} ${reloadNote(ok)}`;
   }
 
   function cmdUnset(args, context) {
     const dottedPath = String(args?.path ?? '').trim();
     if (!dottedPath) throw invalid('a config path is required');
-    const parts = splitPath(dottedPath);
+    const parts = splitPath(dottedPath, hot.config);
     const key = parts.join('.');
     if (!key) throw invalid('a config path is required');
     assertMayChangeConfig(parts, context);
-    const ok = editLocalConfig((local) => unsetPath(local, key));
+    const ok = editLocalConfig((local) => unsetPath(local, parts));
     return `Unset ${key} ${reloadNote(ok)}`;
   }
 

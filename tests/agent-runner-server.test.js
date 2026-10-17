@@ -2,7 +2,8 @@
 // task engine. A client sends run/cancel/ping lines; the server answers
 // progress then one end per task, runs one task at a time (a second waits in
 // the queue), cancels a running task, answers a bad line with an error, and
-// on a ping about an unknown id answers end/restarted. No real OpenCode.
+// on a ping about an unknown id answers end/restarted; a run's secrets reach
+// the engine and no event or log line. No real OpenCode.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
@@ -99,6 +100,31 @@ test('server: a run gets progress then one end, and the socket is group-accessib
     assert.equal(end.result.text, 'found it');
     c.end();
   }));
+});
+
+test('server: a run\'s secrets reach the engine and nothing else: no event, no log line; refused ones come back as a code', async () => {
+  const seen = [];
+  const runner = {
+    run(task) {
+      seen.push(task.secrets);
+      return Promise.resolve({ status: 'done', result: { text: 'ok' }, usage: { steps: 1 } });
+    },
+  };
+  const secrets = { openrouterKey: 'sk-SECRET', proxy: 'http://u:SECRET@proxy.example:8000', searchKey: 'search-SECRET' };
+  const { result: events, logs } = await withCapturedLogs(() => withServer(runner, async (sock) => {
+    const c = connect(sock);
+    await c.ready;
+    c.send({ op: 'run', id: 'task-s', goal: 'g', secrets });
+    await c.next((e) => e.event === 'end' && e.id === 'task-s');
+    c.send({ op: 'run', id: 'task-t', goal: 'g', secrets: { ...secrets, extra: 'SECRET' } });
+    const refused = await c.next((e) => e.event === 'error' && e.id === 'task-t');
+    assert.equal(refused.error, 'bad-secrets');
+    c.end();
+    return c.events;
+  }));
+  assert.deepEqual(seen, [secrets], 'the refused run never reached the engine');
+  assert.ok(!JSON.stringify(events).includes('SECRET'), 'no secret in an event');
+  assert.ok(!JSON.stringify(logs).includes('SECRET'), 'no secret in a log line');
 });
 
 test('server: one task at a time, the second waits in the queue', async () => {
