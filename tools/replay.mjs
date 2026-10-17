@@ -1477,6 +1477,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   const { createVideoFetcher } = await load('media/fetch-video.js');
   const { createPageFetcher } = await load('web/fetch-page.js');
   const { createBraveSearch } = await load('web/brave.js');
+  const { createExaSearch } = await load('web/exa.js');
   const { createLookup } = await load('web/lookup.js');
   const { parseJsonObject, parseOutput } = await load('llm/parse.js');
   const { stripDashes } = await load('memory/clamp.js');
@@ -1595,7 +1596,9 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const imageFetcher = createImageFetcher();
     const describer = createDescriber({ hot, store, llm, imageFetcher, videoFetcher: createVideoFetcher(), state, youtubeApiKey: process.env.YOUTUBE_API_KEY || null });
     const lookup = createLookup({
-      hot, store, llm, state, pageFetcher: createPageFetcher(), braveSearch: createBraveSearch(), braveApiKey: process.env.BRAVE_SEARCH_API_KEY || null,
+      hot, store, llm, state, pageFetcher: createPageFetcher(),
+      searches: { brave: createBraveSearch(), exa: createExaSearch() },
+      keys: { brave: process.env.BRAVE_SEARCH_API_KEY || null, exa: process.env.EXA_API_KEY || null },
     });
     // The Discord interface's capabilities, injected as src/index.js injects them; the turn's port
     // is the default adapter it builds over `client` (createPort).

@@ -119,6 +119,8 @@ const ARCHIVE_CHOICES = 25;
  *   record line says it is not available.
  * `metrics` — from src/ops/metrics.js#createMetrics, optional: `summary`, the owner card's speed
  *   field, and the turns of the last hour its storage line weighs. Absent -> no speed figures.
+ * `lookup` — from src/web/lookup.js#createLookup, optional: `searchEngine` and `hasSearch`, the
+ *   `search:` line of the limits field. Absent -> no search line.
  * `usage` — from src/ops/usage.js#createUsage, optional: `byRole`, today's requests per role on
  *   the owner card's costs field. Absent -> no role lines.
  * `simKey` — the optional simulator key (OPENROUTER_SIM_KEY), a string: used for one read-only GET of

@@ -237,7 +237,7 @@ function datedLine(name, count, starts, ends) {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, getGuildId, images, archive, journal, record, metrics, usage, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue } = env;
+  const { hot, store, client, getGuildId, images, archive, journal, record, metrics, lookup, usage, emojiBackfill, gifBackfill, gifRecache, freshenIfPaused, imageModelLabel, llm, embedder, embedQueue } = env;
   // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
   const clock = typeof env.now === 'function' ? env.now : Date.now;
   // guildId -> { at, value }: the memory field, reused for COVERAGE_CACHE_MS.
@@ -437,7 +437,7 @@ const handlers = perEnv((env) => {
     return groupedModels(cfg, lineOf, await image, true);
   }
 
-  /** The limits field: every daily rail's used/cap, then when they reset. */
+  /** The limits field: every daily rail's used/cap, the web search engine, then when they reset. */
   function limitsValue(cfg, data) {
     const nowMs = Date.now();
     const parts = [`requests ${usedOf(llmCountToday(data, nowMs), cfg?.llm?.maxRequestsPerDay)}`];
@@ -450,6 +450,12 @@ const handlers = perEnv((env) => {
       `recall ${usedOf(countToday(data, RECALL_DAILY, nowMs), cfg?.recall?.maxPerDay)}`,
       `lookups ${usedOf(countToday(data, WEB_DAILY, nowMs), cfg?.web?.maxPerDay)}`,
     );
+    // The web search engine, one word: the chosen engine (web.search.engine) when a search can
+    // run (features.webLookup on, web.search.enabled not false, the engine ready), else `off`.
+    if (typeof lookup?.searchEngine === 'function') {
+      const on = cfg?.features?.webLookup === true && cfg?.web?.search?.enabled !== false && lookup.hasSearch();
+      parts.push(`search: ${on ? lookup.searchEngine() : 'off'}`);
+    }
     return `${parts.join('\n')}\nresets 00:00 UTC`;
   }
 

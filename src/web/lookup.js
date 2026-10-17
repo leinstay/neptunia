@@ -1,5 +1,5 @@
 // The web lookup (features.webLookup, OFF unless set -- it costs money and the
-// search needs a key): the persona reads a link posted in the chat, and, when
+// Brave search needs a key): the persona reads a link posted in the chat, and, when
 // asked something that needs facts from outside, runs one web search. Two
 // halves, both modelled on the video describer (src/memory/describe.js):
 //
@@ -11,8 +11,18 @@
 //   SSRF-guarded page fetcher (src/web/fetch-page.js; `web.acceptLanguage`
 //   sent as its Accept-Language) and condensed by the reasoning helper model (`reasoner`) through
 //   prompts/read-link.md into one excerpt of at most `web.links.summaryChars`.
-// - search: one Brave Search request (src/web/brave.js) whose numbered
-//   results are condensed through prompts/search-summary.md, sources kept.
+// - search: one web search whose numbered results are condensed through
+//   prompts/search-summary.md, sources kept. `web.search.engine` picks the
+//   engine: `brave` (src/web/brave.js, needs BRAVE_SEARCH_API_KEY; the
+//   default), `exa` (src/web/exa.js, keyless; EXA_API_KEY optional) or
+//   `openrouter` (OpenRouter's web plugin on Exa: the summary request itself
+//   searches, one request billed to credits, its sources the answer's
+//   `url_citation` annotations). `web.search.fallback` lists the engines tried
+//   in order when one fails with `rate-limited` (a Brave 429 counts), `timeout`
+//   or `network`; never after `empty` (nothing found is an answer, and its
+//   summary is never run again) nor any other failure. The daily web slot is
+//   taken once per lookup, whatever the attempts; each attempt logs its own
+//   `lookup: search` line with `engine` and `fallback` (false for the first).
 //
 // Both share the media cache (data/guilds/<id>/media.json, LRU-trimmed to
 // `media.cacheEntries`): `read:<link id>` holds an excerpt `{ text, ts }` or a
@@ -54,6 +64,45 @@ const QUERY_LINE_BREAKS = /[\t\n\v\f\r\u0085\u2028\u2029]+/g;
 const QUERY_CONTROLS = /[\u0000-\u001f\u007f-\u009f]/g;
 // A link to a file, not a page: the reader would only spend an attempt on it.
 const BINARY_PATH = /\.(?:png|jpe?g|gif|webp|avif|svg|mp4|webm|mov|mkv|mp3|ogg|wav|zip|rar|7z|pdf)$/i;
+
+/** The search engines `web.search.engine` and `web.search.fallback` may name. */
+export const SEARCH_ENGINES = Object.freeze(['brave', 'exa', 'openrouter']);
+const DEFAULT_ENGINE = 'brave';
+// The failures another engine may answer: the engine itself was busy or unreachable.
+const FALLBACK_REASONS = new Set(['rate-limited', 'timeout', 'network']);
+
+/** The engine of the live config: `web.search.engine` when it names one, else `brave`. */
+function engineOf(config) {
+  const engine = config?.web?.search?.engine;
+  return SEARCH_ENGINES.includes(engine) ? engine : DEFAULT_ENGINE;
+}
+
+/** Whether a failed attempt may hand over to the next engine (a Brave 429 comes as `http` with the status). */
+function fallsBack(failure) {
+  return FALLBACK_REASONS.has(failure.reason) || (failure.reason === 'http' && failure.status === 429);
+}
+
+/** An `openrouter` engine failure as a search reason: a 429 is `rate-limited`, a timeout `timeout`, a failed fetch `network`, else the rail reason. */
+function openrouterFailure(err) {
+  if (err?.statusCode === 429) return 'rate-limited';
+  if (err?.name === 'TimeoutError' || err?.name === 'AbortError') return 'timeout';
+  if (err?.name === 'TypeError' && err?.statusCode === undefined) return 'network';
+  return llmFailure(err);
+}
+
+/** The `url_citation` annotations of an answer as `{ title, url }`, http(s) urls only, each url once. */
+function citationsOf(annotations) {
+  const seen = new Set();
+  const out = [];
+  for (const entry of Array.isArray(annotations) ? annotations : []) {
+    if (entry?.type !== 'url_citation') continue;
+    const url = typeof entry.url_citation?.url === 'string' ? entry.url_citation.url.trim() : '';
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ title: oneLine(String(entry.url_citation.title ?? '')), url });
+  }
+  return out;
+}
 
 /**
  * Whether the web lookup is on. Unlike the other `features.*` switches a
@@ -126,6 +175,12 @@ export function cleanQuery(query) {
   return out.trim();
 }
 
+/** `web.search.results` as the web plugin's `max_results`: an integer in 1..10, 5 when not a number (as the search clients clamp it). */
+function clampResults(value) {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : 5;
+}
+
 /** The cache key of one search. */
 function searchKey(query) {
   return hashedKey('search', normalizeQuery(query));
@@ -150,11 +205,14 @@ function renderResults(results) {
  * @param {{ data: object, markDirty: () => void }} [deps.state]  The persistent state holding the
  *   daily web counter; without it the counter lives in memory only.
  * @param {object} deps.pageFetcher  From createPageFetcher() (src/web/fetch-page.js).
- * @param {object} deps.braveSearch  From createBraveSearch() (src/web/brave.js).
- * @param {string|null} [deps.braveApiKey]  BRAVE_SEARCH_API_KEY; never logged.
+ * @param {{ brave?: object, exa?: object }} [deps.searches]  The search clients: createBraveSearch()
+ *   (src/web/brave.js) and createExaSearch() (src/web/exa.js); an engine without its client is
+ *   never ready.
+ * @param {{ brave?: string|null, exa?: string|null }} [deps.keys]  BRAVE_SEARCH_API_KEY and the
+ *   optional EXA_API_KEY; never logged.
  * @param {() => number} [deps.now]
  */
-export function createLookup({ hot, store, llm, state = memoryState(), pageFetcher, braveSearch, braveApiKey = null, now = Date.now }) {
+export function createLookup({ hot, store, llm, state = memoryState(), pageFetcher, searches = {}, keys = {}, now = Date.now }) {
   // One in-flight read per guild + link: a message prefill and a turn that
   // reach the same new link at once share one request.
   const inFlight = new Map();
@@ -386,8 +444,10 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
   /**
    * One web search on `query`, condensed with its sources, through the shared
    * cache. Needs the feature, `web.search.enabled`, the search-summary prompt,
-   * a key and a non-blank query. No results -> an empty `text` (the caller
-   * renders labels.lookup.none). A failure is never cached.
+   * a chosen engine that can run (hasSearch) and a non-blank query. No
+   * results -> an empty `text` (the caller renders labels.lookup.none). A
+   * failure is never cached; a fallback engine answers only the failures
+   * listed in the header.
    * @param {string} guildId
    * @param {string} query
    * @returns {Promise<{ query: string, text: string, sources: { title: string, url: string, site: string }[],
@@ -429,50 +489,116 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
       return null;
     }
 
-    const found = await braveSearch.search(asked, { apiKey: braveApiKey, count: searchCfg.results, timeoutMs: searchCfg.timeoutMs });
-    let result;
-    if (!found?.ok) {
-      if (found?.reason !== 'empty') {
-        report('error', found?.reason ?? 'network', found?.status !== undefined ? { status: found.status } : {});
+    const engines = [engineOf(config), ...fallbackEngines(config)];
+    for (let i = 0; i < engines.length; i += 1) {
+      const meta = { engine: engines[i], fallback: i > 0 };
+      // A fallback sends a request of its own: not once the daily request cap is spent.
+      if (i > 0 && capSpent()) {
+        report('limit', 'daily-cap', meta);
         return null;
       }
-      result = { query: asked, text: '', sources: [] };
-    } else {
-      const summaryChars = positiveOr(searchCfg.summaryChars, SEARCH_SUMMARY_CHARS_FALLBACK);
+      const outcome = await attempt(engines[i], asked, promptText, config);
+      if (outcome.result) {
+        putEntry(guildId, key, { ...outcome.result, ts: now() });
+        report(outcome.result.text ? 'found' : 'nothing', null, { cached: false, results: outcome.result.sources.length, ...meta });
+        return outcome.result;
+      }
+      const { reason, status } = outcome.failure;
+      report('error', reason, { ...(status !== undefined ? { status } : {}), ...meta });
+      if (!fallsBack(outcome.failure)) return null;
+    }
+    return null;
+  }
+
+  /** Whether `engine` can run: Brave needs its client and its key, Exa its client, OpenRouter the llm client. */
+  function engineReady(engine) {
+    if (engine === 'brave') return typeof searches.brave?.search === 'function' && typeof keys.brave === 'string' && keys.brave.trim().length > 0;
+    if (engine === 'exa') return typeof searches.exa?.search === 'function';
+    return typeof llm?.complete === 'function';
+  }
+
+  /** `web.search.fallback` of the live config: the known engines that can run, in order, each once, never the chosen one. */
+  function fallbackEngines(config) {
+    const chosen = engineOf(config);
+    const list = Array.isArray(config.web?.search?.fallback) ? config.web.search.fallback : [];
+    const out = [];
+    for (const engine of list) {
+      if (!SEARCH_ENGINES.includes(engine) || engine === chosen || out.includes(engine) || !engineReady(engine)) continue;
+      out.push(engine);
+    }
+    return out;
+  }
+
+  /** The summary prompt filled for `asked`, and the summary request's options for this config. */
+  function summaryRequest(config, promptText, asked, summaryChars, searchCfg) {
+    return {
+      system: { role: 'system', content: fillPromptTemplate(promptText, { query: asked, maxChars: summaryChars, today: todayDate() }) },
+      options: {
+        model: roleModel(config, 'reasoner', 'search-summary'),
+        ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: searchCfg.maxOutputTokens, purpose: 'search-summary', long: true }),
+      },
+    };
+  }
+
+  /**
+   * One engine's attempt: `{ result }` (found, or nothing found with an empty text and no
+   * sources) or `{ failure: { reason, status? } }`. Brave and Exa search, then the summary
+   * condenses their results; `openrouter` searches and condenses in one request.
+   */
+  async function attempt(engine, asked, promptText, config) {
+    const searchCfg = config.web?.search ?? {};
+    const summaryChars = positiveOr(searchCfg.summaryChars, SEARCH_SUMMARY_CHARS_FALLBACK);
+    const { system, options } = summaryRequest(config, promptText, asked, summaryChars, searchCfg);
+
+    if (engine === 'openrouter') {
       let completion;
       try {
-        completion = await llm.complete(
-          [
-            { role: 'system', content: fillPromptTemplate(promptText, { query: asked, maxChars: summaryChars, today: todayDate() }) },
-            { role: 'user', content: renderResults(found.results) },
-          ],
-          {
-            model: roleModel(config, 'reasoner', 'search-summary'),
-            ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: searchCfg.maxOutputTokens, purpose: 'search-summary', long: true }),
-          },
-        );
+        completion = await llm.complete([system, { role: 'user', content: asked }], {
+          ...options,
+          // No hedge: a second attempt would run (and bill) the web search twice.
+          helper: false,
+          plugins: [{ id: 'web', engine: 'exa', max_results: clampResults(searchCfg.results) }],
+        });
       } catch (err) {
-        report('error', llmFailure(err), err?.statusCode !== undefined ? { status: err.statusCode } : {});
-        return null;
+        return { failure: { reason: openrouterFailure(err), ...(err?.statusCode !== undefined ? { status: err.statusCode } : {}) } };
       }
       const text = cleanText(completion.text, summaryChars);
-      if (!text) {
-        report('error', 'empty');
-        return null;
-      }
-      const sources = found.results.map((r) => ({ title: r.title ?? '', url: r.url, site: siteOf(r.url) }));
-      result = { query: asked, text, sources };
+      if (!text) return { failure: { reason: 'empty' } };
+      const sources = citationsOf(completion.annotations).map((c) => ({ ...c, site: siteOf(c.url) }));
+      return { result: { query: asked, text, sources } };
     }
 
-    putEntry(guildId, key, { ...result, ts: now() });
-    report(result.text ? 'found' : 'nothing', null, { cached: false, results: result.sources.length });
-    return result;
+    const client = searches[engine];
+    const found = await client.search(asked, { apiKey: keys[engine] ?? null, count: searchCfg.results, timeoutMs: searchCfg.timeoutMs });
+    if (!found?.ok) {
+      if (found?.reason === 'empty') return { result: { query: asked, text: '', sources: [] } };
+      return { failure: { reason: found?.reason ?? 'network', ...(found?.status !== undefined ? { status: found.status } : {}) } };
+    }
+    let completion;
+    try {
+      completion = await llm.complete([system, { role: 'user', content: renderResults(found.results) }], options);
+    } catch (err) {
+      return { failure: { reason: llmFailure(err), ...(err?.statusCode !== undefined ? { status: err.statusCode } : {}) } };
+    }
+    const text = cleanText(completion.text, summaryChars);
+    if (!text) return { failure: { reason: 'empty' } };
+    const sources = found.results.map((r) => ({ title: r.title ?? '', url: r.url, site: siteOf(r.url) }));
+    return { result: { query: asked, text, sources } };
   }
 
-  /** Whether a search key is configured (BRAVE_SEARCH_API_KEY); `/nep ping` reports it. */
+  /**
+   * Whether the chosen engine (`web.search.engine`, read now) can run: `brave` needs
+   * BRAVE_SEARCH_API_KEY, `exa` and `openrouter` need no key. The fallback engines do not
+   * count: they only stand in for a chosen engine that runs. `/nep status` reports it.
+   */
   function hasSearch() {
-    return typeof braveApiKey === 'string' && braveApiKey.trim().length > 0;
+    return engineReady(engineOf(hot.config));
   }
 
-  return { readLinks, cachedReads, search, hasSearch, webCapLeft };
+  /** The chosen engine's name (`web.search.engine`, read now; `brave` when it names none). */
+  function searchEngine() {
+    return engineOf(hot.config);
+  }
+
+  return { readLinks, cachedReads, search, hasSearch, searchEngine, webCapLeft };
 }

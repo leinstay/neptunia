@@ -744,15 +744,17 @@ Settings for the web lookup (`features.webLookup`). Both link reading and search
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | Run a search when the classifier fires; needs `BRAVE_SEARCH_API_KEY` in `.env` |
+| `enabled` | `true` | Run a search when the classifier fires; the `brave` engine needs `BRAVE_SEARCH_API_KEY` in `.env` |
+| `engine` | `"brave"` | The search engine: `brave` (Brave Search, needs `BRAVE_SEARCH_API_KEY`), `exa` (Exa, keyless; `EXA_API_KEY` optional) or `openrouter` (OpenRouter's web plugin on Exa: one `reasoner` request searches and condenses, billed to credits) |
+| `fallback` | `[]` | Engines tried in order when the chosen one fails with `rate-limited`, `timeout` or `network` (never after an empty result); the daily `web.maxPerDay` slot is spent once per lookup |
 | `maxPerTurn` | `1` | Max searches per turn |
-| `results` | `5` | Number of Brave Search results requested |
+| `results` | `5` | Number of search results requested (1-10; the web plugin's `max_results` for `openrouter`) |
 | `summaryChars` | `900` | Max characters for the condensed answer; fills `{{maxChars}}` in `search-summary.md` |
 | `maxOutputTokens` | `4000` | Max output tokens for the condenser |
 | `classifierMaxOutputTokens` | `2000` | Max output tokens for the search classifier and the turn planner. Raised to fit the multi-line answer format (`web:`, `server:`, `who:`, `when:`). A reasoning model that thinks before answering needs a larger cap |
 | `cacheHours` | `24` | Hours a cached search result is served before re-searching |
 | `contextMessages` | `50` | Recent channel messages rendered as a `<transcript>` for the search classifier |
-| `timeoutMs` | `10000` | Brave Search request timeout (ms) |
+| `timeoutMs` | `10000` | Search request timeout (ms) for `brave` and `exa` |
 
 ## `image`
 

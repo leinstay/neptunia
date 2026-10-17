@@ -376,6 +376,7 @@ function makeAdmin(rootDir, extra = {}) {
     embedQueue: extra.embedQueue,
     record: extra.record,
     metrics: extra.metrics,
+    lookup: extra.lookup,
     usage: extra.usage,
     managementKey: extra.managementKey,
     now: extra.now,
@@ -2363,6 +2364,30 @@ test('status: the card lists one item per line in every field, the models one li
   ], 'each line starts with its role and its model');
   assert.ok(!lines('models').some((line) => line.startsWith(' ')), 'no detail line under a role');
   for (const field of embeds[0].fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
+});
+
+test('status: the limits field names the web search engine (one word), off when no search can run', async () => {
+  const rootDir = makeRoot();
+  const lookup = { engine: 'exa', ready: true, searchEngine() { return this.engine; }, hasSearch() { return this.ready; } };
+  const { admin, hot } = makeAdmin(rootDir, { lookup });
+  hot.config.features = { ...hot.config.features, webLookup: true };
+  hot.config.web = { maxPerDay: 60, search: { enabled: true } };
+  const searchLine = async () => {
+    const { embeds } = await admin.run('status', { field: 'limits' }, { userId: '42' });
+    return embeds[0].fields[0].value.split('\n').filter((line) => line.startsWith('search'));
+  };
+  assert.deepEqual(await searchLine(), ['search: exa']);
+  lookup.engine = 'openrouter';
+  assert.deepEqual(await searchLine(), ['search: openrouter']);
+  lookup.engine = 'brave';
+  lookup.ready = false;
+  assert.deepEqual(await searchLine(), ['search: off'], 'the chosen engine cannot run (no Brave key)');
+  lookup.ready = true;
+  hot.config.web.search.enabled = false;
+  assert.deepEqual(await searchLine(), ['search: off']);
+  hot.config.web.search.enabled = true;
+  hot.config.features.webLookup = false;
+  assert.deepEqual(await searchLine(), ['search: off']);
 });
 
 test('status: the owner card probes every role\'s model and shows its provider and latency, or the failure', async () => {

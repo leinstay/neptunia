@@ -361,11 +361,13 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     const { createLookup } = await import('../src/web/lookup.js');
     const { createPageFetcher } = await import('../src/web/fetch-page.js');
     const { createBraveSearch } = await import('../src/web/brave.js');
+    const { createExaSearch } = await import('../src/web/exa.js');
     const media = { ...(store.getMediaCache(guildId) ?? {}) };
     const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
     const pageFetcher = createPageFetcher();
-    const braveSearch = createBraveSearch();
-    webSearch = (query) => createLookup({ hot: evalHot, store: webStore, llm, state: { data: {}, markDirty() {} }, pageFetcher, braveSearch, braveApiKey, now }).search(guildId, query);
+    const searches = { brave: createBraveSearch(), exa: createExaSearch() };
+    const keys = { brave: braveApiKey, exa: (process.env.EXA_API_KEY || '').trim() || null };
+    webSearch = (query) => createLookup({ hot: evalHot, store: webStore, llm, state: { data: {}, markDirty() {} }, pageFetcher, searches, keys, now }).search(guildId, query);
   }
 
   // The guild: Discord over REST, or the local one.

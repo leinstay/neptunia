@@ -1066,7 +1066,7 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
   const describer = createDescriber({ hot, store, llm, now: () => NOW, imageFetcher, videoFetcher, state });
   const pageFetcher = { fetchText: async () => ({ ok: true, title: 'Tomates en pot', text: 'Tomatoes grow well in pots. Water them often. Bring them in before the frost.' }) };
   const braveSearch = { search: async () => ({ ok: true, results: [{ title: 'Garden notes', url: 'https://www.example.com/frost', snippet: 'frost kills tomatoes', age: '2 days' }] }) };
-  const lookup = createLookup({ hot, store, llm, state, pageFetcher, braveSearch, braveApiKey: 'test-key', now: () => NOW });
+  const lookup = createLookup({ hot, store, llm, state, pageFetcher, searches: { brave: braveSearch }, keys: { brave: 'test-key' }, now: () => NOW });
   const recall = createRecall({ discord: DISCORD, hot, store, llm, describer, now: () => NOW });
   const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: createCalibrator(), client, describer, lookup, recall, imageFetcher, fetchImpl: previewFetch, now: () => NOW, rng: () => 0.5 });
 
