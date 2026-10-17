@@ -2,14 +2,17 @@
 // V1 shape of release v1.19.3) for each profile -- the agent's prompt, step
 // cap, model and cost, the permission map (deny-all first, then the profile's
 // allows), the bash allow-list order (catch-all deny first, specifics after,
-// so the last match wins), and the withheld-path denies added only in a
-// filtered scope. Pure; no I/O.
+// so the last match wins), the withheld-path denies added only in a
+// filtered scope (the path tools' globs and the server shell's per-command
+// patterns, checked through a copy of OpenCode's wildcard and last-match
+// rule), and each profile's model role. Pure but for reading config.json.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WEB, SERVER, profileOf, SERVER_SHELL_ALLOW } from '../src/agent-runner/profiles.js';
+import { WEB, SERVER, profileOf, SERVER_SHELL_ALLOW, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, withheldShellDenies } from '../src/agent-runner/profiles.js';
+import { WITHHELD_NAMES, WITHHELD_ROOTS } from '../src/agent-runner/policy.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -101,4 +104,63 @@ test('model: each profile runs on its model role, whose default is its default m
     assert.equal(Object.hasOwn(shipped[name], 'model'), false, `${name}: the model is roles.${profileOf(name).modelRole}`);
     assert.deepEqual(shipped[name].cost, { input: 2, output: 6 }, `${name}: the cost stays (OpenCode's price table is off)`);
   }
+});
+
+/** OpenCode's wildcard match (packages/core/src/util/wildcard.ts, v1.19.3): `*` any text, `?` one character. */
+function wildcard(input, pattern) {
+  let escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  if (escaped.endsWith(' .*')) escaped = `${escaped.slice(0, -3)}( .*)?`;
+  return new RegExp(`^${escaped}$`, 's').test(input);
+}
+
+/** The action a permission map gives `command`: the last matching pattern's (OpenCode's rule). */
+function actionOf(map, command) {
+  let action = null;
+  for (const [pattern, value] of Object.entries(map)) if (wildcard(command, pattern)) action = value;
+  return action;
+}
+
+test('withheldShellDenies: one pattern per content command and withheld root, name or .env form, generated', () => {
+  const denies = withheldShellDenies();
+  const parts = [...WITHHELD_ROOTS, ...WITHHELD_NAMES, '.env'];
+  assert.equal(denies.length, SHELL_CONTENT_COMMANDS.length * parts.length);
+  assert.deepEqual([...SHELL_CONTENT_COMMANDS], ['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git']);
+  for (const pattern of ['cat */var/www*', 'cat *.ssh*', 'cat *.env*', 'cat *config.local.json*', 'git */srv/git*', 'sed */opt/neptunia-bot/data*', 'wc *.secrets*']) assert.ok(denies.includes(pattern), pattern);
+  for (const listing of ['ls', 'find', 'stat', 'du', 'readlink', 'realpath']) assert.ok(!denies.some((pattern) => pattern.startsWith(`${listing} `)), `${listing} stays allowed`);
+});
+
+test('filtered scope: the server shell denies a content read of a withheld path after the allows and before SHELL_DENY_AFTER; core and web get none', () => {
+  const dm = SERVER.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-server'].permission.bash;
+  const keys = Object.keys(dm);
+  const denies = withheldShellDenies();
+  const firstDeny = keys.indexOf(denies[0]);
+  assert.ok(firstDeny > keys.indexOf(SERVER_SHELL_ALLOW.at(-1)), 'after the last allow');
+  assert.deepEqual(keys.slice(firstDeny, firstDeny + denies.length), denies, 'in one block');
+  assert.deepEqual(keys.slice(-SHELL_DENY_AFTER.length), [...SHELL_DENY_AFTER], 'SHELL_DENY_AFTER still last');
+  for (const pattern of denies) assert.equal(dm[pattern], 'deny', pattern);
+  const group = SERVER.buildConfig({ systemPrompt: 'x', scope: 'group' }).agent['errand-server'].permission.bash;
+  assert.deepEqual(group, dm);
+  const core = SERVER.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-server'].permission.bash;
+  assert.equal(Object.hasOwn(core, 'cat */var/www*'), false, 'core reads everything');
+  const web = WEB.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-web'].permission.bash;
+  assert.equal(Object.hasOwn(web, 'cat */var/www*'), false, 'the web agent has its own shell');
+});
+
+test('filtered scope: under OpenCode\'s last-match rule a read of a withheld path is refused, a listing of it and any other read pass', () => {
+  const dm = SERVER.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-server'].permission.bash;
+  const core = SERVER.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-server'].permission.bash;
+  const refused = [
+    'cat /var/www/site/index.php', 'head -n 5 /home/u/.ssh/authorized_keys', 'tail /srv/app/.env', 'grep -r token /srv/app/.env.local',
+    'sed -n 1p /srv/neptunia-dev/neptunia-core/config.local.json', 'awk 1 /etc/shadow', 'wc -l /opt/neptunia-bot/data/guilds/1/tasks.json',
+    'git log --stat /srv/git/core.git/hooks', 'file /srv/neptunia-dev/.secrets/proxy', 'sort /etc/letsencrypt/live/x/privkey.pem',
+  ];
+  for (const command of refused) {
+    assert.equal(actionOf(dm, command), 'deny', `dm: ${command}`);
+    assert.equal(actionOf(core, command), 'allow', `core: ${command}`);
+  }
+  for (const command of ['ls /var/www', 'ls -la /home/u/.ssh', 'find /var/www -name "*.php"', 'stat /srv/app/.env', 'du -sh /srv/git', 'readlink /srv/app/.env', 'realpath /var/www/site', 'cat /etc/hostname', 'grep -c ExecStart /etc/systemd/system/x.service', 'git log --oneline -5']) {
+    assert.equal(actionOf(dm, command), 'allow', `dm: ${command}`);
+  }
+  assert.equal(actionOf(dm, 'find /var/www -exec cat {} ;'), 'deny', 'SHELL_DENY_AFTER still wins');
+  assert.equal(actionOf(dm, 'rm -rf /tmp/x'), 'deny');
 });

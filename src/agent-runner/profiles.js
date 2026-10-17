@@ -6,8 +6,10 @@
 // prompt, the step cap, and a permission map that starts every tool at deny
 // and allow-lists only what the profile needs, plus the model and its cost
 // (so OpenCode's local cost estimate is right). In a filtered scope
-// (`dm`/`group`) the path tools also deny the withheld paths
-// (src/agent-runner/policy.js).
+// (`dm`/`group`) the path tools also deny the withheld paths, and the server
+// agent's `bash` denies a content-reading command on one
+// (src/agent-runner/policy.js), so OpenCode refuses that step and the agent
+// goes on.
 //
 // This matches OpenCode release v1.19.3 (the version installed on the
 // server), whose config is the V1 shape: the top-level key is `agent`
@@ -26,7 +28,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WITHHELD_GLOBS } from './policy.js';
+import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS } from './policy.js';
 import { ROLE_DEFAULTS } from '../llm/roles.js';
 
 /** The engine root (two levels up from this file). */
@@ -57,13 +59,34 @@ function pathPermission(scope) {
   return map;
 }
 
-/** A permission value for `bash`: deny-all first, then the allowed command patterns. */
 /** Patterns denied after the allows (the last match wins): the ways an allowed read-only command could write or reach the network. */
 export const SHELL_DENY_AFTER = Object.freeze(['find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
 
-function bashPermission(allow) {
+/** The allowed shell commands that open file contents: in a filtered scope each is refused on a withheld path. */
+export const SHELL_CONTENT_COMMANDS = Object.freeze(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git']);
+
+/** The `.env` forms policy.js withholds (`.env`, `.env.<anything>`): one substring matches them all. */
+const ENV_FORM = '.env';
+
+/**
+ * The `bash` deny patterns of a filtered scope: one `<command> *<withheld>*` per content command
+ * (SHELL_CONTENT_COMMANDS) and withheld root, name or `.env` form (src/agent-runner/policy.js), so
+ * OpenCode itself refuses such a read and the model gets the refusal and goes on. OpenCode's `*`
+ * matches any text, `/` and spaces included. Listing commands (`ls`, `find`, `stat`, `du`,
+ * `readlink`, `realpath`) get none: names stay visible.
+ * @returns {string[]}
+ */
+export function withheldShellDenies() {
+  const withheld = [...WITHHELD_ROOTS, ...WITHHELD_NAMES, ENV_FORM];
+  return SHELL_CONTENT_COMMANDS.flatMap((command) => withheld.map((part) => `${command} *${part}*`));
+}
+
+/** A permission value for `bash`: deny-all first, then the allowed command patterns, then `denies`
+ * (the withheld-path ones of a filtered scope), then SHELL_DENY_AFTER. */
+function bashPermission(allow, denies = []) {
   const map = { '*': 'deny' };
   for (const pattern of allow) map[pattern] = 'allow';
+  for (const pattern of denies) map[pattern] = 'deny';
   for (const pattern of SHELL_DENY_AFTER) map[pattern] = 'deny';
   return map;
 }
@@ -92,7 +115,7 @@ function permissionFor(name, scope) {
     grep: pathPermission(scope),
     glob: pathPermission(scope),
     list: pathPermission(scope),
-    bash: bashPermission(SERVER_SHELL_ALLOW),
+    bash: bashPermission(SERVER_SHELL_ALLOW, scope === 'core' ? [] : withheldShellDenies()),
     webfetch: 'deny',
     websearch: 'deny',
     edit: 'deny',

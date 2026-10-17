@@ -101,6 +101,16 @@ test('normalizeUsage and normalizeResult: non-numbers and non-objects default', 
   assert.deepEqual(normalizeResult('x'), { text: '', sources: [], files: [] });
 });
 
+test('normalizeResult: the withheld paths pass, each once and cut, at most 50; none or an empty list leaves the key out', () => {
+  assert.deepEqual(normalizeResult({ text: 't', withheld: ['/var/www/a', '/var/www/a', '', 7, '/home/u/.ssh/id'] }).withheld, ['/var/www/a', '/home/u/.ssh/id']);
+  assert.equal(Object.hasOwn(normalizeResult({ text: 't', withheld: [] }), 'withheld'), false);
+  assert.equal(Object.hasOwn(normalizeResult({ text: 't', withheld: 'x' }), 'withheld'), false);
+  const many = normalizeResult({ withheld: Array.from({ length: 80 }, (_, i) => `/var/www/${i}/${'x'.repeat(300)}`) }).withheld;
+  assert.equal(many.length, 50);
+  assert.ok(many.every((p) => p.length === 200));
+  assert.deepEqual(endEvent({ id: 'a', status: 'done', result: { text: 'ok', withheld: ['/etc/shadow'] } }).result.withheld, ['/etc/shadow'], 'the end event carries them to the core');
+});
+
 test('encodeLine: one JSON object and a newline', () => {
   assert.equal(encodeLine({ a: 1 }), '{"a":1}\n');
 });

@@ -14,9 +14,13 @@
 // gives tokens and the cost OpenCode estimates per step (summed; a step
 // without a cost raises `costUnknown`), `text` is the assistant's answer,
 // `tool_use` drives progress and, in a filtered scope, the withheld-path
-// backstop (src/agent-runner/policy.js: when a tool call names a withheld
-// path the child is interrupted and the task fails `withheld-path`), `error`
-// fails the task. The usd and seconds caps stop the child (SIGTERM, then
+// backstop (src/agent-runner/policy.js). OpenCode's own permissions refuse
+// most reads of a withheld path step by step (src/agent-runner/profiles.js);
+// a tool call that names one anyway (a `bash -c`, a pipe) is not stopped: its
+// output never enters the runner's record (its progress event says
+// `withheld` and the path), the task goes on, the final text passes the
+// redaction, and `result.withheld` lists every withheld path the agent
+// reached for ("visible, not readable here"). `error` fails the task. The usd and seconds caps stop the child (SIGTERM, then
 // SIGKILL); the step cap is the agent's own. Files the agent saved under its
 // working directory are the result's files; the result text is redacted in a
 // filtered scope. Resolves, never rejects.
@@ -238,7 +242,7 @@ export function createOpencodeRunner({
     let resultText = '';
     let errorMessage = null;
     let capHit = null;
-    let withheld = null;
+    const withheld = new Set();
     let killed = false;
     let child;
 
@@ -348,12 +352,11 @@ export function createOpencodeRunner({
           const part = isPlainObject(event.part) ? event.part : {};
           const toolName = part.tool ?? part.name ?? '';
           const input = isPlainObject(part.state?.input) ? part.state.input : (isPlainObject(part.input) ? part.input : {});
-          progress({ step: usage.steps, tool: String(toolName), note: '' });
+          // A withheld path (refused by OpenCode or slipped past it): recorded as refused, never
+          // as what the tool returned; the task goes on.
           const hit = withheldInToolUse({ tool: toolName, input }, scope);
-          if (hit) {
-            withheld = hit;
-            stopChild('withheld-path');
-          }
+          if (hit) withheld.add(hit);
+          progress({ step: usage.steps, tool: String(toolName), note: hit ? `withheld: ${hit}` : '' });
           // The web agent's sources are the pages it fetched.
           if ((toolName === 'webfetch' || toolName === 'fetch') && typeof input.url === 'string') sources.add(input.url);
           return;
@@ -378,11 +381,9 @@ export function createOpencodeRunner({
     const base = finish(signal?.aborted ? 'cancelled' : 'done', resultText, undefined);
     base.result.files = files;
 
-    if (withheld) {
-      base.status = 'failed';
-      base.error = 'withheld-path';
-      base.result.text = redact(resultText) || '';
-      return base;
+    if (withheld.size > 0) {
+      base.result.withheld = [...withheld];
+      log.info('agent-runner: withheld', { id, profile: profile.name, count: withheld.size });
     }
     if (signal?.aborted) {
       base.status = 'cancelled';

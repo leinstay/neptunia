@@ -1,9 +1,10 @@
 // Tests for src/agent-runner/opencode.js: one task driven by a FAKE OpenCode
 // child (an injected spawn returning a controllable process that prints a
 // canned JSON event stream) -- a done task with summed usage and sources,
-// the usd cap stopping the child, cancel, the withheld-path interruption in a
-// filtered scope, the secret redaction of the result, missing prompt file,
-// and files collected from the task dir. No real OpenCode, no network.
+// the usd cap stopping the child, cancel, the per-step refusal of a withheld
+// path in a filtered scope (the task goes on), the secret redaction of the
+// result, missing prompt file, files collected from the task dir, and the
+// model taken from the profile's model role. No real OpenCode, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -146,21 +147,52 @@ test('opencode: cancel ends the task cancelled', async () => {
   await ws.cleanup();
 });
 
-test('opencode: a withheld path in a filtered scope interrupts and fails withheld-path', async () => {
+test('opencode: a withheld path in a filtered scope is refused per step; the task goes on and lists it', async () => {
+  const ws = await workspace();
+  const spawn = fakeSpawn();
+  const notes = [];
+  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl });
+  const { result, logs } = await withCapturedLogs(async () => {
+    const p = runner.run({ id: 't', goal: 'read the key', context: { scope: 'dm' }, onProgress: (event) => notes.push(event) });
+    const child = await spawn.waitForChild();
+    // A pipe slipped past OpenCode's rules: the tool ran and returned the secret.
+    emit(child, { type: 'tool_use', part: { tool: 'bash', state: { status: 'completed', input: { command: 'cat /srv/neptunia-dev/.secrets/proxy | head -1' }, output: 'socks5://user:hunter2secret@proxy.example:1080' } } });
+    // OpenCode refused a read itself.
+    emit(child, { type: 'tool_use', part: { tool: 'read', state: { status: 'error', input: { filePath: '/var/www/site/.env' }, error: 'denied' } } });
+    emit(child, { type: 'tool_use', part: { tool: 'bash', state: { status: 'completed', input: { command: 'ls /var/www' }, output: 'site' } } });
+    emit(child, { type: 'step_finish', part: { cost: 0.01, tokens: { input: 1, output: 1, reasoning: 0 } } });
+    emit(child, { type: 'text', part: { text: 'The proxy file is there, not readable here: socks5://user:hunter2secret@proxy.example:1080', time: { end: 1 } } });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(child.killed.length, 0, 'the child is never interrupted');
+    child.emit('close', 0);
+    return p;
+  });
+  assert.equal(result.status, 'done');
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.result.withheld, ['/srv/neptunia-dev/.secrets/proxy', '/var/www/site/.env']);
+  assert.deepEqual(notes.filter((n) => n.tool).map((n) => n.note), ['withheld: /srv/neptunia-dev/.secrets/proxy', 'withheld: /var/www/site/.env', ''], 'the refused steps say so, a listing does not');
+  assert.ok(!JSON.stringify(notes).includes('hunter2'), 'no tool output in the record');
+  assert.doesNotMatch(result.result.text, /hunter2/, 'the final text passes the redaction');
+  assert.match(result.result.text, /not readable here/);
+  assert.equal(logs.find((entry) => entry.msg === 'agent-runner: withheld')?.count, 2);
+  await ws.cleanup();
+});
+
+test('opencode: in core scope nothing is withheld and the result carries no withheld list', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
   const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl });
   const { result } = await withCapturedLogs(async () => {
-    const p = runner.run({ id: 't', goal: 'read the key', context: { scope: 'dm' } });
+    const p = runner.run({ id: 't', goal: 'read it', context: { scope: 'core' } });
     const child = await spawn.waitForChild();
-    emit(child, { type: 'tool_use', part: { tool: 'bash', state: { status: 'completed', input: { command: 'cat /srv/neptunia-dev/.secrets/proxy' } } } });
+    emit(child, { type: 'tool_use', part: { tool: 'bash', state: { status: 'completed', input: { command: 'cat /var/www/site/index.php' } } } });
+    emit(child, { type: 'text', part: { text: 'read it', time: { end: 1 } } });
     await new Promise((r) => setImmediate(r));
-    assert.ok(child.killed.length > 0, 'child was interrupted');
-    child.emit('close', null);
+    child.emit('close', 0);
     return p;
   });
-  assert.equal(result.status, 'failed');
-  assert.equal(result.error, 'withheld-path');
+  assert.equal(result.status, 'done');
+  assert.equal(Object.hasOwn(result.result, 'withheld'), false);
   await ws.cleanup();
 });
 

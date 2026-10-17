@@ -31,7 +31,7 @@ Core to runner:
 Runner to core:
 
 - `{ "id", "event": "progress", "step", "tool", "note" }` as the task works;
-- one `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }`;
+- one `{ "id", "event": "end", "status": "done" | "failed" | "cancelled", "result": { "text", "sources": [url...], "files": [{ "path", "name", "contentType", "bytes" }], "withheld"?: [path...] }, "usage": { "input", "output", "usd", "steps", "seconds", "costUnknown"? }, "error"? }` (`withheld`: the withheld paths the agent was refused in a filtered scope, at most 50);
 - `{ "event": "pong", "profile", "busy", "queued" }` for a `ping`.
 
 A runner that restarted answers `end` with `status: "failed", error: "restarted"` for any id in a `ping` it no longer knows, so the core stops waiting. On `SIGTERM` the runner ends every open task the same way and exits. Output files land in `<out>/<id>/` and the core deletes them after `agents.keepFilesHours`.
@@ -40,10 +40,10 @@ A runner that restarted answers `end` with `status: "failed", error: "restarted"
 
 A `run` carries `context.scope`, one of `core`, `dm`, `group` (`src/agent-runner/policy.js`). In `core` nothing is withheld. In `dm` and `group`:
 
-- the `server` agent's file tools deny the content of sensitive paths (`/var/www`, `/srv/git`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`, the persona's own `data/` (memory about real people) and any `.agents/scratch`); listing names is still allowed. A task whose command would open such a path is stopped and ends `failed`, `error: "withheld-path"` (visible by name, not readable in this scope);
+- the `server` agent's file tools deny the content of sensitive paths (`/var/www`, `/srv/git`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`, the persona's own `data/` (memory about real people) and any `.agents/scratch`), and its `bash` denies the content commands (`cat`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `sed`, `awk`, `cut`, `sort`, `uniq`, `wc`, `file`, `git`) on any argument naming one of them; listing names (`ls`, `find`, `stat`, `du`, `readlink`, `realpath`) is still allowed. The refusal is per step: OpenCode refuses that one tool call, the agent gets the refusal and goes on with the task (visible by name, not readable in this scope), and the result's `withheld` lists the paths it was refused;
 - every result the runner returns passes a redaction pass that replaces key-, token- and password-looking strings, private-key blocks, SSH key material and URL credentials with `[redacted]`.
 
-A command that reads a withheld path through `bash` (rather than a file tool) is caught after the fact and the task fails; its output is redacted either way.
+A command that reaches a withheld path past those rules (a `bash -c`, a pipe into a reader) is caught after the fact: its output is not kept by the runner (its progress event says `withheld` and the path), the path joins the result's `withheld`, and the task goes on; the agent has seen that output, so the final text passing the redaction is what keeps a secret in it out of the answer.
 
 ## How a task runs
 
