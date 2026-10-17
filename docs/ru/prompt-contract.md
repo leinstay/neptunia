@@ -386,9 +386,11 @@ skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denie
 skills.proposedOff                       {names}: показывается в конце блока `<skills>` из одних предложений, перечисляя предложенные навыки, которые недоступны
 skills.granted.lead                      OPTIONAL: первая строка `<skills_granted>`, перед строками семейств. Без неё строки семейств стоят сами по себе
 skills.granted.line                      {family} {names}: одно семейство дозволенных навыков персонажа в `<skills_granted>`; {names} — остальная часть каждого имени после семейства и точки, через «, ». Без этой метки блок `<skills_granted>` не выводится
+tasks.result.held                        {names}: показывается, когда раннер придержал файлы результата (секрет внутри или чтение по скрытому пути); names — список через запятую, заполняемый кодом, без хэндла
 directory.lead                           OPTIONAL: первая строка `<directory>`, перед строками участников
 directory.line                           {handle} {names}: один участник `<directory>`; {handle} — точный токен для упоминания, включая `@`; {names} — сохранённые имена в виде JSON-строк через «, ». Без этой метки блок `<directory>` не выводится
 directory.lineAliases                    {handle} {names} {aliases}: то же для участника с открытыми псевдонимами ({aliases} аналогично {names}). Без ключа или с пустым значением: используется `directory.line`
+channels.ageRestricted                   добавляется (после пробела) к строке канала с возрастным ограничением в `<channel_directory>` и к заголовку этого канала в `<server>`, перед `server.currentMark`. Отсутствует или пуст: без пометки
 skills.result.alreadyPosted              OPTIONAL {text}: одна строка на каждое действие первого прохода, уже отправленное (сообщения, реакции, картинки); только при выключенном `features.followUpContinuation`. Без неё отправленные действия не перечисляются
 skills.result.ok                         строка статуса для чтения, вернувшего данные. Данные следуют на следующей строке
 skills.result.refused                    {reason}: движок отклонил вызов до выполнения (старое слово; текущий статус `denied`)
