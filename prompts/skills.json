@@ -281,8 +281,8 @@
   },
   "task.run": {
     "title": "Hand off an errand",
-    "whenToUse": "Give an agent a job that takes a while: web searches the internet, reads pages and downloads files; server reads this machine. You get the result later in a turn of your own; costs money.",
-    "whenNotToUse": "Not for what you can answer now. Server only when an owner asks; daily and open-task limits apply."
+    "whenToUse": "Give an agent a job that takes a while: web searches the internet, reads pages, looks at pictures and downloads files; server reads this machine. You get the result later in a turn of your own; costs money.",
+    "whenNotToUse": "Not for what you can answer now; server only when an owner asks; daily and open-task limits apply."
   },
   "task.status": {
     "title": "Check an errand",

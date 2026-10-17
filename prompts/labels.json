@@ -394,7 +394,7 @@
     "continue": "This is the same turn, continued after your {skill} call. Your messages above were delivered, and how the call went is marked on your line. Do not answer the message that started this turn again, and make no more calls this turn. Messages that came in after it are context, not new requests. Write only if the outcome changes what people need to know: a correction of what you said, an answer they asked for, or a clarification. Otherwise <skip/>."
   },
   "tasks": {
-    "header": "Your errands, handed to your agents (open, or finished and not yet seen by you):",
+    "header": "Your errands (open, or finished and not yet seen by you):",
     "line": "{id} · {agent} · {state} · asked {age} min ago · {goal}",
     "states": {
       "queued": "waiting",
