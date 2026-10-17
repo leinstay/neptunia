@@ -245,7 +245,8 @@ export function progressEvent({ id, step, tool = null, note = '' }) {
 
 /** A result in its protocol shape: `{ text, sources: [url], files: [{ path, name, contentType, bytes }] }`,
  * plus `withheld: [path]` (the withheld paths the agent reached for in a filtered scope, at most
- * MAX_WITHHELD) when any. */
+ * MAX_WITHHELD) when any, and `filesDropped: [{ name, reason }]` (`withheld` | `secret`: the files
+ * the runner did not deliver, src/agent-runner/opencode.js; at most MAX_WITHHELD) when any. */
 export function normalizeResult(result) {
   const r = isPlainObject(result) ? result : {};
   const sources = Array.isArray(r.sources) ? [...new Set(r.sources.filter((url) => typeof url === 'string' && url))] : [];
@@ -260,6 +261,11 @@ export function normalizeResult(result) {
   const out = { text: typeof r.text === 'string' ? r.text : '', sources, files };
   const withheld = Array.isArray(r.withheld) ? [...new Set(r.withheld.filter((p) => typeof p === 'string' && p).map((p) => p.slice(0, MAX_NOTE_CHARS)))].slice(0, MAX_WITHHELD) : [];
   if (withheld.length > 0) out.withheld = withheld;
+  const dropped = Array.isArray(r.filesDropped)
+    ? r.filesDropped.filter((d) => isPlainObject(d) && (d.reason === 'withheld' || d.reason === 'secret'))
+      .map((d) => ({ name: String(d.name ?? '').slice(0, MAX_NOTE_CHARS), reason: d.reason })).slice(0, MAX_WITHHELD)
+    : [];
+  if (dropped.length > 0) out.filesDropped = dropped;
   return out;
 }
 

@@ -78,6 +78,7 @@ test('task store: queued -> running -> done; the end is written once, a late one
     assert.equal(done.result.text, 'here');
     assert.equal(done.usage.usd, 0.25);
     assert.equal(done.error, null);
+    assert.equal(Object.hasOwn(done.result, 'filesDropped'), false, 'none held back, no key');
     assert.equal(store.finish(task.id, { status: 'failed' }), null);
     assert.deepEqual(store.open(), []);
     assert.deepEqual(store.unseen().map((t) => t.id), [task.id]);
@@ -86,6 +87,16 @@ test('task store: queued -> running -> done; the end is written once, a late one
     assert.equal(store.today('web').usd, 0.25);
     const states = fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line).state);
     assert.deepEqual(states, ['queued', 'running', 'done']);
+  });
+});
+
+test('task store: the files the runner held back are kept as names only', async () => {
+  await withCapturedLogs(() => {
+    const { store } = makeStore();
+    const { task } = store.add(asked);
+    store.start(task.id);
+    const done = store.finish(task.id, { status: 'done', result: { text: 'here', filesDropped: [{ name: 'x.env', reason: 'secret' }, { name: 'a.txt', reason: 'withheld' }, { name: 'b', reason: 'other' }] } });
+    assert.deepEqual(done.result.filesDropped, ['x.env', 'a.txt']);
   });
 });
 

@@ -76,7 +76,7 @@ export function promptFilesOf(name, { rootDir = ROOT_DIR, env = process.env, ove
   return [path.join(privateDir, 'prompts.local', override), path.join(root, AGENTS_DIRNAME, name, prompt)];
 }
 
-/** The read-only shell commands the server agent's `bash` may run (OpenCode bash patterns). */
+/** The shell commands the server agent's `bash` may run (OpenCode bash patterns): read-only ones, and `cp` into its folder. */
 export const SERVER_SHELL_ALLOW = Object.freeze([
   'ls', 'ls *', 'cat', 'cat *', 'head', 'head *', 'tail', 'tail *', 'grep', 'grep *', 'egrep *', 'fgrep *',
   'find', 'find *', 'ps', 'ps *', 'df', 'df *', 'du', 'du *', 'wc', 'wc *', 'stat', 'stat *',
@@ -90,6 +90,13 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
   'git -C * log *', 'git -C * show *', 'git -C * status', 'git -C * status *', 'git -C * diff *', 'git -C * branch *', 'git -C * rev-parse *',
   'readlink *', 'realpath *',
   'file *', 'echo *', 'basename *', 'dirname *', 'date', 'date *', 'free', 'free *', 'uptime', 'hostname',
+  // The one command that writes: a copy, so the agent hands an existing file back whole as a
+  // result file (src/agent-runner/opencode.js collects what its working directory holds) instead
+  // of retyping it. The OS keeps every other destination read-only: the unit's
+  // ProtectSystem=strict leaves only its StateDirectory (where the task folders live) and a
+  // private /tmp writable. cp is a content command (SHELL_CONTENT_COMMANDS), so a filtered scope
+  // refuses copying a withheld path exactly like cat.
+  'cp *',
 ]);
 
 /** The curl/wget/ffmpeg shell the web agent's `bash` may run (its download step). */
@@ -134,7 +141,7 @@ export const GIT_WRITE_DENIES = Object.freeze([
 export const SHELL_DENY_AFTER = Object.freeze([...GIT_WRITE_DENIES, 'find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
 
 /** The allowed shell commands that open file contents: in a filtered scope each is refused on a withheld path. */
-export const SHELL_CONTENT_COMMANDS = Object.freeze(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git']);
+export const SHELL_CONTENT_COMMANDS = Object.freeze(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git', 'cp']);
 
 /** The `.env` forms policy.js withholds (`.env`, `.env.<anything>`): one substring matches them all. */
 const ENV_FORM = '.env';

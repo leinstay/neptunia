@@ -195,6 +195,19 @@ test('taskResultText: the withheld paths close the block in labels.tasks.result.
   assert.deepEqual(failed, ['errand tab02 (web) ended failed: find a meme', 'no result text', 'error: withheld-path', 'not readable here: /etc/shadow']);
 });
 
+test('taskResultText: the files the runner held back follow the withheld line in labels.tasks.result.held, with no handle; without the label, no line', () => {
+  const held = { ...doneTask, result: { ...doneTask.result, withheld: ['/etc/shadow'], filesDropped: [{ name: 'x.env', reason: 'secret' }] } };
+  const withLabels = { ...labels, tasks: { ...labels.tasks, result: { ...labels.tasks.result, withheld: 'not readable here: {paths}', held: 'not delivered: {names}' } } };
+  const lines = taskResultText(held, withLabels).split('\n');
+  assert.deepEqual(lines.slice(-2), ['not readable here: /etc/shadow', 'not delivered: x.env']);
+  assert.ok(!lines.some((line) => line.includes('file:tab02/x.env')), 'no handle for a held-back file');
+  const names = { ...held, result: { ...held.result, filesDropped: ['x.env', 'id_rsa', '', 7] } };
+  assert.equal(taskResultText(names, withLabels).split('\n').at(-1), 'not delivered: x.env, id_rsa', 'the record keeps names');
+  const noLabel = { ...labels, tasks: { ...labels.tasks, result: { ...labels.tasks.result, held: undefined } } };
+  assert.ok(!taskResultText(held, noLabel).includes('x.env'));
+  assert.equal(taskResultText({ ...held, result: { ...held.result, filesDropped: [] } }, withLabels).split('\n').at(-1), 'not readable here: /etc/shadow', 'none held, no line');
+});
+
 test('<tasks>: an open errand is in the request tail; with none, the block is gone', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeChannel({ historyMessages: [raw] });

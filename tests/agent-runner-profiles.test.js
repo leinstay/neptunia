@@ -223,7 +223,7 @@ test('withheldShellDenies: one pattern per content command and withheld root, na
   assert.deepEqual([...SEGMENT_NAMES], ['.git', '.local.git']);
   for (const pattern of ['cat .git*', 'cat * .git*', 'cat */.git*', 'git *=.git*', "grep *'.local.git*", 'sed *".local.git*']) assert.ok(denies.includes(pattern), pattern);
   assert.ok(!denies.includes('cat *.git*'), 'no bare substring pattern for .git');
-  assert.deepEqual([...SHELL_CONTENT_COMMANDS], ['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git']);
+  assert.deepEqual([...SHELL_CONTENT_COMMANDS], ['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git', 'cp']);
   for (const pattern of ['cat */var/www*', 'cat *.ssh*', 'cat *.env*', 'cat *config.local.json*', 'git */srv/neptunia-backups*', `sed *${DATA_DIR}*`, 'wc *.secrets*']) assert.ok(denies.includes(pattern), pattern);
   for (const listing of ['ls', 'find', 'stat', 'du', 'readlink', 'realpath']) assert.ok(!denies.some((pattern) => pattern.startsWith(`${listing} `)), `${listing} stays allowed`);
   assert.ok(!denies.some((pattern) => pattern.includes('/srv/git')), 'the bare repositories are not withheld');
@@ -301,6 +301,24 @@ test('server shell: git reads another checkout by path (git -C); no write subcom
   assert.equal(actionOf(dm, 'git -C /var/www/site log -5'), 'deny', 'a withheld checkout stays withheld in a filtered scope');
   for (const command of ['git -C /srv/git/core.git log -5', 'git -C /srv/git/neptunia-private.git log -5']) assert.equal(actionOf(dm, command), 'allow', `the bare repositories under /srv/git are readable in a filtered scope: ${command}`);
   for (const command of ['cat /opt/neptunia/app/.git/config', 'cat .git/config', 'grep x /srv/neptunia-dev/neptunia-core/.local.git/config']) assert.equal(actionOf(dm, command), 'deny', `a .git or .local.git segment stays withheld: ${command}`);
+});
+
+test('server shell: cp hands a file back into the task folder; in a filtered scope a withheld source is refused like cat', () => {
+  assert.ok(SERVER_SHELL_ALLOW.includes('cp *'));
+  const core = SERVER.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-server'].permission.bash;
+  const dm = SERVER.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-server'].permission.bash;
+  const group = SERVER.buildConfig({ systemPrompt: 'x', scope: 'group' }).agent['errand-server'].permission.bash;
+  for (const command of ['cp /srv/app/docs/north-star.md north-star.md', 'cp -r /srv/app/docs docs', 'cp /opt/neptunia/etc/.env x', 'cp /srv/x/.git/config x']) {
+    assert.equal(actionOf(core, command), 'allow', `core: ${command}`);
+  }
+  for (const command of ['cp /srv/app/docs/north-star.md north-star.md', 'cp /etc/hostname hostname.txt', 'cp -r /srv/app/docs docs']) {
+    assert.equal(actionOf(dm, command), 'allow', `dm: ${command}`);
+  }
+  for (const command of ['cp /opt/neptunia/etc/.env x', 'cp /srv/x/.git/config x', 'cp /var/www/site/index.php index.php', `cp ${DATA_DIR}/guilds/1/tasks.json t.json`, 'cp -r /home/u/.ssh keys']) {
+    assert.equal(actionOf(dm, command), 'deny', `dm: ${command}`);
+    assert.equal(actionOf(group, command), 'deny', `group: ${command}`);
+  }
+  for (const command of ['mv /srv/app/docs/north-star.md x', 'rm x']) assert.equal(actionOf(core, command), 'deny', `only copy: ${command}`);
 });
 
 test('child env: the server profile carries safe.directory=* (GIT_CONFIG_COUNT) and GIT_PAGER=cat; the web profile none', () => {

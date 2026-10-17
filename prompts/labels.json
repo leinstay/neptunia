@@ -417,7 +417,8 @@
       "sources": "Its sources:",
       "files": "Files it saved; to post one, give its handle as the file of message.create:",
       "file": "{handle} ({contentType}, {bytes} bytes)",
-      "withheld": "The engine withheld {paths} from the agent by policy; the result covers everything else."
+      "withheld": "The engine withheld {paths} from the agent by policy; the result covers everything else.",
+      "held": "The engine held back {names} because they contained what looks like a key, token or password, or came from a closed path. You have no handle for them, so tell the person those files were not delivered."
     }
   },
   "journal": {

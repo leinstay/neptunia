@@ -252,6 +252,110 @@ test('opencode: files the agent saved under the task dir come back as result fil
   await ws.cleanup();
 });
 
+test('opencode: a file the server agent copied into its task dir comes back as a result file, a big one too', async () => {
+  const ws = await workspace();
+  const spawn = fakeSpawn();
+  const source = path.join(ws.base, 'north-star.md');
+  await fsp.writeFile(source, '# North star\n'.repeat(6500)); // about 81 KB, the measured case
+  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl });
+  const { result } = await withCapturedLogs(async () => {
+    const p = runner.run({ id: 'task-copy', goal: 'send me the whole north-star.md', context: { scope: 'dm' } });
+    const child = await spawn.waitForChild();
+    const taskDir = path.join(ws.outDir, 'task-copy');
+    // what `cp <source> north-star.md` and `cp <big log> big.log` leave in the working dir
+    emit(child, { type: 'tool_use', part: { tool: 'bash', state: { status: 'completed', input: { command: `cp ${source} north-star.md` } } } });
+    await fsp.copyFile(source, path.join(taskDir, 'north-star.md'));
+    const big = await fsp.open(path.join(taskDir, 'big.log'), 'w');
+    await big.truncate(200 * 1024 * 1024); // sparse: 200 MB on paper, nothing on disk
+    await big.close();
+    emit(child, { type: 'step_finish', part: { cost: 0.01, tokens: { input: 1, output: 1, reasoning: 0 } } });
+    emit(child, { type: 'text', part: { text: 'north-star.md is attached.', time: { end: 1 } } });
+    await new Promise((r) => setImmediate(r));
+    child.emit('close', 0);
+    return p;
+  });
+  assert.equal(result.status, 'done');
+  assert.equal(Object.hasOwn(result.result, 'withheld'), false, 'a readable path is not withheld');
+  const doc = result.result.files.find((f) => f.name === 'north-star.md');
+  assert.ok(doc, 'north-star.md listed');
+  assert.equal(doc.contentType, 'text/markdown');
+  assert.equal(doc.bytes, (await fsp.stat(source)).size);
+  assert.equal(doc.path, path.join(ws.outDir, 'task-copy', 'north-star.md'));
+  // The runner collects a file of any size with its true size; delivery refuses one over the
+  // interface's limit with `attachment-too-large` (src/ops/message.js).
+  const log = result.result.files.find((f) => f.name === 'big.log');
+  assert.ok(log, 'big.log listed');
+  assert.equal(log.bytes, 200 * 1024 * 1024);
+  assert.equal(result.result.files.some((f) => f.name.startsWith('opencode.db') || f.name.startsWith('.')), false);
+  await ws.cleanup();
+});
+
+/** Run one server-agent task in `scope` whose child saves `files` ({ name: Buffer|string }) and makes `toolUses`. */
+async function runSavingFiles(ws, { id, scope, files, toolUses = [] }) {
+  const spawn = fakeSpawn();
+  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl });
+  return withCapturedLogs(async () => {
+    const p = runner.run({ id, goal: 'send me the file', context: { scope } });
+    const child = await spawn.waitForChild();
+    for (const [name, content] of Object.entries(files)) await fsp.writeFile(path.join(ws.outDir, id, name), content);
+    for (const input of toolUses) emit(child, { type: 'tool_use', part: { tool: 'bash', state: { status: 'completed', input } } });
+    emit(child, { type: 'step_finish', part: { cost: 0.01, tokens: { input: 1, output: 1, reasoning: 0 } } });
+    emit(child, { type: 'text', part: { text: 'attached.', time: { end: 1 } } });
+    await new Promise((r) => setImmediate(r));
+    child.emit('close', 0);
+    return p;
+  });
+}
+
+const OPENROUTER_STYLE_KEY = `sk-or-v1-${'0123456789abcdef'.repeat(4)}`;
+
+test('opencode: in a filtered scope a run that reached a withheld path delivers no file', async () => {
+  const ws = await workspace();
+  const { result, logs } = await runSavingFiles(ws, {
+    id: 'task-withheld',
+    scope: 'dm',
+    files: { 'notes.txt': 'plain words', 'x': 'anything' },
+    toolUses: [{ command: 'bash -c "cp /opt/neptunia/et?/.en? x"' }, { command: 'cat /srv/neptunia-dev/.secrets/proxy' }],
+  });
+  assert.equal(result.status, 'done');
+  assert.deepEqual(result.result.files, []);
+  assert.ok(result.result.withheld.length > 0, 'the withheld list stays');
+  assert.deepEqual(result.result.filesDropped.map((d) => d.reason), ['withheld', 'withheld']);
+  assert.deepEqual(result.result.filesDropped.map((d) => d.name).sort(), ['notes.txt', 'x']);
+  assert.equal(logs.find((entry) => entry.msg === 'agent-runner: files dropped')?.count, 2);
+  await ws.cleanup();
+});
+
+test('opencode: in core scope a text file carrying a secret is dropped; plain text and binary files are delivered', async () => {
+  const ws = await workspace();
+  const binary = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]), Buffer.from(OPENROUTER_STYLE_KEY)]);
+  const { result, logs } = await runSavingFiles(ws, {
+    id: 'task-secret',
+    scope: 'core',
+    files: { 'env.txt': `OPENROUTER_API_KEY=${OPENROUTER_STYLE_KEY}\n`, 'notes.md': '# Notes\nThe café opens at nine.\n', 'pic.png': binary },
+  });
+  assert.equal(result.status, 'done');
+  assert.deepEqual(result.result.files.map((f) => f.name).sort(), ['notes.md', 'pic.png']);
+  assert.deepEqual(result.result.filesDropped, [{ name: 'env.txt', reason: 'secret' }]);
+  assert.equal(Object.hasOwn(result.result, 'withheld'), false);
+  assert.ok(!JSON.stringify(logs).includes(OPENROUTER_STYLE_KEY.slice(9)), 'nothing of the content is logged');
+  await ws.cleanup();
+});
+
+test('opencode: in a filtered scope a clean run delivers its files', async () => {
+  const ws = await workspace();
+  const { result } = await runSavingFiles(ws, {
+    id: 'task-clean',
+    scope: 'dm',
+    files: { 'notes.md': '# Notes\nθάλασσα\n', 'pic.png': Buffer.from([1, 0, 2, 3]) },
+    toolUses: [{ command: 'ls /srv' }],
+  });
+  assert.equal(result.status, 'done');
+  assert.deepEqual(result.result.files.map((f) => f.name).sort(), ['notes.md', 'pic.png']);
+  assert.equal(Object.hasOwn(result.result, 'filesDropped'), false);
+  await ws.cleanup();
+});
+
 test('opencode: the child gets the runner key, config content and isolation env, not the persona key', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();

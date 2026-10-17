@@ -62,7 +62,9 @@ export function tasksBlockText(tasks, labels, { now, goalChars = TASK_GOAL_CHARS
  * and each file as `result.file` (`{handle}`: `file:<task id>/<name>`, `{contentType}`,
  * `{bytes}`) under `result.files` unless the files have expired (`filesExpired`: the state's word
  * is then `states.expired`, when present), then one `result.withheld` line (`{paths}`: the paths
- * the runner withheld in a filtered scope, joined by `, `) when there are any. A part without its
+ * the runner withheld in a filtered scope, joined by `, `) when there are any, then one
+ * `result.held` line (`{names}`: the names of the files the runner held back and did not deliver,
+ * `result.filesDropped`, joined by `, `; no handle for them) when there are any. A part without its
  * label is left out; '' without the header.
  * @param {object} task
  * @param {object} labels
@@ -86,5 +88,7 @@ export function taskResultText(task, labels, { maxChars = DEFAULT_RESULT_MAX_CHA
   }
   const withheld = Array.isArray(task.result?.withheld) ? task.result.withheld.filter((entry) => typeof entry === 'string' && entry) : [];
   if (withheld.length > 0 && typeof r.withheld === 'string') parts.push(fill(r.withheld, { paths: withheld.join(', ') }));
+  const held = Array.isArray(task.result?.filesDropped) ? task.result.filesDropped.map((entry) => (typeof entry === 'string' ? entry : entry?.name)).filter((name) => typeof name === 'string' && name) : [];
+  if (held.length > 0 && typeof r.held === 'string') parts.push(fill(r.held, { names: held.join(', ') }));
   return parts.join('\n');
 }

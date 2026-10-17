@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  scopeOf, isFiltered, isWithheldPath, withheldInToolUse, redactSecrets, redactorFor, REDACTED,
+  scopeOf, isFiltered, isWithheldPath, withheldInToolUse, redactSecrets, redactorFor, containsSecret, REDACTED,
   WITHHELD_ROOTS, WITHHELD_GLOBS, withheldRootsOf, withheldGlobsOf,
 } from '../src/agent-runner/policy.js';
 import { resolvePaths } from '../src/paths.js';
@@ -103,6 +103,12 @@ test('redactSecrets: assignments, prefixes, dotted tokens, hex, URL creds, SSH, 
 test('redactSecrets: ordinary text and paths survive', () => {
   const text = 'The café is on /srv/neptunia-dev/neptunia-core/src/index.js and θάλασσα.';
   assert.equal(redactSecrets(text), text);
+});
+
+test('containsSecret: true exactly when redactSecrets would change the text', () => {
+  assert.equal(containsSecret(`OPENROUTER_API_KEY=sk-or-v1-${'ab12'.repeat(16)}`), true);
+  assert.equal(containsSecret('The café is on /srv/neptunia-dev/neptunia-core/src/index.js and θάλασσα.'), false);
+  assert.equal(containsSecret(''), false);
 });
 
 test('redactorFor: core passes text through, dm redacts', () => {
