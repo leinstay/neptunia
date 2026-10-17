@@ -23,6 +23,10 @@ import { createRecall } from '../src/behavior/recall-run.js';
 import { toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -229,7 +233,7 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
   config.recall = { ...config.recall, recordDays: 3, recordContext: 3, maxPerDay: 100, timeoutMs: 30000 };
   const calls = [];
   const llm = { capLeft: () => 100, complete: async (messages) => (calls.push(messages), { text: 'stretch: 1\nIn the garden.' }) };
-  const recall = createRecall({ hot: { config, prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels } }, store, llm, record, now: () => NOW });
+  const recall = createRecall({ discord: DISCORD, hot: { config, prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels } }, store, llm, record, now: () => NOW });
   const windows = [];
   const candidate = { id: 'q', channelId: C1, authorId: ASKER, authorName: 'Nikos', content: 'πού είναι το κουνέλι;', ts: NOW, self: false, bot: false };
   const { result: out } = await withCapturedLogs(() =>

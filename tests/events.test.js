@@ -19,11 +19,11 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createStore } from '../src/memory/store.js';
 import { slimMessage } from '../src/memory/update.js';
-import { canSend, fetchHistory, fetchMessage, normalizeMessage, normalizedOf, normalizeOptions, toEvent } from '../src/interface/discord.js';
+import { createDiscordAdapter, createDiscordInterface, normalizeMessage, normalizeOptions, toEvent } from '../src/interface/discord.js';
 import { createActivity } from '../src/behavior/activity.js';
 
 /** The Discord functions the pipeline is given, the real ones src/index.js passes. */
-const DISCORD = { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent };
+const DISCORD = createDiscordInterface().capabilities;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -7067,7 +7067,7 @@ function liveScene({ dm = false, talk = () => '<msg>ok</msg>', split, merge, lab
     ? fakeDmChannel('dm1', 'u1', { messages, sendTyping: async () => {}, send })
     : fakeChannel('c1', guild, { name: 'general', messages, sendTyping: async () => {}, send });
   const tagHistory = countingTagHistory();
-  const turns = createTurnRunner({ hot, store, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client, now, schedule: () => () => {} });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client, now, schedule: () => () => {} });
   const handler = asDiscordEvents(createMessageHandler({
     hot,
     store,

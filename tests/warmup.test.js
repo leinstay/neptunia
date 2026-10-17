@@ -46,6 +46,10 @@ import { createMemoryUpdater } from '../src/memory/update.js';
 import { mergeIntoQueue } from '../src/memory/voice.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -363,7 +367,7 @@ test('createWarmup: a person or server request without labels fails loudly, noth
   const hot = fakeHot({ prompts: { labels: undefined } });
   hot.config.warmup.minMessages = 1;
   const llm = scriptedLlm([{}]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   await assert.rejects(warmup.runPerson('g1', 'a'), /labels/);
   await assert.rejects(warmup.runServer('g1'), /labels/);
@@ -444,7 +448,7 @@ test('createWarmup: an alias, an episode weight and a lore title are clamped whe
     { character: 'c', style: 's', aliases: ['Αλέξανδρος '.repeat(6)], episodes: [{ date: '2026-01-01', what: 'won a game', weight: 9 }] },
     { patterns: 'p', lore: [{ title: 'Τίτλος '.repeat(20), keys: ['k1'], text: 'x' }] },
   ]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   assert.equal((await warmup.runPerson('g1', 'a')).ok, true);
   assert.equal((await warmup.runServer('g1')).ok, true);
@@ -691,7 +695,7 @@ test('createWarmup: peopleReport reads only channels the bot can view and report
   const client = fakeClient(guild);
   const hot = fakeHot();
   hot.config.warmup.minMessages = 2;
-  const warmup = createWarmup({ hot, client, llm: fakeLlm(() => ({})), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, client, llm: fakeLlm(() => ({})), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const report = await warmup.peopleReport('g1');
   assert.equal(report.ok, true);
@@ -707,7 +711,7 @@ test('createWarmup: fetched windows are cached for 15 minutes per guild', async 
   const client = fakeClient(guild);
   const hot = fakeHot();
   let nowMs = 1_000_000;
-  const warmup = createWarmup({ hot, client, llm: fakeLlm(() => ({})), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
+  const warmup = createWarmup({ discord: DISCORD, hot, client, llm: fakeLlm(() => ({})), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
 
   await warmup.peopleReport('g1');
   await warmup.peopleReport('g1');
@@ -730,7 +734,7 @@ test('createWarmup: peopleReport never writes anything under a real data/ direct
     const client = fakeClient(guild);
     const hot = fakeHot();
     hot.config.warmup.minMessages = 1;
-    const warmup = createWarmup({ hot, client, llm: fakeLlm(() => ({})), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+    const warmup = createWarmup({ discord: DISCORD, hot, client, llm: fakeLlm(() => ({})), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
     await warmup.peopleReport('g1');
     await warmup.peopleReport('g1');
@@ -813,7 +817,7 @@ test('createWarmup: run() processes channels, then people, then the server, writ
     { patterns: 'lots of banter', starters: 'someone posts a link', injokes: ['the eternal bug'], lore: [{ title: 'The Outage', keys: ['outage'], text: 'the server went down once' }] }, // server
   ]);
 
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   const result = await warmup.run('g1');
 
   assert.equal(result.ok, true);
@@ -851,13 +855,13 @@ test('createWarmup: run() is idempotent once finished -- a second call makes no 
   const client = fakeClient(guild);
   const hot = fakeHot();
   const llm = scriptedLlm([{ purpose: 'p', topics: 't', tone: 'x' }, { character: 'c', style: 's', interests: [], details: [], episodes: [], aliases: [] }, { patterns: '', starters: '', injokes: [], lore: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   await warmup.run('g1');
   const callsAfterFirst = llm.calls.length;
 
   const failingLlm = { complete: async () => { throw new Error('must not be called again'); } };
-  const warmup2 = createWarmup({ hot, store, client, llm: failingLlm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup2 = createWarmup({ discord: DISCORD, hot, store, client, llm: failingLlm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   const second = await warmup2.run('g1');
 
   assert.equal(second.ok, true);
@@ -877,7 +881,7 @@ test('createWarmup: run() resumes after a stop, never reprocessing a done item',
   hot.config.warmup.maxTokens = 1; // stop immediately, before the very first request
 
   const llm1 = scriptedLlm([{ purpose: 'p' }]);
-  const warmup1 = createWarmup({ hot, store, client, llm: llm1, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup1 = createWarmup({ discord: DISCORD, hot, store, client, llm: llm1, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   const first = await warmup1.run('g1');
   assert.equal(first.ok, false);
   assert.equal(llm1.calls.length, 0);
@@ -892,7 +896,7 @@ test('createWarmup: run() resumes after a stop, never reprocessing a done item',
     { character: 'cb', style: 'sb', interests: [], details: [], episodes: [], aliases: [] },
     { patterns: '', starters: '', injokes: [], lore: [] },
   ]);
-  const warmup2 = createWarmup({ hot, store, client, llm: llm2, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup2 = createWarmup({ discord: DISCORD, hot, store, client, llm: llm2, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   const second = await warmup2.run('g1');
 
   assert.equal(second.ok, true);
@@ -912,7 +916,7 @@ test('createWarmup: run() refuses while another run is already in flight', async
   let resolveFirst;
   const gate = new Promise((resolve) => { resolveFirst = resolve; });
   const llm = { complete: async () => { await gate; return { text: '{}', usage: {}, estimated: 0, finishReason: 'stop' }; } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const firstRun = warmup.run('g1');
   assert.equal(warmup.isWarmingUp(), true);
@@ -941,7 +945,7 @@ test('createWarmup: run() pauses after the request in flight, resumable', async 
     },
     { purpose: 'p2' }, // must never be reached
   ]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const result = await warmup.run('g1');
   assert.equal(result.ok, false);
@@ -971,7 +975,7 @@ test('createWarmup: stop() ends the run after the request in flight, activity st
     },
     { purpose: 'p2' }, // must never be reached
   ]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const result = await warmup.run('g1');
   assert.equal(result.ok, false);
@@ -1003,7 +1007,7 @@ test('createWarmup: run() clears stopRequested at the start of the next run', as
     },
     { patterns: '', starters: '', injokes: [], lore: [] },
   ]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const first = await warmup.run('g1');
   assert.equal(first.message, 'stopped');
@@ -1031,7 +1035,7 @@ test('createWarmup: stop() aborts the model call in flight during a bulk users r
   hot.config.warmup.minMessages = 1;
 
   const llm = abortAwareLlm();
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const started = await warmup.runUsers('g1');
   assert.equal(started.ok, true);
@@ -1056,7 +1060,7 @@ test('createWarmup: stop() aborts the model call in flight during a bulk users r
 
   // Later: a fresh warmup users run resumes and actually profiles the member.
   const llm2 = scriptedLlm([{ character: 'c', style: 's', interests: [], details: [], episodes: [], aliases: [] }]);
-  const warmup2 = createWarmup({ hot, store, client, llm: llm2, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup2 = createWarmup({ discord: DISCORD, hot, store, client, llm: llm2, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   const resumed = await warmup2.runUsers('g1');
   assert.equal(resumed.ok, true);
   await warmup2.waitIdle();
@@ -1072,7 +1076,7 @@ test('createWarmup: stop() aborts the model call in flight during a synchronous 
   const hot = fakeHot();
 
   const llm = abortAwareLlm();
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const runPromise = warmup.runPerson('g1', 'a');
   // Let the synchronous one-off actually reach its (hanging) model call before stopping it.
@@ -1102,7 +1106,7 @@ test('createWarmup: run() waits out a sustained rate limit then aborts (resumabl
   rateLimitError.statusCode = 429;
   const llm = { complete: async () => { throw rateLimitError; } };
   const sleep = fakeSleep();
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000, sleep });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000, sleep });
 
   const result = await warmup.run('g1');
   assert.equal(result.ok, false);
@@ -1122,7 +1126,7 @@ test('createWarmup: run() aborts after three consecutive other failures (resumab
 
   let calls = 0;
   const llm = { complete: async () => { calls += 1; throw new Error(`boom ${calls}`); } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const result = await warmup.run('g1');
   assert.equal(result.ok, false);
@@ -1139,7 +1143,7 @@ test('createWarmup: run() reports a missing prompts.profile instead of throwing'
   const client = fakeClient(guild);
   const hot = fakeHot({ prompts: { profile: undefined } });
   const llm = scriptedLlm([{ purpose: 'p' }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const result = await warmup.run('g1');
   assert.equal(result.ok, false);
@@ -1163,7 +1167,7 @@ test('createWarmup: a person whose sample does not fit one request is chunked, e
   const llm = scriptedLlm([
     (i) => ({ character: `chunk-${i}`, style: 's', interests: [], details: [], episodes: [], aliases: [] }),
   ]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.runPerson('g1', 'a');
   assert.equal(outcome.ok, true);
@@ -1191,7 +1195,7 @@ test('createWarmup: a bad-json person answer is retried once with half the sampl
 
   let calls = 0;
   const llm = { complete: async () => { calls += 1; return { text: 'not json at all', usage: {}, estimated: 0, finishReason: 'stop' }; } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.runPerson('g1', 'a');
   assert.equal(outcome.ok, false);
@@ -1208,7 +1212,7 @@ test('createWarmup: every failed target carries a reason; only a final skip is m
     hot.config.warmup.minMessages = 1;
     tweak(hot);
     const client = fakeClient(fakeGuild('g1', [fakeChannel('c1', history.map((m) => ({ ...m })))]));
-    return { store, warmup: createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 }) };
+    return { store, warmup: createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 }) };
   };
   const garbage = { complete: async () => ({ text: 'not json', usage: {}, estimated: 0, finishReason: 'stop' }) };
   const failing = { complete: async () => { throw new Error('provider down'); } };
@@ -1254,7 +1258,7 @@ test('createWarmup: runPerson reports "no messages in the window" when the membe
   const client = fakeClient(guild);
   const hot = fakeHot();
   const llm = { complete: async () => { throw new Error('must not be called'); } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.runPerson('g1', 'ghost');
   assert.equal(outcome.ok, false);
@@ -1273,7 +1277,7 @@ test('createWarmup: runPerson stores the answer\'s details, each at the weight o
   const llm = scriptedLlm([
     { character: 'friendly', style: 'short', interests: [], details: [{ text: 'plays guitar', times: 2 }, { text: 'owns a cat', times: 1 }], episodes: [], aliases: [] },
   ]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.runPerson('g1', 'a');
   assert.equal(outcome.ok, true);
@@ -1298,7 +1302,7 @@ test('createWarmup: runPerson appends prompts.rules after the card in the <chara
   const hot = fakeHot({ prompts: { rules: 'Never repeat yourself.' } });
   hot.config.warmup.minMessages = 1;
   const llm = scriptedLlm([{ character: 'friendly', style: 'short', interests: [], details: [], episodes: [], aliases: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   await warmup.runPerson('g1', 'a');
 
@@ -1321,7 +1325,7 @@ test('createWarmup: processChannel fills the channel\'s counters and top writers
   const client = fakeClient(guild);
   const hot = fakeHot();
   const llm = scriptedLlm([{ purpose: 'general chatter', topics: 'everything', tone: 'casual' }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.runChannel('g1', 'c1');
   assert.equal(outcome.ok, true);
@@ -1343,12 +1347,12 @@ test('createWarmup: processChannel redone (runChannel again) SETS the counters, 
   const client = fakeClient(guild);
   const hot = fakeHot();
   const llm1 = scriptedLlm([{ purpose: 'p1' }]);
-  const warmup1 = createWarmup({ hot, store, client, llm: llm1, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup1 = createWarmup({ discord: DISCORD, hot, store, client, llm: llm1, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   await warmup1.runChannel('g1', 'c1');
   assert.equal(store.getChannel('g1', 'c1').messageCount, 2);
 
   const llm2 = scriptedLlm([{ purpose: 'p2' }]);
-  const warmup2 = createWarmup({ hot, store, client, llm: llm2, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup2 = createWarmup({ discord: DISCORD, hot, store, client, llm: llm2, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   await warmup2.runChannel('g1', 'c1');
   assert.equal(store.getChannel('g1', 'c1').messageCount, 2); // SET, not added -- a redo must not double the count
 });
@@ -1361,7 +1365,7 @@ test('createWarmup: processChannel sets zeros and empty lists for a channel with
   const client = fakeClient(guild);
   const hot = fakeHot();
   const llm = scriptedLlm([{ purpose: '', topics: '', tone: '' }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.runChannel('g1', 'c1');
   assert.equal(outcome.ok, true);
@@ -1383,7 +1387,7 @@ test('createWarmup: a server answer that omits a field leaves the stored value a
   const client = fakeClient(guild);
   const hot = fakeHot();
   const llm = scriptedLlm([{ starters: 'new starters', patterns: '', lore: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.runServer('g1');
   assert.equal(outcome.ok, true);
@@ -1403,7 +1407,7 @@ test('createWarmup: a channel answer that omits a field leaves the stored value 
   const client = fakeClient(guild);
   const hot = fakeHot();
   const llm = scriptedLlm([{ purpose: 'new purpose', tone: '' }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.runChannel('g1', 'c1');
   assert.equal(outcome.ok, true);
@@ -1422,7 +1426,7 @@ test('createWarmup: an unparsable channel, person or server answer is logged by 
   const hot = fakeHot();
   hot.config.warmup.minMessages = 1;
   const llm = { complete: async () => ({ text: '{"purpose": she quit her job}', usage: {}, estimated: 0, finishReason: 'stop' }) };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const { logs } = await withCapturedLogs(async () => {
     await warmup.runChannel('g1', 'c1');
@@ -1450,7 +1454,7 @@ test('createWarmup: a redo (runPerson called again) SETS messageCount/firstSeen/
   const hot = fakeHot();
   hot.config.warmup.minMessages = 1;
   const llm = scriptedLlm([{ character: 'friendly', style: 's', interests: [], details: [], episodes: [], aliases: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   await warmup.runPerson('g1', 'a');
   const first = store.getUser('g1', 'a');
@@ -1478,7 +1482,7 @@ test('createWarmup: runUsers starts a background redo of every qualifying member
   const hot = fakeHot();
   hot.config.warmup.minMessages = 1;
   const llm = scriptedLlm([{ character: 'c', style: 's', interests: [], details: [], episodes: [], aliases: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const started = await warmup.runUsers('g1');
   assert.equal(started.ok, true);
@@ -1498,13 +1502,13 @@ test('createWarmup: runUsers redoes an already-done member, overwriting its prev
   const hot = fakeHot();
   hot.config.warmup.minMessages = 1;
   const llm1 = scriptedLlm([{ character: 'first', style: 's', interests: [], details: [], episodes: [], aliases: [] }]);
-  const warmup1 = createWarmup({ hot, store, client, llm: llm1, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup1 = createWarmup({ discord: DISCORD, hot, store, client, llm: llm1, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   await warmup1.runPerson('g1', 'a');
   assert.deepEqual(store.state.data.warmup.done.people, ['a']);
 
   const llm2 = scriptedLlm([{ character: 'second', style: 's', interests: [], details: [], episodes: [], aliases: [] }]);
-  const warmup2 = createWarmup({ hot, store, client, llm: llm2, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup2 = createWarmup({ discord: DISCORD, hot, store, client, llm: llm2, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const started = await warmup2.runUsers('g1');
   assert.equal(started.ok, true);
@@ -1526,7 +1530,7 @@ test('createWarmup: runUsers is refused while a run/one-off target is already in
   let resolveFirst;
   const gate = new Promise((resolve) => { resolveFirst = resolve; });
   const llm = { complete: async () => { await gate; return { text: '{}', usage: {}, estimated: 0, finishReason: 'stop' }; } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const firstRun = warmup.run('g1');
   assert.equal(warmup.isWarmingUp(), true);
@@ -1546,7 +1550,7 @@ test('createWarmup: runUsers claims the run before its history fetch -- a redo s
   const hot = fakeHot();
   hot.config.warmup.minMessages = 1;
   const llm = scriptedLlm([{ character: 'c', style: 's', interests: [], details: [], episodes: [], aliases: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const first = warmup.runUsers('g1');
   assert.equal(warmup.isWarmingUp(), true, 'the persona is muted from the start, the history fetch included');
@@ -1566,6 +1570,7 @@ test('createWarmup: runUsers with nothing to redo, or a failed history fetch, re
   const hot = fakeHot();
   hot.config.warmup.minMessages = 100;
   const quiet = createWarmup({
+    discord: DISCORD,
     hot,
     store,
     client: fakeClient(fakeGuild('g1', [fakeChannel('c1', [rawMessage(1000, { authorId: 'a' })])])),
@@ -1582,7 +1587,7 @@ test('createWarmup: runUsers with nothing to redo, or a failed history fetch, re
   broken.isTextBased = () => {
     throw new Error('channel cache unavailable');
   };
-  const failing = createWarmup({ hot, store, client: fakeClient(fakeGuild('g1', [broken])), llm: scriptedLlm([{}]), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const failing = createWarmup({ discord: DISCORD, hot, store, client: fakeClient(fakeGuild('g1', [broken])), llm: scriptedLlm([{}]), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   await assert.rejects(failing.runChannels('g1'), /channel cache unavailable/);
   assert.equal(failing.isWarmingUp(), false);
   await failing.waitIdle();
@@ -1597,7 +1602,7 @@ test('createWarmup: runChannels starts a background redo of every readable chann
   const client = fakeClient(guild);
   const hot = fakeHot();
   const llm = scriptedLlm([{ purpose: 'p' }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const started = await warmup.runChannels('g1');
   assert.equal(started.ok, true);
@@ -1615,7 +1620,7 @@ test('createWarmup: reset() clears progress only, refused while running', async 
   const client = fakeClient(guild);
   const hot = fakeHot();
   const llm = scriptedLlm([{ purpose: 'p' }, { character: 'c', style: 's', interests: [], details: [], episodes: [], aliases: [] }, { patterns: '', starters: '', injokes: [], lore: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   await warmup.run('g1');
   assert.ok(store.state.data.warmup.finishedAt);
@@ -1653,7 +1658,7 @@ test('activity: reports the channel phase with its position among the run\'s eli
       return { text: JSON.stringify(payload), usage: { prompt_tokens: 10, completion_tokens: 5 }, estimated: 15, finishReason: 'stop' };
     },
   };
-  warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const result = await warmup.run('g1');
   assert.equal(result.ok, true);
@@ -1681,7 +1686,7 @@ test('activity: never written to state.json (in-memory only)', async () => {
   const client = fakeClient(guild);
   const hot = fakeHot();
   const llm = scriptedLlm([{ purpose: 'p' }, { character: 'c', style: 's', interests: [], details: [], episodes: [], aliases: [] }, { patterns: '', starters: '', injokes: [], lore: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   await warmup.run('g1');
   store.flush();
@@ -1708,7 +1713,7 @@ test('refreshPortrait: samples the member and replaces only character/style, wit
   const hot = fakeHot();
 
   const llm = scriptedLlm([{ character: 'new character', style: 'new style', interests: [{ topic: 'poker', note: '', times: 5 }], details: [], episodes: [], aliases: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 20_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 20_000_000 });
 
   const result = await warmup.refreshPortrait('g1', 'a', 'writes shorter than usual now');
   assert.equal(result.ok, true);
@@ -1735,7 +1740,7 @@ test('refreshPortrait: the "portrait refreshed" log says whether a hint was give
   const client = fakeClient(fakeGuild('g1', [fakeChannel('c1', history)]));
   const hot = fakeHot();
   const llm = scriptedLlm([{ character: 'new character', style: 'new style', interests: [], details: [], episodes: [], aliases: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 20_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 20_000_000 });
 
   const { result, logs } = await withCapturedLogs(() => warmup.refreshPortrait('g1', 'a', 'γράφει πιο σύντομα τώρα'));
   assert.equal(result.ok, true);
@@ -1759,7 +1764,7 @@ test('refreshPortrait: skips a member refreshed less than memory.portraitRefresh
   hot.config.warmup.minMessages = 1; // one own line is a sample worth sending here
   let calls = 0;
   const llm = { complete: async () => { calls += 1; return { text: '{"character":"c","style":"s"}', usage: {}, estimated: 0, finishReason: 'stop' }; } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 + 3600_000 }); // 1h later, rail is 24h
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 + 3600_000 }); // 1h later, rail is 24h
 
   const skipped = await warmup.refreshPortrait('g1', 'a', 'reason');
   assert.equal(skipped.ok, false);
@@ -1784,7 +1789,7 @@ test('refreshPortrait: skips once the daily refresh cap is reached', async () =>
   hot.config.warmup.minMessages = 1;
   let calls = 0;
   const llm = { complete: async () => { calls += 1; return { text: '{"character":"c","style":"s"}', usage: {}, estimated: 0, finishReason: 'stop' }; } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const first = await warmup.refreshPortrait('g1', 'a', 'r1', { force: true });
   assert.equal(first.ok, true);
@@ -1806,7 +1811,7 @@ test('refreshPortrait: concurrent cues never overshoot the daily cap -- the slot
   hot.config.warmup.minMessages = 1;
   let calls = 0;
   const llm = { complete: async () => { calls += 1; return { text: '{"character":"c","style":"s"}', usage: {}, estimated: 0, finishReason: 'stop' }; } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const [first, second] = await Promise.all([warmup.refreshPortrait('g1', 'a', 'r1'), warmup.refreshPortrait('g1', 'b', 'r2')]);
 
@@ -1825,7 +1830,7 @@ test('refreshPortrait: the daily count lives outside the warmup progress, so /ne
   hot.config.warmup.minMessages = 1;
   let calls = 0;
   const llm = { complete: async () => { calls += 1; return { text: '{"character":"c","style":"s"}', usage: {}, estimated: 0, finishReason: 'stop' }; } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   assert.equal((await warmup.refreshPortrait('g1', 'a', 'r1', { force: true })).ok, true);
   assert.equal(store.state.data.portraitDay, new Date(10_000_000).toISOString().slice(0, 10));
@@ -1844,7 +1849,7 @@ test('refreshPortrait: a missing prompts.profile is reason "no-prompt", no slot 
   const client = fakeClient(fakeGuild('g1', [fakeChannel('c1', [rawMessage(1000, { authorId: 'a' })])]));
   const hot = fakeHot({ prompts: { profile: undefined } });
   const llm = scriptedLlm([{}]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.refreshPortrait('g1', 'a', 'r1', { force: true });
   assert.equal(outcome.reason, 'no-prompt');
@@ -1858,7 +1863,7 @@ test('refreshPortrait: a refresh with nothing to sample gives its daily slot bac
   store.touchUser('g1', 'a', 'Alice', 1000);
   const client = fakeClient(fakeGuild('g1', [fakeChannel('c1', [rawMessage(1000, { authorId: 'other' })])]));
   const hot = fakeHot();
-  const warmup = createWarmup({ hot, store, client, llm: scriptedLlm([{}]), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm: scriptedLlm([{}]), calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.refreshPortrait('g1', 'a', 'r1', { force: true });
   assert.equal(outcome.reason, 'nothing-to-sample');
@@ -1876,7 +1881,7 @@ test('refreshPortrait: concurrent cues share one history fetch', async () => {
   const hot = fakeHot();
   hot.config.warmup.minMessages = 1;
   const llm = scriptedLlm([{ character: 'c', style: 's', interests: [], details: [], episodes: [], aliases: [] }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const results = await Promise.all([warmup.refreshPortrait('g1', 'a', 'r1'), warmup.refreshPortrait('g1', 'b', 'r2')]);
 
@@ -1896,7 +1901,7 @@ test('refreshPortrait: queues nothing and just logs while a warmup run is in fli
   let resolveGate;
   const gate = new Promise((resolve) => { resolveGate = resolve; });
   const llm = { complete: async () => { await gate; return { text: '{}', usage: {}, estimated: 0, finishReason: 'stop' }; } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const runPromise = warmup.run('g1');
   const refreshResult = await warmup.refreshPortrait('g1', 'a', 'reason');
@@ -1924,7 +1929,7 @@ test('warmupState: a stored state.warmup from an older version is discarded whol
     channels: {},
   };
   store.state.data.warmup = structuredClone(stored);
-  const warmup = createWarmup({ hot, store, client, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const summary = warmup.summary(); // a read: reports the fresh view, writes nothing
   assert.equal(summary.tokensUsed, 0);
@@ -1950,7 +1955,7 @@ test('warmupState: a stored state.warmup already at the current version is heale
   const hot = fakeHot();
   hot.config.warmup.maxTokens = 0;
   store.state.data.warmup = { version: 3, tokensUsed: 42, done: { channels: ['c1'], people: [], server: false } };
-  const warmup = createWarmup({ hot, store, client, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept' });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept' });
 
   assert.equal(warmup.summary().tokensUsed, 42);
   assert.equal(warmup.summary().doneChannels, 1);
@@ -1975,7 +1980,7 @@ test('warmupState: status() and summary() are read-only -- they never write or d
   store.state.markDirty = () => {
     dirtied += 1;
   };
-  const warmup = createWarmup({ hot, store, client, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm: {}, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const status = warmup.status('g1');
   const summary = warmup.summary();
@@ -1996,7 +2001,7 @@ test('status: next target skips the target currently in flight', async () => {
   let release;
   const gate = new Promise((r) => { release = r; });
   const llm = { complete: async () => { await gate; return { content: JSON.stringify({ purpose: 'p', topics: 't', tone: 'n' }), usage: { prompt_tokens: 1, completion_tokens: 1 } }; } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   const running = warmup.run('g1');
   while (warmup.status('g1').activity.phase !== 'channel') await new Promise((r) => setTimeout(r, 5));
   const s = warmup.status('g1');
@@ -2015,7 +2020,7 @@ test('createWarmup: memory.temperature is read at each call, and memory.timeoutM
   hot.config.memory.timeoutMs = 900_000;
   hot.config.llm.timeoutMs = 300_000;
   const llm = scriptedLlm([{ purpose: 'p' }, { character: 'c', style: 's' }, { patterns: 'x' }, { character: 'c2', style: 's2' }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   await warmup.run('g1');
   hot.config.memory.temperature = 0.1; // a live edit reaches the next request
@@ -2034,7 +2039,7 @@ test('createWarmup: warmup.maxRequestTokens, not the chat cap, governs fitting a
   hot.config.llm.maxRequestTokens = 40; // the chat cap: far too small for this channel
   hot.config.llm.safetyMargin = 1;
   const llm = scriptedLlm([{ purpose: 'p' }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const outcome = await warmup.runChannel('g1', 'c1');
   assert.equal(outcome.ok, true);
@@ -2056,7 +2061,7 @@ test('createWarmup: warmup rails are read at the call -- a lowered warmup.maxTok
     },
     { purpose: 'p2' },
   ]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   const result = await warmup.run('g1');
   assert.equal(result.ok, false);
@@ -2078,7 +2083,7 @@ test('createWarmup: run() and refreshPortrait() route every request as the analy
     { patterns: '', starters: '', injokes: [], lore: [] },
     { character: 'c2', style: 's2', interests: [], details: [], episodes: [], aliases: [] },
   ]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   await warmup.run('g1');
   const refreshed = await warmup.refreshPortrait('g1', 'a', '', { force: true });
@@ -2111,7 +2116,7 @@ function guildlessClient() {
 
 /** A warmup for portrait tests; the clock defaults to 30 hours after T0. */
 function portraitWarmup({ hot = fakeHot(), store = createStore({ dataDir: tmpDataDir() }), client = guildlessClient(), llm, now = () => T0 + 30 * 3_600_000, calibrator = createCalibrator() } = {}) {
-  const warmup = createWarmup({ hot, store, client, llm, calibrator, getSelfName: () => 'Nept', now });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator, getSelfName: () => 'Nept', now });
   return { warmup, store, hot, llm };
 }
 
@@ -2480,7 +2485,7 @@ test('writePersonAnswer: a warmup person run stamps portraitRefreshedAt and port
   const history = [rawMessage(1000, { authorId: 'a' }), rawMessage(2000, { authorId: 'a' }), rawMessage(3000, { authorId: 'a' }), rawMessage(4000, { authorId: 'b' })];
   const client = fakeClient(fakeGuild('g1', [fakeChannel('c1', history)]));
   const llm = scriptedLlm([{ character: 'μιλάει πολύ', style: 'σύντομα' }, { character: '', style: '', interests: [{ topic: 'σκάκι', note: '', times: 1 }] }]);
-  const warmup = createWarmup({ hot: fakeHot(), store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot: fakeHot(), store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   store.touchUser('g1', 'a', 'a', 500);
   store.updateUser('g1', 'a', { messageCount: 700, portraitAttemptAt: new Date(9_000_000).toISOString() });
 
@@ -2515,7 +2520,7 @@ test('portrait scheduler: one history crawl per check, and a member with no line
     },
   ]);
   const store = createStore({ dataDir: tmpDataDir() });
-  const warmup = createWarmup({ hot, store, client: fakeClient(fakeGuild('g1', [c1])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client: fakeClient(fakeGuild('g1', [c1])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
   for (const [id, count] of [['z', 500], ['a', 400], ['b', 350]]) {
     seedPortrait(store, id, { at: T0 - 3_600_000, character: 'παλιός', style: 'παλιό', messageCount: count });
   }
@@ -2658,7 +2663,7 @@ test('portrait scheduler: a candidate forgotten before its turn is not re-create
   const c1 = fakeChannel('c1', history);
   const hot = fakeHot();
   const llm = gatedLlm({ character: 'νέος', style: 'νέο' });
-  const warmup = createWarmup({ hot, store, client: fakeClient(fakeGuild('g1', [c1])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client: fakeClient(fakeGuild('g1', [c1])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
   seedPortrait(store, 'x', { at: T0 - 3_600_000, messageCount: 500 });
   seedPortrait(store, 'y', { at: T0 - 3_600_000, messageCount: 400 });
   store.flush();
@@ -2689,7 +2694,7 @@ test('portrait scheduler: a candidate forgotten and re-created by a new message 
   const c1 = fakeChannel('c1', history);
   const hot = fakeHot();
   const llm = gatedLlm({ character: 'NEW', style: 'NEW' });
-  const warmup = createWarmup({ hot, store, client: fakeClient(fakeGuild('g1', [c1])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client: fakeClient(fakeGuild('g1', [c1])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
   seedPortrait(store, 'x', { at: T0 - 3_600_000, messageCount: 500 });
   seedPortrait(store, 'y', { at: T0 - 3_600_000, messageCount: 400 });
   store.flush();
@@ -2937,7 +2942,7 @@ test('writePersonAnswer: a person run stamps the time its history read began', a
       return { character: 'μιλάει πολύ', style: 'σύντομα' };
     },
   ]);
-  const warmup = createWarmup({ hot: fakeHot(), store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
+  const warmup = createWarmup({ discord: DISCORD, hot: fakeHot(), store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
 
   assert.equal((await warmup.runPerson('g1', 'a')).ok, true);
   assert.equal(store.getUser('g1', 'a').portraitRefreshedAt, new Date(10_000_000).toISOString());
@@ -2948,7 +2953,7 @@ test('writePersonAnswer: a person run with no portrait keeps the own messages si
   const history = [rawMessage(1000, { authorId: 'a' }), rawMessage(2000, { authorId: 'a' }), rawMessage(3000, { authorId: 'a' })];
   const client = fakeClient(fakeGuild('g1', [fakeChannel('c1', history)]));
   const llm = scriptedLlm([{ character: '', style: '', interests: [{ topic: 'σκάκι', note: '', times: 1 }] }]);
-  const warmup = createWarmup({ hot: fakeHot(), store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot: fakeHot(), store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
   store.touchUser('g1', 'a', 'a', 500);
   store.updateUser('g1', 'a', { messageCount: 2000, portraitMessageCount: 1999 });
 
@@ -3316,7 +3321,7 @@ test('createWarmup (two-stage): the person and server runs word on roles.voice a
     { patterns: 'x', starters: 'y' },
     { character: 'c2', style: 's2' },
   ]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   assert.equal((await warmup.run('g1')).ok, true);
   assert.deepEqual(
@@ -3355,7 +3360,7 @@ test('createWarmup: with memoryTwoStage off no warmup or portrait request carrie
   hot.config.roles.extractor = 'gpt/decider';
   hot.config.memory.reasoning = { effort: 'low' };
   const llm = scriptedLlm([{ purpose: 'p' }, { character: 'c', style: 's' }, { patterns: 'x' }, { character: 'c2', style: 's2' }]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   await warmup.run('g1');
   const refreshed = await warmup.refreshPortrait('g1', 'a', '', { force: true });
@@ -3531,7 +3536,7 @@ test('writePersonAnswer (two-stage): a person run that writes a portrait while a
     (i, messages) =>
       messages[0].content.startsWith('PORTRAIT') ? portraitAnswer('ύφος Α', { add: ['παλιά συνήθεια'] }) : { character: 'από την προθέρμανση', style: 'ύφος προθέρμανσης' },
   ]);
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => nowMs });
   seedPortrait(store, 'a', { messageCount: 420 });
   assert.equal((await warmup.refreshPortrait('g1', 'a', '', { windows: [win('c1', lines('c1', 'a', 5, T0))] })).characterQueued, true);
 
@@ -3693,7 +3698,7 @@ test('refreshChannelNotes: fills <existing_notes>, samples across days without t
     { purpose: 'alpha', topics: 'beta', tone: 'gamma' },
     { purpose: 'alpha', topics: 'beta and delta', tone: 'gamma' },
   ]);
-  const warmup = createWarmup({ hot, store, client: fakeClient(fakeGuild('g1', [channel])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client: fakeClient(fakeGuild('g1', [channel])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
 
   const { result: first, logs } = await withCapturedLogs(() => warmup.refreshChannelNotes('g1', 'c1'));
   assert.equal(first.ok, true);
@@ -3745,7 +3750,7 @@ test('refreshChannelNotes: a channel changed since the history read is a conflic
       return { purpose: 'epsilon', topics: 'zeta', tone: 'eta' };
     },
   ]);
-  const warmup = createWarmup({ hot: notesHot(), store, client: fakeClient(fakeGuild('g1', [channel])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
+  const warmup = createWarmup({ discord: DISCORD, hot: notesHot(), store, client: fakeClient(fakeGuild('g1', [channel])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
 
   const { result, logs } = await withCapturedLogs(() => warmup.refreshChannelNotes('g1', 'c1'));
   assert.deepEqual([result.ok, result.reason], [false, 'conflict']);
@@ -3768,7 +3773,7 @@ test('refreshChannelNotes: too few messages in the window is too-few and stamps 
   ];
   const channel = fakeChannel('c1', history, { name: 'general' });
   const llm = abortAwareLlm();
-  const warmup = createWarmup({ hot: notesHot(), store, client: fakeClient(fakeGuild('g1', [channel])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
+  const warmup = createWarmup({ discord: DISCORD, hot: notesHot(), store, client: fakeClient(fakeGuild('g1', [channel])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
 
   const held = holdFetch(channel);
   const pendingFew = withCapturedLogs(() => warmup.refreshChannelNotes('g1', 'c1'));
@@ -3809,7 +3814,7 @@ test('refreshServerNotes: <existing_notes> carries patterns/starters/injokes, lo
   const llm = scriptedLlm([
     { patterns: 'new patterns', starters: 'old starters', injokes: ['old joke'], lore: [{ title: 'The Outage', keys: ['outage'], text: 'the server went down once' }] },
   ]);
-  const warmup = createWarmup({ hot, store, client: fakeClient(fakeGuild('g1', [main, side])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client: fakeClient(fakeGuild('g1', [main, side])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
 
   const { result, logs } = await withCapturedLogs(() => warmup.refreshServerNotes('g1'));
   assert.equal(result.ok, true);
@@ -3954,7 +3959,7 @@ test('refreshChannelNotes: an overflowing topics is re-asked once; a second over
     { purpose: 'alpha two', topics: `${long}θ`, tone: 'gamma two' },
     { purpose: 'alpha three', topics: long, tone: 'gamma' },
   ]);
-  const warmup = createWarmup({ hot, store, client: fakeClient(fakeGuild('g1', [channel])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client: fakeClient(fakeGuild('g1', [channel])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
 
   const { result: first } = await withCapturedLogs(() => warmup.refreshChannelNotes('g1', 'c1'));
   assert.deepEqual([first.ok, first.changed], [true, true]);
@@ -3999,7 +4004,7 @@ test('refreshServerNotes: same for patterns at fieldChars*2', async () => {
     { patterns: long, starters: 'other starters', injokes: ['new joke'] },
     { patterns: long, starters: 'other starters', injokes: ['new joke'] },
   ]);
-  const warmup = createWarmup({ hot, store, client: fakeClient(fakeGuild('g1', [main])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client: fakeClient(fakeGuild('g1', [main])), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => T0 });
 
   const { result: first } = await withCapturedLogs(() => warmup.refreshServerNotes('g1'));
   assert.deepEqual([first.ok, first.changed], [true, true]);
@@ -4038,7 +4043,7 @@ test('createWarmup: run() first pass still clamps and stores (by warmup)', async
     { patterns: words(250), starters: 'a link', injokes: [], lore: [] },
     { purpose: 'a calmer purpose', topics: 'everything', tone: 'casual' },
   ]);
-  const warmup = createWarmup({ hot, store, client: fakeClient(guild), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client: fakeClient(guild), llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', now: () => 10_000_000 });
 
   assert.equal((await warmup.run('g1')).ok, true);
   assert.equal(llm.calls.length, 3, 'no retry on a first pass');

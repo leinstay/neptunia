@@ -24,7 +24,6 @@
 // runner.
 
 import { localHour } from '../format.js';
-import { readableChannels, canSend, lastActivity, isWritableChannel } from '../interface/discord.js';
 import { routeFor } from './turn.js';
 import { chooseElsewhereMode, elsewhereSettings, hasUnseen, mayBeLive } from './elsewhere.js';
 import { between } from './random.js';
@@ -221,12 +220,14 @@ export function roomQuestionChance(config) {
  * @param {object} channel
  * @param {number} now
  * @param {{ maxChannelSilenceHours?: number }} cfg  config.spontaneous
+ * @param {{ lastActivity: (channel: object) => number }} discord  The Discord interface's
+ *   capabilities object (its `lastActivity`), passed by the caller.
  * @returns {boolean}
  */
-export function isChannelDead(channel, now, cfg) {
+export function isChannelDead(channel, now, cfg, discord) {
   const maxHours = cfg.maxChannelSilenceHours;
   if (!(typeof maxHours === 'number' && maxHours > 0)) return false;
-  return now - lastActivity(channel) > maxHours * HOUR_MS;
+  return now - discord.lastActivity(channel) > maxHours * HOUR_MS;
 }
 
 /**
@@ -285,6 +286,8 @@ function hasElsewherePrompt(prompts) {
  * @param {import('../hot.js').createHot extends (...args: any) => infer R ? R : never} params.hot
  * @param {ReturnType<import('../memory/store.js').createStore>} params.store
  * @param {import('discord.js').Client} params.client
+ * @param {object} params.discord  The Discord interface's capabilities object (src/index.js
+ *   injects it): the readable channels, the send and write checks, the last activity, the route.
  * @param {ReturnType<import('./turn.js').createTurnRunner>} params.turns
  * @param {() => string | null} params.getGuildId  the single guild this instance serves, or null before it resolves
  * @param {() => boolean} [params.isWarmingUp]  true while the memory warmup runner
@@ -297,12 +300,14 @@ export function createSpontaneous({
   hot,
   store,
   client,
+  discord,
   turns,
   getGuildId,
   isWarmingUp = () => false,
   rng = Math.random,
   now = Date.now,
 }) {
+  const { readableChannels, canSend, lastActivity, isWritableChannel } = discord;
   const running = new Set(); // guildIds with a spontaneous turn in flight
   const eavesdropTimers = new Set();
 
@@ -352,7 +357,7 @@ export function createSpontaneous({
    */
   function noticedRoute(source, config, cfg, t) {
     if (canSend(source)) return { destination: null, reason: 'channel' };
-    const route = routeFor(source, config);
+    const route = routeFor(source, config, discord);
     if (!route.destination) return route;
     if (!hasElsewherePrompt(hot.prompts)) return { destination: null, reason: 'no-prompt' };
     const blocked = destinationBlock(route.destination, config, cfg, t);
@@ -383,7 +388,7 @@ export function createSpontaneous({
   function channelCandidates(guild, config, cfg, t) {
     const candidates = [];
     for (const channel of readableChannels(guild, config.bot)) {
-      if (isChannelDead(channel, t, cfg)) continue;
+      if (isChannelDead(channel, t, cfg, discord)) continue;
       if (canSend(channel)) {
         if (passesFilters(channel, config, cfg, t)) candidates.push({ channel, lastActivity: lastActivity(channel), destination: channel });
         continue;

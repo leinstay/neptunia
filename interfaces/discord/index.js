@@ -38,7 +38,9 @@ import {
   lastActivity,
   normalizeMessage,
   normalizeOptions,
+  normalizedOf,
   readableChannels,
+  toEvent,
   withTextPreviews,
 } from './collect.js';
 import { audienceAllows, captionPulled, checkPull, createPullViews, fetchPull } from './pull-fetch.js';
@@ -48,8 +50,9 @@ import { reactorIdsOf } from './reactors.js';
 /**
  * The Discord interface over one discord.js client: the outbound adapter of the interface port
  * and the capabilities the core asks the adapter for, by name. The functions are this package's
- * own, unchanged (they still take discord.js objects); the core's behaviors receive them through
- * this object instead of importing them (stage 4b-2).
+ * own, unchanged (they still take discord.js objects); the core's behaviors, memory jobs and
+ * operations receive them through this object, which the composition root (src/index.js) builds
+ * once and injects, instead of importing them (stage 4b-2).
  * @param {{ client: object, lookupChannel?: ((id: string) => object|null)|null, operations?: Iterable<string>|null,
  *   limits?: object }} options
  *   `client` the logged-in discord.js client; the other options go to createDiscordAdapter as
@@ -91,6 +94,9 @@ export function createDiscordInterface({ client, ...adapterOptions } = {}) {
     fetchAfter,
     // Who reacted (reactors.js).
     reactorIdsOf,
+    // A message as the protocol event the message pipeline takes, and back (collect.js).
+    normalizedOf,
+    toEvent,
   });
   return { port, capabilities, client };
 }

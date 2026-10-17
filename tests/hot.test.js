@@ -9,6 +9,10 @@ import { EventEmitter } from 'node:events';
 import { createHot } from '../src/hot.js';
 import { createOpsEnv } from '../src/ops/env.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 function makeRoot({ config = { bot: { timezone: 'UTC' } }, prompts = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-hot-'));
@@ -603,7 +607,7 @@ test('createHot: a privateDir apart from rootDir supplies config.local.json and 
     assert.equal(hot.localPromptsDir, path.join(privateDir, 'prompts.local'));
 
     // The operations' config writer goes to the private directory and reloads.
-    const env = createOpsEnv({ hot });
+    const env = createOpsEnv({ discord: DISCORD, hot });
     assert.equal(env.writeLocalPath('c', 3), true);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(privateDir, 'config.local.json'), 'utf8')), { b: 2, c: 3 });
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'config.local.json'), 'utf8')), { a: 9 });

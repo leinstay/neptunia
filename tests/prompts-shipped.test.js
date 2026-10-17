@@ -29,7 +29,7 @@ import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
-import { canSend, fetchHistory, fetchMessage, normalizeMessage, normalizedOf, normalizeOptions, toEvent, withTextPreviews } from '../src/interface/discord.js';
+import { canSend, createDiscordAdapter, createDiscordInterface, normalizeMessage, normalizeOptions, toEvent, withTextPreviews } from '../src/interface/discord.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { buildMemoryRequest, characterText } from '../src/memory/update.js';
 import { buildVoiceRequest } from '../src/memory/voice.js';
@@ -43,6 +43,9 @@ import { loadSkills } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
 import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 // ---- the shipped layer --------------------------------------------------------
 
@@ -966,7 +969,7 @@ test('createWarmup: the channel, person and server requests fill channel.md, pro
   const store = tempStore('warmup');
   const llm = recordingLlm(() => '{}');
   const hot = shippedHot({ memory: { mainChannelIds: [GENERAL] } });
-  const warmup = createWarmup({ hot, store, client: discordClient(guild), llm, calibrator: createCalibrator(), getSelfName: () => SELF_NAME, now: () => NOW, sleep: async () => {} });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client: discordClient(guild), llm, calibrator: createCalibrator(), getSelfName: () => SELF_NAME, now: () => NOW, sleep: async () => {} });
 
   await withCapturedLogs(async () => {
     await warmup.runChannel(GUILD, GENERAL);
@@ -990,7 +993,7 @@ test('createWarmup: a portrait refresh fills profile.md, and portrait.md in two-
   const llm = recordingLlm(() => '{}');
   const hot = shippedHot();
   const client = { user: { id: SELF_ID, username: SELF_NAME }, guilds: { cache: new Map() } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => SELF_NAME, now: () => NOW, sleep: async () => {} });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => SELF_NAME, now: () => NOW, sleep: async () => {} });
   const hint = `<@${ANA}> said she moved to the coast`;
 
   await withCapturedLogs(() => warmup.refreshPortrait(GUILD, ANA, hint, { force: true, windows }));
@@ -1064,8 +1067,8 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
   const pageFetcher = { fetchText: async () => ({ ok: true, title: 'Tomates en pot', text: 'Tomatoes grow well in pots. Water them often. Bring them in before the frost.' }) };
   const braveSearch = { search: async () => ({ ok: true, results: [{ title: 'Garden notes', url: 'https://www.example.com/frost', snippet: 'frost kills tomatoes', age: '2 days' }] }) };
   const lookup = createLookup({ hot, store, llm, state, pageFetcher, braveSearch, braveApiKey: 'test-key', now: () => NOW });
-  const recall = createRecall({ hot, store, llm, describer, now: () => NOW });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: createCalibrator(), client, describer, lookup, recall, imageFetcher, fetchImpl: previewFetch, now: () => NOW, rng: () => 0.5 });
+  const recall = createRecall({ discord: DISCORD, hot, store, llm, describer, now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: createCalibrator(), client, describer, lookup, recall, imageFetcher, fetchImpl: previewFetch, now: () => NOW, rng: () => 0.5 });
 
   const history = await generalHistory();
   const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: history.at(-1), triggerKind: 'mention' }));
@@ -1106,7 +1109,7 @@ test('createChannelRouter: the route classifier fills route-channel.md', async (
   ]);
   const store = { listChannels: () => CHANNELS, getUser: (guildId, id) => PROFILES[id] ?? null };
   const llm = recordingLlm(() => 'none');
-  const router = createChannelRouter({ hot, store, llm, now: () => NOW });
+  const router = createChannelRouter({ discord: DISCORD, hot, store, llm, now: () => NOW });
   const history = await generalHistory();
   const channel = guild.channels.cache.get(GENERAL);
   const { result } = await withCapturedLogs(() =>
@@ -1207,7 +1210,7 @@ test('createMessageHandler: the room classifier fills room.md', async () => {
     hot,
     store,
     client,
-    discord: { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent },
+    discord: DISCORD,
     turns,
     spontaneous,
     memory: { observe() {} },
@@ -1251,7 +1254,7 @@ test('createTurnRunner: the splitter fills split.md; each part, its queued calls
   const guild = discordGuild([[GENERAL_INFO, [...generalRaws(), line]]]);
   const channel = guild.channels.cache.get(GENERAL);
   const llm = recordingLlm((messages, options) => (options.purpose === 'split' ? '- qui a planté les tomates\n- regarde le canal du jardin' : '<skip/>'));
-  const turns = createTurnRunner({ hot, store: bareStore(), llm, calibrator: createCalibrator(), client: discordClient(guild), now: () => NOW, rng: () => 0.5 });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: bareStore(), llm, calibrator: createCalibrator(), client: discordClient(guild), now: () => NOW, rng: () => 0.5 });
   const history = normalize([...generalRaws(), line]);
   const trigger = history.at(-1);
   const queued = () => [{ id: 'q1', text: 'et la photo ?' }];
@@ -1269,7 +1272,7 @@ test('createTurnRunner: the splitter fills split.md; each part, its queued calls
 
   // A turn with no part: its author's queued calls under labels.task.queued, a folded message under labels.task.added.
   const plainLlm = recordingLlm(() => '<skip/>');
-  const plain = createTurnRunner({ hot, store: bareStore(), llm: plainLlm, calibrator: createCalibrator(), client: discordClient(guild), now: () => NOW, rng: () => 0.5 });
+  const plain = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: bareStore(), llm: plainLlm, calibrator: createCalibrator(), client: discordClient(guild), now: () => NOW, rng: () => 0.5 });
   const short = history.at(-2);
   await withCapturedLogs(() => plain.runTurn({ channel, mode: 'reply', trigger: short, triggerKind: 'mention', queued, added: [{ id: 'f1', text: 'alors ?', ts: NOW }] }));
   const reply = plainLlm.calls.find((call) => call.options.purpose === 'reply');
@@ -1295,7 +1298,7 @@ test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
   const mediaCache = { 'gif-item-1': { text: 'un chat qui danse' }, 'gif-item-2': { text: 'un haussement d\'épaules' } };
   const llm = recordingLlm((messages, options) => (options.purpose === 'gif-pick' ? 'none' : '<msg>oui, bien sûr</msg>'));
   const store = { ...bareStore(), getMediaCache: () => mediaCache, getGifs: () => gifs, findGif: () => null };
-  const turns = createTurnRunner({ hot, store, llm, calibrator: createCalibrator(), client: discordClient(guild), now: () => NOW, rng: () => 0.5 });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: createCalibrator(), client: discordClient(guild), now: () => NOW, rng: () => 0.5 });
   const history = normalize([...generalRaws(), line]);
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: history.at(-1), triggerKind: 'mention' }));
 
@@ -1324,6 +1327,7 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
     now: () => candidate.ts + MINUTE_MS,
     timers: { set: () => null, clear() {} },
     fetchHistory: async () => history,
+    canSend,
   });
   try {
     await withCapturedLogs(async () => {
@@ -1369,7 +1373,7 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     hot,
     store: { state: { data: {}, markDirty() {} }, getUser: () => null },
     client,
-    discord: { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent },
+    discord: DISCORD,
     turns,
     spontaneous: { onMessage: () => false },
     memory: { observe() {} },

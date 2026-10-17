@@ -18,6 +18,10 @@ import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 8, 1);
@@ -548,7 +552,7 @@ async function runGifTurn({ output, features = {}, config = {}, clientChannels =
         },
       },
     };
-    const turns = createTurnRunner({ hot: fakeHot(features, config), store, llm: fakeLlm(output), calibrator: calibrator(), client, now: () => NOW });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(features, config), store, llm: fakeLlm(output), calibrator: calibrator(), client, now: () => NOW });
     const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind }));
     return { result, logs, channel, state: store.state.data, gifs: store.getGifs('g1') };
   });
@@ -683,7 +687,7 @@ test('turn request: the library reaches the prompt as <gifs> with cached caption
         },
       };
       const client = { user: { id: 'self-id', username: 'Bot' }, channels: { fetch: async () => { throw new Error('Unknown Channel'); } } };
-      const turns = createTurnRunner({ hot: fakeHot(features), store, llm, calibrator: calibrator(), client, now: () => NOW });
+      const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(features), store, llm, calibrator: calibrator(), client, now: () => NOW });
       await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind: 'mention' }));
       return userText(seen[0][1].content);
     });

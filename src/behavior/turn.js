@@ -13,24 +13,6 @@
 // plain, with a jump link to it.
 
 import { randomUUID } from 'node:crypto';
-import {
-  audienceOf,
-  canAttach,
-  canReact,
-  canSend,
-  channelDirectoryOf,
-  fetchHistory,
-  fetchReplyParents,
-  fetchNeighbors,
-  isWritableChannel,
-  withTextPreviews,
-  audienceAllows,
-  captionPulled,
-  checkPull,
-  createPullViews,
-  fetchPull,
-  createDiscordAdapter,
-} from '../interface/discord.js';
 import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, continuesTurn, fillPromptTemplate, gifFieldChars, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
 import {
   DIARY_DAILY,
@@ -652,10 +634,10 @@ function replyTarget(replyTo, { plain, idByIndex, pulledIds }) {
  * guild, while the bot may react there now (canReact). Otherwise `target` is
  * null and `reason` is the code the drop is logged with: `not-found` (the
  * channel is gone) or `cannot-react`. `source` is the pulled channel's id,
- * null for a chat line.
+ * null for a chat line. `canReact` comes from the turn's `discord` capabilities.
  * @returns {{ target: object|null, source: string|null, reason: 'not-found'|'cannot-react'|null }}
  */
-function reactionChannel(channel, targetId, pulledIds) {
+function reactionChannel(channel, targetId, pulledIds, { canReact }) {
   const source = pulledIds.get(targetId) ?? null;
   if (!source) return { target: channel, source: null, reason: null };
   const target = channel.guild?.channels?.cache?.get?.(source) ?? null;
@@ -773,14 +755,15 @@ function readableLinkCandidates(history, sites) {
  * `context.fetchReplyParents` false (a missing key counts as on); `history` as it is then.
  * @param {object} channel
  * @param {object[]} history
- * @param {{ trigger: object|null, selfId: string, config: object }} options
+ * @param {{ trigger: object|null, selfId: string, config: object, discord: object }} options
+ *   `discord` the turn's capabilities object (its `fetchReplyParents`).
  * @returns {Promise<object[]>}
  */
-async function withReplyParents(channel, history, { trigger, selfId, config }) {
+async function withReplyParents(channel, history, { trigger, selfId, config, discord }) {
   const context = config.context ?? {};
   if (context.fetchReplyParents === false) return history;
   const own = trigger && (!trigger.channelId || trigger.channelId === channel.id) ? trigger : null;
-  const parents = await fetchReplyParents(channel, history, {
+  const parents = await discord.fetchReplyParents(channel, history, {
     trigger: own,
     recent: context.replyParentsFor ?? 3,
     max: context.replyParentsMax ?? 4,
@@ -936,15 +919,16 @@ function triggerBringsMedia(trigger, captionItems, videoItems) {
  * this channel, and whatever routes a call there asks the same function.
  * @param {object|null} guild  The discord.js guild; none (a private chat) has no destination.
  * @param {object} config      The live config.
- * @param {{ exceptId?: string|null }} [options]
+ * @param {{ exceptId?: string|null, discord: object }} options  `discord` the Discord interface's
+ *   capabilities object (its `isWritableChannel`), passed by the caller.
  * @returns {{ channel: object, reason: null } | { channel: null, reason: 'off'|'no-destination' }}
  *   `reason` is resolveDestination's code: `off` with features.elsewhere false, else `no-destination`.
  */
-export function usableDestination(guild, config, { exceptId = null } = {}) {
+export function usableDestination(guild, config, { exceptId = null, discord } = {}) {
   const channelOf = (id) => guild?.channels?.cache?.get?.(id) ?? null;
   const usable = (id) => {
     const target = channelOf(id);
-    return Boolean(target) && id !== exceptId && typeof target.isTextBased === 'function' && isWritableChannel(target, config?.bot ?? {});
+    return Boolean(target) && id !== exceptId && typeof target.isTextBased === 'function' && discord.isWritableChannel(target, config?.bot ?? {});
   };
   const { destinationId, reason } = resolveDestination(config, usable);
   return destinationId ? { channel: channelOf(destinationId), reason: null } : { channel: null, reason };
@@ -962,12 +946,14 @@ export function usableDestination(guild, config, { exceptId = null } = {}) {
  * routed call and of a noticed comment.
  * @param {object} source  A discord.js guild channel.
  * @param {object} config  The live config.
+ * @param {object} discord  The Discord interface's capabilities object (`isWritableChannel`,
+ *   `audienceAllows`), passed by the caller.
  * @returns {{ destination: object, reason: null } | { destination: null, reason: 'off'|'no-destination'|'audience' }}
  */
-export function routeFor(source, config) {
-  const { channel: destination, reason } = usableDestination(source.guild, config, { exceptId: source.id });
+export function routeFor(source, config, discord) {
+  const { channel: destination, reason } = usableDestination(source.guild, config, { exceptId: source.id, discord });
   if (!destination) return { destination: null, reason };
-  if (!audienceAllows(destination, source, config)) return { destination: null, reason: 'audience' };
+  if (!discord.audienceAllows(destination, source, config)) return { destination: null, reason: 'audience' };
   return { destination, reason: null };
 }
 
@@ -1546,7 +1532,8 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * -- features.skills false, she goes silent; each refusal logs `skill: refused` (`skill`, `code`,
  * `reason`) and nothing is done; no picture or diary set is generated for a post the check
  * already refuses, and no typing indicator shows), then made through the interface port `port`
- * (src/interface/port.js; default: the Discord adapter over `client`, holding the channels the
+ * (src/interface/port.js; without one, the adapter `createPort({ client, lookupChannel })` builds
+ * -- the Discord adapter's factory, as the tests and the tools pass it --, holding the channels the
  * turn hands it). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
  * answered `ok`; `unknown` is journaled as unknown and never sent again. A dry run calls neither
  * the gateway nor the port.
@@ -1574,6 +1561,11 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  *
  * Reactors: `reactors` (interfaces/discord/reactors.js#createReactorStore, null: none) is the store of
  * who reacted to her messages; the turn's history fetch names them on her lines (historyOptions).
+ *
+ * Discord: `discord` is the Discord interface's capabilities object
+ * (interfaces/discord/index.js#createDiscordInterface, injected by src/index.js): the permission
+ * checks, the history, reply-parent and neighbour fetches, the pulled channels and the audience
+ * rules a turn asks Discord for. Nothing here imports the interface.
  */
 export function createTurnRunner({
   hot,
@@ -1598,6 +1590,8 @@ export function createTurnRunner({
   journal = null,
   record = null,
   port = null,
+  createPort = null,
+  discord,
   skills = null,
   runCommand = null,
   runOwnCommand = null,
@@ -1605,11 +1599,12 @@ export function createTurnRunner({
   reactors = null,
   errands = null,
 }) {
+  const { audienceAllows, audienceOf, canAttach, canSend, captionPulled, channelDirectoryOf, checkPull, createPullViews, fetchHistory, fetchNeighbors, fetchPull, withTextPreviews } = discord;
   const busy = new Set();
   // The channels the default adapter may resolve by id without the client (the turn's own and a
   // pulled line's), in process, the oldest dropped past HELD_CHANNELS_MAX.
   const heldChannels = new Map();
-  const iface = port ?? createDiscordAdapter({ client, lookupChannel: (id) => heldChannels.get(id) ?? null });
+  const iface = port ?? createPort({ client, lookupChannel: (id) => heldChannels.get(id) ?? null });
 
   /** The port reference of `channel` (the default adapter now holds that object). */
   function conversationOf(channel) {
@@ -2396,7 +2391,7 @@ export function createTurnRunner({
     for (const reaction of parsed.reactions) {
       const targetId = idByIndex.get(reaction.to);
       if (!targetId) continue;
-      const route = reactionChannel(channel, targetId, pulledIds);
+      const route = reactionChannel(channel, targetId, pulledIds, discord);
       if (!route.target) {
         log.info('turn: reaction dropped', { channel: channel.id, source: route.source, reason: route.reason });
         continue;
@@ -2953,7 +2948,7 @@ export function createTurnRunner({
     for (const reaction of parsed.reactions) {
       const targetId = idByIndex.get(reaction.to);
       if (!targetId) continue;
-      const route = reactionChannel(channel, targetId, pulledIds);
+      const route = reactionChannel(channel, targetId, pulledIds, discord);
       if (!route.target) {
         log.info('turn: reaction dropped', { channel: channel.id, source: route.source, reason: route.reason });
         continue;
@@ -4969,7 +4964,7 @@ export function createTurnRunner({
         linkTriggers(
           reuseHistory ??
             (await beforeBar(
-              fetchHistory(channel, historyOptions(config)).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config })),
+              fetchHistory(channel, historyOptions(config)).then((lines) => withReplyParents(channel, lines, { trigger, selfId, config, discord })),
             )),
         ),
         { channel, guildId },
@@ -5058,7 +5053,7 @@ export function createTurnRunner({
             const judged = routeCandidate(lines, candidate);
             if (settings && allowed && judged) {
               try {
-                planner.offerChannels(routeChannelOffer({ store, guildId, channel, guild: servedGuild, partner, candidate: judged, config, settings, now: clock() }));
+                planner.offerChannels(routeChannelOffer({ store, guildId, channel, guild: servedGuild, partner, candidate: judged, config, settings, now: clock(), discord }));
               } catch (err) {
                 log.warn('pull: route failed', { channel: channel.id, error: err });
               }
@@ -5621,7 +5616,7 @@ export function createTurnRunner({
       // neighbours by buildRequest itself.
       const readOnlyIds = new Set(neighbors.filter((neighbor) => neighbor.readOnly === true).map((neighbor) => neighbor.channelId));
       // Where a call from a read-only channel is answered, for `<senses>`.
-      const destination = isPrivate ? null : usableDestination(channel.guild, config).channel;
+      const destination = isPrivate ? null : usableDestination(channel.guild, config, { discord }).channel;
       // `<recent>`: the guild's live recent lines (none: an empty list) and the channels this turn may show them from.
       const recent = memoryOn ? recentInput({ channel, guildId, isPrivate, config, now }) : NO_RECENT;
       // The prompts this request is built from, read once: the task labels below decide what it names.

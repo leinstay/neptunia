@@ -20,6 +20,10 @@ import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -285,7 +289,7 @@ function routerScene({ answer = '1', features = {}, prompt = 'You are {{name}}.'
   };
   const llm = fakeLlm(answer);
   let t = NOW;
-  const router = createChannelRouter({ hot, store: fakeStore(channels), llm, now: () => (t += 7) });
+  const router = createChannelRouter({ discord: DISCORD, hot, store: fakeStore(channels), llm, now: () => (t += 7) });
   const history = [line('m1', { content: 'τι έγραψε η Ελο;' }), line('m2', { authorName: 'Nikos', content: 'στο ημερολόγιο' })];
   const args = { guildId: GUILD, channel, guild, history, trigger: history[1], triggerKind: 'mention', selfName: 'Zoë', config: hot.config };
   return { router, llm, hot, args };
@@ -452,6 +456,7 @@ test('createChannelRouter: a store that throws resolves no id instead of rejecti
   const { args } = routerScene();
   const { result, logs } = await withCapturedLogs(() =>
     createChannelRouter({
+      discord: DISCORD,
       hot: { config: config(), prompts: { 'route-channel': 'p', labels } },
       store: {
         listChannels: () => {

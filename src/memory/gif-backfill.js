@@ -31,11 +31,12 @@ const DEFAULT_BACKFILL_DESCRIBE = 20;
  *   `config.media.embedTextChars`, `config.features.gifs` read at use.
  * @param {object} deps.store      src/memory/store.js.
  * @param {object} deps.client     The discord.js Client (`user.id`, `guilds.cache`).
+ * @param {object} deps.discord    The Discord interface's capabilities object (src/index.js injects it): src/memory/emoji-backfill.js#readMemberHistory's reads.
  * @param {object} [deps.describer]  From createDescriber() (src/memory/describe.js): `describeMany`.
  *   Absent -> nothing is described.
  * @param {object} [deps.log]      src/log.js-shaped logger.
  */
-export function createGifBackfill({ hot, store, client, describer = null, log = defaultLog }) {
+export function createGifBackfill({ hot, store, client, discord, describer = null, log = defaultLog }) {
   let running = false;
 
   function skipped(reason) {
@@ -104,7 +105,7 @@ export function createGifBackfill({ hot, store, client, describer = null, log = 
       const guild = client.guilds.cache.get(guildId);
       if (!guild) return skipped('no-guild');
 
-      const { channels, messages: collected } = await readMemberHistory(guild, limit, { config: hot.config, selfId: client.user?.id, log, prefix: 'gif-backfill' });
+      const { channels, messages: collected } = await readMemberHistory(guild, limit, { config: hot.config, discord, selfId: client.user?.id, log, prefix: 'gif-backfill' });
 
       // From here on nothing awaits until the stamp: no GIF can be recorded in between.
       if (store.state?.data?.paused) return skipped('paused');

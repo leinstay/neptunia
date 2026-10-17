@@ -33,6 +33,10 @@ import '../src/ops/index.js';
 import { loadSkills, skillRegistry } from '../src/skills/registry.js';
 import { createAdmin } from '../src/admin.js';
 import { createDiary } from '../src/behavior/diary.js';
+import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 function rngReturning(value) {
   return () => value;
@@ -426,7 +430,7 @@ test('runTurn: refuses with outcome "paused" while store.state.data.paused is tr
   const store = fakeStore();
   store.state.data.paused = true;
   const hot = fakeHot();
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -444,7 +448,7 @@ test('runTurn: forced=true appends prompts.forced to the task text sent to the L
   const store = fakeStore();
   const hot = fakeHot();
   hot.prompts.forced = 'FORCED_TASK_TEXT';
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   await turns.runTurn({ channel, mode: 'interject', forced: true });
 
@@ -460,7 +464,7 @@ test('runTurn: forced defaults to false -- prompts.forced is never appended for 
   const store = fakeStore();
   const hot = fakeHot();
   hot.prompts.forced = 'FORCED_TASK_TEXT';
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   await turns.runTurn({ channel, mode: 'interject' });
 
@@ -472,7 +476,7 @@ test('runTurn: forced defaults to false -- prompts.forced is never appended for 
 test('waitIdle: resolves immediately when no turn is in flight', async () => {
   const store = fakeStore();
   const hot = fakeHot();
-  const turns = createTurnRunner({ hot, store, llm: fakeLlm('<msg>hi</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm: fakeLlm('<msg>hi</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
 
   let resolved = false;
   turns.waitIdle().then(() => { resolved = true; });
@@ -488,7 +492,7 @@ test('waitIdle: resolves only once every in-flight turn has finished', async () 
   const hot = fakeHot();
   let releaseLlm;
   const llm = { complete: () => new Promise((resolve) => { releaseLlm = () => resolve({ text: '<msg>hi</msg>', usage: {}, estimated: 1 }); }) };
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const turnPromise = turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
   // Let runTurn's own awaits (fetchHistory, withTextPreviews, fetchNeighbors,
@@ -511,7 +515,7 @@ test('createTurnRunner: features.reactions=false drops reactions; nothing else t
   const llm = fakeLlm('<react to="#1">💀</react>');
   const store = fakeStore();
   const hot = fakeHot({ reactions: false });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -526,7 +530,7 @@ test('createTurnRunner: features.multiMessage=false keeps only the first <msg>',
   const llm = fakeLlm('<msg>First</msg><msg>Second</msg>');
   const store = fakeStore();
   const hot = fakeHot({ multiMessage: false });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -541,7 +545,7 @@ test('createTurnRunner: features.typingSimulation=false skips sendTyping and eve
   const llm = fakeLlm('<msg>Hello there</msg>');
   const store = fakeStore();
   const hot = fakeHot({ typingSimulation: false });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const started = Date.now();
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
@@ -562,7 +566,7 @@ test('createTurnRunner: features.memory=true renders <people> and <about_chat>',
     userProfiles: { u1: { id: 'u1', names: ['Alice'], character: 'friendly' } },
   });
   const hot = fakeHot({});
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -580,7 +584,7 @@ test('createTurnRunner: features.memory=false sends no <people> or <about_chat> 
     userProfiles: { u1: { id: 'u1', names: ['Alice'], character: 'friendly' } },
   });
   const hot = fakeHot({ memory: false });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -599,7 +603,7 @@ test('createTurnRunner: features.memory=true renders the <server> channel map', 
     channels: [{ id: 'c1', name: 'general', category: null, topic: null, purpose: '', topics: '', tone: '', days: {}, lastMessageAt: null }],
   });
   const hot = fakeHot({});
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -616,7 +620,7 @@ test('createTurnRunner: features.memory=false sends no <server> block, even with
     channels: [{ id: 'c1', name: 'general', category: null, topic: null, purpose: '', topics: '', tone: '', days: {}, lastMessageAt: null }],
   });
   const hot = fakeHot({ memory: false });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -631,7 +635,7 @@ test('createTurnRunner: features.memory=true renders <lore> from the guild loreb
   const loreEntries = [{ id: 'l1', title: 'The Great Flood', keys: ['never-mentioned'], text: 'It flooded once.', always: true, source: 'analyzer', weight: 3 }];
   const store = fakeStore({ loreEntries });
   const hot = fakeHot({});
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -647,7 +651,7 @@ test('createTurnRunner: features.memory=false sends no <lore> block, even with l
   const loreEntries = [{ id: 'l1', title: 'The Great Flood', keys: ['never-mentioned'], text: 'It flooded once.', always: true, source: 'analyzer', weight: 3 }];
   const store = fakeStore({ loreEntries });
   const hot = fakeHot({ memory: false });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -712,7 +716,7 @@ test('createTurnRunner: features.videoDescriptions on -- videos newest first, ca
   const llm = fakeLlm('<msg>ok</msg>');
   const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true, vision: false }, {}, VIDEO_TURN_CONFIG);
   const describer = fakeVideoDescriber({ va: { state: 'watched', text: 'κάποιος χορεύει' } });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(newer), triggerKind: 'mention' });
 
@@ -743,7 +747,7 @@ test('createTurnRunner: videoDescriptions off, or mediaDescriptions off, never c
     const channel = fakeTurnChannel({ historyMessages: [raw] });
     const hot = fakeHot(features, {}, VIDEO_TURN_CONFIG);
     const describer = fakeVideoDescriber({ va: { state: 'watched', text: 'x' } });
-    const turns = createTurnRunner({ hot, store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient(), describer });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient(), describer });
 
     await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -761,7 +765,7 @@ test('createTurnRunner: features.mediaDescriptions off never calls the describer
   const store = fakeStore();
   const hot = fakeHot({ mediaDescriptions: false });
   const describer = fakeDescriber({ img1: 'a cat' });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -778,7 +782,7 @@ test('createTurnRunner: features.mediaDescriptions on describes an un-attached p
   const store = fakeStore();
   const hot = fakeHot({ mediaDescriptions: true });
   const describer = fakeDescriber({ img1: 'a grey cat' });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -818,6 +822,8 @@ function attachedPictureTurn({ features, media, newer = false }) {
     },
   };
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot,
     store: fakeStore(),
     llm,
@@ -888,7 +894,7 @@ test('createTurnRunner: features.mediaDescriptions on describes a picture-format
   const store = fakeStore();
   const hot = fakeHot({ mediaDescriptions: true });
   const describer = fakeDescriber({ 'sticker:s1': 'a frog gives a thumbs up' });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -907,7 +913,7 @@ test('createTurnRunner: features.mediaDescriptions on describes a custom emoji i
   const store = fakeStore();
   const hot = fakeHot({ mediaDescriptions: true });
   const describer = fakeDescriber({ 'emoji:111': 'a surprised cat face' });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -965,6 +971,8 @@ function neighborPictureTurn(features) {
   };
   const llm = fakeLlm('<msg>ok</msg>');
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot(features),
     store: fakeStore(),
     llm,
@@ -1030,7 +1038,7 @@ test('createTurnRunner: a text attachment is fetched lazily and rendered via fil
     fetchedUrl = url;
     return { ok: true, headers: { get: () => null }, text: async () => 'the file says hello' };
   };
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), fetchImpl });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), fetchImpl });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -1051,7 +1059,7 @@ test('createTurnRunner: a text-attachment fetch failure falls back to the plain 
   const fetchImpl = async () => {
     throw new Error('network down');
   };
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), fetchImpl });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), fetchImpl });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -1105,7 +1113,7 @@ test('createTurnRunner: a 4xx image error (download succeeded, the provider itse
   const store = fakeStore();
   const hot = fakeHot({});
   const imageFetcher = fakeImageFetcher();
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
 
   const trigger = videoTrigger(raw);
 
@@ -1136,6 +1144,8 @@ test('createTurnRunner: a 429 with pictures attached -- no text-only resend, the
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlmRejectingImagesOnce(429, '<msg>never posted</msg>');
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot({}),
     store: fakeStore(),
     llm,
@@ -1159,6 +1169,8 @@ test('createTurnRunner: a 4xx with no pictures in the request -- nothing to stri
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlmRejectingImagesOnce(400, '<msg>never posted</msg>');
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot({}),
     store: fakeStore(),
     llm,
@@ -1200,7 +1212,7 @@ test('createTurnRunner: a picture is downloaded and sent as a data: URL, never t
   const store = fakeStore();
   const hot = fakeHot({});
   const imageFetcher = fakeImageFetcher();
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' });
 
@@ -1220,7 +1232,7 @@ test('createTurnRunner: a failed download drops EVERY picture of the turn -- sen
   const store = fakeStore();
   const hot = fakeHot({});
   const imageFetcher = fakeImageFetcher(null); // every download fails
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' });
 
@@ -1248,7 +1260,7 @@ test('createTurnRunner: with two pictures, one failed download drops BOTH -- nev
   const imageFetcher = fakeImageFetcher((url) =>
     url.includes('one.png') ? { dataUrl: 'data:image/png;base64,b25l', bytes: 3, contentType: 'image/png' } : null,
   );
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
 
   const trigger = {
     ...normalizedTrigger(raw),
@@ -1289,7 +1301,7 @@ test('createTurnRunner: when every picture downloads fine, all are kept as data:
     bytes: 3,
     contentType: 'image/png',
   }));
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher });
 
   const trigger = {
     ...normalizedTrigger(raw),
@@ -1337,7 +1349,7 @@ async function runPingsTurn(store, answer, features = {}) {
   const bob = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Bob', ts: NOW - 5000, content: 'ola' });
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [bob, raw] });
-  const turns = createTurnRunner({ hot: fakeHot(features), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(features), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
   assert.equal(result.outcome, 'spoke');
   return channel;
@@ -1389,7 +1401,7 @@ test('runTurn: a member of the directory not in view is mentioned by the handle 
   const hot = fakeHot();
   hot.prompts.labels = { ...labels, directory: { lead: 'DIRECTORY', line: '{handle} {names}', lineAliases: '{handle} {names} aka {aliases}' } };
   const llm = fakeLlm(`<msg>@${handleOf('u5')} @Τάκης ναι</msg>`);
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
   assert.equal(result.outcome, 'spoke');
@@ -1411,7 +1423,7 @@ async function runDirectoryTurn(store, answer, members) {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
   channel.guild.members.cache = new Map(members.map((member) => [member.id, member]));
-  const turns = createTurnRunner({ hot: fakeHot({ mentionHandles: false }), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ mentionHandles: false }), store, llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient() });
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
   assert.equal(result.outcome, 'spoke');
   return channel;
@@ -1440,7 +1452,7 @@ test('createTurnRunner: features.dryRun=true sends and reacts nowhere, only logs
   const llm = fakeLlm('<msg reply="#1">Hello there</msg><react to="#1">\u{1F389}</react>');
   const store = fakeStore();
   const hot = fakeHot({ dryRun: true });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const before = turns.lastPostAt('c1');
   const { result, logs } = await withCapturedLogs(() =>
@@ -1484,7 +1496,7 @@ test('createTurnRunner: features.dryRun=true mirrors each action into bot.dryRun
       },
     },
   });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -1501,7 +1513,7 @@ test('createTurnRunner: features.dryRun=true logs a handle resolved, mirrors it 
   const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
   const mirrorSent = [];
   const client = fakeClient({ channels: { fetch: async () => ({ send: async (payload) => (mirrorSent.push(payload), { id: 'mirror-msg-1' }) }) } });
-  const turns = createTurnRunner({ hot: fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' }), store: fakeStore(), llm: fakeLlm(`<msg>hi @${handleOf('u1')}</msg>`), calibrator: identityCalibrator(), client });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' }), store: fakeStore(), llm: fakeLlm(`<msg>hi @${handleOf('u1')}</msg>`), calibrator: identityCalibrator(), client });
 
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
 
@@ -1520,7 +1532,7 @@ test('createTurnRunner: features.dryRun=true with no bot.dryRunChannelId configu
   const hot = fakeHot({ dryRun: true });
   let fetchCalled = false;
   const client = fakeClient({ channels: { fetch: async () => { fetchCalled = true; return null; } } });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -1541,7 +1553,7 @@ test('createTurnRunner: features.dryRun=true swallows a mirror channel failure a
       },
     },
   });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client });
 
   const { result } = await withCapturedLogs(() =>
     turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }),
@@ -1557,7 +1569,7 @@ test('createTurnRunner: features.dryRun=false sends for real even when bot.dryRu
   const llm = fakeLlm('<msg>hello</msg>');
   const store = fakeStore();
   const hot = fakeHot({ dryRun: false }, { dryRunChannelId: 'mirror1' });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -1700,7 +1712,7 @@ function rewatchScene(triggerContent = 'τι χρώμα είναι το αυτο
 
 async function runRewatch({ hot = rewatchHot(), llm = rewatchLlm('1 | τι χρώμα;'), describer, scene = rewatchScene(), turn } = {}) {
   const d = describer ?? fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: d });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: d });
   await turns.runTurn(turn ?? { channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind: 'mention' });
   return { describer: d, llm };
 }
@@ -2053,7 +2065,7 @@ async function runRelook({
   describer = fakeRelookDescriber({}, { pa: 'deux singes sur une branche' }),
   scene = relookScene(),
 } = {}) {
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, imageFetcher: fakeImageFetcher() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, imageFetcher: fakeImageFetcher() });
   await turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind: 'mention' });
   return { describer, llm };
 }
@@ -2207,7 +2219,7 @@ function gifRewatchScene(history = [gifEmbedRaw('m1', NOW - 5000)]) {
 
 async function runGifRewatch({ hot = rewatchHot(), llm = rewatchLlm('1 | qui est dans le miroir à la fin ?'), describer, scene = gifRewatchScene() } = {}) {
   const d = describer ?? fakeGifRewatchDescriber(hot, { watched: { 'm1#e0': 'une femme se regarde dans un miroir' } });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: d, imageFetcher: fakeImageFetcher() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: d, imageFetcher: fakeImageFetcher() });
   await turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind: 'mention' });
   return { describer: d, llm };
 }
@@ -2362,7 +2374,7 @@ async function runLookupTurn({ hot = lookupHot(), llm = lookupLlm(), lookup = fa
     rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' }),
   ];
   const channel = fakeTurnChannel({ historyMessages: messages });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, ...(now ? { now } : {}) });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, ...(now ? { now } : {}) });
   const last = messages[messages.length - 1];
   const turn = trigger
     ? { channel, mode: 'reply', trigger: normalizedTrigger(last), triggerKind: 'mention' }
@@ -2556,7 +2568,7 @@ async function runRecallTurn({ hot = lookupHot(), llm, lookup = fakeLookup(), re
     rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος σκότωσε το κουνέλι;' }),
   ];
   const channel = fakeTurnChannel({ historyMessages: messages, ...(dm ? { id: 'dm1', dm: true } : {}) });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client, lookup, recall, now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client, lookup, recall, now: () => NOW });
   const trigger = normalizedTrigger(messages[1]);
   const { result, logs } = await withCapturedLogs(() =>
     turns.runTurn({ channel, ...(dm ? { guildId: 'g1' } : {}), mode: 'reply', trigger, triggerKind: dm ? 'private' : 'mention' }),
@@ -2780,7 +2792,7 @@ async function runFallbackTurn({ classifier = new Error('hedged timeout'), conte
     },
   });
   const llm = lookupLlm(classifier);
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, lookup: fakeLookup(), recall, now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client, lookup: fakeLookup(), recall, now: () => NOW });
   const trigger = normalizedTrigger(messages[1]);
   const { result, logs } = await withCapturedLogs(() =>
     turns.runTurn({ channel, ...(dm ? { guildId: 'g1' } : {}), mode: 'reply', trigger, triggerKind: dm ? 'private' : triggerKind }),
@@ -2903,7 +2915,7 @@ async function runDrawTurn({ answers, hot = drawHot(), images = fakeImages(), cl
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', content: 'draw me a cat' });
   const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw], attachFiles });
   const llm = sequenceLlm(answers);
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client, images, imageFetcher });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client, images, imageFetcher });
   const params = withTrigger
     ? { channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind }
     : { channel, mode: 'interject' };
@@ -3083,6 +3095,8 @@ test('runTurn: the drawFailed turn reruns neither the re-watch nor the search cl
   };
   const scene = rewatchScene();
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot,
     store: fakeStore(),
     llm,
@@ -3110,7 +3124,7 @@ test('runTurn: an upload failure counts as a failed drawing', async () => {
     return send(payload);
   };
   const llm = sequenceLlm(['<draw>a cat</draw>', '<msg>no</msg>']);
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), images: fakeImages() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), images: fakeImages() });
   const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
 
   assert.equal(result.drawFailed, 'error');
@@ -3172,7 +3186,7 @@ test('runTurn: a <draw> alone with the feature off, or without an image client, 
 
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ hot: drawHot(), store: fakeStore(), llm: sequenceLlm(['<draw>a cat</draw>']), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: drawHot(), store: fakeStore(), llm: sequenceLlm(['<draw>a cat</draw>']), calibrator: identityCalibrator(), client: fakeClient() });
   const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   assert.equal(result.outcome, 'skip');
   assert.equal(channel.sent.length, 0);
@@ -3201,7 +3215,7 @@ test('runTurn: a <draw> alone is a spoken turn', async () => {
 test('runTurn: a follow-up turn posts the picture without a Discord reply', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ hot: drawHot(), store: fakeStore(), llm: sequenceLlm(['<draw reply="#1">a cat</draw>']), calibrator: identityCalibrator(), client: fakeClient(), images: fakeImages() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: drawHot(), store: fakeStore(), llm: sequenceLlm(['<draw reply="#1">a cat</draw>']), calibrator: identityCalibrator(), client: fakeClient(), images: fakeImages() });
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'followUp' }));
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].reply, undefined);
@@ -3218,6 +3232,8 @@ test('runTurn: a failed drawing fires onIdle once, only after the drawFailed tur
   };
   const llm = sequenceLlm(['<msg>on it</msg><draw>a cat</draw>', '<msg>it did not work</msg>']);
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: drawHot(),
     store: fakeStore(),
     llm,
@@ -3252,7 +3268,7 @@ test('runTurn: waitIdle() during a failed drawing resolves only after the drawFa
       throw new ImageGenError('moderation');
     },
   };
-  turns = createTurnRunner({ hot: drawHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), images });
+  turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: drawHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), images });
 
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -3272,6 +3288,8 @@ test('runTurn: a drawFailed turn that fails itself still fires onIdle once', asy
     },
   };
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: drawHot(),
     store: fakeStore(),
     llm,
@@ -3296,6 +3314,8 @@ test('runTurn: a failed drawing without a trigger fires onIdle once, right away'
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: drawHot(),
     store: fakeStore(),
     llm: sequenceLlm(['<draw>a sunset</draw>']),
@@ -3340,7 +3360,7 @@ async function runPrivateTurn({ answers = ['<msg reply="#1">hi</msg>'], hot = pr
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', content: 'hey' });
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
   const llm = sequenceLlm(answers);
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, images });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client, images });
   const { result, logs } = await withCapturedLogs(() =>
     turns.runTurn({ channel, guildId, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }),
   );
@@ -3381,7 +3401,7 @@ test('runTurn: the injected clock stamps lastPostAt and the turn\'s own time', a
   const raw = rawMessage({ id: 'm1', ts: NOW - 1000 });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>hi</msg>');
-  const turns = createTurnRunner({ hot: fakeHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
   const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   assert.equal(channel.sent.length, 1);
   assert.equal(turns.lastPostAt('c1'), NOW);
@@ -3395,7 +3415,7 @@ test('runTurn: a failing typing indicator does not stop the message', async () =
   channel.sendTyping = async () => {
     throw new Error('Missing Permissions');
   };
-  const turns = createTurnRunner({ hot: fakeHot(), store: fakeStore(), llm: fakeLlm('<msg>hi</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: fakeStore(), llm: fakeLlm('<msg>hi</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   assert.equal(channel.sent.length, 1);
 });
@@ -3428,7 +3448,7 @@ test('runTurn: a guild channel keeps its own guild id even when a guildId param 
   const store = fakeStore();
   const hot = fakeHot();
   hot.prompts.private = 'PRIVATE_TASK';
-  const turns = createTurnRunner({ hot, store, llm: fakeLlm('<skip/>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm: fakeLlm('<skip/>'), calibrator: identityCalibrator(), client: fakeClient() });
 
   await turns.runTurn({ channel, guildId: 'other', mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -3442,7 +3462,7 @@ test('runTurn: a guild turn never carries the private prompt or the private sens
   const llm = fakeLlm('<skip/>');
   const hot = fakeHot({ privateMessages: true });
   hot.prompts.private = 'PRIVATE_TASK';
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -3456,7 +3476,7 @@ test('runTurn: a channel without a guild and no guildId param throws a clear err
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
   const llm = fakeLlm('<msg>hi</msg>');
-  const turns = createTurnRunner({ hot: fakeHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   await assert.rejects(
     turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }),
@@ -3486,7 +3506,7 @@ test('runTurn: a daily request cap or a token cap refusal returns outcome refuse
   ]) {
     const raw = rawMessage({ id: 'm1' });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const turns = createTurnRunner({ hot: fakeHot(), store: fakeStore(), llm: throwingLlm(error), calibrator: identityCalibrator(), client: fakeClient() });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: fakeStore(), llm: throwingLlm(error), calibrator: identityCalibrator(), client: fakeClient() });
     const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
 
     assert.deepEqual(result, { outcome: 'refused', limit });
@@ -3552,6 +3572,8 @@ test('runTurn: an image cap on a follow-up turn posts the notice without quoting
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: drawHot(),
     store: fakeStore(),
     llm: sequenceLlm(['<draw reply="#1">a cat</draw>']),
@@ -3632,6 +3654,8 @@ test('createTurnRunner: the request carries <emoji> ranked by guild.emojiUsage, 
     mediaCache: { 'emoji:222222222222222222': { text: 'a spinning figure', ts: 1 } },
   });
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot(),
     store,
     llm,
@@ -3655,6 +3679,8 @@ test('createTurnRunner: an outgoing :name: becomes the custom emoji, next to a r
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm(`<msg>@${handleOf('u1')} :dance: ok :unknown:</msg><react to="#1">:pepe_cry:</react>`);
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot(),
     store: fakeStore(),
     llm,
@@ -3676,6 +3702,8 @@ test('createTurnRunner: an unknown custom emoji reaction is dropped, a unicode o
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<react to="#1">:nope:</react><react to="#1">🔥</react>');
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot(),
     store: fakeStore(),
     llm,
@@ -3694,6 +3722,8 @@ test('createTurnRunner: features.customEmoji=false leaves :name: as text and dro
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok :dance:</msg><react to="#1">:pepe_cry:</react>');
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot({ customEmoji: false }),
     store: fakeStore(),
     llm,
@@ -3713,6 +3743,8 @@ test('createTurnRunner: only a custom reaction the index does not know means out
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot(),
     store: fakeStore(),
     llm: fakeLlm('<react to="#1">:nope:</react>'),
@@ -3738,7 +3770,7 @@ test('createTurnRunner: the persona turn is requested as role voice, purpose rep
   // No drop bar (pace.dropAfterMs): with one, the request also carries the bar's timeout and signal.
   const hot = fakeHot();
   hot.config.pace = { dropAfterMs: 0 };
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
   await turns.runTurn({ channel, mode: 'interject' });
   assert.equal(llm.optionCalls.length, 1);
   assert.deepEqual(llm.optionCalls[0], { role: 'voice', purpose: 'reply' }, 'only the role and the purpose: roles.voice and every other setting stay the defaults');
@@ -3754,7 +3786,7 @@ test('createTurnRunner: the text-only retry after a 4xx image error is requested
   });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlmRejectingImagesOnce(400, '<msg>ok</msg>');
-  const turns = createTurnRunner({ hot: fakeHot({}), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher() });
   await turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' });
   assert.equal(llm.optionCalls.length, 2);
   assert.deepEqual(llm.optionCalls.map((o) => [o?.role, o?.purpose]), [['voice', 'reply'], ['voice', 'reply']]);
@@ -3780,7 +3812,7 @@ function gifStore() {
 async function dashTurn(reply, format) {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ hot: fakeHot({}, {}, { format }), store: fakeStore(), llm: fakeLlm(reply), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}, {}, { format }), store: fakeStore(), llm: fakeLlm(reply), calibrator: identityCalibrator(), client: fakeClient() });
   const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   return { sent: channel.sent.map((payload) => payload.content), logs };
 }
@@ -3816,7 +3848,7 @@ test('runTurn: an overheard or follow-up turn ignores reply="#n" and sends plain
   for (const c of cases) {
     const raw = rawMessage({ id: 'm1', authorName: 'Élodie' });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const turns = createTurnRunner({ hot: fakeHot(), store: fakeStore(), llm: fakeLlm('<msg reply="#1">ναι, εγώ</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: fakeStore(), llm: fakeLlm('<msg reply="#1">ναι, εγώ</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
     const { result } = await withCapturedLogs(() =>
       turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: c.triggerKind }),
     );
@@ -3830,7 +3862,7 @@ test('runTurn: an overheard turn posts its GIF plain', async () => {
   for (const [triggerKind, reply] of [['overheard', undefined], ['mention', { messageReference: 'm1', failIfNotExists: false }]]) {
     const raw = rawMessage({ id: 'm1' });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const turns = createTurnRunner({ hot: fakeHot(), store: gifStore(), llm: fakeLlm('<gif reply="#1">g1</gif>'), calibrator: identityCalibrator(), client: fakeClient() });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store: gifStore(), llm: fakeLlm('<gif reply="#1">g1</gif>'), calibrator: identityCalibrator(), client: fakeClient() });
     await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind }));
     assert.equal(channel.sent.length, 1, triggerKind);
     assert.equal(channel.sent[0].content, 'https://tenor.com/view/chat-qui-danse-1', triggerKind);
@@ -3869,6 +3901,8 @@ test('runTurn: a failed drawing on an overheard turn starts no drawFailed turn a
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = sequenceLlm(['<msg>on it</msg><draw>a cat</draw>', '<msg>should never be asked</msg>']);
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: drawHot(),
     store: fakeStore(),
     llm,
@@ -3914,6 +3948,8 @@ test('runTurn: an overheard turn runs neither the re-watch nor the search classi
     const scene = rewatchScene();
     const lookup = fakeLookup();
     const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
       hot,
       store: fakeStore(),
       llm,
@@ -3997,7 +4033,7 @@ function pullScene({ features = {}, context = {}, config = {}, bot = {}, mention
   const other = addChannel(channel, { id: DIARY, name: 'diary', messages: diaryLines(), ...diary });
   const hot = fakeHot(features, bot, config);
   hot.config.context = { ...hot.config.context, ...context };
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer, routeChannels, images, imageFetcher: fakeImageFetcher(), now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), describer, routeChannels, images, imageFetcher: fakeImageFetcher(), now: () => NOW });
   return { channel, other, hot, llm, store, turns, trigger: normalizedTrigger(call) };
 }
 
@@ -4353,6 +4389,8 @@ test('runTurn: a private chat whose partner cannot be fetched as a guild member 
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
   const llm = sequenceLlm(['<msg>hi</msg>']);
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: privateHot(),
     store: privateStore(),
     llm,
@@ -4397,6 +4435,8 @@ function privatePullScene({ features = {}, canView = true, mention = false, rout
   const llm = sequenceLlm(['<msg>ok</msg>']);
   const client = fakeClient({ guilds: { cache: new Map([['g1', guild]]) } });
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: privateHot(features),
     store: privateStore(),
     llm,
@@ -4518,7 +4558,7 @@ function routedScene({
   const channel = fakeTurnChannel({ historyMessages: chat });
   const call = lineIn(DIARY, { id: 'd3', ts: callTs, content: '@Bot τι λες για τον τοίχο;', attachments: callAttachments });
   const other = addChannel(channel, { id: DIARY, name: 'diary', messages: [...diaryLines(), ...before, call, ...after], readOnly: true });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, describer, lookup, routeChannels, images, imageFetcher: fakeImageFetcher(), now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client, describer, lookup, routeChannels, images, imageFetcher: fakeImageFetcher(), now: () => NOW });
   const trigger = { ...normalizedTrigger(call), mentionedUserIds: ['self-id'] };
   const params = { channel, mode: 'reply', trigger, triggerKind: 'mention', source: { channelId: DIARY, reason: 'routed' } };
   return { channel, other, hot, llm, store, turns, trigger, params };
@@ -4673,11 +4713,11 @@ test('usableDestination: the first usable main channel, never the excepted one; 
   const hall = addChannel(general, { id: 'c6', name: 'hall' });
   const config = { bot: {}, features: {}, memory: { mainChannelIds: ['c1', 'c6'] } };
 
-  assert.deepEqual(usableDestination(general.guild, config), { channel: general, reason: null });
-  assert.deepEqual(usableDestination(general.guild, config, { exceptId: 'c1' }), { channel: hall, reason: null });
-  assert.deepEqual(usableDestination(general.guild, { ...config, features: { elsewhere: false } }), { channel: null, reason: 'off' });
-  assert.deepEqual(usableDestination(general.guild, { ...config, memory: { mainChannelIds: [] } }), { channel: null, reason: 'no-destination' });
-  assert.deepEqual(usableDestination(null, config), { channel: null, reason: 'no-destination' }, 'a private chat has none');
+  assert.deepEqual(usableDestination(general.guild, config, { discord: DISCORD }), { channel: general, reason: null });
+  assert.deepEqual(usableDestination(general.guild, config, { exceptId: 'c1', discord: DISCORD }), { channel: hall, reason: null });
+  assert.deepEqual(usableDestination(general.guild, { ...config, features: { elsewhere: false } }, { discord: DISCORD }), { channel: null, reason: 'off' });
+  assert.deepEqual(usableDestination(general.guild, { ...config, memory: { mainChannelIds: [] } }, { discord: DISCORD }), { channel: null, reason: 'no-destination' });
+  assert.deepEqual(usableDestination(null, config, { discord: DISCORD }), { channel: null, reason: 'no-destination' }, 'a private chat has none');
 });
 
 test("runTurn: on a routed turn the re-watch classifier is not asked about the destination's videos", async () => {
@@ -5227,7 +5267,7 @@ test('runTurn: labels.elsewhere.link is read at the moment of use; without it th
 test('runTurn: a message near the length limit is cut so its link still fits one Discord message', async () => {
   const long = `${'a'.repeat(1850)}${' :dance:'.repeat(5)}`;
   const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm(`<msg>${long}</msg>`) });
-  const turns = createTurnRunner({ hot: scene.hot, store: fakeStore(), llm: scene.llm, calibrator: identityCalibrator(), client: fakeClient(), emoji: fakeEmojiIndex(), imageFetcher: fakeImageFetcher(), now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: scene.hot, store: fakeStore(), llm: scene.llm, calibrator: identityCalibrator(), client: fakeClient(), emoji: fakeEmojiIndex(), imageFetcher: fakeImageFetcher(), now: () => NOW });
 
   const { result } = await withCapturedLogs(() => turns.runTurn(scene.params));
 
@@ -5586,7 +5626,7 @@ test("turn: <recent> shows this channel's lines and those of channels everyone h
   audienceGuild(channel.guild);
   const store = recentStore(threeRooms(), { channels: [{ id: OPEN_ROOM, name: 'open' }] });
   const llm = fakeLlm('<skip/>');
-  const turns = createTurnRunner({ hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
 
   const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
 
@@ -5603,7 +5643,7 @@ test("turn: <recent> shows this channel's lines and those of channels everyone h
   const staffChannel = { ...fakeTurnChannel({ id: STAFF_ROOM, historyMessages: [{ ...raw, channelId: STAFF_ROOM }] }), guild: channel.guild };
   staffChannel.permissionsFor = channel.guild.channels.cache.get(STAFF_ROOM).permissionsFor;
   const staffLlm = fakeLlm('<skip/>');
-  const staffTurns = createTurnRunner({ hot: fakeHot(), store, llm: staffLlm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const staffTurns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm: staffLlm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
   registerTextChannel(channel);
   await withCapturedLogs(() =>
     staffTurns.runTurn({ channel: staffChannel, mode: 'reply', trigger: { ...normalizedTrigger(raw), channelId: STAFF_ROOM }, triggerKind: 'mention' }),
@@ -5620,7 +5660,7 @@ test('turn: a private chat shows only the recent lines of channels everyone on t
   const store = recentStore(threeRooms());
   const llm = fakeLlm('<skip/>');
   const client = fakeClient({ guilds: { cache: new Map([[guild.id, guild]]) } });
-  const turns = createTurnRunner({ hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client, now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client, now: () => NOW });
 
   await withCapturedLogs(() => turns.runTurn({ channel: dm, guildId: guild.id, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }));
 
@@ -5633,7 +5673,7 @@ test('turn: a private chat shows only the recent lines of channels everyone on t
     cache: new Map([[STAFF_ROLE, { id: STAFF_ROLE, type: 0, allow: { has: () => false }, deny: { has: (flag) => flag === PermissionFlagsBits.ViewChannel } }]]),
   };
   const deniedLlm = fakeLlm('<skip/>');
-  const denied = createTurnRunner({ hot: fakeHot(), store, llm: deniedLlm, calibrator: identityCalibrator(), client, now: () => NOW });
+  const denied = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm: deniedLlm, calibrator: identityCalibrator(), client, now: () => NOW });
   await withCapturedLogs(() => denied.runTurn({ channel: dm, guildId: guild.id, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }));
   assert.ok(userText(deniedLlm).includes('εδώ το πρωί') && !userText(deniedLlm).includes('στην αυλή'));
 });
@@ -5650,7 +5690,7 @@ test('turn: with no live line <recent> still shows the moments of the last hours
     audienceGuild(channel.guild);
     const llm = fakeLlm('<skip/>');
     const store = recentStore(lines, { userProfiles: { u9: nikos } });
-    const turns = createTurnRunner({ hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
     const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
     return { text: userText(llm), logs };
   };
@@ -5668,7 +5708,7 @@ test('turn: features.recent false, memory off or a store without the recent stor
     const channel = fakeTurnChannel({ historyMessages: [raw] });
     audienceGuild(channel.guild);
     const llm = fakeLlm('<skip/>');
-    const turns = createTurnRunner({ hot: fakeHot(features), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(features), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
     const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
     return { result, logs, sent: llm.calls[0] };
   };
@@ -5739,7 +5779,7 @@ test('runTurn: a neighbour whose audience the channel does not cover is left out
     ],
   });
   const llm = fakeLlm('<skip/>');
-  const turns = createTurnRunner({ hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
 
   const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
 
@@ -5757,9 +5797,9 @@ test('usableDestination: the dry-run mirror or a channel the bot cannot read is 
   const general = registerTextChannel(fakeTurnChannel());
   const hall = addChannel(general, { id: 'c6', name: 'hall' });
   const config = { bot: { dryRunChannelId: 'c1' }, features: {}, memory: { mainChannelIds: ['c1', 'c6'] } };
-  assert.equal(usableDestination(general.guild, config).channel, hall, 'the mirror is passed over');
+  assert.equal(usableDestination(general.guild, config, { discord: DISCORD }).channel, hall, 'the mirror is passed over');
   hall.permissionsFor = () => ({ has: (flag) => flag !== PermissionFlagsBits.ReadMessageHistory });
-  assert.deepEqual(usableDestination(general.guild, config), { channel: null, reason: 'no-destination' }, 'unreadable: not usable');
+  assert.deepEqual(usableDestination(general.guild, config, { discord: DISCORD }), { channel: null, reason: 'no-destination' }, 'unreadable: not usable');
 });
 
 /**
@@ -5772,7 +5812,7 @@ async function followUpTurn({ features = {}, answer = '<msg>ένα</msg><msg>δ�
   const store = fakeStore();
   const hot = fakeHot({ typingSimulation: false, ...features });
   const llm = typeof answer === 'function' ? { complete: answer } : fakeLlm(answer);
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
   configure?.({ channel, store, hot });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'followUp' }));
   return { result, logs, channel, store, turns };
@@ -5832,12 +5872,12 @@ test('runTurn: a reaction stamps no lastPostAt, in a dry run or for real', async
   const raw = rawMessage({ id: 'm1', authorName: 'Élodie' });
   const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
   const hot = fakeHot({ dryRun: true });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm: fakeLlm('<react to="#1">👍</react>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm('<react to="#1">👍</react>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   assert.equal(turns.lastPostAt('c1'), 0);
 
   const real = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
-  const live = createTurnRunner({ hot: fakeHot({ typingSimulation: false }), store: fakeStore(), llm: fakeLlm('<react to="#1">👍</react>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const live = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ typingSimulation: false }), store: fakeStore(), llm: fakeLlm('<react to="#1">👍</react>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
   await withCapturedLogs(() => live.runTurn({ channel: real, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   assert.equal(real.reactCalls.length, 1);
   assert.equal(live.lastPostAt('c1'), 0);
@@ -5956,7 +5996,7 @@ function paceScene({ hot = paceHot(), caption = null, read = null, clock = () =>
       return { reads: new Map([['m2#e0', 'une recette']]), newCount: 1 };
     },
   };
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, lookup, now: clock, schedule: timers.schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, lookup, now: clock, schedule: timers.schedule });
   const params = { channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' };
   return { turns, params, channel, llm, describer, lookup, timers };
 }
@@ -6018,7 +6058,7 @@ function settleScene({ settleMs, activity }) {
     return () => {};
   };
   const hot = fakeHot({}, {}, { pace: { ...SETTLE_PACE, settleMs } });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => clock.t, schedule, activity });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient(), now: () => clock.t, schedule, activity });
   return { turns, channel, raw, fetchedAt, waits };
 }
 
@@ -6274,7 +6314,7 @@ test('runTurn: a search the classifier asks for moves the deadline to pace.prepa
   const timers = fakeSchedule();
   const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' });
   const channel = fakeTurnChannel({ historyMessages: [trigger] });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, now: () => t, schedule: timers.schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, now: () => t, schedule: timers.schedule });
 
   const running = withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' }));
   await settleUntil(() => timers.timers.length > 1);
@@ -6312,7 +6352,7 @@ function slowClassifierScene(classifierText, verdict) {
   const timers = fakeSchedule();
   const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' });
   const channel = fakeTurnChannel({ historyMessages: [trigger] });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, now: () => clock.t, schedule: timers.schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, now: () => clock.t, schedule: timers.schedule });
   const params = { channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' };
   return { clock, base, timers, turns, params };
 }
@@ -6404,7 +6444,7 @@ function videoPaceScene({ pace = {}, where = 'trigger', watch = null, clock = ()
     return { videos: new Map([['va', { state: 'watched', text: WATCHED_TEXT }]]), newCount: 1 };
   };
   const timers = fakeSchedule();
-  const turns = createTurnRunner({ hot: turnHot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, lookup, now: clock, schedule: timers.schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: turnHot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, lookup, now: clock, schedule: timers.schedule });
   const called = { ...normalizedTrigger(trigger), replyToId: where === 'replied' ? 'm1' : null };
   const params = { channel, mode: 'reply', trigger: called, triggerKind: 'mention' };
   return { turns, params, channel, llm, describer, timers };
@@ -6498,7 +6538,7 @@ test('runTurn: a late video stage keeps the states the cache holds; only the vid
   describer.cachedVideos = async (guildId, items) =>
     new Map(items.filter((item) => item.itemId === 'vo').map((item) => [item.itemId, { state: 'watched', text: 'ένα παλιό βίντεο' }]));
   const timers = fakeSchedule();
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, now: () => NOW, schedule: timers.schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer, now: () => NOW, schedule: timers.schedule });
 
   const running = withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' }));
   await settleUntil(() => describer.videoCalls.length > 0 && timers.live().length > 0);
@@ -6631,7 +6671,7 @@ test('runTurn: a direct call shows the typing indicator while it prepares and re
   const hot = paceHot({}, { typingWhilePreparing: true });
   const scene = paceScene({ caption, hot });
   const llm = typingAtTalk(scene.channel);
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: scene.describer, lookup: scene.lookup, now: () => NOW, schedule: scene.timers.schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: scene.describer, lookup: scene.lookup, now: () => NOW, schedule: scene.timers.schedule });
 
   const running = withCapturedLogs(() => turns.runTurn(scene.params));
   await settleUntil(() => scene.describer.calls > 0 && scene.channel.typingCalls.length > 0);
@@ -6653,7 +6693,7 @@ test('runTurn: no typing indicator while preparing an unprompted turn, nor in a 
   const hot = paceHot({}, { typingWhilePreparing: true });
   const spontaneous = paceScene({ hot });
   const llm = typingAtTalk(spontaneous.channel);
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: spontaneous.describer, lookup: spontaneous.lookup, now: () => NOW, schedule: spontaneous.timers.schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer: spontaneous.describer, lookup: spontaneous.lookup, now: () => NOW, schedule: spontaneous.timers.schedule });
   await withCapturedLogs(() => turns.runTurn({ channel: spontaneous.channel, mode: 'interject' }));
   assert.deepEqual(llm.seen, [0]);
   assert.ok(spontaneous.timers.timers.every((timer) => timer.ms === TEST_PACE.prepareMs), 'no refresh is scheduled');
@@ -6757,7 +6797,7 @@ test('runTurn: no text-only resend is made once no time is left before pace.drop
   const hot = fakeHot({});
   hot.config.pace = { ...TEST_PACE, dropAfterMs: BAR_MS };
   const timers = fakeSchedule();
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => t, schedule: timers.schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => t, schedule: timers.schedule });
 
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' }));
 
@@ -6834,7 +6874,7 @@ test('runTurn: a private chat message shows the typing indicator while its turn 
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
   const llm = typingAtTalk(channel);
   const timers = fakeSchedule();
-  const turns = createTurnRunner({ hot, store: privateStore(), llm, calibrator: identityCalibrator(), client: guildClient(), images: fakeImages(), now: () => NOW, schedule: timers.schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: privateStore(), llm, calibrator: identityCalibrator(), client: guildClient(), images: fakeImages(), now: () => NOW, schedule: timers.schedule });
 
   const { result } = await withCapturedLogs(() =>
     turns.runTurn({ channel, guildId: 'g1', mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }),
@@ -6913,7 +6953,7 @@ function manualSchedule() {
 async function runSplitTurn({ hot = splitHot(), llm = splitLlm(), content = SPLIT_TEXT, triggerKind = 'mention', extra = {}, turnExtra = {}, schedule = manualSchedule() } = {}) {
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content });
   const channel = fakeTurnChannel({ historyMessages: [rawMessage({ id: 'm1', ts: NOW - 5000, authorId: 'u2', authorName: 'Léa', content: 'καλημέρα' }), raw] });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule, ...extra });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule, ...extra });
   const trigger = normalizedTrigger(raw);
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger, triggerKind, ...turnExtra }));
   return { result, logs, llm, channel, turns, trigger };
@@ -6991,7 +7031,7 @@ test('runTurn: a splitter still thinking at the deadline is one request; its lat
   const llm = splitLlm({ split: () => late });
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule });
   const { logs } = await withCapturedLogs(async () => {
     const running = turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
     for (let i = 0; i < 20 && llm.calls.split.length === 0; i += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -7066,7 +7106,7 @@ test('runTurn: an overheard line, a drawFailed turn or an unprompted turn never 
   assert.equal(overheard.llm.calls.split.length, 0);
   const llm = splitLlm();
   const channel = fakeTurnChannel({ historyMessages: [rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT })] });
-  const turns = createTurnRunner({ hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, schedule: manualSchedule() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, schedule: manualSchedule() });
   await turns.runTurn({ channel, mode: 'interject' });
   assert.equal(llm.calls.split.length, 0);
 });
@@ -7105,7 +7145,7 @@ test('runTurn: the chain holds the one attention to its end and notifies idle on
   const llm = splitLlm({ talk });
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  turnsRef = createTurnRunner({ hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule() });
+  turnsRef = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule() });
   turnsRef.setOnIdle(() => {
     idle += 1;
   });
@@ -7134,7 +7174,7 @@ test('runTurn: a pause or a warmup ends the chain before its next part', async (
     const llm = splitLlm({ talk });
     const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const turns = createTurnRunner({ hot: splitHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule(), isWarmingUp: () => warming });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store, llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule(), isWarmingUp: () => warming });
     const { logs, result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
     assert.equal(llm.calls.talk.length, 1, reason);
     assert.deepEqual(logs.filter((line) => line.msg === 'turn: chain stopped').map(({ reason: why, index, total }) => [why, index, total]), [[reason, 2, 3]]);
@@ -7169,7 +7209,7 @@ test('runTurn: the parts not started yet are the author\'s waiting items; a mess
   const llm = splitLlm({ talk });
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  turnsRef = createTurnRunner({ hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule() });
+  turnsRef = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: splitHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), now: () => NOW, schedule: manualSchedule() });
   await turnsRef.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
   assert.deepEqual(seen, [[{ index: 2, text: SPLIT_PARTS[1] }, { index: 3, text: SPLIT_PARTS[2] }], [], true, false]);
@@ -7190,7 +7230,7 @@ test('runTurn: queued calls named in the request are not counted as seen; withou
   const run = async (hot) => {
     const llm = splitLlm({ talk: '<msg>ok</msg>' });
     const channel = fakeTurnChannel({ historyMessages: history });
-    const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, schedule: manualSchedule() });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, schedule: manualSchedule() });
     const queued = () => [{ id: 'm3', text: 'δεύτερο' }];
     const added = [{ id: 'm4', text: 'λοιπόν;', ts: NOW }];
     await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention', queued, added });
@@ -7216,7 +7256,7 @@ test('runTurn: another member\'s waiting call is named under labels.task.queuedO
   const run = async (hot) => {
     const llm = splitLlm({ talk: '<msg>ok</msg>' });
     const channel = fakeTurnChannel({ historyMessages: history });
-    const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, schedule: manualSchedule() });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, schedule: manualSchedule() });
     const queued = () => [
       { id: 'm2', text: 'άλλο', author: 'Léa' },
       { id: 'm3', text: 'δεύτερο' },
@@ -7314,7 +7354,7 @@ async function runPickTurn({ reply = '<msg reply="#2">ναι, φυσικά, έλ
     return send(payload);
   };
   const llm = pickLlm({ reply, pick });
-  const turns = createTurnRunner({ hot: pickHot({ ...hotOptions, typing }), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: pickHot({ ...hotOptions, typing }), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(triggerRaw), triggerKind: 'mention' }));
   const picks = llm.calls.filter((call) => call.options?.purpose === 'gif-pick');
   const sent = () => channel.sent.map((payload) => payload.content);
@@ -7532,7 +7572,7 @@ async function runReplyParentTurn({ hot = replyParentHot(), historyMessages, sto
   const channel = replyParentChannel(historyMessages, stored);
   const llm = fakeLlm('<msg>ok</msg>');
   const describer = fakeVideoDescriber({});
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), describer });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' }));
   return { result, logs, channel, describer, userMessage: textOf(llm.calls[0]?.[1].content) };
 }
@@ -7674,7 +7714,7 @@ async function runParticipationTurn({ answers, store = participationStore(), hot
   ];
   const channel = participationChannel(raws);
   const llm = sequenceLlm(answers);
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
   const params = { channel, mode: 'reply', trigger: normalizedTrigger(raws.at(-1)), triggerKind: 'mention' };
   const { result, logs } = await withCapturedLogs(() => turns.runTurn(params));
   return { result, logs, channel, llm, store };
@@ -7818,7 +7858,7 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   const hot = fakeHot({ journal: true, typingSimulation: false }, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
   const llm = usageLlm('<think>Η Αλίκη με φωνάζει.</think><msg reply="#2">γεια</msg><react to="#1">\u{1F389}</react>', () => hot.config.llm.maxOutputTokens);
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -7880,7 +7920,7 @@ test('turn: logs thinkChars not think when the journal is on', async () => {
   const answer = '<think>Ζωή μιλά</think><msg>γεια</msg>';
   const run = async (features, journal) => {
     const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const turns = createTurnRunner({ hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
     const { logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
     return logs.find((l) => l.msg === 'turn: model answered');
   };
@@ -7913,7 +7953,7 @@ test('turn: a post writes started then succeeded with the messageId and the turn
   };
   const llm = fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg><react to="#1">\u{1F389}</react>');
   const hot = fakeHot({ journal: true, typingSimulation: false });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
   assert.equal(result.outcome, 'spoke');
@@ -7944,6 +7984,8 @@ test('turn: a post writes started then succeeded with the messageId and the turn
   const dry = journalOverMemory();
   const dryChannel = fakeTurnChannel({ historyMessages: [earlier, raw] });
   const dryTurns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot({ journal: true, typingSimulation: false, dryRun: true }),
     store: fakeStore(),
     llm: fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg><react to="#1">\u{1F389}</react>'),
@@ -7972,7 +8014,7 @@ test('turn: a send that throws writes unknown', async () => {
       throw error;
     };
     const { journal, lines } = journalOverMemory();
-    const turns = createTurnRunner({ hot: fakeHot({ journal: true, typingSimulation: false }), store: fakeStore(), llm: fakeLlm('<msg reply="#1">Ζωή</msg>'), calibrator: identityCalibrator(), client: fakeClient(), journal });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ journal: true, typingSimulation: false }), store: fakeStore(), llm: fakeLlm('<msg reply="#1">Ζωή</msg>'), calibrator: identityCalibrator(), client: fakeClient(), journal });
     const { result } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
     return { result, lines };
   };
@@ -8000,7 +8042,7 @@ test('turn: an engine preparation step writes action records with by engine', as
   const messages = [linkRaw('m1', NOW - 5000, [PAGE_EMBED]), rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' })];
   const channel = fakeTurnChannel({ historyMessages: messages });
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, journal });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, journal });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(messages[1]), triggerKind: 'mention' });
   assert.equal(result.outcome, 'spoke');
@@ -8029,7 +8071,7 @@ test('turn: an engine preparation step writes action records with by engine', as
 test('turn: pulled lines appear in seen.pulled', async () => {
   const scene = pullScene({ features: { journal: true, typingSimulation: false } });
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ hot: scene.hot, store: scene.store, llm: scene.llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => NOW, journal });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: scene.hot, store: scene.store, llm: scene.llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => NOW, journal });
 
   const { result } = await withCapturedLogs(() => turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' }));
   assert.equal(result.outcome, 'spoke');
@@ -8052,7 +8094,7 @@ test('turn: a successful post writes a said line', async () => {
   const record = { append: async (guildId, lines, opts) => { appended.push({ guildId, lines, opts }); return { written: lines.length, duplicates: 0 }; } };
   const { journal, lines } = journalOverMemory();
   const hot = fakeHot({ journal: true, record: true, typingSimulation: false });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm: fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg>'), calibrator: identityCalibrator(), client: fakeClient(), journal, record });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg>'), calibrator: identityCalibrator(), client: fakeClient(), journal, record });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
   assert.equal(result.outcome, 'spoke');
@@ -8085,7 +8127,7 @@ test('turn: limits lists a message cut at 2000 with the lost length', async () =
   const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
   const answer = `<msg>${'α'.repeat(1400)}${' @Bob'.repeat(100)}</msg>`;
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ hot: fakeHot({ journal: true, typingSimulation: false, mentionHandles: false }), store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ journal: true, typingSimulation: false, mentionHandles: false }), store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -8111,7 +8153,7 @@ test('turn: limits lists a preview cut', async () => {
   const fetchImpl = async (url) => ({ ok: true, headers: { get: () => null }, text: async () => (url.endsWith('notes.txt') ? 'é'.repeat(800) : 'ένα') });
   const { journal, lines } = journalOverMemory();
   const hot = fakeHot({ journal: true, typingSimulation: false });
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient(), fetchImpl, journal });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient(), fetchImpl, journal });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -8126,7 +8168,7 @@ test('turn: limits lists the search classifier\'s fallback with its reason', asy
   const { journal, lines } = journalOverMemory();
   const hot = lookupHot({ journal: true, typingSimulation: false });
   const recall = fakeRecall();
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm: lookupLlm(''), calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), recall, journal, now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: lookupLlm(''), calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), recall, journal, now: () => NOW });
 
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
@@ -8146,7 +8188,7 @@ test('turn: a journalled turn dumps its request and raw answer', async () => {
       if (failing) throw Object.assign(new Error('disk'), { code: 'EIO' });
     };
     const llm = usageLlm(answer);
-    const turns = createTurnRunner({ hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), journal });
     const result = await turns.runTurn({ channel: fakeTurnChannel({ historyMessages: [raw] }), mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
     await new Promise((resolve) => setImmediate(resolve));
     return { dumps, llm, result };
@@ -8261,8 +8303,10 @@ async function runPlannerTurn({ turnPlanner = true, llm = plannerLlm(), journal 
   const describer = fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } });
   const lookup = fakeLookup();
   const recall = fakeRecall();
-  const routeChannels = createChannelRouter({ hot, store, llm, now: () => NOW });
+  const routeChannels = createChannelRouter({ discord: DISCORD, hot, store, llm, now: () => NOW });
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot,
     store,
     llm,
@@ -8401,7 +8445,7 @@ async function runDiscoveryTurn({ answer, features = {}, journal = null, allowed
   const llm = lookupLlm(answer);
   const raw = rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'τι μπορείς να κάνεις;' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), journal, skills: discoveryRegistry() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup(), journal, skills: discoveryRegistry() });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   const reply = llm.turnCalls.length > 0 ? llm.turnCalls.at(-1).messages[1].content : [];
   return { result, logs, llm, reply, text: textOf(reply) };
@@ -8524,7 +8568,7 @@ function triggerTurnScene(features = {}) {
   ];
   const channel = fakeTurnChannel({ historyMessages: history });
   const llm = fakeLlm('<msg>ναι</msg><msg>έρχομαι</msg>');
-  const turns = createTurnRunner({ hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ typingSimulation: false, ...features }), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
   return { history, channel, llm, turns };
 }
 
@@ -8595,7 +8639,7 @@ test('createTurnRunner: a helper\'s transcript names the trigger of her lines to
     rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' }),
   ];
   const channel = fakeTurnChannel({ historyMessages: history });
-  const turns = createTurnRunner({ hot: lookupHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: lookupHot(), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup: fakeLookup() });
   turns.seedTriggerLinks([['sent-1', 'm1']]);
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[2]), triggerKind: 'mention' });
   assert.equal(llm.classifierCalls.length, 1);
@@ -8612,6 +8656,8 @@ async function gatewayTurn({ answer, features = {}, port = null, skills = null, 
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot(features),
     store,
     llm: fakeLlm(answer),
@@ -8698,6 +8744,7 @@ test('skills gateway: the GIF and the drawing are published through the port', a
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const images = fakeImages();
   const turns = createTurnRunner({
+    discord: DISCORD,
     hot: drawHot(),
     store: gifStore(),
     llm: sequenceLlm(['<gif>g1</gif><draw reply="#1">a cat on a roof</draw>']),
@@ -8775,7 +8822,7 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
   }
   const noSend = { ...fakeTurnChannel({ id: 'c8', name: 'αλλού' }), permissionsFor: () => ({ has: (flag) => flag !== PermissionFlagsBits.SendMessages }) };
   const client = clientWithChannels(fakeTurnChannel({ id: 'c9', name: '💖νέα' }), noSend);
-  const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', port, ...(images ? { images } : {}), ...(diary ? { diary: diary(hot) } : {}) });
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, ...(images ? { images } : {}), ...(diary ? { diary: diary(hot) } : {}) });
   const llm = sequenceLlm(answers);
   const complete = llm.complete;
   llm.complete = async (...args) => {
@@ -8783,7 +8830,7 @@ async function callTurn({ answers, allowed = [], features = {}, skills = {}, own
     if (llm.calls.length === 1) history.push(...later);
     return answer;
   };
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, ...(emoji ? { emoji } : {}) });
+  const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator: identityCalibrator(), client, now: () => NOW, port, skills: skillRegistry(), journal, images, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand, ...(emoji ? { emoji } : {}) });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention', ...turnExtra }));
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
   return { result, logs, llm, port, sends, channel, store, hot };
@@ -8930,7 +8977,7 @@ test('skill call: a read brings the operation\'s answer back in one follow-up; a
 });
 
 test('skill call: Alice asks her to post photos to the diary and the diary is not connected -- the diary\'s own words come back to her', async () => {
-  const diary = (hot) => createDiary({ hot, store: { state: { data: {} } }, client: {}, turns: { isAnyBusy: () => false }, getGuildId: () => 'g1' });
+  const diary = (hot) => createDiary({ discord: DISCORD, hot, store: { state: { data: {} } }, client: {}, turns: { isAnyBusy: () => false }, getGuildId: () => 'g1' });
   const run = await callTurn({
     answers: ['<call skill="diary.post" kind="photos"/>', '<msg>δεν έχω ημερολόγιο ακόμα</msg>'],
     allowed: ['diary.post'],
@@ -9136,10 +9183,10 @@ function callMarkScene({ answers, allowed = ['message.create'], features = {}, j
   const hot = fakeHot({ typingSimulation: false, journal: Boolean(journal), ...features }, { owners: ['u1'], access: personaGrants(allowed) }, { skills: { safeMode: false, resultMaxChars: 2000 } });
   const store = fakeStore();
   const client = clientWithChannels(news);
-  const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', port });
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port });
   const llm = sequenceLlm(answers);
   const clock = { ms: NOW };
-  const runner = () => createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client, now: () => clock.ms, port, skills: skillRegistry(), journal, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand });
+  const runner = () => createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator: identityCalibrator(), client, now: () => clock.ms, port, skills: skillRegistry(), journal, runCommand: admin.runCommand, runOwnCommand: admin.runOwnCommand });
   const turns = runner();
   const run = (where, raw, on = turns) => withCapturedLogs(() => on.runTurn({ channel: where, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   return { history, channel, news, port, llm, clock, turns, runner, run };
@@ -9273,7 +9320,7 @@ function endHookScene(answer = '<msg reply="#1">ναι</msg>') {
   const channel = fakeTurnChannel({ historyMessages: history });
   const llm = fakeLlm(answer);
   const store = fakeStore();
-  const turns = createTurnRunner({ hot: fakeHot({ typingSimulation: false }), store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ typingSimulation: false }), store, llm, calibrator: identityCalibrator(), client: fakeClient() });
   const ends = [];
   turns.setOnTurnEnd((end) => ends.push(end));
   return { history, channel, llm, store, turns, ends };
@@ -9321,7 +9368,7 @@ test('createTurnRunner: a turn dropped at its bar reaches the end hook as an err
   const hot = fakeHot({});
   hot.config.pace = { ...TEST_PACE, dropAfterMs: BAR_MS };
   const timers = fakeSchedule();
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => t, schedule: timers.schedule });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), imageFetcher: fakeImageFetcher(), now: () => t, schedule: timers.schedule });
   const ends = [];
   turns.setOnTurnEnd((end) => ends.push(end));
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: videoTrigger(raw), triggerKind: 'mention' }));
@@ -9379,7 +9426,7 @@ function cutScene(answers) {
   const history = [rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000, content: 'tu viens ce soir ?' })];
   const channel = fakeTurnChannel({ historyMessages: history });
   const { journal, lines } = journalOverMemory();
-  const turns = createTurnRunner({ hot: fakeHot({ journal: true, typingSimulation: false }), store: fakeStore(), llm: sequenceLlm(answers), calibrator: identityCalibrator(), client: fakeClient(), journal });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({ journal: true, typingSimulation: false }), store: fakeStore(), llm: sequenceLlm(answers), calibrator: identityCalibrator(), client: fakeClient(), journal });
   const ends = [];
   turns.setOnTurnEnd((end) => ends.push(end));
   const run = async () => {

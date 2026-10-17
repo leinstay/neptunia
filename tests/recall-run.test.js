@@ -14,6 +14,10 @@ import { toRecordLine } from '../src/memory/record.js';
 import { DailyCapError } from '../src/llm/openrouter.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
@@ -157,7 +161,7 @@ function scene({ lines = {}, answers = () => ({ total_results: 0, messages: [] }
     config: config({ features, recall: { ...recall }, llm: { helperTimeoutMs: 30000 } }),
     prompts: { 'recall-summary': PROMPT, labels },
   };
-  const recaller = createRecall({ hot, store, llm, describer, now, archive, record, vectors, embed, ...(timers ? { timers } : {}) });
+  const recaller = createRecall({ discord: DISCORD, hot, store, llm, describer, now, archive, record, vectors, embed, ...(timers ? { timers } : {}) });
   const history = [
     { id: 'h1', channelId: 'c1', ts: NOW - 30 * MINUTE, self: false, bot: false, authorName: 'Nikos', content: 'τι έγινε με το κουνέλι;' },
     { id: 'h2', channelId: 'c1', ts: NOW - MINUTE, self: false, bot: false, authorName: 'Nikos', content: 'ποιος σκότωσε το κουνέλι;' },

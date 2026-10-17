@@ -14,6 +14,10 @@ import { createOpsEnv } from '../src/ops/env.js';
 import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const OWNER = '42';
 const MEMBER = '7';
@@ -56,7 +60,7 @@ function makeEnv({ agents = {}, configured = true } = {}) {
   const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config });
   const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', onFinished: (task) => finished.push(task) });
   const store = { state: { data: {}, markDirty() {} } };
-  const env = createOpsEnv({ hot, store, client: { channels: { cache: new Map() } }, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', errands });
+  const env = createOpsEnv({ discord: DISCORD, hot, store, client: { channels: { cache: new Map() } }, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', errands });
   return { env, client, errands, finished, stores };
 }
 

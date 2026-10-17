@@ -13,6 +13,10 @@ import path from 'node:path';
 
 import { createGifRecache, gifCaptionCounts, gifCaptionState, gifFormatCounts, isPictureKey, oneFrameGifKeys, pickStaleDescriptions, recacheQueue, recordFinder, snowflakeMs } from '../src/memory/gif-recache.js';
 import { createStore } from '../src/memory/store.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const T0 = Date.UTC(2026, 8, 1);
 const TENOR = (n) => `https://tenor.com/view/danse-${n}`;
@@ -101,7 +105,7 @@ test('gif recache: old-format watched captions migrate over runs and the describ
     });
     const describer = fakeDescriber(store);
     const log = silentLog();
-    const recache = createGifRecache({ hot: fakeHot({ recachePerRun: 1 }), store, client: fakeClient([rawGifMessage(1), rawGifMessage(2)]), describer, log });
+    const recache = createGifRecache({ discord: DISCORD, hot: fakeHot({ recachePerRun: 1 }), store, client: fakeClient([rawGifMessage(1), rawGifMessage(2)]), describer, log });
     assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 1 });
     await recache.waitIdle();
     assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 1 });
@@ -228,6 +232,7 @@ test('gif recache: drops one-frame captions at once, then watches at most recach
     });
     const describer = fakeDescriber(store);
     const recache = createGifRecache({
+      discord: DISCORD,
       hot: fakeHot({ recachePerRun: 2 }),
       store,
       client: fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)]),
@@ -257,6 +262,7 @@ test('gif recache: a second run skips what the first watched and continues with 
     seed(store, [linkEntry(1), linkEntry(2), linkEntry(3)]);
     const describer = fakeDescriber(store);
     const recache = createGifRecache({
+      discord: DISCORD,
       hot: fakeHot({ recachePerRun: 2 }),
       store,
       client: fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)]),
@@ -279,7 +285,7 @@ test('gif recache: a GIF whose message is gone still goes to the describer, whic
     seed(store, [linkEntry(1)]);
     const describer = fakeDescriber(store, { outcome: (item) => (item.animationUrl ? { state: 'watched', text: 'x' } : { state: 'failed', reason: 'source' }) });
     const log = silentLog();
-    const recache = createGifRecache({ hot: fakeHot(), store, client: fakeClient([]), describer, log });
+    const recache = createGifRecache({ discord: DISCORD, hot: fakeHot(), store, client: fakeClient([]), describer, log });
     recache.start('g1');
     await recache.waitIdle();
     assert.deepEqual(describer.calls[0].item, { itemId: 'm1#e0', kind: 'gif' });
@@ -296,6 +302,7 @@ test('gif recache: one run at a time', async () => {
       release = resolve;
     });
     const recache = createGifRecache({
+      discord: DISCORD,
       hot: fakeHot(),
       store,
       client: fakeClient([rawGifMessage(1)]),
@@ -317,16 +324,16 @@ test('gif recache: refused while paused, during a warmup, without a describer or
     seed(store, [linkEntry(1)], { 'x9#e0': { text: 'a stray still', ts: 1, gif: true } });
     const base = { hot: fakeHot(), store, client: fakeClient([]), log: silentLog() };
 
-    assert.deepEqual(createGifRecache({ ...base, describer: fakeDescriber(store), isWarmingUp: () => true }).start('g1'), {
+    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store), isWarmingUp: () => true }).start('g1'), {
       ok: false,
       reason: 'warmup',
     });
-    assert.deepEqual(createGifRecache({ ...base }).start('g1'), { ok: false, reason: 'unavailable' });
+    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base }).start('g1'), { ok: false, reason: 'unavailable' });
     for (const blocker of ['off', 'video-off', 'no-prompt']) {
-      assert.deepEqual(createGifRecache({ ...base, describer: fakeDescriber(store, { blocker }) }).start('g1'), { ok: false, reason: blocker });
+      assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store, { blocker }) }).start('g1'), { ok: false, reason: blocker });
     }
     store.state.data.paused = true;
-    assert.deepEqual(createGifRecache({ ...base, describer: fakeDescriber(store) }).start('g1'), { ok: false, reason: 'paused' });
+    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeDescriber(store) }).start('g1'), { ok: false, reason: 'paused' });
     assert.equal(store.getMediaCache('g1')['x9#e0'].text, 'a stray still');
   });
 });
@@ -346,6 +353,7 @@ test('gif recache: a run stops before the next GIF once paused, a warmup starts 
       });
       const log = silentLog();
       const recache = createGifRecache({
+        discord: DISCORD,
         hot: fakeHot(),
         store,
         client: fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)]),
@@ -510,6 +518,7 @@ test('media recache: emoji from their id, a library GIF from its message, an att
       { kind: 'seen', messageId, occurredAt: new Date(upload + 5_000).toISOString(), scope: { channel: 'c1' }, media: ['image'] },
     ]);
     const recache = createGifRecache({
+      discord: DISCORD,
       hot: mediaHot(),
       store,
       client: fakeClient([rawGifMessage(1), rawPictureMessage(messageId, attachmentId)]),
@@ -544,7 +553,7 @@ test('media recache: descriptions are paced media.recacheIntervalMs apart on the
     });
     const clock = fakeTime();
     const describer = fakeMediaDescriber(clock, { costMs: 1000 });
-    const recache = createGifRecache({ hot: mediaHot({ recacheIntervalMs: 3000 }), store, client: fakeClient([]), describer, now: clock.now, sleep: clock.sleep, log: silentLog() });
+    const recache = createGifRecache({ discord: DISCORD, hot: mediaHot({ recacheIntervalMs: 3000 }), store, client: fakeClient([]), describer, now: clock.now, sleep: clock.sleep, log: silentLog() });
     recache.startMedia('g1', {});
     await recache.waitIdle();
     assert.deepEqual(clock.sleeps, [2000, 2000], 'the time a request took counts toward the pause');
@@ -563,7 +572,7 @@ test('media recache: a spent daily request cap stops the run; a failure is count
     const outcomes = [{ state: 'failed' }, { state: 'unavailable', reason: 'daily-cap' }, { state: 'done' }];
     const describer = fakeMediaDescriber(clock, { outcome: () => outcomes.shift() });
     const log = silentLog();
-    const recache = createGifRecache({ hot: mediaHot(), store, client: fakeClient([]), describer, now: clock.now, sleep: clock.sleep, log });
+    const recache = createGifRecache({ discord: DISCORD, hot: mediaHot(), store, client: fakeClient([]), describer, now: clock.now, sleep: clock.sleep, log });
     recache.startMedia('g1', { days: 7 });
     await recache.waitIdle();
     assert.equal(describer.calls.length, 2);
@@ -581,17 +590,17 @@ test('media recache: refused while running (either run), paused, during a warmup
       release = resolve;
     });
     const both = { ...fakeDescriber(store, { gate }), ...fakeMediaDescriber(clock) };
-    const busy = createGifRecache({ ...base, describer: both });
+    const busy = createGifRecache({ discord: DISCORD, ...base, describer: both });
     assert.equal(busy.start('g1').ok, true);
     assert.deepEqual(busy.startMedia('g1', {}), { ok: false, reason: 'running' });
     while (!release) await new Promise((resolve) => setImmediate(resolve));
     release();
     await busy.waitIdle();
 
-    assert.deepEqual(createGifRecache({ ...base, describer: fakeMediaDescriber(clock), isWarmingUp: () => true }).startMedia('g1', {}), { ok: false, reason: 'warmup' });
-    assert.deepEqual(createGifRecache({ ...base }).startMedia('g1', {}), { ok: false, reason: 'unavailable' });
-    assert.deepEqual(createGifRecache({ ...base, describer: fakeMediaDescriber(clock, { blocker: 'off' }) }).startMedia('g1', {}), { ok: false, reason: 'off' });
+    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeMediaDescriber(clock), isWarmingUp: () => true }).startMedia('g1', {}), { ok: false, reason: 'warmup' });
+    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base }).startMedia('g1', {}), { ok: false, reason: 'unavailable' });
+    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeMediaDescriber(clock, { blocker: 'off' }) }).startMedia('g1', {}), { ok: false, reason: 'off' });
     store.state.data.paused = true;
-    assert.deepEqual(createGifRecache({ ...base, describer: fakeMediaDescriber(clock) }).startMedia('g1', {}), { ok: false, reason: 'paused' });
+    assert.deepEqual(createGifRecache({ discord: DISCORD, ...base, describer: fakeMediaDescriber(clock) }).startMedia('g1', {}), { ok: false, reason: 'paused' });
   });
 });

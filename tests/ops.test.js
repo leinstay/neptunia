@@ -9,7 +9,10 @@ import path from 'node:path';
 
 import { COMMAND_TO_OP, legacyGrantOps, listOps, resolveCommand, runOp } from '../src/ops/index.js';
 import { createOpsEnv } from '../src/ops/env.js';
-import { commandKeys } from '../src/interface/discord.js';
+import { commandKeys, createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 /** The operation names the commands-cleanup plan agreed on (its wildcards spelled out), `/nep talk` since merged into `message.create`. */
 const AGREED = new Set([
@@ -61,7 +64,7 @@ function makeEnv({ access = {}, emojiBackfill } = {}) {
     getUser: () => null,
     getGuild: () => ({ emojiUsage: {} }),
   };
-  return createOpsEnv({ hot, store, client: {}, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', emojiBackfill });
+  return createOpsEnv({ discord: DISCORD, hot, store, client: {}, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', emojiBackfill });
 }
 
 test('ops: every registered op has a rights kind and a name in the agreed list', () => {
@@ -219,7 +222,7 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
     },
   };
   const activity = [];
-  const env = createOpsEnv({ hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key', managementKey: 'mgmt-test' });
+  const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key', managementKey: 'mgmt-test' });
   assert.equal(env.simKey, 'sim-test-key');
   assert.equal(env.managementKey, 'mgmt-test');
   const result = await runOp('status.show', { field: 'keys' }, { env, guildId: null, userId: '42', roleIds: [] });
@@ -260,12 +263,12 @@ test('status keys: a role on the simulator key (agent.advice) is shown on the si
     },
     keyHash: ({ role } = {}) => (role === 'agent.advice' ? simHash : role ? 'hash-dev' : 'hash-main'),
   };
-  const env = createOpsEnv({ hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key' });
+  const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key' });
   const result = await runOp('status.show', { field: 'keys' }, { env, guildId: null, userId: '42', roleIds: [] });
   const value = result.data.embeds[0].fields[0].value;
   assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'agent.dev key 0.00/200.00'], 'no line for the advice role: the simulator line is its line');
   assert.deepEqual(reads.sort(), ['agent.dev', 'main', 'sim-test-key'], 'the simulator key is read once');
-  const noSim = createOpsEnv({ hot, store, client: {}, getGuildId: () => null, llm });
+  const noSim = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => null, llm });
   const without = await runOp('status.show', { field: 'keys' }, { env: noSim, guildId: null, userId: '42', roleIds: [] });
   assert.ok(without.data.embeds[0].fields[0].value.split('\n').includes('agent.advice key 0.00/200.00'), 'with no simulator key on the card, the role keeps a line of its own');
 });

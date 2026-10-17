@@ -49,7 +49,7 @@ import {
   SPENDING_SUBCOMMANDS, assertBotStopped, channelWrittenText, formatPeople, formatStatus, formatUserWritten, parseWarmupArgs, serverWrittenText, warmupEstimate, warmupPlan,
 } from './lib/warmup.mjs';
 import { ledgerStale, ledgerTimes } from './backfill.mjs';
-import { readableChannels } from '../src/interface/discord.js';
+import { createDiscordInterface, readableChannels } from '../src/interface/discord.js';
 import { log as defaultLog } from '../src/log.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createArchive } from '../src/memory/archive.js';
@@ -222,7 +222,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
 /** `status` and `reset`: state.json only, no Discord, no model. */
 function offline(ctx) {
   const { store, hot, guildId, now } = ctx;
-  const warmup = createWarmup({ hot, store, client: { guilds: { cache: new Map() } }, llm: NO_MODEL, calibrator: ctx.calibrator, getSelfName: () => 'bot', now });
+  const warmup = createWarmup({ hot, store, client: { guilds: { cache: new Map() } }, discord: createDiscordInterface().capabilities, llm: NO_MODEL, calibrator: ctx.calibrator, getSelfName: () => 'bot', now });
   if (ctx.args.sub === 'reset') {
     const result = warmup.reset();
     if (!result.ok) throw new CliError(`warmup: ${result.message}`);
@@ -244,7 +244,7 @@ async function online(ctx, connect) {
     const limits = { ceiling: undefined };
     const live = spending && !args.dryRun;
     const llm = live ? await modelClient(ctx) : NO_MODEL;
-    const warmup = createWarmup({ hot: cappedHot(hot, limits), store, client: conn.client, llm, calibrator: ctx.calibrator, getSelfName: () => conn.selfName, now });
+    const warmup = createWarmup({ hot: cappedHot(hot, limits), store, client: conn.client, discord: createDiscordInterface({ client: conn.client }).capabilities, llm, calibrator: ctx.calibrator, getSelfName: () => conn.selfName, now });
     const report = await warmup.peopleReport(guildId);
     if (args.sub === 'people') return `${formatPeople(report)}\n`;
     if (!report.ok) throw new CliError(`warmup: ${report.message}`);

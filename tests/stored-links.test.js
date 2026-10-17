@@ -12,6 +12,10 @@ import { createStore } from '../src/memory/store.js';
 import { archiveEntry, archiveRevision } from '../src/memory/archive.js';
 import { runOp } from '../src/ops/index.js';
 import { createOpsEnv } from '../src/ops/env.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const URL = 'https://example.com/a?b=1&c=2#d';
 
@@ -265,7 +269,7 @@ function opsEnv(store) {
     reloadConfig: () => true,
     reloadPrompts: () => true,
   };
-  return createOpsEnv({ hot, store, client: {}, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1' });
+  return createOpsEnv({ discord: DISCORD, hot, store, client: {}, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1' });
 }
 
 test('ops lore.add / learning.add / alias.add: what they store holds no link', async () => {

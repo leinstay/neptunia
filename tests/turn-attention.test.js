@@ -13,6 +13,10 @@ import { PermissionFlagsBits } from 'discord.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 /** A discord.js-shaped raw message, just enough for normalizeMessage. */
 function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = Date.now() - 1000, content = 'hey bot' }) {
@@ -171,7 +175,7 @@ test('createTurnRunner: a turn in another channel is refused as busy while one i
   const llm = controllableLlm();
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const firstPromise = turns.runTurn({ channel: channel1, mode: 'reply', trigger: normalizedTrigger(raw1), triggerKind: 'mention' });
   assert.equal(turns.isAnyBusy(), true, 'busy.add happens synchronously before the first await');
@@ -193,7 +197,7 @@ test('createTurnRunner: the SAME channel is still refused as busy exactly as bef
   const llm = controllableLlm();
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const firstPromise = turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
   const secondResult = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
@@ -212,7 +216,7 @@ test("createTurnRunner: mention.oneAtATime=false lets two different channels run
   const llm = controllableLlm();
   const store = fakeStore();
   const hot = fakeHot({ mention: { oneAtATime: false } });
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const firstPromise = turns.runTurn({ channel: channel1, mode: 'reply', trigger: normalizedTrigger(raw1), triggerKind: 'mention' });
   const secondPromise = turns.runTurn({ channel: channel2, mode: 'reply', trigger: normalizedTrigger(raw2), triggerKind: 'mention' });
@@ -235,7 +239,7 @@ test('createTurnRunner: a hot change to mention.oneAtATime is picked up without 
   const llm = controllableLlm();
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const firstPromise = turns.runTurn({ channel: channel1, mode: 'reply', trigger: normalizedTrigger(raw1), triggerKind: 'mention' });
   const busyResult = await turns.runTurn({ channel: channel2, mode: 'reply', trigger: normalizedTrigger(raw2), triggerKind: 'mention' });
@@ -260,7 +264,7 @@ test('createTurnRunner: setOnIdle fires once a turn finishes, after the channel 
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   let seenBusyOnIdle = null;
   let idleCalls = 0;
@@ -285,7 +289,7 @@ test('createTurnRunner: a throwing onIdle is logged, never thrown into the calle
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
   turns.setOnIdle(() => {
     throw new Error('boom');
   });
@@ -307,7 +311,7 @@ test('createTurnRunner: with no onIdle set, a turn finishes without throwing', a
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
   const hot = fakeHot({});
-  const turns = createTurnRunner({ hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   // The idle notification runs fire-and-forget behind a .catch, so a missing guard would not
   // reject runTurn: it would only log 'turn: onIdle failed'. Capture past that microtask.
@@ -328,7 +332,7 @@ test('createTurnRunner: spokeAfterSeeing is true for a message in the history of
   const raw1 = rawMessage({ id: 'm1' });
   const raw2 = rawMessage({ id: 'm2', authorId: 'u2' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw1, raw2] });
-  const turns = createTurnRunner({ hot: fakeHot({}), store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
 
   assert.equal(turns.spokeAfterSeeing('c1', 'm2'), false, 'no turn has spoken yet');
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw1), triggerKind: 'mention' });
@@ -356,7 +360,7 @@ test('turn: a routed turn marks the destination busy, not the source', async () 
   };
   destination.guild.channels.cache.set('c2', source);
   const llm = controllableLlm();
-  const turns = createTurnRunner({ hot: fakeHot({}), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
 
   const running = withCapturedLogs(() =>
     turns.runTurn({
@@ -391,7 +395,7 @@ test('createTurnRunner: spokeAfterSeeing covers the source lines a routed turn s
     permissionsFor: () => ({ has: (flag) => flag !== PermissionFlagsBits.SendMessages }),
   };
   destination.guild.channels.cache.set('c2', source);
-  const turns = createTurnRunner({ hot: fakeHot({}), store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm: fakeLlm('<msg>ok</msg>'), calibrator: identityCalibrator(), client: fakeClient() });
 
   const { result } = await withCapturedLogs(() =>
     turns.runTurn({ channel: destination, mode: 'reply', trigger: normalizedTrigger(call), triggerKind: 'mention', source: { channelId: 'c2', reason: 'routed' } }),
@@ -408,7 +412,7 @@ test('createTurnRunner: spokeAfterSeeing stays false after a turn that chose to 
   const raw1 = rawMessage({ id: 'm1' });
   const raw2 = rawMessage({ id: 'm2', authorId: 'u2' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw1, raw2] });
-  const turns = createTurnRunner({ hot: fakeHot({}), store: fakeStore(), llm: fakeLlm('<skip/>'), calibrator: identityCalibrator(), client: fakeClient() });
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: fakeHot({}), store: fakeStore(), llm: fakeLlm('<skip/>'), calibrator: identityCalibrator(), client: fakeClient() });
 
   const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw1), triggerKind: 'mention' });
 

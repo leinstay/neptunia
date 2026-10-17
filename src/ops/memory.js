@@ -21,7 +21,6 @@ import {
 import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.js';
 import { isOwnerId } from './grants.js';
 import { effectiveAffinity, privateRepliesToday } from '../behavior/private.js';
-import { PAGE } from '../interface/discord.js';
 import { log } from '../log.js';
 import { clampAtBoundary } from '../memory/clamp.js';
 import { SnowflakeUtil } from 'discord.js';
@@ -32,7 +31,7 @@ import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDa
 import { defineOp, perEnv, invalid } from './registry.js';
 
 const handlers = perEnv((env) => {
-  const { hot, store, client, isWarmingUp, warmup, archive, journal, dataDir, slash, warmupBusyText, assertNotPaused, freshenIfPaused, requireGuildId, tokenResolver, journalSystem, waitForAnalyzer, requireProfile } = env;
+  const { hot, store, client, discord, isWarmingUp, warmup, archive, journal, dataDir, slash, warmupBusyText, assertNotPaused, freshenIfPaused, requireGuildId, tokenResolver, journalSystem, waitForAnalyzer, requireProfile } = env;
 
   /**
    * Sectioned, human-readable view of one member's profile — see
@@ -524,7 +523,7 @@ const handlers = perEnv((env) => {
     while (scanned < maxScanned) {
       let page;
       try {
-        page = await dm.messages.fetch(before ? { limit: PAGE, before } : { limit: PAGE });
+        page = await dm.messages.fetch(before ? { limit: discord.PAGE, before } : { limit: discord.PAGE });
       } catch (err) {
         log.warn('admin: private purge page fetch failed', { scanned, error: err });
         if (!before) throw new Error(`cannot read the private chat with ${userId}; nothing was deleted`);
@@ -546,7 +545,7 @@ const handlers = perEnv((env) => {
       }
 
       before = oldestMessageId(batch);
-      if (batch.length < PAGE) break;
+      if (batch.length < discord.PAGE) break;
     }
 
     // A `/nep pause` that landed during a long purge: data/ must not be written any more.

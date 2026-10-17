@@ -59,6 +59,7 @@ import {
   formatDuration,
   formatNow,
   formatTranscript,
+  reactorIdsOf,
   renderTempo,
   renderTranscript,
 } from '../format.js';
@@ -93,7 +94,6 @@ import { selectPictures, mediaProxyUrl, fitBox, mediaParts } from '../media/clas
 import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { mergeProfiles } from './private.js';
 import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, renderChannelDirectory, renderDirectory } from './handles.js';
-import { reactorIdsOf } from '../interface/discord.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
@@ -2198,7 +2198,7 @@ function calendarDate(ymd, locale) {
  * also be an array, `channelName` null falls back to the channel id, and a
  * missing `descriptions`, `olderNotShown`, `picturesNotSeen`, `earlierPingIds`
  * or `pingState` reads as empty.
- * @typedef {import('../interface/discord.js').PulledChannel} PulledChannel
+ * @typedef {object} PulledChannel
  */
 
 /** `{from}` / `{to}` of a pulled channel's header: the date and the clock of `ts`, joined as `<now>` joins them. */

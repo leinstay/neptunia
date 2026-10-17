@@ -17,13 +17,16 @@ import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/ops/effects.j
 import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/ops/rights.js';
 import { RENAMED_OPS, renameGrants } from '../src/ops/access.js';
 import { createAdmin } from '../src/admin.js';
-import { buildCommandTree, createInteractionHandler } from '../src/interface/discord.js';
+import { buildCommandTree, createDiscordInterface, createInteractionHandler } from '../src/interface/discord.js';
 import { COMMAND_TABLE } from '../src/ops/catalog.js';
 import { buildSkills, loadSkills, skillRegistry, skillNames, describeSkill } from '../src/skills/registry.js';
 import { commandSources, deriveSkillDefinitions, optionsSchema } from '../src/skills/derive.js';
 import { CARRIED_OVER, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, skillAccess } from '../src/skills/access.js';
 import { schemaError } from '../src/skills/schema.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/skills/gateway.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const OWNER = '42';
 const MEMBER = '7';
@@ -459,7 +462,7 @@ function makeEnv({ cfg = config(), roles = [] } = {}) {
   const store = { state: { data: {}, markDirty() {} }, flush() {}, getUser: () => null, getGuild: () => ({}), updateGuild() {} };
   const me = { roles: { cache: new Map(roles.map((id) => [id, { id }])) } };
   const client = { user: { id: SELF }, guilds: { cache: new Map([['g1', { members: { me } }]]) } };
-  const env = createOpsEnv({ hot, store, client, getGuildId: () => 'g1', now: () => Date.UTC(2026, 9, 14, 10, 0, 0) });
+  const env = createOpsEnv({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', now: () => Date.UTC(2026, 9, 14, 10, 0, 0) });
   /** `bot.access` as written to config.local.json. */
   const stored = () => {
     const file = path.join(rootDir, 'config.local.json');
@@ -591,7 +594,7 @@ test('persona grants: no /nep skill command; the access autocomplete offers her 
   for (const key of ['skill.allow', 'skill.deny', 'skill.list', 'talk']) assert.equal(resolveCommand(key, { name: 'draw' }), null, key);
   const t = makeEnv();
   try {
-    const admin = createAdmin({ hot: t.hot, store: t.store, client: t.client, getGuildId: () => 'g1' });
+    const admin = createAdmin({ discord: DISCORD, hot: t.hot, store: t.store, client: t.client, getGuildId: () => 'g1' });
     const handle = createInteractionHandler({ hot: t.hot, admin, getGuildId: () => 'g1' });
     const ask = async (userId, typed) => {
       const responses = [];

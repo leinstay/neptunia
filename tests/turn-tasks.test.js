@@ -13,6 +13,10 @@ import { tasksBlockText, taskResultText } from '../src/errands/blocks.js';
 import { createTaskTurns } from '../src/errands/turns.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 const MINUTE = 60_000;
@@ -172,7 +176,7 @@ test('<tasks>: an open errand is in the request tail; with none, the block is go
   const errands = fakeErrands([runningTask]);
   const llm = fakeLlm('<skip/>');
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
-  const turns = createTurnRunner({ hot: fakeHot(), store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port, errands, now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, hot: fakeHot(), store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port, errands, now: () => NOW });
   await withCapturedLogs(async () => {
     const first = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
     assert.equal(first.outcome, 'skip');
@@ -193,7 +197,7 @@ test('<tasks>: a finished errand she has not seen is marked seen once a turn of 
   const channel = fakeChannel({ historyMessages: [raw] });
   const errands = fakeErrands([runningTask, doneTask]);
   const llm = fakeLlm('<skip/>');
-  const turns = createTurnRunner({ hot: fakeHot(), store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }), errands, now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, hot: fakeHot(), store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }), errands, now: () => NOW });
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
   assert.ok(userText(llm.calls[0][1].content).includes('tab02 | web | done | 3 min | find a meme'));
   assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }]);
@@ -207,8 +211,8 @@ test('task turns: a finished errand opens her turn where it was asked, with <tas
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
   const hot = fakeHot();
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { fetch: async (id) => (id === 'c1' ? channel : null) } };
-  const turns = createTurnRunner({ hot, store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client, port, errands, now: () => NOW });
-  const taskTurns = createTaskTurns({ hot, client, turns, errands, getGuildId: () => 'g1', now: () => NOW });
+  const turns = createTurnRunner({ discord: DISCORD, hot, store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client, port, errands, now: () => NOW });
+  const taskTurns = createTaskTurns({ discord: DISCORD, hot, client, turns, errands, getGuildId: () => 'g1', now: () => NOW });
   const { result } = await withCapturedLogs(() => taskTurns.onFinished(doneTask, 'g1'));
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.calls.length, 1);
@@ -233,7 +237,7 @@ test('task turns: held back while the attention is taken, tried again after agen
   const errands = fakeErrands();
   const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
-  const taskTurns = createTaskTurns({ hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
+  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
   await withCapturedLogs(async () => {
     await taskTurns.onFinished(doneTask, 'g1');
     assert.equal(runs.length, 0, 'nothing runs while a turn holds the attention');

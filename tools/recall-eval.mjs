@@ -265,6 +265,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const { createHot } = await import('../src/hot.js');
   const { loadDotEnv } = await import('../src/config.js');
   const { createRecall } = await import('../src/behavior/recall-run.js');
+  const { createDiscordInterface } = await import('../src/interface/discord.js');
   const { recallSettings, parseLookupAnswer } = await import('../src/behavior/recall.js');
   const { fallbackLookupPlan } = await import('../src/behavior/turn.js');
   const { classifierTranscript, fillPromptTemplate } = await import('../src/behavior/prompt.js');
@@ -500,7 +501,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
           trace = line;
         },
       };
-      const recall = createRecall({ hot: evalHot, store: recallStore, llm, archive, record, vectors, embed, now });
+      const recall = createRecall({ hot: evalHot, store: recallStore, llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, now });
       const windows = [];
       const found = await recall.run({
         guild,

@@ -35,6 +35,10 @@ import { MINUTE_MS, HOUR_MS } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
 import { createStore } from '../src/memory/store.js';
 import { redactUser } from '../src/memory/mentions.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const seq = (values) => {
   let i = 0;
@@ -628,6 +632,7 @@ function diaryHarness({ diary = {}, features = {}, data = {}, posts = [], channe
     ...turnsExtra,
   };
   const diaryFactory = createDiary({
+    discord: DISCORD,
     hot,
     store,
     client,

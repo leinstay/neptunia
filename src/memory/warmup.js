@@ -61,7 +61,6 @@
 // the server notes, waiting out a provider rate limit, paused, finished or
 // aborted -- exposed through `status()` for the tool's `status`.
 
-import { readableChannels, fetchHistoryWindow } from '../interface/discord.js';
 import { formatTranscript, renderTranscript } from '../format.js';
 import { fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../llm/budget.js';
 import { estimateMessages } from '../llm/tokens.js';
@@ -1065,6 +1064,7 @@ function healProgress(progress) {
  * @param {object} deps.hot       Live config + prompts; read at the moment of use.
  * @param {object} deps.store     From createStore() (src/memory/store.js).
  * @param {import('discord.js').Client} deps.client
+ * @param {object} deps.discord   The Discord interface's capabilities object (src/index.js injects it): the readable channels and the history windows.
  * @param {object} deps.llm       From createLlm() (src/llm/openrouter.js).
  * @param {object} deps.calibrator  From createCalibrator().
  * @param {(guildId: string) => string} deps.getSelfName
@@ -1072,7 +1072,8 @@ function healProgress(progress) {
  * @param {(ms: number) => Promise<void>} [deps.sleep]  Used only for a sustained-rate-limit wait
  *   (`warmup.rateLimitWaitMinutes`) -- injectable so tests never actually sleep.
  */
-export function createWarmup({ hot, store, client, llm, calibrator, getSelfName, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
+export function createWarmup({ hot, store, client, discord, llm, calibrator, getSelfName, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
+  const { readableChannels, fetchHistoryWindow } = discord;
   const cache = new Map(); // guildId -> { fetchedAt, windows }
   const fetching = new Map(); // guildId -> the fetchGuildWindows promise in flight, see getWindows
   // Fetched windows -> when their history read began (epoch ms): a portrait drawn from them is

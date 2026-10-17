@@ -392,6 +392,25 @@ function reactionNamesItem(reaction, labels, names) {
 }
 
 /**
+ * The member ids that react on the persona's lines of `messages` (the reactions' `users`, filled
+ * by interfaces/discord/reactors.js#withReactors; never a bot), each once: they are in view, so
+ * they get a mention handle like an author. It reads normalized lines only, so it lives in the
+ * core; the Discord interface re-exports it (and carries it in its capabilities object).
+ * @param {object[]} messages
+ * @returns {string[]}
+ */
+export function reactorIdsOf(messages) {
+  const ids = new Set();
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (!message?.self) continue;
+    for (const reaction of Array.isArray(message.reactions) ? message.reactions : []) {
+      for (const user of Array.isArray(reaction?.users) ? reaction.users : []) if (user?.id && !user.bot) ids.add(String(user.id));
+    }
+  }
+  return [...ids];
+}
+
+/**
  * What a reply line quotes of its parent: the parent's text on one line, else
  * its media tags (mediaTags) joined, cut to `maxChars` code points at a word
  * boundary with an ellipsis (src/memory/clamp.js#clampWithEllipsis; 0 =

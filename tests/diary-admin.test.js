@@ -9,8 +9,11 @@ import path from 'node:path';
 import { PermissionFlagsBits } from 'discord.js';
 import { createAdmin } from '../src/admin.js';
 import { backfillDiary } from '../src/behavior/diary.js';
-import { buildCommandTree, commandKeys, createInteractionHandler } from '../src/interface/discord.js';
+import { buildCommandTree, commandKeys, createDiscordInterface, createInteractionHandler } from '../src/interface/discord.js';
 import { labels } from './fixtures/labels.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const SELF = 'self1';
 
@@ -97,7 +100,7 @@ function makeAdmin({ diary, channel = makeChannel(), store = makeStore(), hotDia
   const rootDir = makeRoot();
   const hot = makeHot(rootDir, hotDiary);
   const client = { user: { id: SELF }, channels: { fetch: async (id) => (id === channel.id ? channel : null) } };
-  const admin = createAdmin({ hot, store, client, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', diary });
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, spontaneous: {}, calibrator: { ratio: 1 }, getGuildId: () => 'g1', diary });
   return { admin, hot, store, rootDir };
 }
 

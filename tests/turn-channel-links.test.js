@@ -8,6 +8,10 @@ import { PermissionFlagsBits } from 'discord.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { handleOf } from '../src/behavior/handles.js';
 import { labels } from './fixtures/labels.js';
+import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const LINKED_ID = '323456789012345678';
@@ -126,6 +130,8 @@ async function runLinkTurn(channelLinks, answer = '<msg>δες στο #γενι�
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel([raw]);
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot(channelLinks),
     store: fakeStore(),
     llm: fakeLlm(answer),

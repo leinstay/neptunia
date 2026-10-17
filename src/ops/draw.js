@@ -13,7 +13,7 @@ import { postingConversation } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 const handlers = perEnv((env) => {
-  const { hot, client, images, imageFetcher, port, assertNotPaused, resolvedGuildId } = env;
+  const { hot, client, discord, images, imageFetcher, port, assertNotPaused, resolvedGuildId } = env;
 
   /**
    * `/nep draw`: one picture through the same prompt a turn builds (prompts
@@ -33,7 +33,7 @@ const handlers = perEnv((env) => {
     assertNotPaused();
     const request = String(args?.text ?? '').trim();
     if (!request) throw invalid('text is required');
-    const postTo = args?.channelId ? await postingConversation({ client, guildId: resolvedGuildId(context), channelId: args.channelId, context, need: 'attach' }) : null;
+    const postTo = args?.channelId ? await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: args.channelId, context, need: 'attach' }) : null;
     if (postTo && (!port || typeof port.send !== 'function')) throw Object.assign(new Error('the persona\'s interface is not available'), { code: 'not-configured' });
 
     const imageCfg = hot.config.image ?? {};

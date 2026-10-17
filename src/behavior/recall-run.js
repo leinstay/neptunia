@@ -65,7 +65,6 @@
 // it is memory about real people, kept under data/ only.
 
 import { log } from '../log.js';
-import { audienceAllows, audienceOf, checkPull, fetchAfter, fetchAround, searchMembers, searchMessages } from '../interface/discord.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
@@ -336,6 +335,8 @@ function summaryFailure(err) {
  * @param {object} deps.store      `state` (`data`, `markDirty`) and `listUserProfiles` (src/memory/store.js);
  *   read only, when present: `getLore`, `getGuild` (its `learned`), `getRecent`. Never `getPrivate`.
  * @param {object} deps.llm        From createLlm(): `complete`, `capLeft`.
+ * @param {object} deps.discord    The Discord interface's capabilities object (src/index.js injects
+ *   it): the message and member searches, the windows around a hit and the audience rules.
  * @param {object|null} [deps.describer]  From createDescriber (src/memory/describe.js): only its
  *   `cachedDescriptions` is used, never a fresh caption.
  * @param {{ iterate: Function }|null} [deps.archive]  From createArchive (src/memory/archive.js): only
@@ -354,7 +355,8 @@ function summaryFailure(err) {
  *   people: { id: string, name: string, username: string, count: number, newestTs: number|null }[], stats: object }>,
  *   available: () => boolean }}
  */
-export function createRecall({ hot, store, llm, describer = null, archive = null, record = null, vectors = null, embed = null, now = Date.now, timers = DEFAULT_TIMERS }) {
+export function createRecall({ hot, store, llm, discord, describer = null, archive = null, record = null, vectors = null, embed = null, now = Date.now, timers = DEFAULT_TIMERS }) {
+  const { audienceAllows, audienceOf, checkPull, fetchAfter, fetchAround, searchMembers, searchMessages } = discord;
   /** Whether `llm.maxRequestsPerDay` is spent today: the summary would be refused. */
   function capSpent() {
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
