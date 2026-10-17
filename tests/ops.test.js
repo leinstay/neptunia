@@ -34,7 +34,7 @@ const AGREED = new Set([
   'memory.affinity.read', 'memory.wipe', 'memory.journal.read', 'memory.archive.read', 'memory.restore',
   'memory.snapshot', 'memory.private.read', 'memory.private.forget', 'memory.private.purge',
   'message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove',
-  'task.run', 'task.status', 'task.cancel', 'task.list',
+  'task.run', 'task.status', 'task.cancel', 'task.list', 'task.show',
 ]);
 
 /** Owner-only per the plan: no grant ever opens them. */
@@ -42,6 +42,7 @@ const OWNER_ONLY = [
   'access.grant', 'access.revoke', 'access.list',
   'memory.private.read', 'memory.private.forget', 'memory.private.purge',
   'memory.journal.read', 'memory.snapshot', 'memory.forget', 'memory.wipe', 'memory.archive.read', 'memory.restore',
+  'task.show',
 ];
 
 function makeEnv({ access = {}, emojiBackfill } = {}) {

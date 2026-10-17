@@ -15,7 +15,10 @@
 // never its day files. The speed field reads src/ops/metrics.js (the last 24 h), then today's
 // missed-answer figures from the journal (src/behavior/missed.js). The `keys`
 // field reads each API key's limit (one free GET per key) and the rolling 7/30-day sums per key;
-// `costs` reads today's per-role accumulator (src/ops/usage.js).
+// `costs` reads today's per-role accumulator (src/ops/usage.js). The owner's `tasks` field ends
+// with the ledger's lines (src/errands/ledger-view.js#ledgerStatusLines, `labels.status.ledger`):
+// the last five tasks of both lanes, one `task.list` read over `agents.ledger.socket` (read now),
+// or `off` when the socket is not set or the ledger does not answer.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -37,6 +40,8 @@ import { activitySums, keyCostsLines, roleCostsLines, readAccount, readActivity 
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 import { modelForRole } from './shared.js';
+import { readLedger } from '../errands/ledger.js';
+import { LEDGER_STATUS_COUNT, ledgerStatusLines } from '../errands/ledger-view.js';
 import { defineOp, perEnv } from './registry.js';
 
 /** The card's field names, in order (src/ops/catalog.js#STATUS_FIELDS, the `field` option's choices). */
@@ -279,6 +284,13 @@ const handlers = perEnv((env) => {
     const pending = archivePending(guildId);
     if (pending > 0) parts.push(`archive drain: ${pending} pending`);
     return parts.length > 0 ? parts.join('\n') : 'none';
+  }
+
+  /** The owner's ledger lines: the last LEDGER_STATUS_COUNT tasks of both lanes (`task.list`),
+   * or `off` without a socket or an answer; every word from `labels.status.ledger`. */
+  async function ledgerLines(cfg) {
+    const outcome = await readLedger(cfg?.agents?.ledger?.socket ?? null, 'task.list', { limit: LEDGER_STATUS_COUNT });
+    return ledgerStatusLines(outcome, hot.prompts?.labels);
   }
 
   /** When the journal was last written (today's day file, else yesterday's: the first hour after
@@ -750,7 +762,8 @@ const handlers = perEnv((env) => {
     const compute = {
       // The state, then the gateway connection, then the uptime.
       state: async () => [stateValue(data), owner ? await storageLine(guildId, cfg) : null, connectionValue(), `uptime ${span(process.uptime() * 1000)}`].filter(Boolean).join('\n'),
-      tasks: () => longTasksValue(guildId),
+      // The long tasks, then (the owner's card) the ledger's last tasks.
+      tasks: async () => [longTasksValue(guildId), ...(owner ? await ledgerLines(cfg) : [])].join('\n'),
       // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
       models: () => (owner && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg)),
       limits: () => limitsValue(cfg, data),
