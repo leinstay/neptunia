@@ -19,7 +19,9 @@
 // model role (`agent.web`, `agent.server`), read again at each task
 // so a `/nep model set` reaches the next one. It prints one ready line
 // (a log line) when it is listening, and on SIGTERM ends open tasks and
-// exits.
+// exits. At start and then hourly it deletes the task directories under its
+// out dir older than `agents.keepFilesHours` (read from the config at each
+// sweep; src/agent-runner/sweep.js): the core can read them, not delete them.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,6 +30,7 @@ import { log } from '../src/log.js';
 import { createRunnerServer } from '../src/agent-runner/server.js';
 import { createOpencodeRunner, DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.js';
 import { profileOf } from '../src/agent-runner/profiles.js';
+import { startSweeper } from '../src/agent-runner/sweep.js';
 
 /** Parse `--flag value` and `--flag=value` into a plain object. */
 function parseArgs(argv) {
@@ -142,11 +145,20 @@ async function main() {
   await server.start();
   log.info('agent-runner: ready', { profile: name, socket: socketPath, out: outDir, opencode: opencodePath });
 
+  // Old task output, deleted here because the out dir is this user's alone.
+  const sweeper = startSweeper({
+    profile: name,
+    outDir,
+    keepHours: () => currentConfig()?.agents?.keepFilesHours,
+    liveIds: () => server.liveIds(),
+  });
+
   let stopping = false;
   const shutdown = async (signal) => {
     if (stopping) return;
     stopping = true;
     log.info('agent-runner: shutting down', { profile: name, signal });
+    sweeper.stop();
     await server.stop();
     process.exit(0);
   };

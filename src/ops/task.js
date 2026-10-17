@@ -66,10 +66,11 @@ const handlers = perEnv((env) => {
     return ownerCalls(context) || (Boolean(context?.userId) && String(context.userId) === task.requester?.userId);
   }
 
-  /** One line of a task: id, agent, state (with the error code), age, goal. */
+  /** One line of a task: id, agent, state (with the error code and `files-expired`), age, goal. */
   function taskLine(task) {
     const minutes = Math.max(0, Math.floor((now() - (task.createdAt ?? now())) / MINUTE_MS));
-    const state = task.error && task.state !== 'done' ? `${task.state} (${task.error})` : task.state;
+    const codes = [...(task.error && task.state !== 'done' ? [task.error] : []), ...(task.filesExpired === true ? ['files-expired'] : [])];
+    const state = codes.length > 0 ? `${task.state} (${codes.join(', ')})` : task.state;
     return `${task.id} ${task.agent} ${state} ${minutes}m: ${clampWithEllipsis(oneLine(task.goal), GOAL_LINE_CHARS)}`;
   }
 

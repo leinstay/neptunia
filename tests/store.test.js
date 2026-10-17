@@ -1369,7 +1369,7 @@ test('wipeGuild: removes profiles, guild memory, channels, buffer and analyzer l
   storeA.flush();
 
   const { vault, ...counts } = storeA.wipeGuild('g1');
-  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 0, recordFiles: 0, archiveFiles: 0, backfillFiles: 0 });
+  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 0, recordFiles: 0, archiveFiles: 0, backfillFiles: 0, taskFiles: 0 });
   assert.ok(vault.startsWith(path.join(dir, 'vault', 'wipe-')));
 
   // cache is immediately usable
@@ -1865,7 +1865,7 @@ test('wipeGuild: removes the private directory, cache and disk, leaves other gui
   store.applyPrivateOps('g2', 'u9', {});
 
   const { vault, ...counts } = store.wipeGuild('g1');
-  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 2, recordFiles: 0, archiveFiles: 0, backfillFiles: 0 });
+  assert.deepEqual(counts, { users: 2, channels: 2, loreRemoved: 1, loreKept: 1, bufferMessages: 2, recentLines: 0, snapshots: 0, privateLayers: 2, recordFiles: 0, archiveFiles: 0, backfillFiles: 0, taskFiles: 0 });
   assert.ok(vault.startsWith(path.join(dir, 'vault', 'wipe-')));
   assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'private')), false);
   assert.equal(store.getPrivate('g1', 'u1'), null);
@@ -3787,4 +3787,98 @@ test('recordAddressUses: folds uses into an existing profile only, with the half
   store.recordAddressUses('g1', 'u1', [{ name: 'Ana', at: ID_NOW }], { halfLifeDays: 30 });
   store.recordAddressUses('g1', 'u1', [{ name: 'ana', at: ID_NOW + 30 * 86_400_000 }], { halfLifeDays: 30 });
   assert.deepEqual(store.getUser('g1', 'u1').addressedAs, { Ana: { score: 1.5, last: new Date(ID_NOW + 30 * 86_400_000).toISOString() } });
+});
+
+// ---- the errands step of a forget, and the wipe of the errands' files ----------
+
+/** A task store over `dir` (src/errands/store.js) with two tasks of `u1` and one of `u2`, one of u1's still running. */
+async function seedErrands(dir) {
+  const { createTaskStores } = await import('../src/errands/store.js');
+  let n = 0;
+  const stores = createTaskStores({ dataDir: dir, config: () => ({ agents: { maxOpen: 5 } }), log: { info() {}, warn() {} } });
+  const tasks = stores.get('g1');
+  const ask = (userId) => tasks.add({ agent: 'web', goal: `errand ${(n += 1)}`, requester: { userId, kind: 'member' }, origin: { channelId: 'c1', messageId: null }, scope: 'group' }).task.id;
+  const a = ask('u1');
+  const b = ask('u2');
+  const c = ask('u1');
+  tasks.start(a);
+  tasks.finish(a, { status: 'done', result: { text: 'ok' } });
+  tasks.start(c);
+  return { stores, tasks, ids: { a, b, c } };
+}
+
+test('forgetUser: the errands step removes the member\'s tasks and lines, the vault keeps them, the store\'s copy follows', async () => {
+  await withCapturedLogs(async () => {
+    const dir = tmpDataDir();
+    const store = createStore({ dataDir: dir });
+    store.touchUser('g1', 'u1', 'Alice', 1000);
+    store.flush();
+    const { stores, tasks, ids } = await seedErrands(dir);
+    const listFile = path.join(dir, 'guilds', 'g1', 'tasks.json');
+    const logFile = path.join(dir, 'guilds', 'g1', 'tasks.jsonl');
+    const linesBefore = fs.readFileSync(logFile, 'utf8').trim().split('\n').length;
+    const { vault, counts } = await store.forgetUser('g1', 'u1', { errands: stores });
+    assert.equal(counts.errands, 2);
+    assert.equal(counts.errandLines, 5, 'two queued, two running, one done');
+    assert.deepEqual(JSON.parse(fs.readFileSync(listFile, 'utf8')).tasks.map((t) => t.id), [ids.b]);
+    const left = fs.readFileSync(logFile, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(left.length, linesBefore - 5);
+    assert.ok(left.every((line) => line.requester.userId === 'u2'));
+    assert.ok(!fs.readdirSync(path.join(dir, 'guilds', 'g1')).some((name) => name.endsWith('.tmp')), 'no temp file left');
+    // The store's own copy: a late end of the forgotten running task writes nothing back.
+    assert.equal(tasks.get(ids.c), null);
+    assert.equal(tasks.finish(ids.c, { status: 'done', result: { text: 'late' } }), null);
+    assert.deepEqual(JSON.parse(fs.readFileSync(listFile, 'utf8')).tasks.map((t) => t.id), [ids.b]);
+    // The vault holds what went.
+    const vaulted = path.join(vault, 'guilds', 'g1');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(vaulted, 'tasks.json'), 'utf8')).tasks.length, 3);
+    assert.equal(fs.readFileSync(path.join(vaulted, 'tasks.jsonl.dropped.jsonl'), 'utf8').trim().split('\n').length, 5);
+    // A second forget finds nothing.
+    assert.deepEqual(stores.forgetUser('g1', 'u1'), { removed: 0, lines: 0 });
+  });
+});
+
+test('forgetUser: the errands step is recorded in the marker with removed and lines, and is not run again on resume', async () => {
+  await withCapturedLogs(async () => {
+    const dir = tmpDataDir();
+    const store = createStore({ dataDir: dir });
+    store.touchUser('g1', 'u1', 'Alice', 1000);
+    store.flush();
+    const { stores } = await seedErrands(dir);
+    const marker = path.join(dir, 'guilds', 'g1', 'forgetting', 'u1.json');
+    let calls = 0;
+    const errands = {
+      forgetUser: (...args) => {
+        calls += 1;
+        return stores.forgetUser(...args);
+      },
+    };
+    const crashing = { forgetUser: async () => { throw new Error('killed'); } };
+    const failed = await store.forgetUser('g1', 'u1', { errands, journal: crashing }).catch((error) => error);
+    assert.match(failed.message, /killed/);
+    const left = JSON.parse(fs.readFileSync(marker, 'utf8'));
+    assert.deepEqual(left.steps.errands, { removed: 2, lines: 5 });
+    await store.resumeForgets('g1', { errands });
+    assert.equal(calls, 1, 'the done step is skipped on resume');
+    assert.equal(fs.existsSync(marker), false);
+  });
+});
+
+test('wipeGuild: the errands\' files go, through the errand stores when given, else directly', async () => {
+  await withCapturedLogs(async () => {
+    const dir = tmpDataDir();
+    const store = createStore({ dataDir: dir });
+    const { stores, tasks } = await seedErrands(dir);
+    const counts = store.wipeGuild('g1', { errands: stores });
+    assert.equal(counts.taskFiles, 2);
+    for (const name of ['tasks.json', 'tasks.jsonl']) assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', name)), false, name);
+    assert.deepEqual(tasks.recent(10), [], 'the store\'s copy is empty too');
+    assert.ok(fs.existsSync(path.join(counts.vault, 'guilds', 'g1', 'tasks.jsonl')), 'the vault copy holds them');
+
+    const other = tmpDataDir();
+    await seedErrands(other);
+    const plain = createStore({ dataDir: other });
+    assert.equal(plain.wipeGuild('g1').taskFiles, 2);
+    assert.equal(fs.existsSync(path.join(other, 'guilds', 'g1', 'tasks.json')), false);
+  });
 });

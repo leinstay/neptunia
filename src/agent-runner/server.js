@@ -11,7 +11,8 @@
 // exits. The task engine (`run`) is injected (src/agent-runner/opencode.js in
 // production, a fake in tests); this module is the transport and the queue.
 // A task's `secrets` pass to the engine and nowhere else: no log line here
-// carries a request.
+// carries a request. `liveIds` names the tasks still in hand, so the output
+// sweep (src/agent-runner/sweep.js) never removes their directories.
 
 import net from 'node:net';
 import fs from 'node:fs';
@@ -215,5 +216,10 @@ export function createRunnerServer({ profile, runner, socketPath, socketMode = 0
     }
   }
 
-  return { start, stop, server, get queueLength() { return queue.length; }, get busy() { return Boolean(current); } };
+  /** The ids of the tasks the runner still has: the running one and the queued ones (the output sweep keeps their directories). */
+  function liveIds() {
+    return [...(current ? [current.id] : []), ...queue.map((item) => item.task.id)];
+  }
+
+  return { start, stop, server, liveIds, get queueLength() { return queue.length; }, get busy() { return Boolean(current); } };
 }

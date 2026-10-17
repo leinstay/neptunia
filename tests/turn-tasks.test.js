@@ -170,6 +170,31 @@ test('tasksBlockText / taskResultText: every word from labels.tasks; none withou
   assert.equal(taskResultText(doneTask, {}), '');
 });
 
+test('tasksBlockText / taskResultText: expired files show the expired state word and no handle', () => {
+  const expired = { ...doneTask, filesExpired: true };
+  const withWord = { ...labels, tasks: { ...labels.tasks, states: { ...labels.tasks.states, expired: 'done, files gone' } } };
+  assert.ok(tasksBlockText([expired], withWord, { now: NOW }).split('\n')[1].startsWith('tab02 | web | done, files gone | 3 min'));
+  const result = taskResultText(expired, withWord).split('\n');
+  assert.equal(result[0], 'errand tab02 (web) ended done, files gone: find a meme');
+  assert.ok(!result.includes('files:') && !result.some((line) => line.startsWith('file:')), 'no handle of an expired file');
+  // Without the label, the state's own word.
+  assert.ok(tasksBlockText([expired], labels, { now: NOW }).split('\n')[1].startsWith('tab02 | web | done | 3 min'));
+  assert.equal(taskResultText(expired, labels).split('\n')[0], 'errand tab02 (web) ended done: find a meme');
+});
+
+test('taskResultText: the withheld paths close the block in labels.tasks.result.withheld; without the label, no line', () => {
+  const withheld = { ...doneTask, result: { ...doneTask.result, withheld: ['/etc/shadow', '/srv/app/.env'] } };
+  const withLabel = { ...labels, tasks: { ...labels.tasks, result: { ...labels.tasks.result, withheld: 'not readable here: {paths}' } } };
+  const lines = taskResultText(withheld, withLabel).split('\n');
+  assert.equal(lines.at(-1), 'not readable here: /etc/shadow, /srv/app/.env');
+  assert.equal(lines.at(-2), 'file:tab02/meme.png | image/png | 2048 bytes', 'after the text and the files');
+  const without = taskResultText(withheld, labels).split('\n');
+  assert.equal(without.at(-1), 'file:tab02/meme.png | image/png | 2048 bytes');
+  assert.equal(taskResultText(doneTask, withLabel), taskResultText(doneTask, labels), 'no withheld path, no line');
+  const failed = taskResultText({ ...withheld, state: 'failed', error: 'withheld-path', result: { text: '', withheld: ['/etc/shadow'] } }, withLabel).split('\n');
+  assert.deepEqual(failed, ['errand tab02 (web) ended failed: find a meme', 'no result text', 'error: withheld-path', 'not readable here: /etc/shadow']);
+});
+
 test('<tasks>: an open errand is in the request tail; with none, the block is gone', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeChannel({ historyMessages: [raw] });

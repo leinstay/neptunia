@@ -310,6 +310,8 @@ const handlers = perEnv((env) => {
     try {
       result = await store.forgetUser(guildId, userId, {
         journal: journal ?? null,
+        // The errands they asked for (src/errands/service.js#forgetUser), when the errands run.
+        ...(typeof env.errands?.forgetUser === 'function' ? { errands: env.errands } : {}),
         vaultDir: hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR,
         redaction: hot.prompts?.labels?.memory?.redaction ?? DEFAULT_REDACTION,
       });
@@ -326,6 +328,7 @@ const handlers = perEnv((env) => {
         `participation messages: ${n('participation')}, version files: ${n('versions')}`,
       `archive entries: ${n('archive')}, record lines: ${n('record')}, journal records: ${n('journal')}, request dumps: ${n('requests')}, ` +
         `snapshots: ${n('snapshots')}, diary posts redacted: ${n('diary')}, backfill candidates: ${n('backfill')}`,
+      `errands: ${n('errands')}, errand lines: ${n('errandLines')}`,
     ].join('\n');
   }
 
@@ -579,7 +582,7 @@ const handlers = perEnv((env) => {
     if (confirm !== guildName) {
       return (
         'This deletes everything remembered about this server: every member profile and private memory, the server habits, ' +
-        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore, the record, the archive, the backfill files, the journal, the request dumps, the deletion ledger, this server in every snapshot and the warmup progress; a copy of it all goes to the vault first. ' +
+        'the learned list, the emoji ranking, the voice queue, the recent lines, the channel map, analyzer lore, the record, the archive, the backfill files, the journal, the request dumps, the deletion ledger, the errand tasks and their log, this server in every snapshot and the warmup progress; a copy of it all goes to the vault first. ' +
         `To confirm, run again with confirm: ${guildName}`
       );
     }
@@ -601,7 +604,8 @@ const handlers = perEnv((env) => {
           journalLines = ['journal: not removed (a disk error, see the log)'];
         }
       }
-      return { counts: store.wipeGuild(guildId, { vault, vaultDir }), journalLines, vault };
+      const errands = typeof env.errands?.wipe === 'function' ? { errands: env.errands } : {};
+      return { counts: store.wipeGuild(guildId, { vault, vaultDir, ...errands }), journalLines, vault };
     };
     const { counts, journalLines, vault } = typeof journal?.withWriterLock === 'function' ? await journal.withWriterLock(wipe) : await wipe();
     log.info('admin: memory wiped', { users: counts.users, channels: counts.channels, loreRemoved: counts.loreRemoved, snapshots: counts.snapshots ?? 0 });
@@ -615,6 +619,7 @@ const handlers = perEnv((env) => {
       `record files removed: ${counts.recordFiles ?? 0}`,
       `archive files removed: ${counts.archiveFiles ?? 0}`,
       `backfill files removed: ${counts.backfillFiles ?? 0}`,
+      `errand files removed: ${counts.taskFiles ?? 0}`,
       ...journalLines,
       `snapshots that lost this server: ${counts.snapshots ?? 0}`,
       `channels removed: ${counts.channels}`,

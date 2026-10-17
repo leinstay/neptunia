@@ -169,3 +169,16 @@ test('task.status and task.list: the open ones, one by id, a private chat\'s onl
     assert.ok(listed.summary.split('\n')[0].startsWith(dm), 'newest first');
   });
 });
+
+test('task.status: a finished task whose files the runner deleted says files-expired', async () => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ops-task-out-'));
+  const { env, client, errands } = makeEnv({ agents: { web: { enabled: true, out, daily: { tasks: 10, usd: 5 } } } });
+  await withCapturedLogs(async () => {
+    const id = (await runOp('task.run', { agent: 'web', goal: 'a meme' }, ctx(env, MEMBER))).data.task.id;
+    while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
+    client.end(id, { status: 'done', result: { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png' }] }, usage: { usd: 0.01 } });
+    await errands.idle();
+    const one = await runOp('task.status', { id }, ctx(env, MEMBER));
+    assert.ok(one.summary.startsWith(`${id} web done (files-expired) `), one.summary);
+  });
+});

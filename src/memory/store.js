@@ -32,7 +32,8 @@
 //   data/guilds/<guildId>/tasks.json          the persona's errand tasks: the open ones and the latest
 //                                            finished, with the day's counters (src/errands/store.js,
 //                                            which owns it and tasks.jsonl, one line per transition;
-//                                            not cached here, not touched by a forget or a wipe yet)
+//                                            not cached here; a forget and a wipe reach them through
+//                                            the errand stores they are handed, `errands`)
 //   data/guilds/<guildId>/recall-trace.jsonl  one JSON line per recall run when `features.recallTrace` is on
 //                                            (appendRecallTrace): the newest `recall.traceMaxLines`, written
 //                                            at once, not cached; a wipe deletes it
@@ -2245,7 +2246,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * await, so a caller without a journal sees the profile gone at once.
    */
   async function runForget(guildId, marker, deps) {
-    const { journal = null, record: rec = record, archive: arc = archive, vectors: vec = vectors, redaction = null, now = Date.now } = deps ?? {};
+    const { journal = null, record: rec = record, archive: arc = archive, vectors: vec = vectors, errands = null, redaction = null, now = Date.now } = deps ?? {};
     const id = marker.userId;
     const token = typeof redaction === 'string' && redaction.trim() ? redaction : DEFAULT_REDACTION;
     const names = Array.isArray(marker.names) ? marker.names.filter((name) => typeof name === 'string') : [];
@@ -2260,6 +2261,12 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       if (!marker.steps.hot) done('hot', forgetHot(guildId, id, names));
       if (!marker.steps.diary) done('diary', { diary: redactDiaryNow(guildId, id, names, token) });
       if (!marker.steps.snapshots) done('snapshots', { snapshots: forgetInSnapshots(guildId, id, new Date(now()).toISOString()) });
+      // The errands the member asked for, and their transition lines (src/errands/store.js#forgetUser,
+      // which copies what it drops into the vault itself).
+      if (errands && typeof errands.forgetUser === 'function' && !marker.steps.errands) {
+        const result = await errands.forgetUser(guildId, id, { vault: vaultAbs });
+        done('errands', { removed: result?.removed ?? 0, lines: result?.lines ?? 0 });
+      }
       // The meaning index before the record: a row is found by its chunk's members and by the
       // record lines the forget is about to drop (their message ids, read while they are there).
       if (vec && !marker.steps.vectors) {
@@ -2292,7 +2299,12 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     fs.rmSync(markerFile(guildId, id), { force: true });
     forgettingSet(guildId).delete(id);
     const counts = {};
-    for (const result of Object.values(marker.steps)) if (isPlainObject(result)) Object.assign(counts, result);
+    for (const [step, result] of Object.entries(marker.steps)) {
+      if (!isPlainObject(result)) continue;
+      // The errands step's own names, `removed` and `lines`, are too general for the counts.
+      if (step === 'errands') Object.assign(counts, { errands: result.removed ?? 0, errandLines: result.lines ?? 0 });
+      else Object.assign(counts, result);
+    }
     log.info('store: forgotten', { guildId: String(guildId), userId: id, ...counts });
     return { vault: vaultAbs, counts };
   }
@@ -2627,6 +2639,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *      (`labels.memory.redaction`, default `someone`), the post kept;
      *   5. every snapshot under `data/snapshots/`: their profile, private layer and directory and
      *      versions deleted, `{ userId, at }` added to that snapshot's `forgotten.json`;
+     *   5a. with the errand stores (`deps.errands`: src/errands/service.js#forgetUser, or
+     *      src/errands/store.js#createTaskStores), the errands they asked for out of `tasks.json`
+     *      and their lines out of `tasks.jsonl` (the step `errands`: `{ removed, lines }`, in the
+     *      counts as `errands` and `errandLines`; the dropped part copied into the vault by the
+     *      errand store);
      *   5b. with a meaning index (`deps.vectors`, else the store's own), its rows naming them by
      *      their chunk's members or holding a record line this forget drops, the member's private
      *      index whole (src/memory/vectors.js#forgetUser; counted as `vectors`);
@@ -2644,10 +2661,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @param {string} guildId
      * @param {string} userId
      * @param {{ journal?: object|null, record?: object|null, archive?: object|null, vectors?: object|null,
-     *   vaultDir?: string, redaction?: string, now?: () => number }} [deps]
+     *   errands?: { forgetUser: Function }|null, vaultDir?: string, redaction?: string, now?: () => number }} [deps]
      * @returns {Promise<{ vault: string, counts: { profile: number, private: number, voice: number,
      *   recent: number, participation: number, versions: number, diary: number, snapshots: number,
-     *   archive: number, record: number, journal: number, requests: number, backfill: number } }>}  `vault`: the
+     *   archive: number, record: number, journal: number, requests: number, backfill: number,
+     *   errands?: number, errandLines?: number } }>}  `vault`: the
      *   absolute path of the vault directory.
      */
     forgetUser(guildId, userId, deps = {}) {
@@ -4058,18 +4076,21 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * earlier `vaultGuild` returned, skips the copy); the record (`record/`), the archive
      * (`archive/`), the backfill tool's files (`backfill/`), the meaning index (`vectors/`) and the deletion ledger
      * (`forgotten.json`) go with the rest, and the guild's directory inside every snapshot under
-     * `data/snapshots/`.
+     * `data/snapshots/`. The errands' files (`tasks.json`, `tasks.jsonl`) go too, through
+     * `opts.errands` (src/errands/store.js#createTaskStores, whose copy in memory is emptied with
+     * them) when given, else deleted directly.
      * @param {string} guildId
      * @param {{ keepOwnerLore?: boolean, keepMediaCache?: boolean, vault?: string|null,
-     *   vaultDir?: string, now?: () => number }} [opts]
+     *   vaultDir?: string, errands?: { wipe: Function }|null, now?: () => number }} [opts]
      * @returns {{ users: number, channels: number, loreRemoved: number, loreKept: number, bufferMessages: number,
      *   recentLines: number, snapshots: number, privateLayers: number, recordFiles: number,
-     *   archiveFiles: number, backfillFiles: number, vault: string }}  `recentLines`: the recent lines the
+     *   archiveFiles: number, backfillFiles: number, taskFiles: number, vault: string }}  `recentLines`: the recent lines the
      *   wipe removed; `snapshots`: the snapshots that lost the guild; `privateLayers`: the members'
      *   private layers removed; `recordFiles` / `archiveFiles` / `backfillFiles`: the files removed
-     *   under `record/`, `archive/`, `backfill/`; `vault`: the vault copy's path.
+     *   under `record/`, `archive/`, `backfill/`; `taskFiles`: the errands' files removed; `vault`:
+     *   the vault copy's path.
      */
-    wipeGuild(guildId, { keepOwnerLore = true, keepMediaCache = true, vault = null, vaultDir, now = Date.now } = {}) {
+    wipeGuild(guildId, { keepOwnerLore = true, keepMediaCache = true, vault = null, vaultDir, errands = null, now = Date.now } = {}) {
       const vaultPath = typeof vault === 'string' && vault ? vault : store.vaultGuild(guildId, { vaultDir, now });
       // What waits for the archive goes with the memory it came from.
       const waiting = archiveGuilds.get(String(guildId));
@@ -4158,6 +4179,18 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
       // The recall trace quotes members' messages: it goes with the rest.
       fs.rmSync(recallTraceFile(guildId), { force: true });
+      // The errands (`tasks.json`, `tasks.jsonl`) name who asked and what: they go, through the
+      // errand stores when given (their own copy goes too), else as files.
+      let taskFiles = 0;
+      if (errands && typeof errands.wipe === 'function') {
+        taskFiles = errands.wipe(guildId)?.files ?? 0;
+      } else {
+        for (const name of ['tasks.json', 'tasks.jsonl']) {
+          const file = path.join(guildDir(guildId), name);
+          if (fs.existsSync(file)) taskFiles += 1;
+          fs.rmSync(file, { force: true });
+        }
+      }
       // The record and the archive are this guild's memory too, the backfill tool's scratch
       // files (tools/backfill.mjs) quote it and the meaning index (`vectors/`) is built from it:
       // the vault holds their copy.
@@ -4199,6 +4232,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         recordFiles: files.record,
         archiveFiles: files.archive,
         backfillFiles: files.backfill,
+        taskFiles,
         vault: vaultPath,
       };
     },

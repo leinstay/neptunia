@@ -1510,6 +1510,7 @@ test('run: memory.wipe with the exact guild name wipes the guild and reports the
   for (const part of [
     'profiles removed: 2', 'private memory removed: 1 private layers', 'record files removed: 4', 'archive files removed: 2',
     'backfill files removed: 1', 'journal: kept (no journal is running)', 'snapshots that lost this server: 0',
+    'errand files removed: 0',
   ]) {
     assert.ok(result.includes(part), part);
   }
@@ -4131,7 +4132,7 @@ test('admin: memory forget reports the vault path and per-store counts', async (
   const { admin, store } = makeAdmin(rootDir, { hot, journal });
   store.forgetResult = {
     vault: '/data/κρύπτη/forget-123-2026-10-13T12-00-00-000Z',
-    counts: { profile: 1, private: 1, voice: 2, recent: 3, participation: 4, versions: 1, archive: 5, record: 6, journal: 7, requests: 8, snapshots: 9, diary: 10, backfill: 11 },
+    counts: { profile: 1, private: 1, voice: 2, recent: 3, participation: 4, versions: 1, archive: 5, record: 6, journal: 7, requests: 8, snapshots: 9, diary: 10, backfill: 11, errands: 12, errandLines: 13 },
   };
 
   const reply = await admin.run('memory.forget', { userId: '123' }, { guildId: 'g1' });
@@ -4141,7 +4142,7 @@ test('admin: memory forget reports the vault path and per-store counts', async (
   for (const part of [
     'profile: 1', 'private memory: 1', 'voice items: 2', 'recent lines: 3', 'participation messages: 4', 'version files: 1',
     'archive entries: 5', 'record lines: 6', 'journal records: 7', 'request dumps: 8', 'snapshots: 9', 'diary posts redacted: 10',
-    'backfill candidates: 11',
+    'backfill candidates: 11', 'errands: 12, errand lines: 13',
   ]) {
     assert.ok(reply.includes(part), part);
   }

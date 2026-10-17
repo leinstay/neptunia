@@ -877,7 +877,8 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | `opencodePath` | `"/opt/opencode/bin/opencode"` | Path to the OpenCode binary each task runs as a child process |
 | `toolResultChars` | `6000` | Cap on each tool result the agent's model sees (OpenCode `tool_output.max_bytes`) |
 | `maxDownloadBytes` | `20000000` | Size cap for a file the `web` agent downloads (bytes) |
-| `keepFilesHours` | `24` | Hours a task's output files are kept before deletion (applied core-side) |
+| `keepFilesHours` | `24` | Hours a task's output files are kept before deletion (applied by the runner: at its start and then hourly it deletes each task directory under its `out` whose newest file is older, never a running or queued task's; read from the config at each sweep) |
+| `recentLines` | `6` | Lines of the channel an errand was asked in that its runner gets as `context.recent` (author's display name and text, each cut to 200 characters), taken from the analyzer's buffer when the task is queued; at most 20, `0` sends none. A task asked in a private chat sends none |
 | `maxOpen` | `3` | Errands open (queued or running) at once, both agents together; one more is refused `cap-open` |
 | `resultMaxChars` | `3000` | Characters of an errand's result text in the `<task_result>` block of the turn its end opens |
 | `resultRetrySeconds` | `30` | Seconds before an errand's result turn is tried again while another turn holds the persona's attention (at most 20 tries; then the result waits in her `<tasks>` block) |

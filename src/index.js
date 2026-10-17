@@ -362,7 +362,7 @@ const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal
 // TODO(.agents spec 2026-10-17-protocol-package, "Code"): an errand's end becomes a
 // `task.completed` event through one core dispatcher; the turn it opens needs the whole task, not
 // the event's id/status/result, so the call stays direct in this stage.
-const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, getGuildId, log, onFinished: (task, guildId) => taskTurns.onFinished(task, guildId) });
+const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: store, getGuildId, log, onFinished: (task, guildId) => taskTurns.onFinished(task, guildId) });
 const turns = createTurnRunner({
   hot,
   store,
@@ -668,7 +668,8 @@ async function pruneJournalRequests(guildId) {
  */
 async function startJournal(guildId) {
   // memory.vaultDir and labels.memory.redaction, read now (store.js carries the same fallbacks).
-  const deps = { journal, vaultDir: hot.config.memory?.vaultDir, redaction: hot.prompts.labels?.memory?.redaction };
+  // `errands`: a forget's errands step (the tasks the member asked for, src/errands/service.js#forgetUser).
+  const deps = { journal, errands, vaultDir: hot.config.memory?.vaultDir, redaction: hot.prompts.labels?.memory?.redaction };
   await store.resumeForgets(guildId, deps);
   await store.applyLedger(guildId, deps);
   if (!journalOn()) return;
