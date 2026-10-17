@@ -18,7 +18,7 @@
 // the state dirty.
 
 import { memberIdOf as idOf } from '../memory/recent.js';
-import { mainChannelSet } from '../memory/update.js';
+import { mainChannelSet } from '../memory/index.js';
 import { MINUTE_MS, DAY_MS } from '../time.js';
 
 const SECOND_MS = 1000;

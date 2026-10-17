@@ -13,7 +13,7 @@
 // live conversation from a dead chat that somebody has just poked.
 
 import { clipWithEllipsis, mediaLabelFor, stickerLabelFor, stickerUrl } from './media.js';
-import { gifHandleOf } from '../memory/gifs.js';
+import { gifHandleOf } from '../memory/index.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from '../time.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { isWordChar, outsideUrls } from '../memory/mentions.js';

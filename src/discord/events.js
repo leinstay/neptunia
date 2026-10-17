@@ -45,13 +45,9 @@ import { routeFor } from '../behavior/turn.js';
 import { elsewhereSettings, pingsIn, pingStatus, recordPing, settleDueAt, stampPings } from '../behavior/elsewhere.js';
 import { privateGate } from '../behavior/private.js';
 import { isLimitNotice, pauseNotice, pauseNoticeMinutes, postLimitNotice, postPauseNotice } from '../behavior/limits.js';
-import { isVideoVisionOn } from '../memory/youtube-check.js';
+import { isVideoVisionOn, slimMessage, appendRevision, toRecordLine, gifOpts, participationSettings, recordFollowing } from '../memory/index.js';
 import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
-import { slimMessage } from '../memory/update.js';
-import { appendRevision, toRecordLine } from '../memory/record.js';
-import { gifOpts } from '../memory/gifs.js';
-import { participationSettings, recordFollowing } from '../memory/participation.js';
 
 /** @typedef {import('../behavior/turn.js').TurnOutcome} TurnOutcome */
 /** @typedef {import('../behavior/turn.js').TriggerKind} TriggerKind */

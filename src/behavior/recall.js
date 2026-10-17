@@ -47,7 +47,7 @@ import { estimateTokens } from '../llm/tokens.js';
 import { block, fillPromptTemplate } from './prompt.js';
 import { fill, formatTranscript, renderTranscript } from '../discord/format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
-import { episodeDate } from '../memory/episodes.js';
+import { episodeDate } from '../memory/index.js';
 import { TEACHER_TOKEN_RE, fromTokens, occursAsWordStem, tokenIds } from '../memory/mentions.js';
 import { foldText, memberIdOf } from '../memory/recent.js';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';

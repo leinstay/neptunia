@@ -13,7 +13,7 @@ import { block, fillPromptTemplate } from '../../src/behavior/prompt.js';
 import { parseJsonObject } from '../../src/llm/parse.js';
 import { clampText } from '../../src/memory/clamp.js';
 import { EPISODE_CHARS, isSameEpisode } from '../../src/memory/episodes.js';
-import { normalizeTopic } from '../../src/memory/interests.js';
+import { normalizeTopic } from '../../src/memory/index.js';
 import { ID_DIGITS, TEACHER_TOKEN_RE, URL_PATTERN, redactUser, tokenIds } from '../../src/memory/mentions.js';
 import { MEMORY_LIMIT_DEFAULTS } from '../../src/memory/text-limits.js';
 

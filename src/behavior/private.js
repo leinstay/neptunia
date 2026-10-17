@@ -7,8 +7,7 @@
 // object for rendering only, and the public affinity score alone decides the
 // gate -- see docs/en/prompt-contract.md.
 
-import { normalizeTopic } from '../memory/interests.js';
-import { clampScore } from '../memory/affinity.js';
+import { normalizeTopic, clampScore } from '../memory/index.js';
 import { countToday } from '../time.js';
 
 /** The fields of the private file's `replies` counter (`{ day, count }`), counted by src/memory/store.js#bumpPrivateReplies. */

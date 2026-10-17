@@ -56,7 +56,7 @@ import { roleModel } from '../llm/roles.js';
 import { parseOutput } from '../llm/parse.js';
 import { log } from '../log.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
-import { findGif } from '../memory/gifs.js';
+import { findGif } from '../memory/index.js';
 import { tokenIds } from '../memory/mentions.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { checkSkill, listSkills } from '../skills/gateway.js';

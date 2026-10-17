@@ -16,7 +16,7 @@
 import { createHash } from 'node:crypto';
 import { fill } from '../discord/format.js';
 import { oneLine } from '../memory/clamp.js';
-import { isOpen } from '../memory/interests.js';
+import { isOpen } from '../memory/index.js';
 import { outsideUrls } from '../memory/mentions.js';
 
 /** The first character of every handle: tells a handle from a name after `@`. */

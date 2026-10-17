@@ -9,7 +9,7 @@
 import { CliError, parseFlags } from './cli.mjs';
 import { escapeHtml } from './pair.mjs';
 import { costOf, percentile } from './recall-eval.mjs';
-import { createDescriber } from '../../src/memory/describe.js';
+import { createDescriber } from '../../src/memory/index.js';
 import { classifyAttachment, discordCdnVideo } from '../../src/discord/media.js';
 import { videoSiteFor } from '../../src/discord/video-sites.js';
 import { PURPOSE_ROLES } from '../../src/llm/roles.js';

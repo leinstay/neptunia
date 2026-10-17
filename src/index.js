@@ -13,13 +13,26 @@ import { createHot } from './hot.js';
 import { log, onLog } from './log.js';
 import { createMetrics, metricsTap } from './ops/metrics.js';
 import { createUsage, usageTap } from './ops/usage.js';
-import { createStore } from './memory/store.js';
-import { createAppendStore } from './memory/append-store.js';
-import { createJournal } from './memory/journal.js';
-import { createRecord } from './memory/record.js';
-import { createArchive } from './memory/archive.js';
-import { createVectors } from './memory/vectors.js';
-import { createEmbedder as createEmbedQueue } from './memory/embedder.js';
+import {
+  createStore,
+  createAppendStore,
+  createJournal,
+  createRecord,
+  createArchive,
+  createVectors,
+  createEmbedder as createEmbedQueue,
+  createMemoryUpdater,
+  createWarmup,
+  createPortraitScheduler,
+  createNotesScheduler,
+  createEmojiBackfill,
+  createGifBackfill,
+  createGifRecache,
+  createDescriber,
+  createAvatarQueue,
+  memberView,
+  startYoutubeCheck,
+} from './memory/index.js';
 import { mirrorDryRun } from './behavior/limits.js';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
@@ -37,17 +50,6 @@ import { createAroundStore } from './discord/around.js';
 import { applyReactionEvent, createReactorStore, reactionEventOf } from './discord/reactors.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
 import { backfillDiary, createDiary } from './behavior/diary.js';
-import { createMemoryUpdater } from './memory/update.js';
-import { createWarmup } from './memory/warmup.js';
-import { createPortraitScheduler } from './memory/portrait.js';
-import { createNotesScheduler } from './memory/notes-refresh.js';
-import { createEmojiBackfill } from './memory/emoji-backfill.js';
-import { createGifBackfill } from './memory/gif-backfill.js';
-import { createGifRecache } from './memory/gif-recache.js';
-import { createDescriber } from './memory/describe.js';
-import { createAvatarQueue } from './memory/avatar-queue.js';
-import { memberView } from './memory/avatars.js';
-import { startYoutubeCheck } from './memory/youtube-check.js';
 import { createImageFetcher } from './discord/fetch-image.js';
 import { createVideoFetcher } from './discord/fetch-video.js';
 import { createPageFetcher } from './web/fetch-page.js';
