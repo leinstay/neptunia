@@ -257,3 +257,26 @@ test('task store: no out dir at all (no runner on this host) expires nothing', a
     assert.equal(store.get(task.id).filesExpired, undefined);
   });
 });
+
+test('task store: forgetUser drops the member\'s tasks and transition lines atomically; wipe deletes both files', async () => {
+  await withCapturedLogs(() => {
+    const { store, dataDir } = makeStore({ agents: { maxOpen: 5 } });
+    const mine = store.add(asked).task;
+    const theirs = store.add({ ...asked, requester: { userId: 'u2', kind: 'member' } }).task;
+    store.start(mine.id);
+    const logFile = path.join(dataDir, 'guilds', 'g1', 'tasks.jsonl');
+    fs.appendFileSync(logFile, 'not json u1\nnot json u9\n');
+    const vault = path.join(dataDir, 'vault', 'forget-u1');
+    assert.deepEqual(store.forgetUser('u1', { vault }), { removed: 1, lines: 3 });
+    assert.deepEqual(store.recent(10).map((t) => t.id), [theirs.id]);
+    const left = fs.readFileSync(logFile, 'utf8').trim().split('\n');
+    assert.deepEqual(left.slice(-1), ['not json u9']);
+    assert.equal(JSON.parse(left[0]).id, theirs.id);
+    assert.equal(fs.readFileSync(path.join(vault, 'guilds', 'g1', 'tasks.jsonl.dropped.jsonl'), 'utf8').trim().split('\n').length, 3);
+    assert.deepEqual(store.forgetUser('u1'), { removed: 0, lines: 0 });
+    assert.deepEqual(store.wipe(), { files: 2 });
+    assert.equal(fs.existsSync(logFile), false);
+    assert.deepEqual(store.recent(10), []);
+    assert.deepEqual(store.wipe(), { files: 0 });
+  });
+});

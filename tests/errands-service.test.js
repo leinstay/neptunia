@@ -142,3 +142,35 @@ test('errands service: without the role\'s key no secrets are sent (never the ma
     cleanup();
   }
 });
+
+test('errands service: forgetUser cancels the member\'s running task at its runner, then drops their tasks; wipe empties the guild\'s', async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
+  const gates = new Map();
+  const cancels = [];
+  const client = {
+    configured: () => true,
+    run: (task) => new Promise((resolve) => gates.set(task.id, resolve)),
+    cancel(task) {
+      cancels.push(task.id);
+      gates.get(task.id)?.({ status: 'cancelled', error: 'cancelled' });
+      return true;
+    },
+  };
+  const log = fakeLog();
+  const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log });
+  const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn() });
+  const mine = errands.submit(ask('web')).task.id;
+  const theirs = errands.submit({ ...ask('web'), requester: { userId: '8', kind: 'member' } }).task.id;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(errands.forgetUser('g1', '7'), { removed: 1, lines: 2 });
+  assert.deepEqual(cancels, [mine], 'only the member\'s running task is cancelled');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(errands.store('g1').get(mine), null, 'its late end writes nothing back');
+  assert.ok(errands.store('g1').get(theirs));
+  gates.get(theirs)({ status: 'done', result: { text: 'ok' } });
+  await errands.idle();
+  assert.deepEqual(errands.wipe('g1'), { files: 2 });
+  assert.deepEqual(errands.store('g1').recent(10), []);
+  fs.rmSync(rootDir, { recursive: true, force: true });
+});

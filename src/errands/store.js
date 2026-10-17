@@ -16,8 +16,12 @@
 // result lists, inside `agents.<profile>.out`). The runner deletes a task's directory after
 // `agents.keepFilesHours` (src/agent-runner/sweep.js); a finished task whose result lists files
 // is marked `filesExpired` once its directory is gone from an out dir that is still there (checked
-// when the tasks are read), and its handles name nothing from then on. Logs carry ids and codes,
-// never text.
+// when the tasks are read), and its handles name nothing from then on. A forget of a member
+// (src/memory/store.js#forgetUser, its `errands` step) removes every task they asked for from
+// tasks.json and rewrites tasks.jsonl without their lines (temp file + rename), copying both into
+// the forget's vault first; a wipe (src/memory/store.js#wipeGuild) deletes both files. Both
+// change the store's own copy too, so a task still running cannot write a forgotten one back.
+// Logs carry ids and codes, never text.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -149,6 +153,80 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   /** The live `agents` section. */
   function agentsConfig() {
     return config()?.agents ?? {};
+  }
+
+  /** Whether `task` was asked for by `userId`. */
+  function askedBy(task, userId) {
+    return task?.requester?.userId === userId;
+  }
+
+  /**
+   * Forget one member here: every task whose `requester.userId` is theirs leaves the list
+   * (tasks.json written at once), and tasks.jsonl is rewritten without their transition lines
+   * (a temp file renamed over it; a line that does not parse goes when it names the member).
+   * With `vault` (the forget's vault, as absolute path), tasks.json as it was and the dropped
+   * lines (`tasks.jsonl.dropped.jsonl`) are copied there first, under their paths below `data/`.
+   * Idempotent. Throws on a write error (the forget's step then runs again at the next start).
+   * @param {string} userId
+   * @param {{ vault?: string|null }} [options]
+   * @returns {{ removed: number, lines: number }}
+   */
+  function forgetUser(userId, { vault = null } = {}) {
+    const id = String(userId ?? '');
+    if (!id) return { removed: 0, lines: 0 };
+    const victims = state.tasks.filter((task) => askedBy(task, id));
+    let text = '';
+    try {
+      text = fs.readFileSync(logFile, 'utf8');
+    } catch (err) {
+      if (err?.code !== 'ENOENT') throw err;
+    }
+    const kept = [];
+    const dropped = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      let value = null;
+      try {
+        value = JSON.parse(line);
+      } catch {
+        value = null;
+      }
+      const theirs = value ? askedBy(value, id) : line.includes(id);
+      (theirs ? dropped : kept).push(line);
+    }
+    if (vault && (victims.length > 0 || dropped.length > 0)) {
+      const base = path.join(vault, path.relative(dataDir, dir));
+      fs.mkdirSync(base, { recursive: true });
+      if (fs.existsSync(listFile)) fs.copyFileSync(listFile, path.join(base, 'tasks.json'));
+      if (dropped.length > 0) fs.writeFileSync(path.join(base, 'tasks.jsonl.dropped.jsonl'), dropped.map((line) => `${line}\n`).join(''));
+    }
+    if (victims.length > 0) {
+      state.tasks = state.tasks.filter((task) => !askedBy(task, id));
+      writeJsonAtomic(listFile, { tasks: state.tasks, daily: state.daily });
+    }
+    if (dropped.length > 0) {
+      const tmp = `${logFile}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, kept.map((line) => `${line}\n`).join(''));
+      fs.renameSync(tmp, logFile);
+    }
+    log.info('errands: member forgotten', { guildId: String(guildId), userId: id, removed: victims.length, lines: dropped.length });
+    return { removed: victims.length, lines: dropped.length };
+  }
+
+  /**
+   * The wipe: tasks.json and tasks.jsonl deleted, the list and the day's counters emptied (a task
+   * still running ends into nothing). Returns how many files were there.
+   * @returns {{ files: number }}
+   */
+  function wipe() {
+    let files = 0;
+    for (const file of [listFile, logFile]) {
+      if (fs.existsSync(file)) files += 1;
+      fs.rmSync(file, { force: true });
+    }
+    state.tasks = [];
+    state.daily = {};
+    return { files };
   }
 
   /** The out directory of `agent`: `agents.<agent>.out`, else the profile's; null when there is none. */
@@ -394,23 +472,36 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return ids.length;
   }
 
-  return { add, start, finish, cancel, markSeen, open, recent, unseen, get, budget, today, fileOf, failOpen, expireFiles, guildId: String(guildId) };
+  return { add, start, finish, cancel, markSeen, open, recent, unseen, get, budget, today, fileOf, failOpen, expireFiles, forgetUser, wipe, guildId: String(guildId) };
 }
 
 /**
  * One task store per guild, created on first use over the same `data/` directory, live config
- * and journal (createTaskStore).
+ * and journal (createTaskStore). `forgetUser` and `wipe` are what the memory's deleters are
+ * handed (src/memory/store.js#forgetUser's `errands`, #wipeGuild's `errands`): the guild's
+ * store does the work, so its own copy changes with its files.
  * @param {{ dataDir: string, config?: () => object, journal?: object|null, now?: () => number, log?: object }} options
- * @returns {{ get(guildId: string): ReturnType<typeof createTaskStore> }}
+ * @returns {{ get(guildId: string): ReturnType<typeof createTaskStore>,
+ *   forgetUser(guildId: string, userId: string, options?: { vault?: string|null }): { removed: number, lines: number },
+ *   wipe(guildId: string): { files: number } }}
  */
 export function createTaskStores({ dataDir, config = () => ({}), journal = null, now = Date.now, log = defaultLog }) {
   const stores = new Map();
-  return {
+  const tasks = {
     get(guildId) {
       const key = String(guildId ?? '');
       if (!key) return null;
       if (!stores.has(key)) stores.set(key, createTaskStore({ dataDir, guildId: key, config, journal, now, log }));
       return stores.get(key);
     },
+    forgetUser(guildId, userId, options = {}) {
+      const store = tasks.get(guildId);
+      return store ? store.forgetUser(userId, options) : { removed: 0, lines: 0 };
+    },
+    wipe(guildId) {
+      const store = tasks.get(guildId);
+      return store ? store.wipe() : { files: 0 };
+    },
   };
+  return tasks;
 }

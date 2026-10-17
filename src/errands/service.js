@@ -191,10 +191,37 @@ export function createErrandService({ client, stores, hot, env = {}, getGuildId 
     return failed;
   }
 
+  /**
+   * A forget of member `userId` (src/memory/store.js#forgetUser's `errands` step): their open
+   * tasks are cancelled at their runners first (the runner stops working on their goal), then the
+   * guild's store drops every task they asked for and their lines (src/errands/store.js#forgetUser,
+   * `vault` as given). `{ removed, lines }`.
+   */
+  function forgetUser(guildId, userId, options = {}) {
+    const store = storeOf(guildId);
+    if (!store) return { removed: 0, lines: 0 };
+    const id = String(userId ?? '');
+    for (const task of store.open()) {
+      if (task.requester?.userId !== id || task.state !== 'running') continue;
+      try {
+        client.cancel?.({ agent: task.agent, id: task.id });
+      } catch (err) {
+        log.warn('errands: cancel failed', { id: task.id, agent: task.agent, error: err });
+      }
+    }
+    return stores.forgetUser ? stores.forgetUser(store.guildId, id, options) : store.forgetUser(id, options);
+  }
+
+  /** A wipe of the guild (src/memory/store.js#wipeGuild's `errands`): its tasks' files and list gone. `{ files }`. */
+  function wipe(guildId) {
+    const store = storeOf(guildId);
+    return store ? store.wipe() : { files: 0 };
+  }
+
   /** Wait for the runs in flight (tests). */
   async function idle() {
     while (running.size > 0) await Promise.allSettled([...running.values()]);
   }
 
-  return { submit, cancel, budget, view, fileOf, markSeen, start, idle, store: storeOf, limitsOf };
+  return { submit, cancel, budget, view, fileOf, markSeen, start, forgetUser, wipe, idle, store: storeOf, limitsOf };
 }

@@ -668,7 +668,8 @@ async function pruneJournalRequests(guildId) {
  */
 async function startJournal(guildId) {
   // memory.vaultDir and labels.memory.redaction, read now (store.js carries the same fallbacks).
-  const deps = { journal, vaultDir: hot.config.memory?.vaultDir, redaction: hot.prompts.labels?.memory?.redaction };
+  // `errands`: a forget's errands step (the tasks the member asked for, src/errands/service.js#forgetUser).
+  const deps = { journal, errands, vaultDir: hot.config.memory?.vaultDir, redaction: hot.prompts.labels?.memory?.redaction };
   await store.resumeForgets(guildId, deps);
   await store.applyLedger(guildId, deps);
   if (!journalOn()) return;
