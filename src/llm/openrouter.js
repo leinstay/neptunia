@@ -298,25 +298,28 @@ export class DailyCapError extends Error {}
 
 /**
  * An answered request that OpenRouter served from its own capacity (`usage.is_byok === false`)
- * while `llm.byokRequired` is on: the operator routes every model through their own provider
- * accounts, so such an answer is a routing mistake that spent OpenRouter credits. Thrown after
- * the answer arrived, never retried (it was billed already); the caller's ordinary error path runs.
+ * on a route marked `byok: true`: the operator set that route to their own provider accounts,
+ * so such an answer is a routing mistake that spent OpenRouter credits. Thrown after the answer
+ * arrived, never retried (it was billed already); the caller's ordinary error path runs.
  * Message: `not byok: <model> via <provider>`.
  */
 export class NotByokError extends Error {}
 
 /**
- * Throws a `NotByokError` when `llm.byokRequired` is exactly `true` and the answer's usage says
- * `is_byok: false`, after a `llm: not byok` warn line with `fields` (the usage line's own fields:
- * counts, ids and codes, never prompt or answer text). A missing or non-boolean `is_byok` passes:
- * an answer without a usage block is not a violation. With the setting off nothing happens.
- * The one check, shared by the chat client and the embeddings client (src/llm/embed.js).
- * @param {object|undefined} llmConfig  The live `config.llm`.
- * @param {object} usage                The answer's `usage` object (`{}` when absent).
- * @param {object} fields               The fields of the request's `llm: usage` line.
+ * Throws a `NotByokError` when the request's route is marked `byok: true` (exactly) and the
+ * answer's usage says `is_byok: false`, after a `llm: not byok` warn line with `fields` (the usage
+ * line's own fields: counts, ids and codes, never prompt or answer text). Exists because BYOK is a
+ * property of a route: the operator runs some models on their own provider accounts and others,
+ * knowingly, on OpenRouter's capacity. No route, a route without `byok` or with any other value,
+ * and a missing or non-boolean `is_byok` all pass: an answer without a usage block is not a
+ * violation. The one check, shared by the chat client, the embeddings client (src/llm/embed.js)
+ * and the image client (src/llm/images.js).
+ * @param {object|undefined} route  The request's resolved route (what `resolveProvider` returned).
+ * @param {object} usage            The answer's `usage` object (`{}` when absent).
+ * @param {object} fields           The fields of the request's `llm: usage` line.
  */
-export function assertByok(llmConfig, usage, fields) {
-  if (llmConfig?.byokRequired !== true || usage?.is_byok !== false) return;
+export function assertByok(route, usage, fields) {
+  if (route?.byok !== true || usage?.is_byok !== false) return;
   log.warn('llm: not byok', fields);
   throw new NotByokError(`not byok: ${fields.model ?? 'unknown model'} via ${fields.provider ?? 'unknown provider'}`);
 }
@@ -473,6 +476,20 @@ export function resolveProvider(model, { override, byModel, fallback, role } = {
   const route = matchRoute(model, byModel, role);
   if (route) return route.value;
   return isPlainObject(fallback) ? fallback : undefined;
+}
+
+/**
+ * The request body's `provider` object for a resolved route: the route without its `byok` key,
+ * the engine's own mark (see `assertByok`), never OpenRouter's. A route without the key is
+ * returned as is; one with it is copied, never mutated. Undefined stays undefined. The one place
+ * a route becomes a body, used by the chat, embeddings and image clients.
+ * @param {object|undefined} route  What `resolveProvider` returned.
+ * @returns {object|undefined}
+ */
+export function providerBodyOf(route) {
+  if (!isPlainObject(route) || !Object.hasOwn(route, 'byok')) return route;
+  const { byok: _byok, ...body } = route;
+  return body;
 }
 
 const numberOrNull = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -1206,14 +1223,15 @@ export function createLlm({
     // verbatim and read fresh on every call so it is hot-reloadable: a plain-object
     // `options.provider`, else the `llm.providerByModel` entry for this request's model
     // and `options.role` (see `matchRoute`), else `llm.provider`. When none applies the
-    // field is omitted -- OpenRouter then picks providers itself.
+    // field is omitted -- OpenRouter then picks providers itself. The route's own `byok`
+    // mark stays out of the body (`providerBodyOf`) and is checked on the answer (`assertByok`).
     const provider = resolveProvider(body.model, {
       override: options.provider,
       byModel: cfg.providerByModel,
       fallback: cfg.provider,
       role: options.role,
     });
-    if (provider) body.provider = provider;
+    if (provider) body.provider = providerBodyOf(provider);
     if (isPlainObject(options.reasoning)) body.reasoning = options.reasoning;
     // `options.purpose` and `options.origin` are for the usage line only: never put on `body`.
 
@@ -1260,7 +1278,7 @@ export function createLlm({
       if (options.limits) reportLimits(options.limits, { where: options.purpose ?? options.role ?? 'request', estimated, promptTokens, completion: usage.completion_tokens, maxTokens: body.max_tokens });
       // `answer` runs once the retry loop or the hedge has returned, so a refused answer is never
       // re-sent: it was billed already, and the caller's ordinary error path takes it from here.
-      assertByok(getConfig().llm, usage, usageFields);
+      assertByok(provider, usage, usageFields);
       // `json.provider` is OpenRouter's own name for whichever upstream provider
       // actually served the request (undefined when the response omits it) --
       // surfaced so `/nep ping` can report it without a second request shape.

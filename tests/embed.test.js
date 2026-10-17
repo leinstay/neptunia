@@ -188,12 +188,16 @@ test('embed: one llm: usage line with role embedding, counts and cost, never the
   assert.equal(EMBED_ROLE, 'embedding');
 });
 
-test('embed: with llm.byokRequired, an answer with is_byok false throws NotByokError after the usage line and a not-byok warning, never retried', async () => {
+/** The test config with the embedding model's route set to `route` (undefined: no route at all). */
+const byokConfig = (route) => config({ llm: { providerByModel: route === undefined ? {} : { 'openai/@embedding': route } } });
+const BYOK_ROUTE = { only: ['openai'], allow_fallbacks: false, byok: true };
+
+test('embed: on a byok route, an answer with is_byok false throws NotByokError after the usage line and a not-byok warning, never retried', async () => {
   const answer = embeddingsOf([[1, 0]], { usage: { prompt_tokens: 7, cost: 0.0001, is_byok: false } });
   const { embedder, sent } = makeEmbedder([answer, embeddingsOf([[1, 0]])]);
   const { logs } = await withCapturedLogs(() =>
     assert.rejects(
-      embedder.embed(['Ωmega secret'], { config: config({ llm: { byokRequired: true } }), purpose: 'search' }),
+      embedder.embed(['Ωmega secret'], { config: byokConfig(BYOK_ROUTE), purpose: 'search' }),
       (err) => err instanceof NotByokError && err.message === 'not byok: openai/text-embedding-3-large via OpenAI',
     ),
   );
@@ -204,6 +208,30 @@ test('embed: with llm.byokRequired, an answer with is_byok false throws NotByokE
   assert.equal(warn[0].level, 'warn');
   assert.equal(warn[0].byok, false);
   assert.ok(!JSON.stringify(logs).includes('secret'), 'no input text in any log line');
+});
+
+test('embed: without a route marked byok exactly true, or without is_byok false, the answer passes silently', async () => {
+  const cases = [
+    [undefined, false],
+    [{ only: ['openai'] }, false],
+    [{ only: ['openai'], byok: false }, false],
+    [{ only: ['openai'], byok: 'true' }, false],
+    [BYOK_ROUTE, undefined],
+    [BYOK_ROUTE, true],
+  ];
+  for (const [route, isByok] of cases) {
+    const usage = { prompt_tokens: 7, cost: 0.0001, ...(isByok === undefined ? {} : { is_byok: isByok }) };
+    const { embedder } = makeEmbedder([embeddingsOf([[1, 0]], { usage })]);
+    const { result, logs } = await withCapturedLogs(() => embedder.embed(['a'], { config: byokConfig(route) }));
+    assert.equal(result.length, 1, JSON.stringify([route, isByok]));
+    assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0, JSON.stringify([route, isByok]));
+  }
+});
+
+test('embed: the body\'s provider never carries byok', async () => {
+  const { embedder, sent } = makeEmbedder([embeddingsOf([[1, 0]])]);
+  await withCapturedLogs(() => embedder.embed(['a'], { config: byokConfig(BYOK_ROUTE) }));
+  assert.deepEqual(sent[0].body.provider, { only: ['openai'], allow_fallbacks: false });
 });
 
 test('embed: the attempt is cut at llm.helperTimeoutMs; an external abort is never retried', async () => {

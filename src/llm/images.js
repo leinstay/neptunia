@@ -11,7 +11,18 @@
 import { log } from '../log.js';
 import { isPlainObject } from '../config.js';
 import { bumpDaily, countToday, dailyCounter } from '../time.js';
-import { RETRY_STATUS, apiUrl, backoffMs, dailyCapOf, openRouterHeaders, resolveProvider, sleep } from './openrouter.js';
+import {
+  NotByokError,
+  RETRY_STATUS,
+  apiUrl,
+  assertByok,
+  backoffMs,
+  dailyCapOf,
+  openRouterHeaders,
+  providerBodyOf,
+  resolveProvider,
+  sleep,
+} from './openrouter.js';
 import { roleModel } from './roles.js';
 
 const MODERATION_STATUS = new Set([400, 403]);
@@ -81,19 +92,18 @@ export function familyOf(model) {
 
 /**
  * The request body for one generation; `null`/undefined config values omit their fields.
- * `byModel` is `llm.providerByModel`, read by the caller at the moment of use.
+ * `routing` is the generation's resolved route (see `generate`), read at the moment of use.
  */
-function buildBody({ cfg, model, byModel, family, prompt, reference }) {
+function buildBody({ cfg, model, routing, family, prompt, reference }) {
   const body = { model, prompt };
   if (cfg.outputFormat != null) body.output_format = cfg.outputFormat;
   if (cfg.aspectRatio != null && !(family === 'google' && cfg.aspectRatio === 'auto')) {
     body.aspect_ratio = cfg.aspectRatio;
   }
   // Routing first (the `llm.providerByModel` entry for the model and the `drawing` role, see
-  // `matchRoute`, else `image.provider`; copied, never mutated), then the family's own
-  // provider options over it.
-  const routing = resolveProvider(model, { byModel, fallback: cfg.provider, role: IMAGE_ROLE });
-  const provider = routing ? { ...routing } : {};
+  // `matchRoute`, else `image.provider`; without its `byok` mark, see `providerBodyOf`; copied,
+  // never mutated), then the family's own provider options over it.
+  const provider = routing ? { ...providerBodyOf(routing) } : {};
   if (family === 'openai') {
     const openai = cfg.openai ?? {};
     if (openai.quality != null) body.quality = openai.quality;
@@ -188,8 +198,9 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
       throw err;
     }
 
-    const byModel = getConfig().llm?.providerByModel;
-    const body = JSON.stringify(buildBody({ cfg, model, byModel, family, prompt, reference }));
+    // The route of this generation: its body's `provider` and, on the answer, its `byok` mark.
+    const routing = resolveProvider(model, { byModel: getConfig().llm?.providerByModel, fallback: cfg.provider, role: IMAGE_ROLE });
+    const body = JSON.stringify(buildBody({ cfg, model, routing, family, prompt, reference }));
     // Normalised so a negative, NaN or non-numeric value still sends one request.
     const retries = Math.max(0, Math.floor(Number(cfg.retries ?? 1)) || 0);
     const timeoutMs = cfg.timeoutMs ?? 120000;
@@ -257,7 +268,25 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
       const cost = json.usage?.cost ?? null;
       const usage = json.usage ?? null;
       const seconds = Math.round((now() - started) / 100) / 10;
-      log.info('images: generated', { model, family, seconds, cost, bytes: buffer.length, reference: Boolean(reference) });
+      const usageFields = {
+        role: IMAGE_ROLE,
+        model,
+        provider: typeof json.provider === 'string' && json.provider ? json.provider : null,
+        family,
+        seconds,
+        cost,
+        bytes: buffer.length,
+        reference: Boolean(reference),
+      };
+      log.info('images: generated', usageFields);
+      // A picture OpenRouter served from its own capacity on a route marked `byok: true` was
+      // billed already: never retried, it takes the ordinary error path of an answered request.
+      try {
+        assertByok(routing, isPlainObject(usage) ? usage : {}, usageFields);
+      } catch (err) {
+        if (!(err instanceof NotByokError)) throw err;
+        throw fail(new ImageGenError('error', err.message, { cause: err }), attempt);
+      }
       return { buffer, mediaType, cost, usage, model, seconds };
     }
     throw fail(lastError, attempt - 1);

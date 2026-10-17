@@ -10,6 +10,8 @@ import {
   TokenLimitError,
   DailyCapError,
   NotByokError,
+  assertByok,
+  providerBodyOf,
   LLM_DAILY,
   llmCountToday,
   railReason,
@@ -2150,14 +2152,17 @@ test('complete: the usage line keeps numbers, booleans and ids only; a value of 
   assert.deepEqual(usageFields(logs), [{ role: null, model: 'test-model', ...NO_USAGE }]);
 });
 
-// --- llm.byokRequired: an answer OpenRouter served from its own capacity is a failed request ---
+// --- byok routes: an answer OpenRouter served from its own capacity on a `byok: true` route is a failed request ---
 
-/** A client whose one answer carries `usage` (undefined: no usage block), counting its sends. */
-function byokLlm(llmOverrides, usage) {
+const BYOK_ROUTE = { only: ['amazon-bedrock'], allow_fallbacks: false, byok: true };
+
+/** A client whose one answer carries `usage` (undefined: no usage block), counting its sends;
+ * `route` (undefined: none) routes `vendor/` for every role. */
+function byokLlm(route, usage) {
   const sent = [];
   const llm = createLlm({
     apiKey: 'k',
-    getConfig: () => baseConfig(llmOverrides),
+    getConfig: () => baseConfig({ provider: null, providerByModel: route === undefined ? {} : { 'vendor/': route } }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
     fetchImpl: async (url, init) => {
@@ -2173,8 +2178,8 @@ function byokLlm(llmOverrides, usage) {
   return { llm, sent };
 }
 
-test('complete: byokRequired with is_byok false throws NotByokError after the usage line and a not-byok warning, never re-sent', async () => {
-  const { llm, sent } = byokLlm({ byokRequired: true }, { prompt_tokens: 10, cost: 0.01, is_byok: false });
+test('complete: a byok route with is_byok false throws NotByokError after the usage line and a not-byok warning, never re-sent', async () => {
+  const { llm, sent } = byokLlm(BYOK_ROUTE, { prompt_tokens: 10, cost: 0.01, is_byok: false });
   const { logs } = await withCapturedLogs(() =>
     assert.rejects(
       llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'voice', model: 'vendor/model-x' }),
@@ -2193,21 +2198,53 @@ test('complete: byokRequired with is_byok false throws NotByokError after the us
   assert.ok(!text.includes('the prompt itself') && !text.includes('the answer itself'), 'no prompt or answer text');
 });
 
-test('complete: byokRequired passes an answer with is_byok true, a non-boolean one or no usage block', async () => {
+test('complete: a byok route passes an answer with is_byok true, a non-boolean one or no usage block', async () => {
   for (const usage of [{ prompt_tokens: 10, is_byok: true }, { prompt_tokens: 10 }, { prompt_tokens: 10, is_byok: 'false' }, undefined]) {
-    const { llm } = byokLlm({ byokRequired: true }, usage);
-    const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }]));
+    const { llm } = byokLlm(BYOK_ROUTE, usage);
+    const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { model: 'vendor/model-x' }));
     assert.equal(result.text, 'the answer itself', JSON.stringify(usage));
     assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0, JSON.stringify(usage));
   }
 });
 
-test('complete: without byokRequired exactly true, an answer with is_byok false passes unchanged', async () => {
-  for (const overrides of [{}, { byokRequired: false }, { byokRequired: 'true' }, { byokRequired: 1 }]) {
-    const { llm } = byokLlm(overrides, { prompt_tokens: 10, is_byok: false });
-    const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }]));
-    assert.equal(result.text, 'the answer itself', JSON.stringify(overrides));
-    assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0, JSON.stringify(overrides));
+test('complete: without a route marked byok exactly true, an answer with is_byok false passes unchanged', async () => {
+  const routes = [undefined, { only: ['amazon-bedrock'] }, { only: ['amazon-bedrock'], byok: false }, { only: ['amazon-bedrock'], byok: 'true' }, { only: ['amazon-bedrock'], byok: 1 }];
+  for (const route of routes) {
+    const { llm } = byokLlm(route, { prompt_tokens: 10, is_byok: false });
+    const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { model: 'vendor/model-x' }));
+    assert.equal(result.text, 'the answer itself', JSON.stringify(route));
+    assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0, JSON.stringify(route));
+  }
+});
+
+test('complete: a route that matches another model is not this request\'s: is_byok false passes', async () => {
+  const { llm } = byokLlm(BYOK_ROUTE, { prompt_tokens: 10, is_byok: false });
+  const { result } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { model: 'other/model-y' }));
+  assert.equal(result.text, 'the answer itself');
+});
+
+test('complete: the body\'s provider never carries byok, and the configured route is not mutated', async () => {
+  const route = { ...BYOK_ROUTE };
+  const { llm, sent } = byokLlm(route, { prompt_tokens: 10, is_byok: true });
+  await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { model: 'vendor/model-x' }));
+  assert.deepEqual(JSON.parse(sent[0]).provider, { only: ['amazon-bedrock'], allow_fallbacks: false });
+  assert.equal(route.byok, true, 'the config value keeps its mark');
+});
+
+test('providerBodyOf: drops byok only, returns a route without it as is, keeps undefined', () => {
+  const plain = { only: ['a'] };
+  assert.equal(providerBodyOf(plain), plain);
+  assert.deepEqual(providerBodyOf({ only: ['a'], byok: true }), { only: ['a'] });
+  assert.deepEqual(providerBodyOf({ order: ['a'], byok: false }), { order: ['a'] });
+  assert.equal(providerBodyOf(undefined), undefined);
+});
+
+test('assertByok: refuses only a route with byok exactly true and is_byok exactly false', async () => {
+  const fields = { model: 'm', provider: 'p' };
+  const { logs } = await withCapturedLogs(() => assert.throws(() => assertByok({ byok: true }, { is_byok: false }, fields), NotByokError));
+  assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 1);
+  for (const [route, usage] of [[undefined, { is_byok: false }], [{}, { is_byok: false }], [{ byok: 'true' }, { is_byok: false }], [{ byok: true }, {}], [{ byok: true }, { is_byok: true }], [{ byok: true }, undefined]]) {
+    assert.doesNotThrow(() => assertByok(route, usage, fields), JSON.stringify([route, usage]));
   }
 });
 

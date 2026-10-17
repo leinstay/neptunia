@@ -3587,12 +3587,36 @@ test('run: route.set validates the prefix, the providers and the role, writing n
     // An agent role's OpenCode worker never reads llm.providerByModel: no route may name it.
     [{ model: 'openrouter/', providers: 'openai', role: 'agent.web' }, /unknown role: agent\.web/],
     [{ model: 'openrouter/', providers: 'openai', role: 'agent.dev' }, /unknown role: agent\.dev/],
+    [{ model: 'google/', providers: 'google-vertex', byok: 'yes' }, /byok must be true or false/],
+    [{ model: 'google/', providers: 'google-vertex', byok: 'TRUE' }, /byok must be true or false/],
+    [{ model: 'google/', providers: 'google-vertex', byok: 1 }, /byok must be true or false/],
   ];
   for (const [args, message] of bad) {
     await assert.rejects(() => admin.run('route.set', args, {}), message, JSON.stringify(args));
   }
   assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
   assert.equal(hot.reloadConfigCalls, 0);
+});
+
+test('run: route.set byok true writes byok: true and says byok: on; false or absent writes no key and says byok: off', async () => {
+  const rootDir = makeRoot();
+  const { admin } = makeAdmin(rootDir);
+
+  const on = await admin.run('route.set', { model: 'anthropic/', providers: 'amazon-bedrock', byok: 'true' }, {});
+  const off = await admin.run('route.set', { model: 'google/', providers: 'google-vertex', byok: 'false' }, {});
+  const absent = await admin.run('route.set', { model: 'openai/', providers: 'openai' }, {});
+  // A persona's call carries the flag as a boolean.
+  await admin.run('route.set', { model: 'x-ai/', providers: 'xai', byok: true }, {});
+
+  assert.deepEqual(readLocal(rootDir).llm.providerByModel, {
+    'anthropic/': { only: ['amazon-bedrock'], allow_fallbacks: false, byok: true },
+    'google/': { only: ['google-vertex'], allow_fallbacks: false },
+    'openai/': { only: ['openai'], allow_fallbacks: false },
+    'x-ai/': { only: ['xai'], allow_fallbacks: false, byok: true },
+  });
+  assert.match(on, /fallbacks: off, byok: on /);
+  assert.match(off, /fallbacks: off, byok: off /);
+  assert.match(absent, /fallbacks: off, byok: off /);
 });
 
 test('run: route.remove deletes only the named key; an unknown route is an error and writes nothing', async () => {
@@ -3650,27 +3674,27 @@ function hotForRoutes(rootDir) {
   return hot;
 }
 
-test('run: route.list renders every route (prefix, role or any, providers, fallbacks) and the route each role gets', async () => {
+test('run: route.list renders every route (prefix, role or any, providers, fallbacks, byok) and the route each role gets', async () => {
   const rootDir = makeRoot();
   const hot = hotForRoutes(rootDir);
   hot.config.llm.provider = { ignore: ['some-provider'] };
   const { admin } = makeAdmin(rootDir, { hot });
   await admin.run('route.set', { model: 'google/', providers: 'google-vertex' }, {});
   await admin.run('route.set', { model: 'google/', providers: 'google-ai-studio', role: 'video' }, {});
-  await admin.run('route.set', { model: 'anthropic/', providers: 'amazon-bedrock,anthropic', role: 'extractor', fallbacks: true }, {});
+  await admin.run('route.set', { model: 'anthropic/', providers: 'amazon-bedrock,anthropic', role: 'extractor', fallbacks: true, byok: 'true' }, {});
 
   const lines = (await admin.run('route.list', {}, {})).split('\n');
 
   assert.deepEqual(lines, [
     'routes:',
-    '  anthropic/ | extractor | only amazon-bedrock, anthropic | fallbacks: on',
-    '  google/ | any | only google-vertex | fallbacks: off',
-    '  google/ | video | only google-ai-studio | fallbacks: off',
+    '  anthropic/ | extractor | only amazon-bedrock, anthropic | fallbacks: on | byok: on',
+    '  google/ | any | only google-vertex | fallbacks: off | byok: off',
+    '  google/ | video | only google-ai-studio | fallbacks: off | byok: off',
     'by role:',
     '  voice: anthropic/claude-opus-4.6 -> llm.provider (ignore some-provider, fallbacks: on)',
     '  analyzer: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  reasoner: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
-    '  extractor: anthropic/claude-opus-4.6 -> anthropic/@extractor (only amazon-bedrock, anthropic, fallbacks: on)',
+    '  extractor: anthropic/claude-opus-4.6 -> anthropic/@extractor (only amazon-bedrock, anthropic, fallbacks: on, byok)',
     '  vision: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  video: google/gemini-3.8-flash -> google/@video (only google-ai-studio, fallbacks: off); direct-URL videos: media.video.provider (order google-ai-studio, fallbacks: off)',
     '  embedding: openai/text-embedding-x -> llm.provider (ignore some-provider, fallbacks: on)',

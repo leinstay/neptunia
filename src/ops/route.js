@@ -6,8 +6,18 @@ import { adaptLegacyModelKeys, isPlainObject } from '../config.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { matchRoute } from '../llm/openrouter.js';
 import { AGENT_ROLES, OPENCODE_ROLES } from '../llm/roles.js';
-import { NONE, onOff, reloadNote, readLocalConfig, ROUTE_ROLES, PROVIDER_SLUG_RE, modelForRole, describeProviders, fallbacksText, routingSummary, routePrefixArg, routeRoleArg } from './shared.js';
+import { NONE, onOff, reloadNote, readLocalConfig, ROUTE_ROLES, PROVIDER_SLUG_RE, modelForRole, describeProviders, fallbacksText, byokText, routingSummary, routePrefixArg, routeRoleArg } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
+
+/** The `byok` option of `/nep route set`: `'true'` or `'false'` (the Discord choices), or the
+ * boolean a persona's call carries; absent (undefined or null) is false; anything else is refused. */
+function routeByokArg(args) {
+  const value = args?.byok;
+  if (value === undefined || value === null) return false;
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  throw invalid('byok must be true or false');
+}
 
 const handlers = perEnv((env) => {
   const { hot, localConfigFile, editLocalConfig, localOrLive } = env;
@@ -51,7 +61,7 @@ const handlers = perEnv((env) => {
     return `  ${role}: ${model} -> ${applied}${pinned}`;
   }
 
-  /** `/nep route list`: every route, one line each (prefix | role or any | providers | fallbacks),
+  /** `/nep route list`: every route, one line each (prefix | role or any | providers | fallbacks | byok),
    * then each role with the model it uses now and the routing that applies to it; the agent
    * roles last, which the bot never routes: OpenCode workers and the consultation tools outside the
    * bot never read `llm.providerByModel` (no route resolved). */
@@ -68,7 +78,7 @@ const handlers = perEnv((env) => {
       .sort((a, b) => (a.prefix === b.prefix ? roleRank(a.role) - roleRank(b.role) : a.prefix < b.prefix ? -1 : 1));
     const lines = routes.length === 0 ? [`routes: ${NONE}`] : ['routes:'];
     for (const route of routes) {
-      lines.push(`  ${route.prefix} | ${route.role ?? 'any'} | ${describeProviders(route.value)} | fallbacks: ${fallbacksText(route.value)}`);
+      lines.push(`  ${route.prefix} | ${route.role ?? 'any'} | ${describeProviders(route.value)} | fallbacks: ${fallbacksText(route.value)} | byok: ${byokText(route.value)}`);
     }
     lines.push('by role:', ...ROUTE_ROLES.map((role) => routeRoleLine(role, cfg, byModel)));
     const routedBy = (role) => (OPENCODE_ROLES.includes(role) ? "OpenCode's own routing" : 'not routed by the bot');
@@ -76,7 +86,8 @@ const handlers = perEnv((env) => {
     return lines.join('\n');
   }
 
-  /** `/nep route set`: `{ only: [providers], allow_fallbacks }` under `<prefix>` or `<prefix>@<role>`. */
+  /** `/nep route set`: `{ only: [providers], allow_fallbacks }` under `<prefix>` or `<prefix>@<role>`,
+   * with `byok: true` when asked (src/llm/openrouter.js#assertByok; off writes no key). */
   function cmdRouteSet(args) {
     const prefix = routePrefixArg(args);
     const role = routeRoleArg(args);
@@ -85,10 +96,12 @@ const handlers = perEnv((env) => {
     const badSlug = providers.find((slug) => !PROVIDER_SLUG_RE.test(slug));
     if (badSlug) throw invalid(`invalid provider slug: ${badSlug} (lowercase letters, digits and -)`);
     const allowFallbacks = args?.fallbacks === true;
+    const byok = routeByokArg(args);
 
     const key = role ? `${prefix}@${role}` : prefix;
-    const ok = writeRoutes((map) => ({ ...map, [key]: { only: providers, allow_fallbacks: allowFallbacks } }));
-    return `Route ${key} (${role ?? 'any role'}): only ${providers.join(', ')}, fallbacks: ${onOff(allowFallbacks)} ${reloadNote(ok)}`;
+    const value = { only: providers, allow_fallbacks: allowFallbacks, ...(byok ? { byok: true } : {}) };
+    const ok = writeRoutes((map) => ({ ...map, [key]: value }));
+    return `Route ${key} (${role ?? 'any role'}): only ${providers.join(', ')}, fallbacks: ${onOff(allowFallbacks)}, byok: ${onOff(byok)} ${reloadNote(ok)}`;
   }
 
   /** `/nep route remove`: drops the `<prefix>` or `<prefix>@<role>` key from config.local.json

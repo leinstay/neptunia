@@ -11,6 +11,8 @@ import {
   ImageCapError,
   UnsupportedImageModelError,
 } from '../src/llm/images.js';
+import { NotByokError } from '../src/llm/openrouter.js';
+import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-09-28T12:00:00Z');
@@ -439,4 +441,56 @@ test('images: a generation routes as the drawing role; an @drawing key beats a l
   config.llm.providerByModel = { 'google/@voice': { only: ['other'] } };
   await gen.generate({ prompt: 'a small boat' });
   assert.deepEqual(fetchImpl.calls[2].body.provider, { ignore: ['some-provider'] });
+});
+
+// --- byok routes: a picture OpenRouter served from its own capacity on a `byok: true` route ---
+
+/** An OK answer whose usage says `is_byok` (undefined: no such field), served by `OpenAI`. */
+function byokResponse(isByok) {
+  return okResponse({
+    provider: 'OpenAI',
+    data: [{ b64_json: PIXELS.toString('base64'), media_type: 'image/png' }],
+    usage: { total_tokens: 10, cost: 0.04, ...(isByok === undefined ? {} : { is_byok: isByok }) },
+  });
+}
+
+test('images: the body\'s provider never carries byok; the config route keeps it', async () => {
+  const config = baseConfig();
+  config.llm.providerByModel = { 'openai/@drawing': { only: ['openai'], allow_fallbacks: false, byok: true } };
+  const { gen, fetchImpl } = makeGen({ config, fetchImpl: fakeFetch(byokResponse(true)) });
+  await withCapturedLogs(() => gen.generate({ prompt: 'a small boat' }));
+  assert.deepEqual(fetchImpl.calls[0].body.provider, { only: ['openai'], allow_fallbacks: false, options: { openai: { moderation: 'low' } } });
+  assert.equal(config.llm.providerByModel['openai/@drawing'].byok, true, 'the config object is not mutated');
+});
+
+test('images: a byok route with is_byok false fails with reason error after a not-byok warning, never retried', async () => {
+  const config = baseConfig();
+  config.llm.providerByModel = { 'openai/': { only: ['openai'], byok: true } };
+  const { gen, fetchImpl } = makeGen({ config, fetchImpl: fakeFetch(byokResponse(false), okResponse()) });
+  const { logs } = await withCapturedLogs(() =>
+    assert.rejects(
+      gen.generate({ prompt: 'the prompt itself' }),
+      (err) => err instanceof ImageGenError && err.reason === 'error' && err.cause instanceof NotByokError
+        && err.message === 'not byok: openai/test-image via OpenAI',
+    ),
+  );
+  assert.equal(fetchImpl.calls.length, 1, 'billed already: nothing is retried');
+  const warn = logs.filter((l) => l.msg === 'llm: not byok');
+  assert.equal(warn.length, 1);
+  assert.equal(warn[0].role, 'drawing');
+  assert.equal(warn[0].provider, 'OpenAI');
+  assert.equal(logs.filter((l) => l.msg === 'images: failed').length, 1, 'the ordinary error path');
+  assert.ok(!JSON.stringify(logs).includes('the prompt itself'), 'no prompt text in any log line');
+});
+
+test('images: without a route marked byok exactly true, or without is_byok false, the picture passes silently', async () => {
+  const cases = [[undefined, false], [{ only: ['openai'] }, false], [{ only: ['openai'], byok: 'true' }, false], [{ only: ['openai'], byok: true }, undefined], [{ only: ['openai'], byok: true }, true]];
+  for (const [route, isByok] of cases) {
+    const config = baseConfig();
+    if (route) config.llm.providerByModel = { 'openai/': route };
+    const { gen } = makeGen({ config, fetchImpl: fakeFetch(byokResponse(isByok)) });
+    const { result, logs } = await withCapturedLogs(() => gen.generate({ prompt: 'a small boat' }));
+    assert.ok(Buffer.isBuffer(result.buffer), JSON.stringify([route, isByok]));
+    assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0, JSON.stringify([route, isByok]));
+  }
 });
