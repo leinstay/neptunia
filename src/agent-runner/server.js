@@ -11,7 +11,7 @@
 // exits. The task engine (`run`) is injected (src/agent-runner/opencode.js in
 // production, a fake in tests); this module is the transport and the queue.
 // A task's `secrets` pass to the engine and nowhere else: no log line here
-// carries a request. `liveIds` names the tasks still in hand, so the output
+// carries a request; nor does one carry a task's `preamble`. `liveIds` names the tasks still in hand, so the output
 // sweep (src/agent-runner/sweep.js) never removes their directories.
 
 import net from 'node:net';
@@ -27,7 +27,7 @@ const FINISHED_MEMORY = 500;
 /**
  * @param {object} options
  * @param {string} options.profile  The profile name (for `pong` and logs).
- * @param {{ run: Function }} options.runner  The task engine; `run({ id, goal, context, limits, model, cost, searchProvider, secrets, signal, onProgress })`.
+ * @param {{ run: Function }} options.runner  The task engine; `run({ id, goal, context, limits, model, cost, searchProvider, secrets, preamble, signal, onProgress })`.
  * @param {string} options.socketPath
  * @param {number} [options.socketMode]  The socket file mode (default 0o660).
  * @param {() => number} [options.now]
@@ -77,6 +77,7 @@ export function createRunnerServer({ profile, runner, socketPath, socketMode = 0
         cost: task.cost,
         searchProvider: task.searchProvider,
         secrets: task.secrets,
+        preamble: task.preamble,
         signal: abort.signal,
         onProgress: (p) => send(conn, progressEvent({ id: task.id, step: p.step, tool: p.tool, note: p.note })),
       });

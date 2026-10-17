@@ -13,6 +13,10 @@
 // is passed as OPENROUTER_API_KEY; the web agent's proxy (HTTPS_PROXY /
 // HTTP_PROXY, http form) and search key likewise. A task with no key from
 // either fails `no-key` (one warning per runner). No secret is ever logged.
+// A task may bring the deployment's shared preamble (`preamble`, read by the
+// core from its private prompt layer, which this process never reads): the
+// system prompt is then the preamble, a blank line and the profile's prompt;
+// the preamble itself is never logged.
 //
 // The child prints one JSON event per line (`--format json`): `step_finish`
 // gives tokens and the cost OpenCode estimates per step (summed; a step
@@ -212,12 +216,12 @@ export function createOpencodeRunner({
 
   /**
    * Work one task through an OpenCode child.
-   * @param {{ id, goal, context?, limits?, model?, cost?, searchProvider?, secrets?, signal?, onProgress? }} task
+   * @param {{ id, goal, context?, limits?, model?, cost?, searchProvider?, secrets?, preamble?, signal?, onProgress? }} task
    *   `secrets` (src/agent-runner/protocol.js): `{ openrouterKey, proxy?, searchKey? }`, each over the
-   *   environment's.
+   *   environment's. `preamble`: the deployment's shared text, put before the profile's prompt.
    * @returns {Promise<{ status, result: { text, sources, files }, usage, error? }>}
    */
-  async function run({ id, goal, context, limits = {}, model, cost, searchProvider, secrets, signal, onProgress = () => {} }) {
+  async function run({ id, goal, context, limits = {}, model, cost, searchProvider, secrets, preamble, signal, onProgress = () => {} }) {
     const startedAt = now();
     const scope = scopeOf(context);
     const redact = redactorFor(scope);
@@ -241,6 +245,8 @@ export function createOpencodeRunner({
     } catch {
       return finish('failed', '', 'no-prompt');
     }
+    const shared = typeof preamble === 'string' ? preamble.trim() : '';
+    if (shared) systemPrompt = `${shared}\n\n${systemPrompt}`;
 
     const providerModel = typeof model === 'string' && model ? model : (modelOfRole() ?? profile.defaultModel);
     const configContent = JSON.stringify(profile.buildConfig({ systemPrompt, providerModel, steps, scope, cost, toolResultChars: limits.toolResultChars }));
