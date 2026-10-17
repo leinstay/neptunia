@@ -5,7 +5,7 @@ The engine can hand a task off to a separate **errand agent**: a standalone proc
 | Profile | Does | Reaches | Tools |
 |---|---|---|---|
 | `web` | internet errands (search, read pages, look at images, download a file) | the public internet, through a proxy; its own output folder | OpenCode `websearch`, `webfetch`, `read`, and a `bash` limited to `curl`/`wget`/`ffmpeg`/`ffprobe`/`file`/`ls`/`mkdir` for downloads |
-| `server` | read-only questions about this machine | the local filesystem (read-only), no network | OpenCode `read`, `grep`, `glob`, `list`, and a `bash` limited to read-only commands (`ls`, `cat`, `head`, `tail`, `grep`, `find`, `ps`, `systemctl status`, `journalctl`, `df`, `du`, `stat`, `git log`, ...) |
+| `server` | read-only questions about this machine | the local filesystem (read-only); network only to the model API | OpenCode `read`, `grep`, `glob`, `list`, and a `bash` limited to read-only commands (`ls`, `cat`, `head`, `tail`, `grep`, `find`, `ps`, `systemctl status`, `journalctl`, `df`, `du`, `stat`, `git log`, ...) |
 
 Both run one task at a time; further requests queue. Each task has per-task caps (`agents.<profile>.limits`: model steps, estimated USD, wall-clock seconds) and the engine applies per-day caps (`agents.<profile>.daily`). The USD cap is a **soft** cap on OpenCode's own cost estimate; the hard spend cap is the credit limit on the runner's OpenRouter key.
 
@@ -14,7 +14,7 @@ Both run one task at a time; further requests queue. Each task has per-task caps
 Each profile runs as its own systemd service and Unix user (`deploy/neptunia-agent-web.service`, `deploy/neptunia-agent-server.service`; install instructions are in the unit headers):
 
 - **web** (`neptunia-agent-web`): has network, egress to localhost and private ranges refused by the unit (`IPAddressDeny=`) and in code; the filesystem is read-only except its state dir (`ProtectSystem=strict`, `ProtectHome=yes`, `InaccessiblePaths=` for `/srv`, the bot's data and `.env`, `/var/www`, nginx and Let's Encrypt).
-- **server** (`neptunia-agent-server`): no network (`PrivateNetwork=yes`); the whole system is read-only (`ProtectSystem=strict`, no write paths but its state dir). It is granted `CAP_DAC_READ_SEARCH` so it can read any file like root without being root. The read-only guarantee is the unit, not a command filter.
+- **server** (`neptunia-agent-server`): network only to the local resolver and the model API (`IPAddressDeny=any` plus `IPAddressAllow=` for Cloudflare's ranges, where OpenRouter lives; the shell's `find -exec`, `awk` network paths and `gawk` are denied on top of the allow-list); the whole system is read-only (`ProtectSystem=strict`, no write paths but its state dir). It is granted `CAP_DAC_READ_SEARCH` so it can read any file like root without being root. The read-only guarantee is the unit, not a command filter.
 
 Both are launched by `bin/agent-runner.mjs --profile <name>`, read their caps, model and socket from `agents.<profile>` in the config, and take their keys from the unit's `EnvironmentFile` (`/etc/neptunia/agent-<profile>.env`, root-owned, 0600): `OPENROUTER_AGENT_KEY` for both, plus `OPENCODE_WEBSEARCH_KEY` and `PROXY_URL` for `web`. Settings are in [Configuration: `agents`](configuration.md#agents).
 

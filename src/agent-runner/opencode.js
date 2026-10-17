@@ -105,7 +105,10 @@ function count(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
-/** The files the agent saved under `dir` (recursively), as result file handles. */
+/** OpenCode's own files in the task directory (its HOME): never a result. */
+const NOT_A_RESULT = /^(\.|opencode\.db)/;
+
+/** The files the agent saved under `dir` (recursively), as result file handles; OpenCode's own files skipped. */
 async function collectFiles(dir, id) {
   const base = path.join(dir, id);
   const out = [];
@@ -117,6 +120,7 @@ async function collectFiles(dir, id) {
       return;
     }
     for (const entry of entries) {
+      if (NOT_A_RESULT.test(entry.name)) continue;
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) {
         await walk(full);

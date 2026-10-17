@@ -56,9 +56,13 @@ function pathPermission(scope) {
 }
 
 /** A permission value for `bash`: deny-all first, then the allowed command patterns. */
+/** Patterns denied after the allows (the last match wins): the ways an allowed read-only command could write or reach the network. */
+export const SHELL_DENY_AFTER = Object.freeze(['find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
+
 function bashPermission(allow) {
   const map = { '*': 'deny' };
   for (const pattern of allow) map[pattern] = 'allow';
+  for (const pattern of SHELL_DENY_AFTER) map[pattern] = 'deny';
   return map;
 }
 
