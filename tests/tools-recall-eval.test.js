@@ -1,6 +1,7 @@
 // Tests for tools/lib/recall-eval.mjs: the pure part of tools/recall-eval.mjs (the questions
 // file, hit@k scoring, false confident recalls, the spend stop, the candidate sample) and the
-// offline guild the local stages run against, through the real recall runner with fakes.
+// offline guild the local stages run against, through the real recall runner with fakes; and
+// the `--web` readiness of tools/recall-eval.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,6 +25,10 @@ import { toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { createLookup } from '../src/web/lookup.js';
+import { createBraveSearch } from '../src/web/brave.js';
+import { createExaSearch } from '../src/web/exa.js';
+import { webSearchKeys, webSearchReady } from '../tools/recall-eval.mjs';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -308,4 +313,16 @@ test('recall-eval: a record line becomes a chat message with its link previews, 
   assert.equal(message.authorName, 'Ana');
   assert.deepEqual(message.links.map((l) => [l.kind, l.title, l.text, l.site, l.url]), [['link', 'Ο φάρος', 'Ένα θαύμα.', 'example.org', 'https://example.org/faros']]);
   assert.deepEqual(recordMessage(recLine(2, NOW, 'χωρίς'), { nameOf: () => null, selfName: 'Zoë' }).links, []);
+});
+
+test('recall-eval: --web readiness follows web.search.engine through the lookup, not the Brave key alone', () => {
+  const searches = { brave: createBraveSearch(), exa: createExaSearch() };
+  const hotOf = (engine) => ({ config: { web: { search: { engine } } }, prompts: {} });
+  const ready = (engine, env) => webSearchReady({ hot: hotOf(engine), createLookup, searches, env });
+  assert.equal(ready('openrouter', {}), true, 'openrouter needs no Brave key');
+  assert.equal(ready('exa', {}), true, 'exa needs no key');
+  assert.equal(ready('brave', {}), false, 'brave without its key cannot search');
+  assert.equal(ready('brave', { BRAVE_SEARCH_API_KEY: '   ' }), false, 'a blank key is no key');
+  assert.equal(ready('brave', { BRAVE_SEARCH_API_KEY: 'k' }), true);
+  assert.deepEqual(webSearchKeys({ BRAVE_SEARCH_API_KEY: ' k ', EXA_API_KEY: '' }), { brave: 'k', exa: null });
 });

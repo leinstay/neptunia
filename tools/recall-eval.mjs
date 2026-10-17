@@ -27,8 +27,9 @@
 // -- the web search.
 //
 // `--web`: the classifier's `web:` query, when it gives one, goes to the live web lookup
-// (src/web/lookup.js#createLookup `search`: one Brave Search request with BRAVE_SEARCH_API_KEY
-// from .env, its results condensed through prompts.search-summary), as the live turn runs it
+// (src/web/lookup.js#createLookup `search`, on the configured web.search.engine: `brave` with
+// BRAVE_SEARCH_API_KEY from .env and `exa` condensed through prompts.search-summary, `openrouter`
+// through its web plugin; `--web` refuses to start when that engine cannot run), as the live turn runs it
 // beside the server part, with features.webLookup switched on for this process only; its daily
 // counter is a throwaway copy per question and its media cache an in-memory copy of the stored
 // one (a cached search answers as it would live; nothing is written back). The result is kept per
@@ -104,6 +105,33 @@ const HISTORY_DAYS = 30;
 const DAY_MS = 86_400_000;
 /** The requests one question may send: the classifier and the summary. */
 const REQUESTS_PER_QUESTION = 2;
+
+/** The web lookup's keys from `env`, as src/index.js passes them: Brave's and Exa's, trimmed, null when blank. */
+export function webSearchKeys(env = process.env) {
+  return { brave: (env.BRAVE_SEARCH_API_KEY || '').trim() || null, exa: (env.EXA_API_KEY || '').trim() || null };
+}
+
+/**
+ * Whether `--web` can search: the lookup's own `hasSearch()` for the configured
+ * `web.search.engine` (`brave` needs BRAVE_SEARCH_API_KEY, `exa` and `openrouter` need no key).
+ * Builds the lookup only to ask; nothing is searched, read or written.
+ * @param {{ hot: object, createLookup: Function, searches: object, env?: object }} input
+ *   `createLookup` from src/web/lookup.js; `searches` the engine clients (`{ brave, exa }`).
+ * @returns {boolean}
+ */
+export function webSearchReady({ hot, createLookup, searches, env = process.env }) {
+  const refuse = () => {
+    throw new Error('recall-eval: no search from the readiness check');
+  };
+  const lookup = createLookup({
+    hot,
+    store: { getMediaCache: refuse, markMediaCacheDirty: refuse },
+    llm: { complete: async () => refuse() },
+    searches,
+    keys: webSearchKeys(env),
+  });
+  return lookup.hasSearch() === true;
+}
 
 /** A number from a flag in [min, max], `fallback` when absent; a CliError otherwise. */
 function numberFlag(value, fallback, { min = 0, max = Infinity, integer = false } = {}) {
@@ -308,10 +336,18 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     `recall-eval: ${asking} question(s); ${dry ? 'dry: no model request' : `up to ${asking * (REQUESTS_PER_QUESTION + (useWeb ? 1 : 0))} model request(s)${useWeb ? ` and ${asking} web search(es)` : ''}${meaningOn ? ` and ${asking} embedding(s)` : ''}, none asked once the cost passes ${maxUsd} USD`}\n`,
   );
 
-  // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN, BRAVE_SEARCH_API_KEY) only when something is sent.
+  // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN, the search engine's) only when something is sent.
   if (!dry || useDiscord) loadDotEnv(privateDirOf(ROOT));
-  const braveApiKey = useWeb ? (process.env.BRAVE_SEARCH_API_KEY || '').trim() : '';
-  if (useWeb && !braveApiKey) throw new CliError('recall-eval: --web needs BRAVE_SEARCH_API_KEY (.env)');
+  let webParts = null;
+  if (useWeb) {
+    const { createLookup } = await import('../src/web/lookup.js');
+    const { createBraveSearch } = await import('../src/web/brave.js');
+    const { createExaSearch } = await import('../src/web/exa.js');
+    webParts = { createLookup, searches: { brave: createBraveSearch(), exa: createExaSearch() } };
+    if (!webSearchReady({ hot: evalHot, ...webParts })) {
+      throw new CliError('recall-eval: --web needs a web search that can run (web.search.engine brave needs BRAVE_SEARCH_API_KEY in .env)');
+    }
+  }
   const { record, archive, vectors, store } = await openSources(dataDir);
   const names = namesOf(store, guildId);
   const nameOf = (id) => names.get(String(id)) ?? null;
@@ -358,15 +394,12 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   // daily counter per question (webSearch), nothing written back.
   let webSearch = null;
   if (useWeb) {
-    const { createLookup } = await import('../src/web/lookup.js');
+    const { createLookup, searches } = webParts;
     const { createPageFetcher } = await import('../src/web/fetch-page.js');
-    const { createBraveSearch } = await import('../src/web/brave.js');
-    const { createExaSearch } = await import('../src/web/exa.js');
     const media = { ...(store.getMediaCache(guildId) ?? {}) };
     const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
     const pageFetcher = createPageFetcher();
-    const searches = { brave: createBraveSearch(), exa: createExaSearch() };
-    const keys = { brave: braveApiKey, exa: (process.env.EXA_API_KEY || '').trim() || null };
+    const keys = webSearchKeys(process.env);
     webSearch = (query) => createLookup({ hot: evalHot, store: webStore, llm, state: { data: {}, markDirty() {} }, pageFetcher, searches, keys, now }).search(guildId, query);
   }
 
