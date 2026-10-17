@@ -18,7 +18,8 @@
 // never retried. Her post may carry one file an errand of hers brought back (`file`, a handle
 // `file:<task id>/<name>`, src/errands/store.js): read from the agent's out directory, refused
 // when unknown here (`unknown-file`: a private chat's file goes only back to that chat), larger
-// than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`).
+// than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`); with a file
+// the text may be left out.
 
 import fsp from 'node:fs/promises';
 import { channelById, messageRefOf, portAnswer, postingConversation } from './shared.js';
@@ -70,7 +71,8 @@ const handlers = perEnv((env) => {
   async function post(args, context) {
     const p = requirePort();
     const text = String(args?.text ?? '').trim();
-    if (!text) throw invalid('text is required');
+    // A file of one of her errands may go out alone, with no text.
+    if (!text && !String(args?.file ?? '').trim()) throw invalid('text is required');
     const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', 'unknown-message');

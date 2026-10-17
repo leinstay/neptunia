@@ -127,6 +127,36 @@ function memberOf(reference, members) {
 
 /** A line break written as an HTML tag in a call's body. */
 const BODY_BREAK_RE = /<br\s*\/?>/gi;
+/** A line of a body that is one errand file handle (`file:<task id>/<name>`, a name without spaces). */
+const BODY_HANDLE_LINE_RE = /^file:[A-Za-z0-9_-]{1,64}\/[^/\\\s]{1,200}$/;
+/** An errand file handle ending a body, after a space or a line break. */
+const BODY_HANDLE_END_RE = /(?:^|\s)(file:[A-Za-z0-9_-]{1,64}\/[^/\\\s]{1,200})$/;
+
+/**
+ * The errand file handles a body of her text holds where the file belongs: each line that is one
+ * handle (trimmed), then one ending the text left. `{ handles, text, code }`: the handles in that
+ * order, the text without them (trimmed), and how they were written -- `whole` (the body was one
+ * handle), `end` (one ended the text), `line` (on a line of its own). Null when there is none. Pure.
+ * @param {string} body
+ * @returns {{ handles: string[], text: string, code: 'whole'|'end'|'line' }|null}
+ */
+function bodyFileHandles(body) {
+  const handles = [];
+  const kept = [];
+  for (const line of String(body ?? '').split('\n')) {
+    if (BODY_HANDLE_LINE_RE.test(line.trim())) handles.push(line.trim());
+    else kept.push(line);
+  }
+  let text = kept.join('\n').trim();
+  const end = BODY_HANDLE_END_RE.exec(text);
+  if (end) {
+    handles.push(end[1]);
+    text = text.slice(0, end.index).trim();
+  }
+  if (handles.length === 0) return null;
+  const code = text === '' && handles.length === 1 ? 'whole' : end && handles.length === 1 ? 'end' : 'line';
+  return { handles, text, code };
+}
 /** One `<name>value</name>` at the start of what is left of a body. */
 const BODY_TAG_RE = /^<([A-Za-z][A-Za-z0-9_]*)>([\s\S]*?)<\/\1\s*>/;
 /** One `name: value` / `name = value` line at the start of what is left of a body. */
@@ -177,7 +207,11 @@ export function bodyArguments(body, names) {
  * `<name>value</name>` tags) gives those arguments, an attribute given explicitly winning; the
  * result counts the ones taken (`bodyArgs`) for the caller to log. Any other such body (her
  * comment on the call) is left out and the call goes on with its attributes; the result says so
- * (`bodyIgnored: true`) for the caller to log. Pure.
+ * (`bodyIgnored: true`) for the caller to log. A body of a command with a `file` option the call
+ * left out that holds an errand's file handle (bodyFileHandles: the whole body, a line of its own,
+ * or the end of the text) gives that handle as the `file`, the rest as the text (none left: no
+ * text, a file-only post); the result says how (`bodyFile`: `whole`, `end`, `line`) for the caller
+ * to log; two or more such handles are `unknown-file` (`body`). Pure.
  * @param {{ skill: string, args: Record<string, string>, body: string }} call
  * A channel option resolves a `#handle` of `view.channelHandles` (the request's, handle -> channel
  * id) exactly before any name.
@@ -185,7 +219,7 @@ export function bodyArguments(body, names) {
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
  *   selfId?: string|null, fileOf?: (handle: string) => object|null }} view
- * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyIgnored?: true, bodyArgs?: number }
+ * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyIgnored?: true, bodyArgs?: number, bodyFile?: string }
  *   | { ok: false, code: string, reason: string }}
  */
 export function resolveCall(call, view) {
@@ -207,9 +241,20 @@ export function resolveCall(call, view) {
     given[key] = value;
     bodyArgs += 1;
   }
+  let bodyFile = null;
   if (body && command.body) {
     if (Object.hasOwn(given, command.body)) return refused('invalid-args', `args.${command.body}:twice`);
-    given[command.body] = body;
+    // An errand's file handle written in her text, where the file belongs (no `file` given): it is
+    // the file, the rest her text -- none left is a file-only post. Several: the post takes one file.
+    let text = body;
+    const found = byName.has('file') && !Object.hasOwn(given, 'file') ? bodyFileHandles(body) : null;
+    if (found) {
+      if (found.handles.length > 1) return refused('unknown-file', 'body');
+      given.file = found.handles[0];
+      text = found.text;
+      bodyFile = found.code;
+    }
+    if (text) given[command.body] = text;
   }
 
   const args = {};
@@ -295,7 +340,7 @@ export function resolveCall(call, view) {
     if (args.channel === undefined) args.channel = at;
     else if (String(args.channel) !== at) return refused('unknown-message', 'conversation');
   }
-  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody ? { bodyArgs } : {}) };
+  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody ? { bodyArgs } : {}), ...(bodyFile ? { bodyFile } : {}) };
 }
 
 /** The structured status of an operation's result (src/ops/index.js#runOp): `ok`; one that may

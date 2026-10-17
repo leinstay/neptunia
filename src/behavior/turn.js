@@ -1787,7 +1787,9 @@ export function createTurnRunner({
    * `refusal` (`{ code, reason }`) when either said no -- a refusal of the resolution logs
    * `skill: refused` too; a body the skill takes no text for, left out by the resolution, logs
    * `skills: body ignored` (`skill`, never the text); one read as its arguments logs
-   * `skills: body read as arguments` (`skill`, `count`, never the values). Nothing runs here.
+   * `skills: body read as arguments` (`skill`, `count`, never the values); an errand's file
+   * handle in her text, taken as the file or refused as one of several, logs
+   * `skills: file handle in body` (`skill`, `code`: `whole`, `end`, `line`, `several`). Nothing runs here.
    */
   async function planCall({ call, channel, envelope, draft, view }) {
     const op = journalOp(draft, 'skill', 'persona', { input: { skill: call.skill, invocationId: envelope.invocationId } });
@@ -1795,8 +1797,12 @@ export function createTurnRunner({
     const resolved = resolveCall(call, view);
     if (!resolved.ok) {
       log.info('skill: refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
+      // Several errand file handles in her text: the post takes one (never the handles in the log).
+      if (resolved.code === 'unknown-file' && resolved.reason === 'body') log.info('skills: file handle in body', { skill: call.skill, code: 'several', channel: channel.id });
       return { call, op, envelope, resolved: null, refusal: { code: resolved.code, reason: resolved.reason } };
     }
+    // An errand's file handle written in her text: taken as the file (how: whole, end, line; never the handle).
+    if (resolved.bodyFile) log.info('skills: file handle in body', { skill: resolved.skill, code: resolved.bodyFile, channel: channel.id });
     // Her comment in the body of a skill that takes no text: left out, the call goes on (never its text in the log).
     if (resolved.bodyIgnored) log.info('skills: body ignored', { skill: resolved.skill, channel: channel.id });
     // Her arguments written in the body instead of as attributes: taken, counted (never the values).

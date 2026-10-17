@@ -17,6 +17,7 @@ import { createDiary } from '../src/behavior/diary.js';
 import { skillResultBlock } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { QUIET_ON_OK, RESULT_STATUSES, bodyArguments, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
+import { checkSkill } from '../src/skills/gateway.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { labels } from './fixtures/labels.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
@@ -342,6 +343,52 @@ test('resolveCall and executeCall: a file handle of one of her errands attaches 
   // A handle the errands do not know by the time it runs: invalid, nothing sent.
   const gone = await executeCall(call, deps(makeAdmin({ port: small, extra: { errands: { fileOf: () => null } } }).admin, small));
   assert.deepEqual([gone.status, gone.code], ['invalid', 'unknown-file']);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('resolveCall: a file handle written in the body of message.create is its file, not its text', async () => {
+  const known = 'file:tab1/meme.png';
+  const second = 'file:tab1/meme2.png';
+  const fileOf = (handle) => (handle === known || handle === second ? { name: handle.split('/')[1] } : null);
+  const gate = (resolved) => checkSkill({ skill: resolved.skill, args: resolved.args, principal: { kind: 'persona' }, requester: { id: OWNER, roleIds: [] }, audience: { conversationId: NEWS }, context: { config: config(), selfId: SELF, registry: skillRegistry() } });
+  // The body is the handle alone: a file-only post, no text; the gateway lets it pass.
+  const alone = resolve('message.create', { reply: '#3' }, `  ${known}\n`, { fileOf });
+  assert.deepEqual([alone.ok, alone.args, alone.bodyFile], [true, { reply: '1003', file: known, channel: NEWS }, 'whole']);
+  assert.deepEqual(gate(alone), { ok: true });
+  // A handle ending her text: the file, the text before it kept.
+  const end = resolve('message.create', {}, `δες αυτό ${known}`, { fileOf });
+  assert.deepEqual([end.ok, end.args, end.bodyFile], [true, { file: known, text: 'δες αυτό' }, 'end']);
+  // A handle on its own line: the file, the other lines kept.
+  const line = resolve('message.create', {}, `δες αυτό\n${known}\nωραίο;`, { fileOf });
+  assert.deepEqual([line.ok, line.args, line.bodyFile], [true, { file: known, text: 'δες αυτό\nωραίο;' }, 'line']);
+  // Two handles: the post takes one file; the call is refused on the file path.
+  const two = resolve('message.create', {}, `${known}\n${second}`, { fileOf });
+  assert.deepEqual([two.ok, two.code, two.reason], [false, 'unknown-file', 'body']);
+  // With file= given, the body is her text as written.
+  const given = resolve('message.create', { file: known }, `δες ${second}`, { fileOf });
+  assert.deepEqual([given.ok, given.args, 'bodyFile' in given], [true, { file: known, text: `δες ${second}` }, false]);
+  // A handle of another errand, moved from the body, is still refused.
+  const other = resolve('message.create', {}, 'file:tab9/other.png', { fileOf });
+  assert.deepEqual([other.ok, other.code, other.reason], [false, 'unknown-file', 'file']);
+  // A handle inside a sentence stays text; message.edit takes no file and keeps its body.
+  assert.deepEqual(resolve('message.create', {}, `${known} εδώ`, { fileOf }).args, { text: `${known} εδώ` });
+  assert.deepEqual(resolve('message.edit', { message: '#4' }, known, { fileOf }).args, { message: '1004', text: known, channel: NEWS });
+
+  // The file-only post goes out with the file and an empty text.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'errand-file-'));
+  const filePath = path.join(dir, 'meme.png');
+  fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
+  const errands = { fileOf: ({ handle }) => (handle === known ? { path: filePath, name: 'meme.png', contentType: 'image/png', bytes: 4 } : null) };
+  const { admin, port } = makeAdmin({ extra: { errands } });
+  port.seed(NEWS, { authorId: MEMBER, messageId: '1003', text: 'ερώτηση' });
+  const result = await executeCall(alone, deps(admin, port));
+  assert.equal(result.status, 'ok');
+  const [posted] = port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
+  assert.equal(posted.text, '');
+  assert.deepEqual(posted.attachments.map((attachment) => attachment.name), ['meme.png']);
+  // Neither text nor file: refused as before.
+  const empty = await executeCall({ ...alone, args: { channel: NEWS } }, deps(admin, port));
+  assert.deepEqual([empty.status, empty.code], ['invalid', 'invalid-args']);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

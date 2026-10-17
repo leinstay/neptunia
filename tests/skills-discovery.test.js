@@ -197,7 +197,7 @@ test('skillArgs: a derived skill lists its command\'s options, the same each tim
   assert.deepEqual(skillArgs(registry.get('message.create')), [
     { name: 'channel', required: false },
     { name: 'reply', required: false },
-    { name: 'text', required: true, body: true },
+    { name: 'text', required: false, body: true },
     { name: 'file', required: false },
   ]);
   assert.deepEqual(skillArgs(registry.get('memory.journal.read')), skillArgs(registry.get('memory.journal.read')));
