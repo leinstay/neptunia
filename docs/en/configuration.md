@@ -13,7 +13,7 @@ By default everything sits in the checkout: `config.json` and `prompts/` (tracke
 | `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `config.local.json`, `prompts.local/` |
 | `NEPTUNIA_DATA_DIR` | `data/` in the checkout | everything the bot writes: `guilds/`, `state.json`, `usage.json`, `metrics.json`, caches |
 
-Set them in the process environment (for example with `Environment=` in the systemd unit), not in `.env`: the bot reads `.env` from the private directory, so it has to know that directory first. A relative path is taken from the checkout. Live edits work as before: changing `config.local.json` or a file in `prompts.local/` inside the private directory reloads without a restart. The tools under `tools/` read the same two variables; a tool's `--data` flag still wins. At start the bot logs the three directories it uses (`index: paths`). `deploy/neptunia-bot.service` shows the recommended layout, `/etc/neptunia` and `/var/lib/neptunia`.
+Set them in the process environment (for example with `Environment=` in the systemd unit), not in `.env`: the bot reads `.env` from the private directory, so it has to know that directory first. A relative path is taken from the checkout. Live edits work as before: changing `config.local.json` or a file in `prompts.local/` inside the private directory reloads without a restart. The tools under `tools/` read the same two variables; a tool's `--data` flag still wins. At start the bot logs the three directories it uses (`index: paths`). `deploy/neptunia-bot.service` shows the recommended layout, one root `/opt/neptunia` with the checkout in `app/`, the private directory in `etc/` and the data directory in `data/`; `deploy/install.sh` sets it up.
 
 ## `features`
 

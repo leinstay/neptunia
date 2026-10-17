@@ -9,17 +9,20 @@
 #
 # Adjust WorkingDirectory/User to match your deployment before installing.
 #
-# Where the private files live (the recommended layout): the checkout holds the
-# public code only and stays read-only to the service.
-#   /etc/neptunia       NEPTUNIA_PRIVATE_DIR: .env, config.local.json, prompts.local/
-#   /var/lib/neptunia   NEPTUNIA_DATA_DIR: everything the bot writes (its memory)
-# Create both directories, owned by the service user, before the first start.
+# Where the files live (the recommended layout): one root, the checkout holds
+# the public code only and stays read-only to the service.
+#   /opt/neptunia/
+#     app/    the engine checkout (root-owned, read-only to the service)
+#     etc/    .env, config.local.json, prompts.local/   (NEPTUNIA_PRIVATE_DIR)
+#     data/   everything the bot writes                 (NEPTUNIA_DATA_DIR)
+# deploy/install.sh creates etc/ and data/ for the service user and installs
+# this unit for the checkout (--dry-run shows its commands first).
 #
 # A deployment that keeps everything in the checkout (.env, config.local.json,
 # prompts.local/ and data/ next to the code) deletes the two Environment= lines
-# below, points EnvironmentFile= at /opt/neptunia-bot/.env and restores the old
+# below, points EnvironmentFile= at /opt/neptunia/app/.env and restores the old
 # write paths:
-#   ReadWritePaths=/opt/neptunia-bot/data /opt/neptunia-bot/prompts.local /opt/neptunia-bot/config.local.json
+#   ReadWritePaths=/opt/neptunia/app/data /opt/neptunia/app/prompts.local /opt/neptunia/app/config.local.json
 
 [Unit]
 Description=neptunia-bot — SillyTavern-inspired Discord pseudo-user engine
@@ -28,14 +31,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/neptunia-bot
+WorkingDirectory=/opt/neptunia/app
 ExecStart=/usr/bin/node src/index.js
 User=neptunia-bot
 Restart=on-failure
 RestartSec=5
-Environment=NEPTUNIA_PRIVATE_DIR=/etc/neptunia
-Environment=NEPTUNIA_DATA_DIR=/var/lib/neptunia
-EnvironmentFile=-/etc/neptunia/.env
+Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
+Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
+EnvironmentFile=-/opt/neptunia/etc/.env
 
 # Hardening: the process needs write access only to its own data and
 # per-deployment overrides (/nep set writes config.local.json, /nep rule add
@@ -43,7 +46,7 @@ EnvironmentFile=-/etc/neptunia/.env
 # stays read-only.
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/neptunia /etc/neptunia
+ReadWritePaths=/opt/neptunia/data /opt/neptunia/etc
 # strict leaves /tmp read-only too; the video fetcher cuts its clips under the
 # temporary directory, so the service gets a private writable one.
 PrivateTmp=true

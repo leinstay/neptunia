@@ -15,11 +15,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.js';
+import { onLog } from '../src/log.js';
 import { WEB, SERVER, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, withheldShellDenies } from '../src/agent-runner/profiles.js';
-import { WITHHELD_NAMES, WITHHELD_ROOTS } from '../src/agent-runner/policy.js';
+import { WITHHELD_NAMES, WITHHELD_ROOTS, withheldRootsOf } from '../src/agent-runner/policy.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
+import { resolvePaths } from '../src/paths.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+/** This checkout's data directory as the policy resolves it (NEPTUNIA_DATA_DIR, else <root>/data). */
+const DATA_DIR = resolvePaths({ rootDir: ROOT }).dataDir;
 
 test('profileOf: web, server, and nothing else', () => {
   assert.equal(profileOf('web'), WEB);
@@ -137,6 +141,34 @@ test('promptFilesOf: the override is read from NEPTUNIA_PRIVATE_DIR, the tracked
   }
 });
 
+test('readPromptFile: an override that exists but cannot be read falls back to the tracked prompt, warned once; other errors still throw', () => {
+  const [override, tracked] = promptFilesOf('web', { rootDir: '/checkout', env: { NEPTUNIA_PRIVATE_DIR: '/private-unreadable' } });
+  const failing = (code) => (file) => {
+    if (file === override) throw Object.assign(new Error(`${code}: ${file}`), { code });
+    if (file === tracked) return 'tracked';
+    throw Object.assign(new Error(`ENOENT: ${file}`), { code: 'ENOENT' });
+  };
+  const seen = [];
+  const off = onLog((entry) => seen.push(entry));
+  try {
+    assert.equal(readPromptFile([override, tracked], { read: failing('EACCES') }), 'tracked');
+    assert.equal(readPromptFile([override, tracked], { read: failing('EACCES') }), 'tracked', 'every task falls back');
+    assert.equal(readPromptFile([override, tracked], { read: failing('EPERM') }), 'tracked');
+    const warns = seen.filter((entry) => entry.msg === 'profiles: override unreadable');
+    assert.equal(warns.length, 1, 'one warning per process, not per task');
+    assert.equal(warns[0].level, 'warn');
+    assert.equal(warns[0].file, override);
+    assert.throws(() => readPromptFile([override, tracked], { read: failing('EISDIR') }), { code: 'EISDIR' }, 'any other error still fails');
+    const trackedDenied = (file) => {
+      if (file === override) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    };
+    assert.throws(() => readPromptFile([override, tracked], { read: trackedDenied }), { code: 'EACCES' }, 'the tracked prompt itself unreadable still fails');
+  } finally {
+    off();
+  }
+});
+
 /** OpenCode's wildcard match (packages/core/src/util/wildcard.ts, v1.19.3): `*` any text, `?` one character. */
 function wildcard(input, pattern) {
   let escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
@@ -156,8 +188,19 @@ test('withheldShellDenies: one pattern per content command and withheld root, na
   const parts = [...WITHHELD_ROOTS, ...WITHHELD_NAMES, '.env'];
   assert.equal(denies.length, SHELL_CONTENT_COMMANDS.length * parts.length);
   assert.deepEqual([...SHELL_CONTENT_COMMANDS], ['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git']);
-  for (const pattern of ['cat */var/www*', 'cat *.ssh*', 'cat *.env*', 'cat *config.local.json*', 'git */srv/git*', 'sed */opt/neptunia-bot/data*', 'wc *.secrets*']) assert.ok(denies.includes(pattern), pattern);
+  for (const pattern of ['cat */var/www*', 'cat *.ssh*', 'cat *.env*', 'cat *config.local.json*', 'git */srv/git*', `sed *${DATA_DIR}*`, 'wc *.secrets*']) assert.ok(denies.includes(pattern), pattern);
   for (const listing of ['ls', 'find', 'stat', 'du', 'readlink', 'realpath']) assert.ok(!denies.some((pattern) => pattern.startsWith(`${listing} `)), `${listing} stays allowed`);
+});
+
+test('withheldShellDenies: the deployment\'s data directory and a private directory apart from the checkout come from `paths`', () => {
+  const apart = withheldShellDenies({ paths: resolvePaths({ rootDir: '/srv/app', env: { NEPTUNIA_PRIVATE_DIR: '/srv/site/etc', NEPTUNIA_DATA_DIR: '/srv/site/data' } }) });
+  for (const pattern of ['cat */srv/site/data*', 'grep */srv/site/etc*', 'cat */etc/neptunia*']) assert.ok(apart.includes(pattern), pattern);
+  assert.ok(!apart.some((pattern) => pattern.includes('/srv/app')), 'the checkout itself is not withheld');
+  const together = withheldShellDenies({ paths: resolvePaths({ rootDir: '/srv/app', env: {} }) });
+  assert.ok(together.includes('cat */srv/app/data*'), 'default: <root>/data');
+  assert.ok(!together.includes('cat */srv/app*'), 'a private directory that is the checkout is not withheld whole');
+  const roots = withheldRootsOf({ paths: resolvePaths({ rootDir: '/srv/app', env: {} }) });
+  assert.equal(together.length, SHELL_CONTENT_COMMANDS.length * (roots.length + WITHHELD_NAMES.length + 1));
 });
 
 test('filtered scope: the server shell denies a content read of a withheld path after the allows and before SHELL_DENY_AFTER; core and web get none', () => {
@@ -182,7 +225,7 @@ test('filtered scope: under OpenCode\'s last-match rule a read of a withheld pat
   const core = SERVER.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-server'].permission.bash;
   const refused = [
     'cat /var/www/site/index.php', 'head -n 5 /home/u/.ssh/authorized_keys', 'tail /srv/app/.env', 'grep -r token /srv/app/.env.local',
-    'sed -n 1p /srv/neptunia-dev/neptunia-core/config.local.json', 'awk 1 /etc/shadow', 'wc -l /opt/neptunia-bot/data/guilds/1/tasks.json',
+    'sed -n 1p /srv/neptunia-dev/neptunia-core/config.local.json', 'awk 1 /etc/shadow', `wc -l ${DATA_DIR}/guilds/1/tasks.json`,
     'git log --stat /srv/git/core.git/hooks', 'file /srv/neptunia-dev/.secrets/proxy', 'sort /etc/letsencrypt/live/x/privkey.pem',
   ];
   for (const command of refused) {

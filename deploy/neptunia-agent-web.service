@@ -33,17 +33,18 @@ Wants=network-online.target
 Type=simple
 User=neptunia-agent-web
 Group=neptunia-discord-interface
-WorkingDirectory=/opt/neptunia-bot
+WorkingDirectory=/opt/neptunia/app
 ExecStart=/opt/node/bin/node bin/agent-runner.mjs --profile web
-# The bot's directories (deploy/neptunia-bot.service). Only NEPTUNIA_PRIVATE_DIR
-# matters to the runner: it reads the override prompts.local/agent-web.md from
-# it (the tracked prompts/agent-web.md stays in the checkout); the runner
-# writes nothing under NEPTUNIA_DATA_DIR, which is set only to keep the units
-# alike. A deployment that keeps everything in the checkout deletes both lines.
-# The web user needs read access to prompts.local/agent-web.md there (the
-# runner refuses a task when the override exists but cannot be read).
-Environment=NEPTUNIA_PRIVATE_DIR=/etc/neptunia
-Environment=NEPTUNIA_DATA_DIR=/var/lib/neptunia
+# The bot's directories (deploy/neptunia-bot.service), set as in its unit. The
+# runner reads the override prompts.local/agent-web.md from
+# NEPTUNIA_PRIVATE_DIR (the tracked prompts/agent-web.md stays in the
+# checkout; an override this user cannot read is skipped with one warning and
+# the tracked prompt is used), and in a filtered scope withholds NEPTUNIA_DATA_DIR
+# and, when apart from the checkout, NEPTUNIA_PRIVATE_DIR
+# (src/agent-runner/policy.js); it writes under neither. A deployment that
+# keeps everything in the checkout deletes both lines.
+Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
+Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 # Optional overrides (the leading '-': the file may be absent); the keys come from the core.
 EnvironmentFile=-/etc/neptunia/agent-web.env
 Restart=on-failure
@@ -57,7 +58,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
-InaccessiblePaths=/srv /opt/neptunia-bot/data /opt/neptunia-bot/.env /var/www /etc/nginx /etc/letsencrypt /srv/neptunia-dev/.secrets
+InaccessiblePaths=/srv /opt/neptunia/data /opt/neptunia/etc/.env /var/www /etc/nginx /etc/letsencrypt /srv/neptunia-dev/.secrets
 StateDirectory=neptunia-agent-web
 RuntimeDirectory=neptunia-agent-web
 RuntimeDirectoryMode=0750

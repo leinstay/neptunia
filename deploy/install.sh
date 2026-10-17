@@ -1,43 +1,47 @@
 #!/usr/bin/env bash
-# Prepares a server for neptunia-bot with the private files kept out of the checkout (the layout
-# of deploy/neptunia-bot.service):
-#   /etc/neptunia       NEPTUNIA_PRIVATE_DIR: .env, config.local.json, prompts.local/
-#   /var/lib/neptunia   NEPTUNIA_DATA_DIR: everything the bot writes (its memory)
+# Prepares a server for neptunia-bot with the private files kept out of the checkout, all under
+# one root (the layout of deploy/neptunia-bot.service):
+#   /opt/neptunia/
+#     app/    the engine checkout (root-owned, read-only to the service)
+#     etc/    .env, config.local.json, prompts.local/   (NEPTUNIA_PRIVATE_DIR)
+#     data/   everything the bot writes                 (NEPTUNIA_DATA_DIR)
 #
-# Usage:     sudo deploy/install.sh [--user NAME] [--prefix DIR] [--dry-run]
+# Usage:     sudo deploy/install.sh [--root DIR] [--user NAME] [--prefix DIR] [--dry-run]
+#   --root DIR    the one root of the layout (default /opt/neptunia)
 #   --user NAME   the service user (default neptunia-bot): a system user, no login, no home
-#   --prefix DIR  the checkout the service runs from (default: the checkout holding this script)
+#   --prefix DIR  the checkout the service runs from (default <root>/app; clone it there first)
 #   --dry-run     print the commands only; change nothing (needs no root)
 #
 # What it does, every step safe to repeat:
 #   - creates the service user (and its group) when absent;
-#   - creates /etc/neptunia (root:root 755) with .env copied from .env.example when absent
+#   - creates <root> (root:root 755);
+#   - creates <root>/etc (root:root 755) with .env copied from .env.example when absent
 #     (root:<user> 640), prompts.local/ (<user> 750) and config.local.json ({} when absent,
 #     <user> 640); an existing file is never overwritten;
-#   - creates /var/lib/neptunia (<user>:<user> 750);
-#   - installs deploy/neptunia-bot.service into /etc/systemd/system/ with User=, Group= and
-#     WorkingDirectory= set to the given user and checkout, then runs systemctl daemon-reload.
+#   - creates <root>/data (<user>:<user> 750);
+#   - installs deploy/neptunia-bot.service into /etc/systemd/system/ with User=, Group=,
+#     WorkingDirectory=, the two directory variables, EnvironmentFile= and ReadWritePaths= set
+#     to the given user, checkout and root, then runs systemctl daemon-reload.
 # It never starts or enables the service: fill in the private files first (it prints which).
 
 set -euo pipefail
 
-PRIVATE_DIR=/etc/neptunia
-DATA_DIR=/var/lib/neptunia
 UNIT_NAME=neptunia-bot.service
 UNIT_DIR=/etc/systemd/system
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+ROOT=/opt/neptunia
 SERVICE_USER=neptunia-bot
-PREFIX=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
+PREFIX=
 DRY_RUN=0
 
 usage() {
-  echo "usage: sudo deploy/install.sh [--user NAME] [--prefix DIR] [--dry-run]" >&2
+  echo "usage: sudo deploy/install.sh [--root DIR] [--user NAME] [--prefix DIR] [--dry-run]" >&2
   exit 2
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --root) [ $# -ge 2 ] || usage; ROOT=$2; shift 2 ;;
     --user) [ $# -ge 2 ] || usage; SERVICE_USER=$2; shift 2 ;;
     --prefix) [ $# -ge 2 ] || usage; PREFIX=$2; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -50,13 +54,28 @@ if ! [[ $SERVICE_USER =~ ^[a-z_][a-z0-9_-]*$ ]]; then
   echo "install: not a valid user name: $SERVICE_USER" >&2
   exit 2
 fi
+case "$ROOT" in
+  /*) ;;
+  *) echo "install: --root must be an absolute path: $ROOT" >&2; exit 2 ;;
+esac
+case "$ROOT" in
+  *'|'*|*'&'*|*'\'*|*[[:space:]]*) echo "install: --root may not contain |, &, \\ or spaces: $ROOT" >&2; exit 2 ;;
+esac
+ROOT=${ROOT%"${ROOT##*[!/]}"}
+if [ -z "$ROOT" ]; then
+  echo "install: --root may not be /" >&2
+  exit 2
+fi
+PRIVATE_DIR=$ROOT/etc
+DATA_DIR=$ROOT/data
+[ -n "$PREFIX" ] || PREFIX=$ROOT/app
 if [ ! -d "$PREFIX" ]; then
-  echo "install: --prefix is not a directory: $PREFIX" >&2
+  echo "install: the checkout is not a directory: $PREFIX (clone the engine to <root>/app, or name it with --prefix)" >&2
   exit 2
 fi
 PREFIX=$(cd -- "$PREFIX" && pwd -P)
 case "$PREFIX" in
-  *'|'*|*'&'*|*'\'*) echo "install: --prefix may not contain |, & or \\: $PREFIX" >&2; exit 2 ;;
+  *'|'*|*'&'*|*'\'*|*[[:space:]]*) echo "install: --prefix may not contain |, &, \\ or spaces: $PREFIX" >&2; exit 2 ;;
 esac
 if [ ! -f "$PREFIX/src/index.js" ] || [ ! -f "$PREFIX/deploy/$UNIT_NAME" ]; then
   echo "install: $PREFIX is not a neptunia-bot checkout (no src/index.js or deploy/$UNIT_NAME)" >&2
@@ -73,19 +92,24 @@ run() {
   if [ "$DRY_RUN" -eq 0 ]; then "$@"; fi
 }
 
-# The bot's unit with User=, Group= and WorkingDirectory= set (a Group= line is added after User=
-# when the unit has none), on stdout.
+# The bot's unit with User=, Group=, WorkingDirectory=, NEPTUNIA_PRIVATE_DIR, NEPTUNIA_DATA_DIR,
+# EnvironmentFile= and ReadWritePaths= set (a Group= line is added after User= when the unit has
+# none), on stdout.
 render_unit() {
   local add_group=()
   if ! grep -q '^Group=' "$PREFIX/deploy/$UNIT_NAME"; then add_group=(-e "/^User=/a Group=$SERVICE_USER"); fi
   sed -e "s|^User=.*|User=$SERVICE_USER|" \
       -e "s|^Group=.*|Group=$SERVICE_USER|" \
       -e "s|^WorkingDirectory=.*|WorkingDirectory=$PREFIX|" \
+      -e "s|^Environment=NEPTUNIA_PRIVATE_DIR=.*|Environment=NEPTUNIA_PRIVATE_DIR=$PRIVATE_DIR|" \
+      -e "s|^Environment=NEPTUNIA_DATA_DIR=.*|Environment=NEPTUNIA_DATA_DIR=$DATA_DIR|" \
+      -e "s|^EnvironmentFile=.*|EnvironmentFile=-$PRIVATE_DIR/.env|" \
+      -e "s|^ReadWritePaths=.*|ReadWritePaths=$DATA_DIR $PRIVATE_DIR|" \
       "${add_group[@]}" \
       "$PREFIX/deploy/$UNIT_NAME"
 }
 
-echo "neptunia-bot install: user $SERVICE_USER, checkout $PREFIX$([ "$DRY_RUN" -eq 1 ] && echo ' (dry run: nothing is changed)')"
+echo "neptunia-bot install: user $SERVICE_USER, root $ROOT, checkout $PREFIX$([ "$DRY_RUN" -eq 1 ] && echo ' (dry run: nothing is changed)')"
 
 # The service user.
 if id -u "$SERVICE_USER" >/dev/null 2>&1; then
@@ -94,7 +118,8 @@ else
   run useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
 
-# The private directory and its files; an existing file is kept as it is.
+# The root, then the private directory and its files; an existing file is kept as it is.
+run install -d -o root -g root -m 0755 "$ROOT"
 run install -d -o root -g root -m 0755 "$PRIVATE_DIR"
 if [ -e "$PRIVATE_DIR/.env" ]; then
   echo "= $PRIVATE_DIR/.env exists, kept"
@@ -115,7 +140,7 @@ fi
 run install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$DATA_DIR"
 
 # The unit, rewritten for this user and checkout (replaced on every run).
-echo "+ render $PREFIX/deploy/$UNIT_NAME (User=$SERVICE_USER, Group=$SERVICE_USER, WorkingDirectory=$PREFIX) > $UNIT_DIR/$UNIT_NAME"
+echo "+ render $PREFIX/deploy/$UNIT_NAME (User=$SERVICE_USER, Group=$SERVICE_USER, WorkingDirectory=$PREFIX, NEPTUNIA_PRIVATE_DIR=$PRIVATE_DIR, NEPTUNIA_DATA_DIR=$DATA_DIR) > $UNIT_DIR/$UNIT_NAME"
 if [ "$DRY_RUN" -eq 0 ]; then
   unit_tmp=$(mktemp)
   trap 'rm -f "$unit_tmp"' EXIT

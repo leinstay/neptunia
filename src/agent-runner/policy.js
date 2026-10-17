@@ -21,7 +21,17 @@
 // - `redactSecrets(text)`: key-, token- and password-looking strings,
 //   private-key blocks, SSH key material and URL credentials become
 //   `[redacted]`.
-// Both pure.
+// Both pure. The withheld roots include the deployment's data directory and,
+// when apart from the checkout, its private directory, resolved once at load
+// from NEPTUNIA_DATA_DIR / NEPTUNIA_PRIVATE_DIR (src/paths.js), so the policy
+// follows the layout the unit sets.
+
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { resolvePaths } from '../paths.js';
+
+/** The engine root (two levels up from this file). */
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /** The scopes a request may carry. */
 export const SCOPES = Object.freeze(['core', 'dm', 'group']);
@@ -32,24 +42,66 @@ export const FILTERED_SCOPES = Object.freeze(['dm', 'group']);
 /** The replacement of a redacted string. */
 export const REDACTED = '[redacted]';
 
-/** Absolute paths whose content is withheld in `dm` and `group` (everything under them too). */
-export const WITHHELD_ROOTS = Object.freeze([
+/** Absolute paths whose content is withheld in `dm` and `group` whatever the deployment's layout. */
+const FIXED_ROOTS = Object.freeze([
   '/var/www', '/srv/git', '/srv/neptunia-backups', '/etc/shadow', '/etc/gshadow', '/etc/nginx/htpasswd',
-  '/etc/letsencrypt', '/etc/neptunia', '/opt/neptunia-bot/data',
+  '/etc/letsencrypt', '/etc/neptunia',
 ]);
+
+/**
+ * The deployment's own withheld directories: its data directory (the persona's memory about real
+ * people) and, when it is apart from the checkout, its private directory (.env, config.local.json,
+ * prompts.local/). Pure.
+ * @param {{ rootDir: string, privateDir: string, dataDir: string }} paths  src/paths.js#resolvePaths
+ * @returns {string[]}
+ */
+function deploymentRootsOf(paths) {
+  return paths.privateDir === paths.rootDir ? [paths.dataDir] : [paths.dataDir, paths.privateDir];
+}
+
+/**
+ * Absolute paths whose content is withheld in `dm` and `group` (everything under them too): the
+ * fixed ones, then the deployment's data and private directories (`paths`, by default this
+ * checkout's resolved from the process environment, so the policy follows the layout the unit
+ * sets). Pure but for reading the environment when `paths` is not given.
+ * @param {{ paths?: { rootDir: string, privateDir: string, dataDir: string } }} [options]
+ * @returns {readonly string[]}
+ */
+export function withheldRootsOf({ paths = resolvePaths({ rootDir: ROOT_DIR }) } = {}) {
+  return Object.freeze([...new Set([...FIXED_ROOTS, ...deploymentRootsOf(paths)])]);
+}
+
+/** Absolute paths whose content is withheld in `dm` and `group` (everything under them too), for this process. */
+export const WITHHELD_ROOTS = withheldRootsOf();
 /** Path components that withhold the path wherever they appear. */
 export const WITHHELD_NAMES = Object.freeze(['.git', '.local.git', '.secrets', '.ssh', 'config.local.json', 'scratch']);
 /** A `.env` file (`.env`, `.env.local`, ...) is withheld wherever it is. */
 const ENV_FILE = /^\.env(?:\..+)?$/;
-/** The glob patterns a config denies for a path tool in a filtered scope (OpenCode's `read`/`grep`/... resources). */
-export const WITHHELD_GLOBS = Object.freeze([
+/** The glob patterns of the fixed roots and the names, before the deployment's directories. */
+const FIXED_GLOBS = Object.freeze([
   '/var/www', '/var/www/**', '/srv/git', '/srv/git/**', '/srv/neptunia-backups', '/srv/neptunia-backups/**',
   '/etc/shadow', '/etc/gshadow', '/etc/nginx/htpasswd', '/etc/nginx/htpasswd/**', '/etc/letsencrypt',
   '/etc/letsencrypt/**', '/etc/neptunia', '/etc/neptunia/**',
   '**/.git', '**/.git/**', '**/.local.git', '**/.local.git/**', '**/.secrets', '**/.secrets/**',
   '**/.ssh', '**/.ssh/**', '**/config.local.json', '**/.env', '**/.env.*',
-  '/opt/neptunia-bot/data', '/opt/neptunia-bot/data/**', '**/data/guilds', '**/data/guilds/**', '**/.agents/scratch', '**/.agents/scratch/**',
 ]);
+/** The glob patterns after the deployment's directories. */
+const TRAILING_GLOBS = Object.freeze(['**/data/guilds', '**/data/guilds/**', '**/.agents/scratch', '**/.agents/scratch/**']);
+
+/**
+ * The glob patterns a config denies for a path tool in a filtered scope (OpenCode's
+ * `read`/`grep`/... resources): the fixed ones, `<dir>` and `<dir>/**` for each of the
+ * deployment's directories (`paths` as in `withheldRootsOf`), then the trailing ones.
+ * @param {{ paths?: { rootDir: string, privateDir: string, dataDir: string } }} [options]
+ * @returns {readonly string[]}
+ */
+export function withheldGlobsOf({ paths = resolvePaths({ rootDir: ROOT_DIR }) } = {}) {
+  const deployment = deploymentRootsOf(paths).flatMap((dir) => [dir, `${dir}/**`]);
+  return Object.freeze([...new Set([...FIXED_GLOBS, ...deployment, ...TRAILING_GLOBS])]);
+}
+
+/** The glob patterns a config denies for a path tool in a filtered scope, for this process. */
+export const WITHHELD_GLOBS = withheldGlobsOf();
 
 /** Bash command words that open file contents (so their path arguments are checked). */
 const READERS = new Set([
