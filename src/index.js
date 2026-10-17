@@ -48,15 +48,12 @@ import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
 import {
   applyReactionEvent,
-  canSend,
   createAroundStore,
   createAudienceWarmer,
-  createDiscordAdapter,
+  createDiscordInterface,
   createEmojiIndex,
   createInteractionHandler,
   createReactorStore,
-  fetchHistory,
-  fetchMessage,
   normalizedOf,
   normalizeOptions,
   reactionEvent,
@@ -347,8 +344,10 @@ const activity = createActivity();
 // A warmup run ends a chain of parts (a message answered part by part) before its next part;
 // read through a closure, as the warmup is created just below.
 // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
-// after the skill gateway (src/skills/gateway.js) let the call pass.
-const iface = createDiscordAdapter({ client });
+// after the skill gateway (src/skills/gateway.js) let the call pass. The Discord interface
+// (interfaces/discord/) builds it; its capabilities reach the message pipeline below.
+const discordInterface = createDiscordInterface({ client });
+const iface = discordInterface.port;
 // The persona's errands (agents.*): a task she or a member asks for goes to its agent runner over
 // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/tasks.json.
 const errandClient = createErrandClient({ hot, log });
@@ -437,8 +436,9 @@ const onMessage = createMessageHandler({
   hot,
   store,
   client,
-  // The Discord functions the pipeline calls (src/behavior/pipeline.js imports none of them).
-  discord: { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent },
+  // The Discord functions the pipeline calls (src/behavior/pipeline.js imports none of them): the
+  // interface's capabilities, plus the two event helpers the capability list does not carry.
+  discord: { ...discordInterface.capabilities, normalizedOf, toEvent },
   turns,
   spontaneous,
   memory,
