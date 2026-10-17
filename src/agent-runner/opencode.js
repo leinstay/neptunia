@@ -1,0 +1,394 @@
+// The runner's task engine: the persona's agents run on OpenCode (the raw
+// agent harness), one task = one `opencode run` child process in a fresh
+// working directory under the profile's out dir. The child gets, through its
+// environment, the OpenCode config this task needs (the profile's agent
+// definition, the model and its cost, the permission ruleset for the scope)
+// and a per-task database, with project/claude config, auto-update and the
+// price fetch disabled so nothing of this server leaks into the worker and
+// the run is reproducible. The agent's OpenRouter key is the runner's own
+// (never the persona's), passed as OPENROUTER_API_KEY.
+//
+// The child prints one JSON event per line (`--format json`): `step_finish`
+// gives tokens and the cost OpenCode estimates per step (summed; a step
+// without a cost raises `costUnknown`), `text` is the assistant's answer,
+// `tool_use` drives progress and, in a filtered scope, the withheld-path
+// backstop (src/agent-runner/policy.js: when a tool call names a withheld
+// path the child is interrupted and the task fails `withheld-path`), `error`
+// fails the task. The usd and seconds caps stop the child (SIGTERM, then
+// SIGKILL); the step cap is the agent's own. Files the agent saved under its
+// working directory are the result's files; the result text is redacted in a
+// filtered scope. Resolves, never rejects.
+//
+// OpenCode's cost is a catalog estimate, not OpenRouter's billed cost (see
+// .agents/docs/references/opencode-and-beads.md): the usd cap is a soft cap;
+// the hard cap is the runner key's OpenRouter credit limit.
+
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { log } from '../log.js';
+import { isPlainObject } from '../config.js';
+import { redactorFor, scopeOf, withheldInToolUse } from './policy.js';
+
+/** The OpenCode binary by default. */
+export const DEFAULT_OPENCODE_PATH = '/opt/opencode/bin/opencode';
+/** The grace between SIGTERM and SIGKILL when a cap stops the child (ms). */
+const KILL_GRACE_MS = 10_000;
+/** A file's content type by extension (the result's `contentType`). */
+const CONTENT_TYPES = new Map([
+  ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.png', 'image/png'], ['.gif', 'image/gif'], ['.webp', 'image/webp'],
+  ['.mp4', 'video/mp4'], ['.webm', 'video/webm'], ['.mov', 'video/quicktime'], ['.mp3', 'audio/mpeg'],
+  ['.ogg', 'audio/ogg'], ['.wav', 'audio/wav'], ['.m4a', 'audio/mp4'], ['.pdf', 'application/pdf'],
+  ['.txt', 'text/plain'], ['.md', 'text/markdown'], ['.json', 'application/json'],
+]);
+
+/**
+ * The text of the first existing file of `paths` (a local override first,
+ * then the tracked file). Throws naming the paths when none exists, or when
+ * the chosen file is empty.
+ * @param {string[]} paths
+ * @returns {string}
+ */
+export function readPromptFile(paths) {
+  const list = (Array.isArray(paths) ? paths : [paths]).filter((p) => typeof p === 'string' && p);
+  for (const file of list) {
+    let text;
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch (err) {
+      if (err?.code === 'ENOENT') continue;
+      throw err;
+    }
+    const trimmed = text.replace(/^﻿/, '').trim();
+    if (!trimmed) throw new Error(`agent-runner: prompt file empty: ${file}`);
+    return trimmed;
+  }
+  throw new Error(`agent-runner: prompt file missing: ${list.join(', ') || '(none given)'}`);
+}
+
+/** The task prompt: the goal and, when present, the context as JSON. */
+export function taskPrompt(goal, context) {
+  const parts = [`<goal>\n${String(goal ?? '').trim()}\n</goal>`];
+  const ctx = isPlainObject(context) ? context : {};
+  const shown = Object.fromEntries(Object.entries(ctx).filter(([key]) => key !== 'scope'));
+  if (Object.keys(shown).length) parts.push(`<context>\n${JSON.stringify(shown, null, 1)}\n</context>`);
+  return parts.join('\n');
+}
+
+/** The flags that isolate a worker run (config roots off, no auto-update, no price fetch). */
+export function isolationEnv() {
+  return {
+    OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+    OPENCODE_DISABLE_CLAUDE_CODE: '1',
+    OPENCODE_DISABLE_AUTOUPDATE: '1',
+    OPENCODE_DISABLE_MODELS_FETCH: '1',
+  };
+}
+
+/** Kill `child` and its process group. */
+function killTree(child, signal) {
+  try {
+    if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      // already gone
+    }
+  }
+}
+
+/** A finite non-negative number, else 0. */
+function count(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+/** The files the agent saved under `dir` (recursively), as result file handles. */
+async function collectFiles(dir, id) {
+  const base = path.join(dir, id);
+  const out = [];
+  async function walk(current) {
+    let entries;
+    try {
+      entries = await fsp.readdir(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+      } else if (entry.isFile()) {
+        let bytes = 0;
+        try {
+          bytes = (await fsp.stat(full)).size;
+        } catch {
+          continue;
+        }
+        out.push({ path: full, name: entry.name, contentType: CONTENT_TYPES.get(path.extname(entry.name).toLowerCase()) ?? '', bytes });
+      }
+    }
+  }
+  await walk(base);
+  return out;
+}
+
+/**
+ * @param {object} options
+ * @param {object} options.profile  A profile from src/agent-runner/profiles.js.
+ * @param {string} options.outDir  The runner's out dir (`<outDir>/<id>/` is a task's working dir).
+ * @param {Record<string,string>} [options.env]  The base environment (the runner's key lives here).
+ * @param {string} [options.opencodePath]  `agents.opencodePath`.
+ * @param {string} [options.openrouterKeyEnv]  The env name that holds the runner's OpenRouter key.
+ * @param {string} [options.searchKeyEnv]  The env name of the web-search provider key (web profile).
+ * @param {() => number} [options.now]
+ * @param {typeof spawn} [options.spawnImpl]
+ */
+export function createOpencodeRunner({
+  profile,
+  outDir,
+  env = process.env,
+  opencodePath = DEFAULT_OPENCODE_PATH,
+  openrouterKeyEnv = 'OPENROUTER_AGENT_KEY',
+  searchKeyEnv = 'OPENCODE_WEBSEARCH_KEY',
+  now = Date.now,
+  spawnImpl = spawn,
+}) {
+  if (!profile) throw new Error('agent-runner: no profile');
+
+  /**
+   * Work one task through an OpenCode child.
+   * @param {{ id, goal, context?, limits?, model?, cost?, searchProvider?, signal?, onProgress? }} task
+   * @returns {Promise<{ status, result: { text, sources, files }, usage, error? }>}
+   */
+  async function run({ id, goal, context, limits = {}, model, cost, searchProvider, signal, onProgress = () => {} }) {
+    const startedAt = now();
+    const scope = scopeOf(context);
+    const redact = redactorFor(scope);
+    const usage = { input: 0, output: 0, usd: 0, steps: 0, seconds: 0, costUnknown: 0 };
+    const sources = new Set();
+    const steps = Number.isFinite(limits.steps) && limits.steps > 0 ? Math.floor(limits.steps) : profile.defaultLimits.steps;
+    const usdCap = Number.isFinite(limits.usd) && limits.usd > 0 ? limits.usd : profile.defaultLimits.usd;
+    const secondsCap = Number.isFinite(limits.seconds) && limits.seconds > 0 ? limits.seconds : profile.defaultLimits.seconds;
+
+    const dir = path.join(outDir, id);
+    try {
+      await fsp.mkdir(dir, { recursive: true });
+    } catch (err) {
+      log.warn('agent-runner: workdir failed', { id, reason: err?.code ?? 'mkdir' });
+      return finish('failed', '', 'workdir');
+    }
+
+    let systemPrompt;
+    try {
+      systemPrompt = readPromptFile(profile.promptFiles);
+    } catch {
+      return finish('failed', '', 'no-prompt');
+    }
+
+    const providerModel = typeof model === 'string' && model ? model : profile.defaultModel;
+    const configContent = JSON.stringify(profile.buildConfig({ systemPrompt, providerModel, steps, scope, cost, toolResultChars: limits.toolResultChars }));
+    const childEnv = {
+      ...env,
+      ...isolationEnv(),
+      OPENCODE_CONFIG_CONTENT: configContent,
+      OPENCODE_DB: path.join(dir, 'opencode.db'),
+      HOME: dir,
+      PWD: dir,
+      XDG_DATA_HOME: path.join(dir, '.local', 'share'),
+      XDG_CONFIG_HOME: path.join(dir, '.config'),
+      XDG_CACHE_HOME: path.join(dir, '.cache'),
+    };
+    if (env[openrouterKeyEnv]) childEnv.OPENROUTER_API_KEY = env[openrouterKeyEnv];
+    if (profile.name === 'web') {
+      // v1.19.3 picks the web search provider from OPENCODE_WEBSEARCH_PROVIDER
+      // (`exa`, keyless, or `parallel`, which needs PARALLEL_API_KEY). The
+      // provider key, when set, goes to that provider's own env name.
+      const provider = typeof searchProvider === 'string' && searchProvider ? searchProvider : (profile.defaultSearchProvider ?? 'exa');
+      childEnv.OPENCODE_WEBSEARCH_PROVIDER = provider;
+      if (env[searchKeyEnv]) childEnv[provider === 'parallel' ? 'PARALLEL_API_KEY' : 'EXA_API_KEY'] = env[searchKeyEnv];
+    }
+
+    const args = ['run', '--format', 'json', '--agent', profile.agentId, '--model', providerModel, '--title', id, taskPrompt(goal, context)];
+
+    let resultText = '';
+    let errorMessage = null;
+    let capHit = null;
+    let withheld = null;
+    let killed = false;
+    let child;
+
+    function finish(status, text, error) {
+      usage.seconds = Math.round((now() - startedAt) / 100) / 10;
+      const out = { status, result: { text: redact(text ?? ''), sources: [...sources], files: [] }, usage };
+      if (error) out.error = error;
+      return out;
+    }
+
+    const progress = (fields) => {
+      try {
+        onProgress(fields);
+      } catch {
+        // a listener's failure is its own
+      }
+    };
+
+    const stopChild = (reason) => {
+      if (killed) return;
+      killed = true;
+      capHit = capHit ?? reason;
+      killTree(child, 'SIGTERM');
+      setTimeout(() => killTree(child, 'SIGKILL'), KILL_GRACE_MS).unref?.();
+    };
+
+    const outcome = await new Promise((resolve) => {
+      let settled = false;
+      const settle = (value) => {
+        if (settled) return;
+        settled = true;
+        if (signal) signal.removeEventListener('abort', onAbort);
+        clearInterval(ticker);
+        resolve(value);
+      };
+      const onAbort = () => {
+        stopChild('cancelled');
+      };
+      if (signal) {
+        if (signal.aborted) stopChild('cancelled');
+        else signal.addEventListener('abort', onAbort, { once: true });
+      }
+      const ticker = setInterval(() => {
+        if ((now() - startedAt) / 1000 >= secondsCap) stopChild('time-cap');
+      }, 1000);
+      if (ticker.unref) ticker.unref();
+
+      try {
+        child = spawnImpl(opencodePath, args, {
+          cwd: dir, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'],
+          detached: process.platform !== 'win32', windowsHide: true,
+        });
+      } catch (err) {
+        settle({ exitCode: null, spawnError: err?.code ?? 'spawn' });
+        return;
+      }
+
+      let buffer = '';
+      const onLine = (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        let event;
+        try {
+          event = JSON.parse(trimmed);
+        } catch {
+          return;
+        }
+        handleEvent(event);
+      };
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        buffer += chunk;
+        let nl;
+        while ((nl = buffer.indexOf('\n')) !== -1) {
+          onLine(buffer.slice(0, nl));
+          buffer = buffer.slice(nl + 1);
+        }
+      });
+      child.stderr?.on?.('data', () => {});
+      child.on('error', (err) => settle({ exitCode: null, spawnError: err?.code ?? 'spawn' }));
+      child.on('close', (code) => {
+        if (buffer.trim()) onLine(buffer);
+        settle({ exitCode: code, spawnError: null });
+      });
+
+      function handleEvent(event) {
+        const type = event?.type;
+        if (type === 'step_finish') {
+          usage.steps += 1;
+          const part = isPlainObject(event.part) ? event.part : {};
+          const tokens = isPlainObject(part.tokens) ? part.tokens : {};
+          usage.input += count(tokens.input);
+          usage.output += count(tokens.output) + count(tokens.reasoning);
+          const stepCost = part.cost;
+          if (typeof stepCost === 'number' && Number.isFinite(stepCost) && stepCost > 0) usage.usd += stepCost;
+          else usage.costUnknown += 1;
+          progress({ step: usage.steps, tool: null, note: '' });
+          if (usage.usd >= usdCap) stopChild('usd-cap');
+          return;
+        }
+        if (type === 'text') {
+          const text = isPlainObject(event.part) ? event.part.text : '';
+          if (typeof text === 'string' && text.trim()) resultText = text;
+          return;
+        }
+        if (type === 'tool_use') {
+          const part = isPlainObject(event.part) ? event.part : {};
+          const toolName = part.tool ?? part.name ?? '';
+          const input = isPlainObject(part.state?.input) ? part.state.input : (isPlainObject(part.input) ? part.input : {});
+          progress({ step: usage.steps, tool: String(toolName), note: '' });
+          const hit = withheldInToolUse({ tool: toolName, input }, scope);
+          if (hit) {
+            withheld = hit;
+            stopChild('withheld-path');
+          }
+          // The web agent's sources are the pages it fetched.
+          if ((toolName === 'webfetch' || toolName === 'fetch') && typeof input.url === 'string') sources.add(input.url);
+          return;
+        }
+        if (type === 'error') {
+          const err = event.error;
+          const message = isPlainObject(err)
+            ? (typeof err.message === 'string' ? err.message : (typeof err.data?.message === 'string' ? err.data.message : (typeof err.name === 'string' ? err.name : 'error')))
+            : String(err ?? 'error');
+          if (!errorMessage) errorMessage = message;
+          return;
+        }
+      }
+    });
+
+    if (outcome.spawnError) {
+      log.warn('agent-runner: spawn failed', { id, profile: profile.name, reason: outcome.spawnError });
+      return finish('failed', '', 'spawn');
+    }
+
+    const files = await collectFiles(outDir, id);
+    const base = finish(signal?.aborted ? 'cancelled' : 'done', resultText, undefined);
+    base.result.files = files;
+
+    if (withheld) {
+      base.status = 'failed';
+      base.error = 'withheld-path';
+      base.result.text = redact(resultText) || '';
+      return base;
+    }
+    if (signal?.aborted) {
+      base.status = 'cancelled';
+      base.error = 'cancelled';
+      return base;
+    }
+    if (capHit === 'time-cap' || capHit === 'usd-cap') {
+      base.status = 'failed';
+      base.error = capHit;
+      return base;
+    }
+    if (errorMessage) {
+      base.status = 'failed';
+      base.error = 'agent-error';
+      log.warn('agent-runner: task error', { id, profile: profile.name, steps: usage.steps });
+      return base;
+    }
+    if (outcome.exitCode !== 0) {
+      base.status = 'failed';
+      base.error = `exit-${outcome.exitCode ?? 'signal'}`;
+      return base;
+    }
+    if (!base.result.text.trim() && !files.length) {
+      base.status = 'failed';
+      base.error = 'empty-answer';
+    }
+    return base;
+  }
+
+  return { run, checkPrompt: () => readPromptFile(profile.promptFiles) };
+}
