@@ -1058,11 +1058,12 @@ export function requesterOf(trigger, channel) {
  * profiles (only with memory on), her own id (`selfId`), the guild's roles, the request's channel
  * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name) and the skill registry
  * (`skills`: a derived skill's options are resolved by its command), and `fileOf` (a file handle
- * of one of her errands -> the file, null when this conversation may not use it). Reads `store` only. Exported
+ * of one of her errands -> the file, null when this conversation may not use it), and `triggerText` (the
+ * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
  * for the replay's skill scenarios, which resolve a call exactly as a live turn does.
  * @returns {object}
  */
-export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills, channelHandles = null, fileOf = null }) {
+export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId, skills, channelHandles = null, fileOf = null, triggerText = null }) {
   const conversations = [];
   const cache = channel?.guild?.channels?.cache;
   if (cache && typeof cache.values === 'function') {
@@ -1097,6 +1098,8 @@ export function callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memo
     skills,
     // A file handle of one of her errands (`file:<task id>/<name>`), resolved for this conversation.
     ...(typeof fileOf === 'function' ? { fileOf } : {}),
+    // The trigger message's text: a channel it names may take an errand's file.
+    ...(typeof triggerText === 'string' && triggerText ? { triggerText } : {}),
   };
 }
 
@@ -1744,9 +1747,9 @@ export function createTurnRunner({
   }
 
   /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, id and registry. */
-  function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles = null }) {
+  function callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles = null, trigger = null }) {
     const fileOf = typeof errands?.fileOf === 'function' ? (handle) => errands.fileOf({ guildId, handle, privateChannelId: channel.guild ? null : String(channel.id) }) : null;
-    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills(), channelHandles, fileOf });
+    return callViewOf({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, store, selfId: client?.user?.id ?? null, skills: skills ?? defaultSkills(), channelHandles, fileOf, triggerText: typeof trigger?.content === 'string' ? trigger.content : null });
   }
 
   /**
@@ -1795,6 +1798,8 @@ export function createTurnRunner({
     const resolved = resolveCall(call, view);
     if (!resolved.ok) {
       log.info('skill: refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
+      // An errand's file bound for a channel nobody named (src/skills/executors.js#resolveCall).
+      if (resolved.code === 'file-elsewhere') log.info('skills: file elsewhere refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
       return { call, op, envelope, resolved: null, refusal: { code: resolved.code, reason: resolved.reason } };
     }
     // Her comment in the body of a skill that takes no text: left out, the call goes on (never its text in the log).
@@ -6170,7 +6175,7 @@ export function createTurnRunner({
       // A skill call is planned (journaled `proposed`, resolved, checked) before anything of the
       // reply is done, and made after it (runCall).
       const callPlan = parsed.call
-        ? await planCall({ call: parsed.call, channel, envelope: callEnvelope({ trigger, channel, added, missed, requester: requesterParam }), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles }) })
+        ? await planCall({ call: parsed.call, channel, envelope: callEnvelope({ trigger, channel, added, missed, requester: requesterParam }), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, trigger }) })
         : null;
       // A set's pictures are generated before anything of the post is sent, and counted
       // against the day's diary pictures as they were paid for, posted or not.

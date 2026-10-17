@@ -16,7 +16,8 @@
 // result through `labels.skills.result`.
 
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
-import { matchChannel, MESSAGE_LINK_RE } from '../memory/mentions.js';
+import { channelCore, matchChannel, MESSAGE_LINK_RE, occursAsWholeWord } from '../memory/mentions.js';
+import { foldText } from '../memory/recent.js';
 import { SELF_OWNED_OPS } from '../ops/effects.js';
 
 /** The options whose value may be a transcript number `#N`: a message she can see. */
@@ -125,6 +126,29 @@ function memberOf(reference, members) {
   return refused('unknown-member', ids.size > 1 ? 'ambiguous' : 'name');
 }
 
+/** Whether `text` names the channel `channelId`: its mention `<#id>`, one of its handles, or its name (by its core: any case, accents, emoji) as a whole word. */
+function namesChannel(text, channelId, names, handles) {
+  const raw = String(text ?? '');
+  if (!raw.trim()) return false;
+  if (raw.includes(`<#${channelId}>`)) return true;
+  const folded = foldText(raw);
+  return handles.some((handle) => occursAsWholeWord(folded, foldText(handle))) || names.some((name) => occursAsWholeWord(folded, channelCore(name)));
+}
+
+/**
+ * Whether a file of the errand `task` may be posted to `channelId`: the errand's origin channel
+ * (`task.origin.channelId`; any channel when it has none), else a channel the errand's goal or the
+ * trigger message of the turn (`view.triggerText`) names by its mention, a handle of
+ * `view.channelHandles` or a name of `view.conversations`.
+ */
+function fileMayGo(task, channelId, view) {
+  const origin = task?.origin?.channelId;
+  if (origin === undefined || origin === null || origin === '' || String(origin) === channelId) return true;
+  const names = (view?.conversations ?? []).filter((c) => c && String(c.id) === channelId && typeof c.name === 'string' && c.name).map((c) => c.name);
+  const handles = view?.channelHandles instanceof Map ? [...view.channelHandles].filter(([, id]) => String(id) === channelId).map(([handle]) => handle) : [];
+  return [task.goal, view?.triggerText].some((text) => namesChannel(text, channelId, names, handles));
+}
+
 /** A line break written as an HTML tag in a call's body. */
 const BODY_BREAK_RE = /<br\s*\/?>/gi;
 /** One `<name>value</name>` at the start of what is left of a body. */
@@ -168,7 +192,9 @@ export function bodyArguments(body, names) {
  * name, or several), `unknown-message` (a `#N` not in this turn's transcript, or in another
  * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
  * is not hers), `unknown-file` (a `file` handle that names no file of an errand of hers this
- * conversation may see, `view.fileOf`). A `#N` of a `message` or `reply` option becomes the line's message id and, when
+ * conversation may see, `view.fileOf`), `file-elsewhere` (an errand's file bound for a channel
+ * other than the one the errand was asked in that neither its goal nor the turn's trigger message,
+ * `view.triggerText`, names: fileMayGo; a call without a channel posts here as ever). A `#N` of a `message` or `reply` option becomes the line's message id and, when
  * the command has a `channel` option the call left out, its channel; a reply records the replied
  * author. A Discord message link there (MESSAGE_LINK_RE, bare or in angle brackets) becomes its
  * message id and names its channel the same way (`unknown-message` when the call named another);
@@ -184,7 +210,7 @@ export function bodyArguments(body, names) {
  * @param {{ skills: Map<string, object>, conversations?: { id: string, name: string }[], channelHandles?: Map<string, string>|null,
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
- *   selfId?: string|null, fileOf?: (handle: string) => object|null }} view
+ *   selfId?: string|null, fileOf?: (handle: string) => object|null, triggerText?: string|null }} view
  * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyIgnored?: true, bodyArgs?: number }
  *   | { ok: false, code: string, reason: string }}
  */
@@ -215,6 +241,7 @@ export function resolveCall(call, view) {
   const args = {};
   const lines = {};
   const linked = {}; // option -> the channel id of the message link it was given
+  const errandFiles = []; // the errands whose files the call carries
   for (const [option, raw] of Object.entries(given)) {
     const text = String(raw ?? '').trim();
     switch (byName.get(option).kind) {
@@ -251,6 +278,7 @@ export function resolveCall(call, view) {
         if (FILE_OPTIONS.includes(option)) {
           const file = typeof view?.fileOf === 'function' ? view.fileOf(text) : null;
           if (!file) return refused('unknown-file', option);
+          if (file.task) errandFiles.push(file.task);
           args[option] = text;
           break;
         }
@@ -294,6 +322,10 @@ export function resolveCall(call, view) {
     if (!byName.has('channel')) continue;
     if (args.channel === undefined) args.channel = at;
     else if (String(args.channel) !== at) return refused('unknown-message', 'conversation');
+  }
+  // An errand's file goes where the errand was asked; elsewhere only where its goal or the trigger names.
+  if (args.channel !== undefined) {
+    for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused('file-elsewhere', 'channel');
   }
   return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody ? { bodyArgs } : {}) };
 }
