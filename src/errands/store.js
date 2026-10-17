@@ -375,6 +375,9 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     task.endedAt = at;
     task.usage = normalizeUsage(usage);
     task.result = task.state === 'done' || result ? normalizeResult(result) : null;
+    // The record keeps only the names of the files the runner held back (the persona is told).
+    if (task.result?.filesDropped) task.result.filesDropped = task.result.filesDropped.map((entry) => entry.name).filter(Boolean);
+    if (task.result?.filesDropped?.length === 0) delete task.result.filesDropped;
     task.error = task.state === 'done' ? null : (typeof error === 'string' && error ? error : task.state === 'cancelled' ? 'cancelled' : 'failed');
     task.seen = false;
     if (task.usage.usd > 0) bumpDaily(state.daily, usdKeys(task.agent), at, task.usage.usd);
