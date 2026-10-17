@@ -51,8 +51,10 @@ function fakeSpawn() {
     children.push(child);
     return child;
   };
+  // The runner prepares the task directory (mkdir, the config, the prompt file) before it spawns, so a slow
+  // machine needs real time here, not a fixed number of ticks: up to five seconds.
   const waitForChild = async () => {
-    for (let i = 0; i < 200 && !children.length; i += 1) await new Promise((r) => setImmediate(r));
+    for (let i = 0; i < 1000 && !children.length; i += 1) await new Promise((r) => setTimeout(r, 5));
     return children[0];
   };
   return { spawnImpl, children, waitForChild };
