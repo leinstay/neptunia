@@ -4,9 +4,9 @@
 // confident answers to questions memory cannot answer, latency, cost -- instead of by a few
 // live turns.
 //
-//   cd /opt/neptunia-bot && node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3]
+//   cd /opt/neptunia/app && node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3]
 //        [--dry] [--discord] [--web] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]
-//   cd /opt/neptunia-bot && node tools/recall-eval.mjs sample [--n 80] [--days 30]
+//   cd /opt/neptunia/app && node tools/recall-eval.mjs sample [--n 80] [--days 30]
 //        [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]
 //
 // The questions file (default data/recall-eval/questions.json): `[{ id, channelId, askerId,

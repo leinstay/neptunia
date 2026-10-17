@@ -60,7 +60,7 @@ Run the tool from the bot's checkout, as the service user, with the bot stopped:
 
 ```bash
 sudo systemctl stop neptunia-bot
-cd /opt/neptunia-bot
+cd /opt/neptunia/app
 sudo -u neptunia-bot node tools/warmup.mjs run --guild <server id> --dry-run
 sudo -u neptunia-bot node tools/warmup.mjs run --guild <server id> --spend <usd>
 sudo systemctl start neptunia-bot

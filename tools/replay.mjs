@@ -18,20 +18,20 @@
 // Not for: measuring what the analyzer does to memory (tools/memory-sim.mjs);
 // reading the journal's day numbers (tools/journal-report.mjs).
 //
-//   cd /opt/neptunia-bot && node tools/replay.mjs <channelId> <triggerMessageId>
+//   cd /opt/neptunia/app && node tools/replay.mjs <channelId> <triggerMessageId>
 //        [--before 40] [--samples 1] [--show-request] [--as-of-moment]
 //        [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--spend <usd>]
-//   cd /opt/neptunia-bot && node tools/replay.mjs <channelId> <triggerMessageId> --split
+//   cd /opt/neptunia/app && node tools/replay.mjs <channelId> <triggerMessageId> --split
 //        [--text "<candidate text>"] [--before <split.contextMessages>] [--samples 3] [--spend <usd>]
-//   cd /opt/neptunia-bot && node tools/replay.mjs <channelId> <triggerMessageId> --recall
+//   cd /opt/neptunia/app && node tools/replay.mjs <channelId> <triggerMessageId> --recall
 //        [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]
-//   cd /opt/neptunia-bot && node tools/replay.mjs --pair <promptsDirA> <promptsDirB>
+//   cd /opt/neptunia/app && node tools/replay.mjs --pair <promptsDirA> <promptsDirB>
 //        (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment]
 //        [--snapshot <dir>] [--out <dir>] [--spend <usd>]
-//   cd /opt/neptunia-bot && node tools/replay.mjs --show-request <turnId> [--snapshot <dir>] [--before 40] [--as-of-moment]
-//   cd /opt/neptunia-bot && node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"]
+//   cd /opt/neptunia/app && node tools/replay.mjs --show-request <turnId> [--snapshot <dir>] [--before 40] [--as-of-moment]
+//   cd /opt/neptunia/app && node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"]
 //        [--prompts <dir>] [--out <file>] [--spend <usd>]
-//   cd /opt/neptunia-bot && node tools/replay.mjs --skills <scenarios.json>
+//   cd /opt/neptunia/app && node tools/replay.mjs --skills <scenarios.json>
 //        [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40]
 //        [--as-of-moment] [--snapshot <dir>] [--dry] [--spend <usd>]
 //

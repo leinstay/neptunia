@@ -11,7 +11,7 @@
 //      a feeling she did not have then is not invented. The optional voice step words a
 //      present-day reconstruction, stored as the archived episode's `feeling` with `reconstructedAt`.
 //
-//   cd /opt/neptunia-bot && node tools/backfill.mjs <subcommand> [--guild <id>] [flags]
+//   cd /opt/neptunia/app && node tools/backfill.mjs <subcommand> [--guild <id>] [flags]
 //
 //   fetch    --since <day> [--until <day>] [--dry-run]
 //            Reads every channel and thread the bot can read today over REST (no gateway, the bot

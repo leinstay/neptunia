@@ -12,7 +12,7 @@ the same values the unit sets. A `--data <dir>` given on the command line still 
 
 - **Run as the service user, from the checkout:** run them as the user your unit runs as (`User=` in
   `deploy/neptunia-bot.service`, `neptunia-bot` as shipped) from its `WorkingDirectory`, e.g.
-  `cd /opt/neptunia-bot && sudo -u neptunia-bot node tools/<tool>.mjs ...`. The tools read `config.json`,
+  `cd /opt/neptunia/app && sudo -u neptunia-bot node tools/<tool>.mjs ...`. The tools read `config.json`,
   `config.local.json`, `prompts/`, `prompts.local/` and `.env` from there. Every tool that sends model requests uses `OPENROUTER_SIM_KEY` from `.env`;
   without it the tool falls back to the bot's `OPENROUTER_API_KEY` and prints one warning line on stderr.
 - **Read-only on `data/`.** No tool writes under `data/`. A tool that needs to change memory works on a copy

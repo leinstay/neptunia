@@ -25,7 +25,7 @@
 //      finds it. A generation already imported (its `sourceGenerationId` in any journal) or at or
 //      after the journal's first live record is never written.
 //
-//   cd /opt/neptunia-bot && node tools/import-turns.mjs --csv <file> [--from <day|iso>] [--to <day|iso>]
+//   cd /opt/neptunia/app && node tools/import-turns.mjs --csv <file> [--from <day|iso>] [--to <day|iso>]
 //     [--cache <dir>] [--concurrency 3] [--rate 5] [--reply-prefix <text>] [--name <name>]
 //     [--key-name <api key name>] [--min-similarity 0.6] [--slack-min 3] [--self-id <id>]
 //     [--guild <id>] [--data <dir>] [--include-unmatched] [--write]

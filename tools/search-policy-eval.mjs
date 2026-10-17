@@ -4,7 +4,7 @@
 // confusion matrix of the owner's tier against the classifier's decision, the agreement, the
 // disagreements, latency and cost -- instead of by a few live turns.
 //
-//   cd /opt/neptunia-bot && node tools/search-policy-eval.mjs <sheet.jsonl> --out <dir>
+//   cd /opt/neptunia/app && node tools/search-policy-eval.mjs <sheet.jsonl> --out <dir>
 //        [--key <ENV_NAME>] [--model <id>] [--limit N] [--max-usd 1] [--concurrency 4]
 //        [--self-name <name>] [--dry-run]
 //

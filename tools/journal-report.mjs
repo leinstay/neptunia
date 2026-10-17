@@ -4,7 +4,7 @@
 // (data/guilds/<guildId>/journal/<YYYY-MM-DD>.jsonl); writes nothing, sends nothing, spends
 // nothing. The numbers and their layout come from tools/lib/report.mjs.
 //
-//   cd /opt/neptunia-bot && node tools/journal-report.mjs --since 2026-10-13 [--until 2026-10-14] [--guild <id>] [--data <dir>]
+//   cd /opt/neptunia/app && node tools/journal-report.mjs --since 2026-10-13 [--until 2026-10-14] [--guild <id>] [--data <dir>]
 //
 // `--until` defaults to today (UTC); `--guild` may be left out when data/guilds holds one guild;
 // `--data` defaults to <cwd>/data (a snapshot directory works too). A line that does not parse

@@ -4,7 +4,7 @@
 // `roles.vision` / `roles.video` is judged on the server's real pictures, GIFs and videos, by
 // the very code path the bot uses, before the owner switches the role.
 //
-//   cd /opt/neptunia-bot && node tools/vision-compare.mjs <modelA> <modelB> [more models...]
+//   cd /opt/neptunia/app && node tools/vision-compare.mjs <modelA> <modelB> [more models...]
 //        (--media <file.json> | --from-cache N) [--kinds picture,gif,video,emoji,sticker]
 //        [--out <file.html>] [--max-usd 2] [--reasoning <effort>] [--guild <id>] [--data <dir>]
 //

@@ -6,7 +6,7 @@
 // channel, src/memory/chunks.js) and one per archive item, in the guild index and in each private
 // layer's own.
 //
-//   cd /opt/neptunia-bot && node tools/embed-index.mjs <subcommand> [--guild <id>] [flags]
+//   cd /opt/neptunia/app && node tools/embed-index.mjs <subcommand> [--guild <id>] [flags]
 //
 //   estimate [--from YYYY-MM] [--to YYYY-MM] [--usd-per-mtok 0.13]
 //            Per month: the record and archive chunks, their tokens (characters / 3.5) and the
