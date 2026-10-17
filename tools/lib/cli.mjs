@@ -1,11 +1,12 @@
-// What every script under tools/ shares: flag parsing, the UTC day range, the guild of a data
-// directory, the OpenRouter key slot of the tools, the spend gate, and the entry point (print the result, or the error and exit 1).
+// What every script under tools/ shares: flag parsing, the UTC day range, the deployment's data
+// and private directories (src/paths.js), the guild of a data directory, the OpenRouter key slot of the tools, the spend gate, and the entry point (print the result, or the error and exit 1).
 // The spend gate is the one rule for a tool that sends model requests: it prints its estimate
 // first and refuses unless `--spend <usd>` covers it.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolvePaths } from '../../src/paths.js';
 
 /** An operator-facing failure: printed as is, exit code `exitCode` (1 by default). */
 export class CliError extends Error {
@@ -86,6 +87,28 @@ export function daysBetween(since, until, usage) {
     if (out.length > MAX_DAYS) throw new CliError(`${usage}\n(at most ${MAX_DAYS} days)`);
   }
   return out;
+}
+
+/**
+ * The data directory a tool reads when `--data` is not given: `NEPTUNIA_DATA_DIR` resolved against
+ * `cwd` when set, else `<cwd>/data` (src/paths.js#resolvePaths). A given `--data` still wins.
+ * @param {string} cwd
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {string}
+ */
+export function defaultDataDir(cwd, env = process.env) {
+  return resolvePaths({ rootDir: cwd, env }).dataDir;
+}
+
+/**
+ * The private directory of the checkout at `root` (where a tool reads .env and the local layer):
+ * `NEPTUNIA_PRIVATE_DIR` resolved against `root` when set, else `root` (src/paths.js#resolvePaths).
+ * @param {string} root
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {string}
+ */
+export function privateDirOf(root, env = process.env) {
+  return resolvePaths({ rootDir: root, env }).privateDir;
 }
 
 /** The guild of `dataDir`: `given`, else the only directory under `guilds/`; else a CliError. */

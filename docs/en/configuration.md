@@ -4,6 +4,17 @@ Every key in `config.json` with its default, grouped by section.
 
 Any string value in `config.json` or `config.local.json` may reference an environment variable as `${env:NAME}` (`NAME` is letters, digits and `_`, not starting with a digit). After the two files are merged, each reference is replaced with the variable's value, so a value that holds credentials can stay in `.env` while the config file holds only the reference. A reference can make up the whole value or part of a longer string. An unset variable becomes an empty string and is logged once as `config: env ref unset` with its name, never a value. Config written by `/nep set` keeps the reference in `config.local.json`; it is resolved again on every reload.
 
+## Where the private files live
+
+By default everything sits in the checkout: `config.json` and `prompts/` (tracked), your `.env`, `config.local.json` and `prompts.local/`, and the `data/` directory the bot writes its memory to. Two optional environment variables move the private parts elsewhere, so a checkout or a deploy carries only the code:
+
+| Variable | Default | What lives there |
+|---|---|---|
+| `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `config.local.json`, `prompts.local/` |
+| `NEPTUNIA_DATA_DIR` | `data/` in the checkout | everything the bot writes: `guilds/`, `state.json`, `usage.json`, `metrics.json`, caches |
+
+Set them in the process environment (for example with `Environment=` in the systemd unit), not in `.env`: the bot reads `.env` from the private directory, so it has to know that directory first. A relative path is taken from the checkout. Live edits work as before: changing `config.local.json` or a file in `prompts.local/` inside the private directory reloads without a restart. The tools under `tools/` read the same two variables; a tool's `--data` flag still wins. At start the bot logs the three directories it uses (`index: paths`). `deploy/neptunia-bot.service` shows the recommended layout, `/etc/neptunia` and `/var/lib/neptunia`.
+
 ## `features`
 
 | Key | Default | Meaning |

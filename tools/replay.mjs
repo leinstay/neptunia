@@ -344,7 +344,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // CliError: an operator-facing failure, printed as is, exit code `exitCode` (1 unless the spend gate refused: 2).
-import { simKey, CliError, REFUSED_EXIT, resolveGuildId, spendGate } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, defaultDataDir, privateDirOf, resolveGuildId, spendGate } from './lib/cli.mjs';
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.mjs';
 import { promptLayersHot } from './lib/prompt-layers.mjs';
 
@@ -1478,12 +1478,12 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   const params = diaryTurnParams(args, { diaryTopic });
   const { kind } = params.diary;
   const topic = params.diary.topic ?? null;
-  const liveData = path.join(root, 'data');
+  const liveData = defaultDataDir(root);
   if (!fs.existsSync(liveData)) throw new CliError(`replay-cli: no data directory at ${liveData}`);
   const outFile = args.outDir !== null ? path.resolve(root, args.outDir) : null;
   if (outFile !== null && (outFile === liveData || outFile.startsWith(`${liveData}${path.sep}`))) throw new CliError('replay-cli: --out may not be under data/');
 
-  loadDotEnv(root);
+  loadDotEnv(privateDirOf(root));
   const discordToken = process.env.DISCORD_TOKEN;
   if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
   const openrouterKey = simKey('replay-cli');
@@ -2737,7 +2737,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   const { log } = await load('log.js');
 
   // Reads config.json, config.local.json and both prompt layers; writes nothing. Not watched: one request.
-  const hot = createHot({ rootDir: root });
+  const hot = createHot({ rootDir: root, privateDir: privateDirOf(root) });
   if (args.diary) {
     try {
       return await runDiary({ args, root, load, hot, createHot, loadDotEnv, log, signal, rng });
@@ -2745,7 +2745,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       hot.close();
     }
   }
-  const liveData = path.join(root, 'data');
+  const liveData = defaultDataDir(root);
   const dataDir = args.snapshot !== null ? path.resolve(root, args.snapshot) : liveData;
   if (!fs.existsSync(dataDir)) throw new CliError(`replay-cli: no data directory at ${dataDir}`);
 
@@ -2773,7 +2773,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     args.triggerId = turnStart.trigger.messageId;
   }
 
-  loadDotEnv(root);
+  loadDotEnv(privateDirOf(root));
   const discordToken = process.env.DISCORD_TOKEN;
   if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
   const keyNeeded = args.showRequestTurn === null && !args.dry;

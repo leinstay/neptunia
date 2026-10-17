@@ -126,7 +126,8 @@ const ARCHIVE_CHOICES = 25;
  * `errands` — from createErrandService() (src/errands/service.js), optional: what `/nep task
  *   run|status|cancel|list` submit to and read. Absent -> those report they are not available.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
- * `dataDir` — the `data/` directory `/nep memory snapshot` copies (default: `<hot.rootDir>/data`).
+ * `dataDir` — the data directory `/nep memory snapshot` copies: src/index.js passes the one it
+ *   resolved (src/paths.js, `NEPTUNIA_DATA_DIR`); default `<hot.rootDir>/data`.
  *
  * `run(commandKey, args, context)` throws a plain `Error` (operator-facing
  * message) on bad input; `runCommand` never throws; neither touches discord.js.

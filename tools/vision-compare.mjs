@@ -36,7 +36,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, resolveGuildId, runCli, simKey } from './lib/cli.mjs';
+import { CliError, defaultDataDir, privateDirOf, resolveGuildId, runCli, simKey } from './lib/cli.mjs';
 import {
   ORIGIN,
   describeOne,
@@ -186,15 +186,15 @@ async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token })
  */
 export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const args = parseArgs(argv);
-  const dataDir = args.data ? path.resolve(cwd, args.data) : path.join(ROOT, 'data');
+  const dataDir = args.data ? path.resolve(cwd, args.data) : defaultDataDir(ROOT);
   const file = outPath(dataDir, cwd, args.out, now());
 
   const { createHot } = await import('../src/hot.js');
-  const hot = createHot({ rootDir: ROOT });
+  const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   try {
     // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN, YOUTUBE_API_KEY) from .env; never printed.
     const { loadDotEnv } = await import('../src/config.js');
-    loadDotEnv(ROOT);
+    loadDotEnv(privateDirOf(ROOT));
     const configuredGuild = hot.config.bot?.guildId || undefined;
     let guildId;
     let items;

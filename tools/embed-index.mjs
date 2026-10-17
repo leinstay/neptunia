@@ -43,7 +43,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { simKey, CliError, REFUSED_EXIT, parseFlags, resolveGuildId, runCli } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli } from './lib/cli.mjs';
 import { log as defaultLog } from '../src/log.js';
 import { roleModel } from '../src/llm/roles.js';
 import { EMBED_ROLE } from '../src/llm/embed.js';
@@ -140,9 +140,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
   let hot = givenHot;
   if (!hot) {
     const { createHot } = await import('../src/hot.js');
-    hot = createHot({ rootDir });
+    hot = createHot({ rootDir, privateDir: privateDirOf(rootDir) });
   }
-  const dataDir = path.resolve(cwd, flags['--data'] ?? 'data');
+  const dataDir = flags['--data'] !== undefined ? path.resolve(cwd, flags['--data']) : defaultDataDir(cwd);
   const guildId = resolveGuildId(dataDir, flags['--guild'] ?? (hot.config.bot?.guildId || undefined));
   const guildDir = path.join(dataDir, 'guilds', guildId);
   const recordStore = createAppendStore({ log, now });
@@ -342,7 +342,7 @@ function liveQueueRuns(ctx) {
 async function embedClientOf(ctx) {
   if (ctx.embedClient) return ctx.embedClient;
   const { loadDotEnv } = await import('../src/config.js');
-  loadDotEnv(ctx.rootDir);
+  loadDotEnv(privateDirOf(ctx.rootDir));
   const apiKey = simKey('embed-index');
   const { createEmbedder } = await import('../src/llm/embed.js');
   const stateData = readJson(path.join(ctx.dataDir, 'state.json'), {}) ?? {};

@@ -8,6 +8,18 @@
 # Stop:      sudo systemctl stop neptunia-bot
 #
 # Adjust WorkingDirectory/User to match your deployment before installing.
+#
+# Where the private files live (the recommended layout): the checkout holds the
+# public code only and stays read-only to the service.
+#   /etc/neptunia       NEPTUNIA_PRIVATE_DIR: .env, config.local.json, prompts.local/
+#   /var/lib/neptunia   NEPTUNIA_DATA_DIR: everything the bot writes (its memory)
+# Create both directories, owned by the service user, before the first start.
+#
+# A deployment that keeps everything in the checkout (.env, config.local.json,
+# prompts.local/ and data/ next to the code) deletes the two Environment= lines
+# below, points EnvironmentFile= at /opt/neptunia-bot/.env and restores the old
+# write paths:
+#   ReadWritePaths=/opt/neptunia-bot/data /opt/neptunia-bot/prompts.local /opt/neptunia-bot/config.local.json
 
 [Unit]
 Description=neptunia-bot — SillyTavern-inspired Discord pseudo-user engine
@@ -21,13 +33,20 @@ ExecStart=/usr/bin/node src/index.js
 User=neptunia-bot
 Restart=on-failure
 RestartSec=5
-EnvironmentFile=-/opt/neptunia-bot/.env
+Environment=NEPTUNIA_PRIVATE_DIR=/etc/neptunia
+Environment=NEPTUNIA_DATA_DIR=/var/lib/neptunia
+EnvironmentFile=-/etc/neptunia/.env
 
 # Hardening: the process needs write access only to its own data and
-# per-deployment overrides; everything else stays read-only.
+# per-deployment overrides (/nep set writes config.local.json, /nep rule add
+# writes prompts.local/rules.md); everything else, the checkout included,
+# stays read-only.
 NoNewPrivileges=true
-ProtectSystem=full
-ReadWritePaths=/opt/neptunia-bot/data /opt/neptunia-bot/prompts.local /opt/neptunia-bot/config.local.json
+ProtectSystem=strict
+ReadWritePaths=/var/lib/neptunia /etc/neptunia
+# strict leaves /tmp read-only too; the video fetcher cuts its clips under the
+# temporary directory, so the service gets a private writable one.
+PrivateTmp=true
 
 StandardOutput=journal
 StandardError=journal
