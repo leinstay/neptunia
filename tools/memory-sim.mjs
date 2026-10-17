@@ -4,7 +4,7 @@
 // profile fields move, which stand still while their member keeps talking, how the merged prose
 // reads, what a judge finds lost. Reproducible only with a manifest:
 //
-//   cd /opt/neptunia-bot && node tools/memory-sim.mjs --snapshot data/snapshots/<ts> --since <day> [--until <day>]
+//   cd /opt/neptunia/app && node tools/memory-sim.mjs --snapshot data/snapshots/<ts> --since <day> [--until <day>]
 //        [--guild <id>] [--min-messages 30] [--judge <model>] [--spend <usd>]
 //        [--from-dump <chat-*.jsonl>...] [--self-id <id>] [--self-name <name>] [--batch-size <n>] [--snapshot-at <iso>]
 //        [--usd-per-batch 0.25] [--usd-per-judge 0.05] [--scratch <dir>]

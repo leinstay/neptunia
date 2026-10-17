@@ -4,7 +4,7 @@
 // engine (`web.search.engine`) is chosen by numbers -- answered / empty / failed, latency, cost --
 // and by the owner's blind scores, instead of by a few live turns.
 //
-//   cd /opt/neptunia-bot && node tools/search-compare.mjs <queries.jsonl> --out <dir>
+//   cd /opt/neptunia/app && node tools/search-compare.mjs <queries.jsonl> --out <dir>
 //        [--engines brave,exa,openrouter] [--key <ENV_NAME>] [--repeat N] [--max-usd 2]
 //        [--seed <text>] [--dry-run]
 //

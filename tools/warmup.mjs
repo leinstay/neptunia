@@ -6,7 +6,7 @@
 // (`state.warmup`), so a run stopped here resumes here, and the bot's later refreshes (portraits,
 // notes) start from what it wrote.
 //
-//   cd /opt/neptunia-bot && node tools/warmup.mjs <subcommand> [--guild <id>] [flags]
+//   cd /opt/neptunia/app && node tools/warmup.mjs <subcommand> [--guild <id>] [flags]
 //
 //   run       [--spend <usd>] [--max-usd <n>] [--dry-run]
 //             The whole warmup: every readable channel, every qualifying member and the server

@@ -60,7 +60,7 @@
 
 ```bash
 sudo systemctl stop neptunia-bot
-cd /opt/neptunia-bot
+cd /opt/neptunia/app
 sudo -u neptunia-bot node tools/warmup.mjs run --guild <server id> --dry-run
 sudo -u neptunia-bot node tools/warmup.mjs run --guild <server id> --spend <usd>
 sudo systemctl start neptunia-bot

@@ -45,7 +45,7 @@ test('withheld roots and globs: the fixed ones, then the data directory and a pr
   const roots = withheldRootsOf({ paths: apart });
   assert.deepEqual(roots.slice(-2), ['/srv/site/data', '/srv/site/etc']);
   assert.ok(roots.includes('/etc/neptunia'), '/etc/neptunia stays');
-  assert.ok(!roots.some((root) => root.startsWith('/opt/neptunia-bot')), 'no hard-coded deployment path');
+  assert.ok(!roots.some((root) => root.startsWith('/opt/neptunia')), 'no hard-coded deployment path');
   const globs = withheldGlobsOf({ paths: apart });
   for (const glob of ['/srv/site/data', '/srv/site/data/**', '/srv/site/etc', '/srv/site/etc/**', '/etc/neptunia/**', '**/data/guilds/**']) assert.ok(globs.includes(glob), glob);
   assert.ok(!globs.some((glob) => glob.startsWith('/srv/app')), 'the checkout itself is not withheld');
