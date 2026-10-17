@@ -443,6 +443,9 @@
     "resultMaxChars": 3000,
     "resultRetrySeconds": 30,
     "resultCooldownSeconds": 60,
+    "ledger": {
+      "socket": null
+    },
     "web": {
       "enabled": false,
       "cost": { "input": 2, "output": 6 },

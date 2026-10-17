@@ -20,13 +20,21 @@
 // (display names and text on one line, cut to RECENT_CHARS), read from the memory's buffer
 // (`store.getBuffer`) at the moment the task is queued and kept in memory only until it is sent;
 // a `dm`-scoped task sends `recent: []` (nothing of a private chat reaches a runner this way).
+// Every errand is also mirrored into the ledger (src/errands/ledger.js, `agents.ledger.socket`,
+// disabled while null): at its queuing, its start (with its limits and the model of its agent's
+// role), the runner's progress, its end and its cancel (`by` who cancelled it), and at start the
+// open tasks a restart found without a ledger id; the ledger's id is kept on the task
+// (`ledgerId`). The mirror never throws into an errand and never changes how one runs.
 
 import { log as defaultLog } from '../log.js';
 import { profileOf } from '../agent-runner/profiles.js';
 import { roleApiKey } from '../llm/openrouter.js';
+import { roleModel } from '../llm/roles.js';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOpenState } from './store.js';
+import { createLedgerMirror } from './ledger.js';
+import { DEFAULT_RESULT_MAX_CHARS } from './blocks.js';
 
 /** The limit keys a task may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
 const TASK_LIMIT_KEYS = Object.freeze(['steps', 'usd', 'seconds']);
@@ -46,10 +54,41 @@ export const DEFAULT_RECENT_LINES = 6;
  * @param {(task: object, guildId: string) => unknown} [options.onFinished]
  * @param {{ info: Function, warn: Function }} [options.log]
  * @param {(fn: Function) => void} [options.defer]  How the background run starts (default setImmediate).
+ * @param {ReturnType<typeof createLedgerMirror>|null} [options.ledger]  The ledger mirror; by
+ *   default one over `agents.ledger.socket`, read at the moment of use.
  */
-export function createErrandService({ client, stores, hot, env = {}, memory = null, getGuildId = () => null, onFinished = null, log = defaultLog, defer = (fn) => setImmediate(fn) }) {
+export function createErrandService({ client, stores, hot, env = {}, memory = null, getGuildId = () => null, onFinished = null, log = defaultLog, defer = (fn) => setImmediate(fn), ledger = null }) {
   // task id -> the promise of its run, while it runs (tests and the shutdown wait on them).
   const running = new Map();
+  // task id -> the task as it started, while its runner works on it (its progress goes to the ledger).
+  const live = new Map();
+  const mirror = ledger ?? createLedgerMirror({ socketPath: () => hot.config?.agents?.ledger?.socket ?? null, log });
+
+  /** One call of the ledger mirror; a failure is logged, never thrown into the errand. */
+  function mirrored(id, fn) {
+    try {
+      fn();
+    } catch (err) {
+      log.warn('errands: ledger mirror failed', { id, error: err });
+    }
+  }
+
+  /** The handler that keeps the ledger's id of task `id` in `store`. */
+  function keepLedgerId(store, id) {
+    return (ledgerId) => store.setLedgerId?.(id, ledgerId);
+  }
+
+  /** `agents.resultMaxChars`, read now. */
+  function resultMaxChars() {
+    const set = hot.config?.agents?.resultMaxChars;
+    return Number.isFinite(set) && set > 0 ? set : DEFAULT_RESULT_MAX_CHARS;
+  }
+
+  // The runner's progress of a task under way: the ledger's heartbeat.
+  client?.onProgress?.((event) => {
+    const task = live.get(event?.id);
+    if (task) mirrored(task.id, () => mirror.progress(task));
+  });
   // task id -> its `context.recent`, from its queuing until it is sent (never written to disk).
   const recentById = new Map();
 
@@ -119,6 +158,9 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const task = store.start(id);
     if (!task) return null;
     const secrets = secretsOf(task.agent);
+    const limits = limitsOf(task.agent);
+    mirrored(task.id, () => mirror.start(task, { limits, model: roleModel(hot.config, profileOf(task.agent)?.modelRole) ?? null }));
+    live.set(task.id, task);
     let outcome;
     try {
       outcome = await client.run({
@@ -126,15 +168,18 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
         id: task.id,
         goal: task.goal,
         context: { scope: task.scope, channel: task.origin?.channelId ?? null, asker: task.requester?.userId ?? null, recent: task.scope === 'dm' ? [] : recent },
-        limits: limitsOf(task.agent),
+        limits,
         ...(secrets ? { secrets } : {}),
       });
     } catch (err) {
       log.warn('errands: run failed', { id: task.id, agent: task.agent, error: err });
       outcome = { status: 'failed', error: 'client-error' };
+    } finally {
+      live.delete(task.id);
     }
     const finished = store.finish(task.id, outcome ?? { status: 'failed', error: 'client-error' });
     if (!finished) return null;
+    mirrored(finished.id, () => mirror.finish(finished, { maxChars: resultMaxChars() }));
     if (typeof onFinished === 'function') {
       try {
         await onFinished(finished, store.guildId);
@@ -159,6 +204,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const added = store.add({ agent, goal, requester, origin, scope });
     if (!added.ok) return added;
     const id = added.task.id;
+    mirrored(id, () => mirror.add(added.task, { guildId: store.guildId, onLedgerId: keepLedgerId(store, id) }));
     // The channel as it was when the task was asked for, not when it is sent.
     recentById.set(id, recentOf(store.guildId, added.task.origin?.channelId ?? null, added.task.scope));
     // After the operation's answer: the persona never waits for her errand.
@@ -169,8 +215,11 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     return added;
   }
 
-  /** Task `id` cancelled: the store closes it, the runner is told. `{ ok, task }` or `{ ok: false, code }`. */
-  function cancel({ guildId = null, id }) {
+  /**
+   * Task `id` cancelled: the store closes it, the runner is told, the ledger gets
+   * `cancelled-by-<by>`. `{ ok, task }` or `{ ok: false, code }`.
+   */
+  function cancel({ guildId = null, id, by = 'unknown' }) {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: 'no-guild' };
     const task = store.get(id);
@@ -179,6 +228,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const wasRunning = task.state === 'running';
     const closed = store.cancel(id);
     if (wasRunning) client.cancel?.({ agent: task.agent, id: task.id });
+    if (closed) mirrored(closed.id, () => mirror.cancel(closed, { by }));
     return { ok: true, task: closed };
   }
 
@@ -222,11 +272,20 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     return marked;
   }
 
-  /** The tasks of the served guild a restart left open, failed (`restarted`). */
+  /**
+   * The tasks of the served guild a restart left open, failed (`restarted`): those without a
+   * ledger id mirrored first, then each one's failure.
+   */
   function start(guildId) {
     const store = storeOf(guildId);
     if (!store) return 0;
+    const open = store.open();
+    mirrored(null, () => mirror.mirrorOpen(open, { guildId: store.guildId, onLedgerId: (task, ledgerId) => store.setLedgerId?.(task.id, ledgerId) }));
     const failed = store.failOpen('restarted');
+    for (const task of open) {
+      const ended = store.get(task.id);
+      if (ended && !isOpenState(ended.state)) mirrored(ended.id, () => mirror.finish(ended, { maxChars: resultMaxChars() }));
+    }
     if (failed > 0) log.info('errands: open tasks failed at start', { guildId: store.guildId, count: failed });
     return failed;
   }
@@ -242,7 +301,10 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     if (!store) return { removed: 0, lines: 0 };
     const id = String(userId ?? '');
     for (const task of store.open()) {
-      if (task.requester?.userId !== id || task.state !== 'running') continue;
+      if (task.requester?.userId !== id) continue;
+      // The ledger's mirror closed: the task leaves the core's store just below.
+      mirrored(task.id, () => mirror.cancel(task, { by: 'forget' }));
+      if (task.state !== 'running') continue;
       try {
         client.cancel?.({ agent: task.agent, id: task.id });
       } catch (err) {
@@ -263,5 +325,5 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     while (running.size > 0) await Promise.allSettled([...running.values()]);
   }
 
-  return { submit, cancel, budget, view, fileOf, markSeen, start, forgetUser, wipe, idle, store: storeOf, limitsOf };
+  return { submit, cancel, budget, view, fileOf, markSeen, start, forgetUser, wipe, idle, store: storeOf, limitsOf, ledger: mirror };
 }

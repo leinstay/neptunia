@@ -214,3 +214,151 @@ test('errands service: a task carries context.recent, the origin channel\'s last
   assert.deepEqual(client.runs[2].context.recent, []);
   fs.rmSync(rootDir, { recursive: true, force: true });
 });
+
+/** A fake ledger mirror (src/errands/ledger.js's shape): records each call; `add` answers a ledger id at once. */
+function fakeMirror() {
+  const calls = [];
+  let n = 0;
+  return {
+    calls,
+    enabled: () => true,
+    add(task, { guildId, onLedgerId }) {
+      calls.push(['add', task.id, task.state, guildId]);
+      n += 1;
+      onLedgerId?.(`L${n}`);
+      return true;
+    },
+    start(task, { limits, model }) {
+      calls.push(['start', task.id, task.state, limits, model]);
+      return true;
+    },
+    progress(task) {
+      calls.push(['progress', task.id]);
+      return true;
+    },
+    finish(task, { maxChars }) {
+      calls.push(['finish', task.id, task.state, task.error, task.ledgerId ?? null, maxChars]);
+      return true;
+    },
+    cancel(task, { by }) {
+      calls.push(['cancel', task.id, by]);
+      return true;
+    },
+    mirrorOpen(tasks, { guildId, onLedgerId }) {
+      const missing = tasks.filter((task) => !task.ledgerId);
+      calls.push(['mirrorOpen', missing.map((task) => task.id), guildId]);
+      for (const task of missing) onLedgerId(task, `R-${task.id}`);
+      return missing.length;
+    },
+  };
+}
+
+test('errands service: the ledger mirror is called at the queuing, the start (limits, the role\'s model), each progress, the end, a cancel (who) and a forget; the ledger id is kept on the task', async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const hot = { config: { roles: { 'agent.web': 'openrouter/vendor/web-model' }, agents: { maxOpen: 5, resultMaxChars: 1234, web: { enabled: true, daily: { tasks: 10, usd: 5 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } } } };
+  const gates = new Map();
+  const listeners = [];
+  const client = {
+    configured: () => true,
+    run: (task) => new Promise((resolve) => gates.set(task.id, resolve)),
+    cancel(task) {
+      gates.get(task.id)?.({ status: 'cancelled', error: 'cancelled' });
+      return true;
+    },
+    onProgress(fn) {
+      listeners.push(fn);
+      return () => {};
+    },
+  };
+  const ledger = fakeMirror();
+  const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log: fakeLog() });
+  const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn(), ledger });
+  try {
+    assert.equal(errands.ledger, ledger);
+    const done = errands.submit(ask('web')).task.id;
+    assert.equal(errands.store('g1').get(done).ledgerId, 'L1', 'the ledger id is kept');
+    await new Promise((resolve) => setImmediate(resolve));
+    for (const fn of listeners) fn({ agent: 'web', id: done, step: 1, tool: 'fetch', note: '' });
+    for (const fn of listeners) fn({ agent: 'web', id: 'tunknown', step: 1, tool: null, note: '' });
+    gates.get(done)({ status: 'done', result: { text: 'found it' }, usage: { usd: 0.01, steps: 2 } });
+    await errands.idle();
+    // After its end, a late progress is not mirrored.
+    for (const fn of listeners) fn({ agent: 'web', id: done, step: 3, tool: null, note: '' });
+    const cancelled = errands.submit(ask('web')).task.id;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(errands.cancel({ guildId: 'g1', id: cancelled, by: 'owner' }).ok, true);
+    await errands.idle();
+    const forgotten = errands.submit(ask('web')).task.id;
+    await new Promise((resolve) => setImmediate(resolve));
+    errands.forgetUser('g1', '7');
+    await errands.idle();
+    const limits = { steps: 9, usd: 0.3, seconds: 90 };
+    assert.deepEqual(ledger.calls, [
+      ['add', done, 'queued', 'g1'],
+      ['start', done, 'running', limits, 'openrouter/vendor/web-model'],
+      ['progress', done],
+      ['finish', done, 'done', null, 'L1', 1234],
+      ['add', cancelled, 'queued', 'g1'],
+      ['start', cancelled, 'running', limits, 'openrouter/vendor/web-model'],
+      ['cancel', cancelled, 'owner'],
+      ['add', forgotten, 'queued', 'g1'],
+      ['start', forgotten, 'running', limits, 'openrouter/vendor/web-model'],
+      ['cancel', forgotten, 'forget'],
+    ], 'a cancelled task\'s late end is not mirrored twice');
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('errands service: at start the open tasks without a ledger id are mirrored, then each one\'s restart failure; a mirror that throws never stops an errand', async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
+  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } } };
+  const dataDir = path.join(rootDir, 'data');
+  try {
+    // Before the restart: two open tasks, one of them already mirrored.
+    const before = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() }).get('g1');
+    const first = before.add(ask('web')).task.id;
+    const second = before.add(ask('web')).task.id;
+    before.start(second);
+    before.setLedgerId(second, 'L5');
+    const ledger = fakeMirror();
+    const stores = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() });
+    const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn(), ledger });
+    assert.equal(errands.start('g1'), 2);
+    assert.deepEqual(ledger.calls, [
+      ['mirrorOpen', [first], 'g1'],
+      ['finish', first, 'failed', 'restarted', `R-${first}`, 3000],
+      ['finish', second, 'failed', 'restarted', 'L5', 3000],
+    ]);
+    assert.equal(stores.get('g1').get(first).ledgerId, `R-${first}`);
+
+    // A mirror that throws at every call: the errand runs and ends as before, the failure is logged.
+    const throwing = Object.fromEntries(['add', 'start', 'progress', 'finish', 'cancel', 'mirrorOpen'].map((name) => [name, () => {
+      throw new Error('mirror down');
+    }]));
+    const log = fakeLog();
+    const client = fakeClient();
+    const other = createErrandService({ client, stores, hot, getGuildId: () => 'g1', log, defer: (fn) => fn(), ledger: throwing });
+    const id = other.submit(ask('web')).task.id;
+    await other.idle();
+    assert.equal(stores.get('g1').get(id).state, 'done');
+    assert.ok(log.calls.some((call) => call.msg === 'errands: ledger mirror failed' && call.fields.id === id));
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('errands service: without agents.ledger the default mirror is disabled and the errand runs as before', async () => {
+  const { errands, client, cleanup } = makeService(ENV);
+  try {
+    assert.equal(errands.ledger.enabled(), false);
+    await withCapturedLogs(async () => {
+      errands.submit(ask('web'));
+      await errands.idle();
+    });
+    assert.equal(client.runs.length, 1);
+    assert.equal(errands.store('g1').recent(1)[0].ledgerId, undefined);
+  } finally {
+    cleanup();
+  }
+});
