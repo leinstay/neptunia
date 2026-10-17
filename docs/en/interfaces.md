@@ -8,7 +8,7 @@ The engine has two sides: the core (the persona, its memory, its decisions about
 | `packages/protocol/actions.js` | the action names, the result shape, and the port helpers (`ok`, `notOk`, `mentionsOf`, the refusals, `declaredHooks`) |
 | `packages/protocol/validate.js` | `validateEvent(event)` and `validateAction(action)` |
 
-The engine imports the package through `src/protocol.js` (one place to switch to the bare `@neptunia/protocol` specifier once the package is an npm workspace); `src/interface/port.js` re-exports the outbound half. The Discord adapter is `src/interface/discord.js` (actions) with the event builders in `src/discord/collect.js` (`toEvent`, `reactionEvent`); the in-memory adapter for tests is `src/interface/fake.js`.
+The engine imports the package through `src/protocol.js` (one place to switch to the bare `@neptunia/protocol` specifier once the package is an npm workspace); `src/interface/port.js` re-exports the outbound half. The Discord adapter is the package `interfaces/discord/` (`@neptunia/interface-discord`, reached through `src/interface/discord.js`): `port.js` (actions) with the event builders in `collect.js` (`toEvent`, `reactionEvent`); the in-memory adapter for tests is `src/interface/fake.js`.
 
 ## Rules
 
@@ -51,7 +51,7 @@ There are five event kinds:
 | `replyToId` | the message it replies to, or null (a forward replies to nothing) |
 | `replyPingUserId` | the replied-to author when only the reply notified them, or null |
 | `forwardedFrom` | the name of the conversation a forward came from, or null |
-| `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` | arrays, in the shapes `src/discord/collect.js#normalizeMessage` gives them |
+| `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` | arrays, in the shapes `interfaces/discord/collect.js#normalizeMessage` gives them |
 
 `addressing`:
 
@@ -93,4 +93,4 @@ An adapter edits and deletes only the persona's own messages (returning `forbidd
 
 ## Not yet
 
-The Discord adapter still lives inside the engine (`src/discord/`, `src/interface/discord.js`) and moves to its own package in a later stage. Until then the message pipeline reads the normalised message rebuilt from the event, owner commands are answered by a direct reply rather than a `command.result` action, and the core's `scheduler.tick` and `task.completed` are direct calls rather than events through one dispatcher.
+The Discord adapter is a package of its own (`interfaces/discord/`) but still runs inside the engine's process, and moves out of it in a later stage. Until then the message pipeline reads the normalised message rebuilt from the event, owner commands are answered by a direct reply rather than a `command.result` action, and the core's `scheduler.tick` and `task.completed` are direct calls rather than events through one dispatcher.

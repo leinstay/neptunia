@@ -262,6 +262,13 @@ prompts/
   labels.json              代码插入提示中的所有字符串
   skills.json              角色的技能文本（title、whenToUse、whenNotToUse）
 prompts.local/             你的角色定义（已加入 gitignore）
+interfaces/
+  discord/                 the Discord interface (@neptunia/interface-discord): the Discord adapter of the interface port, message normalization, history, permissions, searches and slash commands
+    guild.js               单服务器解析
+    commands.js            斜杠命令，注册，交互适配器
+    collect.js             频道历史，相邻频道，权限
+    search.js              Discord 消息搜索和成员搜索
+    pull-fetch.js          受众检查，拉取频道获取
 docs/
   en/
     prompt-contract.md     提示文件与代码之间的契约
@@ -312,13 +319,6 @@ src/
     budget.js              按优先级裁剪区块
     openrouter.js          聊天补全，安全限制
     parse.js               输出标签转为动作
-  discord/
-    guild.js               单服务器解析
-    commands.js            斜杠命令，注册，交互适配器
-    events.js              消息流水线
-    collect.js             频道历史，相邻频道，权限
-    search.js              Discord 消息搜索和成员搜索
-    pull-fetch.js          受众检查，拉取频道获取
   media/
     classify.js            媒体分类，标签选择，代理 URL
     video-sites.js         视频站点匹配、URL 缓存键、yt-dlp/ffmpeg 参数
@@ -330,6 +330,7 @@ src/
     brave.js               Brave Search 客户端
     lookup.js              链接阅读和网络搜索
   behavior/
+    pipeline.js            消息流水线
     mention.js             呼叫检测，忽略启发式
     prompt.js              带 token 预算的请求构建器
     turn.js                一个回合：收集、构建、调用、执行
