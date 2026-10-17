@@ -134,7 +134,12 @@ export function checkSkill({ skill: name, args, principal, requester = null, aud
   });
   if (!access.allowed) return refused(access.reason, access.reason === 'safe-mode' ? 'skills.safeMode' : skill.name);
 
-  const argsError = schemaError(args, skill.argsSchema);
+  // A file-only post: her text (the body argument) left empty beside a file (src/skills/executors.js#resolveCall).
+  const bodyArg = skill.command?.body;
+  const fileOnly = Boolean(bodyArg) && args?.[bodyArg] === '' && typeof args?.file === 'string' && args.file !== '';
+  const argsError = fileOnly
+    ? schemaError(Object.fromEntries(Object.entries(args).filter(([key]) => key !== bodyArg)), { ...skill.argsSchema, required: (skill.argsSchema.required ?? []).filter((key) => key !== bodyArg) })
+    : schemaError(args, skill.argsSchema);
   if (argsError) return refused('invalid-args', argsError);
 
   return requesterRefusal(skill, requester, context) ?? cooldownRefusal(skill, context) ?? budgetRefusal(skill, requester, context, args) ?? { ok: true };

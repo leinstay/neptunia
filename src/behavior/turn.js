@@ -1801,12 +1801,16 @@ export function createTurnRunner({
       log.info('skill: refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
       // An errand's file bound for a channel nobody named (src/skills/executors.js#resolveCall).
       if (resolved.code === 'file-elsewhere') log.info('skills: file elsewhere refused', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
+      // Several errand file handles written in the body (src/skills/executors.js#resolveCall).
+      if (resolved.reason === 'file:several') log.info('skills: file handle in body', { skill: call.skill, code: resolved.code, reason: resolved.reason, channel: channel.id });
       return { call, op, envelope, resolved: null, refusal: { code: resolved.code, reason: resolved.reason } };
     }
     // Her comment in the body of a skill that takes no text: left out, the call goes on (never its text in the log).
     if (resolved.bodyIgnored) log.info('skills: body ignored', { skill: resolved.skill, channel: channel.id });
     // The body as the skill's main argument (an errand's goal, her text), the call leaving it out: named, never its text.
     if (resolved.bodyArg) log.info('skills: body as argument', { skill: resolved.skill, arg: resolved.bodyArg, channel: channel.id });
+    // An errand's file handle written in the body: moved to the file argument (never the text).
+    if (resolved.fileFromBody) log.info('skills: file handle in body', { skill: resolved.skill, code: 'moved', textLeft: resolved.args?.[resolved.command?.body] !== '', channel: channel.id });
     // Her arguments written in the body instead of as attributes: taken, counted (never the values).
     if (Number.isInteger(resolved.bodyArgs)) log.info('skills: body read as arguments', { skill: resolved.skill, count: resolved.bodyArgs, channel: channel.id });
     const verdict = checkCall(resolved, { channel, envelope });
