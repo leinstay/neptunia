@@ -4,7 +4,7 @@ The engine can hand a task to a separate errand agent: a standalone process that
 
 | Profile | What it does | What it can reach | Tools |
 |---|---|---|---|
-| `web` | internet errands (search, read pages, look at images, download a file) | the public internet through a proxy; its own output folder | OpenCode `websearch`, `webfetch`, `read`, and a `bash` limited to `curl`/`wget`/`yt-dlp`/`ffmpeg`/`ffprobe`/`file`/`ls`/`mkdir` for downloads (no yt-dlp option that runs another program: `--exec`, `--netrc-cmd`, `--config-locations`, `--plugin-dirs`) |
+| `web` | internet errands (search, read pages, look at images, download a file) | the public internet through a proxy; its own output folder | OpenCode `websearch`, `webfetch`, `read`, and a `bash` limited to `curl`/`wget`/`yt-dlp`/`ffmpeg`/`ffprobe`/`file`/`ls`/`mkdir` for downloads (yt-dlp only as `yt-dlp --ignore-config ...`, so a `yt-dlp.conf` written into its folder is never loaded; no yt-dlp option that runs another program or names a config file: `--exec`, `--netrc-cmd`, `--config-locations`, `--plugin-dirs`) |
 | `server` | read-only questions about this machine | the local filesystem (read-only); network only to the model API | OpenCode `read`, `grep`, `glob`, `list`, and a `bash` limited to read-only commands (`ls`, `cat`, `head`, `tail`, `grep`, `find`, `ps`, `systemctl status`, `journalctl`, `df`, `du`, `stat`, `git log`, ...) |
 
 Both run one task at a time; further requests queue. Each task has per-task caps (`agents.<profile>.limits`: model steps, estimated USD, wall-clock seconds) and the engine enforces per-day caps (`agents.<profile>.daily`). The USD cap is a soft cap on OpenCode's own cost estimate; the hard spending limit is the credit limit on the runner's OpenRouter key.

@@ -101,14 +101,19 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
 
 /** The curl/wget/yt-dlp/ffmpeg shell the web agent's `bash` may run (its download step). yt-dlp
  * (a video page) reaches the network through the HTTPS_PROXY / HTTP_PROXY the runner gives the
- * child (src/agent-runner/opencode.js); its options that run another program are denied in
- * YT_DLP_DENIES. */
+ * child (src/agent-runner/opencode.js). It runs only as `yt-dlp --ignore-config ...`: yt-dlp
+ * otherwise loads a yt-dlp.conf from its working directory, HOME and XDG_CONFIG_HOME, all inside
+ * the agent's task folder, where the agent itself can write one (curl -o, yt-dlp -o) carrying
+ * `--exec`; a bare `yt-dlp <url>` matches no allow and is refused. Its options that run another
+ * program, or name a config file again, are denied in YT_DLP_DENIES. */
 export const WEB_SHELL_ALLOW = Object.freeze([
-  'curl *', 'wget *', 'yt-dlp *', 'ffmpeg *', 'ffprobe *', 'file *', 'ls', 'ls *', 'mkdir *', 'cat *', 'head *', 'stat *',
+  'curl *', 'wget *', 'yt-dlp --ignore-config *', 'ffmpeg *', 'ffprobe *', 'file *', 'ls', 'ls *', 'mkdir *', 'cat *', 'head *', 'stat *',
 ]);
 
 /**
- * The yt-dlp options that run another program or load options that could: `--exec` (and
+ * The yt-dlp options that run another program or load options that could (still needed with
+ * `--ignore-config`, which only skips the config files found by default: these stop the same
+ * options given on the command line, and `--config-locations` would load a file again): `--exec` (and
  * `--exec-before-download`), `--netrc-cmd`, `--config-locations` (also spelled
  * `--config-location`) and `--plugin-dirs`. yt-dlp accepts any unambiguous prefix of a long
  * option, so each pattern is a prefix that names only that option (`--exe`, `--netrc-c`,

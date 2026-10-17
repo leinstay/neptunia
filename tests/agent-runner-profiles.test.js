@@ -69,27 +69,36 @@ test('web permission: web tools allowed, edit/write/task/question denied, bash a
   assert.equal(p.bash['awk */inet/*'], 'deny');
 });
 
-test('web shell: yt-dlp downloads a video page; no option that runs another program passes, abbreviated or in = form', () => {
-  assert.ok(WEB_SHELL_ALLOW.includes('yt-dlp *'));
+test('web shell: yt-dlp runs only with --ignore-config; no option that runs another program passes, abbreviated or in = form', () => {
+  assert.ok(WEB_SHELL_ALLOW.includes('yt-dlp --ignore-config *'));
+  assert.ok(!WEB_SHELL_ALLOW.includes('yt-dlp *'));
   for (const pattern of YT_DLP_DENIES) assert.ok(SHELL_DENY_AFTER.includes(pattern), pattern);
   for (const scope of ['core', 'dm']) {
     const bash = WEB.buildConfig({ systemPrompt: 'x', scope }).agent['errand-web'].permission.bash;
-    assert.equal(bash['yt-dlp *'], 'allow');
+    assert.equal(bash['yt-dlp --ignore-config *'], 'allow');
     for (const command of [
-      'yt-dlp -f "bv*[height<=720]+ba/b[height<=720]" -o "trailer.%(ext)s" https://www.youtube.com/watch?v=abc',
-      'yt-dlp --merge-output-format mp4 https://www.youtube.com/watch?v=abc', 'yt-dlp -F https://youtu.be/abc',
-      'yt-dlp --no-exec --no-plugin-dirs --ignore-config https://youtu.be/abc', 'yt-dlp --netrc --netrc-location x https://youtu.be/abc',
+      'yt-dlp --ignore-config -f "bv*[height<=720]+ba" -o x.mp4 https://www.youtube.com/watch?v=abc',
+      'yt-dlp --ignore-config -f "bv*[height<=720]+ba/b[height<=720]" -o "trailer.%(ext)s" https://www.youtube.com/watch?v=abc',
+      'yt-dlp --ignore-config --merge-output-format mp4 https://www.youtube.com/watch?v=abc', 'yt-dlp --ignore-config -F https://youtu.be/abc',
+      'yt-dlp --ignore-config --no-exec --no-plugin-dirs https://youtu.be/abc', 'yt-dlp --ignore-config --netrc --netrc-location x https://youtu.be/abc',
     ]) assert.equal(actionOf(bash, command), 'allow', `${scope}: ${command}`);
     for (const command of [
-      'yt-dlp --exec "rm -rf ~" https://youtu.be/abc', 'yt-dlp https://youtu.be/abc --exec "sh -c id"', 'yt-dlp --exec=id https://youtu.be/abc',
-      'yt-dlp --exec-before-download id https://youtu.be/abc', 'yt-dlp --exec-b id https://youtu.be/abc', 'yt-dlp --exe id https://youtu.be/abc',
-      'yt-dlp --netrc-cmd "sh x" https://youtu.be/abc', 'yt-dlp --netrc-c id https://youtu.be/abc',
-      'yt-dlp --config-location x.conf https://youtu.be/abc', 'yt-dlp --config-locations=x.conf https://youtu.be/abc', 'yt-dlp --conf x.conf https://youtu.be/abc',
-      'yt-dlp --plugin-dirs ./p https://youtu.be/abc', 'yt-dlp --plu ./p https://youtu.be/abc',
+      // without --ignore-config a yt-dlp.conf the agent wrote in its folder would be loaded
+      'yt-dlp https://youtu.be/abc', 'yt-dlp -f "bv*[height<=720]+ba" -o x.mp4 https://youtu.be/abc',
+      'yt-dlp -F https://youtu.be/abc --ignore-config',
+      'yt-dlp --ignore-config --exec rm https://youtu.be/abc',
+      'yt-dlp --ignore-config --config-location a.conf https://youtu.be/abc',
+      'yt-dlp --ignore-config --exec "rm -rf ~" https://youtu.be/abc', 'yt-dlp --ignore-config https://youtu.be/abc --exec "sh -c id"',
+      'yt-dlp --ignore-config --exec=id https://youtu.be/abc',
+      'yt-dlp --ignore-config --exec-before-download id https://youtu.be/abc', 'yt-dlp --ignore-config --exec-b id https://youtu.be/abc',
+      'yt-dlp --ignore-config --exe id https://youtu.be/abc',
+      'yt-dlp --ignore-config --netrc-cmd "sh x" https://youtu.be/abc', 'yt-dlp --ignore-config --netrc-c id https://youtu.be/abc',
+      'yt-dlp --ignore-config --config-locations=x.conf https://youtu.be/abc', 'yt-dlp --ignore-config --conf x.conf https://youtu.be/abc',
+      'yt-dlp --ignore-config --plugin-dirs ./p https://youtu.be/abc', 'yt-dlp --ignore-config --plu ./p https://youtu.be/abc',
     ]) assert.equal(actionOf(bash, command), 'deny', `${scope}: ${command}`);
   }
   const server = SERVER.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-server'].permission.bash;
-  assert.equal(actionOf(server, 'yt-dlp https://youtu.be/abc'), 'deny', 'the server shell has no yt-dlp');
+  assert.equal(actionOf(server, 'yt-dlp --ignore-config https://youtu.be/abc'), 'deny', 'the server shell has no yt-dlp');
 });
 
 test('server permission: read tools allowed, no network tools, read-only bash', () => {
