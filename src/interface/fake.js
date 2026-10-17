@@ -3,8 +3,12 @@
 // through. It keeps its conversations' messages in memory, records every call in order (`calls`),
 // offers the capabilities it is given, and answers the results a test queues (`failNext`) in
 // place of doing the operation. Same rules as every adapter: edit and delete only the self
-// member's messages, mentions default to none, nothing ever throws.
+// member's messages, mentions default to none, nothing ever throws. Every call is checked as a
+// protocol action first (validateAction over the call's action object): a malformed one is
+// refused as `failed` with the code `invalid-action`, so a test that drives the persona through
+// the fake also proves she only ever asks for well-formed actions.
 
+import { portAction, validateAction } from '../protocol.js';
 import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from './port.js';
 
 /** The fake's default limits. */
@@ -47,9 +51,10 @@ export function createFakeAdapter({ iface = 'fake', selfId = 'self', operations 
     return list.shift();
   }
 
-  /** The common front of every operation: the record, the capability, a queued answer. */
+  /** The common front of every operation: the record, the action's shape, the capability, a queued answer. */
   function front(op, args) {
     calls.push({ op, args });
+    if (!validateAction(portAction(op, args)).ok) return notOk('failed', 'invalid-action');
     if (!supports(op)) return notOk('unsupported', 'unsupported');
     return takeQueued(op);
   }

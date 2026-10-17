@@ -1,0 +1,230 @@
+// Boundary checks of the protocol: the shape of an inbound event (events.js) and of an outbound
+// action (actions.js) -- known kinds, required keys, string ids, finite numbers, booleans where a
+// flag is due. They answer `{ ok: true }` or `{ ok: false, reason }`, `reason` naming the field
+// and the problem (`message.at:type`, `kind:unknown`), and never throw, whatever they are given:
+// a bad event is dropped by the caller with one log line, a bad action refused as `failed`.
+// Shapes only: whether a reference belongs to an interface, whether content fits its limits and
+// who may do what stay with the adapter and the core. Keys starting with `raw` are an adapter's
+// private handles to its platform's objects (removed once the adapters live in their own
+// packages) and are never looked at.
+
+import { ACTIONS, CAPABILITIES, COMMAND_RESULT } from './actions.js';
+import {
+  COMMAND_REQUESTED,
+  CONVERSATION_KINDS,
+  CORE_KINDS,
+  EVENT_KINDS,
+  MESSAGE_RECEIVED,
+  REACTION_CHANGED,
+  SCHEDULER_TICK,
+  TASK_COMPLETED,
+} from './events.js';
+
+const VALID = Object.freeze({ ok: true });
+
+/** A refusal naming `field` and its `problem`. */
+class Refusal {
+  constructor(field, problem) {
+    this.reason = `${field}:${problem}`;
+  }
+}
+
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isId = (value) => typeof value === 'string' && value !== '';
+const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+const isNullableString = (value) => value === null || typeof value === 'string';
+
+/** Throws a Refusal unless `check(value)`; `required: false` lets undefined through. */
+function need(value, field, check, { required = true, problem = 'type' } = {}) {
+  if (value === undefined) {
+    if (required) throw new Refusal(field, 'required');
+    return;
+  }
+  if (!check(value)) throw new Refusal(field, problem);
+}
+
+/** Throws a Refusal unless `value` is an array of non-empty strings. */
+function needIds(value, field) {
+  need(value, field, Array.isArray);
+  value.forEach((id, index) => need(id, `${field}.${index}`, isId));
+}
+
+/** Runs `check` and turns its refusal into a result; any other error is a refusal too, never a throw. */
+function verdict(check) {
+  try {
+    check();
+    return VALID;
+  } catch (err) {
+    return { ok: false, reason: err instanceof Refusal ? err.reason : 'malformed' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Inbound events
+
+function checkConversation(conversation) {
+  need(conversation, 'conversation', isObject);
+  need(conversation.id, 'conversation.id', isId);
+  need(conversation.kind, 'conversation.kind', (kind) => CONVERSATION_KINDS.includes(kind), { problem: 'unknown' });
+  for (const key of ['guildId', 'name', 'topic', 'category']) need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
+}
+
+const MESSAGE_LISTS = ['attachments', 'links', 'forwarded', 'stickers', 'emojis', 'reactions'];
+
+function checkMessage(message) {
+  need(message.author, 'message.author', isObject);
+  need(message.author.id, 'message.author.id', isId);
+  need(message.author.name, 'message.author.name', isNullableString);
+  need(message.author.self, 'message.author.self', (value) => typeof value === 'boolean');
+  need(message.author.bot, 'message.author.bot', (value) => typeof value === 'boolean');
+  need(message.content, 'message.content', (value) => typeof value === 'string');
+  need(message.at, 'message.at', isFiniteNumber);
+  for (const key of ['replyToId', 'replyPingUserId']) need(message[key], `message.${key}`, (value) => value === null || isId(value));
+  need(message.forwardedFrom, 'message.forwardedFrom', isNullableString);
+  for (const key of MESSAGE_LISTS) need(message[key], `message.${key}`, Array.isArray);
+}
+
+function checkAddressing(addressing) {
+  need(addressing, 'addressing', isObject);
+  need(addressing.mentioned, 'addressing.mentioned', (value) => typeof value === 'boolean');
+  need(addressing.replyToSelf, 'addressing.replyToSelf', (value) => typeof value === 'boolean');
+  needIds(addressing.mentionedUserIds, 'addressing.mentionedUserIds');
+  needIds(addressing.mentionedConversationIds, 'addressing.mentionedConversationIds');
+}
+
+function checkMessageReceived(event) {
+  checkConversation(event.conversation);
+  for (const flag of ['edit', 'deleted', 'partial']) need(event[flag], flag, (value) => typeof value === 'boolean', { required: false });
+  need(event.message, 'message', isObject);
+  need(event.message.id, 'message.id', isId);
+  if (event.deleted === true) return;
+  if (event.partial === true) {
+    if (event.edit !== true) throw new Refusal('partial', 'edit-only');
+    return;
+  }
+  checkMessage(event.message);
+  checkAddressing(event.addressing);
+}
+
+function checkReactionChanged(event) {
+  checkConversation(event.conversation);
+  need(event.messageId, 'messageId', isId);
+  need(event.emoji, 'emoji', isObject);
+  need(event.emoji.id, 'emoji.id', isId, { required: false });
+  need(event.emoji.name, 'emoji.name', isNullableString);
+  // A unicode emoji is its name; a custom one is known by its id even when its name is not.
+  if (!isId(event.emoji.name) && !isId(event.emoji.id)) throw new Refusal('emoji', 'required');
+  need(event.userId, 'userId', isId);
+  need(event.added, 'added', (value) => typeof value === 'boolean');
+}
+
+function checkCommandRequested(event) {
+  checkConversation(event.conversation);
+  need(event.name, 'name', isId);
+  need(event.args, 'args', isObject);
+  need(event.requester, 'requester', isObject);
+  need(event.requester.id, 'requester.id', isId);
+  need(event.requester.name, 'requester.name', isNullableString);
+  needIds(event.requester.roles, 'requester.roles');
+  need(event.requester.owner, 'requester.owner', (value) => typeof value === 'boolean');
+  need(event.replyRef, 'replyRef', isId);
+}
+
+function checkTaskCompleted(event) {
+  need(event.taskId, 'taskId', isId);
+  need(event.status, 'status', isId);
+}
+
+const EVENT_CHECKS = {
+  [MESSAGE_RECEIVED]: checkMessageReceived,
+  [REACTION_CHANGED]: checkReactionChanged,
+  [COMMAND_REQUESTED]: checkCommandRequested,
+  [SCHEDULER_TICK]: () => {},
+  [TASK_COMPLETED]: checkTaskCompleted,
+};
+
+/**
+ * Whether `event` is a well-formed inbound event (events.js): its kind known, `at` a finite
+ * number, and for an interface's kinds `iface` and `id` non-empty strings and a conversation;
+ * then the kind's own fields. Never throws.
+ * @param {unknown} event
+ * @returns {{ ok: true } | { ok: false, reason: string }}
+ */
+export function validateEvent(event) {
+  return verdict(() => {
+    need(event, 'event', isObject);
+    need(event.kind, 'kind', (kind) => EVENT_KINDS.includes(kind), { problem: 'unknown' });
+    need(event.at, 'at', isFiniteNumber);
+    const own = CORE_KINDS.includes(event.kind);
+    need(event.iface, 'iface', isId, { required: !own });
+    need(event.id, 'id', isId, { required: !own });
+    EVENT_CHECKS[event.kind](event);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Outbound actions
+
+function checkRef(ref, field, { needMessage }) {
+  need(ref, field, isObject);
+  need(ref.iface, `${field}.iface`, isId);
+  need(ref.conversationId, `${field}.conversationId`, isId);
+  need(ref.messageId, `${field}.messageId`, isId, { required: needMessage });
+}
+
+/** The content of a send or an edit; null stands for an absent part, as the port reads it. */
+function checkContent(content) {
+  need(content, 'content', isObject);
+  need(content.text, 'content.text', isNullableString, { required: false });
+  need(content.attachments, 'content.attachments', (value) => value === null || Array.isArray(value), { required: false });
+  need(content.mentions, 'content.mentions', (value) => value === null || isObject(value), { required: false });
+  need(content.replyTo, 'content.replyTo', (value) => value === null || isObject(value), { required: false });
+}
+
+function checkCommandResult(action) {
+  need(action.replyRef, 'replyRef', isId);
+  need(action.text, 'text', (value) => typeof value === 'string');
+  need(action.files, 'files', Array.isArray, { required: false });
+  need(action.ephemeral, 'ephemeral', (value) => typeof value === 'boolean', { required: false });
+}
+
+/**
+ * Whether `action` is a well-formed outbound action (actions.js): a known `action` name, a
+ * target reference with string ids (a message's with its `messageId`), an object `content` for a
+ * send or an edit, a string `emoji` for a reaction, and for a command result its `replyRef` and
+ * `text`. What the content holds and whose the target is stay the adapter's checks. Never throws.
+ * @param {unknown} action
+ * @returns {{ ok: true } | { ok: false, reason: string }}
+ */
+export function validateAction(action) {
+  return verdict(() => {
+    need(action, 'action', isObject);
+    need(action.action, 'action', (name) => ACTIONS.includes(name), { problem: 'unknown' });
+    switch (action.action) {
+      case CAPABILITIES.send:
+        checkRef(action.conversation, 'conversation', { needMessage: false });
+        checkContent(action.content);
+        return;
+      case CAPABILITIES.edit:
+        checkRef(action.message, 'message', { needMessage: true });
+        checkContent(action.content);
+        return;
+      case CAPABILITIES.delete:
+        checkRef(action.message, 'message', { needMessage: true });
+        return;
+      case CAPABILITIES.react:
+      case CAPABILITIES.unreact:
+        checkRef(action.message, 'message', { needMessage: true });
+        need(action.emoji, 'emoji', (value) => typeof value === 'string');
+        return;
+      case CAPABILITIES.typing:
+        checkRef(action.conversation, 'conversation', { needMessage: false });
+        return;
+      case COMMAND_RESULT:
+        checkCommandResult(action);
+        return;
+      default:
+        throw new Refusal('action', 'unknown');
+    }
+  });
+}

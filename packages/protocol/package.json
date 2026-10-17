@@ -1,0 +1,9 @@
+{
+  "name": "@neptunia/protocol",
+  "version": "0.1.0",
+  "description": "The transport-neutral contract between the persona's core and its interfaces: inbound events, outbound actions, results and their validation",
+  "private": true,
+  "type": "module",
+  "exports": "./index.js",
+  "license": "MIT"
+}
