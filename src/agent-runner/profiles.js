@@ -39,7 +39,7 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
   'systemctl status', 'systemctl status *', 'systemctl show', 'systemctl show *', 'systemctl cat *',
   'systemctl list-units *', 'systemctl list-unit-files *', 'systemctl list-*', 'systemctl is-* *',
   'git log *', 'git show *', 'git status', 'git status *', 'git diff', 'git diff *', 'readlink *', 'realpath *',
-  'file *', 'echo *', 'basename *', 'dirname *', 'date', 'date *', 'free', 'free *', 'uptime', 'hostname', 'env',
+  'file *', 'echo *', 'basename *', 'dirname *', 'date', 'date *', 'free', 'free *', 'uptime', 'hostname',
 ]);
 
 /** The curl/wget/ffmpeg shell the web agent's `bash` may run (its download step). */
