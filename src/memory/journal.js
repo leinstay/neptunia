@@ -63,6 +63,7 @@ import * as nodeFs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { clampText, oneLine } from './clamp.js';
+import { memoryRootOf } from './root.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
 
 /** The schema version every record carries. */
@@ -593,7 +594,8 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  *   store without stats): what depends on a record being taken (memory application) waits.
  */
 export function createJournal({ appendStore, dataDir, config = () => ({}), now = Date.now, uuid = randomUUID, log = defaultLog, fs = nodeFs, lockStores = [] }) {
-  const guildDir = (guildId) => path.join(dataDir, 'guilds', String(guildId));
+  const root = memoryRootOf(dataDir);
+  const guildDir = root.guildDir;
   function journalDir(guildId, privateUserId = null) {
     return typeof privateUserId === 'string' && privateUserId
       ? path.join(guildDir(guildId), 'private', privateUserId, 'journal')

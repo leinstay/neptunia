@@ -30,6 +30,7 @@ import { log as defaultLog } from '../log.js';
 import { stripUrls } from './clamp.js';
 import { TEACHER_TOKEN_RE, tokenIds } from './mentions.js';
 import { forgettingIds, isoOf, revisionOf } from './record.js';
+import { memoryRootOf } from './root.js';
 
 /** The schema version every entry carries. */
 export const ARCHIVE_VERSION = 1;
@@ -332,6 +333,7 @@ export function archiveDrops(entry, userId, before = null) {
  *   ones included). Every method but `iterate`, `find` and `stats` runs one at a time.
  */
 export function createArchive({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs, writerGate = null }) {
+  const root = memoryRootOf(dataDir);
   const indexes = new Map(); // ids.json path -> Set of keys
   const pendingCounts = new Map(); // guildId -> entries waiting in the pending files
   let chain = Promise.resolve();
@@ -344,7 +346,7 @@ export function createArchive({ appendStore, dataDir, log = defaultLog, now = Da
   }
 
   function guildBase(guildId) {
-    return path.join(dataDir, 'guilds', String(guildId));
+    return root.guildDir(guildId);
   }
 
   function baseDir(guildId, privateUserId = null) {

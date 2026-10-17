@@ -115,6 +115,7 @@ import { ITEM_ID_PREFIX, archiveDrops, archiveEntry, archiveRevision } from './a
 import { journalDrops, requestMentions } from './journal.js';
 import { redactUser } from './mentions.js';
 import { normalizeAvatar } from './avatars.js';
+import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from './root.js';
 
 const DIARY_HISTORY_POSTS = 150; // diary.historyPosts
 
@@ -350,7 +351,7 @@ function findInvalidJsonFiles(dataDir) {
     try {
       JSON.parse(fs.readFileSync(file, 'utf8'));
     } catch {
-      bad.push(path.relative(dataDir, file).split(path.sep).join('/'));
+      bad.push(memoryRootOf(dataDir).relative(file));
     }
   }
   return bad;
@@ -385,12 +386,10 @@ function writeTextAtomic(file, text) {
 /** The fallback cap of the recall trace file (config.json `recall.traceMaxLines`). */
 const RECALL_TRACE_MAX_LINES = 500;
 
-/** `memory.vaultDir` when it is missing (config.json carries the same). */
-export const DEFAULT_VAULT_DIR = 'vault';
+/** `memory.vaultDir` when it is missing and the snapshots directory: src/memory/root.js, re-exported here. */
+export { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR };
 /** `labels.memory.redaction` when it is missing (prompts/labels.json carries the same). */
 export const DEFAULT_REDACTION = 'someone';
-/** The directory under `data/` `/nep memory snapshot` writes to (src/admin.js); a forget and a wipe reach into it. */
-export const SNAPSHOTS_DIR = 'snapshots';
 /** A member id usable as a file name (the forget marker's rule, src/memory/journal.js). */
 const USER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** The `owner` of a forget marker this module writes (src/memory/journal.js leaves it in place). */
@@ -494,7 +493,7 @@ function readLedgerFile(file) {
  * @returns {Array<{ userId: string, at: string }>}
  */
 export function readLedger(dataDir, guildId) {
-  return readLedgerFile(path.join(dataDir, 'guilds', String(guildId), 'forgotten.json'));
+  return readLedgerFile(memoryRootOf(dataDir).forgottenFile(guildId));
 }
 
 /**
@@ -1103,6 +1102,7 @@ function normalizeChannel(channel) {
  *   index alone (its search hides the ledger's members anyway).
  */
 export function createStore({ dataDir, newId = randomUUID, record = null, recordOn = () => Boolean(record), archive = null, archiveOn = () => Boolean(archive), vectors = null }) {
+  const root = memoryRootOf(dataDir);
   const entries = new Map(); // file path -> { value, dirty }
 
   // ---- The archive (src/memory/archive.js): nothing leaves a hot list without a copy ----
@@ -1488,7 +1488,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     return counts;
   }
 
-  const guildDir = (guildId) => path.join(dataDir, 'guilds', String(guildId));
+  const guildDir = root.guildDir;
   const usersDir = (guildId) => path.join(guildDir(guildId), 'users');
   const userFile = (guildId, userId) => path.join(usersDir(guildId), `${userId}.json`);
   const guildFile = (guildId) => path.join(guildDir(guildId), 'guild.json');
@@ -1498,7 +1498,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   const mediaCacheFile = (guildId) => path.join(guildDir(guildId), 'media.json');
   const loreFile = (guildId) => path.join(guildDir(guildId), 'lore.json');
   const gifsFile = (guildId) => path.join(guildDir(guildId), 'gifs.json');
-  const privateDir = (guildId) => path.join(guildDir(guildId), 'private');
+  const privateDir = (guildId) => root.privateDir(guildId);
   const privateFile = (guildId, userId) => path.join(privateDir(guildId), `${userId}.json`);
   const voiceFile = (guildId) => path.join(guildDir(guildId), 'voice.json');
   const recentFile = (guildId) => path.join(guildDir(guildId), 'recent.json');
@@ -1509,7 +1509,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   /** A lore id is the entry's title, turned into a safe file name (src/memory/lore.js#loreVersionKey). */
   const versionsFile = (guildId, kind, id) =>
     path.join(versionsDir(guildId), kind, `${kind === 'lore' ? loreVersionKey(id) : String(id)}.json`);
-  const stateFile = path.join(dataDir, 'state.json');
+  const stateFile = root.stateFile;
 
   const stateEntry = entry(stateFile, () => ({}));
 
@@ -1863,11 +1863,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
   // `resumeForgets` finishes a marker a crash left; `applyLedger` takes out again whatever a
   // restored copy brought back from before a member's forget.
 
-  const forgettingDir = (guildId) => path.join(guildDir(guildId), 'forgetting');
+  const forgettingDir = root.forgettingDir;
   const markerFile = (guildId, userId) => path.join(forgettingDir(guildId), `${userId}.json`);
-  const ledgerFile = (guildId) => path.join(guildDir(guildId), 'forgotten.json');
-  const memberDir = (guildId, userId) => path.join(privateDir(guildId), String(userId));
-  const snapshotsRoot = path.join(dataDir, SNAPSHOTS_DIR);
+  const ledgerFile = root.forgottenFile;
+  const memberDir = (guildId, userId) => root.privateDir(guildId, String(userId));
+  const snapshotsRoot = root.snapshotsRoot;
   /** guildId -> the member ids under a forget marker, read from disk once per guild. */
   const forgettingIds = new Map();
 
@@ -1894,7 +1894,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
 
   /** The vault directory: `vaultDir` (`memory.vaultDir`) under `data/`, or as given when absolute. */
   function vaultRoot(vaultDir) {
-    return path.resolve(dataDir, typeof vaultDir === 'string' && vaultDir.trim() ? vaultDir : DEFAULT_VAULT_DIR);
+    return root.vaultDir(vaultDir);
   }
 
   /** A stored JSON value as it is (the cache first, then the disk), with no normalising and no hiding; null when none. */
@@ -2249,7 +2249,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     const id = marker.userId;
     const token = typeof redaction === 'string' && redaction.trim() ? redaction : DEFAULT_REDACTION;
     const names = Array.isArray(marker.names) ? marker.names.filter((name) => typeof name === 'string') : [];
-    const vaultAbs = path.resolve(dataDir, String(marker.vault));
+    const vaultAbs = root.resolve(String(marker.vault));
     if (!isPlainObject(marker.steps)) marker.steps = {};
     const done = (name, result) => {
       marker.steps[name] = result ?? {};
@@ -3080,11 +3080,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
     listGuilds() {
       const ids = new Set();
       try {
-        for (const name of fs.readdirSync(path.join(dataDir, 'guilds'))) ids.add(name);
+        for (const name of fs.readdirSync(root.guildsDir)) ids.add(name);
       } catch {
         // no guilds directory yet
       }
-      const prefix = path.join(dataDir, 'guilds') + path.sep;
+      const prefix = root.guildsDir + path.sep;
       for (const file of entries.keys()) {
         if (file.startsWith(prefix)) ids.add(file.slice(prefix.length).split(path.sep)[0]);
       }
