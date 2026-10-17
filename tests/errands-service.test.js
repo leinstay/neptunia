@@ -227,8 +227,8 @@ function fakeMirror() {
   return {
     calls,
     enabled: () => true,
-    add(task, { guildId, onLedgerId }) {
-      calls.push(['add', task.id, task.state, guildId]);
+    add(task, { guildId, limits, onLedgerId }) {
+      calls.push(['add', task.id, task.state, guildId, limits]);
       n += 1;
       onLedgerId?.(`L${n}`);
       return true;
@@ -249,16 +249,16 @@ function fakeMirror() {
       calls.push(['cancel', task.id, by]);
       return true;
     },
-    mirrorOpen(tasks, { guildId, onLedgerId }) {
+    mirrorOpen(tasks, { guildId, limitsOf, onLedgerId }) {
       const missing = tasks.filter((task) => !task.ledgerId);
-      calls.push(['mirrorOpen', missing.map((task) => task.id), guildId]);
+      calls.push(['mirrorOpen', missing.map((task) => task.id), guildId, missing.map((task) => limitsOf(task))]);
       for (const task of missing) onLedgerId(task, `R-${task.id}`);
       return missing.length;
     },
   };
 }
 
-test('errands service: the ledger mirror is called at the queuing, the start (limits, the role\'s model), each progress, the end, a cancel (who) and a forget; the ledger id is kept on the task', async () => {
+test('errands service: the ledger mirror is called at the queuing (limits), the start (limits, the role\'s model), each progress, the end, a cancel (who) and a forget; the ledger id is kept on the task', async () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-errands-service-'));
   const hot = { config: { roles: { 'agent.web': 'openrouter/vendor/web-model' }, agents: { maxOpen: 5, resultMaxChars: 1234, web: { enabled: true, daily: { tasks: 10, usd: 5 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } } } };
   const gates = new Map();
@@ -299,14 +299,14 @@ test('errands service: the ledger mirror is called at the queuing, the start (li
     await errands.idle();
     const limits = { steps: 9, usd: 0.3, seconds: 90 };
     assert.deepEqual(ledger.calls, [
-      ['add', done, 'queued', 'g1'],
+      ['add', done, 'queued', 'g1', limits],
       ['start', done, 'running', limits, 'openrouter/vendor/web-model'],
       ['progress', done],
       ['finish', done, 'done', null, 'L1', 1234],
-      ['add', cancelled, 'queued', 'g1'],
+      ['add', cancelled, 'queued', 'g1', limits],
       ['start', cancelled, 'running', limits, 'openrouter/vendor/web-model'],
       ['cancel', cancelled, 'owner'],
-      ['add', forgotten, 'queued', 'g1'],
+      ['add', forgotten, 'queued', 'g1', limits],
       ['start', forgotten, 'running', limits, 'openrouter/vendor/web-model'],
       ['cancel', forgotten, 'forget'],
     ], 'a cancelled task\'s late end is not mirrored twice');
@@ -331,7 +331,7 @@ test('errands service: at start the open tasks without a ledger id are mirrored,
     const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn(), ledger });
     assert.equal(errands.start('g1'), 2);
     assert.deepEqual(ledger.calls, [
-      ['mirrorOpen', [first], 'g1'],
+      ['mirrorOpen', [first], 'g1', [errands.limitsOf('web')]],
       ['finish', first, 'failed', 'restarted', `R-${first}`, 3000],
       ['finish', second, 'failed', 'restarted', 'L5', 3000],
     ]);

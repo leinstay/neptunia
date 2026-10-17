@@ -21,7 +21,7 @@
 // (`store.getBuffer`) at the moment the task is queued and kept in memory only until it is sent;
 // a `dm`-scoped task sends `recent: []` (nothing of a private chat reaches a runner this way).
 // Every errand is also mirrored into the ledger (src/errands/ledger.js, `agents.ledger.socket`,
-// disabled while null): at its queuing, its start (with its limits and the model of its agent's
+// disabled while null): at its queuing (with its limits, for the ledger's triage), its start (with its limits and the model of its agent's
 // role), the runner's progress, its end and its cancel (`by` who cancelled it), and at start the
 // open tasks a restart found without a ledger id; the ledger's id is kept on the task
 // (`ledgerId`). The mirror never throws into an errand and never changes how one runs.
@@ -263,7 +263,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const added = store.add({ agent, goal, requester, origin, scope });
     if (!added.ok) return added;
     const id = added.task.id;
-    mirrored(id, () => mirror.add(added.task, { guildId: store.guildId, onLedgerId: keepLedgerId(store, id) }));
+    mirrored(id, () => mirror.add(added.task, { guildId: store.guildId, limits: limitsOf(agent), onLedgerId: keepLedgerId(store, id) }));
     // The channel as it was when the task was asked for, not when it is sent.
     recentById.set(id, recentOf(store.guildId, added.task.origin?.channelId ?? null, added.task.scope));
     // After the operation's answer: the persona never waits for her errand.
@@ -342,7 +342,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const store = storeOf(guildId);
     if (!store) return 0;
     const open = store.open();
-    mirrored(null, () => mirror.mirrorOpen(open, { guildId: store.guildId, onLedgerId: (task, ledgerId) => store.setLedgerId?.(task.id, ledgerId) }));
+    mirrored(null, () => mirror.mirrorOpen(open, { guildId: store.guildId, limitsOf: (task) => limitsOf(task.agent), onLedgerId: (task, ledgerId) => store.setLedgerId?.(task.id, ledgerId) }));
     const failed = store.failOpen('restarted');
     for (const task of open) {
       const ended = store.get(task.id);

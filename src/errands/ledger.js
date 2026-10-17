@@ -14,8 +14,10 @@
 // `task.heartbeat:<minute>`), so a replay after a lost answer or a restart never doubles a row.
 // Undelivered calls wait in memory (at most MAX_QUEUE; one more is dropped and logged) while the
 // connection is reopened with a growing backoff, and are replayed in order once it answers; a call
-// the ledger refuses is logged with its code and dropped. A call whose ledger id never came (its
-// `task.add` refused) is dropped too. A refused or unreachable socket is logged at most once per
+// the ledger refuses is logged with its code and dropped; the calls after it are still sent (a
+// later one may pass), and only the first refused or dropped call of a task is logged. A call
+// whose ledger id never came (its `task.add` refused) is dropped too. A queued errand goes
+// `proposed -> triaged -> approved` (the ledger's machine has no shorter way). A refused or unreachable socket is logged at most once per
 // UNAVAILABLE_LOG_MS. With `agents.ledger.socket` null (config.json's default) the mirror is
 // disabled: nothing is queued, nothing connects. The socket path is read at the moment of use.
 // Logs carry the core id, the op and codes, never a goal, a result or a member's id.
@@ -82,6 +84,21 @@ export function addArgs(task, guildId) {
 /** The args of `task.transition` of ledger task `ledgerId` to `to` (with `close_reason` when given). */
 export function transitionArgs(ledgerId, to, closeReason = null) {
   return closeReason ? { id: ledgerId, to, close_reason: closeReason } : { id: ledgerId, to };
+}
+
+/**
+ * The args of the triage of ledger task `ledgerId` (`task.transition` to `triaged`, the triage
+ * fields set in the same call): the agent as the role, `limits.usd` as `budget_usd`,
+ * `limits.steps` as `step_cap`, `limits.seconds` (else the client's default) in whole minutes as
+ * `estimate_minutes`. A limit that is not a positive number is left out.
+ */
+export function triageArgs(ledgerId, task, limits) {
+  const set = { role: task.agent };
+  if (Number.isFinite(limits?.usd) && limits.usd > 0) set.budget_usd = limits.usd;
+  if (Number.isFinite(limits?.steps) && limits.steps > 0) set.step_cap = Math.floor(limits.steps);
+  const seconds = Number.isFinite(limits?.seconds) && limits.seconds > 0 ? limits.seconds : DEFAULT_TASK_SECONDS;
+  set.estimate_minutes = Math.ceil(seconds / 60);
+  return { id: ledgerId, to: 'triaged', set };
 }
 
 /** The args of `task.claim` of ledger task `ledgerId` with the lease of `limits`. */
@@ -162,9 +179,9 @@ export function createLedgerMirror({
   reconnectMaxMs = RECONNECT_MAX_MS,
   replyTimeoutMs = REPLY_TIMEOUT_MS,
 } = {}) {
-  // core id -> { ledgerId, attemptId, attempted, lease, lastBeat }
+  // core id -> { ledgerId, attemptId, attempted, lease, lastBeat, warned }
   const records = new Map();
-  // [{ coreId, op, method, build(record) -> args|null, onResult?(result, record) }]
+  // [{ coreId, op, method, build(record) -> args|null, onResult?(result, record), final? }]
   const queue = [];
   const waiters = [];
   let link = null; // { socket, path, open, buffer }
@@ -186,7 +203,7 @@ export function createLedgerMirror({
   function recordOf(task) {
     let record = records.get(task.id);
     if (!record) {
-      record = { ledgerId: task.ledgerId ? String(task.ledgerId) : null, attemptId: null, attempted: false, lease: null, lastBeat: -Infinity };
+      record = { ledgerId: task.ledgerId ? String(task.ledgerId) : null, attemptId: null, attempted: false, lease: null, lastBeat: -Infinity, warned: false };
       records.set(task.id, record);
     } else if (!record.ledgerId && task.ledgerId) {
       record.ledgerId = String(task.ledgerId);
@@ -200,6 +217,20 @@ export function createLedgerMirror({
     if (at - lastUnavailableAt < UNAVAILABLE_LOG_MS) return;
     lastUnavailableAt = at;
     log.warn('errands: ledger unavailable', { code: code ?? null, queued: queue.length });
+  }
+
+  /**
+   * A refused or skipped call of a task logged, once per task: the calls after a refused one
+   * (a later transition, the claim, the attempt) are still sent, and their own refusals, which
+   * follow from the first, are not logged again.
+   */
+  function warnOnce(entry, msg, code) {
+    const record = records.get(entry.coreId);
+    if (record) {
+      if (record.warned) return;
+      record.warned = true;
+    }
+    log.warn(msg, { id: entry.coreId, op: entry.op, code });
   }
 
   /** The waiters of idle() resolved once nothing is queued or in flight. */
@@ -310,8 +341,9 @@ export function createLedgerMirror({
         log.warn('errands: ledger result failed', { id: entry.coreId, op: entry.op, error: err });
       }
     } else {
-      log.warn('errands: ledger refused', { id: entry.coreId, op: entry.op, code: codeOf(reply.error) });
+      warnOnce(entry, 'errands: ledger refused', codeOf(reply.error));
     }
+    if (entry.final) records.delete(entry.coreId);
     pump();
   }
 
@@ -345,7 +377,8 @@ export function createLedgerMirror({
     }
     if (!args) {
       queue.shift();
-      log.warn('errands: ledger call skipped', { id: entry.coreId, op: entry.op, code: 'no-ledger-id' });
+      warnOnce(entry, 'errands: ledger call skipped', 'no-ledger-id');
+      if (entry.final) records.delete(entry.coreId);
       pump();
       return;
     }
@@ -368,14 +401,14 @@ export function createLedgerMirror({
     }
   }
 
-  /** A call that needs the task's ledger id. */
-  function call(task, op, method, build, onResult) {
-    return enqueue({ coreId: task.id, op, method, build: (record) => (record.ledgerId ? build(record) : null), onResult });
+  /** A call that needs the task's ledger id (`final`: the record forgotten once it is answered or skipped). */
+  function call(task, op, method, build, onResult, final = false) {
+    return enqueue({ coreId: task.id, op, method, build: (record) => (record.ledgerId ? build(record) : null), onResult, final });
   }
 
-  /** The `task.transition` of `task` to its final state, the record forgotten once it is through. */
+  /** The `task.transition` of `task` to its final state, the record forgotten once it is through or refused. */
   function closeTask(task, to, closeReason) {
-    call(task, `task.transition:${to}`, 'task.transition', (record) => transitionArgs(record.ledgerId, to, closeReason), () => records.delete(task.id));
+    call(task, `task.transition:${to}`, 'task.transition', (record) => transitionArgs(record.ledgerId, to, closeReason), null, true);
   }
 
   /** The attempt of `task` ended with `outcome`, when this process started one. */
@@ -392,11 +425,13 @@ export function createLedgerMirror({
 
   /**
    * A queued errand mirrored: `task.add` (its ledger id handed to `onLedgerId`), then
-   * `task.transition` to `approved`. Nothing for a task that already has its ledger id.
+   * `task.transition` to `triaged` (the triage fields from `limits`, triageArgs), then to
+   * `approved` (the ledger's machine has no `proposed -> approved`). Nothing for a task that
+   * already has its ledger id.
    * @param {object} task  The store's task.
-   * @param {{ guildId: string, onLedgerId?: (ledgerId: string) => void }} options
+   * @param {{ guildId: string, limits?: object, onLedgerId?: (ledgerId: string) => void }} options
    */
-  function add(task, { guildId, onLedgerId = null } = {}) {
+  function add(task, { guildId, limits = {}, onLedgerId = null } = {}) {
     if (!enabled() || !task?.id) return false;
     const record = recordOf(task);
     if (record.ledgerId) return false;
@@ -413,6 +448,7 @@ export function createLedgerMirror({
         if (typeof onLedgerId === 'function') onLedgerId(ledgerId);
       },
     });
+    call(task, 'task.transition:triaged', 'task.transition', (r) => triageArgs(r.ledgerId, task, limits));
     call(task, 'task.transition:approved', 'task.transition', (r) => transitionArgs(r.ledgerId, 'approved'));
     return true;
   }
@@ -482,14 +518,15 @@ export function createLedgerMirror({
    * The open errands a restart found without a ledger id, mirrored (`task.add` with the same
    * idempotency key, so one half delivered before the restart is not doubled). Returns how many.
    * @param {object[]} tasks
-   * @param {{ guildId: string, onLedgerId?: (task: object, ledgerId: string) => void }} options
+   * @param {{ guildId: string, limitsOf?: (task: object) => object, onLedgerId?: (task: object, ledgerId: string) => void }} options
    */
-  function mirrorOpen(tasks, { guildId, onLedgerId = null } = {}) {
+  function mirrorOpen(tasks, { guildId, limitsOf = null, onLedgerId = null } = {}) {
     if (!enabled()) return 0;
     let count = 0;
     for (const task of Array.isArray(tasks) ? tasks : []) {
       if (!task?.id || task.ledgerId || !['queued', 'running'].includes(task.state)) continue;
-      if (add(task, { guildId, onLedgerId: onLedgerId ? (ledgerId) => onLedgerId(task, ledgerId) : null })) count += 1;
+      const limits = typeof limitsOf === 'function' ? limitsOf(task) ?? {} : {};
+      if (add(task, { guildId, limits, onLedgerId: onLedgerId ? (ledgerId) => onLedgerId(task, ledgerId) : null })) count += 1;
     }
     return count;
   }
