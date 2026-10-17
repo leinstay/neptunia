@@ -414,12 +414,20 @@ function rowLine(template, row, L) {
   });
 }
 
+/** The roles of an extra key as its lead names them: each through `names` (`roleNames`, a role ->
+ * shown name map; a role it lacks shows as itself), each shown name once, in order. */
+function shownRoles(roles, names) {
+  const nameOf = (role) => (isPlainObject(names) && Object.hasOwn(names, role) && typeof names[role] === 'string' && names[role] ? names[role] : role);
+  return [...new Set(roles.map(nameOf))];
+}
+
 /**
  * The `keys` field's lines, every word from `labels.status.costs` (a missing
  * label leaves its line out; no `status.costs` at all gives []): per key, its limit line
  * immediately followed by its own usage line -- the main key (lead `keyLead`), the simulator key
  * (lead `simKeyLead`; the one line `simKeyNotSet` when `sim` is null), then each extra role key
- * (`llm.keyByRole`, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`). A limit line is
+ * (`llm.keyByRole`, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`, each role named
+ * through `roleNames` and each name once, so the agent roles show as one word). A limit line is
  * `keyLimit` with its `notes` (the reset and whether BYOK counts) or `keyLimitPlain`; `keyNone` /
  * `keyNonePlain` without a limit; `keyUnavailable` on a failed read. A usage line is `usage` of
  * its parts: for the main and the role keys `usageToday` (today from the key's record) and
@@ -451,7 +459,7 @@ export function keyCostsLines({ key, activity = null, sim = null, simActivity = 
   else lines.push(line(L.simKeyNotSet, {}));
   for (const extra of Array.isArray(roleKeys) ? roleKeys : []) {
     const roles = Array.isArray(extra?.roles) ? extra.roles : [];
-    const roleLead = line(L.roleKeyLead, { roles: roles.join(typeof L.roleSeparator === 'string' ? L.roleSeparator : ', ') });
+    const roleLead = line(L.roleKeyLead, { roles: shownRoles(roles, L.roleNames).join(typeof L.roleSeparator === 'string' ? L.roleSeparator : ', ') });
     if (!roleLead) continue;
     lines.push(extra.key?.ok ? keyLine(extra.key.data, L, roleLead) : unavailable(extra.key, roleLead));
     lines.push(keyUsageLine(dataOf(extra.key), extra.activity, L, () => usageLine(dataOf(extra.key), extra.windows, L)));
