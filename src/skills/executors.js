@@ -26,6 +26,9 @@ const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
 /** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
 const FILE_OPTIONS = Object.freeze(['file']);
 
+/** A whole errand file handle, as src/errands/store.js reads one. */
+const FILE_HANDLE_RE = /^file:[A-Za-z0-9_-]{1,64}\/[^/\\]{1,200}$/;
+
 /** The skill whose `agent` she must name: refused `agent-required` (with the agents) when left out. */
 const AGENT_SKILL = 'task.run';
 
@@ -204,7 +207,10 @@ export function bodyArguments(body, names) {
  * any other value -- a raw message id -- is passed on as written. A non-empty body fills the
  * skill's body argument (`command.body`, src/skills/derive.js#BODY_ARGS: an errand's `goal`, her
  * `text`) when the call left it out -- `invalid-args` (`args.<arg>:twice`) when it gave it as an
- * attribute too -- and the result names it (`bodyArg`) for the caller to log. An errand
+ * attribute too -- and the result names it (`bodyArg`) for the caller to log. When the command
+ * takes a `file` the call left out, an errand's file handle on a line of its own in that body
+ * becomes the `file` and leaves the text (`fileFromBody: true`; an empty text is a file-only
+ * post); two or more are refused `unknown-file` (`file:several`). An errand
  * (`task.run`) without its `agent` is refused `agent-required`, the reason the agents she may
  * name, comma-separated (the schema's choices). A non-empty body for a command
  * without a body option that spells out its options (bodyArguments: `name: value` lines,
@@ -219,7 +225,7 @@ export function bodyArguments(body, names) {
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
  *   selfId?: string|null, fileOf?: (handle: string) => object|null, triggerText?: string|null }} view
- * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyArg?: string, bodyIgnored?: true, bodyArgs?: number }
+ * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyArg?: string, fileFromBody?: true, bodyIgnored?: true, bodyArgs?: number }
  *   | { ok: false, code: string, reason: string }}
  */
 export function resolveCall(call, view) {
@@ -241,9 +247,22 @@ export function resolveCall(call, view) {
     given[key] = value;
     bodyArgs += 1;
   }
+  let fileFromBody = false;
   if (body && command.body) {
     if (Object.hasOwn(given, command.body)) return refused('invalid-args', `args.${command.body}:twice`);
     given[command.body] = body;
+    // An errand's file handle on a line of its own there, the call giving no file: the attachment,
+    // out of the text (an empty text left is a file-only post); several: refused as an unknown file.
+    if (byName.has('file') && !Object.hasOwn(given, 'file')) {
+      const lines = body.split('\n');
+      const handles = lines.filter((line) => FILE_HANDLE_RE.test(line.trim()));
+      if (handles.length > 1) return refused('unknown-file', 'file:several');
+      if (handles.length === 1) {
+        given.file = handles[0].trim();
+        given[command.body] = lines.filter((line) => !FILE_HANDLE_RE.test(line.trim())).join('\n').trim();
+        fileFromBody = true;
+      }
+    }
   }
   // An errand without its agent: refused naming the agents she may pick (the schema's choices), so
   // the refusal she reads says which, never a bare missing argument.
@@ -341,7 +360,7 @@ export function resolveCall(call, view) {
   if (args.channel !== undefined) {
     for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused('file-elsewhere', 'channel');
   }
-  return { ok: true, skill: name, args, command, repliedAuthorId, ...(body && command.body ? { bodyArg: command.body } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody ? { bodyArgs } : {}) };
+  return { ok: true, skill: name, args, command, repliedAuthorId, ...(body && command.body ? { bodyArg: command.body } : {}), ...(fileFromBody ? { fileFromBody: true } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody ? { bodyArgs } : {}) };
 }
 
 /** The structured status of an operation's result (src/ops/index.js#runOp): `ok`; one that may

@@ -70,7 +70,8 @@ const handlers = perEnv((env) => {
   async function post(args, context) {
     const p = requirePort();
     const text = String(args?.text ?? '').trim();
-    if (!text) throw invalid('text is required');
+    // A file-only post: an errand's file with no text.
+    if (!text && !String(args?.file ?? '').trim()) throw invalid('text is required');
     const reply = args?.replyTo ? messageRefOf(args.replyTo) : null;
     const given = args?.channelId ? String(args.channelId) : null;
     if (given && reply?.channelId && given !== reply.channelId) throw invalid('the message is not in that channel', 'unknown-message');
