@@ -15,6 +15,8 @@ import { createErrandService } from '../src/errands/service.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
 import { tempDir } from './fixtures/tmp.js';
+import { COMMAND_TABLE } from '../src/ops/catalog.js';
+import { addArgs } from '../src/errands/ledger.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -208,4 +210,87 @@ test('task.status: a task mirrored into the ledger shows its ledger id; task.can
     assert.deepEqual(seen, ['requester', 'owner', 'persona']);
     await errands.idle();
   });
+});
+
+/** `agents.web` with the adult errand block `adult` (the shipped limits under it). */
+const webWith = (adult) => ({ web: { enabled: true, limits: { steps: 25, usd: 0.5, seconds: 300 }, daily: { tasks: 10, usd: 5 }, adult } });
+
+test('task.run adult: on web with agents.web.adult set, the errand carries its model and its limits merged over agents.web.limits', async () => {
+  const { env, client, errands, stores } = makeEnv({ agents: webWith({ model: 'vendor/adult-model', limits: { seconds: 900, steps: 40 } }) });
+  await withCapturedLogs(async () => {
+    const result = await runOp('task.run', { agent: 'web', goal: 'find the scene', adult: true }, ctx(env, MEMBER));
+    assert.equal(result.status, 'ok');
+    assert.equal(result.code, 'ok');
+    const { id } = result.data.task;
+    assert.equal(result.data.task.adult, true);
+    assert.match(result.summary, new RegExp(`^task ${id}: queued \\(web, adult\\)$`));
+    assert.equal(stores.get('g1').get(id).adult, true, 'the record keeps adult: true');
+    while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(client.runs[0].model, 'vendor/adult-model');
+    assert.deepEqual(client.runs[0].limits, { steps: 40, usd: 0.5, seconds: 900 });
+    const status = await runOp('task.status', { id }, ctx(env, MEMBER));
+    assert.ok(status.summary.startsWith(`${id} web adult running `), status.summary);
+    assert.equal(addArgs(stores.get('g1').get(id), 'g1').metadata.adult, true, 'the ledger mirror\'s metadata');
+    // The string form a slash option (or a persona's call) gives.
+    const asString = await runOp('task.run', { agent: 'web', goal: 'another', adult: 'true' }, ctx(env, MEMBER));
+    assert.equal(stores.get('g1').get(asString.data.task.id).adult, true);
+    const no = await runOp('task.run', { agent: 'web', goal: 'plain', adult: 'false' }, ctx(env, MEMBER));
+    assert.equal(no.code, 'ok');
+    assert.equal(Object.hasOwn(stores.get('g1').get(no.data.task.id), 'adult'), false);
+    while (client.runs.length < 3) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(Object.hasOwn(client.runs[2], 'model'), false, 'a plain errand takes the role\'s model');
+    assert.deepEqual(client.runs[2].limits, { steps: 25, usd: 0.5, seconds: 300 });
+    assert.equal(Object.hasOwn(addArgs(stores.get('g1').get(no.data.task.id), 'g1').metadata, 'adult'), false);
+    // Counted against the day's caps as any other errand.
+    assert.equal(stores.get('g1').today('web').tasks, 3);
+    for (const run of client.runs) client.end(run.id);
+    await errands.idle();
+  });
+});
+
+test('task.run adult: refused for the server agent; a value that is not a flag is invalid', async () => {
+  const { env, client } = makeEnv({ agents: webWith({ model: 'vendor/adult-model' }) });
+  await withCapturedLogs(async () => {
+    const refused = await runOp('task.run', { agent: 'server', goal: 'list the units', adult: true }, ctx(env, OWNER));
+    assert.equal(refused.status, 'invalid');
+    assert.equal(refused.code, 'adult-web-only');
+    const bad = await runOp('task.run', { agent: 'web', goal: 'x', adult: 'maybe' }, ctx(env, MEMBER));
+    assert.equal(bad.status, 'invalid');
+    await new Promise((r) => setImmediate(r));
+    assert.equal(client.runs.length, 0, 'nothing queued');
+    const plainServer = await runOp('task.run', { agent: 'server', goal: 'list the units', adult: 'false' }, ctx(env, OWNER));
+    assert.equal(plainServer.status, 'ok', 'adult false is no adult errand');
+  });
+});
+
+test('task.run adult: with the feature off the flag is ignored, the errand runs as usual and the code says so', async () => {
+  for (const [adult, code] of [[undefined, 'adult-off'], [null, 'adult-off'], [{ model: 'not a model' }, 'adult-misconfigured']]) {
+    const { env, client, stores, errands } = makeEnv({ agents: webWith(adult) });
+    await withCapturedLogs(async () => {
+      const result = await runOp('task.run', { agent: 'web', goal: 'find the scene', adult: true }, ctx(env, MEMBER));
+      assert.equal(result.status, 'ok');
+      assert.equal(result.code, code);
+      const { id } = result.data.task;
+      assert.equal(result.summary, `task ${id}: queued (web; adult ignored: ${code})`);
+      assert.equal(Object.hasOwn(stores.get('g1').get(id), 'adult'), false);
+      while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(Object.hasOwn(client.runs[0], 'model'), false);
+      assert.deepEqual(client.runs[0].limits, { steps: 25, usd: 0.5, seconds: 300 });
+      client.end(id);
+      await errands.idle();
+    });
+  }
+});
+
+test('/nep task run: the adult option is a lowercase string flag, mapped to a boolean only when given', () => {
+  const run = COMMAND_TABLE.find((node) => node.name === 'task').subcommands.find((leaf) => leaf.name === 'run');
+  const option = run.options.find((o) => o.name === 'adult');
+  assert.equal(option.type, 3, 'a STRING option, never a Discord BOOLEAN');
+  assert.deepEqual(option.choices.map((c) => c.value), ['true', 'false']);
+  assert.equal(option.required, false);
+  const reader = (given) => ({ getString: (name) => (Object.hasOwn(given, name) ? given[name] : null) });
+  assert.deepEqual(run.args(reader({ agent: 'web', goal: 'g', adult: 'true' })), { agent: 'web', goal: 'g', adult: true });
+  assert.deepEqual(run.args(reader({ agent: 'web', goal: 'g', adult: true })), { agent: 'web', goal: 'g', adult: true }, 'a persona\'s call carries the boolean');
+  assert.deepEqual(run.args(reader({ agent: 'web', goal: 'g', adult: 'false' })), { agent: 'web', goal: 'g', adult: false });
+  assert.deepEqual(run.args(reader({ agent: 'web', goal: 'g' })), { agent: 'web', goal: 'g' });
 });

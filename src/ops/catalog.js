@@ -409,8 +409,12 @@ export const COMMAND_TABLE = Object.freeze([
         options: [
           { type: STRING, name: 'agent', description: 'web or server.', required: true, choices: choicesOf(TASK_AGENTS) },
           { type: STRING, name: 'goal', description: 'What to find out or fetch.', required: true, max_length: 2000 },
+          flagOption('adult', 'web only: run on the adult model and limits (agents.web.adult), when set.'),
         ],
-        args: (options) => ({ agent: options.getString('agent', true), goal: options.getString('goal', true) }),
+        args: (options) => {
+          const adult = readFlag(options, 'adult');
+          return { agent: options.getString('agent', true), goal: options.getString('goal', true), ...(adult !== null ? { adult } : {}) };
+        },
       },
       {
         name: 'status',

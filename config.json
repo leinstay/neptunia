@@ -453,7 +453,8 @@
       "out": "/var/lib/neptunia-agent-web/out",
       "limits": { "steps": 25, "usd": 0.5, "seconds": 300 },
       "daily": { "tasks": 40, "usd": 8 },
-      "search": { "provider": "exa" }
+      "search": { "provider": "exa" },
+      "adult": null
     },
     "server": {
       "enabled": false,
