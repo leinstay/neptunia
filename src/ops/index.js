@@ -123,6 +123,7 @@ export const COMMAND_TO_OP = Object.freeze({
   'task.status': 'task.status',
   'task.cancel': 'task.cancel',
   'task.list': 'task.list',
+  'task.show': 'task.show',
 });
 
 /**

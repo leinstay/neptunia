@@ -19,6 +19,10 @@
 // UNAVAILABLE_LOG_MS. With `agents.ledger.socket` null (config.json's default) the mirror is
 // disabled: nothing is queued, nothing connects. The socket path is read at the moment of use.
 // Logs carry the core id, the op and codes, never a goal, a result or a member's id.
+//
+// The owner's read views (`/nep status`'s ledger lines, `/nep task show`) go another way:
+// readLedger opens one connection of its own per read, sends one request without an idempotency
+// key and closes, so a read never waits behind the mirror's queue nor sits in it.
 
 import net from 'node:net';
 import { log as defaultLog } from '../log.js';
@@ -43,6 +47,8 @@ export const RECONNECT_MIN_MS = 1000;
 export const RECONNECT_MAX_MS = 30_000;
 /** How long one call waits for its answer before the connection is dropped and the call replayed (ms). */
 export const REPLY_TIMEOUT_MS = 10_000;
+/** How long one read (readLedger) waits for the connection and its answer (ms). */
+export const READ_TIMEOUT_MS = 3000;
 /** The time cap of a task without `limits.seconds` (s), as the errand client waits for it. */
 const DEFAULT_TASK_SECONDS = 600;
 /** The ledger's principal the core is. */
@@ -140,6 +146,70 @@ function codeOf(error) {
   if (typeof error === 'string' && error) return error;
   if (typeof error?.code === 'string' && error.code) return error.code;
   return 'refused';
+}
+
+/**
+ * One read of the ledger (`task.list`, `task.show`, ...) over a connection of its own: one
+ * request `{ id: 1, op, args }`, its answer, the connection closed. Never throws, never logs a
+ * result. Resolves `{ ok: true, result }`, or `{ ok: false, code }` with `code` `off` (no socket
+ * configured), `unreachable` (no connection, a closed one, a bad line, or no answer within
+ * `timeoutMs`), else the ledger's refusal code (`refused: true`).
+ * @param {string|null|undefined} socketPath  The socket, read by the caller at the moment of use.
+ * @param {string} op
+ * @param {object} [args]
+ * @param {{ timeoutMs?: number, connect?: (path: string) => import('node:net').Socket }} [options]
+ * @returns {Promise<{ ok: true, result: unknown } | { ok: false, code: string, refused?: boolean }>}
+ */
+export function readLedger(socketPath, op, args = {}, { timeoutMs = READ_TIMEOUT_MS, connect = (where) => net.createConnection(where) } = {}) {
+  if (typeof socketPath !== 'string' || !socketPath) return Promise.resolve({ ok: false, code: 'off' });
+  return new Promise((resolve) => {
+    let socket = null;
+    let done = false;
+    let buffer = '';
+    const finish = (outcome) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (socket && !socket.destroyed) socket.destroy();
+      resolve(outcome);
+    };
+    const timer = setTimeout(() => finish({ ok: false, code: 'unreachable' }), timeoutMs);
+    timer.unref?.();
+    try {
+      socket = connect(socketPath);
+    } catch {
+      finish({ ok: false, code: 'unreachable' });
+      return;
+    }
+    socket.setEncoding?.('utf8');
+    socket.once('connect', () => {
+      try {
+        socket.write(`${JSON.stringify({ id: 1, op, args })}\n`);
+      } catch {
+        finish({ ok: false, code: 'unreachable' });
+      }
+    });
+    socket.on('data', (chunk) => {
+      buffer += chunk;
+      let nl;
+      while (!done && (nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl);
+        buffer = buffer.slice(nl + 1);
+        if (!line.trim()) continue;
+        let reply;
+        try {
+          reply = JSON.parse(line);
+        } catch {
+          finish({ ok: false, code: 'unreachable' });
+          return;
+        }
+        if (reply?.id !== 1) continue;
+        finish(reply.ok === true ? { ok: true, result: reply.result ?? null } : { ok: false, code: codeOf(reply.error), refused: true });
+      }
+    });
+    socket.on('error', () => finish({ ok: false, code: 'unreachable' }));
+    socket.on('close', () => finish({ ok: false, code: 'unreachable' }));
+  });
 }
 
 /**

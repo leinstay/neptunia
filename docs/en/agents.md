@@ -123,6 +123,8 @@ Every call carries the idempotency key `errand:<core id>:<op>`, so a replay or a
 
 The core's store remains the system of record: the `<tasks>` block, the result turn, the caps and the rights read only the core's store. A ledger that refuses connections or does not answer never affects an errand. Calls wait in memory (at most 200, in order) while the connection is retried with a growing backoff, and are replayed once the ledger answers. `errands: ledger unavailable` is logged at most once a minute, with codes only. A call the ledger refuses is logged with its code and dropped. At start, the open tasks of `tasks.json` that have no `ledgerId` are mirrored before they fail as `restarted`.
 
+The owner also reads the ledger itself over the same socket: the owner's `/nep status` card lists the last five ledger tasks of both lanes (`task.list`), and `/nep task show <id>` prints one ledger task whole (`task.show`), see [Owner commands](owner-commands.md). Each read opens a connection of its own (a request without an idempotency key, at most 3 s), never waits behind the mirror's queue, and shows `ledger: off` when the socket is not set or the ledger does not answer.
+
 ## Adding an agent
 
 1. Create `agents/<id>/` with a `profile.json` (copy one of the existing ones) and, for a worker, a `prompt.md`.

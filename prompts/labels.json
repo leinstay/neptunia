@@ -309,6 +309,12 @@
       "byRoleEmpty": "today by role: no requests yet",
       "role": "{role} · {requests} req · in {in} (cached {cached}) · out {out} · {cost} USD{avg}",
       "avg": " · avg {usd} USD"
+    },
+    "ledger": {
+      "off": "ledger: off",
+      "empty": "ledger: no tasks",
+      "header": "ledger, last tasks:",
+      "line": "{id} · {lane} · {status} · {title}"
     }
   },
   "warmup": {
@@ -417,6 +423,32 @@
       "files": "Files it saved; to post one, give its handle as the file of message.create:",
       "file": "{handle} ({contentType}, {bytes} bytes)",
       "withheld": "The engine withheld {paths} from the agent by policy; the result covers everything else."
+    },
+    "ledger": {
+      "off": "ledger: off",
+      "noId": "a ledger task id is required",
+      "notFound": "no ledger task {id}",
+      "refused": "the ledger refused: {code}",
+      "attached": "ledger task {id}: {chars} characters, attached as {file}",
+      "header": "{id} · {lane} · {status} · {title}",
+      "meta": "project {project} · requester {requester} · role {role} · created {created} · updated {updated}",
+      "closed": "closed: {reason}",
+      "none": "(none)",
+      "description": "Description:",
+      "acceptance": "Acceptance:",
+      "attempts": "Attempts:",
+      "attempt": "{id} · {role} · {model} · {outcome} · {steps} steps · {cost} USD · {started} to {ended}",
+      "results": "Results:",
+      "result": "[{kind}] {at} · attempt {attempt}",
+      "resultUri": "uri: {uri}",
+      "resultMetadata": "metadata: {metadata}",
+      "questions": "Questions:",
+      "question": "Q {id} ({by}): {text}",
+      "answer": "A ({by}, {at}): {text}",
+      "unanswered": "A: not answered yet",
+      "events": "Events:",
+      "event": "{seq} · {at} · {actor} · {type} {change}",
+      "eventChange": "{old} -> {new}"
     }
   },
   "journal": {

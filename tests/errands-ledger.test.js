@@ -12,7 +12,8 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createLedgerMirror, MAX_QUEUE, TITLE_CHARS, idempotencyKey } from '../src/errands/ledger.js';
+import { createLedgerMirror, MAX_QUEUE, TITLE_CHARS, idempotencyKey, readLedger } from '../src/errands/ledger.js';
+import { startFakeLedger, deadSocket } from './fixtures/fake-ledger.js';
 
 const T0 = Date.parse('2026-10-17T10:00:00Z');
 
@@ -339,4 +340,33 @@ test('ledger mirror: at a restart the open tasks without a ledger id are mirrore
     await ledger.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- the read side ------------------------------------------------------------------
+
+test('readLedger: one request without an idempotency key on a connection of its own, its result back', async () => {
+  const ledger = await startFakeLedger((request) => ({ ok: true, result: { tasks: [{ id: 'T-1' }], echo: request.args } }));
+  try {
+    const outcome = await readLedger(ledger.socket, 'task.list', { limit: 5 });
+    assert.deepEqual(outcome, { ok: true, result: { tasks: [{ id: 'T-1' }], echo: { limit: 5 } } });
+    assert.deepEqual(ledger.requests, [{ id: 1, op: 'task.list', args: { limit: 5 } }]);
+    const again = await readLedger(ledger.socket, 'task.show', { id: 'T-1' });
+    assert.equal(again.ok, true);
+    assert.equal(ledger.requests.length, 2, 'every read its own request');
+  } finally {
+    await ledger.close();
+  }
+});
+
+test('readLedger: a refusal carries its code; no socket is off; a dead socket or no answer is unreachable', async () => {
+  const ledger = await startFakeLedger((request) => (request.op === 'task.show' ? { ok: false, error: { code: 'not-found', message: 'no' } } : null));
+  try {
+    assert.deepEqual(await readLedger(ledger.socket, 'task.show', { id: 'T-x' }), { ok: false, code: 'not-found', refused: true });
+    assert.deepEqual(await readLedger(ledger.socket, 'task.list', {}, { timeoutMs: 50 }), { ok: false, code: 'unreachable' }, 'no answer within the timeout');
+  } finally {
+    await ledger.close();
+  }
+  assert.deepEqual(await readLedger(null, 'task.list'), { ok: false, code: 'off' });
+  assert.deepEqual(await readLedger('', 'task.list'), { ok: false, code: 'off' });
+  assert.deepEqual(await readLedger(deadSocket(), 'task.list'), { ok: false, code: 'unreachable' });
 });

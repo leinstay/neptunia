@@ -10,17 +10,44 @@
 // owner; `task.status` and `task.list` show a private chat's tasks only to their requester or an
 // owner. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
 // `task.status` of one task adds `ledger: <id>` when the task is mirrored into the ledger.
+// `task.show <id>` (owner-only) reads one task of the ledger itself (any lane, by its ledger id)
+// over `agents.ledger.socket` and prints it whole (src/errands/ledger-view.js#ledgerTaskText,
+// every word from `labels.tasks.ledger`); a text longer than SHOW_INLINE_CHARS comes as a file
+// attachment instead, with one short line. Without the socket, or when the ledger does not
+// answer, it answers `labels.tasks.ledger.off`.
 
 import { isOwnerId } from './grants.js';
 import { TASK_AGENTS } from './catalog.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';
+import { readLedger } from '../errands/ledger.js';
+import { ledgerTaskText } from '../errands/ledger-view.js';
+import { fill } from '../format.js';
 
 /** How many tasks `task.list` shows. */
 export const TASK_LIST_COUNT = 10;
 /** The goal's length in an answer line (characters). */
 const GOAL_LINE_CHARS = 80;
+/**
+ * The longest `task.show` text answered inline: the reply's chunk size
+ * (interfaces/discord/commands.js REPLY_CHUNK_CHARS), which keeps a code-fenced reply under
+ * Discord's 2000 characters; a longer one is a file attachment.
+ */
+export const SHOW_INLINE_CHARS = 1900;
+/** The longest ledger task id `task.show` takes. */
+const LEDGER_ID_CHARS = 64;
+
+/** A label of `labels.tasks.ledger` filled, else `fallback` (a code, never wording). */
+function ledgerLabel(labels, key, values, fallback) {
+  const template = labels?.tasks?.ledger?.[key];
+  return typeof template === 'string' && template ? fill(template, values) : fallback;
+}
+
+/** Whether a ledger refusal code says the task does not exist. */
+function notFoundCode(code) {
+  return /not[-_ ]?found|no[-_ ]?such|unknown[-_ ]?task/i.test(String(code ?? ''));
+}
 
 /** The refusal codes of the task store and service, as an operation's status. */
 const REFUSALS = Object.freeze({
@@ -146,7 +173,28 @@ const handlers = perEnv((env) => {
     return tasks.length > 0 ? tasks.map(taskLine).join('\n') : 'no tasks yet';
   }
 
-  return { cmdRun, cmdStatus, cmdCancel, cmdList };
+  /**
+   * `/nep task show id`: one ledger task whole (`task.show` over `agents.ledger.socket`, read now),
+   * inline up to SHOW_INLINE_CHARS, else attached as `<id>.txt` with `labels.tasks.ledger.attached`.
+   */
+  async function cmdShow(args) {
+    const labels = hot.prompts?.labels;
+    const id = String(args?.id ?? '').trim();
+    if (!id || id.length > LEDGER_ID_CHARS) throw invalid(ledgerLabel(labels, 'noId', {}, 'invalid-args'));
+    const outcome = await readLedger(hot.config?.agents?.ledger?.socket ?? null, 'task.show', { id, full: true });
+    if (!outcome.ok) {
+      if (outcome.refused && notFoundCode(outcome.code)) return { status: 'invalid', code: 'not-found', summary: ledgerLabel(labels, 'notFound', { id }, 'not-found'), data: null };
+      if (outcome.refused) return { status: 'failed', code: 'ledger-refused', summary: ledgerLabel(labels, 'refused', { code: outcome.code }, outcome.code), data: null };
+      const code = outcome.code === 'off' ? 'ledger-off' : 'ledger-unreachable';
+      return { status: 'failed', code, summary: ledgerLabel(labels, 'off', {}, code), data: null };
+    }
+    const text = ledgerTaskText(outcome.result, labels) || '-';
+    if (text.length <= SHOW_INLINE_CHARS) return text;
+    const name = `${id.replace(/[^A-Za-z0-9._-]/g, '_')}.txt`;
+    return { text: ledgerLabel(labels, 'attached', { id, chars: text.length, file: name }, name), files: [{ attachment: Buffer.from(text, 'utf8'), name }] };
+  }
+
+  return { cmdRun, cmdStatus, cmdCancel, cmdList, cmdShow };
 });
 
 defineOp({
@@ -168,4 +216,9 @@ defineOp({
   name: 'task.list',
   rights: { kind: 'read', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdList(args, ctx),
+});
+defineOp({
+  name: 'task.show',
+  rights: { kind: 'read', ownerOnly: true },
+  run: (args, ctx) => handlers(ctx.env).cmdShow(args, ctx),
 });

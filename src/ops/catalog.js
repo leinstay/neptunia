@@ -425,6 +425,12 @@ export const COMMAND_TABLE = Object.freeze([
         args: (options) => ({ id: options.getString('id', true) }),
       },
       { name: 'list', description: 'The latest ten tasks.', args: none },
+      {
+        name: 'show',
+        description: 'One ledger task whole (owners only).',
+        options: [{ type: STRING, name: 'id', description: 'Ledger task id.', required: true }],
+        args: (options) => ({ id: options.getString('id', true) }),
+      },
     ],
   },
   {

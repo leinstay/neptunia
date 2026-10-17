@@ -298,5 +298,10 @@
     "title": "List errands",
     "whenToUse": "Read the latest ten errands with their states.",
     "whenNotToUse": "Does not show their results."
+  },
+  "task.show": {
+    "title": "Show a ledger task",
+    "whenToUse": "Read one task of the ledger whole by its ledger id.",
+    "whenNotToUse": "Owners only; for your own errands use the errand status."
   }
 }
