@@ -19,7 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.js';
 import { onLog } from '../src/log.js';
-import { WEB, SERVER, PROFILES, AgentProfileError, SHELL_CLASSES, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, withheldShellDenies } from '../src/agent-runner/profiles.js';
+import { WEB, SERVER, PROFILES, AgentProfileError, SHELL_CLASSES, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, withheldShellDenies } from '../src/agent-runner/profiles.js';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldGlobsOf, withheldRootsOf } from '../src/agent-runner/policy.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { resolvePaths } from '../src/paths.js';
@@ -112,10 +112,10 @@ test('server external_directory: allowed in core, the path tools\' withheld deni
   assert.deepEqual(keys.slice(1), [...WITHHELD_GLOBS]);
   for (const glob of WITHHELD_GLOBS) assert.equal(ext[glob], 'deny', glob);
   // OpenCode asks external_directory with a `<dir>/*` resource; `*` matches any text, so `<root>/**` covers it
-  for (const resource of ['/etc/neptunia/*', '/var/www/site/*', '/srv/git/*', `${DATA_DIR}/*`, `${DATA_DIR}/guilds/*`, '/srv/x/.git/*', '/home/u/.ssh/*']) {
+  for (const resource of ['/etc/neptunia/*', '/var/www/site/*', '/srv/neptunia-backups/*', `${DATA_DIR}/*`, `${DATA_DIR}/guilds/*`, '/srv/x/.git/*', '/home/u/.ssh/*']) {
     assert.equal(actionOf(ext, resource), 'deny', resource);
   }
-  for (const resource of ['/opt/neptunia/app/*', '/home/steam/servers/*', '/etc/systemd/system/*']) assert.equal(actionOf(ext, resource), 'allow', resource);
+  for (const resource of ['/opt/neptunia/app/*', '/home/steam/servers/*', '/etc/systemd/system/*', '/srv/git/*', '/srv/git/core.git/*']) assert.equal(actionOf(ext, resource), 'allow', resource);
   // a private directory apart from the checkout (production: /opt/neptunia/etc) yields globs that deny its `<dir>/*`
   const apart = { '*': 'allow' };
   for (const glob of withheldGlobsOf({ paths: resolvePaths({ rootDir: '/opt/neptunia/app', env: { NEPTUNIA_PRIVATE_DIR: '/opt/neptunia/etc', NEPTUNIA_DATA_DIR: '/opt/neptunia/data' } }) })) apart[glob] = 'deny';
@@ -214,13 +214,19 @@ function actionOf(map, command) {
   return action;
 }
 
-test('withheldShellDenies: one pattern per content command and withheld root, name or .env form, generated', () => {
+/** The shell deny patterns per content command: one per withheld root, plain name and the .env form, six per segment name. */
+const patternsPerCommand = (roots) => roots.length + WITHHELD_NAMES.length - SEGMENT_NAMES.length + 1 + SEGMENT_NAMES.length * 6;
+
+test('withheldShellDenies: one pattern per content command and withheld root, name or .env form, six per segment name, generated', () => {
   const denies = withheldShellDenies();
-  const parts = [...WITHHELD_ROOTS, ...WITHHELD_NAMES, '.env'];
-  assert.equal(denies.length, SHELL_CONTENT_COMMANDS.length * parts.length);
+  assert.equal(denies.length, SHELL_CONTENT_COMMANDS.length * patternsPerCommand(WITHHELD_ROOTS));
+  assert.deepEqual([...SEGMENT_NAMES], ['.git', '.local.git']);
+  for (const pattern of ['cat .git*', 'cat * .git*', 'cat */.git*', 'git *=.git*', "grep *'.local.git*", 'sed *".local.git*']) assert.ok(denies.includes(pattern), pattern);
+  assert.ok(!denies.includes('cat *.git*'), 'no bare substring pattern for .git');
   assert.deepEqual([...SHELL_CONTENT_COMMANDS], ['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git']);
-  for (const pattern of ['cat */var/www*', 'cat *.ssh*', 'cat *.env*', 'cat *config.local.json*', 'git */srv/git*', `sed *${DATA_DIR}*`, 'wc *.secrets*']) assert.ok(denies.includes(pattern), pattern);
+  for (const pattern of ['cat */var/www*', 'cat *.ssh*', 'cat *.env*', 'cat *config.local.json*', 'git */srv/neptunia-backups*', `sed *${DATA_DIR}*`, 'wc *.secrets*']) assert.ok(denies.includes(pattern), pattern);
   for (const listing of ['ls', 'find', 'stat', 'du', 'readlink', 'realpath']) assert.ok(!denies.some((pattern) => pattern.startsWith(`${listing} `)), `${listing} stays allowed`);
+  assert.ok(!denies.some((pattern) => pattern.includes('/srv/git')), 'the bare repositories are not withheld');
 });
 
 test('withheldShellDenies: the deployment\'s data directory and a private directory apart from the checkout come from `paths`', () => {
@@ -231,7 +237,7 @@ test('withheldShellDenies: the deployment\'s data directory and a private direct
   assert.ok(together.includes('cat */srv/app/data*'), 'default: <root>/data');
   assert.ok(!together.includes('cat */srv/app*'), 'a private directory that is the checkout is not withheld whole');
   const roots = withheldRootsOf({ paths: resolvePaths({ rootDir: '/srv/app', env: {} }) });
-  assert.equal(together.length, SHELL_CONTENT_COMMANDS.length * (roots.length + WITHHELD_NAMES.length + 1));
+  assert.equal(together.length, SHELL_CONTENT_COMMANDS.length * patternsPerCommand(roots));
 });
 
 test('filtered scope: the server shell denies a content read of a withheld path after the allows and before SHELL_DENY_AFTER; core and web get none', () => {
@@ -257,13 +263,14 @@ test('filtered scope: under OpenCode\'s last-match rule a read of a withheld pat
   const refused = [
     'cat /var/www/site/index.php', 'head -n 5 /home/u/.ssh/authorized_keys', 'tail /srv/app/.env', 'grep -r token /srv/app/.env.local',
     'sed -n 1p /srv/neptunia-dev/neptunia-core/config.local.json', 'awk 1 /etc/shadow', `wc -l ${DATA_DIR}/guilds/1/tasks.json`,
-    'git log --stat /srv/git/core.git/hooks', 'file /srv/neptunia-dev/.secrets/proxy', 'sort /etc/letsencrypt/live/x/privkey.pem',
+    'git log --stat /srv/neptunia-backups/x/hooks', 'cat /opt/neptunia/app/.git/config', 'cat .git/config',
+    'grep x /srv/neptunia-dev/neptunia-core/.local.git/config', 'grep --file=.git/info/exclude x', 'cat "/srv/app/.git/HEAD"', 'file /srv/neptunia-dev/.secrets/proxy', 'sort /etc/letsencrypt/live/x/privkey.pem',
   ];
   for (const command of refused) {
     assert.equal(actionOf(dm, command), 'deny', `dm: ${command}`);
     assert.equal(actionOf(core, command), 'allow', `core: ${command}`);
   }
-  for (const command of ['ls /var/www', 'ls -la /home/u/.ssh', 'find /var/www -name "*.php"', 'stat /srv/app/.env', 'du -sh /srv/git', 'readlink /srv/app/.env', 'realpath /var/www/site', 'cat /etc/hostname', 'grep -c ExecStart /etc/systemd/system/x.service', 'git log --oneline -5']) {
+  for (const command of ['ls /var/www', 'ls -la /home/u/.ssh', 'find /var/www -name "*.php"', 'stat /srv/app/.env', 'du -sh /srv/neptunia-backups', 'cat /srv/git/README', 'cat /srv/git/core.git/HEAD', 'grep -r main /srv/git/neptunia-core-local.git/refs', 'readlink /srv/app/.env', 'realpath /var/www/site', 'cat /etc/hostname', 'grep -c ExecStart /etc/systemd/system/x.service', 'git log --oneline -5']) {
     assert.equal(actionOf(dm, command), 'allow', `dm: ${command}`);
   }
   assert.equal(actionOf(dm, 'find /var/www -exec cat {} ;'), 'deny', 'SHELL_DENY_AFTER still wins');
@@ -291,7 +298,9 @@ test('server shell: git reads another checkout by path (git -C); no write subcom
     ]) assert.equal(actionOf(bash, command), 'deny', `${scope}: ${command}`);
   }
   const dm = SERVER.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-server'].permission.bash;
-  assert.equal(actionOf(dm, 'git -C /srv/git/core.git log -5'), 'deny', 'a withheld repository stays withheld in a filtered scope');
+  assert.equal(actionOf(dm, 'git -C /var/www/site log -5'), 'deny', 'a withheld checkout stays withheld in a filtered scope');
+  for (const command of ['git -C /srv/git/core.git log -5', 'git -C /srv/git/neptunia-private.git log -5']) assert.equal(actionOf(dm, command), 'allow', `the bare repositories under /srv/git are readable in a filtered scope: ${command}`);
+  for (const command of ['cat /opt/neptunia/app/.git/config', 'cat .git/config', 'grep x /srv/neptunia-dev/neptunia-core/.local.git/config']) assert.equal(actionOf(dm, command), 'deny', `a .git or .local.git segment stays withheld: ${command}`);
 });
 
 test('child env: the server profile carries safe.directory=* (GIT_CONFIG_COUNT) and GIT_PAGER=cat; the web profile none', () => {

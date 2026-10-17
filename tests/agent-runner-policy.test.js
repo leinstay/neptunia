@@ -29,7 +29,8 @@ test('scopeOf: known scope kept, anything else is the narrowest', () => {
 
 test('isWithheldPath: roots, name components and env files', () => {
   assert.equal(isWithheldPath('/var/www/html/index.php'), true);
-  assert.equal(isWithheldPath('/srv/git/repo.git'), true);
+  assert.equal(isWithheldPath('/srv/neptunia-backups/2026-10-17-000000-docs.tgz'), true);
+  assert.equal(isWithheldPath('/srv/git/repo.git/HEAD'), false, 'the bare repositories are readable');
   assert.equal(isWithheldPath('/home/neptunia/project/.git/config'), true);
   assert.equal(isWithheldPath('/home/x/.ssh/id_ed25519'), true);
   assert.equal(isWithheldPath('/opt/app/.env'), true);
@@ -83,7 +84,8 @@ test('withheldInToolUse: bash reads are checked, listings are not', () => {
 });
 
 test('withheldInToolUse: listing a withheld directory itself is withheld', () => {
-  assert.ok(withheldInToolUse({ tool: 'list', input: { path: '/srv/git' } }, 'dm'));
+  assert.ok(withheldInToolUse({ tool: 'list', input: { path: '/srv/neptunia-backups' } }, 'dm'));
+  assert.equal(withheldInToolUse({ tool: 'list', input: { path: '/srv/git' } }, 'dm'), null);
   assert.equal(withheldInToolUse({ tool: 'list', input: { path: '/home' } }, 'dm'), null);
 });
 

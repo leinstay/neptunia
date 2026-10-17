@@ -44,7 +44,7 @@ export const REDACTED = '[redacted]';
 
 /** Absolute paths whose content is withheld in `dm` and `group` whatever the deployment's layout. */
 const FIXED_ROOTS = Object.freeze([
-  '/var/www', '/srv/git', '/srv/neptunia-backups', '/etc/shadow', '/etc/gshadow', '/etc/nginx/htpasswd',
+  '/var/www', '/srv/neptunia-backups', '/etc/shadow', '/etc/gshadow', '/etc/nginx/htpasswd',
   '/etc/letsencrypt', '/etc/neptunia',
 ]);
 
@@ -79,7 +79,7 @@ export const WITHHELD_NAMES = Object.freeze(['.git', '.local.git', '.secrets', '
 const ENV_FILE = /^\.env(?:\..+)?$/;
 /** The glob patterns of the fixed roots and the names, before the deployment's directories. */
 const FIXED_GLOBS = Object.freeze([
-  '/var/www', '/var/www/**', '/srv/git', '/srv/git/**', '/srv/neptunia-backups', '/srv/neptunia-backups/**',
+  '/var/www', '/var/www/**', '/srv/neptunia-backups', '/srv/neptunia-backups/**',
   '/etc/shadow', '/etc/gshadow', '/etc/nginx/htpasswd', '/etc/nginx/htpasswd/**', '/etc/letsencrypt',
   '/etc/letsencrypt/**', '/etc/neptunia', '/etc/neptunia/**',
   '**/.git', '**/.git/**', '**/.local.git', '**/.local.git/**', '**/.secrets', '**/.secrets/**',

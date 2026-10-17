@@ -139,11 +139,19 @@ export const SHELL_CONTENT_COMMANDS = Object.freeze(['cat', 'head', 'tail', 'gre
 /** The `.env` forms policy.js withholds (`.env`, `.env.<anything>`): one substring matches them all. */
 const ENV_FORM = '.env';
 
+/** The withheld names matched only where a path segment starts (so a bare repository named `<x>.git` stays readable). */
+export const SEGMENT_NAMES = Object.freeze(['.git', '.local.git']);
+/** The text that can precede a segment-start name in a command: the command word's space, any space, a slash, `=` or a quote. */
+const SEGMENT_STARTS = Object.freeze(['', '* ', '*/', '*=', "*'", '*"']);
+
 /**
  * The `bash` deny patterns of a filtered scope: one `<command> *<withheld>*` per content command
  * (SHELL_CONTENT_COMMANDS) and withheld root, name or `.env` form (src/agent-runner/policy.js), so
  * OpenCode itself refuses such a read and the model gets the refusal and goes on. OpenCode's `*`
- * matches any text, `/` and spaces included. Listing commands (`ls`, `find`, `stat`, `du`,
+ * matches any text, `/` and spaces included. A SEGMENT_NAMES name gets one pattern per
+ * SEGMENT_STARTS form instead (the name right after a space, a slash, `=` or a quote), so it
+ * matches only where a path segment starts with it, never inside `core.git`. Listing commands
+ * (`ls`, `find`, `stat`, `du`,
  * `readlink`, `realpath`) get none: names stay visible. `paths` (src/paths.js#resolvePaths) picks
  * the deployment's withheld directories; by default this process's (WITHHELD_ROOTS).
  * @param {{ paths?: { rootDir: string, privateDir: string, dataDir: string } }} [options]
@@ -151,8 +159,11 @@ const ENV_FORM = '.env';
  */
 export function withheldShellDenies({ paths } = {}) {
   const roots = paths ? withheldRootsOf({ paths }) : WITHHELD_ROOTS;
-  const withheld = [...roots, ...WITHHELD_NAMES, ENV_FORM];
-  return SHELL_CONTENT_COMMANDS.flatMap((command) => withheld.map((part) => `${command} *${part}*`));
+  const withheld = [...roots, ...WITHHELD_NAMES.filter((name) => !SEGMENT_NAMES.includes(name)), ENV_FORM];
+  return SHELL_CONTENT_COMMANDS.flatMap((command) => [
+    ...withheld.map((part) => `${command} *${part}*`),
+    ...SEGMENT_NAMES.flatMap((name) => SEGMENT_STARTS.map((start) => `${command} ${start}${name}*`)),
+  ]);
 }
 
 /** A permission value for `bash`: deny-all first, then the allowed command patterns, then `denies`

@@ -89,7 +89,7 @@ OpenRouter キーはタスクのモデルロールのキーで、ボットが任
 
 `run` は `context.scope` を持ち、`core`、`dm`、`group` のいずれかです（`src/agent-runner/policy.js`）。`core` では何も秘匿されません。`dm` と `group` では:
 
-- `server` エージェントのファイルツールはセンシティブなパス（`/var/www`、`/srv/git`、すべての `.git`/`.local.git`、`.secrets`、`.env`、`.ssh`、`/etc/shadow`、nginx htpasswd、Let's Encrypt、`/etc/neptunia`、`/srv/neptunia-backups`、`config.local.json`、ペルソナ自身の `data/`、すべての `.agents/scratch`）の内容を拒否し、`bash` はこれらのパスを引数に持つ内容コマンド（`cat`、`head`、`tail`、`grep`、`egrep`、`fgrep`、`sed`、`awk`、`cut`、`sort`、`uniq`、`wc`、`file`、`git`）を拒否します。名前のリスト表示（`ls`、`find`、`stat`、`du`、`readlink`、`realpath`）は許可されます。拒否はステップ単位で発生します: OpenCode がその 1 つのツール呼び出しを拒否し、エージェントは拒否を見て続行し、結果の `withheld` に拒否されたパスがリストされます;
+- `server` エージェントのファイルツールはセンシティブなパス（`/var/www`、すべての `.git`/`.local.git`、`.secrets`、`.env`、`.ssh`、`/etc/shadow`、nginx htpasswd、Let's Encrypt、`/etc/neptunia`、`/srv/neptunia-backups`、`config.local.json`、ペルソナ自身の `data/`、すべての `.agents/scratch`）の内容を拒否し、`bash` はこれらのパスを引数に持つ内容コマンド（`cat`、`head`、`tail`、`grep`、`egrep`、`fgrep`、`sed`、`awk`、`cut`、`sort`、`uniq`、`wc`、`file`、`git`）を拒否します。名前のリスト表示（`ls`、`find`、`stat`、`du`、`readlink`、`realpath`）は許可されます。拒否はステップ単位で発生します: OpenCode がその 1 つのツール呼び出しを拒否し、エージェントは拒否を見て続行し、結果の `withheld` に拒否されたパスがリストされます;
 - ランナーが返すすべての結果はリダクションパスを通過し、キー・トークン・パスワードに見える文字列、秘密鍵ブロック、SSH キーマテリアル、URL のクレデンシャルを `[redacted]` に置換します。
 
 これらのルールにもかかわらず秘匿パスに到達するコマンド（`bash -c`、リーダーへのパイプ）は事後にキャッチされます: ランナーはその出力を保持せず（進捗イベントが `withheld` とパスを報告）、パスは結果の `withheld` に追加され、タスクは続行します。エージェントは出力を見ているため、最終リダクションパスがシークレットを回答から除外する最後の砦です。
