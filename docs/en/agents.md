@@ -42,7 +42,7 @@ A profile with a missing key, an unknown key, a tool its shell class does not al
 Permissions and security stay in the code (`src/agent-runner/profiles.js`, `src/agent-runner/policy.js`), and no profile key can change them:
 
 - the permission ceiling: which tools a shell class may grant and which shell commands it allows;
-- the shell deny patterns, and the tools denied to every agent (`edit`, `write`, `patch`, `task`, `question`, `external_directory`);
+- the shell deny patterns, and the tools denied to every agent (`edit`, `write`, `patch`, `task`, `question`); `external_directory` (paths outside the agent's own folder) is denied too, except to the server agent, which gets it under the same withheld-path rules as its path tools;
 - the scope filters, the withheld paths and the redaction of results;
 - any command to run, and any path outside the folder (`socket` and `out` are only defaults the config overrides).
 

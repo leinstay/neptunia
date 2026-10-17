@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.js';
 import { onLog } from '../src/log.js';
 import { WEB, SERVER, PROFILES, AgentProfileError, SHELL_CLASSES, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, withheldShellDenies } from '../src/agent-runner/profiles.js';
-import { WITHHELD_NAMES, WITHHELD_ROOTS, withheldRootsOf } from '../src/agent-runner/policy.js';
+import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldGlobsOf, withheldRootsOf } from '../src/agent-runner/policy.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { resolvePaths } from '../src/paths.js';
 
@@ -55,7 +55,9 @@ test('web permission: web tools allowed, edit/write/task/question denied, bash a
   assert.equal(p.write, 'deny');
   assert.equal(p.task, 'deny');
   assert.equal(p.question, 'deny');
-  assert.equal(p.external_directory, 'deny');
+  assert.equal(p.external_directory, 'deny', 'only the server class reaches outside its folder');
+  const dm = WEB.buildConfig({ systemPrompt: 'x', scope: 'dm' }).agent['errand-web'].permission;
+  assert.equal(dm.external_directory, 'deny');
   // bash: the catch-all deny is first so a specific allow (last match) wins
   const keys = Object.keys(p.bash);
   assert.equal(keys[0], '*');
@@ -93,6 +95,32 @@ test('filtered scope: path tools gain withheld denies, core does not', () => {
   assert.equal(dm.read['*'], 'allow');
   assert.equal(dm.read['/var/www'], 'deny');
   assert.equal(dm.read['**/.env'], 'deny');
+});
+
+test('server external_directory: allowed in core, the path tools\' withheld denies in a filtered scope; web stays denied', () => {
+  assert.equal(SHELL_CLASSES['server-read-only'].externalDirectory, true);
+  assert.equal(SHELL_CLASSES['web-download'].externalDirectory, false);
+  const core = SERVER.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-server'].permission;
+  assert.equal(core.external_directory, 'allow');
+  for (const tool of ['edit', 'write', 'patch', 'task', 'question']) assert.equal(core[tool], 'deny', tool);
+  const group = SERVER.buildConfig({ systemPrompt: 'x', scope: 'group' }).agent['errand-server'].permission;
+  const ext = group.external_directory;
+  assert.deepEqual(ext, group.read, 'the same value as the path tools');
+  const keys = Object.keys(ext);
+  assert.equal(keys[0], '*');
+  assert.equal(ext['*'], 'allow');
+  assert.deepEqual(keys.slice(1), [...WITHHELD_GLOBS]);
+  for (const glob of WITHHELD_GLOBS) assert.equal(ext[glob], 'deny', glob);
+  // OpenCode asks external_directory with a `<dir>/*` resource; `*` matches any text, so `<root>/**` covers it
+  for (const resource of ['/etc/neptunia/*', '/var/www/site/*', '/srv/git/*', `${DATA_DIR}/*`, `${DATA_DIR}/guilds/*`, '/srv/x/.git/*', '/home/u/.ssh/*']) {
+    assert.equal(actionOf(ext, resource), 'deny', resource);
+  }
+  for (const resource of ['/opt/neptunia/app/*', '/home/steam/servers/*', '/etc/systemd/system/*']) assert.equal(actionOf(ext, resource), 'allow', resource);
+  // a private directory apart from the checkout (production: /opt/neptunia/etc) yields globs that deny its `<dir>/*`
+  const apart = { '*': 'allow' };
+  for (const glob of withheldGlobsOf({ paths: resolvePaths({ rootDir: '/opt/neptunia/app', env: { NEPTUNIA_PRIVATE_DIR: '/opt/neptunia/etc', NEPTUNIA_DATA_DIR: '/opt/neptunia/data' } }) })) apart[glob] = 'deny';
+  for (const resource of ['/opt/neptunia/etc/*', '/opt/neptunia/etc/prompts.local/*', '/opt/neptunia/data/*']) assert.equal(actionOf(apart, resource), 'deny', resource);
+  assert.equal(actionOf(apart, '/opt/neptunia/app/*'), 'allow');
 });
 
 test('defaults: limits, daily, model, env names', () => {
