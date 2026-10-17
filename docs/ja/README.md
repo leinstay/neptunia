@@ -262,13 +262,16 @@ prompts/
   labels.json              コードがプロンプトに挿入するすべての文字列
   skills.json              ペルソナのスキルテキスト（title、whenToUse、whenNotToUse）
 prompts.local/             デプロイ先のパーソナリティ（gitignore 対象）
+packages/
+  protocol/                コアとインターフェースアダプター間のプロトコル: イベント種別、アクション名、結果ステータス、バリデーション (docs/ja/interfaces.md)
 interfaces/
-  discord/                 the Discord interface (@neptunia/interface-discord): the Discord adapter of the interface port, message normalization, history, permissions, searches and slash commands
+  discord/                 Discord インターフェース (@neptunia/interface-discord): インターフェースポートの Discord アダプター、メッセージ正規化、履歴、権限、検索、スラッシュコマンド
     guild.js               単一ギルドの解決
     commands.js            スラッシュコマンド、登録、インタラクションアダプター
     collect.js             チャンネル履歴、隣接チャンネル、権限
     search.js              Discord メッセージ検索、メンバー検索
     pull-fetch.js           オーディエンスチェック、プルチャンネルのフェッチ
+agents/                    エラントエージェントごとに 1 フォルダ（prompt.md と profile.json）; agents/README.md および docs/ja/agents.md 参照
 docs/
   en/
     prompt-contract.md     プロンプトファイルとコードの間のコントラクト
@@ -278,6 +281,8 @@ docs/
     media.md               画像、動画、リンク、検索、ツール、コスト
     messages-and-memory.md パイプライン、アナライザー、プロファイル、エピソード、ロアブック
     diary.md               日記機能: セットアップ、ウィンドウ、コスト、チューニング
+    interfaces.md          コアとインターフェースアダプター間のプロトコル
+    agents.md              エラントエージェント: プロファイル、サービス、ランナープロトコル、スコープとリダクション
   zh/                      中国語
     README.md
     prompt-contract.md
@@ -314,6 +319,7 @@ src/
   admin.js                 オーナーコマンド
   ops/
     grants.js              オーナー以外へのコマンド単位のアクセスグラント
+    catalog.js             /nep コマンドカタログ: COMMAND_TABLE とその選択肢リスト
   llm/
     tokens.js              自己キャリブレーション付きトークン推定
     budget.js              優先順によるセクションのトリミング

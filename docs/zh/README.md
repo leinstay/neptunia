@@ -262,13 +262,16 @@ prompts/
   labels.json              代码插入提示中的所有字符串
   skills.json              角色的技能文本（title、whenToUse、whenNotToUse）
 prompts.local/             你的角色定义（已加入 gitignore）
+packages/
+  protocol/                核心与接口适配器之间的协议：事件种类、动作名称、结果状态、验证 (docs/zh/interfaces.md)
 interfaces/
-  discord/                 the Discord interface (@neptunia/interface-discord): the Discord adapter of the interface port, message normalization, history, permissions, searches and slash commands
+  discord/                 Discord 接口 (@neptunia/interface-discord)：接口端口的 Discord 适配器、消息规范化、历史、权限、搜索和斜杠命令
     guild.js               单服务器解析
     commands.js            斜杠命令，注册，交互适配器
     collect.js             频道历史，相邻频道，权限
     search.js              Discord 消息搜索和成员搜索
     pull-fetch.js          受众检查，拉取频道获取
+agents/                    每个差遣代理一个文件夹（prompt.md 和 profile.json）；见 agents/README.md 和 docs/zh/agents.md
 docs/
   en/
     prompt-contract.md     提示文件与代码之间的契约
@@ -278,6 +281,8 @@ docs/
     media.md               图片、视频、链接、搜索、工具、成本
     messages-and-memory.md 流程、分析器、档案、回忆、世界书
     diary.md               日记功能: 设置、窗口、成本、调优
+    interfaces.md          核心与接口适配器之间的协议
+    agents.md              差遣代理：配置文件、服务、运行器协议、范围与编辑
   zh/                      中文
     README.md
     prompt-contract.md
@@ -314,6 +319,7 @@ src/
   admin.js                 所有者命令
   ops/
     grants.js              非所有者的按命令访问授权
+    catalog.js             /nep 命令目录：COMMAND_TABLE 及其选项列表
   llm/
     tokens.js              带自校准的 token 估算
     budget.js              按优先级裁剪区块

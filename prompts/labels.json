@@ -415,7 +415,8 @@
       "error": "Reason: {error}",
       "sources": "Its sources:",
       "files": "Files it saved; to post one, give its handle as the file of message.create:",
-      "file": "{handle} ({contentType}, {bytes} bytes)"
+      "file": "{handle} ({contentType}, {bytes} bytes)",
+      "withheld": "The engine withheld {paths} from the agent by policy; the result covers everything else."
     }
   },
   "journal": {

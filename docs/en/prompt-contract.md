@@ -507,6 +507,7 @@ tasks.states.queued | running | done | failed | cancelled   the {state} words of
 tasks.result.header                      {id} {agent} {state} {goal}: the first line of `<task_result>`
 tasks.result.text | empty | error        the lead of the result text, the line for none, {error} the code of a task that did not end done
 tasks.result.sources | files | file      the leads of the numbered sources and of the files; file is {handle} {contentType} {bytes}
+tasks.result.withheld                    {paths}: shown when the engine's scope policy withheld paths from the agent; paths is a comma-separated list filled by code
 directory.lead                           OPTIONAL: the first line of `<directory>`, before the member lines
 directory.line                           {handle} {names}: one member of `<directory>`; {handle} is the exact mention token, `@` included; {names} their stored names as JSON strings joined by ", ". Without this label no `<directory>` block
 directory.lineAliases                    {handle} {names} {aliases}: the same for a member with open aliases ({aliases} like {names}). Missing or blank: `directory.line`

@@ -265,13 +265,16 @@ prompts/
   labels.json              все строки, которые код вставляет в промпты
   skills.json              тексты навыков персонажа (title, whenToUse, whenNotToUse)
 prompts.local/             ваш персонаж (в gitignore)
+packages/
+  protocol/                протокол между ядром и адаптером интерфейса: виды событий, имена действий, статусы результатов, валидация (docs/ru/interfaces.md)
 interfaces/
-  discord/                 the Discord interface (@neptunia/interface-discord): the Discord adapter of the interface port, message normalization, history, permissions, searches and slash commands
+  discord/                 интерфейс Discord (@neptunia/interface-discord): адаптер Discord для порта интерфейса, нормализация сообщений, история, права, поиск и слэш-команды
     guild.js               выбор единственной гильдии
     commands.js            слэш-команды, регистрация, адаптер взаимодействий
     collect.js             история канала, соседи, права
     search.js              поиск сообщений в Discord и поиск участников
     pull-fetch.js          проверка аудитории, загрузка подтянутого канала
+agents/                    по одной папке на агента-посыльного (prompt.md и profile.json); см. agents/README.md и docs/ru/agents.md
 docs/
   en/
     prompt-contract.md     контракт между файлами промптов и кодом
@@ -281,6 +284,8 @@ docs/
     media.md               картинки, видео, ссылки, поиск, инструменты, стоимость
     messages-and-memory.md пайплайн, анализатор, профили, эпизоды, лорбук
     diary.md               дневник: настройка, окна, стоимость, тюнинг
+    interfaces.md          протокол между ядром и адаптером интерфейса
+    agents.md              агенты-посыльные: профили, сервисы, протокол раннера, область видимости и редакция
   zh/                      китайский
     README.md
     prompt-contract.md
@@ -323,6 +328,7 @@ src/
     grants.js              разрешения на команды для не-владельцев
     env.js                 общее окружение для всех обработчиков операций
     shared.js              мелкие хелперы, общие для модулей операций
+    catalog.js             каталог команды /nep: COMMAND_TABLE и списки вариантов
     config.js              /nep set, /nep unset
     pause.js               /nep pause, /nep resume
     draw.js                /nep draw
