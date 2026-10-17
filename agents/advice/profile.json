@@ -2,7 +2,7 @@
   "id": "advice",
   "kind": "consultation",
   "role": "agent.advice",
-  "prompt": null,
+  "prompt": "prompt.md",
   "override": null,
   "description": "Advice from the strongest model, asked directly by consultation tools outside the bot; no runner, no process."
 }

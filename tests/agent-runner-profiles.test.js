@@ -363,7 +363,8 @@ test('the real agents/ folder: web and server workers, the advice consultation, 
   assert.deepEqual(Object.keys(PROFILES).sort(), ['server', 'web']);
   const advice = agents.find((agent) => agent.id === 'advice');
   assert.equal(advice.role, 'agent.advice');
-  assert.equal(advice.prompt, null);
+  assert.equal(advice.prompt, 'prompt.md');
+  assert.ok(fs.existsSync(path.join(ROOT, 'agents', 'advice', 'prompt.md')), 'the advice prompt is tracked beside its profile');
   for (const profile of [WEB, SERVER]) {
     assert.ok(fs.existsSync(path.join(ROOT, 'agents', profile.name, 'prompt.md')), profile.name);
     assert.equal(path.basename(profile.promptFiles[0]), `agent-${profile.name}.md`, 'the override keeps its name');
