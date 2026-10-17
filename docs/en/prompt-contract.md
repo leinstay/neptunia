@@ -302,7 +302,8 @@ transcript.callStatusReason              OPTIONAL {status} {reason}: the {status
 transcript.callReasons.missing-arg | unknown-arg | wrong-arg | too-long | too-short | arg-twice | unknown-channel | unknown-role   {arg}: why a call's arguments were not right, naming the argument
 transcript.callReasons.message-elsewhere | member-ambiguous   why a call was not right: the message is in another channel than the one named; several members go by the name
 transcript.callReasons.unknown-message | not-own-message   {arg}: the message the option named is not in view; is not hers
-transcript.callReasons.channel-no-permission      {channel}: the channel the bot has no permission in for this call. Any kind without its phrase here falls back to skills.result.reasons[code], then .other
+transcript.callReasons.channel-no-permission      {channel}: the channel the bot has no permission in for this call
+transcript.callReasons.file-elsewhere              {channel}: the file from an errand tried to post in a channel the requester did not name. Any kind without its phrase here falls back to skills.result.reasons[code], then .other
 transcript.postedFrom                    {channel}: after the persona's name on a line a call from another channel's turn posted; blanked: no marker
 transcript.replyTo                       {index} {author} {quote}: the parent message's number, its author (the self label when the parent is the persona's own) and a quote of the parent's text, cut at a word boundary to `context.replyQuoteChars` (default 80; `0` = whole); a parent with only media quotes its media labels
 transcript.replyToMemory                 {author} {quote}: appended to a line in the analyzer transcript; names the parent's author (the self label when the parent is the persona's own) and quotes its text. No `{index}`. A parent outside the batch renders `replyToOld`
