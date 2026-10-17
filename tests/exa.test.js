@@ -144,6 +144,45 @@ test('parseExaText: the formatted text form -- Title/URL/Published Date/Text lin
   assert.deepEqual(parseExaText(null, 5), []);
 });
 
+test('parseExaText: the live label set -- Title/URL/Published/Author/Highlights then page text; N/A or empty Published leaves age out', () => {
+  const text = [
+    'Title: Harbour Timetable',
+    'URL: https://example.org/timetable',
+    'Published: 2026-10-01T00:00:00.000Z',
+    'Author: N/A',
+    'Highlights:',
+    'Ferries leave every hour.',
+    'Last one at midnight.',
+    '',
+    'Title: Café Notes',
+    'URL: https://example.com/cafe',
+    'Published: N/A',
+    'Author: someone',
+    'Highlights:',
+    'Open late.',
+    '',
+    'Title: Lower Case',
+    'URL: https://example.net/lower',
+    'Published: n/a',
+    'Highlights:',
+    'Quiet.',
+    '',
+    'Title: Empty Date',
+    'URL: https://example.net/empty',
+    'Published:',
+    'Highlights:',
+    'Nothing.',
+  ].join('\n');
+  assert.deepEqual(parseExaText(text, 10), [
+    { title: 'Harbour Timetable', url: 'https://example.org/timetable', snippet: 'Ferries leave every hour. Last one at midnight.', age: '2026-10-01T00:00:00.000Z' },
+    { title: 'Café Notes', url: 'https://example.com/cafe', snippet: 'Open late.' },
+    { title: 'Lower Case', url: 'https://example.net/lower', snippet: 'Quiet.' },
+    { title: 'Empty Date', url: 'https://example.net/empty', snippet: 'Nothing.' },
+  ]);
+  const json = JSON.stringify({ results: [{ title: 'J', url: 'https://e.example/j', publishedDate: 'N/A', text: 's' }] });
+  assert.deepEqual(parseExaText(json, 5), [{ title: 'J', url: 'https://e.example/j', snippet: 's' }]);
+});
+
 test('parseExaText: at most count items; a long snippet is cut', () => {
   const many = JSON.stringify({ results: Array.from({ length: 12 }, (_, i) => ({ title: `t${i}`, url: `https://e.example/${i}`, text: 'word '.repeat(400) })) });
   const items = parseExaText(many, 3);

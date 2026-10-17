@@ -339,6 +339,40 @@ function askedFor(trigger, triggerKind) {
   return Boolean(trigger) && triggerKind !== 'overheard';
 }
 
+/**
+ * The `<transcript>` block of a classifier request (re-watch, search): the
+ * last `contextMessages` messages of `history` before the trigger, rendered
+ * by src/behavior/prompt.js#classifierTranscript (as the route classifier's)
+ * with the media states the caller already has, plus the trigger's text cut to
+ * `context.maxMessageChars`. `transcriptBlock` is '' (no block) for a
+ * window of 0 or no earlier message. Pure.
+ * @returns {{ triggerText: string, transcriptBlock: string }}
+ */
+function renderClassifierContext({ config, labels, selfName, history, trigger, contextMessages, descriptions, videos, reads }) {
+  const triggerText = [...String(trigger.content ?? '')].slice(0, config.context?.maxMessageChars ?? 2000).join('');
+  const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
+  if (context.length === 0) return { triggerText, transcriptBlock: '' };
+  const body = classifierTranscript(context, { config, selfName, labels, descriptions, videos, reads });
+  return { triggerText, transcriptBlock: `<transcript>\n${body}\n</transcript>\n` };
+}
+
+/**
+ * The user message of the search classifier (prompts.lookup) as a live turn
+ * sends it (createTurnRunner's maybeLookup): the `<transcript>` of the last
+ * `web.search.contextMessages` (50 when missing) messages of `history` before
+ * `trigger` (renderClassifierContext, `labels` = prompts.labels), then the
+ * trigger as `<candidate>` with its author's name. Exported so
+ * tools/search-policy-eval.mjs measures exactly what production sends. Pure.
+ * @param {{ config: object, labels: object, selfName: string, history: object[], trigger: object,
+ *   descriptions?: Map<string, unknown>, videos?: Map<string, unknown>, reads?: Map<string, unknown> }} params
+ * @returns {{ triggerText: string, transcriptBlock: string, user: string }}
+ */
+export function lookupClassifierInput({ config, labels, selfName, history, trigger, descriptions, videos, reads }) {
+  const contextMessages = Math.max(0, Math.floor(config.web?.search?.contextMessages ?? 50));
+  const { triggerText, transcriptBlock } = renderClassifierContext({ config, labels, selfName, history, trigger, contextMessages, descriptions, videos, reads });
+  return { triggerText, transcriptBlock, user: `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>` };
+}
+
 /** A word of the question this long or longer (in characters) is a fallback search form. */
 const FALLBACK_FORM_MIN_CHARS = 5;
 /** A longer word is no search form (a pasted token, a link's tail): recall's own cap on a form. */
@@ -3159,20 +3193,13 @@ export function createTurnRunner({
   }
 
   /**
-   * The `<transcript>` block of a classifier request (re-watch, search): the
-   * last `contextMessages` messages of `history` before the trigger, rendered
-   * by src/behavior/prompt.js#classifierTranscript (as the route classifier's)
-   * with the media states this turn already has, plus the trigger's text cut to
-   * `context.maxMessageChars`. `transcriptBlock` is '' (no block) for a
-   * window of 0 or no earlier message.
+   * The `<transcript>` block of a classifier request (re-watch, search) with
+   * the media states this turn already has: renderClassifierContext over the
+   * live labels (prompts.labels, read now).
    * @returns {{ triggerText: string, transcriptBlock: string }}
    */
-  function classifierContext({ config, selfName, history, trigger, contextMessages, descriptions, videos, reads }) {
-    const triggerText = [...String(trigger.content ?? '')].slice(0, config.context?.maxMessageChars ?? 2000).join('');
-    const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
-    if (context.length === 0) return { triggerText, transcriptBlock: '' };
-    const body = classifierTranscript(context, { config, selfName, labels: hot.prompts.labels, descriptions, videos, reads });
-    return { triggerText, transcriptBlock: `<transcript>\n${body}\n</transcript>\n` };
+  function classifierContext(params) {
+    return renderClassifierContext({ ...params, labels: hot.prompts.labels });
   }
 
   /**
@@ -3632,16 +3659,7 @@ export function createTurnRunner({
     }
 
     // The chat around the question, with the pages this turn already read.
-    const { triggerText, transcriptBlock } = classifierContext({
-      config,
-      selfName,
-      history,
-      trigger,
-      contextMessages: Math.max(0, Math.floor(searchCfg.contextMessages ?? 50)),
-      descriptions,
-      videos,
-      reads,
-    });
+    const { triggerText, user } = lookupClassifierInput({ config, labels: hot.prompts.labels, selfName, history, trigger, descriptions, videos, reads });
     if (planned) {
       if (planned.offer?.lookup !== true || planned.outcome === 'skipped') return null;
       if (planned.outcome === 'failed') return fallback(planned.reason);
@@ -3649,7 +3667,6 @@ export function createTurnRunner({
       if (answer.state === 'ok') return runSearches({ web: answer.web, server: answer.server });
       return answer.state === 'none' ? null : fallback(answer.state);
     }
-    const user = `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
 
     // Read once: the request and its empty-answer warning name the same model.
     const model = roleModel(config, 'reasoner', 'lookup');
