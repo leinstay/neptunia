@@ -247,6 +247,8 @@ export function createOpencodeRunner({
     const childEnv = {
       ...env,
       ...isolationEnv(),
+      // The profile's own variables (the server agent's git settings; src/agent-runner/profiles.js#SERVER_CHILD_ENV).
+      ...profile.childEnv,
       OPENCODE_CONFIG_CONTENT: configContent,
       OPENCODE_DB: path.join(dir, 'opencode.db'),
       HOME: dir,
