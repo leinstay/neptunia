@@ -551,15 +551,15 @@ export function modelForRole(role, cfg) {
 }
 
 /** The providers part of a routing object: its `only`/`order`/`ignore` lists, or the object as
- * JSON (without `allow_fallbacks`, shown on its own) when it holds anything else. */
+ * JSON (without `allow_fallbacks` and `byok`, shown on their own) when it holds anything else. */
 export function describeProviders(value) {
   const lists = ['only', 'order', 'ignore'];
-  const known = new Set([...lists, 'allow_fallbacks']);
+  const known = new Set([...lists, 'allow_fallbacks', 'byok']);
   const parts = lists
     .filter((field) => Array.isArray(value[field]) && value[field].length > 0)
     .map((field) => `${field} ${value[field].join(', ')}`);
   if (parts.length > 0 && Object.keys(value).every((field) => known.has(field))) return parts.join('; ');
-  const { allow_fallbacks: _ignored, ...rest } = value;
+  const { allow_fallbacks: _ignored, byok: _byok, ...rest } = value;
   return JSON.stringify(rest).slice(0, 200);
 }
 
@@ -568,9 +568,14 @@ export function fallbacksText(value) {
   return onOff(value.allow_fallbacks !== false);
 }
 
-/** `(<providers>, fallbacks: on|off)` for the by-role lines. */
+/** `on` only when the routing object says exactly `byok: true` (src/llm/openrouter.js#assertByok). */
+export function byokText(value) {
+  return onOff(value.byok === true);
+}
+
+/** `(<providers>, fallbacks: on|off)` for the by-role lines, `, byok` appended for a route marked `byok: true`. */
 export function routingSummary(value) {
-  return `(${describeProviders(value)}, fallbacks: ${fallbacksText(value)})`;
+  return `(${describeProviders(value)}, fallbacks: ${fallbacksText(value)}${value.byok === true ? ', byok' : ''})`;
 }
 
 /** The prefix of a `/nep route` command: trimmed, required, no `@` (the role has its own

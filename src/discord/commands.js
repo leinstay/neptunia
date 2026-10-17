@@ -290,12 +290,14 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'providers', description: 'Comma-separated provider slugs, e.g. google-vertex.', required: true },
           { type: STRING, name: 'role', description: 'Only for this role (default: any).', required: false, choices: choicesOf(ROUTE_ROLES) },
           flagOption('fallbacks', 'Allow other providers if these fail (default: false).'),
+          flagOption('byok', 'Refuse answers not served by your own provider keys (default: false).'),
         ],
         args: (options) => ({
           model: options.getString('model', true),
           providers: options.getString('providers', true),
           role: options.getString('role') ?? undefined,
           fallbacks: readFlag(options, 'fallbacks') ?? undefined,
+          byok: readFlag(options, 'byok') ?? undefined,
         }),
       },
       {

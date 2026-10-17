@@ -15,6 +15,7 @@ import {
   backoffMs,
   countLlmRequest,
   openRouterHeaders,
+  providerBodyOf,
   resolveProvider,
   roleApiKey,
   sleep,
@@ -89,15 +90,16 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
    * The model is `roleModel(config, 'embedding', purpose)` (a
    * `roles.byPurpose` entry, else `roles.embedding`, else its default); no model throws before any request.
    * Body: `{ model, input, dimensions }` (`embed.dimensions`, default 1024) plus the provider
-   * routing `resolveProvider` picks for the model and the role. Rails, in order, before anything
+   * routing `resolveProvider` picks for the model and the role (without its `byok` mark, see
+   * `providerBodyOf`). Rails, in order, before anything
    * is sent: the token cap (`llm.maxRequestTokens`, the inputs' raw estimate, a `TokenLimitError`)
    * and the daily request cap (counted once per call, retries included, a `DailyCapError`;
    * `countAgainstDailyCap: false` for the status probe only, never refused by it). Each attempt is
    * cut at `timeoutMs` (default `llm.helperTimeoutMs`); a network failure, a timeout or a status in
    * `RETRY_STATUS` is retried up to `llm.retries` times after `backoffMs` (`llm: retry`), an
    * external `signal` abort never is. A 200 with an error body or the wrong number of vectors is
-   * thrown, never retried. So is a 200 OpenRouter served from its own capacity while
-   * `llm.byokRequired` is on (a `NotByokError` after a `llm: not byok` line, see `assertByok`).
+   * thrown, never retried. So is a 200 OpenRouter served from its own capacity on a route marked
+   * `byok: true` (a `NotByokError` after a `llm: not byok` line, see `assertByok`).
    * @param {string[]} texts
    * @param {object} options
    * @param {object} options.config              The whole live config, read at the moment of use.
@@ -128,7 +130,7 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
     const dimensions = dimensionsOf(config);
     const body = { model, input: texts, dimensions };
     const provider = resolveProvider(model, { byModel: cfg.providerByModel, fallback: cfg.provider, role: EMBED_ROLE });
-    if (provider) body.provider = provider;
+    if (provider) body.provider = providerBodyOf(provider);
     const attemptMs = timeoutMs ?? cfg.helperTimeoutMs ?? HELPER_TIMEOUT_MS_FALLBACK;
     const retries = Number.isInteger(cfg.retries) && cfg.retries > 0 ? cfg.retries : 0;
     const requestKey = roleApiKey(config, env, EMBED_ROLE, apiKey);
@@ -182,9 +184,9 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
         ms: Number.isFinite(elapsed) ? Math.max(0, Math.round(elapsed)) : null,
       };
       log.info('llm: usage', usageFields);
-      // An answer OpenRouter served from its own capacity while `llm.byokRequired` is on is
+      // An answer OpenRouter served from its own capacity on a route marked `byok: true` is
       // thrown here, after the loop's last send: it is never retried.
-      assertByok(cfg, usage, usageFields);
+      assertByok(provider, usage, usageFields);
       return vectors;
     }
     throw lastError;

@@ -96,7 +96,7 @@ test('buildCommandTree: no BOOLEAN option is left; every yes/no option is a STRI
   walk(command.options);
   assert.deepEqual(all.filter((option) => option.type === 5).map((option) => option.name), []);
   const flags = all.filter((option) => option.type === 3 && option.choices?.some((choice) => choice.value === 'true'));
-  assert.deepEqual(flags.map((option) => option.name).sort(), ['always', 'fallbacks', 'self']);
+  assert.deepEqual(flags.map((option) => option.name).sort(), ['always', 'byok', 'fallbacks', 'self']);
   for (const option of flags) assert.deepEqual(option.choices, [{ name: 'true', value: 'true' }, { name: 'false', value: 'false' }], option.name);
 });
 
@@ -112,6 +112,22 @@ test('interaction handler: a yes/no option reaches the args as a boolean, its de
   await handler(fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a lighthouse', self: 'true' } }));
   await handler(fakeInteraction({ subcommand: 'draw', optionValues: { text: 'a lighthouse' } }));
   assert.deepEqual(admin.runCalls.map((call) => call[1].self), [true, false]);
+});
+
+test('buildCommandTree: route set has an optional STRING byok option with the true/false choices, reaching the args as a boolean', async () => {
+  const [command] = buildCommandTree('nep');
+  const set = findOption(findOption(command.options, 'route').options, 'set');
+  const byok = findOption(set.options, 'byok');
+  assert.equal(byok.type, 3);
+  assert.equal(byok.required, false);
+  assert.deepEqual(byok.choices, [{ name: 'true', value: 'true' }, { name: 'false', value: 'false' }]);
+  const admin = fakeAdmin();
+  const handler = createInteractionHandler({ hot: baseHot(), admin, getGuildId: () => 'g1' });
+  for (const value of ['true', 'false', undefined]) {
+    const optionValues = { model: 'google/', providers: 'google-vertex', ...(value === undefined ? {} : { byok: value }) };
+    await handler(fakeInteraction({ group: 'route', subcommand: 'set', optionValues }));
+  }
+  assert.deepEqual(admin.runCalls.map((call) => call[1].byok), [true, false, undefined]);
 });
 
 test('MODEL_ROLES: the model-set, route and ping role choices are all derived from the one list', () => {
