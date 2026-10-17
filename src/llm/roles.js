@@ -16,17 +16,27 @@
 // - `drawing`    generates the persona's pictures;
 // - `agent.web`, `agent.server`  run the persona's errand agents (src/agent-runner/, profiles
 //                `web` and `server`);
-// - `agent.dev`  runs the coding worker (outside this repository).
-// The three agent roles (AGENT_ROLES) run on OpenCode, not through the bot's OpenRouter client:
-// their models are OpenCode model ids (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter
-// ids of the other roles, and no request of the bot goes out on them. Their names carry a dot:
+// - `agent.dev`  runs the coding worker (outside this repository);
+// - `agent.advice`  the strongest model for advice: consultations the lead or the persona ask for
+//                outside a chat turn.
+// No request of the bot goes out on the four agent roles (AGENT_ROLES). The first three
+// (OPENCODE_ROLES) run on OpenCode, not through the bot's OpenRouter client: their models are
+// OpenCode model ids (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter ids of the other
+// roles. `agent.advice` is used by consultation tools outside the bot, which call OpenRouter
+// directly: its model is a bare OpenRouter id (`<vendor>/<model>`). Their names carry a dot:
 // each is one key (`roles["agent.web"]`), never a path.
 // Pure; every reader passes the live config read at the moment of use.
 
 import { isPlainObject } from '../config.js';
 
 /** The roles whose model an OpenCode worker runs on, never the bot's own client. */
-export const AGENT_ROLES = Object.freeze(['agent.web', 'agent.server', 'agent.dev']);
+export const OPENCODE_ROLES = Object.freeze(['agent.web', 'agent.server', 'agent.dev']);
+
+/** The role of the consultation tools outside the bot, which call OpenRouter directly. */
+export const ADVICE_ROLE = 'agent.advice';
+
+/** The agent roles, in display order: no request of the bot goes out on any of them. */
+export const AGENT_ROLES = Object.freeze([...OPENCODE_ROLES, ADVICE_ROLE]);
 
 /** The roles, in display order (`/nep model`, `/nep route`, the status card). */
 export const ROLES = Object.freeze(['voice', 'analyzer', 'reasoner', 'extractor', 'vision', 'video', 'embedding', 'drawing', ...AGENT_ROLES]);
@@ -44,6 +54,7 @@ export const ROLE_DEFAULTS = Object.freeze({
   'agent.web': 'openrouter/openai/gpt-6.1-sol',
   'agent.server': 'openrouter/openai/gpt-6.1-sol',
   'agent.dev': 'openrouter/anthropic/claude-opus-5.5',
+  'agent.advice': 'openai/gpt-6-astra',
 });
 
 /**

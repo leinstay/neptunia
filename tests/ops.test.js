@@ -230,3 +230,42 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
   const simHash = crypto.createHash('sha256').update('sim-test-key').digest('hex');
   assert.deepEqual(activity.sort(), [['mgmt-test', 'hash-main'], ['mgmt-test', 'hash-voice'], ['mgmt-test', simHash]].sort(), 'one activity read per key, by its hash, with the management key');
 });
+
+test('status keys: a role on the simulator key (agent.advice) is shown on the simulator line, never on a line of its own', async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ops-'));
+  const costs = {
+    keyLead: 'main',
+    simKeyLead: 'sim',
+    simKeyNotSet: 'sim: not set',
+    roleKeyLead: '{roles} key',
+    keyLimitPlain: '{lead} {spent}/{limit}',
+    keyNonePlain: '{lead} none',
+    keyUnavailable: '{lead} unavailable',
+  };
+  const hot = {
+    config: { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 } },
+    prompts: { labels: { status: { costs } } },
+    promptSources: {},
+    rootDir,
+  };
+  const store = { state: { data: {}, markDirty() {} }, flush() {} };
+  const simHash = crypto.createHash('sha256').update('sim-test-key').digest('hex');
+  const reads = [];
+  const llm = {
+    roleKeys: () => [{ roles: ['agent.dev'] }, { roles: ['agent.advice'] }],
+    async keyInfo(options) {
+      reads.push(options.apiKey ?? options.role ?? 'main');
+      const limit = options.apiKey ? 5 : options.role ? 200 : 30;
+      return { ok: true, status: 200, json: { data: { limit, limit_remaining: limit } } };
+    },
+    keyHash: ({ role } = {}) => (role === 'agent.advice' ? simHash : role ? 'hash-dev' : 'hash-main'),
+  };
+  const env = createOpsEnv({ hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key' });
+  const result = await runOp('status.show', { field: 'keys' }, { env, guildId: null, userId: '42', roleIds: [] });
+  const value = result.data.embeds[0].fields[0].value;
+  assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'agent.dev key 0.00/200.00'], 'no line for the advice role: the simulator line is its line');
+  assert.deepEqual(reads.sort(), ['agent.dev', 'main', 'sim-test-key'], 'the simulator key is read once');
+  const noSim = createOpsEnv({ hot, store, client: {}, getGuildId: () => null, llm });
+  const without = await runOp('status.show', { field: 'keys' }, { env: noSim, guildId: null, userId: '42', roleIds: [] });
+  assert.ok(without.data.embeds[0].fields[0].value.split('\n').includes('agent.advice key 0.00/200.00'), 'with no simulator key on the card, the role keeps a line of its own');
+});

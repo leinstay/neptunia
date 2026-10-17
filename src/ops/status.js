@@ -5,7 +5,7 @@
 // the costs, memory and speed fields. Every field lists one item per line; the state field ends
 // with the gateway and the uptime. The models field lists one line per role, `<role> · <model> ...` (voice,
 // analyzer, reasoner, extractor, vision, video, embedding, drawing, then the agent roles agent.web, agent.server, agent.dev,
-// which are never probed: an OpenCode worker runs them, not the bot). The owner's card probes on every call: one minimal chat completion per
+// agent.advice, which are never probed: an OpenCode worker or a tool outside the bot runs them, not the bot). The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
 // request for the embedding role, and one free GET of the drawing model's provider listing; a
@@ -28,7 +28,7 @@ import { WEB_DAILY } from '../web/lookup.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from '../discord/access.js';
 import { MODEL_ROLES, STATUS_FIELDS } from '../discord/commands.js';
-import { AGENT_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
+import { AGENT_ROLES, OPENCODE_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { ARCHIVE_EVENTS } from '../memory/archive.js';
 import { plannerOn } from '../behavior/planner.js';
@@ -68,10 +68,12 @@ function roleHead(role, model) {
   return `${role} · ${model}`;
 }
 
-/** An agent role's line: its model, never probed (an OpenCode worker runs it, not the bot). */
+/** An agent role's line: its model, never probed (an OpenCode worker or a consultation tool
+ * outside the bot runs it, not the bot). */
 function agentLine(role, cfg, probed) {
   const head = roleHead(role, roleModel(cfg, role) ?? 'no model configured');
-  return probed ? `${head} · not probed (runs on OpenCode)` : head;
+  if (!probed) return head;
+  return OPENCODE_ROLES.includes(role) ? `${head} · not probed (runs on OpenCode)` : `${head} · not probed (used outside the bot)`;
 }
 
 /** The `roles.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
@@ -461,8 +463,9 @@ const handlers = perEnv((env) => {
    * usage accumulator. With the management key (OPENROUTER_MANAGEMENT_KEY, `env.managementKey`,
    * used for these GETs only) each key's activity is read alongside (`llm.activity` by its hash,
    * one GET per key) and its last 7 and 30 days come from there instead; a failed activity read
-   * falls back. Logs `status: account read` with the outcomes' codes. `-` when the labels give
-   * no line.
+   * falls back. An extra key that is the simulator key itself (`agent.advice` on
+   * OPENROUTER_SIM_KEY, compared by hash) gets no line of its own: the simulator line is its line.
+   * Logs `status: account read` with the outcomes' codes. `-` when the labels give no line.
    */
   async function keyCostsValue(cfg) {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
@@ -470,7 +473,12 @@ const handlers = perEnv((env) => {
     const simKey = typeof env.simKey === 'string' && env.simKey ? env.simKey : null;
     // The simulator key is used for this one read only, never for a model request.
     const readSim = simKey && typeof llm?.keyInfo === 'function' ? readAccount(() => llm.keyInfo({ timeoutMs, apiKey: simKey })) : null;
-    const groups = typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
+    const keyGroups = typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
+    // A role on the simulator key is shown on the simulator line, never on a line of its own.
+    const simHash = simKey && typeof llm?.keyHash === 'function' ? keyHashOf(simKey) : null;
+    const onSim = (group) => simHash !== null && llm.keyHash({ role: group.roles[0] }) === simHash;
+    const groups = keyGroups.filter((group) => !onSim(group));
+    const simRoles = keyGroups.filter(onSim).flatMap((group) => group.roles);
     const readRoleKeys = Promise.all(groups.map((group) => readAccount(() => llm.keyInfo({ timeoutMs, role: group.roles[0] }))));
     // The management key reads each key's activity by its hash, for these GETs only; never logged.
     const managementKey = typeof env.managementKey === 'string' && env.managementKey ? env.managementKey : null;
@@ -497,7 +505,7 @@ const handlers = perEnv((env) => {
     // Rolling sums per key: an extra key over its own roles, the main key over every other role.
     const sums = typeof usage?.sumDays === 'function';
     const windowsOf = (filter) => (sums ? { last7: usage.sumDays(7, filter), last30: usage.sumDays(30, filter) } : null);
-    const taken = groups.flatMap((group) => group.roles);
+    const taken = [...groups.flatMap((group) => group.roles), ...simRoles];
     const roleKeys = groups.map((group, i) => ({ roles: group.roles, key: roleReads[i], activity: sumsOf(roleActivity[i]), windows: windowsOf({ only: group.roles }) }));
     const lines = keyCostsLines({
       key,
