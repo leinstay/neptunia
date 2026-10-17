@@ -109,6 +109,7 @@
     "maxRequestsPerDay": 5000,
     "provider": null,
     "providerByModel": {},
+    "byokRequired": false,
     "keyByRole": { "agent.web": "OPENROUTER_AGENT_KEY", "agent.server": "OPENROUTER_AGENT_KEY", "agent.dev": "OPENROUTER_DEV_KEY", "agent.advice": "OPENROUTER_SIM_KEY" },
     "cache": { "ttl": "1h", "profilesTtl": "1h", "roles": ["voice"], "models": ["anthropic/"], "promptIncludesCached": true },
     "hedge": { "roles": ["analyzer", "reasoner"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
