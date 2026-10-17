@@ -1,4 +1,4 @@
-// Tests for src/discord/pull-fetch.js: fetching another channel for a turn's
+// Tests for interfaces/discord/pull-fetch.js: fetching another channel for a turn's
 // <channel_view> -- the rails before any fetch (each with its skip code), the
 // one page cut to the window that ends at the channel's newest message, the
 // routed trigger and the earlier calls of the ring, the ring's marks, the
@@ -10,8 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { OverwriteType, PermissionFlagsBits, PermissionsBitField, SnowflakeUtil } from 'discord.js';
-import { audienceAllows, captionPulled, checkPull, fetchPull } from '../src/discord/pull-fetch.js';
-import { isReadableChannel, normalizeMessage } from '../src/discord/collect.js';
+import { audienceAllows, captionPulled, checkPull, fetchPull, isReadableChannel, normalizeMessage } from '../src/interface/discord.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const MIN = 60_000;

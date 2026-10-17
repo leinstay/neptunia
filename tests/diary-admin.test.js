@@ -1,5 +1,5 @@
 // Tests for the diary's owner commands (src/admin.js: diary.set / show / off / post), the option
-// readers of src/discord/commands.js and the history backfill (src/behavior/diary.js#backfillDiary).
+// readers of interfaces/discord/commands.js and the history backfill (src/behavior/diary.js#backfillDiary).
 // Discord, the store and the diary scheduler are fakes; config.local.json lives in a temp dir.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { PermissionFlagsBits } from 'discord.js';
 import { createAdmin } from '../src/admin.js';
 import { backfillDiary } from '../src/behavior/diary.js';
-import { buildCommandTree, commandKeys, createInteractionHandler } from '../src/discord/commands.js';
+import { buildCommandTree, commandKeys, createInteractionHandler } from '../src/interface/discord.js';
 import { labels } from './fixtures/labels.js';
 
 const SELF = 'self1';

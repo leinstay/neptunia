@@ -61,7 +61,7 @@
 // the server notes, waiting out a provider rate limit, paused, finished or
 // aborted -- exposed through `status()` for the tool's `status`.
 
-import { readableChannels, fetchHistoryWindow } from '../discord/collect.js';
+import { readableChannels, fetchHistoryWindow } from '../interface/discord.js';
 import { formatTranscript, renderTranscript } from '../format.js';
 import { fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../llm/budget.js';
 import { estimateMessages } from '../llm/tokens.js';
@@ -331,7 +331,7 @@ export function warmupRoute(config, { voice = false } = {}) {
 
 /**
  * @typedef {{ id: string, name: string, category: string|null, topic: string|null, messages: object[] }} ChannelWindow
- *   `messages` are normalized (src/discord/collect.js#normalizeMessage), oldest first.
+ *   `messages` are normalized (interfaces/discord/collect.js#normalizeMessage), oldest first.
  */
 
 /** Per-author counters over every window's own (non-bot, non-self) messages, keyed by author id;

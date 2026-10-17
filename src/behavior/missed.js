@@ -30,7 +30,7 @@
 
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
-import { fetchHistory as defaultFetchHistory, canSend as defaultCanSend } from '../discord/collect.js';
+import { fetchHistory as defaultFetchHistory, canSend as defaultCanSend } from '../interface/discord.js';
 import { formatTranscript, renderTranscript, withTriggers } from '../format.js';
 import { helperRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
@@ -486,8 +486,8 @@ export function buildCheckRequest({ prompt, labels, config, selfName, history, c
  * @param {object} [deps.fs]  node:fs/promises-shaped.
  * @param {() => number} [deps.now]
  * @param {{ set: (fn: () => void, ms: number) => any, clear: (timer: any) => void }} [deps.timers]
- * @param {Function} [deps.fetchHistory]  src/discord/collect.js#fetchHistory
- * @param {Function} [deps.canSend]  src/discord/collect.js#canSend
+ * @param {Function} [deps.fetchHistory]  interfaces/discord/collect.js#fetchHistory
+ * @param {Function} [deps.canSend]  interfaces/discord/collect.js#canSend
  * @param {object} [deps.log]
  * @returns {{ start: (guildId: string) => Promise<void>, noteFact: (fact: object) => void,
  *   onTurnEnd: (end: object) => void, noteActivity: (channelId: string, at?: number) => void,

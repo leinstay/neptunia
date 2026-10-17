@@ -44,7 +44,7 @@ function msg(
   };
 }
 
-/** A custom emoji as src/discord/collect.js normalizes it. */
+/** A custom emoji as interfaces/discord/collect.js normalizes it. */
 function emoji(id) {
   return { id, name: `έμοτζι_${id}`, animated: false, url: `https://cdn.example/emojis/${id}.png` };
 }

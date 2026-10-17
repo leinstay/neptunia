@@ -24,7 +24,7 @@
 // runner.
 
 import { localHour } from '../format.js';
-import { readableChannels, canSend, lastActivity, isWritableChannel } from '../discord/collect.js';
+import { readableChannels, canSend, lastActivity, isWritableChannel } from '../interface/discord.js';
 import { routeFor } from './turn.js';
 import { chooseElsewhereMode, elsewhereSettings, hasUnseen, mayBeLive } from './elsewhere.js';
 import { between } from './random.js';
@@ -234,7 +234,7 @@ export function isChannelDead(channel, now, cfg) {
  * (`[{ lastActivity, ownPostAt? }]`, epoch ms) saw a message within the last
  * `cfg.someoneAroundMinutes`. A tick starts a turn of the persona's own only
  * when this holds; a direct call never asks. `lastActivity` comes from the
- * snowflake of the channel's last message (src/discord/collect.js#lastActivity),
+ * snowflake of the channel's last message (interfaces/discord/collect.js#lastActivity),
  * so it cannot tell who wrote it: a member's message and another bot's both
  * count. `ownPostAt` (the persona's last post there, turns.lastPostAt, kept in
  * memory only) is the one author-aware hint: a channel whose newest message is
@@ -329,7 +329,7 @@ export function createSpontaneous({
 
   /**
    * Whether the persona may speak unprompted in `channel` now: one it may
-   * write in (src/discord/collect.js#isWritableChannel: readable, never the
+   * write in (interfaces/discord/collect.js#isWritableChannel: readable, never the
    * dry-run mirror, the bot can send) and destinationBlock finds nothing.
    */
   function passesFilters(channel, config, cfg, t) {

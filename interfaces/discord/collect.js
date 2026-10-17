@@ -7,9 +7,9 @@
 // reactionEvent), until the Discord adapter becomes its own package.
 
 import { PermissionFlagsBits, SnowflakeUtil, MessageReferenceType, OverwriteType } from 'discord.js';
-import { log } from '../log.js';
-import { ID_DIGITS, URL_PATTERN } from '../memory/mentions.js';
-import { MINUTE_MS } from '../time.js';
+import { log } from '../../src/log.js';
+import { ID_DIGITS, URL_PATTERN } from '../../src/memory/mentions.js';
+import { MINUTE_MS } from '../../src/time.js';
 import {
   classifyAttachment,
   classifyEmbed,
@@ -21,12 +21,12 @@ import {
   siteOf,
   positiveDimension,
   clipWithEllipsis,
-} from '../media/classify.js';
-import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../media/video-sites.js';
-import { CUSTOM_EMOJI_MARKUP } from '../behavior/emoji.js';
+} from '../../src/media/classify.js';
+import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../../src/media/video-sites.js';
+import { CUSTOM_EMOJI_MARKUP } from '../../src/behavior/emoji.js';
 import { backfillPlan, emojiOf, reactionKey, runBackfill, withReactors } from './reactors.js';
-import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../protocol.js';
-import { DISCORD_IFACE } from '../interface/discord.js';
+import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../../src/protocol.js';
+import { DISCORD_IFACE } from './port.js';
 
 const TEXT_PREVIEW_SIZE_GUARD = 256 * 1024; // 256 KB — never fetch a bigger "text" attachment
 /** Discord's REST page size for a message list. */
@@ -424,8 +424,7 @@ export function normalizeMessage(message, selfId, options = {}) {
 
 // ---------------------------------------------------------------------------
 // Inbound protocol events (packages/protocol/events.js). Building them is the Discord adapter's
-// job; it lives here, beside the normaliser it reads, until src/discord/ moves into its own
-// interface package (stage 4 of the structure rework). Every event carries `raw`: the discord.js
+// job; it lives here, beside the normaliser it reads. Every event carries `raw`: the discord.js
 // object(s) it came from, private to the Discord side -- the message pipeline still needs them
 // for history fetches and sends, src/behavior/* never reads them, and they go in stage 4.
 
@@ -493,7 +492,7 @@ function cachedReplyToSelf(message, replyToId, selfId) {
  * @param {string} selfId
  * @param {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number, edit?: boolean,
  *   deleted?: boolean, previous?: object|null, now?: () => number }} [options]
- * @returns {import('../protocol.js').MessageReceived & { raw: object, rawPrevious?: object|null }}
+ * @returns {import('../../src/protocol.js').MessageReceived & { raw: object, rawPrevious?: object|null }}
  */
 export function toEvent(message, selfId, options = {}) {
   const now = options.now ?? Date.now;
@@ -547,7 +546,7 @@ export function toEvent(message, selfId, options = {}) {
  * `message.received` event: what the memory, the turn and the prompt builders still read until
  * they read the event itself (stage 4). normalizedOf(toEvent(m, selfId, options)) equals
  * normalizeMessage(m, selfId, options).
- * @param {import('../protocol.js').MessageReceived} event
+ * @param {import('../../src/protocol.js').MessageReceived} event
  * @returns {object}
  */
 export function normalizedOf(event) {
@@ -588,7 +587,7 @@ export function normalizedOf(event) {
  * @param {object} user  A discord.js User (possibly partial).
  * @param {boolean} added
  * @param {{ now?: () => number }} [options]
- * @returns {import('../protocol.js').ReactionChanged & { raw: { reaction: object, user: object } }}
+ * @returns {import('../../src/protocol.js').ReactionChanged & { raw: { reaction: object, user: object } }}
  */
 export function reactionEvent(reaction, user, added, { now = Date.now } = {}) {
   const message = reaction?.message ?? null;
@@ -731,7 +730,7 @@ export function canAttach(channel) {
  * (config.media.embedTextChars); `videoSites` lists the video-site hosts
  * whose typed URLs become link items (config.media.video.sites); `maxUrlChars`
  * cuts the URLs left in the text (config.context.maxUrlChars). With `reactors`
- * (features.reactionNames, src/discord/reactors.js) every line of the persona
+ * (features.reactionNames, interfaces/discord/reactors.js) every line of the persona
  * is kept in the reactor store, the reactors it lacks for her reactions are
  * fetched first (each message and emoji once, at most `fetchUsers` users,
  * waiting at most `budgetMs`), and each reaction on her lines with known
@@ -967,7 +966,7 @@ export function lastActivity(channel) {
  * snowflake of their last message, so quiet channels cost no API calls. Only
  * channels the persona may read are neighbours (readableChannels: never the
  * dry-run mirror), and only those `accept` takes (the caller's rail: a turn
- * passes the audience rail, src/discord/pull-fetch.js#audienceAllows), judged
+ * passes the audience rail, interfaces/discord/pull-fetch.js#audienceAllows), judged
  * among the active ones BEFORE the `neighborMaxChannels` cut, so a refused
  * channel takes no slot and costs no fetch; no `accept` takes every one.
  * `readOnly` marks a neighbour the bot cannot send in (canSend). A channel

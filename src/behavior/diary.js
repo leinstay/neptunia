@@ -18,7 +18,7 @@
 // factory at the end (createDiary) is the module's edge: it ticks, keeps the
 // day plan in state.json and runs the post through the turn runner.
 
-import { canAttach, canSend, fetchHistory } from '../discord/collect.js';
+import { canAttach, canSend, fetchHistory } from '../interface/discord.js';
 import { fill } from '../format.js';
 import { log } from '../log.js';
 import { oneLine, clampText, stripUrls } from '../memory/clamp.js';

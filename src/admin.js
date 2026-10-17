@@ -1,4 +1,4 @@
-// Owner commands, driven by Discord slash commands (src/discord/commands.js)
+// Owner commands, driven by Discord slash commands (interfaces/discord/commands.js)
 // so the owner can tune the running bot from Discord without a restart and
 // without ever touching data/: live rules (prompts.local/rules.md, seeded
 // from prompts/rules.md), config overrides (config.local.json, hot-reloaded),
@@ -24,7 +24,7 @@
 // (or, for `/nep draw`, `{ text, files }` with the picture; for `/nep status`,
 // `{ text, embeds }` with the card), or throws an
 // `Error` with an operator-facing message on bad input. Mapping a
-// discord.js interaction's options onto `args` is src/discord/commands.js's
+// discord.js interaction's options onto `args` is interfaces/discord/commands.js's
 // job. The handlers themselves are typed operations under src/ops/ (one file
 // per area): `run` maps the command key onto its operation
 // (src/ops/index.js#COMMAND_TO_OP), runs it and renders the result. The pure
@@ -144,7 +144,7 @@ export function createAdmin(deps) {
   }
 
   /** The operation name `commandKey` runs with `args`, or null (a command with no operation, or
-   * arguments that pick none): src/discord/commands.js defers and shows replies by operation. */
+   * arguments that pick none): interfaces/discord/commands.js defers and shows replies by operation. */
   function operationFor(commandKey, args = {}) {
     return resolveCommand(commandKey, args)?.op ?? null;
   }
@@ -153,7 +153,7 @@ export function createAdmin(deps) {
    * `pings`): src/ops/grants.js#isAllowed on its operation, every input
    * read now. For the autocomplete, which runs nothing; a command itself goes through
    * `runCommand`. `roleIds` -- the caller's Discord role ids -- comes from
-   * src/discord/commands.js#createInteractionHandler, which reads them off the interaction. */
+   * interfaces/discord/commands.js#createInteractionHandler, which reads them off the interaction. */
   function isAllowed(commandKey, { userId, roleIds } = {}, args = {}) {
     return accessIsAllowed({
       op: opForCommand(commandKey, args),

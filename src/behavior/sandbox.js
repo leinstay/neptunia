@@ -233,7 +233,7 @@ function mediaItemsOf(message, sites) {
  * time), read only. A cached miss, a limit or error state and an entry written
  * after `before` are no description; a watched summary is the video state
  * `{ state: 'watched', text }` plus the entry's `watchedSeconds` / `totalSeconds` when stored. Without a cache, empty maps. Pure.
- * @param {object[]} history  Normalized messages (src/discord/collect.js#normalizeMessage).
+ * @param {object[]} history  Normalized messages (interfaces/discord/collect.js#normalizeMessage).
  * @param {{ cache?: object|null, sites?: string[], before?: number|null }} [options]  `cache`: the
  *   describer's cache (`store.getMediaCache(guildId)`), or null.
  * @returns {{ descriptions: Map<string, string>, videos: Map<string, { state: 'watched', text: string }> }}
@@ -634,7 +634,7 @@ function sandboxChannels(given, view, channel) {
  * live turn names its queued calls (src/behavior/turn.js#taskInput: the trigger author's own
  * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). Never an
  * owner-forced turn. `<channel_directory>` lists `channelDirectory` (the guild's readable text
- * channels, src/discord/collect.js#channelDirectoryOf, as a live turn passes them) when given, else
+ * channels, interfaces/discord/collect.js#channelDirectoryOf, as a live turn passes them) when given, else
  * the view's stored channel map with the turn's channel (sandboxChannels). The view is read now
  * and nothing is written.
  * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
@@ -788,7 +788,7 @@ export function sandboxRequestInput({
  * @param {Map<string, string>} [input.descriptions]  Item id -> caption, rendered as the live transcript does.
  * @param {Map<string, object>} [input.videos]  Item id -> video state (`{ state: 'watched', text }`), likewise.
  * @param {{ id: string, name: string, animated?: boolean }[]} [input.customEmoji]  The served guild's
- *   custom emoji (src/discord/emoji.js#createEmojiIndex `list()`); omitted, no `<emoji>`.
+ *   custom emoji (interfaces/discord/emoji.js#createEmojiIndex `list()`); omitted, no `<emoji>`.
  * @param {object|null} [input.gifs]  The guild's GIF library (store.getGifs); omitted, no `<gifs>` and no `<gif>` kept.
  * @param {object|null} [input.mediaCache]  The describer cache (store.getMediaCache), read only, for both lists' captions.
  * @param {{ name: string }|null} [input.elsewhereDestination]  Where a call from a read-only channel is

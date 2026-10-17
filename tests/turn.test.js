@@ -3614,7 +3614,7 @@ test('runTurn: an image cap on a spontaneous turn stays silent -- no notice, no 
   assert.equal(logs.some((l) => l.msg === 'dry-run: would notify limit'), false);
 });
 
-// The server's custom emoji (features.customEmoji, src/discord/emoji.js).
+// The server's custom emoji (features.customEmoji, interfaces/discord/emoji.js).
 function fakeEmojiIndex() {
   const emojis = [
     { id: '111111111111111111', name: 'pepe_cry', animated: false },

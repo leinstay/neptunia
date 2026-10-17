@@ -19,7 +19,7 @@ import {
 } from '../src/behavior/handles.js';
 import { buildRequest, userText } from '../src/behavior/prompt.js';
 import { afterScenarioTurn } from '../src/behavior/sandbox.js';
-import { channelDirectoryOf as guildChannelDirectory } from '../src/discord/collect.js';
+import { channelDirectoryOf as guildChannelDirectory } from '../src/interface/discord.js';
 import { formatTranscript } from '../src/format.js';
 import { withCacheMarker } from '../src/llm/openrouter.js';
 import { linkChannels } from '../src/memory/mentions.js';

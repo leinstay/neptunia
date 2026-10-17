@@ -1,0 +1,9 @@
+{
+  "name": "@neptunia/interface-discord",
+  "version": "0.1.0",
+  "description": "The Discord interface of the persona's engine: the outbound adapter of the interface port, message normalization and the inbound protocol events, history and permission reads, pulls, searches, reactors and the slash commands",
+  "private": true,
+  "type": "module",
+  "exports": "./index.js",
+  "license": "MIT"
+}

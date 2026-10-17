@@ -1,5 +1,5 @@
 // Operations: `/nep status [field]`: what the bot is doing now, read only. The reply is one
-// card (`cmdStatusCard`, plain embed data: src/discord/commands.js wraps it for discord.js), the
+// card (`cmdStatusCard`, plain embed data: interfaces/discord/commands.js wraps it for discord.js), the
 // most important field first, for a phone; `field` keeps only that field and computes nothing
 // for the others. A member (anyone not in `bot.owners`) gets the card without the storage line,
 // the costs, memory and speed fields. Every field lists one item per line; the state field ends

@@ -29,7 +29,7 @@ import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/discord/events.js';
-import { normalizeMessage, normalizeOptions, toEvent, withTextPreviews } from '../src/discord/collect.js';
+import { normalizeMessage, normalizeOptions, toEvent, withTextPreviews } from '../src/interface/discord.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { buildMemoryRequest, characterText } from '../src/memory/update.js';
 import { buildVoiceRequest } from '../src/memory/voice.js';

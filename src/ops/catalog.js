@@ -3,7 +3,7 @@
 // its options and its option -> args mapping), the choice lists the
 // operations share (model roles, status fields, journal kinds, ...), the
 // deferral rules (DEFERRED_OPS, DEFER_AFTER_MS) and the pure helpers over the
-// tree. src/discord/commands.js builds the Discord tree from it, registers it
+// tree. interfaces/discord/commands.js builds the Discord tree from it, registers it
 // and handles the interactions; src/ops/ and src/skills/ read it directly.
 // No discord.js import here.
 //

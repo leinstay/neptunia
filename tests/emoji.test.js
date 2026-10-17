@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEmojiIndex } from '../src/discord/emoji.js';
+import { createEmojiIndex } from '../src/interface/discord.js';
 import { CUSTOM_EMOJI_MARKUP, matchEmojiName, renderCustomEmoji, resolveReactionEmoji } from '../src/behavior/emoji.js';
 
 const EMOJIS = [

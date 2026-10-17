@@ -1,10 +1,10 @@
-// The live glance at the voice channels and the people's statuses (src/discord/around.js): the
+// The live glance at the voice channels and the people's statuses (interfaces/discord/around.js): the
 // snapshot store fed by gateway events and the pieces of a `<people_now>` entry (the live
 // fields, the block's notices, the people in voice, the entry itself). Pure: plain objects in the shape of
 // discord.js' VoiceState and Presence, no client, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createAroundStore } from '../src/discord/around.js';
+import { createAroundStore } from '../src/interface/discord.js';
 import { AROUND_TEXT_CHARS, NOW_DETAIL_CHARS, cleanText, fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from '../src/behavior/around.js';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';

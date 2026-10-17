@@ -49,7 +49,7 @@ import {
   SPENDING_SUBCOMMANDS, assertBotStopped, channelWrittenText, formatPeople, formatStatus, formatUserWritten, parseWarmupArgs, serverWrittenText, warmupEstimate, warmupPlan,
 } from './lib/warmup.mjs';
 import { ledgerStale, ledgerTimes } from './backfill.mjs';
-import { readableChannels } from '../src/discord/collect.js';
+import { readableChannels } from '../src/interface/discord.js';
 import { log as defaultLog } from '../src/log.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createArchive } from '../src/memory/archive.js';

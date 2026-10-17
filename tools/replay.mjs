@@ -224,7 +224,7 @@
 // What it does:
 // - Fetches over REST the trigger and the `--before` messages preceding it,
 //   oldest first, normalized exactly as a live history is
-//   (src/discord/collect.js#fetchHistoryWindow -> normalizeMessage): ids,
+//   (interfaces/discord/collect.js#fetchHistoryWindow -> normalizeMessage): ids,
 //   authors (display names as the live client resolves them: every author and
 //   mentioned member is fetched over REST one by one before the messages are
 //   normalized), the persona's own messages marked `self`, reply references,
@@ -286,7 +286,7 @@
 //    src/behavior/recall-run.js#createRecall with the turn's arguments (the
 //    served guild, this channel, the persona's id and name, `history` = the
 //    fetched lines, `candidate` = the trigger, `server` = the parsed part),
-//    over REST: the member and message searches (src/discord/search.js), the
+//    over REST: the member and message searches (interfaces/discord/search.js), the
 //    pull rail toward this channel, the windows, the summary request
 //    (prompts/recall-summary.md, purpose `recall-summary`). Its clock starts
 //    at the trigger's moment (the summary's `{{today}}`, the recent-lines
@@ -809,7 +809,7 @@ async function loadRecallMods(load) {
   const describe = await load('memory/describe.js');
   const lookup = await load('web/lookup.js');
   const media = await load('media/classify.js');
-  const pull = await load('discord/pull-fetch.js');
+  const pull = await load('interface/discord.js');
   const youtube = await load('memory/youtube-check.js');
   const mods = {
     parseLookupAnswer: recall.parseLookupAnswer,
@@ -1076,7 +1076,7 @@ async function runRecall({ hot, mods, llm, store, guild, guildId, channel, self,
         const body = await restGet(route, options);
         if (kind === 'members') entry.hits = Array.isArray(body) ? body.length : null;
         else if (Array.isArray(body?.messages)) {
-          // The same flattening as src/discord/search.js#searchMessages.
+          // The same flattening as interfaces/discord/search.js#searchMessages.
           let count = 0;
           for (const group of body.messages) {
             const list = Array.isArray(group) ? group : [group];
@@ -1267,7 +1267,7 @@ async function fetchWindow({ guild, channel, self, anchorId, limit, config, fetc
   }
   const members = await cacheMembers(guild, ids);
   // The audience rail's view of bots: the members named in per-member channel overwrites,
-  // fetched like src/index.js warms them at startup (src/discord/audience-warm.js).
+  // fetched like src/index.js warms them at startup (interfaces/discord/audience-warm.js).
   try {
     const warm = await import(pathToFileURL(path.join(process.cwd(), 'src', 'discord', 'audience-warm.js')).href);
     const overwriteIds = warm.overwriteMemberIds(guild.channels.cache.values(), (id) => guild.members.cache.has(id));
@@ -1469,9 +1469,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   const { createTurnRunner } = await load('behavior/turn.js');
   const { createChannelRouter } = await load('behavior/route-channel.js');
   const { createRecall } = await load('behavior/recall-run.js');
-  const { createEmojiIndex } = await load('discord/emoji.js');
-  const { canAttach, canSend } = await load('discord/collect.js');
-  const { resolveGuild } = await load('discord/guild.js');
+  const { createEmojiIndex, canAttach, canSend, resolveGuild } = await load('interface/discord.js');
   const { createDescriber } = await load('memory/describe.js');
   const { createImageFetcher } = await load('media/fetch-image.js');
   const { createVideoFetcher } = await load('media/fetch-video.js');
@@ -1880,7 +1878,7 @@ export function scenarioDiscovery(scenario, names) {
 }
 
 /**
- * The invented message of a scenario as a normalized history line (src/discord/collect.js#normalizeMessage's
+ * The invented message of a scenario as a normalized history line (interfaces/discord/collect.js#normalizeMessage's
  * shape): by `authorId` / `authorName` in `channel` at `at`, the text as given, tagging the
  * persona (`mentionedUserIds`: `selfId`) unless `tagged` is false -- a burst's message, which
  * tags her only when its text holds her tag `<@selfId>` --, replying to nothing, without media.
@@ -2812,9 +2810,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     burstTurns,
     seededSelfLine,
   } = await load('behavior/sandbox.js');
-  const { channelDirectoryOf, fetchHistoryWindow, fetchMessage } = await load('discord/collect.js');
-  const { createEmojiIndex } = await load('discord/emoji.js');
-  const { resolveGuild } = await load('discord/guild.js');
+  const { channelDirectoryOf, fetchHistoryWindow, fetchMessage, createEmojiIndex, resolveGuild } = await load('interface/discord.js');
   const viewMods = { liveView, momentView, momentCutoff, hiddenLater };
   const splitMods = args.split
     ? {

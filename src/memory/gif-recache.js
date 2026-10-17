@@ -34,7 +34,7 @@
 // message cannot be found is left as it is (counted `unlocated`); with
 // `media.recacheBefore` set it is still described again when it comes up.
 
-import { normalizeMessage } from '../discord/collect.js';
+import { normalizeMessage } from '../interface/discord.js';
 import { collectPictures, emojiUrl } from '../media/classify.js';
 import { collectGifItems, normalizeGifs } from './gifs.js';
 import { isStaleDescription, recacheCutoffMs } from './describe.js';
@@ -48,7 +48,7 @@ const DEFAULT_PER_RUN = 50;
 const DEFAULT_INTERVAL_MS = 3000;
 /** The `days` of a media recache run: the default and the bounds (`/nep media` checks the same). */
 export const RECACHE_DAYS = Object.freeze({ default: 7, min: 1, max: 60 });
-// A gif embed's per-message item id (src/discord/collect.js#normalizeEmbedLinks).
+// A gif embed's per-message item id (interfaces/discord/collect.js#normalizeEmbedLinks).
 const EMBED_ID_RE = /#e\d+$/;
 // An attachment's item id: its Discord snowflake.
 const ATTACHMENT_ID_RE = /^\d+$/;

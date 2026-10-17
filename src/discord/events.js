@@ -1,5 +1,5 @@
 // The message pipeline: turns the `message.received` event of a discord.js
-// `messageCreate` (packages/protocol/, built by src/discord/collect.js#toEvent)
+// `messageCreate` (packages/protocol/, built by interfaces/discord/collect.js#toEvent)
 // into one of a handful of outcomes (ignore, observe into memory, let the spontaneous
 // scheduler eavesdrop, or run a turn) without ever throwing into discord.js.
 // A direct message goes through the private-chat gate instead
@@ -11,13 +11,13 @@
 // remark the persona chose to make about it (a noticed comment). A line put
 // to the whole room may get a higher chance of an unprompted answer
 // (spontaneous.roomQuestionChance, the room classifier).
-// Owner commands are a separate pipeline entirely (src/discord/commands.js,
+// Owner commands are a separate pipeline entirely (interfaces/discord/commands.js,
 // driven by `interactionCreate`, not `messageCreate`). Kept free of
 // discord.js-specific assumptions beyond the shape already used by
-// src/discord/collect.js, so it can be driven with plain fake objects in
+// interfaces/discord/collect.js, so it can be driven with plain fake objects in
 // tests.
 
-import { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent } from './collect.js';
+import { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent } from '../interface/discord.js';
 import { isOwnerId } from '../ops/grants.js';
 import { collectPictures, collectEmojiItems, collectVideos, collectReadableLinks, isDescribable } from '../media/classify.js';
 import {
@@ -154,7 +154,7 @@ function missingReason(missing) {
  * attachment and link of the buffered message and its forwarded snapshots): what an embed
  * Discord attached after the message arrived brought. Stickers and custom emoji always come
  * with the message itself, so none is late. Pure; never mutates `normalized`.
- * @param {object} normalized  A normalized message (src/discord/collect.js#normalizeMessage).
+ * @param {object} normalized  A normalized message (interfaces/discord/collect.js#normalizeMessage).
  * @param {Set<string>} known
  * @returns {object} `normalized` with only the late attachments and links in each part.
  */
@@ -233,7 +233,7 @@ function bufferedMediaIds(buffered) {
  *   follow-up replaced by a newer one (`replaced-deferred`, both ids) are noted as facts, and
  *   every message of a served channel as activity there. Absent: nothing is noted.
  * @returns {(event: import('../protocol.js').MessageReceived & { raw: import('discord.js').Message }) => Promise<void>}
- *   Takes the `message.received` event of a new message (src/discord/collect.js#toEvent; src/index.js
+ *   Takes the `message.received` event of a new message (interfaces/discord/collect.js#toEvent; src/index.js
  *   builds and validates it): the pipeline reads the normalised message, the mention and the reply
  *   from the event, and the discord.js message (`event.raw`, private to the Discord side and gone in
  *   stage 4 of the structure rework) only for its channel, guild, history and sends. Also carries a
@@ -2432,7 +2432,7 @@ export function createMessageHandler({
 
       // 2. DMs: private chat (features.privateMessages, off by default) --
       // see onPrivateMessage. Owner commands are slash commands
-      // (src/discord/commands.js, interactionCreate), never DMs.
+      // (interfaces/discord/commands.js, interactionCreate), never DMs.
       if (!message.guild) {
         await onPrivateMessage(event, config);
         return;

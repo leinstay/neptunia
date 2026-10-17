@@ -2,7 +2,7 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { canAttach, canRead, canSend } from '../discord/collect.js';
+import { canAttach, canRead, canSend } from '../interface/discord.js';
 import { backfillDiary } from '../behavior/diary.js';
 import { log } from '../log.js';
 import { formatClock } from '../format.js';

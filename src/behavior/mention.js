@@ -49,7 +49,7 @@ export function createTagHistory() {
 }
 
 /**
- * Whether `normalized` (src/discord/collect.js#normalizeMessage) tags the
+ * Whether `normalized` (interfaces/discord/collect.js#normalizeMessage) tags the
  * persona for real: `selfId` is among its mentioned users and not only
  * because of Discord's reply ping (`replyPingUserId`). A reply to the
  * persona that only carries the reply ping is untagged (decideMention).
@@ -159,7 +159,7 @@ export function isFollowUpOpen(state, now, cfg) {
  * Discord adds for the replied-to author (`replyPingUserId`) is not a
  * mention. With `mention.followUpClassifyReplies` false (a missing key counts
  * as on) any reply is `no` as well. `normalized` is the shape
- * src/discord/collect.js's `normalizeMessage` produces.
+ * interfaces/discord/collect.js's `normalizeMessage` produces.
  * @param {{ replyToId: string|null, mentionedUserIds: string[], replyPingUserId?: string|null }} normalized
  * @param {string} selfId
  * @param {{ followUpClassifyReplies?: boolean }} [cfg]  config.mention, read by the caller now
@@ -228,7 +228,7 @@ export function followUpTriggerKind(answer, cfg) {
  * Whether `normalized` may be a line put to the whole room, before the room
  * classifier is asked: it has text (non-empty after trim), replies to nothing
  * and mentions no member. `normalized` is the shape
- * src/discord/collect.js's `normalizeMessage` produces.
+ * interfaces/discord/collect.js's `normalizeMessage` produces.
  * @param {{ content?: string, replyToId?: string|null, mentionedUserIds?: string[] }} normalized
  * @returns {boolean}
  */

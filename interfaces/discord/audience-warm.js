@@ -1,4 +1,4 @@
-// The audience rail (src/discord/collect.js#audienceOf) leaves a bot's member
+// The audience rail (interfaces/discord/collect.js#audienceOf) leaves a bot's member
 // overwrite out of a channel's audience, but it can only tell a bot by the
 // member cache, and without the member intent that cache holds only members
 // seen since startup. This module fills it: every member named by a
@@ -7,7 +7,7 @@
 // known. The id collection and the fetch loop are pure over their inputs;
 // the warmer is the thin part that reads the live guild.
 import { OverwriteType } from 'discord.js';
-import { log } from '../log.js';
+import { log } from '../../src/log.js';
 
 // Discord's JSON error codes for a member or user that does not exist (left the guild, deleted).
 const UNKNOWN_MEMBER = 10007;

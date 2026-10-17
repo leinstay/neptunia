@@ -5,11 +5,11 @@
 // phase can show it in `<channel_view>`. The decisions live in
 // src/behavior/route.js; this module reads the live config and prompts, the
 // store's channel map and profiles, judges each listed channel with the pull
-// phase's own rails (src/discord/pull-fetch.js#checkPull, no request) and
+// phase's own rails (interfaces/discord/pull-fetch.js#checkPull, no request) and
 // sends the one request through the rails of src/llm/openrouter.js.
 
 import { log } from '../log.js';
-import { checkPull } from '../discord/pull-fetch.js';
+import { checkPull } from '../interface/discord.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import {

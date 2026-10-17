@@ -24,8 +24,13 @@ import {
   fetchNeighbors,
   isWritableChannel,
   withTextPreviews,
-} from '../discord/collect.js';
-import { audienceAllows, captionPulled, checkPull, createPullViews, fetchPull } from '../discord/pull-fetch.js';
+  audienceAllows,
+  captionPulled,
+  checkPull,
+  createPullViews,
+  fetchPull,
+  createDiscordAdapter,
+} from '../interface/discord.js';
 import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, continuesTurn, fillPromptTemplate, gifFieldChars, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
 import {
   DIARY_DAILY,
@@ -89,7 +94,6 @@ import { discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsI
 import { skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
-import { createDiscordAdapter } from '../interface/discord.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -762,7 +766,7 @@ function readableLinkCandidates(history, sites) {
 
 /**
  * `history` with the messages its replies answer from outside it prepended as its oldest lines
- * (src/discord/collect.js#fetchReplyParents): the parent of `trigger` when it lives in this
+ * (interfaces/discord/collect.js#fetchReplyParents): the parent of `trigger` when it lives in this
  * channel, one level of that parent's own parent, and the parents of the last
  * `context.replyParentsFor` lines, at most `context.replyParentsMax` in all, each marked
  * `replyParent: true`. Off with
@@ -925,7 +929,7 @@ function triggerBringsMedia(trigger, captionItems, videoItems) {
  * from there, a remark on it), read from `config` (the live config) at the
  * call: the first id of `memory.mainChannelIds`
  * (src/behavior/elsewhere.js#resolveDestination) that is a channel of
- * `guild` the persona may write in (src/discord/collect.js#isWritableChannel:
+ * `guild` the persona may write in (interfaces/discord/collect.js#isWritableChannel:
  * a text channel, not a thread, never the dry-run mirror, its history
  * readable, the bot can send) and not `exceptId` (the
  * channel the words are about). The one copy of the rule: `<senses>` names
@@ -954,7 +958,7 @@ export function usableDestination(guild, config, { exceptId = null } = {}) {
  * `no-destination` (no usable memory.mainChannelIds entry other than the
  * source, `usableDestination`) or `audience` (someone who
  * can view the destination cannot view the source,
- * src/discord/pull-fetch.js#audienceAllows). The one copy of the route of a
+ * interfaces/discord/pull-fetch.js#audienceAllows). The one copy of the route of a
  * routed call and of a noticed comment.
  * @param {object} source  A discord.js guild channel.
  * @param {object} config  The live config.
@@ -1116,7 +1120,7 @@ export function firstPass(acted, labels) {
   return items;
 }
 
-/** The list fields of a normalized message (src/discord/collect.js#normalizeMessage), empty on a line built here. */
+/** The list fields of a normalized message (interfaces/discord/collect.js#normalizeMessage), empty on a line built here. */
 const EMPTY_LINE_LISTS = Object.freeze(['mentionedUserIds', 'mentionedChannelIds', 'attachments', 'links', 'forwarded', 'stickers', 'emojis', 'reactions']);
 
 /**
@@ -1421,7 +1425,7 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * `now` (default Date.now) is the turn's clock: its own time, `{{today}}` of
  * the search classifier, the daily GIF counter and every `lastPostAt` stamp.
  *
- * `emoji` (src/discord/emoji.js#createEmojiIndex) is optional: absent, or
+ * `emoji` (interfaces/discord/emoji.js#createEmojiIndex) is optional: absent, or
  * `features.customEmoji` false (a missing key counts as on), no `:name:` is
  * turned into a custom emoji and a `<react>` with a custom one is dropped.
  *
@@ -1432,7 +1436,7 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * pictures never cost a request: they get only the captions the cache
  * already holds (`describer.cachedDescriptions`), under the same switch. A
  * pulled channel's pictures (`<channel_view>`) get the cache's captions, and
- * fresh ones only once the turn is certain to run (src/discord/pull-fetch.js).
+ * fresh ones only once the turn is certain to run (interfaces/discord/pull-fetch.js).
  * Likewise, videos are only watched when `features.mediaDescriptions` AND
  * `features.videoDescriptions` (a missing key counts as on) are on and the describer has
  * `describeVideos`; otherwise they render without a watch.
@@ -1568,7 +1572,7 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * picture that went out is its own answer. A dry run only logs the call (`dry-run: would
  * call`).
  *
- * Reactors: `reactors` (src/discord/reactors.js#createReactorStore, null: none) is the store of
+ * Reactors: `reactors` (interfaces/discord/reactors.js#createReactorStore, null: none) is the store of
  * who reacted to her messages; the turn's history fetch names them on her lines (historyOptions).
  */
 export function createTurnRunner({
@@ -1860,7 +1864,7 @@ export function createTurnRunner({
   }
 
   /**
-   * The options of a turn's history fetch (src/discord/collect.js#fetchHistory) under `config`:
+   * The options of a turn's history fetch (interfaces/discord/collect.js#fetchHistory) under `config`:
    * with the reactor store (`reactors`), features.reactionNames and features.seeReactions on (a
    * missing key counts as on), the persona's lines carry who reacted to them, the missing reactors
    * fetched within `context.reactions.fetchTimeoutMs`.
@@ -3821,7 +3825,7 @@ export function createTurnRunner({
   }
 
   /**
-   * fetchPull (src/discord/pull-fetch.js) that never throws: an unexpected
+   * fetchPull (interfaces/discord/pull-fetch.js) that never throws: an unexpected
    * failure is logged (`pull: failed`) and counts as a skip with code `error`.
    */
   async function pullSafely(args) {
@@ -3868,7 +3872,7 @@ export function createTurnRunner({
   /**
    * Which channels a turn in `channel` may show participation episodes from: a channel of its
    * guild whose audience passes the rail the neighbours and the pulls pass
-   * (src/discord/pull-fetch.js#audienceAllows, `context.pull.sameAudience`: everyone who can
+   * (interfaces/discord/pull-fetch.js#audienceAllows, `context.pull.sameAudience`: everyone who can
    * read this channel can read that one). A channel the guild does not hold, or a check that
    * throws, is refused.
    * @returns {(channelId: string) => boolean}
@@ -3886,7 +3890,7 @@ export function createTurnRunner({
   }
 
   /**
-   * The live part of `<people_now>` (src/discord/around.js): the snapshot of the voice channels and
+   * The live part of `<people_now>` (interfaces/discord/around.js): the snapshot of the voice channels and
    * of the statuses (the prompt builder derives each person's row from it) and the voice channels' names -- only those a member without any role may see, so
    * she never names who sits in a room this chat cannot see. Null without the store, with
    * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
@@ -3982,7 +3986,7 @@ export function createTurnRunner({
    * `memory.recentHours` (src/memory/store.js#getRecent, read now) and which
    * source channels this turn may show them from. On a server turn: the
    * channel the turn posts in, and every channel whose audience covers it
-   * (src/discord/collect.js#audienceOf, src/behavior/elsewhere.js#audienceCovers:
+   * (interfaces/discord/collect.js#audienceOf, src/behavior/elsewhere.js#audienceCovers:
    * everyone who can read this channel can read that one). In a private chat:
    * the channels every member of the served guild can read. A channel the
    * guild does not hold is never covered. No live line: an empty list (the
@@ -4346,7 +4350,7 @@ export function createTurnRunner({
   }
 
   /**
-   * Fresh captions (src/discord/pull-fetch.js#captionPulled) for channels
+   * Fresh captions (interfaces/discord/pull-fetch.js#captionPulled) for channels
    * pulled before a chooser, once the turn is certain to run; only with
    * features.mediaDescriptions on and a describer. Never rejects: a channel
    * whose captions fail keeps the cached ones (`pull: captions failed`).
@@ -4468,7 +4472,7 @@ export function createTurnRunner({
    * @param {TriggerKind} [params.triggerKind]
    * @param {(history: object[], now: number, context: { pulled: object[] }) => string|null} [params.chooseMode]
    *   Called with this channel's history and the channels already pulled for the turn (the
-   *   PulledChannel records of src/discord/pull-fetch.js, the source first).
+   *   PulledChannel records of interfaces/discord/pull-fetch.js, the source first).
    * @param {{ channelId: string, reason: 'routed'|'noticed' }|null} [params.source]  The channel
    *   this turn is about when it is not `channel` (a call from a channel the bot cannot write in,
    *   a noticed comment): pulled before anything else and shown in `<channel_view>`. When it
@@ -5560,7 +5564,7 @@ export function createTurnRunner({
       const timings = { history: historyMs };
       for (const name of PREPARE_STAGES.slice(1)) timings[name] = stages.get(name)?.done ? stages.get(name).ms : null;
       history = previewed();
-      // A text attachment cut at media.filePreviewChars (src/discord/collect.js#withTextPreviews).
+      // A text attachment cut at media.filePreviewChars (interfaces/discord/collect.js#withTextPreviews).
       for (const message of history) {
         for (const attachment of message.attachments ?? []) {
           if (attachment?.previewLost > 0) draft.limits?.add({ kind: 'preview-cut', where: message.id, lost: attachment.previewLost, detail: attachment.id });

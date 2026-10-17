@@ -19,10 +19,10 @@
 // Adding a command: see src/ops/catalog.js's header.
 
 import { EmbedBuilder, MessageFlags } from 'discord.js';
-import { COMMAND_REQUESTED, validateEvent } from '../protocol.js';
-import { DISCORD_IFACE } from '../interface/discord.js';
+import { COMMAND_REQUESTED, validateEvent } from '../../src/protocol.js';
+import { DISCORD_IFACE } from './port.js';
 import { displayNameOf } from './collect.js';
-import { isOwnerId } from '../ops/grants.js';
+import { isOwnerId } from '../../src/ops/grants.js';
 import {
   COMMAND_TABLE,
   DEFER_AFTER_MS,
@@ -31,10 +31,10 @@ import {
   commandSize,
   isValidCommandName,
   leafPaths,
-} from '../ops/catalog.js';
-import { roleModel } from '../llm/roles.js';
-import { log } from '../log.js';
-import { MINUTE_MS } from '../time.js';
+} from '../../src/ops/catalog.js';
+import { roleModel } from '../../src/llm/roles.js';
+import { log } from '../../src/log.js';
+import { MINUTE_MS } from '../../src/time.js';
 
 // Raw Discord API option-type numbers (application-command-option-type):
 // https://discord.com/developers/docs/interactions/application-commands
@@ -259,7 +259,7 @@ function roleIdsFor(interaction) {
  * @param {object} config  The live config.
  * @param {string} replyRef
  * @param {number} at
- * @returns {import('../protocol.js').CommandRequested}
+ * @returns {import('../../src/protocol.js').CommandRequested}
  */
 export function commandEvent(interaction, commandKey, args, config, replyRef, at) {
   const userId = interaction.user?.id;

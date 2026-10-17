@@ -1,4 +1,4 @@
-// The `<people_now>` rows of the live snapshot src/discord/around.js keeps: for each person a
+// The `<people_now>` rows of the live snapshot interfaces/discord/around.js keeps: for each person a
 // request is about, their status, the voice channel they sit in (muted, deafened, streaming,
 // camera on) and what they are doing; and who else sits in a voice channel.
 // src/behavior/prompt.js puts them in the `<people_now>` rows, one per person.

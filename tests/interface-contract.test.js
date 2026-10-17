@@ -1,5 +1,5 @@
 // Contract tests of the interface port (src/interface/port.js): the SAME suite runs against the
-// in-memory adapter (src/interface/fake.js) and the Discord adapter (src/interface/discord.js)
+// in-memory adapter (src/interface/fake.js) and the Discord adapter (interfaces/discord/port.js)
 // over a fake discord.js client, proving the engine can swap one for the other. Each harness
 // gives the suite a port and a neutral view of what reached its conversations.
 import { test } from 'node:test';

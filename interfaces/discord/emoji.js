@@ -6,7 +6,7 @@
 // lookup: it keeps no copy, the guild's emoji cache (kept current by
 // discord.js) is the map.
 
-import { matchEmojiName } from '../behavior/emoji.js';
+import { matchEmojiName } from '../../src/behavior/emoji.js';
 
 /**
  * A live name/id view over the served guild's custom emoji. Nothing is

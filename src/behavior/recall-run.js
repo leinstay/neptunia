@@ -1,7 +1,7 @@
 // The recall runner: the server part of a lookup. When the lookup classifier
 // names word forms, name forms or a date range (src/behavior/recall.js
 // parseLookupAnswer), this module searches the server's own history through
-// Discord's search (src/discord/search.js) and has one helper request
+// Discord's search (interfaces/discord/search.js) and has one helper request
 // (prompts/recall-summary.md) say what that history answers, optionally
 // singling out one stretch the persona gets verbatim. Steps: the people the
 // name forms point at (stored profiles, Discord's member search for a Latin
@@ -65,9 +65,7 @@
 // it is memory about real people, kept under data/ only.
 
 import { log } from '../log.js';
-import { audienceOf } from '../discord/collect.js';
-import { audienceAllows, checkPull } from '../discord/pull-fetch.js';
-import { fetchAfter, fetchAround, searchMembers, searchMessages } from '../discord/search.js';
+import { audienceAllows, audienceOf, checkPull, fetchAfter, fetchAround, searchMembers, searchMessages } from '../interface/discord.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
@@ -141,7 +139,7 @@ function locatorOf(server, settings) {
   };
 }
 
-/** A raw search hit (src/discord/search.js) as the clustering reads it; `queries` the keys of the queries that found it. */
+/** A raw search hit (interfaces/discord/search.js) as the clustering reads it; `queries` the keys of the queries that found it. */
 function hitFrom(raw) {
   return {
     id: raw.id,
@@ -442,7 +440,7 @@ export function createRecall({ hot, store, llm, describer = null, archive = null
    * whose audience covers it -- the rule of the turn's `<recent>` block
    * (src/behavior/turn.js recentInput, server side). In a private chat: from
    * a channel its `partner` can view (the pull rail's private-chat rule,
-   * src/discord/pull-fetch.js#audienceAllows), as its hits are.
+   * interfaces/discord/pull-fetch.js#audienceAllows), as its hits are.
    */
   function shownRecentLines(config, guild, guildId, channel, partner) {
     const settings = recentSettings(config);

@@ -378,7 +378,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     connection = await connectDiscord({ token, guildId });
     guild = connection.guild;
     self = { id: self.id ?? connection.self.id, name: self.name ?? connection.self.name };
-    // The message search's hits, by id, on the way through (src/discord/search.js reads the same body).
+    // The message search's hits, by id, on the way through (interfaces/discord/search.js reads the same body).
     const rest = guild.client.rest;
     const restGet = rest.get.bind(rest);
     rest.get = async (route, options) => {

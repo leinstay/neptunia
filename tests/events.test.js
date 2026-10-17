@@ -19,7 +19,7 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createStore } from '../src/memory/store.js';
 import { slimMessage } from '../src/memory/update.js';
-import { normalizeMessage, normalizeOptions, toEvent } from '../src/discord/collect.js';
+import { normalizeMessage, normalizeOptions, toEvent } from '../src/interface/discord.js';
 import { createActivity } from '../src/behavior/activity.js';
 
 // ---------------------------------------------------------------------------
@@ -237,7 +237,7 @@ function makeHandler({
 
 /**
  * The handler driven as src/index.js drives it: each fake discord.js message (or update, or
- * deletion) becomes its protocol event (src/discord/collect.js#toEvent) at the moment of the
+ * deletion) becomes its protocol event (interfaces/discord/collect.js#toEvent) at the moment of the
  * call, with the options read from the live config then.
  */
 function asDiscordEvents(handler, hot, client) {

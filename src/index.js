@@ -45,9 +45,21 @@ import { createMissed } from './behavior/missed.js';
 import { hasRequiredLabels } from './behavior/prompt.js';
 import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
-import { createEmojiIndex } from './discord/emoji.js';
-import { createAroundStore } from './discord/around.js';
-import { applyReactionEvent, createReactorStore, reactionEventOf } from './discord/reactors.js';
+import {
+  applyReactionEvent,
+  createAroundStore,
+  createAudienceWarmer,
+  createDiscordAdapter,
+  createEmojiIndex,
+  createInteractionHandler,
+  createReactorStore,
+  normalizeOptions,
+  reactionEvent,
+  reactionEventOf,
+  registerCommands,
+  resolveGuild,
+  toEvent,
+} from './interface/discord.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
 import { backfillDiary, createDiary } from './behavior/diary.js';
 import { createImageFetcher } from './media/fetch-image.js';
@@ -61,14 +73,9 @@ import { createTaskStores } from './errands/store.js';
 import { createErrandService } from './errands/service.js';
 import { createTaskTurns } from './errands/turns.js';
 import { skillRegistry } from './skills/registry.js';
-import { createDiscordAdapter } from './interface/discord.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './discord/events.js';
-import { normalizeOptions, reactionEvent, toEvent } from './discord/collect.js';
 import { validateEvent } from './protocol.js';
-import { resolveGuild } from './discord/guild.js';
-import { createAudienceWarmer } from './discord/audience-warm.js';
-import { registerCommands, createInteractionHandler } from './discord/commands.js';
 import { isValidCommandName } from './ops/catalog.js';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate', 'memory'];
@@ -274,7 +281,7 @@ const getGuildId = () => instance.guildId;
 
 // The audience rail tells a bot's member overwrite by the member cache, which
 // the client fills only with members seen since startup (no member intent):
-// the warmer fetches every member named by an overwrite (src/discord/audience-warm.js).
+// the warmer fetches every member named by an overwrite (interfaces/discord/audience-warm.js).
 const audienceWarmer = createAudienceWarmer({ getGuild: () => (instance.guildId ? client.guilds.cache.get(instance.guildId) ?? null : null) });
 
 // Shared so a picture attached on consecutive turns, or described more than
@@ -805,7 +812,7 @@ hot.on('change', ({ what }) => {
 });
 
 // The gateway's messages and reactions reach the core as protocol events (packages/protocol/,
-// built by src/discord/collect.js): `inbound` builds one and checks it at the boundary. An event
+// built by interfaces/discord/collect.js): `inbound` builds one and checks it at the boundary. An event
 // that cannot be built or is malformed is dropped with one warn line (its kind and the reason,
 // never its content), so nothing behind it ever sees a half-formed one.
 function inbound(kind, build) {
