@@ -26,7 +26,9 @@
 // redaction, and `result.withheld` lists every withheld path the agent
 // reached for ("visible, not readable here"). `error` fails the task. The usd and seconds caps stop the child (SIGTERM, then
 // SIGKILL); the step cap is the agent's own. Files the agent saved under its
-// working directory are the result's files; the result text is redacted in a
+// working directory are the result's files, minus `result.filesDropped`
+// (all of them after a withheld read in a filtered scope, and in every scope a
+// text file that carries a secret); the result text is redacted in a
 // filtered scope. Resolves, never rejects.
 //
 // OpenCode's cost is a catalog estimate, not OpenRouter's billed cost (see
@@ -40,7 +42,7 @@ import { spawn } from 'node:child_process';
 import { log } from '../log.js';
 import { isPlainObject } from '../config.js';
 import { roleModel } from '../llm/roles.js';
-import { redactorFor, scopeOf, withheldInToolUse } from './policy.js';
+import { containsSecret, isFiltered, redactorFor, scopeOf, withheldInToolUse } from './policy.js';
 import { httpProxyForm } from './protocol.js';
 
 /** The OpenCode binary by default. */
@@ -168,6 +170,46 @@ async function collectFiles(dir, id) {
   return out;
 }
 
+/** The bytes read to tell a text file from a binary one (a NUL in them = binary). */
+const SNIFF_BYTES = 8 * 1024;
+/** The largest file scanned for secrets (2 MB). A binary file or a bigger one is delivered unscanned:
+ * the scan guards against a copied secret file (.env, a key file), which is small text. */
+const SCAN_MAX_BYTES = 2 * 1024 * 1024;
+
+/** Whether the file at `file` is text no larger than SCAN_MAX_BYTES and carries a secret
+ * (src/agent-runner/policy.js#containsSecret). An unreadable file counts as carrying one. */
+async function fileCarriesSecret(file) {
+  if (file.bytes > SCAN_MAX_BYTES) return false;
+  let content;
+  try {
+    content = await fsp.readFile(file.path);
+  } catch {
+    return true;
+  }
+  if (content.subarray(0, SNIFF_BYTES).includes(0)) return false;
+  return containsSecret(content.toString('utf8'));
+}
+
+/**
+ * The result files actually delivered, and the ones dropped with their reason. In a filtered scope a
+ * run that reached a withheld path delivers no file (reason `withheld`): a `cp` that slipped past the
+ * rules could have copied the withheld file whole. In every scope, `core` included, a text file that
+ * carries a secret is dropped (reason `secret`). Nothing of a file's content is logged.
+ * @returns {Promise<{ files: object[], dropped: { name: string, reason: 'withheld' | 'secret' }[] }>}
+ */
+async function deliverableFiles(collected, { scope, withheldCount }) {
+  if (isFiltered(scope) && withheldCount > 0) {
+    return { files: [], dropped: collected.map((f) => ({ name: f.name, reason: 'withheld' })) };
+  }
+  const files = [];
+  const dropped = [];
+  for (const file of collected) {
+    if (await fileCarriesSecret(file)) dropped.push({ name: file.name, reason: 'secret' });
+    else files.push(file);
+  }
+  return { files, dropped };
+}
+
 /**
  * @param {object} options
  * @param {object} options.profile  A profile from src/agent-runner/profiles.js.
@@ -215,7 +257,10 @@ export function createOpencodeRunner({
    * @param {{ id, goal, context?, limits?, model?, cost?, searchProvider?, secrets?, signal?, onProgress? }} task
    *   `secrets` (src/agent-runner/protocol.js): `{ openrouterKey, proxy?, searchKey? }`, each over the
    *   environment's.
-   * @returns {Promise<{ status, result: { text, sources, files }, usage, error? }>}
+   * @returns {Promise<{ status, result: { text, sources, files, withheld?, filesDropped? }, usage, error? }>}
+   *   `filesDropped`: `[{ name, reason }]`, the files saved but not delivered: reason `withheld` (a
+   *   filtered-scope run that reached a withheld path delivers no file) or `secret` (a text file of at
+   *   most 2 MB that carries a secret, in every scope).
    */
   async function run({ id, goal, context, limits = {}, model, cost, searchProvider, secrets, signal, onProgress = () => {} }) {
     const startedAt = now();
@@ -427,9 +472,13 @@ export function createOpencodeRunner({
       return finish('failed', '', 'spawn');
     }
 
-    const files = await collectFiles(outDir, id);
+    const { files, dropped } = await deliverableFiles(await collectFiles(outDir, id), { scope, withheldCount: withheld.size });
     const base = finish(signal?.aborted ? 'cancelled' : 'done', resultText, undefined);
     base.result.files = files;
+    if (dropped.length > 0) {
+      base.result.filesDropped = dropped;
+      log.info('agent-runner: files dropped', { id, profile: profile.name, count: dropped.length, reason: dropped[0].reason });
+    }
 
     if (withheld.size > 0) {
       base.result.withheld = [...withheld];

@@ -275,6 +275,17 @@ export function redactSecrets(text) {
 }
 
 /**
+ * Whether `text` holds anything `redactSecrets` would redact (the same
+ * patterns, so a file is judged exactly like the final text). Pure.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function containsSecret(text) {
+  const s = String(text ?? '');
+  return redactSecrets(s) !== s;
+}
+
+/**
  * The redaction of a scope: `redactSecrets` in `dm` and `group`, the text
  * unchanged in `core`.
  * @param {string} scope

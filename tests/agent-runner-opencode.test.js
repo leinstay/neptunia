@@ -289,6 +289,72 @@ test('opencode: a file the server agent copied into its task dir comes back as a
   await ws.cleanup();
 });
 
+/** Run one server-agent task in `scope` whose child saves `files` ({ name: Buffer|string }) and makes `toolUses`. */
+async function runSavingFiles(ws, { id, scope, files, toolUses = [] }) {
+  const spawn = fakeSpawn();
+  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl });
+  return withCapturedLogs(async () => {
+    const p = runner.run({ id, goal: 'send me the file', context: { scope } });
+    const child = await spawn.waitForChild();
+    for (const [name, content] of Object.entries(files)) await fsp.writeFile(path.join(ws.outDir, id, name), content);
+    for (const input of toolUses) emit(child, { type: 'tool_use', part: { tool: 'bash', state: { status: 'completed', input } } });
+    emit(child, { type: 'step_finish', part: { cost: 0.01, tokens: { input: 1, output: 1, reasoning: 0 } } });
+    emit(child, { type: 'text', part: { text: 'attached.', time: { end: 1 } } });
+    await new Promise((r) => setImmediate(r));
+    child.emit('close', 0);
+    return p;
+  });
+}
+
+const OPENROUTER_STYLE_KEY = `sk-or-v1-${'0123456789abcdef'.repeat(4)}`;
+
+test('opencode: in a filtered scope a run that reached a withheld path delivers no file', async () => {
+  const ws = await workspace();
+  const { result, logs } = await runSavingFiles(ws, {
+    id: 'task-withheld',
+    scope: 'dm',
+    files: { 'notes.txt': 'plain words', 'x': 'anything' },
+    toolUses: [{ command: 'bash -c "cp /opt/neptunia/et?/.en? x"' }, { command: 'cat /srv/neptunia-dev/.secrets/proxy' }],
+  });
+  assert.equal(result.status, 'done');
+  assert.deepEqual(result.result.files, []);
+  assert.ok(result.result.withheld.length > 0, 'the withheld list stays');
+  assert.deepEqual(result.result.filesDropped.map((d) => d.reason), ['withheld', 'withheld']);
+  assert.deepEqual(result.result.filesDropped.map((d) => d.name).sort(), ['notes.txt', 'x']);
+  assert.equal(logs.find((entry) => entry.msg === 'agent-runner: files dropped')?.count, 2);
+  await ws.cleanup();
+});
+
+test('opencode: in core scope a text file carrying a secret is dropped; plain text and binary files are delivered', async () => {
+  const ws = await workspace();
+  const binary = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]), Buffer.from(OPENROUTER_STYLE_KEY)]);
+  const { result, logs } = await runSavingFiles(ws, {
+    id: 'task-secret',
+    scope: 'core',
+    files: { 'env.txt': `OPENROUTER_API_KEY=${OPENROUTER_STYLE_KEY}\n`, 'notes.md': '# Notes\nThe café opens at nine.\n', 'pic.png': binary },
+  });
+  assert.equal(result.status, 'done');
+  assert.deepEqual(result.result.files.map((f) => f.name).sort(), ['notes.md', 'pic.png']);
+  assert.deepEqual(result.result.filesDropped, [{ name: 'env.txt', reason: 'secret' }]);
+  assert.equal(Object.hasOwn(result.result, 'withheld'), false);
+  assert.ok(!JSON.stringify(logs).includes(OPENROUTER_STYLE_KEY.slice(9)), 'nothing of the content is logged');
+  await ws.cleanup();
+});
+
+test('opencode: in a filtered scope a clean run delivers its files', async () => {
+  const ws = await workspace();
+  const { result } = await runSavingFiles(ws, {
+    id: 'task-clean',
+    scope: 'dm',
+    files: { 'notes.md': '# Notes\nθάλασσα\n', 'pic.png': Buffer.from([1, 0, 2, 3]) },
+    toolUses: [{ command: 'ls /srv' }],
+  });
+  assert.equal(result.status, 'done');
+  assert.deepEqual(result.result.files.map((f) => f.name).sort(), ['notes.md', 'pic.png']);
+  assert.equal(Object.hasOwn(result.result, 'filesDropped'), false);
+  await ws.cleanup();
+});
+
 test('opencode: the child gets the runner key, config content and isolation env, not the persona key', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
