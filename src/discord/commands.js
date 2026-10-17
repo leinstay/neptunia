@@ -96,7 +96,8 @@ export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
  * The roles whose model `/nep model show|set` lists and changes, each with the config path
  * `set` writes: the chat and embedding roles, then the drawing model (`drawing`,
  * src/llm/images.js#IMAGE_ROLE), which takes no chat completion, then the agent roles
- * (src/llm/roles.js#AGENT_ROLES), whose OpenCode workers take no request of the bot.
+ * (src/llm/roles.js#AGENT_ROLES), which take no request of the bot (OpenCode workers and the
+ * consultation tools outside the bot run them).
  */
 export const MODEL_SET_PATHS = Object.freeze({
   ...MODEL_ROLE_PATHS,
@@ -134,7 +135,7 @@ function choicesOf(values) {
 }
 
 /** The choices of `/nep route`: the `/nep model set` roles but the agent roles, whose OpenCode
- * workers never read `llm.providerByModel`. */
+ * workers and outside tools never read `llm.providerByModel`. */
 const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !AGENT_ROLES.includes(role));
 
 /** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */

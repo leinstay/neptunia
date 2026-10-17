@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AGENT_ROLES, ROLES, ROLE_DEFAULTS, PURPOSE_ROLES, isRole, roleModel } from '../src/llm/roles.js';
+import { ADVICE_ROLE, AGENT_ROLES, OPENCODE_ROLES, ROLES, ROLE_DEFAULTS, PURPOSE_ROLES, isRole, roleModel } from '../src/llm/roles.js';
 import { adaptLegacyModelKeys, loadConfig } from '../src/config.js';
 import { MEMORY_VOICE_REQUEST, REPLY_REQUEST, cacheTtlFor, hedgeSettings, resolveProvider } from '../src/llm/openrouter.js';
 import { EMBED_ROLE } from '../src/llm/embed.js';
@@ -90,18 +90,22 @@ test('roles: the built-in defaults equal config.json, and every role has one', (
   for (const role of Object.values(PURPOSE_ROLES)) assert.ok(isRole(role), role);
 });
 
-test('roles: the agent roles follow drawing, with OpenCode model ids, resolved like any role, no purpose on them', () => {
-  assert.deepEqual([...AGENT_ROLES], ['agent.web', 'agent.server', 'agent.dev']);
+test('roles: the agent roles follow drawing, the OpenCode ones with OpenCode model ids, resolved like any role, no purpose on them', () => {
+  assert.deepEqual([...AGENT_ROLES], ['agent.web', 'agent.server', 'agent.dev', 'agent.advice']);
+  assert.deepEqual([...OPENCODE_ROLES], ['agent.web', 'agent.server', 'agent.dev']);
+  assert.equal(ADVICE_ROLE, 'agent.advice');
   assert.deepEqual(ROLES.slice(ROLES.indexOf('drawing') + 1), [...AGENT_ROLES]);
   assert.equal(ROLE_DEFAULTS['agent.web'], 'openrouter/openai/gpt-6.1-sol');
   assert.equal(ROLE_DEFAULTS['agent.server'], 'openrouter/openai/gpt-6.1-sol');
   assert.equal(ROLE_DEFAULTS['agent.dev'], 'openrouter/anthropic/claude-opus-5.5');
+  assert.equal(ROLE_DEFAULTS['agent.advice'], 'openai/gpt-6-astra', 'the advice role: a bare OpenRouter id (its tools call OpenRouter directly)');
+  for (const role of OPENCODE_ROLES) assert.match(ROLE_DEFAULTS[role], /^openrouter\/[\w.-]+\/[\w.:-]+$/, `${role}: an OpenCode id, provider first`);
   for (const role of AGENT_ROLES) {
-    assert.match(ROLE_DEFAULTS[role], /^openrouter\/[\w.-]+\/[\w.:-]+$/, `${role}: an OpenCode id, provider first`);
     assert.equal(roleModel({}, role), ROLE_DEFAULTS[role], role);
     assert.equal(roleModel({ roles: { [role]: 'openrouter/x/y' } }, role), 'openrouter/x/y', role);
   }
   assert.equal(roleModel({ roles: { 'agent.web': 'openrouter/x/web' } }, 'agent.server'), ROLE_DEFAULTS['agent.server'], 'never another agent role\'s model');
+  assert.equal(roleModel({ roles: { 'agent.dev': 'openrouter/x/dev' } }, 'agent.advice'), ROLE_DEFAULTS['agent.advice'], 'nor the advice role another\'s');
   assert.ok(!Object.values(PURPOSE_ROLES).some((role) => AGENT_ROLES.includes(role)), 'no request purpose goes out on an agent role');
 });
 

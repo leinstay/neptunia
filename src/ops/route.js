@@ -5,7 +5,7 @@
 import { adaptLegacyModelKeys, isPlainObject } from '../config.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { matchRoute } from '../llm/openrouter.js';
-import { AGENT_ROLES } from '../llm/roles.js';
+import { AGENT_ROLES, OPENCODE_ROLES } from '../llm/roles.js';
 import { NONE, onOff, reloadNote, readLocalConfig, ROUTE_ROLES, PROVIDER_SLUG_RE, modelForRole, describeProviders, fallbacksText, routingSummary, routePrefixArg, routeRoleArg } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
@@ -53,7 +53,8 @@ const handlers = perEnv((env) => {
 
   /** `/nep route list`: every route, one line each (prefix | role or any | providers | fallbacks),
    * then each role with the model it uses now and the routing that applies to it; the agent
-   * roles last, whose OpenCode workers never read `llm.providerByModel` (no route resolved). */
+   * roles last, which the bot never routes: OpenCode workers and the consultation tools outside the
+   * bot never read `llm.providerByModel` (no route resolved). */
   function cmdRouteList() {
     const cfg = hot.config;
     const byModel = effectiveRoutes();
@@ -70,7 +71,8 @@ const handlers = perEnv((env) => {
       lines.push(`  ${route.prefix} | ${route.role ?? 'any'} | ${describeProviders(route.value)} | fallbacks: ${fallbacksText(route.value)}`);
     }
     lines.push('by role:', ...ROUTE_ROLES.map((role) => routeRoleLine(role, cfg, byModel)));
-    lines.push(...AGENT_ROLES.map((role) => `  ${role}: ${modelForRole(role, cfg) ?? '(no model configured)'} -> OpenCode's own routing (llm.providerByModel not read)`));
+    const routedBy = (role) => (OPENCODE_ROLES.includes(role) ? "OpenCode's own routing" : 'not routed by the bot');
+    lines.push(...AGENT_ROLES.map((role) => `  ${role}: ${modelForRole(role, cfg) ?? '(no model configured)'} -> ${routedBy(role)} (llm.providerByModel not read)`));
     return lines.join('\n');
   }
 
