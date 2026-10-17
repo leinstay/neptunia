@@ -89,7 +89,7 @@ unit 的 `EnvironmentFile`（`/etc/neptunia/agent-<profile>.env`，root 所有�
 
 `run` 携带 `context.scope`，为 `core`、`dm`、`group` 之一（`src/agent-runner/policy.js`）。在 `core` 中不隐藏任何内容。在 `dm` 和 `group` 中：
 
-- `server` 代理的文件工具拒绝敏感路径（`/var/www`、`/srv/git`、所有 `.git`/`.local.git`、`.secrets`、`.env`、`.ssh`、`/etc/shadow`、nginx htpasswd、Let's Encrypt、`/etc/neptunia`、`/srv/neptunia-backups`、`config.local.json`、角色自身的 `data/` 和所有 `.agents/scratch`）的内容，其 `bash` 拒绝以这些路径为参数的内容命令（`cat`、`head`、`tail`、`grep`、`egrep`、`fgrep`、`sed`、`awk`、`cut`、`sort`、`uniq`、`wc`、`file`、`git`）。列出名称的命令（`ls`、`find`、`stat`、`du`、`readlink`、`realpath`）仍然允许。拒绝按步骤发生：OpenCode 拒绝该次工具调用，代理看到拒绝后继续，结果的 `withheld` 列出被拒绝的路径；
+- `server` 代理的文件工具拒绝敏感路径（`/var/www`、所有 `.git`/`.local.git`、`.secrets`、`.env`、`.ssh`、`/etc/shadow`、nginx htpasswd、Let's Encrypt、`/etc/neptunia`、`/srv/neptunia-backups`、`config.local.json`、角色自身的 `data/` 和所有 `.agents/scratch`）的内容，其 `bash` 拒绝以这些路径为参数的内容命令（`cat`、`head`、`tail`、`grep`、`egrep`、`fgrep`、`sed`、`awk`、`cut`、`sort`、`uniq`、`wc`、`file`、`git`）。列出名称的命令（`ls`、`find`、`stat`、`du`、`readlink`、`realpath`）仍然允许。拒绝按步骤发生：OpenCode 拒绝该次工具调用，代理看到拒绝后继续，结果的 `withheld` 列出被拒绝的路径；
 - 运行器返回的每个结果都经过编辑处理，将看起来像密钥、令牌和密码的字符串、私钥块、SSH 密钥材料和 URL 凭据替换为 `[redacted]`。
 
 尽管有这些规则仍到达隐藏路径的命令（通过 `bash -c`、管道到阅读器）会在事后被捕获：运行器不保留该输出（其进度事件报告 `withheld` 和路径），路径加入结果的 `withheld`，任务继续。代理已经看到了输出，因此最终编辑处理是阻止秘密进入回答的最后保障。
