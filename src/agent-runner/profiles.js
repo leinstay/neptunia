@@ -99,10 +99,28 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
   'cp *',
 ]);
 
-/** The curl/wget/ffmpeg shell the web agent's `bash` may run (its download step). */
+/** The curl/wget/yt-dlp/ffmpeg shell the web agent's `bash` may run (its download step). yt-dlp
+ * (a video page) reaches the network through the HTTPS_PROXY / HTTP_PROXY the runner gives the
+ * child (src/agent-runner/opencode.js). It runs only as `yt-dlp --ignore-config ...`: yt-dlp
+ * otherwise loads a yt-dlp.conf from its working directory, HOME and XDG_CONFIG_HOME, all inside
+ * the agent's task folder, where the agent itself can write one (curl -o, yt-dlp -o) carrying
+ * `--exec`; a bare `yt-dlp <url>` matches no allow and is refused. Its options that run another
+ * program, or name a config file again, are denied in YT_DLP_DENIES. */
 export const WEB_SHELL_ALLOW = Object.freeze([
-  'curl *', 'wget *', 'ffmpeg *', 'ffprobe *', 'file *', 'ls', 'ls *', 'mkdir *', 'cat *', 'head *', 'stat *',
+  'curl *', 'wget *', 'yt-dlp --ignore-config *', 'ffmpeg *', 'ffprobe *', 'file *', 'ls', 'ls *', 'mkdir *', 'cat *', 'head *', 'stat *',
 ]);
+
+/**
+ * The yt-dlp options that run another program or load options that could (still needed with
+ * `--ignore-config`, which only skips the config files found by default: these stop the same
+ * options given on the command line, and `--config-locations` would load a file again): `--exec` (and
+ * `--exec-before-download`), `--netrc-cmd`, `--config-locations` (also spelled
+ * `--config-location`) and `--plugin-dirs`. yt-dlp accepts any unambiguous prefix of a long
+ * option, so each pattern is a prefix that names only that option (`--exe`, `--netrc-c`,
+ * `--conf`, `--plu`), not the full name. OpenCode's `*` matches any text, so the option is
+ * refused wherever it stands, `=value` form included.
+ */
+export const YT_DLP_DENIES = Object.freeze(['yt-dlp *--exe*', 'yt-dlp *--netrc-c*', 'yt-dlp *--conf*', 'yt-dlp *--plu*']);
 
 /** A permission value for a path tool in `scope`: a plain `allow`, or `*: allow` then the withheld denies. */
 function pathPermission(scope) {
@@ -137,8 +155,8 @@ export const GIT_WRITE_DENIES = Object.freeze([
   ...GIT_BRANCH_WRITE_OPTIONS.flatMap((option) => [`git -C * branch* ${option}`, `git -C * branch* ${option} *`, `git -C * branch* ${option}=*`]),
 ]);
 
-/** Patterns denied after the allows (the last match wins): the ways an allowed read-only command could write or reach the network. */
-export const SHELL_DENY_AFTER = Object.freeze([...GIT_WRITE_DENIES, 'find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
+/** Patterns denied after the allows (the last match wins): the ways an allowed command could write, reach the network or run another program. */
+export const SHELL_DENY_AFTER = Object.freeze([...GIT_WRITE_DENIES, ...YT_DLP_DENIES, 'find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
 
 /** The allowed shell commands that open file contents: in a filtered scope each is refused on a withheld path. */
 export const SHELL_CONTENT_COMMANDS = Object.freeze(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git', 'cp']);
