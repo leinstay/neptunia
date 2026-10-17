@@ -29,7 +29,7 @@ import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
-import { canSend, createDiscordAdapter, createDiscordInterface, normalizeMessage, normalizedOf, normalizeOptions, toEvent, withTextPreviews } from '../src/interface/discord.js';
+import { canSend, createDiscordAdapter, createDiscordInterface, normalizeMessage, normalizeOptions, toEvent, withTextPreviews } from '../src/interface/discord.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { buildMemoryRequest, characterText } from '../src/memory/update.js';
 import { buildVoiceRequest } from '../src/memory/voice.js';
@@ -1210,7 +1210,7 @@ test('createMessageHandler: the room classifier fills room.md', async () => {
     hot,
     store,
     client,
-    discord: { ...DISCORD, normalizedOf, toEvent },
+    discord: DISCORD,
     turns,
     spontaneous,
     memory: { observe() {} },
@@ -1373,7 +1373,7 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     hot,
     store: { state: { data: {}, markDirty() {} }, getUser: () => null },
     client,
-    discord: { ...DISCORD, normalizedOf, toEvent },
+    discord: DISCORD,
     turns,
     spontaneous: { onMessage: () => false },
     memory: { observe() {} },

@@ -19,11 +19,11 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createStore } from '../src/memory/store.js';
 import { slimMessage } from '../src/memory/update.js';
-import { createDiscordAdapter, createDiscordInterface, normalizeMessage, normalizedOf, normalizeOptions, toEvent } from '../src/interface/discord.js';
+import { createDiscordAdapter, createDiscordInterface, normalizeMessage, normalizeOptions, toEvent } from '../src/interface/discord.js';
 import { createActivity } from '../src/behavior/activity.js';
 
 /** The Discord functions the pipeline is given, the real ones src/index.js passes. */
-const DISCORD = { ...createDiscordInterface().capabilities, normalizedOf, toEvent };
+const DISCORD = createDiscordInterface().capabilities;
 
 // ---------------------------------------------------------------------------
 // Fixtures

@@ -184,8 +184,8 @@ function bufferedMediaIds(buffered) {
  * @param {import('discord.js').Client} deps.client
  * @param {object} deps.discord  The Discord functions the pipeline calls, by name, from the
  *   Discord interface package (interfaces/discord/collect.js; src/index.js passes the interface's
- *   `capabilities` with `normalizedOf` and `toEvent` added, tests pass the same functions or fakes
- *   of them): `canSend(channel)`, `fetchHistory(channel, options)`,
+ *   capabilities object, tests pass the same functions or fakes of them): `canSend(channel)`,
+ *   `fetchHistory(channel, options)`,
  *   `fetchMessage(channel, id)`, `normalizeOptions(config)`, `normalizedOf(event)` and
  *   `toEvent(message, selfId, options)`, and the `isWritableChannel` and `audienceAllows` the
  *   route of a call it passes to (src/behavior/turn.js#routeFor). Required.

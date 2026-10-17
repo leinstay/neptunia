@@ -54,7 +54,6 @@ import {
   createEmojiIndex,
   createInteractionHandler,
   createReactorStore,
-  normalizedOf,
   normalizeOptions,
   reactionEvent,
   reactionEventOf,
@@ -332,22 +331,25 @@ const reactors = createReactorStore({ maxMessages: () => hot.config.context?.rea
 const emoji = createEmojiIndex(client, getGuildId);
 // The persona's display name in a guild: the one name every request, the warmup and the analyzer use.
 const getSelfName = (guildId) => client.guilds.cache.get(guildId)?.members.me?.displayName ?? client.user?.username ?? 'bot';
+// The persona's interface (src/interface/port.js): every effect of her replies goes through it,
+// after the skill gateway (src/skills/gateway.js) let the call pass. The Discord interface
+// (interfaces/discord/) builds it, and its capabilities object: what the core asks Discord for
+// (permissions, history, pulled channels, searches), passed below as `discord` to every module
+// that needs it -- nothing in the core but this file imports the interface.
+const discordInterface = createDiscordInterface({ client });
+const iface = discordInterface.port;
+const discord = discordInterface.capabilities;
 // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
-const routeChannels = createChannelRouter({ hot, store, llm });
+const routeChannels = createChannelRouter({ hot, store, llm, discord });
 // The search of the server's own history beside the web search (features.recall): the lookup's server part.
 // It reads the archive and the record too (read only), and with features.meaningSearch the meaning
 // index (one embedding of the question per run).
-const recall = createRecall({ hot, store, llm, describer, archive, record, vectors, embed: embedder.embed });
+const recall = createRecall({ hot, store, llm, discord, describer, archive, record, vectors, embed: embedder.embed });
 // When each person last wrote in each channel (fed by the message handler): a turn answering
 // someone waits until they stop writing (pace.settleMs).
 const activity = createActivity();
 // A warmup run ends a chain of parts (a message answered part by part) before its next part;
 // read through a closure, as the warmup is created just below.
-// The persona's interface (src/interface/port.js): every effect of her replies goes through it,
-// after the skill gateway (src/skills/gateway.js) let the call pass. The Discord interface
-// (interfaces/discord/) builds it; its capabilities reach the message pipeline below.
-const discordInterface = createDiscordInterface({ client });
-const iface = discordInterface.port;
 // The persona's errands (agents.*): a task she or a member asks for goes to its agent runner over
 // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/tasks.json.
 const errandClient = createErrandClient({ hot, log });
@@ -363,6 +365,7 @@ const turns = createTurnRunner({
   llm,
   calibrator,
   client,
+  discord,
   describer,
   imageFetcher,
   lookup,
@@ -390,11 +393,11 @@ const turns = createTurnRunner({
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
-const warmup = createWarmup({ hot, store, client, llm, calibrator, getSelfName, getGuildId });
+const warmup = createWarmup({ hot, store, client, discord, llm, calibrator, getSelfName, getGuildId });
 const isWarmingUp = warmup.isWarmingUp;
-const spontaneous = createSpontaneous({ hot, store, client, turns, getGuildId, isWarmingUp });
+const spontaneous = createSpontaneous({ hot, store, client, discord, turns, getGuildId, isWarmingUp });
 // The persona's diary (diary.channelId): its own posts on a day plan, ticked below.
-const diary = createDiary({ hot, store, client, turns, getGuildId, isWarmingUp, backfill: backfillDiary });
+const diary = createDiary({ hot, store, client, discord, turns, getGuildId, isWarmingUp, backfill: backfillDiary });
 // The stream analyzer's "the stored portrait misses something" cue -- src/memory/warmup.js's
 // own rails (hours/day/mute) decide whether a refresh actually runs; never awaited here.
 const memory = createMemoryUpdater({
@@ -415,30 +418,29 @@ const memory = createMemoryUpdater({
   notify: (text) => mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header: 'memory', body: text }),
 });
 // The turn an errand's end opens, through the one attention and a cooldown per conversation.
-const taskTurns = createTaskTurns({ hot, client, turns, errands, getGuildId, log });
+const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, getGuildId, log });
 const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
 // recovery turn only with features.missedRecovery on (shadow mode by default).
-const missed = createMissed({ hot, store, journal, llm, turns, client, getGuildId, getSelfName, isWarmingUp, dataDir });
+const missed = createMissed({ hot, store, journal, llm, turns, client, getGuildId, getSelfName, isWarmingUp, dataDir, fetchHistory: discord.fetchHistory, canSend: discord.canSend });
 turns.setOnTurnEnd((end) => missed.onTurnEnd(end));
 // The custom emoji ranking read from history (Discord API only, no LLM): once at startup, again on /nep emoji rescan.
-const emojiBackfill = createEmojiBackfill({ hot, store, client, log });
+const emojiBackfill = createEmojiBackfill({ hot, store, client, discord, log });
 // The GIF library read from history (Discord API; the describer captions the top ones): once at
 // startup, again on /nep gifs rescan.
-const gifBackfill = createGifBackfill({ hot, store, client, describer, log });
+const gifBackfill = createGifBackfill({ hot, store, client, discord, describer, log });
 // The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache;
 // and the pictures an older model described, found through the record: only on /nep media
 // kind:pictures action:recache.
-const gifRecache = createGifRecache({ hot, store, client, describer, record, isWarmingUp, log });
+const gifRecache = createGifRecache({ hot, store, client, discord, describer, record, isWarmingUp, log });
 
 const onMessage = createMessageHandler({
   hot,
   store,
   client,
-  // The Discord functions the pipeline calls (src/behavior/pipeline.js imports none of them): the
-  // interface's capabilities, plus the two event helpers the capability list does not carry.
-  discord: { ...discordInterface.capabilities, normalizedOf, toEvent },
+  // The Discord functions the pipeline calls (src/behavior/pipeline.js imports none of them).
+  discord,
   turns,
   spontaneous,
   memory,
@@ -467,6 +469,8 @@ const admin = createAdmin({
   hot,
   store,
   client,
+  // The operations' `env.discord`: permission checks, the diary backfill, the private purge.
+  discord,
   // /nep message and /nep draw channel: post through the persona's interface, as her.
   port: iface,
   // /nep task: the persona's errands.

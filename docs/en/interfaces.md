@@ -10,6 +10,8 @@ The engine has two sides: the core (the persona, its memory, its decisions about
 
 The engine imports the package through `src/protocol.js` (one place to switch to the bare `@neptunia/protocol` specifier once the package is an npm workspace); `src/interface/port.js` re-exports the outbound half. The Discord adapter is the package `interfaces/discord/` (`@neptunia/interface-discord`, reached through `src/interface/discord.js`): `port.js` (actions) with the event builders in `collect.js` (`toEvent`, `reactionEvent`); the in-memory adapter for tests is `src/interface/fake.js`.
 
+The core reaches Discord only through what the composition root gives it. Besides the port, `createDiscordInterface({ client })` returns a frozen capabilities object: the functions the core still asks Discord with, by name (whether the persona may read, send, attach or react in a channel, a channel's history, another channel to show, a search of the server's messages and members, a message as a protocol event and back). `src/index.js` builds it once and passes it as `discord` to every module that needs it: to a factory through its options, to an operation through its environment (`env.discord`), to a pure helper as a parameter. No other file under `src/` imports the Discord interface, so a test or a tool hands in the same functions or fakes of them.
+
 ## Rules
 
 - Ids are opaque strings. A conversation, a message, a member, an emoji or an event id is a string only the adapter that built it knows how to read. The core compares ids but never parses them. References in actions are namespaced by the adapter's `iface` (`discord`, `fake`).
