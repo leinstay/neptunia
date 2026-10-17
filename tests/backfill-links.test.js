@@ -38,7 +38,7 @@ function rec(n, text, { channelId = CH, revision = 1, kind = 'seen', linkCards =
   };
 }
 
-/** A normalized message (src/discord/collect.js#normalizeMessage shape) with one link preview, none when `title` is empty. */
+/** A normalized message (interfaces/discord/collect.js#normalizeMessage shape) with one link preview, none when `title` is empty. */
 function normalized(n, { channelId = CH, title = 'Ο φάρος της Αλεξάνδρειας', url = 'https://example.org/faros' } = {}) {
   return {
     id: id(n), channelId, channelName: 'général', authorId: ANA, authorName: 'Ana', self: false, bot: false,

@@ -1,12 +1,12 @@
 // The server's custom emoji in the persona's own output. The model writes
 // `:name:` (the way it reads them in the transcript); Discord only shows a
 // custom emoji as `<:name:id>` / `<a:name:id>`. The pure functions below turn
-// one into the other through a `lookup(name)`; src/discord/emoji.js#createEmojiIndex
+// one into the other through a `lookup(name)`; interfaces/discord/emoji.js#createEmojiIndex
 // is the one thin view over discord.js that backs that lookup.
 
 /**
  * Discord's custom emoji markup `<:name:id>` / `<a:name:id>` as a regex
- * source: the one copy every markup regex here and in src/discord/collect.js
+ * source: the one copy every markup regex here and in interfaces/discord/collect.js
  * is built from. Group 1 is `a` for an animated emoji (else empty), group 2
  * the name (2-32 letters, digits or underscores, Discord's rule), group 3 the
  * id (a snowflake). Unanchored and without flags: each user adds its own.

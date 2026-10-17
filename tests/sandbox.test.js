@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as sandbox from '../src/behavior/sandbox.js';
-import { fetchHistoryWindow } from '../src/discord/collect.js';
+import { fetchHistoryWindow } from '../src/interface/discord.js';
 import { formatTranscript } from '../src/format.js';
 import { videoUrlCacheKey } from '../src/media/video-sites.js';
 import { createCalibrator } from '../src/llm/tokens.js';
@@ -24,7 +24,7 @@ const ALICE = '111111111111111111';
 const BRUNO = '222222222222222222';
 const CHANNEL = { id: '500000000000000001', name: 'general', category: 'Talk', topic: null };
 
-/** A moment as normalized channel messages (src/discord/collect.js#normalizeMessage), oldest first:
+/** A moment as normalized channel messages (interfaces/discord/collect.js#normalizeMessage), oldest first:
  * one `[authorId, authorName, text, minutesBefore]` per line, the last one the trigger. */
 function moment(lines) {
   const base = { channelId: CHANNEL.id, channelName: CHANNEL.name, channelCategory: CHANNEL.category, channelTopic: null, self: false, bot: false, mentionedUserIds: [], replyToId: null, forwardedFrom: null, attachments: [], links: [], forwarded: [], stickers: [], emojis: [], reactions: [] };

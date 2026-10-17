@@ -1,12 +1,12 @@
 // Tests for the pulled channel's "seen before" line: a `<channel_view>` says, as a fact,
 // how its messages relate to the last view of the same source channel shown in the same
 // destination channel (src/behavior/prompt.js renders it from the entry's `seenBefore`;
-// src/discord/pull-fetch.js#createPullViews keeps the last views in process). Fake
+// interfaces/discord/pull-fetch.js#createPullViews keeps the last views in process). Fake
 // config, prompts and labels only; no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
-import { createPullViews } from '../src/discord/pull-fetch.js';
+import { createPullViews } from '../src/interface/discord.js';
 import { fill, formatDuration } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 
@@ -64,7 +64,7 @@ function line(id, minutesAgo, content = `ligne ${id} à Zoé`) {
   };
 }
 
-/** The pulled record buildRequest reads (src/discord/pull-fetch.js#fetchPull's shape). */
+/** The pulled record buildRequest reads (interfaces/discord/pull-fetch.js#fetchPull's shape). */
 function pulledEntry(messages, extra = {}) {
   return {
     channelId: SRC,

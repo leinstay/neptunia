@@ -14,7 +14,7 @@
 // and never throws; a failure is logged with its status and error name,
 // never a query or a message text.
 
-import { log } from '../log.js';
+import { log } from '../../src/log.js';
 import { normalizeMessage } from './collect.js';
 
 /** Hits per search request (the API's maximum). */

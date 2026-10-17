@@ -262,6 +262,13 @@ prompts/
   labels.json              コードがプロンプトに挿入するすべての文字列
   skills.json              ペルソナのスキルテキスト（title、whenToUse、whenNotToUse）
 prompts.local/             デプロイ先のパーソナリティ（gitignore 対象）
+interfaces/
+  discord/                 the Discord interface (@neptunia/interface-discord): the Discord adapter of the interface port, message normalization, history, permissions, searches and slash commands
+    guild.js               単一ギルドの解決
+    commands.js            スラッシュコマンド、登録、インタラクションアダプター
+    collect.js             チャンネル履歴、隣接チャンネル、権限
+    search.js              Discord メッセージ検索、メンバー検索
+    pull-fetch.js           オーディエンスチェック、プルチャンネルのフェッチ
 docs/
   en/
     prompt-contract.md     プロンプトファイルとコードの間のコントラクト
@@ -312,13 +319,6 @@ src/
     budget.js              優先順によるセクションのトリミング
     openrouter.js          チャットコンプリーション、安全制限
     parse.js               出力タグをアクションに変換
-  discord/
-    guild.js               単一ギルドの解決
-    commands.js            スラッシュコマンド、登録、インタラクションアダプター
-    events.js              メッセージパイプライン
-    collect.js             チャンネル履歴、隣接チャンネル、権限
-    search.js              Discord メッセージ検索、メンバー検索
-    pull-fetch.js           オーディエンスチェック、プルチャンネルのフェッチ
   media/
     classify.js            メディア分類、ラベル選択、プロキシ URL
     video-sites.js         動画サイトのマッチング、URL キャッシュキー、yt-dlp/ffmpeg 引数
@@ -330,6 +330,7 @@ src/
     brave.js               Brave Search クライアント
     lookup.js              リンク読み取りとウェブ検索
   behavior/
+    pipeline.js            メッセージパイプライン
     mention.js             呼び出し検出、無視ヒューリスティクス
     prompt.js              トークンバジェット付きリクエストビルダー
     turn.js                1 ターン: 収集、構築、呼び出し、実行

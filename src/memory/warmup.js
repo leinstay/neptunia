@@ -18,7 +18,7 @@
 // for `people`. `createWarmup().run()` is the write path: channels →
 // people → server, in order, resumable (progress in `state.warmup`,
 // flushed after every request), muting the persona for as long as it is in
-// flight (`isWarmingUp()`, wired into src/discord/events.js,
+// flight (`isWarmingUp()`, wired into src/behavior/pipeline.js,
 // src/behavior/spontaneous.js and src/admin.js). `runPerson`/`runChannel`/
 // `runServer` (re)do exactly one target now, synchronously, for `users
 // --user` / `channels --channel` / `server` (and `/nep memory refresh
@@ -61,7 +61,7 @@
 // the server notes, waiting out a provider rate limit, paused, finished or
 // aborted -- exposed through `status()` for the tool's `status`.
 
-import { readableChannels, fetchHistoryWindow } from '../discord/collect.js';
+import { readableChannels, fetchHistoryWindow } from '../interface/discord.js';
 import { formatTranscript, renderTranscript } from '../format.js';
 import { fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../llm/budget.js';
 import { estimateMessages } from '../llm/tokens.js';
@@ -331,7 +331,7 @@ export function warmupRoute(config, { voice = false } = {}) {
 
 /**
  * @typedef {{ id: string, name: string, category: string|null, topic: string|null, messages: object[] }} ChannelWindow
- *   `messages` are normalized (src/discord/collect.js#normalizeMessage), oldest first.
+ *   `messages` are normalized (interfaces/discord/collect.js#normalizeMessage), oldest first.
  */
 
 /** Per-author counters over every window's own (non-bot, non-self) messages, keyed by author id;

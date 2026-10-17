@@ -1,5 +1,5 @@
-// Tests for src/discord/reactors.js (who reacted to the persona's own messages), its use in
-// src/discord/collect.js#fetchHistory (the backfill and the names) and the rendering of those
+// Tests for interfaces/discord/reactors.js (who reacted to the persona's own messages), its use in
+// interfaces/discord/collect.js#fetchHistory (the backfill and the names) and the rendering of those
 // names in src/format.js#formatTranscript. Fakes only: no Discord, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,8 +12,9 @@ import {
   reactorIdsOf,
   runBackfill,
   withReactors,
-} from '../src/discord/reactors.js';
-import { fetchHistory, fetchMessage } from '../src/discord/collect.js';
+  fetchHistory,
+  fetchMessage,
+} from '../src/interface/discord.js';
 import { formatTranscript } from '../src/format.js';
 import { buildRequest } from '../src/behavior/prompt.js';
 import { labels as fixtureLabels } from './fixtures/labels.js';

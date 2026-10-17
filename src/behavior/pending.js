@@ -8,19 +8,19 @@
 // taken. Every call waits for its own answer: the queue keeps them all in
 // arrival order, several per channel and per author, and a newer call never
 // takes an older one's place (a deferred follow-up excepted: one per channel,
-// replaced in src/discord/events.js). At most mention.maxPending entries overall; the
+// replaced in src/behavior/pipeline.js). At most mention.maxPending entries overall; the
 // single oldest entry, of any channel, is evicted when full. A routed call
 // keeps the calls its settle wait grouped with it (`superseded`), so whatever
 // ends it -- the ignore roll letting it pass -- ends those too. A later message
 // of an author about one of their waiting calls is folded into it (`added`)
 // instead of waiting as a call of its own: the decision is the merge
-// classifier's (src/discord/events.js), parsed here (parseMergeAnswer).
+// classifier's (src/behavior/pipeline.js), parsed here (parseMergeAnswer).
 // In-memory only, never persisted -- a restart forgetting every pending call
 // is fine.
 //
 // The orchestration (when to enqueue, when and how to drain the queue once a
 // turn finishes, the actual ignore decision, the merge request) lives in
-// src/discord/events.js; this module only knows about the list itself.
+// src/behavior/pipeline.js; this module only knows about the list itself.
 
 /**
  * @typedef {object} PendingPing
@@ -29,7 +29,7 @@
  * @property {object} trigger   the normalized message that called the persona
  * @property {'mention'|'reply'|'name'|'private'|'followUp'|'overheard'} kind  `followUp` / `overheard`: an address-classifier
  *                              `yes` / `overheard` that found the attention taken (one of them per channel,
- *                              followUpSlot, events.js#deferFollowUp)
+ *                              followUpSlot, pipeline.js#deferFollowUp)
  * @property {number} arrivedAt
  * @property {boolean} [decided] set on a re-queued server call whose ignore roll already said respond
  * @property {*} [destination]  a routed call only: the discord.js channel its turn posts in (the

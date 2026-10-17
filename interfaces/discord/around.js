@@ -17,7 +17,7 @@
 // Pure: no discord.js import, no clock; src/index.js feeds the store; the rows it renders into are
 // src/behavior/around.js.
 
-import { STATUSES, cleanText } from '../behavior/around.js';
+import { STATUSES, cleanText } from '../../src/behavior/around.js';
 
 /** Most activities kept per member. */
 const MAX_ACTIVITIES = 3;

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { RECORD_LINKS_MAX, appendRevision, createRecord, recordLinks, toRecordLine } from '../src/memory/record.js';
 import { newestRevisions } from '../src/memory/chunks.js';
-import { normalizeMessage } from '../src/discord/collect.js';
+import { normalizeMessage } from '../src/interface/discord.js';
 import { slimMessage } from '../src/memory/update.js';
 
 const quiet = { info() {}, warn() {}, error() {} };

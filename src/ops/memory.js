@@ -21,7 +21,7 @@ import {
 import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.js';
 import { isOwnerId } from './grants.js';
 import { effectiveAffinity, privateRepliesToday } from '../behavior/private.js';
-import { PAGE } from '../discord/collect.js';
+import { PAGE } from '../interface/discord.js';
 import { log } from '../log.js';
 import { clampAtBoundary } from '../memory/clamp.js';
 import { SnowflakeUtil } from 'discord.js';
@@ -209,7 +209,7 @@ const handlers = perEnv((env) => {
    * source channel (`#name` when a channel note stores one, else its id), the weight and the text
    * with `<@id>` tokens resolved like the other memory views. Expired lines are not shown. Read
    * only, so it works while paused (`freshenIfPaused`); the reply is chunked by
-   * src/discord/commands.js#respond like every long view.
+   * interfaces/discord/commands.js#respond like every long view.
    */
   function cmdMemoryRecent(_args, context) {
     freshenIfPaused();

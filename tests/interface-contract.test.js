@@ -1,12 +1,13 @@
 // Contract tests of the interface port (src/interface/port.js): the SAME suite runs against the
-// in-memory adapter (src/interface/fake.js) and the Discord adapter (src/interface/discord.js)
+// in-memory adapter (src/interface/fake.js) and the Discord adapter (interfaces/discord/port.js)
 // over a fake discord.js client, proving the engine can swap one for the other. Each harness
 // gives the suite a port and a neutral view of what reached its conversations.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CAPABILITIES, STATUSES } from '../src/interface/port.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
-import { createDiscordAdapter, discordFailure } from '../src/interface/discord.js';
+import * as discordInterface from '../src/interface/discord.js';
+import { createDiscordAdapter, createDiscordInterface, discordFailure } from '../src/interface/discord.js';
 
 const SELF = 'self-id';
 const OTHER = 'other-id';
@@ -291,6 +292,32 @@ test('discord adapter: an unknown channel fails without a send', async () => {
   const result = await h.port.send({ iface: 'discord', conversationId: 'gone' }, { text: 'α' });
   assert.deepEqual([result.status, result.error.code], ['failed', 'http-404']);
   assert.equal(h.payloads.length, 0);
+});
+
+test('createDiscordInterface: the port is the Discord adapter over the given client', async () => {
+  const sent = [];
+  const channel = { id: 'c9', send: async (payload) => (sent.push(payload), { id: 'x1', createdTimestamp: 42 }) };
+  const client = { user: { id: SELF }, channels: { cache: new Map([['c9', channel]]) } };
+  const built = createDiscordInterface({ client });
+  assert.deepEqual(Object.keys(built), ['port', 'capabilities', 'client']);
+  assert.equal(built.client, client);
+  assert.equal(built.port.iface, 'discord');
+  const result = await built.port.send({ iface: 'discord', conversationId: 'c9' }, { text: 'ναι' });
+  assert.deepEqual(result, { status: 'ok', ref: { iface: 'discord', conversationId: 'c9', messageId: 'x1', memberId: SELF }, at: 42 });
+  assert.deepEqual(sent, [{ content: 'ναι', reply: undefined, allowedMentions: { parse: [] } }]);
+});
+
+test('createDiscordInterface: the capabilities are the package\'s own functions, by name, frozen', () => {
+  const { capabilities } = createDiscordInterface({ client: { user: { id: SELF } } });
+  assert.deepEqual(Object.keys(capabilities), [
+    'canRead', 'canSend', 'canAttach', 'canReact', 'isReadableChannel', 'isWritableChannel', 'readableChannels',
+    'channelDirectoryOf', 'lastActivity', 'audienceOf', 'fetchHistory', 'fetchHistoryWindow', 'fetchMessage',
+    'fetchReplyParents', 'fetchNeighbors', 'withTextPreviews', 'normalizeMessage', 'normalizeOptions', 'PAGE',
+    'audienceAllows', 'captionPulled', 'checkPull', 'createPullViews', 'fetchPull', 'searchMessages', 'searchMembers',
+    'fetchAround', 'fetchAfter', 'reactorIdsOf',
+  ]);
+  for (const [name, value] of Object.entries(capabilities)) assert.equal(value, discordInterface[name], name);
+  assert.ok(Object.isFrozen(capabilities));
 });
 
 test('discordFailure: Discord answers are normalised', () => {

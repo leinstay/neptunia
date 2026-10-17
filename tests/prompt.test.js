@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, profileStateFields, renderProfile, skillResultBlock, skillsInventoryText, stableThenTail, fillPromptTemplate, userText as contentText, usesFollowUpTask, withSkillResult } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
-import { createAroundStore } from '../src/discord/around.js';
+import { createAroundStore } from '../src/interface/discord.js';
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { zonedDay } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
@@ -3293,7 +3293,7 @@ function destMessage(id, ts, overrides = {}) {
   return makeMessage(id, ts, { channelId: DEST, channelName: 'général', ...overrides });
 }
 
-/** A pulled channel record, the shape src/discord/pull-fetch.js#fetchPull hands to buildRequest. */
+/** A pulled channel record, the shape interfaces/discord/pull-fetch.js#fetchPull hands to buildRequest. */
 function pulledChannel(overrides = {}) {
   const messages = overrides.messages ?? [
     pulledMessage('p1', NOW - 130 * MIN, { content: 'πρώτη σελίδα' }),
@@ -3738,7 +3738,7 @@ test('buildRequest: ping marks come from pingState', () => {
   const older = bodyOf(userText(buildRequest(baseInput({ pulled: [pulledChannel({ messages, pingState })], prompts: fakePrompts({ labels: { ...labels, pull: noSkipped } }) }))), 'channel_view');
   assert.ok(lineOf(older, 'p3').endsWith('ligne p3'), 'a skipped call without its label is never shown as unanswered');
 
-  // Only a Map is read (what src/discord/pull-fetch.js builds).
+  // Only a Map is read (what interfaces/discord/pull-fetch.js builds).
   const plainObject = bodyOf(userText(buildRequest(baseInput({ pulled: [pulledChannel({ messages, pingState: Object.fromEntries(pingState) })] }))), 'channel_view');
   for (const mark of [labels.pull.pingAnswered, labels.pull.pingUnanswered, labels.pull.pingSkipped]) assert.ok(!plainObject.includes(mark), mark);
 });

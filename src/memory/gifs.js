@@ -120,7 +120,7 @@ export function normalizeGifs(value) {
 }
 
 /**
- * The GIFs of one normalized message (see src/discord/collect.js), the
+ * The GIFs of one normalized message (see interfaces/discord/collect.js), the
  * message's own first, then each forwarded snapshot's: every attachment of
  * kind `gif` (`key` = its Discord id) and every embed link of kind `gif`
  * (see src/media/classify.js#classifyEmbed; `key` = its item id,

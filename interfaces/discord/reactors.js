@@ -10,7 +10,7 @@
 
 /**
  * The key one reaction is shown under: a custom emoji as `:name:`, a unicode one as itself --
- * the same string src/discord/collect.js#normalizeReactions gives a reaction's `emoji`, so the
+ * the same string interfaces/discord/collect.js#normalizeReactions gives a reaction's `emoji`, so the
  * store and the transcript meet on it. null without a name.
  * @param {{ id?: string|null, name?: string|null }|null|undefined} emoji
  * @returns {string|null}

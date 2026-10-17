@@ -49,7 +49,7 @@ export function createTagHistory() {
 }
 
 /**
- * Whether `normalized` (src/discord/collect.js#normalizeMessage) tags the
+ * Whether `normalized` (interfaces/discord/collect.js#normalizeMessage) tags the
  * persona for real: `selfId` is among its mentioned users and not only
  * because of Discord's reply ping (`replyPingUserId`). A reply to the
  * persona that only carries the reply ping is untagged (decideMention).
@@ -133,12 +133,12 @@ export const repeatWindowMs = (cfg) => cfg.repeatWindowMinutes * MINUTE_MS;
 // --- The address classifier --------------------------------------------------
 // After the persona answers in a channel, a conversation window stays open for
 // a little while: an UNTAGGED message inside it is not answered blindly, it is
-// checked by a cheap classifier first (see events.js and
+// checked by a cheap classifier first (see pipeline.js and
 // docs/prompt-contract.md, "The address classifier"). The functions
 // below are the pure pieces of that decision.
 
 /**
- * Whether a follow-up window (per channel; see events.js) is currently open:
+ * Whether a follow-up window (per channel; see pipeline.js) is currently open:
  * the persona answered recently enough, and has not been ignored
  * `cfg.followUpNoStreak` times in a row since.
  * @param {{ lastAnswerAt: number, noStreak: number }|null|undefined} state
@@ -159,7 +159,7 @@ export function isFollowUpOpen(state, now, cfg) {
  * Discord adds for the replied-to author (`replyPingUserId`) is not a
  * mention. With `mention.followUpClassifyReplies` false (a missing key counts
  * as on) any reply is `no` as well. `normalized` is the shape
- * src/discord/collect.js's `normalizeMessage` produces.
+ * interfaces/discord/collect.js's `normalizeMessage` produces.
  * @param {{ replyToId: string|null, mentionedUserIds: string[], replyPingUserId?: string|null }} normalized
  * @param {string} selfId
  * @param {{ followUpClassifyReplies?: boolean }} [cfg]  config.mention, read by the caller now
@@ -221,14 +221,14 @@ export function followUpTriggerKind(answer, cfg) {
 // --- Room questions ------------------------------------------------------------
 // Outside a conversation window, an untagged line put to everyone present may
 // get a higher chance of an unprompted answer (spontaneous.roomQuestionChance,
-// src/discord/events.js): a cheap classifier (prompts/room.md) is asked first.
+// src/behavior/pipeline.js): a cheap classifier (prompts/room.md) is asked first.
 // The check below runs before any money is spent on it.
 
 /**
  * Whether `normalized` may be a line put to the whole room, before the room
  * classifier is asked: it has text (non-empty after trim), replies to nothing
  * and mentions no member. `normalized` is the shape
- * src/discord/collect.js's `normalizeMessage` produces.
+ * interfaces/discord/collect.js's `normalizeMessage` produces.
  * @param {{ content?: string, replyToId?: string|null, mentionedUserIds?: string[] }} normalized
  * @returns {boolean}
  */

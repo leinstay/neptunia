@@ -29,7 +29,7 @@ function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = Date.now()
   };
 }
 
-/** The normalized shape events.js would hand to runTurn as `trigger`. */
+/** The normalized shape pipeline.js would hand to runTurn as `trigger`. */
 function normalizedTrigger(raw) {
   return {
     id: raw.id,

@@ -63,7 +63,7 @@
 //            `links` (tools/lib/backfill.mjs#linkCandidates). Each is fetched again over REST by
 //            its id (no gateway, GET only, the bot token from .env; discord.js waits out the rate
 //            limits), one at a time, grouped by channel; its links are built as the live record
-//            builds them (src/discord/collect.js#normalizeMessage, src/memory/update.js
+//            builds them (interfaces/discord/collect.js#normalizeMessage, src/memory/update.js
 //            #slimMessage, src/memory/record.js#toRecordLine). A message with a preview gets a new
 //            revision (revision + 1, every other field of the newest revision, plus `links`:
 //            tools/lib/backfill.mjs#linkRevision) through the record's append, so recall reads it.
@@ -192,7 +192,7 @@ function monthsBetween(firstDay, lastDay) {
   }
 }
 
-/** The options of src/discord/collect.js#normalizeMessage the live gateway path passes, from the config. */
+/** The options of interfaces/discord/collect.js#normalizeMessage the live gateway path passes, from the config. */
 function normalizeOptions(config) {
   return { embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites ?? [], maxUrlChars: config.context?.maxUrlChars };
 }
@@ -218,7 +218,7 @@ function restMessageSource({ root, token }) {
   return {
     async connect({ config, guildId }) {
       const discord = createRequire(path.join(root, 'package.json'))('discord.js');
-      const { normalizeMessage } = await import('../src/discord/collect.js');
+      const { normalizeMessage } = await import('../src/interface/discord.js');
       const { Client, Routes } = discord;
       const client = new Client({ intents: [] });
       client.rest.setToken(token);
@@ -276,7 +276,7 @@ function restSource({ root, token, log }) {
   return {
     async connect({ config, guildId }) {
       const discord = createRequire(path.join(root, 'package.json'))('discord.js');
-      const { canRead, normalizeMessage } = await import('../src/discord/collect.js');
+      const { canRead, normalizeMessage } = await import('../src/interface/discord.js');
       const { Client, Routes } = discord;
       const client = new Client({ intents: [] });
       client.rest.setToken(token);

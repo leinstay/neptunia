@@ -10,7 +10,7 @@
 // (`startIfNeeded`) and again only on the owner's `/nep emoji rescan` (`run`
 // with `force`).
 
-import { readableChannels, fetchHistoryWindow } from '../discord/collect.js';
+import { readableChannels, fetchHistoryWindow } from '../interface/discord.js';
 import { emojiUsageOpts } from './emoji-usage.js';
 import { log as defaultLog } from '../log.js';
 
@@ -22,7 +22,7 @@ const DEFAULT_BACKFILL_MESSAGES = 500;
 
 /**
  * The newest `limit` messages of every readable channel of `guild`, read one channel after
- * another over the Discord API (src/discord/collect.js#fetchHistoryWindow, 100 per page;
+ * another over the Discord API (interfaces/discord/collect.js#fetchHistoryWindow, 100 per page;
  * discord.js waits out rate limits), without the persona's and other bots' messages. A channel
  * whose read fails is logged (`<prefix>: channel read failed`) and skipped. The history read
  * of both backfills (this one and src/memory/gif-backfill.js).
@@ -83,7 +83,7 @@ export function createEmojiBackfill({ hot, store, client, log = defaultLog }) {
    * `emojiBackfill.at` is set (the startup run). With `force` it ignores the
    * stamp: the owner's explicit `/nep emoji rescan`.
    * Channels are read one after another, 100 messages per page (see
-   * src/discord/collect.js#fetchHistoryWindow; discord.js waits out rate
+   * interfaces/discord/collect.js#fetchHistoryWindow; discord.js waits out rate
    * limits). Messages of bots and of the persona are skipped, as are those
    * still in the analyzer buffer (the analyzer counts them when it consumes
    * them). Clearing, counting and stamping happen together after every

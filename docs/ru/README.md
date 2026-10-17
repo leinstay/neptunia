@@ -265,6 +265,13 @@ prompts/
   labels.json              все строки, которые код вставляет в промпты
   skills.json              тексты навыков персонажа (title, whenToUse, whenNotToUse)
 prompts.local/             ваш персонаж (в gitignore)
+interfaces/
+  discord/                 the Discord interface (@neptunia/interface-discord): the Discord adapter of the interface port, message normalization, history, permissions, searches and slash commands
+    guild.js               выбор единственной гильдии
+    commands.js            слэш-команды, регистрация, адаптер взаимодействий
+    collect.js             история канала, соседи, права
+    search.js              поиск сообщений в Discord и поиск участников
+    pull-fetch.js          проверка аудитории, загрузка подтянутого канала
 docs/
   en/
     prompt-contract.md     контракт между файлами промптов и кодом
@@ -335,13 +342,6 @@ src/
     budget.js              обрезка секций по приоритету
     openrouter.js          chat completions, защитные ограничения
     parse.js               теги вывода в действия
-  discord/
-    guild.js               выбор единственной гильдии
-    commands.js            слэш-команды, регистрация, адаптер взаимодействий
-    events.js              конвейер сообщений
-    collect.js             история канала, соседи, права
-    search.js              поиск сообщений в Discord и поиск участников
-    pull-fetch.js          проверка аудитории, загрузка подтянутого канала
   media/
     classify.js            классификация медиа, выбор меток, прокси-URL
     video-sites.js         распознавание видеосайтов, ключи кэша URL, аргументы yt-dlp/ffmpeg
@@ -353,6 +353,7 @@ src/
     brave.js               клиент Brave Search
     lookup.js              чтение ссылок и поиск в интернете
   behavior/
+    pipeline.js            конвейер сообщений
     mention.js             распознавание обращения, эвристики игнорирования
     prompt.js              сборка запроса в рамках бюджета токенов
     turn.js                один ход: собрать, построить, вызвать, действовать

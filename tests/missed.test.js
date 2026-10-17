@@ -32,7 +32,7 @@ const T0 = Date.parse('2026-10-14T12:00:00.000Z');
 const MIN = 60_000;
 const SELF = 'self1';
 
-/** A normalized message (src/discord/collect.js#normalizeMessage's shape, the fields read here). */
+/** A normalized message (interfaces/discord/collect.js#normalizeMessage's shape, the fields read here). */
 function msg({ id, authorId = 'u1', authorName = 'Élodie', content = 'και λοιπόν', ts = T0, self = false, replyToId = null, channelId = 'c1' }) {
   return {
     id,

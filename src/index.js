@@ -2,7 +2,8 @@
 // OpenRouter client, discord.js and the turn/spontaneous/memory subsystems
 // together, and owns the process lifecycle (startup checks, timers, graceful
 // shutdown). No decision logic lives here — everything is imported from
-// src/behavior, src/memory, src/llm and src/discord.
+// src/behavior, src/memory, src/llm and the Discord interface (interfaces/discord/, through
+// src/interface/discord.js).
 
 import fs from 'node:fs';
 import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
@@ -45,9 +46,22 @@ import { createMissed } from './behavior/missed.js';
 import { hasRequiredLabels } from './behavior/prompt.js';
 import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
-import { createEmojiIndex } from './discord/emoji.js';
-import { createAroundStore } from './discord/around.js';
-import { applyReactionEvent, createReactorStore, reactionEventOf } from './discord/reactors.js';
+import {
+  applyReactionEvent,
+  createAroundStore,
+  createAudienceWarmer,
+  createDiscordInterface,
+  createEmojiIndex,
+  createInteractionHandler,
+  createReactorStore,
+  normalizedOf,
+  normalizeOptions,
+  reactionEvent,
+  reactionEventOf,
+  registerCommands,
+  resolveGuild,
+  toEvent,
+} from './interface/discord.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
 import { backfillDiary, createDiary } from './behavior/diary.js';
 import { createImageFetcher } from './media/fetch-image.js';
@@ -61,14 +75,9 @@ import { createTaskStores } from './errands/store.js';
 import { createErrandService } from './errands/service.js';
 import { createTaskTurns } from './errands/turns.js';
 import { skillRegistry } from './skills/registry.js';
-import { createDiscordAdapter } from './interface/discord.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
-import { createMessageHandler } from './discord/events.js';
-import { normalizeOptions, reactionEvent, toEvent } from './discord/collect.js';
+import { createMessageHandler } from './behavior/pipeline.js';
 import { validateEvent } from './protocol.js';
-import { resolveGuild } from './discord/guild.js';
-import { createAudienceWarmer } from './discord/audience-warm.js';
-import { registerCommands, createInteractionHandler } from './discord/commands.js';
 import { isValidCommandName } from './ops/catalog.js';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate', 'memory'];
@@ -274,7 +283,7 @@ const getGuildId = () => instance.guildId;
 
 // The audience rail tells a bot's member overwrite by the member cache, which
 // the client fills only with members seen since startup (no member intent):
-// the warmer fetches every member named by an overwrite (src/discord/audience-warm.js).
+// the warmer fetches every member named by an overwrite (interfaces/discord/audience-warm.js).
 const audienceWarmer = createAudienceWarmer({ getGuild: () => (instance.guildId ? client.guilds.cache.get(instance.guildId) ?? null : null) });
 
 // Shared so a picture attached on consecutive turns, or described more than
@@ -335,8 +344,10 @@ const activity = createActivity();
 // A warmup run ends a chain of parts (a message answered part by part) before its next part;
 // read through a closure, as the warmup is created just below.
 // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
-// after the skill gateway (src/skills/gateway.js) let the call pass.
-const iface = createDiscordAdapter({ client });
+// after the skill gateway (src/skills/gateway.js) let the call pass. The Discord interface
+// (interfaces/discord/) builds it; its capabilities reach the message pipeline below.
+const discordInterface = createDiscordInterface({ client });
+const iface = discordInterface.port;
 // The persona's errands (agents.*): a task she or a member asks for goes to its agent runner over
 // its socket in the background (src/errands/); the tasks live in data/guilds/<id>/tasks.json.
 const errandClient = createErrandClient({ hot, log });
@@ -425,6 +436,9 @@ const onMessage = createMessageHandler({
   hot,
   store,
   client,
+  // The Discord functions the pipeline calls (src/behavior/pipeline.js imports none of them): the
+  // interface's capabilities, plus the two event helpers the capability list does not carry.
+  discord: { ...discordInterface.capabilities, normalizedOf, toEvent },
   turns,
   spontaneous,
   memory,
@@ -805,7 +819,7 @@ hot.on('change', ({ what }) => {
 });
 
 // The gateway's messages and reactions reach the core as protocol events (packages/protocol/,
-// built by src/discord/collect.js): `inbound` builds one and checks it at the boundary. An event
+// built by interfaces/discord/collect.js): `inbound` builds one and checks it at the boundary. An event
 // that cannot be built or is malformed is dropped with one warn line (its kind and the reason,
 // never its content), so nothing behind it ever sees a half-formed one.
 function inbound(kind, build) {

@@ -1,4 +1,4 @@
-// Tests for src/discord/collect.js: normalizeMessage's media handling (voice
+// Tests for interfaces/discord/collect.js: normalizeMessage's media handling (voice
 // flag, embed classification, raw-URL de-duplication, forwarded snapshots),
 // its mention ids, the lazy text-attachment preview fetch, the bot's channel
 // permissions, readable channels and neighbours, and the audience reader.
@@ -25,7 +25,7 @@ import {
   isReadableChannel,
   isWritableChannel,
   audienceOf,
-} from '../src/discord/collect.js';
+} from '../src/interface/discord.js';
 import { Embed, MessageReferenceType, OverwriteType, PermissionFlagsBits, PermissionsBitField, SnowflakeUtil } from 'discord.js';
 import { videoUrlCacheKey } from '../src/media/video-sites.js';
 import { collectPictures, collectVideos } from '../src/media/classify.js';

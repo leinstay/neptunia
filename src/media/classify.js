@@ -1,4 +1,4 @@
-// Pure media semantics shared by src/discord/collect.js (normalization),
+// Pure media semantics shared by interfaces/discord/collect.js (normalization),
 // src/format.js (transcript rendering) and src/behavior/prompt.js
 // (vision selection): classifying an attachment/embed into a kind, choosing
 // which label form a media item takes in a transcript line, rewriting a
@@ -505,7 +505,7 @@ function extraOf(...extras) {
  * Choose which `labels.transcript.*` key (and fill values) renders one media
  * item, in priority order: attached to this request (most informative) >
  * described > blind. `item` is a normalized attachment or link/embed item
- * (see src/discord/collect.js): `{ kind, name?, site?, title?, text?,
+ * (see interfaces/discord/collect.js): `{ kind, name?, site?, title?, text?,
  * durationSec?, previewText? }`.
  *
  * A plain image/thumbnail attached to the request renders as a bare
@@ -707,7 +707,7 @@ export function stickerLabelFor(sticker, { attachedIndex = null, description = n
 /**
  * The parts of one normalized message that carry media, in the order they
  * appear in it: the message itself, then every forwarded snapshot
- * (`message.forwarded`, see src/discord/collect.js#normalizeSnapshot). A
+ * (`message.forwarded`, see interfaces/discord/collect.js#normalizeSnapshot). A
  * snapshot has no id of its own, so each collector below stamps its items
  * with the OUTER message's id -- the one the history, the transcript and
  * selectPictures' ordering know. Item ids stay unique: attachment ids are
@@ -775,7 +775,7 @@ function partPictures(part, messageId) {
  * kind alike), or a PNG/APNG/GIF sticker (never a Lottie one -- `sticker.url`
  * is null for those, see stickerUrl). Each item is stamped with a stable
  * `itemId` (the attachment's Discord id; for an embed, the link's own id from
- * src/discord/collect.js -- `video:url:<hash>` for a video-site link,
+ * interfaces/discord/collect.js -- `video:url:<hash>` for a video-site link,
  * `link:<hash>` for another link with a thumbnail, the message+embed-index
  * for a gif embed; or `sticker:<id>`) so it can be looked up in a
  * vision-selection or description-cache map, and with the outer message's
@@ -785,7 +785,7 @@ function partPictures(part, messageId) {
  * GIF watch downloads, while `url` stays the still thumbnail. Custom emoji are never included here
  * -- see collectEmojiItems: they are never eligible to be attached as a vision
  * picture, only describable.
- * @param {object} message  A normalized message (see src/discord/collect.js).
+ * @param {object} message  A normalized message (see interfaces/discord/collect.js).
  */
 export function collectPictures(message) {
   return mediaParts(message).flatMap((part) => partPictures(part, message.id));
@@ -793,12 +793,12 @@ export function collectPictures(message) {
 
 /**
  * Every custom emoji written in one normalized message's text (see
- * src/discord/collect.js), the message's own first, then each forwarded
+ * interfaces/discord/collect.js), the message's own first, then each forwarded
  * snapshot's, as a describable item -- never a vision picture
  * (too small a slot to spend an attached-image budget on, see
  * docs/prompt-contract.md), so this is kept apart from
  * collectPictures on purpose: nothing here is ever picked by selectPictures.
- * @param {object} message  A normalized message (see src/discord/collect.js).
+ * @param {object} message  A normalized message (see interfaces/discord/collect.js).
  */
 export function collectEmojiItems(message) {
   return mediaParts(message).flatMap((part) =>
@@ -849,7 +849,7 @@ function partVideos(part, messageId, videoSites) {
 }
 
 /**
- * The video candidates of one normalized message (see src/discord/collect.js),
+ * The video candidates of one normalized message (see interfaces/discord/collect.js),
  * in the order they appear in it: every attachment of kind `video`, then every
  * link whose `url` belongs to one of `videoSites` (see videoSiteFor in
  * src/media/video-sites.js) -- the message's own first, then each forwarded
@@ -857,7 +857,7 @@ function partVideos(part, messageId, videoSites) {
  * `itemId` is the id the transcript's `videos`
  * state map is keyed by (the attachment's Discord id, or the link's id).
  * `videoSites` missing or empty -> attachments only.
- * @param {object} message  A normalized message (see src/discord/collect.js).
+ * @param {object} message  A normalized message (see interfaces/discord/collect.js).
  * @param {{ videoSites?: string[] }} [options]
  */
 export function collectVideos(message, { videoSites = [] } = {}) {
@@ -893,14 +893,14 @@ export function lateVideoStates(candidates, known, maxNew) {
 }
 
 /**
- * The links of one normalized message (see src/discord/collect.js) the web
+ * The links of one normalized message (see interfaces/discord/collect.js) the web
  * lookup may read (src/web/lookup.js#readLinks), in the order they appear in
  * it (the message's own first, then each forwarded snapshot's, all stamped
  * with the outer message's `messageId`): every `link` item with a url, minus
  * the ones on a video site of
  * `videoSites` (the video describer's, see collectVideos) and every gif embed.
  * `videoSites` missing or empty -> no link is excluded as a video.
- * @param {object} message  A normalized message (see src/discord/collect.js).
+ * @param {object} message  A normalized message (see interfaces/discord/collect.js).
  * @param {{ videoSites?: string[] }} [options]
  * @returns {{ id: string, messageId: string, url: string, site: string, title: string }[]}
  */

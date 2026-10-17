@@ -2708,7 +2708,7 @@ export function recordAddressing(store, guildId, messages, cfg = {}) {
  * `store.setChannelFacts`), rather than through this shared helper.
  * @param {object} store
  * @param {string} guildId
- * @param {object} normalized  A normalized message (see src/discord/collect.js);
+ * @param {object} normalized  A normalized message (see interfaces/discord/collect.js);
  *   callers are expected to have already dropped other bots' messages.
  * @param {object} [memoryCfg]  The live `config.memory`, for the tally's settings
  *   (`channelWritersStored`, `channelWritersHalfLifeDays`); omitted -> the store's fallbacks.
@@ -2740,7 +2740,7 @@ export function touchMemory(store, guildId, normalized, memoryCfg) {
  * The media of one normalized message part (the message itself or one
  * forwarded snapshot) as the memory buffer keeps it. No URL ever survives
  * into the buffer -- but the item `id` does, so the live analyzer can look up
- * a describer caption already warmed into the cache by src/discord/events.js
+ * a describer caption already warmed into the cache by src/behavior/pipeline.js
  * (see analyze() below). A sticker keeps `id`/`name`/`format` (its URL is
  * rebuilt from those via stickerUrl when needed); a custom emoji keeps only
  * `id`/`name` (its URL is rebuilt via emojiUrl).
@@ -2760,8 +2760,8 @@ function slimMedia(part) {
  * the same way, and `direct`; a message whose links carry a preview title or description also
  * keeps them as `linkCards` (src/memory/record.js#recordLinks: URL, title, description, site),
  * which only the record reads. The one shape `observe()` pushes and the late-embed fold
- * (src/discord/events.js#onMessageUpdate) writes back over a buffered entry.
- * @param {object} normalized  A normalized message (src/discord/collect.js#normalizeMessage).
+ * (src/behavior/pipeline.js#onMessageUpdate) writes back over a buffered entry.
+ * @param {object} normalized  A normalized message (interfaces/discord/collect.js#normalizeMessage).
  * @param {boolean} [direct]   Whether the message was addressed to the persona.
  * @returns {object}
  */
@@ -2787,7 +2787,7 @@ export function slimMessage(normalized, direct = false) {
     ...slimMedia(normalized),
     // The link previews the record keeps (toRecordLine's `links`); absent when none.
     ...(linkCards.length > 0 ? { linkCards } : {}),
-    // A forwarded message's snapshots (src/discord/collect.js
+    // A forwarded message's snapshots (interfaces/discord/collect.js
     // #normalizeSnapshot), stripped the same way, so the analyzer's
     // transcript renders a forward like the live one. Absent for a message
     // with no forward: the buffer entry stays as it was.
@@ -3449,7 +3449,7 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
   function cachedMedia(guildId, messages) {
     // The live analyzer never triggers a NEW description request itself --
     // the buffered messages carry no URL to describe from anyway (see
-    // observe() above). It only reads whatever src/discord/events.js has
+    // observe() above). It only reads whatever src/behavior/pipeline.js has
     // already warmed into the cache for these item ids, fire-and-forget, as
     // the messages came in; a cache miss just renders blind.
     let descriptions = null;

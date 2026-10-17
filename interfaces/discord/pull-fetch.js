@@ -18,11 +18,11 @@
 // without fetching the channel again.
 
 import { PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
-import { log } from '../log.js';
-import { isTooOld, pullPictures, pullSettings, pullWindow } from '../behavior/pull.js';
-import { audienceCovers, elsewhereSettings, pingStatus, pingsIn } from '../behavior/elsewhere.js';
-import { ID_DIGITS } from '../memory/mentions.js';
-import { MINUTE_MS } from '../time.js';
+import { log } from '../../src/log.js';
+import { isTooOld, pullPictures, pullSettings, pullWindow } from '../../src/behavior/pull.js';
+import { audienceCovers, elsewhereSettings, pingStatus, pingsIn } from '../../src/behavior/elsewhere.js';
+import { ID_DIGITS } from '../../src/memory/mentions.js';
+import { MINUTE_MS } from '../../src/time.js';
 import {
   PAGE,
   audienceOf,
@@ -129,7 +129,7 @@ function partnerViews(partner, source) {
  * qualifies. Elsewhere, with `context.pull.sameAudience` (read from `config`,
  * the live config; only `false` turns it off) everyone who can view the
  * destination must be able to view the source, checked role by role on both
- * channels' audiences (src/discord/collect.js#audienceOf,
+ * channels' audiences (interfaces/discord/collect.js#audienceOf,
  * src/behavior/elsewhere.js#audienceCovers; no shortcut for a source
  * @everyone can view). A missing destination or a thread never qualifies
  * while the rail is on.
@@ -147,7 +147,7 @@ export function audienceAllows(destination, source, config, { partner = null } =
 
 /**
  * Why `channel` is not one the persona may read, or null when it is. The
- * decision is isReadableChannel's (src/discord/collect.js: the one rule every
+ * decision is isReadableChannel's (interfaces/discord/collect.js: the one rule every
  * reader of the bot obeys, neighbours included); the checks after it only
  * name the refusal, and a refusal none of them names (a rule
  * isReadableChannel gains later) is `not-readable`. A channel without
@@ -167,7 +167,7 @@ function readableRefusal(channel, bot) {
  * with its kebab-case skip code: a `destination` that is given is a guild
  * channel, or a private chat with its `partner` (`private-chat` without one,
  * whatever the audience rail says); the id is a channel of `guild` (`not-found`); the channel is one the
- * persona may read (src/discord/collect.js#isReadableChannel, the rule
+ * persona may read (interfaces/discord/collect.js#isReadableChannel, the rule
  * neighbours obey too), the refusal named `not-text` (not a text channel),
  * `thread`, `dry-run-channel` (`bot.dryRunChannelId`) or else `not-readable`
  * (the bot cannot read its history);

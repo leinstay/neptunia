@@ -3,7 +3,7 @@
 // now ('interject') or starts a topic itself in a channel that has gone
 // quiet ('initiate'). It can also eavesdrop on a single fresh message and
 // jump in a few seconds/minutes later, as if it had just noticed it. A line
-// the room classifier of src/discord/events.js found put to everyone present
+// the room classifier of src/behavior/pipeline.js found put to everyone present
 // (spontaneous.roomQuestionChance) is scheduled the same way without the
 // roll, the turn about that line (its focus). A topic the persona started and
 // posted is followed by a pause (spontaneous.initiateCooldownHours, kept in
@@ -13,7 +13,7 @@
 // candidate too, with the main channel as its destination
 // (features.elsewhere): with unseen, settled, live messages there, a tick may
 // run a noticed comment about it in the destination, and an eavesdrop hit
-// there (noticeElsewhere) lets src/discord/events.js arm a settle wait that
+// there (noticeElsewhere) lets src/behavior/pipeline.js arm a settle wait that
 // ends in runNoticed. The ordinary rails apply, every one checked on the
 // destination; the per-source seen mark keeps one content from being
 // commented twice. There is no counter of its own.
@@ -24,7 +24,7 @@
 // runner.
 
 import { localHour } from '../format.js';
-import { readableChannels, canSend, lastActivity, isWritableChannel } from '../discord/collect.js';
+import { readableChannels, canSend, lastActivity, isWritableChannel } from '../interface/discord.js';
 import { routeFor } from './turn.js';
 import { chooseElsewhereMode, elsewhereSettings, hasUnseen, mayBeLive } from './elsewhere.js';
 import { between } from './random.js';
@@ -203,7 +203,7 @@ const ROOM_QUESTION_CHANCE_FALLBACK = 0.04;
 
 /**
  * The chance a line that failed the eavesdrop roll is shown to the room
- * classifier (src/discord/events.js): `spontaneous.roomQuestionChance`, or
+ * classifier (src/behavior/pipeline.js): `spontaneous.roomQuestionChance`, or
  * 0.04 (config.json's value) when it is missing. 0 turns the room path off.
  * @param {object} config  The live config, read by the caller now.
  * @returns {number}
@@ -234,7 +234,7 @@ export function isChannelDead(channel, now, cfg) {
  * (`[{ lastActivity, ownPostAt? }]`, epoch ms) saw a message within the last
  * `cfg.someoneAroundMinutes`. A tick starts a turn of the persona's own only
  * when this holds; a direct call never asks. `lastActivity` comes from the
- * snowflake of the channel's last message (src/discord/collect.js#lastActivity),
+ * snowflake of the channel's last message (interfaces/discord/collect.js#lastActivity),
  * so it cannot tell who wrote it: a member's message and another bot's both
  * count. `ownPostAt` (the persona's last post there, turns.lastPostAt, kept in
  * memory only) is the one author-aware hint: a channel whose newest message is
@@ -329,7 +329,7 @@ export function createSpontaneous({
 
   /**
    * Whether the persona may speak unprompted in `channel` now: one it may
-   * write in (src/discord/collect.js#isWritableChannel: readable, never the
+   * write in (interfaces/discord/collect.js#isWritableChannel: readable, never the
    * dry-run mirror, the bot can send) and destinationBlock finds nothing.
    */
   function passesFilters(channel, config, cfg, t) {
@@ -574,7 +574,7 @@ export function createSpontaneous({
   /**
    * Whether an eavesdrop on `channel` could be scheduled now, the roll
    * aside: the rails onMessage checks before its roll, read from the live
-   * config now, as one boolean. src/discord/events.js asks it before paying
+   * config now, as one boolean. src/behavior/pipeline.js asks it before paying
    * for a room classifier call. Rolls nothing, schedules nothing.
    * @param {object} channel  A discord.js guild channel.
    * @returns {boolean}
@@ -626,7 +626,7 @@ export function createSpontaneous({
   /**
    * The eavesdrop roll for a fresh message in a read-only channel: true when
    * a noticed comment on `channel` may follow, so the caller
-   * (src/discord/events.js) arms a settle wait that ends in runNoticed. The
+   * (src/behavior/pipeline.js) arms a settle wait that ends in runNoticed. The
    * same rails as any eavesdrop (not paused, eavesdropAllowed, a member's
    * message of the served guild), the route to a destination that passes
    * every rail of unprompted words (noticedRoute), then one roll of

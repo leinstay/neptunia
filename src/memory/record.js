@@ -84,7 +84,7 @@ function mediaKinds(slim) {
 }
 
 /**
- * The compact links of a record line, from a normalized message's links (src/discord/collect.js:
+ * The compact links of a record line, from a normalized message's links (interfaces/discord/collect.js:
  * `{ id, kind, url, title, text, site }`) or from links already in this shape (`description`
  * instead of `text`): each `{ id?, url, title, description, site }` on one line, the title and the
  * description clamped to LINK_TEXT_CHARS at a boundary (clampWithEllipsis). Only a link (`kind`

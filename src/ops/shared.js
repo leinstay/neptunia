@@ -14,7 +14,7 @@ import { roleModel } from '../llm/roles.js';
 import { IMAGE_ROLE } from '../llm/images.js';
 import { oneLine } from '../memory/clamp.js';
 import { utcDay } from '../time.js';
-import { canAttach, canRead, canReact, canSend } from '../discord/collect.js';
+import { canAttach, canRead, canReact, canSend } from '../interface/discord.js';
 import { denied, invalid } from './registry.js';
 
 /** `/nep memory journal`'s `n`: default and bounds. */
@@ -296,7 +296,7 @@ export const MEMORY_SHOW_MAX_LIMIT = 100;
 
 /** Hard ceiling for the `summary` section: the whole reply must fit a single
  * Discord message (2000 chars) — comfortably under that even after the
- * code-fence wrapping src/discord/commands.js#respond adds. */
+ * code-fence wrapping interfaces/discord/commands.js#respond adds. */
 export const SUMMARY_MAX_CHARS = 1800;
 
 export const DIVIDER_LINE = '-- not shown to the persona (below the shown cap) --';
@@ -691,7 +691,7 @@ export function learnedLine(item, resolve) {
 
 /**
  * What an operation does in a channel other than the one it runs in, and whether the bot holds
- * the Discord permissions it needs there (src/discord/collect.js: each check needs View Channel
+ * the Discord permissions it needs there (interfaces/discord/collect.js: each check needs View Channel
  * too): `send` a message, `reply` to one (send, and read the history the reply points into),
  * `attach` a picture (send with a file), `read` the history to find a message (an edit, a
  * deletion, a reaction taken back), `react` to one.

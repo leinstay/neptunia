@@ -135,7 +135,7 @@ export function explicitChannelIds(messages) {
  * `isPullable(id)` is false. `isPullable` carries the caller's checks: same
  * guild, text based, not a thread, not the dry-run mirror
  * (`bot.dryRunChannelId`), and every check fetchPull
- * (src/discord/pull-fetch.js) can make before its fetch (readable, the
+ * (interfaces/discord/pull-fetch.js) can make before its fetch (readable, the
  * audience rail), so a slot goes only to a channel the
  * fetch can serve and a refused newer mention never crowds out an older
  * usable one. It is asked in priority order, once per distinct id, and not
@@ -218,7 +218,7 @@ function skipped(skip) {
 /**
  * The messages of a pulled channel the persona is shown: a window that ENDS
  * at the anchor, not at now. The anchor is `anchorTs` when given (an explicit
- * anchor: src/discord/pull-fetch.js#fetchPull's `anchorId`, which has no
+ * anchor: interfaces/discord/pull-fetch.js#fetchPull's `anchorId`, which has no
  * production caller yet), else the newest message of `messages`. Messages after the anchor
  * are left out; every message with `ts >= anchor - windowMinutes` is kept;
  * when fewer than `minMessages` fall inside, the last `minMessages` up to the

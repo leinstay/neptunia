@@ -12,7 +12,7 @@
 // use; logs carry ids and outcomes, never a goal or a result.
 
 import { log as defaultLog } from '../log.js';
-import { normalizeMessage } from '../discord/collect.js';
+import { normalizeMessage } from '../interface/discord.js';
 
 /** `agents.resultRetrySeconds` and `agents.resultCooldownSeconds` when missing (config.json carries the same). */
 export const DEFAULT_RETRY_SECONDS = 30;

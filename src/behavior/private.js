@@ -2,7 +2,7 @@
 // may talk to the persona in private, and how the public profile and the
 // per-member private layer combine for that one conversation. The gate is
 // checked locally with zero tokens; anything it refuses is dropped by the
-// caller (src/discord/events.js), except the daily-cap notice. The private
+// caller (src/behavior/pipeline.js), except the daily-cap notice. The private
 // layer never changes the public profile: `mergeProfiles` builds a NEW
 // object for rendering only, and the public affinity score alone decides the
 // gate -- see docs/en/prompt-contract.md.

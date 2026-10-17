@@ -1095,7 +1095,7 @@ test('buildMemoryRequest: <new_messages> groups messages by channel with a headi
 // ---- analyze: description wiring --------------------------------------------
 // The live analyzer never triggers a new describer request itself (there is
 // no describer dependency left on createMemoryUpdater at all): it only reads
-// whatever src/discord/events.js already warmed into the shared media cache,
+// whatever src/behavior/pipeline.js already warmed into the shared media cache,
 // keyed by item id -- see src/memory/describe.js's cache shape.
 
 test('analyze: features.mediaDescriptions off never renders a cached description, even when one exists', async () => {

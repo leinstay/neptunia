@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import { COMMAND_TO_OP, legacyGrantOps, listOps, resolveCommand, runOp } from '../src/ops/index.js';
 import { createOpsEnv } from '../src/ops/env.js';
-import { commandKeys } from '../src/discord/commands.js';
+import { commandKeys } from '../src/interface/discord.js';
 
 /** The operation names the commands-cleanup plan agreed on (its wildcards spelled out), `/nep talk` since merged into `message.create`. */
 const AGREED = new Set([

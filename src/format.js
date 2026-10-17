@@ -627,7 +627,7 @@ const RAW_CHANNEL_RE = /<#(\d+)>/g;
 /**
  * `content` with each channel it mentions carrying its handle: every raw `<#id>` and every whole
  * `#name` of a channel in `mentionedIds` (the ids of the message's `<#id>` mentions, which the
- * text reads as `#name`: src/discord/collect.js) that `channels` knows becomes `template` filled
+ * text reads as `#name`: interfaces/discord/collect.js) that `channels` knows becomes `template` filled
  * with `{name}` (`#` + the channel's name) and `{handle}` (`#` + its handle). Whole: no word
  * character right before the `#` or after the name; the longest name first; URLs left alone. Pure.
  */
@@ -707,7 +707,7 @@ function withChannelHandles(content, mentionedIds, channels, template) {
  *   `transcript.reactions` key.
  * @param {number} [options.reactionsPerMessage]  Default 6: at most this many reactions per message.
  * @param {boolean} [options.reactionNames]  Default false (features.reactionNames, read by the caller):
- *   in `mode: 'chat'`, a reaction on the persona's own line whose `users` are known (src/discord/
+ *   in `mode: 'chat'`, a reaction on the persona's own line whose `users` are known (interfaces/discord/
  *   reactors.js#withReactors) renders `transcript.reactionNames` with the
  *   reactors named exactly like the authors of lines (the `handles` and `transcript.author` below),
  *   at most `reactionNamesMax` (5 when omitted) of them, the rest as `transcript.reactionMore`.

@@ -93,7 +93,7 @@ import { selectPictures, mediaProxyUrl, fitBox, mediaParts } from '../media/clas
 import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { mergeProfiles } from './private.js';
 import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, renderChannelDirectory, renderDirectory } from './handles.js';
-import { reactorIdsOf } from '../discord/reactors.js';
+import { reactorIdsOf } from '../interface/discord.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
@@ -428,7 +428,7 @@ function moveParts(affinity, labels, { max, timezone, nameOf }) {
  * "<people>"): '' when nothing has been learned yet. What changes from turn to turn -- the
  * attitude with its moves, the message count, whether this person is the one talking to the
  * persona, the live snapshot -- is never here: it is the person's `<people_now>` entry
- * (`profileStateFields`, src/discord/around.js). So the text depends on stored values only, and
+ * (`profileStateFields`, interfaces/discord/around.js). So the text depends on stored values only, and
  * on the clock only by the day: the stale and replaced-claim marks and the order of the names
  * people use read `opts.now` cut to the start of its UTC day (`profileDay`), the ranks of
  * interests, details and aliases use absolute dates (src/memory/ranking.js#rank), and no age is
@@ -689,7 +689,7 @@ export function profileStateFields(profile, labels, { relationships = false, sho
  * stored note yet (see below): Discord facts (name/category/topic) read off
  * whichever `history` message actually belongs to `currentChannelId` (every
  * message `buildRequest` is given for `<chat>` comes from that one channel,
- * see src/discord/collect.js#normalizeMessage) -- so the persona still knows
+ * see interfaces/discord/collect.js#normalizeMessage) -- so the persona still knows
  * where it is even before the analyzer has touched this channel once. `null`
  * when no message carries a usable channel name (nothing to render then; a
  * channel with counters but no name never happens in practice).
@@ -1898,7 +1898,7 @@ function profileNames(profile, maxAliases, aliasHalfLifeDays) {
  * priority (b)): the trigger message plus the last `ASKED_ABOUT_SCAN_MESSAGES`
  * messages of `history` (trigger is usually already the newest of those, but
  * is added explicitly in case it is not). Real mention ids
- * (`normalizeMessage`'s `mentionedUserIds`, see src/discord/collect.js) are the
+ * (`normalizeMessage`'s `mentionedUserIds`, see interfaces/discord/collect.js) are the
  * strongest signal; the plain lower-cased text is the fallback for a name/alias
  * match (`nameOccurs` above).
  * @param {object[]} history
@@ -2192,13 +2192,13 @@ function calendarDate(ymd, locale) {
 }
 
 /**
- * Another channel shown to a turn: the record src/discord/pull-fetch.js#fetchPull
+ * Another channel shown to a turn: the record interfaces/discord/pull-fetch.js#fetchPull
  * returns (the one definition), read here and never changed. This module reads
  * it a little more loosely than the producer writes it: `earlierPingIds` may
  * also be an array, `channelName` null falls back to the channel id, and a
  * missing `descriptions`, `olderNotShown`, `picturesNotSeen`, `earlierPingIds`
  * or `pingState` reads as empty.
- * @typedef {import('../discord/pull-fetch.js').PulledChannel} PulledChannel
+ * @typedef {import('../interface/discord.js').PulledChannel} PulledChannel
  */
 
 /** `{from}` / `{to}` of a pulled channel's header: the date and the clock of `ts`, joined as `<now>` joins them. */
@@ -2317,7 +2317,7 @@ function pulledLineHash(message) {
 
 /**
  * The view of the same source channel last shown in this destination channel
- * (src/discord/pull-fetch.js#createPullViews, attached by src/behavior/turn.js
+ * (interfaces/discord/pull-fetch.js#createPullViews, attached by src/behavior/turn.js
  * as the entry's `seenBefore`), or null when there is none or it is unusable.
  * @returns {{ hashes: Map<string, string>, oldestTs: number, shownAt: number }|null}
  */
@@ -2557,7 +2557,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   never listed in `<directory>`. Omitted -> no profile is left out for being hers.
  * @param {object[]} input.history         Normalized channel messages, oldest first.
  * @param {{channelId?: string, channelName: string, messages: object[]}[]} input.neighbors
- *   `channelId` (see src/discord/collect.js#fetchNeighbors) is how `<server>` tells which
+ *   `channelId` (see interfaces/discord/collect.js#fetchNeighbors) is how `<server>` tells which
  *   stored channel note, if any, belongs to a neighbour that contributed to `<other_channels>` --
  *   omitted (an older/direct caller) simply means that neighbour never gets its note shown.
  * @param {object|null} input.trigger      Normalized message the turn answers (reply mode): a call,
@@ -2596,7 +2596,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   id, never by nickname". Omitted -> tokens render exactly as stored.
  * @param {object[]} [input.channels]      The server's channel map (store.listChannels), [] when memory is off.
  * @param {{ id: string, name: string, category?: string|null }[]} [input.channelDirectory]  The text
- *   channels the persona can read (src/discord/collect.js#channelDirectoryOf), [] or omitted for
+ *   channels the persona can read (interfaces/discord/collect.js#channelDirectoryOf), [] or omitted for
  *   none. With features.mentionHandles on each gets a handle (src/behavior/handles.js#assignChannelHandles),
  *   listed in `<channel_directory>` (`labels.channelDirectory`, renderChannelDirectory, sorted by id:
  *   the stable part, before `<directory>`, never cut) and shown beside each channel a line mentions
@@ -2635,7 +2635,7 @@ function seenOf({ history, keptChat, pictures }) {
  * @param {string} [input.drawReason]  For `triggerKind: 'drawFailed'`: the failure reason,
  *   rendered through `labels.draw.reasons` into `labels.triggers.drawFailed`'s `{reason}`.
  * @param {{ id: string, name: string, animated?: boolean }[]} [input.customEmoji]  The served
- *   guild's custom emoji (src/discord/emoji.js#createEmojiIndex's `list()`). With
+ *   guild's custom emoji (interfaces/discord/emoji.js#createEmojiIndex's `list()`). With
  *   `features.customEmoji` on (a missing key counts as on) and a non-empty list, `<emoji>`
  *   renders (ranked by `guildMemory.emojiUsage`, see `emojiItems`) and `<senses>` carries
  *   `senses.customEmoji`. Omitted or [] -> neither. With `labels.emoji.seenInChat` (and
@@ -2763,7 +2763,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   `labels.skills.granted.lead` (skillsGrantedText), fixed, never cut. Omitted, null or empty
  *   -> no block.
  * @param {{ snapshot: object, channelNameOf?: (channelId: string) => string|null }|null} [input.around]
- *   The live glance at the server's sidebar (src/discord/around.js): `snapshot` is the
+ *   The live glance at the server's sidebar (interfaces/discord/around.js): `snapshot` is the
  *   store's snapshot, `channelNameOf` the name of a voice channel the audience may see (else
  *   null: left out). It is the live part of `<people_now>`, in the tail right after `<skills>`
  *   and before `<chat>`, never in a cached part: one entry per person
@@ -2810,7 +2810,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   with the ids of the lines shown and the newest window line shown; `pulledViews` the same
  *   channels with each shown line's hash and the oldest window line's time (what the next view of
  *   that channel in this destination compares against: the PulledChannel's `seenBefore`,
- *   src/discord/pull-fetch.js#createPullViews). `peopleShown` lists the
+ *   interfaces/discord/pull-fetch.js#createPullViews). `peopleShown` lists the
  *   members whose profile the request shows (the interlocutor when its block was kept, then those
  *   `<people>` kept, in its order) with their stored names: whose `@name` the reply may resolve
  *   with features.mentionHandles off (src/behavior/turn.js#resolveMentions). `handles` maps

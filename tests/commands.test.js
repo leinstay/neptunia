@@ -1,4 +1,4 @@
-// Tests for src/discord/commands.js: the pure command tree, command-name
+// Tests for interfaces/discord/commands.js: the pure command tree, command-name
 // validation, guild registration (including the swallowed-failure path) and
 // the interaction handler (owner gate, option -> args mapping, defer/edit,
 // chunked follow-ups, autocomplete).
@@ -12,7 +12,7 @@ import {
   createInteractionHandler,
   commandKeys,
   commandEvent,
-} from '../src/discord/commands.js';
+} from '../src/interface/discord.js';
 import {
   isValidCommandName,
   leafPaths,

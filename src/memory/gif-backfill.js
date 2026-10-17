@@ -81,7 +81,7 @@ export function createGifBackfill({ hot, store, client, describer = null, log = 
    * stays at count 0, ranked below every counted one, until `storeMax`
    * evicts it (src/memory/gifs.js#rankGifs). Handles are never reused.
    * Channels are read one after another, 100 messages per page (see
-   * src/discord/collect.js#fetchHistoryWindow). Messages of bots and of the
+   * interfaces/discord/collect.js#fetchHistoryWindow). Messages of bots and of the
    * persona are skipped. Resetting, counting and stamping happen together
    * after every channel is read; the describing comes after, and only while
    * not paused. Skips (never throws) when paused, when `backfillMessages` is

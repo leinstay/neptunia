@@ -279,6 +279,13 @@ prompts/
 prompts.local/             your personality (gitignored)
 packages/
   protocol/                the protocol between the core and an interface adapter: event kinds, action names, result statuses, validation (docs/en/interfaces.md)
+interfaces/
+  discord/                 the Discord interface (@neptunia/interface-discord): the Discord adapter of the interface port, message normalization, history, permissions, searches and slash commands
+    guild.js               single-guild resolution
+    commands.js            slash commands, registration, interaction adapter
+    collect.js             channel history, neighbours, permissions
+    search.js              Discord message search and member search
+    pull-fetch.js          audience check, pull-channel fetch
 agents/                    one folder per errand agent (prompt.md and profile.json); see agents/README.md and docs/en/agents.md
 docs/
   en/
@@ -364,13 +371,6 @@ src/
     parse.js               output tags to actions
     roles.js               the model roles (eight for the bot, three for its OpenCode agents) with their defaults and per-purpose mapping
     embed.js               OpenRouter embeddings client (embedding role)
-  discord/
-    guild.js               single-guild resolution
-    commands.js            slash commands, registration, interaction adapter
-    events.js              message pipeline
-    collect.js             channel history, neighbours, permissions
-    search.js              Discord message search and member search
-    pull-fetch.js          audience check, pull-channel fetch
   media/
     classify.js            media classification, label selection, proxy URLs
     video-sites.js         video site matching, URL cache keys, yt-dlp/ffmpeg args
@@ -382,6 +382,7 @@ src/
     brave.js               Brave Search client
     lookup.js              link reading and web search
   behavior/
+    pipeline.js            message pipeline
     mention.js             call detection, ignore heuristics
     prompt.js              request builder with token budget
     turn.js                one turn: collect, build, call, act

@@ -32,7 +32,7 @@
 // summary reads the chat lines before the question as `<context>`, with each
 // stretch flagged when it holds the persona's lines or overlaps the current
 // chat. This module holds those decisions with no I/O;
-// the Discord side is src/discord/search.js and the runner
+// the Discord side is interfaces/discord/search.js and the runner
 // src/behavior/recall-run.js. No wording of ours goes into the request: tags
 // and structural marks only.
 // A `when:` range beside word or name forms is a locator unless the lookup

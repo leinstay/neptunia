@@ -21,7 +21,7 @@
 // than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`).
 
 import fsp from 'node:fs/promises';
-import { normalizeMessage } from '../discord/collect.js';
+import { normalizeMessage } from '../interface/discord.js';
 import { channelById, messageRefOf, portAnswer, postingConversation } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
