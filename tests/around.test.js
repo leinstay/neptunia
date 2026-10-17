@@ -4,7 +4,8 @@
 // discord.js' VoiceState and Presence, no client, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AROUND_TEXT_CHARS, NOW_DETAIL_CHARS, cleanText, createAroundStore, fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from '../src/discord/around.js';
+import { createAroundStore } from '../src/discord/around.js';
+import { AROUND_TEXT_CHARS, NOW_DETAIL_CHARS, cleanText, fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from '../src/behavior/around.js';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 

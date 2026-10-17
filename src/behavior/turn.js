@@ -69,7 +69,7 @@ import {
   selectPictures,
 } from '../media/classify.js';
 import { avatarReference, createImageFetcher } from '../media/fetch-image.js';
-import { renderCustomEmoji, resolveReactionEmoji } from '../discord/emoji.js';
+import { renderCustomEmoji, resolveReactionEmoji } from './emoji.js';
 import { fill, formatNow, replyMarker, withCalls, withTriggers } from '../format.js';
 import { log } from '../log.js';
 import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';

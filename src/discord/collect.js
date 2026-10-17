@@ -23,7 +23,7 @@ import {
   clipWithEllipsis,
 } from '../media/classify.js';
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../media/video-sites.js';
-import { CUSTOM_EMOJI_MARKUP } from './emoji.js';
+import { CUSTOM_EMOJI_MARKUP } from '../behavior/emoji.js';
 import { backfillPlan, emojiOf, reactionKey, runBackfill, withReactors } from './reactors.js';
 import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../protocol.js';
 import { DISCORD_IFACE } from '../interface/discord.js';

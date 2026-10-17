@@ -97,7 +97,7 @@ import { reactorIdsOf } from '../discord/reactors.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
-import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from '../discord/around.js';
+import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from './around.js';
 
 const TAG_OVERHEAD = 60;
 
@@ -643,7 +643,7 @@ function hasAttitude(profile, relationships) {
 
 /**
  * What is current about one person in memory, as the field lines of their `<people_now>` entry
- * (src/discord/around.js#fieldLine), for a profiled person only. With `relationships` on:
+ * (src/behavior/around.js#fieldLine), for a profiled person only. With `relationships` on:
  * `attitude`, the attitude through `labels.peopleNow.attitude` (`{score}` rounded, `{band}` from
  * `labels.affinity.bands`, `{reason}` with `<@id>` tokens resolved) when it is non-neutral
  * (`hasAttitude`), else `values.none`; then, with an attitude and `shownMoves` a positive integer
@@ -2767,7 +2767,7 @@ function seenOf({ history, keptChat, pictures }) {
  *   store's snapshot, `channelNameOf` the name of a voice channel the audience may see (else
  *   null: left out). It is the live part of `<people_now>`, in the tail right after `<skills>`
  *   and before `<chat>`, never in a cached part: one entry per person
- *   (src/discord/around.js#personRow): a heading line with their mention handle and name, then
+ *   (src/behavior/around.js#personRow): a heading line with their mention handle and name, then
  *   one labelled field per line -- the interlocutor first (the heading tagged with
  *   `labels.peopleNow.marks.interlocutor`, or `.overheard` on an overheard turn; never cut), then
  *   the people of the tail `<people>` in their order (each entry one budget item with its
