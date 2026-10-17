@@ -8,12 +8,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { createGifRecache, gifCaptionCounts, gifCaptionState, gifFormatCounts, isPictureKey, oneFrameGifKeys, pickStaleDescriptions, recacheQueue, recordFinder, snowflakeMs } from '../src/memory/gif-recache.js';
 import { createStore } from '../src/memory/store.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -22,7 +22,7 @@ const T0 = Date.UTC(2026, 8, 1);
 const TENOR = (n) => `https://tenor.com/view/danse-${n}`;
 
 function withStore(fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-gif-recache-'));
+  const dir = tempDir('nep-gif-recache-');
   return Promise.resolve()
     .then(() => fn(createStore({ dataDir: dir })))
     .finally(() => fs.rmSync(dir, { recursive: true, force: true }));

@@ -5,12 +5,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createRecord } from '../src/memory/record.js';
 import { createStore } from '../src/memory/store.js';
 import { createVectors } from '../src/memory/vectors.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const GUILD = '600000000000000001';
 const ELENI = '411111111111111111';
@@ -28,7 +28,7 @@ function meta(id, overrides = {}) {
 const vector = (seed) => Float32Array.from([1, seed, 0.5, -seed]);
 
 async function scene() {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-store-vectors-'));
+  const dataDir = tempDir('nep-store-vectors-');
   const appendStore = createAppendStore({ fsyncMs: 0, log: quiet });
   const record = createRecord({ appendStore, dataDir, log: quiet });
   await record.append(GUILD, [
@@ -74,7 +74,7 @@ test('store applyLedger: a restored row from before the forget goes again; one f
 });
 
 test('store applyLedger: without a meaning index the counts keep their shape', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-store-vectors-'));
+  const dataDir = tempDir('nep-store-vectors-');
   const store = createStore({ dataDir });
   fs.mkdirSync(path.join(dataDir, 'guilds', GUILD), { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'guilds', GUILD, 'forgotten.json'), JSON.stringify([{ userId: ELENI, at: new Date(FORGET_AT).toISOString() }]));

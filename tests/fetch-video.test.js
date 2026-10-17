@@ -10,10 +10,10 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { writeFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { createVideoFetcher, proxyReachable } from '../src/media/fetch-video.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const OPTS = {
   maxSeconds: 60,
@@ -28,7 +28,7 @@ const SITE_URL = 'https://www.youtube.com/watch?v=abc123&si=secrettracking';
 
 let tmpDir;
 beforeEach(async () => {
-  tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'fetch-video-test-'));
+  tmpDir = tempDir('fetch-video-test-');
 });
 afterEach(async () => {
   await fsp.rm(tmpDir, { recursive: true, force: true });

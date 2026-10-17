@@ -4,7 +4,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createHot } from '../src/hot.js';
 import { diaryTopic } from '../src/behavior/diary.js';
@@ -13,12 +12,13 @@ import { createBraveSearch } from '../src/web/brave.js';
 import { createExaSearch } from '../src/web/exa.js';
 import { parseArgs, diaryTurnParams, diaryPromptLayers, dryRunHot, searchAvailableOf } from '../tools/replay.mjs';
 import { promptLayersHot } from '../tools/lib/prompt-layers.mjs';
+import { tempDir } from './fixtures/tmp.js';
 
 const quietHot = createHot; // never watched: createHot watches only on .watch()
 
 /** A scratch checkout: config.json, prompts/ with two files and labels, prompts.local/ with one. */
 function scratchRoot() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-test-'));
+  const root = tempDir('nep-replay-test-');
   fs.writeFileSync(path.join(root, 'config.json'), JSON.stringify({ features: { dryRun: false, diary: true }, bot: { dryRunChannelId: '42' } }));
   fs.mkdirSync(path.join(root, 'prompts'));
   fs.writeFileSync(path.join(root, 'prompts', 'reply.md'), 'tracked reply');
@@ -71,7 +71,7 @@ test('replay: the diary mode builds a diary turn request with the kind forced an
 
 test('replay: --prompts layering is one helper shared by pair and diary', () => {
   const root = scratchRoot();
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-layers-'));
+  const tmpDir = tempDir('nep-replay-layers-');
   try {
     // --diary: the directory over prompts.local/, which stays under it.
     const layers = diaryPromptLayers(root, 'candidate');
@@ -106,8 +106,8 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
 
 test('replay: with NEPTUNIA_PRIVATE_DIR apart, --diary and --pair take config.local.json and prompts.local/ from it', () => {
   const root = scratchRoot();
-  const privateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-private-'));
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-layers-'));
+  const privateDir = tempDir('nep-replay-private-');
+  const tmpDir = tempDir('nep-replay-layers-');
   const env = { NEPTUNIA_PRIVATE_DIR: privateDir };
   try {
     // The checkout keeps a stale local layer; the live one is in the private directory.

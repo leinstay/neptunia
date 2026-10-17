@@ -11,10 +11,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 
 import { createLedgerMirror, MAX_QUEUE, TITLE_CHARS, idempotencyKey } from '../src/errands/ledger.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const T0 = Date.parse('2026-10-17T10:00:00Z');
 
@@ -27,7 +27,7 @@ function fakeLog() {
 
 /** A socket path in a fresh temp directory. */
 function socketIn() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ledger-'));
+  const dir = tempDir('nep-ledger-');
   return { dir, socket: path.join(dir, 'l.sock') };
 }
 

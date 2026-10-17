@@ -5,7 +5,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {
   localDayKey,
@@ -36,6 +35,7 @@ import { labels } from './fixtures/labels.js';
 import { createStore } from '../src/memory/store.js';
 import { redactUser } from '../src/memory/mentions.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -527,7 +527,7 @@ test('gistOf: one line cut at a word boundary', () => {
 // ---- store: the diary file (data/guilds/<id>/diary.json) ----
 
 function tmpDataDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'nep-diary-'));
+  return tempDir('nep-diary-');
 }
 
 const post = (n) => ({ at: n * 1000, kind: 'status', gist: `post ${n}`, picture: null, messageIds: [`m${n}`], search: '' });

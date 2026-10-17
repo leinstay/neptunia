@@ -5,16 +5,16 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { advanceCursor, candidateItemId, dedupeCandidates, estimate, isThinWindow, parseExtractAnswer, readExtractAnswer, textSimilarity, windowsOf } from '../tools/lib/backfill.mjs';
 import { EPISODE_CHARS } from '../src/memory/episodes.js';
 import { main } from '../tools/backfill.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
+import { tempDir } from './fixtures/tmp.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-backfill-'));
+const TEMP = tempDir('nep-backfill-');
 after(() => fs.rmSync(TEMP, { recursive: true, force: true }));
 
 const GUILD = '600000000000000001';

@@ -8,7 +8,6 @@ import { fill } from '../src/format.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { pingStatus } from '../src/behavior/elsewhere.js';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MessageReferenceType, PermissionFlagsBits } from 'discord.js';
@@ -21,6 +20,7 @@ import { createStore } from '../src/memory/store.js';
 import { slimMessage } from '../src/memory/update.js';
 import { createDiscordAdapter, createDiscordInterface, normalizeMessage, normalizeOptions, toEvent } from '../src/interface/discord.js';
 import { createActivity } from '../src/behavior/activity.js';
+import { tempDir } from './fixtures/tmp.js';
 
 /** The Discord functions the pipeline is given, the real ones src/index.js passes. */
 const DISCORD = createDiscordInterface().capabilities;
@@ -7545,7 +7545,7 @@ const TENOR_GIFV = {
 
 /** A real store over a temporary data dir (never the deployment's data/). */
 function tmpStore() {
-  return createStore({ dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'nep-events-update-')) });
+  return createStore({ dataDir: tempDir('nep-events-update-') });
 }
 
 /** The message as messageCreate saw it (a bare link) and as messageUpdate carries it (with the embed). */

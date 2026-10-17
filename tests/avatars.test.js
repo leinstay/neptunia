@@ -4,11 +4,11 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { avatarHashOf, isAvatarDue, memberView, normalizeAvatar } from '../src/memory/avatars.js';
 import { AVATAR_DAILY, createAvatarQueue } from '../src/memory/avatar-queue.js';
 import { createStore } from '../src/memory/store.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const NOW = Date.UTC(2026, 9, 15, 12, 0, 0);
 const GUILD = 'g1';
@@ -16,7 +16,7 @@ const SELF = 'self-1';
 const PROMPT = 'Describe the avatar in at most {{maxChars}} characters.';
 const DOWNLOAD = { dataUrl: 'data:image/png;base64,ZmFrZQ==', bytes: 4, contentType: 'image/png' };
 
-const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-avatars-'));
+const TMP_ROOT = tempDir('nep-avatars-');
 after(() => fs.rmSync(TMP_ROOT, { recursive: true, force: true }));
 
 function clock(start = NOW) {

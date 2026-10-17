@@ -5,16 +5,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import crypto from 'node:crypto';
 
 import { createUsage, usageTap, keyCostsLines, roleCostsLines, readAccount, readActivity, activitySums, compactTokens, USAGE_FILE, KEEP_DAYS } from '../src/ops/usage.js';
 import { createLlm, keyHashOf } from '../src/llm/openrouter.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const HOUR = 3_600_000;
 
 function tmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'nep-usage-'));
+  return tempDir('nep-usage-');
 }
 
 /** A clock the test moves by hand. */

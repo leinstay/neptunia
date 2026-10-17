@@ -3,11 +3,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createRecord } from '../src/memory/record.js';
 import { createEmbedder } from '../src/memory/embedder.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const GUILD = '600000000000000001';
 const ELENI = '411111111111111111';
@@ -30,7 +30,7 @@ function quietLog() {
 
 /** A temp data/, the real record, a fake index and embed call, and the queue over them. */
 function scene({ features = { meaningSearch: true, embedIndex: true }, embedConfig = {}, embedImpl = null, paused = null } = {}) {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-embedder-'));
+  const dataDir = tempDir('nep-embedder-');
   const appendStore = createAppendStore({ fsyncMs: 0, log: quietLog() });
   const record = createRecord({ appendStore, dataDir, log: quietLog() });
   const config = {

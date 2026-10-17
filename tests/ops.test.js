@@ -4,12 +4,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { COMMAND_TO_OP, legacyGrantOps, listOps, resolveCommand, runOp } from '../src/ops/index.js';
 import { createOpsEnv } from '../src/ops/env.js';
 import { commandKeys, createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -45,7 +45,7 @@ const OWNER_ONLY = [
 ];
 
 function makeEnv({ access = {}, emojiBackfill } = {}) {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ops-'));
+  const rootDir = tempDir('nep-ops-');
   fs.mkdirSync(path.join(rootDir, 'prompts'));
   fs.writeFileSync(path.join(rootDir, 'prompts', 'rules.md'), '## Rules\n\n- be kind\n');
   const hot = {
@@ -190,7 +190,7 @@ test('ops: a stored grant on a command or group that runs no operation any more 
 });
 
 test('createOpsEnv: the simulator key, the management key and the extra role keys reach the owner status card', async () => {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ops-'));
+  const rootDir = tempDir('nep-ops-');
   const costs = {
     keyLead: 'main',
     simKeyLead: 'sim',
@@ -235,7 +235,7 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
 });
 
 test('status keys: a role on the simulator key (agent.advice) is shown on the simulator line, never on a line of its own', async () => {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ops-'));
+  const rootDir = tempDir('nep-ops-');
   const costs = {
     keyLead: 'main',
     simKeyLead: 'sim',

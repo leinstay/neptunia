@@ -6,7 +6,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { runOp } from '../src/ops/index.js';
@@ -15,6 +14,7 @@ import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -48,7 +48,7 @@ function fakeClient({ configured = true } = {}) {
 }
 
 function makeEnv({ agents = {}, configured = true } = {}) {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ops-task-'));
+  const rootDir = tempDir('nep-ops-task-');
   const hot = {
     config: { bot: { owners: [OWNER], access: {} }, features: {}, agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } }, server: { enabled: true, daily: { tasks: 10, usd: 5 } }, ...agents } },
     prompts: { labels: {} },
@@ -171,7 +171,7 @@ test('task.status and task.list: the open ones, one by id, a private chat\'s onl
 });
 
 test('task.status: a finished task whose files the runner deleted says files-expired', async () => {
-  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-ops-task-out-'));
+  const out = tempDir('nep-ops-task-out-');
   const { env, client, errands } = makeEnv({ agents: { web: { enabled: true, out, daily: { tasks: 10, usd: 5 } } } });
   await withCapturedLogs(async () => {
     const id = (await runOp('task.run', { agent: 'web', goal: 'a meme' }, ctx(env, MEMBER))).data.task.id;

@@ -12,7 +12,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SnowflakeUtil } from 'discord.js';
@@ -43,6 +42,7 @@ import { loadSkills } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
 import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -78,7 +78,7 @@ const SHIPPED = {
 const LABELS = SHIPPED.prompts.labels;
 
 // One temp root for the stores the warm-up writes through, removed once the file is done.
-const TEMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-prompts-shipped-'));
+const TEMP_ROOT = tempDir('nep-prompts-shipped-');
 after(() => fs.rmSync(TEMP_ROOT, { recursive: true, force: true }));
 
 /** A real store over a fresh directory under TEMP_ROOT. */
@@ -1314,7 +1314,7 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
   const candidate = history.findLast((message) => !message.self);
   const llm = recordingLlm(() => '1: stale');
   const guild = discordGuild([[GENERAL_INFO, generalRaws()]]);
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-shipped-missed-'));
+  const dataDir = tempDir('nep-shipped-missed-');
   const missed = createMissed({
     hot: shippedHot(),
     store: { state: { data: {} } },

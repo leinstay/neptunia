@@ -6,7 +6,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,6 +23,7 @@ import { commandSources, deriveSkillDefinitions, optionsSchema } from '../src/sk
 import { CARRIED_OVER, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, skillAccess } from '../src/skills/access.js';
 import { schemaError } from '../src/skills/schema.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/skills/gateway.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -457,7 +457,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
 // ---- the owner grants a skill to her: /nep access grant|revoke with her as the user ------------
 
 function makeEnv({ cfg = config(), roles = [] } = {}) {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-skills-'));
+  const rootDir = tempDir('nep-skills-');
   const hot = { config: cfg, prompts: { labels: {}, skills: {} }, promptSources: {}, rootDir, reloadConfig: () => true, reloadPrompts: () => true };
   const store = { state: { data: {}, markDirty() {} }, flush() {}, getUser: () => null, getGuild: () => ({}), updateGuild() {} };
   const me = { roles: { cache: new Map(roles.map((id) => [id, { id }])) } };

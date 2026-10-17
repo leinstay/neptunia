@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { callMarksOf, createJournal, createOffPeriodsReader, offPeriods, triggerLinksOf } from '../src/memory/journal.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const DATA = path.join('fake-root', 'data');
 const DAY_D = Date.UTC(2026, 9, 13, 23, 59, 50);
@@ -506,7 +507,7 @@ async function realJournal(clock) {
   const fsp = await import('node:fs/promises');
   const os = await import('node:os');
   const { createAppendStore } = await import('../src/memory/append-store.js');
-  const dataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'nep-journal-'));
+  const dataDir = tempDir('nep-journal-');
   const quiet = { info() {}, warn() {} };
   const appendStore = createAppendStore({ fsyncMs: 0, log: quiet, now: () => clock.ms });
   const make = (store = appendStore) => createJournal({ appendStore: store, dataDir, config: () => ({}), now: () => clock.ms, uuid: counter('r-'), log: quiet });

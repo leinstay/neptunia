@@ -6,7 +6,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ADVICE_ROLE, AGENT_ROLES, OPENCODE_ROLES, ROLES, ROLE_DEFAULTS, PURPOSE_ROLES, isRole, roleModel } from '../src/llm/roles.js';
@@ -16,12 +15,13 @@ import { EMBED_ROLE } from '../src/llm/embed.js';
 import { IMAGE_ROLE } from '../src/llm/images.js';
 import { warmupRoute } from '../src/memory/warmup.js';
 import { MODEL_SET_ROLES } from '../src/ops/catalog.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** A scratch root with the tracked config.json and, when given, a config.local.json. */
 function loadWith(local) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-roles-'));
+  const dir = tempDir('nep-roles-');
   try {
     fs.copyFileSync(path.join(ROOT, 'config.json'), path.join(dir, 'config.json'));
     if (local !== undefined) fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify(local));
