@@ -111,6 +111,6 @@ The core (`src/errands/`) keeps the persona's tasks per server in `data/guilds/<
 
 1. Create `agents/<id>/` with a `profile.json` (copy one of the existing ones) and, for a worker, a `prompt.md`.
 2. If it needs a model role that does not exist yet, add it to `src/llm/roles.js`.
-3. For a worker: add an `agents.<id>` block to `config.json`, a systemd unit like `deploy/neptunia-agent-web.service`, and, for the persona to reach it, its name in `TASK_AGENTS` (`src/discord/commands.js`) and who may ask for it in `src/ops/task.js`.
+3. For a worker: add an `agents.<id>` block to `config.json`, a systemd unit like `deploy/neptunia-agent-web.service`, and, for the persona to reach it, its name in `TASK_AGENTS` (`src/ops/catalog.js`) and who may ask for it in `src/ops/task.js`.
 4. If no existing shell class fits, that is a code change in `src/agent-runner/profiles.js`, not a profile key.
 5. Run `tests/agent-runner-profiles.test.js`.

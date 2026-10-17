@@ -324,6 +324,7 @@ src/
   hot.js                   live config + prompts via fs.watch
   paths.js                 resolves the private and data directories from NEPTUNIA_PRIVATE_DIR and NEPTUNIA_DATA_DIR
   log.js                   structured JSON logging
+  format.js                transcript lines, time gaps, tempo
   admin.js                 owner commands
   ops/
     registry.js            operation definitions: names, read/write rights, owner-only flags
@@ -332,6 +333,8 @@ src/
     metrics.js             speed figures for the status card: samples of the last 24 h, persisted in data/metrics.json
     usage.js               costs fields of the status card: each key's limit and usage, today's requests per role in data/usage.json
     access.js              /nep access: grant, revoke, list, migration from old keys
+    grants.js              per-operation access grants for non-owners
+    catalog.js             the /nep command catalogue: COMMAND_TABLE and its choice lists
     env.js                 shared environment for all operation handlers
     shared.js              small helpers used across operation modules
     config.js              /nep set, /nep unset
@@ -364,15 +367,14 @@ src/
   discord/
     guild.js               single-guild resolution
     commands.js            slash commands, registration, interaction adapter
-    access.js              per-operation access grants for non-owners
     events.js              message pipeline
     collect.js             channel history, neighbours, permissions
-    format.js              transcript lines, time gaps, tempo
-    media.js               media classification, label selection, proxy URLs
     search.js              Discord message search and member search
     pull-fetch.js          audience check, pull-channel fetch
-    fetch-image.js         download and cache images for inline LLM requests
+  media/
+    classify.js            media classification, label selection, proxy URLs
     video-sites.js         video site matching, URL cache keys, yt-dlp/ffmpeg args
+    fetch-image.js         download and cache images for inline LLM requests
     fetch-video.js         download, probe and trim videos for the video describer
   web/
     readable.js            HTML to text, paywall detection

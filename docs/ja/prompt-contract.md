@@ -1,6 +1,6 @@
 # プロンプトコントラクト
 
-プロンプトファイルとコード（`src/behavior/prompt.js`、`src/llm/parse.js`、`src/discord/format.js`、
+プロンプトファイルとコード（`src/behavior/prompt.js`、`src/llm/parse.js`、`src/format.js`、
 `src/memory/update.js`、`src/memory/channels.js`、`src/memory/warmup.js`）が接するポイントです。一方を変更する場合、
 もう一方も合わせてください。変更のワークフローについては `CONTRIBUTING.md` を参照してください。
 
