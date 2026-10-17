@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { block, buildDrawPrompt, buildRequest, hasRequiredLabels, profileStateFields, renderProfile, skillResultBlock, skillsInventoryText, stableThenTail, fillPromptTemplate, userText as contentText, usesFollowUpTask, withSkillResult } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
 import { createAroundStore } from '../src/discord/around.js';
-import { fill, formatClock, formatDate, formatDuration } from '../src/discord/format.js';
+import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { zonedDay } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
 import { tokenIds } from '../src/memory/mentions.js';

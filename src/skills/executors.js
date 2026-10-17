@@ -434,7 +434,7 @@ const ARG_RULE_KINDS = Object.freeze({
 /**
  * The concrete detail of a call's outcome that is not `ok`, from its code and the machine reason
  * the resolution or the gateway gave (never wording; the transcript words it through
- * `labels.transcript.callReasons`, src/discord/format.js): `{ kind, code, arg }`. An
+ * `labels.transcript.callReasons`, src/format.js): `{ kind, code, arg }`. An
  * `invalid-args` refusal with a schema path (`args.<arg>[.<more>]:<rule>`) names the argument and
  * what was wrong with it (`missing-arg`, `unknown-arg`, `arg-twice`, `too-long`, `too-short`,
  * `unknown-channel`, `unknown-role`, else `wrong-arg`); `unknown-message` names the option (`message`, `reply`) whose message was not in view,

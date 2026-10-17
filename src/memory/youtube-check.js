@@ -9,7 +9,7 @@
 // nothing written under data/; never logs the URL or the key.
 
 import { log as defaultLog } from '../log.js';
-import { proxyFor } from '../discord/video-sites.js';
+import { proxyFor } from '../media/video-sites.js';
 
 /**
  * Whether video vision is on: features.mediaDescriptions AND

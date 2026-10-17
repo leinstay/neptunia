@@ -14,7 +14,7 @@
 
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
-import { formatDuration } from '../discord/format.js';
+import { formatDuration } from '../format.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { oneLine } from '../memory/clamp.js';
 import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/index.js';

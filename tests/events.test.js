@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createMessageHandler } from '../src/discord/events.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
-import { fill } from '../src/discord/format.js';
+import { fill } from '../src/format.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { pingStatus } from '../src/behavior/elsewhere.js';
 import fs from 'node:fs';

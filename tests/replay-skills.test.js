@@ -16,7 +16,7 @@ import { expandPersonaGrant } from '../src/ops/access.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/skills/access.js';
 import { callViewOf, requesterOf } from '../src/behavior/turn.js';
-import { fill } from '../src/discord/format.js';
+import { fill } from '../src/format.js';
 import { createHot } from '../src/hot.js';
 import { deepMerge } from '../src/config.js';
 import { afterScenarioTurn, answerSkillScenario, burstTurns, liveView, personaGrantsConfig, scenarioInventory, seededSelfLine, simulateCall } from '../src/behavior/sandbox.js';

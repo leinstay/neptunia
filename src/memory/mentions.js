@@ -401,7 +401,7 @@ function coreAt(text, at, byCore) {
  * Turn every `#handle` of `handles` and every `#name` of a known channel in the persona's
  * outgoing `text` into the real channel link `<#id>` -- incoming `<#id>` mentions reach the model
  * as `#name` (src/discord/collect.js), with the channel's handle beside it when the request has one
- * (src/discord/format.js), so this is the way back out. A handle first, strictly: the whole token
+ * (src/format.js), so this is the way back out. A handle first, strictly: the whole token
  * after the `#` (base-36 digits and lower-case letters, case as given) is a key of `handles`;
  * a token `handles` does not hold goes on to the names below. Then the names: exact,
  * case-sensitive names first, the longest first (a name may be a prefix of another);

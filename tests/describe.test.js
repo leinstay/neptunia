@@ -2330,7 +2330,7 @@ function gifDescriber({ hot = gifHot(), llm = fakeLlm({ text: 'a man pulls a chi
 
 const TENOR_MP4 = 'https://images-ext-1.discordapp.net/external/v/https/media.tenor.com/x/AAAPo/loop.mp4';
 
-/** A tenor gifv embed's picture item (src/discord/media.js#collectPictures). */
+/** A tenor gifv embed's picture item (src/media/classify.js#collectPictures). */
 function gifEmbedItem(itemId = 'm1#e0', overrides = {}) {
   return {
     source: 'embed',

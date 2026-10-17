@@ -303,7 +303,10 @@ src/
   config.js                .env パーサー、設定ローダー、deepMerge
   hot.js                   fs.watch によるライブな設定とプロンプト
   log.js                   構造化 JSON ログ
+  format.js                トランスクリプト行、タイムギャップ、テンポ
   admin.js                 オーナーコマンド
+  ops/
+    grants.js              オーナー以外へのコマンド単位のアクセスグラント
   llm/
     tokens.js              自己キャリブレーション付きトークン推定
     budget.js              優先順によるセクションのトリミング
@@ -312,15 +315,14 @@ src/
   discord/
     guild.js               単一ギルドの解決
     commands.js            スラッシュコマンド、登録、インタラクションアダプター
-    access.js              オーナー以外へのコマンド単位のアクセスグラント
     events.js              メッセージパイプライン
     collect.js             チャンネル履歴、隣接チャンネル、権限
-    format.js              トランスクリプト行、タイムギャップ、テンポ
-    media.js               メディア分類、ラベル選択、プロキシ URL
     search.js              Discord メッセージ検索、メンバー検索
     pull-fetch.js           オーディエンスチェック、プルチャンネルのフェッチ
-    fetch-image.js         LLM のインラインリクエスト用に画像をダウンロードしてキャッシュ
+  media/
+    classify.js            メディア分類、ラベル選択、プロキシ URL
     video-sites.js         動画サイトのマッチング、URL キャッシュキー、yt-dlp/ffmpeg 引数
+    fetch-image.js         LLM のインラインリクエスト用に画像をダウンロードしてキャッシュ
     fetch-video.js         動画説明モデル用の動画ダウンロード、プローブ、トリム
   web/
     readable.js            HTML からテキストへの変換、ペイウォール検出

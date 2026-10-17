@@ -1,6 +1,6 @@
 # Контракт промптов
 
-Где файлы промптов встречаются с кодом (`src/behavior/prompt.js`, `src/llm/parse.js`, `src/discord/format.js`,
+Где файлы промптов встречаются с кодом (`src/behavior/prompt.js`, `src/llm/parse.js`, `src/format.js`,
 `src/memory/update.js`, `src/memory/channels.js`, `src/memory/warmup.js`). Меняйте одну сторону только вместе с
 другой. Рабочий процесс описан в `CONTRIBUTING.md`.
 

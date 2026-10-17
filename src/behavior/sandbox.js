@@ -48,9 +48,9 @@ import { snowflakeAt } from './recall.js';
 import { resolveHandles } from './handles.js';
 import { linkChannels } from '../memory/mentions.js';
 import { continuationHistory, firstPass, pickOtherProfiles, taskInput } from './turn.js';
-import { withCalls } from '../discord/format.js';
-import { grant as accessGrant, revoke as accessRevoke } from '../discord/access.js';
-import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../discord/media.js';
+import { withCalls } from '../format.js';
+import { grant as accessGrant, revoke as accessRevoke } from '../ops/grants.js';
+import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { parseOutput } from '../llm/parse.js';
@@ -216,7 +216,7 @@ function seenText(entry, { watched, before }) {
 /**
  * The media item ids of one normalized message a live turn could have had
  * described (its forwarded snapshots included), as the live turn collects
- * them: pictures (src/discord/media.js#collectPictures and
+ * them: pictures (src/media/classify.js#collectPictures and
  * #collectEmojiItems, describable ones) and videos (#collectVideos over `sites`).
  */
 function mediaItemsOf(message, sites) {
@@ -227,7 +227,7 @@ function mediaItemsOf(message, sites) {
 
 /**
  * The caption and video maps a replayed moment's transcript is rendered
- * with (src/discord/format.js#formatTranscript's `descriptions` and
+ * with (src/format.js#formatTranscript's `descriptions` and
  * `videos`, the same the live turn passes): for every media item of the
  * history, the describer's `cache` entry as it stood by `before` (null: any
  * time), read only. A cached miss, a limit or error state and an entry written
@@ -922,7 +922,7 @@ const RESULT_MAX_CHARS = 4500;
 /**
  * A copy of `config` whose persona grants are exactly `names`: her user id (`selfId`) taken
  * off every `bot.access` entry, then granted on each name -- with the very grant and revoke
- * `/nep access` stores (src/discord/access.js). People's grants are kept. The names are used as
+ * `/nep access` stores (src/ops/grants.js). People's grants are kept. The names are used as
  * given (the caller expands `*` and groups, as `/nep access grant` does); a name no grant opens
  * for her (src/skills/access.js#NOT_GRANTABLE_TO_PERSONA) is stored too, so the gateway's own
  * refusal of it shows. `config` is never changed. Pure.
@@ -1086,7 +1086,7 @@ function scenarioContinuation({ requestArgs, history, answer, outcome, labels, m
 }
 
 /**
- * The mark one call of hers leaves on the transcript, in src/discord/format.js#withCalls's shape
+ * The mark one call of hers leaves on the transcript, in src/format.js#withCalls's shape
  * and as a live turn notes it (src/behavior/turn.js, `noteCall`): `outcome` (simulateCall's) made
  * in the turn of `channelId`, its result back at `at`; its status and, when it did not work, why
  * (outcomeDetail, `skills.markTextMaxChars` read from `config`); its target from the resolved

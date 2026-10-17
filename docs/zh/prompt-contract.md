@@ -1,6 +1,6 @@
 # 提示契约
 
-提示文件与代码（`src/behavior/prompt.js`、`src/llm/parse.js`、`src/discord/format.js`、
+提示文件与代码（`src/behavior/prompt.js`、`src/llm/parse.js`、`src/format.js`、
 `src/memory/update.js`、`src/memory/channels.js`、`src/memory/warmup.js`）的交汇点。修改一方时需同步修改
 另一方。变更的工作流程参见 `CONTRIBUTING.md`。
 

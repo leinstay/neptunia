@@ -1,7 +1,7 @@
 // The persona's skills derived from the owner's commands: every operation of the ops registry
 // (src/ops/registry.js) is a skill of the same name, its arguments the options of the slash
 // command that runs it, so she calls an operation with what the owner types. Nothing here is
-// copied by hand: `commandSources` reads the command tree (src/discord/commands.js#COMMAND_TABLE)
+// copied by hand: `commandSources` reads the command tree (src/ops/catalog.js#COMMAND_TABLE)
 // and finds which command leaf -- with which fixed option value -- runs each operation by asking
 // the command -> operation map (src/ops/index.js#resolveCommand) with probe values; `optionsSchema`
 // turns a leaf's options into the argument schema (src/skills/schema.js); `toCall` maps her
@@ -45,7 +45,7 @@ function leavesOf(table) {
 
 /**
  * True for a yes/no option sent to Discord as a STRING with exactly the choices `true` and
- * `false` (src/discord/commands.js#FLAG_CHOICES: Discord shows a BOOLEAN as True/False).
+ * `false` (src/ops/catalog.js#FLAG_CHOICES: Discord shows a BOOLEAN as True/False).
  */
 function isFlag(option) {
   if (option?.type !== STRING || !Array.isArray(option.choices) || option.choices.length !== 2) return false;

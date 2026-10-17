@@ -303,7 +303,10 @@ src/
   config.js                .env 解析器，配置加载器，deepMerge
   hot.js                   通过 fs.watch 实时更新的配置和提示
   log.js                   结构化 JSON 日志
+  format.js                对话记录行，时间间隔，节奏
   admin.js                 所有者命令
+  ops/
+    grants.js              非所有者的按命令访问授权
   llm/
     tokens.js              带自校准的 token 估算
     budget.js              按优先级裁剪区块
@@ -312,15 +315,14 @@ src/
   discord/
     guild.js               单服务器解析
     commands.js            斜杠命令，注册，交互适配器
-    access.js              非所有者的按命令访问授权
     events.js              消息流水线
     collect.js             频道历史，相邻频道，权限
-    format.js              对话记录行，时间间隔，节奏
-    media.js               媒体分类，标签选择，代理 URL
     search.js              Discord 消息搜索和成员搜索
     pull-fetch.js          受众检查，拉取频道获取
-    fetch-image.js         下载并缓存图片供 LLM 内联请求使用
+  media/
+    classify.js            媒体分类，标签选择，代理 URL
     video-sites.js         视频站点匹配、URL 缓存键、yt-dlp/ffmpeg 参数
+    fetch-image.js         下载并缓存图片供 LLM 内联请求使用
     fetch-video.js         下载、探测和裁剪视频供视频描述器使用
   web/
     readable.js            HTML 转文本，付费墙检测

@@ -1,6 +1,6 @@
 // The persona's access to her skills: two levels, allowed or not, granted the same way people's
 // rights are -- `/nep access grant|revoke` (src/ops/access.js) with her (the bot's own user) as
-// the target, stored in the same place, `bot.access[<skill name>].users` (src/discord/access.js).
+// the target, stored in the same place, `bot.access[<skill name>].users` (src/ops/grants.js).
 // Default deny; only a grant naming her user id opens a skill for her: a grant to everyone or to
 // a role is people's and opens nothing for her, so no grant she could make for others widens her
 // own rights. For her a grant may open an owner-only operation (it still runs only when an owner

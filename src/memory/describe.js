@@ -1,5 +1,5 @@
 // The media describer: turns one picture (an image, a gif frame or a video
-// poster — see src/discord/media.js#isDescribable) into a plain one-line
+// poster — see src/media/classify.js#isDescribable) into a plain one-line
 // caption via a cheap vision-capable model, so the persona can react to what
 // is on a picture it did not itself see (features.mediaDescriptions, on by
 // default). One request per NEW picture: two callers reaching the same new
@@ -15,7 +15,7 @@
 // are data: never logged. A caption is capped at `media.descriptionChars`
 // (the describe prompt may learn the cap through `{{maxChars}}`).
 //
-// The picture is downloaded first (src/discord/fetch-image.js) and sent to
+// The picture is downloaded first (src/media/fetch-image.js) and sent to
 // the model as a data: URL, never as a bare Discord URL -- the provider's own
 // fetcher gets a 403 from Discord on some CDN hosts even though our server
 // fetches the same URL fine (see src/behavior/turn.js for the live-vision
@@ -25,8 +25,8 @@
 // The same module watches videos (features.mediaDescriptions AND
 // features.videoDescriptions -- a missing key counts as on -- like the senses
 // line): an attached video or a link to a known video site
-// (src/discord/media.js#collectVideos)
-// is fetched through src/discord/fetch-video.js -- or, for a video of at most
+// (src/media/classify.js#collectVideos)
+// is fetched through src/media/fetch-video.js -- or, for a video of at most
 // `media.video.directUrlMaxSeconds` (less outside agentic processing, see
 // lengthCap) on a site whose public URL the pinned
 // provider can open itself (`media.video.directUrlSites`, and only when
@@ -34,12 +34,12 @@
 // summarised by a
 // video-capable model into one line. A YouTube link goes out by its canonical
 // `watch?v=<id>` URL, its playlist, timestamp and tracking params dropped
-// (src/discord/video-sites.js#publicVideoUrl); another site's as posted. A
+// (src/media/video-sites.js#publicVideoUrl); another site's as posted. A
 // public URL goes out with OpenRouter's
 // processing mode (`media.video.urlProcessing`); every video request carries
 // `media.video.reasoning` so reasoning does not eat the output budget. A link's duration comes from yt-dlp;
 // when yt-dlp fails on a YouTube link, from the YouTube Data API (with a
-// configured key) or the watch page (src/discord/fetch-video.js#probeYoutube).
+// configured key) or the watch page (src/media/fetch-video.js#probeYoutube).
 // With no duration at all a direct-URL link is sent only when the owner
 // opted in (`media.video.directUrlUnknownDuration`, billed as `maxSeconds`).
 // Results share the picture cache under `video:<itemId>`: a watched summary,
@@ -62,9 +62,9 @@
 // audible gets `labels.videoAudio.none` and a mostly silent one
 // `labels.videoAudio.map` with its audible stretches, appended to the video
 // model's system prompt after a blank line, on a watch and a re-watch alike
-// (src/discord/audio-map.js). A watched summary of a downloaded clip keeps
+// (src/media/audio-map.js). A watched summary of a downloaded clip keeps
 // the clip's length as `watchedSeconds`, so the transcript can tell a video
-// watched only in part (src/discord/media.js, `videoWatchedPart`).
+// watched only in part (src/media/classify.js, `videoWatchedPart`).
 //
 // A summary is capped at `media.video.summaryChars` (the describe-video
 // prompt learns the cap through `{{maxChars}}`). `rewatchVideo()` is the
@@ -125,11 +125,11 @@
 // old text. A stale watched GIF is never replaced by a one-frame caption.
 
 import { isPlainObject } from '../config.js';
-import { fitBox, mediaProxyUrl, watchedLengths } from '../discord/media.js';
-import { createImageFetcher } from '../discord/fetch-image.js';
-import { createVideoFetcher } from '../discord/fetch-video.js';
-import { audioMapSettings, videoAudioNote, withAudioNote } from '../discord/audio-map.js';
-import { isDirectUrlSite, proxyFor, publicVideoUrl, safeLocation, youtubeVideoId } from '../discord/video-sites.js';
+import { fitBox, mediaProxyUrl, watchedLengths } from '../media/classify.js';
+import { createImageFetcher } from '../media/fetch-image.js';
+import { createVideoFetcher } from '../media/fetch-video.js';
+import { audioMapSettings, videoAudioNote, withAudioNote } from '../media/audio-map.js';
+import { isDirectUrlSite, proxyFor, publicVideoUrl, safeLocation, youtubeVideoId } from '../media/video-sites.js';
 import {
   helperRequestOptions,
   railReason,
@@ -170,7 +170,7 @@ const GIF_MAX_SECONDS_FALLBACK = 15;
 
 /**
  * The file a GIF watch downloads: a gif embed's `animationUrl` (the mp4 of
- * a tenor/giphy embed, or a `.gif` link, see src/discord/media.js#classifyEmbed),
+ * a tenor/giphy embed, or a `.gif` link, see src/media/classify.js#classifyEmbed),
  * else an attached gif's own file. Null for anything else -- a gif embed
  * with neither keeps the one-frame description.
  */
@@ -425,8 +425,8 @@ export function isStaleDescription(entry, cutoffMs) {
  * @param {object} deps.store
  * @param {object} deps.llm     From createLlm().
  * @param {() => number} [deps.now]
- * @param {object} [deps.imageFetcher]  From createImageFetcher() (src/discord/fetch-image.js).
- * @param {object} [deps.videoFetcher]  From createVideoFetcher() (src/discord/fetch-video.js).
+ * @param {object} [deps.imageFetcher]  From createImageFetcher() (src/media/fetch-image.js).
+ * @param {object} [deps.videoFetcher]  From createVideoFetcher() (src/media/fetch-video.js).
  * @param {{ data: object, markDirty: () => void }} [deps.state]  The persistent state (store.state) holding the
  *   daily video and re-watch counters; without it the counters live in memory only.
  * @param {string|null} [deps.youtubeApiKey]  Optional YouTube Data API key (YOUTUBE_API_KEY), handed to
@@ -571,7 +571,7 @@ export function createDescriber({
    * Every request counts against that cap.
    * @param {string} guildId
    * @param {{ itemId: string, kind: string, url: string }} item  See
-   *   src/discord/media.js#collectPictures.
+   *   src/media/classify.js#collectPictures.
    * @returns {Promise<{ text: string, usage: object|null, estimated: number, cached?: boolean }|null>}
    */
   async function describe(guildId, item) {
@@ -700,7 +700,7 @@ export function createDescriber({
 
   /**
    * One GIF watch, uncached: the animation at `source` is downloaded and
-   * converted to a short mp4 (src/discord/fetch-video.js#fetchGif, the first
+   * converted to a short mp4 (src/media/fetch-video.js#fetchGif, the first
    * `media.gif.maxSeconds`, the video size and tool settings), then
    * summarised by the video model through the `describe-gif` prompt
    * (`{{maxChars}}` = `media.descriptionChars` -- a GIF caption keeps a
@@ -776,7 +776,7 @@ export function createDescriber({
 
   /**
    * Download the animation at `source` and convert it to a short mp4
-   * (src/discord/fetch-video.js#fetchGif: the first `maxSeconds`, the video
+   * (src/media/fetch-video.js#fetchGif: the first `maxSeconds`, the video
    * size and tool settings read now) -- the one fetch of a GIF watch and of
    * its second look. `{ ok: true, clip: { url, seconds, pinned: false },
    * bytes }` (`seconds` never above `maxSeconds`) or `{ ok: false, reason }`.
@@ -848,7 +848,7 @@ export function createDescriber({
    * old caption stays and the entry is marked `watchFailed` (a GIF with no
    * caption gets a miss so marked). Every rail of watchGifNow applies.
    * @param {string} guildId
-   * @param {object} item  A gif picture item (src/discord/media.js#collectPictures).
+   * @param {object} item  A gif picture item (src/media/classify.js#collectPictures).
    * @returns {Promise<{ state: 'watched', text: string, cached?: true }
    *   | { state: 'failed', reason: string } | { state: 'unavailable', reason: string }>}
    *   `unavailable`: GIFs are not watched now (see gifWatchBlocker) or a daily rail is spent.
@@ -1354,7 +1354,7 @@ export function createDescriber({
   }
 
   /**
-   * Watch one video candidate (src/discord/media.js#collectVideos) and
+   * Watch one video candidate (src/media/classify.js#collectVideos) and
    * summarise it in one line, through the shared media cache.
    * @param {string} guildId
    * @param {object} item  One collectVideos candidate.

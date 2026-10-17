@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildDiaryPlanRequest, buildDrawPrompt, buildRequest, userText as textOf, worldText } from '../src/behavior/prompt.js';
-import { fill } from '../src/discord/format.js';
+import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);

@@ -50,8 +50,8 @@ import { createAroundStore } from './discord/around.js';
 import { applyReactionEvent, createReactorStore, reactionEventOf } from './discord/reactors.js';
 import { createSpontaneous } from './behavior/spontaneous.js';
 import { backfillDiary, createDiary } from './behavior/diary.js';
-import { createImageFetcher } from './discord/fetch-image.js';
-import { createVideoFetcher } from './discord/fetch-video.js';
+import { createImageFetcher } from './media/fetch-image.js';
+import { createVideoFetcher } from './media/fetch-video.js';
 import { createPageFetcher } from './web/fetch-page.js';
 import { createBraveSearch } from './web/brave.js';
 import { createLookup } from './web/lookup.js';
@@ -68,7 +68,8 @@ import { normalizeOptions, reactionEvent, toEvent } from './discord/collect.js';
 import { validateEvent } from './protocol.js';
 import { resolveGuild } from './discord/guild.js';
 import { createAudienceWarmer } from './discord/audience-warm.js';
-import { isValidCommandName, registerCommands, createInteractionHandler } from './discord/commands.js';
+import { registerCommands, createInteractionHandler } from './discord/commands.js';
+import { isValidCommandName } from './ops/catalog.js';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate', 'memory'];
 

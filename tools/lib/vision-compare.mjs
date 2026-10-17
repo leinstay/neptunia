@@ -10,8 +10,8 @@ import { CliError, parseFlags } from './cli.mjs';
 import { escapeHtml } from './pair.mjs';
 import { costOf, percentile } from './recall-eval.mjs';
 import { createDescriber } from '../../src/memory/index.js';
-import { classifyAttachment, discordCdnVideo } from '../../src/discord/media.js';
-import { videoSiteFor } from '../../src/discord/video-sites.js';
+import { classifyAttachment, discordCdnVideo } from '../../src/media/classify.js';
+import { videoSiteFor } from '../../src/media/video-sites.js';
 import { PURPOSE_ROLES } from '../../src/llm/roles.js';
 import { railReason } from '../../src/llm/openrouter.js';
 import { onLog } from '../../src/log.js';
@@ -111,7 +111,7 @@ function fileNameOf(url) {
 
 /**
  * The describer's item for one listed medium, in the shape the live collectors give it
- * (src/discord/media.js#collectPictures, collectEmojiItems, collectVideos): a picture as an
+ * (src/media/classify.js#collectPictures, collectEmojiItems, collectVideos): a picture as an
  * image attachment, a GIF as a gif attachment (its URL is the animation the watch downloads),
  * an emoji and a sticker as their own kinds, a video as an attachment when the URL is a video
  * file (a Discord CDN upload or a video file name), else as a link of one of `videoSites`.
@@ -295,8 +295,8 @@ function failureCode(entry) {
  * @param {string} deps.guildId
  * @param {{ complete: Function }} deps.llm  The OpenRouter client (src/llm/openrouter.js) or a fake.
  * @param {string|null} [deps.reasoning]
- * @param {object} [deps.imageFetcher]  src/discord/fetch-image.js shape; the live one when absent.
- * @param {object} [deps.videoFetcher]  src/discord/fetch-video.js shape; the live one when absent.
+ * @param {object} [deps.imageFetcher]  src/media/fetch-image.js shape; the live one when absent.
+ * @param {object} [deps.videoFetcher]  src/media/fetch-video.js shape; the live one when absent.
  * @param {string|null} [deps.youtubeApiKey]
  * @param {() => number} [deps.now]
  * @returns {Promise<{ model: string, ok: boolean, text: string|null, error: string|null, mode: string|null,

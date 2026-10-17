@@ -10,8 +10,8 @@
 // owner; `task.status` and `task.list` show a private chat's tasks only to their requester or an
 // owner. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line.
 
-import { isOwnerId } from '../discord/access.js';
-import { TASK_AGENTS } from '../discord/commands.js';
+import { isOwnerId } from './grants.js';
+import { TASK_AGENTS } from './catalog.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';

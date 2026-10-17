@@ -8,21 +8,23 @@ import { MessageFlags } from 'discord.js';
 
 import {
   buildCommandTree,
-  isValidCommandName,
   registerCommands,
   createInteractionHandler,
-  leafPaths,
   commandKeys,
+  commandEvent,
+} from '../src/discord/commands.js';
+import {
+  isValidCommandName,
+  leafPaths,
   commandSize,
   COMMAND_TABLE,
   MODEL_ROLES,
   MODEL_SET_ROLES,
   STATUS_FIELDS,
   readFlag,
-  commandEvent,
-} from '../src/discord/commands.js';
+} from '../src/ops/catalog.js';
 import { validateEvent } from '../src/protocol.js';
-import { isAllowed as accessIsAllowed } from '../src/discord/access.js';
+import { isAllowed as accessIsAllowed } from '../src/ops/grants.js';
 import { resolveCommand, asResult, listOps } from '../src/ops/index.js';
 import { getOp } from '../src/ops/registry.js';
 import { grantKeys } from '../src/ops/access.js';
@@ -418,7 +420,7 @@ test('registerCommands: a command-too-large refusal logs the tree size and the l
 // createInteractionHandler
 // ---------------------------------------------------------------------------
 
-/** A fake admin whose rights check runs the real, pure src/discord/access.js#isAllowed on the
+/** A fake admin whose rights check runs the real, pure src/ops/grants.js#isAllowed on the
  * real operation a command key maps to (src/ops/index.js#resolveCommand; a command with no
  * operation is owner-only) against `owners`/`access`, the way src/admin.js#createAdmin wires it --
  * so these tests exercise the real gating logic, not a stand-in for it. `runCommand` answers in

@@ -1,4 +1,4 @@
-// Tests for src/discord/video-sites.js: site matching, URL extraction, the
+// Tests for src/media/video-sites.js: site matching, URL extraction, the
 // stable cache key, the yt-dlp / ffmpeg argument arrays, probe parsing and
 // the query-free log location.
 import { test } from 'node:test';
@@ -23,7 +23,7 @@ import {
   parseIsoDuration,
   parseYoutubeDataApi,
   bareContentType,
-} from '../src/discord/video-sites.js';
+} from '../src/media/video-sites.js';
 
 const SITES = ['youtube.com', 'youtu.be', 'tiktok.com', 'vk.com', 'vkvideo.ru', 'x.com', 'twitter.com', 'reddit.com', 'twitch.tv'];
 

@@ -13,7 +13,7 @@
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
 import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../time.js';
-import { fill } from '../discord/format.js';
+import { fill } from '../format.js';
 import { isPlainObject } from '../config.js';
 import { log as defaultLog } from '../log.js';
 import { IMAGE_ROLE } from '../llm/images.js';

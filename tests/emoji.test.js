@@ -3,7 +3,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CUSTOM_EMOJI_MARKUP, createEmojiIndex, matchEmojiName, renderCustomEmoji, resolveReactionEmoji } from '../src/discord/emoji.js';
+import { createEmojiIndex } from '../src/discord/emoji.js';
+import { CUSTOM_EMOJI_MARKUP, matchEmojiName, renderCustomEmoji, resolveReactionEmoji } from '../src/behavior/emoji.js';
 
 const EMOJIS = [
   { id: '111111111111111111', name: 'pepe_cry', animated: false },

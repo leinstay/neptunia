@@ -67,10 +67,10 @@ import {
   isDescribable,
   lateVideoStates,
   selectPictures,
-} from '../discord/media.js';
-import { avatarReference, createImageFetcher } from '../discord/fetch-image.js';
-import { renderCustomEmoji, resolveReactionEmoji } from '../discord/emoji.js';
-import { fill, formatNow, replyMarker, withCalls, withTriggers } from '../discord/format.js';
+} from '../media/classify.js';
+import { avatarReference, createImageFetcher } from '../media/fetch-image.js';
+import { renderCustomEmoji, resolveReactionEmoji } from './emoji.js';
+import { fill, formatNow, replyMarker, withCalls, withTriggers } from '../format.js';
 import { log } from '../log.js';
 import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { gifPostsToday, rankGifs, participationSettings, recordOwnLine, isVideoVisionOn, toRecordLine, createOffPeriodsReader } from '../memory/index.js';
@@ -749,7 +749,7 @@ const REWATCH_STATUS_DESCRIBED = 'described';
 export { parseRewatchPickDetailed };
 
 /**
- * The link items of `history` the web lookup may read (src/discord/media.js#collectReadableLinks:
+ * The link items of `history` the web lookup may read (src/media/classify.js#collectReadableLinks:
  * no video-site link, no gif embed), newest message first.
  */
 function readableLinkCandidates(history, sites) {
@@ -878,7 +878,7 @@ function splitForMirror(text, max) {
 
 /**
  * Describable pictures (image/gif/video/sticker/link-thumbnail, plus custom
- * emoji — see src/discord/media.js#isDescribable) of `history` that are NOT
+ * emoji — see src/media/classify.js#isDescribable) of `history` that are NOT
  * among `picked` (the ones already attached as image_url parts), newest
  * message first — so a per-turn cap spends its budget on what the persona
  * just saw. Pictures (collectPictures) come before that message's emoji.
@@ -900,7 +900,7 @@ function describableCandidates(history, picked, { includePicked = false } = {}) 
   return out;
 }
 
-/** The picture kinds (src/discord/media.js) that make a direct call's own media something to look at. */
+/** The picture kinds (src/media/classify.js) that make a direct call's own media something to look at. */
 const LOOKED_AT_KINDS = new Set(['image', 'gif', 'video']);
 
 /**
@@ -1522,7 +1522,7 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * remembered in process with the id of that trigger (`seedTriggerLinks` adds the ones the journal
  * kept from before a restart). With features.triggerMarkers on (a missing key counts as on, read
  * per turn) the persona's own lines of the turn's history and of its pulled channels carry it
- * (src/discord/format.js#withTriggers), so the request's `<chat>` and `<channel_view>` and every
+ * (src/format.js#withTriggers), so the request's `<chat>` and `<channel_view>` and every
  * helper transcript built from that history name the message that started the turn which posted
  * each line (`transcript.triggeredBy` / `triggeredByOlder`). The neighbours' lines show no `#n`
  * and carry none. A spontaneous turn, a diary post or a dry run links nothing.
@@ -1531,7 +1531,7 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * turn posted) is remembered in process, `seedCallMarks` adding the ones the journal kept from
  * before a restart; a message a call posted in another channel than its turn's remembers that
  * channel. With features.callMarkers on (a missing key counts as on, read per turn) the lines of
- * the turn's history and of its pulled channels carry them (src/discord/format.js#withCalls,
+ * the turn's history and of its pulled channels carry them (src/format.js#withCalls,
  * linkCalls), so she sees what she called and how it went, in the channel where she called it.
  *
  * Skills and the interface: every effect of a reply -- a message with its reply target and
@@ -2042,7 +2042,7 @@ export function createTurnRunner({
 
   /**
    * `lines` with the persona's own lines carrying the message that started their turn
-   * (src/discord/format.js#withTriggers), so every transcript built from them names it;
+   * (src/format.js#withTriggers), so every transcript built from them names it;
    * `lines` as they are with features.triggerMarkers off (a missing key counts as on, read now).
    */
   function linkTriggers(lines) {
@@ -2057,7 +2057,7 @@ export function createTurnRunner({
   const callMarks = [];
   const postedFromLinks = new Map();
 
-  /** Remember one skill call of hers (in src/discord/format.js#withCalls's shape). */
+  /** Remember one skill call of hers (in src/format.js#withCalls's shape). */
   function noteCall(mark) {
     callMarks.push(mark);
     if (callMarks.length > CALL_MARKS_MAX) callMarks.splice(0, callMarks.length - CALL_MARKS_MAX);
@@ -2072,7 +2072,7 @@ export function createTurnRunner({
   }
 
   /**
-   * `lines` with the persona's skill calls on her own lines (src/discord/format.js#withCalls): the
+   * `lines` with the persona's skill calls on her own lines (src/format.js#withCalls): the
    * channel names read live from the guild of `channel` (the turn's), the message links built in
    * `guildId` (`@me` for a message of the private chat itself). `lines` as they are with
    * features.callMarkers off (a missing key counts as on, read now).
@@ -3196,7 +3196,7 @@ export function createTurnRunner({
    * after the videos and before the pictures; the describer watches its clip
    * again (describer.rewatchGif) and the answer goes into `imageAnswers`
    * under the GIF's id (rendered as `videoAnswered`, see
-   * src/discord/media.js#mediaLabelFor). A GIF takes a second-look slot and a
+   * src/media/classify.js#mediaLabelFor). A GIF takes a second-look slot and a
    * GIF watch slot (`videoCapsLeft().gif`), never a video one. Videos that
    * did not load (`error` state) are candidates too whenever the describer
    * can fetch one (describer.describeVideo): the classifier's `<n> | retry`

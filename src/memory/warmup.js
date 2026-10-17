@@ -62,7 +62,7 @@
 // aborted -- exposed through `status()` for the tool's `status`.
 
 import { readableChannels, fetchHistoryWindow } from '../discord/collect.js';
-import { formatTranscript, renderTranscript } from '../discord/format.js';
+import { formatTranscript, renderTranscript } from '../format.js';
 import { fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../llm/budget.js';
 import { estimateMessages } from '../llm/tokens.js';
 import { parseJsonObject } from '../llm/parse.js';

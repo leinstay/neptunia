@@ -26,7 +26,7 @@ const DEFAULT_MAX_DRAW_CHARS = 1600;
 // The most <draw> tags read into `draws` (a diary set renders the first diary.set.pictures[1] of them).
 const MAX_DRAWS = 10;
 const SELF_YES = new Set(['yes', 'true', '1']);
-// A reaction body: a short unicode emoji, or a custom one as `:name:` / `<a:name:id>` (src/discord/emoji.js).
+// A reaction body: a short unicode emoji, or a custom one as `:name:` / `<a:name:id>` (src/behavior/emoji.js).
 const MAX_REACTION_CHARS = 16;
 const CUSTOM_REACTION_RE = /^(?::[A-Za-z0-9_]{2,32}:|<a?:[A-Za-z0-9_]{2,32}:\d{1,25}>)$/;
 // A GIF handle (src/memory/gifs.js): `g` and digits, any case.

@@ -18,15 +18,15 @@ import {
   DEFAULT_VAULT_DIR,
   SNAPSHOTS_DIR,
 } from '../memory/index.js';
-import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from '../discord/commands.js';
-import { isOwnerId } from '../discord/access.js';
+import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.js';
+import { isOwnerId } from './grants.js';
 import { effectiveAffinity, privateRepliesToday } from '../behavior/private.js';
 import { PAGE } from '../discord/collect.js';
 import { log } from '../log.js';
 import { clampAtBoundary } from '../memory/clamp.js';
 import { SnowflakeUtil } from 'discord.js';
 import { DAY_MS, utcDay, zonedDay } from '../time.js';
-import { formatClock } from '../discord/format.js';
+import { formatClock } from '../format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText, messageRefOf } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
@@ -36,7 +36,7 @@ const handlers = perEnv((env) => {
 
   /**
    * Sectioned, human-readable view of one member's profile — see
-   * src/discord/commands.js#MEMORY_SHOW_SECTIONS for the choices and the header
+   * src/ops/catalog.js#MEMORY_SHOW_SECTIONS for the choices and the header
    * comments of `buildProfileSummary`/`orderedSectionLines`/
    * `rawMemoryShowView` for what each section does. `section` defaults to
    * `'summary'`; `order` to `'rank'`; `limit` to 25 (1..100) — anything else
@@ -337,7 +337,7 @@ const handlers = perEnv((env) => {
    * to the id by src/skills/executors.js#resolveCall) the turn that posted that message instead,
    * whole (journal.findTurn over the message's snowflake time, shown by turnView), the other
    * options ignored; a message no turn of the guild journal posted is `not-found`.
-   * Owner-only (src/discord/access.js); read only, so it works while paused.
+   * Owner-only (src/ops/grants.js); read only, so it works while paused.
    */
   async function cmdMemoryJournal(args, context) {
     if (!journal) return 'the journal is not available';
@@ -366,7 +366,7 @@ const handlers = perEnv((env) => {
    * `/nep memory snapshot`: a consistent copy of `data/` for the tools (tools/memory-sim.mjs,
    * tools/replay.mjs): the store flushed, then every entry of `data/` but `snapshots/` and the vault copied to
    * `data/snapshots/<UTC time>/` while the journal holds its writes (journal.withWriterLock).
-   * Owner-only (src/discord/access.js). Nothing under `data/` is changed but the new directory.
+   * Owner-only (src/ops/grants.js). Nothing under `data/` is changed but the new directory.
    */
   async function cmdMemorySnapshot() {
     if (!dataDir) return 'the memory snapshot is not available';

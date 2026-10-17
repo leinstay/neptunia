@@ -1,4 +1,4 @@
-// Tests for src/discord/fetch-video.js: attachment sent as-is or trimmed by
+// Tests for src/media/fetch-video.js: attachment sent as-is or trimmed by
 // ffmpeg, the download hard ceiling, yt-dlp probe and clip runs (an oversized
 // clip re-encoded by ffmpeg), failure
 // reasons, timeouts (the whole tool process tree killed, cleanup only after
@@ -12,7 +12,7 @@ import { writeFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createVideoFetcher, proxyReachable } from '../src/discord/fetch-video.js';
+import { createVideoFetcher, proxyReachable } from '../src/media/fetch-video.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const OPTS = {

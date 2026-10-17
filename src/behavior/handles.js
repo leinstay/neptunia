@@ -14,7 +14,7 @@
 // channel she names resolves exactly and a made-up name never has to be guessed. Pure.
 
 import { createHash } from 'node:crypto';
-import { fill } from '../discord/format.js';
+import { fill } from '../format.js';
 import { oneLine } from '../memory/clamp.js';
 import { isOpen } from '../memory/index.js';
 import { outsideUrls } from '../memory/mentions.js';

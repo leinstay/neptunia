@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
 import { estimateMessages, estimateTokens } from '../src/llm/tokens.js';
-import { fill, formatClock, formatDate, formatDuration } from '../src/discord/format.js';
+import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);

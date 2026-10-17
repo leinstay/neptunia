@@ -1,5 +1,5 @@
 // Operations: `/nep access`: who besides the owners may run which operation (bot.access,
-// src/discord/access.js). Owner-only. A grant names an operation (`memory.profile.read`), a group
+// src/ops/grants.js). Owner-only. A grant names an operation (`memory.profile.read`), a group
 // (`memory`) or `*`; a group or `*` is stored as the grantable read operations it covers now, one
 // entry each, so a later operation and every write stay closed until granted by name. The persona
 // gets her skills the same way, with her (the bot's own user) as the target: any operation by
@@ -11,7 +11,7 @@
 // the one-time migration of the old command-key grants (`migrateStoredGrants`), which leaves her
 // grants as they are.
 
-import { expandGrant, migrateGrants, describeGrants, isGrantableOp, grant as accessGrant, revoke as accessRevoke, hasGrant } from '../discord/access.js';
+import { expandGrant, migrateGrants, describeGrants, isGrantableOp, grant as accessGrant, revoke as accessRevoke, hasGrant } from './grants.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 import { NONE, reloadNote } from './shared.js';
@@ -137,7 +137,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `{ what, label }` for whichever one target option (or neither) was given: `what` is the
-   * argument of src/discord/access.js#grant/#revoke/#hasGrant, `label` reads `role id:<id>`,
+   * argument of src/ops/grants.js#grant/#revoke/#hasGrant, `label` reads `role id:<id>`,
    * `user id:<id>` or `everyone` (plain text: a multi-line reply is code-fenced, where a mention
    * would show as raw markup). */
   function accessTargetArgs(args) {
@@ -224,7 +224,7 @@ const handlers = perEnv((env) => {
 
   /** Every grant on a grantable operation, and the persona's on the operations only she may be
    * granted (owner-only ones: her user id alone, a stale grant to anyone else opens nothing), one
-   * line each, every target with its source (see src/discord/access.js#describeGrants); stale keys
+   * line each, every target with its source (see src/ops/grants.js#describeGrants); stale keys
    * open nothing and are left out. */
   function cmdAccessList() {
     const ops = listOps();
@@ -246,7 +246,7 @@ const handlers = perEnv((env) => {
   /**
    * Once per guild (`accessMigrated: 1` in data/guilds/<id>/guild.json): the stored grants,
    * keyed by the old slash-command keys, re-expanded under the operation names
-   * (src/discord/access.js#migrateGrants with `legacy`, src/ops/index.js#legacyGrantOps), written
+   * (src/ops/grants.js#migrateGrants with `legacy`, src/ops/index.js#legacyGrantOps), written
    * back to config.local.json when they changed, and a journal `system` record `access-migrated`
    * whose note lists what each grant covers now and the owner-only operations dropped.
    * @param {string} guildId

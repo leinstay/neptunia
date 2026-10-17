@@ -18,7 +18,7 @@ Owner-only operations (`access.*`, `diary.*`, `memory.private.*`, `memory.journa
 
 ## Command table
 
-The table is generated from the command table (`src/discord/commands.js#COMMAND_TABLE`): each command, the operation it runs, how it answers (always ephemeral; deferred when the operation may outlast Discord's three-second reply window) and what it does. An interaction Discord delivers twice runs once.
+The table is generated from the command table (`src/ops/catalog.js#COMMAND_TABLE`): each command, the operation it runs, how it answers (always ephemeral; deferred when the operation may outlast Discord's three-second reply window) and what it does. An interaction Discord delivers twice runs once.
 
 | Command | Operation | Reply | What it does |
 |---|---|---|---|

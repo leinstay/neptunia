@@ -1,4 +1,4 @@
-// Tests for src/discord/media.js: pure media classification, label choice,
+// Tests for src/media/classify.js: pure media classification, label choice,
 // media-proxy URL rewriting and vision picture selection.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,7 +25,7 @@ import {
   isGifHostUrl,
   fitBox,
   watchedLengths,
-} from '../src/discord/media.js';
+} from '../src/media/classify.js';
 
 // --- siteOf --------------------------------------------------------------------
 
