@@ -2,7 +2,9 @@
 // agent harness), one task = one `opencode run` child process in a fresh
 // working directory under the profile's out dir. The child gets, through its
 // environment, the OpenCode config this task needs (the profile's agent
-// definition, the model and its cost, the permission ruleset for the scope)
+// definition, the model -- the task's own, else the profile's model role,
+// `roles.agentWeb` / `roles.agentServer`, read at each task -- and its cost,
+// the permission ruleset for the scope)
 // and a per-task database, with project/claude config, auto-update and the
 // price fetch disabled so nothing of this server leaks into the worker and
 // the run is reproducible. The agent's OpenRouter key is the runner's own
@@ -29,6 +31,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { log } from '../log.js';
 import { isPlainObject } from '../config.js';
+import { roleModel } from '../llm/roles.js';
 import { redactorFor, scopeOf, withheldInToolUse } from './policy.js';
 
 /** The OpenCode binary by default. */
@@ -147,6 +150,8 @@ async function collectFiles(dir, id) {
  * @param {string} [options.opencodePath]  `agents.opencodePath`.
  * @param {string} [options.openrouterKeyEnv]  The env name that holds the runner's OpenRouter key.
  * @param {string} [options.searchKeyEnv]  The env name of the web-search provider key (web profile).
+ * @param {() => object} [options.getConfig]  The engine config, read at each task: the model of a task
+ *   without one is `roles.<profile.modelRole>` (src/llm/roles.js#roleModel), else the profile's default.
  * @param {() => number} [options.now]
  * @param {typeof spawn} [options.spawnImpl]
  */
@@ -157,10 +162,23 @@ export function createOpencodeRunner({
   opencodePath = DEFAULT_OPENCODE_PATH,
   openrouterKeyEnv = 'OPENROUTER_AGENT_KEY',
   searchKeyEnv = 'OPENCODE_WEBSEARCH_KEY',
+  getConfig = () => ({}),
   now = Date.now,
   spawnImpl = spawn,
 }) {
   if (!profile) throw new Error('agent-runner: no profile');
+
+  /** The model of the profile's role in the config read now; undefined when the config cannot be read. */
+  function modelOfRole() {
+    let config;
+    try {
+      config = getConfig();
+    } catch (err) {
+      log.warn('agent-runner: config unreadable', { profile: profile.name, reason: err?.code ?? err?.name ?? 'read' });
+      return undefined;
+    }
+    return profile.modelRole ? roleModel(config, profile.modelRole) : undefined;
+  }
 
   /**
    * Work one task through an OpenCode child.
@@ -192,7 +210,7 @@ export function createOpencodeRunner({
       return finish('failed', '', 'no-prompt');
     }
 
-    const providerModel = typeof model === 'string' && model ? model : profile.defaultModel;
+    const providerModel = typeof model === 'string' && model ? model : (modelOfRole() ?? profile.defaultModel);
     const configContent = JSON.stringify(profile.buildConfig({ systemPrompt, providerModel, steps, scope, cost, toolResultChars: limits.toolResultChars }));
     const childEnv = {
       ...env,

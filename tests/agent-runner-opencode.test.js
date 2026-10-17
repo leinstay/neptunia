@@ -13,6 +13,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createOpencodeRunner } from '../src/agent-runner/opencode.js';
+import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 /** A tmp dir with a prompt file; returns { outDir, promptFile, cleanup }. */
@@ -28,7 +29,8 @@ function fakeProfile(promptFile, name = 'web') {
     name,
     agentId: `errand-${name}`,
     promptFiles: [promptFile],
-    defaultModel: 'openrouter/x-ai/grok-4.7',
+    modelRole: name === 'web' ? 'agentWeb' : 'agentServer',
+    defaultModel: 'openrouter/x-ai/default-model',
     defaultLimits: { steps: 25, usd: 0.5, seconds: 300 },
     defaultSearchProvider: 'exa',
     buildConfig: () => ({ agent: {} }),
@@ -233,5 +235,37 @@ test('opencode: the child gets the runner key, config content and isolation env,
   assert.ok(child.options.env.OPENCODE_CONFIG_CONTENT, 'config content is passed');
   assert.ok(!child.args.includes('--standalone'), 'no --standalone on v1.19.3');
   assert.ok(child.args.includes('--format') && child.args.includes('json'));
+  await ws.cleanup();
+});
+
+/** One task through `runner` with a fake child that answers and exits; the child's `--model`. */
+async function modelOfRun(runner, spawn, task) {
+  const before = spawn.children.length;
+  await withCapturedLogs(async () => {
+    const p = runner.run({ goal: 'g', context: { scope: 'core' }, ...task });
+    for (let i = 0; i < 1000 && spawn.children.length === before; i += 1) await new Promise((r) => setTimeout(r, 5));
+    const child = spawn.children[before];
+    emit(child, { type: 'text', part: { text: 'ok', time: { end: 1 } } });
+    await new Promise((r) => setImmediate(r));
+    child.emit('close', 0);
+    return p;
+  });
+  const args = spawn.children[before].args;
+  return args[args.indexOf('--model') + 1];
+}
+
+test('opencode: a task without a model runs on the profile\'s model role, read at each task; a task model wins', async () => {
+  const ws = await workspace();
+  const spawn = fakeSpawn();
+  const config = { roles: { agentWeb: 'openrouter/x-ai/web-one', agentServer: 'openrouter/x-ai/server-one' } };
+  const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });
+  assert.equal(await modelOfRun(runner, spawn, { id: 'm1' }), 'openrouter/x-ai/web-one', 'roles.agentWeb, never the server role');
+  config.roles.agentWeb = 'openrouter/x-ai/web-two';
+  assert.equal(await modelOfRun(runner, spawn, { id: 'm2' }), 'openrouter/x-ai/web-two', 'a /nep model set reaches the next task');
+  assert.equal(await modelOfRun(runner, spawn, { id: 'm3', model: 'openrouter/x-ai/override' }), 'openrouter/x-ai/override');
+  delete config.roles.agentWeb;
+  assert.equal(await modelOfRun(runner, spawn, { id: 'm4' }), ROLE_DEFAULTS.agentWeb, 'an unset role: its own default');
+  const broken = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl, getConfig: () => { throw new SyntaxError('bad json'); } });
+  assert.equal(await modelOfRun(broken, spawn, { id: 'm5' }), 'openrouter/x-ai/default-model', 'an unreadable config: the profile default, the task still runs');
   await ws.cleanup();
 });

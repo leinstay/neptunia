@@ -11,8 +11,10 @@
 //
 // Keys come from the environment (the unit's EnvironmentFile): the runner's
 // own OpenRouter key in OPENROUTER_AGENT_KEY (never the persona's), and for
-// the web profile OPENCODE_WEBSEARCH_KEY and PROXY_URL. Caps, the model and
-// its cost come from `agents.<profile>` in config. It prints one ready line
+// the web profile OPENCODE_WEBSEARCH_KEY and PROXY_URL. Caps and the model's
+// cost come from `agents.<profile>` in config; the model from the profile's
+// model role (`roles.agentWeb`, `roles.agentServer`), read again at each task
+// so a `/nep model set` reaches the next one. It prints one ready line
 // (a log line) when it is listening, and on SIGTERM ends open tasks and
 // exits.
 
@@ -80,8 +82,19 @@ async function main() {
     fail(`cannot create out dir: ${err?.code ?? 'mkdir'}`);
   }
 
+  // The config as of each task (for the model role); the last readable one when the files are mid-edit.
+  let lastConfig = config;
+  const currentConfig = () => {
+    try {
+      lastConfig = loadConfig().config;
+    } catch (err) {
+      log.warn('agent-runner: config reload failed', { profile: name, reason: err?.name ?? 'read' });
+    }
+    return lastConfig;
+  };
+
   // Fail fast when the prompt file is missing, rather than failing every task.
-  const engineRunner = createOpencodeRunner({ profile, outDir, env: process.env, opencodePath });
+  const engineRunner = createOpencodeRunner({ profile, outDir, env: process.env, opencodePath, getConfig: currentConfig });
   try {
     engineRunner.checkPrompt();
   } catch (err) {
@@ -98,7 +111,8 @@ async function main() {
     }
     : () => {};
 
-  // Merge config defaults into each task so the core may omit the model, cost and limits.
+  // Merge config defaults into each task so the core may omit the cost and limits; a task without
+  // a model runs on its profile's model role (src/agent-runner/opencode.js).
   const limitsDefault = { ...profile.defaultLimits, ...(settings.limits ?? {}), toolResultChars: agents.toolResultChars };
   const runner = {
     run(task) {
@@ -106,7 +120,7 @@ async function main() {
       return engineRunner.run({
         ...task,
         limits: { ...limitsDefault, ...(task.limits ?? {}) },
-        model: task.model ?? settings.model,
+        model: task.model,
         cost: task.cost ?? settings.cost,
         searchProvider: task.searchProvider ?? settings.search?.provider,
       }).then((outcome) => {

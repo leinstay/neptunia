@@ -90,7 +90,7 @@ function validateRun(msg) {
  * goal (at most MAX_GOAL_CHARS), and may carry `context` (a plain object,
  * at most MAX_CONTEXT_CHARS as JSON, whose `scope` is one of SCOPES when
  * present), `limits` (only LIMIT_KEYS, each a positive number), `tools` (a
- * non-empty list of names), `model` (an OpenRouter model id), `cost`
+ * non-empty list of names), `model` (an OpenCode model id), `cost`
  * (`{ input, output }` in USD per million tokens) and `searchProvider` (an
  * OpenCode web search provider id). `cancel` needs an id. `ping` may carry `ids` (task ids
  * the core still waits for). Unknown top-level keys are ignored.

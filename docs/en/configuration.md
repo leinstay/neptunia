@@ -856,7 +856,7 @@ With `features.relationships` off, public scores stay at 0, so with the default 
 
 ## `agents`
 
-The persona's errand agents: two separate processes (`web` and `server`), each an OpenCode worker behind a Unix socket, that run tasks the persona hands off (`src/agent-runner/`); the core side (`src/errands/`) queues the tasks, sends them to the runner of an enabled profile and brings the results back to her. A profile with `enabled` off answers every task `not-configured`. The agents hold their own OpenRouter key (`OPENROUTER_AGENT_KEY`), never the persona's; `web` also reads `OPENCODE_WEBSEARCH_KEY` (optional) and `PROXY_URL`. See [Errand agents](agents.md).
+The persona's errand agents: two separate processes (`web` and `server`), each an OpenCode worker behind a Unix socket, that run tasks the persona hands off (`src/agent-runner/`); the core side (`src/errands/`) queues the tasks, sends them to the runner of an enabled profile and brings the results back to her. A profile with `enabled` off answers every task `not-configured`. The agents hold their own OpenRouter key (`OPENROUTER_AGENT_KEY`), never the persona's; `web` also reads `OPENCODE_WEBSEARCH_KEY` (optional) and `PROXY_URL`. Their models are the model roles `roles.agentWeb` and `roles.agentServer` (set with `/nep model set`; a runner reads the config again at each task, so a change reaches its next task without a restart). See [Errand agents](agents.md).
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -874,8 +874,7 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | `false` | Run the web errand agent |
-| `model` | `"openrouter/x-ai/grok-4.7"` | OpenCode model id (`provider/model`) the agent runs on |
-| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode so its cost estimate is right (OpenCode cannot fetch the price catalog in the sandbox) |
+| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode so its cost estimate is right (OpenCode's price catalog fetch is disabled in the sandbox). Set it to the price of the model in `roles.agentWeb` |
 | `socket` | `"/run/neptunia-agent-web/sock"` | Unix socket the runner listens on and the core connects to |
 | `out` | `"/var/lib/neptunia-agent-web/out"` | Directory for per-task working dirs and output files; the core reads a task's files from `<out>/<task id>/` |
 | `limits` | `{ "steps": 25, "usd": 0.5, "seconds": 300 }` | Per-task caps: model calls, estimated spend (soft cap; the hard cap is the key's OpenRouter credit limit), wall-clock seconds |
@@ -887,8 +886,7 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | `false` | Run the server-read errand agent |
-| `model` | `"openrouter/x-ai/grok-4.7"` | OpenCode model id (`provider/model`) the agent runs on |
-| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode for its cost estimate |
+| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode for its cost estimate; the price of the model in `roles.agentServer` |
 | `socket` | `"/run/neptunia-agent-server/sock"` | Unix socket the runner listens on and the core connects to |
 | `out` | `"/var/lib/neptunia-agent-server/out"` | Directory for per-task working dirs and output files; the core reads a task's files from `<out>/<task id>/` |
 | `limits` | `{ "steps": 20, "usd": 0.2, "seconds": 120 }` | Per-task caps: model calls, estimated spend, wall-clock seconds |

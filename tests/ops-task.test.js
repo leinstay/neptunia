@@ -79,6 +79,7 @@ test('task.run: a member may run the web agent; the answer is at once, the erran
     assert.equal(client.runs.length, 1);
     assert.equal(client.runs[0].context.scope, 'group');
     assert.deepEqual(client.runs[0].limits, { steps: 25, usd: 0.5, seconds: 300 }, 'the profile defaults under agents.web.limits');
+    assert.equal(Object.hasOwn(client.runs[0], 'model'), false, 'no model: the runner takes roles.agentWeb');
     assert.equal(stores.get('g1').get(id).state, 'running');
     client.end(id);
     await errands.idle();

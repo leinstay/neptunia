@@ -1,6 +1,7 @@
 // The two agent profiles, `web` and `server`, each a set of OpenCode tools,
 // default limits, a system-prompt file, the environment variable names its
-// run needs, and an out/socket default. A profile also builds the OpenCode
+// run needs, the model role it runs on (`agentWeb`, `agentServer`), and an
+// out/socket default. A profile also builds the OpenCode
 // config for one task (`buildConfig`): one agent definition carrying the
 // prompt, the step cap, and a permission map that starts every tool at deny
 // and allow-lists only what the profile needs, plus the model and its cost
@@ -26,6 +27,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WITHHELD_GLOBS } from './policy.js';
+import { ROLE_DEFAULTS } from '../llm/roles.js';
 
 /** The engine root (two levels up from this file). */
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -107,12 +109,16 @@ function permissionFor(name, scope) {
  * @param {object} definition
  * @returns {object}
  */
-function makeProfile({ name, agentId, promptFiles, envNames, defaultModel, defaultLimits, defaultDaily, defaultSearchProvider }) {
+function makeProfile({ name, agentId, promptFiles, envNames, modelRole, defaultLimits, defaultDaily, defaultSearchProvider }) {
+  const defaultModel = ROLE_DEFAULTS[modelRole];
   return {
     name,
     agentId,
     promptFiles,
     envNames,
+    // The model role (src/llm/roles.js) whose model the agent runs on: `roles.<modelRole>`,
+    // else its default, which is `defaultModel`.
+    modelRole,
     defaultModel,
     defaultLimits,
     defaultDaily,
@@ -157,7 +163,7 @@ export const WEB = makeProfile({
   agentId: 'errand-web',
   promptFiles: [path.join(ROOT_DIR, 'prompts.local', 'agent-web.md'), path.join(ROOT_DIR, 'prompts', 'agent-web.md')],
   envNames: Object.freeze(['OPENROUTER_AGENT_KEY', 'OPENCODE_WEBSEARCH_KEY', 'PROXY_URL']),
-  defaultModel: 'openrouter/x-ai/grok-4.7',
+  modelRole: 'agentWeb',
   defaultLimits: Object.freeze({ steps: 25, usd: 0.5, seconds: 300 }),
   defaultDaily: Object.freeze({ tasks: 40, usd: 8 }),
   defaultSearchProvider: 'exa',
@@ -169,7 +175,7 @@ export const SERVER = makeProfile({
   agentId: 'errand-server',
   promptFiles: [path.join(ROOT_DIR, 'prompts.local', 'agent-server.md'), path.join(ROOT_DIR, 'prompts', 'agent-server.md')],
   envNames: Object.freeze(['OPENROUTER_AGENT_KEY']),
-  defaultModel: 'openrouter/x-ai/grok-4.7',
+  modelRole: 'agentServer',
   defaultLimits: Object.freeze({ steps: 20, usd: 0.2, seconds: 120 }),
   defaultDaily: Object.freeze({ tasks: 40, usd: 3 }),
   defaultSearchProvider: null,

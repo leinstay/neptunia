@@ -6,7 +6,13 @@
 // filtered scope. Pure; no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WEB, SERVER, profileOf, SERVER_SHELL_ALLOW } from '../src/agent-runner/profiles.js';
+import { ROLE_DEFAULTS } from '../src/llm/roles.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('profileOf: web, server, and nothing else', () => {
   assert.equal(profileOf('web'), WEB);
@@ -83,4 +89,16 @@ test('defaults: limits, daily, model, env names', () => {
   assert.ok(WEB.envNames.includes('PROXY_URL'));
   assert.deepEqual([...SERVER.envNames], ['OPENROUTER_AGENT_KEY']);
   assert.equal(WEB.defaultSearchProvider, 'exa');
+});
+
+test('model: each profile runs on its model role, whose default is its default model; config.json carries no agents.<profile>.model', () => {
+  assert.equal(WEB.modelRole, 'agentWeb');
+  assert.equal(SERVER.modelRole, 'agentServer');
+  assert.equal(WEB.defaultModel, ROLE_DEFAULTS.agentWeb);
+  assert.equal(SERVER.defaultModel, ROLE_DEFAULTS.agentServer);
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).agents;
+  for (const name of ['web', 'server']) {
+    assert.equal(Object.hasOwn(shipped[name], 'model'), false, `${name}: the model is roles.${profileOf(name).modelRole}`);
+    assert.deepEqual(shipped[name].cost, { input: 2, output: 6 }, `${name}: the cost stays (OpenCode's price table is off)`);
+  }
 });
