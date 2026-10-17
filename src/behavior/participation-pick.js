@@ -17,7 +17,7 @@ import { log } from '../log.js';
 import { formatDuration } from '../discord/format.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { oneLine } from '../memory/clamp.js';
-import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/participation.js';
+import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/index.js';
 import { roleModel } from '../llm/roles.js';
 import { block, fillPromptTemplate, stableThenTail } from './prompt.js';
 import { routeCandidate, routeContext } from './route.js';

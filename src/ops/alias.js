@@ -2,8 +2,7 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { normalizeTopic } from '../memory/interests.js';
-import { applyAliasOps } from '../memory/aliases.js';
+import { normalizeTopic, applyAliasOps } from '../memory/index.js';
 import { confirmTarget, formatAliasList } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 

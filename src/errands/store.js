@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
-import { writeJsonAtomic } from '../memory/store.js';
+import { writeJsonAtomic } from '../memory/index.js';
 import { countToday, bumpDaily } from '../time.js';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { profileOf } from '../agent-runner/profiles.js';

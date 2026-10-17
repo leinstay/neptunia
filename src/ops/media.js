@@ -3,10 +3,7 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { rankEmojiUsage } from '../memory/emoji-usage.js';
-import { rankGifs } from '../memory/gifs.js';
-import { gifCaptionCounts, gifFormatCounts, RECACHE_DAYS } from '../memory/gif-recache.js';
-import { gifPostsToday, gifWatchesToday } from '../memory/gif-watch.js';
+import { rankEmojiUsage, rankGifs, gifCaptionCounts, gifFormatCounts, RECACHE_DAYS, gifPostsToday, gifWatchesToday } from '../memory/index.js';
 import { NONE, todayUtc, backfillText, EMOJI_RESCAN_SKIPS, GIFS_RESCAN_SKIPS, GIFS_RECACHE_SKIPS, PICTURES_RECACHE_SKIPS } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 

@@ -34,6 +34,7 @@ import { forgettingIds, isoOf, recordDrops } from './record.js';
 import { archiveDrops } from './archive.js';
 import { chunkKey } from './chunks.js';
 import { readLedger } from './store.js';
+import { memoryRootOf } from './root.js';
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 const GEN_FILE_RE = /^(\d+)\.(i8|jsonl)$/;
@@ -212,7 +213,7 @@ export function createVectors({ dataDir, fs = nodeFs, log = defaultLog, now = Da
     return run;
   }
 
-  const guildDir = (guildId) => path.join(dataDir, 'guilds', String(guildId));
+  const guildDir = memoryRootOf(dataDir).guildDir;
 
   function baseDir(guildId, privateUserId = null) {
     return typeof privateUserId === 'string' && privateUserId

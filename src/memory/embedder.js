@@ -28,7 +28,6 @@
 // taken is missing with nothing left to send it (lost). Logs carry counts and guild ids, never text.
 
 import * as nodeFs from 'node:fs/promises';
-import path from 'node:path';
 import { log as defaultLog } from '../log.js';
 import { roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
@@ -38,6 +37,7 @@ import { HOUR_MS, MINUTE_MS } from '../time.js';
 import { CHUNK_CONTEXT_LINES, chunkKey, compareLines, contextFor, embeddableLine, layerChannelKey, newestRevisions, recordChunk } from './chunks.js';
 import { forgettingIds, isoOf, recordDrops } from './record.js';
 import { readLedger } from './store.js';
+import { memoryRootOf } from './root.js';
 
 /** `embed.batch` when missing or invalid: config.json's value. */
 const BATCH_FALLBACK = 64;
@@ -412,7 +412,7 @@ export function createEmbedder({ hot, vectors, embed, record, dataDir, log = def
   /** The members with a private layer in the guild (a directory under `private/`). */
   async function privateLayers(guildId) {
     try {
-      const entries = await fs.readdir(path.join(dataDir, 'guilds', String(guildId), 'private'), { withFileTypes: true });
+      const entries = await fs.readdir(memoryRootOf(dataDir).privateDir(guildId), { withFileTypes: true });
       return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
     } catch (error) {
       if (error?.code === 'ENOENT') return [];

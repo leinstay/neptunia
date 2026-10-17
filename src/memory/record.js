@@ -27,6 +27,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { clampChars, clampWithEllipsis, oneLine } from './clamp.js';
+import { memoryRootOf } from './root.js';
 
 /** The schema version every line carries. */
 export const RECORD_VERSION = 1;
@@ -281,7 +282,7 @@ export function recordDrops(value, userId, before = null) {
 export async function forgettingIds(fs, dataDir, guildId) {
   try {
     return new Set(
-      (await fs.readdir(path.join(dataDir, 'guilds', String(guildId), 'forgetting')))
+      (await fs.readdir(memoryRootOf(dataDir).forgettingDir(guildId)))
         .filter((name) => name.endsWith('.json'))
         .map((name) => name.slice(0, -'.json'.length)),
     );
@@ -331,6 +332,7 @@ export async function forgettingIds(fs, dataDir, guildId) {
  *   guild lines removed. Appends and forgets run one at a time.
  */
 export function createRecord({ appendStore, dataDir, log = defaultLog, now = Date.now, uuid = randomUUID, fs = nodeFs, writerGate = null }) {
+  const root = memoryRootOf(dataDir);
   const indexes = new Map(); // ids.json path -> Set of keys
   let chain = Promise.resolve();
 
@@ -342,9 +344,7 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
   }
 
   function baseDir(guildId, privateUserId = null) {
-    return typeof privateUserId === 'string' && privateUserId
-      ? path.join(dataDir, 'guilds', String(guildId), 'private', privateUserId, 'record')
-      : path.join(dataDir, 'guilds', String(guildId), 'record');
+    return root.recordDir(guildId, privateUserId);
   }
 
   function dayOf(iso) {
@@ -543,7 +543,7 @@ export function createRecord({ appendStore, dataDir, log = defaultLog, now = Dat
     if (Number.isFinite(before)) return serial(() => forgetEarlier(guildId, String(userId), before));
     return serial(async () => {
       const id = String(userId);
-      const marker = path.join(dataDir, 'guilds', String(guildId), 'forgetting', `${id}.json`);
+      const marker = path.join(root.forgettingDir(guildId), `${id}.json`);
       let created = false;
       try {
         await fs.stat(marker);

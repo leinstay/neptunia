@@ -4,22 +4,30 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { emptyAffinity, affinityBand, roundScore } from '../memory/affinity.js';
-import { sortEpisodesForDisplay } from '../memory/episodes.js';
-import { channelActivity } from '../memory/channels.js';
+import {
+  emptyAffinity,
+  affinityBand,
+  roundScore,
+  sortEpisodesForDisplay,
+  channelActivity,
+  ARCHIVE_KINDS,
+  archiveEntry,
+  journalLine,
+  turnView,
+  DEFAULT_REDACTION,
+  DEFAULT_VAULT_DIR,
+  SNAPSHOTS_DIR,
+} from '../memory/index.js';
 import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from '../discord/commands.js';
 import { isOwnerId } from '../discord/access.js';
 import { effectiveAffinity, privateRepliesToday } from '../behavior/private.js';
 import { PAGE } from '../discord/collect.js';
 import { log } from '../log.js';
 import { clampAtBoundary } from '../memory/clamp.js';
-import { ARCHIVE_KINDS, archiveEntry } from '../memory/archive.js';
 import { SnowflakeUtil } from 'discord.js';
 import { DAY_MS, utcDay, zonedDay } from '../time.js';
 import { formatClock } from '../discord/format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
-import { journalLine, turnView } from '../memory/journal.js';
-import { DEFAULT_REDACTION, DEFAULT_VAULT_DIR, SNAPSHOTS_DIR } from '../memory/store.js';
 import { JOURNAL_N_DEFAULT, JOURNAL_N_MAX, JOURNAL_DAY_RE, treeSize, NONE, isoDay, todayUtc, onOff, MEMORY_SHOW_DEFAULT_LIMIT, MEMORY_SHOW_MAX_LIMIT, dateMs, buildProfileSummary, orderedSectionLines, rawMemoryShowView, interestLine, detailLine, episodeLine, aliasLine, affinityView, oldestMessageId, outcomeText, channelTopWritersText, channelTableLine, numberedNotes, archivedText, messageRefOf } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 

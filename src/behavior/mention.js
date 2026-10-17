@@ -4,7 +4,7 @@
 // it, and almost always ignores tag spam. The model gets a second veto later
 // (<skip/>) for calls that are simply not interesting.
 
-import { ignoreAdjustment } from '../memory/affinity.js';
+import { ignoreAdjustment } from '../memory/index.js';
 import { occursAsWholeWord } from '../memory/mentions.js';
 import { MINUTE_MS } from '../time.js';
 

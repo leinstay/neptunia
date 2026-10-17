@@ -6,7 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { emptyAffinity, affinityBand, roundScore } from '../memory/affinity.js';
+import { emptyAffinity, affinityBand, roundScore } from '../memory/index.js';
 import { topByRank } from '../memory/ranking.js';
 import { fromTokens, MESSAGE_LINK_RE } from '../memory/mentions.js';
 import { MODEL_ROLES } from '../discord/commands.js';

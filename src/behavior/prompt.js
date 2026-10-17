@@ -63,29 +63,41 @@ import {
   renderTranscript,
 } from '../discord/format.js';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay } from '../time.js';
-import { affinityBand, roundScore, strongestMoves } from '../memory/affinity.js';
-import { isConfirmed, isOpen, isStale } from '../memory/interests.js';
+import {
+  affinityBand,
+  roundScore,
+  strongestMoves,
+  isConfirmed,
+  isOpen,
+  isStale,
+  rankAddressed,
+  rankEmojiUsage,
+  gifHandleMap,
+  normalizeGifs,
+  rankGifs,
+  sortEpisodesForDisplay,
+  topEpisodes,
+  cutEpisode,
+  participationSettings,
+  selectEpisodes,
+  matchLore,
+  channelActivity,
+  renderChannel,
+  gifWatchBlocker,
+  normalizeAvatar,
+} from '../memory/index.js';
 import { topByRank } from '../memory/ranking.js';
-import { rankAddressed } from '../memory/addressed.js';
-import { rankEmojiUsage } from '../memory/emoji-usage.js';
-import { gifHandleMap, normalizeGifs, rankGifs } from '../memory/gifs.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
-import { sortEpisodesForDisplay, topEpisodes } from '../memory/episodes.js';
 import { RECENT_EPISODES_PER_MEMBER, episodeKey, foldText, memberIdOf, recentSettings, recentView } from '../memory/recent.js';
-import { cutEpisode, participationSettings, selectEpisodes } from '../memory/participation.js';
-import { matchLore } from '../memory/lore.js';
-import { channelActivity, renderChannel } from '../memory/channels.js';
 import { selectPictures, mediaProxyUrl, fitBox, mediaParts } from '../discord/media.js';
 import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { mergeProfiles } from './private.js';
 import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, renderChannelDirectory, renderDirectory } from './handles.js';
 import { reactorIdsOf } from '../discord/reactors.js';
-import { gifWatchBlocker } from '../memory/gif-watch.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
 import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
 import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from '../discord/around.js';
-import { normalizeAvatar } from '../memory/avatars.js';
 
 const TAG_OVERHEAD = 60;
 
