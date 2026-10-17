@@ -9,6 +9,7 @@ import {
   createLlm,
   TokenLimitError,
   DailyCapError,
+  NotByokError,
   LLM_DAILY,
   llmCountToday,
   railReason,
@@ -2147,6 +2148,67 @@ test('complete: the usage line keeps numbers, booleans and ids only; a value of 
   });
   const { logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { role: 7 }));
   assert.deepEqual(usageFields(logs), [{ role: null, model: 'test-model', ...NO_USAGE }]);
+});
+
+// --- llm.byokRequired: an answer OpenRouter served from its own capacity is a failed request ---
+
+/** A client whose one answer carries `usage` (undefined: no usage block), counting its sends. */
+function byokLlm(llmOverrides, usage) {
+  const sent = [];
+  const llm = createLlm({
+    apiKey: 'k',
+    getConfig: () => baseConfig(llmOverrides),
+    calibrator: fakeCalibrator(),
+    state: fakeState(),
+    fetchImpl: async (url, init) => {
+      sent.push(init.body);
+      return jsonResponse({
+        id: 'gen-byok',
+        provider: 'Some Provider',
+        choices: [{ message: { content: 'the answer itself' } }],
+        ...(usage === undefined ? {} : { usage }),
+      });
+    },
+  });
+  return { llm, sent };
+}
+
+test('complete: byokRequired with is_byok false throws NotByokError after the usage line and a not-byok warning, never re-sent', async () => {
+  const { llm, sent } = byokLlm({ byokRequired: true }, { prompt_tokens: 10, cost: 0.01, is_byok: false });
+  const { logs } = await withCapturedLogs(() =>
+    assert.rejects(
+      llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'voice', model: 'vendor/model-x' }),
+      (err) => err instanceof NotByokError && err.message === 'not byok: vendor/model-x via Some Provider',
+    ),
+  );
+  assert.equal(sent.length, 1, 'thrown after the answer: nothing is retried');
+  assert.equal(usageLines(logs).length, 1, 'the usage line is logged as usual');
+  const warn = logs.filter((l) => l.msg === 'llm: not byok');
+  assert.equal(warn.length, 1);
+  assert.equal(warn[0].level, 'warn');
+  const fieldsOf = ({ level, time, msg, ...fields }) => fields;
+  assert.deepEqual(fieldsOf(warn[0]), fieldsOf(logs.find((l) => l.msg === 'llm: usage')), 'the warning carries the usage line\'s fields');
+  assert.equal(warn[0].byok, false);
+  const text = JSON.stringify(logs);
+  assert.ok(!text.includes('the prompt itself') && !text.includes('the answer itself'), 'no prompt or answer text');
+});
+
+test('complete: byokRequired passes an answer with is_byok true, a non-boolean one or no usage block', async () => {
+  for (const usage of [{ prompt_tokens: 10, is_byok: true }, { prompt_tokens: 10 }, { prompt_tokens: 10, is_byok: 'false' }, undefined]) {
+    const { llm } = byokLlm({ byokRequired: true }, usage);
+    const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }]));
+    assert.equal(result.text, 'the answer itself', JSON.stringify(usage));
+    assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0, JSON.stringify(usage));
+  }
+});
+
+test('complete: without byokRequired exactly true, an answer with is_byok false passes unchanged', async () => {
+  for (const overrides of [{}, { byokRequired: false }, { byokRequired: 'true' }, { byokRequired: 1 }]) {
+    const { llm } = byokLlm(overrides, { prompt_tokens: 10, is_byok: false });
+    const { result, logs } = await withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }]));
+    assert.equal(result.text, 'the answer itself', JSON.stringify(overrides));
+    assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0, JSON.stringify(overrides));
+  }
 });
 
 test('complete: a analyzer request carries no marker even with promptCache on', async () => {

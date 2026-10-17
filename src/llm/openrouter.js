@@ -297,6 +297,31 @@ export class TokenLimitError extends Error {}
 export class DailyCapError extends Error {}
 
 /**
+ * An answered request that OpenRouter served from its own capacity (`usage.is_byok === false`)
+ * while `llm.byokRequired` is on: the operator routes every model through their own provider
+ * accounts, so such an answer is a routing mistake that spent OpenRouter credits. Thrown after
+ * the answer arrived, never retried (it was billed already); the caller's ordinary error path runs.
+ * Message: `not byok: <model> via <provider>`.
+ */
+export class NotByokError extends Error {}
+
+/**
+ * Throws a `NotByokError` when `llm.byokRequired` is exactly `true` and the answer's usage says
+ * `is_byok: false`, after a `llm: not byok` warn line with `fields` (the usage line's own fields:
+ * counts, ids and codes, never prompt or answer text). A missing or non-boolean `is_byok` passes:
+ * an answer without a usage block is not a violation. With the setting off nothing happens.
+ * The one check, shared by the chat client and the embeddings client (src/llm/embed.js).
+ * @param {object|undefined} llmConfig  The live `config.llm`.
+ * @param {object} usage                The answer's `usage` object (`{}` when absent).
+ * @param {object} fields               The fields of the request's `llm: usage` line.
+ */
+export function assertByok(llmConfig, usage, fields) {
+  if (llmConfig?.byokRequired !== true || usage?.is_byok !== false) return;
+  log.warn('llm: not byok', fields);
+  throw new NotByokError(`not byok: ${fields.model ?? 'unknown model'} via ${fields.provider ?? 'unknown provider'}`);
+}
+
+/**
  * The reason code of a request that was refused or failed, as callers log
  * and report it: `daily-cap` for a `DailyCapError`, `token-limit` for a
  * `TokenLimitError` (the two rails, refused before anything was sent),
@@ -1230,8 +1255,12 @@ export function createLlm({
       if (promptTokens !== null && promptTokens > requestTokenCap) {
         log.warn('llm: provider counted more prompt tokens than the cap', { usage, estimated });
       }
-      log.info('llm: usage', { ...usageLogFields(json, usage, body.model, options, marked, now() - startedAt), ...extra });
+      const usageFields = { ...usageLogFields(json, usage, body.model, options, marked, now() - startedAt), ...extra };
+      log.info('llm: usage', usageFields);
       if (options.limits) reportLimits(options.limits, { where: options.purpose ?? options.role ?? 'request', estimated, promptTokens, completion: usage.completion_tokens, maxTokens: body.max_tokens });
+      // `answer` runs once the retry loop or the hedge has returned, so a refused answer is never
+      // re-sent: it was billed already, and the caller's ordinary error path takes it from here.
+      assertByok(getConfig().llm, usage, usageFields);
       // `json.provider` is OpenRouter's own name for whichever upstream provider
       // actually served the request (undefined when the response omits it) --
       // surfaced so `/nep ping` can report it without a second request shape.

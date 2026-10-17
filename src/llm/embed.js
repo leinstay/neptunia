@@ -11,6 +11,7 @@ import {
   RETRY_STATUS,
   TokenLimitError,
   apiUrl,
+  assertByok,
   backoffMs,
   countLlmRequest,
   openRouterHeaders,
@@ -95,7 +96,8 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
    * cut at `timeoutMs` (default `llm.helperTimeoutMs`); a network failure, a timeout or a status in
    * `RETRY_STATUS` is retried up to `llm.retries` times after `backoffMs` (`llm: retry`), an
    * external `signal` abort never is. A 200 with an error body or the wrong number of vectors is
-   * thrown, never retried.
+   * thrown, never retried. So is a 200 OpenRouter served from its own capacity while
+   * `llm.byokRequired` is on (a `NotByokError` after a `llm: not byok` line, see `assertByok`).
    * @param {string[]} texts
    * @param {object} options
    * @param {object} options.config              The whole live config, read at the moment of use.
@@ -165,7 +167,7 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
       const vectors = vectorsOf(json, texts.length);
       const usage = isPlainObject(json.usage) ? json.usage : {};
       const elapsed = now() - startedAt;
-      log.info('llm: usage', {
+      const usageFields = {
         role: EMBED_ROLE,
         purpose: stringOrNull(purpose),
         origin: stringOrNull(origin),
@@ -178,7 +180,11 @@ export function createEmbedder({ apiKey, env = {}, state, fetchImpl = fetch, now
         inputs: texts.length,
         dimensions,
         ms: Number.isFinite(elapsed) ? Math.max(0, Math.round(elapsed)) : null,
-      });
+      };
+      log.info('llm: usage', usageFields);
+      // An answer OpenRouter served from its own capacity while `llm.byokRequired` is on is
+      // thrown here, after the loop's last send: it is never retried.
+      assertByok(cfg, usage, usageFields);
       return vectors;
     }
     throw lastError;

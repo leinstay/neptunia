@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createEmbedder, normalizeVector, EMBED_ROLE } from '../src/llm/embed.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
-import { DailyCapError, TokenLimitError, llmCountToday } from '../src/llm/openrouter.js';
+import { DailyCapError, NotByokError, TokenLimitError, llmCountToday } from '../src/llm/openrouter.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const DAY = Date.UTC(2026, 9, 14, 12);
@@ -186,6 +186,24 @@ test('embed: one llm: usage line with role embedding, counts and cost, never the
   });
   assert.ok(!JSON.stringify(logs).includes('secret'), 'no input text in any log line');
   assert.equal(EMBED_ROLE, 'embedding');
+});
+
+test('embed: with llm.byokRequired, an answer with is_byok false throws NotByokError after the usage line and a not-byok warning, never retried', async () => {
+  const answer = embeddingsOf([[1, 0]], { usage: { prompt_tokens: 7, cost: 0.0001, is_byok: false } });
+  const { embedder, sent } = makeEmbedder([answer, embeddingsOf([[1, 0]])]);
+  const { logs } = await withCapturedLogs(() =>
+    assert.rejects(
+      embedder.embed(['Ωmega secret'], { config: config({ llm: { byokRequired: true } }), purpose: 'search' }),
+      (err) => err instanceof NotByokError && err.message === 'not byok: openai/text-embedding-3-large via OpenAI',
+    ),
+  );
+  assert.equal(sent.length, 1);
+  assert.equal(logs.filter((l) => l.msg === 'llm: usage').length, 1);
+  const warn = logs.filter((l) => l.msg === 'llm: not byok');
+  assert.equal(warn.length, 1);
+  assert.equal(warn[0].level, 'warn');
+  assert.equal(warn[0].byok, false);
+  assert.ok(!JSON.stringify(logs).includes('secret'), 'no input text in any log line');
 });
 
 test('embed: the attempt is cut at llm.helperTimeoutMs; an external abort is never retried', async () => {
