@@ -10,7 +10,6 @@
 // (`startIfNeeded`) and again only on the owner's `/nep emoji rescan` (`run`
 // with `force`).
 
-import { readableChannels, fetchHistoryWindow } from '../interface/discord.js';
 import { emojiUsageOpts } from './emoji-usage.js';
 import { log as defaultLog } from '../log.js';
 
@@ -28,11 +27,14 @@ const DEFAULT_BACKFILL_MESSAGES = 500;
  * of both backfills (this one and src/memory/gif-backfill.js).
  * @param {object} guild  A discord.js Guild.
  * @param {number} limit
- * @param {{ config: object, selfId?: string, log?: object, prefix: string }} deps  `config` is the
- *   live config (`bot`, `media.embedTextChars`, `media.video.sites`).
+ * @param {{ config: object, discord: object, selfId?: string, log?: object, prefix: string }} deps
+ *   `config` is the live config (`bot`, `media.embedTextChars`, `media.video.sites`); `discord` the
+ *   Discord interface's capabilities object (`readableChannels`, `fetchHistoryWindow`), passed by
+ *   the caller.
  * @returns {Promise<{ channels: number, messages: object[] }>}  `messages` normalized, in read order.
  */
-export async function readMemberHistory(guild, limit, { config, selfId, log = defaultLog, prefix }) {
+export async function readMemberHistory(guild, limit, { config, discord, selfId, log = defaultLog, prefix }) {
+  const { readableChannels, fetchHistoryWindow } = discord;
   const channels = readableChannels(guild, config.bot);
   const messages = [];
   for (const channel of channels) {
@@ -63,9 +65,10 @@ export async function readMemberHistory(guild, limit, { config, selfId, log = de
  *   `config.media.embedTextChars`, `config.features.customEmoji` read at use.
  * @param {object} deps.store   src/memory/store.js.
  * @param {object} deps.client  The discord.js Client (`user.id`, `guilds.cache`).
+ * @param {object} deps.discord  The Discord interface's capabilities object (src/index.js injects it): readMemberHistory's reads.
  * @param {object} [deps.log]   src/log.js-shaped logger.
  */
-export function createEmojiBackfill({ hot, store, client, log = defaultLog }) {
+export function createEmojiBackfill({ hot, store, client, discord, log = defaultLog }) {
   let running = false;
 
   function skipped(reason) {
@@ -107,7 +110,7 @@ export function createEmojiBackfill({ hot, store, client, log = defaultLog }) {
       const guild = client.guilds.cache.get(guildId);
       if (!guild) return skipped('no-guild');
 
-      const history = await readMemberHistory(guild, limit, { config: hot.config, selfId: client.user?.id, log, prefix: 'emoji-backfill' });
+      const history = await readMemberHistory(guild, limit, { config: hot.config, discord, selfId: client.user?.id, log, prefix: 'emoji-backfill' });
       const channels = history.channels;
       const collected = history.messages.map((message) => ({ id: message.id, ts: message.ts, emojis: message.emojis ?? [] }));
 

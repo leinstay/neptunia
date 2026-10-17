@@ -12,7 +12,6 @@
 // use; logs carry ids and outcomes, never a goal or a result.
 
 import { log as defaultLog } from '../log.js';
-import { normalizeMessage } from '../interface/discord.js';
 
 /** `agents.resultRetrySeconds` and `agents.resultCooldownSeconds` when missing (config.json carries the same). */
 export const DEFAULT_RETRY_SECONDS = 30;
@@ -27,6 +26,7 @@ const HELD = new Set(['busy', 'paused']);
  * @param {object} options
  * @param {{ config: object }} options.hot
  * @param {object} options.client  discord.js-shaped: `channels.fetch(id)`, `user.id`.
+ * @param {object} options.discord  The Discord interface's capabilities object (src/index.js injects it): `normalizeMessage` of the message a result answers.
  * @param {{ runTurn: Function, isBusy?: Function, isAnyBusy?: Function }} options.turns
  * @param {{ markSeen: Function }} options.errands
  * @param {() => string|null} [options.getGuildId]
@@ -34,7 +34,8 @@ const HELD = new Set(['busy', 'paused']);
  * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
  * @param {{ info: Function, warn: Function }} [options.log]
  */
-export function createTaskTurns({ hot, client, turns, errands, getGuildId = () => null, now = Date.now, setTimer = (fn, ms) => setTimeout(fn, ms), log = defaultLog }) {
+export function createTaskTurns({ hot, client, discord, turns, errands, getGuildId = () => null, now = Date.now, setTimer = (fn, ms) => setTimeout(fn, ms), log = defaultLog }) {
+  const { normalizeMessage } = discord;
   // conversation id -> when its last result turn started
   const lastAt = new Map();
   // task id -> pending timer, while a result waits for its turn

@@ -2769,6 +2769,7 @@ test('run: pause waits for a portrait refresh in flight and nothing is written a
       prompts: { profile: 'PROFILE {{name}}', 'character-card': 'CARD {{name}}', labels },
     };
     const warmup = createWarmup({
+      discord: DISCORD,
       hot: warmupHot,
       store: realStore,
       client: { user: { id: 'self' }, guilds: { cache: new Map() } },

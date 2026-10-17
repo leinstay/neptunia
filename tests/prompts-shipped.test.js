@@ -969,7 +969,7 @@ test('createWarmup: the channel, person and server requests fill channel.md, pro
   const store = tempStore('warmup');
   const llm = recordingLlm(() => '{}');
   const hot = shippedHot({ memory: { mainChannelIds: [GENERAL] } });
-  const warmup = createWarmup({ hot, store, client: discordClient(guild), llm, calibrator: createCalibrator(), getSelfName: () => SELF_NAME, now: () => NOW, sleep: async () => {} });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client: discordClient(guild), llm, calibrator: createCalibrator(), getSelfName: () => SELF_NAME, now: () => NOW, sleep: async () => {} });
 
   await withCapturedLogs(async () => {
     await warmup.runChannel(GUILD, GENERAL);
@@ -993,7 +993,7 @@ test('createWarmup: a portrait refresh fills profile.md, and portrait.md in two-
   const llm = recordingLlm(() => '{}');
   const hot = shippedHot();
   const client = { user: { id: SELF_ID, username: SELF_NAME }, guilds: { cache: new Map() } };
-  const warmup = createWarmup({ hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => SELF_NAME, now: () => NOW, sleep: async () => {} });
+  const warmup = createWarmup({ discord: DISCORD, hot, store, client, llm, calibrator: createCalibrator(), getSelfName: () => SELF_NAME, now: () => NOW, sleep: async () => {} });
   const hint = `<@${ANA}> said she moved to the coast`;
 
   await withCapturedLogs(() => warmup.refreshPortrait(GUILD, ANA, hint, { force: true, windows }));

@@ -212,7 +212,7 @@ test('task turns: a finished errand opens her turn where it was asked, with <tas
   const hot = fakeHot();
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { fetch: async (id) => (id === 'c1' ? channel : null) } };
   const turns = createTurnRunner({ discord: DISCORD, hot, store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client, port, errands, now: () => NOW });
-  const taskTurns = createTaskTurns({ hot, client, turns, errands, getGuildId: () => 'g1', now: () => NOW });
+  const taskTurns = createTaskTurns({ discord: DISCORD, hot, client, turns, errands, getGuildId: () => 'g1', now: () => NOW });
   const { result } = await withCapturedLogs(() => taskTurns.onFinished(doneTask, 'g1'));
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.calls.length, 1);
@@ -237,7 +237,7 @@ test('task turns: held back while the attention is taken, tried again after agen
   const errands = fakeErrands();
   const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
-  const taskTurns = createTaskTurns({ hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
+  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
   await withCapturedLogs(async () => {
     await taskTurns.onFinished(doneTask, 'g1');
     assert.equal(runs.length, 0, 'nothing runs while a turn holds the attention');

@@ -34,7 +34,6 @@
 // message cannot be found is left as it is (counted `unlocated`); with
 // `media.recacheBefore` set it is still described again when it comes up.
 
-import { normalizeMessage } from '../interface/discord.js';
 import { collectPictures, emojiUrl } from '../media/classify.js';
 import { collectGifItems, normalizeGifs } from './gifs.js';
 import { isStaleDescription, recacheCutoffMs } from './describe.js';
@@ -284,6 +283,7 @@ function realSleep(ms) {
  *   `config.media.recacheBefore`, `config.media.recacheIntervalMs` and the roles read at use.
  * @param {object} deps.store      src/memory/store.js.
  * @param {object} deps.client     The discord.js Client (`user.id`, `channels.fetch`).
+ * @param {object} deps.discord    The Discord interface's capabilities object (src/index.js injects it): `normalizeMessage` of a message read again.
  * @param {object} [deps.describer]  From createDescriber(): `watchGif`, `gifWatchBlocker`, `redescribe`,
  *   `pictureBlocker`. Absent -> never runs.
  * @param {object|null} [deps.record]  src/memory/record.js (`iterate`), where the media recache finds the
@@ -297,6 +297,7 @@ export function createGifRecache({
   hot,
   store,
   client,
+  discord,
   describer = null,
   record = null,
   isWarmingUp = () => false,
@@ -304,6 +305,7 @@ export function createGifRecache({
   sleep = realSleep,
   log = defaultLog,
 }) {
+  const { normalizeMessage } = discord;
   let running = null;
 
   /** One message read again over the Discord API and normalized; null when it is gone or the read fails. */
