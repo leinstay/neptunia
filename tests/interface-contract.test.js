@@ -305,3 +305,35 @@ test('discordFailure: Discord answers are normalised', () => {
   assert.deepEqual(view(discordFailure(Object.assign(new Error('t'), { code: 'ETIMEDOUT' }), { sent: false })), ['failed', 'timeout', true]);
   assert.ok(discordFailure(http(403), { sent: true }).error.cause instanceof Error, 'the cause is kept for the logs');
 });
+
+// ---------------------------------------------------------------------------
+// The fake adapter's own checks.
+
+test('fake adapter: a malformed action is refused as failed invalid-action, recorded, without an effect', async () => {
+  const h = fakeHarness();
+  const before = h.effects();
+  const target = h.foreign();
+  for (const [op, call] of [
+    ['send', () => h.port.send({ iface: 'fake' }, { text: 'όχι' })],
+    ['send', () => h.port.send({ iface: 'fake', conversationId: ROOM }, 'όχι')],
+    ['edit', () => h.port.edit({ iface: 'fake', conversationId: ROOM }, { text: 'όχι' })],
+    ['delete', () => h.port.delete({ ...target, messageId: 7 })],
+    ['react', () => h.port.react(target, null)],
+    ['typing', () => h.port.typing(null)],
+  ]) {
+    const result = await call();
+    assert.deepEqual([result.status, result.error.code, result.error.retryable], ['failed', 'invalid-action', false], op);
+    assert.equal(h.port.calls.at(-1).op, op);
+  }
+  assert.equal(h.effects(), before + 1, 'only the seeded message');
+  assert.deepEqual(h.view(target).reactions, []);
+  assert.deepEqual(h.port.typings, []);
+});
+
+test('fake adapter: a well-formed action keeps the port\'s own refusal codes', async () => {
+  const h = fakeHarness();
+  const foreign = await h.port.send({ iface: 'elsewhere', conversationId: ROOM }, { text: 'όχι' });
+  assert.equal(foreign.error.code, 'foreign-reference');
+  const emptyEmoji = await h.port.react(h.foreign(), '');
+  assert.equal(emptyEmoji.error.code, 'invalid-emoji');
+});

@@ -1,5 +1,6 @@
-// The message pipeline: turns a raw discord.js `messageCreate` event into one
-// of a handful of outcomes (ignore, observe into memory, let the spontaneous
+// The message pipeline: turns the `message.received` event of a discord.js
+// `messageCreate` (packages/protocol/, built by src/discord/collect.js#toEvent)
+// into one of a handful of outcomes (ignore, observe into memory, let the spontaneous
 // scheduler eavesdrop, or run a turn) without ever throwing into discord.js.
 // A direct message goes through the private-chat gate instead
 // (features.privateMessages, src/behavior/private.js). A turn someone asked
@@ -16,7 +17,7 @@
 // src/discord/collect.js, so it can be driven with plain fake objects in
 // tests.
 
-import { normalizeMessage, canSend, fetchHistory, fetchMessage } from './collect.js';
+import { canSend, fetchHistory, fetchMessage, normalizeOptions, normalizedOf, toEvent } from './collect.js';
 import { isOwnerId } from './access.js';
 import { collectPictures, collectEmojiItems, collectVideos, collectReadableLinks, isDescribable } from './media.js';
 import {
@@ -235,17 +236,22 @@ function bufferedMediaIds(buffered) {
  *   (`gate-failed`, or `gate-failopen` when it let the line through anyway) and a deferred
  *   follow-up replaced by a newer one (`replaced-deferred`, both ids) are noted as facts, and
  *   every message of a served channel as activity there. Absent: nothing is noted.
- * @returns {(message: import('discord.js').Message) => Promise<void>} Also carries a
+ * @returns {(event: import('../protocol.js').MessageReceived & { raw: import('discord.js').Message }) => Promise<void>}
+ *   Takes the `message.received` event of a new message (src/discord/collect.js#toEvent; src/index.js
+ *   builds and validates it): the pipeline reads the normalised message, the mention and the reply
+ *   from the event, and the discord.js message (`event.raw`, private to the Discord side and gone in
+ *   stage 4 of the structure rework) only for its channel, guild, history and sends. Also carries a
  *   `.drainPending()` method: called once a turn finishes anywhere (src/index.js wires it to
  *   src/behavior/turn.js's `setOnIdle`, in the same `finally` that frees the channel) to answer
  *   the oldest non-expired pending direct ping, one at a time, after a human switch pause. And a
  *   `.clearPending()` method (`/nep pause`, wired from src/admin.js via src/index.js) that
  *   drops every queued ping and every settle wait without answering any of them. And a `.stop()`
  *   method (shutdown, src/index.js) that clears every settle wait, so none starts a turn while the
- *   client goes down. And an `.onMessageUpdate(oldMessage, newMessage)` method (src/index.js wires
- *   it to `messageUpdate`) that folds an embed Discord attached after the message arrived into
- *   its buffered copy -- see onMessageUpdate below. And an `.onMessageDelete(message)` method
- *   (src/index.js wires it to `messageDelete`) that writes a `deleted` line to the record.
+ *   client goes down. And an `.onMessageUpdate(event)` method (src/index.js wires it to
+ *   `messageUpdate` through an edit event) that folds an embed Discord attached after the
+ *   message arrived into its buffered copy -- see onMessageUpdate below. And an
+ *   `.onMessageDelete(event)` method (src/index.js wires it to `messageDelete` through a
+ *   deletion event) that writes a `deleted` line to the record.
  */
 export function createMessageHandler({
   hot,
@@ -2246,7 +2252,8 @@ export function createMessageHandler({
    * dropped silently, except the daily-cap notice once a day per person. No
    * ignore roll, follow-up window, eavesdrop or address classifier here.
    */
-  async function onPrivateMessage(message, config) {
+  async function onPrivateMessage(event, config) {
+    const message = event.raw;
     const features = config.features ?? {};
     if (features.privateMessages !== true) return;
     const selfId = client.user.id;
@@ -2258,11 +2265,7 @@ export function createMessageHandler({
     if (!guildId) return;
     const memoryOn = features.memory !== false;
     const channel = message.channel;
-    const normalized = normalizeMessage(message, selfId, {
-      embedTextChars: config.media?.embedTextChars,
-      videoSites: config.media?.video?.sites,
-      maxUrlChars: config.context?.maxUrlChars,
-    });
+    const normalized = normalizedOf(event);
 
     // The persona's own DM message: bookkeeping, remembered under the
     // partner's id. Without a usable partner id, or for a limit notice (not
@@ -2317,12 +2320,12 @@ export function createMessageHandler({
    * daily cap aside. `{ channel, trigger, kind }`, or null for anything else
    * (an untagged follow-up included: it would need the address classifier).
    */
-  async function pausedCall(message, config) {
+  async function pausedCall(event, config) {
+    const message = event.raw;
     const features = config.features ?? {};
     const selfId = client.user.id;
     if (message.author?.bot || message.author?.id === selfId) return null;
-    const normalize = () =>
-      normalizeMessage(message, selfId, { embedTextChars: config.media?.embedTextChars, videoSites: config.media?.video?.sites, maxUrlChars: config.context?.maxUrlChars });
+    const normalize = () => normalizedOf(event);
 
     if (!message.guild) {
       if (features.privateMessages !== true) return null;
@@ -2339,8 +2342,8 @@ export function createMessageHandler({
     if (!canSend(channel)) return null;
     const normalized = normalize();
     const kind = detectTrigger({
-      mentionsSelf: features.mentions !== false && message.mentions.users.has(selfId),
-      repliesToSelf: features.replies !== false && (await resolveReference(channel, normalized.replyToId, selfId)),
+      mentionsSelf: features.mentions !== false && event.addressing.mentioned,
+      repliesToSelf: features.replies !== false && (event.addressing.replyToSelf || (await resolveReference(channel, normalized.replyToId, selfId))),
       content: normalized.content,
       nameTriggers: features.nameTriggers !== false ? config.bot.nameTriggers : [],
     });
@@ -2354,12 +2357,12 @@ export function createMessageHandler({
    * Off with features.pauseNotice or without the label; anything else stays
    * silent. Config and labels read now.
    */
-  async function maybePauseNotice(message) {
+  async function maybePauseNotice(event) {
     const config = hot.config;
     if (config.features?.pauseNotice === false) return;
     const labels = hot.prompts?.labels;
     if (!pauseNotice(labels)) return;
-    const call = await pausedCall(message, config);
+    const call = await pausedCall(event, config);
     if (!call) return;
     const minutes = pauseNoticeMinutes(config);
     const last = pauseNoticeAt.get(call.channel.id);
@@ -2410,8 +2413,11 @@ export function createMessageHandler({
     }
   }
 
-  async function onMessage(message) {
+  async function onMessage(event) {
     try {
+      // The discord.js message behind the event: still needed for the channel, the guild and
+      // the sends of this stage; everything the normaliser gave is read from the event.
+      const message = event.raw;
       // 1. System / webhook messages are not conversation.
       if (message.system || message.webhookId) return;
 
@@ -2420,7 +2426,7 @@ export function createMessageHandler({
       // eavesdrop -- and nothing below may mark the store dirty. A direct
       // call only gets the pause notice (maybePauseNotice).
       if (store?.state?.data?.paused) {
-        await maybePauseNotice(message);
+        await maybePauseNotice(event);
         return;
       }
 
@@ -2432,7 +2438,7 @@ export function createMessageHandler({
       // see onPrivateMessage. Owner commands are slash commands
       // (src/discord/commands.js, interactionCreate), never DMs.
       if (!message.guild) {
-        await onPrivateMessage(message, config);
+        await onPrivateMessage(event, config);
         return;
       }
 
@@ -2454,13 +2460,9 @@ export function createMessageHandler({
       // Any message, hers included, pushes back a missed-answer sweep armed here (src/behavior/missed.js).
       missed?.noteActivity(message.channel.id, message.createdTimestamp);
 
-      // 4. Normalize.
+      // 4. The normalised message, as the event carries it.
       const selfId = client.user.id;
-      const normalized = normalizeMessage(message, selfId, {
-        embedTextChars: config.media?.embedTextChars,
-        videoSites: config.media?.video?.sites,
-        maxUrlChars: config.context?.maxUrlChars,
-      });
+      const normalized = normalizedOf(event);
       const guildId = message.guild.id;
 
       // 5. Its own message: only bookkeeping. Also (re)opens/extends the
@@ -2494,8 +2496,9 @@ export function createMessageHandler({
       // by its own feature switch so detectTrigger itself stays pure. Done
       // BEFORE memory observes the message, so the buffer can mark it. A
       // forward of the persona's own message has no replyToId: not a reply.
-      const mentionsSelf = features.mentions !== false && message.mentions.users.has(selfId);
-      const repliesToSelf = features.replies !== false && (await resolveReference(message.channel, normalized.replyToId, selfId));
+      const mentionsSelf = features.mentions !== false && event.addressing.mentioned;
+      // The adapter's cached answer first; else the reference is fetched as before.
+      const repliesToSelf = features.replies !== false && (event.addressing.replyToSelf || (await resolveReference(message.channel, normalized.replyToId, selfId)));
       const nameTriggers = features.nameTriggers !== false ? config.bot.nameTriggers : [];
       const kind = detectTrigger({
         mentionsSelf,
@@ -2568,21 +2571,26 @@ export function createMessageHandler({
    * features.embedUpdates (a missing key counts as on), with features.memory off and while
    * paused. Only the served guild, a channel outside threads and the dry-run mirror,
    * and a human author's message with embeds. Config read now. Never throws.
-   * @param {import('discord.js').Message|import('discord.js').PartialMessage} _oldMessage
-   * @param {import('discord.js').Message|import('discord.js').PartialMessage} newMessage
+   * @param {import('../protocol.js').MessageReceived & { raw: object, rawPrevious: object|null }} event
+   *   The edit event (collect.js#toEvent with `edit`): `raw` is the updated discord.js message,
+   *   `rawPrevious` the old one; a partial one is fetched here and its event built again.
    * @returns {Promise<void>}
    */
-  async function onMessageUpdate(_oldMessage, newMessage) {
-    await recordEdit(_oldMessage, newMessage);
+  async function onMessageUpdate(event) {
+    await recordEdit(event);
     try {
       const config = hot.config;
       const features = config.features ?? {};
       if (features.embedUpdates === false || features.memory === false) return;
       if (store?.state?.data?.paused) return;
-      let message = newMessage;
+      let message = event.raw;
+      let edited = event;
       const guildId = message?.guild?.id ?? message?.guildId ?? null;
       if (!guildId || guildId !== getGuildId()) return;
-      if (message.partial) message = await message.fetch();
+      if (message.partial) {
+        message = await message.fetch();
+        edited = null;
+      }
       if (message.system || message.webhookId) return;
       const selfId = client.user.id;
       if (!message.author || message.author.bot || message.author.id === selfId) return;
@@ -2592,11 +2600,8 @@ export function createMessageHandler({
       const embeds = message.embeds?.length ?? 0;
       if (embeds === 0) return;
 
-      const normalized = normalizeMessage(message, selfId, {
-        embedTextChars: config.media?.embedTextChars,
-        videoSites: config.media?.video?.sites,
-        maxUrlChars: config.context?.maxUrlChars,
-      });
+      // A message fetched whole here gets its event now, as the adapter would have built it.
+      const normalized = normalizedOf(edited ?? toEvent(message, selfId, { ...normalizeOptions(config), edit: true, now }));
       const fields = { channelId: normalized.channelId, messageId: normalized.id, embeds };
       const buffered = store.getBuffer(guildId).find((m) => m?.id != null && String(m.id) === String(normalized.id));
       if (!buffered) {
@@ -2635,20 +2640,19 @@ export function createMessageHandler({
   /**
    * An edited message (its text changed between `oldMessage` and `newMessage`) as a `seen`
    * line of the record with the next revision of the day (`revisions`). An update that only
-   * attached embeds is no edit. Never throws: a refused append is logged as `events: record
-   * failed` (counts only).
+   * attached embeds is no edit. `event` is onMessageUpdate's (its `raw` and `rawPrevious` the
+   * new and old discord.js messages). Never throws: a refused append is logged as `events:
+   * record failed` (counts only).
    */
-  async function recordEdit(oldMessage, newMessage) {
+  async function recordEdit(event) {
     try {
       const config = hot.config;
-      if (!newMessage || newMessage.partial || !recordable(newMessage, config)) return;
+      const newMessage = event?.raw;
+      const oldMessage = event?.rawPrevious ?? null;
+      if (!newMessage || newMessage.partial || event.partial || !recordable(newMessage, config)) return;
       if (oldMessage && !oldMessage.partial && rawText(oldMessage) === rawText(newMessage)) return;
       const guildId = newMessage.guild?.id ?? newMessage.guildId;
-      const normalized = normalizeMessage(newMessage, client.user.id, {
-        embedTextChars: config.media?.embedTextChars,
-        videoSites: config.media?.video?.sites,
-        maxUrlChars: config.context?.maxUrlChars,
-      });
+      const normalized = normalizedOf(event);
       const buffered = typeof store?.getBuffer === 'function' ? store.getBuffer(guildId).find((m) => m?.id != null && String(m.id) === String(normalized.id)) : null;
       const day = utcDay(now());
       if (day !== revisionsDay) {
@@ -2671,16 +2675,20 @@ export function createMessageHandler({
    * the record, dated now; the message's recorded text stays (a deletion is not a forget
    * request). Only what `recordable` lets in. Never throws: a refused append is logged as
    * `events: record failed` (counts only).
-   * @param {import('discord.js').Message|import('discord.js').PartialMessage} message
+   * @param {import('../protocol.js').MessageReceived & { raw: object }} event  The deletion
+   *   event (collect.js#toEvent with `deleted`): `message.id`, and `raw` the deleted discord.js
+   *   message, possibly partial.
    * @returns {Promise<void>}
    */
-  async function onMessageDelete(message) {
+  async function onMessageDelete(event) {
     try {
       const config = hot.config;
-      if (!message?.id || !recordable(message, config)) return;
+      const message = event?.raw;
+      const id = event?.message?.id;
+      if (!id || !recordable(message, config)) return;
       const guildId = message.guild?.id ?? message.guildId;
       const line = toRecordLine(
-        { id: String(message.id), channelId: message.channel.id, authorId: message.author?.id ?? null, ts: now() },
+        { id: String(id), channelId: message.channel.id, authorId: message.author?.id ?? null, ts: now() },
         { kind: 'deleted', now },
       );
       await record.append(guildId, [line]);

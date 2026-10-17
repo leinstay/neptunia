@@ -29,7 +29,7 @@ import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/discord/events.js';
-import { normalizeMessage, withTextPreviews } from '../src/discord/collect.js';
+import { normalizeMessage, normalizeOptions, toEvent, withTextPreviews } from '../src/discord/collect.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { buildMemoryRequest, characterText } from '../src/memory/update.js';
 import { buildVoiceRequest } from '../src/memory/voice.js';
@@ -1202,10 +1202,11 @@ test('createMessageHandler: the room classifier fills room.md', async () => {
     eavesdropReady: () => true,
   };
   const llm = recordingLlm(() => 'yes');
+  const client = discordClient(guild);
   const handler = createMessageHandler({
     hot,
     store,
-    client: discordClient(guild),
+    client,
     turns,
     spontaneous,
     memory: { observe() {} },
@@ -1217,7 +1218,7 @@ test('createMessageHandler: the room classifier fills room.md', async () => {
     now: () => NOW,
   });
 
-  await withCapturedLogs(() => handler(line));
+  await withCapturedLogs(() => handler(toEvent(line, client.user.id, normalizeOptions(hot.config))));
 
   assert.equal(llm.calls.length, 1, 'one room request');
   assertFilled(llm.calls[0].messages, { files: LOADS.room, blocks: ['author', 'candidate'] }, 'room');
@@ -1362,10 +1363,11 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     addToPart: (...args) => folded.push(args) > 0,
   };
   const llm = recordingLlm(() => '1');
+  const client = discordClient(guild);
   const handler = createMessageHandler({
     hot,
     store: { state: { data: {}, markDirty() {} }, getUser: () => null },
-    client: discordClient(guild),
+    client,
     turns,
     spontaneous: { onMessage: () => false },
     memory: { observe() {} },
@@ -1379,7 +1381,7 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
   });
 
   await withCapturedLogs(async () => {
-    await handler(line);
+    await handler(toEvent(line, client.user.id, normalizeOptions(hot.config)));
     for (let i = 0; i < 20 && folded.length === 0; i += 1) await new Promise((resolve) => setImmediate(resolve));
   });
 

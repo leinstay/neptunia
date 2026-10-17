@@ -277,6 +277,8 @@ prompts/
   labels.json              every code-inserted string in prompts
   skills.json              the persona's skill texts (title, whenToUse, whenNotToUse)
 prompts.local/             your personality (gitignored)
+packages/
+  protocol/                @neptunia/protocol: inbound events, outbound actions and results, their validation
 agents/                    one folder per errand agent: prompt.md and profile.json (agents/README.md)
 docs/
   en/
@@ -287,6 +289,7 @@ docs/
     media.md               pictures, video, links, search, tools, costs
     messages-and-memory.md the pipeline, the analyzer, profiles, episodes, the lorebook
     diary.md               the diary feature: setup, windows, costs, tuning
+    interfaces.md          the protocol between the core and an interface adapter
   zh/                      Chinese
     README.md
     prompt-contract.md

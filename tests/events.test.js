@@ -19,7 +19,7 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createStore } from '../src/memory/store.js';
 import { slimMessage } from '../src/memory/update.js';
-import { normalizeMessage } from '../src/discord/collect.js';
+import { normalizeMessage, normalizeOptions, toEvent } from '../src/discord/collect.js';
 import { createActivity } from '../src/behavior/activity.js';
 
 // ---------------------------------------------------------------------------
@@ -209,10 +209,12 @@ function makeHandler({
   record,
   missed,
 } = {}) {
-  return createMessageHandler({
-    hot: prompts !== undefined ? { config: config ?? baseConfig(), prompts } : { config: config ?? baseConfig() },
+  const hot = prompts !== undefined ? { config: config ?? baseConfig(), prompts } : { config: config ?? baseConfig() };
+  const discord = client ?? fakeClient();
+  const handler = createMessageHandler({
+    hot,
     store: store ?? fakeStore(),
-    client: client ?? fakeClient(),
+    client: discord,
     turns: turns ?? fakeTurns(),
     spontaneous: spontaneous ?? fakeSpontaneous(),
     memory: memory ?? fakeMemory(),
@@ -230,6 +232,23 @@ function makeHandler({
     record,
     missed,
   });
+  return asDiscordEvents(handler, hot, discord);
+}
+
+/**
+ * The handler driven as src/index.js drives it: each fake discord.js message (or update, or
+ * deletion) becomes its protocol event (src/discord/collect.js#toEvent) at the moment of the
+ * call, with the options read from the live config then.
+ */
+function asDiscordEvents(handler, hot, client) {
+  const options = () => normalizeOptions(hot.config);
+  const driven = (message) => handler(toEvent(message, client.user.id, options()));
+  driven.onMessageUpdate = (oldMessage, newMessage) => handler.onMessageUpdate(toEvent(newMessage, client.user.id, { ...options(), edit: true, previous: oldMessage }));
+  driven.onMessageDelete = (message) => handler.onMessageDelete(toEvent(message, client.user.id, { deleted: true }));
+  driven.drainPending = (...args) => handler.drainPending(...args);
+  driven.clearPending = (...args) => handler.clearPending(...args);
+  driven.stop = (...args) => handler.stop(...args);
+  return driven;
 }
 
 /** A discord.js attachments Map with one classifiable image entry. */
@@ -6179,10 +6198,12 @@ test('events: a refused routed turn posts the notice in the destination, not as 
   const mirrored = [];
   const turns = recordingTurns({ outcome: 'refused', limit });
   const scene = routeScene({ turns, prompts: { labels }, config: { features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } } });
-  scene.handler = createMessageHandler({
-    hot: { config: scene.config, prompts: { labels } },
+  const mirrorHot = { config: scene.config, prompts: { labels } };
+  const mirrorClient = { ...fakeClient(), channels: { fetch: async () => ({ send: async (payload) => mirrored.push(payload) }) } };
+  scene.handler = asDiscordEvents(createMessageHandler({
+    hot: mirrorHot,
     store: scene.store,
-    client: { ...fakeClient(), channels: { fetch: async () => ({ send: async (payload) => mirrored.push(payload) }) } },
+    client: mirrorClient,
     turns,
     spontaneous: fakeSpontaneous(),
     memory: fakeMemory(),
@@ -6192,7 +6213,7 @@ test('events: a refused routed turn posts the notice in the destination, not as 
     now: scene.clock,
     sleep: async () => {},
     timers: scene.timers,
-  });
+  }), mirrorHot, mirrorClient);
   await routeSend(scene, scene.source, 0, { id: 'm1' });
   const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
 
@@ -7042,7 +7063,7 @@ function liveScene({ dm = false, talk = () => '<msg>ok</msg>', split, merge, lab
     : fakeChannel('c1', guild, { name: 'general', messages, sendTyping: async () => {}, send });
   const tagHistory = countingTagHistory();
   const turns = createTurnRunner({ hot, store, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client, now, schedule: () => () => {} });
-  const handler = createMessageHandler({
+  const handler = asDiscordEvents(createMessageHandler({
     hot,
     store,
     client,
@@ -7055,7 +7076,7 @@ function liveScene({ dm = false, talk = () => '<msg>ok</msg>', split, merge, lab
     rng: () => 0.5,
     now,
     sleep: async () => {},
-  });
+  }), hot, client);
   turns.setOnIdle(() => handler.drainPending());
   /** A call of `authorId` (a mention on the server, any DM in private), one second after the last. */
   const call = async (id, authorId, content) => {
