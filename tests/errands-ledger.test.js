@@ -3,8 +3,10 @@
 // answers like the ledger's wire protocol ({ id, ok, result | error }), returning the same task id
 // for the same idempotency key. Covered: the mapping of every transition with its idempotency
 // key, the heartbeat at most once a minute, the queue and its replay after a refused connection
-// and after a lost answer, a refusal dropped and logged, the queue's cap, the disabled mode, and
-// the restart mirror of the open tasks without a ledger id.
+// and after a lost answer, a refusal dropped and logged, the queue's cap, the disabled mode, the
+// restart mirror of the open tasks without a ledger id, and against a fake of the ledger's state
+// machine an errand's whole way (proposed -> triaged -> approved -> in_progress -> done) and one
+// warn per task when an early call is refused.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -110,7 +112,7 @@ test('ledger mirror: every transition of a done errand, with its idempotency key
   try {
     const task = queued({ goal: `${'α'.repeat(130)}\n tail` });
     assert.equal(mirror.enabled(), true);
-    assert.equal(mirror.add(task, { guildId: 'g1', onLedgerId: (id) => ledgerIds.push(id) }), true);
+    assert.equal(mirror.add(task, { guildId: 'g1', limits: { steps: 25, usd: 0.5, seconds: 300 }, onLedgerId: (id) => ledgerIds.push(id) }), true);
     await mirror.idle();
     assert.deepEqual(ledgerIds, ['L1']);
     const running = { ...task, state: 'running' };
@@ -145,6 +147,7 @@ test('ledger mirror: every transition of a done errand, with its idempotency key
         },
         idempotency: 'errand:t0000001:task.add',
       },
+      { op: 'task.transition', args: { id: 'L1', to: 'triaged', set: { role: 'web', budget_usd: 0.5, step_cap: 25, estimate_minutes: 5 } }, idempotency: key('task.transition:triaged') },
       { op: 'task.transition', args: { id: 'L1', to: 'approved' }, idempotency: key('task.transition:approved') },
       { op: 'task.claim', args: { id: 'L1', lease_seconds: 360 }, idempotency: key('task.claim') },
       { op: 'attempt.start', args: { task_id: 'L1', principal: 'core', role: 'web', model: 'openrouter/vendor/model', worktree: null }, idempotency: key('attempt.start') },
@@ -154,7 +157,7 @@ test('ledger mirror: every transition of a done errand, with its idempotency key
       { op: 'task.result', args: { task_id: 'L1', kind: 'file', uri: 'file:t0000001/a.png', metadata: { name: 'a.png', contentType: 'image/png', bytes: 12 } }, idempotency: key('task.result:file:a.png') },
       { op: 'task.transition', args: { id: 'L1', to: 'done' }, idempotency: key('task.transition:done') },
     ]);
-    assert.deepEqual(ledger.requests.map((request) => request.id), [1, 2, 3, 4, 5, 6, 7, 8, 9], 'one request id each, in order');
+    assert.deepEqual(ledger.requests.map((request) => request.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 'one request id each, in order');
     const recorded = JSON.stringify(log.calls);
     assert.ok(!recorded.includes('α') && !recorded.includes('xxxxx') && !recorded.includes('u1'), 'no goal, result or member id in a log line');
   } finally {
@@ -185,19 +188,20 @@ test('ledger mirror: a failed errand closes with its error code; a cancel ends t
     const by = (id) => shapes(ledger.requests).filter((request) => request.idempotency.startsWith(`errand:${id}:`)).map(({ op, args }) => [op, args]);
     assert.deepEqual(by('tfail'), [
       ['task.add', { lane: 'errand', project: null, title: failing.goal, description: failing.goal, requester: 'persona:self', role: 'web', subscriber: 'core:g1', metadata: { coreId: 'tfail', scope: 'group', agent: 'web' } }],
+      ['task.transition', { id: 'L1', to: 'triaged', set: { role: 'web', estimate_minutes: 10 } }],
       ['task.transition', { id: 'L1', to: 'approved' }],
       ['task.claim', { id: 'L1', lease_seconds: 660 }],
       ['attempt.start', { task_id: 'L1', principal: 'core', role: 'web', model: null, worktree: null }],
       ['attempt.end', { id: 'A1', outcome: 'failed', steps: 3, cost_usd: 0.1 }],
       ['task.transition', { id: 'L1', to: 'failed', close_reason: 'timeout' }],
     ]);
-    assert.deepEqual(by('tcanc').slice(2), [
+    assert.deepEqual(by('tcanc').slice(3), [
       ['task.claim', { id: 'L2', lease_seconds: 180 }],
       ['attempt.start', { task_id: 'L2', principal: 'core', role: 'web', model: null, worktree: null }],
       ['attempt.end', { id: 'A2', outcome: 'cancelled', steps: 0, cost_usd: 0 }],
       ['task.transition', { id: 'L2', to: 'cancelled', close_reason: 'cancelled-by-owner' }],
     ]);
-    assert.deepEqual(by('tearly').slice(2), [['task.transition', { id: 'L3', to: 'cancelled', close_reason: 'cancelled-by-persona' }]]);
+    assert.deepEqual(by('tearly').slice(3), [['task.transition', { id: 'L3', to: 'cancelled', close_reason: 'cancelled-by-persona' }]]);
   } finally {
     mirror.close();
     await ledger.close();
@@ -218,7 +222,7 @@ test('ledger mirror: a refused connection queues the calls, logs once a minute (
     mirror.start({ ...task, state: 'running' }, { limits: { seconds: 60 } });
     // Several reconnects fail meanwhile.
     await new Promise((resolve) => setTimeout(resolve, 120));
-    assert.equal(mirror.queued(), 4, 'nothing delivered, nothing lost');
+    assert.equal(mirror.queued(), 5, 'nothing delivered, nothing lost');
     const unavailable = log.calls.filter((call) => call.msg === 'errands: ledger unavailable');
     assert.equal(unavailable.length, 1, 'once per minute');
     assert.equal(unavailable[0].level, 'warn');
@@ -230,7 +234,7 @@ test('ledger mirror: a refused connection queues the calls, logs once a minute (
     ledger = fakeLedger(socket);
     await ledger.listening;
     await mirror.idle();
-    assert.deepEqual(ledger.requests.map((request) => request.op), ['task.add', 'task.transition', 'task.claim', 'attempt.start']);
+    assert.deepEqual(ledger.requests.map((request) => request.op), ['task.add', 'task.transition', 'task.transition', 'task.claim', 'attempt.start']);
     assert.deepEqual(ids, ['L1']);
     assert.equal(mirror.queued(), 0);
   } finally {
@@ -254,6 +258,7 @@ test('ledger mirror: a call whose answer is lost is replayed with the same idemp
     assert.deepEqual(ledger.requests.map((request) => [request.op, request.idempotency]), [
       ['task.add', 'errand:t0000001:task.add'],
       ['task.add', 'errand:t0000001:task.add'],
+      ['task.transition', 'errand:t0000001:task.transition:triaged'],
       ['task.transition', 'errand:t0000001:task.transition:approved'],
       ['task.claim', 'errand:t0000001:task.claim'],
       ['attempt.start', 'errand:t0000001:attempt.start'],
@@ -267,13 +272,136 @@ test('ledger mirror: a call whose answer is lost is replayed with the same idemp
   }
 });
 
+/**
+ * The ledger's state machine for one errand lane, as a `refuse` hook of fakeLedger: `task.add`
+ * opens `proposed`; `task.transition` moves only along proposed -> triaged (with role, budget and
+ * estimate) -> approved, and from in_progress to a closed state; `task.claim` needs approved;
+ * `attempt.start`, `task.heartbeat`, `task.result` need in_progress. `triage` false refuses the
+ * triage. The statuses by ledger id, the attempts and the results are kept.
+ */
+function machine({ triage = true } = {}) {
+  const status = new Map();
+  const ids = new Map();
+  const attempts = [];
+  const results = [];
+  const refuse = (op, request) => {
+    const args = request.args;
+    if (op === 'task.add') {
+      if (state.refuseAdd) return true;
+      if (!ids.has(request.idempotency)) ids.set(request.idempotency, `L${ids.size + 1}`);
+      status.set(ids.get(request.idempotency), 'proposed');
+      return false;
+    }
+    const id = args.id ?? args.task_id;
+    const from = status.get(id);
+    let to = from;
+    if (op === 'task.transition') {
+      const set = args.set ?? {};
+      const allowed = (from === 'proposed' && args.to === 'triaged' && triage && set.role && set.budget_usd > 0 && set.estimate_minutes > 0)
+        || (from === 'triaged' && args.to === 'approved')
+        || (from === 'in_progress' && ['done', 'failed', 'cancelled'].includes(args.to))
+        || (['proposed', 'triaged', 'approved'].includes(from) && args.to === 'cancelled');
+      if (!allowed) return true;
+      to = args.to;
+    } else if (op === 'task.claim') {
+      if (from !== 'approved') return true;
+      to = 'in_progress';
+    } else if (op === 'attempt.end') {
+      if (!attempts.some((attempt) => attempt.id === args.id)) return true;
+      return false;
+    } else if (from !== 'in_progress') {
+      return true;
+    }
+    if (op === 'attempt.start') attempts.push({ id: `A${attempts.length + 1}`, task: id });
+    if (op === 'task.result') results.push([id, args.kind]);
+    status.set(id, to);
+    return false;
+  };
+  const state = { refuse, status, attempts, results, refuseAdd: false };
+  return state;
+}
+
+test('ledger mirror: against the ledger\'s machine a mirrored errand goes proposed -> triaged -> approved -> in_progress -> done with its attempt and results, and nothing is refused', async () => {
+  const { dir, socket } = socketIn();
+  const states = machine();
+  const ledger = fakeLedger(socket, { refuse: states.refuse });
+  await ledger.listening;
+  const log = fakeLog();
+  const mirror = createLedgerMirror({ socketPath: socket, log, now: () => T0 });
+  try {
+    const limits = { steps: 9, usd: 0.3, seconds: 90 };
+    const task = queued();
+    mirror.add(task, { guildId: 'g1', limits });
+    await mirror.idle();
+    assert.equal(states.status.get('L1'), 'approved');
+    mirror.start({ ...task, state: 'running' }, { limits, model: 'openrouter/vendor/model' });
+    await mirror.idle();
+    assert.equal(states.status.get('L1'), 'in_progress');
+    mirror.finish({ ...task, state: 'done', usage: { usd: 0.01, steps: 2 }, result: { text: 'found it', files: [{ name: 'a.png', contentType: 'image/png', bytes: 3 }] } });
+    await mirror.idle();
+    assert.equal(states.status.get('L1'), 'done');
+    assert.deepEqual(states.attempts, [{ id: 'A1', task: 'L1' }]);
+    assert.deepEqual(states.results, [['L1', 'summary'], ['L1', 'file']]);
+    assert.deepEqual(ledger.requests.filter((request) => request.op === 'task.transition').map((request) => request.args.to), ['triaged', 'approved', 'done']);
+    assert.deepEqual(ledger.requests.find((request) => request.args.to === 'triaged').args.set, { role: 'web', budget_usd: 0.3, step_cap: 9, estimate_minutes: 2 });
+    assert.deepEqual(log.calls.filter((call) => call.level === 'warn'), [], 'no refused or skipped call');
+  } finally {
+    mirror.close();
+    await ledger.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ledger mirror: when an early call is refused, the later calls of the task are still sent and only one warn is logged per task', async () => {
+  const { dir, socket } = socketIn();
+  const states = machine({ triage: false });
+  const ledger = fakeLedger(socket, { refuse: states.refuse });
+  await ledger.listening;
+  const log = fakeLog();
+  const mirror = createLedgerMirror({ socketPath: socket, log, now: () => T0 });
+  try {
+    for (const id of ['ta', 'tb']) {
+      const task = queued({ id });
+      mirror.add(task, { guildId: 'g1', limits: { usd: 0.3 } });
+      mirror.start({ ...task, state: 'running' }, { limits: {} });
+      mirror.progress({ ...task, state: 'running' });
+      mirror.finish({ ...task, state: 'done', usage: { usd: 0.01, steps: 2 }, result: { text: 'found it' } });
+    }
+    await mirror.idle();
+    const ops = ledger.requests.filter((request) => request.idempotency.startsWith('errand:ta:')).map((request) => request.idempotency.slice('errand:ta:'.length));
+    assert.deepEqual(ops, ['task.add', 'task.transition:triaged', 'task.transition:approved', 'task.claim', 'attempt.start', 'task.result:summary', 'task.transition:done']);
+    const warns = log.calls.filter((call) => call.level === 'warn');
+    assert.deepEqual(warns.map((call) => [call.msg, call.fields]), [
+      ['errands: ledger refused', { id: 'ta', op: 'task.transition:triaged', code: 'bad-transition' }],
+      ['errands: ledger refused', { id: 'tb', op: 'task.transition:triaged', code: 'bad-transition' }],
+    ]);
+    // A refused task.add: the later calls of the task have no ledger id and are dropped, unlogged.
+    const lost = createLedgerMirror({ socketPath: socket, log, now: () => T0 });
+    const lostTask = queued({ id: 'tc' });
+    states.refuseAdd = true;
+    lost.add(lostTask, { guildId: 'g1', limits: { usd: 0.3 } });
+    lost.start({ ...lostTask, state: 'running' }, { limits: {} });
+    lost.finish({ ...lostTask, state: 'failed', error: 'timeout' });
+    await lost.idle();
+    lost.close();
+    assert.deepEqual(ledger.requests.filter((request) => request.idempotency.startsWith('errand:tc:')).map((request) => request.op), ['task.add']);
+    assert.deepEqual(log.calls.filter((call) => call.level === 'warn').slice(2).map((call) => [call.msg, call.fields]), [
+      ['errands: ledger refused', { id: 'tc', op: 'task.add', code: 'bad-transition' }],
+    ]);
+  } finally {
+    mirror.close();
+    await ledger.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('ledger mirror: the queue keeps at most MAX_QUEUE calls; one more is dropped and logged once', async () => {
   const { dir, socket } = socketIn();
   const log = fakeLog();
   const mirror = createLedgerMirror({ socketPath: socket, log, now: () => T0, reconnectMinMs: 10_000, reconnectMaxMs: 10_000 });
   try {
-    // Two calls per errand (task.add, task.transition).
-    for (let i = 0; i < MAX_QUEUE / 2 + 3; i += 1) mirror.add(queued({ id: `t${i}` }), { guildId: 'g1' });
+    // Three calls per errand (task.add, two task.transition).
+    for (let i = 0; i < Math.ceil(MAX_QUEUE / 3) + 3; i += 1) mirror.add(queued({ id: `t${i}` }), { guildId: 'g1' });
     assert.equal(mirror.queued(), MAX_QUEUE);
     assert.equal(log.calls.filter((call) => call.msg === 'errands: ledger queue full').length, 1);
   } finally {

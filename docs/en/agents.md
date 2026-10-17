@@ -113,7 +113,7 @@ Every errand is also mirrored into the ledger, the task service of the developme
 
 What is mirrored, as a task of the `errand` lane:
 
-- queued: `task.add` (no project; the title is the goal cut to 120 characters, the description is the goal, the requester is `persona:<user id>` of the asker, the role is the agent, the subscriber is `core:<guild id>:<channel id>`, the metadata is `{ coreId, scope, agent }`), then `task.transition` to `approved` (the errand lane needs no owner approval);
+- queued: `task.add` (no project; the title is the goal cut to 120 characters, the description is the goal, the requester is `persona:<user id>` of the asker, the role is the agent, the subscriber is `core:<guild id>:<channel id>`, the metadata is `{ coreId, scope, agent }`), then `task.transition` to `triaged` (setting the agent as `role`, `limits.usd` as `budget_usd`, `limits.steps` as `step_cap` and `limits.seconds` in minutes as `estimate_minutes`), then to `approved` (the ledger's machine has no `proposed -> approved`);
 - started: `task.claim` (lease of `limits.seconds` plus 60 s) and `attempt.start` (principal `core`, the agent as role, the model of its role, no worktree);
 - the runner's progress: `task.heartbeat`, at most once a minute;
 - ended: `attempt.end` (steps, cost, outcome), `task.result` (a `summary` with the result text cut to `agents.resultMaxChars` and the withheld paths as metadata; one `file` per output file, its handle as `uri`), then `task.transition` to `done`, `failed` or `cancelled` (`close_reason` is the error code);
@@ -121,7 +121,7 @@ What is mirrored, as a task of the `errand` lane:
 
 Every call carries the idempotency key `errand:<core id>:<op>`, so a replay or a restart never creates a second row. The ledger's id is stored on the core's task as `ledgerId` (in `tasks.json` and the later `tasks.jsonl` lines; `task.status` shows it as `ledger: <id>`).
 
-The core's store remains the system of record: the `<tasks>` block, the result turn, the caps and the rights read only the core's store. A ledger that refuses connections or does not answer never affects an errand. Calls wait in memory (at most 200, in order) while the connection is retried with a growing backoff, and are replayed once the ledger answers. `errands: ledger unavailable` is logged at most once a minute, with codes only. A call the ledger refuses is logged with its code and dropped. At start, the open tasks of `tasks.json` that have no `ledgerId` are mirrored before they fail as `restarted`.
+The core's store remains the system of record: the `<tasks>` block, the result turn, the caps and the rights read only the core's store. A ledger that refuses connections or does not answer never affects an errand. Calls wait in memory (at most 200, in order) while the connection is retried with a growing backoff, and are replayed once the ledger answers. `errands: ledger unavailable` is logged at most once a minute, with codes only. A call the ledger refuses is logged with its code and dropped; the later calls of the task are still sent, and only the first refused or dropped call of a task is logged. At start, the open tasks of `tasks.json` that have no `ledgerId` are mirrored before they fail as `restarted`.
 
 ## Adding an agent
 
