@@ -415,8 +415,17 @@ test('keyCostsLines: roleNames names the roles of an extra key, each name once, 
   });
   assert.deepEqual(lines.slice(3), ['agents key 1.00/10.00', 'usage D 0.50 | L7 0.00 | L30 0.00', 'agents+voice key 0.00/5.00']);
   const shipped = JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'prompts', 'labels.json'), 'utf8')).status.costs;
-  const four = keyCostsLines({ key: ok({}), sim: ok({}), labels: { status: { costs: shipped } }, roleKeys: [{ roles: ['agent.dev', 'agent.server', 'agent.web'], key: ok({ limit: 10, limit_remaining: 9 }) }] });
-  assert.ok(four.some((text) => text.startsWith('dedicated agents key: 1.00 / 10.00 USD')), `the shipped wording names the fourth key "agents": ${four.join(' / ')}`);
+  const five = keyCostsLines({
+    key: ok({}),
+    sim: ok({}),
+    labels: { status: { costs: shipped } },
+    roleKeys: [
+      { roles: ['agent.server', 'agent.web'], key: ok({ limit: 10, limit_remaining: 9 }) },
+      { roles: ['agent.dev'], key: ok({ limit: 20, limit_remaining: 15 }) },
+    ],
+  });
+  assert.ok(five.some((text) => text.startsWith('dedicated agents key: 1.00 / 10.00 USD')), `the shipped wording names the errand agents' key "agents": ${five.join(' / ')}`);
+  assert.ok(five.some((text) => text.startsWith('dedicated development key: 5.00 / 20.00 USD')), `and the coding worker's "development": ${five.join(' / ')}`);
   const plain = keyCostsLines({ key: ok({}), labels: { status: { costs: { ...labels.status.costs, roleNames: 'odd' } } }, roleKeys: [{ roles: ['agent.web'], key: ok({ limit: 5, limit_remaining: 5 }) }] });
   assert.ok(plain.some((text) => text.startsWith('agent.web key')), 'no usable roleNames: the role itself');
 });

@@ -273,7 +273,7 @@
       "roleNames": {
         "agent.web": "agents",
         "agent.server": "agents",
-        "agent.dev": "agents"
+        "agent.dev": "development"
       },
       "keyLimit": "{lead}: {spent} / {limit} USD ({notes})",
       "keyLimitPlain": "{lead}: {spent} / {limit} USD",
