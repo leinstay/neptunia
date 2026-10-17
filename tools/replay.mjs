@@ -828,6 +828,7 @@ async function loadRecallMods(load) {
     createLookup: lookup.createLookup,
     collectReadableLinks: media.collectReadableLinks,
     checkPull: pull.checkPull,
+    createDiscordInterface: pull.createDiscordInterface,
     isVideoVisionOn: youtube.isVideoVisionOn,
   };
   for (const [name, fn] of Object.entries(mods)) {
@@ -920,6 +921,7 @@ async function runRecall({ hot, mods, llm, store, guild, guildId, channel, self,
     createLookup,
     collectReadableLinks,
     checkPull,
+    createDiscordInterface,
     isVideoVisionOn,
   } = mods;
   const config = hot.config;
@@ -1102,7 +1104,7 @@ async function runRecall({ hot, mods, llm, store, guild, guildId, channel, self,
     const clock = () => Date.now() + offset;
     const t = Date.now();
     try {
-      const recall = createRecall({ hot: recallHot, store: recallStore, llm: recording, describer, now: clock, timers });
+      const recall = createRecall({ hot: recallHot, store: recallStore, llm: recording, discord: createDiscordInterface().capabilities, describer, now: clock, timers });
       found = await recall.run({ guild, guildId, channel, selfId: self.id, selfName, history, candidate: trigger, server });
     } finally {
       recallMs = Date.now() - t;
@@ -1469,7 +1471,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   const { createTurnRunner } = await load('behavior/turn.js');
   const { createChannelRouter } = await load('behavior/route-channel.js');
   const { createRecall } = await load('behavior/recall-run.js');
-  const { createEmojiIndex, canAttach, canSend, resolveGuild } = await load('interface/discord.js');
+  const { createEmojiIndex, canAttach, canSend, resolveGuild, createDiscordAdapter, createDiscordInterface } = await load('interface/discord.js');
   const { createDescriber } = await load('memory/describe.js');
   const { createImageFetcher } = await load('media/fetch-image.js');
   const { createVideoFetcher } = await load('media/fetch-video.js');
@@ -1595,12 +1597,15 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const lookup = createLookup({
       hot, store, llm, state, pageFetcher: createPageFetcher(), braveSearch: createBraveSearch(), braveApiKey: process.env.BRAVE_SEARCH_API_KEY || null,
     });
+    // The Discord interface's capabilities, injected as src/index.js injects them; the turn's port
+    // is the default adapter it builds over `client` (createPort).
+    const capabilities = createDiscordInterface({ client }).capabilities;
     const turns = createTurnRunner({
-      hot, store, llm, calibrator, client, describer, imageFetcher, lookup, images,
-      recall: createRecall({ hot, store, llm, describer }),
+      hot, store, llm, calibrator, client, discord: capabilities, createPort: createDiscordAdapter, describer, imageFetcher, lookup, images,
+      recall: createRecall({ hot, store, llm, discord: capabilities, describer }),
       emoji: createEmojiIndex(client, () => guildId),
       getSelfName: () => self.name,
-      routeChannels: createChannelRouter({ hot, store, llm }),
+      routeChannels: createChannelRouter({ hot, store, llm, discord: capabilities }),
       isWarmingUp: () => false,
       activity: null,
     });

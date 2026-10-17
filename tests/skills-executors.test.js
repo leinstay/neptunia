@@ -19,6 +19,10 @@ import { createFakeAdapter } from '../src/interface/fake.js';
 import { QUIET_ON_OK, RESULT_STATUSES, bodyArguments, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { labels } from './fixtures/labels.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const OWNER = '42';
 const MEMBER = '7';
@@ -208,7 +212,7 @@ test('executeCall: a member asks her to post photos to the diary and the diary i
   // A real diary over a config with kinds but no channel: its forced post says why it did not post.
   const cfg = config();
   const hot = { config: cfg, prompts: { labels: {} } };
-  const diary = createDiary({ hot, store: { state: { data: {} } }, client: {}, turns: { isAnyBusy: () => false }, getGuildId: () => 'g1' });
+  const diary = createDiary({ discord: DISCORD, hot, store: { state: { data: {} } }, client: {}, turns: { isAnyBusy: () => false }, getGuildId: () => 'g1' });
   const { admin, port } = makeAdmin({ cfg, diary });
   const resolved = resolve('diary.post', { kind: 'photos' });
   assert.equal(resolved.ok, true);

@@ -9,7 +9,6 @@
 // sends the one request through the rails of src/llm/openrouter.js.
 
 import { log } from '../log.js';
-import { checkPull } from '../interface/discord.js';
 import { helperRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import {
@@ -30,12 +29,15 @@ import {
  * judged with the pull phase's rails (checkPull against `channel`, `partner`
  * for a private chat; a check that throws drops that channel), at most
  * `settings.maxChannels` (routeEntries), rendered by routeChannelList.
- * `ids[n - 1]` is the channel of line `n`. No request, no log.
+ * `ids[n - 1]` is the channel of line `n`. No request, no log. `discord` is the Discord
+ * interface's capabilities object (its `checkPull`), passed by the caller.
  * @param {{ store: object, guildId: string, channel: object, guild?: object|null, partner?: object|null,
- *   candidate: object, config: object, settings: { maxChannels: number, purposeChars: number }, now: number }} params
+ *   candidate: object, config: object, settings: { maxChannels: number, purposeChars: number }, now: number,
+ *   discord: object }} params
  * @returns {{ lines: string[], ids: string[] }}
  */
-export function routeChannelOffer({ store, guildId, channel, guild = channel?.guild ?? null, partner = null, candidate, config, settings, now }) {
+export function routeChannelOffer({ store, guildId, channel, guild = channel?.guild ?? null, partner = null, candidate, config, settings, now, discord }) {
+  const { checkPull } = discord;
   const check = (id) => {
     try {
       const judged = checkPull({ guild, channelId: id, destination: channel, partner, config, now });
@@ -76,12 +78,13 @@ export function routeChannelOffer({ store, guildId, channel, guild = channel?.gu
  * code of a refused or failed request, `error` for anything else). Counts,
  * ids and codes only: never a message text, never a channel name.
  * @param {{ hot: { config: object, prompts: object }, store: object, llm: { complete: Function },
- *   now?: () => number }} deps
+ *   discord: object, now?: () => number }} deps  `discord`: the Discord interface's capabilities
+ *   object (src/index.js injects it), for routeChannelOffer's checkPull.
  * @returns {(args: { guildId: string, channel: object, guild?: object|null, partner?: object|null,
  *   history: object[], trigger: object|null, triggerKind?: string|null, selfName: string,
  *   config?: object }) => Promise<Array<string|{ id: string, direction: 'earlier' }>>}  `guild`: the served guild (default: the channel's).
  */
-export function createChannelRouter({ hot, store, llm, now = Date.now }) {
+export function createChannelRouter({ hot, store, llm, discord, now = Date.now }) {
   return async function routeChannels({ guildId, channel, guild = channel?.guild ?? null, partner = null, history, trigger = null, triggerKind = null, selfName }) {
     const channelId = channel?.id ?? null;
     try {
@@ -102,7 +105,7 @@ export function createChannelRouter({ hot, store, llm, now = Date.now }) {
       }
 
       const at = now();
-      const { lines, ids } = routeChannelOffer({ store, guildId, channel, guild, partner, candidate, config, settings, now: at });
+      const { lines, ids } = routeChannelOffer({ store, guildId, channel, guild, partner, candidate, config, settings, now: at, discord });
       if (lines.length === 0) return [];
 
       const { transcriptBlock, candidateBlock } = routeContext({

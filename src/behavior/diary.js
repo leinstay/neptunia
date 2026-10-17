@@ -18,7 +18,6 @@
 // factory at the end (createDiary) is the module's edge: it ticks, keeps the
 // day plan in state.json and runs the post through the turn runner.
 
-import { canAttach, canSend, fetchHistory } from '../interface/discord.js';
 import { fill } from '../format.js';
 import { log } from '../log.js';
 import { oneLine, clampText, stripUrls } from '../memory/clamp.js';
@@ -557,8 +556,9 @@ function withCarriedSlots(fresh, previous, nowMs, graceMinutes) {
   return { plan: { ...fresh, slots }, carried: carried.length };
 }
 
-/** Whether the bot may post a diary entry in `channel`: send messages and attach files. */
-function writable(channel) {
+/** Whether the bot may post a diary entry in `channel`: send messages and attach files (the
+ * Discord interface's checks, from its capabilities object). */
+function writable(channel, { canSend, canAttach }) {
   try {
     return canSend(channel) && canAttach(channel);
   } catch {
@@ -595,17 +595,19 @@ function writable(channel) {
  * (`turns.isAnyBusy()`, or a `busy` outcome) it waits for `turns.waitIdle()`
  * at most `diary.forceWaitMs` and posts then, `{ outcome: 'busy' }` when the
  * turn still runs. Hot values are read at every call.
- * @param {{ hot: object, store: object, client: object, turns: object, getGuildId: () => (string|null),
+ * @param {{ hot: object, store: object, client: object, discord: object, turns: object, getGuildId: () => (string|null),
  *   isWarmingUp?: () => boolean, backfill?: ((args: object) => Promise<number>)|null,
  *   rng?: () => number, now?: () => number, delay?: (ms: number) => Promise<void> }} deps
  *   `delay`: resolves after `ms` (a timer that never holds the process open); injected by tests.
+ *   `discord`: the Discord interface's capabilities object (src/index.js injects it): `canSend`,
+ *   `canAttach` and the backfill's `fetchHistory`.
  *   `backfill`: src/behavior/diary.js#backfillDiary's shape (`{ store, channel, guildId, selfId,
- *   config, labels }` -> the count written); null skips the backfill.
+ *   config, labels, fetchHistoryImpl }` -> the count written); null skips the backfill.
  * @returns {{ tick: () => Promise<void>, force: (opts?: { kind?: string|null, topic?: string|null }) => Promise<object>,
  *   status: () => { channelId: string, day: string|null, slots: number[], done: number[], quiet: boolean,
  *   hunger: number[], quietStreak: number, posts: number, pictures: number, history: number }, stop: () => void }}
  */
-export function createDiary({ hot, store, client, turns, getGuildId, isWarmingUp = () => false, backfill = null, rng = Math.random, now = Date.now, delay = unrefDelay }) {
+export function createDiary({ hot, store, client, discord, turns, getGuildId, isWarmingUp = () => false, backfill = null, rng = Math.random, now = Date.now, delay = unrefDelay }) {
   let stopped = false;
   let inFlight = false;
   // reason -> the local day it was last logged on: one `diary: skip` per reason and day.
@@ -676,7 +678,7 @@ export function createDiary({ hot, store, client, turns, getGuildId, isWarmingUp
   /** Why the post may not run in `channel` now (`no-channel`, `not-writable`, `cap`), or null. */
   function postBlock(channel, config, t) {
     if (!channel) return 'no-channel';
-    if (!writable(channel)) return 'not-writable';
+    if (!writable(channel, discord)) return 'not-writable';
     if (countToday(store.state.data, DIARY_DAILY, t) >= (config.diary?.maxPerDay ?? DEFAULT_MAX_PER_DAY)) return 'cap';
     return null;
   }
@@ -689,7 +691,7 @@ export function createDiary({ hot, store, client, turns, getGuildId, isWarmingUp
     backfillTried.add(key);
     try {
       if ((store.getDiary(guildId)?.posts ?? []).length > 0) return;
-      const count = await backfill({ store, channel, guildId, selfId: client.user?.id ?? null, config, labels: hot.prompts?.labels });
+      const count = await backfill({ store, channel, guildId, selfId: client.user?.id ?? null, config, labels: hot.prompts?.labels, fetchHistoryImpl: discord.fetchHistory });
       log.info('diary: backfill', { guildId, channelId: channel.id, count: Number.isFinite(count) ? count : 0 });
     } catch (err) {
       log.warn('diary: backfill failed', { guildId, channelId: channel.id, error: err });
@@ -841,11 +843,12 @@ export function createDiary({ hot, store, client, turns, getGuildId, isWarmingUp
  * carried a picture. A history that already has posts is left alone (the posts are never rewritten by
  * code). This and the factory are the module's Discord-aware edge; everything above stays pure.
  * @param {{ store: object, channel: object, guildId: string, selfId: string, config: object,
- *   labels: object, fetchHistoryImpl?: typeof fetchHistory }} deps  `config` is the live merged
- *   config (`diary`, `media` read now); `labels` the live labels.
+ *   labels: object, fetchHistoryImpl: Function }} deps  `config` is the live merged
+ *   config (`diary`, `media` read now); `labels` the live labels; `fetchHistoryImpl` the Discord
+ *   interface's `fetchHistory` (its capabilities object), passed by the caller.
  * @returns {Promise<number>}  The number of posts written (0 when the history was not empty).
  */
-export async function backfillDiary({ store, channel, guildId, selfId, config, labels, fetchHistoryImpl = fetchHistory }) {
+export async function backfillDiary({ store, channel, guildId, selfId, config, labels, fetchHistoryImpl }) {
   if (store.getDiary(guildId).posts.length > 0) return 0;
   const max = config?.diary?.historyPosts ?? DEFAULT_HISTORY_POSTS;
   const gistChars = config?.diary?.gistChars ?? DEFAULT_GIST_CHARS;

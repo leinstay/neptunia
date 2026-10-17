@@ -31,6 +31,10 @@ import { getOp } from '../src/ops/registry.js';
 import { splitPath } from '../src/ops/shared.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 // ---------------------------------------------------------------------------
 // listRules / appendRule / removeRule
@@ -2888,6 +2892,7 @@ test('/nep pause: no timer-driven writer (spontaneous.tick, memory.tick, store.f
     realStore.state.data.paused = true;
 
     const spontaneous = createSpontaneous({
+      discord: DISCORD,
       hot: { config: {} },
       store: realStore,
       client: { guilds: { cache: new Map() } },

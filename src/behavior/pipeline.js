@@ -187,7 +187,8 @@ function bufferedMediaIds(buffered) {
  *   `capabilities` with `normalizedOf` and `toEvent` added, tests pass the same functions or fakes
  *   of them): `canSend(channel)`, `fetchHistory(channel, options)`,
  *   `fetchMessage(channel, id)`, `normalizeOptions(config)`, `normalizedOf(event)` and
- *   `toEvent(message, selfId, options)`. Required.
+ *   `toEvent(message, selfId, options)`, and the `isWritableChannel` and `audienceAllows` the
+ *   route of a call it passes to (src/behavior/turn.js#routeFor). Required.
  * @param {ReturnType<import('./turn.js').createTurnRunner>} deps.turns
  * @param {ReturnType<import('./spontaneous.js').createSpontaneous>} deps.spontaneous
  * @param {ReturnType<import('../memory/update.js').createMemoryUpdater>} deps.memory
@@ -1879,7 +1880,7 @@ export function createMessageHandler({
         // the main channels and the audience rail are hot).
         let destination = null;
         if (ping.destination) {
-          const route = routeFor(ping.channel, config);
+          const route = routeFor(ping.channel, config, discord);
           if (!route.destination) {
             log.info('mention: dropped', { channel: ping.channelId, kind: ping.kind, reason: 'cannot-send', route: route.reason, ...routed });
             continue;
@@ -2146,7 +2147,7 @@ export function createMessageHandler({
   function maybeNotice(source, normalized) {
     if (settles.has(source.id)) return;
     if (spontaneous.noticeElsewhere?.(source, normalized) !== true) return;
-    const route = routeFor(source, hot.config);
+    const route = routeFor(source, hot.config, discord);
     if (!route.destination) return;
     startSettle(source, normalized, 'noticed', null, route.destination);
   }
@@ -2241,7 +2242,7 @@ export function createMessageHandler({
         log.info('mention: dropped', { channel: sourceId, kind: triggerKind, reason: 'off' });
         return;
       }
-      const route = routeFor(channel, config);
+      const route = routeFor(channel, config, discord);
       if (!route.destination) {
         log.info('elsewhere: dropped', { source: sourceId, kind, message: normalized.id, reason: route.reason });
         return;
@@ -2547,7 +2548,7 @@ export function createMessageHandler({
       // (armSettle). Otherwise it is never queued, but it leaves a trace with
       // the route's code.
       if (!canSend(message.channel)) {
-        const route = routeFor(message.channel, config);
+        const route = routeFor(message.channel, config, discord);
         if (!route.destination) {
           log.info('mention: dropped', { channel: message.channel.id, kind, reason: 'cannot-send', route: route.reason });
           return;

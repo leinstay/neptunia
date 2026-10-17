@@ -297,19 +297,6 @@ export function withReactors(messages, store, resolveUser) {
   });
 }
 
-/**
- * The member ids that react on the persona's lines of `messages` (withReactors' `users`, never a
- * bot), each once: they are in view, so they get a mention handle like an author.
- * @param {object[]} messages
- * @returns {string[]}
- */
-export function reactorIdsOf(messages) {
-  const ids = new Set();
-  for (const message of Array.isArray(messages) ? messages : []) {
-    if (!message?.self) continue;
-    for (const reaction of Array.isArray(message.reactions) ? message.reactions : []) {
-      for (const user of Array.isArray(reaction?.users) ? reaction.users : []) if (user?.id && !user.bot) ids.add(String(user.id));
-    }
-  }
-  return [...ids];
-}
+// The member ids that react on the persona's lines (withReactors' `users`) are read by the core
+// (src/format.js#reactorIdsOf, normalized lines only); re-exported here for the package's importers.
+export { reactorIdsOf } from '../../src/format.js';

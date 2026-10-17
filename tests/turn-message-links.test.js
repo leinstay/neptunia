@@ -7,6 +7,10 @@ import assert from 'node:assert/strict';
 import { PermissionFlagsBits } from 'discord.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { labels } from './fixtures/labels.js';
+import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const MESSAGE_ID = '900000000000000001';
@@ -116,6 +120,8 @@ async function runLinkTurn(messageLinks, responseText, { dm = false } = {}) {
   const raw = rawMessage({ id: MESSAGE_ID });
   const channel = fakeTurnChannel([raw], { dm });
   const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot: fakeHot(messageLinks),
     store: fakeStore(),
     llm: { complete: async () => ({ text: responseText, usage: {}, estimated: 10 }) },

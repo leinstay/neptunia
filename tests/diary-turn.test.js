@@ -16,6 +16,10 @@ import { countToday, utcDay } from '../src/time.js';
 import { userText } from '../src/behavior/prompt.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+
+// The Discord interface's capabilities object, as src/index.js injects it.
+const DISCORD = createDiscordInterface().capabilities;
 
 const NOW = Date.UTC(2026, 9, 6, 19, 30, 0);
 const DAY = 24 * 60 * 60 * 1000;
@@ -197,6 +201,8 @@ function client() {
 
 function runner({ hot = fakeHot(), store = fakeStore(), llm, images = fakeImages(), lookup = null } = {}) {
   return createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
     hot,
     store,
     llm,
