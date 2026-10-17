@@ -47,7 +47,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { simKey, CliError, parseFlags, resolveGuildId, runCli } from './lib/cli.mjs';
+import { simKey, CliError, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli } from './lib/cli.mjs';
 import {
   DEFAULT_GEN_MS, cacheEntryOf, classify, contentOf, generationsOf, kindKey, matchTurns, parseCsv, replyMatcher, shapeOf,
 } from './lib/import-turns.mjs';
@@ -414,13 +414,13 @@ export async function main(argv, {
   const fromFlag = boundFlag(flags['--from']);
   const toFlag = boundFlag(flags['--to'], { end: true });
 
-  const dataDir = path.resolve(cwd, flags['--data'] ?? 'data');
+  const dataDir = flags['--data'] !== undefined ? path.resolve(cwd, flags['--data']) : defaultDataDir(cwd);
   const cacheDir = path.resolve(cwd, flags['--cache'] ?? path.join(os.tmpdir(), 'nep-import-turns'));
   if (isInside(cacheDir, dataDir)) throw new CliError('import-turns: the cache directory must not be under data/');
   let hot = givenHot;
   if (!hot) {
     const { createHot } = await import('../src/hot.js');
-    hot = createHot({ rootDir });
+    hot = createHot({ rootDir, privateDir: privateDirOf(rootDir) });
   }
   const guildId = resolveGuildId(dataDir, flags['--guild'] ?? (hot.config?.bot?.guildId || undefined));
   const guildDir = path.join(dataDir, 'guilds', guildId);
@@ -449,7 +449,7 @@ export async function main(argv, {
   if (!key && toFetch.length > 0) {
     // Read as the bot reads it (src/config.js); never printed.
     const { loadDotEnv } = await import('../src/config.js');
-    loadDotEnv(rootDir);
+    loadDotEnv(privateDirOf(rootDir));
     key = simKey('import-turns');
   }
   const ctx = { now, sleep, log, fetchImpl, cacheDir, concurrency, rate, apiKey: () => key, baseUrl: hot.config?.llm?.baseUrl || DEFAULT_BASE_URL };

@@ -100,3 +100,36 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
   assert.ok(!/function sideHot\b/.test(source));
   assert.ok(!/fs\.cpSync\(/.test(source), 'no prompt copying outside the helper');
 });
+
+test('replay: with NEPTUNIA_PRIVATE_DIR apart, --diary and --pair take config.local.json and prompts.local/ from it', () => {
+  const root = scratchRoot();
+  const privateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-private-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-replay-layers-'));
+  const env = { NEPTUNIA_PRIVATE_DIR: privateDir };
+  try {
+    // The checkout keeps a stale local layer; the live one is in the private directory.
+    fs.writeFileSync(path.join(root, 'config.local.json'), JSON.stringify({ bot: { dryRunChannelId: 'checkout' } }));
+    fs.writeFileSync(path.join(privateDir, 'config.local.json'), JSON.stringify({ bot: { dryRunChannelId: 'private' } }));
+    fs.mkdirSync(path.join(privateDir, 'prompts.local'));
+    fs.writeFileSync(path.join(privateDir, 'prompts.local', 'reply.md'), 'private reply');
+
+    const layers = diaryPromptLayers(root, 'candidate', env);
+    assert.deepEqual(layers, [path.join(privateDir, 'prompts.local'), 'candidate']);
+    const diary = promptLayersHot(quietHot, root, layers, { tmpDir, env });
+    assert.equal(diary.hot.prompts.reply, 'private reply', 'the checkout prompts.local/ is not read');
+    assert.equal(diary.hot.prompts['diary-plan'], 'candidate plan');
+    assert.equal(diary.hot.config.bot.dryRunChannelId, 'private');
+    diary.hot.close();
+    const side = promptLayersHot(quietHot, root, ['candidate'], { tmpDir, env });
+    assert.equal(side.hot.config.bot.dryRunChannelId, 'private');
+    assert.equal(side.hot.prompts.reply, 'tracked reply');
+    side.hot.close();
+    // No prompts.local/ in the private directory: the checkout's is not taken instead.
+    fs.rmSync(path.join(privateDir, 'prompts.local'), { recursive: true });
+    assert.deepEqual(diaryPromptLayers(root, 'candidate', env), ['candidate']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(privateDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

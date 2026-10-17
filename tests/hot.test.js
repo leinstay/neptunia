@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { createHot } from '../src/hot.js';
+import { createOpsEnv } from '../src/ops/env.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 function makeRoot({ config = { bot: { timezone: 'UTC' } }, prompts = {} } = {}) {
@@ -573,6 +574,84 @@ test('hot: onReload fires with the layer name', async () => {
     fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ a: 2 }));
     hot.reloadConfig();
     assert.deepEqual(seen, ['config', 'prompts']);
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The private layer apart from the checkout (src/paths.js: NEPTUNIA_PRIVATE_DIR)
+// ---------------------------------------------------------------------------
+
+test('createHot: a privateDir apart from rootDir supplies config.local.json and prompts.local/, a writeLocalPath lands there, and its watcher reloads', async () => {
+  const dir = makeRoot({ config: { a: 1, b: 1 }, prompts: { rules: 'base text', persona: 'base persona' } });
+  const privateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-hot-private-'));
+  fs.writeFileSync(path.join(privateDir, 'config.local.json'), JSON.stringify({ b: 2 }));
+  writeLocalPrompt(privateDir, 'rules', 'private text');
+  // A local layer left in the checkout is not read once the private directory is elsewhere.
+  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ a: 9 }));
+  writeLocalPrompt(dir, 'persona', 'checkout persona');
+  const watch = fakeWatch();
+  const hot = createHot({ rootDir: dir, privateDir, watchImpl: watch }).watch();
+  try {
+    assert.equal(hot.rootDir, dir);
+    assert.equal(hot.privateDir, privateDir);
+    assert.deepEqual(hot.config, { a: 1, b: 2 });
+    assert.equal(hot.prompts.rules, 'private text');
+    assert.equal(hot.prompts.persona, 'base persona');
+    assert.equal(hot.localPromptsDir, path.join(privateDir, 'prompts.local'));
+
+    // The operations' config writer goes to the private directory and reloads.
+    const env = createOpsEnv({ hot });
+    assert.equal(env.writeLocalPath('c', 3), true);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(privateDir, 'config.local.json'), 'utf8')), { b: 2, c: 3 });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'config.local.json'), 'utf8')), { a: 9 });
+    assert.deepEqual(hot.config, { a: 1, b: 2, c: 3 });
+
+    // One watcher per root directory, plus prompts/ and the private prompts.local/.
+    assert.equal(watch.of(dir).length, 1);
+    assert.equal(watch.of(privateDir).length, 1);
+    assert.equal(watch.of(path.join(privateDir, 'prompts.local')).length, 1);
+    assert.equal(watch.of(path.join(dir, 'prompts.local')).length, 0);
+
+    // An edit in the private directory reloads; the same names in the checkout do not.
+    const [rootWatcher] = watch.of(dir);
+    const [privateWatcher] = watch.of(privateDir);
+    const [localWatcher] = watch.of(path.join(privateDir, 'prompts.local'));
+    const seen = [];
+    hot.onReload((what) => seen.push(what));
+    rootWatcher.listener('change', 'config.local.json');
+    rootWatcher.listener('rename', 'prompts.local');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.deepEqual(seen, []);
+    assert.equal(watch.of(path.join(dir, 'prompts.local')).length, 0);
+
+    fs.writeFileSync(path.join(privateDir, 'config.local.json'), JSON.stringify({ b: 5 }));
+    privateWatcher.listener('change', 'config.local.json');
+    writeLocalPrompt(privateDir, 'rules', 'private text, edited');
+    localWatcher.listener('change', 'rules.md');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.deepEqual(seen.sort(), ['config', 'prompts']);
+    assert.deepEqual(hot.config, { a: 1, b: 5 });
+    assert.equal(hot.prompts.rules, 'private text, edited');
+
+    hot.close();
+    assert.equal(privateWatcher.closed, true);
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(privateDir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: without a privateDir it is the root, and no second root watcher is started', () => {
+  const dir = makeRoot();
+  const watch = fakeWatch();
+  const hot = createHot({ rootDir: dir, watchImpl: watch }).watch();
+  try {
+    assert.equal(hot.privateDir, dir);
+    assert.equal(watch.of(dir).length, 1);
   } finally {
     hot.close();
     fs.rmSync(dir, { recursive: true, force: true });

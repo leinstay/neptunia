@@ -2,12 +2,20 @@
 // check over tool-call events (a read or a bash reader that opens a sensitive
 // path is withheld in dm/group, a listing is not, core withholds nothing),
 // and the secret redaction (keys, tokens, assignments, SSH material, URL
-// credentials). Pure; no I/O. Non-ASCII data is Greek/accented Latin.
+// credentials), and the withheld roots and globs built from the deployment's
+// directories (src/paths.js). Pure; no I/O. Non-ASCII data is Greek/accented
+// Latin.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   scopeOf, isFiltered, isWithheldPath, withheldInToolUse, redactSecrets, redactorFor, REDACTED,
+  WITHHELD_ROOTS, WITHHELD_GLOBS, withheldRootsOf, withheldGlobsOf,
 } from '../src/agent-runner/policy.js';
+import { resolvePaths } from '../src/paths.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('scopeOf: known scope kept, anything else is the narrowest', () => {
   assert.equal(scopeOf({ scope: 'core' }), 'core');
@@ -30,6 +38,26 @@ test('isWithheldPath: roots, name components and env files', () => {
   assert.equal(isWithheldPath('/etc/letsencrypt/live/x/privkey.pem'), true);
   assert.equal(isWithheldPath('/srv/neptunia-dev/neptunia-core/src/index.js'), false);
   assert.equal(isWithheldPath('/home/steam/servers'), false);
+});
+
+test('withheld roots and globs: the fixed ones, then the data directory and a private directory apart from the checkout', () => {
+  const apart = resolvePaths({ rootDir: '/srv/app', env: { NEPTUNIA_PRIVATE_DIR: '/srv/site/etc', NEPTUNIA_DATA_DIR: '/srv/site/data' } });
+  const roots = withheldRootsOf({ paths: apart });
+  assert.deepEqual(roots.slice(-2), ['/srv/site/data', '/srv/site/etc']);
+  assert.ok(roots.includes('/etc/neptunia'), '/etc/neptunia stays');
+  assert.ok(!roots.some((root) => root.startsWith('/opt/neptunia-bot')), 'no hard-coded deployment path');
+  const globs = withheldGlobsOf({ paths: apart });
+  for (const glob of ['/srv/site/data', '/srv/site/data/**', '/srv/site/etc', '/srv/site/etc/**', '/etc/neptunia/**', '**/data/guilds/**']) assert.ok(globs.includes(glob), glob);
+  assert.ok(!globs.some((glob) => glob.startsWith('/srv/app')), 'the checkout itself is not withheld');
+
+  const together = resolvePaths({ rootDir: '/srv/app', env: {} });
+  assert.deepEqual(withheldRootsOf({ paths: together }).at(-1), '/srv/app/data', 'default: <root>/data, the private directory is the checkout');
+  assert.ok(!withheldRootsOf({ paths: together }).includes('/srv/app'));
+
+  const own = resolvePaths({ rootDir: ROOT });
+  assert.deepEqual(WITHHELD_ROOTS, withheldRootsOf({ paths: own }), 'the module default: this checkout, resolved from the environment');
+  assert.deepEqual(WITHHELD_GLOBS, withheldGlobsOf({ paths: own }));
+  assert.equal(isWithheldPath(path.join(own.dataDir, 'guilds', '1', 'guild.json')), true);
 });
 
 test('withheldInToolUse: core withholds nothing', () => {

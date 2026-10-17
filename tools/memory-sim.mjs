@@ -43,7 +43,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { authorLines, batchesFromDump, manifestFrom, mobility, proseFields, stagnation, wordsPerSentence, SHORT_SENTENCE_WORDS } from './lib/sim.mjs';
-import { simKey, CliError, REFUSED_EXIT, daysBetween, parseFlags, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, daysBetween, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
 
 const USAGE =
   'usage: node tools/memory-sim.mjs --snapshot <dir> --since <YYYY-MM-DD> [--until <YYYY-MM-DD>] [--guild <id>] [--min-messages 30] ' +
@@ -135,7 +135,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, llmClien
   if (!flags['--snapshot'] || !flags['--since'] || flags._.length > 0) throw new CliError(USAGE);
   const snapshotDir = path.resolve(cwd, flags['--snapshot']);
   if (!fs.existsSync(path.join(snapshotDir, 'guilds'))) throw new CliError(`no guilds/ under ${snapshotDir}: not a data snapshot`);
-  const liveData = path.resolve(cwd, flags['--data'] ?? 'data');
+  const liveData = flags['--data'] !== undefined ? path.resolve(cwd, flags['--data']) : defaultDataDir(cwd);
   const guildId = resolveGuildId(snapshotDir, flags['--guild']);
   const takenAt = snapshotTime(snapshotDir, flags['--snapshot-at']);
   const days = daysBetween(flags['--since'], flags['--until'] ?? new Date(now()).toISOString().slice(0, 10), USAGE);
@@ -144,7 +144,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, llmClien
   const usdPerJudge = numberFlag(flags['--usd-per-judge'], DEFAULT_USD_PER_JUDGE);
 
   const { createHot } = await import('../src/hot.js');
-  const hot = createHot({ rootDir: ROOT });
+  const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   const config = hot.config;
   // The persona's name as the analyzer prompt names it: --self-name, else the first name trigger.
   const selfName = flags['--self-name'] ?? config.bot?.nameTriggers?.[0] ?? 'bot';
@@ -214,7 +214,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, llmClien
   let apiKey = null;
   if (!llmClient) {
     const { loadDotEnv } = await import('../src/config.js');
-    loadDotEnv(ROOT);
+    loadDotEnv(privateDirOf(ROOT));
     apiKey = simKey('memory-sim');
   }
 

@@ -94,7 +94,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { simKey, CliError, REFUSED_EXIT, daysBetween, parseFlags, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, daysBetween, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
 import {
   WINDOW_MAX_LINES, advanceCursor, archiveItemOf, buildExtractRequest, candidateItemId, dedupeCandidates, estimate,
   DEDUPE_REASONS, ledgerDrops, linkCandidates, linkRevision, readExtractAnswer, rosterOf, snowflakeAt, windowsOf,
@@ -397,9 +397,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
   let hot = givenHot;
   if (!hot) {
     const { createHot } = await import('../src/hot.js');
-    hot = createHot({ rootDir });
+    hot = createHot({ rootDir, privateDir: privateDirOf(rootDir) });
   }
-  const dataDir = path.resolve(cwd, flags['--data'] ?? 'data');
+  const dataDir = flags['--data'] !== undefined ? path.resolve(cwd, flags['--data']) : defaultDataDir(cwd);
   const guildId = resolveGuildId(dataDir, flags['--guild'] ?? (hot.config.bot?.guildId || undefined));
   const today = new Date(now()).toISOString().slice(0, 10);
   const pilot = flags['--pilot'];
@@ -549,7 +549,7 @@ async function cmdFetch(ctx) {
   let source = ctx.source;
   if (!source) {
     const { loadDotEnv } = await import('../src/config.js');
-    loadDotEnv(ctx.rootDir);
+    loadDotEnv(privateDirOf(ctx.rootDir));
     if (!process.env.DISCORD_TOKEN) throw new CliError('backfill: DISCORD_TOKEN is not set (.env)');
     source = restSource({ root: ctx.rootDir, token: process.env.DISCORD_TOKEN, log });
   }
@@ -706,7 +706,7 @@ function selfOf(ctx) {
 async function modelClient(ctx) {
   if (ctx.llmClient) return ctx.llmClient;
   const { loadDotEnv } = await import('../src/config.js');
-  loadDotEnv(ctx.rootDir);
+  loadDotEnv(privateDirOf(ctx.rootDir));
   const apiKey = simKey('backfill');
   const { createLlm } = await import('../src/llm/openrouter.js');
   const { createCalibrator } = await import('../src/llm/tokens.js');
@@ -1118,7 +1118,7 @@ async function cmdLinks(ctx) {
     let source = ctx.source;
     if (!source) {
       const { loadDotEnv } = await import('../src/config.js');
-      loadDotEnv(ctx.rootDir);
+      loadDotEnv(privateDirOf(ctx.rootDir));
       if (!process.env.DISCORD_TOKEN) throw new CliError('backfill: DISCORD_TOKEN is not set (.env)');
       source = restMessageSource({ root: ctx.rootDir, token: process.env.DISCORD_TOKEN });
     }

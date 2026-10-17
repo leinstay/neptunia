@@ -76,7 +76,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, parseFlags, resolveGuildId, runCli, simKey } from './lib/cli.mjs';
+import { CliError, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli, simKey } from './lib/cli.mjs';
 import {
   HIT_AT,
   latestLines,
@@ -241,7 +241,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     usage: USAGE,
   });
   if (flags._.length > 1) throw new CliError(USAGE);
-  const dataDir = flags['--data'] ? path.resolve(cwd, flags['--data']) : path.join(ROOT, 'data');
+  const dataDir = flags['--data'] ? path.resolve(cwd, flags['--data']) : defaultDataDir(ROOT);
   if (!fs.existsSync(path.join(dataDir, 'guilds'))) throw new CliError(`recall-eval: no guilds/ under ${dataDir}`);
   const guildId = resolveGuildId(dataDir, flags['--guild']);
   if (flags._[0] === 'sample') return sample(flags, { dataDir, guildId, now });
@@ -274,7 +274,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const { roleModel } = await import('../src/llm/roles.js');
   const { zonedDay } = await import('../src/time.js');
 
-  const hot = createHot({ rootDir: ROOT });
+  const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   // The recall's own trace switched on for this process only: its lines are caught in memory below.
   const evalHot = {
     get config() {
@@ -308,7 +308,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   );
 
   // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN, BRAVE_SEARCH_API_KEY) only when something is sent.
-  if (!dry || useDiscord) loadDotEnv(ROOT);
+  if (!dry || useDiscord) loadDotEnv(privateDirOf(ROOT));
   const braveApiKey = useWeb ? (process.env.BRAVE_SEARCH_API_KEY || '').trim() : '';
   if (useWeb && !braveApiKey) throw new CliError('recall-eval: --web needs BRAVE_SEARCH_API_KEY (.env)');
   const { record, archive, vectors, store } = await openSources(dataDir);

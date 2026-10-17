@@ -15,6 +15,11 @@
 // value stays live and the error is logged. On the very first load, invalid
 // JSON still throws so a broken deployment fails fast at startup.
 //
+// config.json and prompts/ live in the checkout (`rootDir`); config.local.json and prompts.local/
+// in the deployment's private directory (`privateDir`, src/paths.js: NEPTUNIA_PRIVATE_DIR), which
+// is the checkout unless set. When the two differ a second directory watcher covers the private
+// one, so an edit there reloads exactly as an edit in the checkout does.
+//
 // `hot.hashes` names what is live: a short sha256 of the loaded prompts and of the loaded
 // config, computed at every load that took, so a journal record can say which wording and
 // which settings produced it.
@@ -27,7 +32,8 @@ import { loadConfig, deepMerge, isPlainObject } from './config.js';
 import { log } from './log.js';
 
 const DEBOUNCE_MS = 250;
-const CONFIG_FILES = new Set(['config.json', 'config.local.json']);
+const BASE_CONFIG_FILE = 'config.json';
+const LOCAL_CONFIG_FILE = 'config.local.json';
 const LOCAL_PROMPTS_DIRNAME = 'prompts.local';
 /** The JSON files of the prompt layers, by name: `<name>.json`, deep-merged local over base. */
 const JSON_LAYERS = Object.freeze(['labels', 'skills']);
@@ -144,24 +150,28 @@ function loadPromptLayers(promptsDir, localPromptsDir, prevPrompts, prevSources)
 }
 
 /**
- * Create a live view over the config and the two prompt layers under `rootDir`.
+ * Create a live view over the config and the two prompt layers: config.json and prompts/ under
+ * `rootDir`, config.local.json and prompts.local/ under `privateDir` (default `rootDir`).
  * Emits 'change' with `{ what: 'config' | 'prompts' }` after every successful reload;
  * `hot.onReload(listener)` subscribes to the same with the layer name alone.
  * `hot.hashes` is `{ promptsHash, configHash }`: the first 16 hex characters of the sha256 of
  * the live prompts (every layer merged, labels included) and of the live config (both files
  * merged), each recomputed when its reload takes; a reload that fails keeps the previous one.
- * @param {{ rootDir: string, watchImpl?: typeof fs.watch }} options  `watchImpl` is a test
- *   hook; production uses `fs.watch`.
+ * `hot.rootDir` and `hot.privateDir` name the two directories (the same one unless set apart).
+ * @param {{ rootDir: string, privateDir?: string, watchImpl?: typeof fs.watch }} options
+ *   `watchImpl` is a test hook; production uses `fs.watch`.
  */
-export function createHot({ rootDir, watchImpl = fs.watch }) {
+export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch }) {
   const promptsDir = path.join(rootDir, 'prompts');
-  const localPromptsDir = path.join(rootDir, LOCAL_PROMPTS_DIRNAME);
+  const localPromptsDir = path.join(privateDir, LOCAL_PROMPTS_DIRNAME);
+  // Whether the private layer sits in a directory of its own, which then needs its own watcher.
+  const privateApart = path.resolve(privateDir) !== path.resolve(rootDir);
   const hot = new EventEmitter();
   const watchers = [];
   const timers = new Map();
   let localWatcher = null;
 
-  let loaded = loadConfig(rootDir);
+  let loaded = loadConfig(rootDir, { privateDir });
   hot.config = loaded.config;
   // The old model keys and role names config.local.json still carries (src/config.js#adaptLegacyModelKeys,
   // read under their new names): one warning listing them, key names only, at startup and again
@@ -198,6 +208,7 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
   hot.promptsDir = promptsDir;
   hot.localPromptsDir = localPromptsDir;
   hot.rootDir = rootDir;
+  hot.privateDir = privateDir;
   hot.hashes = { promptsHash: shortHash(hot.prompts), configHash: shortHash(hot.config) };
 
   /**
@@ -215,7 +226,7 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
 
   hot.reloadConfig = () => {
     try {
-      loaded = loadConfig(rootDir);
+      loaded = loadConfig(rootDir, { privateDir });
       hot.config = loaded.config;
       hot.hashes = { ...hot.hashes, configHash: shortHash(hot.config) };
       log.info('hot: config reloaded');
@@ -314,23 +325,37 @@ export function createHot({ rootDir, watchImpl = fs.watch }) {
     }
   }
 
+  /** An entry of the private directory changed: config.local.json reloads the config;
+   * prompts.local/ appearing or going away starts or drops its watcher. */
+  function onPrivateEntry(name) {
+    if (name === LOCAL_CONFIG_FILE) {
+      schedule('config', hot.reloadConfig);
+    } else if (name === LOCAL_PROMPTS_DIRNAME) {
+      if (!fs.existsSync(localPromptsDir)) {
+        // Deleted (or moved away by an rsync): its watcher is dead, a recreated directory gets a new one.
+        stopLocalWatch();
+      } else if (!localWatcher) {
+        startLocalWatch();
+        schedule('prompts', hot.reloadPrompts);
+      }
+    }
+  }
+
   hot.watch = () => {
     const rootWatcher = watchImpl(rootDir, (event, file) => {
       const name = file ? String(file) : '';
-      if (CONFIG_FILES.has(name)) {
-        schedule('config', hot.reloadConfig);
-      } else if (name === LOCAL_PROMPTS_DIRNAME) {
-        if (!fs.existsSync(localPromptsDir)) {
-          // Deleted (or moved away by an rsync): its watcher is dead, a recreated directory gets a new one.
-          stopLocalWatch();
-        } else if (!localWatcher) {
-          startLocalWatch();
-          schedule('prompts', hot.reloadPrompts);
-        }
-      }
+      if (name === BASE_CONFIG_FILE) schedule('config', hot.reloadConfig);
+      else if (!privateApart) onPrivateEntry(name);
     });
     watchers.push(rootWatcher);
     attachErrorHandler(rootWatcher);
+
+    if (privateApart) {
+      // The private layer in a directory of its own: a second root watcher, for its entries only.
+      const privateWatcher = watchImpl(privateDir, (event, file) => onPrivateEntry(file ? String(file) : ''));
+      watchers.push(privateWatcher);
+      attachErrorHandler(privateWatcher);
+    }
 
     const baseWatcher = watchImpl(promptsDir, (event, file) => {
       if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);

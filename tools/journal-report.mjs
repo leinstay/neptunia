@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { renderDay, tally } from './lib/report.mjs';
-import { parseFlags, daysBetween, resolveGuildId, CliError, runCli } from './lib/cli.mjs';
+import { parseFlags, daysBetween, defaultDataDir, resolveGuildId, CliError, runCli } from './lib/cli.mjs';
 
 const USAGE = 'usage: node tools/journal-report.mjs --since <YYYY-MM-DD> [--until <YYYY-MM-DD>] [--guild <id>] [--data <dir>]';
 
@@ -26,7 +26,7 @@ const USAGE = 'usage: node tools/journal-report.mjs --since <YYYY-MM-DD> [--unti
 export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const flags = parseFlags(argv, { values: ['--since', '--until', '--guild', '--data'], usage: USAGE });
   if (!flags['--since']) throw new CliError(USAGE);
-  const dataDir = path.resolve(cwd, flags['--data'] ?? 'data');
+  const dataDir = flags['--data'] !== undefined ? path.resolve(cwd, flags['--data']) : defaultDataDir(cwd);
   const guildId = resolveGuildId(dataDir, flags['--guild']);
   const days = daysBetween(flags['--since'], flags['--until'] ?? new Date(now()).toISOString().slice(0, 10), USAGE);
   const dir = path.join(dataDir, 'guilds', guildId, 'journal');

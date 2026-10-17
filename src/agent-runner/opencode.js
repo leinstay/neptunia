@@ -55,21 +55,38 @@ const CONTENT_TYPES = new Map([
   ['.txt', 'text/plain'], ['.md', 'text/markdown'], ['.json', 'application/json'],
 ]);
 
+/** The read errors that make an override (any file but the last) count as absent. */
+const UNREADABLE_CODES = new Set(['EACCES', 'EPERM']);
+/** The overrides already reported unreadable (one warning per file per process). */
+const warnedUnreadable = new Set();
+
 /**
  * The text of the first existing file of `paths` (a local override first,
- * then the tracked file). Throws naming the paths when none exists, or when
- * the chosen file is empty.
+ * then the tracked file). An override that exists but this process may not
+ * read (EACCES, EPERM: the runner's user lacks access to the private
+ * directory) counts as absent, with one `profiles: override unreadable`
+ * warning per file per process; the last file's read errors, and any other
+ * error, still throw. Throws naming the paths when none exists, or when the
+ * chosen file is empty. `read` is injectable for tests.
  * @param {string[]} paths
+ * @param {{ read?: (file: string) => string }} [options]
  * @returns {string}
  */
-export function readPromptFile(paths) {
+export function readPromptFile(paths, { read = (file) => fs.readFileSync(file, 'utf8') } = {}) {
   const list = (Array.isArray(paths) ? paths : [paths]).filter((p) => typeof p === 'string' && p);
-  for (const file of list) {
+  for (const [index, file] of list.entries()) {
     let text;
     try {
-      text = fs.readFileSync(file, 'utf8');
+      text = read(file);
     } catch (err) {
       if (err?.code === 'ENOENT') continue;
+      if (index < list.length - 1 && UNREADABLE_CODES.has(err?.code)) {
+        if (!warnedUnreadable.has(file)) {
+          warnedUnreadable.add(file);
+          log.warn('profiles: override unreadable', { file, reason: err.code });
+        }
+        continue;
+      }
       throw err;
     }
     const trimmed = text.replace(/^﻿/, '').trim();

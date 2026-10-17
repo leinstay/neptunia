@@ -44,7 +44,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { simKey, CliError, REFUSED_EXIT, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
+import { simKey, CliError, REFUSED_EXIT, defaultDataDir, privateDirOf, resolveGuildId, runCli, spendGate } from './lib/cli.mjs';
 import {
   SPENDING_SUBCOMMANDS, assertBotStopped, channelWrittenText, formatPeople, formatStatus, formatUserWritten, parseWarmupArgs, serverWrittenText, warmupEstimate, warmupPlan,
 } from './lib/warmup.mjs';
@@ -97,7 +97,7 @@ function openStores(dataDir, hot, now, log) {
  */
 async function connectDiscord({ rootDir, guildId }) {
   const { loadDotEnv } = await import('../src/config.js');
-  loadDotEnv(rootDir);
+  loadDotEnv(privateDirOf(rootDir));
   const token = process.env.DISCORD_TOKEN;
   if (!token) throw new CliError('warmup: DISCORD_TOKEN is not set (.env)');
   const discord = createRequire(path.join(rootDir, 'package.json'))('discord.js');
@@ -127,7 +127,7 @@ async function connectDiscord({ rootDir, guildId }) {
 async function modelClient(ctx) {
   if (ctx.llmClient) return ctx.llmClient;
   const { loadDotEnv } = await import('../src/config.js');
-  loadDotEnv(ctx.rootDir);
+  loadDotEnv(privateDirOf(ctx.rootDir));
   const apiKey = simKey('warmup');
   const { createLlm } = await import('../src/llm/openrouter.js');
   const stateData = ctx.store.state?.data ?? {};
@@ -189,10 +189,10 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
   let hot = givenHot;
   if (!hot) {
     const { createHot } = await import('../src/hot.js');
-    hot = createHot({ rootDir });
+    hot = createHot({ rootDir, privateDir: privateDirOf(rootDir) });
   }
   try {
-    const dataDir = path.resolve(cwd, args.data ?? 'data');
+    const dataDir = args.data !== undefined ? path.resolve(cwd, args.data) : defaultDataDir(cwd);
     const guildId = resolveGuildId(dataDir, args.guildId ?? (hot.config.bot?.guildId || undefined));
     const guildDir = path.join(dataDir, 'guilds', guildId);
     // What writes under data/: reset, and a spending subcommand that is not a dry run.

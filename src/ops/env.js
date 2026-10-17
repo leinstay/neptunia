@@ -2,7 +2,7 @@
 // given (see its JSDoc for each one) and the helpers several operations share -- the slash
 // wording of a pointer to another command, the paused / no-guild / warmup refusals, the token
 // resolver of analyzer text, the journal's system records and the config.local.json
-// writers. Built once per admin; an operation reads it as `ctx.env`. Hot
+// writers (under `hot.privateDir`, the deployment's private directory). Built once per admin; an operation reads it as `ctx.env`. Hot
 // values are read at the moment of use, through `hot`, never copied.
 
 import path from 'node:path';
@@ -51,6 +51,7 @@ export function createOpsEnv({
   port = null,
   errands = null,
   now = Date.now,
+  // The data directory src/index.js resolved (src/paths.js); `<hot.rootDir>/data` when not given.
   dataDir = hot?.rootDir ? path.join(hot.rootDir, 'data') : null,
 } = {}) {
   // The gateway's last reconnect, for the status card: a resumed session, or a shard ready again
@@ -158,8 +159,10 @@ export function createOpsEnv({
     assertNotPaused();
   }
 
+  /** config.local.json in the private directory the live config reads it from (`hot.privateDir`,
+   * the checkout root unless set apart; a hot without one falls back to `hot.rootDir`). */
   function localConfigFile() {
-    return path.join(hot.rootDir, 'config.local.json');
+    return path.join(hot.privateDir ?? hot.rootDir, 'config.local.json');
   }
 
   /** config.local.json passed through `edit` (object in, object out), written back, and the

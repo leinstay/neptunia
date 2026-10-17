@@ -28,11 +28,27 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS } from './policy.js';
+import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldRootsOf } from './policy.js';
 import { ROLE_DEFAULTS } from '../llm/roles.js';
+import { resolvePaths } from '../paths.js';
 
 /** The engine root (two levels up from this file). */
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/**
+ * The system-prompt files of profile `name`, in the order they are tried: the deployment's
+ * override `prompts.local/agent-<name>.md` under the private directory (`NEPTUNIA_PRIVATE_DIR`,
+ * else the root; src/paths.js#resolvePaths), then the tracked `prompts/agent-<name>.md` under the
+ * root. An override that exists but cannot be read (EACCES, EPERM) is skipped like an absent one,
+ * with one warning (src/agent-runner/opencode.js#readPromptFile). Pure: `env` is only read.
+ * @param {string} name
+ * @param {{ rootDir?: string, env?: Record<string, string | undefined> }} [options]
+ * @returns {string[]}
+ */
+export function promptFilesOf(name, { rootDir = ROOT_DIR, env = process.env } = {}) {
+  const { rootDir: root, privateDir } = resolvePaths({ rootDir, env });
+  return [path.join(privateDir, 'prompts.local', `agent-${name}.md`), path.join(root, 'prompts', `agent-${name}.md`)];
+}
 
 /** The read-only shell commands the server agent's `bash` may run (OpenCode bash patterns). */
 export const SERVER_SHELL_ALLOW = Object.freeze([
@@ -73,11 +89,14 @@ const ENV_FORM = '.env';
  * (SHELL_CONTENT_COMMANDS) and withheld root, name or `.env` form (src/agent-runner/policy.js), so
  * OpenCode itself refuses such a read and the model gets the refusal and goes on. OpenCode's `*`
  * matches any text, `/` and spaces included. Listing commands (`ls`, `find`, `stat`, `du`,
- * `readlink`, `realpath`) get none: names stay visible.
+ * `readlink`, `realpath`) get none: names stay visible. `paths` (src/paths.js#resolvePaths) picks
+ * the deployment's withheld directories; by default this process's (WITHHELD_ROOTS).
+ * @param {{ paths?: { rootDir: string, privateDir: string, dataDir: string } }} [options]
  * @returns {string[]}
  */
-export function withheldShellDenies() {
-  const withheld = [...WITHHELD_ROOTS, ...WITHHELD_NAMES, ENV_FORM];
+export function withheldShellDenies({ paths } = {}) {
+  const roots = paths ? withheldRootsOf({ paths }) : WITHHELD_ROOTS;
+  const withheld = [...roots, ...WITHHELD_NAMES, ENV_FORM];
   return SHELL_CONTENT_COMMANDS.flatMap((command) => withheld.map((part) => `${command} *${part}*`));
 }
 
@@ -184,7 +203,7 @@ function makeProfile({ name, agentId, promptFiles, envNames, modelRole, defaultL
 export const WEB = makeProfile({
   name: 'web',
   agentId: 'errand-web',
-  promptFiles: [path.join(ROOT_DIR, 'prompts.local', 'agent-web.md'), path.join(ROOT_DIR, 'prompts', 'agent-web.md')],
+  promptFiles: promptFilesOf('web'),
   envNames: Object.freeze(['OPENROUTER_AGENT_KEY', 'OPENCODE_WEBSEARCH_KEY', 'PROXY_URL']),
   modelRole: 'agent.web',
   defaultLimits: Object.freeze({ steps: 25, usd: 0.5, seconds: 300 }),
@@ -196,7 +215,7 @@ export const WEB = makeProfile({
 export const SERVER = makeProfile({
   name: 'server',
   agentId: 'errand-server',
-  promptFiles: [path.join(ROOT_DIR, 'prompts.local', 'agent-server.md'), path.join(ROOT_DIR, 'prompts', 'agent-server.md')],
+  promptFiles: promptFilesOf('server'),
   envNames: Object.freeze(['OPENROUTER_AGENT_KEY']),
   modelRole: 'agent.server',
   defaultLimits: Object.freeze({ steps: 20, usd: 0.2, seconds: 120 }),

@@ -4,10 +4,11 @@
 // shutdown). No decision logic lives here — everything is imported from
 // src/behavior, src/memory, src/llm and src/discord.
 
-import path from 'node:path';
+import fs from 'node:fs';
 import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
 
 import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
+import { resolvePaths } from './paths.js';
 import { createHot } from './hot.js';
 import { log, onLog } from './log.js';
 import { createMetrics, metricsTap } from './ops/metrics.js';
@@ -82,7 +83,15 @@ function needOrFail(key) {
   }
 }
 
-loadDotEnv();
+// The three directories, resolved once (src/paths.js): the checkout, the private layer
+// (NEPTUNIA_PRIVATE_DIR: config.local.json, prompts.local/, .env) and the data directory
+// (NEPTUNIA_DATA_DIR). The two variables come from the process environment (the unit file), never
+// from .env, whose own place depends on them. Logged once, paths only.
+const paths = resolvePaths({ rootDir: ROOT_DIR });
+log.info('index: paths', { rootDir: paths.rootDir, privateDir: paths.privateDir, dataDir: paths.dataDir });
+if (!fs.existsSync(paths.privateDir)) fail(`index: the private directory ${paths.privateDir} does not exist (NEPTUNIA_PRIVATE_DIR).`);
+
+loadDotEnv(paths.privateDir);
 const discordToken = needOrFail('DISCORD_TOKEN');
 const openrouterKey = needOrFail('OPENROUTER_API_KEY');
 // Optional: without it a YouTube duration comes from the watch page only.
@@ -96,7 +105,7 @@ const simApiKey = env.OPENROUTER_SIM_KEY || null;
 // card (each key's spend over the last 30 days), never for a model request. Never logged.
 const managementApiKey = env.OPENROUTER_MANAGEMENT_KEY || null;
 
-const hot = createHot({ rootDir: ROOT_DIR }).watch();
+const hot = createHot({ rootDir: paths.rootDir, privateDir: paths.privateDir }).watch();
 
 const missingPrompts = REQUIRED_PROMPTS.filter((name) => typeof hot.prompts[name] !== 'string' || !hot.prompts[name]);
 if (!hasRequiredLabels(hot.prompts.labels)) missingPrompts.push('labels');
@@ -129,7 +138,7 @@ if (!isValidCommandName(hot.config.bot.commandName)) {
 // say so once, key names only, never a value.
 for (const { key, use } of deprecatedModelKeys(hot.config)) log.warn('index: deprecated model key ignored', { key, use });
 
-const dataDir = path.join(ROOT_DIR, 'data');
+const dataDir = paths.dataDir;
 // The speed figures of /nep status (src/ops/metrics.js): the durations the log lines carry,
 // kept for 24 h in data/metrics.json (loaded now, written every minute and on shutdown).
 const metrics = createMetrics({ dataDir, log });
@@ -482,6 +491,8 @@ const admin = createAdmin({
   simKey: simApiKey,
   // /nep status: each key's activity for its last 7 and 30 days (GETs only, nothing else).
   managementKey: managementApiKey,
+  // /nep memory snapshot: the data directory it copies.
+  dataDir,
 });
 const onInteraction = createInteractionHandler({ hot, admin, getGuildId });
 

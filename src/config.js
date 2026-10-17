@@ -7,6 +7,8 @@
 // names (`adaptLegacyModelKeys`). Every string value of the merged config may reference an
 // environment variable as `${env:NAME}` (`resolveEnvRefs`), so a value that holds credentials
 // (e.g. `media.video.proxy`) can stay in .env.
+// config.json is read from the checkout root; config.local.json and .env from the deployment's
+// private directory (src/paths.js: NEPTUNIA_PRIVATE_DIR), which is the root unless set.
 // Pure helpers (parseEnv, applyEnv, deepMerge, resolveEnvRefs) are exported separately so they
 // can be unit-tested without touching the filesystem.
 
@@ -145,9 +147,13 @@ function warnUnsetEnvRef(name) {
   log.warn('config: env ref unset', { name });
 }
 
-/** Load `<rootDir>/.env` into process.env (no-op when the file is absent). */
-export function loadDotEnv(rootDir = ROOT_DIR) {
-  const file = path.join(rootDir, '.env');
+/**
+ * Load `<privateDir>/.env` into process.env (no-op when the file is absent). `privateDir` is the
+ * deployment's private directory (src/paths.js), the checkout root by default.
+ * @param {string} [privateDir]
+ */
+export function loadDotEnv(privateDir = ROOT_DIR) {
+  const file = path.join(privateDir, '.env');
   if (!fs.existsSync(file)) return;
   applyEnv(parseEnv(fs.readFileSync(file, 'utf8')));
 }
@@ -313,20 +319,23 @@ export function adaptLegacyModelKeys(local) {
  * Read config.json merged with config.local.json, the local layer read through
  * `adaptLegacyModelKeys` first, then every `${env:NAME}` in a string value replaced from
  * process.env (`resolveEnvRefs`; an unset name becomes '' and is warned about once per
- * process). Throws on invalid JSON.
+ * process). Throws on invalid JSON. config.json comes from `rootDir`, config.local.json from
+ * `privateDir` (the deployment's private directory, src/paths.js), which defaults to `rootDir`.
  * @param {string} [rootDir]
+ * @param {{ privateDir?: string }} [options]
  * @returns {{ config: object, renamed: Array<{ key: string, use: string }> }}  `renamed`: the old
  *   model keys and role names config.local.json still carries, with their new names.
  */
-export function loadConfig(rootDir = ROOT_DIR) {
-  const { config, renamed } = mergeConfigFiles(rootDir);
+export function loadConfig(rootDir = ROOT_DIR, { privateDir = rootDir } = {}) {
+  const { config, renamed } = mergeConfigFiles(rootDir, privateDir);
   return { config: resolveEnvRefs(config, process.env, warnUnsetEnvRef), renamed };
 }
 
-/** config.json deep-merged with config.local.json (read through `adaptLegacyModelKeys`), env references unresolved. */
-function mergeConfigFiles(rootDir) {
+/** `<rootDir>/config.json` deep-merged with `<privateDir>/config.local.json` (read through
+ * `adaptLegacyModelKeys`), env references unresolved. */
+function mergeConfigFiles(rootDir, privateDir) {
   const base = JSON.parse(fs.readFileSync(path.join(rootDir, 'config.json'), 'utf8'));
-  const localPath = path.join(rootDir, 'config.local.json');
+  const localPath = path.join(privateDir, 'config.local.json');
   if (!fs.existsSync(localPath)) return { config: base, renamed: [] };
   const raw = fs.readFileSync(localPath, 'utf8').trim();
   if (!raw) return { config: base, renamed: [] };
@@ -335,8 +344,8 @@ function mergeConfigFiles(rootDir) {
 }
 
 /** Read config.json merged with config.local.json (see `loadConfig`). Throws on invalid JSON. */
-export function readConfig(rootDir = ROOT_DIR) {
-  return loadConfig(rootDir).config;
+export function readConfig(rootDir = ROOT_DIR, { privateDir = rootDir } = {}) {
+  return loadConfig(rootDir, { privateDir }).config;
 }
 
 export const env = process.env;

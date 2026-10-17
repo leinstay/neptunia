@@ -209,7 +209,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now neptunia-bot
 ```
 
-The private layer lives alongside the code: `.env`, `config.local.json`, `prompts.local/`, `data/`. To update:
+The private layer lives alongside the code by default: `.env`, `config.local.json`, `prompts.local/`, `data/`. The example unit instead keeps it outside the checkout, under one root `/opt/neptunia` (the checkout in `app/`, the private files in `etc/`, the data in `data/`), through the `NEPTUNIA_PRIVATE_DIR` and `NEPTUNIA_DATA_DIR` variables (see "Where the private files live" in [`docs/en/configuration.md`](docs/en/configuration.md)). `sudo deploy/install.sh` sets up that layout in one go (the service user, `etc/` and `data/` under the root, the unit for the checkout) without starting the bot; `--dry-run` shows its commands first. To update:
 
 ```bash
 git pull && sudo systemctl restart neptunia-bot
@@ -317,6 +317,7 @@ src/
   index.js                 entry point, wiring, timers, shutdown
   config.js                .env parser, config loader, deepMerge
   hot.js                   live config + prompts via fs.watch
+  paths.js                 where the private layer and data/ live (NEPTUNIA_PRIVATE_DIR, NEPTUNIA_DATA_DIR)
   log.js                   structured JSON logging
   admin.js                 owner commands
   ops/
@@ -431,6 +432,7 @@ tools/
 tests/                     node --test, pure-function unit tests
 deploy/
   neptunia-bot.service     example systemd unit
+  install.sh               prepares the recommended layout under one root (user, etc/, data/, unit)
 data/                      persistent state (gitignored, created at runtime)
   state.json               scheduler times, token calibration, daily counters, warmup progress
   guilds/<id>/guild.json   server habits, in-jokes, the persona's self-claims

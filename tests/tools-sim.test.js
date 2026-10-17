@@ -1,9 +1,11 @@
 // Tests for tools/lib/sim.mjs: the pure part of tools/memory-sim.mjs (mobility, stagnation,
-// prose checks, the manifest, batches from chat dumps) and the spend gate of tools/lib/cli.mjs.
+// prose checks, the manifest, batches from chat dumps) and the spend gate and the directory helpers
+// of tools/lib/cli.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { mobility, stagnation, wordsPerSentence, batchesFromDump, manifestFrom, proseFields, authorLines, SHORT_SENTENCE_WORDS } from '../tools/lib/sim.mjs';
-import { spendGate, daysBetween, parseFlags, simKey, CliError } from '../tools/lib/cli.mjs';
+import { spendGate, daysBetween, parseFlags, simKey, defaultDataDir, privateDirOf, CliError } from '../tools/lib/cli.mjs';
 
 const profile = (fields) => ({
   id: 'u1',
@@ -153,4 +155,14 @@ test('simKey: the simulator key wins, else the bot key with one stderr warning, 
     console.error = original;
   }
   assert.throws(() => simKey('t', {}), (e) => e instanceof CliError && e.message.includes('OPENROUTER_SIM_KEY') && e.message.includes('OPENROUTER_API_KEY'));
+});
+
+test('defaultDataDir / privateDirOf: <cwd>/data and the root unless the variables are set, then resolved against the given directory', () => {
+  const cwd = path.resolve('/opt/engine');
+  assert.equal(defaultDataDir(cwd, {}), path.join(cwd, 'data'));
+  assert.equal(defaultDataDir(cwd, { NEPTUNIA_DATA_DIR: path.resolve('/var/lib/engine') }), path.resolve('/var/lib/engine'));
+  assert.equal(defaultDataDir(cwd, { NEPTUNIA_DATA_DIR: 'memory' }), path.join(cwd, 'memory'));
+  assert.equal(privateDirOf(cwd, {}), cwd);
+  assert.equal(privateDirOf(cwd, { NEPTUNIA_PRIVATE_DIR: path.resolve('/etc/engine') }), path.resolve('/etc/engine'));
+  assert.equal(privateDirOf(cwd, { NEPTUNIA_PRIVATE_DIR: '../private' }), path.resolve(cwd, '..', 'private'));
 });
