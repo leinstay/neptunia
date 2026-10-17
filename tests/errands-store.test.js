@@ -280,3 +280,23 @@ test('task store: forgetUser drops the member\'s tasks and transition lines atom
     assert.deepEqual(store.wipe(), { files: 0 });
   });
 });
+
+test('task store: setLedgerId keeps the ledger\'s id on the task (tasks.json written, the later transition lines carry it); none for an unknown task', async () => {
+  await withCapturedLogs(() => {
+    const { store, dataDir } = makeStore();
+    const { task } = store.add(asked);
+    assert.equal(Object.hasOwn(task, 'ledgerId'), false, 'optional: absent until the ledger answers');
+    assert.equal(store.setLedgerId(task.id, 'L7').ledgerId, 'L7');
+    assert.equal(store.setLedgerId(task.id, 12).ledgerId, '12');
+    assert.equal(store.setLedgerId(task.id, 'L7').ledgerId, 'L7');
+    assert.equal(store.setLedgerId('tnone', 'L8'), null);
+    assert.equal(store.setLedgerId(task.id, ''), null);
+    store.start(task.id);
+    const file = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8'));
+    assert.equal(file.tasks[0].ledgerId, 'L7');
+    const lines = fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+    assert.deepEqual(lines.map((line) => [line.state, line.ledgerId ?? null]), [['queued', null], ['running', 'L7']]);
+    // A second store over the same directory reads it back.
+    assert.equal(createTaskStore({ dataDir, guildId: 'g1', now: () => T0 }).get(task.id).ledgerId, 'L7');
+  });
+});

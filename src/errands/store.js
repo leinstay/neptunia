@@ -21,6 +21,8 @@
 // tasks.json and rewrites tasks.jsonl without their lines (temp file + rename), copying both into
 // the forget's vault first; a wipe (src/memory/store.js#wipeGuild) deletes both files. Both
 // change the store's own copy too, so a task still running cannot write a forgotten one back.
+// A task mirrored into the ledger (src/errands/ledger.js) carries the ledger's id as `ledgerId`
+// (optional; set once the ledger answers, so the transition lines after it carry it too).
 // Logs carry ids and codes, never text.
 
 import fs from 'node:fs';
@@ -401,6 +403,21 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return copy(task);
   }
 
+  /**
+   * Task `id` given the ledger's id of its mirror (src/errands/ledger.js), tasks.json written when
+   * it changes; null when there is no such task (forgotten or wiped meanwhile) or no id.
+   */
+  function setLedgerId(id, ledgerId) {
+    const task = find(id);
+    const value = typeof ledgerId === 'string' || (typeof ledgerId === 'number' && Number.isFinite(ledgerId)) ? String(ledgerId) : '';
+    if (!task || !value) return null;
+    if (task.ledgerId !== value) {
+      task.ledgerId = value;
+      persist(null);
+    }
+    return copy(task);
+  }
+
   /** The open tasks (queued and running), oldest first. */
   function open() {
     return state.tasks.filter((task) => isOpenState(task.state)).map(copy);
@@ -472,7 +489,7 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return ids.length;
   }
 
-  return { add, start, finish, cancel, markSeen, open, recent, unseen, get, budget, today, fileOf, failOpen, expireFiles, forgetUser, wipe, guildId: String(guildId) };
+  return { add, start, finish, cancel, markSeen, setLedgerId, open, recent, unseen, get, budget, today, fileOf, failOpen, expireFiles, forgetUser, wipe, guildId: String(guildId) };
 }
 
 /**

@@ -107,6 +107,22 @@ The core (`src/errands/`) keeps the persona's tasks per server in `data/guilds/<
 - `<task_result>`: when a task ends, the persona gets her own turn in the conversation it was asked in, replying to the message that started it (an interjection when there is none). The turn follows the same attention as every turn and observes `agents.resultCooldownSeconds` between two such turns in one conversation. The block carries the id, agent, goal and state, the result text cut to `agents.resultMaxChars`, the sources as a numbered list, each file as a handle, and, when the runner withheld paths in a filtered scope, one line naming them (`labels.tasks.result.withheld`, `{paths}` joined by `, `; left out without the label). The persona may answer or stay silent; the task is then seen. A cancelled task opens no turn; a task a restart of the core left open fails with `restarted`.
 - File handles: `file:<task id>/<name>` names a file a task saved. `message.create` takes it as its `file` attribute and attaches the file from `<agents.<profile>.out>/<task id>/<name>`. A handle that names no file of her tasks (or a private chat's file outside that chat) is refused `unknown-file`; a file larger than the interface accepts is refused `attachment-too-large`.
 
+## The ledger mirror
+
+Every errand is also mirrored into the ledger, the task service of the development side (`src/errands/ledger.js`), so its operators see the persona's errands next to the development tasks (`task list --lane errand`), with the same statuses, attempts and results. The core is the ledger's `core` principal. It talks to the ledger over the socket set in `agents.ledger.socket` (for example `/run/neptunia-ledger/core.sock`), exchanging one JSON object per line: `{ "id", "op", "args", "idempotency" }`, answered with `{ "id", "ok", "result" | "error" }`. While the key is `null` (the default), the mirror is off: nothing is queued and nothing connects.
+
+What is mirrored, as a task of the `errand` lane:
+
+- queued: `task.add` (no project; the title is the goal cut to 120 characters, the description is the goal, the requester is `persona:<user id>` of the asker, the role is the agent, the subscriber is `core:<guild id>:<channel id>`, the metadata is `{ coreId, scope, agent }`), then `task.transition` to `approved` (the errand lane needs no owner approval);
+- started: `task.claim` (lease of `limits.seconds` plus 60 s) and `attempt.start` (principal `core`, the agent as role, the model of its role, no worktree);
+- the runner's progress: `task.heartbeat`, at most once a minute;
+- ended: `attempt.end` (steps, cost, outcome), `task.result` (a `summary` with the result text cut to `agents.resultMaxChars` and the withheld paths as metadata; one `file` per output file, its handle as `uri`), then `task.transition` to `done`, `failed` or `cancelled` (`close_reason` is the error code);
+- cancelled in the core: the attempt ended, then `task.transition` to `cancelled` with `close_reason: cancelled-by-<owner|requester|persona|forget>`. A forget closes the member's open tasks this way before it removes them.
+
+Every call carries the idempotency key `errand:<core id>:<op>`, so a replay or a restart never creates a second row. The ledger's id is stored on the core's task as `ledgerId` (in `tasks.json` and the later `tasks.jsonl` lines; `task.status` shows it as `ledger: <id>`).
+
+The core's store remains the system of record: the `<tasks>` block, the result turn, the caps and the rights read only the core's store. A ledger that refuses connections or does not answer never affects an errand. Calls wait in memory (at most 200, in order) while the connection is retried with a growing backoff, and are replayed once the ledger answers. `errands: ledger unavailable` is logged at most once a minute, with codes only. A call the ledger refuses is logged with its code and dropped. At start, the open tasks of `tasks.json` that have no `ledgerId` are mirrored before they fail as `restarted`.
+
 ## Adding an agent
 
 1. Create `agents/<id>/` with a `profile.json` (copy one of the existing ones) and, for a worker, a `prompt.md`.
