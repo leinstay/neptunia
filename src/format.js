@@ -582,12 +582,17 @@ function callText(mark, indexById, labels) {
   return fill(t.called, { skill: mark.skill, target, status, posted });
 }
 
+/** The refusals worded by their own `labels.skills.refusals` key before any other phrase: kind -> key. */
+const REFUSAL_LABELS = Object.freeze({ 'agent-required': 'agentRequired' });
+
 /**
- * Why a call of the persona's did not work, worded (`mark.detail`, withCalls'), the first of: the
+ * Why a call of the persona's did not work, worded (`mark.detail`, withCalls'), the first of: a
+ * refusal's own `labels.skills.refusals[<key>]` (REFUSAL_LABELS; `{arg}` the argument, `{agents}`
+ * the values it lists, comma-separated); the
  * specific `labels.transcript.callReasons[<kind>]` (`{arg}` the argument, `{channel}` the target
  * channel's name); the operation's own message (`detail.text`, one line, cut by its maker) as it
  * is; the generic `labels.skills.result.reasons[<code>]`; `labels.skills.result.reasons.other`. A
- * phrase counts when it is a non-empty string whose `{arg}` and `{channel}` can be filled. ''
+ * phrase counts when it is a non-empty string whose `{arg}`, `{channel}` and `{agents}` can be filled. ''
  * without a detail or anything to say.
  */
 function callReason(mark, labels) {
@@ -595,10 +600,13 @@ function callReason(mark, labels) {
   if (!detail) return '';
   const arg = typeof detail.arg === 'string' && detail.arg ? detail.arg : '';
   const channel = typeof mark.targetChannel === 'string' && mark.targetChannel ? mark.targetChannel : '';
-  const usable = (phrase) => typeof phrase === 'string' && phrase !== '' && (arg || !phrase.includes('{arg}')) && (channel || !phrase.includes('{channel}'));
+  const agents = Array.isArray(detail.values) ? detail.values.filter((value) => typeof value === 'string' && value).join(', ') : '';
+  const usable = (phrase) => typeof phrase === 'string' && phrase !== '' && (arg || !phrase.includes('{arg}')) && (channel || !phrase.includes('{channel}')) && (agents || !phrase.includes('{agents}'));
   const own = labels.transcript.callReasons;
   const coded = labels.skills?.result?.reasons;
   const lookup = (map, key) => (map && typeof map === 'object' && typeof key === 'string' && Object.hasOwn(map, key) ? map[key] : null);
+  const refusal = lookup(labels.skills?.refusals, lookup(REFUSAL_LABELS, detail.kind));
+  if (usable(refusal)) return fill(refusal, { arg, agents });
   const specific = lookup(own, detail.kind);
   if (usable(specific)) return fill(specific, { arg, channel });
   // Before any generic phrase: the operation's own message, as it said it (one line, already cut),

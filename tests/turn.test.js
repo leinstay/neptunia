@@ -9144,6 +9144,11 @@ test('skill call: a comment in the body of a skill that takes no text is left ou
   const created = await callTurn({ answers: ['<call skill="message.create" reply="#2">ναι</call>'] });
   assert.deepEqual(created.sends.map((send) => send.text), ['ναι']);
   assert.ok(!created.logs.some((entry) => entry.msg === 'skills: body ignored'));
+  // The body as the skill's main argument is logged by the argument's name, never the text.
+  const asArgument = created.logs.filter((entry) => entry.msg === 'skills: body as argument');
+  assert.deepEqual(asArgument.map((entry) => [entry.skill, entry.arg]), [['message.create', 'text']]);
+  assert.ok(!JSON.stringify(asArgument).includes('ναι'), 'never the text');
+  assert.ok(!run.logs.some((entry) => entry.msg === 'skills: body as argument'));
 });
 
 test('skill call: a read brings the operation\'s answer back in one follow-up; a member without the right is refused before it runs', async () => {

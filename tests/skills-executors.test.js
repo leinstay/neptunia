@@ -18,6 +18,7 @@ import { skillResultBlock } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { QUIET_ON_OK, RESULT_STATUSES, bodyArguments, executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../src/skills/executors.js';
 import { skillRegistry } from '../src/skills/registry.js';
+import { checkSkill } from '../src/skills/gateway.js';
 import { labels } from './fixtures/labels.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
 
@@ -127,6 +128,44 @@ test('resolveCall: only a registry skill; its attributes are its command\'s opti
   assert.deepEqual(resolve('rule.remove', { number: 'τρία' }).args, { number: 'τρία' });
   assert.deepEqual(resolve('draw.create', { self: 'TRUE' }, 'a lighthouse').args, { self: true, text: 'a lighthouse' });
   assert.deepEqual(resolve('draw.create', { self: 'ναι' }, 'a lighthouse').args.self, 'ναι');
+});
+
+test('resolveCall: the body is the skill\'s main argument -- an errand\'s goal, her text -- when the call leaves it out', () => {
+  // Each skill declares the argument its body fills; a skill without one takes none.
+  const bodyOf = (name) => skillRegistry().get(name).command.body;
+  assert.deepEqual(['task.run', 'message.create', 'message.edit', 'rule.add'].map(bodyOf), ['goal', 'text', 'text', 'text']);
+  for (const name of ['task.status', 'task.cancel', 'message.delete', 'memory.journal.read', 'rule.remove']) assert.equal(bodyOf(name), null, name);
+  // The live call: agent on the tag, the goal in the body -- the errand goes through the gateway.
+  const goal = 'read the git history of the server and say what changed this week';
+  const errand = resolve('task.run', { agent: 'server' }, goal);
+  assert.deepEqual([errand.ok, errand.args, errand.bodyArg, 'bodyIgnored' in errand], [true, { agent: 'server', goal }, 'goal', false]);
+  const cfg = config({ access: { 'task.run': { everyone: false, roles: [], users: [SELF] } } });
+  const verdict = checkSkill({
+    skill: errand.skill,
+    args: errand.args,
+    principal: { kind: 'persona' },
+    requester: { id: OWNER, roleIds: [] },
+    audience: { conversationId: HERE },
+    context: { config: cfg, selfId: SELF, tasks: { budget: () => ({ spent: false }) } },
+  });
+  assert.deepEqual(verdict, { ok: true });
+  // The same without its agent: refused naming the agents she may pick, never a bare missing argument.
+  const agentless = resolve('task.run', {}, goal);
+  assert.deepEqual([agentless.ok, agentless.code, agentless.reason], [false, 'agent-required', 'web,server']);
+  assert.equal(refusalStatus(agentless.code), 'invalid');
+  assert.deepEqual(outcomeDetail({ status: 'invalid', code: agentless.code, reason: agentless.reason }), { kind: 'agent-required', code: 'agent-required', arg: 'agent', values: ['web', 'server'] });
+  assert.equal(resolve('task.run', { goal }).code, 'agent-required', 'with the goal on the tag too');
+  // The goal given both ways is refused as any argument given twice; on the tag alone, as before.
+  assert.equal(resolve('task.run', { agent: 'web', goal: 'one' }, 'two').reason, 'args.goal:twice');
+  const tagged = resolve('task.run', { agent: 'web', goal });
+  assert.deepEqual([tagged.ok, tagged.args, 'bodyArg' in tagged], [true, { agent: 'web', goal }, false]);
+  // message.create keeps its body as its text, as before; now named for the log.
+  const said = resolve('message.create', {}, 'καλημέρα');
+  assert.deepEqual([said.ok, said.args, said.bodyArg], [true, { text: 'καλημέρα' }, 'text']);
+  assert.deepEqual(resolve('rule.add', {}, 'όχι emoji').args, { text: 'όχι emoji' });
+  // An empty body fills nothing.
+  assert.equal(resolve('task.run', { agent: 'web', goal }, '   ').ok, true);
+  assert.equal('bodyArg' in resolve('task.run', { agent: 'web', goal }, '   '), false);
 });
 
 test('bodyArguments: `name: value`, `name = value` lines and `<name>value</name>` tags of known options, else null', () => {
