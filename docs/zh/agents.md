@@ -42,7 +42,7 @@
 权限和安全留在代码中（`src/agent-runner/profiles.js`、`src/agent-runner/policy.js`），任何配置文件键都无法更改它们：
 
 - 权限上限：shell 类可以授予哪些工具以及允许哪些 shell 命令；
-- shell 拒绝模式，以及对所有代理拒绝的工具（`edit`、`write`、`patch`、`task`、`question`、`external_directory`）；
+- shell 拒绝模式，以及对所有代理拒绝的工具（`edit`、`write`、`patch`、`task`、`question`）；`external_directory`（代理自身文件夹外的路径）同样被拒绝，但 server 代理除外，它在与其路径工具相同的隐藏路径规则下获得该工具；
 - 范围过滤器、隐藏路径和结果编辑；
 - 任何要执行的命令，以及文件夹外的任何路径（`socket` 和 `out` 只是配置覆盖的默认值）。
 
