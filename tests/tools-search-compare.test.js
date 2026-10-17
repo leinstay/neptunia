@@ -6,13 +6,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { main } from '../tools/search-compare.mjs';
 import { main as scoreMain } from '../tools/replay-score.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
 import { parseBlindScores, parseQueries, seededShuffle, tallySearchScores } from '../tools/lib/search-compare.mjs';
 import { NotByokError } from '../src/llm/openrouter.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const NOW = Date.UTC(2026, 9, 17, 12, 0, 0);
 const ROWS = [
@@ -74,7 +74,7 @@ function fakes({ clock }) {
 }
 
 function tempQueries(rows = ROWS) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-search-compare-'));
+  const dir = tempDir('nep-search-compare-');
   const file = path.join(dir, 'queries.jsonl');
   fs.writeFileSync(file, `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`);
   return { dir, file };

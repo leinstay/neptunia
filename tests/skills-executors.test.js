@@ -7,7 +7,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { PermissionFlagsBits } from 'discord.js';
 
@@ -21,6 +20,7 @@ import { skillRegistry } from '../src/skills/registry.js';
 import { checkSkill } from '../src/skills/gateway.js';
 import { labels } from './fixtures/labels.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -352,7 +352,7 @@ test('resolveCall and executeCall: a file handle of one of her errands attaches 
   assert.equal(refusalStatus('unknown-file'), 'invalid', 'a call that was not right');
   assert.equal(resolve('message.create', { file: known }, 'βρήκα').code, 'unknown-file', 'no errands in view, no file');
   // The operation reads the file from the errand's out directory and sends it through the port.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'errand-file-'));
+  const dir = tempDir('errand-file-');
   const filePath = path.join(dir, 'meme.png');
   fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
   const asked = [];
@@ -413,7 +413,7 @@ test('resolveCall: an errand\'s file goes to the channel the errand was asked in
   // Without a channel: resolved without one, and posted to the current conversation as today.
   const plain = resolve('message.create', { file: handle }, 'βρήκα', here);
   assert.deepEqual([plain.ok, plain.args], [true, { file: handle, text: 'βρήκα' }]);
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'errand-file-'));
+  const dir = tempDir('errand-file-');
   const filePath = path.join(dir, 'meme.png');
   fs.writeFileSync(filePath, Buffer.from([1, 2, 3]));
   const errands = { fileOf: ({ handle: given }) => (given === handle ? { path: filePath, name: 'meme.png', contentType: 'image/png', bytes: 3, task: task('') } : null) };
@@ -450,7 +450,7 @@ test('resolveCall and executeCall: a file handle written in the body instead of 
   // A handle inside a sentence is her text.
   assert.deepEqual(resolve('message.create', {}, `δες το ${handle}`, { fileOf }).args, { text: `δες το ${handle}` });
   // The file-only post goes out: the file, no text.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'errand-file-'));
+  const dir = tempDir('errand-file-');
   const filePath = path.join(dir, 'poop-meme.jpg');
   fs.writeFileSync(filePath, Buffer.from([1, 2]));
   const errands = { fileOf: ({ handle: given }) => (given === handle ? { path: filePath, name: 'poop-meme.jpg', contentType: 'image/jpeg', bytes: 2 } : null) };

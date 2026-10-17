@@ -10,12 +10,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { createTaskStore, fileHandle, parseFileHandle } from '../src/errands/store.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const T0 = Date.parse('2026-10-17T10:00:00Z');
 
 function tempDataDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'errands-store-'));
+  return tempDir('errands-store-');
 }
 
 function makeStore({ dataDir = tempDataDir(), clock = { t: T0 }, agents = {}, journal = null, journalOn = true } = {}) {
@@ -233,7 +234,7 @@ test('task store: recent lists newest first; failOpen fails what a restart left 
 
 test('task store: a finished task\'s files expire once the runner removed its directory; the handle then names nothing', async () => {
   await withCapturedLogs(() => {
-    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'errands-out-'));
+    const out = tempDir('errands-out-');
     const { store, dataDir } = makeStore({ agents: { maxOpen: 5, web: { daily: { tasks: 5, usd: 1 }, out } } });
     const files = [{ path: '/elsewhere/meme.png', name: 'meme.png', contentType: 'image/png', bytes: 12 }];
     const kept = store.add(asked).task;

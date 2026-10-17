@@ -40,6 +40,7 @@ import { createTaskStores } from '../src/errands/store.js';
 import { createErrandService } from '../src/errands/service.js';
 import { createErrandClient } from '../src/errands/client.js';
 import { createDiscordAdapter, createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -2804,7 +2805,7 @@ async function runAgentTurn({ classifier, lookup = fakeLookup(), web = {}, grant
   });
   hot.config.bot.owners = ['o9'];
   hot.config.bot.access = personaGrants(granted);
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-turn-agent-'));
+  const dataDir = tempDir('nep-turn-agent-');
   const stores = createTaskStores({ dataDir, config: () => hot.config });
   const errandClient = makeErrandClient ? makeErrandClient(hot) : fakeErrandClient();
   const errands = createErrandService({ client: errandClient, stores, hot, getGuildId: () => 'g1' });

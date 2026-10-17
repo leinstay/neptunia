@@ -5,7 +5,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { countEmojiUses, mergeEmojiUsage, normalizeEmojiUsage, rankEmojiUsage } from '../src/memory/emoji-usage.js';
@@ -14,6 +13,7 @@ import { createMemoryUpdater } from '../src/memory/update.js';
 import { createCalibrator } from '../src/llm/tokens.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 8, 1);
@@ -39,7 +39,7 @@ function msg(overrides = {}) {
 }
 
 function withStore(fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-'));
+  const dir = tempDir('nep-');
   const cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
   let result;
   try {

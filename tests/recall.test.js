@@ -40,8 +40,8 @@ import { createAppendStore } from '../src/memory/append-store.js';
 import { createRecord, toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
 import fs, { readFileSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tempDir } from './fixtures/tmp.js';
 
 const SHIPPED_CONFIG = JSON.parse(readFileSync(new URL('../config.json', import.meta.url), 'utf8'));
 
@@ -1112,7 +1112,7 @@ test('matchRecord: a link title or description matches as topic text and the win
 });
 
 test('recall: a record line outside the range is not scanned', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-recall-record-'));
+  const dataDir = tempDir('nep-recall-record-');
   const quiet = { info() {}, warn() {} };
   try {
     const appendStore = createAppendStore({ fsyncMs: 0, log: quiet });

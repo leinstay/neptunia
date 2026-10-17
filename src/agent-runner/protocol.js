@@ -7,7 +7,9 @@
 // (`<outDir>/<id>/`), so it is restricted to a safe character set. A `run` may
 // carry the task's secrets (the model key, the proxy, the search key: every key
 // lives in the core, the runner cannot read the bot's .env); a refusal names
-// only its code, never a value, and nothing here logs a message.
+// only its code, never a value, and nothing here logs a message. A `run` may
+// also carry the deployment's shared preamble (the core reads it from its
+// private prompt layer; the runner never reads that layer itself).
 
 import { isPlainObject } from '../config.js';
 import { SCOPES } from './policy.js';
@@ -27,6 +29,8 @@ export const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
 export const MAX_GOAL_CHARS = 4000;
 /** The longest `context` a `run` may carry, as JSON (characters). */
 export const MAX_CONTEXT_CHARS = 20_000;
+/** The longest shared preamble a `run` may carry, trimmed (characters). */
+export const MAX_PREAMBLE_CHARS = 8000;
 /** The longest line either side reads (characters). */
 export const MAX_LINE_CHARS = 1_000_000;
 /** The most lines a `run`'s `context.recent` keeps (the latest; the earlier ones are dropped). */
@@ -143,6 +147,13 @@ function validateRun(msg) {
     }
     out.secrets = secrets;
   }
+  if (msg.preamble !== undefined) {
+    // Only the code on a refusal, like every field: the text never travels back in an error.
+    if (typeof msg.preamble !== 'string') return refuse('bad-preamble');
+    const preamble = msg.preamble.trim();
+    if (preamble.length > MAX_PREAMBLE_CHARS) return refuse('preamble-too-long');
+    if (preamble) out.preamble = preamble;
+  }
   return { ok: true, message: out };
 }
 
@@ -157,7 +168,10 @@ function validateRun(msg) {
  * (`{ input, output }` in USD per million tokens), `searchProvider` (an
  * OpenCode web search provider id) and `secrets` (`{ openrouterKey, proxy?,
  * searchKey? }`, each a non-empty string without whitespace, no other key;
- * `proxy` in the http form, see httpProxyForm). A refusal carries its code
+ * `proxy` in the http form, see httpProxyForm) and `preamble` (the deployment's
+ * shared text put before the agent's prompt: a string, trimmed, at most
+ * MAX_PREAMBLE_CHARS, else `bad-preamble` / `preamble-too-long`; a blank one
+ * is dropped). A refusal carries its code
  * only, never a value of the message. `cancel` needs an id. `ping` may carry `ids` (task ids
  * the core still waits for). Unknown top-level keys are ignored.
  * @param {unknown} msg

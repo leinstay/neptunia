@@ -3,7 +3,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore, readLedger, writeJsonAtomic } from '../src/memory/store.js';
@@ -17,9 +16,10 @@ import { applyMemoryUpdate, MEMORY_LIMIT_DEFAULTS } from '../src/memory/update.j
 import { FEELING_CHARS, REASON_CHARS, SELF_CHARS, applyVoiceItems, mergeIntoQueue, removeItems, splitDecision } from '../src/memory/voice.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, recordOwnLine } from '../src/memory/participation.js';
+import { tempDir } from './fixtures/tmp.js';
 
 function tmpDataDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'nep-store-'));
+  return tempDir('nep-store-');
 }
 
 test('touchUser: puts the current name first, keeps previous names after, deduplicated', () => {

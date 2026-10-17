@@ -6,12 +6,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { createGifBackfill } from '../src/memory/gif-backfill.js';
 import { createStore } from '../src/memory/store.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -21,7 +21,7 @@ const TENOR_A = 'https://tenor.com/view/cat-dance-1';
 const TENOR_B = 'https://tenor.com/view/wave-2';
 
 function withStore(fn) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-gif-backfill-'));
+  const dir = tempDir('nep-gif-backfill-');
   return Promise.resolve()
     .then(() => fn(createStore({ dataDir: dir }), dir))
     .finally(() => fs.rmSync(dir, { recursive: true, force: true }));

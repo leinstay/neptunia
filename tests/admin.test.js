@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 
 import {
   listRules,
@@ -32,6 +31,7 @@ import { splitPath } from '../src/ops/shared.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
+import { tempDir } from './fixtures/tmp.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -194,7 +194,7 @@ test('buildProfileSummary: resolves <@id> tokens in free-text fields via nameOf'
 // ---------------------------------------------------------------------------
 
 function makeRoot() {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-admin-'));
+  const rootDir = tempDir('nep-admin-');
   fs.mkdirSync(path.join(rootDir, 'prompts'));
   fs.writeFileSync(path.join(rootDir, 'prompts', 'rules.md'), '## Rules\n\n- be kind\n');
   return rootDir;
@@ -450,7 +450,7 @@ test('run: rule.remove rejects an out-of-range number', async () => {
 });
 
 test('run: rule.add seeds from an empty text when the base rules.md is missing', async () => {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-admin-'));
+  const rootDir = tempDir('nep-admin-');
   fs.mkdirSync(path.join(rootDir, 'prompts'));
   const { admin } = makeAdmin(rootDir);
 
@@ -1658,7 +1658,7 @@ test('run: memory.show respects a custom limit, capping a list section', async (
 // ---------------------------------------------------------------------------
 
 function makeRealStoreAdmin(rootDir, extra = {}) {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-admin-alias-'));
+  const dataDir = tempDir('nep-admin-alias-');
   const realStore = createStore({ dataDir });
   const hot = extra.hot ?? makeHot(rootDir);
   const { admin } = makeAdmin(rootDir, { ...extra, hot, store: realStore });
@@ -1943,7 +1943,7 @@ test('run: lore.remove deletes an entry by id and reports its title', async () =
 
 test('status: the card carries the fields in order and the member variant drops the storage line, memory and speed', async () => {
   const rootDir = makeRoot();
-  const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-status-journal-'));
+  const journalDir = tempDir('nep-status-journal-');
   const dayFile = path.join(journalDir, 'today.jsonl');
   fs.writeFileSync(dayFile, '{}\n');
   const journal = { dayFile: () => dayFile, stalled: () => true };
@@ -2260,7 +2260,7 @@ test('status: the speed field ends with today\'s missed-answer figures from the 
 
 test('status: the storage line flags a journal that stopped writing while turns happen', async () => {
   const rootDir = makeRoot();
-  const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-status-journal-'));
+  const journalDir = tempDir('nep-status-journal-');
   const journal = { dayFile: (guildId, iso) => path.join(journalDir, `${iso.slice(0, 10)}.jsonl`), stalled: () => false };
   const metrics = createMetrics({ dataDir: path.join(rootDir, 'data') });
   const { admin, hot } = makeAdmin(rootDir, { journal, metrics });
@@ -2705,7 +2705,7 @@ function slimBufferMessage(overrides = {}) {
 
 test('run: pause waits for an in-flight live-analyzer run to finish -- its result is on disk before pause completes, nothing is written after', async () => {
   const rootDir = makeRoot();
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-admin-data-'));
+  const dataDir = tempDir('nep-admin-data-');
   try {
     const realStore = createStore({ dataDir });
     const guildId = 'g1';
@@ -2752,7 +2752,7 @@ test('run: pause waits for an in-flight live-analyzer run to finish -- its resul
 // warmup.waitIdle, and a refresh whose answer arrives after the pause writes nothing.
 test('run: pause waits for a portrait refresh in flight and nothing is written after it', async () => {
   const rootDir = makeRoot();
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-admin-portrait-'));
+  const dataDir = tempDir('nep-admin-portrait-');
   try {
     const realStore = createStore({ dataDir });
     const guildId = 'g1';
@@ -2841,7 +2841,7 @@ test('run: pause waits for a portrait refresh in flight and nothing is written a
 // writes nothing -- neither the text nor any change to the queued item.
 test('run: pause waits for a voice run in flight and nothing is written after it', async () => {
   const rootDir = makeRoot();
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-admin-voice-'));
+  const dataDir = tempDir('nep-admin-voice-');
   try {
     const realStore = createStore({ dataDir });
     const guildId = 'g1';
@@ -2899,7 +2899,7 @@ test('run: pause waits for a voice run in flight and nothing is written after it
 });
 
 test('/nep pause: no timer-driven writer (spontaneous.tick, memory.tick, store.flush) touches data/ while paused', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-admin-timers-'));
+  const dataDir = tempDir('nep-admin-timers-');
   try {
     const realStore = createStore({ dataDir });
     const guildId = 'g1';
@@ -3857,7 +3857,7 @@ test('run: memory.recent works while paused, writes nothing and is open to a gra
 
 test('admin: memory restore re-inserts an episode and writes a restored event, idempotent', async () => {
   const rootDir = makeRoot();
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-admin-archive-'));
+  const dataDir = tempDir('nep-admin-archive-');
   const appendStore = createAppendStore({ fsyncMs: 0, log: { info() {}, warn() {}, error() {} } });
   const archive = createArchive({ appendStore, dataDir, log: { info() {}, warn() {}, error() {} } });
   const store = createStore({ dataDir, archive });

@@ -5,16 +5,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { sweepOutputs, startSweeper, keepHoursOf, DEFAULT_KEEP_FILES_HOURS } from '../src/agent-runner/sweep.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const HOUR = 60 * 60 * 1000;
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 
 function tempOut() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-sweep-'));
+  return tempDir('agent-sweep-');
 }
 
 /** A task directory `id` under `out` with one file, everything dated `hoursAgo` before NOW. */

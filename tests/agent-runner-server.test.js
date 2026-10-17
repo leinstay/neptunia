@@ -2,8 +2,8 @@
 // task engine. A client sends run/cancel/ping lines; the server answers
 // progress then one end per task, runs one task at a time (a second waits in
 // the queue), cancels a running task, answers a bad line with an error, and
-// on a ping about an unknown id answers end/restarted; a run's secrets reach
-// the engine and no event or log line. No real OpenCode.
+// on a ping about an unknown id answers end/restarted; a run's secrets and
+// shared preamble reach the engine and no event or log line. No real OpenCode.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
@@ -125,6 +125,32 @@ test('server: a run\'s secrets reach the engine and nothing else: no event, no l
   assert.deepEqual(seen, [secrets], 'the refused run never reached the engine');
   assert.ok(!JSON.stringify(events).includes('SECRET'), 'no secret in an event');
   assert.ok(!JSON.stringify(logs).includes('SECRET'), 'no secret in a log line');
+});
+
+test('server: a run\'s preamble reaches the engine and no event or log line; a run without one passes none; a bad one is refused', async () => {
+  const seen = [];
+  const runner = {
+    run(task) {
+      seen.push([task.id, task.preamble]);
+      return Promise.resolve({ status: 'done', result: { text: 'ok' }, usage: { steps: 1 } });
+    },
+  };
+  const { result: events, logs } = await withCapturedLogs(() => withServer(runner, async (sock) => {
+    const c = connect(sock);
+    await c.ready;
+    c.send({ op: 'run', id: 'task-p', goal: 'g', preamble: 'SHARED-PREAMBLE text' });
+    await c.next((e) => e.event === 'end' && e.id === 'task-p');
+    c.send({ op: 'run', id: 'task-q', goal: 'g' });
+    await c.next((e) => e.event === 'end' && e.id === 'task-q');
+    c.send({ op: 'run', id: 'task-r', goal: 'g', preamble: 7 });
+    const refused = await c.next((e) => e.event === 'error' && e.id === 'task-r');
+    assert.equal(refused.error, 'bad-preamble');
+    c.end();
+    return c.events;
+  }));
+  assert.deepEqual(seen, [['task-p', 'SHARED-PREAMBLE text'], ['task-q', undefined]]);
+  assert.ok(!JSON.stringify(events).includes('SHARED-PREAMBLE'), 'no preamble in an event');
+  assert.ok(!JSON.stringify(logs).includes('SHARED-PREAMBLE'), 'no preamble in a log line');
 });
 
 test('server: one task at a time, the second waits in the queue', async () => {

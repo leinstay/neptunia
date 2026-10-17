@@ -4,7 +4,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { main } from '../tools/import-turns.mjs';
 import {
@@ -14,6 +13,7 @@ import { CliError } from '../tools/lib/cli.mjs';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createJournal } from '../src/memory/journal.js';
 import { createRecord } from '../src/memory/record.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const GUILD = '600000000000000001';
 const SELF = '700000000000000007';
@@ -139,7 +139,7 @@ const csvTime = (ms) => new Date(ms).toISOString().replace('T', ' ').replace('Z'
 
 /** A bot directory: a record with the persona's own lines, a journal whose first live record is on 10-13, a CSV. */
 async function fixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-import-turns-'));
+  const root = tempDir('nep-import-turns-');
   const dataDir = path.join(root, 'data');
   const cache = path.join(root, 'cache');
   const stores = [createAppendStore({ fsyncMs: 0, log: quiet }), createAppendStore({ fsyncMs: 0, log: quiet })];

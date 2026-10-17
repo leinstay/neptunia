@@ -14,7 +14,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.js';
@@ -23,6 +22,7 @@ import { WEB, SERVER, PROFILES, AgentProfileError, SHELL_CLASSES, listAgents, lo
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldGlobsOf, withheldRootsOf } from '../src/agent-runner/policy.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { resolvePaths } from '../src/paths.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** This checkout's data directory as the policy resolves it (NEPTUNIA_DATA_DIR, else <root>/data). */
@@ -146,7 +146,7 @@ test('model: each profile runs on its model role, whose default is its default m
 });
 
 test('promptFilesOf: the override is read from NEPTUNIA_PRIVATE_DIR, the tracked prompt from agents/<name>/ under the root; the profiles use it', () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-profiles-'));
+  const base = tempDir('agent-profiles-');
   try {
     const rootDir = path.join(base, 'checkout');
     const privateDir = path.join(base, 'private');
@@ -354,7 +354,7 @@ function workerProfile(id, changes = {}) {
 
 /** A temporary engine root whose agents/ holds `profiles` (`{ <folder>: object }`) and a README; `fn(rootDir)` runs over it. */
 function withAgentsTree(profiles, fn) {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-tree-'));
+  const rootDir = tempDir('agent-tree-');
   try {
     fs.mkdirSync(path.join(rootDir, 'agents'));
     fs.writeFileSync(path.join(rootDir, 'agents', 'README.md'), 'not an agent');

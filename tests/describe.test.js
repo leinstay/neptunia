@@ -10,7 +10,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createStore } from '../src/memory/store.js';
 import { createDescriber, isStaleDescription, parseGifDescription, recacheCutoffMs, videoStateFromCache } from '../src/memory/describe.js';
@@ -18,24 +17,15 @@ import { createHash } from 'node:crypto';
 import { createLlm, helperRequestOptions, TokenLimitError, DailyCapError, VIDEO_TOKENS_PER_SECOND_FALLBACK } from '../src/llm/openrouter.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.js';
 
-// One directory under the system temp dir per run, removed when the process exits; every call gets its own
-// empty subdirectory of it, so a run leaves nothing behind.
+// One directory under the system temp dir per run, removed when the process exits (tests/fixtures/tmp.js);
+// every call gets its own empty subdirectory of it, so a run leaves nothing behind.
 let tmpRoot = null;
 let tmpDirCount = 0;
 
 function tmpDataDir() {
-  if (tmpRoot === null) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-describe-'));
-    tmpRoot = root;
-    process.on('exit', () => {
-      try {
-        fs.rmSync(root, { recursive: true, force: true });
-      } catch {
-        // Best effort: a directory that cannot be removed must never turn a green run red.
-      }
-    });
-  }
+  if (tmpRoot === null) tmpRoot = tempDir('nep-describe-');
   tmpDirCount += 1;
   const dir = path.join(tmpRoot, String(tmpDirCount));
   fs.mkdirSync(dir);

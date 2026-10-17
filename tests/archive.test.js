@@ -3,10 +3,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { archiveEntry, createArchive } from '../src/memory/archive.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const OCT = Date.UTC(2026, 9, 13, 9, 0, 0);
@@ -18,7 +18,7 @@ function counter(prefix) {
 }
 
 function scene() {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nep-archive-'));
+  const dataDir = tempDir('nep-archive-');
   const appendStore = createAppendStore({ fsyncMs: 0, log: quiet });
   const archive = createArchive({ appendStore, dataDir, log: quiet, now: () => OCT, uuid: counter('a-') });
   return { dataDir, appendStore, archive };

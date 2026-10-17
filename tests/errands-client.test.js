@@ -3,7 +3,8 @@
 // what the test tells it to. A run resolves on its `end`, progress reaches the listeners, cancel
 // and ping go out as lines, a dropped connection fails its tasks with `disconnected` and is
 // reopened, a profile that is not set up answers `not-configured` without connecting, and each
-// outcome of the connect loop reaches the `onLink` listeners.
+// outcome of the connect loop reaches the `onLink` listeners. The deployment's shared preamble
+// (`hot.prompts.agents`) goes out on a run's line only when non-empty, read at each run.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
@@ -129,6 +130,37 @@ test('errands client: a run\'s secrets go out on its line and into no log line',
     });
     assert.ok(logs.some((entry) => entry.msg === 'errands: sent'), 'the run was logged');
     assert.ok(!JSON.stringify(logs).includes('SECRET'));
+  } finally {
+    client.close();
+    await runner.close();
+  }
+});
+
+test('errands client: the shared preamble goes out on a run\'s line only when non-empty, read at each run, and into no log line', async () => {
+  const sock = socketPath();
+  const runner = await fakeRunner(sock);
+  const hot = hotFor(sock);
+  const client = createErrandClient({ hot });
+  const runOnce = async (id) => {
+    const running = client.run({ agent: 'web', id, goal: 'look' });
+    const request = await runner.next((r) => r.op === 'run' && r.id === id);
+    runner.reply({ id, event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
+    await running;
+    return request;
+  };
+  try {
+    const { logs } = await withCapturedLogs(async () => {
+      assert.equal(Object.hasOwn(await runOnce('task-none'), 'preamble'), false, 'no prompts at all: none sent');
+      hot.prompts = { agents: '' };
+      assert.equal(Object.hasOwn(await runOnce('task-empty'), 'preamble'), false, 'an empty file: none sent');
+      hot.prompts = { agents: '  SHARED-PREAMBLE for every agent.\n' };
+      assert.equal((await runOnce('task-with')).preamble, 'SHARED-PREAMBLE for every agent.');
+      hot.prompts = {};
+      assert.equal(Object.hasOwn(await runOnce('task-gone'), 'preamble'), false, 'the file removed: none sent from the next run');
+    });
+    const sent = logs.filter((entry) => entry.msg === 'errands: sent');
+    assert.equal(sent.length, 4);
+    assert.ok(!JSON.stringify(logs).includes('SHARED-PREAMBLE'), 'no preamble in a log line');
   } finally {
     client.close();
     await runner.close();

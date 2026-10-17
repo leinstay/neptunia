@@ -5,7 +5,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -25,6 +24,7 @@ import { tokenIds } from '../src/memory/mentions.js';
 import { createStore } from '../src/memory/store.js';
 import { HOUR_MS } from '../src/time.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
@@ -45,7 +45,7 @@ function stored(lines, nextId) {
 }
 
 function tmpDataDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'nep-recent-'));
+  return tempDir('nep-recent-');
 }
 
 function recentFileOf(dir, guildId) {
