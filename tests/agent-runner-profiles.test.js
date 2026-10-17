@@ -5,9 +5,12 @@
 // so the last match wins), the withheld-path denies added only in a
 // filtered scope (the path tools' globs and the server shell's per-command
 // patterns, checked through a copy of OpenCode's wildcard and last-match
-// rule), each profile's model role, and where its system-prompt files are
-// (the override under the private directory). Pure but for reading
-// config.json and a temporary directory.
+// rule), each profile's model role, where its system-prompt files are
+// (the override under the private directory, the tracked prompt in
+// agents/<id>/), and the agents/ folder the profiles are built from: the
+// real one, and temporary trees with a valid worker, an unknown tool, an
+// unknown shell class, a missing key and a consultation the runner skips.
+// Pure but for reading config.json, agents/ and a temporary directory.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,7 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.js';
 import { onLog } from '../src/log.js';
-import { WEB, SERVER, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, withheldShellDenies } from '../src/agent-runner/profiles.js';
+import { WEB, SERVER, PROFILES, AgentProfileError, SHELL_CLASSES, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, withheldShellDenies } from '../src/agent-runner/profiles.js';
 import { WITHHELD_NAMES, WITHHELD_ROOTS, withheldRootsOf } from '../src/agent-runner/policy.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { resolvePaths } from '../src/paths.js';
@@ -114,7 +117,7 @@ test('model: each profile runs on its model role, whose default is its default m
   }
 });
 
-test('promptFilesOf: the override is read from NEPTUNIA_PRIVATE_DIR, the tracked prompt from the root; the profiles use it', () => {
+test('promptFilesOf: the override is read from NEPTUNIA_PRIVATE_DIR, the tracked prompt from agents/<name>/ under the root; the profiles use it', () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-profiles-'));
   try {
     const rootDir = path.join(base, 'checkout');
@@ -123,12 +126,12 @@ test('promptFilesOf: the override is read from NEPTUNIA_PRIVATE_DIR, the tracked
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, text);
     };
-    write(path.join(rootDir, 'prompts', 'agent-web.md'), 'tracked');
+    write(path.join(rootDir, 'agents', 'web', 'prompt.md'), 'tracked');
     write(path.join(rootDir, 'prompts.local', 'agent-web.md'), 'checkout override');
     write(path.join(privateDir, 'prompts.local', 'agent-web.md'), 'private override');
 
     const apart = promptFilesOf('web', { rootDir, env: { NEPTUNIA_PRIVATE_DIR: privateDir } });
-    assert.deepEqual(apart, [path.join(privateDir, 'prompts.local', 'agent-web.md'), path.join(rootDir, 'prompts', 'agent-web.md')]);
+    assert.deepEqual(apart, [path.join(privateDir, 'prompts.local', 'agent-web.md'), path.join(rootDir, 'agents', 'web', 'prompt.md')]);
     assert.equal(readPromptFile(apart), 'private override', 'the checkout prompts.local/ is not read');
     assert.equal(readPromptFile(promptFilesOf('web', { rootDir, env: {} })), 'checkout override', 'unset: the root is the private directory');
     fs.rmSync(path.join(privateDir, 'prompts.local', 'agent-web.md'));
@@ -237,4 +240,139 @@ test('filtered scope: under OpenCode\'s last-match rule a read of a withheld pat
   }
   assert.equal(actionOf(dm, 'find /var/www -exec cat {} ;'), 'deny', 'SHELL_DENY_AFTER still wins');
   assert.equal(actionOf(dm, 'rm -rf /tmp/x'), 'deny');
+});
+
+// ---- the agents/ folder ---------------------------------------------------------------
+
+/** A worker profile.json that passes every check, `changes` merged over it (an `undefined` value drops the key). */
+function workerProfile(id, changes = {}) {
+  const base = {
+    id,
+    kind: 'worker',
+    role: 'agent.server',
+    prompt: 'prompt.md',
+    override: `agent-${id}.md`,
+    tools: ['read', 'list'],
+    shell: 'server-read-only',
+    limits: { steps: 5, usd: 0.1, seconds: 60 },
+    daily: { tasks: 3, usd: 1 },
+    searchProvider: null,
+    socket: `/run/test-${id}/sock`,
+    out: `/var/lib/test-${id}/out`,
+    env: ['OPENROUTER_AGENT_KEY'],
+    description: 'A test worker.',
+  };
+  const merged = { ...base, ...changes };
+  for (const [key, value] of Object.entries(merged)) if (value === undefined) delete merged[key];
+  return merged;
+}
+
+/** A temporary engine root whose agents/ holds `profiles` (`{ <folder>: object }`) and a README; `fn(rootDir)` runs over it. */
+function withAgentsTree(profiles, fn) {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-tree-'));
+  try {
+    fs.mkdirSync(path.join(rootDir, 'agents'));
+    fs.writeFileSync(path.join(rootDir, 'agents', 'README.md'), 'not an agent');
+    for (const [folder, profile] of Object.entries(profiles)) {
+      fs.mkdirSync(path.join(rootDir, 'agents', folder));
+      fs.writeFileSync(path.join(rootDir, 'agents', folder, 'profile.json'), JSON.stringify(profile));
+    }
+    return fn(rootDir);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+/** Asserts that loading the tree fails with one AgentProfileError naming `agent` and `key`. */
+function assertRefused(rootDir, agent, key) {
+  for (const load of [() => loadProfiles({ rootDir, env: {} }), () => listAgents({ rootDir })]) {
+    assert.throws(load, (err) => {
+      assert.ok(err instanceof AgentProfileError, err.message);
+      assert.equal(err.agent, agent);
+      assert.equal(err.key, key);
+      assert.ok(err.message.includes(`"${agent}"`) && err.message.includes(`"${key}"`), err.message);
+      assert.ok(!err.message.includes('\n'), 'one line');
+      return true;
+    });
+  }
+}
+
+test('loadProfiles: a valid worker from a temporary agents/ tree becomes a profile with the runner\'s shape', () => {
+  withAgentsTree({ probe: workerProfile('probe') }, (rootDir) => {
+    const profiles = loadProfiles({ rootDir, env: { NEPTUNIA_PRIVATE_DIR: '/private' } });
+    assert.deepEqual(Object.keys(profiles), ['probe']);
+    const probe = profiles.probe;
+    assert.equal(probe.name, 'probe');
+    assert.equal(probe.agentId, 'errand-probe');
+    assert.equal(probe.modelRole, 'agent.server');
+    assert.equal(probe.defaultModel, ROLE_DEFAULTS['agent.server']);
+    assert.deepEqual(probe.promptFiles, [path.join('/private', 'prompts.local', 'agent-probe.md'), path.join(rootDir, 'agents', 'probe', 'prompt.md')]);
+    assert.deepEqual(probe.defaultLimits, { steps: 5, usd: 0.1, seconds: 60 });
+    assert.deepEqual(probe.defaultDaily, { tasks: 3, usd: 1 });
+    assert.equal(probe.defaultSearchProvider, null);
+    assert.equal(probe.defaultSocket, '/run/test-probe/sock');
+    assert.equal(probe.defaultOut, '/var/lib/test-probe/out');
+    assert.deepEqual([...probe.envNames], ['OPENROUTER_AGENT_KEY']);
+    // A profile only narrows: the tools it leaves out of its class are denied.
+    const p = probe.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-probe'].permission;
+    assert.equal(p.read, 'allow');
+    assert.equal(p.list, 'allow');
+    assert.equal(p.grep, 'deny');
+    assert.equal(p.glob, 'deny');
+    assert.equal(p.bash, 'deny');
+    assert.equal(p.edit, 'deny');
+    assert.equal(p.websearch, 'deny');
+  });
+});
+
+test('loadProfiles: a tool outside the shell class is refused at load, naming the agent and the key', () => {
+  withAgentsTree({ probe: workerProfile('probe', { tools: ['read', 'edit'] }) }, (rootDir) => assertRefused(rootDir, 'probe', 'tools'));
+  withAgentsTree({ probe: workerProfile('probe', { tools: ['read', 'websearch'] }) }, (rootDir) => assertRefused(rootDir, 'probe', 'tools'));
+  withAgentsTree({ probe: workerProfile('probe', { shell: 'web-download', tools: ['grep'] }) }, (rootDir) => assertRefused(rootDir, 'probe', 'tools'));
+});
+
+test('loadProfiles: an unknown shell class is refused', () => {
+  withAgentsTree({ probe: workerProfile('probe', { shell: 'root-shell' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'shell'));
+});
+
+test('loadProfiles: a missing key or an unknown one is refused, nested keys too', () => {
+  withAgentsTree({ probe: workerProfile('probe', { env: undefined }) }, (rootDir) => assertRefused(rootDir, 'probe', 'env'));
+  withAgentsTree({ probe: workerProfile('probe', { kind: undefined }) }, (rootDir) => assertRefused(rootDir, 'probe', 'kind'));
+  withAgentsTree({ probe: workerProfile('probe', { command: 'rm -rf /' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'command'));
+  withAgentsTree({ probe: workerProfile('probe', { limits: { steps: 5, usd: 0.1 } }) }, (rootDir) => assertRefused(rootDir, 'probe', 'limits.seconds'));
+  withAgentsTree({ probe: workerProfile('probe', { id: 'other' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'id'));
+  withAgentsTree({ probe: workerProfile('probe', { prompt: '../prompt.md' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'prompt'));
+  withAgentsTree({ probe: workerProfile('probe', { role: 'voice' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'role'));
+});
+
+test('a consultation is skipped by loadProfiles and listed by listAgents with the workers', () => {
+  const consult = { id: 'consult', kind: 'consultation', role: 'agent.advice', prompt: null, override: null, description: 'A test consultation.' };
+  withAgentsTree({ consult, probe: workerProfile('probe') }, (rootDir) => {
+    assert.deepEqual(Object.keys(loadProfiles({ rootDir, env: {} })), ['probe']);
+    const all = listAgents({ rootDir });
+    assert.deepEqual(all.map((agent) => [agent.id, agent.kind]), [['consult', 'consultation'], ['probe', 'worker']]);
+    assert.deepEqual({ ...all[0] }, consult);
+    assert.ok(Object.isFrozen(all[0]));
+  });
+  withAgentsTree({ consult: { ...consult, shell: 'server-read-only' } }, (rootDir) => assertRefused(rootDir, 'consult', 'shell'));
+});
+
+test('the real agents/ folder: web and server workers, the advice consultation, each prompt tracked beside its profile', () => {
+  const agents = listAgents();
+  assert.deepEqual(agents.map((agent) => [agent.id, agent.kind]), [['advice', 'consultation'], ['server', 'worker'], ['web', 'worker']]);
+  assert.deepEqual(Object.keys(PROFILES).sort(), ['server', 'web']);
+  const advice = agents.find((agent) => agent.id === 'advice');
+  assert.equal(advice.role, 'agent.advice');
+  assert.equal(advice.prompt, null);
+  for (const profile of [WEB, SERVER]) {
+    assert.ok(fs.existsSync(path.join(ROOT, 'agents', profile.name, 'prompt.md')), profile.name);
+    assert.equal(path.basename(profile.promptFiles[0]), `agent-${profile.name}.md`, 'the override keeps its name');
+    assert.ok(SHELL_CLASSES[profile.shell].tools.length >= profile.tools.length);
+  }
+  assert.equal(fs.existsSync(path.join(ROOT, 'prompts', 'agent-web.md')), false, 'the agent prompts left prompts/');
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).agents;
+  for (const name of ['web', 'server']) {
+    assert.equal(shipped[name].socket, profileOf(name).defaultSocket, `${name}: config.json and the profile agree on the socket`);
+    assert.equal(shipped[name].out, profileOf(name).defaultOut, `${name}: and on the out dir`);
+  }
 });

@@ -277,6 +277,7 @@ prompts/
   labels.json              every code-inserted string in prompts
   skills.json              the persona's skill texts (title, whenToUse, whenNotToUse)
 prompts.local/             your personality (gitignored)
+agents/                    one folder per errand agent: prompt.md and profile.json (agents/README.md)
 docs/
   en/
     prompt-contract.md     the contract between prompt files and code

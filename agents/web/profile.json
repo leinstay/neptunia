@@ -1,0 +1,16 @@
+{
+  "id": "web",
+  "kind": "worker",
+  "role": "agent.web",
+  "prompt": "prompt.md",
+  "override": "agent-web.md",
+  "tools": ["websearch", "webfetch", "read", "glob", "list", "bash"],
+  "shell": "web-download",
+  "limits": { "steps": 25, "usd": 0.5, "seconds": 300 },
+  "daily": { "tasks": 40, "usd": 8 },
+  "searchProvider": "exa",
+  "socket": "/run/neptunia-agent-web/sock",
+  "out": "/var/lib/neptunia-agent-web/out",
+  "env": ["OPENROUTER_AGENT_KEY", "OPENCODE_WEBSEARCH_KEY", "PROXY_URL"],
+  "description": "Internet errands: searches the web, reads pages, looks at images and downloads files through a proxy."
+}

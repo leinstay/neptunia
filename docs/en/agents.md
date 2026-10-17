@@ -9,6 +9,32 @@ The engine can hand a task off to a separate **errand agent**: a standalone proc
 
 Both run one task at a time; further requests queue. Each task has per-task caps (`agents.<profile>.limits`: model steps, estimated USD, wall-clock seconds) and the engine applies per-day caps (`agents.<profile>.daily`). The USD cap is a **soft** cap on OpenCode's own cost estimate; the hard spend cap is the credit limit on the runner's OpenRouter key.
 
+## The agents folder
+
+Each agent is one folder under `agents/` at the engine root (`agents/README.md` says the same for a newcomer): `agents/web/` and `agents/server/` are the two workers, `agents/advice/` the consultation. A folder holds the agent's tracked prompt (`prompt.md`) and its description (`profile.json`). The runner builds its profiles from this folder when it starts (`src/agent-runner/profiles.js#loadProfiles`); the core reads the same folder for the defaults it needs (socket, out dir, limits, daily caps). `listAgents` returns every agent, workers and consultations, for the docs, the tools and later the persona.
+
+`profile.json` describes a request; it never authorizes one. Every key is required:
+
+| Key | Meaning |
+|---|---|
+| `id` | the folder name (`web`) |
+| `kind` | `worker` (runs under the agent runner on a socket) or `consultation` (a model role that tools call directly; no process, skipped by the runner) |
+| `role` | the model role in `src/llm/roles.js` (`agent.web`, `agent.server`, `agent.advice`) |
+| `prompt` | the prompt file inside the folder (`prompt.md`); `null` for a consultation without one |
+| `override` | the deployment's override file under `prompts.local/` (`agent-web.md`), tried before `prompt`; `null` for a consultation without a prompt |
+| `description` | one sentence saying what the agent does |
+| `tools` | worker only: the OpenCode tools it asks for, at most the ones its shell class allows |
+| `shell` | worker only: the name of a shell class the runner defines in code (`server-read-only`, `web-download`) |
+| `limits` | worker only: the default per-task caps `{ steps, usd, seconds }`, overridden by `agents.<id>.limits` |
+| `daily` | worker only: the default per-day caps `{ tasks, usd }`, overridden by `agents.<id>.daily` |
+| `searchProvider` | worker only: the default web search provider (`exa`), or `null` |
+| `socket`, `out` | worker only: the default socket and out dir, overridden by `agents.<id>.socket` / `.out` |
+| `env` | worker only: the environment variable names the runner falls back on when a task brings no key |
+
+Never declarative, always in the code (`src/agent-runner/profiles.js`, `src/agent-runner/policy.js`): the permission ceiling of each shell class (its allowed commands and the tools it may grant), the shell deny patterns, the tools denied to every agent (`edit`, `write`, `patch`, `task`, `question`, `external_directory`), the scope filters and withheld paths, the redaction, any command to run, and any path outside the folder. A profile can only narrow: a tool it leaves out is denied. A profile with a missing key, an unknown key, a tool its class does not allow or a shell class the runner does not know stops the runner (and the bot, which reads the same folder) at start, with one error line naming the agent and the key.
+
+To add an agent: create `agents/<id>/` with `profile.json` and, for a worker, `prompt.md`; give it a model role in `src/llm/roles.js` if it needs a new one; for a worker, add its `agents.<id>` block to `config.json`, a systemd unit like `deploy/neptunia-agent-web.service`, and, for the persona to reach it, its name in `/nep task run`'s choices (`TASK_AGENTS` in `src/discord/commands.js`) and who may ask for it in `src/ops/task.js`. A worker that needs a shell class the runner does not have needs a code change, never a profile key.
+
 ## The two services
 
 Each profile runs as its own systemd service and Unix user (`deploy/neptunia-agent-web.service`, `deploy/neptunia-agent-server.service`; install instructions are in the unit headers):
@@ -49,7 +75,7 @@ A command that reaches a withheld path past those rules (a `bash -c`, a pipe int
 
 ## How a task runs
 
-One task is one `opencode run` child process in a fresh working directory under the profile's out dir, with project/`.claude` config, auto-update and the price-catalog fetch disabled so nothing of this server leaks into the worker. The engine builds the OpenCode config (the agent's prompt from `prompts/agent-<profile>.md`, the step cap, the permission ruleset for the scope, the model and its cost) and passes it through `OPENCODE_CONFIG_CONTENT`. The child prints a JSON event stream; the runner sums the per-step cost and tokens, forwards progress, takes the final assistant text as the result, lists the files the agent saved, and stops the child when a cap is passed. Built against OpenCode v1.19.3.
+One task is one `opencode run` child process in a fresh working directory under the profile's out dir, with project/`.claude` config, auto-update and the price-catalog fetch disabled so nothing of this server leaks into the worker. The engine builds the OpenCode config (the agent's prompt from `agents/<profile>/prompt.md`, or the deployment's `prompts.local/agent-<profile>.md` when present, the step cap, the permission ruleset for the scope, the model and its cost) and passes it through `OPENCODE_CONFIG_CONTENT`. The child prints a JSON event stream; the runner sums the per-step cost and tokens, forwards progress, takes the final assistant text as the result, lists the files the agent saved, and stops the child when a cap is passed. Built against OpenCode v1.19.3.
 
 ## The persona's side
 

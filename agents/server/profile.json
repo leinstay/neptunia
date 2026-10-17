@@ -1,0 +1,16 @@
+{
+  "id": "server",
+  "kind": "worker",
+  "role": "agent.server",
+  "prompt": "prompt.md",
+  "override": "agent-server.md",
+  "tools": ["read", "grep", "glob", "list", "bash"],
+  "shell": "server-read-only",
+  "limits": { "steps": 20, "usd": 0.2, "seconds": 120 },
+  "daily": { "tasks": 40, "usd": 3 },
+  "searchProvider": null,
+  "socket": "/run/neptunia-agent-server/sock",
+  "out": "/var/lib/neptunia-agent-server/out",
+  "env": ["OPENROUTER_AGENT_KEY"],
+  "description": "Read-only questions about this machine: reads files and runs read-only shell commands, with no network but the model API."
+}
