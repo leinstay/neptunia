@@ -26,6 +26,9 @@ const MESSAGE_OPTIONS = Object.freeze(['message', 'reply']);
 /** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
 const FILE_OPTIONS = Object.freeze(['file']);
 
+/** The skill whose `agent` she must name: refused `agent-required` (with the agents) when left out. */
+const AGENT_SKILL = 'task.run';
+
 /**
  * The operations whose success is its own answer: a message or a picture that went out, and an
  * errand accepted (its id is in her `<tasks>` block from her next turn on; she does not wait).
@@ -42,7 +45,7 @@ export const RESULT_STATUSES = Object.freeze(['ok', 'denied', 'not_configured', 
 const NOT_CONFIGURED_CODES = Object.freeze(['not-configured', 'unsupported', 'no-guild']);
 
 /** The refusal codes of a call that was not right, as opposed to a rule that said no. */
-const INVALID_CODES = Object.freeze(['invalid-args', 'unknown-skill', 'unknown-member', 'unknown-message', 'unknown-file', 'target-ambiguous', 'unknown-op', 'not-found']);
+const INVALID_CODES = Object.freeze(['invalid-args', 'agent-required', 'unknown-skill', 'unknown-member', 'unknown-message', 'unknown-file', 'target-ambiguous', 'unknown-op', 'not-found']);
 
 /** Milliseconds a call may run before its outcome is `unknown` (`skills.callTimeoutMs`; config.json's value). */
 const CALL_TIMEOUT_MS = 120_000;
@@ -187,7 +190,7 @@ export function bodyArguments(body, names) {
  * One `<call>` (`{ skill, args, body }`, src/llm/parse.js) as the arguments of the command behind
  * the skill (`view.skills`: the registry), keyed by the command's option names, or the refusal:
  * `unknown-skill` (no such skill), `invalid-args` (an attribute the command does not take, the
- * text given twice, a channel or role nobody has),
+ * text given twice, a channel or role nobody has), `agent-required` (an errand without its agent),
  * `target-ambiguous` (a channel name several share), `unknown-member` (no stored profile by that
  * name, or several), `unknown-message` (a `#N` not in this turn's transcript, or in another
  * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
@@ -198,7 +201,12 @@ export function bodyArguments(body, names) {
  * the command has a `channel` option the call left out, its channel; a reply records the replied
  * author. A Discord message link there (MESSAGE_LINK_RE, bare or in angle brackets) becomes its
  * message id and names its channel the same way (`unknown-message` when the call named another);
- * any other value -- a raw message id -- is passed on as written. A non-empty body for a command
+ * any other value -- a raw message id -- is passed on as written. A non-empty body fills the
+ * skill's body argument (`command.body`, src/skills/derive.js#BODY_ARGS: an errand's `goal`, her
+ * `text`) when the call left it out -- `invalid-args` (`args.<arg>:twice`) when it gave it as an
+ * attribute too -- and the result names it (`bodyArg`) for the caller to log. An errand
+ * (`task.run`) without its `agent` is refused `agent-required`, the reason the agents she may
+ * name, comma-separated (the schema's choices). A non-empty body for a command
  * without a body option that spells out its options (bodyArguments: `name: value` lines,
  * `<name>value</name>` tags) gives those arguments, an attribute given explicitly winning; the
  * result counts the ones taken (`bodyArgs`) for the caller to log. Any other such body (her
@@ -211,7 +219,7 @@ export function bodyArguments(body, names) {
  *   messageAt?: (n: number) => ({ id: string, conversationId: string, authorId: string|null, self?: boolean } | null),
  *   members?: { id: string, names?: string[], aliases?: { name: string }[] }[], roles?: { id: string, name: string }[],
  *   selfId?: string|null, fileOf?: (handle: string) => object|null, triggerText?: string|null }} view
- * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyIgnored?: true, bodyArgs?: number }
+ * @returns {{ ok: true, skill: string, args: object, command: object, repliedAuthorId: string|null, bodyArg?: string, bodyIgnored?: true, bodyArgs?: number }
  *   | { ok: false, code: string, reason: string }}
  */
 export function resolveCall(call, view) {
@@ -236,6 +244,12 @@ export function resolveCall(call, view) {
   if (body && command.body) {
     if (Object.hasOwn(given, command.body)) return refused('invalid-args', `args.${command.body}:twice`);
     given[command.body] = body;
+  }
+  // An errand without its agent: refused naming the agents she may pick (the schema's choices), so
+  // the refusal she reads says which, never a bare missing argument.
+  if (name === AGENT_SKILL && !Object.hasOwn(given, 'agent') && byName.has('agent')) {
+    const agents = skill.argsSchema?.properties?.agent?.enum;
+    return refused('agent-required', Array.isArray(agents) ? agents.join(',') : '');
   }
 
   const args = {};
@@ -327,7 +341,7 @@ export function resolveCall(call, view) {
   if (args.channel !== undefined) {
     for (const task of errandFiles) if (!fileMayGo(task, String(args.channel), view)) return refused('file-elsewhere', 'channel');
   }
-  return { ok: true, skill: name, args, command, repliedAuthorId, ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody ? { bodyArgs } : {}) };
+  return { ok: true, skill: name, args, command, repliedAuthorId, ...(body && command.body ? { bodyArg: command.body } : {}), ...(bodyIgnored ? { bodyIgnored: true } : {}), ...(fromBody ? { bodyArgs } : {}) };
 }
 
 /** The structured status of an operation's result (src/ops/index.js#runOp): `ok`; one that may
@@ -471,7 +485,9 @@ const ARG_RULE_KINDS = Object.freeze({
  * what was wrong with it (`missing-arg`, `unknown-arg`, `arg-twice`, `too-long`, `too-short`,
  * `unknown-channel`, `unknown-role`, else `wrong-arg`); `unknown-message` names the option (`message`, `reply`) whose message was not in view,
  * or is `message-elsewhere` when that message lives in another channel than the one named;
- * `not-own-message` names `message`; `unknown-member` with several matches is `member-ambiguous`.
+ * `not-own-message` names `message`; `unknown-member` with several matches is `member-ambiguous`;
+ * `agent-required` names `agent` and carries the agents its reason lists (`values`; the mark words
+ * it through `labels.skills.refusals.agentRequired`).
  * Any other code is its own kind without an argument. With `textChars` (a positive number) and
  * the operation's own message in `outcome.data.text`, that message rides along as `text`: one
  * line, cut to `textChars` with an ellipsis (src/memory/clamp.js) -- what the mark says when no
@@ -479,7 +495,7 @@ const ARG_RULE_KINDS = Object.freeze({
  * outcome or one without a code. Pure.
  * @param {{ status?: string, code?: string|null, reason?: string|null, data?: { text?: string }|null }|null|undefined} outcome
  * @param {{ textChars?: number }} [options]
- * @returns {{ kind: string, code: string, arg: string|null, text?: string }|null}
+ * @returns {{ kind: string, code: string, arg: string|null, text?: string, values?: string[] }|null}
  */
 export function outcomeDetail(outcome, { textChars = 0 } = {}) {
   const code = typeof outcome?.code === 'string' ? outcome.code : '';
@@ -498,5 +514,9 @@ export function outcomeDetail(outcome, { textChars = 0 } = {}) {
   }
   if (code === 'not-own-message') return of(code, 'message');
   if (code === 'unknown-member' && reason === 'ambiguous') return of('member-ambiguous');
+  if (code === 'agent-required') {
+    const agents = reason.split(',').map((agent) => agent.trim()).filter(Boolean);
+    return { ...of(code, 'agent'), ...(agents.length > 0 ? { values: agents } : {}) };
+  }
   return of(code);
 }

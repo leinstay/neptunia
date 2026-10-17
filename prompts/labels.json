@@ -488,6 +488,9 @@
         "file-unreadable": "the file could not be read",
         "other": "something went wrong"
       }
+    },
+    "refusals": {
+      "agentRequired": "{arg} was not given; name one of: {agents}"
     }
   },
   "peopleNow": {

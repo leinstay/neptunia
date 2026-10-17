@@ -30,8 +30,25 @@ const STRING_MAX = 6000;
 /** An opaque reference (a member, a channel, a role), resolved by the server to an id. */
 const REF = Object.freeze({ type: 'string', minLength: 1, maxLength: 100 });
 
-/** The option the body of a `<call>` fills, when the leaf has it as a string. */
+/** The option the body of a `<call>` fills, when the leaf has it as a string and BODY_ARGS names none. */
 export const BODY_OPTION = 'text';
+
+/**
+ * The argument each skill's `<call>` body fills when the call leaves it out: the skill's main
+ * text (an errand's goal, her message, a rule, a scene to draw, an item or entry to keep). A skill
+ * listed with null takes no body; a skill not listed falls back to its `text` option (BODY_OPTION)
+ * when its command has one as a string. The named option must be a string option of the command,
+ * else the skill takes no body.
+ */
+export const BODY_ARGS = Object.freeze({
+  'task.run': 'goal',
+  'message.create': 'text',
+  'message.edit': 'text',
+  'rule.add': 'text',
+  'draw.create': 'text',
+  'learning.add': 'text',
+  'lore.add': 'text',
+});
 
 /** Every leaf of `table` as `{ key, leaf }`: `<group>.<name>` or a bare `<name>`, in order. */
 function leavesOf(table) {
@@ -205,15 +222,17 @@ export function optionsSchema({ options, fixed = {}, drop = [], require = [], en
 /**
  * The command a derived skill runs: its key, the fixed option values, the options the call may
  * give (`{ name, kind }`, the fixed and dropped ones left out), the option a `<call>` body fills
- * (`text` when the leaf takes it, else null), and `toCall(given)`: the persona's arguments (option
- * names; ids for members, channels and roles) with the fixed values, mapped through the leaf's own
- * mapper and the command map -> `{ key, args, op }`, `op` null when they reach no operation.
+ * (`bodyArgs[name]` when listed, else `text`; null when the leaf takes no such string option), and
+ * `toCall(given)`: the persona's arguments (option names; ids for members, channels and roles)
+ * with the fixed values, mapped through the leaf's own mapper and the command map ->
+ * `{ key, args, op }`, `op` null when they reach no operation.
  */
-function commandOf(source, resolve) {
+function commandOf(name, source, resolve, bodyArgs) {
   const options = source.options
     .filter((option) => !Object.hasOwn(source.fixed, option.name) && !source.drop.includes(option.name))
     .map((option) => Object.freeze({ name: option.name, kind: option.kind }));
-  const body = options.some((option) => option.name === BODY_OPTION && option.kind === 'string') ? BODY_OPTION : null;
+  const wanted = bodyArgs && Object.hasOwn(bodyArgs, name) ? bodyArgs[name] : BODY_OPTION;
+  const body = typeof wanted === 'string' && options.some((option) => option.name === wanted && option.kind === 'string') ? wanted : null;
   const fixed = Object.freeze({ ...source.fixed });
   return Object.freeze({
     key: source.key,
@@ -235,12 +254,13 @@ function commandOf(source, resolve) {
  * its command (optionsSchema), its effect class from src/ops/effects.js (`effectOf`; an operation
  * without a row: `read` or `write` by its kind), `paid` cost for a paid one, no target rule (the
  * operation's own rules and the requester's rights decide), and the `command` it runs
- * (commandOf). An operation no command runs is a programming error: throws.
+ * (commandOf, its body argument declared in `bodyArgs`, BODY_ARGS by default). An operation no
+ * command runs is a programming error: throws.
  * @param {{ ops: { name: string, rights: object }[], sources: Map<string, object>, resolve: Function,
- *   effectOf?: (name: string) => string|null }} input
+ *   effectOf?: (name: string) => string|null, bodyArgs?: Record<string, string|null> }} input
  * @returns {object[]}
  */
-export function deriveSkillDefinitions({ ops, sources, resolve, effectOf = opEffectOf }) {
+export function deriveSkillDefinitions({ ops, sources, resolve, effectOf = opEffectOf, bodyArgs = BODY_ARGS }) {
   const out = [];
   for (const op of Array.isArray(ops) ? ops : []) {
     if (!op?.name) continue;
@@ -257,7 +277,7 @@ export function deriveSkillDefinitions({ ops, sources, resolve, effectOf = opEff
       costClass: effects === 'paid' ? 'paid' : 'free',
       targets: null,
       interfaceCapability: null,
-      command: commandOf(source, resolve),
+      command: commandOf(op.name, source, resolve, bodyArgs),
     });
   }
   return out;

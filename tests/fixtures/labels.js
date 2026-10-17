@@ -429,6 +429,9 @@ export const labels = {
         other: 'other failure',
       },
     },
+    refusals: {
+      agentRequired: '{arg} missing, pick one of: {agents}',
+    },
   },
   peopleNow: {
     lead: 'Right now, per person, by handle:',

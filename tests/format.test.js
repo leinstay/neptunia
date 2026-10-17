@@ -1584,6 +1584,20 @@ test('formatTranscript: a call that did not work says why: its argument, its mes
   assert.ok(formatTranscript(marked, { ...offsetOptions, labels: plain })[2].text.endsWith(`[called message.edit on #2: ${status}]`));
 });
 
+test('formatTranscript: an errand without its agent says so through skills.refusals.agentRequired, naming the agents', () => {
+  const ended = (detail, over = labels) => formatTranscript(withCalls(callScene(), { calls: [call({ skill: 'task.run', status: 'invalid', detail, target: { messageId: null, channelId: null } })] }, resolvers), { ...offsetOptions, labels: over })[2].text;
+  const status = labels.transcript.callStatus.invalid;
+  const withReason = (reason) => fill(labels.transcript.callStatusReason, { status, reason });
+  const detail = { kind: 'agent-required', code: 'agent-required', arg: 'agent', values: ['web', 'server'] };
+  const said = ended(detail);
+  assert.ok(said.endsWith(`: ${withReason(fill(labels.skills.refusals.agentRequired, { arg: 'agent', agents: 'web, server' }))}]`), said);
+  assert.ok(said.includes('web, server'), said);
+  // Without the agents to name, or without the label, the generic reason as for any other code.
+  assert.ok(ended({ ...detail, values: undefined }).endsWith(`: ${withReason(labels.skills.result.reasons.other)}]`));
+  const unlabelled = { ...labels, skills: { ...labels.skills, refusals: {} } };
+  assert.ok(ended(detail, unlabelled).endsWith(`: ${withReason(labels.skills.result.reasons.other)}]`));
+});
+
 test('formatTranscript: a call target out of view renders as its link, else its channel, else nothing', () => {
   const gone = formatTranscript(withCalls(callScene(), { calls: [call({ target: { messageId: 'old', channelId: 'c9' } })] }, resolvers), offsetOptions);
   assert.ok(gone[2].text.endsWith(`[called message.edit on ${LINK('c9', 'old')}: done]`), gone[2].text);
