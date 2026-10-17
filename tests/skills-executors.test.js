@@ -345,6 +345,47 @@ test('resolveCall and executeCall: a file handle of one of her errands attaches 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('resolveCall: an errand\'s file goes to the channel the errand was asked in, elsewhere only to a channel its goal or the trigger names', async () => {
+  const handle = 'file:tab2/meme.png';
+  const task = (goal) => ({ id: 'tab2', goal, origin: { channelId: HERE, messageId: '1001' } });
+  const fileOf = (goal) => (given) => (given === handle ? { name: 'meme.png', task: task(goal) } : null);
+  const here = { fileOf: fileOf('φέρε μια εικόνα εδώ') };
+  // To the origin channel (the result turn's own): passes.
+  const origin = resolve('message.create', { file: handle, channel: '#γενικά' }, 'βρήκα', here);
+  assert.deepEqual([origin.ok, origin.args], [true, { file: handle, channel: HERE, text: 'βρήκα' }]);
+  // To another channel nobody named: refused, a rule said no.
+  const elsewhere = resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', here);
+  assert.deepEqual([elsewhere.ok, elsewhere.code], [false, 'file-elsewhere']);
+  assert.equal(refusalStatus('file-elsewhere'), 'denied');
+  assert.equal(outcomeDetail({ status: 'denied', code: 'file-elsewhere', reason: elsewhere.reason }).kind, 'file-elsewhere');
+  // A reply to a line of another channel takes the file there too: the same rule.
+  assert.equal(resolve('message.create', { file: handle, reply: '#3' }, 'βρήκα', here).code, 'file-elsewhere');
+  // The goal names that channel (by name, any case or accents, its emoji left out; by handle; by mention): passes.
+  for (const goal of ['στείλε την εικόνα στο ΝΕΑ', 'στείλε την εικόνα στο #c8gtz', 'στείλε την στο <#c-news>, ευχαριστώ']) {
+    const named = resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', { fileOf: fileOf(goal), channelHandles: new Map([['c8gtz', NEWS]]) });
+    assert.deepEqual([named.ok, named.args.channel], [true, NEWS], goal);
+  }
+  // A word that only contains the name is no naming of it.
+  assert.equal(resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', { fileOf: fileOf('μια εικόνα για τη γενεά μας') }).code, 'file-elsewhere');
+  // The trigger message of the turn names it: passes.
+  const asked = resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', { ...here, triggerText: 'βάλ\' την και στο νέα' });
+  assert.deepEqual([asked.ok, asked.args.channel], [true, NEWS]);
+  assert.equal(resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', { ...here, triggerText: 'ωραία' }).code, 'file-elsewhere');
+  // Without a channel: resolved without one, and posted to the current conversation as today.
+  const plain = resolve('message.create', { file: handle }, 'βρήκα', here);
+  assert.deepEqual([plain.ok, plain.args], [true, { file: handle, text: 'βρήκα' }]);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'errand-file-'));
+  const filePath = path.join(dir, 'meme.png');
+  fs.writeFileSync(filePath, Buffer.from([1, 2, 3]));
+  const errands = { fileOf: ({ handle: given }) => (given === handle ? { path: filePath, name: 'meme.png', contentType: 'image/png', bytes: 3, task: task('') } : null) };
+  const { admin, port } = makeAdmin({ extra: { errands } });
+  const result = await executeCall(plain, deps(admin, port));
+  assert.equal(result.status, 'ok');
+  const [posted] = port.messagesIn(HERE).filter((message) => message.authorId === SELF);
+  assert.deepEqual([posted.text, posted.attachments.length], ['βρήκα', 1]);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('executeCall: her written text goes out as rendered; only the members the rendering resolved are notified, never one with pings off', async () => {
   const { admin, port } = makeAdmin();
   // The turn's rendering: two names it knows become mentions; @everyone is no name of anyone.

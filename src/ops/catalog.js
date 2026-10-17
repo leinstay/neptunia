@@ -334,7 +334,7 @@ export const COMMAND_TABLE = Object.freeze([
       {
         name: 'create',
         description: 'Make the persona speak now: her turn, in her own words.',
-        options: [channelOption('Channel (default: this one).'), { type: STRING, name: 'reply', description: 'Message id or link to answer.', required: false }],
+        options: [channelOption('Channel; leave out to post here.'), { type: STRING, name: 'reply', description: 'Message id or link to answer.', required: false }],
         // When the persona herself calls it, she gives her text: an argument only she has
         // (src/skills/derive.js), never shown to Discord; the operation picks its mode by who acts.
         // With it, a file one of her errands brought back (`file:<task id>/<name>`, src/errands/store.js).
