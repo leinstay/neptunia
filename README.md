@@ -6,12 +6,12 @@
 </p>
 <p align="center">English | <a href="docs/zh/README.md">中文</a> | <a href="docs/ja/README.md">日本語</a> | <a href="docs/ru/README.md">Русский</a></p>
 <p align="center">
-  <a href="https://github.com/leinstay/neptunia-bot/stargazers"><img src="https://img.shields.io/github/stars/leinstay/neptunia-bot" alt="GitHub stars"></a>
-  <a href="https://github.com/leinstay/neptunia-bot/forks"><img src="https://img.shields.io/github/forks/leinstay/neptunia-bot" alt="GitHub forks"></a>
-  <a href="https://github.com/leinstay/neptunia-bot/issues"><img src="https://img.shields.io/github/issues/leinstay/neptunia-bot" alt="GitHub issues"></a>
-  <a href="https://github.com/leinstay/neptunia-bot/pulls"><img src="https://img.shields.io/github/issues-pr/leinstay/neptunia-bot" alt="GitHub pull requests"></a>
-  <a href="https://github.com/leinstay/neptunia-bot/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leinstay/neptunia-bot" alt="License"></a>
-  <a href="https://github.com/leinstay/neptunia-bot/actions/workflows/test.yml"><img src="https://github.com/leinstay/neptunia-bot/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/leinstay/neptunia/stargazers"><img src="https://img.shields.io/github/stars/leinstay/neptunia" alt="GitHub stars"></a>
+  <a href="https://github.com/leinstay/neptunia/forks"><img src="https://img.shields.io/github/forks/leinstay/neptunia" alt="GitHub forks"></a>
+  <a href="https://github.com/leinstay/neptunia/issues"><img src="https://img.shields.io/github/issues/leinstay/neptunia" alt="GitHub issues"></a>
+  <a href="https://github.com/leinstay/neptunia/pulls"><img src="https://img.shields.io/github/issues-pr/leinstay/neptunia" alt="GitHub pull requests"></a>
+  <a href="https://github.com/leinstay/neptunia/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leinstay/neptunia" alt="License"></a>
+  <a href="https://github.com/leinstay/neptunia/actions/workflows/test.yml"><img src="https://github.com/leinstay/neptunia/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
 </p>
 
 ---
@@ -29,8 +29,8 @@ Create a Discord application at [discord.com/developers](https://discord.com/dev
 Get an API key from [OpenRouter](https://openrouter.ai/keys) (or any compatible endpoint).
 
 ```bash
-git clone https://github.com/leinstay/neptunia-bot.git
-cd neptunia-bot && npm install
+git clone https://github.com/leinstay/neptunia.git
+cd neptunia && npm install
 cp .env.example .env
 ```
 

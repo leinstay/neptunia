@@ -1,5 +1,5 @@
 {
-  "name": "neptunia-bot",
+  "name": "neptunia",
   "version": "0.1.0",
   "description": "Discord pseudo-user engine: one LLM-driven persona per server, personality supplied through prompt files",
   "private": true,
@@ -9,11 +9,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/leinstay/neptunia-bot.git"
+    "url": "git+https://github.com/leinstay/neptunia.git"
   },
-  "homepage": "https://github.com/leinstay/neptunia-bot#readme",
+  "homepage": "https://github.com/leinstay/neptunia#readme",
   "bugs": {
-    "url": "https://github.com/leinstay/neptunia-bot/issues"
+    "url": "https://github.com/leinstay/neptunia/issues"
   },
   "keywords": ["discord", "discord-bot", "llm", "openrouter", "persona", "chatbot"],
   "scripts": {

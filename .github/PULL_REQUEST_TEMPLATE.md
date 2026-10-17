@@ -12,7 +12,7 @@
 
 ## Checklist
 
-- [ ] I have read [CONTRIBUTING.md](https://github.com/leinstay/neptunia-bot/blob/main/CONTRIBUTING.md)
+- [ ] I have read [CONTRIBUTING.md](https://github.com/leinstay/neptunia/blob/main/CONTRIBUTING.md)
 - [ ] `npm test` passes
 - [ ] No new runtime dependency (or discussed and approved in an issue)
 - [ ] No model-facing text in `src/` — prompts and `labels.json` only
