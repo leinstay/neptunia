@@ -39,7 +39,7 @@ WorkingDirectory=/opt/neptunia/app
 ExecStart=/opt/node/bin/node bin/agent-runner.mjs --profile server
 # The bot's directories (deploy/neptunia-bot.service), set as in its unit. The
 # runner reads the override prompts.local/agent-server.md from
-# NEPTUNIA_PRIVATE_DIR (the tracked prompts/agent-server.md stays in the
+# NEPTUNIA_PRIVATE_DIR (the tracked agents/server/prompt.md stays in the
 # checkout; an override this user cannot read is skipped with one warning and
 # the tracked prompt is used), and in a filtered scope withholds NEPTUNIA_DATA_DIR
 # and, when apart from the checkout, NEPTUNIA_PRIVATE_DIR

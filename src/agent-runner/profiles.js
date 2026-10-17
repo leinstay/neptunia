@@ -1,15 +1,26 @@
-// The two agent profiles, `web` and `server`, each a set of OpenCode tools,
-// default limits, a system-prompt file, the environment variable names its
-// run may fall back on (the core sends the keys with each task), the model role it runs on (`agent.web`, `agent.server`), and an
-// out/socket default. A profile also builds the OpenCode
-// config for one task (`buildConfig`): one agent definition carrying the
-// prompt, the step cap, and a permission map that starts every tool at deny
-// and allow-lists only what the profile needs, plus the model and its cost
-// (so OpenCode's local cost estimate is right). In a filtered scope
-// (`dm`/`group`) the path tools also deny the withheld paths, and the server
-// agent's `bash` denies a content-reading command on one
-// (src/agent-runner/policy.js), so OpenCode refuses that step and the agent
-// goes on.
+// The agent profiles, built from the `agents/` folder at the engine root: one
+// `agents/<id>/profile.json` per agent, beside its tracked prompt
+// (`agents/<id>/prompt.md`). A profile file only describes a request: its
+// kind (`worker`, run under this runner on a socket, or `consultation`, a
+// model role tools call directly, which the runner skips), its model role
+// (`agent.web`, `agent.server`), its prompt and the deployment's override
+// name under `prompts.local/`, the OpenCode tools it asks for, the name of
+// its shell class, its default limits, daily caps, socket and out dir, and
+// the environment variable names its run may fall back on (the core sends
+// the keys with each task). It never authorizes anything: the shell classes
+// (their allow lists, which tools each class may grant) and every deny are
+// defined here and in src/agent-runner/policy.js, a profile can only ask for
+// fewer tools than its class allows, and a profile that names an unknown
+// key, tool or shell class, or misses a key, fails `loadProfiles` at start
+// with one error naming the agent and the key. A profile also builds the
+// OpenCode config for one task (`buildConfig`): one agent definition
+// carrying the prompt, the step cap, and a permission map that starts every
+// tool at deny and allow-lists only what the profile asks for within its
+// class, plus the model and its cost (so OpenCode's local cost estimate is
+// right). In a filtered scope (`dm`/`group`) the path tools also deny the
+// withheld paths, and the read-only server shell's `bash` denies a
+// content-reading command on one (src/agent-runner/policy.js), so OpenCode
+// refuses that step and the agent goes on.
 //
 // This matches OpenCode release v1.19.3 (the version installed on the
 // server), whose config is the V1 shape: the top-level key is `agent`
@@ -26,28 +37,37 @@
 // at run time (src/agent-runner/opencode.js), not in this config, because
 // v1.19.3 has no websearch config key. Keep in sync with docs/en/agents.md.
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldRootsOf } from './policy.js';
-import { ROLE_DEFAULTS } from '../llm/roles.js';
+import { AGENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../llm/roles.js';
 import { resolvePaths } from '../paths.js';
 
 /** The engine root (two levels up from this file). */
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+/** The folder of the agents under an engine root: one `<id>/profile.json` per agent. */
+const AGENTS_DIRNAME = 'agents';
+
+/** The description file inside an agent's folder. */
+const PROFILE_FILE = 'profile.json';
+
 /**
- * The system-prompt files of profile `name`, in the order they are tried: the deployment's
- * override `prompts.local/agent-<name>.md` under the private directory (`NEPTUNIA_PRIVATE_DIR`,
- * else the root; src/paths.js#resolvePaths), then the tracked `prompts/agent-<name>.md` under the
- * root. An override that exists but cannot be read (EACCES, EPERM) is skipped like an absent one,
- * with one warning (src/agent-runner/opencode.js#readPromptFile). Pure: `env` is only read.
+ * The system-prompt files of agent `name`, in the order they are tried: the deployment's
+ * override `prompts.local/<override>` under the private directory (`NEPTUNIA_PRIVATE_DIR`, else
+ * the root; src/paths.js#resolvePaths), then the tracked `agents/<name>/<prompt>` under the root.
+ * `override` defaults to `agent-<name>.md` and `prompt` to `prompt.md`, the names the shipped
+ * profiles use, so the owner's override files keep their names. An override that exists but
+ * cannot be read (EACCES, EPERM) is skipped like an absent one, with one warning
+ * (src/agent-runner/opencode.js#readPromptFile). Pure: `env` is only read.
  * @param {string} name
- * @param {{ rootDir?: string, env?: Record<string, string | undefined> }} [options]
+ * @param {{ rootDir?: string, env?: Record<string, string | undefined>, override?: string, prompt?: string }} [options]
  * @returns {string[]}
  */
-export function promptFilesOf(name, { rootDir = ROOT_DIR, env = process.env } = {}) {
+export function promptFilesOf(name, { rootDir = ROOT_DIR, env = process.env, override = `agent-${name}.md`, prompt = 'prompt.md' } = {}) {
   const { rootDir: root, privateDir } = resolvePaths({ rootDir, env });
-  return [path.join(privateDir, 'prompts.local', `agent-${name}.md`), path.join(root, 'prompts', `agent-${name}.md`)];
+  return [path.join(privateDir, 'prompts.local', override), path.join(root, AGENTS_DIRNAME, name, prompt)];
 }
 
 /** The read-only shell commands the server agent's `bash` may run (OpenCode bash patterns). */
@@ -110,64 +130,256 @@ function bashPermission(allow, denies = []) {
   return map;
 }
 
-/** The V1 permission map of a profile for `scope`. */
-function permissionFor(name, scope) {
-  if (name === 'web') {
-    return {
-      websearch: 'allow',
-      webfetch: 'allow',
-      read: pathPermission(scope),
-      glob: pathPermission(scope),
-      list: pathPermission(scope),
-      grep: 'deny',
-      bash: bashPermission(WEB_SHELL_ALLOW),
-      edit: 'deny',
-      write: 'deny',
-      patch: 'deny',
-      task: 'deny',
-      question: 'deny',
-      external_directory: 'deny',
-    };
+/** The path tools: each takes `*: allow` then the withheld denies in a filtered scope. */
+const PATH_TOOLS = Object.freeze(['read', 'grep', 'glob', 'list']);
+
+/** The network tools: a plain allow when granted. */
+const NETWORK_TOOLS = Object.freeze(['websearch', 'webfetch']);
+
+/** The tools denied to every agent whatever its profile asks: no profile can grant one. */
+const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'question', 'external_directory']);
+
+/**
+ * The shell classes a worker profile names in `shell`, the permission ceiling of this runner.
+ * Each class has `allow`, the patterns its `bash` may run (SHELL_DENY_AFTER always after them);
+ * `withheldDenies`, whether a filtered scope adds the per-command withheld-path denies to its
+ * `bash` (withheldShellDenies); `tools`, the OpenCode tools a profile of the class may ask for,
+ * the most it can get; and `order`, the tools its permission map names before ALWAYS_DENIED, in
+ * that order (a tool of `order` the profile does not ask for, or outside `tools`, is denied). A
+ * profile picks a class by name and never carries a pattern itself.
+ */
+export const SHELL_CLASSES = Object.freeze({
+  'server-read-only': Object.freeze({
+    allow: SERVER_SHELL_ALLOW,
+    withheldDenies: true,
+    tools: Object.freeze(['read', 'grep', 'glob', 'list', 'bash']),
+    order: Object.freeze(['read', 'grep', 'glob', 'list', 'bash', 'webfetch', 'websearch']),
+  }),
+  'web-download': Object.freeze({
+    allow: WEB_SHELL_ALLOW,
+    withheldDenies: false,
+    tools: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'bash']),
+    order: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'grep', 'bash']),
+  }),
+});
+
+/**
+ * The V1 permission map of a worker for `scope`: each tool of its class's `order` allowed when
+ * the profile asks for it (a path tool with the withheld denies of a filtered scope, `bash` with
+ * its class's allow list), else denied; then every tool of ALWAYS_DENIED denied.
+ * @param {{ shell: string, tools: readonly string[] }} worker
+ * @param {string} scope
+ */
+function permissionFor({ shell, tools }, scope) {
+  const shellClass = SHELL_CLASSES[shell];
+  const granted = new Set(tools.filter((tool) => shellClass.tools.includes(tool)));
+  const map = {};
+  for (const tool of shellClass.order) {
+    if (!granted.has(tool)) map[tool] = 'deny';
+    else if (PATH_TOOLS.includes(tool)) map[tool] = pathPermission(scope);
+    else if (NETWORK_TOOLS.includes(tool)) map[tool] = 'allow';
+    else if (tool === 'bash') map[tool] = bashPermission(shellClass.allow, shellClass.withheldDenies && scope !== 'core' ? withheldShellDenies() : []);
   }
-  return {
-    read: pathPermission(scope),
-    grep: pathPermission(scope),
-    glob: pathPermission(scope),
-    list: pathPermission(scope),
-    bash: bashPermission(SERVER_SHELL_ALLOW, scope === 'core' ? [] : withheldShellDenies()),
-    webfetch: 'deny',
-    websearch: 'deny',
-    edit: 'deny',
-    write: 'deny',
-    patch: 'deny',
-    task: 'deny',
-    question: 'deny',
-    external_directory: 'deny',
-  };
+  for (const tool of ALWAYS_DENIED) map[tool] = 'deny';
+  return map;
+}
+
+// ---------------------------------------------------------------------------
+// profile.json: the keys and their checks
+
+/** The keys every profile carries, whatever its kind. */
+const COMMON_KEYS = Object.freeze(['id', 'kind', 'role', 'prompt', 'override', 'description']);
+
+/** The keys only a worker carries (a consultation naming one is refused as an unknown key). */
+const WORKER_KEYS = Object.freeze(['tools', 'shell', 'limits', 'daily', 'searchProvider', 'socket', 'out', 'env']);
+
+/** The keys of each kind, all required. */
+const KEYS_BY_KIND = Object.freeze({
+  worker: Object.freeze([...COMMON_KEYS, ...WORKER_KEYS]),
+  consultation: COMMON_KEYS,
+});
+
+/** An agent id, the name of its folder: lowercase letters, digits and dashes. */
+const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
+
+/** A file name inside a folder (a prompt, an override): no directory part, a `.md` file. */
+const FILE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
+
+/** An environment variable name. */
+const ENV_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+
+/** A web search provider name, as OpenCode takes it. */
+const PROVIDER_PATTERN = /^[a-z][a-z0-9-]*$/;
+
+/** The error a profile that cannot be used fails `listAgents` / `loadProfiles` with: one line naming the agent and the key. */
+export class AgentProfileError extends Error {
+  /**
+   * @param {string} agent  the agent's folder name
+   * @param {string} key    the offending key (`limits.steps` for a nested one)
+   * @param {string} reason
+   */
+  constructor(agent, key, reason) {
+    super(`agent profile "${agent}": key "${key}": ${reason}`);
+    this.name = 'AgentProfileError';
+    this.agent = agent;
+    this.key = key;
+  }
+}
+
+/** Whether `value` is a plain JSON object. */
+function isObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Whether `value` is a positive finite number, and a whole one when `whole`. */
+function isPositive(value, whole = false) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 && (!whole || Number.isInteger(value));
 }
 
 /**
- * One profile.
- * @param {object} definition
+ * Checks an object of positive numbers with exactly the keys of `spec` (`{ key: whole }`), for
+ * `limits` and `daily`.
+ */
+function checkNumbers(agent, key, value, spec) {
+  if (!isObject(value)) throw new AgentProfileError(agent, key, 'must be an object');
+  for (const name of Object.keys(value)) {
+    if (!Object.hasOwn(spec, name)) throw new AgentProfileError(agent, `${key}.${name}`, 'unknown key');
+  }
+  for (const [name, whole] of Object.entries(spec)) {
+    if (!Object.hasOwn(value, name)) throw new AgentProfileError(agent, `${key}.${name}`, 'missing');
+    if (!isPositive(value[name], whole)) throw new AgentProfileError(agent, `${key}.${name}`, whole ? 'must be a positive whole number' : 'must be a positive number');
+  }
+}
+
+/** Checks a file name key: a plain `.md` name inside its folder, or null when `nullable`. */
+function checkFileName(agent, key, value, nullable) {
+  if (value === null && nullable) return;
+  if (typeof value !== 'string' || !FILE_NAME_PATTERN.test(value)) {
+    throw new AgentProfileError(agent, key, `must be a .md file name with no directory part${nullable ? ', or null' : ''}`);
+  }
+}
+
+/** Checks an absolute path default (`socket`, `out`). */
+function checkAbsolute(agent, key, value) {
+  if (typeof value !== 'string' || !path.isAbsolute(value) || value.includes('\0')) throw new AgentProfileError(agent, key, 'must be an absolute path');
+}
+
+/**
+ * Validates the parsed `profile.json` of the agent in folder `agent`: every key of its kind
+ * present, no other key, each value of the right form; for a worker the shell class one this
+ * runner defines (SHELL_CLASSES) and every tool one that class allows. Throws AgentProfileError
+ * at the first problem.
+ * @param {string} agent  the folder name
+ * @param {unknown} raw
+ */
+function validateProfile(agent, raw) {
+  if (!isObject(raw)) throw new AgentProfileError(agent, PROFILE_FILE, 'must be a JSON object');
+  if (!Object.hasOwn(raw, 'kind')) throw new AgentProfileError(agent, 'kind', 'missing');
+  if (!Object.hasOwn(KEYS_BY_KIND, raw.kind)) throw new AgentProfileError(agent, 'kind', `must be one of ${Object.keys(KEYS_BY_KIND).join(', ')}`);
+  const worker = raw.kind === 'worker';
+  const keys = KEYS_BY_KIND[raw.kind];
+  for (const key of Object.keys(raw)) {
+    if (!keys.includes(key)) throw new AgentProfileError(agent, key, worker || !WORKER_KEYS.includes(key) ? 'unknown key' : 'unknown key (a consultation has no runner)');
+  }
+  for (const key of keys) {
+    if (!Object.hasOwn(raw, key)) throw new AgentProfileError(agent, key, 'missing');
+  }
+
+  if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
+  if (!ID_PATTERN.test(agent)) throw new AgentProfileError(agent, 'id', 'must be lowercase letters, digits and dashes');
+  const roles = worker ? OPENCODE_ROLES : AGENT_ROLES;
+  if (!roles.includes(raw.role)) throw new AgentProfileError(agent, 'role', `must be one of ${roles.join(', ')}`);
+  checkFileName(agent, 'prompt', raw.prompt, !worker);
+  checkFileName(agent, 'override', raw.override, !worker);
+  if (typeof raw.description !== 'string' || !raw.description.trim()) throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
+  if (!worker) return;
+
+  if (!Object.hasOwn(SHELL_CLASSES, raw.shell)) throw new AgentProfileError(agent, 'shell', `unknown shell class ${JSON.stringify(raw.shell)} (known: ${Object.keys(SHELL_CLASSES).join(', ')})`);
+  const allowed = SHELL_CLASSES[raw.shell].tools;
+  if (!Array.isArray(raw.tools) || raw.tools.length === 0) throw new AgentProfileError(agent, 'tools', 'must be a non-empty list');
+  for (const tool of raw.tools) {
+    if (!allowed.includes(tool)) throw new AgentProfileError(agent, 'tools', `unknown tool ${JSON.stringify(tool)} for shell class ${raw.shell} (allowed: ${allowed.join(', ')})`);
+  }
+  if (new Set(raw.tools).size !== raw.tools.length) throw new AgentProfileError(agent, 'tools', 'names a tool twice');
+  checkNumbers(agent, 'limits', raw.limits, { steps: true, usd: false, seconds: false });
+  checkNumbers(agent, 'daily', raw.daily, { tasks: true, usd: false });
+  if (raw.searchProvider !== null && (typeof raw.searchProvider !== 'string' || !PROVIDER_PATTERN.test(raw.searchProvider))) {
+    throw new AgentProfileError(agent, 'searchProvider', 'must be a provider name or null');
+  }
+  checkAbsolute(agent, 'socket', raw.socket);
+  checkAbsolute(agent, 'out', raw.out);
+  if (!Array.isArray(raw.env) || raw.env.some((name) => typeof name !== 'string' || !ENV_NAME_PATTERN.test(name))) {
+    throw new AgentProfileError(agent, 'env', 'must be a list of environment variable names');
+  }
+}
+
+/** A deep-frozen copy of a parsed JSON value. */
+function frozenCopy(value) {
+  if (Array.isArray(value)) return Object.freeze(value.map(frozenCopy));
+  if (isObject(value)) return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, frozenCopy(entry)])));
+  return value;
+}
+
+/**
+ * Every agent described under `<rootDir>/agents/`, workers and consultations alike, as their
+ * validated `profile.json` (deep-frozen), sorted by id: the reader for the docs, the tools and
+ * later the persona's list of her agents. A file directly under `agents/` (its README) is not an
+ * agent; a folder without a readable, valid `profile.json` fails with AgentProfileError.
+ * @param {{ rootDir?: string }} [options]
+ * @returns {readonly object[]}
+ */
+export function listAgents({ rootDir = ROOT_DIR } = {}) {
+  const agentsDir = path.join(rootDir, AGENTS_DIRNAME);
+  const folders = fs
+    .readdirSync(agentsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  return Object.freeze(
+    folders.map((agent) => {
+      let raw;
+      try {
+        raw = JSON.parse(fs.readFileSync(path.join(agentsDir, agent, PROFILE_FILE), 'utf8'));
+      } catch (err) {
+        throw new AgentProfileError(agent, PROFILE_FILE, err?.code === 'ENOENT' ? 'missing' : `unreadable (${err?.code ?? err?.name ?? 'parse'})`);
+      }
+      validateProfile(agent, raw);
+      return frozenCopy(raw);
+    }),
+  );
+}
+
+/**
+ * One worker profile, the object the runner and the core use, from its validated description.
+ * @param {object} definition  a worker's validated profile.json
+ * @param {{ rootDir: string, env: Record<string, string | undefined> }} where
  * @returns {object}
  */
-function makeProfile({ name, agentId, promptFiles, envNames, modelRole, defaultLimits, defaultDaily, defaultSearchProvider }) {
+function makeProfile(definition, { rootDir, env }) {
+  const { id: name, role: modelRole } = definition;
   const defaultModel = ROLE_DEFAULTS[modelRole];
+  const agentId = `errand-${name}`;
   return {
     name,
+    kind: definition.kind,
+    description: definition.description,
+    // The OpenCode agent name of one task's config (`--agent`).
     agentId,
-    promptFiles,
-    envNames,
+    promptFiles: promptFilesOf(name, { rootDir, env, override: definition.override, prompt: definition.prompt }),
+    envNames: definition.env,
     // The model role (src/llm/roles.js) whose model the agent runs on: `roles.<modelRole>`,
     // else its default, which is `defaultModel`.
     modelRole,
     defaultModel,
-    defaultLimits,
-    defaultDaily,
-    defaultSearchProvider,
+    // The tools the profile asks for and its shell class (SHELL_CLASSES): what buildConfig grants.
+    tools: definition.tools,
+    shell: definition.shell,
+    defaultLimits: definition.limits,
+    defaultDaily: definition.daily,
+    defaultSearchProvider: definition.searchProvider,
     // Where the runner listens and writes its files when `agents.<profile>.socket` / `.out` are unset.
-    defaultSocket: `/run/neptunia-agent-${name}/sock`,
-    defaultOut: `/var/lib/neptunia-agent-${name}/out`,
+    defaultSocket: definition.socket,
+    defaultOut: definition.out,
     /**
      * The OpenCode config (V1 shape) for one task, to pass as
      * OPENCODE_CONFIG_CONTENT. `providerModel` is `provider/model`; `cost`
@@ -182,7 +394,7 @@ function makeProfile({ name, agentId, promptFiles, envNames, modelRole, defaultL
       const agent = {
         mode: 'primary',
         prompt: String(systemPrompt ?? ''),
-        permission: permissionFor(name, scope),
+        permission: permissionFor(definition, scope),
       };
       if (Number.isFinite(steps) && steps > 0) agent.steps = Math.floor(steps);
       const config = {
@@ -199,34 +411,29 @@ function makeProfile({ name, agentId, promptFiles, envNames, modelRole, defaultL
   };
 }
 
+/**
+ * The worker profiles under `<rootDir>/agents/`, by id: every agent of kind `worker` (a
+ * consultation has no runner and is skipped), each validated (listAgents) and built into the
+ * profile object the runner and the core use. Throws AgentProfileError on the first profile that
+ * cannot be used, so a bad file stops the process at start.
+ * @param {{ rootDir?: string, env?: Record<string, string | undefined> }} [options]
+ * @returns {Readonly<Record<string, object>>}
+ */
+export function loadProfiles({ rootDir = ROOT_DIR, env = process.env } = {}) {
+  const workers = listAgents({ rootDir }).filter((definition) => definition.kind === 'worker');
+  return Object.freeze(Object.fromEntries(workers.map((definition) => [definition.id, makeProfile(definition, { rootDir, env })])));
+}
+
+/** The profiles of this engine's `agents/` folder, by name, loaded once at import. */
+export const PROFILES = loadProfiles();
+
 /** The `web` profile: internet errands through OpenCode's web tools and a curl/ffmpeg download shell. */
-export const WEB = makeProfile({
-  name: 'web',
-  agentId: 'errand-web',
-  promptFiles: promptFilesOf('web'),
-  envNames: Object.freeze(['OPENROUTER_AGENT_KEY', 'OPENCODE_WEBSEARCH_KEY', 'PROXY_URL']),
-  modelRole: 'agent.web',
-  defaultLimits: Object.freeze({ steps: 25, usd: 0.5, seconds: 300 }),
-  defaultDaily: Object.freeze({ tasks: 40, usd: 8 }),
-  defaultSearchProvider: 'exa',
-});
+export const WEB = PROFILES.web ?? null;
 
 /** The `server` profile: read-only shell and file reads on the server, no network. */
-export const SERVER = makeProfile({
-  name: 'server',
-  agentId: 'errand-server',
-  promptFiles: promptFilesOf('server'),
-  envNames: Object.freeze(['OPENROUTER_AGENT_KEY']),
-  modelRole: 'agent.server',
-  defaultLimits: Object.freeze({ steps: 20, usd: 0.2, seconds: 120 }),
-  defaultDaily: Object.freeze({ tasks: 40, usd: 3 }),
-  defaultSearchProvider: null,
-});
-
-/** The profiles by name. */
-export const PROFILES = Object.freeze({ web: WEB, server: SERVER });
+export const SERVER = PROFILES.server ?? null;
 
 /** The profile of `name`, or null. */
 export function profileOf(name) {
-  return PROFILES[name] ?? null;
+  return Object.hasOwn(PROFILES, name) ? PROFILES[name] : null;
 }

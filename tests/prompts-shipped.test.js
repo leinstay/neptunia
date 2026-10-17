@@ -91,10 +91,8 @@ const NOT_BUILT = {
   // Split into families and drawn from line by line (src/behavior/diary.js#pickSeeds): the plan
   // request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.js#pickSeeds), never sent whole',
-  // The errand agents run as a separate process (src/agent-runner/) that reads these as the
-  // OpenCode agent's prompt; no bot request builds them.
-  'agent-web': 'read by the agent runner process (src/agent-runner/), not a bot request',
-  'agent-server': 'read by the agent runner process (src/agent-runner/), not a bot request',
+  // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
+  // agent runner process (src/agent-runner/profiles.js), never by a bot request.
 };
 
 /**
