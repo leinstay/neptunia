@@ -1,0 +1,315 @@
+// The core's side of the errand agents' sockets (src/agent-runner/server.js): one Unix-socket
+// connection per agent profile (`web`, `server`), opened on first use, speaking the JSON-lines
+// protocol of src/agent-runner/protocol.js. `run` sends one task and resolves on its `end` event;
+// `progress` events go to the `onProgress` listeners; `cancel` and `ping` are fire-and-answer.
+// A connection that closes is reopened with a growing backoff while its profile stays enabled;
+// the tasks it carried resolve `failed` with `error: 'disconnected'` at once (the runner sends a
+// task's end on the connection that brought it, so nothing more can arrive for them). A profile
+// that is not set up (`agents.<profile>.enabled` not true, or no socket) answers `failed`,
+// `not-configured`, without connecting. Settings are read from `hot.config.agents` at the moment
+// of use. Logs carry the profile, ids and codes, never a goal or a result.
+
+import net from 'node:net';
+import { log as defaultLog } from '../log.js';
+import { encodeLine, normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
+import { profileOf } from '../agent-runner/profiles.js';
+
+/** The first reconnect delay and its ceiling (ms); the delay doubles after each failed attempt. */
+export const RECONNECT_MIN_MS = 1000;
+export const RECONNECT_MAX_MS = 30_000;
+/** How long a `ping` waits for its `pong` (ms). */
+export const PING_TIMEOUT_MS = 5000;
+/** Added to a task's own time cap before the core stops waiting for its `end` (ms). */
+const END_GRACE_MS = 60_000;
+/** The time cap a task without `limits.seconds` is waited for (s). */
+const DEFAULT_TASK_SECONDS = 600;
+
+/** A failed outcome with `error`, in the shape `run` resolves. */
+function failed(error) {
+  return { status: 'failed', result: normalizeResult(null), usage: normalizeUsage(null), error };
+}
+
+/**
+ * @param {object} options
+ * @param {{ config: object }} options.hot  The live config (`agents.<profile>.enabled`, `.socket`).
+ * @param {{ info: Function, warn: Function }} [options.log]
+ * @param {(path: string) => import('node:net').Socket} [options.connect]  Opens a socket (tests inject one).
+ * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
+ * @param {(timer: unknown) => void} [options.clearTimer]
+ * @returns {{
+ *   run(task: { agent: string, id: string, goal: string, context?: object, limits?: object }):
+ *     Promise<{ status: 'done'|'failed'|'cancelled', result: object, usage: object, error?: string }>,
+ *   cancel(task: { agent: string, id: string }): boolean,
+ *   ping(agent: string): Promise<{ ok: true, profile: string, busy: boolean, queued: number } | { ok: false, error: string }>,
+ *   onProgress(fn: (event: { agent: string, id: string, step: number, tool: string|null, note: string }) => void): () => void,
+ *   configured(agent: string): boolean,
+ *   close(): void,
+ * }}
+ */
+export function createErrandClient({
+  hot,
+  log = defaultLog,
+  connect = (socketPath) => net.createConnection(socketPath),
+  setTimer = (fn, ms) => setTimeout(fn, ms),
+  clearTimer = (timer) => clearTimeout(timer),
+} = {}) {
+  // agent -> { socket, path, open, opening, backoffMs, timer, buffer }
+  const links = new Map();
+  // task id -> { agent, resolve, timer }
+  const pending = new Map();
+  // agent -> [{ resolve, timer }] waiting for a pong
+  const pings = new Map();
+  const progressListeners = new Set();
+  let closed = false;
+
+  /** The socket path of `agent` when its profile is set up and enabled now, else null. */
+  function socketOf(agent) {
+    const profile = profileOf(agent);
+    if (!profile) return null;
+    const settings = hot?.config?.agents?.[agent];
+    if (settings?.enabled !== true) return null;
+    const socketPath = typeof settings.socket === 'string' && settings.socket ? settings.socket : profile.defaultSocket;
+    return socketPath || null;
+  }
+
+  /** Every task and ping of `agent` answered `disconnected`. */
+  function dropPending(agent) {
+    for (const [id, entry] of pending) {
+      if (entry.agent !== agent) continue;
+      pending.delete(id);
+      clearTimer(entry.timer);
+      entry.resolve(failed('disconnected'));
+    }
+    for (const waiter of pings.get(agent) ?? []) {
+      clearTimer(waiter.timer);
+      waiter.resolve({ ok: false, error: 'disconnected' });
+    }
+    pings.delete(agent);
+  }
+
+  /** One decoded line from `agent`'s runner. */
+  function onEvent(agent, event) {
+    if (!event || typeof event !== 'object') return;
+    if (event.event === 'pong') {
+      const waiters = pings.get(agent) ?? [];
+      pings.delete(agent);
+      for (const waiter of waiters) {
+        clearTimer(waiter.timer);
+        waiter.resolve({ ok: true, profile: String(event.profile ?? agent), busy: event.busy === true, queued: Number(event.queued) || 0 });
+      }
+      return;
+    }
+    const id = typeof event.id === 'string' ? event.id : null;
+    if (event.event === 'progress' && id) {
+      for (const fn of progressListeners) {
+        try {
+          fn({ agent, id, step: Number(event.step) || 0, tool: typeof event.tool === 'string' ? event.tool : null, note: String(event.note ?? '') });
+        } catch (err) {
+          log.warn('errands: progress listener failed', { agent, id, error: err });
+        }
+      }
+      return;
+    }
+    if ((event.event === 'end' || event.event === 'error') && id && pending.has(id)) {
+      const entry = pending.get(id);
+      pending.delete(id);
+      clearTimer(entry.timer);
+      if (event.event === 'error') {
+        entry.resolve(failed(typeof event.error === 'string' && event.error ? event.error : 'runner-error'));
+        return;
+      }
+      const outcome = {
+        status: ['done', 'failed', 'cancelled'].includes(event.status) ? event.status : 'failed',
+        result: normalizeResult(event.result),
+        usage: normalizeUsage(event.usage),
+      };
+      if (typeof event.error === 'string' && event.error) outcome.error = event.error;
+      entry.resolve(outcome);
+    }
+  }
+
+  /** Reopen `agent`'s link after its backoff, while it is still wanted and enabled. */
+  function scheduleReconnect(agent, link) {
+    if (closed || link.timer) return;
+    const wait = link.backoffMs;
+    link.backoffMs = Math.min(RECONNECT_MAX_MS, link.backoffMs * 2);
+    link.timer = setTimer(() => {
+      link.timer = null;
+      if (closed || !socketOf(agent)) {
+        links.delete(agent);
+        return;
+      }
+      open(agent).catch(() => {});
+    }, wait);
+    link.timer?.unref?.();
+  }
+
+  /**
+   * The open link of `agent`: an existing one, else a new connection. Resolves the link once
+   * connected; rejects (and arms a reconnect) when the connection fails.
+   */
+  function open(agent) {
+    const socketPath = socketOf(agent);
+    if (!socketPath) return Promise.reject(Object.assign(new Error('not configured'), { code: 'not-configured' }));
+    let link = links.get(agent);
+    if (link?.open && link.path === socketPath) return Promise.resolve(link);
+    if (link?.opening && link.path === socketPath) return link.opening;
+    if (link?.timer) clearTimer(link.timer);
+    // A link to another path (the socket setting changed): its tasks can no longer end.
+    if (link?.open) dropPending(agent);
+    if (link?.socket && !link.socket.destroyed) link.socket.destroy();
+    link = { socket: null, path: socketPath, open: false, opening: null, backoffMs: link?.backoffMs ?? RECONNECT_MIN_MS, timer: null, buffer: '' };
+    links.set(agent, link);
+    const current = link;
+    current.opening = new Promise((resolve, reject) => {
+      let socket;
+      try {
+        socket = connect(socketPath);
+      } catch (err) {
+        current.opening = null;
+        scheduleReconnect(agent, current);
+        reject(err);
+        return;
+      }
+      current.socket = socket;
+      socket.setEncoding?.('utf8');
+      socket.once('connect', () => {
+        current.open = true;
+        current.opening = null;
+        current.backoffMs = RECONNECT_MIN_MS;
+        log.info('errands: connected', { agent });
+        resolve(current);
+      });
+      socket.on('data', (chunk) => {
+        current.buffer += chunk;
+        let nl;
+        while ((nl = current.buffer.indexOf('\n')) !== -1) {
+          const line = current.buffer.slice(0, nl);
+          current.buffer = current.buffer.slice(nl + 1);
+          if (!line.trim()) continue;
+          let event;
+          try {
+            event = JSON.parse(line);
+          } catch {
+            log.warn('errands: bad line', { agent });
+            continue;
+          }
+          onEvent(agent, event);
+        }
+      });
+      socket.on('error', (err) => {
+        if (!current.open) log.warn('errands: connect failed', { agent, code: err?.code ?? null });
+      });
+      socket.on('close', () => {
+        const wasOpen = current.open;
+        current.open = false;
+        if (current.opening) {
+          current.opening = null;
+          reject(Object.assign(new Error('disconnected'), { code: 'disconnected' }));
+        }
+        if (links.get(agent) !== current) return;
+        if (wasOpen) log.warn('errands: disconnected', { agent, pending: [...pending.values()].filter((entry) => entry.agent === agent).length });
+        dropPending(agent);
+        scheduleReconnect(agent, current);
+      });
+    });
+    return current.opening;
+  }
+
+  /** Write one request to `agent`'s open link; false when it is not open. */
+  function send(agent, request) {
+    const link = links.get(agent);
+    if (!link?.open || !link.socket || link.socket.destroyed) return false;
+    try {
+      link.socket.write(encodeLine(request));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function run({ agent, id, goal, context = {}, limits = {} } = {}) {
+    if (closed || !socketOf(agent)) return failed('not-configured');
+    if (pending.has(id)) return failed('duplicate-id');
+    try {
+      await open(agent);
+    } catch (err) {
+      return failed(err?.code === 'not-configured' ? 'not-configured' : 'disconnected');
+    }
+    return new Promise((resolve) => {
+      const seconds = Number.isFinite(limits?.seconds) && limits.seconds > 0 ? limits.seconds : DEFAULT_TASK_SECONDS;
+      const timer = setTimer(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        send(agent, { op: 'cancel', id });
+        log.warn('errands: no end in time', { agent, id });
+        resolve(failed('timeout'));
+      }, seconds * 1000 + END_GRACE_MS);
+      timer?.unref?.();
+      pending.set(id, { agent, resolve, timer });
+      const request = { op: 'run', id, goal, context };
+      if (limits && Object.keys(limits).length > 0) request.limits = limits;
+      if (!send(agent, request)) {
+        pending.delete(id);
+        clearTimer(timer);
+        resolve(failed('disconnected'));
+        return;
+      }
+      log.info('errands: sent', { agent, id });
+    });
+  }
+
+  function cancel({ agent, id } = {}) {
+    if (!socketOf(agent)) return false;
+    return send(agent, { op: 'cancel', id });
+  }
+
+  async function ping(agent) {
+    if (closed || !socketOf(agent)) return { ok: false, error: 'not-configured' };
+    try {
+      await open(agent);
+    } catch (err) {
+      return { ok: false, error: err?.code === 'not-configured' ? 'not-configured' : 'disconnected' };
+    }
+    return new Promise((resolve) => {
+      const waiter = { resolve, timer: null };
+      waiter.timer = setTimer(() => {
+        const list = pings.get(agent) ?? [];
+        pings.set(agent, list.filter((entry) => entry !== waiter));
+        resolve({ ok: false, error: 'timeout' });
+      }, PING_TIMEOUT_MS);
+      waiter.timer?.unref?.();
+      pings.set(agent, [...(pings.get(agent) ?? []), waiter]);
+      const ids = [...pending.entries()].filter(([, entry]) => entry.agent === agent).map(([taskId]) => taskId);
+      if (!send(agent, { op: 'ping', ids })) {
+        clearTimer(waiter.timer);
+        pings.set(agent, (pings.get(agent) ?? []).filter((entry) => entry !== waiter));
+        resolve({ ok: false, error: 'disconnected' });
+      }
+    });
+  }
+
+  function onProgress(fn) {
+    if (typeof fn !== 'function') return () => {};
+    progressListeners.add(fn);
+    return () => progressListeners.delete(fn);
+  }
+
+  /** Close every link, stop reconnecting; open tasks resolve `disconnected`. */
+  function close() {
+    closed = true;
+    for (const [agent, link] of links) {
+      if (link.timer) clearTimer(link.timer);
+      link.timer = null;
+      links.delete(agent);
+      dropPending(agent);
+      try {
+        link.socket?.destroy();
+      } catch {
+        // already gone
+      }
+    }
+  }
+
+  return { run, cancel, ping, onProgress, configured: (agent) => socketOf(agent) !== null, close };
+}
