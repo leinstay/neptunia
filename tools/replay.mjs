@@ -1298,7 +1298,7 @@ async function fetchWindow({ guild, channel, self, anchorId, limit, config, fetc
   // The audience rail's view of bots: the members named in per-member channel overwrites,
   // fetched like src/index.js warms them at startup (interfaces/discord/audience-warm.js).
   try {
-    const warm = await import(pathToFileURL(path.join(process.cwd(), 'src', 'discord', 'audience-warm.js')).href);
+    const warm = await import(pathToFileURL(path.join(process.cwd(), 'interfaces', 'discord', 'audience-warm.js')).href);
     const overwriteIds = warm.overwriteMemberIds(guild.channels.cache.values(), (id) => guild.members.cache.has(id));
     const warmed = await warm.fetchMembers(overwriteIds, (id) => guild.members.fetch(id));
     log.info('replay-cli: audience members warmed', warmed);
