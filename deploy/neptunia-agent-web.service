@@ -1,0 +1,69 @@
+# systemd unit for the persona's web errand agent (src/agent-runner/, profile web).
+#
+# A separate, unprivileged process that runs internet errands for the bot
+# through OpenCode. It reaches the internet (through the residential proxy in
+# PROXY_URL) but never the server's filesystem beyond its own out dir, never
+# localhost or private networks, and holds only its own OpenRouter key -- never
+# the persona's.
+#
+# Install:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin neptunia-agent-web
+#   sudo install -d -o root -g root -m 0750 /etc/neptunia
+#   sudo install -o root -g root -m 0600 /dev/null /etc/neptunia/agent-web.env
+#   # add to it: OPENROUTER_AGENT_KEY=, OPENCODE_WEBSEARCH_KEY= (optional), PROXY_URL=
+#   sudo cp deploy/neptunia-agent-web.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-agent-web
+# Logs:    journalctl -u neptunia-agent-web -f
+#
+# The service group is the bot's (neptunia-discord-interface) so the runtime
+# socket dir and the result files the agent writes are reachable by the core.
+
+[Unit]
+Description=neptunia web errand agent (OpenCode worker)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=neptunia-agent-web
+Group=neptunia-discord-interface
+WorkingDirectory=/opt/neptunia-bot
+ExecStart=/opt/node/bin/node bin/agent-runner.mjs --profile web
+EnvironmentFile=/etc/neptunia/agent-web.env
+Restart=on-failure
+RestartSec=5
+
+# Writes only its state (out) dir and the runtime socket dir; everything else
+# is read-only or inaccessible.
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+InaccessiblePaths=/srv /opt/neptunia-bot/data /opt/neptunia-bot/.env /var/www /etc/nginx /etc/letsencrypt /srv/neptunia-dev/.secrets
+StateDirectory=neptunia-agent-web
+RuntimeDirectory=neptunia-agent-web
+RuntimeDirectoryMode=0750
+
+# Network: the agent reaches the public internet only. Localhost, link-local
+# and private ranges are refused here as well as in code.
+IPAddressDeny=localhost
+IPAddressDeny=link-local
+IPAddressDeny=multicast
+IPAddressDeny=127.0.0.0/8
+IPAddressDeny=10.0.0.0/8
+IPAddressDeny=172.16.0.0/12
+IPAddressDeny=192.168.0.0/16
+IPAddressDeny=169.254.0.0/16
+IPAddressDeny=100.64.0.0/10
+IPAddressDeny=::1/128
+IPAddressDeny=fc00::/7
+IPAddressDeny=fe80::/10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=neptunia-agent-web
+
+[Install]
+WantedBy=multi-user.target
