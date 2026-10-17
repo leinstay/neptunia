@@ -357,9 +357,11 @@ skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denie
 skills.proposedOff                       {names}: 提案のみの `<skills>` ブロック末尾に表示され、許可されていない提案スキルを列挙する
 skills.granted.lead                      OPTIONAL: `<skills_granted>` の最初の行、ファミリー行の前。なければファミリー行のみ
 skills.granted.line                      {family} {names}: `<skills_granted>` 内のペルソナに付与されたスキルの 1 ファミリー。{names} はファミリーとドットの後の各名前の残り、「, 」で結合。このラベルがなければ `<skills_granted>` ブロックなし
+tasks.result.held                        {names}: ランナーが結果ファイルを保留した場合に表示（内部にシークレットがある、または秘匿パスからの読み取り）。names はコードが埋めるカンマ区切りリストで、ハンドルなし
 directory.lead                           OPTIONAL: `<directory>` の最初の行、メンバー行の前
 directory.line                           {handle} {names}: `<directory>` の 1 メンバー。{handle} は `@` 付きのメンショントークンそのもの。{names} は保存された名前を JSON 文字列として「, 」で結合。このラベルがなければ `<directory>` ブロックなし
 directory.lineAliases                    {handle} {names} {aliases}: オープンエイリアスを持つメンバー用（{aliases} は {names} と同形式）。キーがないか空: `directory.line` を使用
+channels.ageRestricted                   年齢制限チャンネルの `<channel_directory>` 行末と `<server>` 見出しに（スペースの後に）付加、`server.currentMark` の前。欠落または空: マークなし
 skills.result.alreadyPosted              OPTIONAL {text}: 最初のパスで既に投稿された各アクション（メッセージ、リアクション、画像）に対する 1 行。`features.followUpContinuation` オフ時のみ。このラベルなしでは投稿済みアクションは列挙されない
 skills.result.ok                         データを返した読み取り呼び出しのステータス行。次の行にデータが続く
 skills.result.refused                    {reason}: 実行前にエンジンが呼び出しを拒否

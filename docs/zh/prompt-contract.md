@@ -346,9 +346,11 @@ skills.access.allowed | carried-over | not-allowed | safe-mode | requester-denie
 skills.proposedOff                       {names}: 在仅含提议的 `<skills>` 块末尾显示，列出不被允许的提议技能
 skills.granted.lead                      OPTIONAL：`<skills_granted>` 的第一行，在族行之前。无此标签时族行独立显示
 skills.granted.line                      {family} {names}：`<skills_granted>` 中角色被授权的技能的一个族；{names} 是各名称去掉族和点后的部分，用「, 」连接。无此标签则不显示 `<skills_granted>` 块
+tasks.result.held                        {names}：当运行器扣留了结果文件时显示（文件内含秘密，或从隐藏路径读取）；names 是由代码填充的逗号分隔列表，无 handle
 directory.lead                           OPTIONAL：`<directory>` 的第一行，在成员行之前
 directory.line                           {handle} {names}：`<directory>` 的一个成员；{handle} 是包含 `@` 的精确提及令牌；{names} 是存储的名称，以 JSON 字符串用「, 」连接。无此标签则不显示 `<directory>` 块
 directory.lineAliases                    {handle} {names} {aliases}：有开放别名的成员（{aliases} 格式同 {names}）。键缺失或为空：使用 `directory.line`
+channels.ageRestricted                   附加（空格后）到 `<channel_directory>` 中有年龄限制频道的行末和其 `<server>` 标题之后、`server.currentMark` 之前。缺失或为空：无标记
 skills.result.alreadyPosted              OPTIONAL {text}: 第一轮已发布的每个动作（消息、反应、图片）各一行；仅在 `features.followUpContinuation` 关闭时。无此标签时不列出已发布动作
 skills.result.ok                         返回数据的读取调用的状态行。数据在下一行跟随
 skills.result.refused                    {reason}: 引擎在执行前拒绝了调用
