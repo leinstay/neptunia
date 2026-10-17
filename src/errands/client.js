@@ -2,6 +2,9 @@
 // connection per agent profile (`web`, `server`), opened on first use, speaking the JSON-lines
 // protocol of src/agent-runner/protocol.js. `run` sends one task and resolves on its `end` event;
 // `progress` events go to the `onProgress` listeners; `cancel` and `ping` are fire-and-answer.
+// Each outcome of the connect loop goes to the `onLink` listeners: `{ agent, up: true }` once a
+// connection opens, `{ agent, up: false, code }` when one fails (`code` the socket's error code)
+// or an open one closes (`disconnected`) -- the errand service's health flag of each runner.
 // A connection that closes is reopened with a growing backoff while its profile stays enabled;
 // the tasks it carried resolve `failed` with `error: 'disconnected'` at once (the runner sends a
 // task's end on the connection that brought it, so nothing more can arrive for them). A profile
@@ -43,6 +46,7 @@ function failed(error) {
  *   cancel(task: { agent: string, id: string }): boolean,
  *   ping(agent: string): Promise<{ ok: true, profile: string, busy: boolean, queued: number } | { ok: false, error: string }>,
  *   onProgress(fn: (event: { agent: string, id: string, step: number, tool: string|null, note: string }) => void): () => void,
+ *   onLink(fn: (event: { agent: string, up: boolean, code?: string }) => void): () => void,
  *   configured(agent: string): boolean,
  *   close(): void,
  * }}
@@ -61,6 +65,7 @@ export function createErrandClient({
   // agent -> [{ resolve, timer }] waiting for a pong
   const pings = new Map();
   const progressListeners = new Set();
+  const linkListeners = new Set();
   let closed = false;
 
   /** The socket path of `agent` when its profile is set up and enabled now, else null. */
@@ -71,6 +76,19 @@ export function createErrandClient({
     if (settings?.enabled !== true) return null;
     const socketPath = typeof settings.socket === 'string' && settings.socket ? settings.socket : profile.defaultSocket;
     return socketPath || null;
+  }
+
+  /** One outcome of `agent`'s connect loop to the `onLink` listeners. */
+  function emitLink(agent, up, code = null) {
+    if (closed) return;
+    const event = up ? { agent, up: true } : { agent, up: false, code: code ?? 'disconnected' };
+    for (const fn of linkListeners) {
+      try {
+        fn(event);
+      } catch (err) {
+        log.warn('errands: link listener failed', { agent, error: err });
+      }
+    }
   }
 
   /** Every task and ping of `agent` answered `disconnected`. */
@@ -168,6 +186,7 @@ export function createErrandClient({
         socket = connect(socketPath);
       } catch (err) {
         current.opening = null;
+        emitLink(agent, false, err?.code ?? null);
         scheduleReconnect(agent, current);
         reject(err);
         return;
@@ -179,6 +198,7 @@ export function createErrandClient({
         current.opening = null;
         current.backoffMs = RECONNECT_MIN_MS;
         log.info('errands: connected', { agent });
+        emitLink(agent, true);
         resolve(current);
       });
       socket.on('data', (chunk) => {
@@ -199,7 +219,9 @@ export function createErrandClient({
         }
       });
       socket.on('error', (err) => {
-        if (!current.open) log.warn('errands: connect failed', { agent, code: err?.code ?? null });
+        if (current.open) return;
+        log.warn('errands: connect failed', { agent, code: err?.code ?? null });
+        if (links.get(agent) === current) emitLink(agent, false, err?.code ?? null);
       });
       socket.on('close', () => {
         const wasOpen = current.open;
@@ -209,7 +231,10 @@ export function createErrandClient({
           reject(Object.assign(new Error('disconnected'), { code: 'disconnected' }));
         }
         if (links.get(agent) !== current) return;
-        if (wasOpen) log.warn('errands: disconnected', { agent, pending: [...pending.values()].filter((entry) => entry.agent === agent).length });
+        if (wasOpen) {
+          log.warn('errands: disconnected', { agent, pending: [...pending.values()].filter((entry) => entry.agent === agent).length });
+          emitLink(agent, false, 'disconnected');
+        }
         dropPending(agent);
         scheduleReconnect(agent, current);
       });
@@ -297,6 +322,12 @@ export function createErrandClient({
     return () => progressListeners.delete(fn);
   }
 
+  function onLink(fn) {
+    if (typeof fn !== 'function') return () => {};
+    linkListeners.add(fn);
+    return () => linkListeners.delete(fn);
+  }
+
   /** Close every link, stop reconnecting; open tasks resolve `disconnected`. */
   function close() {
     closed = true;
@@ -313,5 +344,5 @@ export function createErrandClient({
     }
   }
 
-  return { run, cancel, ping, onProgress, configured: (agent) => socketOf(agent) !== null, close };
+  return { run, cancel, ping, onProgress, onLink, configured: (agent) => socketOf(agent) !== null, close };
 }

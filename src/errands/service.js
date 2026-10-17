@@ -25,9 +25,17 @@
 // role), the runner's progress, its end and its cancel (`by` who cancelled it), and at start the
 // open tasks a restart found without a ledger id; the ledger's id is kept on the task
 // (`ledgerId`). The mirror never throws into an errand and never changes how one runs.
+// Each agent has a health flag: the latest outcome of the client's connect loop (`onLink`) or of
+// a ping (a pong is up; a failed ping down), unknown until the first. While an agent's runner is
+// down a new task is refused at once (`runner-down`), before anything is queued, so the caller
+// (the lookup's errand lane) falls back while it still can, instead of an `ok` the runner then
+// fails a few ms later. At start each enabled agent is pinged in the background (the flag is
+// known before the first ask), and a refusal pings the runner again, at most once per
+// RUNNER_RECHECK_MS, so the flag flips back even when the client's reconnect loop has stopped.
+// The flag is logged once per change (`errands: runner up` / `errands: runner down`).
 
 import { log as defaultLog } from '../log.js';
-import { profileOf } from '../agent-runner/profiles.js';
+import { PROFILES, profileOf } from '../agent-runner/profiles.js';
 import { roleApiKey } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.js';
@@ -40,6 +48,8 @@ import { DEFAULT_RESULT_MAX_CHARS } from './blocks.js';
 const TASK_LIMIT_KEYS = Object.freeze(['steps', 'usd', 'seconds']);
 /** `agents.recentLines` when it is missing (config.json carries the same). */
 export const DEFAULT_RECENT_LINES = 6;
+/** The least time between two pings a `runner-down` refusal sends to recheck its runner (ms). */
+export const RUNNER_RECHECK_MS = 10_000;
 
 /**
  * @param {object} options
@@ -56,8 +66,9 @@ export const DEFAULT_RECENT_LINES = 6;
  * @param {(fn: Function) => void} [options.defer]  How the background run starts (default setImmediate).
  * @param {ReturnType<typeof createLedgerMirror>|null} [options.ledger]  The ledger mirror; by
  *   default one over `agents.ledger.socket`, read at the moment of use.
+ * @param {() => number} [options.now]  The clock of the runner rechecks.
  */
-export function createErrandService({ client, stores, hot, env = {}, memory = null, getGuildId = () => null, onFinished = null, log = defaultLog, defer = (fn) => setImmediate(fn), ledger = null }) {
+export function createErrandService({ client, stores, hot, env = {}, memory = null, getGuildId = () => null, onFinished = null, log = defaultLog, defer = (fn) => setImmediate(fn), ledger = null, now = Date.now }) {
   // task id -> the promise of its run, while it runs (tests and the shutdown wait on them).
   const running = new Map();
   // task id -> the task as it started, while its runner works on it (its progress goes to the ledger).
@@ -91,6 +102,52 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
   });
   // task id -> its `context.recent`, from its queuing until it is sent (never written to disk).
   const recentById = new Map();
+  // agent -> { up: boolean, checkedAt: ms of the last recheck ping } once anything is known.
+  const health = new Map();
+
+  /** The health flag of `agent` set to `up` (`code` why it is down); logged when it changes. */
+  function setHealth(agent, up, code = null) {
+    if (!agent) return;
+    const entry = health.get(agent);
+    if (entry?.up === up) return;
+    health.set(agent, { up, checkedAt: entry?.checkedAt ?? null });
+    if (up) log.info('errands: runner up', { agent });
+    else log.warn('errands: runner down', { agent, code: code ?? null });
+  }
+
+  // The connect loop's outcomes: the health flag of each runner.
+  client?.onLink?.((event) => setHealth(event?.agent, event?.up === true, event?.code ?? null));
+
+  /**
+   * One ping of `agent`'s runner (a pong sets its flag up, a failed ping down), in the
+   * background. Resolves the flag; never throws.
+   */
+  async function check(agent) {
+    if (typeof client?.ping !== 'function') return null;
+    if (typeof client.configured === 'function' && !client.configured(agent)) return null;
+    let answer;
+    try {
+      answer = await client.ping(agent);
+    } catch (err) {
+      answer = { ok: false, error: err?.code ?? 'client-error' };
+    }
+    // Not set up (meanwhile) tells nothing about the runner.
+    if (answer?.error === 'not-configured') return health.get(agent)?.up ?? null;
+    setHealth(agent, answer?.ok === true, answer?.error ?? null);
+    return answer?.ok === true;
+  }
+
+  /** Whether `agent`'s runner is known down now; a refusal rechecks it at most once per RUNNER_RECHECK_MS. */
+  function runnerDown(agent) {
+    const entry = health.get(agent);
+    if (entry?.up !== false) return false;
+    const at = now();
+    if (entry.checkedAt === null || at - entry.checkedAt >= RUNNER_RECHECK_MS) {
+      entry.checkedAt = at;
+      check(agent).catch(() => {});
+    }
+    return true;
+  }
 
   /** The store of `guildId`, else of the served guild. */
   function storeOf(guildId) {
@@ -193,7 +250,8 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
   /**
    * A new task queued and, once the caller has its answer, started in the background:
    * `{ ok: true, task }` (the task as queued) or `{ ok: false, code }` (the store's refusal, or
-   * `not-configured` when the agent's runner is not set up, `no-guild` without a guild).
+   * `not-configured` when the agent's runner is not set up, `runner-down` while its runner is
+   * known unreachable, `no-guild` without a guild).
    * @param {{ guildId?: string, agent: string, goal: string, requester: object, origin: object, scope: 'dm'|'group' }} input
    */
   function submit({ guildId = null, agent, goal, requester, origin, scope }) {
@@ -201,6 +259,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     if (!store) return { ok: false, code: 'no-guild' };
     if (!profileOf(agent)) return { ok: false, code: 'unknown-agent' };
     if (typeof client?.configured === 'function' && !client.configured(agent)) return { ok: false, code: 'not-configured' };
+    if (runnerDown(agent)) return { ok: false, code: 'runner-down' };
     const added = store.add({ agent, goal, requester, origin, scope });
     if (!added.ok) return added;
     const id = added.task.id;
@@ -274,9 +333,12 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
 
   /**
    * The tasks of the served guild a restart left open, failed (`restarted`): those without a
-   * ledger id mirrored first, then each one's failure.
+   * ledger id mirrored first, then each one's failure. Each enabled agent's runner is pinged
+   * in the background (its health flag).
    */
   function start(guildId) {
+    // Each enabled agent's runner pinged in the background: its flag known before the first ask.
+    for (const agent of Object.keys(PROFILES)) check(agent).catch(() => {});
     const store = storeOf(guildId);
     if (!store) return 0;
     const open = store.open();
@@ -325,5 +387,5 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     while (running.size > 0) await Promise.allSettled([...running.values()]);
   }
 
-  return { submit, cancel, budget, view, fileOf, markSeen, start, forgetUser, wipe, idle, store: storeOf, limitsOf, ledger: mirror };
+  return { submit, cancel, budget, view, fileOf, markSeen, start, forgetUser, wipe, idle, check, runnerUp: (agent) => health.get(agent)?.up ?? null, store: storeOf, limitsOf, ledger: mirror };
 }

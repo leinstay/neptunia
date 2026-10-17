@@ -2,7 +2,8 @@
 // FAKE runner -- a plain Unix-socket server in the test that reads the client's lines and answers
 // what the test tells it to. A run resolves on its `end`, progress reaches the listeners, cancel
 // and ping go out as lines, a dropped connection fails its tasks with `disconnected` and is
-// reopened, and a profile that is not set up answers `not-configured` without connecting.
+// reopened, a profile that is not set up answers `not-configured` without connecting, and each
+// outcome of the connect loop reaches the `onLink` listeners.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
@@ -215,5 +216,32 @@ test('errands client: a runner that is not listening fails the run as disconnect
     });
   } finally {
     client.close();
+  }
+});
+
+test('errands client: onLink gets each outcome of the connect loop: a failed connect, an open link, a dropped one', async () => {
+  const sock = socketPath();
+  const client = createErrandClient({ hot: hotFor(sock), setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)) });
+  const events = [];
+  client.onLink((event) => events.push(event));
+  let runner = null;
+  try {
+    await withCapturedLogs(async () => {
+      assert.deepEqual(await client.ping('web'), { ok: false, error: 'disconnected' });
+      assert.deepEqual(events, [{ agent: 'web', up: false, code: 'ENOENT' }]);
+      runner = await fakeRunner(sock);
+      const pinging = client.ping('web');
+      await runner.next((r) => r.op === 'ping');
+      assert.deepEqual(events.at(-1), { agent: 'web', up: true });
+      runner.reply({ event: 'pong', profile: 'web', busy: false, queued: 0 });
+      assert.equal((await pinging).ok, true);
+      runner.dropAll();
+      for (let i = 0; i < 100 && events.length < 3; i += 1) await new Promise((r) => setTimeout(r, 10));
+      assert.deepEqual(events.at(-1), { agent: 'web', up: false, code: 'disconnected' });
+      assert.equal(events.length, 3);
+    });
+  } finally {
+    client.close();
+    if (runner) await runner.close();
   }
 });
