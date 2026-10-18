@@ -228,7 +228,6 @@ test('task.run adult: on web with agents.web.adult set, the errand carries its m
     while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
     assert.equal(client.runs[0].model, 'vendor/adult-model');
     assert.deepEqual(client.runs[0].limits, { steps: 40, usd: 0.5, seconds: 900 });
-    assert.equal(Object.hasOwn(client.runs[0], 'cost'), false, 'no adult cost: none sent, the runner keeps agents.web.cost');
     const status = await runOp('task.status', { id }, ctx(env, MEMBER));
     assert.ok(status.summary.startsWith(`${id} web adult running `), status.summary);
     assert.equal(addArgs(stores.get('g1').get(id), 'g1').metadata.adult, true, 'the ledger mirror\'s metadata');
@@ -244,25 +243,6 @@ test('task.run adult: on web with agents.web.adult set, the errand carries its m
     assert.equal(Object.hasOwn(addArgs(stores.get('g1').get(no.data.task.id), 'g1').metadata, 'adult'), false);
     // Counted against the day's caps as any other errand.
     assert.equal(stores.get('g1').today('web').tasks, 3);
-    for (const run of client.runs) client.end(run.id);
-    await errands.idle();
-  });
-});
-
-test('task.run adult: agents.web.adult.cost goes out with the adult errand only, never with a plain one', async () => {
-  const hotAgents = webWith({ model: 'vendor/adult-model', cost: { input: 1, output: 3.2 } });
-  hotAgents.web.cost = { input: 2, output: 10 };
-  const { env, client, errands } = makeEnv({ agents: hotAgents });
-  await withCapturedLogs(async () => {
-    const adult = await runOp('task.run', { agent: 'web', goal: 'find the scene', adult: true }, ctx(env, MEMBER));
-    assert.equal(adult.code, 'ok');
-    while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(client.runs[0].model, 'vendor/adult-model');
-    assert.deepEqual(client.runs[0].cost, { input: 1, output: 3.2 });
-    const plain = await runOp('task.run', { agent: 'web', goal: 'plain' }, ctx(env, MEMBER));
-    assert.equal(plain.code, 'ok');
-    while (client.runs.length < 2) await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(Object.hasOwn(client.runs[1], 'cost'), false, 'a plain errand sends no cost: the runner keeps agents.web.cost');
     for (const run of client.runs) client.end(run.id);
     await errands.idle();
   });

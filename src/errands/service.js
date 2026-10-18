@@ -35,10 +35,8 @@
 // The flag is logged once per change (`errands: runner up` / `errands: runner down`).
 // An adult errand (`adult: true` on the task, src/ops/task.js) runs, while `agents.web.adult`
 // is set (src/config.js#adultErrandSettings, read when it is sent), on that block's `model`
-// with its `limits` over the agent's, and with the block's `cost` when set (the runner's usd cap
-// then priced for that model; without it no cost is sent and the runner keeps
-// `agents.<agent>.cost`); the ledger gets the same model and limits. Without the block by then it
-// runs as any other errand.
+// with its `limits` over the agent's; the ledger gets the same model and limits. Without the
+// block by then it runs as any other errand.
 
 import { log as defaultLog } from '../log.js';
 import { PROFILES, profileOf } from '../agent-runner/profiles.js';
@@ -176,7 +174,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     return settings ? { ...out, ...settings.limits } : out;
   }
 
-  /** `agents.<agent>.adult` read now (`{ model, limits, cost? }`), or null when it is not set or not valid. */
+  /** `agents.<agent>.adult` read now (`{ model, limits }`), or null when it is not set or not valid. */
   function adultOf(agent) {
     const settings = adultErrandSettings(hot.config?.agents?.[agent]?.adult);
     return settings.ok ? settings : null;
@@ -234,10 +232,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const secrets = secretsOf(task.agent);
     const limits = limitsOf(task.agent, task.adult === true);
     // An adult errand's own model, while `agents.<agent>.adult` is set; else the runner takes the role's.
-    const adult = task.adult === true ? adultOf(task.agent) : null;
-    const model = adult?.model ?? null;
-    // Its own price too, when set; else none is sent and the runner prices it by `agents.<agent>.cost`.
-    const cost = adult?.cost ?? null;
+    const model = task.adult === true ? adultOf(task.agent)?.model ?? null : null;
     mirrored(task.id, () => mirror.start(task, { limits, model: model ?? roleModel(hot.config, profileOf(task.agent)?.modelRole) ?? null }));
     live.set(task.id, task);
     let outcome;
@@ -249,7 +244,6 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
         context: { scope: task.scope, channel: task.origin?.channelId ?? null, asker: task.requester?.userId ?? null, recent: task.scope === 'dm' ? [] : recent },
         limits,
         ...(model ? { model } : {}),
-        ...(cost ? { cost } : {}),
         ...(secrets ? { secrets } : {}),
       });
     } catch (err) {
