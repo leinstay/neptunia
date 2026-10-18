@@ -45,6 +45,7 @@ import { DailyCapError, REPLY_REQUEST, TokenLimitError, RETRY_STATUS, cacheTtlMs
 import { ImageCapError, ImageGenError } from '../llm/images.js';
 import { limitOf, mirrorChannelLabel, mirrorDryRun, postLimitNotice } from './limits.js';
 import { between, typingMs } from './random.js';
+import { startTypingLease } from '../interface/typing.js';
 import { settleWait } from './activity.js';
 import {
   collectPictures,
@@ -2697,25 +2698,15 @@ export function createTurnRunner({
       sendable = false;
     }
     if (!sendable) return off;
-    let stopped = false;
-    let cancel = null;
-    const send = () => {
-      cancel = null;
-      if (stopped) return;
+    // A lease (src/interface/typing.js): refreshed until stopped, and lapsing on its own if nobody stops it.
+    const send = () =>
       Promise.resolve()
         .then(() => iface.typing(conversationOf(channel)))
         .then((result) => {
           if (result?.status !== 'ok') log.warn('turn: typing failed', { channel: channel.id, preparing: true, error: portError(result) });
         })
         .catch((err) => log.warn('turn: typing failed', { channel: channel.id, preparing: true, error: err }));
-      cancel = schedule(send, PREPARE_TYPING_REFRESH_MS);
-    };
-    send();
-    return () => {
-      stopped = true;
-      cancel?.();
-      cancel = null;
-    };
+    return startTypingLease({ send, schedule, refreshMs: PREPARE_TYPING_REFRESH_MS, now: clock, onExpire: () => log.info('turn: typing lease expired', { channel: channel.id }) });
   }
 
   /**
