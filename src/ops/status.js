@@ -6,7 +6,7 @@
 // with the gateway and the uptime. The core comes first (`models.base`, `keys.base`, `costs.base`),
 // then the agents (`models.agents`, `costs.agents`). The models sit in two fields, one line per role, `<role> · <model> ...`:
 // `models.base` (voice, analyzer, reasoner, extractor, vision, video, embedding) and `models.agents` (web, server,
-// thinker, dev, writer, which are never probed: an OpenCode worker runs them, not the bot; then drawing). The owner's card probes on every call: one minimal chat completion per
+// thinker, dev, writer, which an OpenCode worker runs, so they are never probed; then drawing). The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
 // request for the embedding role, and one free GET of the drawing model's provider listing; a
@@ -76,10 +76,9 @@ function roleHead(role, model) {
   return `${role} · ${model}`;
 }
 
-/** An OpenCode agent role's line: its model, never probed (an OpenCode worker runs it, not the bot). */
-function agentLine(role, cfg, probed) {
-  const head = roleHead(role, roleModel(cfg, role) ?? 'no model configured');
-  return probed ? `${head} · not probed (runs on OpenCode)` : head;
+/** An OpenCode agent role's line: its model (an OpenCode worker runs it, so it is never probed). */
+function agentLine(role, cfg) {
+  return roleHead(role, roleModel(cfg, role) ?? 'no model configured');
 }
 
 /** The `models.base.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
@@ -104,10 +103,10 @@ function groupedModels(cfg, lineOf) {
   return lines.join('\n');
 }
 
-/** The `models.agents` field: each OpenCode role's `agentLine` (probed or not as `probed` says),
+/** The `models.agents` field: each OpenCode role's `agentLine`,
  * then the drawing role's line `imageLine` (left out when null). */
-function agentModels(cfg, imageLine, probed = false) {
-  const lines = OPENCODE_ROLES.map((role) => agentLine(role, cfg, probed));
+function agentModels(cfg, imageLine) {
+  const lines = OPENCODE_ROLES.map((role) => agentLine(role, cfg));
   if (imageLine) lines.push(imageLine);
   return lines.join('\n');
 }
@@ -339,7 +338,7 @@ const handlers = perEnv((env) => {
    * read (one free GET). */
   async function probedAgentsValue(cfg) {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
-    return agentModels(cfg, await imageProbeLine(cfg, timeoutMs), true);
+    return agentModels(cfg, await imageProbeLine(cfg, timeoutMs));
   }
 
   /** The embedding role's probe: one embedding request of one input (the probe label), never
