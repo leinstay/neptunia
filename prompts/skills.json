@@ -315,23 +315,23 @@
     "whenNotToUse": "Not for what the chat already shows you."
   },
   "intent.set": {
-    "title": "[placeholder] Set an intention",
-    "whenToUse": "[placeholder] Keep something you mean to do later: the purpose as the body; optional due=, expires=, channel=, chain=, condition=; task=<errand id> and deadline= to wait for an errand (deadline= alone waits for the errand this turn hands off).",
-    "whenNotToUse": "[placeholder] Not for what you do in this turn."
+    "title": "Set an intention",
+    "whenToUse": "Record something you mean to do later. The purpose goes in the body. To wait for an errand, name it with task= and give a deadline=; deadline= alone links the errand this same turn hands off.",
+    "whenNotToUse": "Not for what you are doing in this turn."
   },
   "intent.update": {
-    "title": "[placeholder] Change an intention",
-    "whenToUse": "[placeholder] id= of an intention: state=pending accepts a proposed one, state=done closes one; text, due=, expires=, channel=, chain=, condition= change it; task= and deadline= set it waiting for an errand.",
-    "whenNotToUse": "[placeholder] Not to reject a proposed one: that is intent.cancel."
+    "title": "Update an intention",
+    "whenToUse": "Change an intention by id=. state=pending accepts a proposed one; state=done marks it finished. task= and deadline= set it waiting for an errand.",
+    "whenNotToUse": "Rejecting a proposed one goes through intent.cancel."
   },
   "intent.cancel": {
-    "title": "[placeholder] Drop an intention",
-    "whenToUse": "[placeholder] id= of an intention you no longer mean to do, or of a proposed one you reject.",
-    "whenNotToUse": "[placeholder] Not for one you did: that is intent.update state=done."
+    "title": "Cancel an intention",
+    "whenToUse": "Drop an intention by id=: one you no longer mean to do, or a proposed one you reject.",
+    "whenNotToUse": "One you finished goes through intent.update state=done."
   },
   "intent.list": {
-    "title": "[placeholder] List intentions",
-    "whenToUse": "[placeholder] Read your open intentions with their states.",
-    "whenNotToUse": "[placeholder] The intentions block already shows them on each turn."
+    "title": "List intentions",
+    "whenToUse": "Read your open intentions with their states and due times.",
+    "whenNotToUse": "The intentions block already shows them on each turn."
   }
 }
