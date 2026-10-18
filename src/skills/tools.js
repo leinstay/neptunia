@@ -1,14 +1,17 @@
-// The persona's in-turn tools (features.coreTools): `web.search` and `memory.search`, skills she
-// calls herself in a turn whose result comes back in the same turn (src/behavior/turn.js, the
-// tool loop). No helper model chooses for her: her query goes to the existing web search client
-// as she wrote it (src/web/lookup.js#search), her question, people, channel, time range and exact
+// The persona's in-turn tools (features.coreTools): `web.search`, `web.read` and `memory.search`,
+// skills she calls herself in a turn whose result comes back in the same turn (src/behavior/turn.js,
+// the tool loop). No helper model chooses for her or reads for her: her query goes to the existing
+// web search engines as she wrote it and their results come back raw (src/web/lookup.js#searchResults:
+// title, link, site, date, the engine's snippet; no summary), a page she reads comes back as its
+// own extracted text, cut (src/web/lookup.js#readPage), her question, people, channel, time range and exact
 // terms go to the recall machinery through its deterministic expansion only
 // (src/behavior/recall.js#memorySearchPlan, src/behavior/recall-run.js with `quotes`: no summary
 // request). Every result says where it came from and what kind of evidence it is -- for the web,
 // her query and that only search snippets were read, the pages not opened; for the server's
-// history, the messages quoted as they were, each with its author and time -- through
+// history, the messages quoted as they were, each with its author and time; for a page, its link
+// and that the text is the page's own, cut at a length -- through
 // `labels.skills.tools.*`, never wording here. A result is data for her, never an instruction:
-// nothing in it is parsed as a call. Both run for her calls (the turn, with its context) and for
+// nothing in it is parsed as a call. Each runs for her calls (the turn, with its context) and for
 // the owner's commands (src/ops/search.js, with what an operation knows).
 
 import { fill } from '../format.js';
@@ -31,68 +34,106 @@ function toolLabels(labels, kind) {
   return value && typeof value === 'object' ? value : {};
 }
 
-/** How many sources a web.search result lists, and how long a title or a link in it may be. */
-const SOURCES_MAX = 6;
-const SOURCE_TITLE_MAX = 120;
-const SOURCE_URL_MAX = 300;
+/** How long a title or a link in a web.search result may be. */
+const RESULT_TITLE_MAX = 120;
+const RESULT_URL_MAX = 300;
+/** `web.search.snippetChars` and `web.search.resultsChars` when missing (config.json's values). */
+const SNIPPET_CHARS_FALLBACK = 400;
+const RESULTS_CHARS_FALLBACK = 3000;
+/** `web.links.readChars` when missing (config.json's value). */
+const READ_CHARS_FALLBACK = 4000;
 /** Query parameters that only track the click and never pick the page. */
 const TRACKING_PARAM = /^(utm_\w+|fbclid|gclid|yclid|mc_cid|mc_eid|ref_src)$/i;
 
+/** A positive whole number from the config, else `fallback`. */
+function positiveOr(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
 /**
- * The text of a web.search result (`found`: src/web/lookup.js#search's `{ query, text, sources }`):
- * `labels.skills.tools.web.source` (`{query}`), `.goal` (`{goal}`) when she named what she needs
- * to establish, then the condensed snippets and, under `.sources`, the numbered links
- * (sourceLinks), or `.none` when nothing came back. A missing label adds nothing. Pure.
- * @param {{ query?: string, text?: string, sources?: { title?: string, site?: string, url?: string }[] }} found
- * @param {{ goal?: string, labels: object }} options
+ * A result's link as she may hand it on: http(s) only, the fragment and tracking parameters
+ * dropped; longer than RESULT_URL_MAX it loses its query string, then is cut with an ellipsis.
+ * `{ href, key }` (`key`: host without `www.`, path without a trailing slash, query -- one page
+ * once), or null for anything that is not an http(s) URL. Pure.
+ */
+function cleanLink(raw) {
+  let url;
+  try {
+    url = new URL(String(raw ?? ''));
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  url.hash = '';
+  for (const name of [...url.searchParams.keys()]) if (TRACKING_PARAM.test(name)) url.searchParams.delete(name);
+  if (url.href.length > RESULT_URL_MAX) url.search = '';
+  const key = `${url.hostname.replace(/^www\./i, '').toLowerCase()}${url.pathname.replace(/\/+$/, '')}${url.search}`;
+  const href = url.href.length > RESULT_URL_MAX ? `${url.href.slice(0, RESULT_URL_MAX - 1)}…` : url.href;
+  return { href, key };
+}
+
+/**
+ * The text of a web.search result (`found`: src/web/lookup.js#searchResults' `{ query, results }`,
+ * raw, no helper between): `labels.skills.tools.web.source` (`{query}`), `.goal` (`{goal}`) when
+ * she named what she needs to establish, then each result as the engine gave it -- `<n>. <title>`,
+ * its link (cleanLink; a result without an http(s) link and a page listed twice are left out),
+ * `<site> · <date>` (the date only when the engine gave one), its snippet cut at `snippetChars`
+ * -- while the whole stays within `maxChars` (the first result always shows, its snippet cut to
+ * fit); `.none` when nothing came back. Numbers, links, sites, dates and snippets are data; a
+ * missing label adds nothing. Pure.
+ * @param {{ query?: string, results?: { title?: string, url?: string, site?: string, snippet?: string, age?: string }[] }} found
+ * @param {{ goal?: string, labels: object, snippetChars?: number, maxChars?: number }} options
  * @returns {string}
  */
-export function webSearchText(found, { goal = '', labels }) {
+export function webSearchText(found, { goal = '', labels, snippetChars = SNIPPET_CHARS_FALLBACK, maxChars = RESULTS_CHARS_FALLBACK }) {
   const l = toolLabels(labels, 'web');
   const lines = [];
   if (l.source) lines.push(fill(l.source, { query: text(found?.query) }));
   if (l.goal && text(goal)) lines.push(fill(l.goal, { goal: text(goal) }));
-  const body = text(found?.text);
-  if (!body) {
+  const seen = new Set();
+  const blocks = [];
+  let used = lines.join('\n').length;
+  for (const result of Array.isArray(found?.results) ? found.results : []) {
+    const link = cleanLink(result?.url);
+    if (!link || seen.has(link.key)) continue;
+    seen.add(link.key);
+    const head = [`${blocks.length + 1}. ${clampWithEllipsis(oneLine(result?.title), RESULT_TITLE_MAX)}`.trimEnd(), link.href];
+    const where = [oneLine(result?.site), oneLine(result?.age)].filter(Boolean).join(' · ');
+    if (where) head.push(where);
+    const headText = head.join('\n');
+    const room = maxChars - used - headText.length - 2;
+    if (blocks.length > 0 && room < 0) break;
+    const limit = Math.min(snippetChars, room);
+    const snippet = limit > 0 ? clampWithEllipsis(oneLine(result?.snippet), limit) : '';
+    const block = snippet ? `${headText}\n${snippet}` : headText;
+    blocks.push(block);
+    used += block.length + 1;
+  }
+  if (blocks.length === 0) {
     if (l.none) lines.push(l.none);
     return lines.join('\n');
   }
-  lines.push(body);
-  const links = sourceLinks(found?.sources);
-  if (links.length > 0 && l.sources) lines.push(l.sources, ...links.map((link, i) => (link.title ? `${i + 1}. ${link.title}: ${link.url}` : `${i + 1}. ${link.url}`)));
-  return lines.join('\n');
+  return [...lines, ...blocks].join('\n');
 }
 
 /**
- * The sources she can hand on: http(s) links only, the fragment and tracking parameters dropped,
- * one per page (host without `www.`, path without a trailing slash, query; the first title kept),
- * at most SOURCES_MAX. A link longer than SOURCE_URL_MAX loses its query string, then is cut with
- * an ellipsis; a title is one line of at most SOURCE_TITLE_MAX. Pure.
- * @param {unknown} sources
- * @returns {{ title: string, url: string }[]}
+ * The text of a web.read result (`page`: src/web/lookup.js#readPage's `{ url, title, text, cut }`):
+ * `labels.skills.tools.read.source` (`{url}`: where the page ended up, `{maxChars}`), `.title`
+ * (`{title}`) when the page has one, the page's own text as extracted, then `.cut` (`{maxChars}`)
+ * when it was cut. A missing label adds nothing. Pure.
+ * @param {{ url?: string, title?: string, text?: string, cut?: boolean }} page
+ * @param {{ labels: object, maxChars?: number }} options
+ * @returns {string}
  */
-function sourceLinks(sources) {
-  const seen = new Set();
-  const links = [];
-  for (const source of Array.isArray(sources) ? sources : []) {
-    if (links.length >= SOURCES_MAX) break;
-    let url;
-    try {
-      url = new URL(String(source?.url ?? ''));
-    } catch {
-      continue;
-    }
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') continue;
-    url.hash = '';
-    for (const name of [...url.searchParams.keys()]) if (TRACKING_PARAM.test(name)) url.searchParams.delete(name);
-    if (url.href.length > SOURCE_URL_MAX) url.search = '';
-    const key = `${url.hostname.replace(/^www\./i, '').toLowerCase()}${url.pathname.replace(/\/+$/, '')}${url.search}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const href = url.href.length > SOURCE_URL_MAX ? `${url.href.slice(0, SOURCE_URL_MAX - 1)}…` : url.href;
-    links.push({ title: clampWithEllipsis(oneLine(source?.title), SOURCE_TITLE_MAX), url: href });
-  }
-  return links;
+export function webReadText(page, { labels, maxChars = READ_CHARS_FALLBACK }) {
+  const l = toolLabels(labels, 'read');
+  const lines = [];
+  if (l.source) lines.push(fill(l.source, { url: text(page?.url), maxChars: String(maxChars) }));
+  const title = oneLine(page?.title);
+  if (l.title && title) lines.push(fill(l.title, { title }));
+  lines.push(String(page?.text ?? '').trim());
+  if (page?.cut === true && l.cut) lines.push(fill(l.cut, { maxChars: String(maxChars) }));
+  return lines.join('\n');
 }
 
 /**
@@ -120,12 +161,14 @@ export function memorySearchText(quotes, { labels, timezone = 'UTC' }) {
 }
 
 /**
- * One web.search: `args.query` (her words, as she wrote them) through `lookup.search` (the
- * existing client: its cache, its daily web slot `web.maxPerDay`, its engines), `args.goal` only
- * echoed back with the result. `not_configured` (`not-configured`) without the client, the
- * feature (features.webLookup, read now) or a search engine; `invalid` (`invalid-args`) without a
- * query; `failed` with `daily-cap` once the day's web slots are spent, `error` when the search
- * gave nothing back; else `ok` with webSearchText as its `data.text`. Never throws.
+ * One web.search: `args.query` (her words, as she wrote them) through `lookup.searchResults` (the
+ * existing engines, their cache, the daily web slot `web.maxPerDay`; the results raw, no
+ * summary), `args.goal` only echoed back with the result. `not_configured` (`not-configured`)
+ * without the client, the feature (features.webLookup, read now) or a search engine; `invalid`
+ * (`invalid-args`) without a query; `failed` with `daily-cap` once the day's web slots are spent,
+ * `error` when the search gave nothing back; else `ok` with webSearchText (cut by
+ * `web.search.snippetChars` and `web.search.resultsChars`, read now) as its `data.text`. Never
+ * throws.
  * @param {{ lookup: object|null, config: object, labels: object, guildId: string|null, args: object }} input
  * @returns {Promise<{ status: string, code?: string, data?: { text: string } }>}
  */
@@ -133,12 +176,76 @@ export async function runWebSearch({ lookup, config, labels, guildId, args }) {
   try {
     const query = text(args?.query);
     if (!query) return { status: 'invalid', code: 'invalid-args', reason: 'args.query:required' };
-    if (!lookup || typeof lookup.search !== 'function' || config?.features?.webLookup !== true || config?.web?.search?.enabled === false) return { status: 'not_configured', code: 'not-configured' };
+    if (!lookup || typeof lookup.searchResults !== 'function' || config?.features?.webLookup !== true || config?.web?.search?.enabled === false) return { status: 'not_configured', code: 'not-configured' };
     if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch()) return { status: 'not_configured', code: 'not-configured' };
     if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) return { status: 'failed', code: 'daily-cap' };
-    const found = await lookup.search(guildId, query);
+    const found = await lookup.searchResults(guildId, query);
     if (!found) return { status: 'failed', code: 'error' };
-    return { status: 'ok', data: { text: webSearchText({ ...found, query: found.query ?? query }, { goal: args?.goal, labels }) } };
+    const searchCfg = config?.web?.search ?? {};
+    const shown = webSearchText({ ...found, query: found.query ?? query }, {
+      goal: args?.goal,
+      labels,
+      snippetChars: positiveOr(searchCfg.snippetChars, SNIPPET_CHARS_FALLBACK),
+      maxChars: positiveOr(searchCfg.resultsChars, RESULTS_CHARS_FALLBACK),
+    });
+    return { status: 'ok', data: { text: shown } };
+  } catch {
+    return { status: 'failed', code: 'error' };
+  }
+}
+
+/** An http(s) link inside a message's text: up to the first space or angle bracket. */
+const LINK_IN_TEXT = /https?:\/\/[^\s<>]+/i;
+
+/**
+ * The first http(s) link written in `text` (a message's own words), or null: what web.read
+ * reads of a message whose link Discord did not embed. Pure.
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+export function firstLinkIn(value) {
+  const match = typeof value === 'string' ? LINK_IN_TEXT.exec(value) : null;
+  return match ? match[0] : null;
+}
+
+/** The page codes of src/web/lookup.js#readPage that mean the call itself was not right. */
+const READ_INVALID = new Set(['scheme']);
+
+/**
+ * One web.read: the page at `args.url`, or the first link of the message `args.message` names
+ * (an id her `#N` resolved to: `linkOf(id)`, the caller's, resolves to a url or null), through
+ * `lookup.readPage` (the SSRF-guarded fetcher, the daily web slot, no model request).
+ * `invalid` (`invalid-args`) without either, (`no-link`) when that message holds no link, and
+ * (`scheme`) for a url that is not http(s); `not_configured` (`not-configured`) without the
+ * client or the feature (features.webLookup, read now); `failed` with `daily-cap` once the day's
+ * web slots are spent, else with the page's code (`private`, `type`, `size`, `http`,
+ * `timeout`, ...); `ok` with webReadText (`web.links.readChars`, read now) as its `data.text`, or
+ * `.none` when the page had no text. Never throws.
+ * @param {{ lookup: object|null, config: object, labels: object, guildId: string|null, args: object,
+ *   linkOf?: ((messageId: string) => (string|null|Promise<string|null>))|null }} input
+ * @returns {Promise<{ status: string, code?: string, data?: { text: string } }>}
+ */
+export async function runWebRead({ lookup, config, labels, guildId, args, linkOf = null }) {
+  try {
+    let url = text(args?.url);
+    const messageId = text(args?.message);
+    if (!url && !messageId) return { status: 'invalid', code: 'invalid-args', reason: 'args.url:required' };
+    if (!lookup || typeof lookup.readPage !== 'function' || config?.features?.webLookup !== true) return { status: 'not_configured', code: 'not-configured' };
+    if (!url) {
+      url = text(typeof linkOf === 'function' ? await linkOf(messageId) : null);
+      if (!url) return { status: 'invalid', code: 'no-link' };
+    }
+    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0)) return { status: 'failed', code: 'daily-cap' };
+    const page = await lookup.readPage(guildId, url);
+    const maxChars = positiveOr(config?.web?.links?.readChars, READ_CHARS_FALLBACK);
+    if (page?.ok === true) return { status: 'ok', data: { text: webReadText(page, { labels, maxChars }) } };
+    const code = String(page?.reason ?? 'error');
+    if (code === 'empty') {
+      const l = toolLabels(labels, 'read');
+      return { status: 'ok', data: { text: [l.source ? fill(l.source, { url, maxChars: String(maxChars) }) : '', l.none ?? ''].filter(Boolean).join('\n') } };
+    }
+    if (code === 'not-configured') return { status: 'not_configured', code };
+    return { status: READ_INVALID.has(code) ? 'invalid' : 'failed', code };
   } catch {
     return { status: 'failed', code: 'error' };
   }

@@ -45,6 +45,7 @@ import { DailyCapError, REPLY_REQUEST, TokenLimitError, RETRY_STATUS, cacheTtlMs
 import { ImageCapError, ImageGenError } from '../llm/images.js';
 import { limitOf, mirrorChannelLabel, mirrorDryRun, postLimitNotice } from './limits.js';
 import { between, typingMs } from './random.js';
+import { startTypingLease } from '../interface/typing.js';
 import { settleWait } from './activity.js';
 import {
   collectPictures,
@@ -77,7 +78,7 @@ import { coreToolRows, discoveryOn, grantedSkillNames, proposalVerdicts, propose
 import { skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
-import { IN_TURN_TOOLS, runMemorySearch, runWebSearch } from '../skills/tools.js';
+import { IN_TURN_TOOLS, firstLinkIn, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { prefetchLanes, prefetchOn } from './prefetch.js';
 
 /**
@@ -1514,7 +1515,7 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * of other channels come first, under the same deadline -- late, the newest are shown.
  *
  * The turn planner (src/behavior/planner.js; features.turnPlanner exactly true, read per turn):
- * one request (prompts/planner.md, role `reasoner`, purpose `planner`) stands in for
+ * one request (prompts/planner.md, role `analyzer`, purpose `planner`) stands in for
  * the route hook, the participation pick, the re-watch classifier and the search classifier,
  * none of which is asked then (createTurnPlan). Each answer block reaches the code its old
  * classifier fed; a block that is invalid or missing keeps that consumer's default (no channel,
@@ -2086,7 +2087,9 @@ export function createTurnRunner({
   /**
    * Her in-turn tools for one turn (features.coreTools, read now; src/skills/tools.js): skill name
    * -> `(args) => result`, run by src/skills/executors.js#executeCall in place of the operation's
-   * command, over the turn's own context -- `web.search` through the turn's `lookup`,
+   * command, over the turn's own context -- `web.search` through the turn's `lookup`, `web.read`
+   * too (a `#N` message she names read as its first link in `history`: an embedded one, else one
+   * written in its text),
    * `memory.search` through its `recall` over the served guild (`guild`; a private chat on its
    * `partner`'s behalf), the turn's `history` left out of the hits and her call marks on the
    * quoted lines (linkCalls). Null with the switch off.
@@ -2095,6 +2098,18 @@ export function createTurnRunner({
     if (!coreToolsOn(hot.config)) return null;
     return {
       'web.search': (args) => runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
+      'web.read': (args) =>
+        runWebRead({
+          lookup: lookup ?? null,
+          config: hot.config,
+          labels: hot.prompts?.labels ?? {},
+          guildId,
+          args,
+          linkOf: (messageId) => {
+            const message = (history ?? []).find((item) => String(item?.id) === String(messageId));
+            return message ? (collectReadableLinks(message)[0]?.url ?? firstLinkIn(message.content)) : null;
+          },
+        }),
       'memory.search': (args) =>
         runMemorySearch({
           recall,
@@ -2683,25 +2698,15 @@ export function createTurnRunner({
       sendable = false;
     }
     if (!sendable) return off;
-    let stopped = false;
-    let cancel = null;
-    const send = () => {
-      cancel = null;
-      if (stopped) return;
+    // A lease (src/interface/typing.js): refreshed until stopped, and lapsing on its own if nobody stops it.
+    const send = () =>
       Promise.resolve()
         .then(() => iface.typing(conversationOf(channel)))
         .then((result) => {
           if (result?.status !== 'ok') log.warn('turn: typing failed', { channel: channel.id, preparing: true, error: portError(result) });
         })
         .catch((err) => log.warn('turn: typing failed', { channel: channel.id, preparing: true, error: err }));
-      cancel = schedule(send, PREPARE_TYPING_REFRESH_MS);
-    };
-    send();
-    return () => {
-      stopped = true;
-      cancel?.();
-      cancel = null;
-    };
+    return startTypingLease({ send, schedule, refreshMs: PREPARE_TYPING_REFRESH_MS, now: clock, onExpire: () => log.info('turn: typing lease expired', { channel: channel.id }) });
   }
 
   /**
@@ -3995,7 +4000,7 @@ export function createTurnRunner({
    * the served one in a private chat). One cheap classifier call (prompts.lookup, `{{name}}` = the
    * persona's display name, `{{today}}` = the injected clock's date
    * `YYYY-MM-DD` in `bot.timezone`, the zone its `when:` range is read in;
-   * on the reasoning helper model (roleModel, role `reasoner`), its answer capped at
+   * on the helper model (roleModel, role `analyzer`), its answer capped at
    * `web.search.classifierMaxOutputTokens`) reads the last
    * `web.search.contextMessages` messages of `history` before the trigger
    * (with the pictures' captions, the video states and the read links this
@@ -4067,7 +4072,7 @@ export function createTurnRunner({
     }
 
     // Read once: the request and its empty-answer warning name the same model.
-    const model = roleModel(config, 'reasoner', 'lookup');
+    const model = roleModel(config, 'analyzer', 'lookup');
     // Skills discovery: the registry's lines fill `{{skills}}`, its names bound the `skills:` line.
     const discovery = discoveryPrompt(config);
     let completion;
@@ -4077,7 +4082,7 @@ export function createTurnRunner({
           { role: 'system', content: fillPromptTemplate(prompt, { today: zonedDay(clock(), config.bot?.timezone), name: selfName ?? '', skills: discovery.index }) },
           { role: 'user', content: user },
         ],
-        { model, ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }) },
+        { model, ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }) },
       );
     } catch (err) {
       log.warn('lookup: classifier failed', { channel: channelId, status: err.statusCode ?? null, name: err.name });
@@ -4507,15 +4512,15 @@ export function createTurnRunner({
       const planTimeoutMs = diaryCfg.planTimeoutMs ?? 60000;
       // A hedged plan request gets the plan's own limit, not llm.hedge.timeoutMs.
       const hedge = hedgeSettings(config);
-      const planHedge = hedge && hedge.afterMs > 0 && hedge.roles.includes('reasoner')
+      const planHedge = hedge && hedge.afterMs > 0 && hedge.roles.includes('analyzer')
         ? { hedge: { afterMs: hedge.afterMs, timeoutMs: planTimeoutMs } }
         : {};
       let completion = null;
       try {
         completion = await llm.complete(request.messages, {
-          model: roleModel(config, 'reasoner', 'diary-plan'),
+          model: roleModel(config, 'analyzer', 'diary-plan'),
           ...helperRequestOptions(config, {
-            role: 'reasoner',
+            role: 'analyzer',
             maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 2000,
             purpose: 'diary-plan',
             timeoutMs: planTimeoutMs,

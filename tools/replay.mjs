@@ -406,8 +406,8 @@
 //    messages before the trigger (cached captions with
 //    features.mediaDescriptions on, cached video states with video vision on,
 //    cached link reads with features.webLookup and web.links on) and the
-//    `<candidate>` line; on the reasoner model (roleModel) with helperRequestOptions
-//    (role `reasoner`, `web.search.classifierMaxOutputTokens`, purpose
+//    `<candidate>` line; on the analyzer model (roleModel) with helperRequestOptions
+//    (role `analyzer`, `web.search.classifierMaxOutputTokens`, purpose
 //    `lookup`); the answer parsed by src/behavior/recall.js#parseLookupAnswer
 //    at the trigger's time;
 // 2. when the answer has a server part, the `run()` of
@@ -1172,7 +1172,7 @@ async function runRecall({ hot, mods, llm, store, guild, guildId, channel, self,
   // The skills list of skills discovery is left empty: a replay reads only the search lines.
   const lookupSystem = fillPromptTemplate(prompt, { today: zonedDay(at, timezone), name: selfName ?? '', skills: '' });
   const lookupUser = `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
-  const model = roleModel(config, 'reasoner', 'lookup');
+  const model = roleModel(config, 'analyzer', 'lookup');
   let classifierRaw = null;
   let classifierError = null;
   try {
@@ -1181,7 +1181,7 @@ async function runRecall({ hot, mods, llm, store, guild, guildId, channel, self,
         { role: 'system', content: lookupSystem },
         { role: 'user', content: lookupUser },
       ],
-      { model, ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 200, purpose: 'lookup', signal }) },
+      { model, ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 200, purpose: 'lookup', signal }) },
     );
     classifierRaw = completion?.text ?? null;
   } catch (err) {
@@ -2665,7 +2665,7 @@ export function loopCall({ simulate, runTool = null, inTurn, needsFollowUp, now 
  * nothing after it is read), null when none would run or the engine has none (`prefetchLanes`,
  * `prefetchOn`, `recallSettings` its pure parts). Nothing reaches the store or data/.
  */
-export function createReplayTools({ hot, store, guild, guildId, channel, selfId, selfName, llm, createLookup, createRecall, runWebSearch, runMemorySearch, discord, describer = null, searches = {}, keys = {}, sources = {}, embed = null, mediaCache = null, prefetchLanes = null, prefetchOn = null, recallSettings = null }) {
+export function createReplayTools({ hot, store, guild, guildId, channel, selfId, selfName, llm, createLookup, createRecall, runWebSearch, runMemorySearch, runWebRead = null, pageFetcher = null, linkOfMessage = null, discord, describer = null, searches = {}, keys = {}, sources = {}, embed = null, mediaCache = null, prefetchLanes = null, prefetchOn = null, recallSettings = null }) {
   const data = store.state?.data ?? {};
   const media = structuredClone(mediaCache ?? {});
   const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
@@ -2727,6 +2727,15 @@ export function createReplayTools({ hot, store, guild, guildId, channel, selfId,
       if (skill === 'web.search') {
         const lookup = createLookup({ hot, store: webStore, llm: client, state: webState, searches, keys });
         return { result: await runWebSearch({ lookup, config: hot.config, labels, guildId, args }), usage };
+      }
+      // web.read: the page fetched for real (no model request, free), into the private cache copy.
+      if (skill === 'web.read' && typeof runWebRead === 'function' && pageFetcher) {
+        const lookup = createLookup({ hot, store: webStore, llm: client, state: webState, pageFetcher, searches, keys });
+        const linkOf = (id) => {
+          const message = history.find((item) => String(item?.id) === String(id));
+          return message && typeof linkOfMessage === 'function' ? linkOfMessage(message) : null;
+        };
+        return { result: await runWebRead({ lookup, config: hot.config, labels, guildId, args, linkOf }), usage };
       }
       if (skill === 'memory.search') {
         const result = await runMemorySearch({ recall: recallOf(client), store, config: hot.config, labels, guild, guildId, channel, partner: null, selfId, selfName, history, decorate: null, args, now: at });
@@ -3678,7 +3687,7 @@ const DIRECT_CALL_KINDS = Object.freeze(['mention', 'reply', 'name', 'followUp',
  * What a live turn with features.coreTools off runs before her reply (src/behavior/turn.js#maybeLookup,
  * the classifier path; the turn planner's is not reproduced): the search classifier -- prompts.lookup
  * with `{{name}}`, `{{today}}` (`at`'s day in `bot.timezone`) and `{{skills}}` (`discovery.index`), the
- * user part lookupClassifierInput builds, on the `reasoner` (roleModel, helperRequestOptions, purpose
+ * user part lookupClassifierInput builds, on the `analyzer` (roleModel, helperRequestOptions, purpose
  * `lookup`) -- asked when its prompt is there and a side can run: the web side under
  * features.webLookup, web.search.enabled, `web.search.maxPerTurn` >= 1, the lookup's search and its
  * daily slots; the server side when the recall runner is available. Its answer (parseLookupAnswer) runs
@@ -3716,7 +3725,7 @@ export async function preTurnLookup({ config, prompts, llm, lookup, recall, disc
         { role: 'system', content: fillPromptTemplate(prompt, { today: zonedDay(at, timezone), name: selfName ?? '', skills: discovery.index }) },
         { role: 'user', content: user },
       ],
-      { model: roleModel(config, 'reasoner', 'lookup'), ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }) },
+      { model: roleModel(config, 'analyzer', 'lookup'), ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }) },
     );
     if (String(completion?.text ?? '').trim()) parsed = parseLookupAnswer(completion.text, { timezone, now: at, maxForms: recallSettings(config)?.maxForms, skillNames: discovery.names });
     else trace.error = 'empty';
@@ -3987,7 +3996,13 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
   const { createRecall } = await load('behavior/recall-run.js');
   const { createDescriber } = await load('memory/describe.js');
   const { createDiscordInterface } = await load('interface/discord.js');
-  const { runWebSearch, runMemorySearch, IN_TURN_TOOLS } = await load('skills/tools.js');
+  const { runWebSearch, runMemorySearch, runWebRead = null, firstLinkIn = null, IN_TURN_TOOLS } = await load('skills/tools.js');
+  // web.read (absent from an older engine: its calls fail as an unknown tool's).
+  const { createPageFetcher = null } = await load('web/fetch-page.js').catch(() => ({}));
+  const { collectReadableLinks = null } = await load('media/classify.js').catch(() => ({}));
+  const pageFetcher = typeof createPageFetcher === 'function' ? createPageFetcher() : null;
+  const linkOfMessage = (message) =>
+    (typeof collectReadableLinks === 'function' ? collectReadableLinks(message)[0]?.url : null) ?? (typeof firstLinkIn === 'function' ? firstLinkIn(message?.content) : null);
   const { needsFollowUp } = await load('skills/executors.js');
   const { coreToolRows, skillsIndex, discoveryOn } = await load('skills/discovery.js');
   // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
@@ -4047,7 +4062,7 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
     },
     toolsFor: ({ hot: sideHot, channel, llm }) =>
       createReplayTools({
-        hot: sideHot, store, guild, guildId, channel, selfId: self.id, selfName: self.name, llm, createLookup, createRecall, runWebSearch, runMemorySearch,
+        hot: sideHot, store, guild, guildId, channel, selfId: self.id, selfName: self.name, llm, createLookup, createRecall, runWebSearch, runMemorySearch, runWebRead, pageFetcher, linkOfMessage,
         discord, describer, searches, keys, sources, embed, mediaCache, prefetchLanes, prefetchOn, recallSettings,
       }),
   };

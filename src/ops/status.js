@@ -5,7 +5,7 @@
 // the keys, costs, memory and speed fields. Every field lists one item per line; the state field ends
 // with the gateway and the uptime. The core comes first (`models.base`, `keys.base`, `costs.base`),
 // then the agents (`models.agents`, `costs.agents`). The models sit in two fields, one line per role, `<role> · <model> ...`:
-// `models.base` (voice, analyzer, reasoner, extractor, vision, video, embedding) and `models.agents` (web, server,
+// `models.base` (voice, analyzer, extractor, vision, video, embedding) and `models.agents` (web, server,
 // thinker, dev, writer, which an OpenCode worker runs, so they are never probed; then drawing). The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
@@ -67,7 +67,6 @@ const TOOL_ROLES = new Set(Object.values(TOOL_PROFILES).map((profile) => profile
 const MODEL_GROUPS = Object.freeze([
   { name: 'voice', roles: ['voice'] },
   { name: 'analyzer', roles: ['analyzer'], unlistedPurposes: true },
-  { name: 'reasoner', roles: ['reasoner'] },
   { name: 'extractor', roles: ['extractor'] },
   { name: 'vision', roles: ['vision'] },
   { name: 'video', roles: ['video'] },

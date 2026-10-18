@@ -16,7 +16,7 @@
 // a config view of this process only; `features.webLookup` and `web.search.enabled` forced on,
 // `web.maxPerDay` forced to 1 over a fresh counter), with the real clients: src/web/brave.js
 // (BRAVE_SEARCH_API_KEY), src/web/exa.js (keyless; EXA_API_KEY when set), and the summary on the
-// `reasoner` as production sends it. The cache is bypassed: every search gets a fresh lookup over a
+// `analyzer` as production sends it. The cache is bypassed: every search gets a fresh lookup over a
 // fresh in-memory state and a store stub whose media cache is a new empty object, so the cache key
 // (`search:<sha1 of the normalized query>`) never hits and nothing is kept. An engine the lookup
 // cannot run (Brave without its key) is `skipped` for every row. The tool never retries beyond

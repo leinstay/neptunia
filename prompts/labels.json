@@ -129,11 +129,14 @@
     "videoRewatch": "If someone asks you a concrete question about a video you watched, you may get a second look at the clip — marked as such in the transcript and first-hand too; otherwise your summary is all you remember.",
     "voice": "Voice messages and audio files show only a duration — you cannot hear them.",
     "links": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. You cannot open the page itself.",
+    "linksTool": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. A link may also show the opening of the page as a preview. You can read the whole page with web.read.",
     "linksWatch": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. A linked video may come watched (first-hand) or not watched with the reason, same rules as any video: a limit means this one, not all. You still cannot open the page itself.",
-    "linksRead": "A link may come with a read excerpt — first-hand, you read that part of the page yourself, but nothing beyond it.",
+    "linksWatchTool": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. A linked video may come watched (first-hand) or not watched with the reason, same rules as any video: a limit means this one, not all. A link may also show the opening of the page as a preview. You can read the whole page with web.read.",
+    "linksRead": "A link's preview is the opening of the page's own text, first-hand. It is not the whole page.",
     "search": "A search either ran before your reply or did not happen at all. A <lookup> block is what you found online, first-hand. No block means no search happened; never say you searched, are searching, or will search, and never invent results. Answer from what you know or say you did not look it up.",
     "recall": "A search of this server's old messages either ran before your reply or did not happen. The server part of <lookup> is what the search found, a sample of old messages, not the whole history; a quoted stretch is the chat as it was and outranks the helper's account. When a stretch resolves what someone referred to, answer from it rather than asking them to repeat; when nothing found matches, say so plainly, never feign recognition. No server part means nothing was looked up there; never claim to be scrolling back or will check, and never invent what was said: answer from what you remember or say you do not remember.",
-    "searchTool": "Nothing is searched for you before your reply. To look something up online, call web.search in this turn. What it finds comes back in a <result> block: search snippets condensed by a helper, the pages not opened. Without a call, nothing was searched. Never claim you searched when you made no call, and never invent results.",
+    "searchTool": "Nothing is searched for you before your reply. To look something up online, call web.search in this turn. What it returns is in a <result> block: raw search results, each with a title, link, snippet and site. The pages were not opened. Without a call, nothing was searched. Never claim you searched when you made no call, and never invent results.",
+    "readTool": "To read a page yourself, call web.read in this turn with its link, or with a message #N that holds one. The page's own text comes back in a <result> block, cut at a length. It is not a summary.",
     "recallTool": "To search this server's old messages, call memory.search in this turn. The messages come back quoted in a <result> block, each with its time and author; a sample, not the whole history. When someone refers to something you shared and what you have in front of you is not enough, search before saying you do not remember. Automatically retrieved historical context may already be present; memory.search finds more when that falls short. What comes back may be incomplete or unrelated. Without a call, nothing was looked up there. Never claim to be scrolling back or promise to check, and never invent what was said.",
     "files": "Text files show their beginning; other files show only a name.",
     "time": "Message times are in the same timezone as <now>, and older messages also show how long ago they were posted. How long ago something in the chat happened is the age of its own messages, never a duration between two messages or a <tempo> figure: that duration is only the silence between those two.",
@@ -333,7 +336,7 @@
       },
       "agentNoRuns": "{agent} · no runs recorded",
       "agentContext": "{agent} · wave {wave}: {turns} turns, context avg {mean}, peak {peak}, {usd} USD",
-      "agentEstimate": "agent USD is OpenCode's estimate at each agent's own price, not the provider's bill"
+      "agentEstimate": "agent USD is OpenCode's estimate at each agent's model price; drawing shows the provider's cost per picture"
     }
   },
   "warmup": {
@@ -518,16 +521,29 @@
         "attachment-too-large": "the file is too large for this chat",
         "file-unreadable": "the file could not be read",
       "no-query": "nothing to search for after expanding the question; try naming people or exact terms",
+        "no-link": "that message has no link to read",
+        "scheme": "that is not a web address",
+        "private": "that address is private or local",
+        "type": "the page is not text",
+        "size": "the page is too large to read",
+        "http": "the server returned an error",
+        "network": "the page could not be reached",
+        "redirects": "the page redirected too many times",
         "other": "something went wrong"
       }
     },
     "tools": {
-      "lead": "Your own tools. web.search and memory.search run now and come back in this same turn. task.run hands a goal to an agent; its result arrives later in a separate turn:",
+      "lead": "Your own tools. web.search, web.read and memory.search run now and come back in this same turn. task.run hands a goal to an agent; its result arrives later in a separate turn:",
       "web": {
-        "source": "Source: web.search, query \"{query}\". Search result snippets condensed by a helper; the pages were not opened.",
+        "source": "Source: web.search, query \"{query}\". Raw search results: title, link, site, date when known, snippet per result. The pages were not opened.",
         "goal": "Goal: {goal}",
-        "sources": "Sources:",
         "none": "Nothing found."
+      },
+      "read": {
+        "source": "Source: web.read, {url}. The page's own text as extracted, not a summary; at most {maxChars} characters.",
+        "title": "Title: {title}",
+        "cut": "Cut at {maxChars} characters; the rest of the page is not shown.",
+        "none": "The page had no readable text."
       },
       "memory": {
         "source": "Source: memory.search, this server's message history. Quoted messages as they were written, each with its time and author; a sample, not the whole history.",

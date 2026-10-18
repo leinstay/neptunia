@@ -49,6 +49,7 @@ export const BODY_ARGS = Object.freeze({
   'learning.add': 'text',
   'lore.add': 'text',
   'web.search': 'query',
+  'web.read': 'url',
   'memory.search': 'question',
 });
 

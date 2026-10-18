@@ -161,7 +161,7 @@ function fakeLlm(text) {
 const CONFIG = {
   bot: { timezone: 'UTC' },
   llm: { helperTimeoutMs: 25_000 },
-  models: { base: { analyzer: 'x/text', reasoner: 'x/reason' } },
+  models: { base: { analyzer: 'x/text', extractor: 'x/extract' } },
   web: { search: { classifierMaxOutputTokens: 321 } },
   recall: { maxForms: 6 },
 };
@@ -185,14 +185,14 @@ function ask(llm, { offer = { channels: ['1 | #a | | ', '2 | #b | | ', '3 | #c |
   );
 }
 
-test('askPlanner: one request on the reasoning role, purpose planner, capped at the search classifier\'s output cap', async () => {
+test('askPlanner: one request on the analyzer role, purpose planner, capped at the search classifier\'s output cap', async () => {
   const llm = fakeLlm('channel: 2\nepisodes: 1\nrewatch: none\nlookup: none');
   const { result, logs } = await ask(llm);
   assert.equal(llm.calls.length, 1);
   const { options, messages } = llm.calls[0];
-  assert.equal(options.role, 'reasoner');
+  assert.equal(options.role, 'analyzer');
   assert.equal(options.purpose, 'planner');
-  assert.equal(options.model, 'x/reason');
+  assert.equal(options.model, 'x/text');
   assert.equal(options.maxOutputTokens, 321);
   assert.equal(options.timeoutMs, 25_000);
   assert.equal(options.helper, true);
