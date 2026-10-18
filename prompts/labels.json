@@ -336,7 +336,7 @@
       },
       "agentNoRuns": "{agent} · no runs recorded",
       "agentContext": "{agent} · wave {wave}: {turns} turns, context avg {mean}, peak {peak}, {usd} USD",
-      "agentEstimate": "agent USD is OpenCode's estimate at each agent's own price, not the provider's bill"
+      "agentEstimate": "agent USD is OpenCode's estimate at each agent's model price; drawing shows the provider's cost per picture"
     }
   },
   "warmup": {

@@ -7,5 +7,5 @@
   "tool": "draw",
   "limits": { "seconds": 300 },
   "daily": { "tasks": 100, "usd": 5 },
-  "description": "Draws the persona's pictures: no model loop and no process, the core runs the Images pipeline with her scene as she wrote it (the draw prompt, the appearance and the time around it, the avatar as reference for a picture she is in)."
+  "description": "Draws the persona's pictures: no model loop and no process; the core runs the Images pipeline with the persona's scene, the draw prompt with appearance and local time, and the avatar as reference for a picture the persona is in."
 }

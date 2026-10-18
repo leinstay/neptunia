@@ -977,12 +977,12 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 
 ### `agents.drawing`
 
-The drawing agent (a `tool` agent: the core runs it, no runner), see [The drawing agent](agents.md#the-drawing-agent).
+The drawing agent (a `tool` agent: the core runs it, no runner). See [The drawing agent](agents.md#the-drawing-agent).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `limits` | `{ "seconds": 300 }` | The most one picture may take (wall-clock seconds); a longer run is cut off and counts as a timed-out generation |
-| `daily` | `{ "tasks": 100, "usd": 5 }` | Per-day caps (UTC day), applied core-side before a picture starts, with the same limit notice as `image.maxPerDay`: `tasks` pictures, and `usd` once the day's finished pictures reported that much cost |
+| `limits` | `{ "seconds": 300 }` | How long one picture may take (wall-clock seconds); a longer run is cut off and counts as a timed-out generation |
+| `daily` | `{ "tasks": 100, "usd": 5 }` | Per-day caps (UTC day), applied core-side before a picture starts, with the same limit notice as `image.maxPerDay`: `tasks` is a picture count; `usd` is the total cost reported by finished pictures that day |
 
 ### `agents.thinker`, `agents.dev`, `agents.writer`
 
