@@ -2444,12 +2444,12 @@ test('status: the owner card probes every role\'s model and shows its provider a
   assert.match(lines[1], /^analyzer · x\/text · Prov · ok \d+ ms$/);
   assert.ok(lines.includes('vision · x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
   assert.deepEqual(agents.slice(0, 5), [
-    `web · ${ROLE_DEFAULTS.web} · not probed (runs on OpenCode)`,
-    `server · ${ROLE_DEFAULTS.server} · not probed (runs on OpenCode)`,
-    `thinker · ${ROLE_DEFAULTS.thinker} · not probed (runs on OpenCode)`,
-    `dev · ${ROLE_DEFAULTS.dev} · not probed (runs on OpenCode)`,
-    `writer · ${ROLE_DEFAULTS.writer} · not probed (runs on OpenCode)`,
-  ], 'the OpenCode roles first, never probed');
+    `web · ${ROLE_DEFAULTS.web}`,
+    `server · ${ROLE_DEFAULTS.server}`,
+    `thinker · ${ROLE_DEFAULTS.thinker}`,
+    `dev · ${ROLE_DEFAULTS.dev}`,
+    `writer · ${ROLE_DEFAULTS.writer}`,
+  ], 'the OpenCode roles first, just role and model');
   assert.match(agents[5], /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
   assert.equal(agents.length, 6);
   assert.ok(!llm.calls.some((call) => ['web', 'server', 'thinker', 'dev', 'writer'].includes(call.options.role)), 'no request goes out on an OpenCode role');
