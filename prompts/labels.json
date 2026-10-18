@@ -398,7 +398,7 @@
     "channelNoPurpose": "#{channel}:",
     "episode": "{when} ago:",
     "skipped": "[{count} messages skipped]",
-    "earlierHeader": "Earlier in this channel, before the chat below (last {hours} hours):",
+    "earlierHeader": "Earlier in this channel, before the chat below:",
     "earlierGap": "[...]",
     "earlierOpen": "(not answered yet)"
   },
