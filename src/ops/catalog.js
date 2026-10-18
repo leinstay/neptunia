@@ -62,7 +62,6 @@ export const DEFERRED_OPS = Object.freeze(new Set([
 export const MODEL_ROLE_PATHS = Object.freeze({
   voice: 'models.base.voice',
   analyzer: 'models.base.analyzer',
-  reasoner: 'models.base.reasoner',
   extractor: 'models.base.extractor',
   vision: 'models.base.vision',
   video: 'models.base.video',
@@ -432,6 +431,15 @@ export const COMMAND_TABLE = Object.freeze([
           { type: STRING, name: 'goal', description: 'What the search should establish.', required: false, max_length: 300 },
         ],
         args: (options) => ({ query: options.getString('query', true), goal: options.getString('goal') ?? undefined }),
+      },
+      {
+        name: 'read',
+        description: "Read one web page: its own text, cut (no summary).",
+        options: [{ type: STRING, name: 'url', description: 'The page link (http or https).', required: false, max_length: 2000 }],
+        // When the persona herself calls it she may name a message she sees (`#N`) instead of a
+        // link: an argument only she has (src/skills/derive.js), never shown to Discord.
+        personaOptions: [{ type: STRING, name: 'message', description: 'A message whose link to read.', required: false, max_length: 100 }],
+        args: (options) => ({ url: options.getString('url') ?? undefined, message: options.getString('message') ?? undefined }),
       },
     ],
   },

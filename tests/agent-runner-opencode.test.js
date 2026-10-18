@@ -449,12 +449,12 @@ test('opencode: the server agent\'s child trusts every git repository and never 
 test('opencode: the web child finds its own commands and node first on its PATH, and gets the search model of the config read at the task', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
-  const config = { models: { base: { reasoner: 'openrouter-x/cheap-one' } } };
+  const config = { models: { base: { analyzer: 'openrouter-x/cheap-one' } } };
   const web = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile), pathDirs: WEB.pathDirs }, outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k', PATH: '/usr/bin:/bin' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });
   const first = (await envOfRun(web, spawn, { id: 'p1' })).env;
   assert.equal(first.PATH, [WEB_TOOLS_DIR, path.dirname(process.execPath), '/usr/bin:/bin'].join(path.delimiter));
   assert.equal(first[WEB_SEARCH_MODEL_ENV], 'openrouter-x/cheap-one');
-  config.models.base.reasoner = 'openrouter-x/cheap-two';
+  config.models.base.analyzer = 'openrouter-x/cheap-two';
   assert.equal((await envOfRun(web, spawn, { id: 'p2', model: 'openrouter/x-ai/task-model' })).env[WEB_SEARCH_MODEL_ENV], 'openrouter-x/cheap-two', 'read at each task, a task model too');
 
   const server = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile, 'server'), pathDirs: SERVER.pathDirs }, outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k', PATH: '/usr/bin:/bin' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });

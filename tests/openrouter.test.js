@@ -1444,15 +1444,15 @@ test('matchRoute: names the matching key and its role, or null', () => {
   assert.deepEqual(matchRoute('a@b/model-x', { 'a@b@voice': STUDIO }, 'voice'), { key: 'a@b@voice', prefix: 'a@b', role: 'voice', value: STUDIO });
 });
 
-test('matchRoute: a role never takes another role\'s key: the reasoner skips an analyzer key for a role-less one', () => {
-  const REASON = { only: ['reason-provider'] };
+test('matchRoute: a role never takes another role\'s key: the extractor skips an analyzer key for a role-less one', () => {
+  const EXTRACT = { only: ['extract-provider'] };
   const byModel = { 'x/': VERTEX, 'x/@analyzer': STUDIO };
-  assert.deepEqual(matchRoute('x/model', byModel, 'reasoner'), { key: 'x/', prefix: 'x/', role: null, value: VERTEX }, 'the analyzer route is not the reasoner\'s');
-  assert.equal(matchRoute('x/model', { 'x/@analyzer': STUDIO }, 'reasoner'), null);
-  assert.deepEqual(matchRoute('x/model', { ...byModel, 'x/@reasoner': REASON }, 'reasoner')?.value, REASON, 'its own key wins');
-  assert.deepEqual(matchRoute('x/model', { 'x/model@analyzer': STUDIO, 'x/@reasoner': REASON }, 'reasoner')?.value, REASON, 'its own key wins whatever the lengths');
-  assert.equal(matchRoute('x/model', { 'x/@reasoner': REASON }, 'analyzer'), null, 'nor the other way round');
-  assert.equal(resolveProvider('x/model', { byModel, role: 'reasoner' }), VERTEX);
+  assert.deepEqual(matchRoute('x/model', byModel, 'extractor'), { key: 'x/', prefix: 'x/', role: null, value: VERTEX }, 'the analyzer route is not the extractor\'s');
+  assert.equal(matchRoute('x/model', { 'x/@analyzer': STUDIO }, 'extractor'), null);
+  assert.deepEqual(matchRoute('x/model', { ...byModel, 'x/@extractor': EXTRACT }, 'extractor')?.value, EXTRACT, 'its own key wins');
+  assert.deepEqual(matchRoute('x/model', { 'x/model@analyzer': STUDIO, 'x/@extractor': EXTRACT }, 'extractor')?.value, EXTRACT, 'its own key wins whatever the lengths');
+  assert.equal(matchRoute('x/model', { 'x/@extractor': EXTRACT }, 'analyzer'), null, 'nor the other way round');
+  assert.equal(resolveProvider('x/model', { byModel, role: 'extractor' }), VERTEX);
 });
 
 test('countLlmRequest: counts one request of the day on the shared counter, refuses at the cap without counting', () => {
@@ -2826,7 +2826,7 @@ test('hedgeSettings: llm.hedge.roles listing talk reads as voice', async () => {
   assert.deepEqual(result.roles, ['voice', 'analyzer']);
 });
 
-test('currentRoleName: talk reads as voice and says so once per process; any other value passes through', async () => {
+test('currentRoleName: talk reads as voice, reasoner as analyzer, each said once per process; any other value passes through', async () => {
   // A fresh instance of the module: its report-once flag is not touched by the tests above.
   const fresh = await import(`../src/llm/openrouter.js?retired-role=${Date.now()}`);
   const { result, logs } = await withCapturedLogs(() => [
@@ -2838,9 +2838,13 @@ test('currentRoleName: talk reads as voice and says so once per process; any oth
     fresh.currentRoleName(7),
     fresh.matchRoute('x/model', { 'x/@talk': BEDROCK }, 'voice')?.role,
     fresh.cacheTtlFor({ features: { promptCache: true }, llm: { cache: { roles: ['talk'] } } }, 'voice', 'anthropic/m'),
+    fresh.currentRoleName('reasoner'),
+    fresh.matchRoute('x/model', { 'x/@reasoner': BEDROCK }, 'analyzer')?.role,
+    fresh.hedgeSettings({ llm: { hedge: { roles: ['analyzer', 'reasoner'] } } }).roles,
   ]);
-  assert.deepEqual(result, ['voice', 'voice', 'voice', 'extractor', undefined, 7, 'voice', '1h']);
+  assert.deepEqual(result, ['voice', 'voice', 'voice', 'extractor', undefined, 7, 'voice', '1h', 'analyzer', 'analyzer', ['analyzer', 'analyzer']]);
   assert.equal(logs.filter((line) => line.msg === 'config: role talk is now voice').length, 1);
+  assert.equal(logs.filter((line) => line.msg === 'config: role reasoner is now analyzer').length, 1);
   assert.equal(currentRoleName('video'), 'video');
 });
 

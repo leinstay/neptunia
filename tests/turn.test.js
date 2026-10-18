@@ -2353,7 +2353,7 @@ function lookupHot(features = {}, web = {}, config = {}) {
     { webLookup: true, vision: false, ...features },
     {},
     {
-      models: { base: { analyzer: 'x/text', reasoner: 'x/reason' } },
+      models: { base: { analyzer: 'x/text', extractor: 'x/extract' } },
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
       web: {
         maxPerDay: 60,
@@ -2426,7 +2426,7 @@ test('createTurnRunner: lookup -- the classifier gets the transcript and the can
   assert.ok(user.includes('[page read: une recette]'), 'the classifier transcript carries the reads');
   assert.ok(user.endsWith('</transcript>\n<candidate>\nZoë: ποιος κέρδισε τον τελικό;\n</candidate>'), user);
   assert.ok(!user.split('<candidate>')[0].includes('ποιος κέρδισε'), 'the trigger only in <candidate>');
-  assert.equal(options.model, 'x/reason', 'the lookup is a reasoner request');
+  assert.equal(options.model, 'x/text', 'the lookup is an analyzer request');
   assert.equal(options.timeoutMs, 25_000, 'a helper: llm.helperTimeoutMs, not the reply timeout');
   assert.equal(options.skipCalibration, true);
   assert.equal(options.countAgainstDailyCap, true);
@@ -3881,12 +3881,12 @@ test('createTurnRunner: the text-only retry after a 4xx image error is requested
   assert.deepEqual(llm.optionCalls.map((o) => [o?.role, o?.purpose]), [['voice', 'reply'], ['voice', 'reply']]);
 });
 
-test('createTurnRunner: the rewatch classifier is requested as analyzer, the lookup as reasoner, the turn as voice', async () => {
+test('createTurnRunner: the rewatch classifier and the lookup are requested as analyzer, the turn as voice', async () => {
   const rewatch = await runRewatch();
   assert.equal(rewatch.llm.classifierCalls[0].options.role, 'analyzer');
   assert.equal(rewatch.llm.turnCalls[0].options.role, 'voice');
   const lookup = await runLookupTurn();
-  assert.equal(lookup.llm.classifierCalls[0].options.role, 'reasoner');
+  assert.equal(lookup.llm.classifierCalls[0].options.role, 'analyzer');
   assert.equal(lookup.llm.turnCalls[0].options.role, 'voice');
 });
 
@@ -8473,7 +8473,7 @@ async function runPlannerTurn({ turnPlanner = true, llm = plannerLlm(), journal 
     {
       web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50, classifierMaxOutputTokens: 333 } },
       participation: { shown: 1 },
-      models: { base: { vision: 'x/haiku', reasoner: 'x/reason' } },
+      models: { base: { vision: 'x/haiku', analyzer: 'x/reason' } },
     },
   );
   Object.assign(hot.prompts, { planner: PLANNER_SYSTEM, lookup: LOOKUP_SYSTEM, 'route-channel': ROUTE_SYSTEM, 'participation-pick': PICK_SYSTEM });
@@ -8518,7 +8518,7 @@ test('turn planner: one request instead of four, and each consumer gets what the
   assert.equal(on.llm.helperCalls(), 1, 'none of the four old classifiers is asked');
   assert.equal(on.llm.calls.turn.length, 1);
   const { messages, options } = on.llm.calls.planner[0];
-  assert.equal(options.role, 'reasoner');
+  assert.equal(options.role, 'analyzer');
   assert.equal(options.purpose, 'planner');
   assert.equal(options.model, 'x/reason');
   assert.equal(options.maxOutputTokens, 333);

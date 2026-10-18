@@ -1638,7 +1638,8 @@ function lookupCandidates(lookup, labels, timezone) {
  * `recallAvailable` (outside a private chat) adds `senses.recall` right after the search line.
  * With `features.coreTools` exactly true no search runs before her reply: the search line is
  * `senses.searchTool` and the recall line `senses.recallTool`, each only when `toolsGranted`
- * (her granted in-turn tools) holds `web.search` / `memory.search`; else neither.
+ * (her granted in-turn tools) holds `web.search` / `memory.search`; else neither. With the switch
+ * on, features.webLookup on and `web.read` granted, `senses.readTool` follows the links lines.
  * `customEmoji` (the `<emoji>` block is possible) adds `senses.customEmoji`;
  * `gifs` (features.gifs on and a non-empty library) adds `senses.gifs` right after it.
  * `gifWatching` (GIFs are watched now, src/memory/gif-watch.js#gifWatchBlocker)
@@ -1722,6 +1723,8 @@ function renderSenses(
   const searchOn = webOn && config.web?.search?.enabled !== false && searchAvailable === true;
   lines.push(senses.voice, videoOn ? (senses.linksWatch ?? senses.links) : senses.links);
   if (readOn && senses.linksRead) lines.push(senses.linksRead);
+  // Her own page reader (features.coreTools, granted to her by name): she can open a page herself.
+  if (webOn && coreTools && granted('web.read') && senses.readTool) lines.push(senses.readTool);
   if (searchOn && coreTools) {
     if (granted('web.search') && senses.searchTool) lines.push(senses.searchTool);
   } else if (searchOn && senses.search) lines.push(senses.search);

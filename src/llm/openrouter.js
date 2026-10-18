@@ -192,7 +192,7 @@ const HELPER_TIMEOUT_MS_FALLBACK = 30000;
 
 /**
  * The options of one in-turn helper request -- a short call made on the way to
- * a reply (the `analyzer` and `reasoner` passes: address, re-watch, search,
+ * a reply (the `analyzer` passes: address, re-watch, search,
  * link read, search summary; the picture describer) -- so every helper is
  * spelled the same way: counted against `llm.maxRequestsPerDay`, never fed to
  * the calibration (a short or a vision prompt says nothing about the text
@@ -239,13 +239,13 @@ export function helperRequestOptions(config, { role, maxOutputTokens, purpose, s
 }
 
 /** `llm.hedge`, key by key, when the group is there but a key is missing or invalid: config.json's values. */
-const HEDGE_FALLBACK = Object.freeze({ roles: Object.freeze(['analyzer', 'reasoner']), afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 });
+const HEDGE_FALLBACK = Object.freeze({ roles: Object.freeze(['analyzer']), afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 });
 
 /**
  * The hedge settings of the live config, or null when `llm.hedge` is not an object (no hedge at
  * all, every request as without it). Inside the group a key that is missing or invalid reads as
  * config.json's: `roles` (the `options.role` values whose helper requests are hedged, each read
- * through `currentRoleName`; not an array -> `['analyzer', 'reasoner']`), `afterMs` (how long the first attempt is given before a second one is
+ * through `currentRoleName`; not an array -> `['analyzer']`), `afterMs` (how long the first attempt is given before a second one is
  * sent; a finite number >= 0, 0 = no hedge; else 2500), `timeoutMs` (the limit of the whole
  * hedged call, both attempts included; a finite number > 0, else 8000) and `longTimeoutMs` (the
  * same limit for a helper marked `long`, whose answer is a summary of several hundred tokens; a
@@ -381,32 +381,38 @@ export const REPLY_REQUEST = Object.freeze({ role: 'voice', purpose: 'reply' });
  */
 export const MEMORY_VOICE_REQUEST = Object.freeze({ role: 'voice', purpose: 'memory-voice', cache: false });
 
-/** The former name of the role `voice` (the model that speaks as the persona, `models.base.voice`). */
-const RETIRED_ROLE = 'talk';
-/** The role it is read as. */
-const VOICE_ROLE = 'voice';
-/** Whether the retired role name was already reported in this process. */
-let retiredRoleReported = false;
+/**
+ * The former role names a deployment's config may still carry, each with the role it is read as:
+ * `talk`, the former name of `voice` (the model that speaks as the persona), and `reasoner`, the
+ * helper role merged into `analyzer` (2026-10).
+ */
+const RETIRED_ROLES = new Map([
+  ['talk', 'voice'],
+  ['reasoner', 'analyzer'],
+]);
+/** The retired role names already reported in this process. */
+const retiredRolesReported = new Set();
 
 /**
  * A role name as written in a deployment's config, read under today's names: `talk`, the
- * former name of the role `voice`, is `voice`; anything else is returned as it is. The one
- * reader of the old name, used by the three places a config may still carry it -- the role
- * suffix of an `llm.providerByModel` key (`matchRoute`), `llm.cache.roles` (`cacheTtlFor`) and
- * `llm.hedge.roles` (`hedgeSettings`) -- so an existing deployment keeps routing, caching and
- * hedging the reply as before. The first `talk` seen in a process logs
- * `config: role talk is now voice`; later ones stay quiet. Requests never carry the old name:
- * a request's own `options.role` is never read through this.
+ * former name of the role `voice`, is `voice`; `reasoner`, merged into `analyzer`, is
+ * `analyzer`; anything else is returned as it is. The one reader of the old names, used by the
+ * three places a config may still carry them -- the role suffix of an `llm.providerByModel` key
+ * (`matchRoute`), `llm.cache.roles` (`cacheTtlFor`) and `llm.hedge.roles` (`hedgeSettings`) -- so
+ * an existing deployment keeps routing, caching and hedging those requests as before. The first
+ * old name seen in a process logs `config: role <old> is now <new>` once; later ones stay quiet.
+ * Requests never carry an old name: a request's own `options.role` is never read through this.
  * @param {unknown} role
  * @returns {unknown}
  */
 export function currentRoleName(role) {
-  if (role !== RETIRED_ROLE) return role;
-  if (!retiredRoleReported) {
-    retiredRoleReported = true;
-    log.warn('config: role talk is now voice', { role: RETIRED_ROLE, use: VOICE_ROLE });
+  if (typeof role !== 'string' || !RETIRED_ROLES.has(role)) return role;
+  const use = RETIRED_ROLES.get(role);
+  if (!retiredRolesReported.has(role)) {
+    retiredRolesReported.add(role);
+    log.warn(`config: role ${role} is now ${use}`, { role, use });
   }
-  return VOICE_ROLE;
+  return use;
 }
 
 /**
@@ -1156,7 +1162,7 @@ export function createLlm({
    * configured routing in charge. Exists for the video describer, which pins
    * the provider that can fetch a public video URL.
    * `options.role` — which subprocess makes the request (`voice`, `analyzer`,
-   * `reasoner`, `extractor`, `vision`, `video`; the roles of src/llm/roles.js and
+   * `extractor`, `vision`, `video`; the roles of src/llm/roles.js and
    * `/nep model`), so a `"<prefix>@<role>"` key of
    * `llm.providerByModel` can route it; never sent. A call without a role
    * matches only role-less keys.

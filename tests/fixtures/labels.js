@@ -135,6 +135,7 @@ export const labels = {
     search: 'a question you cannot answer may come with a <lookup> block of what was found online',
     recall: 'a question about this server\'s own past may come with a server part in the <lookup> block',
     searchTool: 'call web.search yourself; results in <result>, snippets only',
+    readTool: 'call web.read yourself; the page text in <result>, cut',
     recallTool: 'call memory.search yourself; messages quoted in <result>',
     files: 'files show only their name, or a short preview for plain text ones',
     time: 'Times and ages test line.',
@@ -453,8 +454,9 @@ export const labels = {
       },
     },
     tools: {
-      lead: 'your tools; web.search and memory.search come back this turn, task.run later:',
-      web: { source: 'from web.search, query {query}; snippets, pages not opened', goal: 'to establish: {goal}', sources: 'sources:', none: 'nothing found' },
+      lead: 'your tools; web.search, web.read and memory.search come back this turn, task.run later:',
+      web: { source: 'from web.search, query {query}; raw results, pages not opened', goal: 'to establish: {goal}', none: 'nothing found' },
+      read: { source: 'from web.read, {url}; page text, cut at {maxChars}', title: 'title: {title}', cut: 'cut at {maxChars}', none: 'no readable text' },
       memory: { source: 'from memory.search; quoted messages with time and author', window: '{date} in #{channel}:', none: 'no messages found' },
     },
     refusals: {

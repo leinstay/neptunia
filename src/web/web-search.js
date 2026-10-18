@@ -12,8 +12,8 @@
 // The key is the task's OpenRouter key the runner already gives the OpenCode
 // child (OPENROUTER_API_KEY, the agents' key, never the persona's); the model
 // is the one the runner reads from the live config at each task
-// (webSearchModel: the `reasoner` role for `search-summary`, the lookup's
-// model) and passes as NEPTUNIA_WEB_SEARCH_MODEL. A failure prints one
+// (webSearchModel: the `analyzer` role for `web-search`, the model of the
+// persona's own web.search on the same engine) and passes as NEPTUNIA_WEB_SEARCH_MODEL. A failure prints one
 // `web-search: <code>` line on stderr and a non-zero exit; neither the key nor
 // a response body is ever printed. Pure but for `fetchImpl`.
 
@@ -38,13 +38,13 @@ const SNIPPET_CHARS = 240;
 const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2 });
 
 /**
- * The model the web agent searches with in `config` (the live engine config): the lookup's,
- * `models.base.reasoner` for the `search-summary` purpose (src/llm/roles.js#roleModel).
+ * The model the web agent searches with in `config` (the live engine config): the persona's own
+ * web.search's, `models.base.analyzer` for the `web-search` purpose (src/llm/roles.js#roleModel).
  * @param {object} config
  * @returns {string}
  */
 export function webSearchModel(config) {
-  return roleModel(config, 'reasoner', 'search-summary');
+  return roleModel(config, 'analyzer', 'web-search');
 }
 
 /**

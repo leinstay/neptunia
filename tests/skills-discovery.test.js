@@ -243,7 +243,7 @@ test('grantedSkillNames: a grant to everyone or a role, another user, no id, saf
   assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry: null }), []);
 });
 
-test('coreToolRows: her granted tools among web.search, memory.search and task.run, in that order, with their texts and arguments; her grants only', () => {
+test('coreToolRows: her granted tools among web.search, web.read, memory.search and task.run, in that order, with their texts and arguments; her grants only', () => {
   const registry = skillRegistry();
   const self = 'self-id';
   const grant = { everyone: false, roles: [], users: [self] };
@@ -255,5 +255,5 @@ test('coreToolRows: her granted tools among web.search, memory.search and task.r
   assert.deepEqual(rows[0].args.map((arg) => arg.name), ['question', 'people', 'channel', 'when', 'terms']);
   assert.equal(rows[0].args[0].body, true, 'the question is the body');
   assert.deepEqual(coreToolRows({ config: { ...config, skills: { safeMode: true } }, selfId: self, registry, texts }), [], 'safe mode lists none');
-  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'memory.search', 'task.run']);
+  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'web.read', 'memory.search', 'task.run']);
 });

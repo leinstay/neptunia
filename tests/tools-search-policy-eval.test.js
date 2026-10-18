@@ -29,7 +29,7 @@ function hotFixture(overrides = {}) {
     config: {
       bot: { timezone: 'UTC', nameTriggers: ['Persona'] },
       features: { skills: false },
-      models: { base: { reasoner: 'test/reasoner' } },
+      models: { base: { analyzer: 'test/analyzer' } },
       context: { maxMessageChars: 2000 },
       web: { search: { contextMessages: 50, classifierMaxOutputTokens: 300 } },
       llm: { helperTimeoutMs: 9000 },
@@ -99,14 +99,14 @@ test('search-policy-eval: three rows -> decisions, results.jsonl, the confusion 
   assert.match(summary, /## Disagreements \(1\)/);
   assert.match(summary, /\| r3 \| agent \| memory \| chess night, nikos \|/);
   assert.match(summary, /cost: 0\.0030 USD/);
-  assert.match(summary, /model: test\/reasoner/);
+  assert.match(summary, /model: test\/analyzer/);
   assert.doesNotMatch(summary, /\| r1 \||\| r2 \|/);
 
-  // The request is the turn's: the reasoner role, the helper options, the tool's origin, outside the daily cap.
+  // The request is the turn's: the analyzer role, the helper options, the tool's origin, outside the daily cap.
   assert.equal(llm.calls.length, 3);
   const { messages, options } = llm.calls[1];
-  assert.equal(options.model, 'test/reasoner');
-  assert.equal(options.role, 'reasoner');
+  assert.equal(options.model, 'test/analyzer');
+  assert.equal(options.role, 'analyzer');
   assert.equal(options.purpose, 'lookup');
   assert.equal(options.maxOutputTokens, 300);
   assert.equal(options.helper, true);
@@ -128,7 +128,7 @@ test('search-policy-eval: --dry-run prints the first request and sends nothing',
   const llm = fakeLlm();
   const out = await run([sheet, '--dry-run'], { dir, llmClient: llm });
   assert.equal(llm.calls.length, 0);
-  assert.match(out, /# row r2 \(model test\/reasoner\)/);
+  assert.match(out, /# row r2 \(model test\/analyzer\)/);
   assert.match(out, /## system\n\nToday is 2026-10-17\. You are Persona\./);
   assert.match(out, /## user\n\n<transcript>\n[\s\S]*<candidate>\n-: good night all\n<\/candidate>/);
   assert.deepEqual(fs.readdirSync(dir), ['sheet.jsonl']);

@@ -125,6 +125,7 @@ export const COMMAND_TO_OP = Object.freeze({
   'task.cancel': 'task.cancel',
   'task.list': 'task.list',
   'task.search': 'web.search',
+  'task.read': 'web.read',
   'memory.search': 'memory.search',
 });
 

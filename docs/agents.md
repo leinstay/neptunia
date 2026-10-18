@@ -13,7 +13,7 @@ Neither shell runs an interpreter or a command runner (`python`, `node`, `perl`,
 - The server shell has no `awk` (and `gawk` stays denied); `cut`, `sort`, `grep` and `jq` do the same jobs.
 - Neither shell can read its own environment, where the agent's API key lives: `echo` with any `$` is refused (plain text only), and so is `jq` naming `env` or `$ENV`.
 
-The web agent searches with `web-search <query> [--count N]` (`bin/web-search.mjs`, through `agents/web/bin/web-search` on its PATH): one OpenRouter request with the web plugin on Exa, on the task's key and the lookup's model (`reasoner` for `search-summary`), printing each result's title, URL and snippet; OpenCode's own `websearch` stays hidden, since v1.19.3 shows it only with Exa or Parallel called directly.
+The web agent searches with `web-search <query> [--count N]` (`bin/web-search.mjs`, through `agents/web/bin/web-search` on its PATH): one OpenRouter request with the web plugin on Exa, on the task's key and the model of the persona's own `web.search` (`analyzer` for `web-search`), printing each result's title, URL and snippet; OpenCode's own `websearch` stays hidden, since v1.19.3 shows it only with Exa or Parallel called directly.
 
 Both run one task at a time; further requests queue. Each task has per-task caps (`agents.<profile>.limits`: model steps, estimated USD, wall-clock seconds) and the engine enforces per-day caps (`agents.<profile>.daily`). The USD cap is a soft cap on OpenCode's own cost estimate; the hard spending limit is the credit limit on the runner's OpenRouter key.
 

@@ -83,7 +83,7 @@ function sceneHot({ coreTools, access = {} } = {}) {
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 300_000, helperTimeoutMs: 25_000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       features,
-      models: { base: { analyzer: 'x/text', reasoner: 'x/reason' } },
+      models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
       web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50 } },
       gifs: { maxPerDay: 40 },

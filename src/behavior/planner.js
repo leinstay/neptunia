@@ -263,7 +263,7 @@ function allMissing() {
  * three lists (`channels`, `episodes`, `media`: the old classifiers' lines;
  * an empty or absent list is not offered) and `lookup` (true when the search
  * classifier would have been asked). One request on the reasoning helper
- * model (roleModel, role `reasoner`, purpose `planner`), its
+ * model (roleModel, role `analyzer`, purpose `planner`), its
  * answer capped at `web.search.classifierMaxOutputTokens`, a helper's
  * request (helperRequestOptions: the daily cap, the helper timeout, the
  * hedge). Resolves `{ outcome, reason, blocks }`, never rejects:
@@ -330,12 +330,12 @@ export async function askPlanner({ llm, config, prompt, selfName, today, skills 
     return { outcome: 'failed', reason, blocks };
   };
 
-  const model = roleModel(config, 'reasoner', 'planner');
+  const model = roleModel(config, 'analyzer', 'planner');
   let completion;
   try {
     completion = await llm.complete(messages, {
       model,
-      ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: config?.web?.search?.classifierMaxOutputTokens ?? 2000, purpose: 'planner' }),
+      ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: config?.web?.search?.classifierMaxOutputTokens ?? 2000, purpose: 'planner' }),
     });
   } catch (err) {
     return failed('classifier-failed', { rail: railReason(err), status: err?.statusCode ?? null, name: err?.name ?? null });
