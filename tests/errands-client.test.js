@@ -136,6 +136,32 @@ test('errands client: a run\'s secrets go out on its line and into no log line',
   }
 });
 
+test('errands client: a run\'s model and cost go out on its line only when given', async () => {
+  const sock = socketPath();
+  const runner = await fakeRunner(sock);
+  const client = createErrandClient({ hot: hotFor(sock) });
+  const runOnce = async (id, extra) => {
+    const running = client.run({ agent: 'web', id, goal: 'look', ...extra });
+    const request = await runner.next((r) => r.op === 'run' && r.id === id);
+    runner.reply({ id, event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
+    await running;
+    return request;
+  };
+  try {
+    await withCapturedLogs(async () => {
+      const priced = await runOnce('task-priced', { model: 'vendor/adult-model', cost: { input: 1, output: 3.2 } });
+      assert.equal(priced.model, 'vendor/adult-model');
+      assert.deepEqual(priced.cost, { input: 1, output: 3.2 });
+      const plain = await runOnce('task-plain', {});
+      assert.equal(Object.hasOwn(plain, 'model'), false);
+      assert.equal(Object.hasOwn(plain, 'cost'), false, 'no cost given: none sent, the runner keeps its config\'s');
+    });
+  } finally {
+    client.close();
+    await runner.close();
+  }
+});
+
 test('errands client: the shared preamble goes out on a run\'s line only when non-empty, read at each run, and into no log line', async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);

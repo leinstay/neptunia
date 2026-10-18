@@ -279,6 +279,22 @@ test('adultErrandSettings: a block without a valid OpenCode model id, or with li
   assert.ok(OPENCODE_MODEL_ID.test('openrouter/vendor/model-1.5:free'));
 });
 
+test('adultErrandSettings: an optional cost { input, output } (USD per million tokens, finite and not negative) is carried; absent, none is', () => {
+  assert.deepEqual(
+    adultErrandSettings({ model: 'vendor/model-k3', cost: { input: 0.3, output: 11.94, extra: 1 } }),
+    { ok: true, model: 'vendor/model-k3', limits: {}, cost: { input: 0.3, output: 11.94 } },
+  );
+  assert.deepEqual(adultErrandSettings({ model: 'vendor/model-k3', cost: { input: 0, output: 0 } }).cost, { input: 0, output: 0 });
+  assert.equal(Object.hasOwn(adultErrandSettings({ model: 'vendor/model-k3' }), 'cost'), false);
+  assert.equal(Object.hasOwn(adultErrandSettings({ model: 'vendor/model-k3', cost: null }), 'cost'), false, 'null is no cost');
+});
+
+test('adultErrandSettings: a cost that is not { input, output } of finite non-negative numbers is misconfigured', () => {
+  for (const cost of [5, 'x', [], { input: 1 }, { output: 3.2 }, { input: -1, output: 3.2 }, { input: 1, output: '3.2' }, { input: 1, output: Infinity }, { input: NaN, output: 1 }]) {
+    assert.deepEqual(adultErrandSettings({ model: 'vendor/model-k3', cost }), { ok: false, code: 'adult-misconfigured' }, JSON.stringify(cost));
+  }
+});
+
 test('config.json: agents.web.adult ships null (the adult errand switch off)', () => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
   const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
