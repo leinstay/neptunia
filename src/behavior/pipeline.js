@@ -56,6 +56,8 @@ import { MINUTE_MS, utcDay } from '../time.js';
 
 // The most links one observed message has read ahead of time (web.links.prefill).
 const MAX_WARM_LINKS_PER_MESSAGE = 1;
+/** How many message ids each path of handleMessage remembers (the live one, the start's catch-up). */
+const CATCH_UP_IDS_KEPT = 1000;
 // Only when web.links.prefillPerUserPerDay is missing (config.json always has it).
 const PREFILL_PER_USER_PER_DAY_FALLBACK = 10;
 
@@ -256,7 +258,9 @@ function bufferedMediaIds(buffered) {
  *   `messageUpdate` through an edit event) that folds an embed Discord attached after the
  *   message arrived into its buffered copy -- see onMessageUpdate below. And an
  *   `.onMessageDelete(event)` method (src/index.js wires it to `messageDelete` through a
- *   deletion event) that writes a `deleted` line to the record.
+ *   deletion event) that writes a `deleted` line to the record. And a `.catchUp(event, { trigger })`
+ *   method (src/behavior/catch-up.js, at start) for a message posted while the bot was offline:
+ *   see catchUpMessage below.
  */
 export function createMessageHandler({
   hot,
@@ -2421,21 +2425,66 @@ export function createMessageHandler({
     }
   }
 
+  // The ids of the messages the gateway delivered and of those the start's catch-up delivered
+  // (catchUpMessage), each the newest CATCH_UP_IDS_KEPT: a message the gateway also delivers is
+  // handled once, whichever path reaches it first. The live path never skips a message the
+  // catch-up has not taken.
+  const liveIds = new Set();
+  const caughtUpIds = new Set();
+  /** Add `id` to `ids`, the oldest past the cap going first. */
+  function keepId(ids, id) {
+    ids.add(id);
+    if (ids.size > CATCH_UP_IDS_KEPT) ids.delete(ids.values().next().value);
+  }
+
   async function onMessage(event) {
+    await handleMessage(event, null);
+  }
+
+  /**
+   * One message posted while the bot was offline (src/behavior/catch-up.js, at start), handled
+   * like a live one with three differences: it is dropped when the gateway (or an earlier
+   * catch-up) already delivered it; nothing at all happens while paused (no pause notice), in a
+   * private chat or for a line that is no call (no follow-up, eavesdrop or room question for
+   * stale chatter); and a call (a mention, a reply to the persona, her name -- the live
+   * detectTrigger) reaches the ordinary call path (answerCall, or the settle wait of a channel
+   * she cannot write in) only with `trigger` true, otherwise it is only observed. Never throws.
+   * @param {import('../protocol.js').MessageReceived & { raw: object }} event
+   * @param {{ trigger?: boolean }} [options]
+   * @returns {Promise<'duplicate'|'ignored'|'observed'|'triggered'>}
+   */
+  async function catchUpMessage(event, { trigger = false } = {}) {
+    return (await handleMessage(event, { trigger: trigger === true })) ?? 'ignored';
+  }
+
+  async function handleMessage(event, catchUp) {
     try {
       // The discord.js message behind the event: still needed for the channel, the guild and
       // the sends of this stage; everything the normaliser gave is read from the event.
       const message = event.raw;
       // 1. System / webhook messages are not conversation.
-      if (message.system || message.webhookId) return;
+      if (message.system || message.webhookId) return 'ignored';
+
+      // 1a. Once per message across the gateway and the start's catch-up (checked and noted
+      // before the first await, so the two paths never both take it).
+      const messageId = message.id ?? event.message?.id ?? null;
+      if (messageId) {
+        if (caughtUpIds.has(messageId)) return 'duplicate';
+        if (catchUp) {
+          if (liveIds.has(messageId)) return 'duplicate';
+          keepId(caughtUpIds, messageId);
+        } else {
+          keepId(liveIds, messageId);
+        }
+      }
 
       // 1b. Paused (owner editing data/ by hand, /nep pause): the
       // persona does nothing at all -- no observe, no trigger, no turn, no
       // eavesdrop -- and nothing below may mark the store dirty. A direct
-      // call only gets the pause notice (maybePauseNotice).
+      // call only gets the pause notice (maybePauseNotice); a caught-up one not even that.
       if (store?.state?.data?.paused) {
-        await maybePauseNotice(event);
-        return;
+        if (!catchUp) await maybePauseNotice(event);
+        return 'ignored';
       }
 
       const config = hot.config;
@@ -2446,21 +2495,22 @@ export function createMessageHandler({
       // see onPrivateMessage. Owner commands are slash commands
       // (interfaces/discord/commands.js, interactionCreate), never DMs.
       if (!message.guild) {
+        if (catchUp) return 'ignored';
         await onPrivateMessage(event, config);
         return;
       }
 
       // 3. This instance serves exactly one guild; no threads. Which channels
       // it sees is Discord's permissions alone.
-      if (message.guild.id !== getGuildId()) return;
-      if (message.channel.isThread?.()) return;
+      if (message.guild.id !== getGuildId()) return 'ignored';
+      if (message.channel.isThread?.()) return 'ignored';
 
       // 3b. The dry-run mirror channel is the owner's private test room: it
       // carries the persona's own rehearsal output (src/behavior/turn.js),
       // never real conversation. Nothing posted here is ever observed into
       // memory, no trigger is detected, no turn runs, no eavesdrop.
       const dryRunChannelId = config.bot.dryRunChannelId;
-      if (dryRunChannelId && message.channel.id === dryRunChannelId) return;
+      if (dryRunChannelId && message.channel.id === dryRunChannelId) return 'ignored';
 
       // 3c. When this author last wrote in this channel, for a turn that waits until the person
       // it answers stops writing (pace.settleMs). The persona's own messages never count.
@@ -2479,14 +2529,14 @@ export function createMessageHandler({
       // never opens a window or reaches memory.
       if (normalized.self) {
         turns.notePost(normalized.channelId, normalized.ts);
-        if (isLimitNotice(hot.prompts?.labels, normalized.content)) return;
+        if (isLimitNotice(hot.prompts?.labels, normalized.content)) return 'ignored';
         noteFollowUpSend(normalized.channelId, normalized.ts);
         if (memoryOn) memory.observe(guildId, normalized);
-        return;
+        return 'observed';
       }
 
       // 6. Other bots are never answered, never memorised.
-      if (message.author.bot) return;
+      if (message.author.bot) return 'ignored';
 
       // 6b. A line soon after the persona's own one here joins her participation episode.
       noteFollowingLine(guildId, normalized, config);
@@ -2497,7 +2547,7 @@ export function createMessageHandler({
       if (isWarmingUp()) {
         warmMediaCache(guildId, normalized);
         if (memoryOn) memory.observe(guildId, normalized, { direct: false });
-        return;
+        return 'observed';
       }
 
       // 8. Detect how (if at all) the persona was called, masking each input
@@ -2531,7 +2581,9 @@ export function createMessageHandler({
       // eavesdrop, nothing more. In a channel the bot cannot send in, an
       // eavesdrop hit there arms a noticed settle wait (maybeNotice). A
       // line the eavesdrop roll did not schedule may still be put to the
-      // whole room (maybeRoom).
+      // whole room (maybeRoom). A caught-up line stops here: no follow-up, eavesdrop or room
+      // question for chatter from before the start; so does a caught-up call not to be answered.
+      if (catchUp && (!kind || !catchUp.trigger)) return 'observed';
       if (!kind) {
         const followedUp = await maybeFollowUp(message, normalized, selfId, ownPrefill);
         if (!followedUp) {
@@ -2551,18 +2603,20 @@ export function createMessageHandler({
         const route = routeFor(message.channel, config, discord);
         if (!route.destination) {
           log.info('mention: dropped', { channel: message.channel.id, kind, reason: 'cannot-send', route: route.reason });
-          return;
+          return 'observed';
         }
         rememberCall(message.channel, normalized, config);
         armSettle(message.channel, normalized, kind, route.destination);
-        return;
+        return 'triggered';
       }
 
       // 11b. Decide whether to actually answer, or keep a direct call
       // pending while a turn runs (answerCall).
       answerCall({ channel: message.channel, normalized, kind, config });
+      return 'triggered';
     } catch (err) {
       log.error('events: message handler failed', { error: err });
+      return 'ignored';
     }
   }
 
@@ -2706,6 +2760,7 @@ export function createMessageHandler({
   }
 
   onMessage.drainPending = drainPending;
+  onMessage.catchUp = catchUpMessage;
   onMessage.onMessageUpdate = onMessageUpdate;
   onMessage.onMessageDelete = onMessageDelete;
   /**

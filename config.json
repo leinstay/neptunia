@@ -66,6 +66,7 @@
     "skillsAlwaysListed": true,
     "missedAnswers": true,
     "missedRecovery": false,
+    "offlineCatchUp": true,
     "around": true,
     "avatars": false
   },
@@ -191,6 +192,10 @@
     "channelCooldownMinutes": 5,
     "contextMessages": 20,
     "maxOutputTokens": 2000
+  },
+  "offlineCatchUp": {
+    "windowMinutes": 15,
+    "maxMessages": 50
   },
   "typing": {
     "reactionDelayMs": [800, 4000],

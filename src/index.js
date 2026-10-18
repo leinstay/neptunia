@@ -6,7 +6,7 @@
 // src/interface/discord.js).
 
 import fs from 'node:fs';
-import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
+import { Client, Events, GatewayIntentBits, Partials, SnowflakeUtil } from 'discord.js';
 
 import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { resolvePaths } from './paths.js';
@@ -43,6 +43,7 @@ import { createImageGen } from './llm/images.js';
 import { createTurnRunner } from './behavior/turn.js';
 import { createActivity } from './behavior/activity.js';
 import { createMissed } from './behavior/missed.js';
+import { createOfflineCatchUp } from './behavior/catch-up.js';
 import { hasRequiredLabels } from './behavior/prompt.js';
 import { createChannelRouter } from './behavior/route-channel.js';
 import { createRecall } from './behavior/recall-run.js';
@@ -465,6 +466,28 @@ const onMessage = createMessageHandler({
   missed,
 });
 
+// The messages posted while the bot was down (src/behavior/catch-up.js): once at start, fetched
+// over REST after the last message seen per channel and handed to the handler's catch-up path.
+const offlineCatchUp = createOfflineCatchUp({
+  hot,
+  store,
+  journal,
+  selfId: () => client.user?.id ?? null,
+  channelInfo: (channelId) => {
+    const channel = client.channels.cache.get(channelId);
+    if (!channel || channel.guild?.id !== instance.guildId || typeof channel.messages?.fetch !== 'function') return { available: false, latestAt: null };
+    return { available: true, latestAt: channel.lastMessageId ? SnowflakeUtil.timestampFrom(channel.lastMessageId) : null };
+  },
+  fetchRecent: async (channelId, limit) => {
+    const channel = client.channels.cache.get(channelId) ?? (await client.channels.fetch(channelId));
+    return [...(await channel.messages.fetch({ limit })).values()];
+  },
+  deliver: async (message, options) => {
+    const event = inbound('message.received', () => toEvent(message, selfIdNow(), normalizeOptions(hot.config)));
+    return event ? onMessage.catchUp(event, options) : 'ignored';
+  },
+});
+
 // One attention (mention.oneAtATime): once a turn frees its channel, answer
 // the oldest pending direct ping it may have collected while busy elsewhere.
 turns.setOnIdle(() => onMessage.drainPending());
@@ -773,6 +796,11 @@ client.once(Events.ClientReady, async () => {
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
   // starting meanwhile is never touched (only earlier operations are), and it never sends.
   await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId));
+
+  // The messages posted while the bot was down (features.offlineCatchUp): observed, and a call
+  // younger than offlineCatchUp.windowMinutes answered as live. Fire-and-forget: REST per
+  // channel, never throws; the gateway's own messages are not held up meanwhile.
+  await startupStep('offlineCatchUp.run', () => offlineCatchUp.run(instance.guildId));
 
   // The request dumps older than journal.keepRequests days: once now, then daily.
   await startupStep('journal.prune', () => pruneJournalRequests(instance.guildId));
