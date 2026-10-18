@@ -31,5 +31,5 @@ test('limits: an entry without a known kind is ignored; a lost amount that is no
     { kind: 'daily-cap', where: 'llm.maxRequestsPerDay', lost: null },
     { kind: 'helper-timeout', where: null, lost: null },
   ]);
-  assert.deepEqual(LIMIT_KINDS, ['budget-drop', 'estimate-off', 'output-cap', 'message-cut', 'preview-cut', 'helper-timeout', 'helper-fallback', 'daily-cap', 'over-limit', 'clamp']);
+  assert.deepEqual(LIMIT_KINDS, ['budget-drop', 'estimate-off', 'output-cap', 'message-cut', 'message-merge', 'preview-cut', 'helper-timeout', 'helper-fallback', 'daily-cap', 'over-limit', 'clamp']);
 });

@@ -1,6 +1,7 @@
 // The limits that bit during one turn or one memory batch, collected where the cut happens:
 // a budget that dropped a block's items, a prompt the provider counted well above its estimate,
-// a completion that reached its output cap, a message cut at Discord's 2000 characters, a text
+// a completion that reached its output cap, a message cut at Discord's 2000 characters, messages
+// past the per-turn cap joined into the last one kept, a text
 // attachment cut at its preview size, a helper stage left behind by the deadline, a helper that
 // failed and was replaced by a fallback (the search classifier's recall on the question's words), a daily
 // counter that refused, a memory field refused over its limit or cut on its first write. The
@@ -12,6 +13,7 @@ export const LIMIT_KINDS = Object.freeze([
   'estimate-off',
   'output-cap',
   'message-cut',
+  'message-merge',
   'preview-cut',
   'helper-timeout',
   'helper-fallback',
