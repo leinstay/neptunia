@@ -143,6 +143,7 @@ export const SANDBOX_OMITS = Object.freeze({
   around: 'a replay has no live gateway: no voice channels or statuses, so <people_now> has no live fields (its fields from memory stay)',
   skillsGranted: 'no skill registry: no <skills_granted> block of her granted skills (a skill scenario hands them in: SKILL_SCENARIO_OMITS)',
   errands: 'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
+  stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> and <gifs> render from memory as it stands',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -751,6 +752,8 @@ export function sandboxRequestInput({
     continuation: continuation && typeof continuation.skill === 'string' ? { skill: continuation.skill } : null,
     // Absent (a replay has no task store: SANDBOX_OMITS) but on a task-result scenario's turn.
     errands: resultText ? { tasks: '', result: resultText } : null,
+    // No cache bucket to hold (SANDBOX_OMITS): the stable part renders from memory as it stands.
+    stableFreeze: null,
   };
 }
 
