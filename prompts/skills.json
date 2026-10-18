@@ -281,7 +281,7 @@
   },
   "task.run": {
     "title": "Hand off an errand",
-    "whenToUse": "Give an agent a job that takes a while: web searches the internet, reads pages, looks at pictures and downloads files; server reads this machine. You get the result later in a turn of your own; costs money. You can hand off another while earlier ones are still open; each agent runs them one at a time. When the request asks for your taste, preference, memory or judgement, decide first and write the goal as a concrete instruction with your choice and what counts as a good result; the agent only executes.",
+    "whenToUse": "Give an agent a job that takes a while: web searches the internet, reads pages, looks at pictures and downloads files; server reads this machine. You get the result later in a turn of your own; costs money. You can hand off another while earlier ones are still open; each agent runs them one at a time. When the request asks for your taste, preference, memory or judgement, decide first. The agent sees only the goal text, nothing of the chat or earlier errands; name the specific thing, site or criteria and what counts as a good result. Leave out where you will post it or who it is for.",
     "whenNotToUse": "Not for what you can answer now; server only when an owner asks; daily and open-task limits apply."
   },
   "task.status": {
