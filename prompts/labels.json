@@ -399,7 +399,8 @@
     "episode": "{when} ago:",
     "skipped": "[{count} messages skipped]",
     "earlierHeader": "Earlier in this channel, before the chat below (last {hours} hours):",
-    "earlierGap": "[...]"
+    "earlierGap": "[...]",
+    "earlierOpen": "(not answered yet)"
   },
   "attitudes": {
     "header": "People you feel most strongly about, warm and cool. This is background; draw on it when someone comes up or when people are the topic, but never read it out as a list or name the labels.",

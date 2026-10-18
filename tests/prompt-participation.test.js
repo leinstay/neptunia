@@ -274,9 +274,12 @@ function hereEpisode() {
 
 const selfLabel = () => fill(labels.self, { name: 'Zoë' });
 
+/** The config with the anchored window on (features.anchoredWindow), which `<earlier>` belongs to. */
+const anchoredConfig = ({ features = {}, ...rest } = {}) => fakeConfig({ ...rest, features: { anchoredWindow: true, ...features } });
+
 test('earlier block: the stored lines of this channel older than the chat, in the tail after <participation>, before <chat>', () => {
   const window = [chatLine('m0', NOW - 30 * MIN), chatLine('m1', NOW - MIN, { content: 'θυμάσαι;' })];
-  const request = buildRequest(input({ history: window, trigger: window[1], participation: { state: state([hereEpisode()]), audience: () => true } }));
+  const request = buildRequest(input({ config: anchoredConfig(), history: window, trigger: window[1], participation: { state: state([hereEpisode()]), audience: () => true } }));
   const text = textOf(request);
   assert.equal(
     blockOf(text, 'earlier'),
@@ -297,7 +300,7 @@ test('earlier block: the stored lines of this channel older than the chat, in th
 
 test('earlier block: the same stretch renders the same text as turns go by; a stored line leaving the chat joins it', () => {
   const st = state([hereEpisode()]);
-  const turn = (history, now) => blockOf(textOf(buildRequest(input({ now, history, trigger: history.at(-1), participation: { state: st, audience: () => true } }))), 'earlier');
+  const turn = (history, now) => blockOf(textOf(buildRequest(input({ config: anchoredConfig(), now, history, trigger: history.at(-1), participation: { state: st, audience: () => true } }))), 'earlier');
   const first = turn([chatLine('m0', NOW - 30 * MIN), chatLine('m1', NOW - MIN)], NOW);
   // Five minutes on, the window lost m0 (not stored) and starts at m5, still before e3: nothing stored crossed it.
   const second = turn([chatLine('m5', NOW - 25 * MIN), chatLine('m1', NOW - MIN), chatLine('m2', NOW + 4 * MIN)], NOW + 5 * MIN);
@@ -311,13 +314,13 @@ test('earlier block: the same stretch renders the same text as turns go by; a st
 
 test('earlier block: earlierHours bounds the age; off with 0, without the label, with features.participation off, in a private chat', () => {
   const window = [chatLine('m1', NOW - MIN)];
-  const run = (overrides) => blockOf(textOf(buildRequest(input({ history: window, trigger: window[0], participation: { state: state([hereEpisode()]), audience: () => true }, ...overrides }))), 'earlier');
+  const run = (overrides) => blockOf(textOf(buildRequest(input({ config: anchoredConfig(), history: window, trigger: window[0], participation: { state: state([hereEpisode()]), audience: () => true }, ...overrides }))), 'earlier');
   assert.ok(run({}).includes('τέλεια'));
-  const young = run({ config: fakeConfig({ participation: { earlierHours: 0.5 } }) });
+  const young = run({ config: anchoredConfig({ participation: { earlierHours: 0.5 } }) });
   assert.ok(young.includes('τέλεια') && !young.includes('εντάξει'), 'only lines younger than 30 min');
-  assert.equal(run({ config: fakeConfig({ participation: { earlierHours: 0 } }) }), null);
+  assert.equal(run({ config: anchoredConfig({ participation: { earlierHours: 0 } }) }), null);
   assert.equal(run({ prompts: prompts({ ...labels, participation: { ...labels.participation, earlierHeader: '' } }) }), null);
-  assert.equal(run({ config: fakeConfig({ features: { participation: false } }) }), null);
+  assert.equal(run({ config: anchoredConfig({ features: { participation: false } }) }), null);
   assert.equal(run({ privateChat: { userId: 'a-m1' }, triggerKind: 'private' }), null);
 });
 
@@ -326,9 +329,9 @@ test('earlier block: the newest episodes win the cap, rendered oldest first with
   const window = [chatLine('m1', NOW - MIN)];
   const run = (config) =>
     buildRequest(input({ config, history: window, trigger: window[0], participation: { state: state([older, hereEpisode()]), audience: () => true } }));
-  const both = blockOf(textOf(run(fakeConfig())), 'earlier');
+  const both = blockOf(textOf(run(anchoredConfig())), 'earlier');
   assert.ok(both.indexOf('παλιό') < both.indexOf(`\n${labels.participation.earlierGap}\n`) && both.indexOf(labels.participation.earlierGap) < both.indexOf('εντάξει'), both);
-  const used = run(fakeConfig()).stats.earlier.used;
-  const tight = blockOf(textOf(run(fakeConfig({ caps: { earlier: used - 5 } }))), 'earlier');
+  const used = run(anchoredConfig()).stats.earlier.used;
+  const tight = blockOf(textOf(run(anchoredConfig({ caps: { earlier: used - 5 } }))), 'earlier');
   assert.ok(tight.includes('εντάξει') && !tight.includes('παλιό'), tight);
 });

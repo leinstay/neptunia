@@ -784,8 +784,9 @@ function readableLinkCandidates(history, sites) {
  * `history` with the messages its replies answer from outside it prepended as its oldest lines
  * (interfaces/discord/collect.js#fetchReplyParents): the parent of `trigger` when it lives in this
  * channel, one level of that parent's own parent, and the parents of the last
- * `context.replyParentsFor` lines, at most `context.replyParentsMax` in all, each marked
- * `replyParent: true`. Off with
+ * `context.replyParentsFor` lines (every line of the window with `features.anchoredWindow`
+ * exactly true: the request then shows the parents as anchors in `<earlier>`), at most
+ * `context.replyParentsMax` in all, each marked `replyParent: true`. Off with
  * `context.fetchReplyParents` false (a missing key counts as on); `history` as it is then.
  * @param {object} channel
  * @param {object[]} history
@@ -799,7 +800,7 @@ async function withReplyParents(channel, history, { trigger, selfId, config, dis
   const own = trigger && (!trigger.channelId || trigger.channelId === channel.id) ? trigger : null;
   const parents = await discord.fetchReplyParents(channel, history, {
     trigger: own,
-    recent: context.replyParentsFor ?? 3,
+    recent: config.features?.anchoredWindow === true ? history.length : (context.replyParentsFor ?? 3),
     max: context.replyParentsMax ?? 4,
     selfId,
     embedTextChars: config.media?.embedTextChars,

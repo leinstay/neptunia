@@ -14,10 +14,12 @@
 //       first); on a routed turn -- a call from a channel the persona cannot
 //       write in, answered here -- it goes right BEFORE the chat instead,
 //       since the call itself lives in it
-//   5b2. the current channel's own saved stretch older than the chat (`<earlier>`):
-//       its participation episodes cut to the lines before the chat's first one,
-//       younger than `participation.earlierHours`, capped by `context.caps.earlier`;
-//       rendered in the tail right after `<participation>`; never in a private chat
+//   5b2. the anchored window (`<earlier>`, features.anchoredWindow): lines of the current
+//       channel older than the chat that matter -- the reply parents (moved out of
+//       `<chat>`, keeping their numbers) and the persona's saved stretch of it younger than
+//       `participation.earlierHours`, open requests to her marked and ranked first --
+//       capped by `context.caps.earlier`; rendered in the tail right after
+//       `<participation>`; never in a private chat
 //   5c. the last `memory.recentHours` (`<recent>`): the recent lines this
 //       channel's audience may read, then members' moments of those hours that
 //       `<people>` does not show, capped by `context.caps.recent`, ranked by who
@@ -2233,57 +2235,150 @@ function participationText(view, keptEpisodes) {
 }
 
 /**
- * The `<earlier>` block's pieces before the budget: the current channel's lines
- * the chat window no longer holds (src/memory/participation.js#earlierEpisodes:
- * the stored episodes of `currentChannelId` cut to their lines older than the
- * window's first line, `history`'s oldest, and younger than
- * `participation.earlierHours`; the newest `participation.earlierShown`). Null
- * when there is no block to build -- a private chat, `features.participation`
- * off, no `labels.participation.earlierHeader`, no `participation.state` or an
- * empty history. Each episode is cut to `participation.episodeChars`
- * (cutEpisode, a run of cut lines as `labels.participation.skipped`) and its
- * lines render as in `<participation>` (storedLineRenderer) but always with the
- * bare clock, never `transcript.timeAged`: no text here moves with the clock
- * alone, so the block changes only when a stored line crosses the chat's first
- * line or the age bound. `episodes` come
- * newest first (the budget's priority), each with `text` and `startAt`.
- * @returns {{ header: string, episodes: { id: string, text: string, startAt: number }[] }|null}
+ * Whether a request keeps the anchored chat window (`<earlier>`): `features.anchoredWindow`
+ * exactly true (a missing key counts as off), a server turn, and `labels.participation.earlierHeader`
+ * to head the block. Off, the reply parents stay at the head of `<chat>` and there is no `<earlier>`:
+ * the request is the one the count-based window always made.
  */
-function earlierView(participation, { config, labels, privateChat, currentChannelId, history, now, timezone, selfName, nameOf }) {
-  const p = labels.participation;
-  if (privateChat || config.features?.participation === false) return null;
-  if (!p?.earlierHeader) return null;
-  if (!participation || typeof participation !== 'object' || !participation.state) return null;
-  const starts = history.map((message) => message?.ts).filter(Number.isFinite);
-  if (starts.length === 0) return null;
-  const settings = participationSettings(config);
-  const renderLine = storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinutes: Infinity });
-  const episodes = earlierEpisodes(participation.state, { channelId: currentChannelId, before: Math.min(...starts), now }, settings)
-    .map((episode) => ({
-      id: episode.id,
-      startAt: episode.startAt,
-      text: cutEpisode(episode, { maxChars: settings.episodeChars })
-        .map((item) => ('skipped' in item ? (p.skipped ? fill(p.skipped, { count: item.skipped }) : '') : renderLine(item.message)))
-        .filter(Boolean)
-        .join('\n'),
-    }))
-    .reverse();
-  return { header: fill(p.earlierHeader, { hours: settings.earlierHours }), episodes };
+function anchoredOn(config, labels, privateChat) {
+  return config.features?.anchoredWindow === true && !privateChat && Boolean(labels.participation?.earlierHeader);
 }
 
 /**
- * The `<earlier>` block's text from the budget's kept items (the header, then a
- * subsequence of `view.episodes` in their order): the header, then the kept
- * episodes oldest first, `labels.participation.earlierGap` between two of them
- * when the label is there. '' when the header or every episode was cut.
+ * The `<earlier>` block's pieces before the budget: the anchors, lines of the current channel
+ * that matter but that the count-based window (`context.channelMessages`) no longer holds.
+ *
+ * - `reply`: a reply parent (`replyParent: true`, prepended to `history` by the turn,
+ *   src/behavior/turn.js#withReplyParents) -- what the trigger or a window line answers. It keeps
+ *   its `<chat>` number (formatTranscript over the whole `history`, every other line skipped), so a
+ *   window line's reply marker and a message link still name it; the bare clock, never
+ *   `transcript.timeAged`.
+ * - `episode`: the persona's own saved stretch of this channel (src/memory/participation.js#
+ *   earlierEpisodes: her episodes cut to their lines older than the window's first line and
+ *   younger than `participation.earlierHours`, the newest `participation.earlierShown`), only with
+ *   `features.participation` on. Cut to `participation.episodeChars` (cutEpisode, a run of cut
+ *   lines as `labels.participation.skipped`), its lines in the `<participation>` form with the bare
+ *   clock; a line that is also a reply parent carries its `#n`.
+ *
+ * A line is an OPEN request when it is addressed to the persona -- a reply parent that mentions
+ * `selfId` (a mention or a reply ping) or replies to a line of hers, a saved line that replies to
+ * a line of hers with no line of hers after it in its episode -- and no line of hers in `history`
+ * or in the episodes replies to it or was posted by the turn it started (`triggerId`). It ends
+ * with `labels.participation.earlierOpen` when that label is set.
+ *
+ * Priority for the budget (`pieces` come in it): the trigger's parent, then the pieces holding an
+ * open request, then the other parents, then the episodes, each newest first. Every piece has
+ * `text` (with the attached-picture marks of `formatOptions`) and `blind` (without them, for the
+ * request's text fallback), `ids` (the messages it shows), `parentIds` (the reply parents among
+ * them) and `startAt`. Null when there is nothing to show.
+ * @returns {{ header: string, pieces: object[] }|null}
  */
-function earlierText(view, keptItems, labels) {
-  if (keptItems.length < 2 || keptItems[0] !== view.header) return '';
-  const kept = new Set(keptItems.slice(1));
-  const shown = view.episodes.filter((episode) => kept.has(episode.text)).sort((a, b) => a.startAt - b.startAt);
-  if (shown.length === 0) return '';
+function anchorsView(participation, { config, labels, currentChannelId, history, trigger, selfId, now, timezone, selfName, nameOf, formatOptions }) {
+  const p = labels.participation;
+  const settings = participationSettings(config);
+  const parents = history.filter((message) => message.replyParent === true);
+  const windowLines = history.filter((message) => message.replyParent !== true);
+  const indexOf = new Map(history.map((message, i) => [message.id, i + 1]));
+  const starts = windowLines.map((message) => message?.ts).filter(Number.isFinite);
+  const state = config.features?.participation !== false && participation && typeof participation === 'object' ? participation.state : null;
+  const episodes = state && starts.length > 0 ? earlierEpisodes(state, { channelId: currentChannelId, before: Math.min(...starts), now }, settings) : [];
+
+  // Her lines and what they answer: a reply target, or the message that started their turn.
+  const herIds = new Set();
+  const answered = new Set();
+  for (const message of history) {
+    if (!message.self) continue;
+    herIds.add(message.id);
+    if (message.replyToId) answered.add(message.replyToId);
+    if (message.triggerId) answered.add(message.triggerId);
+  }
+  for (const episode of episodes) {
+    for (const message of episode.messages) {
+      if (!message.self) continue;
+      herIds.add(message.id);
+      if (message.replyTo) answered.add(message.replyTo);
+    }
+  }
+  const openParent = (m) =>
+    !m.self && !m.bot && !answered.has(m.id) && ((selfId && (m.mentionedUserIds ?? []).includes(selfId)) || herIds.has(m.replyToId));
+  const openStored = (episode, i) => {
+    const m = episode.messages[i];
+    return !m.self && herIds.has(m.replyTo) && !answered.has(m.id) && !episode.messages.slice(i + 1).some((later) => later.self);
+  };
+  const mark = p.earlierOpen ? ` ${p.earlierOpen}` : '';
+
+  const pieces = [];
+  for (const parent of parents) {
+    const open = openParent(parent);
+    const line = (attachedIndex) =>
+      formatTranscript(history, { ...formatOptions, attachedIndex, now: undefined, skip: (message) => message.id !== parent.id })[0].text + (open ? mark : '');
+    pieces.push({
+      kind: 'reply',
+      ids: [parent.id],
+      parentIds: [parent.id],
+      startAt: parent.ts,
+      rank: parent.id === trigger?.replyToId ? 0 : open ? 1 : 2,
+      text: line(formatOptions.attachedIndex),
+      blind: line(undefined),
+    });
+  }
+  const renderLine = storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinutes: Infinity });
+  for (const episode of episodes) {
+    const openIds = new Set(episode.messages.filter((_, i) => openStored(episode, i)).map((m) => m.id));
+    const keepIds = [...openIds, ...episode.messages.filter((m) => indexOf.has(m.id)).map((m) => m.id)];
+    const items = cutEpisode(episode, { maxChars: settings.episodeChars, keepIds });
+    const shown = items.filter((item) => !('skipped' in item)).map((item) => item.message.id);
+    const text = items
+      .map((item) => {
+        if ('skipped' in item) return p.skipped ? fill(p.skipped, { count: item.skipped }) : '';
+        const number = indexOf.has(item.message.id) ? `#${indexOf.get(item.message.id)} ` : '';
+        return `${number}${renderLine(item.message)}${openIds.has(item.message.id) ? mark : ''}`;
+      })
+      .filter(Boolean)
+      .join('\n');
+    pieces.push({
+      kind: 'episode',
+      ids: shown,
+      parentIds: shown.filter((id) => indexOf.has(id)),
+      startAt: episode.startAt,
+      lastAt: episode.lastAt,
+      rank: shown.some((id) => openIds.has(id)) ? 1 : 3,
+      text,
+      blind: text,
+    });
+  }
+  if (pieces.length === 0) return null;
+  const newest = (piece) => piece.lastAt ?? piece.startAt;
+  pieces.sort((x, y) => x.rank - y.rank || newest(y) - newest(x));
+  return { header: fill(p.earlierHeader, { hours: settings.earlierHours }), pieces };
+}
+
+/**
+ * The `<earlier>` block from the budget's kept items (the header, then a subsequence of
+ * `view.pieces`' texts in their order): the header, then the kept pieces oldest first,
+ * `labels.participation.earlierGap` between two of them when the label is there. A reply parent
+ * that a kept episode already shows is not repeated. `text` with the attached-picture marks,
+ * `blind` without them, `parentIds` the reply parents shown; '' texts when the header or every
+ * piece was cut.
+ * @returns {{ text: string, blind: string, parentIds: string[] }}
+ */
+function anchorsText(view, keptItems, labels) {
+  const none = { text: '', blind: '', parentIds: [] };
+  if (keptItems.length < 2 || keptItems[0] !== view.header) return none;
+  const kept = [];
+  let next = 1;
+  for (const piece of view.pieces) {
+    if (next < keptItems.length && keptItems[next] === piece.text) {
+      kept.push(piece);
+      next += 1;
+    }
+  }
+  const inEpisodes = new Set(kept.filter((piece) => piece.kind === 'episode').flatMap((piece) => piece.ids));
+  const shown = kept.filter((piece) => piece.kind === 'episode' || !inEpisodes.has(piece.ids[0])).sort((x, y) => x.startAt - y.startAt);
+  if (shown.length === 0) return none;
   const gap = labels.participation?.earlierGap;
-  return [view.header, shown.map((episode) => episode.text).join(gap ? `\n${gap}\n` : '\n')].join('\n');
+  const join = (key) => [view.header, shown.map((piece) => piece[key]).join(gap ? `\n${gap}\n` : '\n')].join('\n');
+  return { text: join('text'), blind: join('blind'), parentIds: [...new Set(shown.flatMap((piece) => piece.parentIds))] };
 }
 
 /** A stored `YYYY-MM-DD` in the transcript's date form (`formatDate`), read as that calendar day:
@@ -2615,13 +2710,14 @@ export function continuesTurn(config, labels) {
  * What of the chat window entered a turn's request, for the journal: the ids of the kept
  * transcript lines (oldest first), of the reply parents among them (prepended to the window
  * from outside it, `replyParent: true`), of the messages whose pictures went in as image parts
- * and of the kept messages whose text attachment was previewed.
- * @param {{ history: object[], keptChat: { id: string }[], pictures: { messageId?: string }[] }} input
+ * and of the kept messages whose text attachment was previewed. `anchoredIds`: the reply
+ * parents `<earlier>` showed instead of `<chat>` (the anchored window), counted first.
+ * @param {{ history: object[], keptChat: { id: string }[], pictures: { messageId?: string }[], anchoredIds?: string[] }} input
  * @returns {{ messageIds: string[], parents: string[], parts: { images: string[], filePreviews: string[] } }}
  */
-function seenOf({ history, keptChat, pictures }) {
+function seenOf({ history, keptChat, pictures, anchoredIds = [] }) {
   const byId = new Map(history.map((message) => [message.id, message]));
-  const messageIds = keptChat.map((item) => item.id).filter((id) => typeof id === 'string' && id);
+  const messageIds = [...anchoredIds, ...keptChat.map((item) => item.id)].filter((id) => typeof id === 'string' && id);
   const keptMessages = messageIds.map((id) => byId.get(id)).filter(Boolean);
   const images = [];
   for (const picture of pictures) {
@@ -2655,7 +2751,8 @@ function seenOf({ history, keptChat, pictures }) {
  * @param {number} input.now
  * @param {string} input.selfName
  * @param {string|null} [input.selfId]  The persona's own user id: her stored profile, if any, is
- *   never listed in `<directory>`. Omitted -> no profile is left out for being hers.
+ *   never listed in `<directory>`, and a reply parent that mentions it is addressed to her
+ *   (`<earlier>`'s open requests). Omitted -> no profile is left out for being hers.
  * @param {object[]} input.history         Normalized channel messages, oldest first.
  * @param {{channelId?: string, channelName: string, messages: object[]}[]} input.neighbors
  *   `channelId` (see interfaces/discord/collect.js#fetchNeighbors) is how `<server>` tells which
@@ -2831,9 +2928,10 @@ function seenOf({ history, keptChat, pictures }) {
  *   right after `recent`; one item per episode, the header first. Never in a private chat;
  *   none with `features.participation` false or without `labels.participation.header` and
  *   `labels.participation.episode`. While it is shown, `<senses>` carries `senses.participation`.
- *   The same `state` also gives `<earlier>` (see `earlierView`): the current channel's
- *   episodes cut to their lines older than `history`'s oldest, budget section `earlier`
- *   right after the pulled block, capped by `context.caps.earlier` (2500 when unset).
+ *   With `features.anchoredWindow` exactly true the same `state` also gives `<earlier>` (see
+ *   `anchorsView`): the current channel's episodes cut to their lines older than the window's
+ *   first line, beside the reply parents of `history`, which then leave `<chat>`; budget section
+ *   `earlier` right after the pulled block, capped by `context.caps.earlier` (2500 when unset).
  * @param {string|null} [input.diaryChannel]  The bare name of the diary channel (the persona's
  *   own, src/behavior/diary.js) when one is set: `<senses>` gains `senses.diary` with
  *   `{channel}`. Omitted or null -> no line.
@@ -3075,8 +3173,13 @@ export function buildRequest(input) {
   ]
     .filter(Boolean)
     .join('\n\n');
-  const chatItems = formatTranscript(history, formatOptions);
+  // The anchored window (features.anchoredWindow): the reply parents leave `<chat>` for
+  // `<earlier>` but keep their numbers, so a reply marker or a link in the chat still names them.
+  const anchored = anchoredOn(config, labels, privateChat);
+  const chatOptions = anchored ? { ...formatOptions, skip: (message) => message.replyParent === true } : formatOptions;
+  const chatItems = formatTranscript(history, chatOptions);
   const idByIndex = new Map(chatItems.map((item) => [item.index, item.id]));
+  if (anchored) history.forEach((message, i) => message.replyParent === true && idByIndex.set(i + 1, message.id));
 
   // Another channel pulled into this turn (`<channel_view>`): never in a private chat, and
   // shown only when the labels can head it. Its lines are numbered on after the chat's and
@@ -3119,18 +3222,23 @@ export function buildRequest(input) {
     ageMinutes: config.context.ageAfterMinutes ?? 60,
   });
   const participationOffered = Boolean(participationBuilt && participationBuilt.episodes.length > 0);
-  // `<earlier>`: this channel's lines the chat window let go of (never in a private chat).
-  const earlierBuilt = earlierView(input.participation, {
-    config,
-    labels,
-    privateChat,
-    currentChannelId,
-    history,
-    now,
-    timezone,
-    selfName,
-    nameOf,
-  });
+  // `<earlier>`: the anchors, this channel's lines the chat window let go of but that matter
+  // (features.anchoredWindow; never in a private chat).
+  const earlierBuilt = anchored
+    ? anchorsView(input.participation, {
+        config,
+        labels,
+        currentChannelId,
+        history,
+        trigger,
+        selfId: input.selfId ?? null,
+        now,
+        timezone,
+        selfName,
+        nameOf,
+        formatOptions,
+      })
+    : null;
 
   // On a routed turn the call is not in this chat: its silence is measured to now, and its
   // last line being the persona's own is no sign that nobody answered the persona.
@@ -3543,12 +3651,11 @@ export function buildRequest(input) {
   // pass and the room of the asked-about members' episodes (below) are measured on. The
   // pulled block right after the chat; ahead of it on a routed turn, whose call lives there;
   // then the last hours, then the persona's exchanges elsewhere.
-  // `<earlier>`: the header, then one item per episode, the newest first; right after the chat
-  // and the pulled block it continues back in time.
-  const earlierSection =
-    earlierBuilt && earlierBuilt.episodes.length > 0
-      ? { name: 'earlier', cap: caps.earlier ?? 2500, keep: 'first', items: [earlierBuilt.header, ...earlierBuilt.episodes.map((episode) => episode.text)] }
-      : null;
+  // `<earlier>`: the header, then one item per anchor in its priority order (anchorsView); right
+  // after the chat and the pulled block it continues back in time.
+  const earlierSection = earlierBuilt
+    ? { name: 'earlier', cap: caps.earlier ?? 2500, keep: 'first', items: [earlierBuilt.header, ...earlierBuilt.pieces.map((piece) => piece.text)] }
+    : null;
   const aheadOfRecent = [...head, ...(routed ? [pulledSection, chatSection] : [chatSection, pulledSection]), ...(earlierSection ? [earlierSection] : [])];
   const aheadOfPeopleWith = (recentSec) => [...aheadOfRecent, ...(recentSec ? [recentSec] : []), ...(participationSection ? [participationSection] : [])];
   let aheadOfPeople = aheadOfPeopleWith(recentSection);
@@ -3863,10 +3970,11 @@ export function buildRequest(input) {
       deduped: participationBuilt.deduped,
     };
   }
-  // `<earlier>` as one piece: the header and the episodes kept, oldest first.
+  // `<earlier>` as one piece: the header and the anchors kept, oldest first.
+  let earlierShown = null;
   if (earlierSection) {
-    const text = earlierText(earlierBuilt, kept.earlier ?? [], labels);
-    kept.earlier = text ? [text] : [];
+    earlierShown = anchorsText(earlierBuilt, kept.earlier ?? [], labels);
+    kept.earlier = earlierShown.text ? [earlierShown.text] : [];
   }
   // The senses line names `<participation>` only when the block is there. The request only gets
   // shorter, so the fit holds.
@@ -3918,7 +4026,7 @@ export function buildRequest(input) {
   }
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
-  const seen = seenOf({ history, keptChat, pictures });
+  const seen = seenOf({ history, keptChat, pictures, anchoredIds: earlierShown?.parentIds ?? [] });
   const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText });
 
   // A provider that rejects the images (see src/behavior/turn.js's 4xx
@@ -3934,9 +4042,11 @@ export function buildRequest(input) {
   // anything to fall back from.
   let textFallback = null;
   if (pictures.length) {
-    const chatItemsBlind = formatTranscript(history, { ...formatOptions, attachedIndex: undefined });
+    const chatItemsBlind = formatTranscript(history, { ...chatOptions, attachedIndex: undefined });
     const keptChatBlind = chatItemsBlind.slice(chatItemsBlind.length - kept.chat.length);
-    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChatBlind, diary: diaryParts, errands: errandsText });
+    // The anchors of `<earlier>` were cut with their picture marks; the same anchors without them.
+    const keptBlind = earlierShown?.blind ? { ...kept, earlier: [earlierShown.blind] } : kept;
+    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, channelDirectory: channelDirectoryText, directory: directoryText, kept: keptBlind, tempoText, task, chatItems: keptChatBlind, diary: diaryParts, errands: errandsText });
   }
 
   // A sticker's URL is already fully sized (see src/media/classify.js

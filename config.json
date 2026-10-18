@@ -46,6 +46,7 @@
     "versions": true,
     "recent": true,
     "participation": true,
+    "anchoredWindow": false,
     "memoryTwoStage": false,
     "promptCache": true,
     "channelPull": true,

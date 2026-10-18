@@ -381,6 +381,7 @@ export const labels = {
     skipped: '[{count} messages skipped]',
     earlierHeader: 'earlier in this channel, last {hours} hours:',
     earlierGap: '[...]',
+    earlierOpen: '(open)',
   },
   videoAudio: {
     none: 'Measured: no audible sound in this clip.',
