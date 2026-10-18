@@ -41,7 +41,7 @@ function emptyTally() {
     reasons: {},
     actions: {},
     prompt: [],
-    cached: { cached: 0, prompt: 0, counted: 0 },
+    cached: { cached: 0, prompt: 0, counted: 0, cacheWrite: 0, writeCounted: 0 },
     dropped: {},
     limits: [],
     ownMessages: 0,
@@ -64,7 +64,8 @@ function limitEntry(entry) {
  * - `reasons[outcome][reason]`: the reason of every turn that has one (skips, refusals, errors);
  * - `actions[name][phase]`: every `action` line;
  * - `prompt`: the prompt tokens of every turn with a usage; `cached`: the cached and prompt
- *   sums over the turns that report both (`counted` of them);
+ *   sums over the turns that report both (`counted` of them), and the cache-write tokens
+ *   (`usage.cacheWrite`) summed over the turns that report them (`writeCounted` of them);
  * - `dropped[section]`: the sum of `budget.dropped` per section;
  * - `limits`: every `limits` entry of the turn and memory records (`{ kind, lost }`);
  * - `ownMessages`: the persona's posts (`posted` entries); `memoryBatches`; `system[event]`.
@@ -94,6 +95,10 @@ export function tally(records) {
           out.cached.cached += usage.cached;
           out.cached.prompt += usage.prompt;
           out.cached.counted += 1;
+        }
+        if (Number.isFinite(usage.cacheWrite)) {
+          out.cached.cacheWrite += usage.cacheWrite;
+          out.cached.writeCounted += 1;
         }
       }
       for (const [section, n] of Object.entries(record.budget?.dropped ?? {})) {
@@ -154,8 +159,8 @@ export function limitsTable(records) {
  * The operational log folded into the shape of `tally`, one tally per UTC day of the line's
  * `time`: each `turn: model answered` line (src/log.js JSON; anything before the first `{` of a
  * line is ignored, so prefixed journalctl lines work too) counts under outcome LOG_OUTCOME by its
- * `trigger`; its `usage.prompt_tokens` (and `usage.prompt_tokens_details.cached_tokens` when
- * present) and the `dropped` of each section of `budget` are added. What the log does not carry
+ * `trigger`; its `usage.prompt_tokens` (and `usage.prompt_tokens_details.cached_tokens` and
+ * `.cache_write_tokens` when present) and the `dropped` of each section of `budget` are added. What the log does not carry
  * is null and prints N/A: reasons, actions, limits, own messages, memory batches, system events,
  * file bytes.
  * @param {string[]} lines
@@ -189,6 +194,11 @@ export function tallyLog(lines) {
         out.cached.cached += cached;
         out.cached.prompt += prompt;
         out.cached.counted += 1;
+      }
+      const written = entry.usage?.prompt_tokens_details?.cache_write_tokens;
+      if (Number.isFinite(written)) {
+        out.cached.cacheWrite += written;
+        out.cached.writeCounted += 1;
       }
     }
     for (const [section, stats] of Object.entries(entry.budget ?? {})) {
@@ -228,7 +238,7 @@ function crossTable(label, map) {
 /**
  * One day as a markdown section (`## <day>`): file bytes and record count, turns by outcome x
  * trigger kind, skip and refusal reasons, actions by name x phase, prompt tokens median and p90
- * with the cached share, `budget.dropped` per section, the limits table (kind, count, total lost),
+ * with the cached share and the cache-write tokens, `budget.dropped` per section, the limits table (kind, count, total lost),
  * own messages, memory batches and system events. A part that is null prints `N/A`; an empty
  * one prints `none`.
  * @param {string} day
@@ -271,6 +281,7 @@ export function renderDay(day, t) {
         ['prompt tokens p90', num(percentile(t.prompt, 90))],
         ['cached share', share],
         ['requests reporting cached', t.cached ? t.cached.counted : NA],
+        ['cache-write tokens', t.cached?.writeCounted > 0 ? num(t.cached.cacheWrite) : NA],
       ],
     ),
     '',
