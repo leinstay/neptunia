@@ -177,7 +177,7 @@ export function rosterOf(window, { selfId, selfName, namesOf = () => [], maxName
 /**
  * One extract request: system = `prompts.backfill` with `{{name}}`; user = `<roster>` (JSON, from
  * `rosterOf`) and `<window>` (JSON: `channel`, `date`, `lines` of `{ id, at, by, replyTo, text,
- * media }`, `by` the persona's id on her own lines). See docs/en/prompt-contract.md, "Backfill".
+ * media }`, `by` the persona's id on her own lines). See docs/prompt-contract.md, "Backfill".
  * @param {{ prompts: object, selfName: string, selfId: string|null, window: object, roster: object[], channelName?: string|null }} input
  * @returns {{ role: string, content: string }[]}
  * @throws {Error} `prompts.backfill` is missing or blank.
@@ -269,7 +269,7 @@ function peopleOf(main, refs, texts, window, selfId) {
 
 /**
  * The candidates of one extract answer (`{ "episodes": [...], "lessons": [...] }`, see
- * docs/en/prompt-contract.md, "Backfill") and what was taken out of it. Untrusted input: never
+ * docs/prompt-contract.md, "Backfill") and what was taken out of it. Untrusted input: never
  * throws. An item citing an id that is not a line of `window` is dropped whole
  * (`counts.outsideWindow`), one citing nothing is dropped. An episode needs `member`, a member the
  * window names other than the persona, and `what`; a lesson needs `text`, its `from` is kept only

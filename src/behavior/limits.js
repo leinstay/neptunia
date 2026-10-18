@@ -4,7 +4,7 @@
 // a limit and not silence in character. The wording lives in labels.json
 // (`limits.notice`); the limit name is the config key. A call while the bot
 // is paused (`/nep pause`) gets the pause notice (`limits.paused`, no
-// placeholders) the same way. See docs/en/prompt-contract.md. The pure
+// placeholders) the same way. See docs/prompt-contract.md. The pure
 // helpers come first; `postLimitNotice`, `postPauseNotice` (one sender,
 // `sendNotice`) and `mirrorDryRun` are the one copy of the posting side,
 // shared by the turn runner (src/behavior/turn.js) and the message pipeline

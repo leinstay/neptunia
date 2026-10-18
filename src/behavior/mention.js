@@ -172,7 +172,7 @@ export function followUpPreFilter(normalized, selfId, cfg) {
   return (normalized.mentionedUserIds ?? []).some((id) => id !== selfId && id !== replyPing);
 }
 
-// Protocol token of the address classifier (docs/en/prompt-contract.md), not
+// Protocol token of the address classifier (docs/prompt-contract.md), not
 // wording: the answer for a line that talks about the persona to someone else
 // or to the room. Trailing punctuation is tolerated, nothing before the word.
 const OVERHEARD_ANSWER = /^overheard[.,;:!?\u2026]*$/;

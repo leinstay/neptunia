@@ -81,7 +81,7 @@ import { stampMs, storedCount } from './portrait.js';
 const BACKOFF_MS = 15 * 60_000;
 const MIN_LIVE_BATCH = 20; // the live analyzer never shrinks below this many messages
 const CHANNEL_FIELDS = ['purpose', 'topics', 'tone']; // the analyzer's own fields of a channel entry
-// The statuses a `note_reviews` item may carry (docs/en/prompt-contract.md, analyzer JSON).
+// The statuses a `note_reviews` item may carry (docs/prompt-contract.md, analyzer JSON).
 const NOTE_REVIEW_STATUSES = new Set(['updated', 'confirmed', 'insufficient_evidence']);
 
 /**

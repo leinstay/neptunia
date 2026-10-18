@@ -753,7 +753,7 @@ function withLink(text, link, labels, limits = null) {
 }
 
 const REWATCH_SUMMARY_CHARS = 200;
-// Protocol tokens of the re-watch classifier (docs/en/prompt-contract.md), not wording:
+// Protocol tokens of the re-watch classifier (docs/prompt-contract.md), not wording:
 // the kind and status columns of a `<media>` line. The answer's parser
 // (parseRewatchPickDetailed) lives in src/behavior/planner.js, which reads the
 // planner's re-watch block with it; it is re-exported from here.

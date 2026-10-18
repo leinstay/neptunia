@@ -36,9 +36,9 @@ Fork the repository, branch from `main`, make the change, open a pull request ba
 - The model's output is data: only the tags in the output contract are acted on.
 - Logs carry counts, never message contents.
 
-**Every behaviour has a config setting.** A new behaviour needs its switch or number in `config.json` (`features.*` for on/off) and a row in the [configuration reference](docs/en/configuration.md).
+**Every behaviour has a config setting.** A new behaviour needs its switch or number in `config.json` (`features.*` for on/off) and a row in the [configuration reference](docs/configuration.md).
 
-**No model-facing text in `src/`.** Anything the model or the chat reads lives in `prompts/*.md` and `prompts/labels.json`. The prompt-to-code contract (placeholders, `labels.json` keys, context blocks, output tags, analyzer JSON) is documented in [`docs/en/prompt-contract.md`](docs/en/prompt-contract.md). A change on one side of the contract changes the other in the same pull request.
+**No model-facing text in `src/`.** Anything the model or the chat reads lives in `prompts/*.md` and `prompts/labels.json`. The prompt-to-code contract (placeholders, `labels.json` keys, context blocks, output tags, analyzer JSON) is documented in [`docs/prompt-contract.md`](docs/prompt-contract.md). A change on one side of the contract changes the other in the same pull request.
 
 **English only.** Code, comments, commit messages, documentation and prompt defaults are all English. A deployment's `prompts.local/` can be in any language, but it is never committed.
 

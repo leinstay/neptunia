@@ -17,5 +17,5 @@
 - [ ] No new runtime dependency (or discussed and approved in an issue)
 - [ ] No model-facing text in `src/` — prompts and `labels.json` only
 - [ ] Every new setting has its default in `config.json` and a row in the README
-- [ ] A contract change updates `docs/en/prompt-contract.md`
+- [ ] A contract change updates `docs/prompt-contract.md`
 - [ ] Nothing private: no `data/` contents, member messages, tokens or character card

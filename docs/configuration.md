@@ -19,7 +19,7 @@ Set them in the process environment (for example with `Environment=` in the syst
 
 | Key | Default | Meaning |
 |---|---|---|
-| `dryRun` | `false` | Full pipeline, never sends. See [Dry run](../../README.md#dry-run) |
+| `dryRun` | `false` | Full pipeline, never sends. See [Dry run](../README.md#dry-run) |
 | `mentions` | `true` | React to @mentions |
 | `replies` | `true` | React to replies |
 | `nameTriggers` | `true` | React to name mentions in messages |
@@ -116,7 +116,7 @@ The voice-state intent (the voice channels in `<people_now>`) is not privileged 
 | `commandName` | `"nep"` | Slash command name (lowercase `a-z 0-9 _ -`, up to 32 chars; re-registered on change) |
 | `nameTriggers` | `[]` | Extra trigger strings besides @mention |
 | `guildId` | `""` | Server to lock to; auto-detected if in exactly one |
-| `dryRunChannelId` | `""` | Channel for the dry-run mirror. See [Dry run](../../README.md#dry-run) |
+| `dryRunChannelId` | `""` | Channel for the dry-run mirror. See [Dry run](../README.md#dry-run) |
 | `access` | `{}` | Who besides owners may run which commands (managed by `/nep access`) |
 
 ## `roles`

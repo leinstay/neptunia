@@ -4,7 +4,6 @@
     <img src=".github/assets/banner.png" width="700" alt="Neptunia - AI character engine for Discord">
   </picture>
 </p>
-<p align="center">English | <a href="docs/zh/README.md">中文</a> | <a href="docs/ja/README.md">日本語</a> | <a href="docs/ru/README.md">Русский</a></p>
 <p align="center">
   <a href="https://github.com/leinstay/neptunia/stargazers"><img src="https://img.shields.io/github/stars/leinstay/neptunia" alt="GitHub stars"></a>
   <a href="https://github.com/leinstay/neptunia/forks"><img src="https://img.shields.io/github/forks/leinstay/neptunia" alt="GitHub forks"></a>
@@ -131,15 +130,15 @@ Both are hot-reloaded.
 
 The only file you must rewrite is `character-card.md`. Copy it to `prompts.local/` and write your persona. Everything else works as-is, or override individual files as needed.
 
-The prompt files, placeholders, labels, context blocks and output tags are described in [`docs/en/prompt-contract.md`](docs/en/prompt-contract.md).
+The prompt files, placeholders, labels, context blocks and output tags are described in [`docs/prompt-contract.md`](docs/prompt-contract.md).
 
 ## Configuration
 
-`config.json` holds every setting with its default. `config.local.json` (gitignored) is deep-merged over it. Both are hot-reloaded. See [`docs/en/configuration.md`](docs/en/configuration.md) for the full reference of every key.
+`config.json` holds every setting with its default. `config.local.json` (gitignored) is deep-merged over it. Both are hot-reloaded. See [`docs/configuration.md`](docs/configuration.md) for the full reference of every key.
 
 ## Warmup
 
-The warmup builds memory of people, channels and the server from a sample of recent messages. Run it before the first start, with the bot stopped, through the operations tool `tools/warmup.mjs` (`run`, `users`, `channels`, `server`, `people`, `status`, `reset`): it prints its estimate and refuses to spend without `--spend`, and keeps its progress in `data/state.json`, so a stopped run resumes. The total token spend is capped by `warmup.maxTokens`. The bot never runs the warmup; the tool resumes an unfinished run itself. Afterwards `/nep memory refresh` rewrites a member's portrait, or a channel's or the server notes from a fresh sample, on demand. See [`docs/en/warmup.md`](docs/en/warmup.md) for the stages, progress, rails and the tool.
+The warmup builds memory of people, channels and the server from a sample of recent messages. Run it before the first start, with the bot stopped, through the operations tool `tools/warmup.mjs` (`run`, `users`, `channels`, `server`, `people`, `status`, `reset`): it prints its estimate and refuses to spend without `--spend`, and keeps its progress in `data/state.json`, so a stopped run resumes. The total token spend is capped by `warmup.maxTokens`. The bot never runs the warmup; the tool resumes an unfinished run itself. Afterwards `/nep memory refresh` rewrites a member's portrait, or a channel's or the server notes from a fresh sample, on demand. See [`docs/warmup.md`](docs/warmup.md) for the stages, progress, rails and the tool.
 
 ## Dry run
 
@@ -171,7 +170,7 @@ The 19 top-level entries:
 - `lore` adds, lists, shows or removes lorebook entries
 - `memory` covers profiles, channels, server notes, affinity, refresh, forget, wipe, the journal, the archive, restore, snapshots and private memory
 
-Owners (`bot.owners`) can run everything. Anyone else needs a grant on the exact operation; reading and writing are separate operations, and a grant on a group or `*` opens only the read operations that exist at that moment. On a fresh server, members can use `pings` and nothing else until the owner grants more. Owner-only operations (access grants, forget, wipe, the journal, the archive, snapshots and private memory) cannot be opened by any grant. See [`docs/en/owner-commands.md`](docs/en/owner-commands.md) for the full table and the access model.
+Owners (`bot.owners`) can run everything. Anyone else needs a grant on the exact operation; reading and writing are separate operations, and a grant on a group or `*` opens only the read operations that exist at that moment. On a fresh server, members can use `pings` and nothing else until the owner grants more. Owner-only operations (access grants, forget, wipe, the journal, the archive, snapshots and private memory) cannot be opened by any grant. See [`docs/owner-commands.md`](docs/owner-commands.md) for the full table and the access model.
 
 ## Messages and memory
 
@@ -181,15 +180,15 @@ A separate memory analyzer runs when enough messages accumulate. It builds per-m
 
 Memory is kept in layers. Hot memory is the profiles, notes and lists the persona carries in every request: per-member interests, details, aliases, episodes, character, style and relationship; per-channel notes; server-wide patterns, starters, in-jokes and lessons. The record is a permanent append-only log in `data/`: every message the persona heard, every one it posted, every decision it made, written before anything is analyzed. The archive catches everything hot memory evicts: when an episode, interest, detail, alias, attitude move, lesson, recent line or diary gist ages out or is pushed past a cap, a copy goes to an archive file before the item leaves. When someone asks the persona about old events, the recall search reads the archive and the last few days of the record alongside Discord's own search, so items that left hot memory can still be found. `/nep memory forget` copies everything it will delete into a vault directory (`memory.vaultDir`, default `data/vault/`) and writes the member's id to a ledger (`forgotten.json`). The engine never reads the vault back; putting a member back means copying their files by hand. `/nep memory wipe` does the same for the whole server.
 
-See [`docs/en/messages-and-memory.md`](docs/en/messages-and-memory.md) for the pipeline steps, the analyzer, profiles, episodes, the lorebook and the owner commands that touch memory.
+See [`docs/messages-and-memory.md`](docs/messages-and-memory.md) for the pipeline steps, the analyzer, profiles, episodes, the lorebook and the owner commands that touch memory.
 
 ## Media
 
-The persona can see attached pictures, watch short video clips, read pages behind links, search the web and the server's own message history for facts they do not have, draw pictures on request through an image generation model, and post GIFs from a library built from what the chat shares. Each capability is a separate feature switch, off or capped by default, with its own daily limit. A `<senses>` block in each request tells the persona what is on; they never claim to have perceived anything beyond it. See [`docs/en/media.md`](docs/en/media.md) for pictures, video vision, link reading, search, drawing, tools, costs and privacy.
+The persona can see attached pictures, watch short video clips, read pages behind links, search the web and the server's own message history for facts they do not have, draw pictures on request through an image generation model, and post GIFs from a library built from what the chat shares. Each capability is a separate feature switch, off or capped by default, with its own daily limit. A `<senses>` block in each request tells the persona what is on; they never claim to have perceived anything beyond it. See [`docs/media.md`](docs/media.md) for pictures, video vision, link reading, search, drawing, tools, costs and privacy.
 
 ## Private chat
 
-`features.privateMessages` (off by default) lets guild members talk to the persona in Discord DMs. The persona is the same character with the same public memory; what is said in a DM is remembered in a per-member private layer that no other conversation ever sees. DMs need the same server membership and no extra permission beyond what the invite URL already grants. See [`docs/en/messages-and-memory.md`](docs/en/messages-and-memory.md#private-layer) for the gate, the private memory layer and the owner commands.
+`features.privateMessages` (off by default) lets guild members talk to the persona in Discord DMs. The persona is the same character with the same public memory; what is said in a DM is remembered in a per-member private layer that no other conversation ever sees. DMs need the same server membership and no extra permission beyond what the invite URL already grants. See [`docs/messages-and-memory.md`](docs/messages-and-memory.md#private-layer) for the gate, the private memory layer and the owner commands.
 
 ## Costs
 
@@ -209,7 +208,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now neptunia-bot
 ```
 
-By default the private files (`.env`, `config.local.json`, `prompts.local/`, `data/`) live in the checkout. The example unit keeps them outside it, under one root `/opt/neptunia` (the checkout in `app/`, the private files in `etc/`, the data in `data/`), using the `NEPTUNIA_PRIVATE_DIR` and `NEPTUNIA_DATA_DIR` environment variables (see "Where the private files live" in [`docs/en/configuration.md`](docs/en/configuration.md)). `sudo deploy/install.sh` creates that layout (the service user, `etc/` and `data/` under the root, the unit pointing at the checkout) without starting the bot; `--dry-run` prints the commands first. To update:
+By default the private files (`.env`, `config.local.json`, `prompts.local/`, `data/`) live in the checkout. The example unit keeps them outside it, under one root `/opt/neptunia` (the checkout in `app/`, the private files in `etc/`, the data in `data/`), using the `NEPTUNIA_PRIVATE_DIR` and `NEPTUNIA_DATA_DIR` environment variables (see "Where the private files live" in [`docs/configuration.md`](docs/configuration.md)). `sudo deploy/install.sh` creates that layout (the service user, `etc/` and `data/` under the root, the unit pointing at the checkout) without starting the bot; `--dry-run` prints the commands first. To update:
 
 ```bash
 git pull && sudo systemctl restart neptunia-bot
@@ -221,7 +220,7 @@ Memory lives in the process and is written to `data/`; editing those files under
 
 ## Contributing
 
-Issues and pull requests are welcome; read `CONTRIBUTING.md` first. Target branch is `main`, one change per pull request, tests pass with `npm test`, English only. The contract between the prompt files and the code is in `docs/en/prompt-contract.md`. A change on one side requires the matching change on the other, in the same pull request. The engine stays character-neutral; behaviour of one character belongs in that deployment's `prompts.local/`. Security reports go through `SECURITY.md`, not public issues.
+Issues and pull requests are welcome; read `CONTRIBUTING.md` first. Target branch is `main`, one change per pull request, tests pass with `npm test`, English only. The contract between the prompt files and the code is in `docs/prompt-contract.md`. A change on one side requires the matching change on the other, in the same pull request. The engine stays character-neutral; behaviour of one character belongs in that deployment's `prompts.local/`. Security reports go through `SECURITY.md`, not public issues.
 
 ## Tests
 
@@ -278,7 +277,7 @@ prompts/
   skills.json              the persona's skill texts (title, whenToUse, whenNotToUse)
 prompts.local/             your personality (gitignored)
 packages/
-  protocol/                the protocol between the core and an interface adapter: event kinds, action names, result statuses, validation (docs/en/interfaces.md)
+  protocol/                the protocol between the core and an interface adapter: event kinds, action names, result statuses, validation (docs/interfaces.md)
 interfaces/
   discord/                 the Discord interface (@neptunia/interface-discord): the Discord adapter of the interface port, message normalization, history, permissions, searches and slash commands
     guild.js               single-guild resolution
@@ -286,7 +285,7 @@ interfaces/
     collect.js             channel history, neighbours, permissions
     search.js              Discord message search and member search
     pull-fetch.js          audience check, pull-channel fetch
-agents/                    one folder per errand agent (prompt.md and profile.json); see agents/README.md and docs/en/agents.md
+agents/                    one folder per errand agent (prompt.md and profile.json); see agents/README.md and docs/agents.md
 docs/
   en/
     prompt-contract.md     the contract between prompt files and code

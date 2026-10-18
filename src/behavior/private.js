@@ -5,7 +5,7 @@
 // caller (src/behavior/pipeline.js), except the daily-cap notice. The private
 // layer never changes the public profile: `mergeProfiles` builds a NEW
 // object for rendering only, and the public affinity score alone decides the
-// gate -- see docs/en/prompt-contract.md.
+// gate -- see docs/prompt-contract.md.
 
 import { normalizeTopic, clampScore } from '../memory/index.js';
 import { countToday } from '../time.js';

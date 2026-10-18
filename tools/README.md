@@ -152,7 +152,7 @@ Record lines keep a posted link's preview (`links`: URL, title, description, sit
 
 `warmup.mjs` runs the memory warmup outside the bot: the same engine (`src/memory/warmup.js`), the same prompts
 (`channel.md`, `profile.md`, `server.md`), the same config and the same progress (`state.warmup` in `data/state.json`)
-as before it was a tool. See `docs/en/warmup.md` for the stages, the sample sizes and the rails.
+as before it was a tool. See `docs/warmup.md` for the stages, the sample sizes and the rails.
 
 **When.** Before the first start of the bot on a server, and whenever the owner wants a member, a channel or the
 server notes built again from a fresh sample. With the bot stopped: `run`, `users`, `channels`, `server` and `reset`

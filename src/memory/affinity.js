@@ -7,7 +7,7 @@
 // ignore someone it likes, and by the analyzer's request builder to decide
 // when the stored relationship text no longer matches the score or was
 // flagged for a forced rewrite (`relationshipStaleOf`). See
-// docs/en/prompt-contract.md, "The analyzer".
+// docs/prompt-contract.md, "The analyzer".
 // It is also the one home of the two attitude rules the two-stage analyzer
 // (src/memory/voice.js) must apply as the store does: the reason's length
 // (`REASON_CHARS`) and the reading of the delta cap (`deltaCapOf`).
