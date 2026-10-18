@@ -1,5 +1,7 @@
-// The two costs fields of the owner's `/nep status` card: what each OpenRouter key allows and has
-// spent, and today's requests per model role from the bot's own accounting. The
+// The costs fields of the owner's `/nep status` card: `keys.base`, what each OpenRouter key of the
+// core allows and has spent; `costs.base`, today's requests per model role from the bot's own
+// accounting; `costs.agents`, the agents' runs and estimated spend (src/errands/costs.js, rendered
+// here by agentCostsLines). The
 // accumulator is fed by the `llm: usage` log lines (src/log.js#onLog, subscribed in src/index.js
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
@@ -422,7 +424,7 @@ function shownRoles(roles, names) {
 }
 
 /**
- * The `keys` field's lines, every word from `labels.status.costs` (a missing
+ * The `keys.base` field's lines, every word from `labels.status.costs` (a missing
  * label leaves its line out; no `status.costs` at all gives []): per key, its limit line
  * immediately followed by its own usage line -- the main key (lead `keyLead`), the simulator key
  * (lead `simKeyLead`; the one line `simKeyNotSet` when `sim` is null), then each extra role key
@@ -468,7 +470,7 @@ export function keyCostsLines({ key, activity = null, sim = null, simActivity = 
 }
 
 /**
- * The `costs` field's lines, every word from `labels.status.costs` (no
+ * The `costs.base` field's lines, every word from `labels.status.costs` (no
  * `status.costs` gives []): one `role` line per row in the given order, each with `{avg}`, the
  * cost per request; `byRoleEmpty` alone when there is no row. No header and no total. Pure.
  * @param {{ rows: object[], labels: object }} params  `rows` as `createUsage().byRole()` returns.
@@ -480,4 +482,36 @@ export function roleCostsLines({ rows, labels }) {
   const list = Array.isArray(rows) ? rows : [];
   const lines = list.length === 0 ? [line(L.byRoleEmpty, {})] : list.map((row) => rowLine(L.role, row, L));
   return lines.filter(Boolean);
+}
+
+/** The windows of an agent's spend line, in order (src/errands/costs.js#COST_WINDOWS's names). */
+const AGENT_WINDOWS = Object.freeze(['today', 'last7', 'last30']);
+
+/**
+ * The `costs.agents` field's lines, every word from `labels.status.costs` (no `status.costs`
+ * gives []): one line per agent in the given order, `agentLine` ({agent} {parts}) with one
+ * `agentWindow` part ({window} {runs} {in} {out} {usd}; tokens compact, the window named through
+ * `agentWindows.today | last7 | last30`) per window joined by `partSeparator`, or `agentNoRuns`
+ * ({agent}) when the agent has no run in the last 30 days or no record at all; then
+ * `agentEstimate`, the note that the dollars are OpenCode's estimate. Pure.
+ * @param {{ agents: string[], totals: object|null, labels: object }} params  `totals` as
+ *   src/errands/costs.js#agentCosts returns (an agent it lacks has no run).
+ * @returns {string[]}
+ */
+export function agentCostsLines({ agents, totals, labels }) {
+  const L = labels?.status?.costs;
+  if (!isPlainObject(L)) return [];
+  const names = isPlainObject(L.agentWindows) ? L.agentWindows : {};
+  const lines = (Array.isArray(agents) ? agents : []).map((agent) => {
+    const row = isPlainObject(totals) && isPlainObject(totals[agent]) ? totals[agent] : null;
+    const counted = row && AGENT_WINDOWS.some((window) => amountOr0(row[window]?.runs) > 0 || amountOr0(row[window]?.usd) > 0);
+    if (!counted) return line(L.agentNoRuns, { agent });
+    const parts = AGENT_WINDOWS.map((window) => {
+      const sums = isPlainObject(row[window]) ? row[window] : {};
+      const name = typeof names[window] === 'string' && names[window] ? names[window] : window;
+      return line(L.agentWindow, { window: name, runs: amountOr0(sums.runs), in: compactTokens(sums.input), out: compactTokens(sums.output), usd: usd(sums.usd) });
+    }).filter(Boolean);
+    return parts.length > 0 ? line(L.agentLine, { agent, parts: parts.join(L.partSeparator ?? '') }) : null;
+  });
+  return [...lines, line(L.agentEstimate, {})].filter(Boolean);
 }

@@ -10,6 +10,8 @@ import { COMMAND_TO_OP, legacyGrantOps, listOps, resolveCommand, runOp } from '.
 import { createOpsEnv } from '../src/ops/env.js';
 import { commandKeys, createDiscordInterface } from '../src/interface/discord.js';
 import { tempDir } from './fixtures/tmp.js';
+import { createTaskStore } from '../src/errands/store.js';
+import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -225,8 +227,8 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
   const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key', managementKey: 'mgmt-test' });
   assert.equal(env.simKey, 'sim-test-key');
   assert.equal(env.managementKey, 'mgmt-test');
-  const result = await runOp('status.show', { field: 'keys' }, { env, guildId: null, userId: '42', roleIds: [] });
-  assert.deepEqual(result.data.embeds[0].fields.map((field) => field.name), ['keys']);
+  const result = await runOp('status.show', { field: 'keys.base' }, { env, guildId: null, userId: '42', roleIds: [] });
+  assert.deepEqual(result.data.embeds[0].fields.map((field) => field.name), ['keys.base']);
   const value = result.data.embeds[0].fields[0].value;
   assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'voice key 0.00/200.00'], 'a failed activity read: the lines as without it');
   assert.deepEqual(reads.sort(), ['main', 'sim-test-key', 'voice']);
@@ -234,7 +236,7 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
   assert.deepEqual(activity.sort(), [['mgmt-test', 'hash-main'], ['mgmt-test', 'hash-voice'], ['mgmt-test', simHash]].sort(), 'one activity read per key, by its hash, with the management key');
 });
 
-test('status keys: a role on the simulator key (here the server role) is shown on the simulator line, never on a line of its own', async () => {
+test('status keys: a role on the simulator key (here the vision role) is shown on the simulator line, never on a line of its own', async () => {
   const rootDir = tempDir('nep-ops-');
   const costs = {
     keyLead: 'main',
@@ -255,20 +257,86 @@ test('status keys: a role on the simulator key (here the server role) is shown o
   const simHash = crypto.createHash('sha256').update('sim-test-key').digest('hex');
   const reads = [];
   const llm = {
-    roleKeys: () => [{ roles: ['dev'] }, { roles: ['server'] }],
+    roleKeys: () => [{ roles: ['dev'] }, { roles: ['vision'] }],
     async keyInfo(options) {
       reads.push(options.apiKey ?? options.role ?? 'main');
       const limit = options.apiKey ? 5 : options.role ? 200 : 30;
       return { ok: true, status: 200, json: { data: { limit, limit_remaining: limit } } };
     },
-    keyHash: ({ role } = {}) => (role === 'server' ? simHash : role ? 'hash-dev' : 'hash-main'),
+    keyHash: ({ role } = {}) => (role === 'vision' ? simHash : role ? 'hash-dev' : 'hash-main'),
   };
   const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => null, llm, simKey: 'sim-test-key' });
-  const result = await runOp('status.show', { field: 'keys' }, { env, guildId: null, userId: '42', roleIds: [] });
+  const result = await runOp('status.show', { field: 'keys.base' }, { env, guildId: null, userId: '42', roleIds: [] });
   const value = result.data.embeds[0].fields[0].value;
-  assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'dev key 0.00/200.00'], 'no line for the server role: the simulator line is its line');
+  assert.deepEqual(value.split('\n'), ['main 0.00/30.00', 'sim 0.00/5.00', 'dev key 0.00/200.00'], 'no line for the vision role: the simulator line is its line');
   assert.deepEqual(reads.sort(), ['dev', 'main', 'sim-test-key'], 'the simulator key is read once');
   const noSim = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => null, llm });
-  const without = await runOp('status.show', { field: 'keys' }, { env: noSim, guildId: null, userId: '42', roleIds: [] });
-  assert.ok(without.data.embeds[0].fields[0].value.split('\n').includes('server key 0.00/200.00'), 'with no simulator key on the card, the role keeps a line of its own');
+  const without = await runOp('status.show', { field: 'keys.base' }, { env: noSim, guildId: null, userId: '42', roleIds: [] });
+  assert.ok(without.data.embeds[0].fields[0].value.split('\n').includes('vision key 0.00/200.00'), 'with no simulator key on the card, the role keeps a line of its own');
+});
+
+test('status keys.base and costs.agents: the errand agents\' key has no line and no read; their spend comes from the task records, the agents without records show no runs', async () => {
+  const rootDir = tempDir('nep-ops-');
+  const costs = {
+    keyLead: 'main',
+    simKeyLead: 'sim',
+    simKeyNotSet: 'sim: not set',
+    roleKeyLead: '{roles} key',
+    roleSeparator: '+',
+    keyLimitPlain: '{lead} {spent}/{limit}',
+    partSeparator: ' | ',
+    agentLine: '{agent}: {parts}',
+    agentWindow: '{window} {runs}r {in}/{out} {usd}',
+    agentWindows: { today: 'D', last7: 'W', last30: 'M' },
+    agentNoRuns: '{agent}: none',
+    agentEstimate: 'est.',
+  };
+  const NOW = Date.parse('2026-10-18T12:00:00Z');
+  const config = { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 }, agents: { web: { daily: { tasks: 40, usd: 8 } }, server: { daily: { tasks: 40, usd: 3 } } } };
+  const hot = { config, prompts: { labels: { status: { costs } } }, promptSources: {}, rootDir };
+  const store = { state: { data: {}, markDirty() {} }, flush() {} };
+  const reads = [];
+  const llm = {
+    roleKeys: () => [{ roles: ['server', 'web'] }, { roles: ['dev', 'thinker', 'writer'] }],
+    async keyInfo(options) {
+      reads.push(options.role ?? 'main');
+      return { ok: true, status: 200, json: { data: { limit: options.role ? 200 : 30, limit_remaining: options.role ? 200 : 30 } } };
+    },
+  };
+  const clock = { t: NOW - 10 * 24 * 60 * 60 * 1000 };
+  const tasks = createTaskStore({ dataDir: tempDir('nep-ops-data-'), guildId: 'g1', now: () => clock.t, config: () => config });
+  const run = (agent, usage) => {
+    const { task } = tasks.add({ agent, goal: 'look it up', requester: { userId: 'u1', kind: 'member' }, origin: {}, scope: 'group' });
+    tasks.start(task.id);
+    tasks.finish(task.id, { status: 'done', result: { text: 'ok' }, usage });
+  };
+  await withCapturedLogs(() => {
+    run('web', { input: 40_000, output: 2_000, usd: 0.5 });
+    clock.t = NOW;
+    run('web', { input: 12_400, output: 3_100, usd: 0.12 });
+    run('server', { input: 1_000, output: 100, usd: 0.01 });
+  });
+  const errands = { store: (guildId) => (guildId === 'g1' ? tasks : null) };
+  const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm, errands });
+  const card = async (field) => (await runOp('status.show', { field }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
+
+  const [keys] = await card('keys.base');
+  assert.deepEqual(keys.value.split('\n'), ['main 0.00/30.00', 'sim: not set', 'dev+thinker+writer key 0.00/200.00'], 'the development key stays, the agents key is gone');
+  assert.deepEqual(reads.sort(), ['dev', 'main'], 'the agents key is not read');
+
+  const [agents] = await card('costs.agents');
+  assert.equal(agents.name, 'costs.agents');
+  assert.deepEqual(agents.value.split('\n'), [
+    'web: D 1r 12k/3.1k 0.12 | W 1r 12k/3.1k 0.12 | M 2r 52k/5.1k 0.62',
+    'server: D 1r 1.0k/100 0.01 | W 1r 1.0k/100 0.01 | M 1r 1.0k/100 0.01',
+    'thinker: none',
+    'dev: none',
+    'writer: none',
+    'est.',
+  ]);
+  assert.deepEqual(tasks.today('web'), { tasks: 1, usd: 0.12, caps: { tasks: 40, usd: 8 } }, 'the web cap reads the same today');
+
+  const noErrands = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm });
+  const [empty] = (await runOp('status.show', { field: 'costs.agents' }, { env: noErrands, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
+  assert.deepEqual(empty.value.split('\n'), ['web: none', 'server: none', 'thinker: none', 'dev: none', 'writer: none', 'est.'], 'no errands: every agent with no runs');
 });

@@ -1,4 +1,4 @@
-// The two costs fields of the owner's /nep status card: today's per-role accumulator fed by the
+// The costs fields of the owner's /nep status card (keys.base, costs.base, costs.agents): today's per-role accumulator fed by the
 // `llm: usage` log lines (src/ops/usage.js), the OpenRouter key reads, and the pure renderers
 // over every key shape the owner may set.
 import { test } from 'node:test';
@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-import { createUsage, usageTap, keyCostsLines, roleCostsLines, readAccount, readActivity, activitySums, compactTokens, USAGE_FILE, KEEP_DAYS } from '../src/ops/usage.js';
+import { createUsage, usageTap, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity, activitySums, compactTokens, USAGE_FILE, KEEP_DAYS } from '../src/ops/usage.js';
 import { createLlm, keyHashOf } from '../src/llm/openrouter.js';
 import { tempDir } from './fixtures/tmp.js';
 
@@ -518,4 +518,22 @@ test('createLlm: activity is one GET with the hash in the query and the manageme
   assert.equal(calls[0].init.method, 'GET');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer mgmt-test');
   assert.deepEqual(state.data, {}, 'nothing counted');
+});
+
+test('agentCostsLines: one line per agent in order with today, 7 and 30 days, no runs for an agent without any, then the estimate note', () => {
+  const labels = { status: { costs: { partSeparator: ' | ', agentLine: '{agent}: {parts}', agentWindow: '{window} {runs}r {in}/{out} {usd}', agentWindows: { today: 'D', last7: 'W' }, agentNoRuns: '{agent}: none', agentEstimate: 'est.' } } };
+  const row = (runs, input, output, usd) => ({ runs, input, output, usd });
+  const totals = {
+    web: { today: row(2, 12_400, 3_100, 0.123), last7: row(9, 98_000, 20_000, 0.8), last30: row(30, 1_234_567, 99_999, 3.456) },
+    server: { today: row(0, 0, 0, 0), last7: row(0, 0, 0, 0), last30: row(0, 0, 0, 0) },
+  };
+  assert.deepEqual(agentCostsLines({ agents: ['web', 'server', 'dev'], totals, labels }), [
+    'web: D 2r 12k/3.1k 0.12 | W 9r 98k/20k 0.80 | last30 30r 1.23M/100k 3.46',
+    'server: none',
+    'dev: none',
+    'est.',
+  ]);
+  const noNote = { status: { costs: { ...labels.status.costs, agentEstimate: undefined } } };
+  assert.deepEqual(agentCostsLines({ agents: ['dev'], totals: null, labels: noNote }), ['dev: none']);
+  assert.deepEqual(agentCostsLines({ agents: ['web'], totals, labels: {} }), []);
 });

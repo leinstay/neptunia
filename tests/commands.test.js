@@ -70,7 +70,7 @@ test('status: an optional field option whose choices are the field names of the 
   assert.deepEqual(field.choices.map((c) => c.value), [...STATUS_FIELDS]);
   assert.deepEqual(field.choices.map((c) => c.name), [...STATUS_FIELDS]);
   for (const choice of field.choices) assert.ok(choice.value.length >= 1 && choice.value.length <= 100, choice.value);
-  assert.deepEqual([...STATUS_FIELDS], ['state', 'tasks', 'models.base', 'models.agents', 'limits', 'keys', 'costs', 'memory', 'speed'], 'single words, but the two models sections');
+  assert.deepEqual([...STATUS_FIELDS], ['state', 'tasks', 'models.base', 'keys.base', 'costs.base', 'models.agents', 'costs.agents', 'limits', 'memory', 'speed'], 'the core\'s sections, then the agents\'');
   for (const name of STATUS_FIELDS) assert.match(name, /^[a-z]+(\.[a-z]+)?$/, name);
 });
 

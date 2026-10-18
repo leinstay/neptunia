@@ -2095,7 +2095,7 @@ export function scenarioFileOf(task, parseFileHandle) {
 /**
  * The errands' budget the sandbox gateway reads (src/skills/gateway.js, `context.tasks`), read
  * only: a task store of `guildId` over `dataDir` (src/errands/store.js#createTaskStore: its
- * tasks.json read once, the live data/ or a snapshot) whose `budget(agent)` -- the open tasks
+ * tasks.json and tasks.jsonl read once, the live data/ or a snapshot) whose `budget(agent)` -- the open tasks
  * against `agents.maxOpen`, today's tasks and dollars against `agents.<agent>.daily` (the
  * profile's defaults under them), read from `config()` at the moment of use -- answers a
  * `task.run` exactly as a live turn's (src/errands/service.js#budget). Only `budget` is handed

@@ -312,3 +312,41 @@ test('task store: setLedgerId keeps the ledger\'s id on the task (tasks.json wri
     assert.equal(createTaskStore({ dataDir, guildId: 'g1', now: () => T0 }).get(task.id).ledgerId, 'L7');
   });
 });
+
+test('task store: costs and the daily caps read the same spend records, rebuilt from tasks.jsonl after a restart; a forget and a wipe drop theirs', async () => {
+  await withCapturedLogs(() => {
+    const dataDir = tempDataDir();
+    const clock = { t: T0 };
+    const { store, config } = makeStore({ dataDir, clock });
+    const old = store.add(asked).task;
+    store.finish(old.id, { status: 'done', usage: { input: 5000, output: 500, usd: 0.3 } });
+    clock.t += 3 * DAY;
+    const a = store.add(asked).task;
+    store.start(a.id);
+    store.finish(a.id, { status: 'done', usage: { input: 1000, output: 100, usd: 0.6, steps: 2 } });
+    const b = store.add({ ...asked, requester: { userId: 'u2', kind: 'member' } }).task;
+    store.finish(b.id, { status: 'failed', error: 'x', usage: { input: 2000, output: 200, usd: 0.3 } });
+    const costs = store.costs(['web', 'dev']);
+    assert.deepEqual(Object.keys(costs), ['web', 'dev']);
+    assert.deepEqual(costs.web.today, { runs: 2, input: 3000, output: 300, usd: 0.8999999999999999 });
+    assert.equal(costs.web.last7.runs, 3);
+    assert.equal(costs.dev.last30.runs, 0);
+    assert.deepEqual(store.today('web'), { tasks: costs.web.today.runs, usd: costs.web.today.usd, caps: { tasks: 5, usd: 1 } }, 'the caps read the costs\' today');
+    const c = store.add(asked).task;
+    store.finish(c.id, { status: 'done', usage: { usd: 0.2 } });
+    assert.deepEqual(store.add(asked), { ok: false, code: 'cap-usd' });
+
+    // A restart: the list file carries no counters; tasks.jsonl gives the same numbers back.
+    assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'tasks.json'), 'utf8')), 'daily'), false);
+    const again = createTaskStore({ dataDir, guildId: 'g1', now: () => clock.t, config: () => config });
+    assert.deepEqual(again.costs(), store.costs());
+    assert.deepEqual(again.add(asked), { ok: false, code: 'cap-usd' });
+
+    // The member's tasks leave the spend with their lines.
+    again.forgetUser('u2');
+    assert.equal(again.costs().web.today.runs, 2);
+    assert.equal(again.add(asked).ok, true, 'under the dollar cap again');
+    again.wipe();
+    assert.deepEqual(again.costs(), {});
+  });
+});

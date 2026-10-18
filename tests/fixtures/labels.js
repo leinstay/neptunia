@@ -311,6 +311,11 @@ export const labels = {
       reasons: { timeout: 'timeout', network: 'network', http: 'HTTP {status}', noClient: 'no client', badAnswer: 'bad answer' },
       byRoleEmpty: 'today by role: none',
       role: '{role}: {requests} req, in {in} (cached {cached}), out {out}, {cost} USD',
+      agentLine: '{agent}: {parts}',
+      agentWindow: '{window} {runs} runs, in {in}, out {out}, {usd} USD',
+      agentWindows: { today: 'day', last7: '7d', last30: '30d' },
+      agentNoRuns: '{agent}: no runs',
+      agentEstimate: 'USD estimated',
     },
   },
   warmup: {
