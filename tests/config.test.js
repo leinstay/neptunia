@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseEnv, applyEnv, deepMerge, readConfig, need, isPlainObject, resolveEnvRefs, adultErrandSettings, OPENCODE_MODEL_ID } from '../src/config.js';
+import { parseEnv, applyEnv, deepMerge, readConfig, need, isPlainObject, resolveEnvRefs } from '../src/config.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { roomQuestionChance } from '../src/behavior/spontaneous.js';
 import { RECALL_DEFAULTS, recallSettings } from '../src/behavior/recall.js';
@@ -258,30 +258,4 @@ test('config.json: the code fallbacks of the split group are the shipped values,
   assert.deepEqual(splitSettings({ split: {} }), shipped.split);
   assert.deepEqual({ ...SPLIT_DEFAULTS }, shipped.split);
   assert.equal(shipped.features.splitTasks, true, 'a missing features.splitTasks counts as on, like the shipped value');
-});
-
-test('adultErrandSettings: absent or null is off; a valid block gives its model and its positive limits', () => {
-  assert.deepEqual(adultErrandSettings(undefined), { ok: false, code: 'adult-off' });
-  assert.deepEqual(adultErrandSettings(null), { ok: false, code: 'adult-off' });
-  assert.deepEqual(adultErrandSettings({ model: 'vendor/model-k3' }), { ok: true, model: 'vendor/model-k3', limits: {} });
-  assert.deepEqual(
-    adultErrandSettings({ model: 'vendor/model-k3', limits: { seconds: 600, steps: 40, usd: 1.5, toolResultChars: 9, extra: 3 } }),
-    { ok: true, model: 'vendor/model-k3', limits: { seconds: 600, steps: 40, usd: 1.5 } },
-    'only steps, usd and seconds are carried',
-  );
-  assert.deepEqual(adultErrandSettings({ model: 'vendor/model-k3', limits: { seconds: 0, steps: -1, usd: 'x' } }), { ok: true, model: 'vendor/model-k3', limits: {} }, 'a limit that is not a positive number is left to agents.web.limits');
-});
-
-test('adultErrandSettings: a block without a valid OpenCode model id, or with limits that are not an object, is misconfigured', () => {
-  for (const value of [{}, { model: '' }, { model: 'has space' }, { model: 42 }, { model: 'a'.repeat(129) }, 'vendor/model', [], true, { model: 'vendor/model', limits: [] }, { model: 'vendor/model', limits: 5 }]) {
-    assert.deepEqual(adultErrandSettings(value), { ok: false, code: 'adult-misconfigured' }, JSON.stringify(value));
-  }
-  assert.ok(OPENCODE_MODEL_ID.test('openrouter/vendor/model-1.5:free'));
-});
-
-test('config.json: agents.web.adult ships null (the adult errand switch off)', () => {
-  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
-  assert.equal(shipped.agents.web.adult, null);
-  assert.equal(adultErrandSettings(shipped.agents.web.adult).ok, false);
 });

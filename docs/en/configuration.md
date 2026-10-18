@@ -896,7 +896,6 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | `limits` | `{ "steps": 25, "usd": 0.5, "seconds": 300 }` | Per-task caps: model calls, estimated spend (soft cap; the hard cap is the key's OpenRouter credit limit), wall-clock seconds |
 | `daily` | `{ "tasks": 40, "usd": 8 }` | Per-day caps (UTC day), applied core-side when a task is asked for: `cap-tasks` past `tasks`, `cap-usd` once the day's ended tasks reported `usd` or more |
 | `search` | `{ "provider": "exa" }` | OpenCode web search provider: `exa` (no key) or `parallel` (needs a key in `OPENCODE_WEBSEARCH_KEY`) |
-| `adult` | `null` | The adult errand switch: `{ "model": "<OpenCode model id>", "limits": { "seconds", "steps", "usd" } }`. A `task.run` with `adult: true` on `web` then runs on this `model` with these `limits` merged over `limits` above, kept on the task as `adult: true` and counted against `daily` as usual. With `null` (or a block without a valid model: `adult-misconfigured`) the flag is ignored and the answer's code is `adult-off`. Read when the errand is queued and again when it is sent |
 
 ### `agents.server`
 
