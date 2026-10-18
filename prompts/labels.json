@@ -323,7 +323,7 @@
         "last30": "last 30 days"
       },
       "agentNoRuns": "{agent} · no runs recorded",
-      "agentEstimate": "agent USD is OpenCode's estimate at each agent's price"
+      "agentEstimate": "agent USD is OpenCode's estimate at each agent's own price, not the provider's bill"
     }
   },
   "warmup": {
