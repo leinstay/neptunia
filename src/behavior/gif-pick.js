@@ -17,7 +17,7 @@ export const GIF_PICK_DEFAULTS = Object.freeze({
   maxChars: 160,
   contextMessages: 4,
   maxOutputTokens: 60,
-  graceMs: 0,
+  graceMs: 1000,
 });
 
 /**

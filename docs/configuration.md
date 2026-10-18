@@ -437,7 +437,7 @@ Settings for the GIF picker (`features.gifPicker`). When the persona's first out
 | `maxChars` | `160` | First message ceiling: the picker runs only when the persona's first outgoing message is at most this many characters |
 | `contextMessages` | `4` | Recent chat lines sent to the classifier alongside the reply and the library |
 | `maxOutputTokens` | `60` | Max output tokens for the picker classifier |
-| `graceMs` | `0` | How long the first message, once its typing simulation is over, still waits for the picker. A picker still out then is left behind for this turn: the text goes as written, logged `gifs: pick late` and journaled as a `helper-timeout` limit on `gif-pick`. `null` waits for the answer however long it takes. Without the typing simulation the first message waits for the answer |
+| `graceMs` | `1000` | How long the first message, once its typing simulation is over, still waits for the picker. A picker still out then is left behind for this turn: the text goes as written, logged `gifs: pick late` and journaled as a `helper-timeout` limit on `gif-pick`. `null` waits for the answer however long it takes. Without the typing simulation the first message waits for the answer |
 
 ## `avatars`
 
