@@ -118,7 +118,7 @@
     "maxRequestsPerDay": 5000,
     "provider": null,
     "providerByModel": {},
-    "keyByRole": { "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY" },
+    "keyByRole": { "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "drawing": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY" },
     "cache": { "ttl": "1h", "profilesTtl": "1h", "roles": ["voice"], "models": ["anthropic/"], "promptIncludesCached": true },
     "hedge": { "roles": ["analyzer", "reasoner"], "afterMs": 2500, "timeoutMs": 8000, "longTimeoutMs": 20000 }
   },
@@ -479,6 +479,10 @@
       "out": "/var/lib/neptunia-agent-server/out",
       "limits": { "steps": 20, "usd": 0.2, "seconds": 120 },
       "daily": { "tasks": 40, "usd": 3 }
+    },
+    "drawing": {
+      "limits": { "seconds": 300 },
+      "daily": { "tasks": 100, "usd": 5 }
     },
     "thinker": {
       "cost": { "input": 4, "output": 20 },

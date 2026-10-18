@@ -9,9 +9,10 @@ agents/
   thinker/   prompt.md + profile.json   development: picks up development tasks, writes briefs, reviews, tests, merges; never deploys
   dev/       prompt.md + profile.json   development: writes code within one task
   writer/    prompt.md + profile.json   development: writes prompt and documentation text within one task
+  drawing/   profile.json               tool: draws the persona's pictures; the core runs it, no model loop and no process
 ```
 
-There are three kinds. A worker runs as its own process and takes tasks on a socket. A consultation has no process: tools call its model role directly. A development agent works on the code itself: the engine only describes it (tools, effort, default caps, prompt), and a dispatcher or orchestrator outside the engine runs it on OpenCode for one development task at a time. The agent runner skips consultations and development agents.
+There are four kinds. A worker runs as its own process and takes tasks on a socket. A consultation has no process: tools call its model role directly. A development agent works on the code itself: the engine only describes it (tools, effort, default caps, prompt), and a dispatcher or orchestrator outside the engine runs it on OpenCode for one development task at a time. A tool agent has no model loop and no process: the core runs its one tool itself. The agent runner skips consultations, development agents and tool agents.
 
 The development prompts here are generic and public; a deployment adds its own rules to them where it runs the agents.
 

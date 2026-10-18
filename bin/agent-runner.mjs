@@ -29,7 +29,7 @@ import { loadConfig } from '../src/config.js';
 import { log } from '../src/log.js';
 import { createRunnerServer } from '../src/agent-runner/server.js';
 import { createOpencodeRunner, DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.js';
-import { profileOf } from '../src/agent-runner/profiles.js';
+import { profileOf, toolProfileOf } from '../src/agent-runner/profiles.js';
 import { startSweeper } from '../src/agent-runner/sweep.js';
 
 /** Parse `--flag value` and `--flag=value` into a plain object. */
@@ -63,6 +63,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const name = args.profile;
   const profile = profileOf(name);
+  if (!profile && toolProfileOf(name)) fail(`profile ${name} is a tool agent: the core runs it, there is no runner`);
   if (!profile) fail(`unknown profile: ${name ?? '(none)'} (expected web or server)`);
 
   // The runner never reads the bot's .env: the bot's secrets file is inaccessible to it by design, and

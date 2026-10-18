@@ -18,10 +18,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.js';
 import { onLog } from '../src/log.js';
-import { WEB, SERVER, PROFILES, ALWAYS_DENIED, AgentProfileError, DEVELOPMENT_ROLES, DEVELOPMENT_TOOLS, SHELL_CLASSES, WEB_TOOLS_DIR, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, TAR_DENIES, WEB_FILE_RULES, WEB_SHELL_ALLOW, WEB_TMP_DIR, YT_DLP_DENIES, withheldShellDenies } from '../src/agent-runner/profiles.js';
+import { WEB, SERVER, PROFILES, ALWAYS_DENIED, AgentProfileError, DEVELOPMENT_ROLES, DEVELOPMENT_TOOLS, SHELL_CLASSES, TOOL_NAMES, TOOL_ROLES, WEB_TOOLS_DIR, listAgents, loadProfiles, loadToolProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, TAR_DENIES, WEB_FILE_RULES, WEB_SHELL_ALLOW, WEB_TMP_DIR, YT_DLP_DENIES, withheldShellDenies } from '../src/agent-runner/profiles.js';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldGlobsOf, withheldRootsOf } from '../src/agent-runner/policy.js';
 import { OPENCODE_ROLES, ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { resolvePaths } from '../src/paths.js';
@@ -811,16 +812,17 @@ test('the development agents\' folders hold no absolute server path and no Cyril
   }
 });
 
-test('the real agents/ folder: web and server workers, three development agents, no advice consultation, each prompt tracked beside its profile', () => {
+test('the real agents/ folder: web and server workers, three development agents, the drawing tool agent, no advice consultation, each prompt tracked beside its profile', () => {
   const agents = listAgents();
   assert.deepEqual(agents.map((agent) => [agent.id, agent.kind, agent.role]), [
     ['dev', 'development', 'dev'],
+    ['drawing', 'tool', 'drawing'],
     ['server', 'worker', 'server'],
     ['thinker', 'development', 'thinker'],
     ['web', 'worker', 'web'],
     ['writer', 'development', 'writer'],
   ]);
-  for (const agent of agents) assert.ok(fs.existsSync(path.join(ROOT, 'agents', agent.id, agent.prompt)), agent.id);
+  for (const agent of agents.filter((one) => one.kind !== 'tool')) assert.ok(fs.existsSync(path.join(ROOT, 'agents', agent.id, agent.prompt)), agent.id);
   assert.deepEqual(Object.keys(PROFILES).sort(), ['server', 'web']);
   assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'advice')), false, 'the advice profile is gone');
   for (const profile of [WEB, SERVER]) {
@@ -834,4 +836,75 @@ test('the real agents/ folder: web and server workers, three development agents,
     assert.equal(shipped[name].socket, profileOf(name).defaultSocket, `${name}: config.json and the profile agree on the socket`);
     assert.equal(shipped[name].out, profileOf(name).defaultOut, `${name}: and on the out dir`);
   }
+});
+
+/** A tool profile.json that passes every check, `changes` merged over it (an `undefined` value drops the key). */
+function toolProfile(id, changes = {}) {
+  const base = {
+    id,
+    kind: 'tool',
+    role: 'drawing',
+    prompt: null,
+    override: null,
+    tool: 'draw',
+    limits: { seconds: 60 },
+    daily: { tasks: 5, usd: 1 },
+    description: 'A test tool agent.',
+  };
+  const merged = { ...base, ...changes };
+  for (const [key, value] of Object.entries(merged)) if (value === undefined) delete merged[key];
+  return merged;
+}
+
+test('tool profiles: listed by listAgents and loadToolProfiles, skipped by loadProfiles; the role is a tool agent role, the tool one the core runs', () => {
+  assert.deepEqual([...TOOL_ROLES], ['drawing']);
+  assert.deepEqual([...TOOL_NAMES], ['draw']);
+  withAgentsTree({ pic: toolProfile('pic'), probe: workerProfile('probe') }, (rootDir) => {
+    assert.deepEqual(Object.keys(loadProfiles({ rootDir, env: {} })), ['probe']);
+    const tools = loadToolProfiles({ rootDir });
+    assert.deepEqual(Object.keys(tools), ['pic']);
+    assert.deepEqual({ ...tools.pic, defaultLimits: { ...tools.pic.defaultLimits }, defaultDaily: { ...tools.pic.defaultDaily } }, {
+      name: 'pic',
+      kind: 'tool',
+      description: 'A test tool agent.',
+      modelRole: 'drawing',
+      tool: 'draw',
+      defaultLimits: { seconds: 60 },
+      defaultDaily: { tasks: 5, usd: 1 },
+    });
+    assert.deepEqual(listAgents({ rootDir }).map((agent) => [agent.id, agent.kind]), [['pic', 'tool'], ['probe', 'worker']]);
+  });
+});
+
+test('tool profiles: a bad key is refused with AgentProfileError naming the agent and the key', () => {
+  const cases = [
+    [{ role: 'web' }, 'role'],
+    [{ role: 'dev' }, 'role'],
+    [{ tool: 'shell' }, 'tool'],
+    [{ tool: undefined }, 'tool'],
+    [{ limits: { seconds: 0 } }, 'limits.seconds'],
+    [{ limits: { seconds: 60, steps: 3 } }, 'limits.steps'],
+    [{ daily: { tasks: 5 } }, 'daily.usd'],
+    [{ daily: undefined }, 'daily'],
+    [{ tools: ['read'] }, 'tools'],
+    [{ shell: 'server-read-only' }, 'shell'],
+    [{ socket: '/run/x/sock' }, 'socket'],
+    [{ prompt: '../prompt.md' }, 'prompt'],
+  ];
+  for (const [changes, key] of cases) {
+    withAgentsTree({ pic: toolProfile('pic', changes) }, (rootDir) => assertRefused(rootDir, 'pic', key));
+  }
+});
+
+test('the real drawing profile: a tool agent with no prompt and no override, whose config defaults agree with config.json; the agent runner refuses its id', () => {
+  const tool = listAgents().find((agent) => agent.id === 'drawing');
+  assert.deepEqual([tool.kind, tool.role, tool.tool, tool.prompt, tool.override], ['tool', 'drawing', 'draw', null, null]);
+  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+  assert.deepEqual(shipped.agents.drawing.limits, tool.limits, 'config.json and the profile agree on the limits');
+  assert.deepEqual(shipped.agents.drawing.daily, tool.daily, 'and on the daily caps');
+  assert.equal(shipped.llm.keyByRole.drawing, 'OPENROUTER_AGENT_KEY', 'pictures are paid with the agents key');
+  assert.equal(profileOf('drawing'), null);
+  const run = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'agent-runner.mjs'), '--profile', 'drawing'], { encoding: 'utf8', timeout: 20000 });
+  assert.equal(run.status, 1);
+  assert.match(run.stdout + run.stderr, /tool agent/);
 });

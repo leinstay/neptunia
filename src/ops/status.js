@@ -33,13 +33,13 @@ import { WEB_DAILY } from '../web/lookup.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from './grants.js';
 import { MODEL_ROLES, STATUS_FIELDS } from './catalog.js';
-import { OPENCODE_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
+import { AGENT_ROLES, OPENCODE_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { plannerOn } from '../behavior/planner.js';
 import { missedCounts, missedStatusLine } from '../behavior/missed.js';
 import { SPEED_METRICS } from './metrics.js';
 import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.js';
-import { PROFILES } from '../agent-runner/profiles.js';
+import { PROFILES, TOOL_PROFILES } from '../agent-runner/profiles.js';
 import { LEDGER_AGENTS } from '../errands/ledger.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
@@ -52,9 +52,12 @@ export { STATUS_FIELDS };
 /** The fields a member's card leaves out. */
 const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.agents', 'memory', 'speed']);
 
-/** The model roles of the errand agents (src/agent-runner/profiles.js): a key only they use is
- * the agents' key, which `keys.base` leaves out. */
-const ERRAND_ROLES = new Set(Object.values(PROFILES).map((profile) => profile.modelRole));
+/** The model roles of the errand agents and the tool agents (src/agent-runner/profiles.js): a key
+ * only they use is the agents' key, which `keys.base` leaves out. */
+const ERRAND_ROLES = new Set([...Object.values(PROFILES), ...Object.values(TOOL_PROFILES)].map((profile) => profile.modelRole));
+
+/** The role of the drawing agent, whose pictures `costs.agents` counts from the task records: `costs.base` has no row for it. */
+const TOOL_ROLES = new Set(Object.values(TOOL_PROFILES).map((profile) => profile.modelRole));
 
 /**
  * The `models.base` field's groups, in order: one line per role, then the
@@ -548,7 +551,8 @@ const handlers = perEnv((env) => {
   /** The owner's `costs.base` field (src/ops/usage.js#roleCostsLines): today's requests
    * per role from the usage accumulator; `-` when the labels give no line. */
   function roleCostsValue() {
-    const rows = typeof usage?.byRole === 'function' ? usage.byRole() : [];
+    // A tool agent's spend (the pictures) is in costs.agents from its task records: no row here, so nothing counts twice.
+    const rows = (typeof usage?.byRole === 'function' ? usage.byRole() : []).filter((row) => !TOOL_ROLES.has(row.role));
     const lines = roleCostsLines({ rows, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
@@ -562,7 +566,7 @@ const handlers = perEnv((env) => {
    * answer in time never fails the field. `-` when the labels give no line. */
   async function agentCostsValue(guildId) {
     const tasks = guildId && typeof errands?.store === 'function' ? errands.store(guildId) : null;
-    const totals = { ...(typeof tasks?.costs === 'function' ? tasks.costs(OPENCODE_ROLES) : {}) };
+    const totals = { ...(typeof tasks?.costs === 'function' ? tasks.costs(AGENT_ROLES) : {}) };
     let ledgerTotals = null;
     try {
       ledgerTotals = typeof errands?.ledger?.costs === 'function' ? await errands.ledger.costs() : null;
@@ -574,7 +578,7 @@ const handlers = perEnv((env) => {
       else delete totals[agent];
     }
     // The OpenCode agents in order, then any other agent the records name.
-    const agents = [...new Set([...OPENCODE_ROLES, ...Object.keys(totals)])];
+    const agents = [...new Set([...AGENT_ROLES, ...Object.keys(totals)])];
     const lines = agentCostsLines({ agents, totals, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';
   }

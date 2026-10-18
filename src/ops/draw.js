@@ -2,23 +2,21 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { avatarReference } from '../media/fetch-image.js';
-import { buildDrawPrompt } from '../behavior/prompt.js';
+import { createDrawingTool, drawPicture } from '../errands/tools.js';
 import { imageFileName } from '../behavior/turn.js';
 import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
-import { clampAtBoundary } from '../memory/clamp.js';
 import { postingConversation } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
 const handlers = perEnv((env) => {
-  const { hot, client, discord, images, imageFetcher, port, assertNotPaused, resolvedGuildId } = env;
+  const { hot, client, discord, images, imageFetcher, errands, port, assertNotPaused, resolvedGuildId } = env;
 
   /**
-   * `/nep draw`: one picture through the same prompt a turn builds (prompts
-   * read now, the request clamped to `image.maxPromptChars`, the avatar as
-   * reference for `self` when `image.reference` is `'avatar'`), counted
+   * `/nep draw`: one picture through the drawing agent (src/errands/tools.js), the same prompt
+   * a turn builds (prompts read now, the request clamped to `image.maxPromptChars`, the avatar as
+   * reference for `self` when `image.reference` is `'avatar'`; no local time), counted
    * against `image.maxPerDay` only (no member). Answers `{ text, files }`:
    * one line with the model, seconds and cost, plus the picture. A rail or
    * generation failure throws with its reason and HTTP status; the prompt is
@@ -36,7 +34,6 @@ const handlers = perEnv((env) => {
     const postTo = args?.channelId ? await postingConversation({ client, discord, guildId: resolvedGuildId(context), channelId: args.channelId, context, need: 'attach' }) : null;
     if (postTo && (!port || typeof port.send !== 'function')) throw Object.assign(new Error('the persona\'s interface is not available'), { code: 'not-configured' });
 
-    const imageCfg = hot.config.image ?? {};
     const model = roleModel(hot.config, 'drawing');
     if (!images.familyOf(model)) {
       return `unsupported image model: ${model ?? '-'} (no supported family); nothing was generated`;
@@ -45,20 +42,20 @@ const handlers = perEnv((env) => {
     const self = args?.self === true;
     const guildId = resolvedGuildId(context);
     const selfName = client?.guilds?.cache?.get(guildId)?.members?.me?.displayName ?? client?.user?.username ?? '';
-    const clamped = clampAtBoundary(request, imageCfg.maxPromptChars);
-    const prompt = buildDrawPrompt({ prompts: hot.prompts, selfName, request: clamped, self });
-
-    let reference = null;
-    let referenceMissing = false;
-    if (self && imageCfg.reference === 'avatar') {
-      reference = await avatarReference({ client, imageFetcher, config: hot.config });
-      referenceMissing = reference === null;
-      if (referenceMissing) log.warn('admin: draw avatar reference unavailable', {});
-    }
 
     let picture;
+    let referenceMissing = false;
     try {
-      picture = await images.generate({ prompt, reference, userId: null });
+      const tool = createDrawingTool({ images, hot, client, imageFetcher });
+      ({ picture, referenceMissing } = await drawPicture({
+        tool,
+        errands,
+        guildId,
+        input: { scene: request, selfName, self, withTime: false, userId: null },
+        requester: { userId: null, kind: 'owner' },
+        origin: { channelId: context?.channelId ? String(context.channelId) : null },
+      }));
+      if (referenceMissing) log.warn('admin: draw avatar reference unavailable', {});
     } catch (err) {
       if (err instanceof ImageCapError || err instanceof ImageGenError) {
         const status = err.statusCode ? `, HTTP ${err.statusCode}` : '';

@@ -128,7 +128,8 @@ function buildBody({ cfg, model, routing, family, prompt, reference }) {
 
 /**
  * @param {object} deps
- * @param {string} deps.apiKey
+ * @param {string|(() => string)} deps.apiKey  The key, or a function giving it, read at each request
+ *   (the key `llm.keyByRole.drawing` names, src/llm/openrouter.js#roleApiKey).
  * @param {() => object} deps.getConfig   Returns the live config (hot-reloaded).
  * @param {object} deps.state             Persistent state; `imageDay` / `imageCount` / `imageUsers` live on `state.data`.
  * @param {typeof fetch} [deps.fetchImpl]
@@ -221,7 +222,7 @@ export function createImageGen({ apiKey, getConfig, state, fetchImpl = fetch, no
       try {
         response = await fetchImpl(apiUrl(baseUrl, 'images'), {
           method: 'POST',
-          headers: openRouterHeaders(apiKey),
+          headers: openRouterHeaders(typeof apiKey === 'function' ? apiKey() : apiKey),
           body,
           signal: AbortSignal.timeout(timeoutMs),
         });

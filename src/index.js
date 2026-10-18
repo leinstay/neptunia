@@ -37,7 +37,7 @@ import {
 import { mirrorDryRun } from './behavior/limits.js';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
-import { createLlm } from './llm/openrouter.js';
+import { createLlm, roleApiKey } from './llm/openrouter.js';
 import { createEmbedder } from './llm/embed.js';
 import { createImageGen } from './llm/images.js';
 import { createTurnRunner } from './behavior/turn.js';
@@ -245,7 +245,9 @@ embedQueue = createEmbedQueue({
   paused: () => store.state.data.paused === true,
 });
 // The persona's drawings (features.imageGeneration): its own daily rails, counted on the same state.
-const images = createImageGen({ apiKey: openrouterKey, getConfig: () => hot.config, state: store.state });
+// Pictures are paid with the drawing role's key (`llm.keyByRole.drawing`, the agents' key), read at
+// each request; the main key when the role names none.
+const images = createImageGen({ apiKey: () => roleApiKey(hot.config, env, 'drawing', openrouterKey), getConfig: () => hot.config, state: store.state });
 
 // Direct messages are received regardless of features.privateMessages (the
 // switch is hot, intents are not); a DM channel arrives uncached, hence the

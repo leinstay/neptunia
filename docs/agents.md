@@ -19,9 +19,13 @@ Both run one task at a time; further requests queue. Each task has per-task caps
 
 ## The agents folder
 
-Each agent lives in its own folder under `agents/` at the engine root: `agents/web/` and `agents/server/` are the two workers. A folder holds the agent's tracked prompt (`prompt.md`) and its description (`profile.json`). The runner builds its profiles from this folder when it starts (`src/agent-runner/profiles.js#loadProfiles`); the bot reads the same folder for the defaults it needs (socket, output dir, limits, daily caps). `listAgents` returns every agent, workers and consultations alike.
+Each agent lives in its own folder under `agents/` at the engine root: `agents/web/` and `agents/server/` are the two workers. A folder holds the agent's tracked prompt (`prompt.md`) and its description (`profile.json`). The runner builds its profiles from this folder when it starts (`src/agent-runner/profiles.js#loadProfiles`); the bot reads the same folder for the defaults it needs (socket, output dir, limits, daily caps). `listAgents` returns every agent, of every kind.
 
-There are three kinds. A worker runs as its own process (`bin/agent-runner.mjs --profile <id>`) and takes tasks on a Unix socket. A consultation has no process: tools call its model role directly. A development agent works on the code: it has no process of its own in the engine, which only describes it. The runner skips consultations and development agents. No consultation ships today (the engine's former `advice` consultation was removed with the `agent.advice` role).
+There are four kinds. A worker runs as its own process (`bin/agent-runner.mjs --profile <id>`) and takes tasks on a Unix socket. A consultation has no process: tools call its model role directly. A development agent works on the code: it has no process of its own in the engine, which only describes it. A tool agent has no model loop and no process either: the core runs its one tool in its own process (see [The drawing agent](#the-drawing-agent)). The runner skips consultations, development agents and tool agents, and `bin/agent-runner.mjs` refuses a tool agent's id. No consultation ships today (the engine's former `advice` consultation was removed with the `agent.advice` role).
+
+## The drawing agent
+
+`agents/drawing/` is the one tool agent (`kind: tool`, `tool: draw`). Every picture the persona draws goes through it: the turn's `<draw>`, a diary set's pictures and `/nep draw`. There is no model between her scene and the image model: `src/errands/tools.js#createDrawingTool` puts her scene, as she wrote it (cut only to `image.maxPromptChars`), into the `draw` prompt with the `appearance` prompt and the local time, adds the bot's avatar as the reference for a picture she is in, and calls the Images client (`src/llm/images.js`, whose own daily rails stay in force). The picture is a task record in the guild's task store (`src/errands/service.js#runInline`): queued, running, then done or failed, with `usage.usd` from the provider's own cost figure. Such a record is outside `agents.maxOpen`, born seen, left out of her `<tasks>` block and the task lists, never mirrored into the ledger, and removed by a forget of the member who asked for the picture; only the latest 20 finished ones stay in `tasks.json` (every transition stays in `tasks.jsonl`, so the spend is whole). The agent's daily caps (`agents.drawing.daily`: `tasks`, `usd`) refuse a picture before it starts with the same limit notice as `image.maxPerDay`. A failure reaches its caller as it always did (`ImageCapError`, `ImageGenError`), so limit notices, `drawFailed` and a diary set's cap break and skips are unchanged. Pictures are paid with the agents' key (`llm.keyByRole.drawing`, `OPENROUTER_AGENT_KEY`) and show in `costs.agents` (runs and USD), not in `costs.base`.
 
 ## Development agents
 
@@ -42,9 +46,9 @@ The engine never starts them. A dispatcher (for `dev` and `writer`, one OpenCode
 | Key | What it holds |
 |---|---|
 | `id` | the folder name (`web`) |
-| `kind` | `worker` (runs under the agent runner on a socket), `consultation` (a model role that tools call directly; no process, skipped by the runner) or `development` (run by a dispatcher outside the engine; skipped by the runner) |
-| `role` | the model role in `src/llm/roles.js` whose model is in `models.agents` (a worker takes one of `web`, `server`, `thinker`, `dev`, `writer`; a development agent one of `thinker`, `dev`, `writer`) |
-| `prompt` | the prompt file inside the folder (`prompt.md`); `null` for a consultation without one |
+| `kind` | `worker` (runs under the agent runner on a socket), `consultation` (a model role that tools call directly; no process, skipped by the runner), `development` (run by a dispatcher outside the engine; skipped by the runner) or `tool` (the core runs its tool itself; skipped by the runner) |
+| `role` | the model role in `src/llm/roles.js` whose model is in `models.agents` (a worker takes one of `web`, `server`, `thinker`, `dev`, `writer`; a development agent one of `thinker`, `dev`, `writer`; a tool agent `drawing`) |
+| `prompt` | the prompt file inside the folder (`prompt.md`); `null` for a consultation or a tool agent without one |
 | `override` | the name a deployment may put under `prompts.local/` to replace the prompt (`agent-web.md`); `null` when there is no prompt, and for the development agents, whose deployment rules are added by their dispatcher |
 | `description` | one sentence saying what the agent does |
 | `tools` | worker only: the OpenCode tools it asks for, at most the ones its shell class allows |
@@ -56,6 +60,9 @@ The engine never starts them. A dispatcher (for `dev` and `writer`, one OpenCode
 | `env` | worker only: the environment variable names the runner falls back on when a task brings no key |
 | `tools` | development only: the OpenCode tools it asks for, from a fixed list in `src/agent-runner/profiles.js` (`DEVELOPMENT_TOOLS`: `bash`, `read`, `grep`, `glob`, `list`, `edit`, `write`, `patch`, `webfetch`, `websearch`, `todowrite`, `skill`, `external_directory`; never `task` or `question`) |
 | `effort` | development only: the reasoning effort, OpenCode's `--variant` (`low`, `medium`, `high`, `max`) |
+| `tool` | tool only: the core's tool it runs (`draw`) |
+| `limits` | tool only: the per-run cap `{ seconds }` (a run past it is cut off as a timeout), overridden by `agents.<id>.limits` |
+| `daily` | tool only: default per-day caps `{ tasks, usd }`, overridden by `agents.<id>.daily` |
 | `limits` | development only: default per-run caps `{ usd, steps, minutes }`, overridden by `agents.<id>.limits` in config |
 
 A profile with a missing key, an unknown key, a tool its shell class does not allow, or a shell class the runner does not know stops the runner (and the bot, which reads the same folder) at start, with one error line naming the agent and the key.
