@@ -112,3 +112,42 @@ test('buildRequest: with llm.cache.ttl 5m the bucket is five minutes', () => {
   assert.ok(!stableText(buildRequest(baseInput({ config, stableFreeze, guildMemory: batch, now: start + 3 * MINUTE }))).includes('hates mornings'));
   assert.ok(stableText(buildRequest(baseInput({ config, stableFreeze, guildMemory: batch, now: start + 5 * MINUTE }))).includes('hates mornings'));
 });
+
+/** A library of link GIFs `g<n>` keyed `k<n>`, each `[n, count, ownLast?]`. */
+function library(rows) {
+  const entries = {};
+  for (const [n, count, ownLast] of rows) {
+    entries[`k${n}`] = {
+      id: `g${n}`,
+      kind: 'link',
+      url: `https://tenor.com/view/gif-${n}`,
+      itemId: `k${n}`,
+      messageId: `m${n}`,
+      channelId: 'c1',
+      count,
+      last: EDGE - 24 * HOUR,
+      firstSeen: EDGE - 24 * HOUR,
+      ...(ownLast ? { ownLast, ownUses: 1 } : {}),
+    };
+  }
+  return { nextId: 100, entries, backfill: null };
+}
+
+test('buildRequest: an own GIF post and a reranking use inside one bucket leave the stable part byte-identical; the next bucket shows the new order', () => {
+  const stableFreeze = new Map();
+  const before = buildRequest(baseInput({ stableFreeze, gifs: library([[1, 9], [2, 5], [3, 2]]) }));
+  assert.ok(stableText(before).includes('g1\ng2\ng3'), stableText(before));
+  // The persona posts g3 and members use it enough to lead the ranking.
+  const posted = EDGE + 30 * MINUTE;
+  const after = library([[1, 9], [2, 5], [3, 20, posted]]);
+  const sameBucket = buildRequest(baseInput({ stableFreeze, gifs: after, now: posted + MINUTE }));
+  assert.equal(stableText(sameBucket), stableText(before));
+  // The post is said in the tail at once.
+  const tail = sameBucket.messages[1].content.at(-1);
+  assert.equal(tail.cacheSegment, undefined);
+  assert.ok(tail.text.includes('<gifs_recent>\ng3 (you, '), tail.text);
+
+  const nextBucket = buildRequest(baseInput({ stableFreeze, gifs: after, now: EDGE + HOUR + MINUTE }));
+  assert.ok(stableText(nextBucket).includes('g3\ng1\ng2'), stableText(nextBucket));
+  assert.ok(!stableText(nextBucket).includes('(you'));
+});

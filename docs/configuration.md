@@ -420,7 +420,7 @@ Settings for the GIF library (`features.gifs`). Uses are counted as each message
 | `backfillMessages` | `500` | Messages read per channel from history at startup to seed the library. Runs once when `features.gifs` is on and no backfill has run yet for this server. `0` disables |
 | `backfillDescribe` | `20` | Top GIFs by rank that are sent to the describer for a caption right after the backfill; the rest get captions as the chat meets them |
 | `recachePerRun` | `50` | Library GIFs re-described per `/nep media gifs recache` run. One-frame captions outside the library are dropped at once; watched entries in the old format (no `reaction` field) are queued alongside unfinished ones, oldest first. Up to this many are watched per run, capped by `media.gif.maxPerDay` |
-| `ownMarkHours` | `24` | Hours after the persona posts a GIF during which the entry carries `gifs.ownMark` in the `<gifs>` list. `0` turns the mark off |
+| `ownMarkHours` | `24` | Hours after the persona posts a GIF during which the reply's tail names it in `<gifs_recent>` (with how long ago) and the GIF picker's list marks it. `0` turns both off |
 
 ### `gifs.pick`
 

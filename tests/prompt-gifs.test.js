@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
-import { estimateTokens } from '../src/llm/tokens.js';
+import { formatDuration } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
@@ -303,48 +303,50 @@ function withOwnPosts(agoMs) {
   ]);
 }
 
-test('buildRequest: <gifs> marks a gif the persona posted within gifs.ownMarkHours with labels.gifs.ownMarkRecent, no age', () => {
-  const config = fakeConfig({ gifs: { ownMarkHours: 24 } });
-  const lines = gifsBlock(buildRequest(baseInput({ config, gifs: withOwnPosts(2 * HOUR) })));
-  assert.deepEqual(lines, [labels.gifs.header, 'g3', 'g1', 'g2 (you, lately)'], 'the marked entry after the unmarked ones');
+function gifsRecentBlock(request) {
+  const match = /<gifs_recent>\n([\s\S]*?)\n<\/gifs_recent>/.exec(userText(request));
+  return match ? match[1].split('\n') : null;
+}
 
-  const mediaCache = { k2: { text: 'a cat', ts: NOW } };
-  const captioned = gifsBlock(buildRequest(baseInput({ config, gifs: withOwnPosts(5 * 60_000), mediaCache })));
-  assert.equal(captioned[3], 'g2 -- a cat (you, lately)');
-  // The same mark however long ago within the window: the line does not age.
-  const later = gifsBlock(buildRequest(baseInput({ config, gifs: withOwnPosts(23 * HOUR), mediaCache })));
-  assert.equal(later[3], captioned[3]);
+test('buildRequest: <gifs> never marks a gif the persona posted; <gifs_recent> in the tail names it with gifs.ownMark and its age', () => {
+  const config = fakeConfig({ gifs: { ownMarkHours: 24 } });
+  const request = buildRequest(baseInput({ config, gifs: withOwnPosts(2 * HOUR) }));
+  assert.deepEqual(gifsBlock(request), [labels.gifs.header, 'g2', 'g3', 'g1'], 'rank order, no mark');
+  assert.deepEqual(gifsRecentBlock(request), [`g2 (you, ${formatDuration(2 * HOUR, labels.units)})`], 'g3 is outside the window');
+  // In the tail: after the stable part's <gifs>, never inside a cached part.
+  const parts = request.messages[1].content;
+  assert.ok(!parts.filter((part) => part.cacheSegment).some((part) => part.text.includes('<gifs_recent>')));
+  assert.ok(userText(request).indexOf('<gifs_recent>') > userText(request).indexOf('</gifs>'));
 });
 
-test('buildRequest: own-marked gifs render after every unmarked one, each group in rank order; the budget still picks by rank', () => {
-  const config = fakeConfig({ gifs: { ownMarkHours: 24 } });
+test('buildRequest: <gifs_recent> lists the persona\'s posts newest first, only GIFs the <gifs> list shows', () => {
+  const config = fakeConfig({ gifs: { ownMarkHours: 24, max: 3 } });
   const gifs = library([
-    { ...linkEntry(1, 9), ownLast: NOW - HOUR },
+    { ...linkEntry(1, 9), ownLast: NOW - 3 * HOUR },
     linkEntry(2, 7),
-    { ...linkEntry(3, 5), ownLast: NOW - 3 * HOUR },
-    linkEntry(4, 3),
+    { ...linkEntry(3, 5), ownLast: NOW - HOUR },
+    { ...linkEntry(4, 1), ownLast: NOW - 10 * 60_000 },
   ]);
-  const lines = gifsBlock(buildRequest(baseInput({ config, gifs })));
-  assert.deepEqual(lines, [labels.gifs.header, 'g2', 'g4', 'g1 (you, lately)', 'g3 (you, lately)']);
-
-  // A cap that keeps the header and the top two by rank: g1 (marked) and g2 stay, shown unmarked first.
-  const cost = (text) => estimateTokens(text) + 2;
-  const gifsCap = cost(labels.gifs.header) + cost('g1 (you, lately)') + cost('g2');
-  const capped = gifsBlock(buildRequest(baseInput({ config: fakeConfig({ gifs: { ownMarkHours: 24 }, caps: { gifs: gifsCap } }), gifs })));
-  assert.deepEqual(capped, [labels.gifs.header, 'g2', 'g1 (you, lately)']);
+  const request = buildRequest(baseInput({ config, gifs }));
+  assert.deepEqual(gifsBlock(request), [labels.gifs.header, 'g1', 'g2', 'g3']);
+  assert.deepEqual(gifsRecentBlock(request), [
+    `g3 (you, ${formatDuration(HOUR, labels.units)})`,
+    `g1 (you, ${formatDuration(3 * HOUR, labels.units)})`,
+  ]);
 });
 
-test('buildRequest: gifs.ownMarkHours 0 marks nothing', () => {
+test('buildRequest: gifs.ownMarkHours 0 -> no <gifs_recent>', () => {
   const config = fakeConfig({ gifs: { ownMarkHours: 0 } });
-  const lines = gifsBlock(buildRequest(baseInput({ config, gifs: withOwnPosts(2 * HOUR) })));
-  assert.deepEqual(lines, [labels.gifs.header, 'g2', 'g3', 'g1']);
+  const request = buildRequest(baseInput({ config, gifs: withOwnPosts(2 * HOUR) }));
+  assert.deepEqual(gifsBlock(request), [labels.gifs.header, 'g2', 'g3', 'g1']);
+  assert.equal(gifsRecentBlock(request), null);
 });
 
-test('buildRequest: a labels.json without gifs.ownMarkRecent marks nothing in <gifs>, gifs.ownMark or not', () => {
-  const { ownMarkRecent, ...gifsLabels } = labels.gifs;
-  assert.ok(gifsLabels.ownMark, 'the aged mark is there and still unused here');
+test('buildRequest: a labels.json without gifs.ownMark -> no <gifs_recent>, the list unchanged', () => {
+  const { ownMark, ...gifsLabels } = labels.gifs;
   const older = { ...labels, gifs: gifsLabels };
   const config = fakeConfig({ gifs: { ownMarkHours: 24 } });
-  const lines = gifsBlock(buildRequest(baseInput({ config, gifs: withOwnPosts(2 * HOUR), prompts: { ...baseInput().prompts, labels: older } })));
-  assert.deepEqual(lines, [older.gifs.header, 'g2', 'g3', 'g1']);
+  const request = buildRequest(baseInput({ config, gifs: withOwnPosts(2 * HOUR), prompts: { ...baseInput().prompts, labels: older } }));
+  assert.deepEqual(gifsBlock(request), [older.gifs.header, 'g2', 'g3', 'g1']);
+  assert.equal(gifsRecentBlock(request), null);
 });

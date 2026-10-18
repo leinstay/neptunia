@@ -506,7 +506,8 @@ test('buildRequest: the tail ends with <now>, <senses>, <tempo> and <task>, afte
   assert.equal(tags.at(-4), 'now');
   assert.equal(tags.at(-1), 'task');
   const tail = blockTags(request.messages[1].content[2].text);
-  assert.deepEqual(tail.slice(0, 2), ['server', 'other_channels'], 'the tail opens with the server map');
+  // The persona's own GIF of the scene is named right after <emoji> (none here), before the neighbours.
+  assert.deepEqual(tail.slice(0, 3), ['server', 'gifs_recent', 'other_channels'], 'the tail opens with the server map');
 });
 
 test('buildRequest: without pictures the user content is still an array of text parts', () => {
@@ -541,8 +542,8 @@ test('buildRequest: two builds a minute apart keep the stable and profiles parts
   const later = buildRequest(segmentScene({ now: NOW + MIN, messageCount: 44 })).messages[1].content;
   assert.equal(later[0].text, first[0].text);
   assert.equal(later[1].text, first[1].text);
-  assert.ok(first[0].text.includes(`g2 ${labels.gifs.ownMarkRecent}
-</gifs>`), 'the own-marked GIF is in it, last');
+  assert.ok(/<gifs>\n[\s\S]*\bg2\n[\s\S]*<\/gifs>/.test(first[0].text), 'the persona\'s own GIF is in it, unmarked');
+  assert.ok(first[2].text.includes('<gifs_recent>\ng2 (you, '), 'her post of it is said in the tail');
   for (const shown of ['## Alice', 'a long talk', labels.profile.staleMark, labels.profile.unsureMark]) {
     assert.ok(first[1].text.includes(shown), `the profile shows ${shown}`);
   }

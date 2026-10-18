@@ -1000,54 +1000,47 @@ export function freezePerBucket(freeze, key, { now, bucketMs, signature = '' }, 
  * `labels.gifs.entryFields`, an older one-line caption through
  * `labels.gifs.entry`, cut per field by `gifsCfg.reactionChars` /
  * `gifsCfg.actionChars` -- only here: the cached caption stays as stored --,
- * else `labels.gifs.entryNoText`). A GIF the persona posted within
- * `gifsCfg.ownMarkHours` (default 24; 0 = never) gets ` ` +
- * `labels.gifs.ownMarkRecent` appended: no relative time, so the line changes
- * only when the GIF enters or leaves that window (the GIF picker's list keeps
- * `labels.gifs.ownMark` with the age, see gifLine); no mark without that label.
- * `items` is `[]` when the library is empty or the labels lack
- * `header`/`entryNoText` (an older labels.json). `marked` holds the marked
- * lines: the budget keeps the list in rank order, and the request then renders
- * those lines after the unmarked ones (ownMarkedLast).
+ * else `labels.gifs.entryNoText`), never with an own-post mark: the list sits
+ * in the cached stable part, so which GIFs the persona posted lately is said
+ * in the tail (`<gifs_recent>`, ownGifLines). `ids[i]` is the handle of
+ * `items[i + 1]`. `items` is `[]` when the library is empty or the labels lack
+ * `header`/`entryNoText` (an older labels.json).
  * @param {unknown} gifs            The library (store.getGifs).
  * @param {object|null} mediaCache  The describer cache (store.getMediaCache), read only.
  * @param {object} labels
- * @param {{ max?: number, halfLifeDays?: number, reactionChars?: number, actionChars?: number,
- *   ownMarkHours?: number }} [gifsCfg]  `config.gifs`.
- * @param {number} now
- * @returns {{ items: string[], marked: Set<string> }}
+ * @param {{ max?: number, halfLifeDays?: number, reactionChars?: number, actionChars?: number }} [gifsCfg]  `config.gifs`.
+ * @returns {{ items: string[], ids: string[] }}
  */
-function gifItems(gifs, mediaCache, labels, gifsCfg, now) {
-  const marked = new Set();
+function gifItems(gifs, mediaCache, labels, gifsCfg) {
   const g = labels.gifs;
-  if (!g?.header || !g.entryNoText) return { items: [], marked };
+  if (!g?.header || !g.entryNoText) return { items: [], ids: [] };
   const max = Number.isInteger(gifsCfg?.max) && gifsCfg.max >= 0 ? gifsCfg.max : 25;
-  const options = { ...gifFieldChars(gifsCfg), ownMarkHours: gifsCfg?.ownMarkHours ?? 24, now };
   const chosen = rankGifs(gifs, gifsCfg?.halfLifeDays ?? 30).slice(0, max);
-  if (chosen.length === 0) return { items: [], marked };
-  const lines = chosen.map((entry) => {
-    // The bare line, then the ageless own-post mark: no relative time in the cached stable part.
-    const line = gifLine(entry, mediaCache, labels, { ...options, ownMarkHours: 0 });
-    if (!g.ownMarkRecent || ownPostAge(entry, options) === null) return line;
-    const recent = `${line} ${g.ownMarkRecent}`;
-    marked.add(recent);
-    return recent;
-  });
-  return { items: [g.header, ...lines], marked };
+  if (chosen.length === 0) return { items: [], ids: [] };
+  const options = { ...gifFieldChars(gifsCfg), ownMarkHours: 0, now: 0 };
+  return { items: [g.header, ...chosen.map((entry) => gifLine(entry, mediaCache, labels, options))], ids: chosen.map((entry) => entry.id) };
 }
 
 /**
- * `items` (a kept `<gifs>` list: the header, then entry lines in rank order)
- * with the lines in `marked` moved after all the others, each group keeping
- * its order. The header stays first. Pure.
- * @param {string[]} items
- * @param {Set<string>} marked
+ * The `<gifs_recent>` lines of the tail: of the GIFs `<gifs>` shows (`shownIds`, their
+ * handles), the ones the persona posted within `ownMarkHours` (0 = never) of `now`
+ * according to the live library, newest post first, each as its handle, a space and
+ * `labels.gifs.ownMark` with `{ago}` (formatDuration, `labels.units`). [] without that label
+ * or the units. Per turn: the ages move, so this never enters a cached part. Pure.
+ * @param {unknown} gifs  The live library (store.getGifs).
+ * @param {string[]} shownIds
+ * @param {object} labels
+ * @param {{ ownMarkHours: number, now: number }} options
  * @returns {string[]}
  */
-function ownMarkedLast(items, marked) {
-  if (items.length < 2 || marked.size === 0) return items;
-  const [header, ...lines] = items;
-  return [header, ...lines.filter((line) => !marked.has(line)), ...lines.filter((line) => marked.has(line))];
+function ownGifLines(gifs, shownIds, labels, { ownMarkHours, now }) {
+  const g = labels.gifs;
+  if (!g?.ownMark || !labels.units || shownIds.length === 0) return [];
+  const shown = new Set(shownIds);
+  return Object.values(normalizeGifs(gifs).entries)
+    .filter((entry) => shown.has(entry.id) && ownPostAge(entry, { ownMarkHours, now }) !== null)
+    .sort((a, b) => b.ownLast - a.ownLast)
+    .map((entry) => `${entry.id} ${fill(g.ownMark, { ago: formatDuration(ownPostAge(entry, { ownMarkHours, now }), labels.units) })}`);
 }
 
 /**
@@ -1126,7 +1119,7 @@ export function gifFieldsMap(mediaCache, chars) {
 
 /**
  * One line of a GIF library entry, as the `<gifs>` section shows it (gifItems,
- * with `ownMarkHours` 0: it adds its own ageless mark) and the GIF picker lists
+ * with `ownMarkHours` 0: no mark in the cached list) and the GIF picker lists
  * it (src/behavior/gif-pick.js#renderGifLibrary): an
  * entry described in three fields (gifFields) through `labels.gifs.entryFields`
  * (`{id}`, `{reaction}`, `{action}`, `{text}` = the on-screen text; empty
@@ -1206,7 +1199,8 @@ function nowBlock(now, timezone, labels, periods) {
  * (`cacheSegment: 'profiles'`: `<people>` with the interlocutor alone), then
  * the tail (no segment) with everything that changes from turn to turn -- a
  * second `<people>` with the other members first, `<emoji>` among it, its
- * ranking moves with use several times a day, `<skills>` (the catalogue, on
+ * ranking moves with use several times a day, `<gifs_recent>` (the listed GIFs
+ * the persona posted lately, with their ages), `<skills>` (the catalogue, on
  * a question about what the persona can do) and `<people_now>` (what is current about each
  * person: status, voice, activity, attitude) right before `<chat>` -- `<now>`, the per-turn
  * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
@@ -1235,7 +1229,7 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('skills_granted', granted),
     block('self_facts', kept.self.join('\n')),
     block('about_chat', kept.aboutChat.join('\n')),
-    // Own-marked entries last (ownMarkedLast).
+    // Held per cache bucket; which of them the persona posted lately is in the tail (`<gifs_recent>`).
     block('gifs', (kept.gifs ?? []).join('\n')),
     // Which channel has which handle: changes only when a channel is added, removed or renamed.
     block('channel_directory', channelDirectory),
@@ -1250,6 +1244,8 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('people', kept.people.join('\n\n')),
     block('server', kept.server.join('\n\n')),
     block('emoji', (kept.emoji ?? []).join('\n')),
+    // The GIFs of the cached `<gifs>` list the persona posted lately, with their ages: per turn.
+    block('gifs_recent', (kept.gifsRecent ?? []).join('\n')),
     block('lore', kept.lore.join('\n\n')),
     // The last hours: one item, the header with the kept lines and moments, oldest first.
     block('recent', (kept.recent ?? []).join('\n')),
@@ -2680,9 +2676,12 @@ function seenOf({ history, keptChat, pictures }) {
  *   caption fields of a library GIF in the transcript (`transcript.gifKnownFields`, see
  *   gifFieldsMap).
  * @param {object|null} [input.gifs]  The guild's GIF library (store.getGifs). With `features.gifs`
- *   on (a missing key counts as on) and at least one entry, `<gifs>` renders (see `gifItems`),
- *   `<senses>` carries `senses.gifs`, and a GIF of the library in the transcript carries its
- *   handle (`transcript.gifKnownFields`/`gifKnown`/`gifKnownNoText`). Omitted or empty -> none of it.
+ *   on (a missing key counts as on) and at least one entry, `<gifs>` renders (see `gifItems`;
+ *   held per cache bucket with `stableFreeze`), the tail's `<gifs_recent>` names the listed GIFs
+ *   the persona posted within `gifs.ownMarkHours` (ownGifLines, after `<emoji>`, paid from what
+ *   the request has left), `<senses>` carries `senses.gifs`, and a GIF of the library in the
+ *   transcript carries its handle (`transcript.gifKnownFields`/`gifKnown`/`gifKnownNoText`).
+ *   Omitted or empty -> none of it.
  * @param {PulledChannel[]} [input.pulled]  Other channels pulled into this turn, rendered as
  *   `<channel_view>` (one item per channel, see `fitPulledChannel`) after `<other_channels>`:
  *   lines numbered on after the chat's (and after each earlier pulled channel), captions only
@@ -3638,7 +3637,11 @@ export function buildRequest(input) {
     const skipIds = new Set([interlocutorId, ...peopleKept.map((profile) => memberIdOf(profile?.id))].filter((id) => id !== null));
     attitudesText = renderAttitudes(input.candidateProfiles, labels, { max: attitudesMax, skipIds });
   }
-  const gifList = gifsOn ? gifItems(gifLibrary, input.mediaCache ?? null, labels, config.gifs, now) : { items: [], marked: new Set() };
+  // Its order and text held per cache bucket (frozen): a GIF use or a new caption moves the cached
+  // prefix at the next bucket edge at most. The signature lets an edit of its settings show at once.
+  const gifList = gifsOn
+    ? frozen('gifs', JSON.stringify([labels.gifs, labels.units, config.gifs ?? null]), () => gifItems(gifLibrary, input.mediaCache ?? null, labels, config.gifs))
+    : { items: [], ids: [] };
   const budgetFit = fitSections(
     [
       ...aheadOfPeople,
@@ -3664,7 +3667,7 @@ export function buildRequest(input) {
         name: 'gifs',
         cap: caps.gifs ?? 900,
         keep: 'first',
-        items: gifList.items,
+        items: [...gifList.items],
       },
       // Last of all: the people in voice the request has no profile for, by name.
       { name: 'around', cap: Number.isFinite(aroundMax) ? aroundMax : 400, keep: 'first', items: voiceRows },
@@ -3679,8 +3682,18 @@ export function buildRequest(input) {
   // The header alone, or entries without their header, make no block.
   if (kept.emoji.length < 2 || kept.emoji[0] !== labels.emoji?.header) kept.emoji = [];
   if (kept.gifs.length < 2 || kept.gifs[0] !== labels.gifs?.header) kept.gifs = [];
-  // The budget kept the GIFs in rank order; the ones carrying the own-post mark render last.
-  kept.gifs = ownMarkedLast(kept.gifs, gifList.marked);
+  // The GIFs of the list the persona posted lately, with how long ago, in the tail
+  // (`<gifs_recent>`): paid from what the request has left, left out when it does not fit.
+  kept.gifsRecent = [];
+  if (kept.gifs.length > 0) {
+    const ownLines = ownGifLines(gifLibrary, gifList.ids.slice(0, kept.gifs.length - 1), labels, { ownMarkHours: config.gifs?.ownMarkHours ?? 24, now });
+    const price = ownLines.length > 0 ? cost(ownLines.join('\n')) : 0;
+    if (price > 0 && used + price <= limit) {
+      used += price;
+      kept.gifsRecent = ownLines;
+      stats.gifsRecent = { used: price, kept: ownLines.length, dropped: 0 };
+    }
+  }
   if (askedLeftOut > 0) stats.people = { ...stats.people, dropped: stats.people.dropped + askedLeftOut };
   // `<people>` shows the profiles kept; their rows join the interlocutor's and the voice rows in
   // `<people_now>`, under its lead and notices. No row, no block.
