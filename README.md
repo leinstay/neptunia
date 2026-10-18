@@ -52,7 +52,7 @@ When `bot.guildId` is empty and the bot is in exactly one server, it locks to th
 ## Features and changes
 
 **15.10.2026**  
-The owner's `/nep status` card has two costs fields: `keys`, each OpenRouter key's limit and what it spent (with when it resets) followed by its usage today and over the last 7 and 30 days; and `costs`, today's requests, tokens and cost per model role, counted by the bot and kept in `data/usage.json`. The costs are what OpenRouter reports; BYOK requests are billed by the provider and show at OpenRouter's list prices. Members do not see these fields.
+The owner's `/nep status` card has two costs fields for the core: `keys.base`, each OpenRouter key's limit and what it spent (with when it resets) followed by its usage today and over the last 7 and 30 days; and `costs.base`, today's requests, tokens and cost per model role, counted by the bot and kept in `data/usage.json`. The costs are what OpenRouter reports; BYOK requests are billed by the provider and show at OpenRouter's list prices. Members do not see these fields.
 
 Picture, GIF and video descriptions can be redone after a model change. Every new description remembers when it was written and by which model. `media.recacheBefore` (an ISO date-time, off by default) marks everything written before it as outdated: such a description is written again the next time the picture comes up, under the usual limits, and the old one stays if the new attempt fails. `/nep model set` for the `vision` or `video` role sets it by itself. `/nep media kind:pictures action:recache days:7` redoes, in the background and one at a time, the descriptions used in the last few days that an older model wrote.
 

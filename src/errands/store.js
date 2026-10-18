@@ -1,14 +1,18 @@
 // The persona's errand tasks on disk, one store per guild: `data/guilds/<id>/tasks.json` holds
 // the current list (the open tasks, then the finished ones she has not seen yet and the latest
-// others, at most KEEP_FINISHED of them) with the day's counters, written whole through
+// others, at most KEEP_FINISHED of them), written whole through
 // writeJsonAtomic on every change; `data/guilds/<id>/tasks.jsonl` gets one line per transition
 // (the task as it stands after it), appended, never rewritten. A task moves `queued` ->
 // `running` -> `done` | `failed` | `cancelled` (a queued one may also be cancelled or failed
 // directly); a finished task is never reopened, and an end that arrives after a cancel is
 // ignored. The caps are enforced here, on `add`, read from the live config at the moment of use:
 // `agents.maxOpen` open tasks at once (`cap-open`), `agents.<profile>.daily.tasks` tasks and
-// `agents.<profile>.daily.usd` dollars per UTC day (`cap-tasks`, `cap-usd`; the dollars are
-// counted when a task ends, from its usage). Every transition is also an `action` line of the
+// `agents.<profile>.daily.usd` dollars per UTC day (`cap-tasks`, `cap-usd`; a task counts on
+// the day it was queued, its dollars on the day it ended, from its usage). Those daily numbers
+// and the owner card's `costs.agents` come from one place: src/errands/costs.js#agentCosts over
+// the store's spend records, one per task of the last KEEP_DAYS days (read from tasks.jsonl at
+// load, then kept with every transition; a forget and a wipe drop theirs with their lines).
+// Every transition is also an `action` line of the
 // journal (src/memory/journal.js), shaped like a skill call's operation: one `opId` per task,
 // `proposed` when queued, `started` when running, then one closing `succeeded` or `failed`
 // (with the code), counts only -- never the goal or the result. A task's files are named to the
@@ -30,7 +34,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
-import { countToday, bumpDaily } from '../time.js';
+import { DAY_MS } from '../time.js';
+import { agentCosts, costRecord, KEEP_DAYS } from './costs.js';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
 import { profileOf } from '../agent-runner/profiles.js';
 
@@ -81,8 +86,10 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   const listFile = path.join(dir, 'tasks.json');
   const logFile = path.join(dir, 'tasks.jsonl');
   const state = load();
+  // id -> the spend record of each task of the last KEEP_DAYS days (src/errands/costs.js#costRecord).
+  const spend = loadSpend();
 
-  /** tasks.json read once: its list and counters; a missing or broken file starts empty (a broken one logged). */
+  /** tasks.json read once: its list; a missing or broken file starts empty (a broken one logged). */
   function load() {
     let raw = null;
     try {
@@ -91,8 +98,51 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
       if (err?.code !== 'ENOENT') log.warn('errands: tasks file unreadable, starting empty', { guildId: String(guildId), code: err?.code ?? 'parse' });
     }
     const tasks = Array.isArray(raw?.tasks) ? raw.tasks.filter((task) => task && typeof task.id === 'string' && TASK_STATES.includes(task.state)) : [];
-    const daily = raw?.daily && typeof raw.daily === 'object' && !Array.isArray(raw.daily) ? raw.daily : {};
-    return { tasks, daily };
+    return { tasks };
+  }
+
+  /** Whether a spend record is older than the last KEEP_DAYS days (by its later time). */
+  function stale(record, at = now()) {
+    const last = Math.max(record.createdAt ?? -Infinity, record.endedAt ?? -Infinity);
+    return last < at - KEEP_DAYS * DAY_MS;
+  }
+
+  /** The spend records read once: the last line of each task in tasks.jsonl (a line that does not
+   * parse is skipped), then the list's own copies over them; the stale ones left out. */
+  function loadSpend() {
+    const records = new Map();
+    let text = '';
+    try {
+      text = fs.readFileSync(logFile, 'utf8');
+    } catch (err) {
+      if (err?.code !== 'ENOENT') log.warn('errands: tasks log unreadable, spend from the list only', { guildId: String(guildId), code: err?.code ?? null });
+    }
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      let value = null;
+      try {
+        value = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const record = costRecord(value);
+      if (record) records.set(record.id, record);
+    }
+    for (const task of state.tasks) {
+      const record = costRecord(task);
+      if (record) records.set(record.id, record);
+    }
+    const at = now();
+    for (const [id, record] of records) if (stale(record, at)) records.delete(id);
+    return records;
+  }
+
+  /** `task`'s spend record updated, the stale ones dropped. */
+  function noteSpend(task) {
+    const record = costRecord(task);
+    if (record) spend.set(record.id, record);
+    const at = now();
+    for (const [id, kept] of spend) if (stale(kept, at)) spend.delete(id);
   }
 
   /** The list kept: every open task, then the finished ones, the unseen first, at most KEEP_FINISHED. */
@@ -110,11 +160,12 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   function persist(task) {
     state.tasks = pruned(state.tasks);
     try {
-      writeJsonAtomic(listFile, { tasks: state.tasks, daily: state.daily });
+      writeJsonAtomic(listFile, { tasks: state.tasks });
     } catch (err) {
       log.warn('errands: tasks write failed', { guildId: String(guildId), code: err?.code ?? null });
     }
     if (!task) return;
+    noteSpend(task);
     try {
       fs.mkdirSync(dir, { recursive: true });
       fs.appendFileSync(logFile, `${JSON.stringify({ at: now(), ...task })}\n`);
@@ -202,9 +253,18 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
       if (fs.existsSync(listFile)) fs.copyFileSync(listFile, path.join(base, 'tasks.json'));
       if (dropped.length > 0) fs.writeFileSync(path.join(base, 'tasks.jsonl.dropped.jsonl'), dropped.map((line) => `${line}\n`).join(''));
     }
+    for (const task of victims) spend.delete(task.id);
+    for (const line of dropped) {
+      try {
+        const value = JSON.parse(line);
+        if (typeof value?.id === 'string') spend.delete(value.id);
+      } catch {
+        // a line that does not parse names no task
+      }
+    }
     if (victims.length > 0) {
       state.tasks = state.tasks.filter((task) => !askedBy(task, id));
-      writeJsonAtomic(listFile, { tasks: state.tasks, daily: state.daily });
+      writeJsonAtomic(listFile, { tasks: state.tasks });
     }
     if (dropped.length > 0) {
       const tmp = `${logFile}.${process.pid}.tmp`;
@@ -227,7 +287,7 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
       fs.rmSync(file, { force: true });
     }
     state.tasks = [];
-    state.daily = {};
+    spend.clear();
     return { files };
   }
 
@@ -275,13 +335,19 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return { tasks: Number.isFinite(set.tasks) ? set.tasks : defaults.tasks, usd: Number.isFinite(set.usd) ? set.usd : defaults.usd };
   }
 
-  const tasksKeys = (agent) => ({ dayKey: `${agent}Day`, countKey: `${agent}Tasks` });
-  const usdKeys = (agent) => ({ dayKey: `${agent}UsdDay`, countKey: `${agent}Usd` });
+  /**
+   * The spend of every agent with a record, and of each of `agents` (src/errands/costs.js#agentCosts):
+   * per window (`today`, `last7`, `last30`) its runs, input and output tokens and dollars.
+   * @param {string[]} [agents]
+   */
+  function costs(agents = []) {
+    return agentCosts(spend.values(), { now: now(), agents });
+  }
 
-  /** Today's tasks and dollars of `agent`. */
+  /** Today's tasks and dollars of `agent`: the `today` window of `costs`. */
   function usedToday(agent) {
-    const at = now();
-    return { tasks: countToday(state.daily, tasksKeys(agent), at), usd: countToday(state.daily, usdKeys(agent), at) };
+    const { today: row } = costs([agent])[agent];
+    return { tasks: row.runs, usd: row.usd };
   }
 
   /** The cap `agent` hits now, as its refusal code, or null. */
@@ -343,7 +409,6 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
       seen: false,
       opId: `op-${uuid()}`,
     };
-    bumpDaily(state.daily, tasksKeys(agent), at);
     state.tasks.push(task);
     persist(task);
     journalLine(task, 'proposed', { input: { taskId: task.id, agent, goalChars: text.length, requester: task.requester.kind } });
@@ -380,7 +445,6 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     if (task.result?.filesDropped?.length === 0) delete task.result.filesDropped;
     task.error = task.state === 'done' ? null : (typeof error === 'string' && error ? error : task.state === 'cancelled' ? 'cancelled' : 'failed');
     task.seen = false;
-    if (task.usage.usd > 0) bumpDaily(state.daily, usdKeys(task.agent), at, task.usage.usd);
     persist(task);
     if (task.state === 'done') journalLine(task, 'succeeded', { result: journalResult(task) });
     else journalLine(task, 'failed', { result: { ...journalResult(task), code: task.error } });
@@ -492,7 +556,7 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return ids.length;
   }
 
-  return { add, start, finish, cancel, markSeen, setLedgerId, open, recent, unseen, get, budget, today, fileOf, failOpen, expireFiles, forgetUser, wipe, guildId: String(guildId) };
+  return { add, start, finish, cancel, markSeen, setLedgerId, open, recent, unseen, get, budget, today, costs, fileOf, failOpen, expireFiles, forgetUser, wipe, guildId: String(guildId) };
 }
 
 /**

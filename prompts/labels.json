@@ -314,7 +314,16 @@
       },
       "byRoleEmpty": "today by role: no requests yet",
       "role": "{role} · {requests} req · in {in} (cached {cached}) · out {out} · {cost} USD{avg}",
-      "avg": " · avg {usd} USD"
+      "avg": " · avg {usd} USD",
+      "agentLine": "{agent} · {parts}",
+      "agentWindow": "{window} {runs} runs, in {in}, out {out}, {usd} USD",
+      "agentWindows": {
+        "today": "today",
+        "last7": "last 7 days",
+        "last30": "last 30 days"
+      },
+      "agentNoRuns": "{agent} · no runs recorded",
+      "agentEstimate": "agent USD is OpenCode's estimate at each agent's own price, not the provider's bill"
     }
   },
   "warmup": {

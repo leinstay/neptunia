@@ -13,7 +13,6 @@ import { skillRegistry } from '../src/skills/registry.js';
 import { callViewOf, requesterOf } from '../src/behavior/turn.js';
 import { answerSkillScenario, liveView, personaGrantsConfig, simulateCall, skillScenarioRequest } from '../src/behavior/sandbox.js';
 import { createTaskStore, parseFileHandle } from '../src/errands/store.js';
-import { utcDay } from '../src/time.js';
 import {
   parseScenarios, renderSkillsReport, runRecord, sandboxErrandBudget, scenarioFileOf, scenarioSummary, scenarioTask, scenarioTaskId, skillRequestEstimate,
 } from '../tools/replay.mjs';
@@ -122,8 +121,9 @@ function runTask({ config, tasks, agent = 'web', author = OWNER }) {
 
 test('replay --skills: task.run passes the sandbox gateway under the live errand budget, is refused at a spent cap, and nothing is written', (t) => {
   const config = scenarioConfig(['task.run']);
-  const today = utcDay(NOW);
-  const dataDir = scratchData(t, { tasks: [], daily: { webDay: today, webTasks: 1, serverDay: today, serverTasks: 1 } });
+  // One web and one server task asked today (the daily caps count them from the task records).
+  const ended = (id, agent) => ({ id, agent, goal: 'x', state: 'done', createdAt: NOW - 60_000, endedAt: NOW - 30_000, usage: { usd: 0.01 } });
+  const dataDir = scratchData(t, { tasks: [ended('w1', 'web'), ended('s1', 'server')] });
   const before = treeOf(dataDir);
   const tasks = sandboxErrandBudget({ createTaskStore, dataDir, guildId: GUILD, config: () => config, now: () => NOW });
   assert.deepEqual(Object.keys(tasks), ['budget'], 'only the budget is handed out: nothing can be queued');
@@ -147,7 +147,7 @@ test('replay --skills: task.run passes the sandbox gateway under the live errand
   assert.equal(runTask({ config: lowered, tasks: live }).verdict.code, 'cap-tasks');
 
   // Open tasks count against agents.maxOpen as live.
-  const busyDir = scratchData(t, { tasks: ['a', 'b', 'c'].map((id) => ({ id, agent: 'web', goal: 'x', state: 'running' })), daily: {} });
+  const busyDir = scratchData(t, { tasks: ['a', 'b', 'c'].map((id) => ({ id, agent: 'web', goal: 'x', state: 'running' })) });
   const busy = sandboxErrandBudget({ createTaskStore, dataDir: busyDir, guildId: GUILD, config: () => config, now: () => NOW });
   assert.deepEqual([runTask({ config, tasks: busy }).verdict.code, runTask({ config, tasks: busy }).verdict.reason], ['cap-open', 'agents.maxOpen']);
 
@@ -228,7 +228,7 @@ test('replay --skills taskResult: the turn an errand\'s end opens; her message.c
     mentionedUserIds: [], replyToId: null, forwardedFrom: null, attachments: [], links: [], forwarded: [], stickers: [], emojis: [], reactions: [],
   }];
   const situation = { history, mode: 'interject' };
-  const dataDir = scratchData(t, { tasks: [], daily: {} });
+  const dataDir = scratchData(t, { tasks: [] });
   const before = treeOf(dataDir);
   const tasks = sandboxErrandBudget({ createTaskStore, dataDir, guildId: GUILD, config: () => config, now: () => NOW });
   const channel = fakeChannel();
