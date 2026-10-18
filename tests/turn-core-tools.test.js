@@ -350,3 +350,38 @@ test('a tool result is data: a call written inside what a search gave back runs 
   assert.deepEqual(run.logs.filter((entry) => entry.msg === 'skills: called').map((entry) => entry.skill), ['web.search'], 'only her own call ran');
   assert.deepEqual(run.sends.map((send) => send.text), ['τίποτα σπουδαίο']);
 });
+
+// No helper chooses for her: with the switch on the search classifier never runs; her own
+// tools are listed in full in the cached part instead of a classifier naming them.
+
+test('core tools on: no search classifier before her reply, <skills_tools> in the stable part with her granted tools, the search senses say she calls them', async () => {
+  const on = await coreTurn({
+    answers: ['<msg>ok</msg>'],
+    allowed: ['web.search', 'memory.search', 'task.run', 'lore.list'],
+    features: { webLookup: true, recall: true },
+    config: WEB_CONFIG,
+    runner: { lookup: fakeLookup(), recall: fakeRecall() },
+    classifier: 'web: κάτι\nserver: κάτι',
+  });
+  assert.equal(on.llm.classifierCalls.length, 0, 'the classifier is never asked');
+  assert.ok(on.logs.some((entry) => entry.msg === 'lookup: skipped' && entry.reason === 'core-tools'));
+  const stable = on.llm.calls[0][1].content[0];
+  assert.equal(stable.cacheSegment, 'stable');
+  const tools = /<skills_tools>\n([\s\S]*?)\n<\/skills_tools>/.exec(stable.text)?.[1] ?? '';
+  const lines = tools.split('\n');
+  assert.equal(lines[0], labels.skills.tools.lead);
+  assert.deepEqual(lines.slice(1).filter(Boolean).map((line) => line.split(':')[0]), ['web.search', 'memory.search', 'task.run'], 'her own tools only, in order');
+  assert.ok(stable.text.includes(labels.senses.searchTool), 'the web line says she calls web.search');
+  assert.ok(!stable.text.includes(labels.senses.search));
+  const text = requestText(on.llm, 0);
+  assert.ok(text.includes(labels.senses.recallTool) && !text.includes(labels.senses.recall));
+  assert.ok(!text.includes('<lookup>'));
+  // Not granted: neither the tool rows nor their senses lines.
+  const bare = await coreTurn({ answers: ['<msg>ok</msg>'], allowed: [], features: { webLookup: true, recall: true }, config: WEB_CONFIG, runner: { lookup: fakeLookup(), recall: fakeRecall() } });
+  const bareText = requestText(bare.llm, 0);
+  assert.ok(!bareText.includes('<skills_tools>') && !bareText.includes(labels.senses.searchTool) && !bareText.includes(labels.senses.search), bareText);
+  // Off: the classifier runs as before, no tools block.
+  const off = await coreTurn({ coreTools: false, answers: ['<msg>ok</msg>'], allowed: ['web.search'], features: { webLookup: true, recall: true }, config: WEB_CONFIG, runner: { lookup: fakeLookup(), recall: fakeRecall() } });
+  assert.equal(off.llm.classifierCalls.length, 1);
+  assert.ok(!requestText(off.llm, 0).includes('<skills_tools>'));
+});

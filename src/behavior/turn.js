@@ -72,7 +72,7 @@ import { isPlainObject } from '../config.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
-import { discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
+import { coreToolRows, discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
 import { skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
@@ -5274,6 +5274,9 @@ export function createTurnRunner({
       // (the classifier, the planner's lookup block) is not run on the original request, so no
       // <lookup> block stands beside the result. Her own recall call still runs.
       const answersTask = triggerKind === 'task';
+      // features.coreTools (read now): she calls her own tools in the turn, so no search classifier
+      // (nor the planner's lookup or skills block) runs before her reply; `<skills_tools>` shows them.
+      const coreTools = coreToolsOn(config);
       // Skills discovery: the `skills:` line of the search classifier or the planner (parseSkillsLines).
       let skillsAnswer = null;
       // A direct call sees the persona typing while the turn prepares.
@@ -5337,7 +5340,7 @@ export function createTurnRunner({
         : null;
       // The planner's `skills:` line, once it answered (skills discovery, read when the request is built).
       planner?.result.then((plan) => {
-        skillsAnswer ??= plan?.blocks?.skills ?? null;
+        if (!coreTools) skillsAnswer ??= plan?.blocks?.skills ?? null;
       });
       // What the planner is sent: the search classifier's transcript of `lines` (with the captions,
       // video states and page reads given) and candidate, the participation pick's episodes, the
@@ -5365,7 +5368,7 @@ export function createTurnRunner({
             log.warn('participation: failed', { channel: channel.id, reason: 'error', status: null, name: err?.name ?? null });
           }
         }
-        const lookupWanted = asked && !answersTask && (webSearchOn || serverOn) && lookupGate({ config, webOn: webSearchOn, serverOn }).skip === null;
+        const lookupWanted = asked && !answersTask && !coreTools && (webSearchOn || serverOn) && lookupGate({ config, webOn: webSearchOn, serverOn }).skip === null;
         planner.start({
           transcriptBlock: context?.transcriptBlock ?? '',
           candidateBlock: judged ? block('candidate', `${judged.authorName}: ${context.triggerText}`) : null,
@@ -5712,7 +5715,8 @@ export function createTurnRunner({
       let lookupStage = null;
       let lookupChain = null;
       // `serverOn` (above): the lookup stage runs the server search and `<senses>` says it exists.
-      if (asked && !answersDrawFailure && !answersTask) {
+      if (asked && !answersDrawFailure && !answersTask && coreTools && (webSearchOn || serverOn)) log.info('lookup: skipped', { channel: channel.id, reason: 'core-tools' });
+      if (asked && !answersDrawFailure && !answersTask && !coreTools) {
         const webOn = webSearchOn;
         if (webOn || serverOn) {
           lookupChain = previews.settled
@@ -6061,6 +6065,8 @@ export function createTurnRunner({
         // `<skills_granted>`: the names of the skills granted to her, on every turn -- her grants
         // (the config read now) and the registry only, never this requester or channel.
         skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
+        // `<skills_tools>` (features.coreTools): her own tools in full, by her grants only.
+        skillsTools: coreTools ? coreToolRows({ config, selfId, registry: skills ?? defaultSkills(), texts: prompts?.skills }) : null,
         // `<people_now>`'s live part: the voice and status snapshot (null: none).
         around: aroundInputFor({ channel, config, mode: finalMode, isPrivate }),
         // `<tasks>` and `<task_result>`: her errands (none on a diary post).

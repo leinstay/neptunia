@@ -14,9 +14,10 @@
 import { fill } from '../format.js';
 import { zonedDay } from '../time.js';
 import { memorySearchPlan, recallSettings } from '../behavior/recall.js';
+import { IN_TURN_TOOLS } from './discovery.js';
 
-/** The skills that run inside the persona's turn and come back in it. */
-export const IN_TURN_TOOLS = Object.freeze(['web.search', 'memory.search']);
+/** The skills that run inside the persona's turn and come back in it (defined with discovery). */
+export { IN_TURN_TOOLS };
 
 /** A string argument trimmed, '' when absent. */
 function text(value) {

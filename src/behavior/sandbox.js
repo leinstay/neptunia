@@ -142,6 +142,7 @@ export const SANDBOX_OMITS = Object.freeze({
   skillsInventory: 'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
   around: 'a replay has no live gateway: no voice channels or statuses, so <people_now> has no live fields (its fields from memory stay)',
   skillsGranted: 'no skill registry: no <skills_granted> block of her granted skills (a skill scenario hands them in: SKILL_SCENARIO_OMITS)',
+  skillsTools: 'no core tools: a replay runs no tool loop (features.coreTools), so no <skills_tools> block',
   errands: 'no task store: a replay knows no errands of hers, so no <tasks> or <task_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
   stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> and <gifs> render from memory as it stands',
 });
@@ -748,6 +749,8 @@ export function sandboxRequestInput({
     skillsInventory: Array.isArray(skillsInventory) && skillsInventory.length > 0 ? skillsInventory : null,
     // Absent but in a skill scenario: the names of her granted skills it hands in.
     skillsGranted: Array.isArray(skillsGranted) && skillsGranted.length > 0 ? skillsGranted : null,
+    // No tool loop in a replay (SANDBOX_OMITS): no <skills_tools>.
+    skillsTools: null,
     // A skill scenario's turn continued after her call (answerSkillScenario); null otherwise.
     continuation: continuation && typeof continuation.skill === 'string' ? { skill: continuation.skill } : null,
     // Absent (a replay has no task store: SANDBOX_OMITS) but on a task-result scenario's turn.

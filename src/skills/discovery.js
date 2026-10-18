@@ -15,6 +15,12 @@ import { isPlainObject } from '../config.js';
 import { NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn, skillsOn } from './access.js';
 import { describeSkill, skillNames } from './registry.js';
 
+/** The skills that run inside the persona's turn and come back in it (src/skills/tools.js; features.coreTools). */
+export const IN_TURN_TOOLS = Object.freeze(['web.search', 'memory.search']);
+
+/** Her own tools listed in full on every turn under features.coreTools: the in-turn tools, then the errand hand-off. */
+export const CORE_TOOL_SKILLS = Object.freeze([...IN_TURN_TOOLS, 'task.run']);
+
 /** The most skills one answer may name. */
 export const MAX_PROPOSED = 4;
 
@@ -215,4 +221,22 @@ export function proposedRows(proposals, rows) {
   const byName = new Map((Array.isArray(rows) ? rows : []).map((row) => [row.name, row]));
   const shown = (Array.isArray(proposals) ? proposals : []).filter(({ name }) => byName.has(name)).map(({ name }) => ({ ...byName.get(name), proposed: true }));
   return shown.length > 0 ? shown : null;
+}
+
+/**
+ * The rows `<skills_tools>` shows under features.coreTools (src/behavior/prompt.js): each skill of
+ * CORE_TOOL_SKILLS, in that order, that the registry holds and that is granted to the persona
+ * (grantedSkillNames: her grants only, never a requester or a channel), with its texts from the
+ * skills layer (`texts`: `hot.prompts.skills`, read by the caller now) and its arguments
+ * (skillArgs). The requester's own right is not reflected: the gateway still refuses per call.
+ * Pure.
+ * @param {{ config: object, selfId?: string|null, registry?: Map<string, object>|null, texts?: object }} input
+ * @returns {object[]}
+ */
+export function coreToolRows({ config, selfId = null, registry = null, texts = undefined }) {
+  const granted = new Set(grantedSkillNames({ config, selfId, registry }));
+  return CORE_TOOL_SKILLS.filter((name) => granted.has(name) && registry.has(name)).map((name) => {
+    const skill = registry.get(name);
+    return { ...describeSkill(skill, texts), args: skillArgs(skill) };
+  });
 }
