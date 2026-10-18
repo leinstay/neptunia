@@ -63,10 +63,10 @@ test('buildSearchRequest: the query as the only message, the Exa web plugin with
   assert.equal(buildSearchRequest({ query: 'q', count: undefined, model: 'm' }).plugins[0].max_results, 8);
 });
 
-test('webSearchModel: the lookup\'s model (reasoner for search-summary), a byPurpose entry included', () => {
-  assert.equal(webSearchModel({}), ROLE_DEFAULTS.reasoner);
-  assert.equal(webSearchModel({ models: { base: { reasoner: 'x/cheap' } } }), 'x/cheap');
-  assert.equal(webSearchModel({ models: { base: { reasoner: 'x/cheap', byPurpose: { 'search-summary': 'x/other' } } } }), 'x/other');
+test('webSearchModel: the persona\'s own web.search model (analyzer for web-search), a byPurpose entry included', () => {
+  assert.equal(webSearchModel({}), ROLE_DEFAULTS.analyzer);
+  assert.equal(webSearchModel({ models: { base: { analyzer: 'x/cheap' } } }), 'x/cheap');
+  assert.equal(webSearchModel({ models: { base: { analyzer: 'x/cheap', byPurpose: { 'web-search': 'x/other' } } } }), 'x/other');
 });
 
 test('searchResults: the url_citation annotations, http(s) only, each url once, snippet one line and clamped', () => {
@@ -115,7 +115,7 @@ test('runWebSearch: one POST to OpenRouter chat completions with the agent key, 
 test('runWebSearch: without a passed model, the lookup\'s default model', async () => {
   const { fetchImpl, calls } = fakeFetch(answer([cite('https://a.example/one', 'First', 'One.')]));
   await runWebSearch({ argv: ['q'], env: { OPENROUTER_API_KEY: 'k' }, fetchImpl });
-  assert.equal(calls[0].body.model, ROLE_DEFAULTS.reasoner);
+  assert.equal(calls[0].body.model, ROLE_DEFAULTS.analyzer);
 });
 
 test('runWebSearch: every failure is one web-search: <code> line on stderr, the key never printed, no request on a usage error', async () => {

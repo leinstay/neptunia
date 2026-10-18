@@ -88,7 +88,7 @@ function hotWith({ features = {}, skills = {}, access = {}, config = {} } = {}) 
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, followUpContinuation: true, callMarkers: true, ...features },
-      models: { base: { analyzer: 'x/text', reasoner: 'x/reason' } },
+      models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
       skills: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, ...skills },
@@ -298,18 +298,27 @@ test('loopSettings: a missing or unusable value takes config.json\'s', () => {
 // Her in-turn tools: web.search and memory.search run inside the turn and come back in it,
 // labelled by where they came from; a result is data, never a call.
 
-/** A web lookup fake whose search answers `text` (null: nothing came back). */
-function fakeLookup(text = 'Η Ana κέρδισε τον τελικό.') {
+/** A web lookup fake whose raw search answers one result with `text` as its snippet (null: nothing came back); its page reader answers `page`. */
+function fakeLookup(text = 'Η Ana κέρδισε τον τελικό.', page = { ok: true, url: 'https://example.org/x', title: 'Σελίδα', text: 'Το κείμενο της σελίδας.', cut: false }) {
   const searches = [];
+  const reads = [];
   return {
     searches,
+    reads,
     hasSearch: () => true,
     webCapLeft: () => 10,
     readLinks: async () => ({ reads: new Map(), newCount: 0 }),
     cachedReads: () => new Map(),
-    search: async (guildId, query) => {
+    search: async () => {
+      throw new Error('the condensed search is never her tool');
+    },
+    searchResults: async (guildId, query) => {
       searches.push({ guildId, query });
-      return text === null ? null : { query, text, sources: [{ title: 'Un', url: 'https://www.example.com/1', site: 'example.com' }] };
+      return text === null ? null : { query, results: [{ title: 'Un', url: 'https://www.example.com/1', site: 'example.com', snippet: text }] };
+    },
+    readPage: async (guildId, url) => {
+      reads.push({ guildId, url });
+      return page;
     },
   };
 }
@@ -322,7 +331,7 @@ function fakeRecall(quotes = [{ channelId: 'c2', channelName: 'jardin', startTs:
 
 const WEB_CONFIG = { web: { maxPerDay: 60, links: { enabled: false }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50 } }, recall: { maxForms: 4 } };
 
-test('web.search in the loop: her query runs as written, the continuation carries the snippets under their source, the answer goes out', async () => {
+test('web.search in the loop: her query runs as written, the continuation carries the raw results under their source, the answer goes out', async () => {
   const lookup = fakeLookup();
   const run = await coreTurn({
     answers: ['<msg>μισό</msg><call skill="web.search" goal="ποιος κέρδισε">τελικός 2026</call>', '<msg>η Ana</msg>'],
@@ -336,11 +345,41 @@ test('web.search in the loop: her query runs as written, the continuation carrie
   assert.equal(run.llm.calls.length, 2);
   const text = requestText(run.llm, 1);
   const l = labels.skills.tools.web;
-  const block = `<result skill="web.search" status="ok">\n${labels.skills.result.ok}\n${fill(l.source, { query: 'τελικός 2026' })}\n${fill(l.goal, { goal: 'ποιος κέρδισε' })}\nΗ Ana κέρδισε τον τελικό.\n${l.sources}\n1. Un: https://www.example.com/1\n</result>`;
+  const block = `<result skill="web.search" status="ok">\n${labels.skills.result.ok}\n${fill(l.source, { query: 'τελικός 2026' })}\n${fill(l.goal, { goal: 'ποιος κέρδισε' })}\n1. Un\nhttps://www.example.com/1\nexample.com\nΗ Ana κέρδισε τον τελικό.\n</result>`;
   assert.ok(text.includes(block), text);
   assert.deepEqual(run.sends.map((send) => send.text), ['μισό', 'η Ana']);
   assert.ok(run.logs.some((entry) => entry.msg === 'skills: called' && entry.skill === 'web.search' && entry.status === 'ok'));
   assert.ok(!JSON.stringify(run.logs).includes('τελικός'), 'never her query in the log');
+});
+
+test('web.read in the loop: a link she gives, or the link of a message #N she names, is read and comes back as the page text under its source', async () => {
+  const lookup = fakeLookup();
+  const run = await coreTurn({
+    answers: ['<call skill="web.read">https://example.org/x</call>', '<msg>διάβασα</msg>'],
+    allowed: ['web.read'],
+    features: { webLookup: true },
+    config: WEB_CONFIG,
+    runner: { lookup },
+  });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.deepEqual(lookup.reads.map((read) => read.url), ['https://example.org/x']);
+  const r = labels.skills.tools.read;
+  const block = `<result skill="web.read" status="ok">\n${labels.skills.result.ok}\n${fill(r.source, { url: 'https://example.org/x', maxChars: '4000' })}\n${fill(r.title, { title: 'Σελίδα' })}\nΤο κείμενο της σελίδας.\n</result>`;
+  assert.ok(requestText(run.llm, 1).includes(block), requestText(run.llm, 1));
+  assert.ok(!JSON.stringify(run.logs).includes('example.org/x'), 'never the link in the log');
+
+  const byMessage = fakeLookup();
+  const viaMessage = await coreTurn({
+    content: 'δες https://exemple.fr/άρθρο',
+    answers: ['<call skill="web.read" message="#2"/>', '<msg>ok</msg>'],
+    allowed: ['web.read'],
+    features: { webLookup: true },
+    config: WEB_CONFIG,
+    runner: { lookup: byMessage },
+  });
+  assert.equal(viaMessage.result.outcome, 'spoke');
+  assert.equal(byMessage.reads.length, 1, JSON.stringify(viaMessage.logs.filter((entry) => entry.msg === 'skills: called')));
+  assert.ok(byMessage.reads[0].url.startsWith('https://exemple.fr/'), byMessage.reads[0].url);
 });
 
 test('memory.search in the loop: the recall runner gets her arguments with quotes over the turn history, the messages come back quoted', async () => {
@@ -409,6 +448,14 @@ test('core tools on: no search classifier before her reply, <skills_tools> in th
   const text = requestText(on.llm, 0);
   assert.ok(text.includes(labels.senses.recallTool) && !text.includes(labels.senses.recall));
   assert.ok(!text.includes('<lookup>'));
+  assert.ok(!stable.text.includes(labels.senses.readTool), 'web.read not granted: no line about it');
+  assert.ok(stable.text.split('\n').includes(labels.senses.links), 'web.read not granted: the plain links line');
+  const reader = await coreTurn({ answers: ['<msg>ok</msg>'], allowed: ['web.read'], features: { webLookup: true }, config: WEB_CONFIG, runner: { lookup: fakeLookup() } });
+  const readerStable = reader.llm.calls[0][1].content[0].text;
+  assert.ok(readerStable.includes(labels.senses.readTool), 'granted: the senses say she can open a page');
+  assert.ok(readerStable.split('\n').includes(labels.senses.linksTool) && !readerStable.split('\n').includes(labels.senses.links), 'the links line mentions previews and web.read');
+  const readerTools = /<skills_tools>\n([\s\S]*?)\n<\/skills_tools>/.exec(readerStable)?.[1] ?? '';
+  assert.deepEqual(readerTools.split('\n').slice(1).filter(Boolean).map((line) => line.split(':')[0]), ['web.read'], readerTools);
   // Not granted: neither the tool rows nor their senses lines.
   const bare = await coreTurn({ answers: ['<msg>ok</msg>'], allowed: [], features: { webLookup: true, recall: true }, config: WEB_CONFIG, runner: { lookup: fakeLookup(), recall: fakeRecall() } });
   const bareText = requestText(bare.llm, 0);

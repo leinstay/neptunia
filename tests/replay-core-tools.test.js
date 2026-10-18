@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { coreToolRows } from '../src/skills/discovery.js';
-import { IN_TURN_TOOLS, runMemorySearch, runWebSearch } from '../src/skills/tools.js';
+import { IN_TURN_TOOLS, runMemorySearch, runWebRead, runWebSearch } from '../src/skills/tools.js';
 import { needsFollowUp } from '../src/skills/executors.js';
 import { callViewOf, fallbackLookupPlan, loopSettings, lookupClassifierInput, requesterOf } from '../src/behavior/turn.js';
 import { fill } from '../src/format.js';
@@ -259,7 +259,7 @@ test('loopCall: a tool past its time answers the live timeout; one that throws f
   assert.equal(ran, 0);
 });
 
-test('createReplayTools: web.search through the lookup and memory.search through the recall runner, metered; the store and its counters untouched', async () => {
+test('createReplayTools: web.search and web.read through the lookup and memory.search through the recall runner, metered; the store and its counters untouched', async () => {
   const data = Object.freeze({ webDay: '2026-10-18', webCount: 1, recallDay: '2026-10-18', recallCount: 2 });
   const store = { state: { data }, listUserProfiles: () => [], getLore: () => [], getGuild: () => ({}), getRecent: () => null };
   const seen = {};
@@ -267,7 +267,15 @@ test('createReplayTools: web.search through the lookup and memory.search through
   const createLookup = ({ llm: client, state, store: cache }) => {
     seen.webState = state;
     cache.getMediaCache().touched = true;
-    return { hasSearch: () => true, webCapLeft: () => 5, search: async (guildId, query) => { await client.complete([], {}); return { query, text: 'Η Ana κέρδισε.', sources: [] }; } };
+    return {
+      hasSearch: () => true,
+      webCapLeft: () => 5,
+      searchResults: async (guildId, query) => {
+        await client.complete([], {});
+        return { query, results: [{ title: 'Τελικός', url: 'https://example.com/t', site: 'example.com', snippet: 'Η Ana κέρδισε.' }] };
+      },
+      readPage: async (guildId, url) => ({ ok: true, url, title: '', text: 'Το κείμενο.', cut: false }),
+    };
   };
   const createRecall = ({ store: recallStore }) => {
     seen.recallState = recallStore.state;
@@ -276,12 +284,17 @@ test('createReplayTools: web.search through the lookup and memory.search through
   const config = toolConfig({ features: { recall: true } });
   const hot = { config, prompts: { labels } };
   const mediaCache = { kept: 1 };
-  const tools = createReplayTools({ hot, store, guild: { id: GUILD }, guildId: GUILD, channel: fakeChannel(), selfId: SELF, selfName: 'Persona', llm, createLookup, createRecall, runWebSearch, runMemorySearch, discord: {}, mediaCache });
+  const linkOfMessage = (message) => (message.id === 'h2' ? 'https://example.org/p' : null);
+  const tools = createReplayTools({ hot, store, guild: { id: GUILD }, guildId: GUILD, channel: fakeChannel(), selfId: SELF, selfName: 'Persona', llm, createLookup, createRecall, runWebSearch, runMemorySearch, runWebRead, pageFetcher: {}, linkOfMessage, discord: {}, mediaCache });
   assert.equal(tools.recallAvailable(), true);
   const web = await tools.run('web.search', { query: 'τελικός' }, { history: [] });
   assert.equal(web.result.status, 'ok');
   assert.ok(web.result.data.text.includes('Η Ana κέρδισε.'));
   assert.deepEqual(web.usage, { requests: 1, tokens: { prompt: 40, completion: 4 }, cost: 0.003 });
+  const page = await tools.run('web.read', { message: 'h2' }, { history: [{ id: 'h1' }, { id: 'h2' }] });
+  assert.equal(page.result.status, 'ok');
+  assert.ok(page.result.data.text.includes('Το κείμενο.') && page.result.data.text.includes('https://example.org/p'), page.result.data.text);
+  assert.equal(page.usage.requests, 0, 'a page read sends no model request');
   const memory = await tools.run('memory.search', { question: 'τι είπε η Élodie' }, { history: [{ id: 'h1' }], at: NOW });
   assert.equal(memory.result.status, 'ok');
   assert.ok(memory.result.data.text.includes('Élodie: ναι'));

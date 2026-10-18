@@ -24,7 +24,7 @@ const ENV = { BRAVE_SEARCH_API_KEY: 'brave-test-key' };
 function hotFixture() {
   return {
     config: {
-      models: { base: { reasoner: 'test/reasoner' } },
+      models: { base: { analyzer: 'test/analyzer' } },
       llm: { helperTimeoutMs: 9000 },
       web: { maxPerDay: 0, search: { engine: 'brave', fallback: ['exa'], results: 5, summaryChars: 900, maxOutputTokens: 400, timeoutMs: 7000, cacheHours: 24 } },
     },
@@ -60,7 +60,7 @@ function fakes({ clock }) {
       if (options.plugins) {
         if (query === 'café hours Porto') {
           clock.t += 800;
-          throw new NotByokError('not byok: test/reasoner via test');
+          throw new NotByokError('not byok: test/analyzer via test');
         }
         clock.t += 1000;
         return { text: `plugin answer about ${query}`, usage: { cost: 0.01 }, annotations: [{ type: 'url_citation', url_citation: { title: 'Cited', url: 'https://cited.example.org/p' } }] };
@@ -137,15 +137,15 @@ test('search-compare: two queries x three engines -> results, summary, blind she
   assert.deepEqual(results[2].sources, [{ title: 'Cited', url: 'https://cited.example.org/p', site: 'cited.example.org' }]);
   assert.equal(results[3].text, '');
 
-  // Production's requests: the engine forced, no fallback, the reasoner, outside the daily cap.
+  // Production's requests: the engine forced, no fallback, the analyzer, outside the daily cap.
   assert.equal(calls.brave.length, 2);
   assert.equal(calls.exa.length, 2);
   assert.equal(calls.brave[0].options.apiKey, 'brave-test-key');
   assert.equal(calls.brave[0].options.timeoutMs, 7000);
   assert.equal(calls.exa[0].options.apiKey, null);
   const summaryCall = calls.llm[0].options;
-  assert.equal(summaryCall.model, 'test/reasoner');
-  assert.equal(summaryCall.role, 'reasoner');
+  assert.equal(summaryCall.model, 'test/analyzer');
+  assert.equal(summaryCall.role, 'analyzer');
   assert.equal(summaryCall.purpose, 'search-summary');
   assert.equal(summaryCall.origin, 'search-compare');
   assert.equal(summaryCall.countAgainstDailyCap, false);

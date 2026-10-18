@@ -593,9 +593,9 @@ test('run: model.show lists each role with its own model; an unset role shows it
   const lines = (await admin.run('model.show', {}, {})).split('\n');
   assert.ok(lines.includes('vision: anthropic/claude-haiku-4.5'));
   assert.ok(lines.includes(`analyzer: ${ROLE_DEFAULTS.analyzer}`), 'the analyzer is not the vision model');
-  assert.ok(lines.includes(`reasoner: ${ROLE_DEFAULTS.reasoner}`));
-  assert.deepEqual(lines.slice(0, 7).map((line) => line.split(':')[0]), ['voice', 'analyzer', 'reasoner', 'extractor', 'vision', 'video', 'embedding']);
-  assert.deepEqual(lines.slice(7, 13), [
+  assert.ok(!lines.some((line) => line.startsWith('reasoner')), 'the reasoner is merged into the analyzer');
+  assert.deepEqual(lines.slice(0, 6).map((line) => line.split(':')[0]), ['voice', 'analyzer', 'extractor', 'vision', 'video', 'embedding']);
+  assert.deepEqual(lines.slice(6, 12), [
     `web: ${ROLE_DEFAULTS.web}`,
     `server: ${ROLE_DEFAULTS.server}`,
     `thinker: ${ROLE_DEFAULTS.thinker}`,
@@ -632,7 +632,6 @@ test('run: model.set writes the models.base or models.agents path of each role',
   assert.deepEqual(readLocal(rootDir), { models: { base: { voice: 'anthropic/claude-opus-4.6' } } });
 
   await admin.run('model.set', { role: 'analyzer', id: 'openrouter/text-model' }, {});
-  await admin.run('model.set', { role: 'reasoner', id: 'openrouter/reason-model' }, {});
   await admin.run('model.set', { role: 'extractor', id: 'openrouter/cheap-model' }, {});
   await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5' }, {});
   await admin.run('model.set', { role: 'video', id: 'openrouter/video-model' }, {});
@@ -646,7 +645,6 @@ test('run: model.set writes the models.base or models.agents path of each role',
       base: {
         voice: 'anthropic/claude-opus-4.6',
         analyzer: 'openrouter/text-model',
-        reasoner: 'openrouter/reason-model',
         extractor: 'openrouter/cheap-model',
         vision: 'anthropic/claude-haiku-4.5',
         video: 'openrouter/video-model',
@@ -662,7 +660,7 @@ test('run: model.set writes the models.base or models.agents path of each role',
     // The video model changed (the vision one was set to the model it already had).
     media: { recacheBefore: new Date(changedAt).toISOString() },
   });
-  assert.equal(hot.reloadConfigCalls, 11);
+  assert.equal(hot.reloadConfigCalls, 10);
 });
 
 test('run: model.set vision or video sets media.recacheBefore to the moment of the change and says so; other roles never do', async () => {
@@ -678,7 +676,7 @@ test('run: model.set vision or video sets media.recacheBefore to the moment of t
     assert.match(reply, /^Set (vision|video) model to google\/a-new-model \(reload ok\)\n/);
     assert.ok(reply.includes(`media.recacheBefore set to ${iso}`), role);
   }
-  for (const role of ['voice', 'analyzer', 'reasoner', 'extractor', 'embedding', 'web', 'server', 'thinker', 'dev', 'writer', 'drawing']) {
+  for (const role of ['voice', 'analyzer', 'extractor', 'embedding', 'web', 'server', 'thinker', 'dev', 'writer', 'drawing']) {
     const rootDir = makeRoot();
     const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => changedAt });
     const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
@@ -698,10 +696,10 @@ test('run: model.set rejects an unknown role and the old role names, and writes 
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
 
-  for (const role of ['bogus', 'followup', 'media', 'classifier', 'classifier.text', 'classifier.media', 'image', 'talk', 'agentWeb', 'agentDev', 'agent.web', 'agent.advice', 'advice', 'byPurpose']) {
+  for (const role of ['bogus', 'followup', 'media', 'classifier', 'classifier.text', 'classifier.media', 'image', 'talk', 'reasoner', 'agentWeb', 'agentDev', 'agent.web', 'agent.advice', 'advice', 'byPurpose']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
-      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(voice, analyzer, reasoner, extractor, vision, video, embedding, web, server, thinker, dev, writer, drawing\\)`),
+      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(voice, analyzer, extractor, vision, video, embedding, web, server, thinker, dev, writer, drawing\\)`),
       role,
     );
   }
@@ -1985,7 +1983,6 @@ test('status: the card carries the fields in order and the member variant drops 
     [
       'voice · anthropic/claude-opus-4.6',
       `analyzer · ${ROLE_DEFAULTS.analyzer}`,
-      `reasoner · ${ROLE_DEFAULTS.reasoner}`,
       'extractor · x/extractor',
       `vision · ${ROLE_DEFAULTS.vision}`,
       `video · ${ROLE_DEFAULTS.video}`,
@@ -2322,7 +2319,6 @@ function probeConfig(hot) {
     base: {
       voice: 'anthropic/claude-opus-4.6',
       analyzer: 'x/text',
-      reasoner: 'x/reason',
       extractor: 'x/extractor',
       vision: 'x/media',
       video: 'x/video',
@@ -2373,7 +2369,6 @@ test('status: the card lists one item per line in every field, the models one li
   assert.deepEqual(lines('models.base').map(head), [
     'voice · anthropic/claude-opus-4.6',
     'analyzer · x/text',
-    'reasoner · x/reason',
     'extractor · x/extractor',
     'vision · x/media',
     'video · x/video',
@@ -2423,7 +2418,7 @@ test('status: the owner card probes every role\'s model and shows its provider a
   });
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 2, cap: 5 } }), llm });
   probeConfig(hot);
-  const modelOf = { voice: 'anthropic/claude-opus-4.6', analyzer: 'x/text', reasoner: 'x/reason', extractor: 'x/extractor', vision: 'x/media', video: 'x/video' };
+  const modelOf = { voice: 'anthropic/claude-opus-4.6', analyzer: 'x/text', extractor: 'x/extractor', vision: 'x/media', video: 'x/video' };
 
   const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
   const lines = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.base').value);
@@ -2456,7 +2451,7 @@ test('status: the owner card probes every role\'s model and shows its provider a
 
   const probed = logs.filter((entry) => entry.msg === 'status: probed');
   assert.equal(probed.length, 1);
-  assert.equal(probed[0].ok, 5);
+  assert.equal(probed[0].ok, 4);
   assert.equal(probed[0].failed, 1);
 });
 
@@ -2474,7 +2469,6 @@ test('status: the member card shows the models one line per role without probing
     [
       'voice · anthropic/claude-opus-4.6',
       'analyzer · x/text',
-      'reasoner · x/reason',
       'extractor · x/extractor',
       'vision · x/media',
       'video · x/video',
@@ -2508,8 +2502,8 @@ test('status: identical probes are sent once, each role shows its own model, the
   };
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 0, cap: 5 } }), llm, embedder });
   probeConfig(hot);
-  // The extractor on the voice's model and the reasoner on the analyzer's: one probe for each pair.
-  Object.assign(hot.config.models.base, { reasoner: 'x/text', extractor: 'anthropic/claude-opus-4.6', video: 'x/media', byPurpose: { lookup: 'x/pinned', describe: 'x/seen' } });
+  // The extractor on the voice's model: one probe for the pair.
+  Object.assign(hot.config.models.base, { extractor: 'anthropic/claude-opus-4.6', video: 'x/media', byPurpose: { lookup: 'x/pinned', describe: 'x/seen' } });
   // A role-specific route keeps the video role's probe apart although its model is the vision one.
   hot.config.llm.providerByModel = { 'x/@video': { only: ['video-host'] } };
 
@@ -2521,7 +2515,7 @@ test('status: identical probes are sent once, each role shows its own model, the
     ['video', 'x/media'],
     ['vision', 'x/media'],
     ['voice', 'anthropic/claude-opus-4.6'],
-  ], 'one chat probe per (model, route); the reasoner shares the analyzer probe, the extractor the voice one');
+  ], 'one chat probe per (model, route); the extractor shares the voice one');
   assert.deepEqual(embedCalls.map((call) => call.texts), [['Answer with one word: Ωmega']], 'one embedding request of one input');
   assert.equal(embedCalls[0].options.countAgainstDailyCap, false);
   assert.equal(embedCalls[0].options.origin, 'status');
@@ -2529,11 +2523,10 @@ test('status: identical probes are sent once, each role shows its own model, the
   assert.equal(embedCalls[0].options.config, hot.config);
   assert.equal(llm.calls.some((call) => call.options.model === 'x/embed'), false, 'the embedding model is never sent a chat completion');
 
-  assert.match(lines[2], /^reasoner · x\/text · Prov · ok \d+ ms$/, 'its own line, no marker of another role');
-  assert.equal(lines[3], 'byPurpose lookup · x/pinned', 'a reasoner override follows the reasoner');
-  assert.match(lines[4], /^extractor · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
-  assert.equal(lines[6], 'byPurpose describe · x/seen', 'a vision override follows the vision role');
-  assert.match(lines[8], /^embedding · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
+  assert.equal(lines[2], 'byPurpose lookup · x/pinned', 'an override of a former reasoner purpose follows the analyzer');
+  assert.match(lines[3], /^extractor · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/, 'its own line, no marker of another role');
+  assert.equal(lines[5], 'byPurpose describe · x/seen', 'a vision override follows the vision role');
+  assert.match(lines[7], /^embedding · x\/embed · - · ok \d+ ms$/, 'an embedding answer names no provider');
   assert.equal(logs.find((entry) => entry.msg === 'status: probed').requests, 5);
 });
 
@@ -3731,7 +3724,6 @@ function hotForRoutes(rootDir) {
     base: {
       voice: 'anthropic/claude-opus-4.6',
       analyzer: 'google/gemini-3.8-flash',
-      reasoner: 'google/gemini-3.8-flash',
       extractor: 'anthropic/claude-opus-4.6',
       vision: 'google/gemini-3.8-flash',
       video: 'google/gemini-3.8-flash',
@@ -3763,7 +3755,6 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     'by role:',
     '  voice: anthropic/claude-opus-4.6 -> llm.provider (ignore some-provider, fallbacks: on)',
     '  analyzer: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
-    '  reasoner: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  extractor: anthropic/claude-opus-4.6 -> anthropic/@extractor (only amazon-bedrock, anthropic, fallbacks: on, byok)',
     '  vision: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  video: google/gemini-3.8-flash -> google/@video (only google-ai-studio, fallbacks: off); direct-URL videos: media.video.provider (order google-ai-studio, fallbacks: off)',

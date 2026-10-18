@@ -1128,9 +1128,9 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     let completion;
     try {
       completion = await llm.complete(messages, {
-        model: roleModel(config, 'reasoner', 'recall-summary'),
+        model: roleModel(config, 'analyzer', 'recall-summary'),
         ...helperRequestOptions(config, {
-          role: 'reasoner',
+          role: 'analyzer',
           maxOutputTokens: settings.maxOutputTokens,
           purpose: 'recall-summary',
           signal,

@@ -1,7 +1,8 @@
 // The web lookup (features.webLookup, OFF unless set -- it costs money and the
 // Brave search needs a key): the persona reads a link posted in the chat, and, when
 // asked something that needs facts from outside, runs one web search. Two
-// halves, both modelled on the video describer (src/memory/describe.js):
+// halves, both modelled on the video describer (src/memory/describe.js), and the
+// persona's own raw tools beside them:
 //
 // - readLinks: a normal page link (never a video-site link -- the video
 //   describer owns those -- never an embed classified as anything but a link
@@ -9,8 +10,12 @@
 //   never a `web.links.skipSites` host, never a URL whose path ends
 //   with a picture/video/audio/archive/pdf extension) is fetched through the
 //   SSRF-guarded page fetcher (src/web/fetch-page.js; `web.acceptLanguage`
-//   sent as its Accept-Language) and condensed by the reasoning helper model (`reasoner`) through
-//   prompts/read-link.md into one excerpt of at most `web.links.summaryChars`.
+//   sent as its Accept-Language) and condensed by the helper model (`analyzer`, purpose
+//   `read-link`) through prompts/read-link.md into one excerpt of at most
+//   `web.links.summaryChars`. With features.coreTools (read now) no helper condenses it:
+//   the excerpt is the opening of the page's own extracted text, cut at
+//   `web.links.previewChars` -- what a link preview shows -- cached apart
+//   (`preview:<link id>`), no model request.
 // - search: one web search whose numbered results are condensed through
 //   prompts/search-summary.md, sources kept. `web.search.engine` picks the
 //   engine: `brave` (src/web/brave.js, needs BRAVE_SEARCH_API_KEY; the
@@ -23,19 +28,30 @@
 //   summary is never run again) nor any other failure. The daily web slot is
 //   taken once per lookup, whatever the attempts; each attempt logs its own
 //   `lookup: search` line with `engine` and `fallback` (false for the first).
+// - searchResults: the persona's own web.search (src/skills/tools.js): the same engines,
+//   fallbacks and daily slot, but the results come back raw -- title, url, site, the
+//   engine's snippet and date -- with no summary request. Brave and Exa return them as
+//   they are; `openrouter` sends one request with the web plugin and only the query
+//   (purpose `web-search` on the analyzer, its answer cut at `web.search.rawOutputTokens`
+//   and never read), the results being its `url_citation` annotations with their content.
+//   Cached apart (`results:<sha1 prefix>`), served while younger than `web.search.cacheHours`.
+// - readPage: the persona's own web.read: one page by url through the same fetcher, its
+//   extracted main text (src/web/readable.js) cut at `web.links.readChars`, with its title
+//   and final url; no model request. Cached (`page:<sha1 prefix of the url>`) for
+//   `web.links.readCacheHours`; a failure is not cached.
 //
 // Both share the media cache (data/guilds/<id>/media.json, LRU-trimmed to
 // `media.cacheEntries`): `read:<link id>` holds an excerpt `{ text, ts }` or a
 // miss `{ miss, ts, reason }` skipped for 6 hours (never for a refusal by
 // `llm.maxRequestsPerDay`); `search:<sha1 prefix of the
 // normalized query>` holds `{ query, text, sources, ts }`, served while younger
-// than `web.search.cacheHours`. Both share one daily counter
+// than `web.search.cacheHours`. All share one daily counter
 // (`state.data.webDay` / `webCount`, `web.maxPerDay`; a cap that is not a
 // finite number counts as 0), reserved before the fetch or the search
 // request and kept when either fails. Every model call
 // goes through llm.complete (its token cap and daily request cap apply); once
-// that daily request cap is spent (llm.capLeft) no page is fetched, no search
-// is sent and no web slot is taken.
+// that daily request cap is spent (llm.capLeft) no page is fetched for a
+// condensed read, no search that needs a request is sent and no web slot is taken.
 // Logs carry reason codes, counts and `host/path` -- never page text, an
 // excerpt, a query or the key.
 
@@ -48,6 +64,7 @@ import { clampText, oneLine } from '../memory/clamp.js';
 import { log } from '../log.js';
 import { bumpDaily, countToday, dailyCounter, MINUTE_MS, utcDay } from '../time.js';
 import { hashedKey, touchKey, trimCache } from './cache.js';
+import { truncateText } from './readable.js';
 
 const READ_MISS_TTL_MS = 6 * 60 * MINUTE_MS;
 // An answer this short is the read-link prompt's "no real content" signal.
@@ -56,6 +73,10 @@ const UNREADABLE_MAX_WORDS = 4;
 const LINK_SUMMARY_CHARS_FALLBACK = 700;
 const SEARCH_SUMMARY_CHARS_FALLBACK = 900;
 const SEARCH_CACHE_HOURS_FALLBACK = 24;
+const LINK_PREVIEW_CHARS_FALLBACK = 700;
+const PAGE_READ_CHARS_FALLBACK = 4000;
+const PAGE_CACHE_HOURS_FALLBACK = 6;
+const RAW_OUTPUT_TOKENS_FALLBACK = 256;
 const QUERY_MAX_CHARS = 200;
 /** The state.json fields of the daily web counter (link reads and searches share it). */
 export const WEB_DAILY = { dayKey: 'webDay', countKey: 'webCount' };
@@ -123,6 +144,19 @@ function citationsOf(annotations) {
  */
 function webOn(config) {
   return config?.features?.webLookup === true;
+}
+
+/**
+ * Whether a link posted in the chat is read as a preview (features.coreTools exactly true):
+ * the opening of the page's own text, no helper condensing it.
+ */
+function previewOn(config) {
+  return config?.features?.coreTools === true;
+}
+
+/** The media cache key of a link's read: `preview:<id>` under previewOn, else `read:<id>`. */
+function linkKey(config, link) {
+  return `${previewOn(config) ? 'preview' : 'read'}:${link.id}`;
 }
 
 /** A positive number from the config, else `fallback`. */
@@ -304,7 +338,7 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     if (!webOn(config)) return false;
     const linksCfg = config.web?.links ?? {};
     if (linksCfg.enabled === false) return false;
-    if (!hot.prompts?.['read-link']) return false;
+    if (!previewOn(config) && !hot.prompts?.['read-link']) return false;
     if (!link?.id || !link.url) return false;
     if (link.kind !== undefined && link.kind !== 'link') return false;
     if (videoSiteFor(link.url, linksCfg.skipSites ?? [])) return false;
@@ -340,8 +374,9 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
       return { result: null, attempted: true };
     };
 
-    // The condensing request would be refused: no fetch, no slot, no miss.
-    if (capSpent()) {
+    const preview = previewOn(config);
+    // The condensing request would be refused: no fetch, no slot, no miss (a preview sends none).
+    if (!preview && capSpent()) {
       report('limit', 'daily-cap');
       return { result: null, attempted: false };
     }
@@ -362,6 +397,15 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     const body = String(page.text ?? '').trim();
     if (!body) return miss('empty');
 
+    // A preview: the opening of the page's own text, no model request.
+    if (preview) {
+      const opening = cleanText(body, positiveOr(linksCfg.previewChars, LINK_PREVIEW_CHARS_FALLBACK));
+      if (!opening) return miss('empty');
+      putEntry(guildId, key, { text: opening, ts: now() });
+      report('read', null, { chars: opening.length, preview: true });
+      return { result: { text: opening }, attempted: true };
+    }
+
     let completion;
     try {
       completion = await llm.complete(
@@ -370,8 +414,8 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
           { role: 'user', content: title ? `${title}\n\n${body}` : body },
         ],
         {
-          model: roleModel(config, 'reasoner', 'read-link'),
-          ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: linksCfg.maxOutputTokens, purpose: 'read-link', long: true }),
+          model: roleModel(config, 'analyzer', 'read-link'),
+          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: linksCfg.maxOutputTokens, purpose: 'read-link', long: true }),
         },
       );
     } catch (err) {
@@ -402,7 +446,7 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
   /** One link read through the cache, with readLinks' accounting: `attempted` = a fetch was tried (or awaited in flight). */
   async function readLinkCharged(guildId, link, { cacheOnly = false } = {}) {
     if (!readable(link)) return { result: null, attempted: false };
-    const key = `read:${link.id}`;
+    const key = linkKey(hot.config, link);
     const cached = cachedRead(guildId, key);
     if (cached === 'miss') return { result: null, attempted: false };
     if (cached) return { result: { ...cached, cached: true }, attempted: false };
@@ -421,7 +465,7 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
 
   /**
    * Read up to `maxNew` NEW links of `links`, in the order given, each
-   * condensed into an excerpt through the shared cache. Every fetch ATTEMPT
+   * condensed into an excerpt (a preview under features.coreTools: previewOn) through the shared cache. Every fetch ATTEMPT
    * counts toward `maxNew` (a failure included); cache hits and the daily cap
    * are free; past `maxNew` the rest are only looked up in the cache. A link
    * listed twice is read once. A link is left out of `reads` when the feature
@@ -466,7 +510,7 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
       if (!link?.id || seen.has(link.id)) continue;
       seen.add(link.id);
       if (!readable(link)) continue;
-      const cached = cachedRead(guildId, `read:${link.id}`);
+      const cached = cachedRead(guildId, linkKey(hot.config, link));
       if (cached && cached !== 'miss') reads.set(link.id, cached.text);
     }
     return reads;
@@ -565,8 +609,8 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     return {
       system: { role: 'system', content: fillPromptTemplate(promptText, { query: asked, maxChars: summaryChars, today: todayDate() }) },
       options: {
-        model: roleModel(config, 'reasoner', 'search-summary'),
-        ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: searchCfg.maxOutputTokens, purpose: 'search-summary', long: true }),
+        model: roleModel(config, 'analyzer', 'search-summary'),
+        ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: searchCfg.maxOutputTokens, purpose: 'search-summary', long: true }),
       },
     };
   }
@@ -618,6 +662,173 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
   }
 
   /**
+   * The persona's own web.search: one search on `query` whose results come back raw (see the
+   * header): `{ query, results: [{ title, url, site, snippet, age? }], cached? }`, `results`
+   * empty when nothing was found; null when it cannot run (the feature, `web.search.enabled`, a
+   * blank query, no engine), when the day's web slots are spent, when an `openrouter` request
+   * would pass `llm.maxRequestsPerDay`, or when every engine tried failed. Shares the engines,
+   * their fallbacks (the failures listed in the header) and the daily web slot with `search`;
+   * never reads the search-summary prompt, never sends a summary request. A failure is never
+   * cached.
+   * @param {string} guildId
+   * @param {string} query
+   * @returns {Promise<{ query: string, results: { title: string, url: string, site: string, snippet: string, age?: string }[], cached?: true }|null>}
+   */
+  async function searchResults(guildId, query) {
+    const config = hot.config;
+    if (!webOn(config)) return null;
+    const searchCfg = config.web?.search ?? {};
+    if (searchCfg.enabled === false) return null;
+    const asked = cleanQuery(query);
+    if (!asked || !hasSearch()) return null;
+
+    const report = (outcome, reason = null, extra = {}) => log.info('lookup: search', { state: outcome, reason, raw: true, ...extra });
+    const cache = store.getMediaCache(guildId);
+    const key = hashedKey('results', normalizeQuery(asked));
+    const hit = cache[key];
+    if (hit && Array.isArray(hit.results)) {
+      const maxAgeMs = positiveOr(searchCfg.cacheHours, SEARCH_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS;
+      if (now() - hit.ts < maxAgeMs) {
+        touchKey(cache, key, hit);
+        store.markMediaCacheDirty(guildId);
+        report(hit.results.length ? 'found' : 'nothing', null, { cached: true, results: hit.results.length });
+        return { query: hit.query ?? asked, results: hit.results, cached: true };
+      }
+      delete cache[key];
+      store.markMediaCacheDirty(guildId);
+    }
+
+    const engines = [engineOf(config), ...fallbackEngines(config)];
+    // Only the `openrouter` engine sends a model request: the cap matters when it comes first.
+    if (engines[0] === 'openrouter' && capSpent()) {
+      report('limit', 'daily-cap');
+      return null;
+    }
+    if (!reserveDaily()) {
+      report('limit', 'daily');
+      return null;
+    }
+    for (let i = 0; i < engines.length; i += 1) {
+      const meta = { engine: engines[i], fallback: i > 0 };
+      if (engines[i] === 'openrouter' && i > 0 && capSpent()) {
+        report('limit', 'daily-cap', meta);
+        return null;
+      }
+      const outcome = await rawAttempt(engines[i], asked, config);
+      if (outcome.results) {
+        const result = { query: asked, results: outcome.results };
+        putEntry(guildId, key, { ...result, ts: now() });
+        report(outcome.results.length ? 'found' : 'nothing', null, { cached: false, results: outcome.results.length, ...meta });
+        return result;
+      }
+      const { reason, status } = outcome.failure;
+      report('error', reason, { ...(status !== undefined ? { status } : {}), ...meta });
+      if (!fallsBack(outcome.failure)) return null;
+    }
+    return null;
+  }
+
+  /**
+   * One engine's raw attempt: `{ results }` (possibly empty: nothing found) or `{ failure }`.
+   * `openrouter`: one request with the web plugin, the query as its only message, the answer
+   * capped at `web.search.rawOutputTokens` and never read; the results its `url_citation`
+   * annotations. Brave and Exa: their results as they come.
+   */
+  async function rawAttempt(engine, asked, config) {
+    const searchCfg = config.web?.search ?? {};
+    if (engine === 'openrouter') {
+      let completion;
+      try {
+        completion = await llm.complete([{ role: 'user', content: asked }], {
+          model: roleModel(config, 'analyzer', 'web-search'),
+          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: positiveOr(searchCfg.rawOutputTokens, RAW_OUTPUT_TOKENS_FALLBACK), purpose: 'web-search' }),
+          // No hedge: a second attempt would run (and bill) the web search twice.
+          helper: false,
+          plugins: webSearchPlugins(searchCfg.results),
+        });
+      } catch (err) {
+        return { failure: { reason: openrouterFailure(err), ...(err?.statusCode !== undefined ? { status: err.statusCode } : {}) } };
+      }
+      return { results: urlCitations(completion.annotations).map((c) => ({ title: c.title, url: c.url, site: siteOf(c.url), snippet: c.snippet })) };
+    }
+    const found = await searches[engine].search(asked, { apiKey: keys[engine] ?? null, count: searchCfg.results, timeoutMs: searchCfg.timeoutMs });
+    if (!found?.ok) {
+      if (found?.reason === 'empty') return { results: [] };
+      return { failure: { reason: found?.reason ?? 'network', ...(found?.status !== undefined ? { status: found.status } : {}) } };
+    }
+    return {
+      results: found.results.map((r) => ({
+        title: oneLine(String(r.title ?? '')),
+        url: r.url,
+        site: siteOf(r.url),
+        snippet: oneLine(String(r.snippet ?? '')),
+        ...(typeof r.age === 'string' && r.age.trim() ? { age: r.age.trim() } : {}),
+      })),
+    };
+  }
+
+  /**
+   * The persona's own web.read: the page at `url` through the SSRF-guarded fetcher, its
+   * extracted main text cut at `web.links.readChars` (`cut: true` when it was longer), its
+   * title and the url it ended at after redirects; no model request. Needs the feature;
+   * takes one daily web slot per fetch (a cache hit is free). `{ ok: false, reason }`:
+   * `not-configured` (the feature off), `daily-cap` (the day's slots spent), `empty` (no
+   * text on the page), or the fetcher's reason (`scheme`, `private`, `redirects`, `type`,
+   * `size`, `timeout`, `http`, `network`). A page read is cached for
+   * `web.links.readCacheHours`; a failure is not.
+   * @param {string} guildId
+   * @param {string} url
+   * @returns {Promise<{ ok: true, url: string, title: string, text: string, cut: boolean, cached?: true }
+   *   | { ok: false, reason: string, status?: number }>}
+   */
+  async function readPage(guildId, url) {
+    const config = hot.config;
+    if (!webOn(config)) return { ok: false, reason: 'not-configured' };
+    const linksCfg = config.web?.links ?? {};
+    const maxChars = positiveOr(linksCfg.readChars, PAGE_READ_CHARS_FALLBACK);
+    const asked = String(url ?? '').trim();
+    const location = safeLocation(asked);
+    const report = (outcome, reason = null, extra = {}) => log.info('lookup: page', { state: outcome, reason, location, ...extra });
+    const cache = store.getMediaCache(guildId);
+    const key = hashedKey('page', asked);
+    const hit = cache[key];
+    if (hit && typeof hit.text === 'string') {
+      if (now() - hit.ts < positiveOr(linksCfg.readCacheHours, PAGE_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS) {
+        touchKey(cache, key, hit);
+        store.markMediaCacheDirty(guildId);
+        report('read', null, { cached: true, chars: hit.text.length });
+        return { ok: true, url: hit.url, title: hit.title ?? '', text: hit.text, cut: hit.cut === true, cached: true };
+      }
+      delete cache[key];
+      store.markMediaCacheDirty(guildId);
+    }
+    if (!reserveDaily()) {
+      report('limit', 'daily');
+      return { ok: false, reason: 'daily-cap' };
+    }
+    const page = await pageFetcher.fetchText(asked, {
+      maxBytes: linksCfg.maxBytes,
+      timeoutMs: linksCfg.fetchTimeoutMs,
+      acceptLanguage: config.web?.acceptLanguage,
+    });
+    if (!page?.ok) {
+      const reason = page?.reason ?? 'network';
+      report('miss', reason, page?.status !== undefined ? { status: page.status } : {});
+      return { ok: false, reason, ...(page?.status !== undefined ? { status: page.status } : {}) };
+    }
+    const whole = String(page.text ?? '').trim();
+    if (!whole) {
+      report('miss', 'empty');
+      return { ok: false, reason: 'empty' };
+    }
+    const text = truncateText(whole, maxChars);
+    const read = { url: String(page.finalUrl || asked), title: oneLine(String(page.title ?? '')), text, cut: text !== whole };
+    putEntry(guildId, key, { ...read, ts: now() });
+    report('read', null, { cached: false, chars: text.length, cut: read.cut });
+    return { ok: true, ...read };
+  }
+
+  /**
    * Whether the chosen engine (`web.search.engine`, read now) can run: `brave` needs
    * BRAVE_SEARCH_API_KEY, `exa` and `openrouter` need no key. The fallback engines do not
    * count: they only stand in for a chosen engine that runs. `/nep status` reports it.
@@ -631,5 +842,5 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
     return engineOf(hot.config);
   }
 
-  return { readLinks, cachedReads, search, hasSearch, searchEngine, webCapLeft };
+  return { readLinks, cachedReads, search, searchResults, readPage, hasSearch, searchEngine, webCapLeft };
 }

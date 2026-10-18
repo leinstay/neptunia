@@ -7,10 +7,12 @@
 // The role names are what the request does:
 // models.base
 // - `voice`      speaks as the persona: the reply and the memory texts worded in its voice;
-// - `analyzer`   picks one of a few given options: address, room, merge, route-channel,
-//                participation-pick, rewatch, split, gif-pick;
-// - `reasoner`   plans a search and turns sources into notes: lookup, planner, recall-summary,
-//                search-summary, read-link, diary-plan;
+// - `analyzer`   the core's helper model: picks one of a few given options (address, room,
+//                merge, route-channel, participation-pick, rewatch, split, gif-pick, missed),
+//                plans a search and turns sources into notes (lookup, planner, recall-summary,
+//                search-summary, read-link, diary-plan) and runs the persona's raw web search
+//                on the OpenRouter engine (web-search). The former `reasoner` role is merged
+//                into it (2026-10): its purposes keep their names, for `byPurpose` and the logs;
 // - `extractor`  turns conversations into stored memory: the memory analyzer's batches, the
 //                portraits' stage A, the channel and server notes, the warmup, the backfill;
 // - `vision`     describes a picture (describe, relook, avatar);
@@ -26,13 +28,14 @@
 // No request of the bot goes out on `web`, `server`, `thinker`, `dev` or `writer` (OPENCODE_ROLES): they run on
 // OpenCode, not through the bot's OpenRouter client, and their models are OpenCode model ids
 // (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter ids of the other roles.
-// A config that still carries the old flat `roles` map is refused at load (src/config.js).
+// A config that still carries the old flat `roles` map, or a model for the merged `reasoner`
+// role, is refused at load (src/config.js).
 // Pure; every reader passes the live config read at the moment of use.
 
 import { isPlainObject } from '../config.js';
 
 /** The core's roles, in display order: their models under `models.base`. */
-export const BASE_ROLES = Object.freeze(['voice', 'analyzer', 'reasoner', 'extractor', 'vision', 'video', 'embedding']);
+export const BASE_ROLES = Object.freeze(['voice', 'analyzer', 'extractor', 'vision', 'video', 'embedding']);
 
 /** The roles whose model an OpenCode worker runs on, never the bot's own client. */
 export const OPENCODE_ROLES = Object.freeze(['web', 'server', 'thinker', 'dev', 'writer']);
@@ -47,7 +50,6 @@ export const ROLES = Object.freeze([...BASE_ROLES, ...AGENT_ROLES]);
 export const ROLE_DEFAULTS = Object.freeze({
   voice: 'anthropic/claude-opus-4.6',
   analyzer: 'openai/gpt-6.1-sol',
-  reasoner: 'openai/gpt-6.1-sol',
   extractor: 'openai/gpt-6.1-sol',
   vision: 'google/gemini-3.8-flash',
   video: 'google/gemini-3.8-flash',
@@ -101,12 +103,13 @@ export const PURPOSE_ROLES = Object.freeze({
   split: 'analyzer',
   'gif-pick': 'analyzer',
   missed: 'analyzer',
-  lookup: 'reasoner',
-  planner: 'reasoner',
-  'recall-summary': 'reasoner',
-  'search-summary': 'reasoner',
-  'read-link': 'reasoner',
-  'diary-plan': 'reasoner',
+  lookup: 'analyzer',
+  planner: 'analyzer',
+  'recall-summary': 'analyzer',
+  'search-summary': 'analyzer',
+  'read-link': 'analyzer',
+  'diary-plan': 'analyzer',
+  'web-search': 'analyzer',
   backfill: 'extractor',
   describe: 'vision',
   relook: 'vision',

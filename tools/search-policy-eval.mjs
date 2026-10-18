@@ -18,7 +18,7 @@
 // (tracked, or the deployment's prompts.local/lookup.md through the usual loader, src/hot.js)
 // with `{{today}}` = today in `bot.timezone`, `{{name}}` = the persona's name (`--self-name`,
 // else the config's first `bot.nameTriggers`) and `{{skills}}` = the skills index when discovery
-// is on (src/skills/discovery.js), as the turn fills them. One completion on the `reasoner` role
+// is on (src/skills/discovery.js), as the turn fills them. One completion on the `analyzer` role
 // (roleModel for purpose `lookup`; `--model` pins another for this run only), with the turn's
 // helper options (helperRequestOptions: its temperature, timeout and hedge), the answer capped at
 // `web.search.classifierMaxOutputTokens`. The answer is read by
@@ -163,7 +163,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
     if (dry) {
       const { config, system, user } = requestOf(asked[0]);
       process.stderr.write(`search-policy-eval: dry run, ${asked.length} row(s), nothing sent\n`);
-      return `# row ${asked[0].id} (model ${roleModel(config, 'reasoner', 'lookup') ?? '-'})\n\n## system\n\n${system}\n\n## user\n\n${user}\n`;
+      return `# row ${asked[0].id} (model ${roleModel(config, 'analyzer', 'lookup') ?? '-'})\n\n## system\n\n${system}\n\n## user\n\n${user}\n`;
     }
 
     process.stderr.write(`search-policy-eval: ${asked.length} row(s), up to ${asked.length} model request(s), none started once the cost passes ${maxUsd} USD\n`);
@@ -195,8 +195,8 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
             { role: 'user', content: user },
           ],
           {
-            model: roleModel(config, 'reasoner', 'lookup'),
-            ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: config.web?.search?.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }),
+            model: roleModel(config, 'analyzer', 'lookup'),
+            ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: config.web?.search?.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }),
             origin: ORIGIN,
             countAgainstDailyCap: false,
             skipCalibration: true,
@@ -234,7 +234,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
     const markdown = renderSummary(summary, {
       at: new Date(now()).toISOString(),
       sheet: path.basename(sheetFile),
-      model: roleModel(configNow(), 'reasoner', 'lookup') ?? null,
+      model: roleModel(configNow(), 'analyzer', 'lookup') ?? null,
       skipped: asked.length - done.length,
       stopped,
     });

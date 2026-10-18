@@ -81,7 +81,7 @@ test('migrate-models-config: --write moves the keys in place, keeps the file mod
   fs.copyFileSync(path.join(ROOT, 'config.json'), path.join(dir, 'config.json'));
   const { config } = loadConfig(dir);
   assert.equal(roleModel(config, 'voice'), 'vendor/voice-model');
-  assert.equal(roleModel(config, 'reasoner', 'lookup'), 'vendor/lookup-model');
+  assert.equal(roleModel(config, 'analyzer', 'lookup'), 'vendor/lookup-model');
   assert.equal(roleModel(config, 'web'), 'openrouter/vendor/web-model');
   assert.equal(roleModel(config, 'drawing'), 'vendor/image-model');
   assert.equal(config.llm.keyByRole.dev, 'OPENROUTER_DEV_KEY', 'config.json fills the rest');

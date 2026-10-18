@@ -609,8 +609,8 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
           { role: 'user', content: `${transcript}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>` },
         ],
         {
-          model: roleModel(hot.config, 'reasoner', 'lookup'),
-          ...helperRequestOptions(hot.config, { role: 'reasoner', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }),
+          model: roleModel(hot.config, 'analyzer', 'lookup'),
+          ...helperRequestOptions(hot.config, { role: 'analyzer', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }),
         },
       );
     } catch (err) {

@@ -225,7 +225,7 @@ test('recall: forms are searched one after another in order; the summary reads t
 
   const { messages, options } = s.llmCalls[0];
   assert.equal(options.purpose, 'recall-summary');
-  assert.equal(options.role, 'reasoner');
+  assert.equal(options.role, 'analyzer');
   assert.equal(options.long, true, 'a summary: the long hedge limit');
   assert.equal(messages[0].content, 'You are Zoë; 900.');
   const user = messages[1].content;

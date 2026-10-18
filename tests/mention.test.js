@@ -479,7 +479,7 @@ const OLD_KEYS = {
 };
 
 test('roleModel: the deprecated llm.classifierModel, mention.followUpModel, media.model and media.video.model are ignored', () => {
-  for (const role of ['analyzer', 'reasoner', 'vision', 'video']) {
+  for (const role of ['analyzer', 'vision', 'video']) {
     assert.equal(roleModel(OLD_KEYS, role), ROLE_DEFAULTS[role], role);
     assert.equal(roleModel({ ...OLD_KEYS, models: { base: { [role]: 'x/new' } } }, role), 'x/new', role);
   }
