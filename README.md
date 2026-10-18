@@ -390,6 +390,7 @@ src/
     split.js               pure: task splitter pre-filter and answer parse
     pending.js             pending calls, merge answer parse, fold-into
     missed.js              missed-answer candidate registry, sweep and recovery
+    catch-up.js            at start: messages posted while the bot was down
     private.js             pure: DM gate, merged profiles, effective affinity
     limits.js              pure: limit and pause notices from labels
     recall.js              pure: server-history search decisions
