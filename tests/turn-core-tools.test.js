@@ -228,6 +228,36 @@ test('tool loop: several calls of one answer run together, both results come bac
   assert.ok(capped.logs.some((entry) => entry.msg === 'skills: extra-call' && entry.loop === true && entry.count === 1));
 });
 
+test('tool loop: every request of the turn is dumped, the reply\'s as the base dump and each later one with its step', async () => {
+  const capture = () => {
+    const { journal } = journalOverMemory();
+    const dumps = [];
+    journal.dumpRequest = async (guildId, dump) => {
+      dumps.push(dump);
+    };
+    return { journal, dumps };
+  };
+  const loop = capture();
+  const run = await coreTurn({ answers: ['<msg>κοιτάζω</msg><call skill="lore.list"/>', '<msg>και οι κανόνες</msg><call skill="memory.server.read"/>', '<msg>τέλος</msg>'], journal: loop.journal });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(run.llm.calls.length, 3);
+  assert.deepEqual(loop.dumps.map((dump) => dump.step ?? null), [null, 1, 2]);
+  loop.dumps.forEach((dump, i) => {
+    assert.equal(dump.request.messages, run.llm.calls[i], `request ${i} as the client got it`);
+    assert.equal(dump.turnId, run.result.turnId);
+    assert.equal(dump.attemptId, 1);
+  });
+  assert.equal(loop.dumps[2].raw, '<msg>τέλος</msg>');
+
+  // Without the loop, the one follow-up after a call is step 1.
+  const single = capture();
+  const off = await coreTurn({ answers: ['<msg>κοιτάζω</msg><call skill="lore.list"/>', '<msg>τέλος</msg>'], coreTools: false, journal: single.journal });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(off.llm.calls.length, 2);
+  assert.deepEqual(single.dumps.map((dump) => dump.step ?? null), [null, 1]);
+  assert.equal(single.dumps[1].request.messages, off.llm.calls[1]);
+});
+
 test('tool loop: skills.loop.maxSteps -- the last step says no call will run, a call in it is dropped, logged and journaled as a limit', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await coreTurn({ answers: ['<call skill="lore.list"/>', '<msg>ακόμα ένα</msg><call skill="memory.server.read"/>', '<msg>ποτέ</msg>'], loop: { maxSteps: 1 }, journal });
@@ -306,7 +336,7 @@ test('web.search in the loop: her query runs as written, the continuation carrie
   assert.equal(run.llm.calls.length, 2);
   const text = requestText(run.llm, 1);
   const l = labels.skills.tools.web;
-  const block = `<result skill="web.search" status="ok">\n${labels.skills.result.ok}\n${fill(l.source, { query: 'τελικός 2026' })}\n${fill(l.goal, { goal: 'ποιος κέρδισε' })}\nΗ Ana κέρδισε τον τελικό.\n${fill(l.sources, { list: 'example.com' })}\n</result>`;
+  const block = `<result skill="web.search" status="ok">\n${labels.skills.result.ok}\n${fill(l.source, { query: 'τελικός 2026' })}\n${fill(l.goal, { goal: 'ποιος κέρδισε' })}\nΗ Ana κέρδισε τον τελικό.\n${l.sources}\n1. Un: https://www.example.com/1\n</result>`;
   assert.ok(text.includes(block), text);
   assert.deepEqual(run.sends.map((send) => send.text), ['μισό', 'η Ana']);
   assert.ok(run.logs.some((entry) => entry.msg === 'skills: called' && entry.skill === 'web.search' && entry.status === 'ok'));

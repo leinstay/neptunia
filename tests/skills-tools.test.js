@@ -27,11 +27,44 @@ test('in-turn tools: the two skills that come back in the same turn', () => {
   assert.deepEqual([...IN_TURN_TOOLS], ['web.search', 'memory.search']);
 });
 
-test('webSearchText: her query and the evidence type first, what she wanted to establish, the snippets, the distinct sites', () => {
+test('webSearchText: her query and the evidence type first, what she wanted to establish, the snippets, the numbered sources with their links', () => {
   const l = labels.skills.tools.web;
-  const text = webSearchText({ query: 'τελικός 2026', text: 'Η Ana κέρδισε.', sources: [{ url: 'https://www.example.com/a' }, { site: 'example.com' }, { site: 'exemple.fr' }] }, { goal: 'ποιος κέρδισε', labels });
-  assert.equal(text, [fill(l.source, { query: 'τελικός 2026' }), fill(l.goal, { goal: 'ποιος κέρδισε' }), 'Η Ana κέρδισε.', fill(l.sources, { list: 'example.com, exemple.fr' })].join('\n'));
+  const sources = [{ title: 'Ο τελικός', url: 'https://www.example.com/a' }, { site: 'example.com' }, { title: '', url: 'https://exemple.fr/b' }];
+  const text = webSearchText({ query: 'τελικός 2026', text: 'Η Ana κέρδισε.', sources }, { goal: 'ποιος κέρδισε', labels });
+  assert.equal(text, [
+    fill(l.source, { query: 'τελικός 2026' }),
+    fill(l.goal, { goal: 'ποιος κέρδισε' }),
+    'Η Ana κέρδισε.',
+    l.sources,
+    '1. Ο τελικός: https://www.example.com/a',
+    '2. https://exemple.fr/b',
+  ].join('\n'));
   assert.equal(webSearchText({ query: 'x', text: '' }, { labels }), [fill(l.source, { query: 'x' }), l.none].join('\n'), 'nothing found says so');
+  assert.equal(webSearchText({ query: 'x', text: 'κάτι', sources: [{ site: 'example.com' }] }, { labels }), [fill(l.source, { query: 'x' }), 'κάτι'].join('\n'), 'no link, no list');
+});
+
+test('webSearchText sources: duplicates and trackers dropped, titles and long links cut, at most six', () => {
+  const l = labels.skills.tools.web;
+  const long = `https://example.com/${'p'.repeat(400)}`;
+  const sources = [
+    { title: 'Α', url: 'https://www.example.com/a/?utm_source=x&id=7#top' },
+    { title: 'Α again', url: 'https://example.com/a?id=7' },
+    { title: 'Β'.repeat(300), url: 'https://example.org/b' },
+    { title: 'Γ', url: `https://example.net/c?q=${'z'.repeat(400)}` },
+    { title: 'Δ', url: long },
+    { title: 'bad', url: 'javascript:alert(1)' },
+    { title: 'Ε', url: 'https://e.example/1' },
+    { title: 'Ζ', url: 'https://e.example/2' },
+    { title: 'Η', url: 'https://e.example/3' },
+  ];
+  const lines = webSearchText({ query: 'q', text: 'κάτι', sources }, { labels }).split('\n');
+  const list = lines.slice(lines.indexOf(l.sources) + 1);
+  assert.equal(list.length, 6);
+  assert.equal(list[0], '1. Α: https://www.example.com/a/?id=7', 'tracking parameters and the fragment go, the first title stays');
+  assert.ok(list[1].startsWith('2. ') && list[1].endsWith(': https://example.org/b') && list[1].length < 200, list[1]);
+  assert.equal(list[2], '3. Γ: https://example.net/c', 'an over-long query string is dropped, the page stays');
+  assert.ok(list[3].startsWith('4. Δ: https://example.com/') && list[3].endsWith('…') && list[3].length < 320, 'a still too long link is cut visibly');
+  assert.deepEqual(list.slice(4), ['5. Ε: https://e.example/1', '6. Ζ: https://e.example/2']);
 });
 
 test('memorySearchText: the source, then each stretch under its day and channel with its lines as they were', () => {

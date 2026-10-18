@@ -12,6 +12,7 @@
 // the owner's commands (src/ops/search.js, with what an operation knows).
 
 import { fill } from '../format.js';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { zonedDay } from '../time.js';
 import { memorySearchPlan, recallSettings } from '../behavior/recall.js';
 import { IN_TURN_TOOLS } from './discovery.js';
@@ -30,12 +31,19 @@ function toolLabels(labels, kind) {
   return value && typeof value === 'object' ? value : {};
 }
 
+/** How many sources a web.search result lists, and how long a title or a link in it may be. */
+const SOURCES_MAX = 6;
+const SOURCE_TITLE_MAX = 120;
+const SOURCE_URL_MAX = 300;
+/** Query parameters that only track the click and never pick the page. */
+const TRACKING_PARAM = /^(utm_\w+|fbclid|gclid|yclid|mc_cid|mc_eid|ref_src)$/i;
+
 /**
  * The text of a web.search result (`found`: src/web/lookup.js#search's `{ query, text, sources }`):
  * `labels.skills.tools.web.source` (`{query}`), `.goal` (`{goal}`) when she named what she needs
- * to establish, then the condensed snippets and `.sources` (`{list}`: the distinct sites), or
- * `.none` when nothing came back. A missing label adds nothing. Pure.
- * @param {{ query?: string, text?: string, sources?: { site?: string, url?: string }[] }} found
+ * to establish, then the condensed snippets and, under `.sources`, the numbered links
+ * (sourceLinks), or `.none` when nothing came back. A missing label adds nothing. Pure.
+ * @param {{ query?: string, text?: string, sources?: { title?: string, site?: string, url?: string }[] }} found
  * @param {{ goal?: string, labels: object }} options
  * @returns {string}
  */
@@ -50,19 +58,41 @@ export function webSearchText(found, { goal = '', labels }) {
     return lines.join('\n');
   }
   lines.push(body);
-  const sources = Array.isArray(found?.sources) ? found.sources : [];
-  const sites = [...new Set(sources.map((source) => source?.site || siteOf(source?.url)).filter(Boolean))];
-  if (sites.length > 0 && l.sources) lines.push(fill(l.sources, { list: sites.join(', ') }));
+  const links = sourceLinks(found?.sources);
+  if (links.length > 0 && l.sources) lines.push(l.sources, ...links.map((link, i) => (link.title ? `${i + 1}. ${link.title}: ${link.url}` : `${i + 1}. ${link.url}`)));
   return lines.join('\n');
 }
 
-/** The host of `url` without `www.`, '' when it is no URL. */
-function siteOf(url) {
-  try {
-    return new URL(String(url)).hostname.replace(/^www\./i, '');
-  } catch {
-    return '';
+/**
+ * The sources she can hand on: http(s) links only, the fragment and tracking parameters dropped,
+ * one per page (host without `www.`, path without a trailing slash, query; the first title kept),
+ * at most SOURCES_MAX. A link longer than SOURCE_URL_MAX loses its query string, then is cut with
+ * an ellipsis; a title is one line of at most SOURCE_TITLE_MAX. Pure.
+ * @param {unknown} sources
+ * @returns {{ title: string, url: string }[]}
+ */
+function sourceLinks(sources) {
+  const seen = new Set();
+  const links = [];
+  for (const source of Array.isArray(sources) ? sources : []) {
+    if (links.length >= SOURCES_MAX) break;
+    let url;
+    try {
+      url = new URL(String(source?.url ?? ''));
+    } catch {
+      continue;
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') continue;
+    url.hash = '';
+    for (const name of [...url.searchParams.keys()]) if (TRACKING_PARAM.test(name)) url.searchParams.delete(name);
+    if (url.href.length > SOURCE_URL_MAX) url.search = '';
+    const key = `${url.hostname.replace(/^www\./i, '').toLowerCase()}${url.pathname.replace(/\/+$/, '')}${url.search}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const href = url.href.length > SOURCE_URL_MAX ? `${url.href.slice(0, SOURCE_URL_MAX - 1)}…` : url.href;
+    links.push({ title: clampWithEllipsis(oneLine(source?.title), SOURCE_TITLE_MAX), url: href });
   }
+  return links;
 }
 
 /**

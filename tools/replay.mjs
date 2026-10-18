@@ -33,7 +33,7 @@
 //   cd /opt/neptunia/app && node tools/replay.mjs --pair <promptsDirA> <promptsDirB>
 //        (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment]
 //        [--snapshot <dir>] [--out <dir>] [--spend <usd>]
-//   cd /opt/neptunia/app && node tools/replay.mjs --show-request <turnId> [--snapshot <dir>] [--before 40] [--as-of-moment]
+//   cd /opt/neptunia/app && node tools/replay.mjs --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]
 //   cd /opt/neptunia/app && node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"]
 //        [--prompts <dir>] [--out <file>] [--spend <usd>]
 //   cd /opt/neptunia/app && node tools/replay.mjs --skills <scenarios.json>
@@ -335,9 +335,11 @@
 // tools/replay-score.mjs tallies the scores. stdout: one JSON object with the
 // paths, the pair count, the failed pairs and the usage.
 //
-// `--show-request <turnId>`: no model request. Prints the request dumps of
+// `--show-request <turnId> [--steps]`: no model request. Prints the request dumps of
 // that turn when the journal kept them (data/guilds/<g>/journal/requests/<day>/
-// <turnId>-<attempt>.json, every attempt; `source: 'dump'`); else rebuilds it
+// <turnId>-<attempt>.json, every attempt; `source: 'dump'`; with `--steps` also each
+// attempt's later requests, `<turnId>-<attempt>-s<step>.json`: the tool loop's steps and the
+// follow-up after a call, each after its base dump); else rebuilds it
 // (`source: 'rebuilt'`, with a note saying so): the turn's `turn.start` record
 // gives the channel, the trigger message, the mode and the trigger kind; the
 // chat is fetched as below and the sandbox request (see "Left out") is built
@@ -487,7 +489,7 @@ const USAGE =
   '       node tools/replay.mjs <channelId> <triggerMessageId> --split [--text "<candidate text>"] [--before <split.contextMessages>] [--samples 3] [--spend <usd>]\n' +
   '       node tools/replay.mjs <channelId> <triggerMessageId> --recall [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]\n' +
   '       node tools/replay.mjs --pair <promptsDirA> <promptsDirB> (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
-  '       node tools/replay.mjs --show-request <turnId> [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
+  '       node tools/replay.mjs --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
   '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--spend <usd>]\n' +
   '       node tools/replay.mjs --pair-core-tools (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
@@ -612,7 +614,8 @@ function withoutSelfFacts(view, { all, needles }) {
  * or `--recall`, `--budget` needs `--recall`. Also `pair` ([dirA, dirB] or
  * null), `triggers` (a file, with `--pair` only), `snapshot`, `outDir` (with
  * `--pair` only), `spend` (the raw `--spend` value, undefined when absent) and
- * `showRequestTurn` (`--show-request <turnId>`: no positionals, no mode flag).
+ * `showRequestTurn` (`--show-request <turnId>`: no positionals, no mode flag; `--steps`
+ * sets `steps` and goes only with it).
  * `--diary <kind>` sets `diary` (one of DIARY_KINDS) and takes only `--count`
  * (`count`, 1 by default), `--topic` (`topic`, raw), `--prompts` (`prompts`),
  * `--out` (`outDir`: the briefs file) and `--spend`; those three take nothing
@@ -631,7 +634,7 @@ export function parseArgs(argv) {
     before: null, samples: null, showRequest: false, asOfMoment: false, hideSelf: [], hideSelfAll: false, split: false, recall: false, budget: null, text: null,
     pair: null, triggers: null, snapshot: null, outDir: null, spend: undefined, showRequestTurn: null,
     diary: null, count: null, topic: null, prompts: null, skills: null, dry: false, pairPrompts: null,
-    diaryDay: false, seed: null, date: null, draw: null, maxPictures: null, coreTools: false, pairCoreTools: false,
+    diaryDay: false, seed: null, date: null, draw: null, maxPictures: null, coreTools: false, pairCoreTools: false, steps: false,
   };
   const positional = [];
   const pathValue = (value) => {
@@ -651,6 +654,7 @@ export function parseArgs(argv) {
     else if (arg === '--spend') out.spend = pathValue(argv[(i += 1)]);
     else if (arg === '--skills') out.skills = pathValue(argv[(i += 1)]);
     else if (arg === '--dry') out.dry = true;
+    else if (arg === '--steps') out.steps = true;
     else if (arg === '--core-tools') out.coreTools = true;
     else if (arg === '--pair-core-tools') out.pairCoreTools = true;
     else if (arg === '--as-of-moment') out.asOfMoment = true;
@@ -698,6 +702,7 @@ export function parseArgs(argv) {
     else if (arg.startsWith('--')) throw new CliError(USAGE);
     else positional.push(arg);
   }
+  if (out.steps && out.showRequestTurn === null) throw new CliError(USAGE);
   const [channelId, triggerId, extra] = positional;
   if (out.diaryDay) {
     // The day flags, --out and --spend only; no positionals; --max-pictures with --draw live only.
@@ -1517,8 +1522,17 @@ function journalRecords(dir) {
   return out;
 }
 
-/** The request dumps of `turnId` under a journal directory, every attempt, oldest day first. */
-function storedDumps(journalDir, turnId) {
+/**
+ * The request dumps of `turnId` under a journal directory, every attempt, oldest day first, then
+ * by attempt: the base dumps (`<turnId>-<attempt>.json`, the reply's request) only, unless `steps`
+ * (`--steps`): then each attempt's later requests (`<turnId>-<attempt>-s<step>.json`, the tool
+ * loop's steps and the follow-up after a call) follow its base dump in step order.
+ * @param {string} journalDir
+ * @param {string} turnId
+ * @param {{ steps?: boolean }} [options]
+ * @returns {{ file: string, dump: object }[]}
+ */
+export function storedDumps(journalDir, turnId, { steps = false } = {}) {
   const root = path.join(journalDir, 'requests');
   let days = [];
   try {
@@ -1528,8 +1542,15 @@ function storedDumps(journalDir, turnId) {
   }
   const out = [];
   for (const day of days) {
-    for (const name of fs.readdirSync(path.join(root, day)).sort()) {
-      if (!name.startsWith(`${turnId}-`) || !name.endsWith('.json')) continue;
+    const found = [];
+    for (const name of fs.readdirSync(path.join(root, day))) {
+      if (!name.startsWith(`${turnId}-`)) continue;
+      const match = /^(\d+)(?:-s(\d+))?\.json$/.exec(name.slice(turnId.length + 1));
+      if (!match || (match[2] !== undefined && !steps)) continue;
+      found.push({ name, attempt: Number(match[1]), step: match[2] === undefined ? 0 : Number(match[2]) });
+    }
+    found.sort((a, b) => a.attempt - b.attempt || a.step - b.step);
+    for (const { name } of found) {
       try {
         out.push({ file: path.join(root, day, name), dump: JSON.parse(fs.readFileSync(path.join(root, day, name), 'utf8')) });
       } catch {
@@ -4138,7 +4159,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
     const journalGuild = resolveGuildId(liveData, hot.config.bot?.guildId || undefined);
     const journalDirs = [...new Set([path.join(liveData, 'guilds', journalGuild, 'journal'), path.join(dataDir, 'guilds', journalGuild, 'journal')])];
     for (const dir of journalDirs) {
-      const dumps = storedDumps(dir, args.showRequestTurn);
+      const dumps = storedDumps(dir, args.showRequestTurn, { steps: args.steps });
       if (dumps.length > 0) {
         hot.close();
         return { code: 0, result: { source: 'dump', turnId: args.showRequestTurn, dumps: dumps.map(({ file, dump }) => ({ file, ...dump })) } };

@@ -286,7 +286,9 @@ is searched for her, there is no `<lookup>` block and no `<skills>` from a class
 they run in the turn itself, never through a helper model: `web.search` takes `query` (the body) and optionally `goal`,
 and sends the query as she wrote it to the web search client (its cache, engines and daily `web.maxPerDay`); its
 `<result>` data is `skills.tools.web.source` (`{query}`), `skills.tools.web.goal` when she gave one, the condensed
-snippets and `skills.tools.web.sources`, or `skills.tools.web.none`. `memory.search` takes `question` (the body) and
+snippets and `skills.tools.web.sources` over a numbered list of its sources (`N. title: URL`, the title left out
+when unknown; at most six, duplicates, fragments and tracking parameters dropped, an over-long link without its query
+string), or `skills.tools.web.none`. `memory.search` takes `question` (the body) and
 optionally `people` and `terms` (comma-separated), `channel` and `when` (`YYYY-MM-DD`, `YYYY-MM-DD HH:MM` or `A..B`
 with either side open, in `bot.timezone`): her terms and people, then the question's long words and the stored names
 it holds, go to the recall runner (its rails and daily `recall.maxPerDay`; the turn's own chat left out of the hits)
@@ -654,7 +656,7 @@ skills.refusals.agentRequired            {arg} {agents}: why a `task.run` call w
 skills.tools.lead                        the first line of `<skills_tools>` (`features.coreTools`): her own tools, which come back in the same turn and which later; without it the rows stand alone
 skills.tools.web.source                  {query}: the first line of a `web.search` result (`features.coreTools`): where it came from (her query) and what kind of evidence it is (search snippets, the pages not opened)
 skills.tools.web.goal                    {goal}: what she said the search should establish, echoed under the source; left out when she named nothing
-skills.tools.web.sources                 {list}: the distinct sites of the snippets, comma-separated
+skills.tools.web.sources                 the header line over the numbered sources of a `web.search` result (each `N. title: URL`, written by the engine)
 skills.tools.web.none                    the search found nothing
 skills.tools.memory.source               the first line of a `memory.search` result: where it came from (this server's message history) and what kind of evidence it is (messages quoted as written, each with its time and author; a sample)
 skills.tools.memory.window               {date} {channel}: the heading of one quoted stretch (`YYYY-MM-DD` in `bot.timezone`, the channel's name)

@@ -2056,6 +2056,7 @@ export function createTurnRunner({
       log.warn('skills: follow-up failed', { channel: channel.id, skill: called.skill, error: err });
       return null;
     }
+    dumpTurnRequest(guildId, draft, messages, completion, 1);
     const parsed = shapeOutput(parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft?.limits ?? null }));
     if (parsed.call || parsed.callError) log.info('skills: extra-call', { channel: channel.id, count: 1, followUp: true, ...(continued ? { continuation: true } : {}) });
     parsed.call = null;
@@ -2230,6 +2231,7 @@ export function createTurnRunner({
       log.warn('skills: follow-up failed', { channel: channel.id, skill: results[0]?.skill ?? null, step, error: err });
       return null;
     }
+    dumpTurnRequest(guildId, draft, messages, completion, step);
     const parsed = shapeOutput(parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft?.limits ?? null }));
     const calls = Array.isArray(parsed.calls) ? parsed.calls : [];
     if (parsed.callError) log.info('skills: bad-call', { channel: channel.id, reason: parsed.callError, loop: true });
@@ -2428,6 +2430,29 @@ export function createTurnRunner({
   /** Whether the journal is written now: one injected and features.journal exactly true (read now). */
   function journalOn() {
     return Boolean(journal) && hot.config.features?.journal === true;
+  }
+
+  /**
+   * The journal's request dump (journal.keepRequests) of one request of the turn: the message
+   * list as sent and the raw answer; `step` (1, 2, ...) for a request after a call (the
+   * follow-up, the tool loop's steps), none for the reply's own. Fire-and-forget, only for a
+   * started turn with the journal on; a failure is logged with a count of one, never the contents.
+   */
+  function dumpTurnRequest(guildId, draft, messages, completion, step = null) {
+    if (!draft?.started || !journalOn() || typeof journal.dumpRequest !== 'function') return;
+    Promise.resolve()
+      .then(() =>
+        journal.dumpRequest(guildId, {
+          turnId: draft.started.turnId,
+          attemptId: draft.started.attemptId,
+          ...(step !== null ? { step } : {}),
+          request: { messages },
+          raw: completion.text,
+          usage: journalUsage(completion),
+          privateUserId: draft.privateUserId ?? null,
+        }),
+      )
+      .catch((error) => log.warn('journal: dump failed', { code: error?.code ?? null, failed: 1, ...(step !== null ? { step } : {}) }));
   }
 
   // The persona's recent time away from the journal's system records, reused for a minute.
@@ -6262,22 +6287,8 @@ export function createTurnRunner({
       bar.close();
       stopTyping();
 
-      // The journal's request dump (journal.keepRequests): the request as sent and the raw answer,
-      // fire-and-forget; a failure is logged with a count of one, never the contents.
-      if (draft.started && journalOn() && typeof journal.dumpRequest === 'function') {
-        Promise.resolve()
-          .then(() =>
-            journal.dumpRequest(guildId, {
-              turnId: draft.started.turnId,
-              attemptId: draft.started.attemptId,
-              request: { messages: sentMessages },
-              raw: completion.text,
-              usage: journalUsage(completion),
-              privateUserId: draft.privateUserId ?? null,
-            }),
-          )
-          .catch((error) => log.warn('journal: dump failed', { code: error?.code ?? null, failed: 1 }));
-      }
+      // The journal's request dump (journal.keepRequests): the request as sent and the raw answer.
+      dumpTurnRequest(guildId, draft, sentMessages, completion);
 
       // The model's output as it is acted on: the feature switches drop parts of it first. The
       // same for the one follow-up request after a skill call (runCall).
