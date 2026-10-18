@@ -18,6 +18,7 @@ export * from './emoji.js';
 export * from './guild.js';
 export * from './audience-warm.js';
 export * from './commands.js';
+export * from './gateway.js';
 
 import { createDiscordAdapter } from './port.js';
 import {
@@ -40,6 +41,7 @@ import {
   normalizeOptions,
   normalizedOf,
   readableChannels,
+  snowflakeTime,
   toEvent,
   withTextPreviews,
 } from './collect.js';
@@ -72,6 +74,7 @@ export function createDiscordInterface({ client, ...adapterOptions } = {}) {
     readableChannels,
     channelDirectoryOf,
     lastActivity,
+    snowflakeTime,
     audienceOf,
     fetchHistory,
     fetchHistoryWindow,

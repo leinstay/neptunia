@@ -23,7 +23,6 @@ import { isOwnerId } from './grants.js';
 import { effectiveAffinity, privateRepliesToday } from '../behavior/private.js';
 import { log } from '../log.js';
 import { clampAtBoundary } from '../memory/clamp.js';
-import { SnowflakeUtil } from 'discord.js';
 import { DAY_MS, utcDay, zonedDay } from '../time.js';
 import { formatClock } from '../format.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
@@ -347,7 +346,7 @@ const handlers = perEnv((env) => {
     if (args?.messageId !== undefined && args?.messageId !== null && args?.messageId !== '') {
       const { messageId } = messageRefOf(args.messageId);
       if (!/^\d{1,20}$/.test(messageId)) throw invalid('a message id or link is required', 'unknown-message');
-      const at = SnowflakeUtil.timestampFrom(messageId);
+      const at = discord.snowflakeTime(messageId);
       const found = typeof journal.findTurn === 'function' ? await journal.findTurn(guildId, { messageId, at }) : null;
       if (!found) throw invalid(`no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`, 'not-found');
       return turnView(found);

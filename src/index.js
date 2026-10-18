@@ -6,7 +6,6 @@
 // src/interface/discord.js).
 
 import fs from 'node:fs';
-import { Client, Events, GatewayIntentBits, Partials, SnowflakeUtil } from 'discord.js';
 
 import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { resolvePaths } from './paths.js';
@@ -51,8 +50,10 @@ import {
   applyReactionEvent,
   createAroundStore,
   createAudienceWarmer,
+  createDiscordClient,
   createDiscordInterface,
   createEmojiIndex,
+  Events,
   createInteractionHandler,
   createReactorStore,
   normalizeOptions,
@@ -74,11 +75,11 @@ import { createAdmin } from './admin.js';
 import { createErrandClient } from './errands/client.js';
 import { createTaskStores } from './errands/store.js';
 import { createErrandService } from './errands/service.js';
-import { createTaskTurns } from './errands/turns.js';
+import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
+import { createEventDoor } from './interface/door.js';
 import { skillRegistry } from './skills/registry.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
-import { validateEvent } from './protocol.js';
 import { isValidCommandName } from './ops/catalog.js';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate', 'memory'];
@@ -264,20 +265,7 @@ const images = createImageGen({ apiKey: () => roleApiKey(hot.config, env, 'drawi
 const intentSettings = hot.config.discord?.intents ?? {};
 const presencesIntent = intentSettings.presences === true;
 const membersIntent = intentSettings.members === true;
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildExpressions,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMessageReactions,
-    ...(presencesIntent ? [GatewayIntentBits.GuildPresences] : []),
-    ...(membersIntent ? [GatewayIntentBits.GuildMembers] : []),
-  ],
-  partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
-});
+const client = createDiscordClient({ presences: presencesIntent, members: membersIntent });
 
 // This instance serves exactly one Discord server. `instance.guildId` is set
 // once, right after ClientReady resolves it (see below), and every component
@@ -362,10 +350,9 @@ const activity = createActivity();
 const errandClient = createErrandClient({ hot, log });
 const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal, log });
 // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
-// TODO(.agents spec 2026-10-17-protocol-package, "Code"): an errand's end becomes a
-// `task.completed` event through one core dispatcher; the turn it opens needs the whole task, not
-// the event's id/status/result, so the call stays direct in this stage.
-const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: store, getGuildId, log, onFinished: (task, guildId) => taskTurns.onFinished(task, guildId) });
+// An errand's end is a `task.completed` event through the event door (`door`, created below with
+// the gateway's handlers); the door's handler opens the turn (src/errands/turns.js).
+const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: store, getGuildId, log, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)) });
 const turns = createTurnRunner({
   hot,
   store,
@@ -478,7 +465,7 @@ const offlineCatchUp = createOfflineCatchUp({
   channelInfo: (channelId) => {
     const channel = client.channels.cache.get(channelId);
     if (!channel || channel.guild?.id !== instance.guildId || typeof channel.messages?.fetch !== 'function') return { available: false, latestAt: null };
-    return { available: true, latestAt: channel.lastMessageId ? SnowflakeUtil.timestampFrom(channel.lastMessageId) : null };
+    return { available: true, latestAt: channel.lastMessageId ? discord.snowflakeTime(channel.lastMessageId) : null };
   },
   fetchRecent: async (channelId, limit) => {
     const channel = client.channels.cache.get(channelId) ?? (await client.channels.fetch(channelId));
@@ -861,38 +848,43 @@ hot.on('change', ({ what }) => {
 });
 
 // The gateway's messages and reactions reach the core as protocol events (packages/protocol/,
-// built by interfaces/discord/collect.js): `inbound` builds one and checks it at the boundary. An event
-// that cannot be built or is malformed is dropped with one warn line (its kind and the reason,
-// never its content), so nothing behind it ever sees a half-formed one.
+// built by interfaces/discord/collect.js) through the event door (src/interface/door.js), the one
+// entry of the mind: it validates each event at the boundary, drops a repeated id, and hands the
+// event to the handler of its kind. An event that cannot be built or is malformed is dropped with
+// one warn line (its kind and the reason, never its content), so nothing behind it ever sees a
+// half-formed one. The core's own events (an errand's end) come through the same door.
+const door = createEventDoor({
+  handlers: {
+    'message.received': (event) => {
+      if (event.deleted) return onMessage.onMessageDelete(event);
+      return event.edit ? onMessage.onMessageUpdate(event) : onMessage(event);
+    },
+    'reaction.changed': (event) => feedReactors('add', event.raw),
+    'task.completed': (event) => taskTurns.onEvent(event),
+  },
+  log,
+});
 function inbound(kind, build) {
   let event;
   try {
     event = build();
   } catch (err) {
     log.warn('interface: invalid event', { kind, reason: 'build-failed', name: err?.name ?? null });
-    return null;
+    return;
   }
-  const verdict = validateEvent(event);
-  if (!verdict.ok) {
-    log.warn('interface: invalid event', { kind: event?.kind ?? kind, reason: verdict.reason });
-    return null;
-  }
-  return event;
+  door.submit(event);
 }
 const selfIdNow = () => client.user?.id ?? null;
 client.on('messageCreate', (message) => {
-  const event = inbound('message.received', () => toEvent(message, selfIdNow(), normalizeOptions(hot.config)));
-  if (event) onMessage(event);
+  inbound('message.received', () => toEvent(message, selfIdNow(), normalizeOptions(hot.config)));
 });
 // Discord attaches some embeds (a Tenor GIF's) after the message arrived: fold them into memory.
 client.on('messageUpdate', (oldMessage, newMessage) => {
-  const event = inbound('message.received', () => toEvent(newMessage, selfIdNow(), { ...normalizeOptions(hot.config), edit: true, previous: oldMessage }));
-  if (event) onMessage.onMessageUpdate(event);
+  inbound('message.received', () => toEvent(newMessage, selfIdNow(), { ...normalizeOptions(hot.config), edit: true, previous: oldMessage }));
 });
 // A deleted message is a `deleted` line of the record (features.record).
 client.on('messageDelete', (message) => {
-  const event = inbound('message.received', () => toEvent(message, selfIdNow(), { deleted: true }));
-  if (event) onMessage.onMessageDelete(event);
+  inbound('message.received', () => toEvent(message, selfIdNow(), { deleted: true }));
 });
 // A new or edited channel of the served guild may name a member the cache has not seen.
 const warmOnChannel = (channel) => {
@@ -942,8 +934,7 @@ const feedReactors = (kind, parts) => {
   }
 };
 client.on(Events.MessageReactionAdd, (reaction, user) => {
-  const event = inbound('reaction.changed', () => reactionEvent(reaction, user, true));
-  if (event) feedReactors('add', event.raw);
+  inbound('reaction.changed', () => reactionEvent(reaction, user, true));
 });
 client.on(Events.MessageReactionRemove, (reaction, user) => feedReactors('remove', { reaction, user }));
 client.on(Events.MessageReactionRemoveAll, (message) => feedReactors('removeAll', { message }));

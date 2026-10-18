@@ -10,14 +10,18 @@
 
 import { ACTIONS, CAPABILITIES, COMMAND_RESULT } from './actions.js';
 import {
+  CHAT_TYPES,
   COMMAND_REQUESTED,
   CONVERSATION_KINDS,
   CORE_KINDS,
   EVENT_KINDS,
+  MEMBERSHIP_CHANGES,
+  MEMBERSHIP_CHANGED,
   MESSAGE_RECEIVED,
   REACTION_CHANGED,
   SCHEDULER_TICK,
   TASK_COMPLETED,
+  VOICE_CHANGED,
 } from './events.js';
 
 const VALID = Object.freeze({ ok: true });
@@ -66,7 +70,7 @@ function checkConversation(conversation) {
   need(conversation, 'conversation', isObject);
   need(conversation.id, 'conversation.id', isId);
   need(conversation.kind, 'conversation.kind', (kind) => CONVERSATION_KINDS.includes(kind), { problem: 'unknown' });
-  for (const key of ['guildId', 'name', 'topic', 'category']) need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
+  for (const key of ['guildId', 'name', 'topic', 'category', 'parentId']) need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
 }
 
 const MESSAGE_LISTS = ['attachments', 'links', 'forwarded', 'stickers', 'emojis', 'reactions'];
@@ -92,8 +96,17 @@ function checkAddressing(addressing) {
   needIds(addressing.mentionedConversationIds, 'addressing.mentionedConversationIds');
 }
 
+function checkOrigin(origin) {
+  need(origin, 'origin', isObject);
+  need(origin.chatType, 'origin.chatType', (value) => CHAT_TYPES.includes(value), { problem: 'unknown' });
+  need(origin.place, 'origin.place', isId);
+  for (const key of ['parent', 'thread', 'replyToAuthorId']) need(origin[key], `origin.${key}`, (value) => value === null || isId(value));
+  need(origin.replyExpected, 'origin.replyExpected', (value) => value === null || typeof value === 'boolean');
+}
+
 function checkMessageReceived(event) {
   checkConversation(event.conversation);
+  if (event.origin !== undefined) checkOrigin(event.origin);
   for (const flag of ['edit', 'deleted', 'partial']) need(event[flag], flag, (value) => typeof value === 'boolean', { required: false });
   need(event.message, 'message', isObject);
   need(event.message.id, 'message.id', isId);
@@ -133,6 +146,26 @@ function checkCommandRequested(event) {
 function checkTaskCompleted(event) {
   need(event.taskId, 'taskId', isId);
   need(event.status, 'status', isId);
+  need(event.guildId, 'guildId', isNullableString, { required: false });
+}
+
+function checkMembershipChanged(event) {
+  need(event.guildId, 'guildId', isId);
+  need(event.userId, 'userId', isId);
+  need(event.change, 'change', (value) => MEMBERSHIP_CHANGES.includes(value), { problem: 'unknown' });
+  need(event.member, 'member', isObject, { required: false });
+  if (event.member !== undefined) {
+    need(event.member.id, 'member.id', isId);
+    need(event.member.name, 'member.name', isNullableString);
+    need(event.member.bot, 'member.bot', (value) => typeof value === 'boolean');
+  }
+}
+
+function checkVoiceChanged(event) {
+  need(event.guildId, 'guildId', isId);
+  need(event.userId, 'userId', isId);
+  for (const key of ['conversationId', 'previousId']) need(event[key], key, (value) => value === null || isId(value));
+  for (const flag of ['muted', 'deafened', 'streaming']) need(event[flag], flag, (value) => typeof value === 'boolean', { required: false });
 }
 
 const EVENT_CHECKS = {
@@ -141,6 +174,8 @@ const EVENT_CHECKS = {
   [COMMAND_REQUESTED]: checkCommandRequested,
   [SCHEDULER_TICK]: () => {},
   [TASK_COMPLETED]: checkTaskCompleted,
+  [MEMBERSHIP_CHANGED]: checkMembershipChanged,
+  [VOICE_CHANGED]: checkVoiceChanged,
 };
 
 /**

@@ -6,3 +6,5 @@
 export * from './events.js';
 export * from './actions.js';
 export { validateEvent, validateAction } from './validate.js';
+export * from './envelope.js';
+export { originOf } from './origin.js';
