@@ -62,6 +62,30 @@ export const URL_PATTERN = 'https?:\\/\\/[^\\s<>]+';
  */
 export const MESSAGE_LINK_RE = /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
 
+// A Discord message link inside a text (MESSAGE_LINK_RE's forms), optionally in angle brackets;
+// groups: `<`, the message id, `>`. Not glued to a word or a path before it, and nothing that
+// continues a URL (a word character, `/`, a query, a fragment) after it.
+const MESSAGE_LINK_IN_TEXT_RE = /(?<![\w/])(<?)https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/\d+\/(\d+)\/?(>?)(?![\w/?#&=%~+-])/gi;
+
+/**
+ * `text` with every Discord message link (MESSAGE_LINK_RE's forms, bare or in angle brackets)
+ * whose message `numberOf` knows turned into that message's transcript number `#n`, the way the
+ * transcript names its lines; a link `numberOf` does not know stays exactly as written. A lone
+ * bracket stays where it was. Pure.
+ * @param {unknown} text
+ * @param {((messageId: string) => (number|null|undefined))|null} numberOf
+ * @returns {unknown}  `text` itself when it is not a string or `numberOf` is not a function.
+ */
+export function numberMessageLinks(text, numberOf) {
+  if (typeof text !== 'string' || !text || typeof numberOf !== 'function') return text;
+  return text.replace(MESSAGE_LINK_IN_TEXT_RE, (whole, open, messageId, close) => {
+    const n = numberOf(messageId);
+    if (!Number.isInteger(n)) return whole;
+    const both = open && close;
+    return `${open && !both ? open : ''}#${n}${close && !both ? close : ''}`;
+  });
+}
+
 /**
  * `text` with `convert` applied to every stretch outside its URLs
  * (URL_PATTERN), the URLs kept exactly as written. `convert` may get ''. Pure.
