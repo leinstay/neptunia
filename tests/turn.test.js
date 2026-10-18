@@ -7179,7 +7179,7 @@ test('runTurn: the persona may stay silent on a part; a failed part does not sto
 
 test('runTurn: a chain where no part spoke gives the first skip, else the first part\'s result', async () => {
   const silent = await runSplitTurn({ llm: splitLlm({ talk: '<skip/>' }) });
-  assert.deepEqual(silent.result, { outcome: 'skip', mode: 'reply' });
+  assert.deepEqual(silent.result, { outcome: 'skip', mode: 'reply', reason: 'silence' });
   const failing = await runSplitTurn({ llm: splitLlm({ talk: new Error('down') }) });
   assert.equal(failing.result.outcome, 'error');
 });
@@ -8098,6 +8098,22 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   assert.ok(tight.budget.dropped.chat > 0, JSON.stringify(tight.budget));
   assert.deepEqual(tight.limits, [{ kind: 'budget-drop', where: 'chat', lost: tight.budget.dropped.chat }]);
   assert.equal(tight.seen.messageIds.length, 12 - tight.budget.dropped.chat);
+});
+
+test('turn: an explicit skip and an empty answer both end in silence, journaled with the reason', async () => {
+  for (const answer of ['<skip/>', '<think>rien</think>']) {
+    const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
+    const channel = fakeTurnChannel({ historyMessages: [raw] });
+    const hot = fakeHot({ journal: true, typingSimulation: false }, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
+    const { journal, lines } = journalOverMemory();
+    const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm: fakeLlm(answer), calibrator: identityCalibrator(), client: fakeClient(), journal });
+    const result = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+    assert.equal(result.outcome, 'skip', answer);
+    assert.equal(result.reason, 'silence', answer);
+    const turn = lines.map(({ record }) => record).find((record) => record.kind === 'turn');
+    assert.equal(turn.outcome, 'skip');
+    assert.equal(turn.reason, 'silence', answer);
+  }
 });
 
 test('turn: logs thinkChars not think when the journal is on', async () => {

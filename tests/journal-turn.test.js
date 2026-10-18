@@ -200,3 +200,11 @@ test('memory.journal.read: the persona names her line #N; it resolves to the mes
   assert.ok(result.data.text.includes(THINK));
   assert.equal(resolveCall({ skill: 'memory.journal.read', args: { message: '#9' }, body: '' }, { skills: skillRegistry(), messageAt: (n) => lines.get(n) ?? null }).code, 'unknown-message');
 });
+
+test('turnView: an old skip record with reason null still reads', () => {
+  const turn = { kind: 'turn', turnId: 't-old', attemptId: 1, mode: 'reply', outcome: 'skip', reason: null, think: null, posted: [] };
+  const view = turnView({ turn, start: null, posted: [], calls: [] });
+  assert.ok(view.includes('outcome: skip, reason: -'));
+  const silent = turnView({ turn: { ...turn, reason: 'silence' }, start: null, posted: [], calls: [] });
+  assert.ok(silent.includes('outcome: skip, reason: silence'));
+});
