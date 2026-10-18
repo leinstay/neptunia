@@ -42,6 +42,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'imageAnswers',
   'reads',
   'lookup',
+  'prefetch',
   'searchAvailable',
   'recallAvailable',
   'drawQuota',

@@ -53,6 +53,26 @@ import { foldText, memberIdOf } from '../memory/recent.js';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 import { parseSkillsLines, takeSkillsLines } from '../skills/discovery.js';
 
+/**
+ * Defaults of `recall.prefetch` (config.json carries the same values): the automatic retrieval
+ * before a turn of the persona's tool loop (src/behavior/prefetch.js, recall-run.js `prefetch`).
+ * `trivial` and `deictic` are matching data (folded phrases and words), never wording she reads.
+ */
+export const PREFETCH_DEFAULTS = Object.freeze({
+  deadlineMs: 1000,
+  candidates: 20,
+  maxExcerpts: 5,
+  maxTokens: 1500,
+  excerptChars: 1200,
+  contextLines: 3,
+  contextTokens: 500,
+  shortWords: 4,
+  minFormsMatched: 2,
+  minMeaningScore: 0.35,
+  trivial: Object.freeze(['hi', 'hello', 'hey', 'yo', 'ok', 'okay', 'k', 'thanks', 'thank you', 'thx', 'ty', 'yes', 'no', 'yep', 'nope', 'lol', 'haha', 'good night', 'good morning', 'bye']),
+  deictic: Object.freeze(['that', 'this', 'it', 'he', 'she', 'they', 'him', 'her', 'them', 'there', 'those', 'these']),
+});
+
 /** Defaults of the `recall` config group (config.json carries the same values). */
 export const RECALL_DEFAULTS = Object.freeze({
   maxForms: 8,
@@ -86,6 +106,7 @@ export const RECALL_DEFAULTS = Object.freeze({
   locatorBonus: 2,
   locatorDecayDays: 7,
   locatorBroadShare: 0.5,
+  prefetch: PREFETCH_DEFAULTS,
 });
 
 /** The `k` of reciprocal rank fusion (fuseRanks): an item at rank r of a list adds 1 / (k + r). */
@@ -169,7 +190,8 @@ function numberAtLeast(value, fallback, min) {
  * replied-to line joins the meaning query, meaningQuery) is on only when it
  * is exactly `true`. The locator numbers (a `when:` that only locates, see
  * proximityBonus and locatorKeep): `locatorBonus` and `locatorDecayDays`
- * numbers of at least 0, `locatorBroadShare` a number from 0 to 1.
+ * numbers of at least 0, `locatorBroadShare` a number from 0 to 1. `prefetch`: `recall.prefetch`
+ * read by prefetchSettingsOf (the automatic memory prefetch, src/behavior/prefetch.js).
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
  *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, followMessages: number,
@@ -215,6 +237,40 @@ export function recallSettings(config) {
     locatorBonus: numberAtLeast(r.locatorBonus, d.locatorBonus, 0),
     locatorDecayDays: numberAtLeast(r.locatorDecayDays, d.locatorDecayDays, 0),
     locatorBroadShare: shareOf(r.locatorBroadShare, d.locatorBroadShare),
+    prefetch: prefetchSettingsOf(r.prefetch),
+  };
+}
+
+/** A list of non-empty strings folded (foldText) and deduplicated, else `fallback`'s folded. */
+function phraseList(value, fallback) {
+  const list = Array.isArray(value) ? value : fallback;
+  return [...new Set(list.filter((item) => typeof item === 'string').map(foldText).filter(Boolean))];
+}
+
+/**
+ * `recall.prefetch` read from its config value (PREFETCH_DEFAULTS for a missing or unusable
+ * key): `deadlineMs`, `candidates`, `maxExcerpts`, `maxTokens`, `excerptChars` and `shortWords`
+ * whole numbers of at least 1; `contextLines`, `contextTokens` and `minFormsMatched` of at least
+ * 0 (`contextLines` 0: no recent-lines lane); `minMeaningScore` a number from 0 to 1; `trivial`
+ * and `deictic` lists of strings, folded. Pure.
+ * @param {unknown} value
+ */
+function prefetchSettingsOf(value) {
+  const p = isPlainObject(value) ? value : {};
+  const d = PREFETCH_DEFAULTS;
+  return {
+    deadlineMs: intAtLeast(p.deadlineMs, d.deadlineMs, 1),
+    candidates: intAtLeast(p.candidates, d.candidates, 1),
+    maxExcerpts: intAtLeast(p.maxExcerpts, d.maxExcerpts, 1),
+    maxTokens: intAtLeast(p.maxTokens, d.maxTokens, 1),
+    excerptChars: intAtLeast(p.excerptChars, d.excerptChars, 1),
+    contextLines: intAtLeast(p.contextLines, d.contextLines, 0),
+    contextTokens: intAtLeast(p.contextTokens, d.contextTokens, 0),
+    shortWords: intAtLeast(p.shortWords, d.shortWords, 1),
+    minFormsMatched: intAtLeast(p.minFormsMatched, d.minFormsMatched, 0),
+    minMeaningScore: shareOf(p.minMeaningScore, d.minMeaningScore),
+    trivial: phraseList(p.trivial, d.trivial),
+    deictic: phraseList(p.deictic, d.deictic),
   };
 }
 
@@ -1045,6 +1101,22 @@ function foldedForms(list) {
 function formsMatched(texts, forms) {
   const folded = texts.filter((text) => typeof text === 'string' && text).map(foldText);
   return forms.filter((form) => folded.some((text) => occursAsWordStem(text, form))).length;
+}
+
+/**
+ * How many of `forms` occur in `texts` by recall's own matching (folded, word endings allowed:
+ * formsMatched over foldedForms). The prefetch's relevance check (src/behavior/prefetch.js). Pure.
+ * @param {unknown[]} texts
+ * @param {string[]} forms
+ * @returns {number}
+ */
+export function countFormsIn(texts, forms) {
+  return formsMatched(Array.isArray(texts) ? texts : [], foldedForms(forms));
+}
+
+/** The searchable texts of a chat message as the record reader matches them (its text, its links' titles and descriptions). */
+export function searchableTexts(message) {
+  return recordTexts({ content: typeof message?.content === 'string' ? message.content : '', links: Array.isArray(message?.links) ? message.links : [] });
 }
 
 /** A time from an ISO string, or -Infinity. */

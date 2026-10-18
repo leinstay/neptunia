@@ -213,6 +213,16 @@ export const labels = {
     stretch: '[stretch of {date} in #{channel}]',
     timeEstimate: '[time cue {range}, an estimate]',
   },
+  prefetch: {
+    header: '[retrieved]',
+    basis: '[basis {basis}]',
+    lanes: { message: 'message', reply: 'reply', recent: 'recent' },
+    caution: '[candidates only]',
+    excerpt: '[{n} {source} {date} #{channel} {id}]',
+    memoryExcerpt: '[{n} {source} {date} {who} {id}]',
+    sources: { history: 'history', memory: 'memory' },
+    status: { none: '[none qualified]', timeout: '[timed out]', unavailable: '[unavailable]' },
+  },
   affinity: {
     bands: {
       hostile: 'hostile',

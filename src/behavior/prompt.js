@@ -1276,6 +1276,8 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('found', (kept.found ?? []).join('\n')),
     // Right before the chat it answers a question from.
     block('lookup', (kept.lookup ?? []).join('\n')),
+    // What the automatic memory prefetch found for this trigger (features.coreTools): per turn, next to the chat.
+    block('retrieved', (kept.prefetch ?? []).join('\n')),
     // The persona's skills with her access here, when she was asked what she can do.
     block('skills', (kept.skills ?? []).join('\n')),
     // Her errands under way or newly finished, then the one whose end opened this turn: per turn (ages move).
@@ -1548,6 +1550,46 @@ function renderServerLookup(server, labels, timezone) {
     lines.push(fill(l.stretch, { date: zonedDay(stretch.startTs, timezone), channel: String(stretch.channelName ?? '') }), stretch.lines);
   }
   return lines.length > 0 ? [l.serverHeader, ...lines].join('\n') : '';
+}
+
+/**
+ * The `<retrieved>` block body (the automatic memory prefetch, features.coreTools): `labels.prefetch.header`,
+ * `labels.prefetch.basis` with `{basis}` (the lanes searched, `labels.prefetch.lanes.<kind>`
+ * joined), then with excerpts `labels.prefetch.caution` and each excerpt as an `<excerpt>`: a
+ * history stretch under `labels.prefetch.excerpt` (`{n}`, `{source}` =
+ * `labels.prefetch.sources.history`, `{date}` its first line's day in `timezone`, `{channel}`,
+ * `{id}` its best hit's message id) and its lines (time and speaker on each, relevant ones marked),
+ * a stored item under `labels.prefetch.memoryExcerpt` (`{n}`, `{source}` =
+ * `labels.prefetch.sources.memory`, `{date}`, `{who}`, `{id}`) and its text; without excerpts the
+ * status line `labels.prefetch.status.<status>` (`none`, `timeout`, `unavailable`). '' without
+ * `labels.prefetch.header`. Pure.
+ * @param {{ status: string, basis?: string[], excerpts?: object[] }} prefetch
+ * @param {object} labels
+ * @param {string} timezone
+ * @returns {string}
+ */
+function prefetchText(prefetch, labels, timezone) {
+  const l = labels.prefetch;
+  if (!prefetch || !isPlainObject(l) || typeof l.header !== 'string' || !l.header.trim()) return '';
+  const lanes = (Array.isArray(prefetch.basis) ? prefetch.basis : []).map((kind) => l.lanes?.[kind]).filter((text) => typeof text === 'string' && text);
+  const lines = [l.header];
+  if (lanes.length > 0 && typeof l.basis === 'string' && l.basis) lines.push(fill(l.basis, { basis: lanes.join(', ') }));
+  const excerpts = Array.isArray(prefetch.excerpts) ? prefetch.excerpts.filter((e) => typeof e?.lines === 'string' && e.lines.trim()) : [];
+  if (excerpts.length === 0) {
+    const status = l.status?.[prefetch.status === 'ok' ? 'none' : prefetch.status];
+    if (typeof status === 'string' && status) lines.push(status);
+    return lines.join('\n');
+  }
+  if (typeof l.caution === 'string' && l.caution) lines.push(l.caution);
+  excerpts.forEach((excerpt, i) => {
+    const memory = excerpt.source === 'memory';
+    const head = memory ? (l.memoryExcerpt ?? l.excerpt) : l.excerpt;
+    const fields = memory
+      ? { n: i + 1, source: l.sources?.memory ?? '', date: excerpt.date ?? '', who: excerpt.who ?? '', id: excerpt.id ?? '' }
+      : { n: i + 1, source: l.sources?.history ?? '', date: Number.isFinite(excerpt.startTs) ? zonedDay(excerpt.startTs, timezone) : '', channel: String(excerpt.channelName ?? ''), id: excerpt.id ?? '' };
+    lines.push(block('excerpt', [typeof head === 'string' && head ? fill(head, fields) : '', excerpt.lines].filter(Boolean).join('\n')));
+  });
+  return lines.join('\n');
 }
 
 /**
@@ -2853,6 +2895,14 @@ function seenOf({ history, keptChat, pictures, anchoredIds = [] }) {
  *   history found (src/behavior/recall-run.js; src/behavior/turn.js adds the key only when it found
  *   something). A web result without `server` renders exactly as before the server part existed;
  *   the server part needs `labels.lookup.serverHeader`, its stretch `labels.lookup.stretch`.
+ * @param {{ status: 'ok'|'none'|'timeout'|'unavailable', basis: string[], excerpts: object[] }|null} [input.prefetch]
+ *   The automatic memory prefetch of this turn (features.coreTools with features.memoryPrefetch:
+ *   src/behavior/recall-run.js `prefetch`), rendered as `<retrieved>` in the tail right after
+ *   `<lookup>` (prefetchText): `labels.prefetch.header`, the query basis, the caution and one
+ *   `<excerpt>` per excerpt, or the status line when nothing qualified, the deadline passed or
+ *   the search was unavailable. One piece, ahead of the chat, already bounded by
+ *   `recall.prefetch.maxTokens`. Omitted or null (no prefetch ran: the switch off, a trivial or
+ *   non-external trigger) -> no block and no budget section.
  * @param {boolean} [input.searchAvailable]  Whether a web search key is configured
  *   (lookup.hasSearch()); `senses.search` renders only when it is true.
  * @param {boolean} [input.recallAvailable]  Whether the search of the server's own history could
@@ -3504,6 +3554,8 @@ export function buildRequest(input) {
     // recall.answerChars / recall.stretchChars, and ahead of the chat so a
     // tight budget trims old messages first.
     { name: 'lookup', items: [lookupItem].filter(Boolean) },
+    // The automatic memory prefetch (features.coreTools): one piece, bounded by recall.prefetch.maxTokens.
+    ...(input.prefetch ? [{ name: 'prefetch', items: [prefetchText(input.prefetch, labels, timezone)].filter(Boolean) }] : []),
     // A diary post's search result: one piece, bounded by web.search.summaryChars.
     { name: 'found', items: [foundText].filter(Boolean) },
     // The skills catalogue, asked for: one piece, ahead of the chat like what was looked up.

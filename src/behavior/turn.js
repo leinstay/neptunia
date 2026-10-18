@@ -77,6 +77,7 @@ import { skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
 import { IN_TURN_TOOLS, runMemorySearch, runWebSearch } from '../skills/tools.js';
+import { prefetchLanes, prefetchOn } from './prefetch.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -2107,6 +2108,52 @@ export function createTurnRunner({
           now: clock(),
         }),
     };
+  }
+
+  // Trigger key -> the prefetch already started for it (startPrefetch): a later attempt of the
+  // same turn, or the same part of a split message, reuses it instead of searching again.
+  const prefetchMemo = new Map();
+  /** The most triggers whose prefetch is remembered (the oldest forgotten first). */
+  const PREFETCH_MEMO = 16;
+
+  /**
+   * The automatic memory prefetch of a turn (src/behavior/prefetch.js, read now): with prefetchOn
+   * and the recall runner's `prefetch`, the lanes of this turn's trigger (prefetchLanes: none for
+   * a turn no person's new message opened, nor for a trivial one -- logged `recall: prefetch
+   * skipped` with its `reason`), searched once per trigger and text (`prefetchMemo`) over the
+   * served guild (a private chat on its `partner`'s behalf), the persona's lines marked with her
+   * calls (linkCalls). A journal step `memory-prefetch` of the stage `prefetch` (`input.lanes`;
+   * `status`, `excerpts`, `ms`) when it starts. Resolves never rejecting. Null when nothing runs,
+   * else `{ lanes, pending }`.
+   */
+  function startPrefetch({ config, channel, guildId, guild, partner, trigger, candidate, triggerKind, mode, history, selfId, selfName, nameOf, journalStep }) {
+    if (!prefetchOn(config) || typeof recall?.prefetch !== 'function' || !guild) return null;
+    const settings = recallSettings(config)?.prefetch;
+    if (!settings) return null;
+    const { lanes, skip } = prefetchLanes({ trigger, candidate, triggerKind, mode, history, settings, selfId, selfName, selfNames: config.bot?.nameTriggers ?? [], nameOf });
+    if (skip) {
+      if (skip !== 'no-trigger') log.info('recall: prefetch skipped', { channel: channel.id, reason: skip });
+      return null;
+    }
+    const key = `${channel.id}:${trigger.id}:${candidate?.content ?? ''}`;
+    if (prefetchMemo.has(key)) return { lanes, pending: prefetchMemo.get(key) };
+    const basis = lanes.map((lane) => lane.kind);
+    const op = journalStep?.('prefetch', 'memory-prefetch', { input: { lanes: basis } }, (result) => result.excerpts > 0) ?? null;
+    const pending = (async () => {
+      await op?.started();
+      try {
+        const found = await recall.prefetch({ guild, guildId, channel, partner, selfId, selfName, history, lanes, decorate: (lines) => linkCalls(lines, { channel, guildId }) });
+        op?.succeeded({ status: found?.status ?? null, excerpts: found?.excerpts?.length ?? 0, ms: found?.ms ?? null });
+        return found;
+      } catch (err) {
+        log.warn('recall: prefetch failed', { channel: channel.id, stage: 'turn', name: err?.name ?? null });
+        op?.failed('error');
+        return { status: 'unavailable', basis, excerpts: [] };
+      }
+    })();
+    prefetchMemo.set(key, pending);
+    while (prefetchMemo.size > PREFETCH_MEMO) prefetchMemo.delete(prefetchMemo.keys().next().value);
+    return { lanes, pending };
   }
 
   /**
@@ -5319,6 +5366,24 @@ export function createTurnRunner({
       const candidate = part && trigger ? { ...trigger, content: part.parts[part.index - 1] ?? trigger.content } : trigger;
       // The history the request is built from: with its file previews once they are ready (below).
       let history = rawHistory;
+      // The automatic memory prefetch (features.coreTools with features.memoryPrefetch): started now,
+      // alongside the preparation, bounded by its own deadline (startPrefetch).
+      const prefetching = startPrefetch({
+        config,
+        channel,
+        guildId,
+        guild: servedGuild,
+        partner: isPrivate ? partner : null,
+        trigger,
+        candidate,
+        triggerKind,
+        mode,
+        history: rawHistory,
+        selfId,
+        selfName,
+        nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
+        journalStep: prepStep,
+      });
       // A diary post plans itself first (prepareDiary), alongside the preparation below; settled
       // into a value or an error so a refusal waits for its turn to be thrown.
       const diaryPending =
@@ -5474,6 +5539,8 @@ export function createTurnRunner({
       };
       // A chain that starts a stage once another settled: never rejects, never fails the turn.
       const chainFailed = (name) => (err) => log.warn('turn: stage failed', { channel: channel.id, stage: name, error: err });
+
+      const prefetchStage = prefetching ? track('prefetch', () => prefetching.pending) : null;
 
       // Lazy, request-time only (see fetchTextPreview's header comment):
       // never fetched during plain normalization or while just buffered. Read by the
@@ -5877,6 +5944,7 @@ export function createTurnRunner({
             pulledStage?.settled,
             participationStage?.settled,
             splitStage?.settled,
+            prefetchStage?.settled,
           ]),
           deadline.reached,
           ...(partsReady ? [partsReady] : []),
@@ -5921,6 +5989,13 @@ export function createTurnRunner({
       const imageAnswers = rewatchStage?.done && rewatchStage.value?.imageAnswers?.size > 0 ? rewatchStage.value.imageAnswers : null;
       const reads = linksStage?.done ? linksStage.value : undefined;
       const lookupResult = lookupStage?.done ? (lookupStage.value ?? null) : null;
+      // A prefetch still out at the deadline: the request says so (`timeout`) instead of waiting.
+      const prefetchResult = prefetching
+        ? prefetchStage?.done
+          ? (prefetchStage.value ?? null)
+          : { status: 'timeout', basis: prefetching.lanes.map((lane) => lane.kind), excerpts: [] }
+        : null;
+      prep.take('prefetch', prefetchResult !== null);
       // The journal: which preparation steps reached the request (the rest close as not delivered).
       prep.take('captions', Boolean(captions?.done));
       prep.take('videos', Boolean(videoStage?.done));
@@ -6023,6 +6098,8 @@ export function createTurnRunner({
         imageAnswers,
         reads: reads ?? null,
         lookup: lookupResult ?? null,
+        // `<retrieved>`: the automatic memory prefetch of this trigger (null: none ran).
+        prefetch: prefetchResult,
         searchAvailable: features.webLookup === true && typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
         // The search of the server's own history: the value the lookup stage used.
         recallAvailable: serverOn,

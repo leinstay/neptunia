@@ -1628,3 +1628,112 @@ test('recall quotes: every kept window comes back as a stretch with its lines, n
   const garden = await withCapturedLogs(() => only.recaller.run({ ...only.args, server: { ...RABBIT_SERVER, channelId: 'c2' }, quotes: true }));
   assert.deepEqual(garden.result.quotes.map((quote) => quote.channelId), ['c2']);
 });
+
+// ---- the automatic memory prefetch (features.coreTools) ----------------------------------------
+
+const { prefetchLanes } = await import('../src/behavior/prefetch.js');
+const { recallSettings: prefetchRecallSettings } = await import('../src/behavior/recall.js');
+
+/** The record of the prefetch tests: an old story in #garden, a weak echo of it, its words in a hidden channel and in the turn's own chat. */
+const PREFETCH_RECORD = {
+  guild: [
+    recLine('p-ctx', NOW - 2 * DAY - MINUTE, 'θυμάστε εκείνη την εικόνα;', { by: ELO_ID }),
+    recLine('p-old', NOW - 2 * DAY, 'η ζωγραφιά με το δάσος και τον σκύλο'),
+    recLine('p-weak', NOW - 1 * DAY, 'ο σκύλος έφαγε το ψωμί'),
+    recLine('p-hidden', NOW - 2 * DAY, 'ζωγραφιά δάσος σκύλος κρυφά', { channelId: 'c4' }),
+    recLine('h1', NOW - 30 * MINUTE, 'ζωγραφιά δάσος σκύλος στο chat', { channelId: 'c1' }),
+  ],
+};
+
+/** The trigger of a prefetch test in #general (the turn's chat), with the lanes prefetchLanes builds over the scene's history. */
+function prefetchInput(s, content, { replyToId = null } = {}) {
+  const trigger = { id: 't1', channelId: 'c1', ts: NOW, self: false, bot: false, authorId: 'u9', authorName: 'Nikos', content, replyToId };
+  const history = [...s.args.history, trigger];
+  const settings = prefetchRecallSettings(s.hot.config).prefetch;
+  const { lanes } = prefetchLanes({ trigger, history, settings, selfName: 'Zoë' });
+  return { ...s.args, history, candidate: trigger, lanes };
+}
+
+test('prefetch: the trigger\'s words find the old story in the record; no Discord request, no model request, no daily run; scope and the own chat applied', async () => {
+  const s = scene({ profiles: MEMORY_PROFILES, record: rangedSource(PREFETCH_RECORD) });
+  const { result, logs } = await withCapturedLogs(() => s.recaller.prefetch(prefetchInput(s, 'θυμάσαι τη ζωγραφιά με το δάσος και τον σκύλο;')));
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(result.basis, ['message']);
+  assert.equal(result.excerpts.length, 1, JSON.stringify(result.excerpts));
+  const [excerpt] = result.excerpts;
+  assert.deepEqual([excerpt.source, excerpt.channelId, excerpt.channelName, excerpt.id, excerpt.hitIds], ['history', 'c2', 'garden', 'p-old', ['p-old']]);
+  assert.ok(excerpt.lines.includes(`${HIT_MARK}`) && excerpt.lines.includes('θυμάστε εκείνη την εικόνα;'), 'the relevant line marked, its neighbour kept for the referent');
+  const all = JSON.stringify(result.excerpts);
+  assert.ok(!all.includes('κρυφά'), 'a channel @everyone cannot view never reaches the result');
+  assert.ok(!all.includes('στο chat'), 'the turn\'s own chat is left out');
+  assert.ok(!result.excerpts.some((e) => e.hitIds.includes('p-weak')), 'one form of three matched is no relevant hit (it may stand beside one as a neighbour)');
+  assert.equal(s.calls.length, 0, 'no Discord request');
+  assert.equal(s.llmCalls.length, 0, 'no model request');
+  assert.equal(s.data.recallCount, undefined, 'no recall.maxPerDay run counted');
+  const line = logs.find((entry) => entry.msg === 'recall: prefetched');
+  assert.deepEqual([line.status, line.lanes, line.excerpts], ['ok', 1, 1]);
+  assert.ok(!JSON.stringify(logs).includes('ζωγραφιά'), 'counts only in the log');
+});
+
+test('prefetch: nothing relevant is a valid answer (status none); a quoted catchphrase ranks by its exact phrase', async () => {
+  const s = scene({ profiles: MEMORY_PROFILES, record: rangedSource(PREFETCH_RECORD) });
+  const { result } = await withCapturedLogs(() => s.recaller.prefetch(prefetchInput(s, 'πού είναι ο ελέφαντας του θείου;')));
+  assert.deepEqual([result.status, result.excerpts], ['none', []]);
+
+  const phrases = {
+    guild: [
+      recLine('q-far', NOW - 1 * DAY, 'an ultra fast car', { by: ELO_ID }),
+      recLine('q-plus', NOW - 2 * DAY, 'plus ultra!', { by: ELO_ID }),
+    ],
+  };
+  const p = scene({ profiles: MEMORY_PROFILES, record: rangedSource(phrases) });
+  const { result: found } = await withCapturedLogs(() => p.recaller.prefetch(prefetchInput(p, 'plus ultra')));
+  assert.equal(found.status, 'ok');
+  assert.equal(found.excerpts[0].id, 'q-plus', 'the exact phrase first');
+});
+
+test('prefetch: with features.meaningSearch one embedding for every lane, rows under recall.prefetch.minMeaningScore dropped', async () => {
+  const record = rangedSource({ guild: [recLine('m-near', NOW - 10 * DAY, 'κάτι πολύ συγγενικό'), recLine('m-far', NOW - 11 * DAY, 'κάτι άλλο εντελώς')] });
+  const vectors = fakeVectors({ guild: [vrow('m-near', NOW - 10 * DAY, 0.62), vrow('m-far', NOW - 11 * DAY, 0.2)] });
+  const embed = fakeEmbed();
+  const s = scene({ features: { meaningSearch: true }, profiles: MEMORY_PROFILES, record, vectors, embed });
+  const input = prefetchInput(s, 'ναι αυτό', { replyToId: 'h1' });
+  assert.deepEqual(input.lanes.map((lane) => lane.kind), ['message', 'reply', 'recent']);
+  const { result } = await withCapturedLogs(() => s.recaller.prefetch(input));
+  assert.equal(embed.calls.length, 1, 'one request for all lanes');
+  assert.equal(embed.calls[0].texts.length, 3);
+  assert.equal(embed.calls[0].opts.purpose, 'recall-query');
+  assert.deepEqual(result.excerpts.map((e) => e.id), ['m-near'], 'one excerpt for the stretch three lanes found');
+  assert.ok(!JSON.stringify(result.excerpts).includes('εντελώς'), 'a weak cosine shows nothing');
+});
+
+test('prefetch: recall.prefetch.deadlineMs bounds the run: a search still out is abandoned, the status says timeout', async () => {
+  const hanging = { iterate: async function* () { await new Promise(() => {}); } };
+  const s = scene({ profiles: MEMORY_PROFILES, record: hanging, recall: { prefetch: { deadlineMs: 20 } } });
+  const started = Date.now();
+  const { result } = await withCapturedLogs(() => s.recaller.prefetch(prefetchInput(s, 'θυμάσαι τη ζωγραφιά με το δάσος και τον σκύλο;')));
+  assert.equal(result.status, 'timeout');
+  assert.equal(result.partial, true);
+  assert.ok(Date.now() - started < 2000, 'never waits for the search');
+});
+
+test('prefetch: recall.prefetch.maxExcerpts caps the excerpts; `at` hides every line after the moment', async () => {
+  const twice = { guild: [...PREFETCH_RECORD.guild, recLine('p-again', NOW - 6 * HOUR, 'πάλι η ζωγραφιά με το δάσος', { by: ELO_ID, channelId: 'c1' })] };
+  const s = scene({ profiles: MEMORY_PROFILES, record: rangedSource(twice), recall: { prefetch: { maxExcerpts: 1 } } });
+  const trigger = 'θυμάσαι τη ζωγραφιά με το δάσος και τον σκύλο;';
+  const { result } = await withCapturedLogs(() => s.recaller.prefetch(prefetchInput(s, trigger)));
+  assert.equal(result.excerpts.length, 1);
+  assert.equal(result.stats.candidates, 2, 'two relevant stretches, one shown');
+  const early = scene({ profiles: MEMORY_PROFILES, record: rangedSource(twice) });
+  const { result: before } = await withCapturedLogs(() => early.recaller.prefetch({ ...prefetchInput(early, trigger), at: NOW - 3 * DAY + HOUR }));
+  assert.deepEqual([before.status, before.excerpts], ['none', []], 'nothing after the moment is read');
+});
+
+test('prefetch: a private chat without its partner reads nothing (unavailable); no lane is no run', async () => {
+  const s = scene({ profiles: MEMORY_PROFILES, record: rangedSource(PREFETCH_RECORD) });
+  const dm = { id: 'dm1', guild: null };
+  const { result } = await withCapturedLogs(() => s.recaller.prefetch({ ...prefetchInput(s, 'θυμάσαι τη ζωγραφιά με το δάσος;'), channel: dm }));
+  assert.equal(result.status, 'unavailable');
+  const { result: none } = await withCapturedLogs(() => s.recaller.prefetch({ ...s.args, lanes: [] }));
+  assert.equal(none, null);
+});

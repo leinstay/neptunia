@@ -76,6 +76,7 @@ import {
   buildRecallRequest,
   clusterHits,
   clusterScore,
+  countFormsIn,
   cutStretch,
   dropChatHits,
   fallbackWindow,
@@ -97,6 +98,7 @@ import {
   searchPlan,
   snowflakeAt,
 } from './recall.js';
+import { fitExcerpts, lanePlan, lexicalRelevance, rankPrefetch } from './prefetch.js';
 
 /** The state.json fields of the daily recall counter. */
 export const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
@@ -353,7 +355,8 @@ function summaryFailure(err) {
  *   history?: object[], candidate: { authorName?: string, content?: string }, server: { forms: string[], who: string[],
  *   from: number|null, to: number|null, recent?: true, locator?: true }|null }) => Promise<{ text: string|null, stretch: RecallStretch|null,
  *   people: { id: string, name: string, username: string, count: number, newestTs: number|null }[], stats: object }>,
- *   available: () => boolean }}
+ *   available: () => boolean, prefetch: (args: object) => Promise<object|null> }}  `prefetch`: the automatic memory
+ *   prefetch of a turn of the tool loop (see there).
  */
 export function createRecall({ hot, store, llm, discord, describer = null, archive = null, record = null, vectors = null, embed = null, now = Date.now, timers = DEFAULT_TIMERS }) {
   const { audienceAllows, audienceOf, checkPull, fetchAfter, fetchAround, searchMembers, searchMessages } = discord;
@@ -485,8 +488,10 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * `locator` (locatorOf): no item is bounded by the range; the archive is
    * read over the last `recall.archiveMonths` months, or from the range's
    * start when that is earlier, and matchMemory ranks with the locator.
+   * `source` (default `deps.archive`) is the archive read: the prefetch hands in one whose reads
+   * its lanes share.
    */
-  async function storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal, meaning = [], locator = null }) {
+  async function storedMemory({ config, settings, guild, guildId, channel, partner, server, recent, allowEntry, privateUserId, signal, meaning = [], locator = null, source = archive }) {
     const none = { items: [], nameOf: () => null };
     const forms = Array.isArray(server.forms) ? server.forms : [];
     const who = Array.isArray(server.who) ? server.who : [];
@@ -507,11 +512,11 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       // Entries are recorded after what they observed: the months from `from` on, the private archive after the guild's.
       const stream = (query) =>
         (async function* () {
-          yield* archive.iterate(guildId, query);
-          if (privateUserId) yield* archive.iterate(guildId, { ...query, privateUserId });
+          yield* source.iterate(guildId, query);
+          if (privateUserId) yield* source.iterate(guildId, { ...query, privateUserId });
         })();
       let archived = [];
-      if (typeof archive?.iterate === 'function' && (ranged || settings.archiveMonths > 0)) {
+      if (typeof source?.iterate === 'function' && (ranged || settings.archiveMonths > 0)) {
         const asked = Number.isFinite(server.from) ? server.from : monthsBack(now(), Math.max(1, settings.archiveMonths));
         // A locator reads the usual months too, never fewer than its own range would.
         const from = locator && settings.archiveMonths > 0 ? Math.min(asked, monthsBack(now(), settings.archiveMonths)) : asked;
@@ -533,7 +538,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         }
       }
       let meant = [];
-      if (typeof archive?.iterate === 'function' && meaning.length > 0) {
+      if (typeof source?.iterate === 'function' && meaning.length > 0) {
         const rank = new Map(meaning.map((row, i) => [row.id, i]));
         const times = meaning.map((row) => Date.parse(row.occurredAt)).filter(Number.isFinite);
         const newest = new Map();
@@ -746,6 +751,40 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
   }
 
   /**
+   * What a run may read toward `channel` (the turn's; a private chat on behalf of `partner`):
+   * `sourceOf(channelId)`, the pull rail's verdict judged once per channel (`judged`): the
+   * channel when its lines may reach this turn, else null -- Discord hits, record lines, archived
+   * items and meaning rows of a refused channel never reach the turn; `privateUserId`, the partner
+   * of a private chat (else null): a private entry or line is its member's alone, read only on a
+   * private turn with that member; `allowEntry` (an archive entry, by its `scope`) and
+   * `allowLine` (a record line: a channel line by its channel, a private one by its member).
+   */
+  function scopeOf({ config, guild, channel, partner }) {
+    const judged = new Map();
+    const sourceOf = (id) => {
+      if (!judged.has(id)) {
+        let source = null;
+        try {
+          const verdict = checkPull({ guild, channelId: id, destination: channel, partner, config, now: now() });
+          source = verdict.skip === null ? verdict.channel : null;
+        } catch {
+          source = null;
+        }
+        judged.set(id, source);
+      }
+      return judged.get(id);
+    };
+    const privateUserId = !channel.guild && typeof partner?.id === 'string' && partner.id ? partner.id : null;
+    const allowScope = (scope) => {
+      if (scope?.private === true) return privateUserId !== null && scope.user === privateUserId;
+      return typeof scope?.channel !== 'string' || sourceOf(scope.channel) !== null;
+    };
+    const allowEntry = (entry) => allowScope(entry?.scope);
+    const allowLine = (line) => (line?.scope?.private === true ? allowScope(line.scope) : typeof line?.scope?.channel === 'string' && allowScope(line.scope));
+    return { judged, sourceOf, privateUserId, allowEntry, allowLine };
+  }
+
+  /**
    * The search, the windows and the summary; null once `signal` is aborted
    * (the run was abandoned). The Discord searches carry `searchSignal`
    * (aborted with `signal`, or at the PREPARE_SHARE mark: a search cut there
@@ -766,30 +805,8 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     };
     const result = (extra = {}) => ({ text: null, stretch: null, people: [], stats: { ...stats, ms: now() - started }, ...extra });
 
-    // The pull rail toward this turn's channel, judged once per channel: Discord hits, record
-    // lines and archived items of a channel it refuses never reach the summary.
-    const judged = new Map();
-    const sourceOf = (id) => {
-      if (!judged.has(id)) {
-        let source = null;
-        try {
-          const verdict = checkPull({ guild, channelId: id, destination: channel, partner, config, now: now() });
-          source = verdict.skip === null ? verdict.channel : null;
-        } catch {
-          source = null;
-        }
-        judged.set(id, source);
-      }
-      return judged.get(id);
-    };
-    // A private entry or line is its member's alone: only a private turn with that member reads it.
-    const privateUserId = !channel.guild && typeof partner?.id === 'string' && partner.id ? partner.id : null;
-    const allowScope = (scope) => {
-      if (scope?.private === true) return privateUserId !== null && scope.user === privateUserId;
-      return typeof scope?.channel !== 'string' || sourceOf(scope.channel) !== null;
-    };
-    const allowEntry = (entry) => allowScope(entry?.scope);
-    const allowLine = (line) => (line?.scope?.private === true ? allowScope(line.scope) : typeof line?.scope?.channel === 'string' && allowScope(line.scope));
+    // The pull rail toward this turn's channel and the private-owner rule (scopeOf).
+    const { judged, sourceOf, privateUserId, allowEntry, allowLine } = scopeOf({ config, guild, channel, partner });
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
     // A `when:` that only locates the event: it ranks, it bounds no local source (locatorOf).
     const locator = locatorOf(server, settings);
@@ -1285,5 +1302,271 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
     }
   }
 
-  return { run, available };
+  /**
+   * A read-only source (`deps.record` / `deps.archive`) whose reads the lanes of one prefetch
+   * share: each `iterate(id, query)` is read once (the first caller's), every other caller with
+   * the same arguments gets the same lines. Null without the source.
+   */
+  function sharedSource(source) {
+    if (typeof source?.iterate !== 'function') return null;
+    const reads = new Map();
+    return {
+      async *iterate(id, query = {}) {
+        const key = JSON.stringify([id, query]);
+        if (!reads.has(key)) {
+          reads.set(
+            key,
+            (async () => {
+              const lines = [];
+              for await (const line of source.iterate(id, query)) lines.push(line);
+              return lines;
+            })(),
+          );
+        }
+        yield* await reads.get(key);
+      },
+    };
+  }
+
+  /**
+   * The automatic memory prefetch of a turn (src/behavior/prefetch.js; features.coreTools with
+   * features.memoryPrefetch, decided by the caller): no model request but one embedding, no
+   * Discord request, no daily recall run counted. Each lane (`lanes`, prefetchLanes') goes through
+   * the local searches of a run, all at once:
+   * - words: lanePlan's forms and phrases matched against the record of the last
+   *   `recall.recordDays` days (matchRecord, `ceil(recall.prefetch.candidates / 4)` windows of up
+   *   to four hits each; a name alone only locates and is not relevant) and against the stored
+   *   memory and the archive (storedMemory, the recent lines left out: `<recent>` shows them);
+   * - meaning (features.meaningSearch exactly true, the index and the embedding client given):
+   *   one embedding request for every lane's text (purpose `recall-query`), then per lane the
+   *   vector index, `recall.prefetch.candidates` rows, those under
+   *   `recall.prefetch.minMeaningScore` dropped; record rows read around (matchRecord with no
+   *   word scan), archive rows as stored-memory items.
+   * The scope rules are a run's (scopeOf): a refused channel's lines, items and rows, a private
+   * line of another member, and the turn's own chat (`history`'s ids, on a server turn) never
+   * reach the result. The record and the archive are read once for all lanes (sharedSource).
+   * Bounded by `recall.prefetch.deadlineMs`: what has not settled then is abandoned, what has
+   * stands. The relevant hits are fused and cut by rankPrefetch and fitExcerpts
+   * (`recall.prefetch.maxExcerpts`, `recall.prefetch.maxTokens`); each window rendered as a
+   * stretch (no indices, relevant lines marked, cut to `recall.prefetch.excerptChars` by whole lines
+   * from its far ends, cached captions only, `decorate` applied to its messages). `at` (a
+   * replay's moment, epoch ms) bounds every source to what existed then; live it is now.
+   * Resolves null for no lane or with features.recall off; else `{ status, basis, excerpts, ms,
+   * stats }`: `status` `ok` (an excerpt), `none` (searched, nothing relevant), `timeout` (the
+   * deadline passed before anything relevant settled) or `unavailable` (no guild to read on behalf
+   * of, or every search failed); `basis` the lane kinds; each excerpt `{ source: 'history',
+   * channelId, channelName, startTs, endTs, id, ids, hitIds, lines }` or `{ source: 'memory', kind,
+   * date, memberId, who, id, lines }`; `partial` true when the deadline cut some searches. Logs
+   * `recall: prefetched` (counts and codes only). Never rejects.
+   * @param {{ guild: object, guildId?: string, channel: object, partner?: object|null, selfId: string, selfName: string,
+   *   history?: object[], lanes: { kind: string, text: string, words: string }[], at?: number|null,
+   *   decorate?: ((messages: object[]) => object[])|null }} input
+   * @returns {Promise<object|null>}
+   */
+  async function prefetch({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], lanes = [], at = null, decorate = null } = {}) {
+    const started = now();
+    const list = Array.isArray(lanes) ? lanes.filter((lane) => lane && typeof lane.kind === 'string') : [];
+    const basis = list.map((lane) => lane.kind);
+    const channelId = channel?.id ?? null;
+    let timer = null;
+    const finish = (status, extra = {}) => {
+      const out = { status, basis, excerpts: [], ms: now() - started, ...extra };
+      log.info('recall: prefetched', {
+        channel: channelId,
+        status,
+        lanes: basis.length,
+        excerpts: out.excerpts.length,
+        candidates: out.stats?.candidates ?? 0,
+        searches: out.stats?.searches ?? 0,
+        failed: out.stats?.failed ?? 0,
+        meaning: out.stats?.meaning ?? 0,
+        partial: out.partial === true,
+        ms: out.ms,
+      });
+      return out;
+    };
+    try {
+      const config = hot.config;
+      const settings = recallSettings(config);
+      if (!settings || list.length === 0) return null;
+      if (!guild || (!channel?.guild && !partner)) return finish('unavailable', { reason: 'private-chat' });
+      const p = settings.prefetch;
+      const until = Number.isFinite(at) ? at : now();
+      const bounded = Number.isFinite(at);
+      const controller = new AbortController();
+      const signal = controller.signal;
+      const scope = scopeOf({ config, guild, channel, partner });
+      const { sourceOf, privateUserId, allowEntry, allowLine } = scope;
+      const own = channel.guild && Array.isArray(history) ? history.filter((m) => m?.id) : [];
+      const ownIds = new Set(own.map((m) => m.id));
+      const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+      const stored = new Map(profiles.filter((profile) => profile?.id).map((profile) => [String(profile.id), profile]));
+      const nameOf = (id) => {
+        const name = stored.get(String(id))?.names?.[0];
+        return (typeof name === 'string' && name ? name : null) ?? guild?.members?.cache?.get?.(id)?.displayName ?? null;
+      };
+      const channelNameOf = (id) => guild?.channels?.cache?.get?.(id)?.name ?? null;
+      const recordShared = sharedSource(
+        typeof record?.iterate === 'function'
+          ? {
+              async *iterate(id, query) {
+                yield* record.iterate(id, query);
+                if (privateUserId) yield* record.iterate(id, { ...query, privateUserId });
+              },
+            }
+          : null,
+      );
+      const archiveShared = sharedSource(archive);
+      const trigger = list.find((lane) => lane.kind === 'message')?.words ?? '';
+      const plans = list.map((lane) =>
+        lanePlan(lane, { profiles, selfId, selfName, maxForms: settings.maxForms, shortWords: p.shortWords, minFormsMatched: p.minFormsMatched, trigger }),
+      );
+      const recordOptions = {
+        record: recordShared,
+        recordContext: settings.recordContext,
+        followMessages: settings.followMessages,
+        followGapMinutes: settings.followGapMinutes,
+        now: until,
+        allowLine,
+        exclude: ownIds,
+        nameOf,
+        selfName,
+        channelNameOf,
+        signal,
+      };
+      // A source of a live turn's moment only: nothing after `at` (a replay's past moment).
+      const inTime = (window) => ({ ...window, messages: window.messages.filter((m) => !(m.ts > until)) });
+      const settled = [];
+      const stats = { searches: 0, failed: 0, meaning: 0 };
+      const task = (name, work) => {
+        stats.searches += 1;
+        return work().then(
+          (result) => {
+            if (result && !signal.aborted) settled.push(result);
+          },
+          (err) => {
+            stats.failed += 1;
+            if (!signal.aborted) log.warn('recall: prefetch failed', { channel: channelId, stage: name, name: err?.name ?? null });
+          },
+        );
+      };
+      const memoryItems = (items, keep) => items.filter((item) => item.kind !== 'recent' && keep(item));
+      const tasks = [];
+      plans.forEach((plan, i) => {
+        if (!plan) return;
+        const forms = [...plan.phrases, ...plan.forms];
+        if (recordShared && settings.recordDays > 0 && forms.length > 0) {
+          tasks.push(
+            task('record', async () => {
+              const found = await matchRecord(guildId, { ...recordOptions, range: { from: null, to: until }, participants: [], forms, aliases: [], recordDays: settings.recordDays, maxWindows: Math.ceil(p.candidates / 4) });
+              const windows = found.windows.map(inTime);
+              const scored = [];
+              for (const window of windows) {
+                for (const message of window.messages) {
+                  if (!window.hitIds.has(message.id)) continue;
+                  const relevance = lexicalRelevance(message, plan);
+                  if (relevance.relevant) scored.push({ id: message.id, ts: message.ts, relevance });
+                }
+              }
+              scored.sort((a, b) => Number(b.relevance.phrase) - Number(a.relevance.phrase) || b.relevance.matched - a.relevance.matched || b.ts - a.ts);
+              return { lane: list[i].kind, windows, lexical: [...new Set(scored.map((hit) => hit.id))] };
+            }),
+          );
+        }
+        if (forms.length > 0 || plan.who.length > 0) {
+          tasks.push(
+            task('memory', async () => {
+              const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server: { forms, who: plan.who, from: null, to: bounded ? until : null }, recent: false, allowEntry, privateUserId, signal, source: archiveShared });
+              const relevant = (item) => countFormsIn([item.text], plan.phrases) > 0 || countFormsIn([item.text], plan.forms) >= Math.max(1, plan.need);
+              return { lane: list[i].kind, memory: memoryItems(memory.items, relevant) };
+            }),
+          );
+        }
+      });
+      const meaningOn = config.features?.meaningSearch === true && typeof embed === 'function' && typeof vectors?.search === 'function';
+      if (meaningOn) {
+        tasks.push(
+          task('meaning', async () => {
+            const texts = list.map((lane) => oneLine(lane.text));
+            const vectorsOf = await embed(texts, { config, purpose: 'recall-query', signal });
+            const unseen = (meta) => meta?.kind === 'archive' || !ownIds.has(meta?.id);
+            const shared = (meta) => unseen(meta) && (meta?.kind === 'archive' || (typeof meta?.channelId === 'string' && sourceOf(meta.channelId) !== null));
+            const range = { from: null, to: bounded ? until : null };
+            await Promise.all(
+              list.map(async (lane, i) => {
+                const vector = vectorsOf?.[i];
+                if (!vector) return;
+                let rows = await vectors.search(guildId, vector, { ...range, k: p.candidates, filter: shared });
+                if (privateUserId) rows = [...rows, ...(await vectors.search(guildId, vector, { ...range, k: p.candidates, filter: unseen, privateUserId }))];
+                const kept = dedupeRows(Array.isArray(rows) ? rows : [], p.candidates).filter((row) => row.score >= p.minMeaningScore);
+                stats.meaning += kept.length;
+                const recordRows = kept.filter((row) => row.meta.kind !== 'archive').map(({ meta }) => ({ id: meta.id, channelId: meta.channelId, occurredAt: meta.occurredAt, sourceIds: Array.isArray(meta.sourceIds) ? meta.sourceIds : [] }));
+                const archiveRows = kept.filter((row) => row.meta.kind === 'archive').map(({ meta }) => ({ id: meta.id, occurredAt: meta.occurredAt }));
+                if (recordRows.length > 0 && recordShared) {
+                  const found = await matchRecord(guildId, { ...recordOptions, range: { from: null, to: until }, forms: [], aliases: [], recordDays: 0, maxWindows: Math.ceil(p.candidates / 4), meaning: recordRows });
+                  const windows = found.windows.map(inTime);
+                  const shown = new Set(windows.flatMap((window) => window.messages.map((m) => m.id)));
+                  if (!signal.aborted) settled.push({ lane: lane.kind, windows, meaning: recordRows.map((row) => row.id).filter((id) => shown.has(id)) });
+                }
+                if (archiveRows.length > 0) {
+                  const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server: { forms: [], who: [], from: null, to: bounded ? until : null }, recent: false, allowEntry, privateUserId, signal, meaning: archiveRows, source: archiveShared });
+                  if (!signal.aborted) settled.push({ lane: lane.kind, memory: memoryItems(memory.items, () => true) });
+                }
+              }),
+            );
+            return null;
+          }),
+        );
+      }
+      if (tasks.length === 0) return finish('none', { stats: { ...stats, candidates: 0 } });
+      const deadline = new Promise((resolve) => {
+        // Not unref'd: a turn waits for it, and it is short.
+        timer = timers.set(() => resolve(TIMEOUT), p.deadlineMs);
+      });
+      const outcome = await Promise.race([Promise.all(tasks), deadline]);
+      const timedOut = outcome === TIMEOUT;
+      if (timedOut) controller.abort();
+      const found = [...settled];
+      const units = rankPrefetch(found);
+      const render = {
+        labels: hot.prompts?.labels ?? {},
+        timezone: config.bot?.timezone,
+        selfName,
+        gapMinutes: config.context?.gapMarkerMinutes,
+        maxChars: config.context?.maxMessageChars ?? 2000,
+        seeReactions: config.features?.seeReactions !== false,
+        reactionsPerMessage: config.context?.reactionsPerMessage,
+        indexed: false,
+      };
+      const rendered = [];
+      for (const unit of units) {
+        if (unit.kind === 'memory') {
+          const item = unit.item;
+          rendered.push({ source: 'memory', kind: item.kind, date: item.date ?? null, memberId: item.memberId ?? null, who: item.memberId ? nameOf(item.memberId) : null, id: item.itemId ?? null, lines: item.text, text: item.text });
+          continue;
+        }
+        const window = typeof decorate === 'function' ? { ...unit.window, messages: decorate(unit.window.messages) } : unit.window;
+        window.descriptions = cachedCaptions(config, guildId, [window]);
+        const [shown] = renderRecallWindows([window], render);
+        const lines = cutStretch(shown?.lines ?? [], p.excerptChars);
+        if (lines.length === 0) continue;
+        const text = lines.map((line) => line.text).join('\n');
+        const ids = lines.map((line) => line.id);
+        rendered.push({ source: 'history', channelId: window.channelId, channelName: window.channelName ?? null, startTs: lines[0].ts, endTs: lines[lines.length - 1].ts, id: unit.hitIds[0] ?? ids[0], ids, hitIds: unit.hitIds.filter((id) => ids.includes(id)), lines: text, text });
+      }
+      const excerpts = fitExcerpts(rendered, p).map(({ text, ...excerpt }) => excerpt);
+      const extra = { excerpts, stats: { ...stats, candidates: units.length }, ...(timedOut ? { partial: true } : {}) };
+      if (excerpts.length > 0) return finish('ok', extra);
+      if (timedOut) return finish('timeout', extra);
+      if (stats.failed >= stats.searches) return finish('unavailable', { ...extra, reason: 'failed' });
+      return finish('none', extra);
+    } catch (err) {
+      log.warn('recall: prefetch failed', { channel: channelId, stage: 'run', name: err?.name ?? null });
+      return finish('unavailable', { reason: 'error' });
+    } finally {
+      if (timer !== null) timers.clear(timer);
+    }
+  }
+
+  return { run, available, prefetch };
 }

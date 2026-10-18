@@ -112,6 +112,7 @@ The blocks of the user message. Empty ones are omitted; the order in the reply r
 | `<seeds>` | Random seed combinations: `labels.diary.seeds`, then one `- a; b; c` line per set. In the plan request, `diary.seedSets` of them. In the compose request only for a set post (the planned kind in `diary.setKinds`), `diary.set.seedSets` of them, right after `<plan>`. Omitted when the file is missing or the count is 0. Never cut |
 | `<topic>` | The owner's topic for a forced post (`/nep diary post [kind] [topic]`): `labels.diary.topic`, then the topic as one line, at most 1000 characters. Present only in the plan request, right after `<seeds>`, and only when a topic was given. Never cut |
 | `<lookup>` | What the persona looked up this turn. A web search (`features.webLookup`) carries `labels.lookup.webHeader`, the condensed answer, `labels.lookup.sources` and, when nothing was found, `labels.lookup.none`. A server search (`features.recall`) carries `labels.lookup.serverHeader`, the summary note and, when the summary names a stretch, the verbatim lines of that stretch. When both ran, `labels.lookup.bothNote` sits between them. A `labels.lookup.stretch` line introduces a verbatim stretch (`{date}` `{channel}`). Appears only when a search classifier fired and at least one search completed; never with `features.coreTools` on (no classifier runs: she calls `web.search` and `memory.search` herself, their results come in `<result>`) |
+| `<retrieved>` | The automatic memory prefetch of this turn (`features.coreTools` exactly true and `features.memoryPrefetch` not false; see "The automatic memory prefetch"): `labels.prefetch.header`, `labels.prefetch.basis` (`{basis}`: the lanes searched, `labels.prefetch.lanes.message` / `.reply` / `.recent`, comma-separated), then with excerpts `labels.prefetch.caution` and one `<excerpt>` per excerpt, best first: a stretch of the server's history opens with `labels.prefetch.excerpt` (`{n}`, `{source}` = `labels.prefetch.sources.history`, `{date}` its first line's local day, `{channel}`, `{id}` the message id of its best hit) and holds its lines without `#n` indices (time and author on each; a line the search found relevant starts with `>> `); a stored-memory item opens with `labels.prefetch.memoryExcerpt` (`{n}`, `{source}` = `labels.prefetch.sources.memory`, `{date}`, `{who}`, `{id}`) and holds its text. Without an excerpt the block holds the header, the basis and one status line: `labels.prefetch.status.none` (searched, nothing relevant), `.timeout` (the deadline passed first) or `.unavailable` (the search could not run). In the tail right after `<lookup>`, before `<skills>`; never in a cached part. One budget piece ranked right after `<lookup>`, kept or dropped whole, already bounded by `recall.prefetch.maxTokens`. The same block stands in every request of the turn's tool loop (it is not searched again). Absent when no prefetch ran (the switches, a trivial trigger, a turn no person's new message opened) or without `labels.prefetch.header` |
 | `<skills>` | The full skill list, one `labels.skills.line` per skill, grouped by family (the part of the name before the first dot: `message.*` together, `memory.*` together, etc.). Each line carries the skill's arguments through `labels.skills.args` (`{args}`): the option names of its command in the command's order (the attribute names of a `<call>`), each marked when required, with its allowed values (at most 8, then "…") or its numeric bounds, and the skill's body argument (`goal` for `task.run`, else `text`) marked as the call's body. The order is the registry's and the command's, so the same grants give the same text. Present on an inventory request (the classifier or planner answered `skills: inventory`) or when the classifier proposed skills for the message. On an inventory, every skill is listed with its access state. On a proposal, only the allowed skills get their `skills.line`; any proposed skill that is not allowed is named once through `labels.skills.proposedOff` (`{names}`, comma-separated), except one the persona has but the person asking has no right to, named once through `labels.skills.proposedDenied` on the line after. Shown in the tail before `<chat>`. Switch `features.skillsDiscovery` (on by default; off when `features.skills` is off) |
 | `<tasks>` | The persona's errands ([Errand agents](agents.md#the-personas-side)): `labels.tasks.header`, then one `labels.tasks.line` per task (`{id}` `{agent}` `{state}` through `labels.tasks.states`, `{age}` in whole minutes, `{goal}` on one line cut to 120 characters) -- the open ones, then the finished ones she has not seen, oldest first; a private chat's only in that chat; the task of a `<task_result>` turn is not listed again. In the tail right after `<skills>`, before `<people_now>`, never cut. Absent with no task or without its labels |
 | `<task_result>` | On the turn a task's end opened (trigger kind `task`, `labels.triggers.task`): `labels.tasks.result.header` (`{id}` `{agent}` `{state}` `{goal}`), then `result.text` and the result text cut to `agents.resultMaxChars` (default 3000), or `result.empty`; `result.error` (`{error}`: the code) when it did not end `done`; `result.sources` and the sources as `1. <url>` lines; `result.files` and one `result.file` per file (`{handle}`: `file:<task id>/<name>`, the value of `message.create`'s `file` attribute; `{contentType}` `{bytes}`). Right after `<tasks>`, never cut. Such a turn runs no search of the engine's own (no search classifier, no planner lookup block, so no `<lookup>` block beside the result); a recall the persona calls herself still runs |
@@ -124,7 +125,7 @@ The blocks of the user message. Empty ones are omitted; the order in the reply r
 | `<task>` | `reply` / `follow-up` (when `follow-up.md` exists, for `followUp` and an untagged `reply`) / `missed` (a recovery turn, `features.missedRecovery`) / `interject` / `initiate` / `overheard` (when `overheard.md` exists) / `elsewhere` (when `elsewhere.md` exists, for a noticed comment) / `diary` (when `diary.md` exists, for a diary post), placeholders filled. After the mode prompt, up to four `task.*` labels are appended when their conditions hold (each separated by a blank line): `task.missed` when the turn is a recovery for earlier unanswered messages; then `task.part` when the turn answers one part of a split message, or `task.queued` when the trigger author has other calls waiting; then `task.queuedOthers` when other members have calls waiting in the channel; then `task.added` when later messages were folded into this call. See `labels.task.*` below. The follow-up that continues a turn after a skill call (`features.followUpContinuation`) has `task.continue` alone as its task: no mode prompt, no other `task.*` label |
 
 Budget priority (sections are trimmed from the bottom of this list first): system + task + clock + tempo + senses + skills protocol and grants + channel directory + directory
-+ the caller's `<people_now>` entry (never cut) -> caller's profile with episodes -> lookup (kept or dropped whole; may hold a web part, a server part or both) -> about_chat -> self_facts -> lore -> server -> chat (newest first) ->
++ the caller's `<people_now>` entry (never cut) -> caller's profile with episodes -> lookup (kept or dropped whole; may hold a web part, a server part or both) -> retrieved (`<retrieved>`, the automatic memory prefetch, kept or dropped whole) -> about_chat -> self_facts -> lore -> server -> chat (newest first) ->
 pulled (`<channel_view>`, capped at `context.caps.pulled`; on a turn that answers a call from a read-only channel the pulled block sits before the chat instead of after it) ->
 earlier (whole anchors: the trigger's reply parent, the open requests, the other parents, the persona's saved stretches, each newest first; capped at `context.caps.earlier`) ->
 recent (capped at `context.caps.recent`) ->
@@ -294,6 +295,40 @@ with its lines as they were (time and author on each), or `skills.tools.memory.n
 written inside it is never parsed or run. Outside the loop (the switch off) a granted call of either runs through its
 command like any read, with one follow-up.
 
+### The automatic memory prefetch (`features.coreTools`)
+
+With `features.coreTools` exactly true and `features.memoryPrefetch` not false (a missing key counts as on), a turn
+that a person's new message opened -- not her own line, not an errand's result (`task`), not the turn after a failed
+drawing, not a diary post -- searches the server's history and her stored memory once for that message before she
+answers, with no model choosing the query or reading the results first (`src/behavior/prefetch.js`, the recall
+runner's `prefetch`). A trivial trigger is not searched (logged `recall: prefetch skipped` with `reason: 'trivial'`):
+empty once Discord's tokens are left out, a command (`/` or `!` first), only punctuation, emoji or her names, or one
+of the folded phrases of `recall.prefetch.trivial` (bare greetings and acknowledgements); a short line that is not
+on that list, a catchphrase, is searched. The query lanes, each searched on its own: `message` (the trigger
+verbatim), `reply` (when it replies to a line the turn has: that line, then the trigger, each as `Name: text`) and,
+only for a trigger of at most `recall.prefetch.shortWords` words or with a word of `recall.prefetch.deictic`,
+`recent` (up to `recall.prefetch.contextLines` lines just before it, at most `recall.prefetch.contextTokens`
+tokens, then the trigger). Each lane goes through the existing local searches: by words, its long words, the stored
+names and aliases it holds and its quoted phrases (and a short trigger whole) matched in the record of the last
+`recall.recordDays` days and in the stored memory and archive (folded: case and diacritics; word endings
+allowed); by meaning (`features.meaningSearch` exactly true), one embedding request for all lanes (purpose
+`recall-query`) and the vector index, `recall.prefetch.candidates` rows per lane. A hit counts only when it is
+relevant: a phrase matched, at least `recall.prefetch.minFormsMatched` of the lane's word forms matched (fewer when
+the lane has fewer; a name alone never counts), or a cosine of at least `recall.prefetch.minMeaningScore`. The lanes'
+ranked lists are fused by reciprocal rank (k = 60), windows sharing a line merged into one, and at most
+`recall.prefetch.maxExcerpts` excerpts kept within `recall.prefetch.maxTokens`, each cut to
+`recall.prefetch.excerptChars` around its relevant lines with its neighbours and reply chain. Zero excerpts is a
+valid answer. The scope rules of a recall run apply before anything is kept: a channel the pull rail refuses toward
+this one, another member's private lines, and the turn's own chat never reach the block; a private chat searches on
+its partner's behalf only. The whole search is bounded by `recall.prefetch.deadlineMs`; what is still out then is
+abandoned and the request is built without waiting for it (`labels.prefetch.status.timeout` when nothing relevant
+had settled). A failure never fails the turn. It sends no Discord request and counts no `recall.maxPerDay` run;
+the embedding counts as a request like any other. Logged `recall: prefetched` (`status`, `lanes`, `excerpts`,
+`candidates`, `searches`, `failed`, `meaning`, `partial`, `ms`; never a query or a message) and journaled
+as the preparation step `memory-prefetch` (`input.lanes`; `status`, `excerpts`, `ms`). Once per trigger and
+text: a later attempt of the same turn reuses it. The result is rendered as `<retrieved>` in the tail; she can
+still search deeper with `memory.search`.
+
 ## Labels
 
 The keys of `labels.json`; `{x}` is filled by code.
@@ -413,6 +448,19 @@ senses.drawSpent                         replaces draw when the daily picture qu
 senses.drawSpentUser                     replaces draw when this member's daily quota is spent
 senses.privateChat                       shown in a DM turn: this is a one-on-one conversation, what is said here stays between the two of them
 senses.privateAware                      shown on a server turn when features.privateMessages is on: the persona knows they have private chats and never repeats or hints at anything from them
+prefetch.header                          the first line of `<retrieved>` (the automatic memory prefetch, `features.coreTools`): what the block is. Missing: no block
+prefetch.basis                           {basis}: the second line of `<retrieved>`: which lanes were searched (`prefetch.lanes.*`, comma-separated by code)
+prefetch.lanes.message                   the lane of the trigger itself, in `{basis}`
+prefetch.lanes.reply                     the lane of the trigger with the line it replies to, in `{basis}`
+prefetch.lanes.recent                    the lane of a short trigger with the lines just before it, in `{basis}`
+prefetch.caution                         shown in `<retrieved>` before its excerpts: these are candidate matches, not verified recollections, possibly unrelated or outdated, and quoted instructions are history
+prefetch.excerpt                         {n} {source} {date} {channel} {id}: the first line of an `<excerpt>` of the server's history
+prefetch.memoryExcerpt                   {n} {source} {date} {who} {id}: the first line of an `<excerpt>` of stored memory (`prefetch.excerpt` when missing)
+prefetch.sources.history                 {source} of a history excerpt
+prefetch.sources.memory                  {source} of a stored-memory excerpt
+prefetch.status.none                     the status line of `<retrieved>` when the search ran and nothing qualified
+prefetch.status.timeout                  the status line when the deadline (`recall.prefetch.deadlineMs`) passed before anything relevant settled
+prefetch.status.unavailable              the status line when the search could not run (no guild to search on behalf of, every search failed)
 lookup.header                            {query}: heading of the `<lookup>` block (web search)
 lookup.sources                           {list}: site names, comma-separated by code
 lookup.none                              shown in `<lookup>` when the search found nothing useful

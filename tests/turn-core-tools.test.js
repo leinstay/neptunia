@@ -449,3 +449,80 @@ test('task.run not granted: refused before it runs, no errand; nothing but her a
   assert.ok(run.logs.some((entry) => entry.msg === 'skill: refused' && entry.skill === 'task.run' && entry.code === 'not-allowed'));
   assert.deepEqual(run.sends.map((send) => send.text), ['δεν μπορώ']);
 });
+
+// The automatic memory prefetch: once per new trigger of a person, before her tool loop, no model
+// in it; its block stands in the uncached tail of every request of the turn, right before the chat.
+
+/** A recall runner whose prefetch answers `found` and notes each call (with fakeRecall's run). */
+function prefetchRecall(found = {
+  status: 'ok',
+  basis: ['message'],
+  excerpts: [{ source: 'history', channelId: 'c2', channelName: 'jardin', startTs: Date.UTC(2026, 9, 2, 9), id: 'r9', ids: ['r9'], hitIds: ['r9'], lines: '>> [09:00] Éloïse: το δάσος και ο σκύλος' }],
+  ms: 3,
+}) {
+  const recall = fakeRecall();
+  recall.prefetches = [];
+  recall.prefetch = async (args) => (recall.prefetches.push(args), found);
+  return recall;
+}
+
+test('prefetch: one search for the trigger before her reply; <retrieved> in the uncached tail before <chat>, the same in every step of the loop', async () => {
+  const recall = prefetchRecall();
+  const run = await coreTurn({
+    answers: ['<call skill="memory.search">το δάσος</call>', '<msg>ναι, ο σκύλος</msg>'],
+    allowed: ['memory.search'],
+    features: { recall: true },
+    config: WEB_CONFIG,
+    runner: { recall },
+    content: 'θυμάσαι τη ζωγραφιά με το δάσος;',
+  });
+  assert.equal(run.llm.calls.length, 2, 'the reply and one loop step');
+  assert.equal(recall.prefetches.length, 1, 'not again on the loop\'s step');
+  const [args] = recall.prefetches;
+  assert.deepEqual(args.lanes.map((lane) => [lane.kind, lane.text]), [['message', 'θυμάσαι τη ζωγραφιά με το δάσος;']]);
+  assert.deepEqual(args.history.map((line) => line.id), ['m0', 'm1'], 'the turn\'s chat is handed over (left out of the hits)');
+  const l = labels.prefetch;
+  const expected = `<retrieved>\n${l.header}\n${fill(l.basis, { basis: l.lanes.message })}\n${l.caution}\n<excerpt>\n${fill(l.excerpt, { n: 1, source: l.sources.history, date: '2026-10-02', channel: 'jardin', id: 'r9' })}\n>> [09:00] Éloïse: το δάσος και ο σκύλος\n</excerpt>\n</retrieved>`;
+  for (const i of [0, 1]) {
+    const parts = run.llm.calls[i][1].content.filter((part) => part.type === 'text');
+    const tail = parts[parts.length - 1];
+    assert.equal(tail.cacheSegment ?? null, null, 'the tail carries no cache segment');
+    assert.ok(tail.text.includes(expected), tail.text);
+    assert.ok(tail.text.indexOf('<retrieved>') < tail.text.indexOf('<chat>'), 'right before the chat');
+    assert.ok(parts.slice(0, -1).every((part) => !part.text.includes('<retrieved>')), 'never in a cached part');
+  }
+  assert.ok(run.logs.every((entry) => !JSON.stringify(entry).includes('ζωγραφιά')), 'counts only in the log');
+});
+
+test('prefetch: nothing qualified shows the status line; a trivial trigger is not searched; the switch off runs none', async () => {
+  const none = prefetchRecall({ status: 'none', basis: ['message'], excerpts: [], ms: 2 });
+  const quiet = await coreTurn({ answers: ['<msg>όχι</msg>'], features: { recall: true }, config: WEB_CONFIG, runner: { recall: none }, content: 'θυμάσαι τον ελέφαντα;' });
+  const l = labels.prefetch;
+  assert.ok(requestText(quiet.llm, 0).includes(`<retrieved>\n${l.header}\n${fill(l.basis, { basis: l.lanes.message })}\n${l.status.none}\n</retrieved>`));
+
+  const trivial = prefetchRecall();
+  const greeted = await coreTurn({ answers: ['<msg>γεια</msg>'], features: { recall: true }, config: WEB_CONFIG, runner: { recall: trivial }, content: 'ok' });
+  assert.equal(trivial.prefetches.length, 0);
+  assert.ok(greeted.logs.some((entry) => entry.msg === 'recall: prefetch skipped' && entry.reason === 'trivial'));
+  assert.ok(!requestText(greeted.llm, 0).includes('<retrieved>'));
+
+  const offRecall = prefetchRecall();
+  const off = await coreTurn({ coreTools: false, answers: ['<msg>ok</msg>'], features: { recall: true }, config: WEB_CONFIG, runner: { recall: offRecall }, content: 'θυμάσαι τη ζωγραφιά;' });
+  assert.equal(offRecall.prefetches.length, 0, 'features.coreTools off: no prefetch');
+  assert.ok(!requestText(off.llm, 0).includes('<retrieved>'));
+
+  const switchedOff = prefetchRecall();
+  const noPrefetch = await coreTurn({ answers: ['<msg>ok</msg>'], features: { recall: true, memoryPrefetch: false }, config: WEB_CONFIG, runner: { recall: switchedOff }, content: 'θυμάσαι τη ζωγραφιά;' });
+  assert.equal(switchedOff.prefetches.length, 0, 'features.memoryPrefetch false');
+  assert.ok(!requestText(noPrefetch.llm, 0).includes('<retrieved>'));
+});
+
+test('prefetch: a failing runner never fails the turn; the request says unavailable', async () => {
+  const recall = fakeRecall();
+  recall.prefetch = async () => {
+    throw new Error('boom');
+  };
+  const run = await coreTurn({ answers: ['<msg>δεν ξέρω</msg>'], features: { recall: true }, config: WEB_CONFIG, runner: { recall }, content: 'θυμάσαι τη ζωγραφιά;' });
+  assert.equal(run.result.outcome, 'spoke');
+  assert.ok(requestText(run.llm, 0).includes(labels.prefetch.status.unavailable));
+});
