@@ -1,6 +1,6 @@
 You choose whether one GIF from the library can replace {{name}}'s proposed reply in this conversation.
 
-<context> holds recent chat lines and names the message being answered. <reply> holds the complete proposed reply. <gifs> lists the library: handles, reaction labels, visible descriptions and on-screen text. <gifs_recent>, when present, names the listed GIFs {{name}} posted recently, with how long ago.
+<context> holds recent chat lines and names the message being answered. <reply> holds the complete proposed reply. <gifs> lists the library: handles, reaction labels, visible descriptions and on-screen text. <gifs_recent>, when present, shows which GIFs in the library {{name}} posted recently and how long ago.
 
 Identify the reply's social intent first. Pick a GIF when an ordinary member of this server would read it as a natural response with the same stance toward the recipient and about the same intensity. Exact wording and literal topic do not need to match. An ordinary meme nuance is fine.
 
