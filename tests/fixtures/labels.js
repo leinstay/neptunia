@@ -440,6 +440,10 @@ export const labels = {
         other: 'other failure',
       },
     },
+    tools: {
+      web: { source: 'from web.search, query {query}; snippets, pages not opened', goal: 'to establish: {goal}', sources: 'sites: {list}', none: 'nothing found' },
+      memory: { source: 'from memory.search; quoted messages with time and author', window: '{date} in #{channel}:', none: 'no messages found' },
+    },
     refusals: {
       agentRequired: '{arg} missing, pick one of: {agents}',
     },

@@ -35,7 +35,7 @@ import { audienceCovers, markSeen, messageLink, resolveDestination, stampPings }
 import { isTaggedCall } from './mention.js';
 import { resolveHandles } from './handles.js';
 import { roleModel } from '../llm/roles.js';
-import { parseLookupAnswer, recallSettings } from './recall.js';
+import { fallbackLookupPlan, parseLookupAnswer, recallSettings } from './recall.js';
 import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
 import { captionedEntries, gifPickSettings, parseGifPick, pickCandidates, pickContext, renderGifLibrary } from './gif-pick.js';
 import { turnRequestInput } from './turn-input.js';
@@ -61,7 +61,7 @@ import { fill, formatNow, replyMarker, withCalls, withTriggers } from '../format
 import { log } from '../log.js';
 import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { gifPostsToday, rankGifs, participationSettings, recordOwnLine, isVideoVisionOn, toRecordLine, createOffPeriodsReader } from '../memory/index.js';
-import { isWordChar, linkChannels, linkMessageNumbers, occursAsWholeWord, outsideUrls } from '../memory/mentions.js';
+import { linkChannels, linkMessageNumbers, outsideUrls } from '../memory/mentions.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { createParticipationPicker, participationEpisodeOffer } from './participation-pick.js';
 import { askPlanner, parsePlannerAnswer, parseRewatchPickDetailed, plannerOn } from './planner.js';
@@ -76,6 +76,7 @@ import { discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsI
 import { skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
+import { IN_TURN_TOOLS, runMemorySearch, runWebSearch } from '../skills/tools.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -410,72 +411,8 @@ export function lookupClassifierInput({ config, labels, selfName, history, trigg
   return { triggerText, transcriptBlock, user: `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>` };
 }
 
-/** A word of the question this long or longer (in characters) is a fallback search form. */
-const FALLBACK_FORM_MIN_CHARS = 5;
-/** A longer word is no search form (a pasted token, a link's tail): recall's own cap on a form. */
-const FALLBACK_FORM_MAX_CHARS = 40;
-
-/** The words of `text`: maximal runs of word characters (isWordChar). */
-function wordsIn(text) {
-  const words = [];
-  let current = '';
-  for (const ch of String(text ?? '')) {
-    if (isWordChar(ch)) current += ch;
-    else if (current) {
-      words.push(current);
-      current = '';
-    }
-  }
-  if (current) words.push(current);
-  return words;
-}
-
-/**
- * The server search a direct question gets when the search classifier failed
- * (recall.fallbackOnClassifierFailure): built from the question's own words.
- * `who`: for each stored member (`profiles`, the persona's own `selfId` left
- * out) the first of their names or alias names that occurs in `text` as a
- * whole word (both folded, src/memory/recent.js#foldText), lowercased, each
- * once. `forms`: the words of `text` (runs of isWordChar) of 5 to 40
- * characters with at least one letter, lowercased, deduplicated (folded),
- * without the words of a name found or of the persona's `selfName`, longest
- * first (ties in text order). Each list holds at most `maxForms` (0 or not an
- * integer: none). No date range. Null when both lists are empty. Pure.
- * @param {{ text: string, profiles?: object[], selfId?: string|null, selfName?: string, maxForms?: number }} params
- * @returns {{ forms: string[], who: string[], from: null, to: null }|null}
- */
-export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfName = '', maxForms = 0 } = {}) {
-  const cap = Number.isInteger(maxForms) && maxForms > 0 ? maxForms : 0;
-  const folded = foldText(text);
-  const skipWords = new Set(wordsIn(foldText(selfName)));
-  const who = [];
-  for (const profile of Array.isArray(profiles) ? profiles : []) {
-    if (who.length >= cap) break;
-    if (!profile || typeof profile !== 'object' || (selfId !== null && String(profile.id) === String(selfId))) continue;
-    const names = [...(Array.isArray(profile.names) ? profile.names : []), ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name)];
-    const hit = names.find((name) => typeof name === 'string' && [...foldText(name)].length >= 2 && occursAsWholeWord(folded, foldText(name)));
-    if (!hit) continue;
-    const form = oneLine(hit).toLowerCase();
-    if (!who.includes(form)) who.push(form);
-    for (const word of wordsIn(foldText(hit))) skipWords.add(word);
-  }
-  const seen = new Set();
-  const candidates = [];
-  for (const word of wordsIn(String(text ?? '').toLowerCase())) {
-    const chars = [...word].length;
-    if (chars < FALLBACK_FORM_MIN_CHARS || chars > FALLBACK_FORM_MAX_CHARS || !/\p{L}/u.test(word)) continue;
-    const key = foldText(word);
-    if (seen.has(key) || skipWords.has(key)) continue;
-    seen.add(key);
-    candidates.push({ word, chars, at: candidates.length });
-  }
-  const forms = candidates
-    .sort((a, b) => b.chars - a.chars || a.at - b.at)
-    .slice(0, cap)
-    .map((item) => item.word);
-  if (forms.length === 0 && who.length === 0) return null;
-  return { forms, who, from: null, to: null };
-}
+// The server search on a question's own words lives with the recall planning (src/behavior/recall.js).
+export { fallbackLookupPlan };
 
 /**
  * The name matching of features.mentionHandles off (kept for rollback; with it on, renderPost
@@ -1751,7 +1688,8 @@ export function createTurnRunner({
    */
   function discoveryPrompt(config) {
     if (!discoveryOn(config)) return { index: '', names: [] };
-    const registry = skills ?? defaultSkills();
+    // Her in-turn tools are hers to call (features.coreTools, where no classifier runs): never offered to one.
+    const registry = new Map([...(skills ?? defaultSkills())].filter(([name]) => !IN_TURN_TOOLS.includes(name)));
     const names = [...registry.keys()];
     return { index: skillsIndex(registry, hot.prompts?.skills), names };
   }
@@ -2134,12 +2072,35 @@ export function createTurnRunner({
   }
 
   /**
-   * Her in-turn tools for one turn (features.coreTools): skill name -> `(args) => result`, run by
-   * src/skills/executors.js#executeCall in place of the operation's command, over the turn's
-   * own context. Null when there is none.
+   * Her in-turn tools for one turn (features.coreTools, read now; src/skills/tools.js): skill name
+   * -> `(args) => result`, run by src/skills/executors.js#executeCall in place of the operation's
+   * command, over the turn's own context -- `web.search` through the turn's `lookup`,
+   * `memory.search` through its `recall` over the served guild (`guild`; a private chat on its
+   * `partner`'s behalf), the turn's `history` left out of the hits and her call marks on the
+   * quoted lines (linkCalls). Null with the switch off.
    */
-  function inTurnTools() {
-    return null;
+  function inTurnTools({ channel, guild, guildId, partner = null, selfId, selfName, history }) {
+    if (!coreToolsOn(hot.config)) return null;
+    return {
+      'web.search': (args) => runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
+      'memory.search': (args) =>
+        runMemorySearch({
+          recall,
+          store,
+          config: hot.config,
+          labels: hot.prompts?.labels ?? {},
+          guild,
+          guildId,
+          channel,
+          partner,
+          selfId,
+          selfName,
+          history,
+          decorate: (lines) => linkCalls(lines, { channel, guildId }),
+          args,
+          now: clock(),
+        }),
+    };
   }
 
   /**
@@ -6467,7 +6428,7 @@ export function createTurnRunner({
       let called = null;
       let loopDelivered = false;
       // The calls of the reply and of every later step, run in the turn's context (runCall's).
-      const callContext = { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, inTurn: inTurnTools({ channel, guildId, isPrivate, partner, selfId, selfName, history, trigger: candidate, draft }) };
+      const callContext = { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, inTurn: inTurnTools({ channel, guild: servedGuild, guildId, partner: isPrivate ? partner : null, selfId, selfName, history }) };
       if (loopPlans.length > 0) {
         // The next step's calls, planned over the transcript its request showed (`again`, continuationRequest's routing).
         const planNext = async (calls, again) => {

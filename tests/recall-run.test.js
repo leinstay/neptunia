@@ -1606,3 +1606,25 @@ test('recall-run: a locator whose record reaches past the decay margin sends no 
   assert.deepEqual([meant.vectors.calls[0].opts.from, meant.vectors.calls[0].opts.to], [null, null], 'every month of the index');
   assert.deepEqual(meant.record.queries.filter((q) => !q.channelIds).map((q) => [q.from, q.to]), [[new Date(NOW - 3 * DAY).toISOString(), new Date(NOW).toISOString()]], 'the record over its last days, the named day among them');
 });
+
+// The persona's own memory.search (src/skills/tools.js): the stretches as they were, no summary.
+
+test('recall quotes: every kept window comes back as a stretch with its lines, no summary request is sent and none is needed', async () => {
+  const s = scene({ lines: { c1: RABBIT_LINES, c2: GARDEN_LINES, c4: PRIVATE_LINES }, answers: rabbitAnswers });
+  delete s.hot.prompts['recall-summary'];
+  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER, quotes: true }));
+  assert.equal(s.llmCalls.length, 0, 'no summary');
+  assert.equal(result.text, null);
+  assert.equal(result.stretch, null);
+  assert.deepEqual(result.quotes.map((quote) => quote.channelName), ['general', 'garden'], 'the refused channel gives nothing');
+  assert.ok(result.quotes[0].lines.includes('Βασίλης: το κουνέλι πέθανε'), result.quotes[0].lines);
+  assert.ok(!result.quotes.some((quote) => quote.lines.includes('Birthdays')), 'another bot stays out');
+  assert.equal(s.data.recallCount, 1, 'the run counts for the day');
+  const quoted = logs.find((l) => l.msg === 'recall: quoted');
+  assert.deepEqual([quoted.windows, quoted.quoted], [2, 2]);
+  assert.ok(!JSON.stringify(logs).includes('κουνέλι'), 'never a form or a line in the log');
+  // A channel she named: only its stretches.
+  const only = scene({ lines: { c1: RABBIT_LINES, c2: GARDEN_LINES, c4: PRIVATE_LINES }, answers: rabbitAnswers });
+  const garden = await withCapturedLogs(() => only.recaller.run({ ...only.args, server: { ...RABBIT_SERVER, channelId: 'c2' }, quotes: true }));
+  assert.deepEqual(garden.result.quotes.map((quote) => quote.channelId), ['c2']);
+});

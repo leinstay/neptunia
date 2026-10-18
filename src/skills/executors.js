@@ -421,8 +421,8 @@ function fromPort(result) {
  * with (`/nep draw` without a channel) are posted to the current conversation through
  * `deps.port` (`deps.refOf`), as the owner's command shows them to the owner: the call is then
  * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn
- * tools, features.coreTools: name -> `(args) => result`) runs there instead, on her resolved
- * arguments, under the same timeout; its result is the call's as it is (a result without a
+ * tools, features.coreTools: name -> `(args) => result`) runs there instead, on the operation's
+ * arguments her call maps to (`command.toCall`, as above), under the same timeout; its result is the call's as it is (a result without a
  * known status is `failed`).
  * @returns {Promise<{ status: string, code?: string, data?: { text: string }, ref?: object|null }>}
  */
@@ -431,7 +431,10 @@ export async function executeCall(resolved, deps) {
     const args = { ...resolved.args };
     const tool = deps.inTurn && Object.hasOwn(deps.inTurn, resolved.skill) ? deps.inTurn[resolved.skill] : null;
     if (typeof tool === 'function') {
-      const answered = await withTimeout(Promise.resolve(tool(args)), deps.timeoutMs ?? CALL_TIMEOUT_MS);
+      // The operation's own arguments, mapped by its command as for the owner's command.
+      const mapped = resolved.command ? resolved.command.toCall(args) : { op: resolved.skill, args };
+      if (!mapped.args || mapped.op !== resolved.skill) return { status: 'invalid', code: 'invalid-args', reason: 'command' };
+      const answered = await withTimeout(Promise.resolve(tool(mapped.args)), deps.timeoutMs ?? CALL_TIMEOUT_MS);
       if (answered?.timedOut === true) return { status: 'unknown', code: 'timeout', data: { text: '' } };
       return RESULT_STATUSES.includes(answered?.status) ? answered : { status: 'failed', code: 'error' };
     }

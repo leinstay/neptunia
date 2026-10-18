@@ -31,6 +31,7 @@ import './lore.js';
 import './memory.js';
 import './message.js';
 import './task.js';
+import './search.js';
 
 export { defineOp, listOps, OpError, invalid, denied } from './registry.js';
 
@@ -123,6 +124,8 @@ export const COMMAND_TO_OP = Object.freeze({
   'task.status': 'task.status',
   'task.cancel': 'task.cancel',
   'task.list': 'task.list',
+  'task.search': 'web.search',
+  'memory.search': 'memory.search',
 });
 
 /**

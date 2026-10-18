@@ -71,6 +71,8 @@ export const OP_EFFECTS = Object.freeze({
   'task.status': 'read',
   'task.cancel': 'write',
   'task.list': 'read',
+  'web.search': 'read',
+  'memory.search': 'read',
 });
 
 /**

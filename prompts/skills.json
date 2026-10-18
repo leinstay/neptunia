@@ -298,5 +298,15 @@
     "title": "List errands",
     "whenToUse": "Read the latest ten errands with their states.",
     "whenNotToUse": "Does not show their results."
+  },
+  "web.search": {
+    "title": "PLACEHOLDER: Search the web now",
+    "whenToUse": "PLACEHOLDER: A quick fact you need for this answer: write the query yourself (body or query), optionally goal = what it should establish. The result comes back in this same turn as search snippets; the pages are not opened.",
+    "whenNotToUse": "PLACEHOLDER: Not for finding, comparing or downloading files or for deep research: hand that to an agent with task.run."
+  },
+  "memory.search": {
+    "title": "PLACEHOLDER: Search this server's old messages",
+    "whenToUse": "PLACEHOLDER: Find what was said here before: question (body), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words). The messages come back quoted in this same turn.",
+    "whenNotToUse": "PLACEHOLDER: Not for what the chat in front of you already shows."
   }
 }

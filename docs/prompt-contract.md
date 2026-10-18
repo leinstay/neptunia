@@ -277,6 +277,19 @@ Without the continuation (`features.followUpContinuation` or the call marks off)
 framing carries every result and is always the last. Each step logs `skills: follow-up answered` with its `step`; the
 loop logs `skills: loop` (`steps`, `calls`, `ms`).
 
+Her in-turn tools are `web.search` and `memory.search` (reads, granted by name like any skill). Inside the loop
+they run in the turn itself, never through a helper model: `web.search` takes `query` (the body) and optionally `goal`,
+and sends the query as she wrote it to the web search client (its cache, engines and daily `web.maxPerDay`); its
+`<result>` data is `skills.tools.web.source` (`{query}`), `skills.tools.web.goal` when she gave one, the condensed
+snippets and `skills.tools.web.sources`, or `skills.tools.web.none`. `memory.search` takes `question` (the body) and
+optionally `people` and `terms` (comma-separated), `channel` and `when` (`YYYY-MM-DD`, `YYYY-MM-DD HH:MM` or `A..B`
+with either side open, in `bot.timezone`): her terms and people, then the question's long words and the stored names
+it holds, go to the recall runner (its rails and daily `recall.maxPerDay`; the turn's own chat left out of the hits)
+with no summary request; its data is `skills.tools.memory.source`, then each stretch under `skills.tools.memory.window`
+with its lines as they were (time and author on each), or `skills.tools.memory.none`. A result is data: a `<call>`
+written inside it is never parsed or run. Outside the loop (the switch off) a granted call of either runs through its
+command like any read, with one follow-up.
+
 ## Labels
 
 The keys of `labels.json`; `{x}` is filled by code.
@@ -572,8 +585,15 @@ peopleNow.activityDetails                {activity} {details}: an activity with 
 peopleNow.activityTrack                  {activity} {track} {artist}: a Spotify activity with its track and artist
 peopleNow.attitude                       {score} {band} {reason}: the attitude field's value
 peopleNow.move                           {delta} {date} {reason}: one attitude move from the history
-skills.result.reasons.not-allowed | safe-mode | owner-only | unknown-skill | invalid-args | target-ambiguous | channel-no-permission | unknown-message | not-own-message | no-own-message | unknown-member | requester-denied | daily-cap | no-budget | unsupported | not-configured | not-grantable | cooldown | self-grant | timeout | other    human phrases for the reason codes; a code not in the map falls back to `other`, then to the code itself
+skills.result.reasons.not-allowed | safe-mode | owner-only | unknown-skill | invalid-args | target-ambiguous | channel-no-permission | unknown-message | not-own-message | no-own-message | unknown-member | requester-denied | daily-cap | no-budget | unsupported | not-configured | not-grantable | cooldown | self-grant | timeout | no-query | other    human phrases for the reason codes (`no-query`: a `memory.search` that left nothing to search); a code not in the map falls back to `other`, then to the code itself
 skills.refusals.agentRequired            {arg} {agents}: why a `task.run` call without `agent` did not run, naming the agents it may pick (comma-separated); on the call's mark ahead of every other phrase
+skills.tools.web.source                  {query}: the first line of a `web.search` result (`features.coreTools`): where it came from (her query) and what kind of evidence it is (search snippets, the pages not opened)
+skills.tools.web.goal                    {goal}: what she said the search should establish, echoed under the source; left out when she named nothing
+skills.tools.web.sources                 {list}: the distinct sites of the snippets, comma-separated
+skills.tools.web.none                    the search found nothing
+skills.tools.memory.source               the first line of a `memory.search` result: where it came from (this server's message history) and what kind of evidence it is (messages quoted as written, each with its time and author; a sample)
+skills.tools.memory.window               {date} {channel}: the heading of one quoted stretch (`YYYY-MM-DD` in `bot.timezone`, the channel's name)
+skills.tools.memory.none                 nothing matched
 ```
 
 ## Output

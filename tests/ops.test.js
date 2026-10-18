@@ -37,6 +37,7 @@ const AGREED = new Set([
   'memory.snapshot', 'memory.private.read', 'memory.private.forget', 'memory.private.purge',
   'message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove',
   'task.run', 'task.status', 'task.cancel', 'task.list',
+  'web.search', 'memory.search',
 ]);
 
 /** Owner-only per the plan: no grant ever opens them. */

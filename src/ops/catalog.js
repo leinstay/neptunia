@@ -424,6 +424,15 @@ export const COMMAND_TABLE = Object.freeze([
         args: (options) => ({ id: options.getString('id', true) }),
       },
       { name: 'list', description: 'The latest ten tasks.', args: none },
+      {
+        name: 'search',
+        description: 'One quick web search (search snippets, pages not opened).',
+        options: [
+          { type: STRING, name: 'query', description: 'What to search for.', required: true, max_length: 200 },
+          { type: STRING, name: 'goal', description: 'What the search should establish.', required: false, max_length: 300 },
+        ],
+        args: (options) => ({ query: options.getString('query', true), goal: options.getString('goal') ?? undefined }),
+      },
     ],
   },
   {
@@ -599,6 +608,24 @@ export const COMMAND_TABLE = Object.freeze([
           userOption(),
         ],
         args: (options) => ({ action: options.getString('action', true), userId: userId(options) }),
+      },
+      {
+        name: 'search',
+        description: "Search this server's message history; the messages come back quoted.",
+        options: [
+          { type: STRING, name: 'question', description: 'What to find.', required: true, max_length: 500 },
+          { type: STRING, name: 'people', description: 'Names, comma-separated.', required: false, max_length: 200 },
+          channelOption('Only this channel.'),
+          { type: STRING, name: 'when', description: 'YYYY-MM-DD, or a range A..B (either side may be open).', required: false, max_length: 40 },
+          { type: STRING, name: 'terms', description: 'Exact words or phrases, comma-separated.', required: false, max_length: 300 },
+        ],
+        args: (options) => ({
+          question: options.getString('question', true),
+          people: options.getString('people') ?? undefined,
+          channelId: options.getChannel('channel')?.id,
+          when: options.getString('when') ?? undefined,
+          terms: options.getString('terms') ?? undefined,
+        }),
       },
     ],
   },

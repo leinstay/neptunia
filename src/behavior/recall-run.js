@@ -754,7 +754,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * (the run's trace record, or null with `features.recallTrace` off) gets
    * the clusters and the summary's answer as they are known.
    */
-  async function recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, context, contextDescriptions, candidate, server, signal, searchSignal, progress, started, stats, trace, decorate = null }) {
+  async function recallWith({ config, settings, prompt, guild, guildId, channel, partner, selfId, selfName, history, context, contextDescriptions, candidate, server, signal, searchSignal, progress, started, stats, trace, decorate = null, quotes = false }) {
     const channelId = channel.id;
     const searchUntil = started + settings.timeoutMs * SEARCH_SHARE;
     let counted = false;
@@ -1046,6 +1046,15 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       if (lines.length === 0) return null;
       return { channelId: window.channelId, channelName: window.channelName, startTs: lines[0].ts, lines: lines.map((line) => line.text).join('\n') };
     };
+    // The persona's own memory.search (`quotes`): the stretches as they were, no summary, no
+    // request; a channel she named keeps only its own (stored memory is notes, not chat: left out).
+    if (quotes) {
+      const shown = windows.filter((window) => !server.channelId || window.channelId === server.channelId).map(stretchOf).filter(Boolean);
+      stats.summary = 'quotes';
+      if (trace) trace.summary = { answer: 'quotes', stretch: null, text: null, note: null };
+      log.info('recall: quoted', { channel: channelId, windows: windows.length, quoted: shown.length, totalMs: now() - started });
+      return result({ quotes: shown, people: peopleOut() });
+    }
     // Stored memory alone is enough to ask the summary.
     const messages =
       windows.length > 0 || memory.items.length > 0
@@ -1167,11 +1176,15 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * or `timeout` when the run ran out yet left its fallback stretch), `hits`
    * (the search hits), `kept`, `summaryChars` and `stretch` (whether a
    * stretch is returned); `failed` with `timeout` (nothing left) or `error`.
+   * `quotes` (the persona's own memory.search, src/skills/tools.js): no summary is asked and the
+   * prompt is not needed; the run resolves `quotes`, every kept window as a stretch (cut to
+   * `recall.stretchChars`, no indices) in rank order -- only the channel `server.channelId`
+   * names when it is set -- with `text` and `stretch` null, and logs `recall: quoted`.
    * `decorate` (optional; the turn's call marks, src/behavior/turn.js#linkCalls) takes each
    * window's messages once they are read and gives the ones rendered, so the persona's lines
    * there show what she called like her chat lines do.
    */
-  async function run({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], context = null, contextDescriptions, candidate = null, server = null, op = null, decorate = null } = {}) {
+  async function run({ guild, guildId = guild?.id ?? null, channel, partner = null, selfId, selfName, history = [], context = null, contextDescriptions, candidate = null, server = null, op = null, decorate = null, quotes = false } = {}) {
     const started = now();
     const channelId = channel?.id ?? null;
     const stats = emptyStats();
@@ -1210,7 +1223,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
       if (!guild || (!channel?.guild && !partner)) return skip('private-chat');
       if (!asksServer(server)) return skip('no-query');
       const prompt = summaryPrompt();
-      if (!prompt) return skip('no-prompt');
+      if (!prompt && !quotes) return skip('no-prompt');
       if (capSpent()) return skip('daily-cap');
       if (dailySpent(settings)) return skip('daily');
       if (op) await op.started();
@@ -1247,6 +1260,7 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         stats,
         trace,
         decorate,
+        quotes,
       });
       work.catch(() => {});
       const outcome = await Promise.race([work, deadline]);

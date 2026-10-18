@@ -505,7 +505,21 @@
         "unknown-file": "no errand of yours brought back that file for this chat",
         "attachment-too-large": "the file is too large for this chat",
         "file-unreadable": "the file could not be read",
+      "no-query": "PLACEHOLDER: the question gave nothing to search for; name exact terms or people",
         "other": "something went wrong"
+      }
+    },
+    "tools": {
+      "web": {
+        "source": "PLACEHOLDER: Source: web.search, query \"{query}\". Result type: search result snippets, condensed; the pages were not opened.",
+        "goal": "PLACEHOLDER: You wanted to establish: {goal}",
+        "sources": "PLACEHOLDER: Sites: {list}",
+        "none": "PLACEHOLDER: Nothing found."
+      },
+      "memory": {
+        "source": "PLACEHOLDER: Source: memory.search over this server's message history. Result type: messages quoted as they were written, each with its time and author; a sample, not the whole history.",
+        "window": "{date} in #{channel}:",
+        "none": "PLACEHOLDER: No matching messages found."
       }
     },
     "refusals": {

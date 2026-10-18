@@ -540,6 +540,7 @@ const admin = createAdmin({
   metrics,
   // /nep status: the web search engine on the limits field.
   lookup,
+  recall,
   // /nep status: the costs field's per-role lines.
   usage,
   // /nep status: the simulator key's limit line (one GET, nothing else).

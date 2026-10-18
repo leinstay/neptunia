@@ -168,11 +168,11 @@ test('buildCommandTree: the exact top-level list (19 entries, no warmup, no skil
     access: ['grant', 'revoke', 'list'],
     message: ['create', 'edit', 'delete', 'react'],
     diary: ['set', 'show', 'off', 'post'],
-    task: ['run', 'status', 'cancel', 'list'],
+    task: ['run', 'status', 'cancel', 'list', 'search'],
     alias: ['add', 'remove'],
     learning: ['add', 'remove'],
     lore: ['add', 'list', 'show', 'remove'],
-    memory: ['show', 'channel', 'server', 'recent', 'refresh', 'forget', 'affinity', 'wipe', 'journal', 'archive', 'restore', 'snapshot', 'private'],
+    memory: ['show', 'channel', 'server', 'recent', 'refresh', 'forget', 'affinity', 'wipe', 'journal', 'archive', 'restore', 'snapshot', 'private', 'search'],
   });
   const choices = (option) => option.choices.map((c) => c.value);
   const message = findOption(command.options, 'message');

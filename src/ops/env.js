@@ -47,6 +47,7 @@ export function createOpsEnv({
   record = null,
   metrics = null,
   lookup = null,
+  recall = null,
   usage = null,
   simKey = null,
   managementKey = null,
@@ -235,8 +236,10 @@ export function createOpsEnv({
     embedQueue,
     record,
     metrics,
-    // The web lookup, read only by the status card's search line.
+    // The web lookup: the status card's search line and `/nep task search` (src/ops/search.js).
     lookup,
+    // The server search of the recall runner (src/behavior/recall-run.js): `/nep memory search`.
+    recall,
     usage,
     // The simulator key, read only by the status card's one GET of its limit; never logged.
     simKey,

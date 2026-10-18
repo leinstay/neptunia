@@ -48,7 +48,7 @@ import { block, fillPromptTemplate } from './prompt.js';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { episodeDate } from '../memory/index.js';
-import { TEACHER_TOKEN_RE, fromTokens, occursAsWordStem, tokenIds } from '../memory/mentions.js';
+import { TEACHER_TOKEN_RE, fromTokens, isWordChar, occursAsWholeWord, occursAsWordStem, tokenIds } from '../memory/mentions.js';
 import { foldText, memberIdOf } from '../memory/recent.js';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 import { parseSkillsLines, takeSkillsLines } from '../skills/discovery.js';
@@ -1992,4 +1992,105 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
     .sort((a, b) => b.endTs - a.endTs)
     .map(({ score, self, endTs, ...window }) => window);
   return { windows: kept, scanned, hits: hits.length, meaningHits: meant.length };
+}
+
+/** A word of the question this long or longer (in characters) is a fallback search form. */
+const FALLBACK_FORM_MIN_CHARS = 5;
+/** A longer word is no search form (a pasted token, a link's tail): recall's own cap on a form. */
+const FALLBACK_FORM_MAX_CHARS = 40;
+
+/** The words of `text`: maximal runs of word characters (isWordChar). */
+function wordsIn(text) {
+  const words = [];
+  let current = '';
+  for (const ch of String(text ?? '')) {
+    if (isWordChar(ch)) current += ch;
+    else if (current) {
+      words.push(current);
+      current = '';
+    }
+  }
+  if (current) words.push(current);
+  return words;
+}
+
+/**
+ * The server search a direct question gets when the search classifier failed
+ * (recall.fallbackOnClassifierFailure), and the words of a question the persona's
+ * memory.search names (memorySearchPlan): built from the question's own words.
+ * `who`: for each stored member (`profiles`, the persona's own `selfId` left
+ * out) the first of their names or alias names that occurs in `text` as a
+ * whole word (both folded, src/memory/recent.js#foldText), lowercased, each
+ * once. `forms`: the words of `text` (runs of isWordChar) of 5 to 40
+ * characters with at least one letter, lowercased, deduplicated (folded),
+ * without the words of a name found or of the persona's `selfName`, longest
+ * first (ties in text order). Each list holds at most `maxForms` (0 or not an
+ * integer: none). No date range. Null when both lists are empty. Pure.
+ * @param {{ text: string, profiles?: object[], selfId?: string|null, selfName?: string, maxForms?: number }} params
+ * @returns {{ forms: string[], who: string[], from: null, to: null }|null}
+ */
+export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfName = '', maxForms = 0 } = {}) {
+  const cap = Number.isInteger(maxForms) && maxForms > 0 ? maxForms : 0;
+  const folded = foldText(text);
+  const skipWords = new Set(wordsIn(foldText(selfName)));
+  const who = [];
+  for (const profile of Array.isArray(profiles) ? profiles : []) {
+    if (who.length >= cap) break;
+    if (!profile || typeof profile !== 'object' || (selfId !== null && String(profile.id) === String(selfId))) continue;
+    const names = [...(Array.isArray(profile.names) ? profile.names : []), ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name)];
+    const hit = names.find((name) => typeof name === 'string' && [...foldText(name)].length >= 2 && occursAsWholeWord(folded, foldText(name)));
+    if (!hit) continue;
+    const form = oneLine(hit).toLowerCase();
+    if (!who.includes(form)) who.push(form);
+    for (const word of wordsIn(foldText(hit))) skipWords.add(word);
+  }
+  const seen = new Set();
+  const candidates = [];
+  for (const word of wordsIn(String(text ?? '').toLowerCase())) {
+    const chars = [...word].length;
+    if (chars < FALLBACK_FORM_MIN_CHARS || chars > FALLBACK_FORM_MAX_CHARS || !/\p{L}/u.test(word)) continue;
+    const key = foldText(word);
+    if (seen.has(key) || skipWords.has(key)) continue;
+    seen.add(key);
+    candidates.push({ word, chars, at: candidates.length });
+  }
+  const forms = candidates
+    .sort((a, b) => b.chars - a.chars || a.at - b.at)
+    .slice(0, cap)
+    .map((item) => item.word);
+  if (forms.length === 0 && who.length === 0) return null;
+  return { forms, who, from: null, to: null };
+}
+
+/** The separator of the list arguments of memory.search (`people`, `terms`). */
+const TOOL_LIST_SPLIT_RE = /[,;\n]/;
+
+/**
+ * The server search the persona's own `memory.search` call asks for (features.coreTools,
+ * src/skills/tools.js): no helper model, only the deterministic expansion -- her `terms` (exact
+ * words or phrases, comma-separated) and `people` (names, comma-separated) cleaned as the
+ * classifier's `server:` and `who:` values are (2 to 40 characters, at most three words each,
+ * lowercased, each once), then what fallbackLookupPlan finds in her `question` (its long words,
+ * a stored member's name or alias), her own first, at most `maxForms` each. `when` is read as
+ * a `when:` value (`YYYY-MM-DD`, `YYYY-MM-DD HH:MM`, `A..B` with either side open, in
+ * `timezone`; a future side cut to `now`): it bounds the search (never a mere locator). Her
+ * `channel` (an id, resolved by the caller) is kept as `channelId`: the stretches of other
+ * channels are left out (src/behavior/recall-run.js `quotes`). Null when nothing is left to
+ * search (no form, no name, no range). Pure.
+ * @param {{ question?: string, people?: string, terms?: string, when?: string, channelId?: string|null,
+ *   profiles?: object[], selfId?: string|null, selfName?: string, maxForms?: number, timezone?: string, now?: number }} input
+ * @returns {{ forms: string[], who: string[], from: number|null, to: number|null, channelId?: string }|null}
+ */
+export function memorySearchPlan({ question = '', people = '', terms = '', when = '', channelId = null, profiles = [], selfId = null, selfName = '', maxForms = RECALL_DEFAULTS.maxForms, timezone = 'UTC', now } = {}) {
+  const cap = intAtLeast(maxForms, RECALL_DEFAULTS.maxForms, 1);
+  const forms = [];
+  const who = [];
+  for (const part of String(terms ?? '').split(TOOL_LIST_SPLIT_RE)) addForms(forms, part, cap);
+  for (const part of String(people ?? '').split(TOOL_LIST_SPLIT_RE)) addForms(who, part, cap);
+  const fromQuestion = fallbackLookupPlan({ text: question, profiles, selfId, selfName, maxForms: cap });
+  for (const form of fromQuestion?.forms ?? []) if (forms.length < cap && !forms.includes(form)) forms.push(form);
+  for (const form of fromQuestion?.who ?? []) if (who.length < cap && !who.includes(form)) who.push(form);
+  const range = typeof when === 'string' && when.trim() ? parseRange(when, timezone, now) : null;
+  if (forms.length === 0 && who.length === 0 && !range) return null;
+  return { forms, who, from: range?.from ?? null, to: range?.to ?? null, ...(typeof channelId === 'string' && channelId ? { channelId } : {}) };
 }
