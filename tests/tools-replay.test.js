@@ -13,7 +13,7 @@ import { ImageCapError, createImageGen } from '../src/llm/images.js';
 import { createLookup } from '../src/web/lookup.js';
 import { createBraveSearch } from '../src/web/brave.js';
 import { createExaSearch } from '../src/web/exa.js';
-import { parseArgs, diaryTurnParams, diaryPromptLayers, dryRunHot, searchAvailableOf, diaryDayGate, diaryDayKey, noPostHot } from '../tools/replay.mjs';
+import { parseArgs, storedDumps, diaryTurnParams, diaryPromptLayers, dryRunHot, searchAvailableOf, diaryDayGate, diaryDayKey, noPostHot } from '../tools/replay.mjs';
 import { FIXTURE_PNG, MAX_PICTURES_KEY, fixtureImagesFetch, recordingImages, renderDiaryDayReport } from '../tools/lib/diary-day.mjs';
 import { REFUSED_EXIT } from '../tools/lib/cli.mjs';
 import { promptLayersHot } from '../tools/lib/prompt-layers.mjs';
@@ -290,4 +290,18 @@ test('replay: --diary-day --draw live spends OPENROUTER_SIM_KEY only; hot acts t
   assert.deepEqual(view.config.features, { dryRun: false, typingSimulation: false, diary: true });
   assert.deepEqual(view.config.bot, { dryRunChannelId: '', timezone: 'UTC' });
   assert.equal(hot.config.features.dryRun, true, 'the real config is untouched');
+});
+
+test('replay: --show-request reads the base dumps of a turn by default, --steps adds each attempt\'s later requests after it', () => {
+  const journalDir = tempDir('nep-replay-dumps-');
+  const day = path.join(journalDir, 'requests', '2026-10-18');
+  fs.mkdirSync(day, { recursive: true });
+  for (const name of ['t-ab-1.json', 't-ab-1-s1.json', 't-ab-1-s10.json', 't-ab-1-s2.json', 't-ab-2.json', 't-ab-2-s1.json', 't-ab-cd-1.json', 'notes.txt']) {
+    fs.writeFileSync(path.join(day, name), JSON.stringify({ name }));
+  }
+  assert.deepEqual(storedDumps(journalDir, 't-ab').map(({ dump }) => dump.name), ['t-ab-1.json', 't-ab-2.json']);
+  assert.deepEqual(storedDumps(journalDir, 't-ab', { steps: true }).map(({ dump }) => dump.name), ['t-ab-1.json', 't-ab-1-s1.json', 't-ab-1-s2.json', 't-ab-1-s10.json', 't-ab-2.json', 't-ab-2-s1.json']);
+  assert.equal(parseArgs(['--show-request', 't-ab', '--steps']).steps, true);
+  assert.equal(parseArgs(['--show-request', 't-ab']).steps, false);
+  assert.throws(() => parseArgs(['c1', 'm1', '--steps']), /usage/i);
 });

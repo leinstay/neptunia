@@ -711,6 +711,23 @@ test('journal: dumpRequest writes <day>/<turnId>-<attempt>.json with the request
   assert.ok(fs.files.has(path.join(DATA, 'guilds', 'g1', 'private', 'u9', 'journal', 'requests', '2026-10-13', 't-2-1.json')));
 });
 
+test('journal: dumpRequest of a tool-loop step writes <turnId>-<attempt>-s<step>.json beside the base dump, same shape', async () => {
+  const { journal, fs } = dumpJournal();
+  const request = { messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'chat <result>ok</result> task' }] };
+  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, request, raw: 'base', usage: null });
+  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, step: 2, request, raw: '<msg>δεύτερο</msg>', usage: { prompt: 5, completion: 1 } });
+  const base = path.join(REQUESTS, '2026-10-13', 't-1-1.json');
+  const step = path.join(REQUESTS, '2026-10-13', 't-1-1-s2.json');
+  assert.deepEqual([...fs.files.keys()].sort(), [base, step].sort());
+  const dump = JSON.parse(fs.files.get(step));
+  assert.deepEqual(Object.keys(dump), ['v', 'turnId', 'attemptId', 'step', 'recordedAt', 'system', 'parts', 'raw', 'usage']);
+  assert.equal(dump.step, 2);
+  assert.equal(dump.system, 'sys');
+  assert.deepEqual(dump.parts, [{ type: 'text', text: 'chat <result>ok</result> task' }]);
+  assert.equal(dump.raw, '<msg>δεύτερο</msg>');
+  assert.ok(!('step' in JSON.parse(fs.files.get(base))), 'the base dump has no step');
+});
+
 test('journal: pruneRequests deletes days older than keepRequests and keeps the rest', async () => {
   const { journal, fs } = dumpJournal({ keepRequests: 3 });
   for (const day of ['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-12', '2026-10-13']) fs.files.set(path.join(REQUESTS, day, 't-1.json'), '{}');

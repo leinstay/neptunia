@@ -24,7 +24,8 @@
 // clean stop (`markRunning` / `clearRunning`), lets the next start record an `unclean-stop`.
 //
 // Request dumps (`dumpRequest`): beside the journal, `requests/<day>/<turnId>-<attempt>.json` holds the
-// request as the client sent it (system string and message parts, pictures reduced to their size)
+// request as the client sent it (a tool-loop step's or the follow-up's request after a call, the
+// same shape with its `step`, `<turnId>-<attempt>-s<step>.json`) (system string and message parts, pictures reduced to their size)
 // with the model's raw answer and its usage, written whole through a `.tmp` file and a rename
 // (not the append store: it is one document, not a line). Written only while
 // `journal.keepRequests` is above 0; `pruneRequests` deletes the day directories older than that
@@ -956,14 +957,15 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
 
   /**
    * Write one request and its raw answer as `requests/<day>/<turnId>-<attemptId>.json` (the day
-   * of now, UTC) when `journal.keepRequests` is above 0. `request` is the client's message list
+   * of now, UTC; with a `step`, a later request of the turn's tool loop or its follow-up,
+   * `<turnId>-<attemptId>-s<step>.json` with `step` in the body) when `journal.keepRequests` is above 0. `request` is the client's message list
    * (`{ messages }`: the system message, then the user message) or `{ system, parts }`. Rejects
    * on a disk error; the caller logs it.
    * @param {string} guildId
-   * @param {{ turnId: string, attemptId?: number, request: object, raw?: string, usage?: object|null, privateUserId?: string|null }} dump
+   * @param {{ turnId: string, attemptId?: number, step?: number|null, request: object, raw?: string, usage?: object|null, privateUserId?: string|null }} dump
    * @returns {Promise<void>}
    */
-  async function dumpRequest(guildId, { turnId, attemptId = 1, request, raw = '', usage = null, privateUserId = null } = {}) {
+  async function dumpRequest(guildId, { turnId, attemptId = 1, step = null, request, raw = '', usage = null, privateUserId = null } = {}) {
     if (keepRequests() === 0) return;
     const messages = Array.isArray(request?.messages) ? request.messages : [];
     const system = typeof request?.system === 'string' ? request.system : textOfContent(messages[0]?.content);
@@ -971,8 +973,9 @@ export function createJournal({ appendStore, dataDir, config = () => ({}), now =
     const parts = (Array.isArray(userContent) ? userContent : [{ type: 'text', text: textOfContent(userContent) }]).map(dumpPart);
     const at = new Date(now()).toISOString();
     const dir = path.join(journalDir(guildId, privateUserId), 'requests', utcDay(now()));
-    const file = path.join(dir, `${turnId}-${attemptId}.json`);
-    const body = JSON.stringify({ v: JOURNAL_VERSION, turnId, attemptId, recordedAt: at, system, parts, raw: typeof raw === 'string' ? raw : '', usage });
+    const stepped = Number.isInteger(step) && step > 0;
+    const file = path.join(dir, stepped ? `${turnId}-${attemptId}-s${step}.json` : `${turnId}-${attemptId}.json`);
+    const body = JSON.stringify({ v: JOURNAL_VERSION, turnId, attemptId, ...(stepped ? { step } : {}), recordedAt: at, system, parts, raw: typeof raw === 'string' ? raw : '', usage });
     await unlocked();
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(`${file}.tmp`, body);
