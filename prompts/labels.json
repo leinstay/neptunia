@@ -320,7 +320,7 @@
         "last30": "last 30 days"
       },
       "agentNoRuns": "{agent} · no runs recorded",
-      "agentContext": "{agent} · last wave {wave}: {turns} turns, context mean {mean}, peak {peak}, {usd} USD",
+      "agentContext": "{agent} · wave {wave}: {turns} turns, context avg {mean}, peak {peak}, {usd} USD",
       "agentEstimate": "agent USD is OpenCode's estimate at each agent's own price, not the provider's bill"
     }
   },
