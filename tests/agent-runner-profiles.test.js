@@ -9,7 +9,8 @@
 // (the override under the private directory, the tracked prompt in
 // agents/<id>/), and the agents/ folder the profiles are built from: the
 // real one, and temporary trees with a valid worker, an unknown tool, an
-// unknown shell class, a missing key and a consultation the runner skips;
+// unknown shell class, a missing key, a consultation and development
+// profiles the runner skips (and a bad development key refused);
 // the tools every agent is denied (skill, todowrite, ...) and the web
 // agent's `web-search` command with its wrapper.
 // Pure but for reading config.json, agents/ and a temporary directory.
@@ -20,9 +21,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.js';
 import { onLog } from '../src/log.js';
-import { WEB, SERVER, PROFILES, ALWAYS_DENIED, AgentProfileError, SHELL_CLASSES, WEB_TOOLS_DIR, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, TAR_DENIES, WEB_FILE_RULES, WEB_SHELL_ALLOW, WEB_TMP_DIR, YT_DLP_DENIES, withheldShellDenies } from '../src/agent-runner/profiles.js';
+import { WEB, SERVER, PROFILES, ALWAYS_DENIED, AgentProfileError, DEVELOPMENT_ROLES, DEVELOPMENT_TOOLS, SHELL_CLASSES, WEB_TOOLS_DIR, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, TAR_DENIES, WEB_FILE_RULES, WEB_SHELL_ALLOW, WEB_TMP_DIR, YT_DLP_DENIES, withheldShellDenies } from '../src/agent-runner/profiles.js';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldGlobsOf, withheldRootsOf } from '../src/agent-runner/policy.js';
-import { ROLE_DEFAULTS } from '../src/llm/roles.js';
+import { OPENCODE_ROLES, ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { resolvePaths } from '../src/paths.js';
 import { tempDir } from './fixtures/tmp.js';
 
@@ -748,9 +749,78 @@ test('a consultation is skipped by loadProfiles and listed by listAgents with th
   withAgentsTree({ consult: { ...consult, role: 'agent.advice' } }, (rootDir) => assertRefused(rootDir, 'consult', 'role'));
 });
 
-test('the real agents/ folder: web and server workers, no advice consultation, each prompt tracked beside its profile', () => {
+/** A development profile.json that passes every check, `changes` merged over it (an `undefined` value drops the key). */
+function developmentProfile(id, changes = {}) {
+  const base = {
+    id,
+    kind: 'development',
+    role: 'dev',
+    prompt: 'prompt.md',
+    override: null,
+    tools: ['bash', 'read', 'edit'],
+    effort: 'medium',
+    limits: { usd: 2, steps: 50, minutes: 30 },
+    description: 'A test development agent.',
+  };
+  const merged = { ...base, ...changes };
+  for (const [key, value] of Object.entries(merged)) if (value === undefined) delete merged[key];
+  return merged;
+}
+
+test('development profiles: listed by listAgents, skipped by loadProfiles; roles are the development agents of OPENCODE_ROLES', () => {
+  assert.deepEqual([...DEVELOPMENT_ROLES], ['thinker', 'dev', 'writer']);
+  for (const role of DEVELOPMENT_ROLES) assert.ok(OPENCODE_ROLES.includes(role), role);
+  assert.ok(!DEVELOPMENT_TOOLS.includes('task'), 'no subagents');
+  withAgentsTree({ build: developmentProfile('build'), probe: workerProfile('probe') }, (rootDir) => {
+    assert.deepEqual(Object.keys(loadProfiles({ rootDir, env: {} })), ['probe']);
+    const all = listAgents({ rootDir });
+    assert.deepEqual(all.map((agent) => [agent.id, agent.kind]), [['build', 'development'], ['probe', 'worker']]);
+    assert.deepEqual({ ...all[0], tools: [...all[0].tools], limits: { ...all[0].limits } }, developmentProfile('build'));
+  });
+});
+
+test('development profiles: a bad key is refused with AgentProfileError naming the agent and the key', () => {
+  const cases = [
+    [{ role: 'web' }, 'role'],
+    [{ role: 'drawing' }, 'role'],
+    [{ tools: ['bash', 'task'] }, 'tools'],
+    [{ tools: [] }, 'tools'],
+    [{ tools: ['read', 'read'] }, 'tools'],
+    [{ effort: 'extreme' }, 'effort'],
+    [{ effort: undefined }, 'effort'],
+    [{ limits: { usd: 2, steps: 50 } }, 'limits.minutes'],
+    [{ limits: { usd: 2, steps: 1.5, minutes: 30 } }, 'limits.steps'],
+    [{ limits: { usd: 2, steps: 50, minutes: 30, seconds: 60 } }, 'limits.seconds'],
+    [{ prompt: null }, 'prompt'],
+    [{ shell: 'server-read-only' }, 'shell'],
+    [{ socket: '/run/x/sock' }, 'socket'],
+  ];
+  for (const [changes, key] of cases) {
+    withAgentsTree({ build: developmentProfile('build', changes) }, (rootDir) => assertRefused(rootDir, 'build', key));
+  }
+});
+
+test('the development agents\' folders hold no absolute server path and no Cyrillic', () => {
+  for (const id of DEVELOPMENT_ROLES) {
+    const dir = path.join(ROOT, 'agents', id);
+    for (const name of fs.readdirSync(dir)) {
+      const text = fs.readFileSync(path.join(dir, name), 'utf8');
+      assert.doesNotMatch(text, /(^|[^A-Za-z0-9._-])\/(srv|var|opt|etc|home|root|run)(\/|\b)/, `${id}/${name}`);
+      assert.doesNotMatch(text, /[\u0400-\u04FF]/, `${id}/${name}`);
+    }
+  }
+});
+
+test('the real agents/ folder: web and server workers, three development agents, no advice consultation, each prompt tracked beside its profile', () => {
   const agents = listAgents();
-  assert.deepEqual(agents.map((agent) => [agent.id, agent.kind, agent.role]), [['server', 'worker', 'server'], ['web', 'worker', 'web']]);
+  assert.deepEqual(agents.map((agent) => [agent.id, agent.kind, agent.role]), [
+    ['dev', 'development', 'dev'],
+    ['server', 'worker', 'server'],
+    ['thinker', 'development', 'thinker'],
+    ['web', 'worker', 'web'],
+    ['writer', 'development', 'writer'],
+  ]);
+  for (const agent of agents) assert.ok(fs.existsSync(path.join(ROOT, 'agents', agent.id, agent.prompt)), agent.id);
   assert.deepEqual(Object.keys(PROFILES).sort(), ['server', 'web']);
   assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'advice')), false, 'the advice profile is gone');
   for (const profile of [WEB, SERVER]) {
