@@ -418,20 +418,26 @@ Settings for the server-history search (`features.recall`). When the lookup clas
 
 ### `recall.prefetch`
 
-The automatic memory prefetch (`features.coreTools` with `features.memoryPrefetch`): what it searches with, how it judges relevance and how much it may show. It reads the record (`recall.recordDays`), the stored memory and the archive (`recall.memoryItems`, `recall.archiveMonths`) and, with `features.meaningSearch`, the vector index; it sends no Discord request and counts no `recall.maxPerDay` run. Logged `recall: prefetched`.
+The automatic memory prefetch (`features.coreTools` with `features.memoryPrefetch`): what it searches with, how it judges relevance and how much it may show. It searches the whole record through an in-memory word index (built on first use, refreshed in the background), the stored memory and the archive (`recall.memoryItems`, `recall.archiveMonths`) and, with `features.meaningSearch`, the vector index; it sends no Discord request and counts no `recall.maxPerDay` run. The words it searches with are the message's rarest ones in the server's history (no model picks them); word endings are learned from the record itself. Logged `recall: prefetched`.
 
 | Key | Default | What it does |
 |---|---|---|
 | `deadlineMs` | `1000` | How long the whole prefetch may take. What has not settled by then is abandoned; the request is built with what had, or with the timeout status line. At least 1 |
-| `candidates` | `20` | Candidates per lane and search: rows of the vector index per lane, and record hits per lane by words (in windows of up to four hits). At least 1 |
+| `candidates` | `20` | Candidates per lane and search: rows of the vector index per lane, and record hits per lane by words (in windows of up to four hits; three times as many word hits are checked by their meaning first). At least 1 |
 | `maxExcerpts` | `5` | The most excerpts shown in `<retrieved>`. At least 1; fewer (or none) when fewer are relevant |
 | `maxTokens` | `1500` | The most estimated tokens of all excerpts together; an excerpt that does not fit is skipped and the next tried. At least 1 |
 | `excerptChars` | `1200` | Characters of one history excerpt, cut by whole lines from its far ends around its relevant lines (a relevant line is never cut) |
 | `contextLines` | `3` | Lines before a short or deictic trigger joined into its third lane (`recent`). `0` = no such lane |
 | `contextTokens` | `500` | The most estimated tokens of that lane's lines with the trigger |
 | `shortWords` | `4` | A trigger of at most this many words is short: it gets the `recent` lane, and a trigger of two words or more up to this many is also searched as one exact phrase |
-| `minFormsMatched` | `2` | Word forms of a lane a history line or stored item must match to count as relevant (fewer when the lane has fewer; a quoted phrase match always counts; a name alone never does). `0` counts as 1 |
-| `minMeaningScore` | `0.35` | The least cosine similarity a meaning-search row needs to count as relevant, from `0` to `1`. Rows below it are dropped, so a weak match shows nothing |
+| `minFormsMatched` | `2` | Word forms of a lane a stored item must match to count as relevant (fewer when the lane has fewer; a quoted phrase match always counts; a name alone never does). `0` counts as 1 |
+| `minMeaningScore` | `0.35` | The least cosine similarity a meaning-search row needs to count at all, from `0` to `1`; also the least a history line found by two or more words needs when the meaning search is on. Rows below it are dropped, so a weak match shows nothing |
+| `strongMeaningScore` | `0.55` | A meaning-search row at or above this cosine counts on its own; below it, it counts only when one of the message's distinctive words or phrases appears on its line or within two lines of it (speakers' names included). A line of fewer than three words never counts by meaning. From `0` to `1` |
+| `singleTermScore` | `0.45` | The least cosine a history line found by only one rare word needs to count (with the meaning search on; without it such a line never counts). From `0` to `1` |
+| `maxTermShare` | `0.002` | A word of the message is a search term only when at most this share of the record's messages hold it (word endings folded); the rarest `recall.maxForms` are used. From `0` to `1` |
+| `rareTermDf` | `30` | A word held by at most this many messages is rare: one such word can find a line on its own (see `singleTermScore`) |
+| `maxPhraseDf` | `20` | Two or three adjacent words of the message (each of three letters or more) are searched as a phrase when the record holds them together in at most this many messages, at least once. At least 1 |
+| `minPhraseShare` | `0.2` | ... and when at least this share of the messages holding the phrase's rarer word hold the phrase (the words belong together, like a catchphrase). A history line holding such a phrase, or a quoted phrase of the message, always counts. From `0` to `1` |
 | `trivial` | `["hi", "hello", ...]` | Bare greetings and acknowledgements that are not searched (compared folded: case and accents ignored, the persona's names and Discord tokens left out). A short phrase not on the list is searched. The local layer adds the server's languages |
 | `deictic` | `["that", "this", "it", ...]` | Words that make a trigger deictic (it points at something said before): such a trigger also gets the `recent` lane whatever its length |
 

@@ -308,16 +308,26 @@ on that list, a catchphrase, is searched. The query lanes, each searched on its 
 verbatim), `reply` (when it replies to a line the turn has: that line, then the trigger, each as `Name: text`) and,
 only for a trigger of at most `recall.prefetch.shortWords` words or with a word of `recall.prefetch.deictic`,
 `recent` (up to `recall.prefetch.contextLines` lines just before it, at most `recall.prefetch.contextTokens`
-tokens, then the trigger). Each lane goes through the existing local searches: by words, its long words, the stored
-names and aliases it holds and its quoted phrases (and a short trigger whole) matched in the record of the last
-`recall.recordDays` days and in the stored memory and archive (folded: case and diacritics; word endings
-allowed); by meaning (`features.meaningSearch` exactly true), one embedding request for all lanes (purpose
-`recall-query`) and the vector index, `recall.prefetch.candidates` rows per lane. A hit counts only when it is
-relevant: a phrase matched, at least `recall.prefetch.minFormsMatched` of the lane's word forms matched (fewer when
-the lane has fewer; a name alone never counts), or a cosine of at least `recall.prefetch.minMeaningScore`. The lanes'
-ranked lists are fused by reciprocal rank (k = 60), windows sharing a line merged into one, and at most
-`recall.prefetch.maxExcerpts` excerpts kept within `recall.prefetch.maxTokens`, each cut to
-`recall.prefetch.excerptChars` around its relevant lines with its neighbours and reply chain. Zero excerpts is a
+tokens, then the trigger). Each lane goes through the local searches: by words, an in-memory index of the whole
+record gives the lane's distinctive terms (its words held by at most `recall.prefetch.maxTermShare` of the record's
+messages, word endings folded by endings learned from the record, the rarest `recall.maxForms`, a stored member's
+other names and aliases as alternates, her own names left out) and phrases (two or three adjacent words the record
+holds together, rarely and as a set phrase: `recall.prefetch.maxPhraseDf`, `recall.prefetch.minPhraseShare`; and
+its quoted phrases), searched in the whole record and, as forms, in the stored memory and archive; by meaning
+(`features.meaningSearch` exactly true), one embedding request for all lanes (purpose `recall-query`) and the vector
+index, `recall.prefetch.candidates` rows per lane. A hit counts only when it is relevant. A history line found by
+words: a phrase matched; or two terms or more (with the meaning search on, its own cosine at least
+`recall.prefetch.minMeaningScore`); or one rare term (held by at most `recall.prefetch.rareTermDf` messages) with a
+cosine of at least `recall.prefetch.singleTermScore`. A line found by meaning: a cosine of at least
+`recall.prefetch.minMeaningScore`, three words or more, and either a cosine of at least
+`recall.prefetch.strongMeaningScore` or a term or phrase of the lane on it or within two lines of it. A stored item:
+a phrase, or at least `recall.prefetch.minFormsMatched` of the lane's terms (fewer when the lane has fewer; a name
+alone never counts); found by meaning, a cosine of at least `recall.prefetch.strongMeaningScore` or a term or
+phrase of the lane in its text. The lanes' ranked lists are fused by reciprocal rank
+(k = 60; stored items at half weight, so the chat's own stretches come first), windows sharing a line merged into
+one, and at most `recall.prefetch.maxExcerpts` excerpts kept within `recall.prefetch.maxTokens`, each cut to
+`recall.prefetch.excerptChars` around its best line (and the relevant lines within six lines of it) with its
+neighbours and reply chain. Zero excerpts is a
 valid answer. The scope rules of a recall run apply before anything is kept: a channel the pull rail refuses toward
 this one, another member's private lines, and the turn's own chat never reach the block; a private chat searches on
 its partner's behalf only. The whole search is bounded by `recall.prefetch.deadlineMs`; what is still out then is

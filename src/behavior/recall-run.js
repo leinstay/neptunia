@@ -98,7 +98,8 @@ import {
   searchPlan,
   snowflakeAt,
 } from './recall.js';
-import { fitExcerpts, lanePlan, lexicalRelevance, rankPrefetch } from './prefetch.js';
+import { fitExcerpts, focusHits, indexedPlan, indexRows, lanePlan, lexicalKeep, quotedPhrases, rankPrefetch } from './prefetch.js';
+import { indexQuery, indexWords, nameAlternates, querySupport, recordIndexOf, searchRecordIndex } from '../memory/record-index.js';
 
 /** The state.json fields of the daily recall counter. */
 export const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
@@ -107,6 +108,14 @@ const SEARCH_SHARE = 0.5;
 /** The share of `recall.timeoutMs` at which a search still out is cut: the windows and the summary need the rest. */
 const PREPARE_SHARE = 0.6;
 const TIMEOUT = Symbol('timeout');
+/** The lines on each side of a meaning hit of the prefetch whose words count as its support. */
+const MEANING_SUPPORT_LINES = 2;
+/** A meaning hit of the prefetch on a line of fewer words (an acknowledgement, an emoji) is no hit: its cosine comes from its neighbours. */
+const MEANING_MIN_WORDS = 3;
+/** How many lines apart the hits marked in one prefetch excerpt may lie (focusHits). */
+const FOCUS_LINES = 6;
+/** How many times `recall.prefetch.candidates` word hits of a lane are checked by their cosine before the best are kept. */
+const LEXICAL_POOL = 3;
 const DEFAULT_TIMERS = Object.freeze({
   set: (fn, ms) => setTimeout(fn, ms),
   clear: (timer) => clearTimeout(timer),
@@ -1333,24 +1342,37 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
    * features.memoryPrefetch, decided by the caller): no model request but one embedding, no
    * Discord request, no daily recall run counted. Each lane (`lanes`, prefetchLanes') goes through
    * the local searches of a run, all at once:
-   * - words: lanePlan's forms and phrases matched against the record of the last
-   *   `recall.recordDays` days (matchRecord, `ceil(recall.prefetch.candidates / 4)` windows of up
-   *   to four hits each; a name alone only locates and is not relevant) and against the stored
-   *   memory and the archive (storedMemory, the recent lines left out: `<recent>` shows them);
+   * - words: the record index (src/memory/record-index.js, recordIndexOf: the whole record, kept
+   *   in memory and refreshed in the background; the guild's, and a private partner's own) gives
+   *   the lane's distinctive terms and phrases (indexQuery: `recall.maxForms` terms of at most
+   *   `recall.prefetch.maxTermShare` of the messages, phrases by `recall.prefetch.maxPhraseDf` and
+   *   `recall.prefetch.minPhraseShare`, the persona's names left out, members' aliases as
+   *   alternates) and its hits (searchRecordIndex, `recall.prefetch.rareTermDf`), at most three
+   *   times `recall.prefetch.candidates`; with the meaning search on each hit's cosine is read from
+   *   the vector index and lexicalKeep decides; the best `recall.prefetch.candidates` are read
+   *   back from the record around them (matchRecord, `ceil(candidates / 4)` windows). The stored
+   *   memory and the archive are searched with those terms as forms (indexedPlan; lanePlan's when
+   *   the index has none; storedMemory, the recent lines left out: `<recent>` shows them);
    * - meaning (features.meaningSearch exactly true, the index and the embedding client given):
-   *   one embedding request for every lane's text (purpose `recall-query`), then per lane the
-   *   vector index, `recall.prefetch.candidates` rows, those under
+   *   one embedding request for every lane's text (purpose `recall-query`, shared with the word
+   *   hits' check), then per lane the vector index, `recall.prefetch.candidates` rows, those under
    *   `recall.prefetch.minMeaningScore` dropped; record rows read around (matchRecord with no
-   *   word scan), archive rows as stored-memory items.
+   *   word scan) and kept when their line has MEANING_MIN_WORDS words or more and either a cosine of
+   *   at least `recall.prefetch.strongMeaningScore` or a term or phrase of the lane's query within
+   *   MEANING_SUPPORT_LINES lines (querySupport, speakers' names included); archive rows as
+   *   stored-memory items by the same rule over their text.
    * The scope rules are a run's (scopeOf): a refused channel's lines, items and rows, a private
    * line of another member, and the turn's own chat (`history`'s ids, on a server turn) never
    * reach the result. The record and the archive are read once for all lanes (sharedSource).
    * Bounded by `recall.prefetch.deadlineMs`: what has not settled then is abandoned, what has
    * stands. The relevant hits are fused and cut by rankPrefetch and fitExcerpts
    * (`recall.prefetch.maxExcerpts`, `recall.prefetch.maxTokens`); each window rendered as a
-   * stretch (no indices, relevant lines marked, cut to `recall.prefetch.excerptChars` by whole lines
-   * from its far ends, cached captions only, `decorate` applied to its messages). `at` (a
-   * replay's moment, epoch ms) bounds every source to what existed then; live it is now.
+   * stretch (no indices, its best hit and the hits within FOCUS_LINES lines of it marked
+   * (focusHits), cut to `recall.prefetch.excerptChars` by whole lines from its far ends, cached
+   * captions only, `decorate` applied to its messages). `at` (a replay's moment, epoch ms) bounds
+   * every source to what existed then (an archive entry recorded after it left out); live it is
+   * now. `stats.stages`: the milliseconds of each stage that ran (index, embed, check, record,
+   * read, memory).
    * Resolves null for no lane or with features.recall off; else `{ status, basis, excerpts, ms,
    * stats }`: `status` `ok` (an excerpt), `none` (searched, nothing relevant), `timeout` (the
    * deadline passed before anything relevant settled) or `unavailable` (no guild to read on behalf
@@ -1416,7 +1438,16 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
             }
           : null,
       );
-      const archiveShared = sharedSource(archive);
+      // A replay's moment bounds the archive too: an entry recorded after it did not exist yet.
+      const archiveShared = sharedSource(
+        bounded && typeof archive?.iterate === 'function'
+          ? {
+              async *iterate(id, query) {
+                for await (const entry of archive.iterate(id, query)) if (!(Date.parse(entry?.recordedAt) > until)) yield entry;
+              },
+            }
+          : archive,
+      );
       const trigger = list.find((lane) => lane.kind === 'message')?.words ?? '';
       const plans = list.map((lane) =>
         lanePlan(lane, { profiles, selfId, selfName, maxForms: settings.maxForms, shortWords: p.shortWords, minFormsMatched: p.minFormsMatched, trigger }),
@@ -1451,47 +1482,89 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
         );
       };
       const memoryItems = (items, keep) => items.filter((item) => item.kind !== 'recent' && keep(item));
+      // The record index (src/memory/record-index.js): the guild's, and a private partner's own; built
+      // once per process, refreshed in the background. Shared by every lane's word search.
+      const stages = {};
+      const timed = (name, promise) => {
+        const at = now();
+        return promise.finally(() => {
+          stages[name] = Math.max(stages[name] ?? 0, now() - at);
+        });
+      };
+      const indexes =
+        typeof record?.iterate === 'function'
+          ? timed(
+              'index',
+              Promise.all([
+                recordIndexOf(record, guildId, { now }),
+                ...(privateUserId ? [recordIndexOf(record, guildId, { privateUserId, now })] : []),
+              ]),
+            )
+          : null;
+      const alternates = nameAlternates(profiles, selfId);
+      const skipWords = [selfName, ...(Array.isArray(config.bot?.nameTriggers) ? config.bot.nameTriggers : [])].filter((name) => typeof name === 'string');
+      const allowDoc = (doc) => allowLine({ scope: doc.scope });
+      // Per lane: the index's queries (its distinctive terms and phrases), once.
+      const laneQueries = list.map((lane, i) =>
+        !indexes
+          ? Promise.resolve(null)
+          : indexes.then((all) => all.map((index) => indexQuery(index, lane.words, { until, exclude: ownIds, skipWords, alternates, quoted: quotedPhrases(lane.words), maxTerms: settings.maxForms, maxTermShare: p.maxTermShare, rareTermDf: p.rareTermDf, maxPhraseDf: p.maxPhraseDf, minPhraseShare: p.minPhraseShare }))),
+      );
+      laneQueries.forEach((queried) => queried.catch(() => {}));
+      const meaningOn = config.features?.meaningSearch === true && typeof embed === 'function' && typeof vectors?.search === 'function';
+      const unseen = (meta) => meta?.kind === 'archive' || !ownIds.has(meta?.id);
+      const shared = (meta) => unseen(meta) && (meta?.kind === 'archive' || (typeof meta?.channelId === 'string' && sourceOf(meta.channelId) !== null));
+      const range = { from: null, to: bounded ? until : null };
+      // One embedding request for every lane's text, shared by the meaning search and the word hits' check.
+      const laneVectors = meaningOn ? timed('embed', embed(list.map((lane) => oneLine(lane.text)), { config, purpose: 'recall-query', signal })) : Promise.resolve(null);
+      laneVectors.catch(() => {});
+      /** The cosine of each of `ids` (record messages) to `vector`, from the vector index (none without a row). */
+      const cosinesOf = async (vector, ids) => {
+        if (!vector || ids.size === 0) return new Map();
+        const only = (meta) => meta?.kind !== 'archive' && ids.has(meta?.id);
+        let rows = await vectors.search(guildId, vector, { ...range, k: ids.size, filter: only });
+        if (privateUserId) rows = [...rows, ...(await vectors.search(guildId, vector, { ...range, k: ids.size, filter: only, privateUserId }))];
+        const out = new Map();
+        for (const row of Array.isArray(rows) ? rows : []) out.set(row.meta.id, Math.max(out.get(row.meta.id) ?? -1, row.score));
+        return out;
+      };
       const tasks = [];
       plans.forEach((plan, i) => {
-        if (!plan) return;
-        const forms = [...plan.phrases, ...plan.forms];
-        if (recordShared && settings.recordDays > 0 && forms.length > 0) {
+        if (indexes && recordShared) {
           tasks.push(
             task('record', async () => {
-              const found = await matchRecord(guildId, { ...recordOptions, range: { from: null, to: until }, participants: [], forms, aliases: [], recordDays: settings.recordDays, maxWindows: Math.ceil(p.candidates / 4) });
+              const [all, queries] = await Promise.all([indexes, laneQueries[i]]);
+              const hits = all.flatMap((index, j) => searchRecordIndex(index, queries[j], { until, exclude: ownIds, allow: allowDoc, limit: p.candidates * LEXICAL_POOL, rareTermDf: p.rareTermDf }));
+              if (hits.length === 0 || signal.aborted) return null;
+              // With the meaning search on, each word hit's own cosine checks it (lexicalKeep); without, words alone.
+              const vector = meaningOn ? ((await laneVectors.catch(() => null))?.[i] ?? null) : null;
+              const cosines = vector ? await timed('check', cosinesOf(vector, new Set(hits.map((hit) => hit.messageId)))) : null;
+              const rows = indexRows([hits.filter((hit) => lexicalKeep(hit, cosines, p))], p.candidates);
+              if (rows.length === 0 || signal.aborted) return null;
+              const found = await timed('record', matchRecord(guildId, { ...recordOptions, range: { from: null, to: until }, forms: [], aliases: [], recordDays: 0, maxWindows: Math.ceil(p.candidates / 4), meaning: rows }));
               const windows = found.windows.map(inTime);
-              const scored = [];
-              for (const window of windows) {
-                for (const message of window.messages) {
-                  if (!window.hitIds.has(message.id)) continue;
-                  const relevance = lexicalRelevance(message, plan);
-                  if (relevance.relevant) scored.push({ id: message.id, ts: message.ts, relevance });
-                }
-              }
-              scored.sort((a, b) => Number(b.relevance.phrase) - Number(a.relevance.phrase) || b.relevance.matched - a.relevance.matched || b.ts - a.ts);
-              return { lane: list[i].kind, windows, lexical: [...new Set(scored.map((hit) => hit.id))] };
+              const shown = new Set(windows.flatMap((window) => window.messages.map((m) => m.id)));
+              return { lane: list[i].kind, windows, lexical: rows.map((row) => row.id).filter((id) => shown.has(id)) };
             }),
           );
         }
-        if (forms.length > 0 || plan.who.length > 0) {
-          tasks.push(
-            task('memory', async () => {
-              const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server: { forms, who: plan.who, from: null, to: bounded ? until : null }, recent: false, allowEntry, privateUserId, signal, source: archiveShared });
-              const relevant = (item) => countFormsIn([item.text], plan.phrases) > 0 || countFormsIn([item.text], plan.forms) >= Math.max(1, plan.need);
-              return { lane: list[i].kind, memory: memoryItems(memory.items, relevant) };
-            }),
-          );
-        }
+        tasks.push(
+          task('memory', async () => {
+            const queries = await laneQueries[i].catch(() => null);
+            const used = queries ? indexedPlan(plan, queries, { maxForms: settings.maxForms, minFormsMatched: p.minFormsMatched }) : plan;
+            if (!used) return null;
+            const forms = [...used.phrases, ...used.forms];
+            if (forms.length === 0 && used.who.length === 0) return null;
+            const memory = await timed('memory', storedMemory({ config, settings, guild, guildId, channel, partner, server: { forms, who: used.who, from: null, to: bounded ? until : null }, recent: false, allowEntry, privateUserId, signal, source: archiveShared }));
+            const relevant = (item) => countFormsIn([item.text], used.phrases) > 0 || countFormsIn([item.text], used.forms) >= Math.max(1, used.need);
+            return { lane: list[i].kind, memory: memoryItems(memory.items, relevant) };
+          }),
+        );
       });
-      const meaningOn = config.features?.meaningSearch === true && typeof embed === 'function' && typeof vectors?.search === 'function';
       if (meaningOn) {
         tasks.push(
           task('meaning', async () => {
-            const texts = list.map((lane) => oneLine(lane.text));
-            const vectorsOf = await embed(texts, { config, purpose: 'recall-query', signal });
-            const unseen = (meta) => meta?.kind === 'archive' || !ownIds.has(meta?.id);
-            const shared = (meta) => unseen(meta) && (meta?.kind === 'archive' || (typeof meta?.channelId === 'string' && sourceOf(meta.channelId) !== null));
-            const range = { from: null, to: bounded ? until : null };
+            const vectorsOf = await laneVectors;
             await Promise.all(
               list.map(async (lane, i) => {
                 const vector = vectorsOf?.[i];
@@ -1502,15 +1575,34 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
                 stats.meaning += kept.length;
                 const recordRows = kept.filter((row) => row.meta.kind !== 'archive').map(({ meta }) => ({ id: meta.id, channelId: meta.channelId, occurredAt: meta.occurredAt, sourceIds: Array.isArray(meta.sourceIds) ? meta.sourceIds : [] }));
                 const archiveRows = kept.filter((row) => row.meta.kind === 'archive').map(({ meta }) => ({ id: meta.id, occurredAt: meta.occurredAt }));
+                // Below `strongMeaningScore` a row needs a word of the lane's question (its index query's
+                // terms or phrases) on its line or the lines next to it, the speakers' names included.
+                const strong = new Set(kept.filter((row) => row.score >= p.strongMeaningScore).map((row) => row.meta.id));
+                const [all, queries] = indexes ? await Promise.all([indexes, laneQueries[i]]).catch(() => [null, null]) : [null, null];
+                const supported = (texts) =>
+                  !all ||
+                  !queries ||
+                  all.some((index, j) => {
+                    const support = querySupport(index, texts, queries[j]);
+                    return support.terms > 0 || support.phrases > 0;
+                  });
                 if (recordRows.length > 0 && recordShared) {
-                  const found = await matchRecord(guildId, { ...recordOptions, range: { from: null, to: until }, forms: [], aliases: [], recordDays: 0, maxWindows: Math.ceil(p.candidates / 4), meaning: recordRows });
+                  const found = await timed('read', matchRecord(guildId, { ...recordOptions, range: { from: null, to: until }, forms: [], aliases: [], recordDays: 0, maxWindows: Math.ceil(p.candidates / 4), meaning: recordRows }));
                   const windows = found.windows.map(inTime);
-                  const shown = new Set(windows.flatMap((window) => window.messages.map((m) => m.id)));
-                  if (!signal.aborted) settled.push({ lane: lane.kind, windows, meaning: recordRows.map((row) => row.id).filter((id) => shown.has(id)) });
+                  const around = new Map();
+                  for (const window of windows) {
+                    window.messages.forEach((message, at) => {
+                      const near = window.messages.slice(Math.max(0, at - MEANING_SUPPORT_LINES), at + MEANING_SUPPORT_LINES + 1);
+                      around.set(message.id, near.flatMap((m) => [m.content, m.authorName]));
+                    });
+                  }
+                  const wordy = new Set(windows.flatMap((window) => window.messages.filter((m) => indexWords(m.content).length >= MEANING_MIN_WORDS).map((m) => m.id)));
+                  const meant = recordRows.map((row) => row.id).filter((id) => around.has(id) && wordy.has(id) && (strong.has(id) || supported(around.get(id))));
+                  if (!signal.aborted) settled.push({ lane: lane.kind, windows, meaning: meant });
                 }
                 if (archiveRows.length > 0) {
                   const memory = await storedMemory({ config, settings, guild, guildId, channel, partner, server: { forms: [], who: [], from: null, to: bounded ? until : null }, recent: false, allowEntry, privateUserId, signal, meaning: archiveRows, source: archiveShared });
-                  if (!signal.aborted) settled.push({ lane: lane.kind, memory: memoryItems(memory.items, () => true) });
+                  if (!signal.aborted) settled.push({ lane: lane.kind, memory: memoryItems(memory.items, (item) => strong.has(item.itemId) || supported([item.text])) });
                 }
               }),
             );
@@ -1545,17 +1637,20 @@ export function createRecall({ hot, store, llm, discord, describer = null, archi
           rendered.push({ source: 'memory', kind: item.kind, date: item.date ?? null, memberId: item.memberId ?? null, who: item.memberId ? nameOf(item.memberId) : null, id: item.itemId ?? null, lines: item.text, text: item.text });
           continue;
         }
-        const window = typeof decorate === 'function' ? { ...unit.window, messages: decorate(unit.window.messages) } : unit.window;
+        // Only the best hit and the hits close to it are marked, so a long stretch with many hits is cut around them.
+        const focus = focusHits(unit.window.messages.map((m) => m.id), unit.hitIds, FOCUS_LINES);
+        const focused = { ...unit.window, hitIds: new Set(focus) };
+        const window = typeof decorate === 'function' ? { ...focused, messages: decorate(focused.messages) } : focused;
         window.descriptions = cachedCaptions(config, guildId, [window]);
         const [shown] = renderRecallWindows([window], render);
         const lines = cutStretch(shown?.lines ?? [], p.excerptChars);
         if (lines.length === 0) continue;
         const text = lines.map((line) => line.text).join('\n');
         const ids = lines.map((line) => line.id);
-        rendered.push({ source: 'history', channelId: window.channelId, channelName: window.channelName ?? null, startTs: lines[0].ts, endTs: lines[lines.length - 1].ts, id: unit.hitIds[0] ?? ids[0], ids, hitIds: unit.hitIds.filter((id) => ids.includes(id)), lines: text, text });
+        rendered.push({ source: 'history', channelId: window.channelId, channelName: window.channelName ?? null, startTs: lines[0].ts, endTs: lines[lines.length - 1].ts, id: unit.hitIds[0] ?? ids[0], ids, hitIds: focus.filter((id) => ids.includes(id)), lines: text, text });
       }
       const excerpts = fitExcerpts(rendered, p).map(({ text, ...excerpt }) => excerpt);
-      const extra = { excerpts, stats: { ...stats, candidates: units.length }, ...(timedOut ? { partial: true } : {}) };
+      const extra = { excerpts, stats: { ...stats, candidates: units.length, stages }, ...(timedOut ? { partial: true } : {}) };
       if (excerpts.length > 0) return finish('ok', extra);
       if (timedOut) return finish('timeout', extra);
       if (stats.failed >= stats.searches) return finish('unavailable', { ...extra, reason: 'failed' });

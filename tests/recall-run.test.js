@@ -1707,6 +1707,33 @@ test('prefetch: with features.meaningSearch one embedding for every lane, rows u
   assert.ok(!JSON.stringify(result.excerpts).includes('εντελώς'), 'a weak cosine shows nothing');
 });
 
+test('prefetch: a meaning row counts when strong or backed by a word of the question, never on a one-word line; a word hit is checked by its own cosine', async () => {
+  const at = (days) => NOW - days * DAY;
+  const record = rangedSource({
+    guild: [
+      recLine('s-support', at(10), 'ο σκύλος έτρεξε μέσα στο δάσος'),
+      recLine('s-plain', at(11), 'κάτι εντελώς άσχετο εδώ πέρα'),
+      recLine('s-short', at(12), 'ναι'),
+      recLine('s-strong', at(13), 'μια άλλη ιστορία χωρίς κοινές λέξεις'),
+      recLine('w-two', at(14), 'δάσος και ζωγραφιά μαζί'),
+      recLine('w-one', at(15), 'ένα δάσος μόνο'),
+    ],
+  });
+  const vectors = fakeVectors({ guild: [vrow('s-support', at(10), 0.5), vrow('s-plain', at(11), 0.5), vrow('s-short', at(12), 0.9), vrow('s-strong', at(13), 0.6), vrow('w-two', at(14), 0.2), vrow('w-one', at(15), 0.32)] });
+  const embed = fakeEmbed();
+  const s = scene({ features: { meaningSearch: true }, profiles: MEMORY_PROFILES, record, vectors, embed, recall: { prefetch: { singleTermScore: 0.3 } } });
+  const input = prefetchInput(s, 'θυμάσαι τη ζωγραφιά στο δάσος;');
+  assert.deepEqual(input.lanes.map((lane) => lane.kind), ['message']);
+  const { result } = await withCapturedLogs(() => s.recaller.prefetch(input));
+  assert.equal(embed.calls.length, 1, 'one embedding for the meaning search and the word hits\' check');
+  assert.deepEqual(result.excerpts.map((e) => e.id).sort(), ['s-strong', 's-support', 'w-one']);
+  const all = JSON.stringify(result.excerpts);
+  assert.ok(!all.includes('άσχετο'), 'a meaning row with no word of the question and no strong cosine shows nothing');
+  assert.ok(!result.excerpts.some((e) => e.id === 's-short'), 'a one-word line is no meaning hit');
+  assert.ok(!all.includes('μαζί'), 'two words with a weak cosine are no hit');
+  assert.ok(result.stats.stages.embed >= 0 && result.stats.stages.index >= 0, 'the stages are timed');
+});
+
 test('prefetch: recall.prefetch.deadlineMs bounds the run: a search still out is abandoned, the status says timeout', async () => {
   const hanging = { iterate: async function* () { await new Promise(() => {}); } };
   const s = scene({ profiles: MEMORY_PROFILES, record: hanging, recall: { prefetch: { deadlineMs: 20 } } });

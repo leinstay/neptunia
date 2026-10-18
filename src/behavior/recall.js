@@ -69,6 +69,12 @@ export const PREFETCH_DEFAULTS = Object.freeze({
   shortWords: 4,
   minFormsMatched: 2,
   minMeaningScore: 0.35,
+  strongMeaningScore: 0.55,
+  singleTermScore: 0.45,
+  maxTermShare: 0.002,
+  maxPhraseDf: 20,
+  minPhraseShare: 0.2,
+  rareTermDf: 30,
   trivial: Object.freeze(['hi', 'hello', 'hey', 'yo', 'ok', 'okay', 'k', 'thanks', 'thank you', 'thx', 'ty', 'yes', 'no', 'yep', 'nope', 'lol', 'haha', 'good night', 'good morning', 'bye']),
   deictic: Object.freeze(['that', 'this', 'it', 'he', 'she', 'they', 'him', 'her', 'them', 'there', 'those', 'these']),
 });
@@ -251,8 +257,10 @@ function phraseList(value, fallback) {
  * `recall.prefetch` read from its config value (PREFETCH_DEFAULTS for a missing or unusable
  * key): `deadlineMs`, `candidates`, `maxExcerpts`, `maxTokens`, `excerptChars` and `shortWords`
  * whole numbers of at least 1; `contextLines`, `contextTokens` and `minFormsMatched` of at least
- * 0 (`contextLines` 0: no recent-lines lane); `minMeaningScore` a number from 0 to 1; `trivial`
- * and `deictic` lists of strings, folded. Pure.
+ * 0 (`contextLines` 0: no recent-lines lane); `minMeaningScore`, `strongMeaningScore`,
+ * `singleTermScore`, `maxTermShare` and `minPhraseShare` numbers from 0 to 1; `maxPhraseDf` a whole
+ * number of at least 1, `rareTermDf` of at least 0; `trivial` and `deictic` lists of strings,
+ * folded. Pure.
  * @param {unknown} value
  */
 function prefetchSettingsOf(value) {
@@ -269,6 +277,12 @@ function prefetchSettingsOf(value) {
     shortWords: intAtLeast(p.shortWords, d.shortWords, 1),
     minFormsMatched: intAtLeast(p.minFormsMatched, d.minFormsMatched, 0),
     minMeaningScore: shareOf(p.minMeaningScore, d.minMeaningScore),
+    strongMeaningScore: shareOf(p.strongMeaningScore, d.strongMeaningScore),
+    singleTermScore: shareOf(p.singleTermScore, d.singleTermScore),
+    maxTermShare: shareOf(p.maxTermShare, d.maxTermShare),
+    maxPhraseDf: intAtLeast(p.maxPhraseDf, d.maxPhraseDf, 1),
+    minPhraseShare: shareOf(p.minPhraseShare, d.minPhraseShare),
+    rareTermDf: intAtLeast(p.rareTermDf, d.rareTermDf, 0),
     trivial: phraseList(p.trivial, d.trivial),
     deictic: phraseList(p.deictic, d.deictic),
   };
@@ -336,25 +350,26 @@ function usableLocator(locator) {
 
 /**
  * Reciprocal rank fusion of ranked lists: each item scores the sum over the
- * lists holding it of 1 / (`k` + its 1-based rank there; a repeat keeps its
- * first rank). Returned best first; on an equal score the item found by more
- * lists first, then by its rank in the earlier list (an item it lacks after
- * one it holds), and so on. Items are compared as Map keys (ids or objects).
- * Pure.
+ * lists holding it of the list's weight (`weights[i]`, 1 when missing) over
+ * (`k` + its 1-based rank there; a repeat keeps its first rank). Returned best
+ * first; on an equal score the item found by more lists first, then by its
+ * rank in the earlier list (an item it lacks after one it holds), and so on.
+ * Items are compared as Map keys (ids or objects). Pure.
  * @param {Array<Array<unknown>>} lists
- * @param {{ k?: number }} [options]
+ * @param {{ k?: number, weights?: number[]|null }} [options]
  * @returns {{ id: unknown, score: number, ranks: (number|null)[] }[]}
  */
-export function fuseRanks(lists, { k = RRF_K } = {}) {
+export function fuseRanks(lists, { k = RRF_K, weights = null } = {}) {
   const all = Array.isArray(lists) ? lists : [];
   const fused = new Map();
   all.forEach((list, at) => {
+    const weight = Array.isArray(weights) && Number.isFinite(weights[at]) ? weights[at] : 1;
     (Array.isArray(list) ? list : []).forEach((id, i) => {
       if (!fused.has(id)) fused.set(id, { id, score: 0, ranks: all.map(() => null) });
       const entry = fused.get(id);
       if (entry.ranks[at] !== null) return;
       entry.ranks[at] = i + 1;
-      entry.score += 1 / (k + i + 1);
+      entry.score += weight / (k + i + 1);
     });
   });
   const found = (entry) => entry.ranks.filter((rank) => rank !== null).length;

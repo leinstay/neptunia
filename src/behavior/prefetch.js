@@ -4,20 +4,22 @@
 // shared story reaches her without anyone choosing a query for her. No model writes the query and
 // none reads the results before she does: the lanes are built from the messages as they were
 // written (the trigger verbatim; with the line it replies to, speaker by speaker; for a short or
-// deictic trigger also the few lines just before it), each lane goes through the existing lexical
-// and meaning search (src/behavior/recall-run.js `prefetch`), and this module decides which hits
-// are relevant enough (enough of the lane's forms matched, an exact phrase matched, or a cosine
-// at least `recall.prefetch.minMeaningScore`), fuses the lanes by reciprocal rank and keeps a few
-// deduplicated excerpts under a token cap. Zero excerpts is a valid answer. Trivial triggers (empty,
-// a command, a bare greeting or acknowledgement -- the matching data `recall.prefetch.trivial`)
-// are not searched at all. Wording lives in labels (`labels.prefetch.*`, rendered by
-// src/behavior/prompt.js); this module holds the decisions only. Pure: no I/O, no clock.
+// deictic trigger also the few lines just before it), each lane goes through the record index (its
+// rarest words and phrases, src/memory/record-index.js), the stored memory and the meaning search
+// (src/behavior/recall-run.js `prefetch`), and this module decides which hits are relevant enough
+// (lexicalKeep: a rare phrase, two distinctive terms, or one confirmed by its cosine), fuses the
+// lanes by reciprocal rank (stored memory at half weight) and keeps a few deduplicated excerpts
+// under a token cap, each cut around its best hit (focusHits). Zero excerpts is a valid answer.
+// Trivial triggers (empty, a command, a bare greeting or acknowledgement -- the matching data
+// `recall.prefetch.trivial`) are not searched at all. Wording lives in labels
+// (`labels.prefetch.*`, rendered by src/behavior/prompt.js); this module holds the decisions only.
+// Pure: no I/O, no clock.
 
 import { estimateTokens } from '../llm/tokens.js';
 import { oneLine } from '../memory/clamp.js';
 import { fromTokens, isWordChar } from '../memory/mentions.js';
 import { foldText } from '../memory/recent.js';
-import { countFormsIn, fallbackLookupPlan, fuseRanks, mergeWindows, recallSettings, searchableTexts } from './recall.js';
+import { fallbackLookupPlan, fuseRanks, mergeWindows, recallSettings } from './recall.js';
 
 /** The lane kinds, in the order the query basis names them. */
 export const PREFETCH_LANES = Object.freeze(['message', 'reply', 'recent']);
@@ -39,6 +41,11 @@ const PHRASE_MIN_CHARS = 3;
 const PHRASE_MAX_CHARS = 80;
 /** The most phrases one lane carries. */
 const MAX_PHRASES = 3;
+/**
+ * The weight of a lane's stored-memory list in the fusion (rankPrefetch): half a history list's, so the
+ * chat's own stretches come first and the stored summaries take the room they leave.
+ */
+const MEMORY_WEIGHT = 0.5;
 
 /**
  * Whether the automatic memory prefetch runs at all under `config` (read now): features.coreTools
@@ -197,12 +204,13 @@ export function prefetchLanes({ trigger, candidate = trigger, triggerKind = null
 }
 
 /**
- * The lexical search of one lane: fallbackLookupPlan over its `words` (the stored members' names
- * and aliases it holds as `who`, its words of 5+ letters as forms, the persona's name left out,
- * at most `maxForms` each), plus its `phrases` -- the quoted phrases of the words (quotedPhrases)
+ * The stored-memory search of one lane when the record index gives no terms (indexedPlan replaces
+ * its forms when it does): fallbackLookupPlan over its `words` (the stored members' names and
+ * aliases it holds as `who`, its words of 5+ letters as forms, the persona's name left out, at
+ * most `maxForms` each), plus its `phrases` -- the quoted phrases of the words (quotedPhrases)
  * and, for a trigger of two to `shortWords` words, the whole trigger -- searched as forms first
  * (recall's matching: folded, word endings allowed; a phrase matches consecutive words). `need`:
- * how many of the word forms a hit must match to count (`minFormsMatched`, at most their
+ * how many of the word forms an item must match to count (`minFormsMatched`, at most their
  * number; a phrase match always counts). Null when there is nothing to search. Pure.
  * @param {{ kind: string, words: string }} lane
  * @param {{ profiles?: object[], selfId?: string|null, selfName?: string, maxForms?: number, shortWords?: number, minFormsMatched?: number, trigger?: string }} options
@@ -222,19 +230,68 @@ export function lanePlan(lane, { profiles = [], selfId = null, selfName = '', ma
   return { forms, who, phrases, need, from: null, to: null };
 }
 
+
 /**
- * Whether a message is a relevant lexical hit of a lane's plan: one of its `phrases` occurs in
- * it, or at least `need` (and at least 1) of its word forms do (recall's matching over the message's
- * text and its links' titles and descriptions). A hit on a name alone is not relevant. Resolves
- * `{ relevant, matched, phrase }`. Pure.
- * @param {object} message
- * @param {{ forms: string[], phrases: string[], need: number }} plan
+ * The plan a lane's stored-memory search uses once the record index chose its terms (`queries`:
+ * src/memory/record-index.js#indexQuery's, one per index searched): the distinctive terms' words as
+ * forms (the rarest first, each once, at most `maxForms`), the lane plan's own phrases (quoted) and
+ * the index's phrases, the lane plan's names (`who`); `need` as lanePlan's (`minFormsMatched`, at
+ * most the forms' number). The lane plan unchanged when the index gave no term and no phrase; null
+ * when there is nothing to search. Pure.
+ * @param {{ forms: string[], who: string[], phrases: string[] }|null} plan  lanePlan's
+ * @param {{ terms: { word: string, weight: number }[], phrases: { text: string }[] }[]} queries
+ * @param {{ maxForms?: number, minFormsMatched?: number }} [options]
  */
-export function lexicalRelevance(message, plan) {
-  const texts = searchableTexts(message);
-  const phrase = (plan?.phrases ?? []).length > 0 && countFormsIn(texts, plan.phrases) > 0;
-  const matched = countFormsIn(texts, plan?.forms ?? []);
-  return { relevant: phrase || (matched >= Math.max(1, plan?.need ?? 1) && matched > 0), matched, phrase };
+export function indexedPlan(plan, queries, { maxForms = 8, minFormsMatched = 2 } = {}) {
+  const terms = (Array.isArray(queries) ? queries : []).flatMap((query) => query?.terms ?? []).sort((a, b) => b.weight - a.weight);
+  const forms = [...new Set(terms.map((term) => term.word))].slice(0, Math.max(0, maxForms));
+  const phrases = [...new Set([...(plan?.phrases ?? []), ...(Array.isArray(queries) ? queries : []).flatMap((query) => (query?.phrases ?? []).map((phrase) => phrase.text))])];
+  if (forms.length === 0 && phrases.length === (plan?.phrases ?? []).length) return plan ?? null;
+  const who = plan?.who ?? [];
+  if (forms.length === 0 && who.length === 0 && phrases.length === 0) return null;
+  return { forms, who, phrases, need: Math.min(Math.max(0, minFormsMatched), forms.length), from: null, to: null };
+}
+
+/**
+ * The relevant record hits of one lane from every index searched (`lists`, each
+ * src/memory/record-index.js#searchRecordIndex's, best first): merged by score (then the newer),
+ * each message once, at most `limit`, as the rows matchRecord reads around (`{ id, channelId,
+ * occurredAt, sourceIds }`). Pure.
+ * @param {{ messageId: string, channelId: string|null, occurredAt: string, ts: number, score: number }[][]} lists
+ * @param {number} limit
+ */
+export function indexRows(lists, limit) {
+  const seen = new Set();
+  const out = [];
+  const all = (Array.isArray(lists) ? lists : []).flat().sort((a, b) => b.score - a.score || b.ts - a.ts);
+  for (const hit of all) {
+    if (out.length >= limit) break;
+    if (!hit?.messageId || !hit.channelId || seen.has(hit.messageId)) continue;
+    seen.add(hit.messageId);
+    out.push({ id: hit.messageId, channelId: hit.channelId, occurredAt: hit.occurredAt, sourceIds: [] });
+  }
+  return out;
+}
+
+/**
+ * Whether a word hit of the record index (src/memory/record-index.js#searchRecordIndex's: `terms`
+ * and `phrases` matched) is relevant. Without the meaning search (`cosines` null): a phrase or at
+ * least two terms. With it (`cosines`: the hits' cosines to the lane's text, a message without a
+ * row in the vector index absent): a phrase always; two terms or more when the cosine is at least
+ * `minMeaningScore` (or there is none); one term only when the cosine is at least
+ * `singleTermScore`. Pure.
+ * @param {{ messageId: string, terms: number, phrases: number }} hit
+ * @param {Map<string, number>|null} cosines
+ * @param {{ minMeaningScore: number, singleTermScore: number }} settings
+ * @returns {boolean}
+ */
+export function lexicalKeep(hit, cosines, { minMeaningScore, singleTermScore }) {
+  if ((hit?.phrases ?? 0) > 0) return true;
+  const terms = hit?.terms ?? 0;
+  if (!(cosines instanceof Map)) return terms >= 2;
+  const cosine = cosines.get(hit.messageId);
+  if (terms >= 2) return cosine === undefined || cosine >= minMeaningScore;
+  return terms === 1 && cosine !== undefined && cosine >= singleTermScore;
 }
 
 /** A stored-memory item's key: its itemId, else its kind and text. */
@@ -274,7 +331,7 @@ export function rankPrefetch(lanes) {
     }
     lists.push(lexical, meaning, memoryKeys);
   }
-  const fused = fuseRanks(lists);
+  const fused = fuseRanks(lists, { weights: lists.map((_, at) => (at % 3 === 2 ? MEMORY_WEIGHT : 1)) });
   const rankOf = new Map(fused.map((entry, i) => [entry.id, i + 1]));
   const windows = mergeWindows(list.flatMap((lane) => (Array.isArray(lane?.windows) ? lane.windows : [])));
   const units = [];
@@ -286,6 +343,31 @@ export function rankPrefetch(lanes) {
   }
   for (const [key, item] of items) if (rankOf.has(key)) units.push({ kind: 'memory', item, rank: rankOf.get(key) });
   return units.sort((a, b) => a.rank - b.rank);
+}
+
+/**
+ * The hits an excerpt marks (and is cut around): of `ranked` (hit ids, best first) the best one in
+ * `order` (the window's message ids in their order), then each next one whose line keeps every
+ * marked line within `maxLines` lines of each other; in rank order. Pure.
+ * @param {string[]} order
+ * @param {string[]} ranked
+ * @param {number} maxLines
+ * @returns {string[]}
+ */
+export function focusHits(order, ranked, maxLines) {
+  const at = new Map((Array.isArray(order) ? order : []).map((id, i) => [id, i]));
+  const kept = [];
+  let low = Infinity;
+  let high = -Infinity;
+  for (const id of Array.isArray(ranked) ? ranked : []) {
+    if (!at.has(id)) continue;
+    const i = at.get(id);
+    if (kept.length > 0 && Math.max(high, i) - Math.min(low, i) > maxLines) continue;
+    kept.push(id);
+    low = Math.min(low, i);
+    high = Math.max(high, i);
+  }
+  return kept;
 }
 
 /**

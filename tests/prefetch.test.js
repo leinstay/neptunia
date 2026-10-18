@@ -1,9 +1,10 @@
 // Tests for src/behavior/prefetch.js: the pure core of the automatic memory prefetch -- when it
-// runs, which triggers are trivial, the query lanes, the lexical plan of a lane, what counts as
-// relevant, the fusion and deduplication across lanes, and the caps. No I/O.
+// runs, which triggers are trivial, the query lanes, the stored-memory plan of a lane, what counts
+// as relevant, the fusion and deduplication across lanes, the focus of an excerpt, and the caps.
+// No I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fitExcerpts, isTrivialTrigger, lanePlan, lexicalRelevance, prefetchLanes, prefetchOn, quotedPhrases, rankPrefetch } from '../src/behavior/prefetch.js';
+import { fitExcerpts, focusHits, indexedPlan, indexRows, isTrivialTrigger, lanePlan, lexicalKeep, prefetchLanes, prefetchOn, quotedPhrases, rankPrefetch } from '../src/behavior/prefetch.js';
 import { recallSettings } from '../src/behavior/recall.js';
 
 const SETTINGS = { ...recallSettings({}).prefetch, trivial: ['hi', 'ok', 'thanks', 'good night'], deictic: ['that', 'this'], shortWords: 4, contextLines: 3, contextTokens: 500 };
@@ -77,19 +78,56 @@ test('prefetchLanes: never for her own line, an errand result, a failed drawing,
   assert.equal(part.lanes[0].text, 'και ο σκύλος;');
 });
 
-test('lanePlan and lexicalRelevance: long words and stored names as forms, a short trigger as a phrase; a name alone is not relevant', () => {
+test('lanePlan: long words and stored names as forms, a short trigger as a phrase', () => {
   const profiles = [{ id: 'u2', names: ['Éloïse'], aliases: [] }];
   const plan = lanePlan({ kind: 'message', words: 'Éloïse, η ζωγραφιά με το δάσος και τον σκύλο' }, { profiles, trigger: 'Éloïse, η ζωγραφιά με το δάσος και τον σκύλο' });
   assert.deepEqual(plan.who, ['éloïse']);
   assert.deepEqual(plan.forms, ['ζωγραφιά', 'δάσος', 'σκύλο']);
   assert.equal(plan.need, 2);
-  assert.deepEqual(lexicalRelevance({ content: 'η ζωγραφιά με τον σκύλο της' }, plan), { relevant: true, matched: 2, phrase: false }, 'word endings allowed');
-  assert.equal(lexicalRelevance({ content: 'ο σκύλος έφαγε' }, plan).relevant, false, 'one form of three');
-  assert.equal(lexicalRelevance({ content: 'Éloïse said hi' }, plan).relevant, false, 'a name alone only locates');
   const short = lanePlan({ kind: 'message', words: 'plus ultra' }, { trigger: 'plus ultra' });
   assert.deepEqual([short.phrases, short.forms, short.need], [['plus ultra'], ['ultra'], 1]);
-  assert.deepEqual(lexicalRelevance({ content: 'PLUS ULTRA!' }, short), { relevant: true, matched: 1, phrase: true });
   assert.equal(lanePlan({ kind: 'reply', words: 'a b' }, { trigger: 'a b' }), null, 'nothing to search');
+});
+
+test('indexedPlan: the index\'s terms (rarest first) replace the forms, its phrases join the quoted ones, the names stay', () => {
+  const plan = { forms: ['longword'], who: ['éloïse'], phrases: ['plus ultra'], need: 1, from: null, to: null };
+  const queries = [
+    { terms: [{ word: 'dog', weight: 3 }, { word: 'forest', weight: 5 }], phrases: [{ text: 'big red' }] },
+    { terms: [{ word: 'dog', weight: 4 }, { word: 'kite', weight: 2 }], phrases: [] },
+  ];
+  assert.deepEqual(indexedPlan(plan, queries, { maxForms: 2, minFormsMatched: 2 }), { forms: ['forest', 'dog'], who: ['éloïse'], phrases: ['plus ultra', 'big red'], need: 2, from: null, to: null });
+  assert.equal(indexedPlan(plan, [{ terms: [], phrases: [] }]), plan, 'nothing from the index: the lane plan as it was');
+  assert.equal(indexedPlan(null, [{ terms: [], phrases: [] }]), null);
+  assert.deepEqual(indexedPlan(null, [{ terms: [{ word: 'kite', weight: 1 }], phrases: [] }], { minFormsMatched: 2 }).need, 1, 'never more than the forms');
+});
+
+test('indexRows: hits of every index merged by score, each message once, as rows to read around', () => {
+  const hit = (messageId, score, ts, channelId = 'c2') => ({ messageId, channelId, occurredAt: new Date(ts).toISOString(), ts, score });
+  const rows = indexRows([[hit('a', 5, 1), hit('b', 2, 2)], [hit('c', 5, 3), hit('a', 1, 1), hit('x', 9, 4, null)]], 2);
+  assert.deepEqual(rows.map((row) => row.id), ['c', 'a'], 'equal scores: the newer first; a hit without a channel is no row');
+  assert.deepEqual(Object.keys(rows[0]).sort(), ['channelId', 'id', 'occurredAt', 'sourceIds']);
+});
+
+test('lexicalKeep: a phrase always; two terms unless the cosine is weak; one term only with a good cosine; words alone without the meaning search', () => {
+  const settings = { minMeaningScore: 0.35, singleTermScore: 0.45 };
+  const cosines = new Map([['two-weak', 0.2], ['two-ok', 0.4], ['one-ok', 0.5], ['one-weak', 0.4]]);
+  const keep = (messageId, terms, phrases = 0, map = cosines) => lexicalKeep({ messageId, terms, phrases }, map, settings);
+  assert.equal(keep('two-weak', 1, 1), true, 'a phrase');
+  assert.equal(keep('two-weak', 2), false);
+  assert.equal(keep('two-ok', 2), true);
+  assert.equal(keep('two-unknown', 3), true, 'no vector row: the words decide');
+  assert.equal(keep('one-ok', 1), true);
+  assert.equal(keep('one-weak', 1), false);
+  assert.equal(keep('one-unknown', 1), false, 'one term needs its cosine');
+  assert.equal(keep('one-ok', 1, 0, null), false, 'without the meaning search one term is never enough');
+  assert.equal(keep('two-weak', 2, 0, null), true);
+});
+
+test('focusHits: the best hit, then the next ones that keep the marked lines close together', () => {
+  const order = ['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9'];
+  assert.deepEqual(focusHits(order, ['m5', 'm0', 'm7', 'm9', 'm4'], 3), ['m5', 'm7', 'm4']);
+  assert.deepEqual(focusHits(order, ['zz', 'm2'], 3), ['m2'], 'a hit outside the window is skipped');
+  assert.deepEqual(focusHits(order, [], 3), []);
 });
 
 test('rankPrefetch: lanes fused by rank, windows sharing a line merged into one excerpt, marked with relevant hits only; stored items deduplicated', () => {
@@ -110,6 +148,8 @@ test('rankPrefetch: lanes fused by rank, windows sharing a line merged into one 
   assert.equal(history[0].hitIds[0], 'a2', 'its best hit first');
   assert.deepEqual(units.filter((unit) => unit.kind === 'memory').map((unit) => unit.item.itemId), ['ep1', null], 'one copy per item');
   assert.ok(units.every((unit, i) => i === 0 || units[i - 1].rank <= unit.rank), 'best first');
+  const first = rankPrefetch([{ memory: [{ kind: 'episode', itemId: 'ep9', text: 'x' }], windows: [w(['b1'], ['b1'])], lexical: ['b1'] }]);
+  assert.deepEqual(first.map((unit) => unit.kind), ['history', 'memory'], 'a stored item counts half a history hit of the same rank');
 });
 
 test('fitExcerpts: at most maxExcerpts, within maxTokens; one that does not fit is skipped and the next tried', () => {

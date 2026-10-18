@@ -1201,6 +1201,8 @@ test('fuseRanks: reciprocal rank fusion with k = 60; an item of both lists leads
   assert.deepEqual(fuseRanks([['a'], ['b']]).map((f) => f.id), ['a', 'b'], 'equal ranks: the earlier list first');
   assert.deepEqual(fuseRanks([[], ['x', 'y']]).map((f) => f.id), ['x', 'y'], 'one list alone keeps its order');
   assert.deepEqual(fuseRanks([['a', 'a', 'b']]).map((f) => [f.id, f.ranks[0]]), [['a', 1], ['b', 3]], 'a repeat keeps its first rank');
+  const weighted = fuseRanks([['half'], ['full']], { weights: [0.5] });
+  assert.deepEqual(weighted.map((f) => [f.id, f.score]), [['full', 1 / 61], ['half', 0.5 / 61]], 'a list weighs its weight; a missing weight is 1');
 });
 
 test('meaningQuery: the question as written with its tokens resolved; with the reply option the replied line first', () => {

@@ -382,7 +382,7 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
         }
         const recall = createRecall({ hot: evalHot, store: { state: { data: {}, markDirty() {} }, listUserProfiles: (id) => store.listUserProfiles(id), getLore: (id) => store.getLore(id), getGuild: (id) => store.getGuild(id), getRecent: (id) => store.getRecent(id) }, llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, now });
         const found = await recall.prefetch({ guild, guildId, channel, selfId: self.id, selfName, history, lanes, at: trigger.ts });
-        const row = { ...base, trigger: trigger.content, status: found?.status ?? 'none-ran', partial: found?.partial === true, basis: found?.basis ?? [], excerpts: found?.excerpts?.length ?? 0, agreement: traceAgreement(t, found?.excerpts ?? []), top: topExcerptLine(found), found: found?.excerpts ?? [], ms: found?.ms ?? null };
+        const row = { ...base, trigger: trigger.content, status: found?.status ?? 'none-ran', partial: found?.partial === true, basis: found?.basis ?? [], excerpts: found?.excerpts?.length ?? 0, agreement: traceAgreement(t, found?.excerpts ?? []), top: topExcerptLine(found), found: found?.excerpts ?? [], ms: found?.ms ?? null, stages: found?.stats?.stages ?? null };
         rows.push(row);
         process.stderr.write(`recall-eval: ${t.triggerId} classifier ${base.answer ?? '-'} prefetch ${row.status} (${row.excerpts}) ${row.agreement} ${row.ms} ms\n`);
       } catch (err) {
