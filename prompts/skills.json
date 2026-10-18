@@ -301,7 +301,7 @@
   },
   "web.search": {
     "title": "Search the web",
-    "whenToUse": "A fact you need for this answer. Write the query (body or query=), optionally what it should establish (goal=). The results come back in this same turn as the engine returned them (title, link, snippet); the pages are not opened.",
+    "whenToUse": "A fact you need for this answer. Write the query (body or query=), optionally what it should establish (goal=). Raw search results come back in this same turn (title, link, snippet, site); the pages are not opened.",
     "whenNotToUse": "Not for finding or downloading files, comparing options in depth, or deep research: use task.run with the web agent."
   },
   "web.read": {

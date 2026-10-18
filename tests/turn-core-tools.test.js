@@ -449,9 +449,11 @@ test('core tools on: no search classifier before her reply, <skills_tools> in th
   assert.ok(text.includes(labels.senses.recallTool) && !text.includes(labels.senses.recall));
   assert.ok(!text.includes('<lookup>'));
   assert.ok(!stable.text.includes(labels.senses.readTool), 'web.read not granted: no line about it');
+  assert.ok(stable.text.split('\n').includes(labels.senses.links), 'web.read not granted: the plain links line');
   const reader = await coreTurn({ answers: ['<msg>ok</msg>'], allowed: ['web.read'], features: { webLookup: true }, config: WEB_CONFIG, runner: { lookup: fakeLookup() } });
   const readerStable = reader.llm.calls[0][1].content[0].text;
   assert.ok(readerStable.includes(labels.senses.readTool), 'granted: the senses say she can open a page');
+  assert.ok(readerStable.split('\n').includes(labels.senses.linksTool) && !readerStable.split('\n').includes(labels.senses.links), 'the links line mentions previews and web.read');
   const readerTools = /<skills_tools>\n([\s\S]*?)\n<\/skills_tools>/.exec(readerStable)?.[1] ?? '';
   assert.deepEqual(readerTools.split('\n').slice(1).filter(Boolean).map((line) => line.split(':')[0]), ['web.read'], readerTools);
   // Not granted: neither the tool rows nor their senses lines.

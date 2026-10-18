@@ -131,6 +131,8 @@ export const labels = {
     voice: 'you cannot hear voice messages, only their length',
     links: 'links show their site, title, snippet and address; you cannot open the page',
     linksWatch: 'links show their site, title, snippet and address; a video-site link may come with a watch summary',
+    linksTool: 'links show their site, title, snippet and address; a link may show the opening of the page, and you can read it all',
+    linksWatchTool: 'links show their site, title, snippet and address; a video-site link may come with a watch summary; a link may show the opening of the page, and you can read it all',
     linksRead: 'links show their site, title, snippet and address; a link may come with an excerpt of the page, read first-hand',
     search: 'a question you cannot answer may come with a <lookup> block of what was found online',
     recall: 'a question about this server\'s own past may come with a server part in the <lookup> block',
