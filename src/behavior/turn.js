@@ -1318,13 +1318,19 @@ function droppedSections(stats) {
   return out;
 }
 
-/** The journal's usage of the reply request: the whole prompt, its cached part, the completion (null when unreported). */
+/**
+ * The journal's usage of the reply request (the turn record and the request dump): the whole
+ * prompt, its part read from the cache (`cached`), its part written to the cache (`cacheWrite`,
+ * OpenRouter's `prompt_tokens_details.cache_write_tokens`, as on the `llm: usage` line), the
+ * completion; each null when unreported.
+ */
 function journalUsage(completion) {
   const usage = completion?.usage ?? {};
   const count = (value) => (Number.isFinite(value) ? value : null);
   return {
     prompt: count(completion?.promptTokens) ?? count(usage.prompt_tokens),
     cached: count(usage.prompt_tokens_details?.cached_tokens),
+    cacheWrite: count(usage.prompt_tokens_details?.cache_write_tokens),
     completion: count(usage.completion_tokens),
   };
 }

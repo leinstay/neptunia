@@ -7913,7 +7913,7 @@ function usageLlm(text, defaultMax = () => Infinity) {
       if (options.limits && Number.isFinite(max) && 700 >= max) options.limits.add({ kind: 'output-cap', where: 'completion', lost: null });
       return {
         text,
-        usage: { prompt_tokens: 1500, completion_tokens: 700, prompt_tokens_details: { cached_tokens: 300 } },
+        usage: { prompt_tokens: 1500, completion_tokens: 700, prompt_tokens_details: { cached_tokens: 300, cache_write_tokens: 200 } },
         promptTokens: 1500,
         estimated: 1400,
       };
@@ -7956,7 +7956,8 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   assert.deepEqual(turn.posted, [{ opId: opOf('post'), messageId: 'sent-1', replyTo: 'm1' }]);
   assert.deepEqual(turn.reactions, [{ opId: opOf('react'), to: 'm0', emoji: '\u{1F389}' }]);
   assert.deepEqual(turn.actions, [opOf('react'), opOf('post')]);
-  assert.deepEqual(turn.usage, { prompt: 1500, cached: 300, completion: 700 });
+  // The cache writes are carried as the provider reported them, beside the cached reads.
+  assert.deepEqual(turn.usage, { prompt: 1500, cached: 300, cacheWrite: 200, completion: 700 });
   assert.equal(typeof turn.budget.dropped, 'object');
   assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'output-cap'), [{ kind: 'output-cap', where: 'completion', lost: null }]);
   for (const limit of turn.limits.filter((entry) => entry.kind === 'budget-drop')) {
@@ -8271,7 +8272,7 @@ test('turn: a journalled turn dumps its request and raw answer', async () => {
   assert.equal(dump.turnId, on.result.turnId);
   assert.equal(dump.attemptId, 1);
   assert.equal(dump.raw, answer);
-  assert.deepEqual(dump.usage, { prompt: 1500, cached: 300, completion: 700 });
+  assert.deepEqual(dump.usage, { prompt: 1500, cached: 300, cacheWrite: 200, completion: 700 });
   assert.equal(dump.request.messages, on.llm.calls[0], 'the exact message list the client was given');
 
   // A failing write is logged and never breaks the turn.
