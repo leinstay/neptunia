@@ -2,13 +2,15 @@
 // Operations tool. One purpose: replay a real or a scheduled turn of the
 // engine without side effects, with the working tree's code, prompts and
 // memory, and print what the persona would do now and what her request looked
-// like. Four modes:
+// like. Five modes:
 // - a message: one real message answered again (or its splitter, its server
 //   search, or the request a journal turn sent);
 // - a pair of prompt layers (`--pair`): the same triggers answered with two
 //   prompt directories, on a blind sheet;
 // - a diary brief (`--diary`): the diary's scheduled turn run in the diary
 //   channel, its plan and drawing brief reported;
+// - a diary day (`--diary-day`): a whole seeded day plan of the diary, each
+//   slot's turn run to the end with nothing posted, every drawing call recorded;
 // - skill scenarios (`--skills`): an invented request put to the persona
 //   after a real chat, with her skills shown, to see whether she uses one or
 //   declines; her calls pass the real gateway and never run.
@@ -34,6 +36,8 @@
 //   cd /opt/neptunia/app && node tools/replay.mjs --skills <scenarios.json>
 //        [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40]
 //        [--as-of-moment] [--snapshot <dir>] [--dry] [--spend <usd>]
+//   cd /opt/neptunia/app && node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD]
+//        [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
 //
 // The spend gate (tools/lib/cli.mjs#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
@@ -208,6 +212,53 @@
 // `--out <file>` (rewritten after each brief; refused under data/) with a
 // summary on stdout, else on stdout. Exit code 1 when no brief drew.
 //
+// `--diary-day`: one day of the diary as the live diary runs it
+// (src/behavior/diary.js#createDiary's tick), for the record of what it would
+// draw. The day plan: planDay for the local date `--date` (default today in
+// `bot.timezone`) at its local midnight, with no hunger carried in, on a random
+// stream seeded by `--seed` (default a fresh one, printed and kept in the
+// report): the same config, date and seed give the same slots
+// (tools/lib/diary-day.mjs#planDiaryDay). The turns draw from a second stream
+// of the same seed. Then, slot by slot in order, the clock of the turn runner
+// and the image client set to the slot (and running on from there), the diary's
+// own checks as the tick makes them (the day's posts under `diary.maxPerDay`,
+// else `skip` with reason `cap`), and `runTurn({ channel, mode: 'diary', diary:
+// { kind: null, forced: false } })` of the real turn runner in the diary
+// channel: the plan request, its search, the compose request, then the post
+// acted to the end -- the single picture or the set generated, as a live post
+// is -- into an in-memory interface port (src/interface/fake.js), never into
+// Discord. A post a slot made is kept in the in-memory diary and counters, so
+// the next slot sees it as the live diary would (not in the chat history, which
+// is fetched from Discord). What keeps the bot and its memory untouched: every
+// Discord REST call but GET is refused and the channel's send / sendTyping
+// throw; the turn's posts go to the in-memory port only; hot is seen with
+// `features.dryRun` off (the engine's dry-run branch generates no picture, the
+// very thing recorded here), `features.typingSimulation` off and
+// `bot.dryRunChannelId` empty; the store is the real one over an in-memory copy
+// of its state that is never flushed, with today's diary post, diary picture
+// and image counts at 0; no journal and no record are wired; requests carry
+// `origin: 'replay'` and never count against `llm.maxRequestsPerDay`.
+// `--draw fake` (the default): the image client is the real one
+// (src/llm/images.js#createImageGen, its caps and model check) over a fetch that
+// answers a 1x1 fixture PNG, so no picture is paid for. `--draw live`: the real
+// client on OPENROUTER_SIM_KEY (required: no fall back to the bot's key here),
+// at most `--max-pictures` pictures (default 2; past it a picture is refused as
+// an image cap refuses it), each written to `<out>/pictures/`. Every
+// `generate()` call is recorded at the client's boundary: `{ prompt, reference,
+// userId }`, the reference as its media type, size and hash, never its bytes.
+// The spend gate: the plan is made first (no request), then the estimate --
+// 2 requests per slot (the plan and the compose) at ~USD_PER_ANSWER, plus with
+// `--draw live` `--max-pictures` pictures at ~0.025 USD -- and the refusal
+// without `--spend` covering it; the run also stops once what the provider
+// reports spent reaches `--spend`. A day with no slot sends nothing. Written to
+// `--out` (default ./replay-diary-day-<time>/, refused under data/ and when it
+// exists and is not empty), rewritten after each slot: `report.json` (`{ date,
+// timezone, seed, draw, quiet, plan: { slots, hunger }, slots: [{ n, at, local,
+// outcome, reason, plan, diary, messages, attachments, draws: [{ prompt,
+// reference, userId, result, file }], requests, cost }], usage, stopped }`) and
+// `report.md`. stdout: the paths, the slot outcomes and the usage. Exit code 1
+// when a slot ended in `error` or the run was stopped.
+//
 // `--snapshot <dir>`: the memory is read from a snapshot of data/ (written by
 // `/nep memory snapshot`, or an unpacked stop-backup) instead of the live
 // data/, read only as ever.
@@ -368,12 +419,15 @@
 // error (the message on stderr). Ctrl-C once stops the sampling; twice exits.
 
 import fs from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // CliError: an operator-facing failure, printed as is, exit code `exitCode` (1 unless the spend gate refused: 2).
 import { simKey, CliError, REFUSED_EXIT, defaultDataDir, privateDirOf, resolveGuildId, spendGate } from './lib/cli.mjs';
+import {
+  DRAW_MODES, DEFAULT_LIVE_PICTURES, MAX_PICTURES, diaryDayEstimate, fixtureImagesFetch, isDateKey, planDiaryDay, recordingImages, renderDiaryDayReport, seededRng,
+} from './lib/diary-day.mjs';
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.mjs';
 import { promptLayersHot } from './lib/prompt-layers.mjs';
 
@@ -384,12 +438,17 @@ const USAGE =
   '       node tools/replay.mjs --pair <promptsDirA> <promptsDirB> (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node tools/replay.mjs --show-request <turnId> [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
   '       node tools/replay.mjs --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
-  '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--spend <usd>]   (cwd: the bot directory)';
+  '       node tools/replay.mjs --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--spend <usd>]\n' +
+  '       node tools/replay.mjs --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)';
 /** The diary kinds a brief is asked of: the ones that draw. */
 const DIARY_KINDS = Object.freeze(['selfPicture', 'picture']);
 /** A diary brief's requests: the plan (classifier model) and the compose (voice model). */
 const DIARY_REQUESTS_PER_BRIEF = 2;
 const MAX_DIARY_COUNT = 50;
+/** The longest `--seed` of a `--diary-day` run. */
+const MAX_SEED_CHARS = 200;
+/** `diary.maxPerDay` when the config has none (src/behavior/diary.js's default, config.json's value). */
+const DEFAULT_DIARY_MAX_PER_DAY = 12;
 /** The estimate per model request this tool sends: about what a persona answer costs on the live key. */
 const USD_PER_ANSWER = 0.15;
 /** A journal turn id (src/memory/journal.js#start). */
@@ -509,7 +568,10 @@ function withoutSelfFacts(view, { all, needles }) {
  * `--out`, `--before`, `--as-of-moment`, `--snapshot`, `--spend`, `--dry`
  * (`dry`, only with it), and one of `--prompts <dir>` (`prompts`) and
  * `--pair-prompts <dirA> <dirB>` (`pairPrompts`, [dirA, dirB], only with it;
- * null when absent); no positionals.
+ * null when absent); no positionals. `--diary-day` sets `diaryDay` and takes only `--seed`
+ * (`seed`, raw, null when absent), `--date` (`date`, a calendar `YYYY-MM-DD`), `--draw` (`draw`,
+ * `fake` by default), `--max-pictures` (`maxPictures`, only with `--draw live`, DEFAULT_LIVE_PICTURES
+ * by default there, null with `fake`), `--out` and `--spend`; those four take nothing else.
  * @param {string[]} argv
  */
 export function parseArgs(argv) {
@@ -517,6 +579,7 @@ export function parseArgs(argv) {
     before: null, samples: null, showRequest: false, asOfMoment: false, hideSelf: [], hideSelfAll: false, split: false, recall: false, budget: null, text: null,
     pair: null, triggers: null, snapshot: null, outDir: null, spend: undefined, showRequestTurn: null,
     diary: null, count: null, topic: null, prompts: null, skills: null, dry: false, pairPrompts: null,
+    diaryDay: false, seed: null, date: null, draw: null, maxPictures: null,
   };
   const positional = [];
   const pathValue = (value) => {
@@ -541,6 +604,20 @@ export function parseArgs(argv) {
     else if (arg === '--split') out.split = true;
     else if (arg === '--recall') out.recall = true;
     else if (arg === '--budget') out.budget = intFlag(argv[(i += 1)], 1, MAX_BUDGET_MS);
+    else if (arg === '--diary-day') out.diaryDay = true;
+    else if (arg === '--seed') {
+      const seed = pathValue(argv[(i += 1)]);
+      if (seed.length > MAX_SEED_CHARS) throw new CliError(USAGE);
+      out.seed = seed;
+    } else if (arg === '--date') {
+      const date = argv[(i += 1)];
+      if (!isDateKey(date)) throw new CliError(USAGE);
+      out.date = date;
+    } else if (arg === '--draw') {
+      const draw = argv[(i += 1)];
+      if (!DRAW_MODES.includes(draw)) throw new CliError(USAGE);
+      out.draw = draw;
+    } else if (arg === '--max-pictures') out.maxPictures = intFlag(argv[(i += 1)], 1, MAX_PICTURES);
     else if (arg === '--diary') {
       const kind = argv[(i += 1)];
       if (!DIARY_KINDS.includes(kind)) throw new CliError(USAGE);
@@ -568,6 +645,20 @@ export function parseArgs(argv) {
     else positional.push(arg);
   }
   const [channelId, triggerId, extra] = positional;
+  if (out.diaryDay) {
+    // The day flags, --out and --spend only; no positionals; --max-pictures with --draw live only.
+    if (
+      positional.length > 0 || out.diary !== null || out.skills !== null || out.showRequestTurn !== null || out.showRequest || out.pair || out.triggers !== null ||
+      out.split || out.recall || out.samples !== null || out.text !== null || out.budget !== null || out.hideSelfAll || out.hideSelf.length > 0 || out.asOfMoment ||
+      out.before !== null || out.snapshot !== null || out.count !== null || out.topic !== null || out.prompts !== null || out.dry || out.pairPrompts !== null ||
+      (out.maxPictures !== null && out.draw !== 'live')
+    ) {
+      throw new CliError(USAGE);
+    }
+    const draw = out.draw ?? 'fake';
+    return { ...out, draw, maxPictures: draw === 'live' ? (out.maxPictures ?? DEFAULT_LIVE_PICTURES) : null, samples: 1, channelId: null, triggerId: null };
+  }
+  if (out.seed !== null || out.date !== null || out.draw !== null || out.maxPictures !== null) throw new CliError(USAGE);
   if (out.skills !== null) {
     // The scenario file with the memory, output and prompt-layer flags, --spend and --dry only; no positionals.
     if (
@@ -1513,26 +1604,153 @@ function unflushedStore(store) {
  * the real turn runner in the diary channel, nothing acted on. Returns
  * `{ code, result }`.
  */
+/** The engine modules a diary run (`--diary`, `--diary-day`) wires, from the checkout at `load`. */
+async function loadDiaryMods(load) {
+  return {
+    ...(await load('behavior/diary.js')),
+    ...(await load('memory/store.js')),
+    ...(await load('llm/tokens.js')),
+    ...(await load('llm/openrouter.js')),
+    ...(await load('llm/images.js')),
+    ...(await load('behavior/turn.js')),
+    ...(await load('behavior/route-channel.js')),
+    ...(await load('behavior/recall-run.js')),
+    ...(await load('interface/discord.js')),
+    ...(await load('interface/fake.js')),
+    ...(await load('memory/describe.js')),
+    ...(await load('media/fetch-image.js')),
+    ...(await load('media/fetch-video.js')),
+    ...(await load('web/fetch-page.js')),
+    ...(await load('web/brave.js')),
+    ...(await load('web/exa.js')),
+    ...(await load('web/lookup.js')),
+    ...(await load('llm/parse.js')),
+    ...(await load('memory/clamp.js')),
+    ...(await load('time.js')),
+  };
+}
+
+/**
+ * The llm client of a diary run: every request the tool's own (`origin: 'replay'`, never
+ * counted against the daily cap, no calibration; `noCache`: no prompt-cache marker), each one
+ * recorded in `calls` as `{ purpose, text, usage, error }`.
+ */
+function recordingLlm(realLlm, calls, { noCache = false } = {}) {
+  return new Proxy(realLlm, {
+    get(target, prop) {
+      if (prop === 'complete') {
+        return async (messages, options = {}) => {
+          const call = { purpose: options?.purpose ?? null, text: null, usage: null, error: null };
+          calls.push(call);
+          try {
+            const completion = await target.complete(messages, {
+              ...options, origin: 'replay', countAgainstDailyCap: false, skipCalibration: true, ...(noCache ? { cache: false } : {}),
+            });
+            call.text = completion?.text ?? null;
+            call.usage = completion?.usage ?? null;
+            return completion;
+          } catch (err) {
+            call.error = `${err?.name ?? 'Error'}: ${err?.message ?? err}`;
+            throw err;
+          }
+        };
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
+/** What one recorded request cost, as the provider reported it (else 0). */
+function callCost(call) {
+  const cost = Number(call.usage?.cost_details?.upstream_inference_cost ?? call.usage?.cost ?? 0);
+  return Number.isFinite(cost) ? cost : 0;
+}
+
+/** `usage` with the recorded requests `mine` added. */
+function addUsage(usage, mine) {
+  let out = usage;
+  for (const call of mine) {
+    out = {
+      ...out,
+      requests: out.requests + 1,
+      promptTokens: out.promptTokens + (Number(call.usage?.prompt_tokens) || 0),
+      completionTokens: out.completionTokens + (Number(call.usage?.completion_tokens) || 0),
+      cost: Math.round((out.cost + callCost(call)) * 10000) / 10000,
+    };
+  }
+  return out;
+}
+
+/**
+ * The diary channel over REST, in the served guild (else a CliError), with Discord's every
+ * write refused: the REST queue passes GET only, the channel's send and sendTyping throw. Warns
+ * when the bot could not send or attach there (the live diary would skip it).
+ */
+async function openDiaryChannel({ client, guildId, diaryChannelId, canSend, canAttach, log }) {
+  const queueRequest = client.rest.queueRequest.bind(client.rest);
+  client.rest.queueRequest = (request) => {
+    const method = String(request?.method ?? 'GET').toUpperCase();
+    if (method !== 'GET') return Promise.reject(new Error(`replay-cli: Discord ${method} refused (read-only tool)`));
+    return queueRequest(request);
+  };
+  let channel = null;
+  try {
+    channel = await client.channels.fetch(diaryChannelId);
+  } catch {
+    channel = null;
+  }
+  if (!channel || String(channel.guildId ?? channel.guild?.id ?? '') !== String(guildId)) throw new CliError('replay-cli: the diary channel is not in the served guild');
+  const refuse = (name) => async () => {
+    throw new Error(`replay-cli: channel.${name} refused (read-only tool)`);
+  };
+  channel.send = refuse('send');
+  channel.sendTyping = refuse('sendTyping');
+  let writable = false;
+  try {
+    writable = canSend(channel) && canAttach(channel);
+  } catch {
+    writable = false;
+  }
+  if (!writable) log.warn('replay-cli: the bot cannot send or attach in the diary channel; the live diary would skip it (not-writable)', {});
+  return channel;
+}
+
+/**
+ * The turn runner of a diary run, wired as src/index.js wires it over `client` (REST only).
+ * `port`: the interface port the turn acts through (else the default Discord adapter);
+ * `rng` / `now`: the runner's random stream and clock (else its defaults).
+ */
+function diaryTurnRunner(mods, { hot, store, llm, calibrator, client, guildId, self, images, state, port = null, rng = null, now = null }) {
+  const imageFetcher = mods.createImageFetcher();
+  const describer = mods.createDescriber({ hot, store, llm, imageFetcher, videoFetcher: mods.createVideoFetcher(), state, youtubeApiKey: process.env.YOUTUBE_API_KEY || null });
+  const lookup = mods.createLookup({
+    hot, store, llm, state, pageFetcher: mods.createPageFetcher(),
+    searches: { brave: mods.createBraveSearch(), exa: mods.createExaSearch() },
+    keys: { brave: process.env.BRAVE_SEARCH_API_KEY || null, exa: process.env.EXA_API_KEY || null },
+  });
+  // The Discord interface's capabilities, injected as src/index.js injects them; the turn's port
+  // is the default adapter it builds over `client` (createPort) unless one is given.
+  const capabilities = mods.createDiscordInterface({ client }).capabilities;
+  return mods.createTurnRunner({
+    hot, store, llm, calibrator, client, discord: capabilities, createPort: mods.createDiscordAdapter, describer, imageFetcher, lookup, images,
+    recall: mods.createRecall({ hot, store, llm, discord: capabilities, describer }),
+    emoji: mods.createEmojiIndex(client, () => guildId),
+    getSelfName: () => self.name,
+    routeChannels: mods.createChannelRouter({ hot, store, llm, discord: capabilities }),
+    isWarmingUp: () => false,
+    activity: null,
+    ...(port ? { port } : {}),
+    ...(rng ? { rng } : {}),
+    ...(now ? { now } : {}),
+  });
+}
+
 async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, signal, rng }) {
-  const { DIARY_PICTURES_DAILY, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = await load('behavior/diary.js');
-  const { createStore } = await load('memory/store.js');
-  const { createCalibrator } = await load('llm/tokens.js');
-  const { createLlm } = await load('llm/openrouter.js');
-  const { createImageGen } = await load('llm/images.js');
-  const { createTurnRunner } = await load('behavior/turn.js');
-  const { createChannelRouter } = await load('behavior/route-channel.js');
-  const { createRecall } = await load('behavior/recall-run.js');
-  const { createEmojiIndex, canAttach, canSend, resolveGuild, createDiscordAdapter, createDiscordInterface } = await load('interface/discord.js');
-  const { createDescriber } = await load('memory/describe.js');
-  const { createImageFetcher } = await load('media/fetch-image.js');
-  const { createVideoFetcher } = await load('media/fetch-video.js');
-  const { createPageFetcher } = await load('web/fetch-page.js');
-  const { createBraveSearch } = await load('web/brave.js');
-  const { createExaSearch } = await load('web/exa.js');
-  const { createLookup } = await load('web/lookup.js');
-  const { parseJsonObject, parseOutput } = await load('llm/parse.js');
-  const { stripDashes } = await load('memory/clamp.js');
-  const { countToday } = await load('time.js');
+  const mods = await loadDiaryMods(load);
+  const { DIARY_PICTURES_DAILY, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
+  const { createStore, createCalibrator, createLlm, createImageGen, canAttach, canSend, resolveGuild } = mods;
+  const { parseJsonObject, parseOutput, stripDashes, countToday } = mods;
 
   const params = diaryTurnParams(args, { diaryTopic });
   const { kind } = params.diary;
@@ -1578,31 +1796,8 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     // The model clients: every request the tool's own, recorded with its purpose.
     const calibrator = createCalibrator(state.data.calibration);
     const realLlm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state });
-    const noCache = args.count === 1;
     const calls = [];
-    const llm = new Proxy(realLlm, {
-      get(target, prop) {
-        if (prop === 'complete') {
-          return async (messages, options = {}) => {
-            const call = { purpose: options?.purpose ?? null, text: null, usage: null, error: null };
-            calls.push(call);
-            try {
-              const completion = await target.complete(messages, {
-                ...options, origin: 'replay', countAgainstDailyCap: false, skipCalibration: true, ...(noCache ? { cache: false } : {}),
-              });
-              call.text = completion?.text ?? null;
-              call.usage = completion?.usage ?? null;
-              return completion;
-            } catch (err) {
-              call.error = `${err?.name ?? 'Error'}: ${err?.message ?? err}`;
-              throw err;
-            }
-          };
-        }
-        const value = Reflect.get(target, prop, target);
-        return typeof value === 'function' ? value.bind(target) : value;
-      },
-    });
+    const llm = recordingLlm(realLlm, calls, { noCache: args.count === 1 });
     const realImages = createImageGen({ apiKey: openrouterKey, getConfig: () => hot.config, state });
     const images = {
       quota: (...a) => realImages.quota(...a),
@@ -1617,52 +1812,10 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     const connection = await connectDiscord({ discord, token: discordToken, configuredGuildId: config.bot?.guildId || '', resolveGuild, log });
     client = connection.client;
     const { guildId, self } = connection;
-    const queueRequest = client.rest.queueRequest.bind(client.rest);
-    client.rest.queueRequest = (request) => {
-      const method = String(request?.method ?? 'GET').toUpperCase();
-      if (method !== 'GET') return Promise.reject(new Error(`replay-cli: Discord ${method} refused (read-only tool)`));
-      return queueRequest(request);
-    };
-    let channel = null;
-    try {
-      channel = await client.channels.fetch(diaryChannelId);
-    } catch {
-      channel = null;
-    }
-    if (!channel || String(channel.guildId ?? channel.guild?.id ?? '') !== String(guildId)) throw new CliError('replay-cli: the diary channel is not in the served guild');
-    const refuse = (name) => async () => {
-      throw new Error(`replay-cli: channel.${name} refused (read-only tool)`);
-    };
-    channel.send = refuse('send');
-    channel.sendTyping = refuse('sendTyping');
-    let writable = false;
-    try {
-      writable = canSend(channel) && canAttach(channel);
-    } catch {
-      writable = false;
-    }
-    if (!writable) log.warn('replay-cli: the bot cannot send or attach in the diary channel; the live diary would skip it (not-writable)', {});
+    const channel = await openDiaryChannel({ client, guildId, diaryChannelId, canSend, canAttach, log });
 
     // The engine, wired as src/index.js wires it.
-    const imageFetcher = createImageFetcher();
-    const describer = createDescriber({ hot, store, llm, imageFetcher, videoFetcher: createVideoFetcher(), state, youtubeApiKey: process.env.YOUTUBE_API_KEY || null });
-    const lookup = createLookup({
-      hot, store, llm, state, pageFetcher: createPageFetcher(),
-      searches: { brave: createBraveSearch(), exa: createExaSearch() },
-      keys: { brave: process.env.BRAVE_SEARCH_API_KEY || null, exa: process.env.EXA_API_KEY || null },
-    });
-    // The Discord interface's capabilities, injected as src/index.js injects them; the turn's port
-    // is the default adapter it builds over `client` (createPort).
-    const capabilities = createDiscordInterface({ client }).capabilities;
-    const turns = createTurnRunner({
-      hot, store, llm, calibrator, client, discord: capabilities, createPort: createDiscordAdapter, describer, imageFetcher, lookup, images,
-      recall: createRecall({ hot, store, llm, discord: capabilities, describer }),
-      emoji: createEmojiIndex(client, () => guildId),
-      getSelfName: () => self.name,
-      routeChannels: createChannelRouter({ hot, store, llm, discord: capabilities }),
-      isWarmingUp: () => false,
-      activity: null,
-    });
+    const turns = diaryTurnRunner(mods, { hot, store, llm, calibrator, client, guildId, self, images, state });
     log.info('replay-cli: diary ready', { guildId, channelId: channel.id, kind, count: args.count, topicChars: topic ? topic.length : 0 });
 
     const briefs = [];
@@ -1677,15 +1830,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
       const mine = calls.slice(from);
-      for (const call of mine) {
-        const cost = Number(call.usage?.cost_details?.upstream_inference_cost ?? call.usage?.cost ?? 0);
-        usage = {
-          requests: usage.requests + 1,
-          promptTokens: usage.promptTokens + (Number(call.usage?.prompt_tokens) || 0),
-          completionTokens: usage.completionTokens + (Number(call.usage?.completion_tokens) || 0),
-          cost: Math.round((usage.cost + (Number.isFinite(cost) ? cost : 0)) * 10000) / 10000,
-        };
-      }
+      usage = addUsage(usage, mine);
       const planCall = mine.filter((c) => c.purpose === 'diary-plan').pop() ?? null;
       const composeCall = mine.filter((c) => c.purpose === 'reply' && c.text !== null).pop() ?? null;
 
@@ -1742,6 +1887,251 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       layered.hot.close();
       fs.rmSync(layered.dir, { recursive: true, force: true });
     }
+    if (client && typeof client.destroy === 'function') await Promise.resolve(client.destroy()).catch(() => {});
+  }
+}
+
+// ---- a diary day (--diary-day) ---------------------------------------------------
+
+/**
+ * `hot` as a `--diary-day` turn sees it: `features.dryRun` off (its branch generates no
+ * picture: the posts go to an in-memory port instead), `features.typingSimulation` off (no
+ * waits) and `bot.dryRunChannelId` empty; everything else read from `hot` at use.
+ * @param {object} hot  From src/hot.js#createHot.
+ */
+export function noPostHot(hot) {
+  return new Proxy(hot, {
+    get(target, prop) {
+      if (prop === 'config') {
+        const config = target.config ?? {};
+        return {
+          ...config,
+          features: { ...(config.features ?? {}), dryRun: false, typingSimulation: false },
+          bot: { ...(config.bot ?? {}), dryRunChannelId: '' },
+        };
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
+/**
+ * The OpenRouter key of a `--diary-day` run: with `--draw live` OPENROUTER_SIM_KEY only (a
+ * CliError without it: live pictures never fall back to the bot's key), else the tools' slot
+ * (tools/lib/cli.mjs#simKey). Never printed.
+ * @param {string} draw
+ * @param {Record<string, string|undefined>} [env]
+ */
+export function diaryDayKey(draw, env = process.env) {
+  if (draw !== 'live') return simKey('replay-cli', env);
+  const key = env.OPENROUTER_SIM_KEY;
+  if (typeof key !== 'string' || key.trim() === '') throw new CliError('replay-cli: --draw live needs OPENROUTER_SIM_KEY (.env); it never spends the bot\'s key');
+  return key;
+}
+
+/** The file extension of a picture's media type. */
+function pictureExtension(mediaType) {
+  const sub = String(mediaType ?? '').split('/')[1] ?? '';
+  if (sub === 'jpeg') return 'jpg';
+  return /^[a-z0-9]{1,8}$/.test(sub) ? sub : 'png';
+}
+
+/**
+ * The plan and the spend gate of a `--diary-day` run, before anything is read or sent: the
+ * local date (`args.date`, else the day of `nowMs` in `bot.timezone`), the seed (`args.seed`,
+ * else a fresh one), the seeded day plan (tools/lib/diary-day.mjs#planDiaryDay over `config`),
+ * its estimate (DIARY_REQUESTS_PER_BRIEF requests per slot at ~USD_PER_ANSWER, the live pictures
+ * on top) and tools/lib/cli.mjs#spendGate's verdict on `args.spend`: a refusal is a CliError
+ * with exit code REFUSED_EXIT. Returns `{ timezone, date, seed, day, estimate, gate }`.
+ * @param {object} args  From parseArgs.
+ * @param {object} config  The live config (hot.config).
+ * @param {{ planDay: Function, zonedEpoch: Function, localDayKey: Function }} mods  src/behavior/diary.js, src/time.js.
+ * @param {number} [nowMs]
+ */
+export function diaryDayGate(args, config, { planDay, zonedEpoch, localDayKey }, nowMs = Date.now()) {
+  const timezone = config?.bot?.timezone || 'UTC';
+  const date = args.date ?? localDayKey(nowMs, timezone);
+  const seed = args.seed ?? randomBytes(6).toString('hex');
+  const day = planDiaryDay({ diaryCfg: config?.diary, timezone, date, seed, planDay, zonedEpoch });
+  const estimate = diaryDayEstimate({ slots: day.slots.length, draw: args.draw, maxPictures: args.maxPictures ?? 0, requestsPerSlot: DIARY_REQUESTS_PER_BRIEF, usdPerRequest: USD_PER_ANSWER });
+  const gate = spendGate({ estimateUsd: estimate.estimateUsd, requests: estimate.requests, spend: args.spend, detail: estimate.detail });
+  if (!gate.ok) throw new CliError(`replay-cli: ${gate.text}`, { exitCode: REFUSED_EXIT });
+  return { timezone, date, seed, day, estimate, gate };
+}
+
+/**
+ * The `--diary-day` mode (see the header): the seeded day plan, the spend gate, then every slot's
+ * diary turn run to the end into an in-memory port, every drawing call recorded. Returns
+ * `{ code, result }`.
+ */
+async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, signal }) {
+  const mods = await loadDiaryMods(load);
+  const { DIARY_DAILY, DIARY_PICTURES_DAILY, localDayKey, planDay } = mods;
+  const { createStore, createCalibrator, createLlm, createImageGen, ImageCapError, canAttach, canSend, resolveGuild, createFakeAdapter } = mods;
+  const { parseJsonObject, countToday, zonedEpoch } = mods;
+
+  // The day plan, before anything is read from Discord or sent: its slots are the estimate.
+  const { timezone, date, seed, day, gate } = diaryDayGate(args, liveHot.config, { planDay, zonedEpoch, localDayKey });
+  process.stderr.write(`replay-cli: ${gate.text}\n`);
+
+  const liveData = defaultDataDir(root);
+  if (!fs.existsSync(liveData)) throw new CliError(`replay-cli: no data directory at ${liveData}`);
+  const outDir = path.resolve(root, args.outDir ?? `replay-diary-day-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  if (outDir === liveData || outDir.startsWith(`${liveData}${path.sep}`)) throw new CliError('replay-cli: --out may not be under data/');
+  if (fs.existsSync(outDir) && fs.readdirSync(outDir).length > 0) throw new CliError(`replay-cli: ${outDir} is not empty`);
+
+  const report = {
+    date, timezone, seed, draw: args.draw, quiet: day.quiet,
+    plan: { slots: day.slots.map((at) => new Date(at).toISOString()), hunger: day.hunger },
+    slots: [], usage: { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0, pictures: 0 }, stopped: null,
+  };
+  const reportJson = path.join(outDir, 'report.json');
+  const reportMd = path.join(outDir, 'report.md');
+  const writeReport = () => {
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(reportJson, `${JSON.stringify(report, null, 1)}\n`);
+    fs.writeFileSync(reportMd, renderDiaryDayReport(report));
+  };
+  const done = (code) => ({
+    code,
+    result: {
+      out: outDir, report: reportJson, date, seed, draw: args.draw, quiet: day.quiet,
+      slots: report.slots.map((slot) => ({ n: slot.n, at: slot.at, outcome: slot.outcome, ...(slot.reason ? { reason: slot.reason } : {}), draws: slot.draws.length })),
+      usage: report.usage, stopped: report.stopped,
+    },
+  });
+  if (day.slots.length === 0) {
+    writeReport();
+    log.info('replay-cli: diary day without a slot', { date, quiet: day.quiet });
+    return done(0);
+  }
+
+  loadDotEnv(privateDirOf(root));
+  const discordToken = process.env.DISCORD_TOKEN;
+  if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
+  const openrouterKey = diaryDayKey(args.draw);
+
+  let client = null;
+  try {
+    const hot = noPostHot(liveHot);
+    const config = hot.config;
+    const diaryChannelId = config.diary?.channelId;
+    if (!diaryChannelId) throw new CliError('replay-cli: diary.channelId is not set');
+    if (config.features?.diary === false) log.warn('replay-cli: features.diary is off; the live diary would not post', {});
+
+    // The clock of the turn runner and the image client: the slot's instant, running on from there.
+    const clock = { base: day.start, real: Date.now() };
+    const now = () => clock.base + (Date.now() - clock.real);
+
+    // The store and the counters: an in-memory copy, today's diary and image counts at 0.
+    const { store, state } = unflushedStore(createStore({ dataDir: liveData }));
+    state.data[DIARY_DAILY.countKey] = 0;
+    state.data[DIARY_PICTURES_DAILY.countKey] = 0;
+    state.data.imageCount = 0;
+    if (state.data.paused) log.warn('replay-cli: the bot is paused; every slot will answer paused', {});
+
+    const calibrator = createCalibrator(state.data.calibration);
+    const realLlm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state });
+    const calls = [];
+    const llm = recordingLlm(realLlm, calls);
+    const live = args.draw === 'live';
+    const picturesDir = path.join(outDir, 'pictures');
+    const realImages = createImageGen({ apiKey: openrouterKey, getConfig: () => hot.config, state, now, ...(live ? {} : { fetchImpl: fixtureImagesFetch() }) });
+    const images = recordingImages({
+      images: realImages,
+      ImageCapError,
+      maxPictures: live ? args.maxPictures : null,
+      onPicture: live
+        ? (picture, index) => {
+            fs.mkdirSync(picturesDir, { recursive: true });
+            const file = path.join(picturesDir, `picture-${index}.${pictureExtension(picture.mediaType)}`);
+            fs.writeFileSync(file, picture.buffer);
+            return path.relative(outDir, file);
+          }
+        : null,
+    });
+
+    // Discord over REST, every write refused; the turn's posts go to an in-memory port.
+    const discord = createRequire(path.join(root, 'package.json'))('discord.js');
+    const connection = await connectDiscord({ discord, token: discordToken, configuredGuildId: config.bot?.guildId || '', resolveGuild, log });
+    client = connection.client;
+    const { guildId, self } = connection;
+    const channel = await openDiaryChannel({ client, guildId, diaryChannelId, canSend, canAttach, log });
+    const port = createFakeAdapter({ iface: 'replay', selfId: self.id, now, limits: { maxAttachmentBytes: 64 * 1024 * 1024 } });
+    const turns = diaryTurnRunner(mods, { hot, store, llm, calibrator, client, guildId, self, images, state, port, rng: seededRng(seed, 'turns'), now });
+    log.info('replay-cli: diary day ready', { guildId, channelId: channel.id, date, slots: day.slots.length, draw: args.draw });
+
+    const budget = gate.budget;
+    for (const [index, at] of day.slots.entries()) {
+      if (signal?.aborted) {
+        report.stopped = 'interrupted';
+        break;
+      }
+      if (budget !== null && report.usage.cost >= budget) {
+        report.stopped = 'spend';
+        break;
+      }
+      clock.base = at;
+      clock.real = Date.now();
+      const slot = { n: index + 1, at: new Date(at).toISOString(), local: `${localDayKey(at, timezone)} ${new Date(at).toLocaleTimeString('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit' })}`, outcome: null, draws: [], messages: [], attachments: 0, requests: 0, cost: 0 };
+      // The tick's own check: the day's posts under diary.maxPerDay.
+      const cap = hot.config.diary?.maxPerDay ?? DEFAULT_DIARY_MAX_PER_DAY;
+      if (countToday(state.data, DIARY_DAILY, now()) >= cap) {
+        Object.assign(slot, { outcome: 'skip', reason: 'cap' });
+        report.slots.push(slot);
+        writeReport();
+        continue;
+      }
+      const fromCalls = calls.length;
+      const fromDraws = images.calls.length;
+      const fromPort = port.calls.length;
+      let result;
+      try {
+        result = await turns.runTurn({ channel, mode: 'diary', diary: { kind: null, forced: false } });
+      } catch (err) {
+        result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
+      }
+      const mine = calls.slice(fromCalls);
+      const planCall = mine.filter((c) => c.purpose === 'diary-plan').pop() ?? null;
+      let plan = null;
+      if (planCall?.text) {
+        try {
+          plan = parseJsonObject(planCall.text);
+        } catch {
+          plan = null;
+        }
+      }
+      const sends = port.calls.slice(fromPort).filter((c) => c.op === 'send').map((c) => c.args[1] ?? {});
+      const draws = images.calls.slice(fromDraws);
+      const pictureCost = draws.reduce((sum, d) => sum + (Number.isFinite(d.result?.cost) ? d.result.cost : 0), 0);
+      const before = report.usage;
+      const after = addUsage(before, mine);
+      report.usage = {
+        ...after,
+        cost: Math.round((after.cost + pictureCost) * 10000) / 10000,
+        pictures: before.pictures + draws.filter((d) => d.result && !d.result.error).length,
+      };
+      Object.assign(slot, {
+        outcome: result?.outcome ?? null,
+        ...(result?.reason ? { reason: result.reason } : {}),
+        plan,
+        ...(planCall?.error ? { planError: planCall.error } : {}),
+        diary: result?.diary ?? null,
+        messages: sends.map((content) => content.text).filter((text) => typeof text === 'string' && text !== ''),
+        attachments: sends.reduce((sum, content) => sum + (Array.isArray(content.attachments) ? content.attachments.length : 0), 0),
+        draws,
+        requests: mine.length,
+        cost: Math.round((report.usage.cost - before.cost) * 10000) / 10000,
+      });
+      report.slots.push(slot);
+      writeReport();
+      log.info('replay-cli: diary slot', { n: slot.n, outcome: slot.outcome, draws: draws.length, requests: mine.length });
+    }
+    writeReport();
+    const failed = report.slots.some((slot) => slot.outcome === 'error');
+    return done(failed || report.stopped !== null ? 1 : 0);
+  } finally {
     if (client && typeof client.destroy === 'function') await Promise.resolve(client.destroy()).catch(() => {});
   }
 }
@@ -2942,7 +3332,8 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   }
   // The spend gate: the estimate first; nothing is sent without --spend covering it.
   let spendBudget = null;
-  if (args.showRequestTurn === null) {
+  // A diary day's estimate needs its plan, made from the config: its gate is in runDiaryDay.
+  if (args.showRequestTurn === null && !args.diaryDay) {
     const requests = args.dry
       ? 0
       : args.diary
@@ -2971,6 +3362,13 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   if (args.diary) {
     try {
       return await runDiary({ args, root, load, hot, createHot, loadDotEnv, log, signal, rng });
+    } finally {
+      hot.close();
+    }
+  }
+  if (args.diaryDay) {
+    try {
+      return await runDiaryDay({ args, root, load, hot, loadDotEnv, log, signal });
     } finally {
       hot.close();
     }

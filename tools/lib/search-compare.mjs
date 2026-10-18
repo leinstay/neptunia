@@ -79,8 +79,8 @@ export function outcomeOf(result) {
   return result.text ? 'answered' : 'empty';
 }
 
-/** A function returning floats in [0, 1) from a 32-bit seed (mulberry32). */
-function mulberry32(seed) {
+/** A function returning floats in [0, 1) from a 32-bit seed (mulberry32); tools/lib/diary-day.mjs uses it too. */
+export function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
