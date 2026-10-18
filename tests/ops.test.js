@@ -333,13 +333,14 @@ test('status keys.base and costs.agents: the errand agents\' key has no line and
     'thinker: none',
     'dev: none',
     'writer: none',
+    'drawing: none',
     'est.',
   ]);
   assert.deepEqual(tasks.today('web'), { tasks: 1, usd: 0.12, caps: { tasks: 40, usd: 8 } }, 'the web cap reads the same today');
 
   const noErrands = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm });
   const [empty] = (await runOp('status.show', { field: 'costs.agents' }, { env: noErrands, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
-  assert.deepEqual(empty.value.split('\n'), ['web: none', 'server: none', 'thinker: none', 'dev: none', 'writer: none', 'est.'], 'no errands: every agent with no runs');
+  assert.deepEqual(empty.value.split('\n'), ['web: none', 'server: none', 'thinker: none', 'dev: none', 'writer: none', 'drawing: none', 'est.'], 'no errands: every agent with no runs');
 });
 
 test('status costs.agents: thinker, dev and writer from the ledger beside the errand records, the thinker\'s context line; no runs for them when the ledger gives nothing or throws', async () => {
@@ -375,9 +376,10 @@ test('status costs.agents: thinker, dev and writer from the ledger beside the er
     'thinker wave 3: 2t ctx 120k/210k 1.50',
     'dev: D 0r 0/0 0.00 | W 1r 50k/4.0k 0.40 | M 1r 50k/4.0k 0.40',
     'writer: none',
+    'drawing: none',
     'est.',
   ]);
-  const fallback = ['web: D 1r 1.0k/100 0.01 | W 1r 1.0k/100 0.01 | M 1r 1.0k/100 0.01', 'server: none', 'thinker: none', 'dev: none', 'writer: none', 'est.'];
+  const fallback = ['web: D 1r 1.0k/100 0.01 | W 1r 1.0k/100 0.01 | M 1r 1.0k/100 0.01', 'server: none', 'thinker: none', 'dev: none', 'writer: none', 'drawing: none', 'est.'];
   assert.deepEqual(await field({ costs: async () => null }), fallback, 'the ledger unavailable');
   await withCapturedLogs(async () => {
     assert.deepEqual(await field({ costs: async () => { throw new Error('boom'); } }), fallback, 'a throwing ledger never fails the field');

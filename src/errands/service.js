@@ -33,14 +33,21 @@
 // known before the first ask), and a refusal pings the runner again, at most once per
 // RUNNER_RECHECK_MS, so the flag flips back even when the client's reconnect loop has stopped.
 // The flag is logged once per change (`errands: runner up` / `errands: runner down`).
+// An agent of kind `tool` (the drawing agent, src/agent-runner/profiles.js) has no runner: `runInline`
+// runs its tool in this process, in the caller's turn, and records it in the same task store
+// (queued -> running -> done | failed, `usage` from the tool's own figures), outside
+// `agents.maxOpen`, born seen, not in `view`, not mirrored into the ledger, never `onFinished`
+// (nobody is told: the caller has the answer). The agent's daily caps (`agents.drawing.daily`)
+// refuse a run before it starts; a store that cannot take the record (no guild, a write error)
+// never costs the run.
 
 import { log as defaultLog } from '../log.js';
-import { PROFILES, profileOf } from '../agent-runner/profiles.js';
+import { PROFILES, agentProfileOf, profileOf, toolProfileOf } from '../agent-runner/profiles.js';
 import { roleApiKey } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
-import { isOpenState } from './store.js';
+import { isOpenState, isToolTask } from './store.js';
 import { createLedgerMirror } from './ledger.js';
 import { DEFAULT_RESULT_MAX_CHARS } from './blocks.js';
 
@@ -159,7 +166,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const set = hot.config?.agents?.[agent]?.limits ?? {};
     const out = {};
     for (const key of TASK_LIMIT_KEYS) {
-      const value = Number.isFinite(set[key]) && set[key] > 0 ? set[key] : profileOf(agent)?.defaultLimits?.[key];
+      const value = Number.isFinite(set[key]) && set[key] > 0 ? set[key] : agentProfileOf(agent)?.defaultLimits?.[key];
       if (Number.isFinite(value) && value > 0) out[key] = value;
     }
     return out;
@@ -277,6 +284,73 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
   }
 
   /**
+   * The cap code of a refusal as the caller needs it: `{ code, key, used, cap }` (the setting
+   * `agents.<agent>.daily.<tasks|usd>` and today's use against it).
+   */
+  function capOf(store, agent, code) {
+    const today = store.today(agent);
+    const field = code === 'cap-usd' ? 'usd' : 'tasks';
+    return { code, key: `agents.${agent}.daily.${field}`, used: today[field], cap: today.caps[field] };
+  }
+
+  /** `run()` of a tool, cut off after `seconds` (a run still going then is let go, its late answer dropped). */
+  function withDeadline(run, seconds) {
+    if (!(Number.isFinite(seconds) && seconds > 0)) return run();
+    let timer = null;
+    const cutoff = new Promise((_resolve, reject) => {
+      timer = setTimeout(() => reject(Object.assign(new Error('the tool run timed out'), { code: 'timeout', deadline: true })), seconds * 1000);
+    });
+    return Promise.race([Promise.resolve().then(run), cutoff]).finally(() => clearTimeout(timer));
+  }
+
+  /**
+   * One run of the tool agent `agent` here and now, as a task record: `run()` (the agent's tool)
+   * is awaited by the caller. The task is added (the agent's daily caps refuse it first:
+   * `{ ok: false, code: 'cap-tasks' | 'cap-usd', key, used, cap }`), started, and closed with the
+   * tool's outcome: `{ output, usage, result }` on success -- `{ ok: true, task, output }` --
+   * or, when `run` throws, `failed` with the error's `code` (kebab-case, else `error`) --
+   * `{ ok: false, code, task, error }`, `error` the thrown value, in memory only. A run over
+   * `agents.<agent>.limits.seconds` (the profile's default under it) is cut off as `timeout`. A
+   * store that cannot take the record (no guild, a bad goal, a thrown write) logs it and runs the
+   * tool without one (`task: null`). The ledger is never told and nothing is `onFinished`.
+   * @param {{ guildId?: string|null, agent: string, goal: string, requester: object, origin?: object, scope?: 'dm'|'group', run: () => Promise<{ output?: unknown, usage?: object, result?: object }> }} input
+   */
+  async function runInline({ guildId = null, agent, goal, requester, origin = {}, scope = 'group', run }) {
+    if (!toolProfileOf(agent) || typeof run !== 'function') return { ok: false, code: 'unknown-agent' };
+    let store = storeOf(guildId);
+    let task = null;
+    if (store) {
+      try {
+        const added = store.add({ agent, goal, requester, origin, scope });
+        if (added.ok) task = store.start(added.task.id) ?? added.task;
+        else if (added.code === 'cap-tasks' || added.code === 'cap-usd') return { ok: false, ...capOf(store, agent, added.code) };
+        else log.warn('errands: tool run unrecorded', { agent, code: added.code });
+      } catch (err) {
+        log.warn('errands: tool run unrecorded', { agent, error: err });
+      }
+    }
+    if (!task) store = null;
+    const close = (outcome) => {
+      if (!store || !task) return task;
+      try {
+        return store.finish(task.id, outcome) ?? task;
+      } catch (err) {
+        log.warn('errands: tool record not closed', { id: task.id, agent, error: err });
+        return task;
+      }
+    };
+    let ran;
+    try {
+      ran = await withDeadline(run, limitsOf(agent).seconds);
+    } catch (err) {
+      const code = typeof err?.code === 'string' && /^[a-z][a-z0-9-]*$/.test(err.code) ? err.code : 'error';
+      if (err?.deadline !== true && code === 'error') log.warn('errands: tool run failed', { agent, error: err });
+      return { ok: false, code, task: close({ status: 'failed', error: code }), error: err };
+    }
+    return { ok: true, task: close({ status: 'done', result: ran?.result, usage: ran?.usage }), output: ran?.output };
+  }
+
+  /**
    * Task `id` cancelled: the store closes it, the runner is told, the ledger gets
    * `cancelled-by-<by>`. `{ ok, task }` or `{ ok: false, code }`.
    */
@@ -285,6 +359,8 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     if (!store) return { ok: false, code: 'no-guild' };
     const task = store.get(id);
     if (!task) return { ok: false, code: 'not-found' };
+    // A tool agent's picture is made in its caller's turn: there is nothing to cancel.
+    if (isToolTask(task)) return { ok: false, code: 'not-found' };
     if (!isOpenState(task.state)) return { ok: false, code: 'not-open', task };
     const wasRunning = task.state === 'running';
     const closed = store.cancel(id);
@@ -389,5 +465,5 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     while (running.size > 0) await Promise.allSettled([...running.values()]);
   }
 
-  return { submit, cancel, budget, view, fileOf, markSeen, start, forgetUser, wipe, idle, check, runnerUp: (agent) => health.get(agent)?.up ?? null, store: storeOf, limitsOf, ledger: mirror };
+  return { submit, runInline, cancel, budget, view, fileOf, markSeen, start, forgetUser, wipe, idle, check, runnerUp: (agent) => health.get(agent)?.up ?? null, store: storeOf, limitsOf, ledger: mirror };
 }

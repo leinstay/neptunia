@@ -2,10 +2,12 @@
 // `agents/<id>/profile.json` per agent, beside its tracked prompt
 // (`agents/<id>/prompt.md`). A profile file only describes a request: its
 // kind (`worker`, run under this runner on a socket; `consultation`, a
-// model role tools call directly; or `development`, an agent of the
+// model role tools call directly; `development`, an agent of the
 // workspace's development side that a dispatcher outside this engine runs
-// on OpenCode: the runner skips the last two), its model role
-// (`web`, `server`, `thinker`, `dev`, `writer`: the key of its model under `models.agents`), its prompt and the deployment's override
+// on OpenCode; or `tool`, an agent with no model loop and no process, whose
+// one tool the core runs in its own process (`drawing`: the Images pipeline,
+// src/errands/tools.js): the runner skips the last three), its model role
+// (`web`, `server`, `thinker`, `dev`, `writer`, `drawing`: the key of its model under `models.agents`), its prompt and the deployment's override
 // name under `prompts.local/`, the OpenCode tools it asks for, the name of
 // its shell class, its default limits, daily caps, socket and out dir, and
 // the environment variable names its run may fall back on (the core sends
@@ -437,11 +439,24 @@ const WORKER_KEYS = Object.freeze(['tools', 'shell', 'limits', 'daily', 'searchP
  */
 const DEVELOPMENT_KEYS = Object.freeze(['tools', 'effort', 'limits']);
 
+/**
+ * The keys only a tool profile carries: the name of its tool (TOOL_NAMES), its per-run cap
+ * `{ seconds }` and its daily caps `{ tasks, usd }` (the same keys a worker's `daily` has).
+ */
+const TOOL_KEYS = Object.freeze(['tool', 'limits', 'daily']);
+
+/** The tools a `tool` profile may name: the core's own pipelines (src/errands/tools.js). */
+export const TOOL_NAMES = Object.freeze(['draw']);
+
+/** The model roles a `tool` profile may name: the tool agents of src/llm/roles.js (AGENT_ROLES without the OpenCode ones). */
+export const TOOL_ROLES = Object.freeze(AGENT_ROLES.filter((role) => !OPENCODE_ROLES.includes(role)));
+
 /** The keys of each kind, all required. */
 const KEYS_BY_KIND = Object.freeze({
   worker: Object.freeze([...COMMON_KEYS, ...WORKER_KEYS]),
   consultation: COMMON_KEYS,
   development: Object.freeze([...COMMON_KEYS, ...DEVELOPMENT_KEYS]),
+  tool: Object.freeze([...COMMON_KEYS, ...TOOL_KEYS]),
 });
 
 /**
@@ -538,7 +553,7 @@ function checkAbsolute(agent, key, value) {
 
 /**
  * Validates the parsed `profile.json` of the agent in folder `agent`: every key of its kind
- * present, no other key, each value of the right form; for a worker the shell class one this
+ * present, no other key, each value of the right form; for a tool the tool one of TOOL_NAMES; for a worker the shell class one this
  * runner defines (SHELL_CLASSES) and every tool one that class allows. Throws AgentProfileError
  * at the first problem.
  * @param {string} agent  the folder name
@@ -550,6 +565,7 @@ function validateProfile(agent, raw) {
   if (!Object.hasOwn(KEYS_BY_KIND, raw.kind)) throw new AgentProfileError(agent, 'kind', `must be one of ${Object.keys(KEYS_BY_KIND).join(', ')}`);
   const worker = raw.kind === 'worker';
   const development = raw.kind === 'development';
+  const tool = raw.kind === 'tool';
   const keys = KEYS_BY_KIND[raw.kind];
   for (const key of Object.keys(raw)) {
     if (!keys.includes(key)) throw new AgentProfileError(agent, key, worker || !WORKER_KEYS.includes(key) ? 'unknown key' : `unknown key (a ${raw.kind} profile has no runner)`);
@@ -560,7 +576,7 @@ function validateProfile(agent, raw) {
 
   if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
   if (!ID_PATTERN.test(agent)) throw new AgentProfileError(agent, 'id', 'must be lowercase letters, digits and dashes');
-  const roles = worker ? OPENCODE_ROLES : development ? DEVELOPMENT_ROLES : AGENT_ROLES;
+  const roles = worker ? OPENCODE_ROLES : development ? DEVELOPMENT_ROLES : tool ? TOOL_ROLES : AGENT_ROLES;
   if (!roles.includes(raw.role)) throw new AgentProfileError(agent, 'role', `must be one of ${roles.join(', ')}`);
   checkFileName(agent, 'prompt', raw.prompt, !worker && !development);
   checkFileName(agent, 'override', raw.override, !worker);
@@ -569,6 +585,12 @@ function validateProfile(agent, raw) {
     checkTools(agent, raw.tools, DEVELOPMENT_TOOLS, 'for a development profile');
     if (!DEVELOPMENT_EFFORTS.includes(raw.effort)) throw new AgentProfileError(agent, 'effort', `must be one of ${DEVELOPMENT_EFFORTS.join(', ')}`);
     checkNumbers(agent, 'limits', raw.limits, { usd: false, steps: true, minutes: false });
+    return;
+  }
+  if (tool) {
+    if (!TOOL_NAMES.includes(raw.tool)) throw new AgentProfileError(agent, 'tool', `must be one of ${TOOL_NAMES.join(', ')}`);
+    checkNumbers(agent, 'limits', raw.limits, { seconds: false });
+    checkNumbers(agent, 'daily', raw.daily, { tasks: true, usd: false });
     return;
   }
   if (!worker) return;
@@ -702,8 +724,32 @@ export function loadProfiles({ rootDir = ROOT_DIR, env = process.env } = {}) {
   return Object.freeze(Object.fromEntries(workers.map((definition) => [definition.id, makeProfile(definition, { rootDir, env })])));
 }
 
+/**
+ * The tool profiles under `<rootDir>/agents/`, by id: every agent of kind `tool`, validated
+ * (listAgents) and reduced to what the core needs to run and cap one: `{ name, kind, description,
+ * modelRole, tool, defaultLimits, defaultDaily }`. No runner takes them (loadProfiles skips them,
+ * bin/agent-runner.mjs refuses them): the core runs the tool itself (src/errands/service.js#runInline).
+ * @param {{ rootDir?: string }} [options]
+ * @returns {Readonly<Record<string, object>>}
+ */
+export function loadToolProfiles({ rootDir = ROOT_DIR } = {}) {
+  const tools = listAgents({ rootDir }).filter((definition) => definition.kind === 'tool');
+  return Object.freeze(Object.fromEntries(tools.map((definition) => [definition.id, Object.freeze({
+    name: definition.id,
+    kind: definition.kind,
+    description: definition.description,
+    modelRole: definition.role,
+    tool: definition.tool,
+    defaultLimits: definition.limits,
+    defaultDaily: definition.daily,
+  })])));
+}
+
 /** The profiles of this engine's `agents/` folder, by name, loaded once at import. */
 export const PROFILES = loadProfiles();
+
+/** The tool profiles of this engine's `agents/` folder, by name, loaded once at import. */
+export const TOOL_PROFILES = loadToolProfiles();
 
 /** The `web` profile: internet errands through OpenCode's web tools and a curl/ffmpeg download shell. */
 export const WEB = PROFILES.web ?? null;
@@ -714,4 +760,14 @@ export const SERVER = PROFILES.server ?? null;
 /** The profile of `name`, or null. */
 export function profileOf(name) {
   return Object.hasOwn(PROFILES, name) ? PROFILES[name] : null;
+}
+
+/** The tool profile of `name`, or null. */
+export function toolProfileOf(name) {
+  return Object.hasOwn(TOOL_PROFILES, name) ? TOOL_PROFILES[name] : null;
+}
+
+/** The profile of `name` of any kind the core keeps task records for (a worker or a tool), or null. */
+export function agentProfileOf(name) {
+  return profileOf(name) ?? toolProfileOf(name);
 }

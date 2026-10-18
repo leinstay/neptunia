@@ -15,6 +15,7 @@ import { isOwnerId } from './grants.js';
 import { TASK_AGENTS } from './catalog.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
+import { isToolTask } from '../errands/store.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';
 
 /** How many tasks `task.list` shows. */
@@ -113,7 +114,7 @@ const handlers = perEnv((env) => {
     const id = String(args?.id ?? '').trim();
     if (id) {
       const task = store.get(id);
-      if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, 'not-found');
+      if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, 'not-found');
       const lines = [taskLine(task)];
       if (task.state === 'done' && task.result) {
         lines.push(`result: ${task.result.text ? `${task.result.text.length} chars` : 'empty'}, ${task.result.sources?.length ?? 0} sources, ${task.result.files?.length ?? 0} files`);
@@ -134,7 +135,7 @@ const handlers = perEnv((env) => {
     const service = errands();
     const store = service.store(resolvedGuildId(context));
     const task = store?.get(id) ?? null;
-    if (!task || !mayView(task, context)) throw invalid(`no task ${id}`, 'not-found');
+    if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, 'not-found');
     const own = Boolean(context?.userId) && String(context.userId) === task.requester?.userId;
     const hers = context?.actor === 'persona' && task.requester?.kind === 'persona';
     if (!ownerCalls(context) && !own && !hers) throw denied('only the requester of the task or an owner may cancel it', 'not-requester');

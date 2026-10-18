@@ -13,7 +13,7 @@
 // plain, with a jump link to it.
 
 import { randomUUID } from 'node:crypto';
-import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, continuesTurn, fillPromptTemplate, freezePerBucket, gifFieldChars, ownGifLines, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
+import { block, buildDiaryPlanRequest, buildRequest, classifierTranscript, continuesTurn, fillPromptTemplate, freezePerBucket, gifFieldChars, ownGifLines, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
 import {
   DIARY_DAILY,
   DIARY_PICTURES_DAILY,
@@ -55,11 +55,12 @@ import {
   lateVideoStates,
   selectPictures,
 } from '../media/classify.js';
-import { avatarReference, createImageFetcher } from '../media/fetch-image.js';
+import { createImageFetcher } from '../media/fetch-image.js';
+import { createDrawingTool, drawPicture, drawPromptOf } from '../errands/tools.js';
 import { renderCustomEmoji, resolveReactionEmoji } from './emoji.js';
-import { fill, formatNow, replyMarker, withCalls, withTriggers } from '../format.js';
+import { fill, replyMarker, withCalls, withTriggers } from '../format.js';
 import { log } from '../log.js';
-import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
+import { clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { gifPostsToday, rankGifs, participationSettings, recordOwnLine, isVideoVisionOn, toRecordLine, createOffPeriodsReader } from '../memory/index.js';
 import { linkChannels, linkMessageNumbers, outsideUrls } from '../memory/mentions.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
@@ -1646,6 +1647,9 @@ export function createTurnRunner({
 }) {
   const { audienceAllows, audienceOf, canAttach, canSend, captionPulled, channelDirectoryOf, checkPull, createPullViews, fetchHistory, fetchNeighbors, fetchPull, withTextPreviews } = discord;
   const busy = new Set();
+  // The drawing agent's tool over the injected image client (src/errands/tools.js): every picture
+  // of a turn, a diary post or a diary set is made through it.
+  const drawing = images ? createDrawingTool({ images, hot, client, imageFetcher, now: clock }) : null;
   // Per guild: what the stable part of the reply showed from memory in the current cache bucket
   // (src/behavior/prompt.js#freezePerBucket), in process only; a restart starts afresh.
   const stableFreezes = new Map();
@@ -2822,24 +2826,33 @@ export function createTurnRunner({
   }
 
   /**
-   * The image prompt for `draw` (parsed.draw): prompts read now, the request clamped to
+   * The image prompt for `draw` (parsed.draw), as the drawing agent builds it
+   * (src/errands/tools.js#drawPromptOf): prompts read now, the request clamped to
    * image.maxPromptChars, the local date and time now (`bot.timezone`, read now) as its
-   * `{{when}}` -- every picture, so its light and season follow the clock.
+   * `{{when}}` -- every picture, so its light and season follow the clock. Only the dry run
+   * shows it; a live picture is made by `makePicture`.
    */
   function drawPromptFor(selfName, draw) {
-    return buildDrawPrompt(drawPromptArgs(selfName, draw));
+    return drawPromptOf({ hot, selfName, scene: draw.text, self: draw.self === true, withTime: true, now: clock });
   }
 
-  /** What drawPromptFor fills draw.md with, read now. */
-  function drawPromptArgs(selfName, draw) {
-    const timezone = hot.config.bot?.timezone;
-    return {
-      prompts: hot.prompts,
-      selfName,
-      request: clampAtBoundary(draw.text, hot.config.image?.maxPromptChars),
-      self: draw.self === true,
-      when: timezone ? formatNow(clock(), timezone, hot.prompts?.labels?.locale) : '',
-    };
+  /**
+   * One picture through the drawing agent (src/errands/tools.js#drawPicture): her scene verbatim
+   * into the drawing prompt, the avatar reference for a picture she is in, one generation. A task
+   * record of the agent when the errand service is there. `userId` is the member whose rail
+   * counts it (null: nobody's); `avatar` the holder a diary set reuses the avatar through.
+   * Throws what the image client throws (ImageCapError, ImageGenError).
+   */
+  function makePicture({ channel, scene, self, selfName, userId = null, avatar = null, messageId = null }) {
+    return drawPicture({
+      tool: drawing,
+      errands,
+      guildId: channel.guild?.id ?? null,
+      input: { scene, selfName, self, withTime: true, userId, avatar },
+      requester: { userId, kind: userId ? 'member' : 'persona' },
+      origin: { channelId: channel.id, messageId },
+      scope: channel.guild ? 'group' : 'dm',
+    });
   }
 
   /**
@@ -2865,7 +2878,7 @@ export function createTurnRunner({
    * The persona's picture, after its messages: the draw prompt (prompts.draw,
    * read now) with the request clamped to `image.maxPromptChars`, the avatar as
    * reference for a picture the persona is in (`image.reference: 'avatar'`),
-   * then one generation and one upload. No typing indicator while it works.
+   * then one generation (through the drawing agent, src/errands/tools.js) and one upload. No typing indicator while it works.
    * Resolves `{ posted: true, pulledId, message }` when posted (`pulledId`: the pulled
    * line it answers, or null; `message`: postedOf the port's answer), `{ drawFailed: reason }`
    * otherwise (a generation failure keeps its reason, `empty` counts as
@@ -2886,9 +2899,7 @@ export function createTurnRunner({
    * picture is never generated again.
    */
   async function draw({ channel, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId = null, draft = null }) {
-    const config = hot.config;
     const self = parsed.draw.self === true;
-    const prompt = drawPromptFor(selfName, parsed.draw);
     const asked = askedFor(trigger, triggerKind);
     const { replyId, pulledId } = replyTarget(parsed.draw.replyTo, { plain, idByIndex, pulledIds });
     // Nothing is paid for a picture its publication may not have.
@@ -2897,13 +2908,15 @@ export function createTurnRunner({
     const op = journalOp(draft, 'draw', 'persona', { input: { self } });
     if (op.opId) await op.started();
     try {
-      let reference = null;
-      if (self && config.image?.reference === 'avatar') {
-        reference = await avatarReference({ client, imageFetcher, config });
-        if (!reference) log.warn('turn: avatar reference unavailable', { channel: channel.id });
-      }
-
-      const picture = await images.generate({ prompt, reference, userId: asked ? (trigger.authorId ?? null) : null });
+      const { picture, referenceMissing } = await makePicture({
+        channel,
+        scene: parsed.draw.text,
+        self,
+        selfName,
+        userId: asked ? (trigger.authorId ?? null) : null,
+        messageId: trigger?.id ?? null,
+      });
+      if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });
       const link = linkFor(pulledId);
       const name = imageFileName(picture.mediaType);
       // Checked again right before the publication: generated or not, a refused picture is not posted.
@@ -2975,19 +2988,15 @@ export function createTurnRunner({
    * @returns {Promise<object[]>}
    */
   async function generateSet({ channel, draws, selfName, minPosted }) {
-    const config = hot.config;
     const pictures = [];
-    let reference;
+    // The avatar is fetched once for the whole set, by the first picture the persona is in.
+    const avatar = {};
     for (const [index, drawn] of draws.entries()) {
       if (pictures.length + (draws.length - index) < minPosted) break;
       const self = drawn.self === true;
       try {
-        if (self && config.image?.reference === 'avatar' && reference === undefined) {
-          reference = await avatarReference({ client, imageFetcher, config });
-          if (!reference) log.warn('turn: avatar reference unavailable', { channel: channel.id });
-        }
-        const prompt = drawPromptFor(selfName, drawn);
-        const picture = await images.generate({ prompt, reference: self ? (reference ?? null) : null, userId: null });
+        const { picture, referenceMissing } = await makePicture({ channel, scene: drawn.text, self, selfName, avatar });
+        if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });
         pictures.push({ ...picture, self, text: drawn.text });
       } catch (err) {
         if (err instanceof ImageCapError) {
