@@ -467,6 +467,23 @@
       "out": "/var/lib/neptunia-agent-server/out",
       "limits": { "steps": 20, "usd": 0.2, "seconds": 120 },
       "daily": { "tasks": 40, "usd": 3 }
+    },
+    "thinker": {
+      "cost": { "input": 4, "output": 20 },
+      "limits": { "usd": 10, "steps": 400, "minutes": 60 },
+      "daily": { "usd": 60 },
+      "contextLimit": 350000,
+      "contextHard": 400000
+    },
+    "dev": {
+      "cost": { "input": 2, "output": 10 },
+      "limits": { "usd": 10, "steps": 300, "minutes": 60 },
+      "daily": { "usd": 40 }
+    },
+    "writer": {
+      "cost": { "input": 5, "output": 25 },
+      "limits": { "usd": 5, "steps": 150, "minutes": 45 },
+      "daily": { "usd": 20 }
     }
   },
   "appendStore": {

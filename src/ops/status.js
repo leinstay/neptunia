@@ -18,8 +18,9 @@
 // field reads the limit of each API key of the core (one free GET per key; the errand agents' key
 // is left out: their spend is `costs.agents`) and the rolling 7/30-day sums per key; `costs.base`
 // reads today's per-role accumulator (src/ops/usage.js); `costs.agents` the errand records' spend
-// per agent (src/errands/costs.js through the guild's task store), the agents with no records
-// readable here (thinker, dev, writer) shown with no runs.
+// per agent (src/errands/costs.js through the guild's task store) and the development agents'
+// (thinker, dev, writer) from the ledger (src/errands/ledger.js#costs, with the thinker's last-wave
+// context), those three shown with no runs when the ledger does not answer.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -39,6 +40,7 @@ import { missedCounts, missedStatusLine } from '../behavior/missed.js';
 import { SPEED_METRICS } from './metrics.js';
 import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.js';
 import { PROFILES } from '../agent-runner/profiles.js';
+import { LEDGER_AGENTS } from '../errands/ledger.js';
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 import { modelForRole } from './shared.js';
@@ -553,12 +555,25 @@ const handlers = perEnv((env) => {
   }
 
   /** The owner's `costs.agents` field (src/ops/usage.js#agentCostsLines): each OpenCode agent's
-   * runs, tokens and estimated dollars today and over the last 7 and 30 days, from the guild's
-   * task store (src/errands/store.js#costs; none without the errands or a guild: every agent
-   * with no runs); `-` when the labels give no line. */
-  function agentCostsValue(guildId) {
+   * runs, tokens and estimated dollars today and over the last 7 and 30 days, the errand agents
+   * from the guild's task store (src/errands/store.js#costs; none without the errands or a guild),
+   * thinker, dev and writer from the ledger (src/errands/ledger.js#costs, which replaces the
+   * records' figures for those three; the thinker's last wave adds its context line). An agent
+   * with no figures shows no runs: a ledger that is not configured, refuses, fails or does not
+   * answer in time never fails the field. `-` when the labels give no line. */
+  async function agentCostsValue(guildId) {
     const tasks = guildId && typeof errands?.store === 'function' ? errands.store(guildId) : null;
-    const totals = typeof tasks?.costs === 'function' ? tasks.costs(OPENCODE_ROLES) : {};
+    const totals = { ...(typeof tasks?.costs === 'function' ? tasks.costs(OPENCODE_ROLES) : {}) };
+    let ledgerTotals = null;
+    try {
+      ledgerTotals = typeof errands?.ledger?.costs === 'function' ? await errands.ledger.costs() : null;
+    } catch (err) {
+      log.warn('status: ledger costs failed', { error: err });
+    }
+    for (const agent of LEDGER_AGENTS) {
+      if (ledgerTotals?.[agent]) totals[agent] = ledgerTotals[agent];
+      else delete totals[agent];
+    }
     // The OpenCode agents in order, then any other agent the records name.
     const agents = [...new Set([...OPENCODE_ROLES, ...Object.keys(totals)])];
     const lines = agentCostsLines({ agents, totals, labels: hot.prompts?.labels });

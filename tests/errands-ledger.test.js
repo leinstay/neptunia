@@ -6,14 +6,15 @@
 // and after a lost answer, a refusal dropped and logged, the queue's cap, the disabled mode, the
 // restart mirror of the open tasks without a ledger id, and against a fake of the ledger's state
 // machine an errand's whole way (proposed -> triaged -> approved -> in_progress -> done) and one
-// warn per task when an early call is refused.
+// warn per task when an early call is refused; and the read `costs()` (the development agents'
+// spend) with its fallback to null when the ledger is off, refuses, answers oddly or is silent.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 
-import { createLedgerMirror, MAX_QUEUE, TITLE_CHARS, idempotencyKey } from '../src/errands/ledger.js';
+import { createLedgerMirror, MAX_QUEUE, TITLE_CHARS, agentCostsOf, idempotencyKey } from '../src/errands/ledger.js';
 import { tempDir } from './fixtures/tmp.js';
 
 const T0 = Date.parse('2026-10-17T10:00:00Z');
@@ -36,7 +37,7 @@ function socketIn() {
  * idempotency key, `attempt.start` an attempt id, the rest `{}`. `refuse(op)` answers that op
  * `ok: false`; `dropFirst` closes the connection on the first request without answering.
  */
-function fakeLedger(socketPath, { refuse = () => false, dropFirst = false } = {}) {
+function fakeLedger(socketPath, { refuse = () => false, dropFirst = false, results = {}, silent = () => false } = {}) {
   const requests = [];
   const addIds = new Map();
   let attempts = 0;
@@ -60,12 +61,15 @@ function fakeLedger(socketPath, { refuse = () => false, dropFirst = false } = {}
           socket.destroy();
           return;
         }
+        if (silent(request.op)) continue;
         if (refuse(request.op, request)) {
           socket.write(`${JSON.stringify({ id: request.id, ok: false, error: { code: 'bad-transition', message: 'no' } })}\n`);
           continue;
         }
         let result = {};
-        if (request.op === 'task.add') {
+        if (Object.hasOwn(results, request.op)) {
+          result = results[request.op];
+        } else if (request.op === 'task.add') {
           if (!addIds.has(request.idempotency)) addIds.set(request.idempotency, `L${addIds.size + 1}`);
           result = { id: addIds.get(request.idempotency) };
         } else if (request.op === 'attempt.start') {
@@ -467,4 +471,82 @@ test('ledger mirror: at a restart the open tasks without a ledger id are mirrore
     await ledger.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/** A `costs.agents` answer as the ledger gives it. */
+const window = (runs, input, output, usd) => ({ runs, input, output, usd });
+const LEDGER_COSTS = {
+  thinker: {
+    today: window(2, 300_000, 9_000, 1.5), last7: window(5, 900_000, 30_000, 4.25), last30: window(5, 900_000, 30_000, 4.25),
+    last_wave: { wave: 3, turns: 2, usd: 1.5, context_mean: 120_000, context_peak: 210_000 },
+  },
+  dev: { today: window(1, 50_000, 4_000, 0.4), last7: window(1, 50_000, 4_000, 0.4), last30: window(1, 50_000, 4_000, 0.4) },
+  writer: { today: window(0, 0, 0, 0), last7: window(0, 0, 0, 0), last30: window(0, 0, 0, 0) },
+};
+
+test('ledger costs: one costs.agents request with now, no idempotency key, nothing queued; the answer kept as the card reads it', async () => {
+  const { dir, socket } = socketIn();
+  const ledger = fakeLedger(socket, { results: { 'costs.agents': LEDGER_COSTS } });
+  await ledger.listening;
+  const log = fakeLog();
+  const mirror = createLedgerMirror({ socketPath: socket, log, now: () => T0 });
+  try {
+    assert.deepEqual(await mirror.costs(), LEDGER_COSTS);
+    assert.deepEqual(ledger.requests.map(({ op, args, idempotency }) => ({ op, args, idempotency })), [{ op: 'costs.agents', args: { now: T0 }, idempotency: undefined }]);
+    assert.equal(mirror.queued(), 0);
+    await mirror.costs({ now: T0 + 5 });
+    assert.deepEqual(ledger.requests.at(-1).args, { now: T0 + 5 });
+    assert.deepEqual(log.calls, []);
+  } finally {
+    mirror.close();
+    await ledger.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ledger costs: null with no socket, a missing socket, a refusal or a silent ledger, logged at most once a minute, never thrown', async () => {
+  assert.equal(await createLedgerMirror({ socketPath: null, connect: () => assert.fail('no connection') }).costs(), null);
+  const { dir, socket } = socketIn();
+  const log = fakeLog();
+  const clock = { t: T0 };
+  const where = { path: path.join(dir, 'none.sock') };
+  const mirror = createLedgerMirror({ socketPath: () => where.path, log, now: () => clock.t, costsTimeoutMs: 50 });
+  const warns = () => log.calls.filter((call) => call.level === 'warn').map((call) => [call.msg, call.fields.code]);
+  assert.equal(await mirror.costs(), null, 'nothing listens');
+  where.path = socket;
+  const refusing = fakeLedger(socket, { refuse: (op) => op === 'costs.agents' });
+  await refusing.listening;
+  try {
+    assert.equal(await mirror.costs(), null, 'refused');
+  } finally {
+    await refusing.close();
+  }
+  assert.deepEqual(warns(), [['errands: ledger unavailable', 'ENOENT']], 'the refusal within the minute is not logged again');
+  fs.rmSync(socket, { force: true });
+  const silent = fakeLedger(socket, { silent: (op) => op === 'costs.agents' });
+  await silent.listening;
+  try {
+    clock.t += 60_000;
+    const started = Date.now();
+    assert.equal(await mirror.costs(), null, 'no answer in time');
+    assert.ok(Date.now() - started < 2000);
+  } finally {
+    mirror.close();
+    await silent.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  assert.deepEqual(warns().at(-1), ['errands: ledger unavailable', 'timeout']);
+  assert.equal(warns().length, 2);
+  assert.equal(await mirror.costs(), null, 'closed');
+});
+
+test('agentCostsOf: the three agents with every window, odd numbers as 0, the last wave or null; not an object gives null', () => {
+  assert.equal(agentCostsOf(null), null);
+  assert.equal(agentCostsOf([1]), null);
+  const totals = agentCostsOf({ thinker: { today: { runs: 'x', usd: 1 }, last_wave: { wave: 'w', context_peak: 9 } }, other: {} });
+  assert.deepEqual(Object.keys(totals), ['thinker', 'dev', 'writer']);
+  assert.deepEqual(totals.thinker.today, { runs: 0, input: 0, output: 0, usd: 1 });
+  assert.deepEqual(totals.dev.last30, { runs: 0, input: 0, output: 0, usd: 0 });
+  assert.deepEqual(totals.thinker.last_wave, { wave: 'w', turns: 0, usd: 0, context_mean: null, context_peak: 9 });
+  assert.equal(agentCostsOf({}).thinker.last_wave, null);
 });

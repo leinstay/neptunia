@@ -537,3 +537,20 @@ test('agentCostsLines: one line per agent in order with today, 7 and 30 days, no
   assert.deepEqual(agentCostsLines({ agents: ['dev'], totals: null, labels: noNote }), ['dev: none']);
   assert.deepEqual(agentCostsLines({ agents: ['web'], totals, labels: {} }), []);
 });
+
+test('agentCostsLines: an agent with a last wave gets its context line right after its own line; a wave without context, or no label, adds none', () => {
+  const costs = { partSeparator: ' | ', agentLine: '{agent}: {parts}', agentWindow: '{window} {runs}r {usd}', agentNoRuns: '{agent}: none', agentContext: '{agent} wave {wave} {turns}t ctx {mean}/{peak} {usd}', agentEstimate: 'est.' };
+  const row = (runs, usd) => ({ runs, input: 0, output: 0, usd });
+  const thinker = { today: row(2, 1.5), last7: row(2, 1.5), last30: row(2, 1.5), last_wave: { wave: 3, turns: 2, usd: 1.5, context_mean: 123_456, context_peak: null } };
+  const totals = { thinker, dev: { today: row(0, 0), last7: row(0, 0), last30: row(0, 0), last_wave: { wave: 1, turns: 1, usd: 0, context_mean: null, context_peak: null } } };
+  assert.deepEqual(agentCostsLines({ agents: ['thinker', 'dev'], totals, labels: { status: { costs } } }), [
+    'thinker: today 2r 1.50 | last7 2r 1.50 | last30 2r 1.50',
+    'thinker wave 3 2t ctx 123k/- 1.50',
+    'dev: none',
+    'est.',
+  ]);
+  const old = { thinker: { ...thinker, today: row(0, 0), last7: row(0, 0), last30: row(0, 0) } };
+  assert.deepEqual(agentCostsLines({ agents: ['thinker'], totals: old, labels: { status: { costs } } }), ['thinker: none', 'thinker wave 3 2t ctx 123k/- 1.50', 'est.'], 'an old wave still shows under no runs');
+  const noContext = { status: { costs: { ...costs, agentContext: undefined } } };
+  assert.deepEqual(agentCostsLines({ agents: ['thinker'], totals, labels: noContext }), ['thinker: today 2r 1.50 | last7 2r 1.50 | last30 2r 1.50', 'est.']);
+});

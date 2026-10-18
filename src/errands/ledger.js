@@ -21,6 +21,13 @@
 // UNAVAILABLE_LOG_MS. With `agents.ledger.socket` null (config.json's default) the mirror is
 // disabled: nothing is queued, nothing connects. The socket path is read at the moment of use.
 // Logs carry the core id, the op and codes, never a goal, a result or a member's id.
+//
+// One read besides the mirror: `costs()`, the development agents' spend (the ledger's read op
+// `costs.agents`: thinker, dev and writer over today, the last 7 and the last 30 UTC days, and the
+// thinker's last wave with its context), asked on a connection of its own (one request, no
+// idempotency key, never queued nor replayed) and answered within COSTS_TIMEOUT_MS. With no
+// socket, a refusal, a bad answer or no answer in time it resolves null (logged once per
+// UNAVAILABLE_LOG_MS) and never throws: the owner's status card shows those agents with no runs.
 
 import net from 'node:net';
 import { log as defaultLog } from '../log.js';
@@ -45,6 +52,12 @@ export const RECONNECT_MIN_MS = 1000;
 export const RECONNECT_MAX_MS = 30_000;
 /** How long one call waits for its answer before the connection is dropped and the call replayed (ms). */
 export const REPLY_TIMEOUT_MS = 10_000;
+/** How long `costs()` waits for the ledger's answer (ms). */
+export const COSTS_TIMEOUT_MS = 3000;
+/** The agents whose spend the ledger's `costs.agents` counts, in order. */
+export const LEDGER_AGENTS = Object.freeze(['thinker', 'dev', 'writer']);
+/** The windows of `costs.agents`, in order. */
+const COST_WINDOWS = Object.freeze(['today', 'last7', 'last30']);
 /** The time cap of a task without `limits.seconds` (s), as the errand client waits for it. */
 const DEFAULT_TASK_SECONDS = 600;
 /** The ledger's principal the core is. */
@@ -146,6 +159,99 @@ export function resultCalls(ledgerId, task, maxChars = DEFAULT_RESULT_MAX_CHARS)
   return calls;
 }
 
+/** A count or an amount of the ledger's answer: a finite number, else 0. */
+function numberOr0(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/** A number of the ledger's answer, or null. */
+function numberOrNull(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * The answer of `costs.agents` reduced to what the status card reads: `{ thinker, dev, writer }`,
+ * each `{ today, last7, last30 }` of `{ runs, input, output, usd }` (a missing or odd number 0),
+ * the thinker with `last_wave` (`{ wave, turns, usd, context_mean, context_peak }`, the context
+ * figures null when absent) or null. An agent the answer lacks counts zero; null for an answer
+ * that is not an object.
+ */
+export function agentCostsOf(result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
+  const totals = {};
+  for (const agent of LEDGER_AGENTS) {
+    const row = result[agent] && typeof result[agent] === 'object' ? result[agent] : {};
+    totals[agent] = {};
+    for (const window of COST_WINDOWS) {
+      const sums = row[window] && typeof row[window] === 'object' ? row[window] : {};
+      totals[agent][window] = { runs: numberOr0(sums.runs), input: numberOr0(sums.input), output: numberOr0(sums.output), usd: numberOr0(sums.usd) };
+    }
+  }
+  const wave = result.thinker?.last_wave;
+  totals.thinker.last_wave = wave && typeof wave === 'object' && !Array.isArray(wave)
+    ? { wave: wave.wave ?? null, turns: numberOr0(wave.turns), usd: numberOr0(wave.usd), context_mean: numberOrNull(wave.context_mean), context_peak: numberOrNull(wave.context_peak) }
+    : null;
+  return totals;
+}
+
+/**
+ * One request on a connection of its own to `where`: resolves `{ ok: true, result }` or
+ * `{ ok: false, code }` (the ledger's refusal, `timeout`, `closed`, `bad-line` or the socket's
+ * error code); never rejects. The connection is closed once it settles.
+ */
+function requestOnce({ where, op, args, connect, timeoutMs }) {
+  return new Promise((resolve) => {
+    let socket = null;
+    let buffer = '';
+    let done = false;
+    let timer = null;
+    const settle = (outcome) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (socket && !socket.destroyed) socket.destroy();
+      resolve(outcome);
+    };
+    timer = setTimeout(() => settle({ ok: false, code: 'timeout' }), timeoutMs);
+    timer.unref?.();
+    try {
+      socket = connect(where);
+    } catch (err) {
+      settle({ ok: false, code: err?.code ?? 'connect' });
+      return;
+    }
+    socket.setEncoding?.('utf8');
+    socket.once('connect', () => {
+      try {
+        socket.write(`${JSON.stringify({ id: 1, op, args })}\n`);
+      } catch (err) {
+        settle({ ok: false, code: err?.code ?? 'write' });
+      }
+    });
+    socket.on('data', (chunk) => {
+      buffer += chunk;
+      let nl;
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl);
+        buffer = buffer.slice(nl + 1);
+        if (!line.trim()) continue;
+        let reply;
+        try {
+          reply = JSON.parse(line);
+        } catch {
+          settle({ ok: false, code: 'bad-line' });
+          return;
+        }
+        if (reply?.id !== 1) continue;
+        settle(reply.ok === true ? { ok: true, result: reply.result } : { ok: false, code: codeOf(reply.error) });
+        return;
+      }
+    });
+    socket.on('error', (err) => settle({ ok: false, code: err?.code ?? 'error' }));
+    socket.on('close', () => settle({ ok: false, code: 'closed' }));
+  });
+}
+
 /** The ledger id a result names (`id`, or the nested `task` / `attempt` one), as a string; null otherwise. */
 function idOf(result, nested) {
   const value = result?.id ?? result?.[nested]?.id ?? null;
@@ -169,6 +275,7 @@ function codeOf(error) {
  * @param {number} [options.reconnectMinMs]
  * @param {number} [options.reconnectMaxMs]
  * @param {number} [options.replyTimeoutMs]
+ * @param {number} [options.costsTimeoutMs]
  */
 export function createLedgerMirror({
   socketPath = null,
@@ -178,6 +285,7 @@ export function createLedgerMirror({
   reconnectMinMs = RECONNECT_MIN_MS,
   reconnectMaxMs = RECONNECT_MAX_MS,
   replyTimeoutMs = REPLY_TIMEOUT_MS,
+  costsTimeoutMs = COSTS_TIMEOUT_MS,
 } = {}) {
   // core id -> { ledgerId, attemptId, attempted, lease, lastBeat, warned }
   const records = new Map();
@@ -531,6 +639,23 @@ export function createLedgerMirror({
     return count;
   }
 
+  /**
+   * The development agents' spend from the ledger's `costs.agents` at `now` (agentCostsOf's
+   * shape), asked on a connection of its own; null with no socket, after the shutdown, or when the
+   * ledger refuses, answers oddly or not within `costsTimeoutMs` (logged at most once per
+   * UNAVAILABLE_LOG_MS). Never rejects.
+   * @param {{ now?: number }} [options]
+   * @returns {Promise<object|null>}
+   */
+  async function costs({ now: at = now() } = {}) {
+    const where = closed ? null : pathNow();
+    if (!where) return null;
+    const reply = await requestOnce({ where, op: 'costs.agents', args: { now: at }, connect, timeoutMs: costsTimeoutMs });
+    const totals = reply.ok ? agentCostsOf(reply.result) : null;
+    if (!totals) unavailable(reply.ok ? 'bad-answer' : reply.code);
+    return totals;
+  }
+
   /** Resolves once nothing is queued or in flight (tests, the shutdown). */
   function idle() {
     if (queue.length === 0 && !inFlight) return Promise.resolve();
@@ -547,5 +672,5 @@ export function createLedgerMirror({
     for (const resolve of waiters.splice(0)) resolve();
   }
 
-  return { enabled, add, start, progress, finish, cancel, mirrorOpen, idle, close: shutdown, queued: () => queue.length };
+  return { enabled, add, start, progress, finish, cancel, mirrorOpen, costs, idle, close: shutdown, queued: () => queue.length };
 }

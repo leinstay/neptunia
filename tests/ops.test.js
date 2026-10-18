@@ -340,3 +340,46 @@ test('status keys.base and costs.agents: the errand agents\' key has no line and
   const [empty] = (await runOp('status.show', { field: 'costs.agents' }, { env: noErrands, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields;
   assert.deepEqual(empty.value.split('\n'), ['web: none', 'server: none', 'thinker: none', 'dev: none', 'writer: none', 'est.'], 'no errands: every agent with no runs');
 });
+
+test('status costs.agents: thinker, dev and writer from the ledger beside the errand records, the thinker\'s context line; no runs for them when the ledger gives nothing or throws', async () => {
+  const costs = {
+    partSeparator: ' | ',
+    agentLine: '{agent}: {parts}',
+    agentWindow: '{window} {runs}r {in}/{out} {usd}',
+    agentWindows: { today: 'D', last7: 'W', last30: 'M' },
+    agentNoRuns: '{agent}: none',
+    agentContext: '{agent} wave {wave}: {turns}t ctx {mean}/{peak} {usd}',
+    agentEstimate: 'est.',
+  };
+  const config = { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10 } };
+  const hot = { config, prompts: { labels: { status: { costs } } }, promptSources: {}, rootDir: tempDir('nep-ops-') };
+  const store = { state: { data: {}, markDirty() {} }, flush() {} };
+  const w = (runs, input, output, usd) => ({ runs, input, output, usd });
+  const zero = { today: w(0, 0, 0, 0), last7: w(0, 0, 0, 0), last30: w(0, 0, 0, 0) };
+  const records = { web: { today: w(1, 1_000, 100, 0.01), last7: w(1, 1_000, 100, 0.01), last30: w(1, 1_000, 100, 0.01) }, server: zero, thinker: zero, dev: zero, writer: zero };
+  const fromLedger = {
+    thinker: { today: w(2, 300_000, 9_000, 1.5), last7: w(2, 300_000, 9_000, 1.5), last30: w(2, 300_000, 9_000, 1.5), last_wave: { wave: 3, turns: 2, usd: 1.5, context_mean: 120_000, context_peak: 210_000 } },
+    dev: { today: zero.today, last7: w(1, 50_000, 4_000, 0.4), last30: w(1, 50_000, 4_000, 0.4) },
+    writer: zero,
+  };
+  const field = async (ledger) => {
+    const errands = { store: () => ({ costs: () => records }), ledger };
+    const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', errands });
+    return (await runOp('status.show', { field: 'costs.agents' }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data.embeds[0].fields[0].value.split('\n');
+  };
+  assert.deepEqual(await field({ costs: async () => fromLedger }), [
+    'web: D 1r 1.0k/100 0.01 | W 1r 1.0k/100 0.01 | M 1r 1.0k/100 0.01',
+    'server: none',
+    'thinker: D 2r 300k/9.0k 1.50 | W 2r 300k/9.0k 1.50 | M 2r 300k/9.0k 1.50',
+    'thinker wave 3: 2t ctx 120k/210k 1.50',
+    'dev: D 0r 0/0 0.00 | W 1r 50k/4.0k 0.40 | M 1r 50k/4.0k 0.40',
+    'writer: none',
+    'est.',
+  ]);
+  const fallback = ['web: D 1r 1.0k/100 0.01 | W 1r 1.0k/100 0.01 | M 1r 1.0k/100 0.01', 'server: none', 'thinker: none', 'dev: none', 'writer: none', 'est.'];
+  assert.deepEqual(await field({ costs: async () => null }), fallback, 'the ledger unavailable');
+  await withCapturedLogs(async () => {
+    assert.deepEqual(await field({ costs: async () => { throw new Error('boom'); } }), fallback, 'a throwing ledger never fails the field');
+  });
+  assert.deepEqual(await field(null), fallback, 'no ledger mirror');
+});
