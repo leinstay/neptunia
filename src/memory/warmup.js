@@ -1011,7 +1011,7 @@ function buildNameIndex(windows) {
   return (id) => latest.get(String(id))?.name ?? null;
 }
 
-/** The warmup's progress (`state.warmup`, see docs/en/warmup.md) for a WRITE path,
+/** The warmup's progress (`state.warmup`, see docs/warmup.md) for a WRITE path,
  * created and self-healed in place -- garbage left by an old shape never crashes a read. A stored
  * object whose `version` is not `WARMUP_STATE_VERSION` was written by an older, differently-shaped
  * version of this project: it is foreign, replaced wholesale (nothing carried over) rather than
@@ -2417,7 +2417,7 @@ export function createWarmup({ hot, store, client, discord, llm, calibrator, get
    * window when `force`d. A little context, sampled like the warmup
    * (`memory.portraitRefreshMessages`, main channels first).
    * Interests/details/episodes/aliases of the answer are ignored; they keep flowing through the
-   * stream analyzer's own ops (docs/en/prompt-contract.md, "Data model"). Started by
+   * stream analyzer's own ops (docs/prompt-contract.md, "Data model"). Started by
    * src/memory/portrait.js's scheduler, the stream analyzer's cue and `/nep memory refresh`
    * (`force`).
    *
@@ -2632,7 +2632,7 @@ export function createWarmup({ hot, store, client, discord, llm, calibrator, get
     const formatOptions = memoryFormatOptions(config, selfName, labels);
     const nameOf = buildNameIndex(windows);
     // The stored portrait and the cue as the analyzer reads ids: `name (id:...)`
-    // (docs/en/prompt-contract.md).
+    // (docs/prompt-contract.md).
     const draftNameOf = (memberId) => nameOf(memberId) ?? store.getUser(guildId, memberId)?.names?.[0] ?? null;
     const stored = { character: profile?.character ?? '', style: profile?.style ?? '' };
     const draft = {

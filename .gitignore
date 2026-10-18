@@ -22,12 +22,8 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local specs and plans; only the per-language documentation is allowed through
-/docs/*
-!/docs/en/
-!/docs/zh/
-!/docs/ja/
-!/docs/ru/
+# Local specs and plans; only the documentation files at the top of docs/ are tracked
+/docs/*/
 
 # Node
 node_modules/
