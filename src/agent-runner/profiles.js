@@ -102,7 +102,7 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
   'ls', 'ls *', 'cat', 'cat *', 'head', 'head *', 'tail', 'tail *', 'grep', 'grep *', 'egrep *', 'fgrep *',
   'find', 'find *', 'ps', 'ps *', 'df', 'df *', 'du', 'du *', 'wc', 'wc *', 'stat', 'stat *',
   'which', 'which *', 'id', 'id *', 'uname', 'uname *', 'cut', 'cut *', 'sort', 'sort *', 'uniq', 'uniq *',
-  'awk', 'awk *', 'sed -n *', 'ss -ln', 'ss -ln *', 'ss *', 'journalctl', 'journalctl *',
+  'sed -n --sandbox *', 'sed --sandbox -n *', 'ss -ln', 'ss -ln *', 'ss *', 'journalctl', 'journalctl *',
   'systemctl status', 'systemctl status *', 'systemctl show', 'systemctl show *', 'systemctl cat *',
   'systemctl list-units *', 'systemctl list-unit-files *', 'systemctl list-*', 'systemctl is-* *',
   'git log *', 'git show *', 'git status', 'git status *', 'git diff', 'git diff *',
@@ -258,12 +258,17 @@ export const TAR_DENIES = Object.freeze([
  * `--pre`, sort's `--compress-program` (any prefix from `--co`), sed's `-i`/`--in-place`. */
 export const READER_DENIES = Object.freeze(['rg *--pre*', 'sort *--co*', 'sed * -i*', 'sed * -?i*', 'sed * --in*']);
 
-/** Patterns denied after the allows (the last match wins): the ways an allowed command could write, reach the network or run another program. */
-export const SHELL_DENY_AFTER = Object.freeze([...GIT_WRITE_DENIES, ...YT_DLP_DENIES, ...TAR_DENIES, ...READER_DENIES, 'find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
+/** The forms of an allowed command that read the process environment, where the agent's API key
+ * lives: echo with any `$` (a variable or a substitution; echo stays for literal text) and jq's
+ * `env` / `$ENV`. */
+export const ENV_READ_DENIES = Object.freeze(['echo *$*', 'jq *env*', 'jq *$ENV*']);
+
+/** Patterns denied after the allows (the last match wins): the ways an allowed command could write, reach the network, run another program or read the environment. */
+export const SHELL_DENY_AFTER = Object.freeze([...GIT_WRITE_DENIES, ...YT_DLP_DENIES, ...TAR_DENIES, ...READER_DENIES, ...ENV_READ_DENIES, 'find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
 
 /** The allowed shell commands that open file contents: in a filtered scope each is refused on a withheld path. */
 export const SHELL_CONTENT_COMMANDS = Object.freeze([
-  'cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git', 'cp',
+  'cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'cut', 'sort', 'uniq', 'wc', 'file', 'git', 'cp',
   'rg', 'tree', 'jq', 'diff', 'sha256sum', 'md5sum', 'zcat', 'zgrep', 'xxd', 'strings', 'column', 'nl', 'tar',
 ]);
 

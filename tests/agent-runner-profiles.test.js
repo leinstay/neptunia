@@ -286,7 +286,7 @@ test('withheldShellDenies: one pattern per content command and withheld root, na
   for (const pattern of ['cat .git*', 'cat * .git*', 'cat */.git*', 'git *=.git*', "grep *'.local.git*", 'sed *".local.git*']) assert.ok(denies.includes(pattern), pattern);
   assert.ok(!denies.includes('cat *.git*'), 'no bare substring pattern for .git');
   assert.deepEqual([...SHELL_CONTENT_COMMANDS], [
-    'cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git', 'cp',
+    'cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'cut', 'sort', 'uniq', 'wc', 'file', 'git', 'cp',
     'rg', 'tree', 'jq', 'diff', 'sha256sum', 'md5sum', 'zcat', 'zgrep', 'xxd', 'strings', 'column', 'nl', 'tar',
   ]);
   for (const pattern of ['cat */var/www*', 'cat *.ssh*', 'cat *.env*', 'cat *config.local.json*', 'git */srv/neptunia-backups*', `sed *${DATA_DIR}*`, 'wc *.secrets*']) assert.ok(denies.includes(pattern), pattern);
@@ -327,7 +327,7 @@ test('filtered scope: under OpenCode\'s last-match rule a read of a withheld pat
   const core = SERVER.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-server'].permission.bash;
   const refused = [
     'cat /var/www/site/index.php', 'head -n 5 /home/u/.ssh/authorized_keys', 'tail /srv/app/.env', 'grep -r token /srv/app/.env.local',
-    'sed -n 1p /srv/neptunia-dev/neptunia-core/config.local.json', 'awk 1 /etc/shadow', `wc -l ${DATA_DIR}/guilds/1/tasks.json`,
+    'sed -n --sandbox 1p /srv/neptunia-dev/neptunia-core/config.local.json', 'cut -c1-5 /etc/shadow', `wc -l ${DATA_DIR}/guilds/1/tasks.json`,
     'git log --stat /srv/neptunia-backups/x/hooks', 'cat /opt/neptunia/app/.git/config', 'cat .git/config',
     'grep x /srv/neptunia-dev/neptunia-core/.local.git/config', 'grep --file=.git/info/exclude x', 'cat "/srv/app/.git/HEAD"', 'file /srv/neptunia-dev/.secrets/proxy', 'sort /etc/letsencrypt/live/x/privkey.pem',
   ];
@@ -578,6 +578,27 @@ test('server shell: tar only lists, ip only shows, getent no shadow, rg no --pre
   ];
   for (const scope of ['core', 'dm']) for (const command of refused) assert.equal(serverCall(scope, command), 'deny', `${scope}: ${command}`);
   for (const pattern of TAR_DENIES) assert.ok(SHELL_DENY_AFTER.includes(pattern), pattern);
+});
+
+test('server shell: sed only sandboxed, no awk', () => {
+  for (const scope of ['core', 'dm']) {
+    assert.equal(serverCall(scope, 'sed -n --sandbox 1p /etc/hosts'), 'allow', `${scope}: sandboxed sed`);
+    assert.equal(serverCall(scope, 'sed -n 1p /etc/hosts'), 'deny', `${scope}: sed without --sandbox`);
+    assert.equal(serverCall(scope, 'cut -d: -f1 /etc/passwd'), 'allow', `${scope}: cut`);
+    assert.equal(serverCall(scope, 'awk 1 /etc/hosts'), 'deny', `${scope}: awk`);
+  }
+  assert.ok(!SHELL_CONTENT_COMMANDS.includes('awk'));
+});
+
+test('both shells: echo takes only literal text and jq cannot read the environment', () => {
+  for (const call of [webCall, serverCall]) {
+    for (const scope of ['core', 'dm']) {
+      assert.equal(call(scope, 'echo done'), 'allow', `${scope}: echo literal`);
+      assert.equal(call(scope, 'echo $KEY'), 'deny', `${scope}: echo variable`);
+      assert.equal(call(scope, 'jq .name a.json'), 'allow', `${scope}: jq on a file`);
+      for (const command of ['jq -n env', 'jq -n $ENV']) assert.equal(call(scope, command), 'deny', `${scope}: ${command}`);
+    }
+  }
 });
 
 test('server shell: the new content commands refuse a withheld path in dm and group, and read it in core', () => {
