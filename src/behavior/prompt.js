@@ -2989,10 +2989,11 @@ function seenOf({ history, keptChat, pictures, anchoredIds = [] }) {
  *   errands and the finished ones she has not seen), and `result`, the `<task_result>` block's
  *   body on the turn an errand's end opened. Both sit in the tail right before `<people_now>`,
  *   paid for with the fixed part and never cut; '' or a missing key leaves its block out.
- * @param {{ skill: string }|null} [input.continuation]  The same turn continued after the
+ * @param {{ skill: string, label?: string }|null} [input.continuation]  The same turn continued after the
  *   persona's skill call (src/behavior/turn.js#followUp under continuesTurn): the request is the
  *   turn's own, rebuilt over the turn's history as it stands now (her lines of the turn with the
- *   call's mark), and its task text is `labels.task.continue` with `{skill}` filled, alone -- no
+ *   call's mark), and its task text is `labels.task.continue` (or `labels.task[<label>]`, the tool
+ *   loop's, when it is set) with `{skill}` filled, alone -- no
  *   mode prompt, no `task.*`, private, forced, routed or room text. Every other block is built as
  *   for the turn, so the stable and profile parts stay the same. Omitted or null (or the label
  *   missing or blank) -> the task as usual.
@@ -3292,7 +3293,10 @@ export function buildRequest(input) {
   // their later messages about this call.
   const tasksText = renderTasks(input.tasks, labels);
   // The same turn continued after the persona's skill call: its own task text, alone.
-  const continueLabel = labels.task?.continue;
+  // The tool loop (features.coreTools) names its own task label (`labels.task[<label>]`); a
+  // label missing or blank falls back to `labels.task.continue`.
+  const loopLabel = typeof input.continuation?.label === 'string' ? labels.task?.[input.continuation.label] : undefined;
+  const continueLabel = typeof loopLabel === 'string' && loopLabel.trim() ? loopLabel : labels.task?.continue;
   const continueTask =
     input.continuation && typeof continueLabel === 'string' && continueLabel.trim() ? fill(continueLabel, { skill: input.continuation.skill ?? '' }) : '';
   // The task text. `callShown`: whether the pulled trigger's line made it into

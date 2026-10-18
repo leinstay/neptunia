@@ -65,6 +65,7 @@
     "skills": true,
     "skillsDiscovery": true,
     "skillsAlwaysListed": true,
+    "coreTools": false,
     "missedAnswers": true,
     "missedRecovery": false,
     "offlineCatchUp": true,
@@ -394,7 +395,8 @@
     "resultMaxChars": 4500,
     "markTextMaxChars": 200,
     "destructiveCooldownMinutes": 10,
-    "callTimeoutMs": 120000
+    "callTimeoutMs": 120000,
+    "loop": { "maxSteps": 3, "timeBudgetMs": 20000, "maxCallsPerStep": 4 }
   },
   "diary": {
     "channelId": "",

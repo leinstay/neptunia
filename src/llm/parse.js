@@ -12,7 +12,9 @@
 //                              self-closing `<call skill="name" key="value"/>`; parsed strictly
 //                              and only at the top level of the output: never inside another
 //                              tag's body, a code span or block, or a quoted (`>`) line. The
-//                              first one is `call`, any later one is only counted (`extraCalls`).
+//                              first one is `call`, any later one is only counted (`extraCalls`);
+//                              `calls` holds every well-formed one in order (the tool loop of
+//                              features.coreTools runs several, src/behavior/turn.js).
 // The parser is forgiving: a missing tag wrapper falls back to a single plain
 // message (`untagged`), an unterminated <think> (output cut by max_tokens) means
 // silence (`thinkOpen`, its text so far kept in `think` for the journal).
@@ -133,8 +135,10 @@ function parseIndex(value) {
  *             draws: {text: string, self: boolean, replyTo: number|null}[],
  *             gif: {id: string, replyTo: number|null}|null,
  *             call: {skill: string, args: Record<string, string>, body: string}|null,
+ *             calls: {skill: string, args: Record<string, string>, body: string}[],
  *             extraCalls: number, callError: 'malformed'|null, thinkOpen: boolean, untagged: boolean }}
- *   `call`: the first top-level `<call>` (its attributes but `skill` as string `args`, its body
+ *   `calls`: every well-formed top-level `<call>` in order, `call` first ([] when the first one is
+ *   malformed: no later one stands in). `call`: the first top-level `<call>` (its attributes but `skill` as string `args`, its body
  *   trimmed, '' when self-closing or empty); `extraCalls`: how many top-level `<call>` tags
  *   followed it, ignored; `callError`: `malformed` when the first one is not well formed (then
  *   `call` is null and no later one stands in). `thinkOpen`: a `<think>` was never closed --
@@ -142,7 +146,7 @@ function parseIndex(value) {
  *   plain text of an answer with no tag (the fallback), not a `<msg>`.
  */
 export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits = null } = {}) {
-  const result = { skip: false, messages: [], reactions: [], think: '', draw: null, draws: [], gif: null, call: null, extraCalls: 0, callError: null, thinkOpen: false, untagged: false };
+  const result = { skip: false, messages: [], reactions: [], think: '', draw: null, draws: [], gif: null, call: null, calls: [], extraCalls: 0, callError: null, thinkOpen: false, untagged: false };
   let text = String(raw ?? '');
 
   text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (all, inner) => {
@@ -164,6 +168,7 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
     result.call = calls[0].call;
     result.callError = calls[0].call ? null : 'malformed';
     result.extraCalls = calls.length - 1;
+    result.calls = result.call ? calls.map((found) => found.call).filter(Boolean) : [];
     for (const { start, end } of [...calls].reverse()) text = `${text.slice(0, start)}${text.slice(end)}`;
   }
 

@@ -412,7 +412,9 @@
     "queuedOthers": "Other people have messages waiting for you too ({others}); each gets its own turn, so do not answer them here or say you will get to them.",
     "added": "While this was waiting, the person came back to it ({added}); answer once with that in view.",
     "missed": "Earlier messages to you got no answer from you ({missed}). You can answer them now, briefly and together in one reply, or let them pass.",
-    "continue": "This is the same turn, continued after your {skill} call. Your messages above were delivered, and how the call went is marked on your line. Do not answer the message that started this turn again, and make no more calls this turn. Messages that came in after it are context, not new requests. Write only if the outcome changes what people need to know: a correction of what you said, an answer they asked for, or a clarification. Otherwise <skip/>."
+    "continue": "This is the same turn, continued after your {skill} call. Your messages above were delivered, and how the call went is marked on your line. Do not answer the message that started this turn again, and make no more calls this turn. Messages that came in after it are context, not new requests. Write only if the outcome changes what people need to know: a correction of what you said, an answer they asked for, or a clarification. Otherwise <skip/>.",
+    "continueTools": "PLACEHOLDER: This is the same turn, continued after your {skill} call. What the calls gave back is in the <result> blocks above; your messages above were delivered. Answer from it, or make another call if you still need one.",
+    "continueToolsLast": "PLACEHOLDER: This is the same turn, continued after your {skill} call. What the calls gave back is in the <result> blocks above; your messages above were delivered. This is your last step this turn: answer from what you have; a call written now will not run."
   },
   "tasks": {
     "header": "Your errands (open, or finished and not yet seen by you):",

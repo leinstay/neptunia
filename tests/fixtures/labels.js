@@ -352,6 +352,8 @@ export const labels = {
     added: 'they asked about this again meanwhile:\n{added}',
     missed: 'unanswered earlier, answer now or let pass: {missed}',
     continue: 'continue this turn after your {skill} call; no new call; skip unless the outcome changes something',
+    continueTools: 'continue this turn after your {skill} call; results above; another call may run',
+    continueToolsLast: 'continue this turn after your {skill} call; results above; last step, no call runs',
   },
   tasks: {
     header: 'your errands:',
