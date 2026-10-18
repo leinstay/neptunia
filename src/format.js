@@ -785,6 +785,11 @@ function withChannelHandles(content, mentionedIds, channels, template) {
  *   caller): in `mode: 'chat'`, a Discord message link in a line's text to a message of this list
  *   reads as that line's `#index` (src/memory/mentions.js#numberMessageLinks); a link to anything
  *   else stays as written.
+ * @param {(message: object) => boolean} [options.skip]  A message it holds true for keeps its
+ *   number (`#index`, reply markers and message links to it read as that number) but renders no
+ *   item, and a gap marker is measured from the last line that does render: the request builder
+ *   shows such lines in another block (src/behavior/prompt.js, the anchored window). Omitted:
+ *   every message renders.
  * @throws {RangeError} when `indexOffset` is given but is not an integer of at least 0.
  * @returns {{ id: string, index: number, ts: number, text: string }[]}
  *
@@ -797,6 +802,7 @@ function withChannelHandles(content, mentionedIds, channels, template) {
  */
 export function formatTranscript(messages, options) {
   const { timezone, gapMinutes, maxChars, selfName, labels, mode = 'chat', attachedIndex, descriptions, videos, reads, gifHandles, gifFields, imageAnswers } = options;
+  const skip = typeof options.skip === 'function' ? options.skip : null;
   const seeReactions = options.seeReactions ?? true;
   const reactionsPerMessage = options.reactionsPerMessage ?? 6;
   const replyQuoteChars = options.replyQuoteChars ?? DEFAULT_REPLY_QUOTE_CHARS;
@@ -850,6 +856,8 @@ export function formatTranscript(messages, options) {
   let previousChannelId = NO_CHANNEL;
 
   for (const message of messages) {
+    // A line shown elsewhere keeps its number and stays a reply target, but renders no item here.
+    if (skip && skip(message)) continue;
     const index = indexById.get(message.id);
     const parts = [];
 

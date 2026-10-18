@@ -379,6 +379,9 @@ export const labels = {
     channelNoPurpose: '#{channel}:',
     episode: '{when} ago:',
     skipped: '[{count} messages skipped]',
+    earlierHeader: 'earlier in this channel, last {hours} hours:',
+    earlierGap: '[...]',
+    earlierOpen: '(open)',
   },
   videoAudio: {
     none: 'Measured: no audible sound in this clip.',

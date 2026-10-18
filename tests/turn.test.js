@@ -7707,6 +7707,23 @@ test('createTurnRunner: context.replyParentsMax caps the fetched parents, contex
   assert.deepEqual(lastOne.channel.fetchedIds, ['pc']);
 });
 
+test('createTurnRunner: features.anchoredWindow asks the parents of every window line and shows them in <earlier>, not <chat>', async () => {
+  const stored = ['pa', 'pb', 'pc'].map((id, i) => rawMessage({ id, authorId: 'u2', authorName: 'Bob', ts: OLD_PARENT_TS + i, content: `γονέας ${id}` }));
+  const historyMessages = [
+    rawReplyTo('pa', { id: 'm1', ts: NOW - 3000 }),
+    rawReplyTo('pb', { id: 'm2', ts: NOW - 2000 }),
+    rawReplyTo('pc', { id: 'm3', ts: NOW - 1000 }),
+  ];
+  const hot = replyParentHot({ replyParentsFor: 1 });
+  hot.config.features.anchoredWindow = true;
+  const { channel, userMessage } = await runReplyParentTurn({ hot, historyMessages, stored, trigger: { ...normalizedTrigger(historyMessages[2]), replyToId: 'pc' } });
+  assert.deepEqual(channel.fetchedIds, ['pc', 'pb', 'pa'], 'every window line, newest first, despite replyParentsFor 1');
+  const block = (tag) => userMessage.slice(userMessage.indexOf(`<${tag}>`), userMessage.indexOf(`</${tag}>`));
+  assert.ok(['pa', 'pb', 'pc'].every((id) => block('earlier').includes(`γονέας ${id}`)), block('earlier'));
+  assert.ok(!/^#[123] \[/m.test(block('chat')) && /^#4 \[/m.test(block('chat')), 'the parents left the chat, the window kept its numbers');
+  assert.ok(block('chat').includes('(replying to #3, Bob: '), 'the chat still names a parent by its number');
+});
+
 test('createTurnRunner: a deleted reply parent is skipped and logged, the turn still speaks', async () => {
   const triggerRaw = rawReplyTo('gone', { id: 'm2', ts: NOW - 1000 });
   const { result, logs, channel, userMessage } = await runReplyParentTurn({

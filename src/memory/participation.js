@@ -19,8 +19,9 @@
 //
 // The read side only ranks and cuts: `episodeHeadlines` (one short line pair
 // per episode, for the picking classifier), `selectEpisodes` (which few a turn
-// shows) and `cutEpisode` (which messages of one episode fit a character
-// budget). Rendering and wording belong to the request builder. The clock is
+// shows), `earlierEpisodes` (the current channel's lines the chat window has
+// already let go of) and `cutEpisode` (which messages of one episode fit a
+// character budget). Rendering and wording belong to the request builder. The clock is
 // always passed in (`now`).
 
 import { isPlainObject } from '../config.js';
@@ -30,7 +31,8 @@ import { clampText, oneLine } from './clamp.js';
 /**
  * config.json's own values for the `participation` section, the code fallbacks
  * when a deployment's config lacks a key. `contextMessages` and
- * `maxOutputTokens` belong to the pick classifier (src/behavior/participation-pick.js).
+ * `maxOutputTokens` belong to the pick classifier (src/behavior/participation-pick.js),
+ * `earlierHours` and `earlierShown` to the current channel's `<earlier>` block (`earlierEpisodes`).
  */
 export const PARTICIPATION_DEFAULTS = Object.freeze({
   hours: 72,
@@ -47,6 +49,8 @@ export const PARTICIPATION_DEFAULTS = Object.freeze({
   episodeChars: 1800,
   contextMessages: 6,
   maxOutputTokens: 60,
+  earlierHours: 3,
+  earlierShown: 3,
 });
 
 /** How long a headline's member line and self line may be (a hard cut at a word boundary). */
@@ -67,7 +71,8 @@ const CUT_EDGE = 2;
  * @param {object} config
  * @returns {{ hours: number, linesBefore: number, linesAfter: number, followMinutes: number,
  *   mergeGapMinutes: number, contextMinutes: number, maxMessages: number, maxStored: number, maxTextChars: number,
- *   shown: number, perChannel: number, episodeChars: number, contextMessages: number, maxOutputTokens: number }}
+ *   shown: number, perChannel: number, episodeChars: number, contextMessages: number, maxOutputTokens: number,
+ *   earlierHours: number, earlierShown: number }}
  */
 export function participationSettings(config) {
   const section = isPlainObject(config?.participation) ? config.participation : {};
@@ -482,6 +487,38 @@ export function selectEpisodes(state, { pickedIds = [], excludeChannelId, audien
   return [...groups.entries()]
     .map(([channelId, episodes]) => ({ channelId, episodes: [...episodes].sort((a, b) => a.lastOwnAt - b.lastOwnAt) }))
     .sort((a, b) => b.episodes[b.episodes.length - 1].lastOwnAt - a.episodes[a.episodes.length - 1].lastOwnAt);
+}
+
+/**
+ * The current channel's stretch the chat window no longer holds: the episodes of
+ * `channelId` cut down to their lines older than `before` (the window's first
+ * line) and no older than `earlierHours` before `now`; an episode left with no
+ * line goes. The `earlierShown` episodes with the newest kept line are returned,
+ * oldest first, each with its times recomputed from the kept lines (`lastOwnAt`
+ * null when none of hers is left). The result moves only when a stored line
+ * crosses `before` or the age bound, never with the clock alone. `[]` with
+ * `earlierHours` or `earlierShown` 0, no channel or no finite `before`. Pure.
+ * @param {unknown} state
+ * @param {{ channelId: string, before: number, now: number }} view
+ * @param {object} [settings]
+ * @returns {object[]}
+ */
+export function earlierEpisodes(state, { channelId, before, now } = {}, settings) {
+  const s = settingsOf(settings);
+  const channel = idOf(channelId);
+  const shown = Math.floor(s.earlierShown);
+  if (channel === null || !Number.isFinite(before) || s.earlierHours <= 0 || shown <= 0) return [];
+  const from = nowOf(now) - s.earlierHours * HOUR_MS;
+  const out = [];
+  for (const ep of normalizeParticipation(state).episodes) {
+    if (ep.channelId !== channel) continue;
+    const messages = ep.messages.filter((m) => m.ts < before && m.ts >= from);
+    if (messages.length > 0) out.push(withMessages(ep, messages));
+  }
+  return out
+    .sort((a, b) => b.lastAt - a.lastAt)
+    .slice(0, shown)
+    .sort((a, b) => a.startAt - b.startAt);
 }
 
 /** A message's weight against a cut's budget: its text plus its caption, in code points. */

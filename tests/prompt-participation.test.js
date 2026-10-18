@@ -255,3 +255,83 @@ test('participation block: a channel with no stored name takes the live name, an
   const live = blockOf(textOf(buildRequest(input({ channels: [], participation: { state: state(), audience: () => true, channelName: (id) => names[id] ?? null } }))), 'participation');
   assert.ok(live.includes('#jardin-live:') && !live.includes('journal'));
 });
+
+// --- <earlier>: this channel's lines the chat window let go of ----------------------
+
+/** p7 in the current channel: Ana asks 40 min ago, the persona answers, Nikos follows. */
+function hereEpisode() {
+  return {
+    id: 'p7',
+    channelId: HERE,
+    continues: null,
+    messages: [
+      stored('e1', NOW - 40 * MIN, { text: 'θα το στείλεις στο άλλο κανάλι;' }),
+      stored('e2', NOW - 39 * MIN, { self: true, text: 'ναι, εντάξει' }),
+      stored('e3', NOW - 20 * MIN, { name: 'Nikos', authorId: 'u2', text: 'τέλεια' }),
+    ],
+  };
+}
+
+const selfLabel = () => fill(labels.self, { name: 'Zoë' });
+
+/** The config with the anchored window on (features.anchoredWindow), which `<earlier>` belongs to. */
+const anchoredConfig = ({ features = {}, ...rest } = {}) => fakeConfig({ ...rest, features: { anchoredWindow: true, ...features } });
+
+test('earlier block: the stored lines of this channel older than the chat, in the tail after <participation>, before <chat>', () => {
+  const window = [chatLine('m0', NOW - 30 * MIN), chatLine('m1', NOW - MIN, { content: 'θυμάσαι;' })];
+  const request = buildRequest(input({ config: anchoredConfig(), history: window, trigger: window[1], participation: { state: state([hereEpisode()]), audience: () => true } }));
+  const text = textOf(request);
+  assert.equal(
+    blockOf(text, 'earlier'),
+    [
+      fill(labels.participation.earlierHeader, { hours: 3 }),
+      `[${clock(NOW - 40 * MIN)}] Ana: θα το στείλεις στο άλλο κανάλι;`,
+      `[${clock(NOW - 39 * MIN)}] ${selfLabel()}: ναι, εντάξει`,
+    ].join('\n'),
+    'e3 is younger than the window start: it is not repeated',
+  );
+  const at = (tag) => text.indexOf(`<${tag}>`);
+  assert.ok(at('participation') !== -1 && at('earlier') > at('participation') && at('chat') > at('earlier'), text);
+  const parts = request.messages[1].content.filter((part) => part.type === 'text');
+  assert.ok(parts.filter((part) => part.cacheSegment).every((part) => !part.text.includes('<earlier>')), 'never in a cached part');
+  assert.ok(parts.at(-1).text.includes('<earlier>') && !parts.at(-1).cacheSegment);
+  assert.ok(!blockOf(text, 'participation').includes('εντάξει'), 'the current channel stays out of <participation>');
+});
+
+test('earlier block: the same stretch renders the same text as turns go by; a stored line leaving the chat joins it', () => {
+  const st = state([hereEpisode()]);
+  const turn = (history, now) => blockOf(textOf(buildRequest(input({ config: anchoredConfig(), now, history, trigger: history.at(-1), participation: { state: st, audience: () => true } }))), 'earlier');
+  const first = turn([chatLine('m0', NOW - 30 * MIN), chatLine('m1', NOW - MIN)], NOW);
+  // Five minutes on, the window lost m0 (not stored) and starts at m5, still before e3: nothing stored crossed it.
+  const second = turn([chatLine('m5', NOW - 25 * MIN), chatLine('m1', NOW - MIN), chatLine('m2', NOW + 4 * MIN)], NOW + 5 * MIN);
+  assert.equal(second, first);
+  // Lines past context.ageAfterMinutes keep their bare clock: an hour on, the same text.
+  assert.equal(turn([chatLine('m5', NOW - 25 * MIN), chatLine('m6', NOW + HOUR)], NOW + HOUR), first);
+  // Once the window starts after e3, e3 joins the block and nothing else moves.
+  const third = turn([chatLine('m3', NOW - 10 * MIN), chatLine('m4', NOW - MIN)], NOW);
+  assert.equal(third, [first, `[${clock(NOW - 20 * MIN)}] Nikos: τέλεια`].join('\n'));
+});
+
+test('earlier block: earlierHours bounds the age; off with 0, without the label, with features.participation off, in a private chat', () => {
+  const window = [chatLine('m1', NOW - MIN)];
+  const run = (overrides) => blockOf(textOf(buildRequest(input({ config: anchoredConfig(), history: window, trigger: window[0], participation: { state: state([hereEpisode()]), audience: () => true }, ...overrides }))), 'earlier');
+  assert.ok(run({}).includes('τέλεια'));
+  const young = run({ config: anchoredConfig({ participation: { earlierHours: 0.5 } }) });
+  assert.ok(young.includes('τέλεια') && !young.includes('εντάξει'), 'only lines younger than 30 min');
+  assert.equal(run({ config: anchoredConfig({ participation: { earlierHours: 0 } }) }), null);
+  assert.equal(run({ prompts: prompts({ ...labels, participation: { ...labels.participation, earlierHeader: '' } }) }), null);
+  assert.equal(run({ config: anchoredConfig({ features: { participation: false } }) }), null);
+  assert.equal(run({ privateChat: { userId: 'a-m1' }, triggerKind: 'private' }), null);
+});
+
+test('earlier block: the newest episodes win the cap, rendered oldest first with the gap label between them', () => {
+  const older = { id: 'p6', channelId: HERE, continues: null, messages: [stored('o1', NOW - 90 * MIN, { self: true, text: 'παλιό' })] };
+  const window = [chatLine('m1', NOW - MIN)];
+  const run = (config) =>
+    buildRequest(input({ config, history: window, trigger: window[0], participation: { state: state([older, hereEpisode()]), audience: () => true } }));
+  const both = blockOf(textOf(run(anchoredConfig())), 'earlier');
+  assert.ok(both.indexOf('παλιό') < both.indexOf(`\n${labels.participation.earlierGap}\n`) && both.indexOf(labels.participation.earlierGap) < both.indexOf('εντάξει'), both);
+  const used = run(anchoredConfig()).stats.earlier.used;
+  const tight = blockOf(textOf(run(anchoredConfig({ caps: { earlier: used - 5 } }))), 'earlier');
+  assert.ok(tight.includes('εντάξει') && !tight.includes('παλιό'), tight);
+});
