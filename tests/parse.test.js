@@ -20,9 +20,47 @@ test('parseOutput: reply="87" (no #) is also parsed as replyTo 87', () => {
   assert.equal(result.messages[0].replyTo, 87);
 });
 
-test('parseOutput: at most 3 messages are kept, extras are dropped', () => {
-  const result = parseOutput('<msg>1</msg><msg>2</msg><msg>3</msg><msg>4</msg>');
-  assert.deepEqual(result.messages.map((m) => m.text), ['1', '2', '3']);
+test('parseOutput: a fourth message is joined into the third on its own line, recorded as message-merge', async () => {
+  const { createLimits } = await import('../src/llm/limits.js');
+  const limits = createLimits();
+  const result = parseOutput('<msg>1</msg><msg>2</msg><msg reply="#7">τρία</msg><msg reply="#9">τέσσερα  ok</msg>', { limits });
+  assert.deepEqual(result.messages, [
+    { text: '1', replyTo: null },
+    { text: '2', replyTo: null },
+    { text: 'τρία\nτέσσερα  ok', replyTo: 7 },
+  ]);
+  assert.deepEqual(limits.list(), [{ kind: 'message-merge', where: 'parse', lost: 1 }]);
+});
+
+test('parseOutput: messages four and five are joined into the third in order', async () => {
+  const { createLimits } = await import('../src/llm/limits.js');
+  const limits = createLimits();
+  const result = parseOutput('<msg>a</msg><msg>b</msg><msg>c</msg><msg>d\ne</msg><msg>f</msg>', { limits });
+  assert.deepEqual(result.messages.map((m) => m.text), ['a', 'b', 'c\nd\ne\nf']);
+  assert.deepEqual(limits.list(), [{ kind: 'message-merge', where: 'parse', lost: 2 }]);
+  // Without a collector the join is the same.
+  assert.deepEqual(parseOutput('<msg>a</msg><msg>b</msg><msg>c</msg><msg>d</msg>').messages.map((m) => m.text), ['a', 'b', 'c\nd']);
+});
+
+test('parseOutput: three messages stay as they are, nothing recorded', async () => {
+  const { createLimits } = await import('../src/llm/limits.js');
+  const limits = createLimits();
+  const result = parseOutput('<msg>a</msg><msg reply="#2">b</msg><msg>c</msg>', { limits });
+  assert.deepEqual(result.messages, [{ text: 'a', replyTo: null }, { text: 'b', replyTo: 2 }, { text: 'c', replyTo: null }]);
+  assert.deepEqual(limits.list(), []);
+});
+
+test('parseOutput: a merged message over 1900 characters is cut like any message, the cut recorded', async () => {
+  const { createLimits } = await import('../src/llm/limits.js');
+  const limits = createLimits();
+  const third = 'γ'.repeat(1000);
+  const fourth = 'δ'.repeat(1000);
+  const result = parseOutput(`<msg>a</msg><msg>b</msg><msg>${third}</msg><msg>${fourth}</msg>`, { limits });
+  assert.equal(result.messages[2].text, `${third}\n${'δ'.repeat(899)}`);
+  assert.deepEqual(limits.list(), [
+    { kind: 'message-merge', where: 'parse', lost: 1 },
+    { kind: 'message-cut', where: 'parse', lost: 101 },
+  ]);
 });
 
 test('parseOutput: <think> is stripped from output and returned separately', () => {

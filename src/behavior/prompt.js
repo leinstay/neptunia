@@ -2932,6 +2932,8 @@ export function buildRequest(input) {
     imageAnswers,
     // Each author in view carries their mention handle (transcript.author).
     handles: handleById ?? undefined,
+    // A message link to a line of the same rendering reads as its `#n` (features.messageLinks).
+    messageNumbers: config.features?.messageLinks !== false,
     // Each channel a line mentions carries its handle (transcript.channel).
     channels: channelHandleById ? new Map(channelEntries.map((entry) => [entry.id, { handle: channelHandleById.get(entry.id), name: entry.name }])) : undefined,
     // A GIF the library knows carries its handle in the transcript.
@@ -3311,7 +3313,7 @@ export function buildRequest(input) {
     .filter((neighbor) => !shownPulledIds.has(neighbor.channelId))
     .map(
       ({ channelName, messages }) =>
-        `# ${channelName}\n${formatTranscript(messages, { ...formatOptions, maxChars: neighborChars, descriptions: neighborDescriptions })
+        `# ${channelName}\n${formatTranscript(messages, { ...formatOptions, maxChars: neighborChars, descriptions: neighborDescriptions, messageNumbers: false })
           .map((item) => item.text.replace(/^#\d+ /gm, ''))
           .join('\n')}`,
     );

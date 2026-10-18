@@ -16,7 +16,7 @@ import { clipWithEllipsis, mediaLabelFor, stickerLabelFor, stickerUrl } from './
 import { gifHandleOf } from './memory/index.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.js';
 import { clampWithEllipsis, oneLine } from './memory/clamp.js';
-import { isWordChar, outsideUrls } from './memory/mentions.js';
+import { isWordChar, numberMessageLinks, outsideUrls } from './memory/mentions.js';
 
 // config.json's context.replyQuoteChars: how much of a reply's parent its line quotes.
 const DEFAULT_REPLY_QUOTE_CHARS = 80;
@@ -781,6 +781,10 @@ function withChannelHandles(content, mentionedIds, channels, template) {
  *   text mentions (its `mentionedChannelIds`, read as `#name`, or a raw `<#id>`) renders as that
  *   label with `{name}` and `{handle}` (both with their `#`; withChannelHandles). Omitted, or
  *   without the label: the text as it came.
+ * @param {boolean} [options.messageNumbers]  Default false (features.messageLinks, read by the
+ *   caller): in `mode: 'chat'`, a Discord message link in a line's text to a message of this list
+ *   reads as that line's `#index` (src/memory/mentions.js#numberMessageLinks); a link to anything
+ *   else stays as written.
  * @throws {RangeError} when `indexOffset` is given but is not an integer of at least 0.
  * @returns {{ id: string, index: number, ts: number, text: string }[]}
  *
@@ -838,6 +842,8 @@ export function formatTranscript(messages, options) {
     throw new RangeError(`formatTranscript: indexOffset must be an integer >= 0, got ${String(indexOffset)}`);
   }
   const indexById = new Map(messages.map((message, i) => [message.id, indexOffset + i + 1]));
+  // A message link to a line of this list reads as that line's number (chat mode, `messageNumbers`).
+  const linkNumbers = mode === 'chat' && options.messageNumbers === true;
   const byId = new Map(messages.map((message) => [message.id, message]));
   const items = [];
   let previous = null;
@@ -875,7 +881,8 @@ export function formatTranscript(messages, options) {
     const head = mode === 'memory' ? time : `#${index} ${time}`;
 
     const body = [];
-    const content = channelMarks ? withChannelHandles(message.content, message.mentionedChannelIds, channelMarks, channelLabel) : message.content;
+    const marked = channelMarks ? withChannelHandles(message.content, message.mentionedChannelIds, channelMarks, channelLabel) : message.content;
+    const content = linkNumbers ? numberMessageLinks(marked, (id) => indexById.get(id)) : marked;
     if (content) body.push(clipWithEllipsis(content, maxChars));
     if (message.replyToId) {
       const target = indexById.get(message.replyToId);

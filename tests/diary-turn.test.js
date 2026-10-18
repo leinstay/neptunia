@@ -451,8 +451,8 @@ test('diary turn: reactions and gifs are dropped, reply attributes ignored, urls
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(
     channel.sent.map((payload) => payload.content),
-    ['see now', 'deux'],
-    'links removed, a message left empty dropped, at most diary.maxMessages',
+    ['see now', 'deux\ntrois'],
+    'links removed, a message left empty dropped, the fourth joined into the third by the parser',
   );
   assert.ok(channel.sent.every((payload) => payload.reply === undefined), 'nothing posted as a reply');
   assert.equal(channel.reactCalls.length, 0);

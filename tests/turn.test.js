@@ -2369,7 +2369,7 @@ function lookupHot(features = {}, web = {}, config = {}) {
   return hot;
 }
 
-async function runLookupTurn({ hot = lookupHot(), llm = lookupLlm(), lookup = fakeLookup(), history, trigger = true, now } = {}) {
+async function runLookupTurn({ hot = lookupHot(), llm = lookupLlm(), lookup = fakeLookup(), history, trigger = true, now, triggerKind = 'mention', taskResult = null } = {}) {
   const messages = history ?? [
     linkRaw('m1', NOW - 5000, [
       PAGE_EMBED,
@@ -2382,7 +2382,7 @@ async function runLookupTurn({ hot = lookupHot(), llm = lookupLlm(), lookup = fa
   const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient(), lookup, ...(now ? { now } : {}) });
   const last = messages[messages.length - 1];
   const turn = trigger
-    ? { channel, mode: 'reply', trigger: normalizedTrigger(last), triggerKind: 'mention' }
+    ? { channel, mode: 'reply', trigger: normalizedTrigger(last), triggerKind, ...(taskResult ? { taskResult } : {}) }
     : { channel, mode: 'interject' };
   const result = await turns.runTurn(turn);
   return { result, llm, lookup };
@@ -2495,6 +2495,18 @@ test('createTurnRunner: lookup -- only on a direct address: a spontaneous turn r
   assert.equal(lookup.readCalls.length, 1);
   assert.equal(llm.classifierCalls.length, 0);
   assert.equal(lookup.searchCalls.length, 0);
+});
+
+test('createTurnRunner: lookup -- a turn a returned errand opened runs no engine lookup and has no <lookup> block', async () => {
+  const lookup = fakeLookup();
+  const taskResult = { id: 't1', agent: 'web', goal: 'βρες τον νικητή', state: 'done', result: { text: 'ο νικητής', files: [] } };
+  const { llm, result } = await runLookupTurn({ lookup, llm: lookupLlm('champions final winner 2026'), triggerKind: 'task', taskResult });
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(llm.classifierCalls.length, 0, 'no search classifier on the result turn');
+  assert.equal(lookup.searchCalls.length, 0);
+  const turnUser = textOf(llm.turnCalls[0].messages[1].content);
+  assert.ok(!turnUser.includes('\n<lookup>\n'), turnUser);
+  assert.ok(turnUser.includes('ο νικητής'), 'the errand result is shown');
 });
 
 test('createTurnRunner: lookup -- one classifier call and at most one search per turn', async () => {

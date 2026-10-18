@@ -2,7 +2,7 @@
 // id-token round trip) and teacherToken (the lesson teacher rule). Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TEACHER_TOKEN_RE, channelCore, isWordChar, linkChannels, linkMessageNumbers, matchChannel, toTokens, fromTokens, occursAsWholeWord, occursAsWordStem, teacherToken } from '../src/memory/mentions.js';
+import { TEACHER_TOKEN_RE, channelCore, isWordChar, linkChannels, linkMessageNumbers, matchChannel, numberMessageLinks, toTokens, fromTokens, occursAsWholeWord, occursAsWordStem, teacherToken } from '../src/memory/mentions.js';
 
 const ID_A = '123456789012345678';
 const ID_B = '223456789012345678';
@@ -261,6 +261,36 @@ test('linkChannels: text without # comes back unchanged', () => {
   assert.equal(linkChannels('γενικά χωρίς σύνδεσμο', channels), 'γενικά χωρίς σύνδεσμο');
   assert.equal(linkChannels('', channels), '');
   assert.equal(linkChannels('#γενικά', []), '#γενικά');
+});
+
+// ---- numberMessageLinks -----------------------------------------------------
+
+test('numberMessageLinks: a link to a message of the window becomes its #n, any host form', () => {
+  const numbers = new Map([['300', 4], ['301', 9]]);
+  const numberOf = (id) => numbers.get(id);
+  assert.equal(numberMessageLinks('εδώ https://discord.com/channels/1/2/300 είπες', numberOf), 'εδώ #4 είπες');
+  assert.equal(numberMessageLinks('https://ptb.discord.com/channels/1/2/300/', numberOf), '#4');
+  assert.equal(numberMessageLinks('https://canary.discordapp.com/channels/1/2/301 και https://discordapp.com/channels/@me/2/300', numberOf), '#9 και #4');
+  assert.equal(numberMessageLinks('voilà <https://discord.com/channels/1/2/301>.', numberOf), 'voilà #9.');
+  assert.equal(numberMessageLinks('(https://discord.com/channels/1/2/300), ok', numberOf), '(#4), ok');
+});
+
+test('numberMessageLinks: a link outside the window or not a bare message link stays as written', () => {
+  const numberOf = (id) => (id === '300' ? 4 : undefined);
+  for (const text of [
+    'https://discord.com/channels/1/2/999',
+    'https://discord.com/channels/1/2/3000',
+    'https://discord.com/channels/1/2/300?x=1',
+    'https://discord.com/channels/1/300',
+    'https://example.com/channels/1/2/300',
+    'xhttps://discord.com/channels/1/2/300',
+    'plain #12 text',
+  ]) {
+    assert.equal(numberMessageLinks(text, numberOf), text, text);
+  }
+  assert.equal(numberMessageLinks('', numberOf), '');
+  assert.equal(numberMessageLinks(null, numberOf), null);
+  assert.equal(numberMessageLinks('https://discord.com/channels/1/2/300', null), 'https://discord.com/channels/1/2/300');
 });
 
 // ---- linkMessageNumbers -----------------------------------------------------

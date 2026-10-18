@@ -1,6 +1,7 @@
 // Parses the model's tagged output (contract: prompts/format.md) into actions.
 //   <think>…</think>          hidden planning, discarded
-//   <msg reply="#87">…</msg>   a chat message, optionally a reply to message #87
+//   <msg reply="#87">…</msg>   a chat message, optionally a reply to message #87 (at most 3:
+//                              any later one is joined into the third, a line each)
 //   <react to="#87">💀</react> a reaction on message #87 (a custom emoji as :name: too)
 //   <draw self="yes" reply="#87">…</draw>  a scene for the drawing sub-process: `draw` is the
 //                              first one, `draws` every one in order (at most 10; a diary
@@ -120,9 +121,12 @@ function parseIndex(value) {
  * @param {unknown} raw
  * @param {{ maxDrawChars?: number, limits?: { add: Function }|null }} [options] `maxDrawChars`: the
  *   cap of one <draw> body, cut at a sentence or word boundary (clampAtBoundary); the live
- *   `image.maxPromptChars`, default 1600. `limits` (src/llm/limits.js#createLimits, optional) is
- *   told of every `<msg>` cut at 1900 characters as a `message-cut` (`where: 'parse'`) with the
- *   characters lost.
+ *   `image.maxPromptChars`, default 1600. At most 3 messages come out: every `<msg>` past the
+ *   third is joined into the third, each on its own line, its text unchanged (its own reply
+ *   target is dropped). `limits` (src/llm/limits.js#createLimits, optional) is told of such a
+ *   join as a `message-merge` (`where: 'parse'`, `lost`: the messages joined) and of every
+ *   `<msg>` (a joined one included) cut at 1900 characters as a `message-cut` (`where: 'parse'`)
+ *   with the characters lost.
  * @returns {{ skip: boolean, messages: {text: string, replyTo: number|null}[],
  *             reactions: {to: number, emoji: string}[], think: string,
  *             draw: {text: string, self: boolean, replyTo: number|null}|null,
@@ -163,17 +167,26 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
     for (const { start, end } of [...calls].reverse()) text = `${text.slice(0, start)}${text.slice(end)}`;
   }
 
+  const bodies = [];
   for (const match of text.matchAll(/<msg(\s[^>]*)?>([\s\S]*?)<\/msg>/gi)) {
     const body = match[2].trim();
     if (!body) continue;
     const reply = /reply\s*=\s*"([^"]*)"/i.exec(match[1] ?? '');
-    if (body.length > MAX_MESSAGE_CHARS && result.messages.length < MAX_MESSAGES) {
+    bodies.push({ text: body, replyTo: reply ? parseIndex(reply[1]) : null });
+  }
+  // Every message past the cap is joined into the last kept one, a line each, so no tail is
+  // lost unseen; the last kept one keeps its own reply target, theirs are dropped.
+  if (bodies.length > MAX_MESSAGES) {
+    const extra = bodies.splice(MAX_MESSAGES);
+    const last = bodies[MAX_MESSAGES - 1];
+    last.text = [last.text, ...extra.map((item) => item.text)].join('\n');
+    limits?.add({ kind: 'message-merge', where: 'parse', lost: extra.length });
+  }
+  for (const { text: body, replyTo } of bodies) {
+    if (body.length > MAX_MESSAGE_CHARS) {
       limits?.add({ kind: 'message-cut', where: 'parse', lost: Array.from(body.slice(MAX_MESSAGE_CHARS)).length });
     }
-    result.messages.push({
-      text: body.slice(0, MAX_MESSAGE_CHARS),
-      replyTo: reply ? parseIndex(reply[1]) : null,
-    });
+    result.messages.push({ text: body.slice(0, MAX_MESSAGE_CHARS), replyTo });
   }
 
   for (const match of text.matchAll(/<react\s+to\s*=\s*"([^"]*)"\s*>([\s\S]*?)<\/react>/gi)) {
@@ -205,8 +218,6 @@ export function parseOutput(raw, { maxDrawChars = DEFAULT_MAX_DRAW_CHARS, limits
     result.gif = { id: `g${Number(handle[1])}`, replyTo: reply ? parseIndex(reply[1]) : null };
     break;
   }
-
-  result.messages = result.messages.slice(0, MAX_MESSAGES);
 
   if (result.messages.length === 0 && result.reactions.length === 0 && !result.draw && !result.gif && !result.call) {
     const leftover = text.replace(/<skip\s*\/?>/gi, '').trim();

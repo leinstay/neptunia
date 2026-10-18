@@ -4979,6 +4979,10 @@ export function createTurnRunner({
       const answersDrawFailure = triggerKind === 'drawFailed';
       // Someone asked for this turn (askedFor): not a spontaneous or an overheard one.
       const asked = askedFor(trigger, triggerKind);
+      // A turn a returned errand opened answers with its result: the engine's own search
+      // (the classifier, the planner's lookup block) is not run on the original request, so no
+      // <lookup> block stands beside the result. Her own recall call still runs.
+      const answersTask = triggerKind === 'task';
       // Skills discovery: the `skills:` line of the search classifier or the planner (parseSkillsLines).
       let skillsAnswer = null;
       // A direct call sees the persona typing while the turn prepares.
@@ -5070,7 +5074,7 @@ export function createTurnRunner({
             log.warn('participation: failed', { channel: channel.id, reason: 'error', status: null, name: err?.name ?? null });
           }
         }
-        const lookupWanted = asked && (webSearchOn || serverOn) && lookupGate({ config, webOn: webSearchOn, serverOn }).skip === null;
+        const lookupWanted = asked && !answersTask && (webSearchOn || serverOn) && lookupGate({ config, webOn: webSearchOn, serverOn }).skip === null;
         planner.start({
           transcriptBlock: context?.transcriptBlock ?? '',
           candidateBlock: judged ? block('candidate', `${judged.authorName}: ${context.triggerText}`) : null,
@@ -5417,7 +5421,7 @@ export function createTurnRunner({
       let lookupStage = null;
       let lookupChain = null;
       // `serverOn` (above): the lookup stage runs the server search and `<senses>` says it exists.
-      if (asked && !answersDrawFailure) {
+      if (asked && !answersDrawFailure && !answersTask) {
         const webOn = webSearchOn;
         if (webOn || serverOn) {
           lookupChain = previews.settled
