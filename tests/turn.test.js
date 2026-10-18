@@ -7414,7 +7414,7 @@ function pickHot({ features = {}, prompts = {}, pickSettings = PICK_SETTINGS, ma
   return hot;
 }
 
-async function runPickTurn({ reply = '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick = 'none', store = pickStore(), typing = null, raws = pickHistory(), triggerRaw = raws.at(-1), failGif = false, ...hotOptions } = {}) {
+async function runPickTurn({ reply = '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick = 'none', store = pickStore(), typing = null, raws = pickHistory(), triggerRaw = raws.at(-1), failGif = false, journaled = false, ...hotOptions } = {}) {
   const channel = fakeTurnChannel({ historyMessages: raws });
   const sendTimes = [];
   const send = channel.send;
@@ -7424,11 +7424,17 @@ async function runPickTurn({ reply = '<msg reply="#2">ναι, φυσικά, έλ
     return send(payload);
   };
   const llm = pickLlm({ reply, pick });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: pickHot({ ...hotOptions, typing }), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const hot = pickHot({ ...hotOptions, typing });
+  // With `journaled`, a journal in memory: `limits` are the turn record's.
+  const recorded = journaled ? journalOverMemory() : null;
+  if (recorded) hot.config.features.journal = true;
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, ...(recorded ? { journal: recorded.journal } : {}) });
+  const startedAt = Date.now();
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(triggerRaw), triggerKind: 'mention' }));
   const picks = llm.calls.filter((call) => call.options?.purpose === 'gif-pick');
   const sent = () => channel.sent.map((payload) => payload.content);
-  return { result, logs, channel, picks, store, sent, sendTimes };
+  const limits = recorded?.lines.find(({ record }) => record.kind === 'turn')?.record.limits ?? null;
+  return { result, logs, channel, picks, store, sent, sendTimes, startedAt, limits };
 }
 
 test('runTurn: a short reply is shown with the whole captioned library; a picked handle posts that GIF and no text', async () => {
@@ -7596,11 +7602,39 @@ test('runTurn: the picker runs alongside the first message\'s typing time', asyn
     askedAt = Date.now();
     return new Promise((resolve) => setTimeout(() => resolve('none'), 150));
   };
-  const { sendTimes, sent } = await runPickTurn({ reply: '<msg>ναι</msg>', pick, typing: { msPerChar: [0, 0], minMs: 150, maxMs: 150 } });
+  const { sendTimes, sent } = await runPickTurn({ reply: '<msg>ναι</msg>', pick, typing: { msPerChar: [0, 0], minMs: 150, maxMs: 150 }, pickSettings: { ...PICK_SETTINGS, graceMs: null } });
   assert.deepEqual(sent(), ['ναι']);
   assert.ok(askedAt !== null && askedAt <= sendTimes[0], 'the picker is asked before the send');
   const together = sendTimes[0] - askedAt;
   assert.ok(together >= 140 && together < 270, `the picker and the typing ran together (${together} ms)`);
+});
+
+test('runTurn: a picker still out when the first message\'s typing ends is left behind: the text goes, logged and journaled', async () => {
+  const typing = { msPerChar: [0, 0], minMs: 60, maxMs: 60 };
+  const slow = () => new Promise((resolve) => setTimeout(() => resolve('g50'), 400));
+  const late = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, typing, pickSettings: { ...PICK_SETTINGS, graceMs: 0 }, journaled: true });
+  assert.deepEqual(late.sent(), ['ναι'], 'the text as written, no GIF');
+  assert.ok(late.sendTimes[0] - late.startedAt < 300, `not held for the picker (${late.sendTimes[0] - late.startedAt} ms)`);
+  const entry = late.logs.find((log) => log.msg === 'gifs: pick late');
+  assert.deepEqual([entry?.channel, entry?.graceMs], ['c1', 0]);
+  assert.deepEqual(late.store.ownGifs, [], 'nothing posted or stamped');
+  assert.ok(late.limits.some((limit) => limit.kind === 'helper-timeout' && limit.where === 'gif-pick'), 'the turn record names the picker');
+
+  const graced = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, typing, pickSettings: { ...PICK_SETTINGS, graceMs: 1000 } });
+  assert.deepEqual(graced.sent(), ['https://tenor.com/view/gif-50'], 'an answer inside the grace still replaces the text');
+  assert.equal(graced.logs.some((log) => log.msg === 'gifs: pick late'), false);
+
+  const waits = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, typing, pickSettings: { ...PICK_SETTINGS, graceMs: null } });
+  assert.deepEqual(waits.sent(), ['https://tenor.com/view/gif-50'], 'null waits for the answer');
+
+  const untyped = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, pickSettings: { ...PICK_SETTINGS, graceMs: 0 } });
+  assert.deepEqual(untyped.sent(), ['https://tenor.com/view/gif-50'], 'without the typing imitation the answer is waited for, as before');
+});
+
+test('runTurn: a picker that answered during the typing is used with a grace of 0', async () => {
+  const quick = await runPickTurn({ reply: '<msg>ναι</msg>', pick: 'g50', typing: { msPerChar: [0, 0], minMs: 60, maxMs: 60 }, pickSettings: { ...PICK_SETTINGS, graceMs: 0 } });
+  assert.deepEqual(quick.sent(), ['https://tenor.com/view/gif-50']);
+  assert.equal(quick.logs.some((log) => log.msg === 'gifs: pick late'), false);
 });
 
 /**

@@ -429,13 +429,14 @@ Settings for the GIF library (`features.gifs`). Uses are counted as each message
 
 ### `gifs.pick`
 
-Settings for the GIF picker (`features.gifPicker`). When the persona's first outgoing message is short (at most `gifs.pick.maxChars` characters) and she chose no GIF herself, a classifier (`analyzer` role, prompt `prompts/gif-pick.md`) receives the last few chat lines with the answered message named, that first message, and the whole captioned library (every entry with its caption; with `features.promptCache` on held per cache bucket like the reply's `<gifs>`; the GIFs the persona posted lately follow in `<gifs_recent>`), and answers one handle or `none`. On a handle the GIF replaces the first message; the remaining messages follow in order. The classifier runs during the first message's typing simulation; the daily GIF rail `gifs.maxPerDay` applies.
+Settings for the GIF picker (`features.gifPicker`). When the persona's first outgoing message is short (at most `gifs.pick.maxChars` characters) and she chose no GIF herself, a classifier (`analyzer` role, prompt `prompts/gif-pick.md`) receives the last few chat lines with the answered message named, that first message, and the whole captioned library (every entry with its caption; with `features.promptCache` on held per cache bucket like the reply's `<gifs>`; the GIFs the persona posted lately follow in `<gifs_recent>`), and answers one handle or `none`. On a handle the GIF replaces the first message; the remaining messages follow in order. The classifier runs during the first message's typing simulation and gets at most `gifs.pick.graceMs` past its end; the daily GIF rail `gifs.maxPerDay` applies.
 
 | Key | Default | Meaning |
 |---|---|---|
 | `maxChars` | `160` | First message ceiling: the picker runs only when the persona's first outgoing message is at most this many characters |
 | `contextMessages` | `4` | Recent chat lines sent to the classifier alongside the reply and the library |
 | `maxOutputTokens` | `60` | Max output tokens for the picker classifier |
+| `graceMs` | `0` | How long the first message, once its typing simulation is over, still waits for the picker. A picker still out then is left behind for this turn: the text goes as written, logged `gifs: pick late` and journaled as a `helper-timeout` limit on `gif-pick`. `null` waits for the answer however long it takes. Without the typing simulation the first message waits for the answer |
 
 ## `avatars`
 

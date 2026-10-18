@@ -18,8 +18,9 @@ function entry(id, fields = {}) {
 }
 
 test('gifPickSettings: each key read from gifs.pick, an unusable one takes config.json\'s value', () => {
-  assert.deepEqual(gifPickSettings({ gifs: { pick: { maxChars: 30.7, contextMessages: 0, maxOutputTokens: 9 } } }), { maxChars: 30, contextMessages: 0, maxOutputTokens: 9 });
-  assert.deepEqual(gifPickSettings({ gifs: { pick: { maxChars: -1, contextMessages: 'x', maxOutputTokens: 0 } } }), { ...GIF_PICK_DEFAULTS });
+  assert.deepEqual(gifPickSettings({ gifs: { pick: { maxChars: 30.7, contextMessages: 0, maxOutputTokens: 9, graceMs: 250.9 } } }), { maxChars: 30, contextMessages: 0, maxOutputTokens: 9, graceMs: 250 });
+  assert.deepEqual(gifPickSettings({ gifs: { pick: { maxChars: -1, contextMessages: 'x', maxOutputTokens: 0, graceMs: -5 } } }), { ...GIF_PICK_DEFAULTS });
+  assert.equal(gifPickSettings({ gifs: { pick: { graceMs: null } } }).graceMs, null, 'null: wait for the answer however long');
   assert.deepEqual(gifPickSettings({}), { ...GIF_PICK_DEFAULTS });
 });
 

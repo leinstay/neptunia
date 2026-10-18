@@ -2917,6 +2917,31 @@ export function createTurnRunner({
     return resolveGif(guildId, { id: handle, replyTo: first.replyTo ?? null }, channelId);
   }
 
+  /**
+   * What `picking` (pickGifSafely's promise) answers within `gifs.pick.graceMs` (gifPickSettings,
+   * read now; on `schedule`) from now, else null: the picker is left behind for this turn, logged
+   * `gifs: pick late` (`channel`, `graceMs`) and journaled as a `helper-timeout` limit on
+   * `gif-pick`. An answer already there wins over a grace of 0. `graceMs` null -> `picking` itself.
+   * @param {Promise<object|null>} picking
+   * @param {{ channelId: string, draft: object|null }} where
+   * @returns {Promise<object|null>}
+   */
+  async function pickedInTime(picking, { channelId, draft }) {
+    const { graceMs } = gifPickSettings(hot.config);
+    if (graceMs === null) return picking;
+    const LATE = Symbol('late');
+    let cancel = null;
+    const timer = new Promise((resolve) => {
+      cancel = schedule(() => resolve(LATE), graceMs);
+    });
+    const answer = await Promise.race([picking.then((value) => ({ value })), timer]);
+    cancel?.();
+    if (answer !== LATE) return answer.value;
+    log.info('gifs: pick late', { channel: channelId, graceMs });
+    draft?.limits?.add({ kind: 'helper-timeout', where: 'gif-pick' });
+    return null;
+  }
+
   /** pickGif that never rejects: an unexpected failure (`gifs: pick failed`) posts the messages as written. */
   function pickGifSafely(args) {
     return pickGif(args).catch((err) => {
@@ -2956,7 +2981,13 @@ export function createTurnRunner({
    * without a notification: only allowedMentions changes, never the text.
    * After the reactions, the GIF picker (pickGif) runs alongside the first
    * message's typing imitation: both start together, the first message waits
-   * for both; a GIF it picks is posted in place of the first message (that
+   * for both, the picker at most `gifs.pick.graceMs` (read now; 0 by default,
+   * `null` = as long as it takes) past the end of that typing: a picker still
+   * out then is left behind for this turn (its answer is ignored; `gifs: pick
+   * late` with `graceMs`, a `helper-timeout` limit on `gif-pick` in the turn's
+   * journal) and the first message goes as written. Without that typing (the
+   * imitation off, or the first message refused) it waits for the answer as
+   * before. A GIF it picks is posted in place of the first message (that
    * text is not sent), replying where it would have,
    * and the other messages follow in order, each waited for and typed; a
    * picked GIF that fails to send (`turn: gif failed`) leaves every message to
@@ -3054,21 +3085,33 @@ export function createTurnRunner({
     const postedGifs = [];
     let sendFailed = false;
     // The GIF picker starts first (its request is sent at once), then the first message's typing.
-    const picking = gifPick
-      ? pickGifSafely({ channelId: channel.id, guildId, messages: parsed.messages, gif: parsed.gif, history, selfName, idByIndex, trigger })
-      : Promise.resolve(null);
+    // `pickDone` once it answered (null included): an answer already there needs no grace timer.
+    let pickDone = false;
+    const picking = (
+      gifPick
+        ? pickGifSafely({ channelId: channel.id, guildId, messages: parsed.messages, gif: parsed.gif, history, selfName, idByIndex, trigger })
+        : Promise.resolve(null)
+    ).then((value) => {
+      pickDone = true;
+      return value;
+    });
     // The first message's typing waits for its check, made on its text before any jump link
     // (linkFor is asked once, when it is sent; no cut is told to the limits here). A refusal is
     // not checked again below: that message ends the posting.
     let firstRefused = false;
+    let firstTyped = false;
     if (typingOn && parsed.messages.length > 0) {
       const head = parsed.messages[0];
       const { replyId } = replyTarget(head.replyTo, { plain, idByIndex, pulledIds });
       const { spoken: first, text: firstText } = renderPost(head.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, quiet: true });
       firstRefused = !checkEffect('message.create', sendArgs({ text: firstText, replyId }), effect).ok;
-      if (!firstRefused) await typeFor(first);
+      if (!firstRefused) {
+        await typeFor(first);
+        firstTyped = true;
+      }
     }
-    const picked = await picking;
+    // Once that typing is over, a picker still out gets `gifs.pick.graceMs` more at most (pickedInTime).
+    const picked = gifPick && firstTyped && !pickDone ? await pickedInTime(picking, { channelId: channel.id, draft }) : await picking;
     // One GIF post (the turn's own or the picked one), recorded like a message.
     const sendGif = async (gif) => {
       const { replyId, pulledId } = replyTarget(gif.replyTo, { plain, idByIndex, pulledIds });
