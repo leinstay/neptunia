@@ -85,21 +85,24 @@ export function parseRewatchPickDetailed(raw, count) {
  * message carries the input blocks in the prompt's order -- `<channels>`,
  * `<episodes>`, `<media>`, the transcript, `<candidate>` -- each left out when
  * it has no line. Laid out for the provider's prompt cache: the channel and
- * episode lists change only when a channel or an episode does, so they are the
- * part tagged `cacheSegment: 'stable'`; the media list, the transcript and the
- * candidate are the per-turn tail. `transcriptBlock` is a whole
+ * episode lists change only when a channel or an episode does (the episodes
+ * oldest first, with no age), so they are the part tagged `cacheSegment:
+ * 'stable'`; the episodes' ages (`<episode_ages>`, `episodeAgeLines`), the media
+ * list, the transcript and the candidate are the per-turn tail. `transcriptBlock` is a whole
  * `<transcript>` block or ''. Null when the prompt is blank or there is no
  * candidate block.
  * @param {{ prompt: string|null|undefined, selfName: string, today: string, skills?: string, channelLines?: string[],
- *   episodeLines?: string[], mediaLines?: string[], transcriptBlock?: string, candidateBlock: string }} params
+ *   episodeLines?: string[], episodeAgeLines?: string[], mediaLines?: string[], transcriptBlock?: string, candidateBlock: string }} params
  * @returns {{ role: string, content: string|object[] }[]|null}
  */
-export function buildPlannerRequest({ prompt, selfName, today, skills = '', channelLines = [], episodeLines = [], mediaLines = [], transcriptBlock = '', candidateBlock }) {
+export function buildPlannerRequest({ prompt, selfName, today, skills = '', channelLines = [], episodeLines = [], episodeAgeLines = [], mediaLines = [], transcriptBlock = '', candidateBlock }) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   if (typeof candidateBlock !== 'string' || !candidateBlock) return null;
   const lines = (list) => (Array.isArray(list) ? list.join('\n') : '');
   const stable = [block('channels', lines(channelLines)), block('episodes', lines(episodeLines))].filter(Boolean).join('\n');
-  const tail = [block('media', lines(mediaLines)), String(transcriptBlock ?? '').trimEnd(), candidateBlock];
+  // The ages only with the episodes they number.
+  const ages = Array.isArray(episodeLines) && episodeLines.length > 0 ? block('episode_ages', lines(episodeAgeLines)) : '';
+  const tail = [ages, block('media', lines(mediaLines)), String(transcriptBlock ?? '').trimEnd(), candidateBlock];
   return [
     { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '', today: today ?? '', skills: skills ?? '' }) },
     { role: 'user', content: stableThenTail(stable, tail, '\n') },
@@ -279,7 +282,8 @@ function allMissing() {
  * `{{skills}}` (buildPlannerRequest) and `skillNames` are the names its
  * `skills:` line may name (parsePlannerAnswer); the turn reads that line.
  * @param {{ llm: { complete: Function }, config: object, prompt: string|null|undefined, selfName: string,
- *   today: string, skills?: string, skillNames?: string[], offer: { channels?: string[], episodes?: string[], media?: string[], lookup?: boolean },
+ *   today: string, skills?: string, skillNames?: string[], offer: { channels?: string[], episodes?: string[], episodeAges?: string[],
+ *   media?: string[], lookup?: boolean },
  *   transcriptBlock?: string, candidateBlock?: string|null, channelId?: string|null, kind?: string|null,
  *   now?: () => number, limits?: { add: Function }|null }} params
  * @returns {Promise<{ outcome: 'classified'|'failed'|'skipped', reason: string|null, blocks: ReturnType<typeof parsePlannerAnswer> }>}
@@ -307,6 +311,7 @@ export async function askPlanner({ llm, config, prompt, selfName, today, skills 
     skills,
     channelLines: list('channels'),
     episodeLines: list('episodes'),
+    episodeAgeLines: list('episodeAges'),
     mediaLines: list('media'),
     transcriptBlock,
     candidateBlock,

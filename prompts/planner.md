@@ -4,7 +4,9 @@ The user message carries these blocks in order. Any block may be absent.
 
 <channels> Other channels on the server, one per line: number | #name | writer (aliases) | purpose. Writer is the member who writes most of that channel, empty when no single main writer. Purpose may be empty.
 
-<episodes> Stored exchanges from other channels, numbered, newest first: number | #channel | duration | another member's lines (joined with / , or empty) | {{name}}'s lines (joined with / ). Lines are cut; a match on the situation counts even when the words differ.
+<episodes> Stored exchanges from other channels, numbered, oldest first: number | #channel | another member's lines (joined with / , or empty) | {{name}}'s lines (joined with / ). Lines are cut; a match on the situation counts even when the words differ.
+
+<episode_ages> One line per episode: number | how long ago that episode was.
 
 <media> Videos and pictures from recent messages, one per line: number | kind | name | status | beginning of the caption or account (or empty). Kind is video or picture. Number 1 is the newest. Status: watched (a video already seen and heard), described (a picture already captioned), or not loaded (a video that failed to load earlier).
 

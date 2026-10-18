@@ -33,7 +33,7 @@ function fixtureDay() {
       reason: null,
       think: 'Ζωή said hello',
       posted: [{ opId: 'op-1', messageId: 'p1' }, { opId: 'op-3', messageId: 'p2' }],
-      usage: { prompt: 40000, cached: 10000, completion: 500 },
+      usage: { prompt: 40000, cached: 10000, cacheWrite: 1200, completion: 500 },
       budget: { dropped: { recent: 8, emoji: 14 } },
       limits: [
         { kind: 'budget-drop', where: 'recent', lost: 8 },
@@ -72,7 +72,7 @@ test('report: tally counts turns by outcome and trigger, reasons, actions, usage
   assert.deepEqual(t.reasons, { skip: { 'model-skip': 1 }, refused: { 'daily-cap': 1 }, error: { timeout: 1 } });
   assert.deepEqual(t.actions, { post: { started: 1, succeeded: 1 }, recall: { started: 1, failed: 1 } });
   assert.deepEqual(t.prompt, [40000, 30000, 50000]);
-  assert.deepEqual(t.cached, { cached: 15000, prompt: 90000, counted: 2 });
+  assert.deepEqual(t.cached, { cached: 15000, prompt: 90000, counted: 2, cacheWrite: 1200, writeCounted: 1 });
   assert.deepEqual(t.dropped, { recent: 10, emoji: 14 });
   assert.equal(t.ownMessages, 2);
   assert.equal(t.memoryBatches, 1);
@@ -108,6 +108,7 @@ test('report: renderDay prints every section with N/A for missing and none for e
   assert.match(text, /\| prompt tokens median \| 40000 \|/);
   assert.match(text, /\| prompt tokens p90 \| 48000 \|/);
   assert.match(text, /\| cached share \| 16\.7% \|/);
+  assert.match(text, /\| cache-write tokens \| 1200 \|/);
   assert.match(text, /\| emoji \| 14 \|/);
   assert.match(text, /\| budget-drop \| 2 \| 22 \|/);
   assert.match(text, /\| daily-cap \| 1 \| N\/A \|/);
@@ -120,12 +121,13 @@ test('report: renderDay prints every section with N/A for missing and none for e
   assert.match(empty, /### Limits\n\nnone/);
   assert.match(empty, /\| prompt tokens median \| N\/A \|/);
   assert.match(empty, /\| cached share \| N\/A \|/);
+  assert.match(empty, /\| cache-write tokens \| N\/A \|/);
 });
 
 test('report: tallyLog reads model-answered lines per day and leaves what the log lacks N/A', () => {
   const line = (time, fields) => JSON.stringify({ level: 'info', time, msg: 'turn: model answered', ...fields });
   const lines = [
-    line('2026-10-12T09:00:00.000Z', { trigger: 'mention', usage: { prompt_tokens: 40000, completion_tokens: 300, prompt_tokens_details: { cached_tokens: 20000 } }, budget: { recent: { used: 10, kept: 3, dropped: 4 }, used: 100, limit: 50000 } }),
+    line('2026-10-12T09:00:00.000Z', { trigger: 'mention', usage: { prompt_tokens: 40000, completion_tokens: 300, prompt_tokens_details: { cached_tokens: 20000, cache_write_tokens: 3000 } }, budget: { recent: { used: 10, kept: 3, dropped: 4 }, used: 100, limit: 50000 } }),
     `Oct 12 10:00:00 host node[1]: ${line('2026-10-12T10:00:00.000Z', { trigger: 'reply', usage: { prompt_tokens: 44000, completion_tokens: 200 }, budget: { recent: { dropped: 1 }, emoji: { dropped: 6 } } })}`,
     line('2026-10-13T00:00:01.000Z', { trigger: null, usage: {} }),
     JSON.stringify({ level: 'info', time: '2026-10-12T11:00:00.000Z', msg: 'turn: skipped' }),
@@ -137,7 +139,7 @@ test('report: tallyLog reads model-answered lines per day and leaves what the lo
   const d12 = days.get('2026-10-12');
   assert.deepEqual(d12.turns, { [LOG_OUTCOME]: { mention: 1, reply: 1 } });
   assert.deepEqual(d12.prompt, [40000, 44000]);
-  assert.deepEqual(d12.cached, { cached: 20000, prompt: 40000, counted: 1 });
+  assert.deepEqual(d12.cached, { cached: 20000, prompt: 40000, counted: 1, cacheWrite: 3000, writeCounted: 1 });
   assert.deepEqual(d12.dropped, { recent: 5, emoji: 6 });
   for (const key of ['reasons', 'actions', 'limits', 'ownMessages', 'memoryBatches', 'system', 'fileBytes']) assert.equal(d12[key], null, key);
   const text = renderDay('2026-10-12', d12);

@@ -1318,13 +1318,19 @@ function droppedSections(stats) {
   return out;
 }
 
-/** The journal's usage of the reply request: the whole prompt, its cached part, the completion (null when unreported). */
+/**
+ * The journal's usage of the reply request (the turn record and the request dump): the whole
+ * prompt, its part read from the cache (`cached`), its part written to the cache (`cacheWrite`,
+ * OpenRouter's `prompt_tokens_details.cache_write_tokens`, as on the `llm: usage` line), the
+ * completion; each null when unreported.
+ */
 function journalUsage(completion) {
   const usage = completion?.usage ?? {};
   const count = (value) => (Number.isFinite(value) ? value : null);
   return {
     prompt: count(completion?.promptTokens) ?? count(usage.prompt_tokens),
     cached: count(usage.prompt_tokens_details?.cached_tokens),
+    cacheWrite: count(usage.prompt_tokens_details?.cache_write_tokens),
     completion: count(usage.completion_tokens),
   };
 }
@@ -1638,6 +1644,14 @@ export function createTurnRunner({
 }) {
   const { audienceAllows, audienceOf, canAttach, canSend, captionPulled, channelDirectoryOf, checkPull, createPullViews, fetchHistory, fetchNeighbors, fetchPull, withTextPreviews } = discord;
   const busy = new Set();
+  // Per guild: what the stable part of the reply showed from memory in the current cache bucket
+  // (src/behavior/prompt.js#freezePerBucket), in process only; a restart starts afresh.
+  const stableFreezes = new Map();
+  const stableFreezeOf = (guildId) => {
+    const key = String(guildId ?? '');
+    if (!stableFreezes.has(key)) stableFreezes.set(key, new Map());
+    return stableFreezes.get(key);
+  };
   // The channels the default adapter may resolve by id without the client (the turn's own and a
   // pulled line's), in process, the oldest dropped past HELD_CHANNELS_MAX.
   const heldChannels = new Map();
@@ -3565,7 +3579,7 @@ export function createTurnRunner({
           today: zonedDay(clock(), config.bot?.timezone),
           skills: discovery.index,
           skillNames: discovery.names,
-          offer: { channels: offer.channel?.lines, episodes: offer.episodes?.lines, media: offer.media?.lines, lookup: offer.lookup },
+          offer: { channels: offer.channel?.lines, episodes: offer.episodes?.lines, episodeAges: offer.episodes?.ages, media: offer.media?.lines, lookup: offer.lookup },
           transcriptBlock,
           candidateBlock,
           channelId,
@@ -5776,6 +5790,8 @@ export function createTurnRunner({
         errands: finalMode === 'diary' ? null : errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now, draft }),
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
         continuation: null,
+        // `<self_facts>` and `<gifs>` held per cache bucket, so a memory batch rewrites the cache once at most.
+        stableFreeze: stableFreezeOf(guildId),
       });
       const request = buildRequest(requestInput);
       // What `<recent>` showed, held back or cut: counts only.

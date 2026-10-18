@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto';
 import { estimateMessages } from './tokens.js';
 import { safetyMarginOf } from './budget.js';
 import { isPlainObject } from '../config.js';
-import { bumpDaily, countToday, dailyCounter } from '../time.js';
+import { HOUR_MS, MINUTE_MS, bumpDaily, countToday, dailyCounter } from '../time.js';
 import { log } from '../log.js';
 import { roleModel } from './roles.js';
 
@@ -547,6 +547,18 @@ export function cacheTtlFor(config, role, model, force) {
   const models = Array.isArray(cache?.models) ? cache.models : DEFAULT_CACHE_MODELS;
   const listed = typeof model === 'string' && models.some((prefix) => typeof prefix === 'string' && model.startsWith(prefix));
   return listed ? ttl : null;
+}
+
+/**
+ * The configured cache TTL (`config.llm.cache.ttl`, the rule of `cacheTtlFor`) in milliseconds:
+ * five minutes for `'5m'`, else one hour. The length of the time bucket over which the reply's
+ * stable part holds what memory changes (src/behavior/prompt.js#freezePerBucket), so a memory
+ * batch rewrites the cached prefix at most once per TTL. Pure; the caller passes the live config.
+ * @param {unknown} config  The whole live config.
+ * @returns {number}
+ */
+export function cacheTtlMs(config) {
+  return config?.llm?.cache?.ttl === '5m' ? 5 * MINUTE_MS : HOUR_MS;
 }
 
 /**

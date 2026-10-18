@@ -11,6 +11,7 @@ import {
   buildParticipationPickRequest,
   createParticipationPicker,
   participationEpisodeList,
+  participationEpisodeOffer,
   participationPickAllowed,
   participationPickSettings,
   parseParticipationPick,
@@ -97,34 +98,36 @@ test('participationPickAllowed: server reply and spontaneous turns ask; a privat
 
 // ---- the list, the request, the parser --------------------------------------------------
 
-test('participationEpisodeList: one numbered line per headline with channel, age, the member and the persona', () => {
+test('participationEpisodeList: one numbered line per headline, oldest first, with channel, the member and the persona; the ages apart', () => {
   const headlines = [
     { id: 'p2', channelId: 'c3', lastOwnAt: NOW - 30 * MINUTE, ageMs: 30 * MINUTE, memberLine: null, selfLine: 'ωραία λουλούδια', memberLines: '', selfLines: 'ωραία λουλούδια / δεύτερη γραμμή' },
     { id: 'p1', channelId: 'c2', lastOwnAt: NOW - 2 * HOUR, ageMs: 2 * HOUR, memberLine: 'πού είναι το βιβλίο;', selfLine: 'στο ράφι', memberLines: 'πού είναι το βιβλίο; / ευχαριστώ | πολύ', selfLines: 'στο ράφι' },
     { id: 'p9', channelId: 'c9', lastOwnAt: NOW - HOUR, ageMs: HOUR, memberLine: null, selfLine: 'χωρίς όνομα', memberLines: '', selfLines: 'χωρίς όνομα' },
   ];
-  const { lines, ids } = participationEpisodeList(headlines, {
+  const { lines, ages, ids } = participationEpisodeList(headlines, {
     state: participationState(),
     channelNameOf: (id) => ({ c2: 'journal', c3: 'jardin' })[id] ?? null,
     units: labels.units,
     selfName: 'Zoë',
   });
-  assert.deepEqual(lines, ['1 | #jardin | 30 min |  | Zoë: ωραία λουλούδια / δεύτερη γραμμή', '2 | #journal | 2 h | Ana: πού είναι το βιβλίο; / ευχαριστώ / πολύ | Zoë: στο ράφι']);
-  assert.deepEqual(ids, ['p2', 'p1'], 'a headline whose channel has no name is left out');
+  assert.deepEqual(lines, ['1 | #journal | Ana: πού είναι το βιβλίο; / ευχαριστώ / πολύ | Zoë: στο ράφι', '2 | #jardin |  | Zoë: ωραία λουλούδια / δεύτερη γραμμή']);
+  assert.deepEqual(ages, ['1 | 2 h', '2 | 30 min']);
+  assert.deepEqual(ids, ['p1', 'p2'], 'a headline whose channel has no name is left out');
 });
 
-test('buildParticipationPickRequest: the prompt with {{name}}, then the tagged episodes part, then transcript and candidate', () => {
+test('buildParticipationPickRequest: the prompt with {{name}}, then the tagged episodes part, then the ages, transcript and candidate', () => {
   const messages = buildParticipationPickRequest({
     prompt: 'Pick for {{name}}.',
     selfName: 'Zoë',
     transcriptBlock: '<transcript>\nT\n</transcript>',
     candidateBlock: '<candidate>\nAna: C\n</candidate>',
-    lines: ['1 | #a | 1 h |  | Zoë: x'],
+    lines: ['1 | #a |  | Zoë: x'],
+    ages: ['1 | 1 h'],
   });
   assert.equal(messages[0].content, 'Pick for Zoë.');
   assert.deepEqual(messages[1].content, [
-    { type: 'text', text: '<episodes>\n1 | #a | 1 h |  | Zoë: x\n</episodes>\n', cacheSegment: 'stable' },
-    { type: 'text', text: '<transcript>\nT\n</transcript>\n<candidate>\nAna: C\n</candidate>' },
+    { type: 'text', text: '<episodes>\n1 | #a |  | Zoë: x\n</episodes>\n', cacheSegment: 'stable' },
+    { type: 'text', text: '<episode_ages>\n1 | 1 h\n</episode_ages>\n<transcript>\nT\n</transcript>\n<candidate>\nAna: C\n</candidate>' },
   ]);
   const bare = buildParticipationPickRequest({ prompt: 'p', selfName: 'Zoë', lines: ['x'] });
   assert.deepEqual(bare[1].content, [{ type: 'text', text: '<episodes>\nx\n</episodes>', cacheSegment: 'stable' }], 'no per-turn part: no trailing separator');
@@ -175,9 +178,9 @@ function pickerScene({ answer = '2', features = {}, prompt = 'You are {{name}}.'
 }
 
 test('createParticipationPicker: a pick maps back through the headline order; the request carries the blocks', async () => {
-  const { picker, llm, args } = pickerScene({ answer: '2' });
+  const { picker, llm, args } = pickerScene({ answer: '1' });
   const { result, logs } = await withCapturedLogs(() => picker(args));
-  assert.deepEqual(result, ['p1'], 'number 2 is the older episode: headlines are newest first');
+  assert.deepEqual(result, ['p1'], 'number 1 is the older episode: the list is oldest first');
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
   assert.equal(system.content, 'You are Zoë.');
@@ -186,7 +189,8 @@ test('createParticipationPicker: a pick maps back through the headline order; th
   assert.equal(user.content[1].cacheSegment, undefined);
   assert.ok(userText(user.content).includes('Zoë (you)'), 'the persona\'s own transcript lines carry labels.self');
   assert.ok(userText(user.content).includes('<candidate>\nNikos: θυμάσαι το βιβλίο;\n</candidate>'));
-  assert.ok(userText(user.content).includes('<episodes>\n1 | #jardin | 30 min |  | Zoë: ωραία λουλούδια\n2 | #journal | 2 h | Ana: πού είναι το βιβλίο; | Zoë: στο ράφι\n</episodes>'), userText(user.content));
+  assert.ok(userText(user.content).includes('<episodes>\n1 | #journal | Ana: πού είναι το βιβλίο; | Zoë: στο ράφι\n2 | #jardin |  | Zoë: ωραία λουλούδια\n</episodes>'), userText(user.content));
+  assert.ok(user.content[1].text.startsWith('<episode_ages>\n1 | 2 h\n2 | 30 min\n</episode_ages>\n'), user.content[1].text);
   const classified = logs.find((l) => l.msg === 'participation: classified');
   assert.equal(classified.channel, 'c1');
   assert.equal(classified.offered, 2);
@@ -266,4 +270,23 @@ test('createParticipationPicker: a refused or failed request picks nothing and l
   assert.deepEqual(result, []);
   const failed = logs.find((l) => l.msg === 'participation: failed');
   assert.equal(failed.reason, 'daily-cap');
+});
+
+test('participation pick: the cached <episodes> part is byte-identical across calls five minutes apart; a new episode appends a line', async () => {
+  const offerAt = (now, state = participationState()) => {
+    const store = { getParticipation: () => structuredClone(state), listChannels: () => [{ id: 'c2', name: 'journal' }, { id: 'c3', name: 'jardin' }, { id: 'c4', name: 'cuisine' }] };
+    const offer = participationEpisodeOffer({ store, guildId: GUILD, channel: { id: 'c1', guild: null }, audience: () => true, config: config(), units: labels.units, selfName: 'Zoë', now });
+    return buildParticipationPickRequest({ prompt: 'p', selfName: 'Zoë', candidateBlock: '<candidate>\nAna: ;\n</candidate>', lines: offer.lines, ages: offer.ages })[1].content;
+  };
+  const first = offerAt(NOW);
+  const later = offerAt(NOW + 5 * MINUTE);
+  assert.equal(later[0].cacheSegment, 'stable');
+  assert.equal(later[0].text, first[0].text);
+  assert.notEqual(later[1].text, first[1].text, 'the ages move in the tail');
+
+  const grown = participationState();
+  grown.episodes.push({ id: 'p3', channelId: 'c4', continues: null, messages: [stored('c1', NOW + 4 * MINUTE, { self: true, authorId: 'self', name: 'Zoë', text: 'νόστιμο' })] });
+  const appended = offerAt(NOW + 5 * MINUTE, grown);
+  assert.ok(appended[0].text.startsWith(first[0].text.replace(/<\/episodes>\n$/, '')), appended[0].text);
+  assert.ok(appended[0].text.includes('3 | #cuisine |  | Zoë: νόστιμο\n</episodes>'), appended[0].text);
 });

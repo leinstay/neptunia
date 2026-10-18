@@ -7844,12 +7844,12 @@ test('runTurn: the pick classifier runs beside the turn and its pick reaches the
   const store = participationStore({ episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')], nextId: 3 });
   const hot = fakeHot({ typingSimulation: false }, {}, { participation: { shown: 1 } });
   hot.prompts['participation-pick'] = 'Pick for {{name}}.';
-  const { llm, logs, result } = await runParticipationTurn({ hot, store, answers: ['2', '<msg>ναι</msg>'] });
+  const { llm, logs, result } = await runParticipationTurn({ hot, store, answers: ['1', '<msg>ναι</msg>'] });
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.calls.length, 2);
   assert.equal(llm.calls[0][0].content, 'Pick for Bot.');
   assert.ok(
-    textOf(llm.calls[0][1].content).includes('<episodes>\n1 | #jardin | 30 min | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n2 | #journal | 2 h | Ana: μια ερώτηση | Bot: στο ράφι είναι\n</episodes>'),
+    textOf(llm.calls[0][1].content).includes('<episodes>\n1 | #journal | Ana: μια ερώτηση | Bot: στο ράφι είναι\n2 | #jardin | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n</episodes>\n<episode_ages>\n1 | 2 h\n2 | 30 min\n</episode_ages>'),
     textOf(llm.calls[0][1].content),
   );
   const user = textOf(llm.calls[1][1].content);
@@ -7913,7 +7913,7 @@ function usageLlm(text, defaultMax = () => Infinity) {
       if (options.limits && Number.isFinite(max) && 700 >= max) options.limits.add({ kind: 'output-cap', where: 'completion', lost: null });
       return {
         text,
-        usage: { prompt_tokens: 1500, completion_tokens: 700, prompt_tokens_details: { cached_tokens: 300 } },
+        usage: { prompt_tokens: 1500, completion_tokens: 700, prompt_tokens_details: { cached_tokens: 300, cache_write_tokens: 200 } },
         promptTokens: 1500,
         estimated: 1400,
       };
@@ -7956,7 +7956,8 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   assert.deepEqual(turn.posted, [{ opId: opOf('post'), messageId: 'sent-1', replyTo: 'm1' }]);
   assert.deepEqual(turn.reactions, [{ opId: opOf('react'), to: 'm0', emoji: '\u{1F389}' }]);
   assert.deepEqual(turn.actions, [opOf('react'), opOf('post')]);
-  assert.deepEqual(turn.usage, { prompt: 1500, cached: 300, completion: 700 });
+  // The cache writes are carried as the provider reported them, beside the cached reads.
+  assert.deepEqual(turn.usage, { prompt: 1500, cached: 300, cacheWrite: 200, completion: 700 });
   assert.equal(typeof turn.budget.dropped, 'object');
   assert.deepEqual(turn.limits.filter((limit) => limit.kind === 'output-cap'), [{ kind: 'output-cap', where: 'completion', lost: null }]);
   for (const limit of turn.limits.filter((entry) => entry.kind === 'budget-drop')) {
@@ -8271,7 +8272,7 @@ test('turn: a journalled turn dumps its request and raw answer', async () => {
   assert.equal(dump.turnId, on.result.turnId);
   assert.equal(dump.attemptId, 1);
   assert.equal(dump.raw, answer);
-  assert.deepEqual(dump.usage, { prompt: 1500, cached: 300, completion: 700 });
+  assert.deepEqual(dump.usage, { prompt: 1500, cached: 300, cacheWrite: 200, completion: 700 });
   assert.equal(dump.request.messages, on.llm.calls[0], 'the exact message list the client was given');
 
   // A failing write is logged and never breaks the turn.

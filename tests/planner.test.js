@@ -37,7 +37,8 @@ test('buildPlannerRequest: placeholders filled, blocks in the prompt order, the 
     selfName: 'Zoë',
     today: '2026-10-14',
     channelLines: ['1 | #jardin |  | plants'],
-    episodeLines: ['1 | #journal | 2 h | Ana: μια ερώτηση | Zoë: ναι'],
+    episodeLines: ['1 | #journal | Ana: μια ερώτηση | Zoë: ναι'],
+    episodeAgeLines: ['1 | 2 h'],
     mediaLines: ['1 | video | clip.mp4 | watched | ένα αυτοκίνητο'],
     transcriptBlock: '<transcript>\nAna: γεια\n</transcript>\n',
     candidateBlock: '<candidate>\nAna: τι λες;\n</candidate>',
@@ -45,11 +46,11 @@ test('buildPlannerRequest: placeholders filled, blocks in the prompt order, the 
   assert.equal(messages[0].content, 'Plan for Zoë; today is 2026-10-14.');
   const [stable, tail] = messages[1].content;
   assert.equal(stable.cacheSegment, 'stable');
-  assert.equal(stable.text, '<channels>\n1 | #jardin |  | plants\n</channels>\n<episodes>\n1 | #journal | 2 h | Ana: μια ερώτηση | Zoë: ναι\n</episodes>\n');
+  assert.equal(stable.text, '<channels>\n1 | #jardin |  | plants\n</channels>\n<episodes>\n1 | #journal | Ana: μια ερώτηση | Zoë: ναι\n</episodes>\n');
   assert.equal(tail.cacheSegment, undefined);
   assert.equal(
     tail.text,
-    '<media>\n1 | video | clip.mp4 | watched | ένα αυτοκίνητο\n</media>\n<transcript>\nAna: γεια\n</transcript>\n<candidate>\nAna: τι λες;\n</candidate>',
+    '<episode_ages>\n1 | 2 h\n</episode_ages>\n<media>\n1 | video | clip.mp4 | watched | ένα αυτοκίνητο\n</media>\n<transcript>\nAna: γεια\n</transcript>\n<candidate>\nAna: τι λες;\n</candidate>',
   );
 });
 
