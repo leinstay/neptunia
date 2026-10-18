@@ -23,10 +23,13 @@
 // refuses that step and the agent goes on. A shell class also names the
 // variables its OpenCode child runs with (the server agent's git settings),
 // and whether its agent may reach paths outside its own working directory
-// (`external_directory`, which OpenCode asks for a path-tool target or a bash
-// workdir outside it, with a `<dir>/*` resource): the read-only server class
-// gets it under the same value as its path tools (the withheld denies in a
-// filtered scope), every other class has it denied.
+// (`external_directory`, which OpenCode asks for a path-tool target, a bash
+// workdir outside it, or a path argument of `cd`, `rm`, `cp`, `mv`, `mkdir`,
+// `touch`, `chmod`, `chown` and `cat`, with a `<dir>/*` resource): the
+// read-only server class gets it under the same value as its path tools (the
+// withheld denies in a filtered scope), the web class only for its private
+// temporary directory (WEB_TMP_DIR, where OpenCode saves the files it
+// fetches), in every scope.
 //
 // This matches OpenCode release v1.19.3 (the version installed on the
 // server), whose config is the V1 shape: the top-level key is `agent`
@@ -42,7 +45,7 @@
 // does (Exa only through OpenRouter): the web agent searches with the
 // `web-search` command of its shell instead (src/web/web-search.js). The permission runtime takes the LAST matching rule,
 // so for `bash` a catch-all `*: deny` comes first and the allowed commands
-// after, and for a path tool (and the server class's `external_directory`)
+// after (then a class's staged rules, then the denies), and for a path tool (and the server class's `external_directory`)
 // `*: allow` comes first and the withheld-path denies after. The web search provider is chosen by an environment variable
 // at run time (src/agent-runner/opencode.js), not in this config, because
 // v1.19.3 has no websearch config key. Keep in sync with docs/agents.md.
@@ -80,6 +83,20 @@ export function promptFilesOf(name, { rootDir = ROOT_DIR, env = process.env, ove
   return [path.join(privateDir, 'prompts.local', override), path.join(root, AGENTS_DIRNAME, name, prompt)];
 }
 
+/** The first option words `tar` may start with on the server: the list mode (`-t`) with only
+ * verbose, archive-file and decompression letters, so no cluster carries a write mode or `-I`.
+ * The options after it are checked by TAR_DENIES. */
+const TAR_LIST_CLUSTERS = Object.freeze(['-t', '-tf', '-tvf', '-tzf', '-tzvf', '-tvzf', '-tjf', '-tjvf', '-tvjf', '-tJf', '-tJvf', '-tvJf', '-taf', '-tavf', '-tvaf', '--list']);
+
+/** The `ip` objects the server agent may show (`ip a`, `ip r` and `ip l` are their short names), and
+ * the display options that may precede one. Only `show` (or nothing) may follow: no `add`, `set`,
+ * `flush`, `-batch` or `netns`. */
+const IP_OBJECTS = Object.freeze(['addr', 'address', 'a', 'route', 'r', 'link', 'l']);
+const IP_DISPLAY_OPTIONS = Object.freeze(['', '-br ', '-4 ', '-6 ', '-s ', '-d ', '-j ']);
+const IP_SHOW_ALLOW = Object.freeze(
+  IP_DISPLAY_OPTIONS.flatMap((option) => IP_OBJECTS.flatMap((object) => [`ip ${option}${object}`, `ip ${option}${object} show`, `ip ${option}${object} show *`])),
+);
+
 /** The shell commands the server agent's `bash` may run (OpenCode bash patterns): read-only ones, and `cp` into its folder. */
 export const SERVER_SHELL_ALLOW = Object.freeze([
   'ls', 'ls *', 'cat', 'cat *', 'head', 'head *', 'tail', 'tail *', 'grep', 'grep *', 'egrep *', 'fgrep *',
@@ -94,6 +111,14 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
   'git -C * log *', 'git -C * show *', 'git -C * status', 'git -C * status *', 'git -C * diff *', 'git -C * branch *', 'git -C * rev-parse *',
   'readlink *', 'realpath *',
   'file *', 'echo *', 'basename *', 'dirname *', 'date', 'date *', 'free', 'free *', 'uptime', 'hostname',
+  'pwd', 'command -v *',
+  // Searching and reading (each a content command, SHELL_CONTENT_COMMANDS): ripgrep without
+  // `--pre` and tar in its list mode only (SHELL_DENY_AFTER).
+  'rg', 'rg *', 'tree', 'tree *', 'jq *', 'diff *', 'sha256sum *', 'md5sum *', 'zcat *', 'zgrep *', 'xxd *', 'strings *',
+  'column', 'column *', 'nl', 'nl *', ...TAR_LIST_CLUSTERS.map((cluster) => `tar ${cluster} *`),
+  // Who and what this machine is.
+  ...IP_SHOW_ALLOW, 'getent passwd', 'getent passwd *', 'getent group', 'getent group *', 'last', 'last *', 'w', 'w *', 'who', 'who *',
+  'timedatectl', 'timedatectl status', 'hostnamectl', 'hostnamectl status',
   // The one command that writes: a copy, so the agent hands an existing file back whole as a
   // result file (src/agent-runner/opencode.js collects what its working directory holds) instead
   // of retyping it. The OS keeps every other destination read-only: the unit's
@@ -109,16 +134,66 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
  * otherwise loads a yt-dlp.conf from its working directory, HOME and XDG_CONFIG_HOME, all inside
  * the agent's task folder, where the agent itself can write one (curl -o, yt-dlp -o) carrying
  * `--exec`; a bare `yt-dlp <url>` matches no allow and is refused. Its options that run another
- * program, or name a config file again, are denied in YT_DLP_DENIES. */
+ * program, or name a config file again, are denied in YT_DLP_DENIES. Beside the download tools it
+ * has the everyday commands that sort out what it fetched: text filters (sed only as
+ * `sed -n --sandbox`, where sed refuses its `e`, `r` and `w` commands), `jq`, and `cp`, `mv`, `rm`
+ * within its folder and WEB_TMP_DIR (WEB_FILE_RULES). */
 export const WEB_SHELL_ALLOW = Object.freeze([
   'curl *', 'wget *', 'yt-dlp --ignore-config *', 'ffmpeg *', 'ffprobe *', 'file *', 'ls', 'ls *', 'mkdir *', 'cat *', 'head *', 'stat *',
   // The web search (src/web/web-search.js): the wrapper in WEB_TOOLS_DIR, found on the child's
   // PATH; never `node` itself, so no other script runs.
   'web-search *',
+  'tail *', 'wc *', 'sort *', 'uniq *', 'cut *', 'tr *', 'grep *', 'egrep *', 'fgrep *', 'sed -n --sandbox *', 'sed --sandbox -n *', 'jq *',
+  'pwd', 'which *', 'command -v *', 'echo', 'echo *',
+  'cp *', 'mv *', 'rm *',
 ]);
 
 /** The folder of the web agent's own commands (`web-search`), put first on its child's PATH. */
 export const WEB_TOOLS_DIR = path.join(ROOT_DIR, AGENTS_DIRNAME, 'web', 'bin');
+
+/**
+ * The private temporary directory of the web agent's OpenCode: it saves the files `webfetch`
+ * fetches under `<tmp>/opencode`, and the web unit runs with PrivateTmp=yes and no TMPDIR, so this
+ * one is the agent's own. Its path tools, `external_directory` and `cp`/`mv`/`rm` may reach it.
+ */
+export const WEB_TMP_DIR = '/tmp/opencode';
+
+/** The commands of WEB_FILE_RULES and the only options each may start with (none recursive, none naming a target elsewhere). */
+const FILE_COMMAND_OPTIONS = Object.freeze({
+  cp: Object.freeze(['-f', '-v', '-n', '-p', '-fv', '-vf']),
+  mv: Object.freeze(['-f', '-v', '-n', '-fv', '-vf']),
+  rm: Object.freeze(['-f', '-v', '-fv', '-vf']),
+});
+
+/** The text OpenCode cannot resolve to a path (a variable, a command substitution, a `~user` home, a parent step), refused in a file command. */
+const FILE_BYPASS_PARTS = Object.freeze(['$', '`', '~', '..']);
+
+/** The top-level directories a file command may not name (an absolute path outside the folder; `/tmp` itself below). */
+const FILE_DENIED_ROOTS = Object.freeze([
+  '/bin', '/boot', '/dev', '/etc', '/home', '/lib', '/lost+found', '/media', '/mnt', '/opt', '/proc', '/root', '/run', '/sbin', '/snap', '/srv', '/sys', '/usr', '/var',
+]);
+
+/**
+ * The staged `bash` rules of the web agent's `cp`, `mv` and `rm` (`[pattern, action]`, in order,
+ * after its allow list; the last match wins), so each works only on its own folder and
+ * WEB_TMP_DIR, never recursively. OpenCode's `*` matches any text, spaces included, so a rule
+ * cannot say "an option word without r": instead any leading option is denied, the plain ones of
+ * FILE_COMMAND_OPTIONS allowed again, and then any later option word (` -...`), any text OpenCode
+ * cannot resolve (FILE_BYPASS_PARTS), any top-level directory but /tmp (FILE_DENIED_ROOTS), `/`
+ * and `/tmp` themselves denied. The main guard of the paths is OpenCode's own: these commands ask
+ * `external_directory` for every path argument outside the folder, which the web class allows only
+ * for WEB_TMP_DIR; these rules refuse what that check cannot see.
+ */
+export const WEB_FILE_RULES = Object.freeze(
+  Object.entries(FILE_COMMAND_OPTIONS).flatMap(([command, options]) => [
+    [`${command} -*`, 'deny'],
+    ...options.map((option) => [`${command} ${option} *`, 'allow']),
+    [`${command} * -*`, 'deny'],
+    ...FILE_BYPASS_PARTS.map((part) => [`${command} *${part}*`, 'deny']),
+    ...FILE_DENIED_ROOTS.flatMap((root) => [[`${command} ${root}*`, 'deny'], [`${command} * ${root}*`, 'deny']]),
+    [`${command} / *`, 'deny'], [`${command} * / *`, 'deny'], [`${command} /tmp *`, 'deny'], [`${command} * /tmp *`, 'deny'],
+  ].map((rule) => Object.freeze(rule))),
+);
 
 /**
  * The yt-dlp options that run another program or load options that could (still needed with
@@ -165,11 +240,32 @@ export const GIT_WRITE_DENIES = Object.freeze([
   ...GIT_BRANCH_WRITE_OPTIONS.flatMap((option) => [`git -C * branch* ${option}`, `git -C * branch* ${option} *`, `git -C * branch* ${option}=*`]),
 ]);
 
+/**
+ * The tar options that write, run another program or reach a remote host, denied after the list
+ * forms of SERVER_SHELL_ALLOW: a write mode or `-I`/`-F`/`-g` as a later option word, alone or as
+ * the second letter of a cluster (`-x`, `-vx`; a longer cluster is not matched, since OpenCode's
+ * `?` also matches a space and would refuse `-f x.tar`), and the long options by the shortest
+ * prefix tar takes for each (`--ext` for `--extract`, `--to-c` for `--to-command`, `--use` for
+ * `--use-compress-program`, ...).
+ */
+export const TAR_DENIES = Object.freeze([
+  ...['x', 'c', 'r', 'u', 'A', 'I', 'F', 'g'].flatMap((letter) => [`tar * -${letter}*`, `tar * -?${letter}*`]),
+  ...['--ext', '--get', '--cr', '--ap', '--up', '--del', '--cat', '--conc', '--to-c', '--use', '--checkpoint-a', '--rsh', '--rmt', '--info', '--new-v', '--listed', '--index', '--vol']
+    .map((prefix) => `tar *${prefix}*`),
+]);
+
+/** The options of an allowed reader that run another program or edit in place: ripgrep's
+ * `--pre`, sort's `--compress-program` (any prefix from `--co`), sed's `-i`/`--in-place`. */
+export const READER_DENIES = Object.freeze(['rg *--pre*', 'sort *--co*', 'sed * -i*', 'sed * -?i*', 'sed * --in*']);
+
 /** Patterns denied after the allows (the last match wins): the ways an allowed command could write, reach the network or run another program. */
-export const SHELL_DENY_AFTER = Object.freeze([...GIT_WRITE_DENIES, ...YT_DLP_DENIES, 'find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
+export const SHELL_DENY_AFTER = Object.freeze([...GIT_WRITE_DENIES, ...YT_DLP_DENIES, ...TAR_DENIES, ...READER_DENIES, 'find * -exec*', 'find * -ok*', 'find * -delete*', 'find * -fprint*', 'awk */inet/*', 'gawk *']);
 
 /** The allowed shell commands that open file contents: in a filtered scope each is refused on a withheld path. */
-export const SHELL_CONTENT_COMMANDS = Object.freeze(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git', 'cp']);
+export const SHELL_CONTENT_COMMANDS = Object.freeze([
+  'cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'sed', 'awk', 'cut', 'sort', 'uniq', 'wc', 'file', 'git', 'cp',
+  'rg', 'tree', 'jq', 'diff', 'sha256sum', 'md5sum', 'zcat', 'zgrep', 'xxd', 'strings', 'column', 'nl', 'tar',
+]);
 
 /** The `.env` forms policy.js withholds (`.env`, `.env.<anything>`): one substring matches them all. */
 const ENV_FORM = '.env';
@@ -201,13 +297,32 @@ export function withheldShellDenies({ paths } = {}) {
   ]);
 }
 
-/** A permission value for `bash`: deny-all first, then the allowed command patterns, then `denies`
- * (the withheld-path ones of a filtered scope), then SHELL_DENY_AFTER. */
-function bashPermission(allow, denies = []) {
+/** A permission value for `bash`: deny-all first, then the allowed command patterns, then `rules`
+ * (a class's staged `[pattern, action]` pairs, in order), then `denies` (the withheld-path ones of
+ * a filtered scope), then SHELL_DENY_AFTER. */
+function bashPermission(allow, rules = [], denies = []) {
   const map = { '*': 'deny' };
   for (const pattern of allow) map[pattern] = 'allow';
+  for (const [pattern, action] of rules) map[pattern] = action;
   for (const pattern of denies) map[pattern] = 'deny';
   for (const pattern of SHELL_DENY_AFTER) map[pattern] = 'deny';
+  return map;
+}
+
+/**
+ * The `external_directory` value of a shell class in `scope`: the path tools' value
+ * (pathPermission) when its `externalDirectory` is `true`; `*: deny` then each listed directory
+ * and everything under it allowed when it is a list (OpenCode asks with a `<dir>/*` resource, and
+ * its `*` matches any text, so `<dir>/*` covers the subfolders); else a plain deny.
+ */
+function externalPermission(externalDirectory, scope) {
+  if (externalDirectory === true) return pathPermission(scope);
+  if (!Array.isArray(externalDirectory)) return 'deny';
+  const map = { '*': 'deny' };
+  for (const dir of externalDirectory) {
+    map[dir] = 'allow';
+    map[`${dir}/*`] = 'allow';
+  }
   return map;
 }
 
@@ -241,12 +356,14 @@ export const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'q
 /**
  * The shell classes a worker profile names in `shell`, the permission ceiling of this runner.
  * Each class has `allow`, the patterns its `bash` may run (SHELL_DENY_AFTER always after them);
+ * `rules`, staged `[pattern, action]` pairs its `bash` takes in order after `allow` (WEB_FILE_RULES);
  * `withheldDenies`, whether a filtered scope adds the per-command withheld-path denies to its
  * `bash` (withheldShellDenies); `tools`, the OpenCode tools a profile of the class may ask for,
  * the most it can get; and `order`, the tools its permission map names before ALWAYS_DENIED, in
  * that order (a tool of `order` the profile does not ask for, or outside `tools`, is denied);
- * `externalDirectory`, whether `external_directory` (paths outside the agent's working
- * directory) takes the path tools' value (pathPermission) instead of deny; `env`, the
+ * `externalDirectory`, what `external_directory` (paths outside the agent's working directory)
+ * takes: `true` for the path tools' value (pathPermission), a list for those directories only, in
+ * every scope, `false` for a deny (externalPermission); `env`, the
  * variables its OpenCode child runs with over the runner's environment; and `path`, the folders
  * of its own commands put first on the child's PATH. A profile picks a class
  * by name and never carries a pattern itself.
@@ -254,6 +371,7 @@ export const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'q
 export const SHELL_CLASSES = Object.freeze({
   'server-read-only': Object.freeze({
     allow: SERVER_SHELL_ALLOW,
+    rules: Object.freeze([]),
     withheldDenies: true,
     externalDirectory: true,
     tools: Object.freeze(['read', 'grep', 'glob', 'list', 'bash']),
@@ -263,8 +381,9 @@ export const SHELL_CLASSES = Object.freeze({
   }),
   'web-download': Object.freeze({
     allow: WEB_SHELL_ALLOW,
+    rules: WEB_FILE_RULES,
     withheldDenies: false,
-    externalDirectory: false,
+    externalDirectory: Object.freeze([WEB_TMP_DIR]),
     tools: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'bash']),
     order: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'grep', 'bash']),
     env: Object.freeze({}),
@@ -275,8 +394,8 @@ export const SHELL_CLASSES = Object.freeze({
 /**
  * The V1 permission map of a worker for `scope`: each tool of its class's `order` allowed when
  * the profile asks for it (a path tool with the withheld denies of a filtered scope, `bash` with
- * its class's allow list), else denied; then `external_directory`, the path tools' value when
- * the class has `externalDirectory`, else denied; then every tool of ALWAYS_DENIED denied.
+ * its class's allow list and rules), else denied; then `external_directory` as the class's
+ * `externalDirectory` says (externalPermission); then every tool of ALWAYS_DENIED denied.
  * @param {{ shell: string, tools: readonly string[] }} worker
  * @param {string} scope
  */
@@ -288,9 +407,9 @@ function permissionFor({ shell, tools }, scope) {
     if (!granted.has(tool)) map[tool] = 'deny';
     else if (PATH_TOOLS.includes(tool)) map[tool] = pathPermission(scope);
     else if (NETWORK_TOOLS.includes(tool)) map[tool] = 'allow';
-    else if (tool === 'bash') map[tool] = bashPermission(shellClass.allow, shellClass.withheldDenies && scope !== 'core' ? withheldShellDenies() : []);
+    else if (tool === 'bash') map[tool] = bashPermission(shellClass.allow, shellClass.rules, shellClass.withheldDenies && scope !== 'core' ? withheldShellDenies() : []);
   }
-  map.external_directory = shellClass.externalDirectory ? pathPermission(scope) : 'deny';
+  map.external_directory = externalPermission(shellClass.externalDirectory, scope);
   for (const tool of ALWAYS_DENIED) map[tool] = 'deny';
   return map;
 }
