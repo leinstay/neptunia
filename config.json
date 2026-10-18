@@ -469,14 +469,14 @@
       "daily": { "tasks": 40, "usd": 3 }
     },
     "thinker": {
-      "cost": { "input": 5, "output": 25 },
+      "cost": { "input": 4, "output": 20 },
       "limits": { "usd": 10, "steps": 400, "minutes": 60 },
       "daily": { "usd": 60 },
       "contextLimit": 350000,
       "contextHard": 400000
     },
     "dev": {
-      "cost": { "input": 3, "output": 15 },
+      "cost": { "input": 2, "output": 10 },
       "limits": { "usd": 10, "steps": 300, "minutes": 60 },
       "daily": { "usd": 40 }
     },

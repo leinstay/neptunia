@@ -926,7 +926,7 @@ The development agents: they run outside this engine (the ledger's attempt runne
 
 | Key | Default | Meaning |
 |---|---|---|
-| `cost` | thinker `{ "input": 5, "output": 25 }`, dev `{ "input": 3, "output": 15 }`, writer `{ "input": 5, "output": 25 }` | Model price (USD per million tokens) for OpenCode's cost estimate; the price of the agent's model in `models.agents` |
+| `cost` | thinker `{ "input": 4, "output": 20 }`, dev `{ "input": 2, "output": 10 }`, writer `{ "input": 5, "output": 25 }` | Model price (USD per million tokens) for OpenCode's cost estimate; the price of the agent's model in `models.agents` |
 | `limits` | thinker `{ "usd": 10, "steps": 400, "minutes": 60 }`, dev `{ "usd": 10, "steps": 300, "minutes": 60 }`, writer `{ "usd": 5, "steps": 150, "minutes": 45 }` | Caps of one run (a thinker turn, a dev or writer attempt): estimated USD, model calls, wall-clock minutes |
 | `daily` | thinker `{ "usd": 60 }`, dev `{ "usd": 40 }`, writer `{ "usd": 20 }` | Estimated USD per UTC day, counted from the ledger's figures (the same ones as `costs.agents`) |
 | `contextLimit` | `350000` | Thinker only: the context size (tokens) its model is given in OpenCode, which compacts its session before reaching it |
