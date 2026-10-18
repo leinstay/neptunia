@@ -3,8 +3,10 @@
 // config.json (+ optional config.local.json, deep-merged) for non-secret
 // settings. Secrets are read once at startup; the JSON config is re-read by
 // src/hot.js whenever the files change, so nothing here caches it. The model keys a
-// config.local.json may still carry from before the eight model roles are read under their new
-// names (`adaptLegacyModelKeys`). Every string value of the merged config may reference an
+// config.local.json may still carry from before the model roles are read under their new
+// names (`adaptLegacyModelKeys`); a layer that still holds the flat `roles` map (before
+// `models.base` / `models.agents`) is refused instead (`assertModelsShape`), so a missed migration
+// is loud. Every string value of the merged config may reference an
 // environment variable as `${env:NAME}` (`resolveEnvRefs`), so a value that holds credentials
 // (e.g. `media.video.proxy`) can stay in .env.
 // config.json is read from the checkout root; config.local.json and .env from the deployment's
@@ -158,12 +160,13 @@ export function loadDotEnv(privateDir = ROOT_DIR) {
   applyEnv(parseEnv(fs.readFileSync(file, 'utf8')));
 }
 
-// ---- the model keys before the eight roles (read for one release) -------------
+// ---- the model keys before the roles (read for one release) -------------------
 // The models used to sit under `llm.model`, `memory.model`, `classifier.*` and `image.model`,
 // and the request roles carried the names of those keys. A deployment's config.local.json
-// written that way keeps working: `adaptLegacyModelKeys` moves each old key to its `roles.*`
-// key (unless that new key is set too: the new one wins) and renames the old role names inside
-// `llm.hedge.roles`, `llm.cache.roles` and the `"<prefix>@<role>"` keys of `llm.providerByModel`.
+// written that way keeps working: `adaptLegacyModelKeys` moves each old key to its
+// `models.base.*` / `models.agents.*` key (unless that new key is set too: the new one wins) and
+// renames the old role names inside `llm.hedge.roles`, `llm.cache.roles` and the
+// `"<prefix>@<role>"` keys of `llm.providerByModel`.
 // The old role `analyzer` was the memory analyzer, which is now `extractor`, while `analyzer`
 // now names the quick-decision helpers (the old `classifier.text`): an `analyzer` entry is read
 // as `extractor` only when the same file still uses the old model keys (`memory.model` or any
@@ -171,15 +174,15 @@ export function loadDotEnv(privateDir = ROOT_DIR) {
 
 /** Each old model key with the key that replaced it. */
 const LEGACY_MODEL_KEYS = Object.freeze([
-  ['llm.model', 'roles.voice'],
-  ['classifier.text', 'roles.analyzer'],
-  ['classifier.reason', 'roles.reasoner'],
-  ['memory.model', 'roles.extractor'],
-  ['classifier.media', 'roles.vision'],
-  ['classifier.video', 'roles.video'],
-  ['classifier.embed', 'roles.embedding'],
-  ['image.model', 'roles.drawing'],
-  ['classifier.byPurpose', 'roles.byPurpose'],
+  ['llm.model', 'models.base.voice'],
+  ['classifier.text', 'models.base.analyzer'],
+  ['classifier.reason', 'models.base.reasoner'],
+  ['memory.model', 'models.base.extractor'],
+  ['classifier.media', 'models.base.vision'],
+  ['classifier.video', 'models.base.video'],
+  ['classifier.embed', 'models.base.embedding'],
+  ['image.model', 'models.agents.drawing'],
+  ['classifier.byPurpose', 'models.base.byPurpose'],
 ]);
 
 /** Each old role name with its new one (the old `analyzer` is handled apart, see above). */
@@ -192,19 +195,162 @@ const LEGACY_ROLE_NAMES = new Map([
   ['image', 'drawing'],
 ]);
 
-/** Each agent role's name before it took its dot (2026-10): read under the new one in the
- * `roles` and `llm.keyByRole` maps and wherever a role is named. */
-const LEGACY_AGENT_ROLE_NAMES = new Map([
-  ['agentWeb', 'agent.web'],
-  ['agentServer', 'agent.server'],
-  ['agentDev', 'agent.dev'],
-]);
-
-/** The maps keyed by role name whose old agent role keys are renamed. */
-const ROLE_KEYED_MAPS = Object.freeze([['roles'], ['llm', 'keyByRole']]);
-
 /** The role lists a config may name roles in. */
 const LEGACY_ROLE_LISTS = Object.freeze(['hedge', 'cache']);
+
+// ---- the flat `roles` map (before models.base / models.agents, 2026-10) ---------
+// The models used to sit in one flat `roles` map, the agents' roles under dotted names
+// (`roles["agent.web"]`, earlier `roles.agentWeb`), with `agent.advice` beside them. They now sit
+// in `models.base` (the core's roles and `byPurpose`) and `models.agents` (`web`, `server`,
+// `thinker`, `dev`, `writer`, `drawing`); `agent.advice` is gone. No layer is read the old way: a config file that
+// still holds `roles`, or an old agent role name as a key of `llm.keyByRole`, is refused at load
+// with the exact moves (`assertModelsShape`); tools/migrate-models-config.mjs makes them
+// (`migrateModelsKeys`).
+
+/** Each key of the old `roles` map with its new path (null: dropped). */
+const ROLES_MOVES = new Map([
+  ['voice', 'models.base.voice'],
+  ['analyzer', 'models.base.analyzer'],
+  ['reasoner', 'models.base.reasoner'],
+  ['extractor', 'models.base.extractor'],
+  ['vision', 'models.base.vision'],
+  ['video', 'models.base.video'],
+  ['embedding', 'models.base.embedding'],
+  ['byPurpose', 'models.base.byPurpose'],
+  ['drawing', 'models.agents.drawing'],
+  ['agent.web', 'models.agents.web'],
+  ['agent.server', 'models.agents.server'],
+  ['agent.dev', 'models.agents.dev'],
+  ['agentWeb', 'models.agents.web'],
+  ['agentServer', 'models.agents.server'],
+  ['agentDev', 'models.agents.dev'],
+  ['agent.advice', null],
+]);
+
+/** Each old agent role name a `llm.keyByRole` key may still carry, with its new name (null: dropped). */
+const KEY_BY_ROLE_MOVES = new Map([
+  ['agent.web', 'web'],
+  ['agent.server', 'server'],
+  ['agent.dev', 'dev'],
+  ['agentWeb', 'web'],
+  ['agentServer', 'server'],
+  ['agentDev', 'dev'],
+  ['agent.advice', null],
+]);
+
+/**
+ * One config layer (config.json or config.local.json, parsed) moved from the flat `roles` map to
+ * `models.base` / `models.agents`: each key of `roles` to its new path (ROLES_MOVES;
+ * `agent.advice` dropped), and each old agent role key of `llm.keyByRole` renamed (`agent.web` ->
+ * `web`, ...; `agent.advice` dropped). `moves` lists every change as `{ from, to }` (`to` null for
+ * a dropped key), key names only, never a value. A key of `roles` with no new home lands in
+ * `unknown`, a move onto a key the layer already sets in `conflicts`; both are left in place
+ * (with them the result keeps `roles` and is not loadable). Pure: `layer` is never mutated.
+ * @param {unknown} layer
+ * @returns {{ config: unknown, moves: Array<{ from: string, to: string|null }>, unknown: string[], conflicts: string[] }}
+ */
+export function migrateModelsKeys(layer) {
+  if (!isPlainObject(layer)) return { config: layer, moves: [], unknown: [], conflicts: [] };
+  // A layer without `models` gets it where `roles` stood, so the moved file reads in the same order.
+  const config = Object.hasOwn(layer, 'roles') && !Object.hasOwn(layer, 'models')
+    ? Object.fromEntries(Object.entries(structuredClone(layer)).flatMap(([key, value]) => (key === 'roles' ? [['models', {}], [key, value]] : [[key, value]])))
+    : structuredClone(layer);
+  const moves = [];
+  const unknown = [];
+  const conflicts = [];
+  if (Object.hasOwn(config, 'roles')) {
+    const roles = config.roles;
+    const left = {};
+    if (isPlainObject(roles)) {
+      for (const [key, value] of Object.entries(roles)) {
+        const from = `roles.${key}`;
+        if (!ROLES_MOVES.has(key)) {
+          unknown.push(from);
+          left[key] = value;
+          continue;
+        }
+        const to = ROLES_MOVES.get(key);
+        if (to === null) {
+          moves.push({ from, to });
+          continue;
+        }
+        const target = parentOf(config, to);
+        if (target && Object.hasOwn(target.node, target.key)) {
+          conflicts.push(`${from} -> ${to}`);
+          left[key] = value;
+          continue;
+        }
+        setAt(config, to, value);
+        moves.push({ from, to });
+      }
+    } else {
+      unknown.push('roles');
+    }
+    if (Object.keys(left).length > 0) config.roles = left;
+    else if (isPlainObject(roles)) delete config.roles;
+    if (isPlainObject(config.models) && Object.keys(config.models).length === 0 && !Object.hasOwn(layer, 'models')) delete config.models;
+  }
+  const keyByRole = isPlainObject(config.llm) ? config.llm.keyByRole : undefined;
+  if (isPlainObject(keyByRole)) {
+    const next = {};
+    for (const [key, value] of Object.entries(keyByRole)) {
+      if (!KEY_BY_ROLE_MOVES.has(key)) {
+        if (!Object.hasOwn(next, key)) next[key] = value;
+        continue;
+      }
+      const use = KEY_BY_ROLE_MOVES.get(key);
+      const from = `llm.keyByRole.${key}`;
+      if (use === null) {
+        moves.push({ from, to: null });
+      } else if (Object.hasOwn(keyByRole, use) || Object.hasOwn(next, use)) {
+        conflicts.push(`${from} -> llm.keyByRole.${use}`);
+        next[key] = value;
+      } else {
+        next[use] = value;
+        moves.push({ from, to: `llm.keyByRole.${use}` });
+      }
+    }
+    config.llm.keyByRole = next;
+  }
+  return { config, moves, unknown, conflicts };
+}
+
+/** A config file refused at load: it still holds the flat `roles` map or an old agent role key. */
+export class ConfigShapeError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ConfigShapeError';
+  }
+}
+
+/**
+ * Throws ConfigShapeError when one parsed config layer still holds the flat `roles` map, or an
+ * old agent role name (`agent.web`, `agentWeb`, `agent.advice`, ...) as a key of
+ * `llm.keyByRole`: the message names the file, every move to make (`roles.voice ->
+ * models.base.voice`, `roles.agent.web -> models.agents.web`, `drop roles.agent.advice`, ...) and
+ * the migration tool. Nothing is read the old way, so a missed migration stops the load.
+ * @param {unknown} layer
+ * @param {string} file  The file's name, for the message.
+ */
+export function assertModelsShape(layer, file) {
+  if (!isPlainObject(layer)) return;
+  const keyByRole = isPlainObject(layer.llm) ? layer.llm.keyByRole : undefined;
+  const oldKeys = isPlainObject(keyByRole) && Object.keys(keyByRole).some((key) => KEY_BY_ROLE_MOVES.has(key));
+  if (!Object.hasOwn(layer, 'roles') && !oldKeys) return;
+  const { moves, unknown, conflicts } = migrateModelsKeys(layer);
+  const steps = [
+    ...moves.map(({ from, to }) => (to === null ? `drop "${from}"` : `"${from}" -> "${to}"`)),
+    ...unknown.map((key) => `"${key}" has no new key (remove it)`),
+    ...conflicts.map((move) => `${move} (the new key is already set: keep one)`),
+  ];
+  throw new ConfigShapeError(
+    `${file}: the flat "roles" map and the "agent." role names are no longer read; `
+    + 'the models now sit in "models.base" (voice, analyzer, reasoner, extractor, vision, video, embedding, byPurpose) '
+    + 'and "models.agents" (web, server, thinker, dev, writer, drawing), and "llm.keyByRole" names web, server, thinker, dev, writer. '
+    + `Move: ${steps.join('; ')}. `
+    + `Or run: node tools/migrate-models-config.mjs ${file} --write`,
+  );
+}
 
 /** The parent object of a dotted path inside `root` and the last key, or null when a parent is missing. */
 function parentOf(root, dotted) {
@@ -230,20 +376,18 @@ function setAt(root, dotted, value) {
 
 /**
  * A deployment's own config layer (config.local.json, before it is merged) read under the
- * eight model roles: every old model key moved to its `roles.*` key unless the new key is set
+ * model roles: every old model key moved to its `models.base.*` / `models.agents.*` key unless the new key is set
  * too (then the old one is dropped and the new one wins), and the old role names inside
  * `llm.hedge.roles`, `llm.cache.roles` and the role suffix of the `llm.providerByModel` keys
  * renamed (`classifier.text` -> `analyzer`, `classifier.reason` -> `reasoner`, `classifier.media`
  * -> `vision`, `classifier.video` -> `video`, `classifier.embed` -> `embedding`, `image` ->
  * `drawing`, and the old `analyzer` -> `extractor` only while the layer still holds
  * `memory.model` or a `classifier.*` key). A renamed route whose new key is already set is
- * dropped (the new key wins). The agent roles' old names (`agentWeb`, `agentServer`, `agentDev`)
- * are read as `agent.web`, `agent.server`, `agent.dev`: as keys of `roles` and `llm.keyByRole`
- * (the new key wins when both are set; these entries carry `role: true`) and in the role lists
- * above. `renamed` lists what was found, key names and role names only, never a value. Pure:
+ * dropped (the new key wins). The flat `roles` map is not adapted: assertModelsShape refuses
+ * it. `renamed` lists what was found, key names and role names only, never a value. Pure:
  * `local` is never mutated.
  * @param {unknown} local  The parsed config.local.json.
- * @returns {{ config: unknown, renamed: Array<{ key: string, use: string, role?: true }> }}
+ * @returns {{ config: unknown, renamed: Array<{ key: string, use: string }> }}
  */
 export function adaptLegacyModelKeys(local) {
   if (!isPlainObject(local)) return { config: local, renamed: [] };
@@ -254,21 +398,8 @@ export function adaptLegacyModelKeys(local) {
   const roleName = (name) => {
     if (typeof name !== 'string') return name;
     if (oldNames && name === 'analyzer') return 'extractor';
-    return LEGACY_ROLE_NAMES.get(name) ?? LEGACY_AGENT_ROLE_NAMES.get(name) ?? name;
+    return LEGACY_ROLE_NAMES.get(name) ?? name;
   };
-
-  // The old agent role keys: a role name is one key, its dot included, never a path.
-  for (const keys of ROLE_KEYED_MAPS) {
-    const map = keys.reduce((node, key) => (isPlainObject(node) && Object.hasOwn(node, key) ? node[key] : undefined), config);
-    if (!isPlainObject(map)) continue;
-    for (const [from, to] of LEGACY_AGENT_ROLE_NAMES) {
-      if (!Object.hasOwn(map, from)) continue;
-      const value = map[from];
-      delete map[from];
-      if (!Object.hasOwn(map, to)) map[to] = value;
-      renamed.push({ key: `${keys.join('.')}.${from}`, use: `${keys.join('.')}.${to}`, role: true });
-    }
-  }
 
   for (const [from, to] of LEGACY_MODEL_KEYS) {
     const at = parentOf(config, from);
@@ -316,8 +447,9 @@ export function adaptLegacyModelKeys(local) {
 }
 
 /**
- * Read config.json merged with config.local.json, the local layer read through
- * `adaptLegacyModelKeys` first, then every `${env:NAME}` in a string value replaced from
+ * Read config.json merged with config.local.json, each layer checked by `assertModelsShape`
+ * first (throws ConfigShapeError on the flat `roles` map), the local layer then read through
+ * `adaptLegacyModelKeys`, then every `${env:NAME}` in a string value replaced from
  * process.env (`resolveEnvRefs`; an unset name becomes '' and is warned about once per
  * process). Throws on invalid JSON. config.json comes from `rootDir`, config.local.json from
  * `privateDir` (the deployment's private directory, src/paths.js), which defaults to `rootDir`.
@@ -331,15 +463,19 @@ export function loadConfig(rootDir = ROOT_DIR, { privateDir = rootDir } = {}) {
   return { config: resolveEnvRefs(config, process.env, warnUnsetEnvRef), renamed };
 }
 
-/** `<rootDir>/config.json` deep-merged with `<privateDir>/config.local.json` (read through
- * `adaptLegacyModelKeys`), env references unresolved. */
+/** `<rootDir>/config.json` deep-merged with `<privateDir>/config.local.json` (each checked by
+ * `assertModelsShape`, the local one read through `adaptLegacyModelKeys`), env references
+ * unresolved. */
 function mergeConfigFiles(rootDir, privateDir) {
   const base = JSON.parse(fs.readFileSync(path.join(rootDir, 'config.json'), 'utf8'));
+  assertModelsShape(base, 'config.json');
   const localPath = path.join(privateDir, 'config.local.json');
   if (!fs.existsSync(localPath)) return { config: base, renamed: [] };
   const raw = fs.readFileSync(localPath, 'utf8').trim();
   if (!raw) return { config: base, renamed: [] };
-  const { config: local, renamed } = adaptLegacyModelKeys(JSON.parse(raw));
+  const parsed = JSON.parse(raw);
+  assertModelsShape(parsed, 'config.local.json');
+  const { config: local, renamed } = adaptLegacyModelKeys(parsed);
   return { config: deepMerge(base, local), renamed };
 }
 

@@ -9,7 +9,7 @@
 // without one. At start the tasks a restart left open are failed (`restarted`): the runner sends
 // a task's end on the connection that brought it, which is gone. Every run carries the task's
 // secrets (`secrets` of src/agent-runner/protocol.js), since every key lives in the core's .env
-// and the runner cannot read it: the key of the agent's model role (`agent.web`, `agent.server`)
+// and the runner cannot read it: the key of the agent's model role (`web`, `server`)
 // as the bot resolves a role's key (src/llm/openrouter.js#roleApiKey over `llm.keyByRole`; never
 // the persona's main key), and for `web` the residential proxy of the video fetches
 // (MEDIA_VIDEO_PROXY, the same proxy serving http too, so a `socks5h://` URL is sent in its http

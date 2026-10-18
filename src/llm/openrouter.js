@@ -366,7 +366,7 @@ export function dailyCapOf(value, key) {
 
 /**
  * The `llm.complete` options that name the persona's reply (src/behavior/turn.js, and its replay
- * in src/behavior/sandbox.js): role `voice`, the one role on `roles.voice`, purpose `reply`. Spread
+ * in src/behavior/sandbox.js): role `voice`, the one role on `models.base.voice`, purpose `reply`. Spread
  * into a request's own options, never mutated.
  */
 export const REPLY_REQUEST = Object.freeze({ role: 'voice', purpose: 'reply' });
@@ -374,14 +374,14 @@ export const REPLY_REQUEST = Object.freeze({ role: 'voice', purpose: 'reply' });
 /**
  * The `llm.complete` options that name a request wording memory in the persona's voice (the
  * two-stage analyzer's voice run, its single-stage fallback, the warmup's and the portrait
- * refresh's wording requests): role `voice` on `roles.voice` like the reply, purpose
+ * refresh's wording requests): role `voice` on `models.base.voice` like the reply, purpose
  * `memory-voice`, and `cache: false`, so the prompt-cache marker stays on the reply only (a
  * cache write costs more than a plain prompt, and this system text is not the reply's).
  * Spread into a request's own options, never mutated.
  */
 export const MEMORY_VOICE_REQUEST = Object.freeze({ role: 'voice', purpose: 'memory-voice', cache: false });
 
-/** The former name of the role `voice` (the model that speaks as the persona, `roles.voice`). */
+/** The former name of the role `voice` (the model that speaks as the persona, `models.base.voice`). */
 const RETIRED_ROLE = 'talk';
 /** The role it is read as. */
 const VOICE_ROLE = 'voice';
@@ -1037,7 +1037,7 @@ export function createLlm({
    * bad answer. `provider` is OpenRouter's name for the upstream provider that
    * served the request (`json.provider`), or `undefined` when the response omits it.
    * `options.model` / `options.maxOutputTokens` / `options.temperature`
-   * override the config defaults (`roles.voice`, `llm.maxOutputTokens`, `llm.temperature`).
+   * override the config defaults (`models.base.voice`, `llm.maxOutputTokens`, `llm.temperature`).
    *
    * Retries (`llm.retries`): a network failure, a timed-out attempt and an
    * HTTP status in `RETRY_STATUS` are retried after `backoffMs`, each retried
@@ -1212,7 +1212,7 @@ export function createLlm({
       countRequest(cfg.maxRequestsPerDay);
     }
 
-    // No model of its own: the voice model (`roles.voice`, or a `roles.byPurpose` entry for the purpose).
+    // No model of its own: the voice model (`models.base.voice`, or a `models.base.byPurpose` entry for the purpose).
     const model = options.model ?? roleModel(getConfig(), 'voice', options.purpose);
     const body = {
       model,

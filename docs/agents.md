@@ -15,9 +15,9 @@ Both run one task at a time; further requests queue. Each task has per-task caps
 
 ## The agents folder
 
-Each agent lives in its own folder under `agents/` at the engine root: `agents/web/` and `agents/server/` are the two workers, `agents/advice/` a consultation. A folder holds the agent's tracked prompt (`prompt.md`) and its description (`profile.json`). The runner builds its profiles from this folder when it starts (`src/agent-runner/profiles.js#loadProfiles`); the bot reads the same folder for the defaults it needs (socket, output dir, limits, daily caps). `listAgents` returns every agent, workers and consultations alike.
+Each agent lives in its own folder under `agents/` at the engine root: `agents/web/` and `agents/server/` are the two workers. A folder holds the agent's tracked prompt (`prompt.md`) and its description (`profile.json`). The runner builds its profiles from this folder when it starts (`src/agent-runner/profiles.js#loadProfiles`); the bot reads the same folder for the defaults it needs (socket, output dir, limits, daily caps). `listAgents` returns every agent, workers and consultations alike.
 
-There are two kinds. A worker runs as its own process (`bin/agent-runner.mjs --profile <id>`) and takes tasks on a Unix socket. A consultation has no process: tools call its model role directly. The runner skips consultations.
+There are two kinds. A worker runs as its own process (`bin/agent-runner.mjs --profile <id>`) and takes tasks on a Unix socket. A consultation has no process: tools call its model role directly. The runner skips consultations. No consultation ships today (the engine's former `advice` consultation was removed with the `agent.advice` role).
 
 ## Profile keys
 
@@ -27,7 +27,7 @@ There are two kinds. A worker runs as its own process (`bin/agent-runner.mjs --p
 |---|---|
 | `id` | the folder name (`web`) |
 | `kind` | `worker` (runs under the agent runner on a socket) or `consultation` (a model role that tools call directly; no process, skipped by the runner) |
-| `role` | the model role in `src/llm/roles.js` (`agent.web`, `agent.server`, `agent.advice`) |
+| `role` | the model role in `src/llm/roles.js` whose model is in `models.agents` (`web`, `server`; a worker takes one of `web`, `server`, `thinker`, `dev`, `writer`) |
 | `prompt` | the prompt file inside the folder (`prompt.md`); `null` for a consultation without one |
 | `override` | the name a deployment may put under `prompts.local/` to replace the prompt (`agent-web.md`); `null` when there is no prompt |
 | `description` | one sentence saying what the agent does |
@@ -59,17 +59,17 @@ Each worker runs as its own systemd service and Unix user (`deploy/neptunia-agen
 - `neptunia-agent-web`: has network; egress to localhost and private ranges is refused by the unit (`IPAddressDeny=`) and in code. The filesystem is read-only except its state dir (`ProtectSystem=strict`, `ProtectHome=yes`, `InaccessiblePaths=` for `/srv`, the bot's data and `.env`, `/var/www`, nginx and Let's Encrypt).
 - `neptunia-agent-server`: network only to the local resolver and the model API (`IPAddressDeny=any` plus `IPAddressAllow=` for Cloudflare's ranges, where OpenRouter lives; the shell also denies `find -exec`, `awk` network paths and `gawk` on top of the allow-list). The whole system is read-only (`ProtectSystem=strict`, no write paths but its state dir and a private `/tmp`); its one writing command, `cp`, can therefore only copy a file into its task folder, where it comes back as a result file, and in a filtered scope a withheld path is refused for `cp` as for `cat`. It has `CAP_DAC_READ_SEARCH` so it can read any file without being root. The read-only guarantee comes from the unit, not from the command filter.
 
-Both are launched by `bin/agent-runner.mjs --profile <name>`. They read their caps, model price and socket from `agents.<profile>` in the config, and their model from the model roles `agent.web` and `agent.server` (set with `/nep model set`, read again at each task; a `run` may carry its own `model`). The core sends the agent's model (its role, read from the live config) and price (`agents.<profile>.cost`, when set) with each run, because the runners cannot read the deployment's private config; the runner's own config is only the fallback for a run without them. Settings are in [Configuration: `agents`](configuration.md#agents).
+Both are launched by `bin/agent-runner.mjs --profile <name>`. They read their caps, model price and socket from `agents.<profile>` in the config, and their model from `models.agents.web` and `models.agents.server` (the roles `web` and `server`, set with `/nep model set`, read again at each task; a `run` may carry its own `model`). The core sends the agent's model (its role, read from the live config) and price (`agents.<profile>.cost`, when set) with each run, because the runners cannot read the deployment's private config; the runner's own config is only the fallback for a run without them. Settings are in [Configuration: `agents`](configuration.md#agents).
 
 ## Keys
 
 Every key lives in the core, in the bot's `.env`, which the runners (unprivileged, with the file made inaccessible to them) cannot read. The core sends the keys with each task, in the `secrets` of the `run` message.
 
-The OpenRouter key is the one of the task's model role, resolved the same way the bot resolves any role's key (`llm.keyByRole`): `agent.web` and `agent.server` use `OPENROUTER_AGENT_KEY`; without that variable, no secrets are sent. The bot never sends a request of its own on the agent keys. The `web` agent also gets the proxy (`MEDIA_VIDEO_PROXY`, sent as an `http://` URL the proxy also serves), and `OPENCODE_WEBSEARCH_KEY` when set. The runner passes the OpenCode child the key as `OPENROUTER_API_KEY`, the proxy as `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms, the ones curl reads), and the search key to the search provider.
+The OpenRouter key is the one of the task's model role, resolved the same way the bot resolves any role's key (`llm.keyByRole`): `web` and `server` use `OPENROUTER_AGENT_KEY`; without that variable, no secrets are sent. The bot never sends a request of its own on the agent keys. The `web` agent also gets the proxy (`MEDIA_VIDEO_PROXY`, sent as an `http://` URL the proxy also serves), and `OPENCODE_WEBSEARCH_KEY` when set. The runner passes the OpenCode child the key as `OPENROUTER_API_KEY`, the proxy as `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms, the ones curl reads), and the search key to the search provider.
 
 The unit's `EnvironmentFile` (`/etc/neptunia/agent-<profile>.env`, root-owned, 0600) is optional: its `OPENROUTER_AGENT_KEY`, `OPENCODE_WEBSEARCH_KEY` and `PROXY_URL` are used only for what a task does not bring. A task with no key from either source fails `no-key`, with one warning per runner. No secret is ever logged, journaled or sent back in an event.
 
-The owner's `/nep status` card shows the agents' key as the `agents` key and the coding worker's `OPENROUTER_DEV_KEY` (role `agent.dev`) as the `development` key. A fourth agent role, `agent.advice`, names the model of the consultation tools outside the bot (a bare OpenRouter id, on the simulator's `OPENROUTER_SIM_KEY`); no errand agent and no request of the bot uses it.
+The owner's `/nep status` card shows the agents' key as the `agents` key and the development agents' `OPENROUTER_DEV_KEY` (roles `thinker`, `dev`, `writer`) as the `development` key, and the agents' models in its `models.agents` field.
 
 ## The protocol
 
@@ -111,7 +111,7 @@ A deployment may give its errand agents a preamble, picked by agent and by model
 | `@<model>.md` | the runs on that model |
 | `<agent>@<model>.md` | the runs of that agent on that model |
 
-`<model>` is the run's model id, lowercased, with every character outside `[a-z0-9.]` replaced by `-`: `openrouter/moonshotai/kimi-k3` gives `openrouter-moonshotai-kimi-k3`. An id with the `openrouter/` provider prefix also matches without it, so `@moonshotai-kimi-k3.md` works too; when both forms exist, the full form comes first. The run's model is the agent's model role (`agent.web`, `agent.server`), resolved by the core when it sends the task and sent with it as the run's `model`. An empty or whitespace-only file counts as absent, at once: emptying `web.md` switches the web agent's preamble off from the next task, without deleting the file (the top-level prompt files keep their previous text when they read empty, the preamble files do not). A file directly in `prompts.local/` (such as `prompts.local/agents.md`) is never read as a preamble. The composed text is capped at 8000 characters: over the cap, the core logs a warning with the file names and sends the files that still fit, whole and in order, rather than have the run refused.
+`<model>` is the run's model id, lowercased, with every character outside `[a-z0-9.]` replaced by `-`: `openrouter/moonshotai/kimi-k3` gives `openrouter-moonshotai-kimi-k3`. An id with the `openrouter/` provider prefix also matches without it, so `@moonshotai-kimi-k3.md` works too; when both forms exist, the full form comes first. The run's model is the agent's model role (`models.agents.web`, `models.agents.server`), resolved by the core when it sends the task and sent with it as the run's `model`. An empty or whitespace-only file counts as absent, at once: emptying `web.md` switches the web agent's preamble off from the next task, without deleting the file (the top-level prompt files keep their previous text when they read empty, the preamble files do not). A file directly in `prompts.local/` (such as `prompts.local/agents.md`) is never read as a preamble. The composed text is capped at 8000 characters: over the cap, the core logs a warning with the file names and sends the files that still fit, whole and in order, rather than have the run refused.
 
 The core reads the folder through the live prompt loader, so an edit, a new file, an emptied one or a removed one reaches the next task without a restart, and sends the composed text with each task as the `preamble` of the `run` message. The runner puts it first in the agent's system prompt, followed by a blank line and the agent's own prompt. The runners never read `prompts.local/` for it: the core is the only process that reads the files, so a runner whose unit keeps the private directory out of its reach still gets the preamble. A preamble's text is never logged; the core's `errands: sent` line carries only the matched file names (`preambleFiles`) and the total length (`preambleChars`).
 
@@ -143,7 +143,7 @@ The core's store remains the system of record: the `<tasks>` block, the result t
 ## Adding an agent
 
 1. Create `agents/<id>/` with a `profile.json` (copy one of the existing ones) and, for a worker, a `prompt.md`.
-2. If it needs a model role that does not exist yet, add it to `src/llm/roles.js`.
+2. If it needs a model role that does not exist yet, add it to `src/llm/roles.js` (`AGENT_ROLES`, with its default in `ROLE_DEFAULTS`) and to `models.agents` in `config.json`.
 3. For a worker: add an `agents.<id>` block to `config.json`, a systemd unit like `deploy/neptunia-agent-web.service`, and, for the persona to reach it, its name in `TASK_AGENTS` (`src/ops/catalog.js`) and who may ask for it in `src/ops/task.js`.
 4. If no existing shell class fits, that is a code change in `src/agent-runner/profiles.js`, not a profile key.
 5. Run `tests/agent-runner-profiles.test.js`.

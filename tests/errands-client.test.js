@@ -101,7 +101,7 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
     await withCapturedLogs(async () => {
       const running = client.run({ agent: 'web', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, usd: 0.1, seconds: 30 } });
       const request = await runner.next((r) => r.op === 'run');
-      assert.deepEqual(request, { op: 'run', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, usd: 0.1, seconds: 30 }, model: ROLE_DEFAULTS['agent.web'] });
+      assert.deepEqual(request, { op: 'run', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, usd: 0.1, seconds: 30 }, model: ROLE_DEFAULTS.web });
       runner.reply({ id: 'task-1', event: 'progress', step: 1, tool: 'search', note: 'looking' });
       runner.reply({ id: 'task-1', event: 'end', status: 'done', result: { text: 'found', sources: ['https://example.org/a'], files: [{ path: '/out/task-1/a.png', name: 'a.png', contentType: 'image/png', bytes: 10 }] }, usage: { steps: 2, usd: 0.01 } });
       const outcome = await running;
@@ -177,7 +177,7 @@ test('errands client: the preamble is composed from prompts.local/preambles/ by 
   const sock = socketPath();
   const runner = await fakeRunner(sock);
   const hot = hotFor(sock);
-  hot.config.roles = { 'agent.web': 'openrouter/moonshotai/kimi-k3' };
+  hot.config.models = { agents: { web: 'openrouter/moonshotai/kimi-k3' } };
   hot.prompts = {
     preambles: {
       all: 'ALL-TEXT',
@@ -201,7 +201,7 @@ test('errands client: the preamble is composed from prompts.local/preambles/ by 
       assert.equal(onRole.model, 'openrouter/moonshotai/kimi-k3', 'the live role model is sent: the runner cannot read the private config');
       assert.equal(Object.hasOwn(onRole, 'cost'), false, 'no cost is sent when the live config has none');
 
-      hot.config.roles = { 'agent.web': 'openrouter/openai/gpt-6-sol' };
+      hot.config.models = { agents: { web: 'openrouter/openai/gpt-6-sol' } };
       hot.config.agents.web.cost = { input: 2, output: 6 };
       hot.prompts = { ...hot.prompts, preambles: { ...hot.prompts.preambles, all: '' } };
       const live = await runOnce('task-live');
@@ -238,7 +238,7 @@ test('errands client: without a role in the live config the run carries the engi
     await withCapturedLogs(async () => {
       const running = client.run({ agent: 'web', id: 'task-bare', goal: 'look' });
       const request = await runner.next((r) => r.op === 'run' && r.id === 'task-bare');
-      assert.equal(request.model, ROLE_DEFAULTS['agent.web'], 'the role resolves to its engine default');
+      assert.equal(request.model, ROLE_DEFAULTS.web, 'the role resolves to its engine default');
       assert.equal(Object.hasOwn(request, 'cost'), false, 'no cost without agents.web.cost');
       runner.reply({ id: 'task-bare', event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
       await running;
@@ -253,7 +253,7 @@ test('errands client: a composed preamble over MAX_PREAMBLE_CHARS sends the whol
   const sock = socketPath();
   const runner = await fakeRunner(sock);
   const hot = hotFor(sock);
-  hot.config.roles = { 'agent.web': 'openrouter/vendor/model' };
+  hot.config.models = { agents: { web: 'openrouter/vendor/model' } };
   const big = 'b'.repeat(MAX_PREAMBLE_CHARS - 10);
   hot.prompts = { preambles: { all: big, web: 'w'.repeat(20), '@vendor-model': 'MODEL' } };
   const client = createErrandClient({ hot });

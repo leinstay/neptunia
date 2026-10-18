@@ -3,7 +3,7 @@
 // working directory under the profile's out dir. The child gets, through its
 // environment, the OpenCode config this task needs (the profile's agent
 // definition, the model -- the task's own, else the profile's model role,
-// `roles["agent.web"]` / `roles["agent.server"]`, read at each task -- and its cost,
+// `models.agents.web` / `models.agents.server`, read at each task -- and its cost,
 // the permission ruleset for the scope)
 // and a per-task database, with project/claude config, auto-update and the
 // price fetch disabled so nothing of this server leaks into the worker and
@@ -229,7 +229,7 @@ async function deliverableFiles(collected, { scope, withheldCount }) {
  * @param {string} [options.searchKeyEnv]  The env name of the web-search provider key (web profile) when a task brings none.
  * @param {string} [options.proxyEnv]  The env name of the web profile's proxy when a task brings none.
  * @param {() => object} [options.getConfig]  The engine config, read at each task: the model of a task
- *   without one is `roles.<profile.modelRole>` (src/llm/roles.js#roleModel), else the profile's default.
+ *   without one is `models.agents.<profile.modelRole>` (src/llm/roles.js#roleModel), else the profile's default.
  * @param {() => number} [options.now]
  * @param {typeof spawn} [options.spawnImpl]
  */

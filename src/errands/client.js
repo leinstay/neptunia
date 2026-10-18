@@ -14,7 +14,7 @@
 // (sent on the `run` line and nowhere else). A `run` also carries the deployment's preamble when
 // one matches: the files of prompts.local/preambles/ picked by agent and by the agent's model
 // (src/errands/preambles.js; `hot.prompts.preambles`, read live; no tracked default). The model
-// is the agent's role model (`roles["agent.web"]`, `roles["agent.server"]`), resolved here at send
+// is the agent's role model (`models.agents.web`, `models.agents.server`), resolved here at send
 // time and sent on the `run` line as `model`, with the live price `agents.<profile>.cost` as `cost`
 // when it has finite input and output: the runners cannot read the private config, so without
 // them a run would fall back to the tracked config. A composed text over MAX_PREAMBLE_CHARS sends

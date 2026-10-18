@@ -160,7 +160,7 @@ function fakeLlm(text) {
 const CONFIG = {
   bot: { timezone: 'UTC' },
   llm: { helperTimeoutMs: 25_000 },
-  roles: { analyzer: 'x/text', reasoner: 'x/reason' },
+  models: { base: { analyzer: 'x/text', reasoner: 'x/reason' } },
   web: { search: { classifierMaxOutputTokens: 321 } },
   recall: { maxForms: 6 },
 };

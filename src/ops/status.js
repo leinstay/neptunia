@@ -3,14 +3,14 @@
 // most important field first, for a phone; `field` keeps only that field and computes nothing
 // for the others. A member (anyone not in `bot.owners`) gets the card without the storage line,
 // the costs, memory and speed fields. Every field lists one item per line; the state field ends
-// with the gateway and the uptime. The models field lists one line per role, `<role> · <model> ...` (voice,
-// analyzer, reasoner, extractor, vision, video, embedding, drawing, then the agent roles agent.web, agent.server, agent.dev,
-// agent.advice, which are never probed: an OpenCode worker or a tool outside the bot runs them, not the bot). The owner's card probes on every call: one minimal chat completion per
+// with the gateway and the uptime. The models sit in two fields, one line per role, `<role> · <model> ...`:
+// `models.base` (voice, analyzer, reasoner, extractor, vision, video, embedding) and `models.agents` (web, server,
+// thinker, dev, writer, which are never probed: an OpenCode worker runs them, not the bot; then drawing). The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
 // request for the embedding role, and one free GET of the drawing model's provider listing; a
 // member's card only names the models. Each role shows its own model (never another role's), and
-// each role's line is followed by the `roles.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
+// each base role's line is followed by the `models.base.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
 // memory) is computed at most once a minute: directory listings and the record's month indexes,
 // never its day files. The speed field reads src/ops/metrics.js (the last 24 h), then today's
 // missed-answer figures from the journal (src/behavior/missed.js). The `keys`
@@ -28,7 +28,7 @@ import { WEB_DAILY } from '../web/lookup.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from './grants.js';
 import { MODEL_ROLES, STATUS_FIELDS } from './catalog.js';
-import { AGENT_ROLES, OPENCODE_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
+import { OPENCODE_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { plannerOn } from '../behavior/planner.js';
 import { missedCounts, missedStatusLine } from '../behavior/missed.js';
@@ -46,9 +46,9 @@ export { STATUS_FIELDS };
 const OWNER_FIELDS = new Set(['keys', 'costs', 'memory', 'speed']);
 
 /**
- * The models field's groups, in order: one line per role, then the `roles.byPurpose` overrides
- * of the purposes that go out on those roles (src/llm/roles.js#PURPOSE_ROLES; a purpose it does
- * not list follows the analyzer).
+ * The `models.base` field's groups, in order: one line per role, then the
+ * `models.base.byPurpose` overrides of the purposes that go out on those roles
+ * (src/llm/roles.js#PURPOSE_ROLES; a purpose it does not list follows the analyzer).
  */
 const MODEL_GROUPS = Object.freeze([
   { name: 'voice', roles: ['voice'] },
@@ -58,8 +58,6 @@ const MODEL_GROUPS = Object.freeze([
   { name: 'vision', roles: ['vision'] },
   { name: 'video', roles: ['video'] },
   { name: 'embedding', roles: [EMBED_ROLE] },
-  { name: 'drawing', roles: [IMAGE_ROLE] },
-  { name: 'agents', roles: AGENT_ROLES },
 ]);
 
 /** `<role> · <model>`: each role shows its own model, never another role's. */
@@ -67,19 +65,17 @@ function roleHead(role, model) {
   return `${role} · ${model}`;
 }
 
-/** An agent role's line: its model, never probed (an OpenCode worker or a consultation tool
- * outside the bot runs it, not the bot). */
+/** An OpenCode agent role's line: its model, never probed (an OpenCode worker runs it, not the bot). */
 function agentLine(role, cfg, probed) {
   const head = roleHead(role, roleModel(cfg, role) ?? 'no model configured');
-  if (!probed) return head;
-  return OPENCODE_ROLES.includes(role) ? `${head} · not probed (runs on OpenCode)` : `${head} · not probed (used outside the bot)`;
+  return probed ? `${head} · not probed (runs on OpenCode)` : head;
 }
 
-/** The `roles.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
+/** The `models.base.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
  * (with `unlisted`, also those of a purpose PURPOSE_ROLES does not list), one
  * `byPurpose <purpose> · <model>` line each. */
 function byPurposeLines(cfg, roles, unlisted) {
-  const byPurpose = cfg?.roles?.byPurpose;
+  const byPurpose = cfg?.models?.base?.byPurpose;
   if (!isPlainObject(byPurpose)) return [];
   return Object.entries(byPurpose)
     .filter(([, model]) => typeof model === 'string' && model)
@@ -87,21 +83,21 @@ function byPurposeLines(cfg, roles, unlisted) {
     .map(([purpose, model]) => `byPurpose ${purpose} · ${model}`);
 }
 
-/** The models field: `lineOf(role)` per role (the drawing role's line `imageLine`, left out when
- * null; an agent role's `agentLine`, probed or not as `probed` says), each group's per-purpose
- * overrides after its role. */
-function groupedModels(cfg, lineOf, imageLine, probed = false) {
+/** The `models.base` field: `lineOf(role)` per role, each group's per-purpose overrides after its role. */
+function groupedModels(cfg, lineOf) {
   const lines = [];
   for (const group of MODEL_GROUPS) {
-    for (const role of group.roles) {
-      if (role === IMAGE_ROLE) {
-        if (imageLine) lines.push(imageLine);
-        continue;
-      }
-      lines.push(AGENT_ROLES.includes(role) ? agentLine(role, cfg, probed) : lineOf(role));
-    }
+    for (const role of group.roles) lines.push(lineOf(role));
     lines.push(...byPurposeLines(cfg, group.roles, group.unlistedPurposes));
   }
+  return lines.join('\n');
+}
+
+/** The `models.agents` field: each OpenCode role's `agentLine` (probed or not as `probed` says),
+ * then the drawing role's line `imageLine` (left out when null). */
+function agentModels(cfg, imageLine, probed = false) {
+  const lines = OPENCODE_ROLES.map((role) => agentLine(role, cfg, probed));
+  if (imageLine) lines.push(imageLine);
   return lines.join('\n');
 }
 
@@ -317,10 +313,22 @@ const handlers = perEnv((env) => {
     return problems.length > 0 ? `storage: ${problems.join('; ')}` : 'storage ok';
   }
 
-  /** The models field unprobed (a member's card): every role's own model, the drawing model last. */
+  /** The `models.base` field unprobed (a member's card): every role's own model. */
   function modelsValue(cfg) {
+    return groupedModels(cfg, (role) => roleHead(role, modelForRole(role, cfg) ?? 'no model configured'));
+  }
+
+  /** The `models.agents` field unprobed (a member's card): every agent role's own model, the drawing model last. */
+  function agentsValue(cfg) {
     const image = roleHead(IMAGE_ROLE, roleModel(cfg, 'drawing') ? imageModelLabel(cfg) : 'no model configured');
-    return groupedModels(cfg, (role) => roleHead(role, modelForRole(role, cfg) ?? 'no model configured'), image);
+    return agentModels(cfg, image);
+  }
+
+  /** The owner's `models.agents` field: the OpenCode roles unprobed, the drawing model's listing
+   * read (one free GET). */
+  async function probedAgentsValue(cfg) {
+    const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+    return agentModels(cfg, await imageProbeLine(cfg, timeoutMs), true);
   }
 
   /** The embedding role's probe: one embedding request of one input (the probe label), never
@@ -365,10 +373,10 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The owner's models field: every role's model, as resolved now, probed in parallel -- the chat
+   * The owner's `models.base` field: every base role's model, as resolved now, probed in parallel -- the chat
    * roles with one minimal chat completion, the embedding role with one embedding request of one
    * input -- one line per role in MODEL_GROUPS order, the per-purpose overrides (unprobed)
-   * after their role and the drawing model's listing last. Roles
+   * after their role. Roles
    * sharing a model and a provider route share a probe (a role-specific `llm.providerByModel` key
    * routing one elsewhere makes it a probe of its own); each probe goes out as the first role that
    * needs it. Never counted against the daily cap, never calibrated, never writes under data/.
@@ -377,7 +385,6 @@ const handlers = perEnv((env) => {
   async function probedModelsValue(cfg) {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
     const labels = hot.prompts?.labels;
-    const image = imageProbeLine(cfg, timeoutMs);
     const modelOf = new Map(MODEL_ROLES.map((role) => [role, modelForRole(role, cfg)]));
     // An embedding probe is another kind of request: never shared with a chat probe of the same model.
     const targetOf = (role) => {
@@ -434,7 +441,7 @@ const handlers = perEnv((env) => {
       if (role === EMBED_ROLE && !canEmbed) return `${head} · not checked (no embedding client)`;
       return probeLine(head, results.get(targetOf(role)));
     };
-    return groupedModels(cfg, lineOf, await image, true);
+    return groupedModels(cfg, lineOf);
   }
 
   /** The limits field: every daily rail's used/cap, the web search engine, then when they reset. */
@@ -468,7 +475,7 @@ const handlers = perEnv((env) => {
    * usage accumulator. With the management key (OPENROUTER_MANAGEMENT_KEY, `env.managementKey`,
    * used for these GETs only) each key's activity is read alongside (`llm.activity` by its hash,
    * one GET per key) and its last 7 and 30 days come from there instead; a failed activity read
-   * falls back. An extra key that is the simulator key itself (`agent.advice` on
+   * falls back. An extra key that is the simulator key itself (a role `llm.keyByRole` puts on
    * OPENROUTER_SIM_KEY, compared by hash) gets no line of its own: the simulator line is its line.
    * Logs `status: account read` with the outcomes' codes. `-` when the labels give no line.
    */
@@ -752,7 +759,8 @@ const handlers = perEnv((env) => {
       state: async () => [stateValue(data), owner ? await storageLine(guildId, cfg) : null, connectionValue(), `uptime ${span(process.uptime() * 1000)}`].filter(Boolean).join('\n'),
       tasks: () => longTasksValue(guildId),
       // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
-      models: () => (owner && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg)),
+      'models.base': () => (owner && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg)),
+      'models.agents': () => (owner && typeof llm?.complete === 'function' ? probedAgentsValue(cfg) : agentsValue(cfg)),
       limits: () => limitsValue(cfg, data),
       keys: () => keyCostsValue(cfg),
       costs: () => roleCostsValue(),

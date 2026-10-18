@@ -36,7 +36,7 @@ function fakeProfile(promptFile, name = 'web') {
     name,
     agentId: `errand-${name}`,
     promptFiles: [promptFile],
-    modelRole: name === 'web' ? 'agent.web' : 'agent.server',
+    modelRole: name === 'web' ? 'web' : 'server',
     defaultModel: 'openrouter/x-ai/default-model',
     defaultLimits: { steps: 25, usd: 0.5, seconds: 300 },
     defaultSearchProvider: 'exa',
@@ -449,12 +449,12 @@ test('opencode: the server agent\'s child trusts every git repository and never 
 test('opencode: the web child finds its own commands and node first on its PATH, and gets the search model of the config read at the task', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
-  const config = { roles: { reasoner: 'openrouter-x/cheap-one' } };
+  const config = { models: { base: { reasoner: 'openrouter-x/cheap-one' } } };
   const web = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile), pathDirs: WEB.pathDirs }, outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k', PATH: '/usr/bin:/bin' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });
   const first = (await envOfRun(web, spawn, { id: 'p1' })).env;
   assert.equal(first.PATH, [WEB_TOOLS_DIR, path.dirname(process.execPath), '/usr/bin:/bin'].join(path.delimiter));
   assert.equal(first[WEB_SEARCH_MODEL_ENV], 'openrouter-x/cheap-one');
-  config.roles.reasoner = 'openrouter-x/cheap-two';
+  config.models.base.reasoner = 'openrouter-x/cheap-two';
   assert.equal((await envOfRun(web, spawn, { id: 'p2', model: 'openrouter/x-ai/task-model' })).env[WEB_SEARCH_MODEL_ENV], 'openrouter-x/cheap-two', 'read at each task, a task model too');
 
   const server = createOpencodeRunner({ profile: { ...fakeProfile(ws.promptFile, 'server'), pathDirs: SERVER.pathDirs }, outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k', PATH: '/usr/bin:/bin' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });
@@ -495,14 +495,14 @@ async function modelOfRun(runner, spawn, task) {
 test('opencode: a task without a model runs on the profile\'s model role, read at each task; a task model wins', async () => {
   const ws = await workspace();
   const spawn = fakeSpawn();
-  const config = { roles: { 'agent.web': 'openrouter/x-ai/web-one', 'agent.server': 'openrouter/x-ai/server-one' } };
+  const config = { models: { agents: { web: 'openrouter/x-ai/web-one', server: 'openrouter/x-ai/server-one' } } };
   const runner = createOpencodeRunner({ profile: fakeProfile(ws.promptFile), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl, getConfig: () => config });
-  assert.equal(await modelOfRun(runner, spawn, { id: 'm1' }), 'openrouter/x-ai/web-one', 'roles.agent.web, never the server role');
-  config.roles['agent.web'] = 'openrouter/x-ai/web-two';
+  assert.equal(await modelOfRun(runner, spawn, { id: 'm1' }), 'openrouter/x-ai/web-one', 'models.agents.web, never the server role');
+  config.models.agents.web = 'openrouter/x-ai/web-two';
   assert.equal(await modelOfRun(runner, spawn, { id: 'm2' }), 'openrouter/x-ai/web-two', 'a /nep model set reaches the next task');
   assert.equal(await modelOfRun(runner, spawn, { id: 'm3', model: 'openrouter/x-ai/override' }), 'openrouter/x-ai/override');
-  delete config.roles['agent.web'];
-  assert.equal(await modelOfRun(runner, spawn, { id: 'm4' }), ROLE_DEFAULTS['agent.web'], 'an unset role: its own default');
+  delete config.models.agents.web;
+  assert.equal(await modelOfRun(runner, spawn, { id: 'm4' }), ROLE_DEFAULTS.web, 'an unset role: its own default');
   const broken = createOpencodeRunner({ profile: fakeProfile(ws.promptFile, 'server'), outDir: ws.outDir, env: { OPENROUTER_AGENT_KEY: 'k' }, spawnImpl: spawn.spawnImpl, getConfig: () => { throw new SyntaxError('bad json'); } });
   assert.equal(await modelOfRun(broken, spawn, { id: 'm5' }), 'openrouter/x-ai/default-model', 'an unreadable config: the profile default, the task still runs');
   await ws.cleanup();

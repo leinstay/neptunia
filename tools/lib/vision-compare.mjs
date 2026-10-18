@@ -3,7 +3,7 @@
 // through the live describer (src/memory/describe.js) with one model, the run with its USD stop,
 // the per-model summary and the HTML sheet. Exists so a candidate media model can be judged
 // against the current one on the same pictures, GIFs and videos, by the very code path the
-// persona's senses use, before the owner switches `roles.vision` / `roles.video`.
+// persona's senses use, before the owner switches `models.base.vision` / `models.base.video`.
 // No clock or randomness of its own: `now` is injected.
 
 import { CliError, parseFlags } from './cli.mjs';
@@ -245,7 +245,7 @@ export function lookupSince(picked, nowMs) {
 
 /**
  * The tool's own view over the live hot view: the same prompts, and a config whose
- * `roles.vision` and `roles.video` are `model` (every `roles.byPurpose` entry of a vision or
+ * `models.base.vision` and `models.base.video` are `model` (every `models.base.byPurpose` entry of a vision or
  * video purpose dropped, so it cannot pin another model), with media descriptions and video
  * descriptions switched on. Built fresh on every read from `base.config`, which is never
  * changed: the live config of this process stays as it is.
@@ -257,13 +257,14 @@ export function toolHot(base, { model }) {
   return {
     get config() {
       const live = base.config ?? {};
-      const roles = isPlainObject(live.roles) ? live.roles : {};
-      const byPurpose = isPlainObject(roles.byPurpose)
-        ? Object.fromEntries(Object.entries(roles.byPurpose).filter(([purpose]) => !['vision', 'video'].includes(PURPOSE_ROLES[purpose])))
+      const models = isPlainObject(live.models) ? live.models : {};
+      const core = isPlainObject(models.base) ? models.base : {};
+      const byPurpose = isPlainObject(core.byPurpose)
+        ? Object.fromEntries(Object.entries(core.byPurpose).filter(([purpose]) => !['vision', 'video'].includes(PURPOSE_ROLES[purpose])))
         : undefined;
       return {
         ...live,
-        roles: { ...roles, vision: model, video: model, ...(byPurpose ? { byPurpose } : {}) },
+        models: { ...models, base: { ...core, vision: model, video: model, ...(byPurpose ? { byPurpose } : {}) } },
         features: { ...(live.features ?? {}), mediaDescriptions: true, videoDescriptions: true },
       };
     },

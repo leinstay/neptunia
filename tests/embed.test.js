@@ -20,7 +20,7 @@ function config(overrides = {}) {
       providerByModel: { 'openai/@embedding': { only: ['openai'] } },
       ...overrides.llm,
     },
-    roles: { analyzer: 'x/text', embedding: 'openai/text-embedding-3-large', byPurpose: {}, ...overrides.roles },
+    models: { base: { analyzer: 'x/text', embedding: 'openai/text-embedding-3-large', byPurpose: {}, ...overrides.models?.base } },
     embed: { dimensions: 4, ...overrides.embed },
   };
 }
@@ -82,9 +82,9 @@ test('embed: one POST to /embeddings with model, input and dimensions, routed by
   assert.deepEqual([...vectors[1]], [0, 0, 0, 1]);
 });
 
-test('embed: a roles.byPurpose entry picks the model; the vectors come back in input order', async () => {
+test('embed: a models.base.byPurpose entry picks the model; the vectors come back in input order', async () => {
   const { embedder, sent } = makeEmbedder([jsonResponse(200, { data: [{ index: 1, embedding: [0, 1] }, { index: 0, embedding: [1, 0] }] })]);
-  const vectors = await embedder.embed(['a', 'b'], { config: config({ roles: { byPurpose: { search: 'other/embed' } }, embed: { dimensions: 2 } }), purpose: 'search' });
+  const vectors = await embedder.embed(['a', 'b'], { config: config({ models: { base: { byPurpose: { search: 'other/embed' } } }, embed: { dimensions: 2 } }), purpose: 'search' });
   assert.equal(sent[0].body.model, 'other/embed');
   assert.equal('provider' in sent[0].body, false, 'no route for that model');
   assert.deepEqual(vectors.map((vector) => [...vector]), [[1, 0], [0, 1]]);
@@ -158,9 +158,9 @@ test('embed: nothing to embed sends nothing; an empty text is an error before an
   assert.equal(llmCountToday(state.data, DAY), 0);
 });
 
-test('embed: an unset roles.embedding goes out on the role default, never on another role\'s model', async () => {
+test('embed: an unset models.base.embedding goes out on the role default, never on another role\'s model', async () => {
   const { embedder, sent } = makeEmbedder([embeddingsOf([[1, 0, 0, 0]])]);
-  await embedder.embed(['a'], { config: config({ roles: { analyzer: 'x/text', embedding: null } }), purpose: 'search' });
+  await embedder.embed(['a'], { config: config({ models: { base: { analyzer: 'x/text', embedding: null } } }), purpose: 'search' });
   assert.equal(sent[0].body.model, ROLE_DEFAULTS.embedding);
 });
 

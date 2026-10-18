@@ -70,7 +70,8 @@ test('status: an optional field option whose choices are the field names of the 
   assert.deepEqual(field.choices.map((c) => c.value), [...STATUS_FIELDS]);
   assert.deepEqual(field.choices.map((c) => c.name), [...STATUS_FIELDS]);
   for (const choice of field.choices) assert.ok(choice.value.length >= 1 && choice.value.length <= 100, choice.value);
-  assert.deepEqual([...STATUS_FIELDS], ['state', 'tasks', 'models', 'limits', 'keys', 'costs', 'memory', 'speed'], 'single words');
+  assert.deepEqual([...STATUS_FIELDS], ['state', 'tasks', 'models.base', 'models.agents', 'limits', 'keys', 'costs', 'memory', 'speed'], 'single words, but the two models sections');
+  for (const name of STATUS_FIELDS) assert.match(name, /^[a-z]+(\.[a-z]+)?$/, name);
 });
 
 test('interaction handler: status passes the chosen field into its args, null without one', async () => {
@@ -137,9 +138,9 @@ test('MODEL_ROLES: the model-set, route and ping role choices are all derived fr
   const values = (option) => option.choices.map((c) => c.value);
   const names = (option) => option.choices.map((c) => c.name);
   const setRole = findOption(findOption(findOption(command.options, 'model').options, 'set').options, 'role');
-  const agents = ['agent.web', 'agent.server', 'agent.dev', 'agent.advice'];
-  assert.deepEqual(values(setRole), [...MODEL_ROLES, 'drawing', ...agents], 'the chat and embedding roles, then the drawing model, then the agent roles');
-  assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, 'drawing', ...agents]);
+  const agents = ['web', 'server', 'thinker', 'dev', 'writer'];
+  assert.deepEqual(values(setRole), [...MODEL_ROLES, ...agents, 'drawing'], 'the chat and embedding roles (models.base), then the agents\' roles (models.agents), drawing last');
+  assert.deepEqual([...MODEL_SET_ROLES], [...MODEL_ROLES, ...agents, 'drawing']);
   assert.ok(MODEL_ROLES.includes('voice') && !MODEL_ROLES.includes('talk') && !MODEL_ROLES.includes('drawing'));
   assert.ok(MODEL_ROLES.includes('reasoner') && MODEL_ROLES.includes('embedding'), 'the reasoning and the embedding roles are set and routed like the others');
   assert.ok(!agents.some((role) => MODEL_ROLES.includes(role)), 'the agent roles are never probed');
@@ -1287,16 +1288,7 @@ test('autocomplete: the route model option offers the route prefixes and the mod
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: {},
       llm: { providerByModel: { 'google/': { only: ['google-vertex'] }, 'google/@video': { only: ['google-ai-studio'] } } },
-      roles: {
-        voice: 'anthropic/claude-opus-4.6',
-        analyzer: 'google/gemini-3.8-flash',
-        reasoner: 'google/gemini-3.8-flash',
-        extractor: 'anthropic/claude-opus-4.6',
-        vision: 'google/gemini-3.8-flash',
-        video: 'google/gemini-3.8-flash',
-        embedding: 'openai/text-embedding-x',
-        drawing: 'openai/gpt-image-x',
-      },
+      models: { base: { voice: 'anthropic/claude-opus-4.6', analyzer: 'google/gemini-3.8-flash', reasoner: 'google/gemini-3.8-flash', extractor: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash', video: 'google/gemini-3.8-flash', embedding: 'openai/text-embedding-x' }, agents: { drawing: 'openai/gpt-image-x' } },
     },
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });
@@ -1324,7 +1316,7 @@ test('autocomplete: model set offers the model ids in use; memory restore offers
       bot: { commandName: 'nep', owners: ['owner1'] },
       features: {},
       llm: { providerByModel: {} },
-      roles: { voice: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash' },
+      models: { base: { voice: 'anthropic/claude-opus-4.6', vision: 'google/gemini-3.8-flash' } },
     },
   };
   const handler = createInteractionHandler({ hot, admin, getGuildId: () => 'g1' });

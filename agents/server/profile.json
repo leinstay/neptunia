@@ -1,7 +1,7 @@
 {
   "id": "server",
   "kind": "worker",
-  "role": "agent.server",
+  "role": "server",
   "prompt": "prompt.md",
   "override": "agent-server.md",
   "tools": ["read", "grep", "glob", "list", "bash"],

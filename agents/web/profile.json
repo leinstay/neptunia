@@ -1,7 +1,7 @@
 {
   "id": "web",
   "kind": "worker",
-  "role": "agent.web",
+  "role": "web",
   "prompt": "prompt.md",
   "override": "agent-web.md",
   "tools": ["websearch", "webfetch", "read", "glob", "list", "bash"],

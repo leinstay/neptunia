@@ -139,7 +139,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now, hot: giv
   const configNow = () => {
     const live = hot.config ?? {};
     if (!model) return live;
-    return { ...live, roles: { ...(live.roles ?? {}), byPurpose: { ...(live.roles?.byPurpose ?? {}), lookup: model } } };
+    const models = live.models ?? {};
+    const base = models.base ?? {};
+    return { ...live, models: { ...models, base: { ...base, byPurpose: { ...(base.byPurpose ?? {}), lookup: model } } } };
   };
 
   try {

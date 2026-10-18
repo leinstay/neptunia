@@ -4,7 +4,7 @@
 
 import { MODEL_ROLES, MODEL_SET_PATHS, MODEL_SET_ROLES } from './catalog.js';
 import { IMAGE_ROLE } from '../llm/images.js';
-import { AGENT_ROLES, roleModel } from '../llm/roles.js';
+import { OPENCODE_ROLES, roleConfigKeys, roleModel } from '../llm/roles.js';
 import { onOff, reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
@@ -18,8 +18,8 @@ const handlers = perEnv((env) => {
     const cfg = hot.config;
     const lines = [
       ...MODEL_ROLES.map((role) => `${role}: ${modelForRole(role, cfg) ?? '-'}`),
+      ...OPENCODE_ROLES.map((role) => `${role}: ${modelForRole(role, cfg) ?? '-'}`),
       `${IMAGE_ROLE}: ${imageModelLabel(cfg)}`,
-      ...AGENT_ROLES.map((role) => `${role}: ${modelForRole(role, cfg) ?? '-'}`),
       `mediaDescriptions: ${onOff(cfg?.features?.mediaDescriptions === true)}`,
     ];
     return lines.join('\n');
@@ -29,8 +29,8 @@ const handlers = perEnv((env) => {
     const role = String(args?.role ?? '');
     const dottedPath = Object.hasOwn(MODEL_SET_PATHS, role) ? MODEL_SET_PATHS[role] : null;
     if (!dottedPath) throw invalid(`unknown role: ${role} (${MODEL_SET_ROLES.join(', ')})`);
-    // The role is one key under `roles`, a dot in its name (`agent.web`) included.
-    const keys = ['roles', role];
+    // `models.base.<role>` or `models.agents.<role>`.
+    const keys = roleConfigKeys(role);
 
     const id = String(args?.id ?? '').trim();
     if (!MODEL_ID_RE.test(id)) throw invalid('id must look like a model id, e.g. anthropic/claude-haiku-4.5 (3-100 chars)');

@@ -6,7 +6,6 @@ Each agent has its own folder here. A folder holds `profile.json` (the agent's d
 agents/
   web/       prompt.md + profile.json   worker: internet errands (search, read pages, download files)
   server/    prompt.md + profile.json   worker: read-only questions about this machine
-  advice/    profile.json               consultation: the strongest model, asked directly by tools outside the bot
 ```
 
 There are two kinds. A worker runs as its own process and takes tasks on a socket. A consultation has no process: tools call its model role directly. The runner skips consultations.

@@ -16,7 +16,7 @@
 // EnvironmentFile: OPENROUTER_AGENT_KEY, OPENCODE_WEBSEARCH_KEY, PROXY_URL) is
 // used only for what a task does not bring. Caps and the model's
 // cost come from `agents.<profile>` in config; the model from the profile's
-// model role (`agent.web`, `agent.server`), read again at each task
+// model role (`models.agents.web`, `models.agents.server`), read again at each task
 // so a `/nep model set` reaches the next one. It prints one ready line
 // (a log line) when it is listening, and on SIGTERM ends open tasks and
 // exits. At start and then hourly it deletes the task directories under its
@@ -68,10 +68,9 @@ async function main() {
   // The runner never reads the bot's .env: the bot's secrets file is inaccessible to it by design, and
   // the keys come with each task. Config `${env:NAME}` references it cannot resolve become empty
   // strings with one warning each.
-  const { config, renamed } = loadConfig();
-  // An agent role config.local.json still names the old way (`roles.agentWeb`), read under its new name.
-  const roleRenames = renamed.filter((entry) => entry.role === true).map(({ key, use }) => ({ key, use }));
-  if (roleRenames.length > 0) log.warn('config: role renamed', { keys: roleRenames });
+  // A config still holding the flat `roles` map throws here (src/config.js#assertModelsShape): the
+  // runner does not start on a config it would misread.
+  const { config } = loadConfig();
   const agents = config.agents ?? {};
   const settings = agents[name] ?? {};
 

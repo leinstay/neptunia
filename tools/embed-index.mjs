@@ -412,7 +412,7 @@ async function cmdBuild(ctx) {
   const marked = await forgettingIds(fs.promises, ctx.dataDir, ctx.guildId);
   if (marked.size > 0) throw new CliError(`embed-index: a forget is under way (${marked.size} forgetting marker(s)); run again once it has finished`);
   const model = roleModel(ctx.hot.config, EMBED_ROLE);
-  if (!model) throw new CliError('embed-index: no embedding model is configured (roles.embedding)');
+  if (!model) throw new CliError('embed-index: no embedding model is configured (models.base.embedding)');
   const plan = await planOf(ctx);
   const current = new Date(ctx.now()).toISOString().slice(0, 7);
   const live = new Set();

@@ -48,7 +48,7 @@ function makeService(env, { keyByRole } = {}) {
   const hot = {
     config: {
       features: { journal: true },
-      llm: { keyByRole: keyByRole ?? { 'agent.web': 'OPENROUTER_AGENT_KEY', 'agent.server': 'OPENROUTER_AGENT_KEY', 'agent.dev': 'OPENROUTER_DEV_KEY' } },
+      llm: { keyByRole: keyByRole ?? { web: 'OPENROUTER_AGENT_KEY', server: 'OPENROUTER_AGENT_KEY', dev: 'OPENROUTER_DEV_KEY' } },
       agents: { maxOpen: 3, web: { enabled: true, daily: { tasks: 10, usd: 5 } }, server: { enabled: true, daily: { tasks: 10, usd: 5 } } },
     },
   };
@@ -117,7 +117,7 @@ test('errands service: a server run carries only its role\'s key; never the pers
 
 test('errands service: the key follows llm.keyByRole read now; an http proxy is sent as it is; no search key, none sent', async () => {
   const env = { ...ENV, OPENROUTER_WEB_ONLY: 'sk-web-only', MEDIA_VIDEO_PROXY: 'http://proxy.example:8000', OPENCODE_WEBSEARCH_KEY: '' };
-  const { errands, client, cleanup } = makeService(env, { keyByRole: { 'agent.web': 'OPENROUTER_WEB_ONLY' } });
+  const { errands, client, cleanup } = makeService(env, { keyByRole: { web: 'OPENROUTER_WEB_ONLY' } });
   try {
     await withCapturedLogs(async () => {
       errands.submit(ask('web'));
@@ -131,7 +131,7 @@ test('errands service: the key follows llm.keyByRole read now; an http proxy is 
 
 test('errands service: without the role\'s key no secrets are sent (never the main key); the missing name is logged, never a value', async () => {
   const env = { OPENROUTER_API_KEY: 'sk-persona-SECRET', MEDIA_VIDEO_PROXY: 'socks5h://user:pw-SECRET@proxy.example:1080' };
-  const { errands, client, log, cleanup } = makeService(env, { keyByRole: { 'agent.web': 'OPENROUTER_UNSET_AGENT_KEY' } });
+  const { errands, client, log, cleanup } = makeService(env, { keyByRole: { web: 'OPENROUTER_UNSET_AGENT_KEY' } });
   try {
     const { logs } = await withCapturedLogs(async () => {
       errands.submit(ask('web'));
@@ -141,7 +141,7 @@ test('errands service: without the role\'s key no secrets are sent (never the ma
     assert.equal(client.runs.length, 2);
     for (const run of client.runs) assert.equal(Object.hasOwn(run, 'secrets'), false, run.agent);
     const missing = logs.filter((entry) => entry.msg === 'llm: role key missing');
-    assert.deepEqual(missing.map((entry) => [entry.role, entry.name]), [['agent.web', 'OPENROUTER_UNSET_AGENT_KEY']]);
+    assert.deepEqual(missing.map((entry) => [entry.role, entry.name]), [['web', 'OPENROUTER_UNSET_AGENT_KEY']]);
     const recorded = JSON.stringify({ calls: log.calls, logs });
     for (const secret of SECRETS) assert.ok(!recorded.includes(secret), `${secret} never recorded`);
   } finally {
@@ -261,7 +261,7 @@ function fakeMirror() {
 
 test('errands service: the ledger mirror is called at the queuing (limits), the start (limits, the role\'s model), each progress, the end, a cancel (who) and a forget; the ledger id is kept on the task', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const hot = { config: { roles: { 'agent.web': 'openrouter/vendor/web-model' }, agents: { maxOpen: 5, resultMaxChars: 1234, web: { enabled: true, daily: { tasks: 10, usd: 5 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } } } };
+  const hot = { config: { models: { agents: { web: 'openrouter/vendor/web-model' } }, agents: { maxOpen: 5, resultMaxChars: 1234, web: { enabled: true, daily: { tasks: 10, usd: 5 }, limits: { steps: 9, usd: 0.3, seconds: 90 } } } } };
   const gates = new Map();
   const listeners = [];
   const client = {

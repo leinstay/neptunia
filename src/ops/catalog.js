@@ -12,7 +12,7 @@
 // DEFERRED_OPS entry when its operation may outlast the reply window.
 
 import { isPlainObject } from '../config.js';
-import { AGENT_ROLES } from '../llm/roles.js';
+import { AGENT_ROLES, OPENCODE_ROLES } from '../llm/roles.js';
 
 // Raw Discord API option-type numbers (application-command-option-type):
 // https://discord.com/developers/docs/interactions/application-commands
@@ -53,20 +53,20 @@ export const DEFERRED_OPS = Object.freeze(new Set([
 ]));
 
 /**
- * The model roles (src/llm/roles.js), each with the config path of its model (src/ops/model.js):
- * the roles the status card probes, plus `drawing` (`MODEL_SET_PATHS`); every role choice list
- * is derived from this one. `voice` is the one model that speaks as the persona: its replies and
+ * The core's model roles (src/llm/roles.js#BASE_ROLES), each with the config path of its model
+ * (src/ops/model.js): the roles the status card probes; with the agents' roles they make
+ * `MODEL_SET_PATHS`; every role choice list is derived from this one. `voice` is the one model that speaks as the persona: its replies and
  * every memory text worded in its voice (src/memory/update.js#runVoice). `embedding` serves the
  * embeddings (src/llm/embed.js), which take no chat completion.
  */
 export const MODEL_ROLE_PATHS = Object.freeze({
-  voice: 'roles.voice',
-  analyzer: 'roles.analyzer',
-  reasoner: 'roles.reasoner',
-  extractor: 'roles.extractor',
-  vision: 'roles.vision',
-  video: 'roles.video',
-  embedding: 'roles.embedding',
+  voice: 'models.base.voice',
+  analyzer: 'models.base.analyzer',
+  reasoner: 'models.base.reasoner',
+  extractor: 'models.base.extractor',
+  vision: 'models.base.vision',
+  video: 'models.base.video',
+  embedding: 'models.base.embedding',
 });
 
 /** The roles of `MODEL_ROLE_PATHS`, in order. */
@@ -74,15 +74,14 @@ export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
 
 /**
  * The roles whose model `/nep model show|set` lists and changes, each with the config path
- * `set` writes: the chat and embedding roles, then the drawing model (`drawing`,
- * src/llm/images.js#IMAGE_ROLE), which takes no chat completion, then the agent roles
- * (src/llm/roles.js#AGENT_ROLES), which take no request of the bot (OpenCode workers and the
- * consultation tools outside the bot run them).
+ * `set` writes: the chat and embedding roles (`models.base`), then the agents' roles
+ * (`models.agents`, src/llm/roles.js#AGENT_ROLES): `web`, `server`, `thinker`, `dev` and `writer`, which take no
+ * request of the bot (OpenCode workers run them), then the drawing model (`drawing`,
+ * src/llm/images.js#IMAGE_ROLE), which takes no chat completion.
  */
 export const MODEL_SET_PATHS = Object.freeze({
   ...MODEL_ROLE_PATHS,
-  drawing: 'roles.drawing',
-  ...Object.fromEntries(AGENT_ROLES.map((role) => [role, `roles.${role}`])),
+  ...Object.fromEntries(AGENT_ROLES.map((role) => [role, `models.agents.${role}`])),
 });
 
 /** The roles of `MODEL_SET_PATHS`, in order: the choices of `/nep model set`. */
@@ -107,16 +106,16 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
  * memory and speed ones are the owner's only): the choices of its `field` option. Kept here, not
  * in src/ops/status.js, which imports this module.
  */
-export const STATUS_FIELDS = Object.freeze(['state', 'tasks', 'models', 'limits', 'keys', 'costs', 'memory', 'speed']);
+export const STATUS_FIELDS = Object.freeze(['state', 'tasks', 'models.base', 'models.agents', 'limits', 'keys', 'costs', 'memory', 'speed']);
 
 /** `{ name, value }` choices, one per entry of `values`, the name being the value itself. */
 function choicesOf(values) {
   return values.map((value) => ({ name: value, value }));
 }
 
-/** The choices of `/nep route`: the `/nep model set` roles but the agent roles, whose OpenCode
- * workers and outside tools never read `llm.providerByModel`. */
-export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !AGENT_ROLES.includes(role));
+/** The choices of `/nep route`: the `/nep model set` roles but the OpenCode ones (`web`,
+ * `server`, `thinker`, `dev`, `writer`), whose workers never read `llm.providerByModel`. */
+export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.includes(role));
 
 /** `/nep memory journal`'s `kind` choices (src/admin.js reads the same list; `all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'all']);

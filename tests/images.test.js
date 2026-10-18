@@ -20,7 +20,7 @@ const NOW = Date.parse('2026-09-28T12:00:00Z');
 function baseConfig({ model = 'openai/test-image', ...overrides } = {}) {
   return {
     llm: { baseUrl: 'https://openrouter.ai/api/v1/' },
-    roles: { drawing: model },
+    models: { agents: { drawing: model } },
     image: {
       maxPerDay: 50,
       maxPerUserPerDay: 50,

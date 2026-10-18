@@ -36,7 +36,7 @@ function scene({ features = { meaningSearch: true, embedIndex: true }, embedConf
   const config = {
     features: { ...features },
     embed: { dimensions: 4, batch: 64, flushSeconds: 180, queueMax: 2000, ...embedConfig },
-    roles: { embedding: 'test/embed-model' },
+    models: { base: { embedding: 'test/embed-model' } },
     llm: { maxRequestTokens: 50000 },
   };
   const hot = { config };

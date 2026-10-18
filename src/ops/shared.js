@@ -144,7 +144,7 @@ export function removeRule(rulesText, n) {
 /**
  * The keys of a dotted config path. With `reference` (the live config) a key that itself holds a
  * dot is read whole: at each level the longest run of the remaining segments that is an own key
- * of the node there wins (`roles.agent.web` -> `roles`, `agent.web`), and a segment the reference
+ * of the node there wins (`llm.providerByModel.openai/gpt-6.1` -> `llm`, `providerByModel`, `openai/gpt-6.1`), and a segment the reference
  * does not hold is one key. Without it every dot separates keys. A path given as an array of keys
  * is taken as it is. Throws on a forbidden segment.
  * @param {string|string[]} dottedPath
@@ -536,15 +536,15 @@ export function oldestMessageId(batch) {
 export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
 
 /** Every role a route may name: the chat and embedding roles, then the drawing model's; never an
- * agent role (src/llm/roles.js#AGENT_ROLES), whose OpenCode worker or outside tool reads no route. */
+ * OpenCode role (src/llm/roles.js#OPENCODE_ROLES), whose worker reads no route. */
 export const ROUTE_ROLES = [...MODEL_ROLES, IMAGE_ROLE];
 
 /** A provider slug as OpenRouter writes it: lowercase letters, digits and `-`. */
 export const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
 
 /** The model id one role resolves to right now (`/nep model show`, `/nep route`, the status
- * card): `roles.<role>`, else the role's own default (src/llm/roles.js#roleModel; no purpose,
- * so no `roles.byPurpose` entry). */
+ * card): `models.base.<role>` or `models.agents.<role>`, else the role's own default
+ * (src/llm/roles.js#roleModel; no purpose, so no `models.base.byPurpose` entry). */
 export function modelForRole(role, cfg) {
   return roleModel(cfg, role);
 }
