@@ -73,6 +73,14 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return store.recent(50).find((task) => task.origin?.turnId === String(turnId)) ?? null;
   }
 
+  /**
+   * Whether `record` may be seen and moved where the caller is: a private chat's intention only in
+   * that chat (`privateChannelId`), any with `all` (an owner's command, the engine).
+   */
+  function visibleTo(record, { privateChannelId = null, all = false } = {}) {
+    return all || record?.provenance?.scope !== 'dm' || (privateChannelId !== null && privateChannelId !== undefined && record.provenance?.channelId === String(privateChannelId));
+  }
+
   /** How many intentions of `list` count against `maxOpen`. */
   function activeCount(list) {
     return list.filter((record) => ACTIVE.includes(record.status)).length;
@@ -109,7 +117,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    * @param {string|null} guildId
    * @param {{ purpose: string, dueAt?: number|null, expiresAt?: number|null, destination?: string|null,
    *   completionCondition?: string|null, chainId?: string|null, taskId?: string|null, deadline?: number|null,
-   *   turnId?: string|null, messageId?: string|null, channelId?: string|null, scope?: 'dm'|'group', by?: string }} input
+   *   turnId?: string|null, messageId?: string|null, channelId?: string|null, scope?: 'dm'|'group', participants?: string[], by?: string }} input
    */
   function set(guildId, input) {
     const store = storeOf(guildId);
@@ -119,7 +127,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     const by = input.by ?? 'persona';
     const created = createIntention({
       purpose: input.purpose,
-      provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope },
+      provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope, participants: input.participants },
       dueAt: input.dueAt ?? null,
       expiresAt: input.expiresAt ?? null,
       destination: input.destination ?? null,
@@ -153,13 +161,14 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
    * or ends a wait by hand, `done` closes it; `purpose`, `dueAt`, `expiresAt`, `destination`,
    * `completionCondition`, `chainId` edit an open one; `taskId` / `deadline` set it waiting (as in
    * `set`). `{ ok, intention }` or `{ ok: false, code }` (`not-found`, `terminal`, `cap-open`,
-   * `bad-move`, the model's and the wait's codes).
+   * `bad-move`, the model's and the wait's codes). `patch.privateChannelId` / `patch.all`: where the
+   * caller is (a private chat's intention is `not-found` anywhere else, see `list`).
    */
   function update(guildId, id, patch = {}) {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: 'no-guild' };
     const current = store.get(id);
-    if (!current) return { ok: false, code: 'not-found' };
+    if (!current || !visibleTo(current, patch)) return { ok: false, code: 'not-found' };
     if (!isOpen(current.status)) return { ok: false, code: 'terminal' };
     const by = patch.by ?? 'persona';
     if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen) return { ok: false, code: 'cap-open' };
@@ -211,10 +220,15 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return result;
   }
 
-  /** Intention `id` cancelled (a candidate rejected): `{ ok, intention }` or `{ ok: false, code }`. */
-  function cancel(guildId, id, { by = 'persona' } = {}) {
+  /**
+   * Intention `id` cancelled (a candidate rejected): `{ ok, intention }` or `{ ok: false, code }`.
+   * `privateChannelId` / `all`: where the caller is, as in `update`.
+   */
+  function cancel(guildId, id, { by = 'persona', privateChannelId = null, all = false } = {}) {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: 'no-guild' };
+    const current = store.get(id);
+    if (current && !visibleTo(current, { privateChannelId, all })) return { ok: false, code: 'not-found' };
     const result = store.update(id, (record) => transition(record, 'cancelled', { now: now(), by, code: record.status === 'proposed' ? 'rejected' : 'cancelled' }));
     if (result.ok) log.info('intentions: cancelled', { guildId: store.guildId, id: String(id), by });
     return result;
@@ -242,8 +256,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     const store = storeOf(guildId);
     if (!store) return [];
     sweepExpired(store);
-    const visible = (record) => all || record.provenance?.scope !== 'dm' || (privateChannelId !== null && record.provenance?.channelId === String(privateChannelId));
-    return store.list().filter((record) => (closed || isOpen(record.status)) && visible(record));
+    return store.list().filter((record) => (closed || isOpen(record.status)) && visibleTo(record, { privateChannelId, all }));
   }
 
   /**
@@ -375,7 +388,7 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
         }
         const created = createIntention({
           purpose: candidate.purpose,
-          provenance: { kind: 'candidate', turnId, messageId: candidate.messageId, channelId: candidate.channelId, span: candidate.span, scope: 'group' },
+          provenance: { kind: 'candidate', turnId, messageId: candidate.messageId, channelId: candidate.channelId, span: candidate.span, scope: 'group', participants: candidate.participants },
           now: now(),
           settings: limits,
           id: freshId(store),
@@ -392,5 +405,23 @@ export function createIntentionService({ stores, hot, tasks = null, journal = nu
     return out;
   }
 
-  return { set, update, cancel, list, view, linkTurnTask, onTaskFinished, reconcile, due, addCandidates, store: storeOf };
+  /**
+   * A forget of member `userId` (src/memory/store.js#forgetUser's `intentions` step): every
+   * intention concerning them out of the guild's store (src/intentions/store.js#forgetUser),
+   * `names` their known names, `vault` the forget's vault. Throws on a write error.
+   */
+  function forgetUser(guildId, userId, options = {}) {
+    if (typeof stores.forgetUser === 'function') return stores.forgetUser(guildId, userId, options);
+    const store = storeOf(guildId);
+    return store ? store.forgetUser(userId, options) : { removed: 0, copies: 0 };
+  }
+
+  /** A wipe of the guild (src/memory/store.js#wipeGuild's `intentions`): its intentions and their file gone. */
+  function wipe(guildId) {
+    if (typeof stores.wipe === 'function') return stores.wipe(guildId);
+    const store = storeOf(guildId);
+    return store ? store.wipe() : { files: 0 };
+  }
+
+  return { set, update, cancel, list, view, linkTurnTask, onTaskFinished, reconcile, due, addCandidates, forgetUser, wipe, store: storeOf };
 }

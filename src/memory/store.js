@@ -36,7 +36,8 @@
 //                                            the errand stores they are handed, `errands`)
 //   data/guilds/<guildId>/intentions.json     the persona's intentions: the open ones and the latest
 //                                            closed (src/intentions/store.js, which owns it; not cached
-//                                            here; a forget and a wipe do not reach it yet)
+//                                            here; a forget and a wipe reach it through the intention
+//                                            stores they are handed, `intentions`)
 //   data/guilds/<guildId>/recall-trace.jsonl  one JSON line per recall run when `features.recallTrace` is on
 //                                            (appendRecallTrace): the newest `recall.traceMaxLines`, written
 //                                            at once, not cached; a wipe deletes it
@@ -2249,7 +2250,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
    * await, so a caller without a journal sees the profile gone at once.
    */
   async function runForget(guildId, marker, deps) {
-    const { journal = null, record: rec = record, archive: arc = archive, vectors: vec = vectors, errands = null, redaction = null, now = Date.now } = deps ?? {};
+    const { journal = null, record: rec = record, archive: arc = archive, vectors: vec = vectors, errands = null, intentions = null, redaction = null, now = Date.now } = deps ?? {};
     const id = marker.userId;
     const token = typeof redaction === 'string' && redaction.trim() ? redaction : DEFAULT_REDACTION;
     const names = Array.isArray(marker.names) ? marker.names.filter((name) => typeof name === 'string') : [];
@@ -2269,6 +2270,13 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
       if (errands && typeof errands.forgetUser === 'function' && !marker.steps.errands) {
         const result = await errands.forgetUser(guildId, id, { vault: vaultAbs });
         done('errands', { removed: result?.removed ?? 0, lines: result?.lines ?? 0 });
+      }
+      // The persona's intentions that concern the member: meant for them, from a conversation with
+      // them, or naming them (src/intentions/store.js#forgetUser, which copies the file into the
+      // vault itself).
+      if (intentions && typeof intentions.forgetUser === 'function' && !marker.steps.intentions) {
+        const result = await intentions.forgetUser(guildId, id, { names, vault: vaultAbs });
+        done('intentions', { intentions: result?.removed ?? 0 });
       }
       // The meaning index before the record: a row is found by its chunk's members and by the
       // record lines the forget is about to drop (their message ids, read while they are there).
@@ -2647,6 +2655,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      *      and their lines out of `tasks.jsonl` (the step `errands`: `{ removed, lines }`, in the
      *      counts as `errands` and `errandLines`; the dropped part copied into the vault by the
      *      errand store);
+     *   5a'. with the intention stores (`deps.intentions`: src/intentions/service.js#forgetUser, or
+     *      src/intentions/store.js#createIntentionStores), every intention of the persona's that
+     *      concerns them -- meant for them, from a conversation with them, or naming them
+     *      (src/intentions/model.js#concernsMember) -- out of `intentions.json` (the step
+     *      `intentions`, counted as `intentions`; the file copied into the vault by the store);
      *   5b. with a meaning index (`deps.vectors`, else the store's own), its rows naming them by
      *      their chunk's members or holding a record line this forget drops, the member's private
      *      index whole (src/memory/vectors.js#forgetUser; counted as `vectors`);
@@ -2664,11 +2677,11 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * @param {string} guildId
      * @param {string} userId
      * @param {{ journal?: object|null, record?: object|null, archive?: object|null, vectors?: object|null,
-     *   errands?: { forgetUser: Function }|null, vaultDir?: string, redaction?: string, now?: () => number }} [deps]
+     *   errands?: { forgetUser: Function }|null, intentions?: { forgetUser: Function }|null, vaultDir?: string, redaction?: string, now?: () => number }} [deps]
      * @returns {Promise<{ vault: string, counts: { profile: number, private: number, voice: number,
      *   recent: number, participation: number, versions: number, diary: number, snapshots: number,
      *   archive: number, record: number, journal: number, requests: number, backfill: number,
-     *   errands?: number, errandLines?: number } }>}  `vault`: the
+     *   errands?: number, errandLines?: number, intentions?: number } }>}  `vault`: the
      *   absolute path of the vault directory.
      */
     forgetUser(guildId, userId, deps = {}) {
@@ -4081,19 +4094,21 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
      * (`forgotten.json`) go with the rest, and the guild's directory inside every snapshot under
      * `data/snapshots/`. The errands' files (`tasks.json`, `tasks.jsonl`) go too, through
      * `opts.errands` (src/errands/store.js#createTaskStores, whose copy in memory is emptied with
-     * them) when given, else deleted directly.
+     * them) when given, else deleted directly; the persona's intentions (`intentions.json` and its
+     * unreadable copies) the same way through `opts.intentions` (src/intentions/store.js#createIntentionStores).
      * @param {string} guildId
      * @param {{ keepOwnerLore?: boolean, keepMediaCache?: boolean, vault?: string|null,
-     *   vaultDir?: string, errands?: { wipe: Function }|null, now?: () => number }} [opts]
+     *   vaultDir?: string, errands?: { wipe: Function }|null, intentions?: { wipe: Function }|null, now?: () => number }} [opts]
      * @returns {{ users: number, channels: number, loreRemoved: number, loreKept: number, bufferMessages: number,
      *   recentLines: number, snapshots: number, privateLayers: number, recordFiles: number,
-     *   archiveFiles: number, backfillFiles: number, taskFiles: number, vault: string }}  `recentLines`: the recent lines the
+     *   archiveFiles: number, backfillFiles: number, taskFiles: number, intentionFiles: number, vault: string }}  `recentLines`: the recent lines the
      *   wipe removed; `snapshots`: the snapshots that lost the guild; `privateLayers`: the members'
      *   private layers removed; `recordFiles` / `archiveFiles` / `backfillFiles`: the files removed
-     *   under `record/`, `archive/`, `backfill/`; `taskFiles`: the errands' files removed; `vault`:
+     *   under `record/`, `archive/`, `backfill/`; `taskFiles`: the errands' files removed;
+     *   `intentionFiles`: the intentions' files removed; `vault`:
      *   the vault copy's path.
      */
-    wipeGuild(guildId, { keepOwnerLore = true, keepMediaCache = true, vault = null, vaultDir, errands = null, now = Date.now } = {}) {
+    wipeGuild(guildId, { keepOwnerLore = true, keepMediaCache = true, vault = null, vaultDir, errands = null, intentions = null, now = Date.now } = {}) {
       const vaultPath = typeof vault === 'string' && vault ? vault : store.vaultGuild(guildId, { vaultDir, now });
       // What waits for the archive goes with the memory it came from.
       const waiting = archiveGuilds.get(String(guildId));
@@ -4194,6 +4209,17 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
           fs.rmSync(file, { force: true });
         }
       }
+      // The persona's intentions quote her lines and name the members they are for: they go,
+      // through the intention stores when given (their own copy goes too), else as files.
+      let intentionFiles = 0;
+      if (intentions && typeof intentions.wipe === 'function') {
+        intentionFiles = intentions.wipe(guildId)?.files ?? 0;
+      } else {
+        for (const name of namesIn(guildDir(guildId)).filter((entry) => entry === 'intentions.json' || entry.startsWith('intentions.json.unreadable-'))) {
+          fs.rmSync(path.join(guildDir(guildId), name), { force: true });
+          intentionFiles += 1;
+        }
+      }
       // The record and the archive are this guild's memory too, the backfill tool's scratch
       // files (tools/backfill.mjs) quote it and the meaning index (`vectors/`) is built from it:
       // the vault holds their copy.
@@ -4236,6 +4262,7 @@ export function createStore({ dataDir, newId = randomUUID, record = null, record
         archiveFiles: files.archive,
         backfillFiles: files.backfill,
         taskFiles,
+        intentionFiles,
         vault: vaultPath,
       };
     },

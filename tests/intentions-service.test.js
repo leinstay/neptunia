@@ -115,7 +115,7 @@ test('intent.set: her own intention is pending with its provenance, written to i
     const record = onlyIntention(intentions);
     assert.equal(record.status, 'pending');
     assert.equal(record.dueAt, T0 + 3 * HOUR);
-    assert.deepEqual(record.provenance, { kind: 'self', turnId: 'T1', messageId: 'm1', channelId: 'c1', scope: 'group' });
+    assert.deepEqual(record.provenance, { kind: 'self', turnId: 'T1', messageId: 'm1', channelId: 'c1', scope: 'group', participants: [OWNER] });
     const file = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', 'g1', 'intentions.json'), 'utf8'));
     assert.deepEqual(file.intentions.map((r) => r.id), [record.id]);
     assert.equal((await runOp('intent.set', { text: 'x', due: 'soon' }, hers(env, 'T1'))).code, 'bad-time');
@@ -263,4 +263,40 @@ test('candidates: nothing with features.intentions off', async () => {
   const out = await intentions.addCandidates('g1', [{ span: 'θα το κάνω', purpose: 'do it' }], [{ id: 'm1', self: true, content: 'θα το κάνω', ts: T0 }]);
   assert.equal(out.added, 0);
   assert.deepEqual(intentions.list('g1', { closed: true }), []);
+});
+
+test('private chats: her intention in a DM is the DM\'s own -- never in a server turn, not movable from a server channel, gone with a forget of the member', async () => {
+  const { env, intentions } = makeEnv();
+  const dm = (extra = {}) => hers(env, 'T1', { channelId: 'dm1', privateChat: true, ...extra });
+  await withCapturedLogs(async () => {
+    const set = await runOp('intent.set', { text: 'ρώτα την για τις εξετάσεις' }, dm());
+    assert.equal(set.status, 'ok', set.summary);
+    const id = set.data.intention.id;
+    const record = intentions.store('g1').get(id);
+    assert.equal(record.provenance.scope, 'dm');
+    assert.deepEqual(record.provenance.participants, [OWNER], 'the member of the private chat');
+    assert.deepEqual(intentions.view('g1').map((r) => r.id), [], 'a server turn never sees it');
+    assert.deepEqual(intentions.view('g1', { privateChannelId: 'dm2' }).map((r) => r.id), [], 'nor another private chat');
+    assert.deepEqual(intentions.view('g1', { privateChannelId: 'dm1' }).map((r) => r.id), [id]);
+    // Her call from a server channel cannot reach it, even by its id.
+    assert.equal((await runOp('intent.update', { id, text: 'άλλο' }, hers(env, 'T2'))).code, 'not-found');
+    assert.equal((await runOp('intent.cancel', { id }, hers(env, 'T2'))).code, 'not-found');
+    assert.equal((await runOp('intent.list', {}, hers(env, 'T2'))).summary, 'no open intentions');
+    assert.equal((await runOp('intent.update', { id, due: '2h' }, dm())).status, 'ok', 'in its own chat it moves');
+    // A forget of the member takes it out.
+    assert.deepEqual(intentions.forgetUser('g1', OWNER), { removed: 1, copies: 0 });
+    assert.deepEqual(intentions.list('g1', { closed: true, all: true }), []);
+  });
+});
+
+test('candidates: the other authors of the line\'s channel are its participants', async () => {
+  const { intentions } = makeEnv();
+  const lines = [
+    { id: 'm1', channelId: 'c1', authorId: 'u3', self: false, content: 'θα έρθεις;', ts: T0 - 2000 },
+    { id: 'm2', channelId: 'c1', authorId: 'bot', self: true, content: 'θα έρθω το βράδυ', ts: T0 - 1000 },
+  ];
+  await withCapturedLogs(async () => {
+    assert.equal((await intentions.addCandidates('g1', [{ span: 'θα έρθω το βράδυ', purpose: 'come tonight' }], lines)).added, 1);
+  });
+  assert.deepEqual(onlyIntention(intentions).provenance.participants, ['u3']);
 });

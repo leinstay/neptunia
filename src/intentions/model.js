@@ -16,6 +16,8 @@
 import { randomUUID } from 'node:crypto';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../time.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
+import { isWordChar, occursAsWholeWord } from '../memory/mentions.js';
+import { foldText as foldName } from '../memory/recent.js';
 
 /** Every status an intention may have. */
 export const STATUSES = Object.freeze(['proposed', 'pending', 'waiting', 'done', 'cancelled', 'expired']);
@@ -48,6 +50,10 @@ export const CONDITION_CHARS = 300;
 export const CHAIN_CHARS = 64;
 /** The history entries a record keeps (the oldest dropped). */
 export const HISTORY_MAX = 20;
+/** The members of the conversation a record's provenance keeps. */
+export const PARTICIPANTS_MAX = 20;
+/** A name shorter than this (in letters and digits) is never matched by a forget. */
+const MIN_FORGET_NAME = 3;
 
 /** The `intentions` section's numbers, read from the live config now, each falling back to DEFAULTS. */
 export function intentionSettings(config) {
@@ -109,6 +115,11 @@ function idOrNull(value) {
   return (typeof value === 'string' && value) || (typeof value === 'number' && Number.isFinite(value)) ? String(value) : null;
 }
 
+/** The distinct non-empty string ids of `list`, at most PARTICIPANTS_MAX. */
+function participantIds(list) {
+  return [...new Set((Array.isArray(list) ? list : []).filter((id) => typeof id === 'string' && id))].slice(0, PARTICIPANTS_MAX);
+}
+
 /**
  * The invariant `record` breaks, as a code, or null: `bad-status`, `no-purpose`, `no-expiry`,
  * `wait-without-task`, `wait-without-deadline`.
@@ -137,7 +148,10 @@ function withHistory(record, entry) {
  * `bad-provenance`, `bad-due`, `bad-expiry`, `due-after-expiry`). Her own (`provenance.kind`
  * `self`) is `pending`; a candidate is `proposed` and expires after `candidateExpiresHours`
  * unless `expiresAt` says otherwise; her own after `expiresDays`.
- * @param {{ purpose: string, provenance: { kind: string, turnId?: string|null, messageId?: string|null, channelId?: string|null, span?: string|null, scope?: 'dm'|'group' },
+ * `provenance.participants` (member ids) names the members of the conversation it came from: who
+ * asked, who was answered or mentioned, the other authors of a candidate's channel; a forget of
+ * one of them takes the intention out (concernsMember).
+ * @param {{ purpose: string, provenance: { kind: string, turnId?: string|null, messageId?: string|null, channelId?: string|null, span?: string|null, scope?: 'dm'|'group', participants?: string[] },
  *   dueAt?: number|null, expiresAt?: number|null, destination?: string|null, completionCondition?: string|null, chainId?: string|null,
  *   now: number, settings?: object, id?: string, by?: string }} input
  */
@@ -152,6 +166,7 @@ export function createIntention({ purpose, provenance, dueAt = null, expiresAt =
   if (!Number.isFinite(expires) || expires <= now) return { ok: false, code: 'bad-expiry' };
   if (dueAt !== null && dueAt > expires) return { ok: false, code: 'due-after-expiry' };
   const span = line(provenance.span, SPAN_CHARS);
+  const participants = participantIds(provenance.participants);
   const status = candidate ? 'proposed' : 'pending';
   const intention = {
     id,
@@ -163,6 +178,7 @@ export function createIntention({ purpose, provenance, dueAt = null, expiresAt =
       ...(idOrNull(provenance.channelId) ? { channelId: idOrNull(provenance.channelId) } : {}),
       ...(span ? { span } : {}),
       scope: provenance.scope === 'dm' ? 'dm' : 'group',
+      ...(participants.length > 0 ? { participants } : {}),
     },
     status,
     createdAt: now,
@@ -297,13 +313,14 @@ export function duplicates(candidate, records) {
  * The intention candidates of one analyzer answer (`raw`: its `intentions` field, an array of
  * `{ span, purpose }`), anchored to the persona's own lines of the batch (`messages`, slim, `self`
  * true marking hers): a candidate whose `span` occurs (folded) in exactly her line is kept with
- * that line's id, channel and time; a span found in none of her lines is dropped (`unanchored`),
+ * that line's id, channel and time, and the other authors of that channel in the batch
+ * (`participants`, left out when none); a span found in none of her lines is dropped (`unanchored`),
  * and one that also occurs in another author's line of the batch is dropped as a quote of
  * someone else (`quoted`). At most `max` are kept (`over`). Never throws.
  * @param {unknown} raw
  * @param {object[]} messages
  * @param {{ max: number }} options
- * @returns {{ candidates: { purpose: string, span: string, messageId: string, channelId: string|null, ts: number|null }[],
+ * @returns {{ candidates: { purpose: string, span: string, messageId: string, channelId: string|null, ts: number|null, participants?: string[] }[],
  *   dropped: { invalid: number, unanchored: number, quoted: number, over: number } }}
  */
 export function candidatesFromAnswer(raw, messages, { max }) {
@@ -313,6 +330,8 @@ export function candidatesFromAnswer(raw, messages, { max }) {
   const lines = Array.isArray(messages) ? messages.filter((m) => m && typeof m.content === 'string') : [];
   const hers = lines.filter((m) => m.self === true);
   const others = lines.filter((m) => m.self !== true);
+  // The members of a line's conversation: the other authors of its channel in the batch.
+  const membersOf = (own) => participantIds(others.filter((m) => String(m.channelId ?? '') === String(own.channelId ?? '') && m.authorId !== undefined && m.authorId !== null).map((m) => String(m.authorId)));
   for (const item of list) {
     const span = line(item?.span, SPAN_CHARS);
     const purpose = line(item?.purpose, PURPOSE_CHARS);
@@ -335,7 +354,36 @@ export function candidatesFromAnswer(raw, messages, { max }) {
       dropped.over += 1;
       continue;
     }
-    candidates.push({ purpose, span, messageId: String(own.id), channelId: own.channelId ? String(own.channelId) : null, ts: Number.isFinite(own.ts) ? own.ts : null });
+    const participants = membersOf(own);
+    candidates.push({ purpose, span, messageId: String(own.id), channelId: own.channelId ? String(own.channelId) : null, ts: Number.isFinite(own.ts) ? own.ts : null, ...(participants.length > 0 ? { participants } : {}) });
   }
   return { candidates, dropped };
+}
+
+/**
+ * Whether `record` concerns member `userId` (a forget, src/intentions/store.js#forgetUser): it is
+ * meant for them (`destination`), it came from a conversation with them (`provenance.participants`),
+ * or its words -- the purpose, the quoted span, the completion condition, the chain, an errand's
+ * error -- carry their id (their `<@id>` token included) or one of `names` as a whole word
+ * (accents folded; a name under three letters or digits is never matched).
+ * @param {object} record
+ * @param {{ userId: string, names?: string[] }} member
+ * @returns {boolean}
+ */
+export function concernsMember(record, { userId, names = [] }) {
+  const id = String(userId ?? '');
+  if (!id || !record) return false;
+  if (record.destination === id) return true;
+  const provenance = record.provenance ?? {};
+  if (Array.isArray(provenance.participants) && provenance.participants.includes(id)) return true;
+  const texts = [record.purpose, provenance.span, record.completionCondition, record.chainId, record.outcome?.error].filter((text) => typeof text === 'string' && text);
+  if (texts.some((text) => text.includes(id))) return true;
+  const folded = [...new Set((Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map(foldName))].filter(
+    (name) => [...name].filter((ch) => isWordChar(ch) && ch !== '_').length >= MIN_FORGET_NAME,
+  );
+  if (folded.length === 0) return false;
+  return texts.some((text) => {
+    const haystack = foldName(text);
+    return folded.some((name) => occursAsWholeWord(haystack, name));
+  });
 }

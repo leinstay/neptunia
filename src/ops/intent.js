@@ -86,6 +86,21 @@ const handlers = perEnv((env) => {
     return { status, code: result.code, summary: `intention not ${verb}: ${result.code}`, data: null };
   }
 
+  /** The members of the call's conversation: who asked, whom her turn answered, whom she mentioned. */
+  function participantsOf(context) {
+    const ids = [context?.userId, context?.repliedAuthorId, ...(Array.isArray(context?.mentionUserIds) ? context.mentionUserIds : [])];
+    return [...new Set(ids.filter((id) => (typeof id === 'string' && id) || typeof id === 'number').map(String))];
+  }
+
+  /**
+   * Where the caller is, for the service's visibility rule: an owner's own command sees every
+   * intention; anyone else (her own call included) a private chat's only in that chat.
+   */
+  function whereOf(context) {
+    const owner = context?.actor !== 'persona' && isOwnerId(hot.config, context?.userId);
+    return { all: owner, privateChannelId: !owner && inPrivate(context) && context?.channelId ? String(context.channelId) : null };
+  }
+
   /** What the caller's context says about where and when the call came from. */
   function origin(context) {
     const persona = context?.actor === 'persona';
@@ -95,6 +110,7 @@ const handlers = perEnv((env) => {
       messageId: context?.sourceMessageId ? String(context.sourceMessageId) : null,
       channelId: context?.channelId ? String(context.channelId) : null,
       scope: inPrivate(context) ? 'dm' : 'group',
+      participants: participantsOf(context),
     };
   }
 
@@ -141,6 +157,7 @@ const handlers = perEnv((env) => {
       ...(state ? { state } : {}),
       turnId: from.turnId,
       by: from.by,
+      ...whereOf(context),
     });
     return answer(result, 'updated');
   }
@@ -151,16 +168,14 @@ const handlers = perEnv((env) => {
     if (refused) return refused;
     const id = text(args, 'id');
     if (!id) throw invalid('an id is required');
-    return answer(intentions().cancel(resolvedGuildId(context), id, { by: origin(context).by }), 'cancelled');
+    return answer(intentions().cancel(resolvedGuildId(context), id, { by: origin(context).by, ...whereOf(context) }), 'cancelled');
   }
 
   /** `intent.list`: the open intentions, a private chat's own only in that chat (an owner's command sees all). */
   function cmdList(args, context) {
     const refused = off();
     if (refused) return refused;
-    const owner = context?.actor !== 'persona' && isOwnerId(hot.config, context?.userId);
-    const privateChannelId = !owner && inPrivate(context) && context?.channelId ? String(context.channelId) : null;
-    const records = owner ? intentions().list(resolvedGuildId(context), { all: true }) : intentions().list(resolvedGuildId(context), { privateChannelId });
+    const records = intentions().list(resolvedGuildId(context), whereOf(context));
     return records.length > 0 ? records.map(lineOf).join('\n') : 'no open intentions';
   }
 

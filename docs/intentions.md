@@ -32,6 +32,24 @@ turn runs; the same end delivered twice changes nothing. At start (and later on 
 reconciliation moves every wait whose errand already ended, is gone, or passed its deadline back to `pending` with a
 note, and expires what is past its expiry.
 
+## Private chats
+
+An intention she sets in a private chat belongs to that chat: it is stored with the scope `dm` and the chat's
+channel, shown in the `<intentions>` block only of a turn in that same chat, and listed, changed or cancelled by her
+calls only there (anywhere else its id is not found). Only an owner's own `/nep task intent` sees every one. The
+analyzer proposes no candidates from a private chat: the private batch never asks for them, and its answer's
+`intentions` field is ignored, so every candidate comes from a server conversation.
+
+## Privacy
+
+Every intention keeps the members of the conversation it came from (`provenance.participants`): who asked, whom her
+turn answered or mentioned, or, for a candidate, the other authors of its channel in the analyzer's batch.
+`/nep memory forget` removes every intention, open or closed, that concerns the member: one meant for them
+(`destination`), one from a conversation with them, and one whose words (the purpose, the quoted span of her line,
+the completion condition) carry their id or one of their known names as a whole word. The file is copied into the
+forget's vault first. `/nep memory wipe` deletes `intentions.json` with the rest of the server's memory (the vault
+holds the copy).
+
 ## What she sees
 
 `<intentions>` in the tail of every turn but a diary post: her open intentions (pending, then waiting, with due

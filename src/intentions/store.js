@@ -5,13 +5,17 @@
 // that does not parse is copied aside (`intentions.json.unreadable-<ms>`) before the store starts
 // empty, so nothing is lost to a later write; a record that breaks the model's invariants is left
 // out on load (counted in the log). The store moves nothing by itself: every change is a pure
-// transition of the model applied through `update`. Logs carry ids and counts, never text.
+// transition of the model applied through `update`. A forget of a member (`forgetUser`, the
+// `intentions` step of src/memory/store.js#forgetUser) takes out every intention that concerns
+// them (src/intentions/model.js#concernsMember), whatever its status, after copying the file
+// into the forget's vault; a wipe of the guild (`wipe`, src/memory/store.js#wipeGuild) empties the
+// list and deletes the file and its unreadable copies. Logs carry ids and counts, never text.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { log as defaultLog } from '../log.js';
 import { writeJsonAtomic } from '../memory/index.js';
-import { checkInvariants, isOpen } from './model.js';
+import { checkInvariants, concernsMember, isOpen } from './model.js';
 
 /** The closed intentions the file keeps besides the open ones. */
 export const KEEP_CLOSED = 50;
@@ -113,22 +117,95 @@ export function createIntentionStore({ dataDir, guildId, now = Date.now, log = d
     return { ok: true, intention: copy(result.intention), changed: true };
   }
 
-  return { list, get, add, update, guildId: String(guildId), file };
+  /** The copies a broken file left aside (`intentions.json.unreadable-<ms>`), as paths. */
+  function unreadableCopies() {
+    let names = [];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      return [];
+    }
+    return names.filter((name) => name.startsWith('intentions.json.unreadable-')).map((name) => path.join(dir, name));
+  }
+
+  /**
+   * Member `userId` forgotten: every intention concerning them (model#concernsMember, with their
+   * `names`) removed and the file written; an unreadable copy that names their id removed too.
+   * With `vault` (the forget's vault directory), what goes is copied there first under its path
+   * below `dataDir`. Throws on a write error, so the forget's step is not marked done.
+   * @param {string} userId
+   * @param {{ names?: string[], vault?: string|null }} [options]
+   * @returns {{ removed: number, copies: number }}
+   */
+  function forgetUser(userId, { names = [], vault = null } = {}) {
+    const id = String(userId ?? '');
+    if (!id) return { removed: 0, copies: 0 };
+    const victims = state.list.filter((record) => concernsMember(record, { userId: id, names }));
+    const copies = unreadableCopies().filter((copyPath) => {
+      try {
+        return fs.readFileSync(copyPath, 'utf8').includes(id);
+      } catch {
+        return false;
+      }
+    });
+    if (vault && (victims.length > 0 || copies.length > 0)) {
+      const base = path.join(vault, path.relative(dataDir, dir));
+      fs.mkdirSync(base, { recursive: true });
+      if (fs.existsSync(file)) fs.copyFileSync(file, path.join(base, 'intentions.json'));
+      for (const copyPath of copies) fs.copyFileSync(copyPath, path.join(base, path.basename(copyPath)));
+    }
+    if (victims.length > 0) {
+      const gone = new Set(victims.map((record) => record.id));
+      const next = state.list.filter((record) => !gone.has(record.id));
+      persist(next);
+      state.list = next;
+    }
+    for (const copyPath of copies) fs.rmSync(copyPath, { force: true });
+    if (victims.length + copies.length > 0) log.info('intentions: member forgotten', { guildId: String(guildId), userId: id, removed: victims.length, copies: copies.length });
+    return { removed: victims.length, copies: copies.length };
+  }
+
+  /** The guild's intentions gone: the list emptied, the file and its unreadable copies deleted. How many files. */
+  function wipe() {
+    let files = 0;
+    for (const target of [file, ...unreadableCopies()]) {
+      if (!fs.existsSync(target)) continue;
+      fs.rmSync(target, { force: true });
+      files += 1;
+    }
+    state.list = [];
+    return { files };
+  }
+
+  return { list, get, add, update, forgetUser, wipe, guildId: String(guildId), file };
 }
 
 /**
- * One intention store per guild, created on first use over the same `data/` directory.
+ * One intention store per guild, created on first use over the same `data/` directory. `forgetUser`
+ * and `wipe` are what the memory's deleters are handed (src/memory/store.js#forgetUser's
+ * `intentions`, #wipeGuild's `intentions`).
  * @param {{ dataDir: string, now?: () => number, log?: object }} options
- * @returns {{ get(guildId: string): ReturnType<typeof createIntentionStore>|null }}
+ * @returns {{ get(guildId: string): ReturnType<typeof createIntentionStore>|null,
+ *   forgetUser(guildId: string, userId: string, options?: { names?: string[], vault?: string|null }): { removed: number, copies: number },
+ *   wipe(guildId: string): { files: number } }}
  */
 export function createIntentionStores({ dataDir, now = Date.now, log = defaultLog }) {
   const stores = new Map();
-  return {
+  const api = {
     get(guildId) {
       const key = String(guildId ?? '');
       if (!key) return null;
       if (!stores.has(key)) stores.set(key, createIntentionStore({ dataDir, guildId: key, now, log }));
       return stores.get(key);
     },
+    forgetUser(guildId, userId, options = {}) {
+      const store = api.get(guildId);
+      return store ? store.forgetUser(userId, options) : { removed: 0, copies: 0 };
+    },
+    wipe(guildId) {
+      const store = api.get(guildId);
+      return store ? store.wipe() : { files: 0 };
+    },
   };
+  return api;
 }

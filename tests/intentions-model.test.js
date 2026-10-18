@@ -9,6 +9,7 @@ import {
   arrive,
   candidatesFromAnswer,
   checkInvariants,
+  concernsMember,
   createIntention,
   dueList,
   duplicates,
@@ -134,7 +135,7 @@ test('candidatesFromAnswer: only spans of her own lines are kept, with that line
     { span: 'θα σου πω', purpose: 'tell them' },
   ];
   const { candidates, dropped } = candidatesFromAnswer(raw, messages, { max: 1 });
-  assert.deepEqual(candidates, [{ purpose: 'find the video tonight', span: 'θα το ψάξω απόψε', messageId: 'm2', channelId: 'c1', ts: T0 - 2000 }]);
+  assert.deepEqual(candidates, [{ purpose: 'find the video tonight', span: 'θα το ψάξω απόψε', messageId: 'm2', channelId: 'c1', ts: T0 - 2000, participants: ['u1'] }]);
   assert.deepEqual(dropped, { invalid: 1, unanchored: 1, quoted: 1, over: 1 });
   assert.deepEqual(candidatesFromAnswer('nope', messages, { max: 5 }).candidates, []);
 });
@@ -146,4 +147,36 @@ test('duplicates: the same purpose or the same line and span as an open intentio
   assert.equal(duplicates({ purpose: 'b', messageId: 'm2', span: 'Θα το ψάξω' }, [candidate]), true);
   const closed = transition(own, 'cancelled', { now: T0 }).intention;
   assert.equal(duplicates({ purpose: 'βρες το άρθρο για την Ζωή' }, [closed]), false);
+});
+
+test('createIntention: the members of the conversation are kept in the provenance, distinct, ids only', () => {
+  const made = createIntention({ purpose: 'x', provenance: { kind: 'self', participants: ['u2', 'u2', 7, '', 'u3'] }, now: T0 });
+  assert.deepEqual(made.intention.provenance.participants, ['u2', 'u3']);
+  assert.equal('participants' in mine().provenance, false, 'none given, none kept');
+});
+
+test('candidatesFromAnswer: the participants of a candidate are the other authors of its channel in the batch', () => {
+  const messages = [
+    { id: 'm1', channelId: 'c1', authorId: 'u1', self: false, content: 'έλα', ts: T0 - 3000 },
+    { id: 'm2', channelId: 'c2', authorId: 'u2', self: false, content: 'άλλο κανάλι', ts: T0 - 2500 },
+    { id: 'm3', channelId: 'c1', authorId: 'bot', self: true, content: 'θα έρθω μετά', ts: T0 - 2000 },
+  ];
+  const { candidates } = candidatesFromAnswer([{ span: 'θα έρθω μετά', purpose: 'come later' }], messages, { max: 5 });
+  assert.deepEqual(candidates[0].participants, ['u1']);
+});
+
+test('concernsMember: the destination, a participant, the id or a name of theirs in its words; nothing else', () => {
+  const base = { purpose: 'φέρε το άρθρο', provenance: { kind: 'candidate', span: 'θα το φέρω', participants: ['u5'] }, now: T0 };
+  const record = createIntention(base).intention;
+  assert.equal(concernsMember(record, { userId: 'u5' }), true, 'a participant of the conversation');
+  assert.equal(concernsMember(record, { userId: 'u6' }), false);
+  assert.equal(concernsMember(createIntention({ ...base, destination: 'u6' }).intention, { userId: 'u6' }), true, 'the destination');
+  assert.equal(concernsMember(createIntention({ ...base, purpose: 'ρώτα τον <@123456789012345678>' }).intention, { userId: '123456789012345678' }), true, 'the token');
+  const named = createIntention({ ...base, purpose: 'στείλε στη Ζωή το βίντεο' }).intention;
+  assert.equal(concernsMember(named, { userId: 'u7', names: ['ζωη'] }), true, 'a name, accents folded, a whole word');
+  assert.equal(concernsMember(named, { userId: 'u7', names: ['Ζω'] }), false, 'a name under three letters is not matched');
+  assert.equal(concernsMember(createIntention({ ...base, purpose: 'Ζωήρα' }).intention, { userId: 'u7', names: ['Ζωή'] }), false, 'not inside another word');
+  const spoken = createIntention({ ...base, provenance: { ...base.provenance, span: 'θα το πω στη Ζωή' } }).intention;
+  assert.equal(concernsMember(spoken, { userId: 'u7', names: ['Ζωή'] }), true, 'the quoted span');
+  assert.equal(concernsMember(record, { userId: '' }), false);
 });

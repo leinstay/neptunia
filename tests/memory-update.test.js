@@ -9454,3 +9454,19 @@ test('analyze: with features.intentions on, a guild batch asks for candidates (m
     assert.equal(handed.length, 1);
   });
 });
+
+test('analyzePrivate: a private chat\'s batch never asks for intention candidates and hands nothing on, whatever the answer holds', async () => {
+  await withStoreAsync(async (store) => {
+    const answer = { intentions: [{ span: 'θα σου πω αύριο', purpose: 'tell tomorrow' }] };
+    const llm = recordingLlm(answer);
+    const handed = [];
+    const hot = privateHot({}, { features: { intentions: true } });
+    hot.prompts = { ...hot.prompts, 'memory-intentions': 'CANDIDATES at most {{maxCandidates}}' };
+    const updater = createMemoryUpdater({ hot, store, llm, calibrator: createCalibrator(), getSelfName: () => 'Nept', onIntentionCandidates: (...args) => handed.push(args) });
+    const { result: outcome } = await withCapturedLogs(() => updater.analyzePrivate('g1', 'u1', [dmMessage({ id: 'm1' }), dmMessage({ id: 'm2', self: true, authorId: 'bot', content: 'θα σου πω αύριο' })]));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(outcome.ok, true);
+    assert.equal(llm.calls[0].messages[0].content.includes('CANDIDATES'), false);
+    assert.deepEqual(handed, []);
+  });
+});
