@@ -526,7 +526,7 @@
       "web": {
         "source": "Source: web.search, query \"{query}\". Search result snippets condensed by a helper; the pages were not opened.",
         "goal": "Goal: {goal}",
-        "sources": "Sources (title and full link, numbered):",
+        "sources": "Sources:",
         "none": "Nothing found."
       },
       "memory": {
