@@ -20,7 +20,7 @@ import { buildCommandTree, createDiscordInterface, createInteractionHandler } fr
 import { COMMAND_TABLE } from '../src/ops/catalog.js';
 import { buildSkills, loadSkills, skillRegistry, skillNames, describeSkill } from '../src/skills/registry.js';
 import { commandSources, deriveSkillDefinitions, optionsSchema } from '../src/skills/derive.js';
-import { CARRIED_OVER, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, skillAccess } from '../src/skills/access.js';
+import { CARRIED_OVER, FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, skillAccess } from '../src/skills/access.js';
 import { schemaError } from '../src/skills/schema.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/skills/gateway.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -333,7 +333,7 @@ test('skills access: her reply tags are carried over in the current conversation
 });
 
 test('skills gateway: her own expressive operations need only her grant, whoever asked; the rules on who asked still hold', () => {
-  assert.deepEqual([...SELF_OWNED_OPS].sort(), ['diary.post', 'diary.show', 'draw.create', 'message.create', 'message.delete', 'message.edit', 'message.react.add', 'message.react.remove']);
+  assert.deepEqual([...SELF_OWNED_OPS].sort(), ['diary.post', 'diary.show', 'draw.create', 'intent.cancel', 'intent.list', 'intent.set', 'intent.update', 'message.create', 'message.delete', 'message.edit', 'message.react.add', 'message.react.remove']);
   for (const name of SELF_OWNED_OPS) assert.ok(skillRegistry().has(name), name);
   const member = { id: MEMBER };
   // a member with no right of their own on them: hers alone decides, owner-only diary included
@@ -436,7 +436,8 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   const cfg = granting(['message.edit', 'memory.wipe', 'diary.post', 'memory.private.read']);
   const texts = { 'message.create': { title: 'Στείλε', whenToUse: 'όταν θέλεις', whenNotToUse: 'όχι' } };
   const rows = listSkills({ config: cfg, selfId: SELF, texts, requester: { id: OWNER }, audience });
-  assert.equal(rows.length, skillNames().length);
+  // A skill behind a feature switch that is off has no row (src/skills/access.js#FEATURE_SKILLS).
+  assert.equal(rows.length, skillNames().filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
   const byName = new Map(rows.map((row) => [row.name, row]));
   const channel = { name: 'channel', required: false };
   const body = { name: 'text', required: true, body: true };

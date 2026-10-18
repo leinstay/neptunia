@@ -34,6 +34,9 @@
 //                                            which owns it and tasks.jsonl, one line per transition;
 //                                            not cached here; a forget and a wipe reach them through
 //                                            the errand stores they are handed, `errands`)
+//   data/guilds/<guildId>/intentions.json     the persona's intentions: the open ones and the latest
+//                                            closed (src/intentions/store.js, which owns it; not cached
+//                                            here; a forget and a wipe do not reach it yet)
 //   data/guilds/<guildId>/recall-trace.jsonl  one JSON line per recall run when `features.recallTrace` is on
 //                                            (appendRecallTrace): the newest `recall.traceMaxLines`, written
 //                                            at once, not cached; a wipe deletes it

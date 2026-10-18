@@ -77,6 +77,8 @@ import { createTaskStores } from './errands/store.js';
 import { createErrandService } from './errands/service.js';
 import { createTaskTurns, taskCompletedEvent } from './errands/turns.js';
 import { createEventDoor } from './interface/door.js';
+import { createIntentionStores } from './intentions/store.js';
+import { createIntentionService } from './intentions/service.js';
 import { skillRegistry } from './skills/registry.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
@@ -351,8 +353,12 @@ const errandClient = createErrandClient({ hot, log });
 const taskStores = createTaskStores({ dataDir, config: () => hot.config, journal, log });
 // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
 // An errand's end is a `task.completed` event through the event door (`door`, created below with
-// the gateway's handlers); the door's handler opens the turn (src/errands/turns.js).
+// the gateway's handlers); the door's handler (src/errands/turns.js#onEvent) first moves the
+// intentions waiting on it back to pending, then opens her turn, which shows them with the outcome.
 const errands = createErrandService({ client: errandClient, stores: taskStores, hot, env, memory: store, getGuildId, log, onFinished: (task, guildId) => door.submit(taskCompletedEvent(task, guildId)) });
+// The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
+// `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
+const intentions = createIntentionService({ stores: createIntentionStores({ dataDir, log }), hot, tasks: errands, journal, getGuildId, log });
 const turns = createTurnRunner({
   hot,
   store,
@@ -384,6 +390,8 @@ const turns = createTurnRunner({
   runOwnCommand: (key, args, context) => admin.runOwnCommand(key, args, context),
   // `<tasks>`: her open and newly finished errands; an errand's caps are its skill's budget.
   errands,
+  // `<intentions>`: her open intentions and the candidates from her lines (features.intentions).
+  intentions,
 });
 // THE way memory starts (docs/prompt-contract.md, "The warmup"): sample-based,
 // resumable, mutes the persona while a run is in flight (see isWarmingUp below).
@@ -410,9 +418,11 @@ const memory = createMemoryUpdater({
   archive,
   // A status line for the development channel (bot.dryRunChannelId, read now).
   notify: (text) => mirrorDryRun({ client, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header: 'memory', body: text }),
+  // features.intentions: the intention candidates a batch found in her own lines.
+  onIntentionCandidates: (guildId, raw, messages) => intentions.addCandidates(guildId, raw, messages),
 });
 // The turn an errand's end opens, through the one attention and a cooldown per conversation.
-const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, getGuildId, log });
+const taskTurns = createTaskTurns({ hot, client, discord, turns, errands, intentions, getGuildId, log });
 const tagHistory = createTagHistory();
 // Messages that may have been left without an answer (src/behavior/missed.js): facts from the
 // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
@@ -491,6 +501,8 @@ const admin = createAdmin({
   port: iface,
   // /nep task: the persona's errands.
   errands,
+  // /nep task intent: her intentions.
+  intentions,
   spontaneous,
   // /nep diary: the day plan, a forced post.
   diary,
@@ -773,6 +785,10 @@ client.once(Events.ClientReady, async () => {
   // The errands a restart left open: their runner can no longer answer this process, so they fail
   // (`restarted`) and show in her `<tasks>` block as failed.
   await startupStep('errands.start', () => errands.start(instance.guildId), { wait: true });
+
+  // Her intentions reconciled with the errands as they stand now (those just failed included):
+  // a wait whose errand ended, is gone or ran out moves back to pending; the expired ones expire.
+  await startupStep('intentions.reconcile', () => intentions.reconcile(instance.guildId), { wait: true });
 
   // The meaning index caught up with what the record took while the queue was down (the last
   // embed.catchUpHours), once the forgets are settled. Fire-and-forget; nothing while paused or

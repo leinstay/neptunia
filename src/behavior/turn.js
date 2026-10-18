@@ -40,6 +40,7 @@ import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
 import { captionedEntries, gifPickSettings, parseGifPick, pickCandidates, pickContext, renderGifLibrary } from './gif-pick.js';
 import { turnRequestInput } from './turn-input.js';
 import { DEFAULT_RESULT_MAX_CHARS, tasksBlockText, taskResultText } from '../errands/blocks.js';
+import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.js';
 import { parseJsonObject, parseOutput } from '../llm/parse.js';
 import { DailyCapError, REPLY_REQUEST, TokenLimitError, RETRY_STATUS, cacheTtlMs, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
 import { ImageCapError, ImageGenError } from '../llm/images.js';
@@ -75,7 +76,7 @@ import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
 import { coreToolRows, discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
-import { skillsOn } from '../skills/access.js';
+import { skillFeatureOn, skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
 import { IN_TURN_TOOLS, firstLinkIn, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
@@ -1609,7 +1610,10 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
  * Reactors: `reactors` (interfaces/discord/reactors.js#createReactorStore, null: none) is the store of
  * who reacted to her messages; the turn's history fetch names them on her lines (historyOptions).
  *
- * Discord: `discord` is the Discord interface's capabilities object
+ * Intentions: `intentions` (src/intentions/service.js#createIntentionService, null: none) gives the
+ * `<intentions>` block of every turn but a diary post while features.intentions is exactly true.
+ *
+ * Discord:`discord` is the Discord interface's capabilities object
  * (interfaces/discord/index.js#createDiscordInterface, injected by src/index.js): the permission
  * checks, the history, reply-parent and neighbour fetches, the pulled channels and the audience
  * rules a turn asks Discord for. Nothing here imports the interface.
@@ -1645,6 +1649,7 @@ export function createTurnRunner({
   around = null,
   reactors = null,
   errands = null,
+  intentions = null,
 }) {
   const { audienceAllows, audienceOf, canAttach, canSend, captionPulled, channelDirectoryOf, checkPull, createPullViews, fetchHistory, fetchNeighbors, fetchPull, withTextPreviews } = discord;
   const busy = new Set();
@@ -1701,7 +1706,8 @@ export function createTurnRunner({
   function discoveryPrompt(config) {
     if (!discoveryOn(config)) return { index: '', names: [] };
     // Her in-turn tools are hers to call (features.coreTools, where no classifier runs): never offered to one.
-    const registry = new Map([...(skills ?? defaultSkills())].filter(([name]) => !IN_TURN_TOOLS.includes(name)));
+    // A skill whose feature switch is off is not offered either (src/skills/access.js#skillFeatureOn).
+    const registry = new Map([...(skills ?? defaultSkills())].filter(([name]) => !IN_TURN_TOOLS.includes(name) && skillFeatureOn(name, config)));
     const names = [...registry.keys()];
     return { index: skillsIndex(registry, hot.prompts?.skills), names };
   }
@@ -1763,6 +1769,30 @@ export function createTurnRunner({
       draft.tasksGuildId = guildId;
     }
     return tasks || result ? { tasks, result } : null;
+  }
+
+  /**
+   * The request's `<intentions>` body (features.intentions exactly true, read now): her open
+   * intentions and the candidates proposed from her lines (`intentions.view`: a private chat's
+   * own only in that chat), cut to `context.caps.intentions` tokens (src/intentions/blocks.js).
+   * '' with the switch off, without the service, or with nothing to show.
+   */
+  function intentionsInputFor({ guildId, channel, isPrivate, config, labels }) {
+    if (!intentions || config.features?.intentions !== true) return '';
+    let shown = [];
+    try {
+      shown = intentions.view(guildId, { privateChannelId: isPrivate ? String(channel.id) : null });
+    } catch (err) {
+      log.warn('turn: intentions view failed', { channel: channel.id, error: err });
+      return '';
+    }
+    const channelNameOf = (id) => channel.guild?.channels?.cache?.get?.(String(id))?.name ?? null;
+    return intentionsBlockText(shown, labels, {
+      timezone: config.bot?.timezone ?? 'UTC',
+      locale: labels?.locale,
+      maxTokens: config.context?.caps?.intentions ?? DEFAULT_INTENTIONS_CAP,
+      channelNameOf,
+    });
   }
 
   /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, id and registry. */
@@ -6196,6 +6226,8 @@ export function createTurnRunner({
         around: aroundInputFor({ channel, config, mode: finalMode, isPrivate }),
         // `<tasks>` and `<task_result>`: her errands (none on a diary post).
         errands: finalMode === 'diary' ? null : errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now, draft }),
+        // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
+        intentions: finalMode === 'diary' ? '' : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels }),
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
         continuation: null,
         // `<self_facts>` and `<gifs>` held per cache bucket, so a memory batch rewrites the cache once at most.

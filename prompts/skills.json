@@ -313,5 +313,25 @@
     "title": "Search this server's messages",
     "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (body or question=), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match). Quoted messages come back in this same turn.",
     "whenNotToUse": "Not for what the chat already shows you."
+  },
+  "intent.set": {
+    "title": "[placeholder] Set an intention",
+    "whenToUse": "[placeholder] Keep something you mean to do later: the purpose as the body; optional due=, expires=, channel=, chain=, condition=; task=<errand id> and deadline= to wait for an errand (deadline= alone waits for the errand this turn hands off).",
+    "whenNotToUse": "[placeholder] Not for what you do in this turn."
+  },
+  "intent.update": {
+    "title": "[placeholder] Change an intention",
+    "whenToUse": "[placeholder] id= of an intention: state=pending accepts a proposed one, state=done closes one; text, due=, expires=, channel=, chain=, condition= change it; task= and deadline= set it waiting for an errand.",
+    "whenNotToUse": "[placeholder] Not to reject a proposed one: that is intent.cancel."
+  },
+  "intent.cancel": {
+    "title": "[placeholder] Drop an intention",
+    "whenToUse": "[placeholder] id= of an intention you no longer mean to do, or of a proposed one you reject.",
+    "whenNotToUse": "[placeholder] Not for one you did: that is intent.update state=done."
+  },
+  "intent.list": {
+    "title": "[placeholder] List intentions",
+    "whenToUse": "[placeholder] Read your open intentions with their states.",
+    "whenNotToUse": "[placeholder] The intentions block already shows them on each turn."
   }
 }

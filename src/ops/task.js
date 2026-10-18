@@ -9,7 +9,8 @@
 // end opens her own turn where it was asked. `task.cancel` is for the requester of the task or an
 // owner; `task.status` and `task.list` show a private chat's tasks only to their requester or an
 // owner. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
-// `task.status` of one task adds `ledger: <id>` when the task is mirrored into the ledger.
+// `task.status` of one task adds `ledger: <id>` when the task is mirrored into the ledger. A
+// `task.run` of her turn links the intentions of that turn waiting for its errand (src/intentions/).
 
 import { isOwnerId } from './grants.js';
 import { TASK_AGENTS } from './catalog.js';
@@ -104,6 +105,9 @@ const handlers = perEnv((env) => {
     const submitted = errands().submit({ guildId: resolvedGuildId(context), agent, goal, requester, origin, scope, idempotencyKey });
     if (!submitted.ok) return refusal(submitted.code);
     const { task } = submitted;
+    // An intention of the same turn waiting for the errand it hands off is linked to it now
+    // (src/intentions/service.js#linkTurnTask); a refused errand above links nothing.
+    if (origin.turnId) env.intentions?.linkTurnTask?.(resolvedGuildId(context), { turnId: origin.turnId, taskId: task.id });
     return { status: 'ok', code: 'ok', summary: `task ${task.id}: queued (${agent})`, data: { text: `task ${task.id}: queued (${agent})`, task: { id: task.id, agent, state: task.state } } };
   }
 

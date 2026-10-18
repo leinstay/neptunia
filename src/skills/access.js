@@ -9,7 +9,8 @@
 // current conversation only, so nothing she does now is blocked (the skills design, "carry
 // permissions over"): `<msg>` and `<gif>` are `message.create`, `<react>` is `message.react.add`,
 // `<draw>` is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. Two switches, read by the caller from the live config: `features.skills`
-// false refuses every skill, and `skills.safeMode` true lets only the carried-over tags pass.
+// false refuses every skill, and `skills.safeMode` true lets only the carried-over tags pass; a
+// skill behind a feature switch of its own (FEATURE_SKILLS) is refused while that switch is off.
 // Pure over the live config the caller reads at the moment of use.
 
 import { isPlainObject } from '../config.js';
@@ -40,6 +41,24 @@ export const NOT_GRANTABLE_TO_PERSONA = Object.freeze([
   'bot.pause',
   'bot.resume',
 ]);
+
+/**
+ * The skills that exist for the persona only while a feature switch is exactly true (skill name
+ * -> `features.<key>`): off, they are refused (`feature-off`), never listed to her and never
+ * offered to a classifier, so a request is as it was before them.
+ */
+export const FEATURE_SKILLS = Object.freeze({
+  'intent.set': 'intentions',
+  'intent.update': 'intentions',
+  'intent.cancel': 'intentions',
+  'intent.list': 'intentions',
+});
+
+/** Whether skill `name` exists now: no switch of its own (FEATURE_SKILLS), or its switch exactly true. */
+export function skillFeatureOn(name, config) {
+  const key = Object.hasOwn(FEATURE_SKILLS, name) ? FEATURE_SKILLS[name] : null;
+  return key === null || config?.features?.[key] === true;
+}
 
 /** True when `features.skills` is not false (a missing key counts as on). */
 export function skillsOn(config) {
@@ -80,6 +99,7 @@ export function grantedToPersona(config, selfId, name) {
  */
 export function skillAccess({ skill, config, selfId = null, conversationId = null, currentConversationId = null }) {
   if (!skillsOn(config)) return { allowed: false, reason: 'skills-off' };
+  if (!skillFeatureOn(skill.name, config)) return { allowed: false, reason: 'feature-off' };
   const target = conversationId ?? currentConversationId;
   const here = target === null || target === undefined ? currentConversationId == null : String(target) === String(currentConversationId);
   if (CARRIED_OVER.includes(skill.name) && here) return { allowed: true, reason: 'carried-over' };

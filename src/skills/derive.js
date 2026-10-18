@@ -51,6 +51,8 @@ export const BODY_ARGS = Object.freeze({
   'web.search': 'query',
   'web.read': 'url',
   'memory.search': 'question',
+  'intent.set': 'text',
+  'intent.update': 'text',
 });
 
 /** Every leaf of `table` as `{ key, leaf }`: `<group>.<name>` or a bare `<name>`, in order. */

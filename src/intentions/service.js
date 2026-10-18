@@ -1,0 +1,396 @@
+// The persona's intentions at work (docs/intentions.md): her own calls (`intent.set`,
+// `intent.update`, `intent.cancel`, `intent.list`, src/ops/intent.js) create and move them, the
+// memory analyzer's candidates from her own lines arrive as `proposed` ones (`addCandidates`),
+// an errand's end reaches the intention waiting on it (`onTaskFinished`), and a reconciliation
+// (`reconcile`, at start and for the scheduler of step 2) finds every wait whose errand already
+// ended, is gone, or passed its deadline. Reliable waiting: `waiting` needs a real errand id and
+// a deadline (the model's invariant); an errand is linked only once the task store holds it --
+// given by id, or handed off in the same turn (a wait asked before the errand was queued is kept
+// as `waitRequested` on a `pending` intention and linked by `linkTurnTask` when that turn's
+// `task.run` queues one; a failed launch links nothing, so nothing waits on it). Completion is
+// idempotent: a second end of the same errand finds nothing waiting. Settings are read at the
+// moment of use (`intentions.*`, `features.intentions`); logs carry ids and codes, never text.
+
+import { randomUUID } from 'node:crypto';
+import { log as defaultLog } from '../log.js';
+import { DAY_MS, HOUR_MS } from '../time.js';
+import { isToolTask, isOpenState } from '../errands/store.js';
+import {
+  arrive,
+  candidatesFromAnswer,
+  createIntention,
+  dueList as dueOf,
+  duplicates,
+  expireAt,
+  intentionSettings,
+  intentionsOn,
+  isOpen,
+  newIntentionId,
+  reconcileWait,
+  transition,
+  waitOn,
+  CHAIN_CHARS,
+  CONDITION_CHARS,
+  PURPOSE_CHARS,
+} from './model.js';
+import { clampChars, oneLine } from '../memory/clamp.js';
+
+/** Statuses counted against `intentions.maxOpen` (her active ones; candidates have their own cap). */
+const ACTIVE = Object.freeze(['pending', 'waiting']);
+
+/**
+ * @param {object} options
+ * @param {{ get(guildId: string): object|null }} options.stores  src/intentions/store.js#createIntentionStores
+ * @param {{ config: object }} options.hot
+ * @param {{ store(guildId: string): ({ get(id: string): object|null }|null) }|null} [options.tasks]  The errand
+ *   service (src/errands/service.js): the task store a wait is checked against.
+ * @param {{ findTurn?: Function }|null} [options.journal]  Where a candidate's turn is looked up.
+ * @param {() => string|null} [options.getGuildId]
+ * @param {() => number} [options.now]
+ * @param {() => string} [options.uuid]
+ * @param {{ info: Function, warn: Function }} [options.log]
+ */
+export function createIntentionService({ stores, hot, tasks = null, journal = null, getGuildId = () => null, now = Date.now, uuid = randomUUID, log = defaultLog }) {
+  function storeOf(guildId) {
+    return stores.get(guildId || getGuildId?.() || '');
+  }
+
+  function settings() {
+    return intentionSettings(hot.config);
+  }
+
+  /** The errand `id` of the guild's task store (a tool agent's record is no errand), or null. */
+  function taskOf(guildId, id) {
+    const store = tasks?.store?.(guildId) ?? null;
+    const task = id && store ? store.get(String(id)) : null;
+    return task && !isToolTask(task) ? task : null;
+  }
+
+  /** The latest errand of turn `turnId` in the guild's task store, or null. */
+  function taskOfTurn(guildId, turnId) {
+    const store = tasks?.store?.(guildId) ?? null;
+    if (!store || !turnId || typeof store.recent !== 'function') return null;
+    return store.recent(50).find((task) => task.origin?.turnId === String(turnId)) ?? null;
+  }
+
+  /** How many intentions of `list` count against `maxOpen`. */
+  function activeCount(list) {
+    return list.filter((record) => ACTIVE.includes(record.status)).length;
+  }
+
+  /** The wait `move` adds to a record: on errand `taskId` (checked) or the turn's errand, else requested. */
+  function waitPlan(guildId, { taskId = null, deadline = null, turnId = null }) {
+    const at = now();
+    const until = Number.isFinite(deadline) ? deadline : at + settings().waitHours * HOUR_MS;
+    if (taskId) {
+      const task = taskOf(guildId, taskId);
+      if (!task) return { ok: false, code: 'no-task' };
+      if (!isOpenState(task.state)) return { ok: false, code: 'task-ended' };
+      return { ok: true, taskId: task.id, deadline: until };
+    }
+    if (!Number.isFinite(deadline)) return { ok: true, none: true };
+    const same = taskOfTurn(guildId, turnId);
+    if (same && isOpenState(same.state)) return { ok: true, taskId: same.id, deadline: until };
+    if (!turnId) return { ok: false, code: 'wait-without-task' };
+    return { ok: true, requested: { turnId: String(turnId), deadline: until } };
+  }
+
+  /** `record` with the wait of `plan` applied (a model move), or the record as it is. */
+  function applyWait(record, plan, by) {
+    if (!plan || plan.none) return { ok: true, intention: record, changed: false };
+    if (plan.requested) return { ok: true, intention: { ...record, waitRequested: plan.requested, updatedAt: now() }, changed: true };
+    return waitOn(record, { taskId: plan.taskId, deadline: plan.deadline, now: now(), by });
+  }
+
+  /**
+   * A new intention of hers (or an owner's command), `pending`: `{ ok: true, intention }` or
+   * `{ ok: false, code }` (`no-guild`, `cap-open`, the model's codes, the wait's: `no-task`,
+   * `task-ended`, `wait-without-task`, `bad-deadline`; `write-failed`).
+   * @param {string|null} guildId
+   * @param {{ purpose: string, dueAt?: number|null, expiresAt?: number|null, destination?: string|null,
+   *   completionCondition?: string|null, chainId?: string|null, taskId?: string|null, deadline?: number|null,
+   *   turnId?: string|null, messageId?: string|null, channelId?: string|null, scope?: 'dm'|'group', by?: string }} input
+   */
+  function set(guildId, input) {
+    const store = storeOf(guildId);
+    if (!store) return { ok: false, code: 'no-guild' };
+    const limits = settings();
+    if (activeCount(store.list()) >= limits.maxOpen) return { ok: false, code: 'cap-open' };
+    const by = input.by ?? 'persona';
+    const created = createIntention({
+      purpose: input.purpose,
+      provenance: { kind: 'self', turnId: input.turnId ?? null, messageId: input.messageId ?? null, channelId: input.channelId ?? null, scope: input.scope },
+      dueAt: input.dueAt ?? null,
+      expiresAt: input.expiresAt ?? null,
+      destination: input.destination ?? null,
+      completionCondition: input.completionCondition ?? null,
+      chainId: input.chainId ?? null,
+      now: now(),
+      settings: limits,
+      id: freshId(store),
+      by,
+    });
+    if (!created.ok) return created;
+    const plan = waitPlan(store.guildId, { taskId: input.taskId ?? null, deadline: input.deadline ?? null, turnId: input.turnId ?? null });
+    if (!plan.ok) return plan;
+    const waited = applyWait(created.intention, plan, by);
+    if (!waited.ok) return waited;
+    const added = store.add(waited.intention);
+    if (added.ok) log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: added.intention.status, by });
+    return added;
+  }
+
+  function freshId(store) {
+    for (;;) {
+      const id = newIntentionId(uuid);
+      if (!store.get(id)) return id;
+    }
+  }
+
+  /**
+   * Intention `id` changed: `state` `pending` accepts a candidate (it counts against `maxOpen`
+   * and lives `expiresDays` from then unless `expiresAt` is given)
+   * or ends a wait by hand, `done` closes it; `purpose`, `dueAt`, `expiresAt`, `destination`,
+   * `completionCondition`, `chainId` edit an open one; `taskId` / `deadline` set it waiting (as in
+   * `set`). `{ ok, intention }` or `{ ok: false, code }` (`not-found`, `terminal`, `cap-open`,
+   * `bad-move`, the model's and the wait's codes).
+   */
+  function update(guildId, id, patch = {}) {
+    const store = storeOf(guildId);
+    if (!store) return { ok: false, code: 'no-guild' };
+    const current = store.get(id);
+    if (!current) return { ok: false, code: 'not-found' };
+    if (!isOpen(current.status)) return { ok: false, code: 'terminal' };
+    const by = patch.by ?? 'persona';
+    if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen) return { ok: false, code: 'cap-open' };
+    const plan = patch.taskId || Number.isFinite(patch.deadline) ? waitPlan(store.guildId, { taskId: patch.taskId ?? null, deadline: patch.deadline ?? null, turnId: patch.turnId ?? null }) : null;
+    if (plan && !plan.ok) return plan;
+    const at = now();
+    const result = store.update(id, (record) => {
+      let next = record;
+      let changed = false;
+      const fields = {};
+      if (typeof patch.purpose === 'string' && patch.purpose.trim()) fields.purpose = clampChars(oneLine(patch.purpose), PURPOSE_CHARS);
+      if (patch.dueAt !== undefined) fields.dueAt = patch.dueAt;
+      if (patch.expiresAt !== undefined && patch.expiresAt !== null) {
+        if (!(patch.expiresAt > at)) return { ok: false, code: 'bad-expiry' };
+        fields.expiresAt = patch.expiresAt;
+      }
+      if (patch.destination !== undefined) fields.destination = patch.destination ? String(patch.destination) : null;
+      if (typeof patch.completionCondition === 'string') fields.completionCondition = clampChars(oneLine(patch.completionCondition), CONDITION_CHARS) || null;
+      if (typeof patch.chainId === 'string') fields.chainId = clampChars(oneLine(patch.chainId), CHAIN_CHARS) || null;
+      if (Object.keys(fields).length > 0) {
+        next = { ...next, ...fields, updatedAt: at };
+        if (Number.isFinite(next.dueAt) && next.dueAt > next.expiresAt) return { ok: false, code: 'due-after-expiry' };
+        changed = true;
+      }
+      if (patch.state === 'pending' && next.status !== 'pending') {
+        const accepted = next.status === 'proposed';
+        // An accepted candidate lives as long as her own (`expiresDays`), not its review window.
+        const expiry = accepted && fields.expiresAt === undefined ? { expiresAt: Math.max(next.expiresAt, at + settings().expiresDays * DAY_MS) } : {};
+        const moved = transition(next, 'pending', { now: at, by, code: accepted ? 'accepted' : 'resumed', patch: expiry });
+        if (!moved.ok) return moved;
+        next = moved.intention;
+        changed = true;
+      }
+      if (plan) {
+        const waited = applyWait(next, plan, by);
+        if (!waited.ok) return waited;
+        next = waited.intention;
+        changed = changed || waited.changed;
+      }
+      if (patch.state === 'done') {
+        const moved = transition(next, 'done', { now: at, by, code: 'done' });
+        if (!moved.ok) return moved;
+        next = moved.intention;
+        changed = true;
+      }
+      return { ok: true, intention: next, changed };
+    });
+    if (result.ok && result.changed) log.info('intentions: updated', { guildId: store.guildId, id: String(id), status: result.intention.status, by });
+    return result;
+  }
+
+  /** Intention `id` cancelled (a candidate rejected): `{ ok, intention }` or `{ ok: false, code }`. */
+  function cancel(guildId, id, { by = 'persona' } = {}) {
+    const store = storeOf(guildId);
+    if (!store) return { ok: false, code: 'no-guild' };
+    const result = store.update(id, (record) => transition(record, 'cancelled', { now: now(), by, code: record.status === 'proposed' ? 'rejected' : 'cancelled' }));
+    if (result.ok) log.info('intentions: cancelled', { guildId: store.guildId, id: String(id), by });
+    return result;
+  }
+
+  /** Every open intention past its `expiresAt` expired and written. How many. */
+  function sweepExpired(store) {
+    let count = 0;
+    const at = now();
+    for (const record of store.list()) {
+      if (!isOpen(record.status) || !(at >= record.expiresAt)) continue;
+      const result = store.update(record.id, (current) => expireAt(current, at));
+      if (result.ok && result.changed) count += 1;
+    }
+    if (count > 0) log.info('intentions: expired', { guildId: store.guildId, count });
+    return count;
+  }
+
+  /**
+   * The guild's intentions, the expired ones swept first: open ones only unless `closed`, each
+   * visible to the conversation (`privateChannelId`: a private chat's own only there), or every
+   * one with `all` (an owner's list).
+   */
+  function list(guildId, { closed = false, privateChannelId = null, all = false } = {}) {
+    const store = storeOf(guildId);
+    if (!store) return [];
+    sweepExpired(store);
+    const visible = (record) => all || record.provenance?.scope !== 'dm' || (privateChannelId !== null && record.provenance?.channelId === String(privateChannelId));
+    return store.list().filter((record) => (closed || isOpen(record.status)) && visible(record));
+  }
+
+  /**
+   * What the `<intentions>` block shows in a conversation: her active ones (`pending`, then
+   * `waiting`, by due time then age), then the candidates (`proposed`), newest first. Empty with
+   * `features.intentions` off.
+   */
+  function view(guildId, { privateChannelId = null } = {}) {
+    if (!intentionsOn(hot.config)) return [];
+    const open = list(guildId, { privateChannelId });
+    const byDue = (a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || a.createdAt - b.createdAt;
+    const active = open.filter((record) => record.status === 'pending').sort(byDue);
+    const waiting = open.filter((record) => record.status === 'waiting').sort(byDue);
+    const proposed = open.filter((record) => record.status === 'proposed').sort((a, b) => b.createdAt - a.createdAt);
+    return [...active, ...waiting, ...proposed];
+  }
+
+  /**
+   * Errand `taskId`, just queued by turn `turnId`, linked to every `pending` intention of that turn
+   * whose wait was asked before the errand existed (`waitRequested`). How many.
+   */
+  function linkTurnTask(guildId, { turnId, taskId }) {
+    const store = storeOf(guildId);
+    if (!store || !turnId || !taskId) return 0;
+    let linked = 0;
+    for (const record of store.list()) {
+      if (record.status !== 'pending' || record.waitRequested?.turnId !== String(turnId)) continue;
+      const deadline = record.waitRequested.deadline;
+      const result = store.update(record.id, (current) => waitOn(current, { taskId, deadline: Number.isFinite(deadline) && deadline > now() ? deadline : now() + settings().waitHours * HOUR_MS, now: now(), by: 'engine' }));
+      if (result.ok && result.changed) linked += 1;
+    }
+    if (linked > 0) log.info('intentions: linked', { guildId: store.guildId, taskId: String(taskId), count: linked });
+    return linked;
+  }
+
+  /**
+   * An errand's end (src/errands/service.js's `onFinished`): every intention waiting on it moves
+   * to `pending` with its outcome. Idempotent: the same end twice moves nothing the second time.
+   * Never throws; how many moved.
+   */
+  function onTaskFinished(task, guildId) {
+    try {
+      const store = storeOf(guildId);
+      if (!store || !task?.id) return 0;
+      let moved = 0;
+      for (const record of store.list()) {
+        if (record.status !== 'waiting' || record.awaitingTaskId !== String(task.id)) continue;
+        const result = store.update(record.id, (current) => arrive(current, task, { now: now() }));
+        if (result.ok && result.changed) moved += 1;
+      }
+      if (moved > 0) log.info('intentions: errand arrived', { guildId: store.guildId, taskId: String(task.id), state: task.state, count: moved });
+      return moved;
+    } catch (err) {
+      log.warn('intentions: errand end not applied', { taskId: task?.id ?? null, error: err });
+      return 0;
+    }
+  }
+
+  /**
+   * The reconciliation (at start, and the scheduler's tick of step 2): every `waiting` intention
+   * whose errand already ended (`arrived`), is gone from the task store (`missing`), or passed its
+   * wait deadline (`deadline`) moved to `pending` with a note; then every open one past its expiry
+   * expired. Counts; never throws.
+   */
+  function reconcile(guildId) {
+    const counts = { arrived: 0, missing: 0, deadline: 0, expired: 0 };
+    try {
+      const store = storeOf(guildId);
+      if (!store) return counts;
+      for (const record of store.list()) {
+        if (record.status !== 'waiting') continue;
+        const result = store.update(record.id, (current) => reconcileWait(current, { taskOf: (id) => taskOf(store.guildId, id), now: now() }));
+        if (!result.ok || !result.changed) continue;
+        const note = result.intention.note;
+        if (note === 'task-missing') counts.missing += 1;
+        else if (note === 'wait-deadline') counts.deadline += 1;
+        else counts.arrived += 1;
+      }
+      counts.expired = sweepExpired(store);
+      if (counts.arrived + counts.missing + counts.deadline > 0) log.info('intentions: reconciled', { guildId: store.guildId, ...counts });
+    } catch (err) {
+      log.warn('intentions: reconcile failed', { error: err });
+    }
+    return counts;
+  }
+
+  /** What is due now (src/intentions/model.js#dueList) for the guild, its expired swept first. */
+  function due(guildId) {
+    const store = storeOf(guildId);
+    if (!store) return [];
+    sweepExpired(store);
+    return dueOf(store.list(), now());
+  }
+
+  /**
+   * The candidates one analyzer batch found in her own lines (`raw`: the answer's `intentions`
+   * field; `messages`: the batch's lines the model saw) stored as `proposed` intentions: anchored
+   * and filtered by the model (candidatesFromAnswer), each not repeating an open one, while the
+   * open candidates stay under `intentions.maxCandidates`; each one's turn looked up in the journal
+   * (`findTurn` of the line's message, null when unknown). With `features.intentions` off, nothing.
+   * Never throws; `{ added, duplicate, capped, dropped }`.
+   */
+  async function addCandidates(guildId, raw, messages) {
+    const out = { added: 0, duplicate: 0, capped: 0, dropped: { invalid: 0, unanchored: 0, quoted: 0, over: 0 } };
+    try {
+      if (!intentionsOn(hot.config) || !Array.isArray(raw) || raw.length === 0) return out;
+      const store = storeOf(guildId);
+      if (!store) return out;
+      const limits = settings();
+      const { candidates, dropped } = candidatesFromAnswer(raw, messages, { max: limits.maxCandidates });
+      out.dropped = dropped;
+      for (const candidate of candidates) {
+        const open = store.list().filter((record) => isOpen(record.status));
+        if (duplicates(candidate, open)) {
+          out.duplicate += 1;
+          continue;
+        }
+        if (open.filter((record) => record.status === 'proposed').length >= limits.maxCandidates) {
+          out.capped += 1;
+          continue;
+        }
+        let turnId = null;
+        if (typeof journal?.findTurn === 'function' && hot.config?.features?.journal === true && Number.isFinite(candidate.ts)) {
+          try {
+            turnId = (await journal.findTurn(store.guildId, { messageId: candidate.messageId, at: candidate.ts }))?.turn?.turnId ?? null;
+          } catch {
+            turnId = null;
+          }
+        }
+        const created = createIntention({
+          purpose: candidate.purpose,
+          provenance: { kind: 'candidate', turnId, messageId: candidate.messageId, channelId: candidate.channelId, span: candidate.span, scope: 'group' },
+          now: now(),
+          settings: limits,
+          id: freshId(store),
+          by: 'analyzer',
+        });
+        if (!created.ok) continue;
+        if (store.add(created.intention).ok) out.added += 1;
+      }
+      const skipped = out.duplicate + out.capped + Object.values(out.dropped).reduce((sum, n) => sum + n, 0);
+      if (out.added + skipped > 0) log.info('intentions: candidates', { guildId: store.guildId, added: out.added, duplicate: out.duplicate, capped: out.capped, ...out.dropped });
+    } catch (err) {
+      log.warn('intentions: candidates not stored', { error: err });
+    }
+    return out;
+  }
+
+  return { set, update, cancel, list, view, linkTurnTask, onTaskFinished, reconcile, due, addCandidates, store: storeOf };
+}

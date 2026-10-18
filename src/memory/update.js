@@ -58,6 +58,7 @@ import { RECENT_DEFAULTS, foldText, liveRecent, recentSettings } from './recent.
 import { videoStateFromCache } from './describe.js';
 import { isVideoVisionOn } from './youtube-check.js';
 import { block, fillPromptTemplate, hasRequiredLabels, renderProfile } from '../behavior/prompt.js';
+import { intentionSettings } from '../intentions/model.js';
 import { effectiveAffinity } from '../behavior/private.js';
 import {
   applyVoiceItems,
@@ -866,7 +867,12 @@ export function buildMemoryRequest({ prompts, config, calibrator, profiles, guil
   const episodesOn = config.features?.episodes !== false;
   const loreOn = config.features?.lore !== false;
   const resolveName = typeof nameOf === 'function' ? nameOf : () => null;
-  const system = fillPromptTemplate(decide ? prompts['memory-decide'] : prompts.memory, memoryTemplateValues(config, selfName));
+  const base = fillPromptTemplate(decide ? prompts['memory-decide'] : prompts.memory, memoryTemplateValues(config, selfName));
+  // A guild batch with features.intentions exactly true also asks for intention candidates from
+  // the persona's own lines (prompts/memory-intentions.md, appended whole; absent or blank: not
+  // asked). Off, the system message is the analyzer's as it was.
+  const intentionsAsked = !privateChat && config.features?.intentions === true && hasContent(prompts['memory-intentions']);
+  const system = intentionsAsked ? `${base}\n\n${fillPromptTemplate(prompts['memory-intentions'], { maxCandidates: intentionSettings(config).maxCandidates })}` : base;
   const characterBlock = relationships ? block('character', characterText(prompts, selfName)) : '';
 
   // Each profile twice: whole (what the analyzer rewrites, its lists capped to their ranked top)
@@ -3014,8 +3020,12 @@ function namedIds(ids, texts) {
  *   queue instead are logged as `memory: archive deferred` (counts).
  * @param {((text: string) => unknown)|null} [deps.notify]  A status line for the development channel
  *   (src/index.js posts it to `bot.dryRunChannelId`); its failure is ignored.
+ * @param {((guildId: string, raw: unknown[], messages: object[]) => unknown)|null} [deps.onIntentionCandidates]
+ *   With `features.intentions` exactly true (read at the moment of use), a guild batch's answer
+ *   `intentions` and the lines the model saw (src/intentions/service.js#addCandidates); not awaited,
+ *   its failure logged.
  */
-export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null, journal = null, uuid = randomUUID, archive = null, notify = null }) {
+export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, now = Date.now, onPortraitRequest, record = null, journal = null, uuid = randomUUID, archive = null, notify = null, onIntentionCandidates = null }) {
   const running = new Set();
   let idleWaiters = []; // resolvers for waitIdle() (/nep pause), notified once running.size hits 0
   const backoffUntil = new Map();
@@ -3365,6 +3375,14 @@ export function createMemoryUpdater({ hot, store, llm, calibrator, getSelfName, 
           versions: { enabled: hot.config.features?.versions !== false, kept: hot.config.memory?.versionsKept ?? 20 },
           limits,
         };
+        // The intention candidates of the persona's own lines (features.intentions exactly true,
+        // read now): the answer's `intentions` and the lines the model saw go to the intentions
+        // service, which anchors, filters and stores them as `proposed` (src/intentions/service.js).
+        if (hot.config.features?.intentions === true && typeof onIntentionCandidates === 'function' && Array.isArray(update?.intentions) && update.intentions.length > 0) {
+          Promise.resolve()
+            .then(() => onIntentionCandidates(guildId, update.intentions, consumed))
+            .catch((err) => log.warn('memory: intention candidates failed', { guildId, error: errorNameOf(err) }));
+        }
         // Stage A drops every portrait key, the `portrait` cue included: nothing to report.
         // A forced rewrite is queued for the voice run even when stage A gave no brief for it.
         if (stage === 'two') return applyDecision(store, guildId, update, hot.config, knownUserIds, { ...options, rewriteIds: new Set(rewriteIds) }, nowMs);
