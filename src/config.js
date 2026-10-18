@@ -348,44 +348,6 @@ export function readConfig(rootDir = ROOT_DIR, { privateDir = rootDir } = {}) {
   return loadConfig(rootDir, { privateDir }).config;
 }
 
-// ---- agents.web.adult: the adult errand switch --------------------------------------------
-// An errand asked with `adult` (src/ops/task.js) runs on its own model and limits when
-// `agents.web.adult` is set: `{ model, limits?: { seconds, steps, usd }, cost?: { input, output } }`,
-// the limits merged over `agents.web.limits` (src/errands/service.js), the cost (USD per million
-// tokens, as `agents.web.cost`) sent with the run so the runner's usd cap is priced for this
-// model; without it the run sends none and the runner keeps `agents.web.cost`. Absent or null,
-// the switch is off.
-
-/** An OpenCode model id, as a `run` may carry it (src/agent-runner/protocol.js). */
-export const OPENCODE_MODEL_ID = /^[\w.:/-]{1,128}$/;
-/** The limit keys `agents.web.adult.limits` may set. */
-const ADULT_LIMIT_KEYS = Object.freeze(['steps', 'usd', 'seconds']);
-
-/**
- * `agents.web.adult` read: `{ ok: true, model, limits, cost? }` (only the positive finite `steps`,
- * `usd` and `seconds` kept; the rest comes from `agents.web.limits`; `cost` only when set),
- * `{ ok: false, code: 'adult-off' }` when absent or null, `{ ok: false, code:
- * 'adult-misconfigured' }` when set without a valid OpenCode model id, with `limits` that are
- * not an object, or with a `cost` that is not `{ input, output }` of finite non-negative numbers
- * (what a run's `cost` must be, src/agent-runner/protocol.js). Pure.
- * @param {unknown} value  `config.agents.web.adult`.
- * @returns {{ ok: true, model: string, limits: object, cost?: { input: number, output: number } } | { ok: false, code: 'adult-off'|'adult-misconfigured' }}
- */
-export function adultErrandSettings(value) {
-  if (value === undefined || value === null) return { ok: false, code: 'adult-off' };
-  if (!isPlainObject(value) || typeof value.model !== 'string' || !OPENCODE_MODEL_ID.test(value.model)) return { ok: false, code: 'adult-misconfigured' };
-  if (value.limits !== undefined && value.limits !== null && !isPlainObject(value.limits)) return { ok: false, code: 'adult-misconfigured' };
-  const set = value.limits ?? {};
-  const limits = {};
-  for (const key of ADULT_LIMIT_KEYS) {
-    if (typeof set[key] === 'number' && Number.isFinite(set[key]) && set[key] > 0) limits[key] = set[key];
-  }
-  if (value.cost === undefined || value.cost === null) return { ok: true, model: value.model, limits };
-  const price = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0;
-  if (!isPlainObject(value.cost) || !price(value.cost.input) || !price(value.cost.output)) return { ok: false, code: 'adult-misconfigured' };
-  return { ok: true, model: value.model, limits, cost: { input: value.cost.input, output: value.cost.output } };
-}
-
 export const env = process.env;
 
 /** Return env[key], throwing an Error whose message is exactly `key` if unset/empty. */

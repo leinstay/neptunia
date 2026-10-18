@@ -10,15 +10,8 @@
 // owner; `task.status` and `task.list` show a private chat's tasks only to their requester or an
 // owner. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
 // `task.status` of one task adds `ledger: <id>` when the task is mirrored into the ledger.
-// `task.run` takes `adult` (true / 'true'; a slash option's lowercase string): for `agent: web`
-// only (`adult-web-only` otherwise). While `agents.web.adult` is set (src/config.js#adultErrandSettings,
-// read now) the errand is an adult one: kept with `adult: true`, run on that block's model and
-// limits (src/errands/service.js), counted against the day's caps as any other. While it is not
-// set, `adult` is ignored: the errand runs as usual and the answer's code says why
-// (`adult-off`, `adult-misconfigured`).
 
 import { isOwnerId } from './grants.js';
-import { adultErrandSettings } from '../config.js';
 import { TASK_AGENTS } from './catalog.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
@@ -74,13 +67,12 @@ const handlers = perEnv((env) => {
     return ownerCalls(context) || (Boolean(context?.userId) && String(context.userId) === task.requester?.userId);
   }
 
-  /** One line of a task: id, agent (`adult` after it for an adult errand), state (with the error code and `files-expired`), age, goal. */
+  /** One line of a task: id, agent, state (with the error code and `files-expired`), age, goal. */
   function taskLine(task) {
     const minutes = Math.max(0, Math.floor((now() - (task.createdAt ?? now())) / MINUTE_MS));
     const codes = [...(task.error && task.state !== 'done' ? [task.error] : []), ...(task.filesExpired === true ? ['files-expired'] : [])];
     const state = codes.length > 0 ? `${task.state} (${codes.join(', ')})` : task.state;
-    const agent = task.adult === true ? `${task.agent} adult` : task.agent;
-    return `${task.id} ${agent} ${state} ${minutes}m: ${clampWithEllipsis(oneLine(task.goal), GOAL_LINE_CHARS)}`;
+    return `${task.id} ${task.agent} ${state} ${minutes}m: ${clampWithEllipsis(oneLine(task.goal), GOAL_LINE_CHARS)}`;
   }
 
   /** A refusal of the store or the service as the operation's result. */
@@ -89,38 +81,22 @@ const handlers = perEnv((env) => {
     return { status, code, summary: `task not started: ${code}`, data: task ? { task } : null };
   }
 
-  /** `args.adult` as a boolean: true / 'true' -> true, false / 'false' / absent -> false; else an `invalid`. */
-  function adultAsked(value) {
-    if (value === undefined || value === null || value === false || value === true) return value === true;
-    const text = typeof value === 'string' ? value.trim().toLowerCase() : null;
-    if (text === 'true' || text === 'false') return text === 'true';
-    throw invalid('adult must be true or false');
-  }
-
-  /** `/nep task run agent goal [adult]`: a new errand, answered at once with its id and `queued`. */
+  /** `/nep task run agent goal`: a new errand, answered at once with its id and `queued`. */
   function cmdRun(args, context) {
     assertNotPaused();
     const agent = String(args?.agent ?? '').trim();
     if (!TASK_AGENTS.includes(agent)) throw invalid(`agent must be one of: ${TASK_AGENTS.join(', ')}`);
     const goal = String(args?.goal ?? '').trim();
     if (!goal) throw invalid('a goal is required');
-    const asked = adultAsked(args?.adult);
-    if (asked && agent !== 'web') throw invalid('adult is for the web agent only', 'adult-web-only');
-    // Asked while `agents.web.adult` is not set: ignored, the errand runs as usual.
-    const settings = asked ? adultErrandSettings(hot.config?.agents?.web?.adult) : null;
-    const adult = settings?.ok === true;
     const requester = requesterOf(context);
     // Only an owner may have this machine read, through the persona or not.
     if (agent === 'server' && requester.kind !== 'owner') throw denied('only an owner may ask for the server agent', 'owner-only');
     const scope = inPrivate(context) ? 'dm' : 'group';
     const origin = { channelId: context?.channelId ? String(context.channelId) : null, messageId: context?.sourceMessageId ? String(context.sourceMessageId) : null };
-    const submitted = errands().submit({ guildId: resolvedGuildId(context), agent, goal, requester, origin, scope, ...(adult ? { adult: true } : {}) });
+    const submitted = errands().submit({ guildId: resolvedGuildId(context), agent, goal, requester, origin, scope });
     if (!submitted.ok) return refusal(submitted.code);
     const { task } = submitted;
-    const code = settings && !adult ? settings.code : 'ok';
-    const note = adult ? `${agent}, adult` : code !== 'ok' ? `${agent}; adult ignored: ${code}` : agent;
-    const text = `task ${task.id}: queued (${note})`;
-    return { status: 'ok', code, summary: text, data: { text, task: { id: task.id, agent, state: task.state, ...(adult ? { adult: true } : {}) } } };
+    return { status: 'ok', code: 'ok', summary: `task ${task.id}: queued (${agent})`, data: { text: `task ${task.id}: queued (${agent})`, task: { id: task.id, agent, state: task.state } } };
   }
 
   /** `/nep task status [id]`: one task, or every open one. */

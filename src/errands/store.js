@@ -23,8 +23,6 @@
 // change the store's own copy too, so a task still running cannot write a forgotten one back.
 // A task mirrored into the ledger (src/errands/ledger.js) carries the ledger's id as `ledgerId`
 // (optional; set once the ledger answers, so the transition lines after it carry it too).
-// An adult errand (src/ops/task.js, `agents.web.adult`) carries `adult: true`; its caps are the
-// agent's as for any other.
 // Logs carry ids and codes, never text.
 
 import fs from 'node:fs';
@@ -319,10 +317,9 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
    * A new task, `queued`, or the cap it hits: `{ ok: true, task }` | `{ ok: false, code }`
    * (`unknown-agent`, `bad-goal`, `cap-open`, `cap-tasks`, `cap-usd`).
    * @param {{ agent: string, goal: string, requester: { userId: string|null, kind: string },
-   *   origin: { channelId: string|null, messageId: string|null }, scope: 'dm'|'group', adult?: boolean }} input
-   *   `adult`: an adult errand (`agents.web.adult`), kept on the task as `adult: true`.
+   *   origin: { channelId: string|null, messageId: string|null }, scope: 'dm'|'group' }} input
    */
-  function add({ agent, goal, requester, origin, scope, adult = false } = {}) {
+  function add({ agent, goal, requester, origin, scope } = {}) {
     if (!profileOf(agent)) return { ok: false, code: 'unknown-agent' };
     const text = String(goal ?? '').trim();
     if (!text) return { ok: false, code: 'bad-goal' };
@@ -336,7 +333,6 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
       requester: { userId: requester?.userId ? String(requester.userId) : null, kind: REQUESTER_KINDS.includes(requester?.kind) ? requester.kind : 'member' },
       origin: { channelId: origin?.channelId ? String(origin.channelId) : null, messageId: origin?.messageId ? String(origin.messageId) : null },
       scope: scope === 'dm' ? 'dm' : 'group',
-      ...(adult === true ? { adult: true } : {}),
       state: 'queued',
       createdAt: at,
       startedAt: null,

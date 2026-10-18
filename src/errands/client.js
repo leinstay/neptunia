@@ -14,9 +14,6 @@
 // (sent on the `run` line and nowhere else). A `run` also carries the deployment's shared preamble
 // when `hot.prompts.agents` (prompts.local/agents.md, read live; no tracked default) is non-empty:
 // the core reads the private layer, the runners never do. Logs carry its length, never its text.
-// A `run` carries a `model` when the task has its own (an adult errand); else the runner takes
-// its role's. Likewise a `cost` (USD per million tokens) when the task has its own; else the
-// runner takes `agents.<profile>.cost` from its config.
 
 import net from 'node:net';
 import { log as defaultLog } from '../log.js';
@@ -47,7 +44,7 @@ function failed(error) {
  * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
  * @param {(timer: unknown) => void} [options.clearTimer]
  * @returns {{
- *   run(task: { agent: string, id: string, goal: string, context?: object, limits?: object, model?: string, cost?: { input: number, output: number }, secrets?: object }):
+ *   run(task: { agent: string, id: string, goal: string, context?: object, limits?: object, secrets?: object }):
  *     Promise<{ status: 'done'|'failed'|'cancelled', result: object, usage: object, error?: string }>,
  *   cancel(task: { agent: string, id: string }): boolean,
  *   ping(agent: string): Promise<{ ok: true, profile: string, busy: boolean, queued: number } | { ok: false, error: string }>,
@@ -260,7 +257,7 @@ export function createErrandClient({
     }
   }
 
-  async function run({ agent, id, goal, context = {}, limits = {}, model = null, cost = null, secrets = null } = {}) {
+  async function run({ agent, id, goal, context = {}, limits = {}, secrets = null } = {}) {
     if (closed || !socketOf(agent)) return failed('not-configured');
     if (pending.has(id)) return failed('duplicate-id');
     try {
@@ -281,8 +278,6 @@ export function createErrandClient({
       pending.set(id, { agent, resolve, timer });
       const request = { op: 'run', id, goal, context };
       if (limits && Object.keys(limits).length > 0) request.limits = limits;
-      if (typeof model === 'string' && model) request.model = model;
-      if (cost) request.cost = cost;
       if (secrets) request.secrets = secrets;
       const preamble = typeof hot?.prompts?.agents === 'string' ? hot.prompts.agents.trim() : '';
       if (preamble) request.preamble = preamble;

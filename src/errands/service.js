@@ -33,18 +33,11 @@
 // known before the first ask), and a refusal pings the runner again, at most once per
 // RUNNER_RECHECK_MS, so the flag flips back even when the client's reconnect loop has stopped.
 // The flag is logged once per change (`errands: runner up` / `errands: runner down`).
-// An adult errand (`adult: true` on the task, src/ops/task.js) runs, while `agents.web.adult`
-// is set (src/config.js#adultErrandSettings, read when it is sent), on that block's `model`
-// with its `limits` over the agent's, and with the block's `cost` when set (the runner's usd cap
-// then priced for that model; without it no cost is sent and the runner keeps
-// `agents.<agent>.cost`); the ledger gets the same model and limits. Without the block by then it
-// runs as any other errand.
 
 import { log as defaultLog } from '../log.js';
 import { PROFILES, profileOf } from '../agent-runner/profiles.js';
 import { roleApiKey } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
-import { adultErrandSettings } from '../config.js';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOpenState } from './store.js';
@@ -161,25 +154,15 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     return stores.get(guildId || getGuildId?.() || '');
   }
 
-  /**
-   * The limits a task of `agent` runs under: `agents.<agent>.limits` over the profile's defaults;
-   * for an adult errand (`adult` true) `agents.<agent>.adult.limits` over those, while set.
-   */
-  function limitsOf(agent, adult = false) {
+  /** The limits a task of `agent` runs under: `agents.<agent>.limits` over the profile's defaults. */
+  function limitsOf(agent) {
     const set = hot.config?.agents?.[agent]?.limits ?? {};
     const out = {};
     for (const key of TASK_LIMIT_KEYS) {
       const value = Number.isFinite(set[key]) && set[key] > 0 ? set[key] : profileOf(agent)?.defaultLimits?.[key];
       if (Number.isFinite(value) && value > 0) out[key] = value;
     }
-    const settings = adult === true ? adultOf(agent) : null;
-    return settings ? { ...out, ...settings.limits } : out;
-  }
-
-  /** `agents.<agent>.adult` read now (`{ model, limits, cost? }`), or null when it is not set or not valid. */
-  function adultOf(agent) {
-    const settings = adultErrandSettings(hot.config?.agents?.[agent]?.adult);
-    return settings.ok ? settings : null;
+    return out;
   }
 
   /**
@@ -232,13 +215,8 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const task = store.start(id);
     if (!task) return null;
     const secrets = secretsOf(task.agent);
-    const limits = limitsOf(task.agent, task.adult === true);
-    // An adult errand's own model, while `agents.<agent>.adult` is set; else the runner takes the role's.
-    const adult = task.adult === true ? adultOf(task.agent) : null;
-    const model = adult?.model ?? null;
-    // Its own price too, when set; else none is sent and the runner prices it by `agents.<agent>.cost`.
-    const cost = adult?.cost ?? null;
-    mirrored(task.id, () => mirror.start(task, { limits, model: model ?? roleModel(hot.config, profileOf(task.agent)?.modelRole) ?? null }));
+    const limits = limitsOf(task.agent);
+    mirrored(task.id, () => mirror.start(task, { limits, model: roleModel(hot.config, profileOf(task.agent)?.modelRole) ?? null }));
     live.set(task.id, task);
     let outcome;
     try {
@@ -248,8 +226,6 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
         goal: task.goal,
         context: { scope: task.scope, channel: task.origin?.channelId ?? null, asker: task.requester?.userId ?? null, recent: task.scope === 'dm' ? [] : recent },
         limits,
-        ...(model ? { model } : {}),
-        ...(cost ? { cost } : {}),
         ...(secrets ? { secrets } : {}),
       });
     } catch (err) {
@@ -276,19 +252,18 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
    * `{ ok: true, task }` (the task as queued) or `{ ok: false, code }` (the store's refusal, or
    * `not-configured` when the agent's runner is not set up, `runner-down` while its runner is
    * known unreachable, `no-guild` without a guild).
-   * @param {{ guildId?: string, agent: string, goal: string, requester: object, origin: object, scope: 'dm'|'group', adult?: boolean }} input
-   *   `adult`: an adult errand (`agents.<agent>.adult`; the caller checked it is set).
+   * @param {{ guildId?: string, agent: string, goal: string, requester: object, origin: object, scope: 'dm'|'group' }} input
    */
-  function submit({ guildId = null, agent, goal, requester, origin, scope, adult = false }) {
+  function submit({ guildId = null, agent, goal, requester, origin, scope }) {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: 'no-guild' };
     if (!profileOf(agent)) return { ok: false, code: 'unknown-agent' };
     if (typeof client?.configured === 'function' && !client.configured(agent)) return { ok: false, code: 'not-configured' };
     if (runnerDown(agent)) return { ok: false, code: 'runner-down' };
-    const added = store.add({ agent, goal, requester, origin, scope, ...(adult === true ? { adult: true } : {}) });
+    const added = store.add({ agent, goal, requester, origin, scope });
     if (!added.ok) return added;
     const id = added.task.id;
-    mirrored(id, () => mirror.add(added.task, { guildId: store.guildId, limits: limitsOf(agent, added.task.adult === true), onLedgerId: keepLedgerId(store, id) }));
+    mirrored(id, () => mirror.add(added.task, { guildId: store.guildId, limits: limitsOf(agent), onLedgerId: keepLedgerId(store, id) }));
     // The channel as it was when the task was asked for, not when it is sent.
     recentById.set(id, recentOf(store.guildId, added.task.origin?.channelId ?? null, added.task.scope));
     // After the operation's answer: the persona never waits for her errand.
@@ -367,7 +342,7 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     const store = storeOf(guildId);
     if (!store) return 0;
     const open = store.open();
-    mirrored(null, () => mirror.mirrorOpen(open, { guildId: store.guildId, limitsOf: (task) => limitsOf(task.agent, task.adult === true), onLedgerId: (task, ledgerId) => store.setLedgerId?.(task.id, ledgerId) }));
+    mirrored(null, () => mirror.mirrorOpen(open, { guildId: store.guildId, limitsOf: (task) => limitsOf(task.agent), onLedgerId: (task, ledgerId) => store.setLedgerId?.(task.id, ledgerId) }));
     const failed = store.failOpen('restarted');
     for (const task of open) {
       const ended = store.get(task.id);
