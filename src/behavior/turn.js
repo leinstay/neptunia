@@ -13,7 +13,7 @@
 // plain, with a jump link to it.
 
 import { randomUUID } from 'node:crypto';
-import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, continuesTurn, fillPromptTemplate, gifFieldChars, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
+import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, continuesTurn, fillPromptTemplate, freezePerBucket, gifFieldChars, ownGifLines, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
 import {
   DIARY_DAILY,
   DIARY_PICTURES_DAILY,
@@ -41,7 +41,7 @@ import { captionedEntries, gifPickSettings, parseGifPick, pickCandidates, pickCo
 import { turnRequestInput } from './turn-input.js';
 import { DEFAULT_RESULT_MAX_CHARS, tasksBlockText, taskResultText } from '../errands/blocks.js';
 import { parseJsonObject, parseOutput } from '../llm/parse.js';
-import { DailyCapError, REPLY_REQUEST, TokenLimitError, RETRY_STATUS, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
+import { DailyCapError, REPLY_REQUEST, TokenLimitError, RETRY_STATUS, cacheTtlMs, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
 import { ImageCapError, ImageGenError } from '../llm/images.js';
 import { limitOf, mirrorChannelLabel, mirrorDryRun, postLimitNotice } from './limits.js';
 import { between, typingMs } from './random.js';
@@ -2836,9 +2836,14 @@ export function createTurnRunner({
    * captioned entry), ONE helper request on the classifier model
    * (role `analyzer`, purpose `gif-pick`, its answer capped at
    * `gifs.pick.maxOutputTokens`): system = the prompt with `{{name}}`, user =
-   * `<gifs>` (renderGifLibrary over the WHOLE library in rank order, own-marked entries last,
-   * `gifs.reactionChars`, `gifs.actionChars` and `gifs.ownMarkHours` read now: the stable bulk first,
-   * for the provider's prompt cache), `<context>` (pickContext: the last `gifs.pick.contextMessages` lines of
+   * `<gifs>` (renderGifLibrary over the WHOLE captioned library in rank order, with no own-post
+   * mark, `gifs.reactionChars` and `gifs.actionChars` read now: the stable bulk first, the part
+   * tagged for the provider's prompt cache; with `features.promptCache` exactly true it is held
+   * per cache bucket in the guild's stable freeze, like the reply's `<gifs>`, see
+   * src/behavior/prompt.js#freezePerBucket, so a GIF post or a use that reranks the library
+   * rewrites the cached prefix at most once per `llm.cache.ttl`), then the per-call tail:
+   * `<gifs_recent>` (ownGifLines: the listed GIFs the persona posted within `gifs.ownMarkHours`,
+   * with how long ago, from the live library), `<context>` (pickContext: the last `gifs.pick.contextMessages` lines of
    * `history`, preceded by the line the first message answers when that one is
    * older -- its `reply` target, else the trigger --, as classifierTranscript
    * renders them; no block for 0), `<reply>` (the first message, preceded by
@@ -2864,10 +2869,16 @@ export function createTurnRunner({
     const first = messages[0];
     const gifsCfg = config.gifs ?? {};
     const chars = gifFieldChars(gifsCfg);
-    const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
-    const listed = captionedEntries(rankGifs(store.getGifs(guildId), gifsCfg.halfLifeDays ?? 30), mediaCache, chars.actionChars);
     const labels = hot.prompts?.labels;
-    const library = renderGifLibrary(listed, mediaCache, labels, { now: clock(), ownMarkHours: gifsCfg.ownMarkHours ?? 24, ...chars });
+    const at = clock();
+    // The library as the first pick of this cache bucket rendered it (no clock in it); the
+    // signature lets an edit of its labels or settings show at once.
+    const freeze = config.features?.promptCache === true ? stableFreezeOf(guildId) : null;
+    const { library, handles } = freezePerBucket(freeze, 'gif-pick', { now: at, bucketMs: cacheTtlMs(config), signature: JSON.stringify([labels?.gifs ?? null, gifsCfg]) }, () => {
+      const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
+      const listed = captionedEntries(rankGifs(store.getGifs(guildId), gifsCfg.halfLifeDays ?? 30), mediaCache, chars.actionChars);
+      return { library: renderGifLibrary(listed, mediaCache, labels, { now: 0, ownMarkHours: 0, ...chars }), handles: listed.map((entry) => entry.id) };
+    });
     if (!pickCandidates({ text: first.text, postsGif: Boolean(gif), captioned: library.length }, settings)) return null;
     const posts = gifsToday();
     if (posts.used >= posts.cap) return null;
@@ -2882,12 +2893,14 @@ export function createTurnRunner({
         ? replyMarker(context.messages[context.answeredIndex - 1], context.answeredIndex, { labels, selfName, replyQuoteChars: config.context?.replyQuoteChars })
         : '';
     const replyBody = answersMark ? `${answersMark} ${first.text}` : first.text;
+    // Which of the listed GIFs the persona posted lately, with how long ago: per call, in the tail.
+    const recent = labels ? ownGifLines(store.getGifs(guildId), handles, labels, { ownMarkHours: gifsCfg.ownMarkHours ?? 24, now: at }) : [];
     let completion;
     try {
       completion = await llm.complete(
         [
           { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '' }) },
-          { role: 'user', content: stableThenTail(block('gifs', library.join('\n')), [block('context', contextBody), block('reply', replyBody)], '\n\n') },
+          { role: 'user', content: stableThenTail(block('gifs', library.join('\n')), [block('gifs_recent', recent.join('\n')), block('context', contextBody), block('reply', replyBody)], '\n\n') },
         ],
         {
           model: roleModel(config, 'analyzer', 'gif-pick'),
@@ -2898,7 +2911,7 @@ export function createTurnRunner({
       log.warn('gifs: pick failed', { channel: channelId, reason: railReason(err), status: err?.statusCode ?? null });
       return null;
     }
-    const handle = parseGifPick(completion?.text, listed.map((entry) => entry.id));
+    const handle = parseGifPick(completion?.text, handles);
     log.info('gifs: picked', { channel: channelId, handle: handle !== null, library: library.length });
     if (handle === null) return null;
     return resolveGif(guildId, { id: handle, replyTo: first.replyTo ?? null }, channelId);

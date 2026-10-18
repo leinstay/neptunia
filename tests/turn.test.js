@@ -19,7 +19,7 @@ import {
 } from '../src/behavior/turn.js';
 import { between, typingMs } from '../src/behavior/random.js';
 import { fillPromptTemplate, userText as textOf } from '../src/behavior/prompt.js';
-import { fill, formatClock, formatDate } from '../src/format.js';
+import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { handleOf } from '../src/behavior/handles.js';
@@ -7601,6 +7601,50 @@ test('runTurn: the picker runs alongside the first message\'s typing time', asyn
   assert.ok(askedAt !== null && askedAt <= sendTimes[0], 'the picker is asked before the send');
   const together = sendTimes[0] - askedAt;
   assert.ok(together >= 140 && together < 270, `the picker and the typing ran together (${together} ms)`);
+});
+
+/**
+ * Two picker turns on ONE runner at `times` (ms), the library changed between them by `between`
+ * (a GIF post of the persona, a use that reranks); the picks' user parts.
+ */
+async function twoPickTurns({ times, between, promptCache = true }) {
+  const library = pickLibrary();
+  const store = pickStore({ library });
+  const llm = pickLlm({ reply: '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick: 'none' });
+  let t = times[0];
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: pickHot({ features: { promptCache } }), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => t });
+  const turn = () => withCapturedLogs(() => turns.runTurn({ channel: fakeTurnChannel({ historyMessages: pickHistory() }), mode: 'reply', trigger: normalizedTrigger(pickHistory().at(-1)), triggerKind: 'mention' }));
+  await turn();
+  between(library.gifs);
+  t = times[1];
+  await turn();
+  return llm.calls.filter((call) => call.options?.purpose === 'gif-pick').map((call) => call.messages[1].content);
+}
+
+/** The persona posted g40 at `at`, and it was used enough to lead the ranking. */
+const postG40 = (at) => (gifs) => Object.assign(gifs.entries.k40, { ownLast: at, ownUses: 1, count: 500, last: at });
+
+test('runTurn: with the prompt cache on, the picker\'s cached library is byte-identical within one cache bucket; her post and its age go to the tail', async () => {
+  const first = NOW + 60_000;
+  const second = NOW + 7 * 60_000;
+  const [a, b] = await twoPickTurns({ times: [first, second], between: postG40(first + 1000) });
+  assert.equal(a[0].cacheSegment, 'stable');
+  assert.equal(b[0].text, a[0].text, 'the stable part of the second pick is byte for byte the first one\'s');
+  assert.equal(b[0].text.includes('(you'), false, 'no own-post mark in the cached library');
+  const gifLines = b[0].text.replace(/^<gifs>\n/, '').replace(/\n<\/gifs>\n\n$/, '').split('\n');
+  assert.equal(gifLines[0], 'g1 -- λεζάντα 1', 'the order the bucket started with');
+  assert.equal(a[1].text.includes('<gifs_recent>'), false, 'no recent post before it');
+  const recent = fill(labels.gifs.ownMark, { ago: formatDuration(second - (first + 1000), labels.units) });
+  assert.ok(b[1].text.startsWith(`<gifs_recent>\ng40 ${recent}\n</gifs_recent>\n\n<context>\n`), 'the post and its age open the per-call tail');
+});
+
+test('runTurn: the picker\'s library follows the library at the next cache bucket, or at once with the prompt cache off', async () => {
+  const first = NOW + 60_000;
+  const [, nextBucket] = await twoPickTurns({ times: [first, NOW + 61 * 60_000], between: postG40(first + 1000) });
+  assert.ok(nextBucket[0].text.startsWith('<gifs>\ng40 -- λεζάντα 40\n'), 'reranked at the bucket edge');
+  const [, off] = await twoPickTurns({ times: [first, NOW + 2 * 60_000], between: postG40(first + 1000), promptCache: false });
+  assert.ok(off[0].text.startsWith('<gifs>\ng40 -- λεζάντα 40\n'), 'rendered live without the cache');
+  assert.equal(off[0].text.includes('(you'), false, 'never marked in the library');
 });
 
 // ---------------------------------------------------------------------------

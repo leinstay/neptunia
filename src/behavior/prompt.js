@@ -1033,14 +1033,15 @@ function gifItems(gifs, mediaCache, labels, gifsCfg) {
  * handles), the ones the persona posted within `ownMarkHours` (0 = never) of `now`
  * according to the live library, newest post first, each as its handle, a space and
  * `labels.gifs.ownMark` with `{ago}` (formatDuration, `labels.units`). [] without that label
- * or the units. Per turn: the ages move, so this never enters a cached part. Pure.
+ * or the units. Per turn: the ages move, so this never enters a cached part. The GIF
+ * picker's tail uses it the same way (src/behavior/turn.js#pickGif). Pure.
  * @param {unknown} gifs  The live library (store.getGifs).
  * @param {string[]} shownIds
  * @param {object} labels
  * @param {{ ownMarkHours: number, now: number }} options
  * @returns {string[]}
  */
-function ownGifLines(gifs, shownIds, labels, { ownMarkHours, now }) {
+export function ownGifLines(gifs, shownIds, labels, { ownMarkHours, now }) {
   const g = labels.gifs;
   if (!g?.ownMark || !labels.units || shownIds.length === 0) return [];
   const shown = new Set(shownIds);
