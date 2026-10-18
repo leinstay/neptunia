@@ -2840,14 +2840,16 @@ export function createTurnRunner({
    * One picture through the drawing agent (src/errands/tools.js#drawPicture): her scene verbatim
    * into the drawing prompt, the avatar reference for a picture she is in, one generation. A task
    * record of the agent when the errand service is there. `userId` is the member whose rail
-   * counts it (null: nobody's); `avatar` the holder a diary set reuses the avatar through.
+   * counts it (null: nobody's); `avatar` the holder a diary set reuses the avatar through;
+   * `guildId` the served guild of a private chat (a DM channel has none), whose task store
+   * records the picture as it does her errands from that chat.
    * Throws what the image client throws (ImageCapError, ImageGenError).
    */
-  function makePicture({ channel, scene, self, selfName, userId = null, avatar = null, messageId = null }) {
+  function makePicture({ channel, guildId = null, scene, self, selfName, userId = null, avatar = null, messageId = null }) {
     return drawPicture({
       tool: drawing,
       errands,
-      guildId: channel.guild?.id ?? null,
+      guildId: channel.guild?.id ?? guildId ?? null,
       input: { scene, selfName, self, withTime: true, userId, avatar },
       requester: { userId, kind: userId ? 'member' : 'persona' },
       origin: { channelId: channel.id, messageId },
@@ -2898,7 +2900,7 @@ export function createTurnRunner({
    * the port: anything but `ok` is `{ drawFailed: 'error' }`, journaled by its status, and the
    * picture is never generated again.
    */
-  async function draw({ channel, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId = null, draft = null }) {
+  async function draw({ channel, guildId = null, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId = null, draft = null }) {
     const self = parsed.draw.self === true;
     const asked = askedFor(trigger, triggerKind);
     const { replyId, pulledId } = replyTarget(parsed.draw.replyTo, { plain, idByIndex, pulledIds });
@@ -2910,6 +2912,7 @@ export function createTurnRunner({
     try {
       const { picture, referenceMissing } = await makePicture({
         channel,
+        guildId,
         scene: parsed.draw.text,
         self,
         selfName,
@@ -3573,7 +3576,7 @@ export function createTurnRunner({
 
     // The picture comes last, once every message is out.
     if (!parsed.draw) return { delivered, answered, ...posted };
-    const drawn = await draw({ channel, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId, draft });
+    const drawn = await draw({ channel, guildId, parsed, idByIndex, pulledIds, linkFor, trigger, triggerKind, plain, selfName, sourceId, draft });
     if (drawn.posted === true) {
       if (drawn.pulledId) answered.add(drawn.pulledId);
       notePost(drawn.message, drawn.replyId, drawn.op);
