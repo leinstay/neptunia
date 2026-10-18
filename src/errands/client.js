@@ -15,9 +15,12 @@
 // one matches: the files of prompts.local/preambles/ picked by agent and by the agent's model
 // (src/errands/preambles.js; `hot.prompts.preambles`, read live; no tracked default). The model
 // is the agent's role model (`roles["agent.web"]`, `roles["agent.server"]`), resolved here at send
-// time, so the runner is never asked. A composed text over MAX_PREAMBLE_CHARS sends the files that
-// fit, whole and in order, with a warning naming the rest. The core reads the private layer, the
-// runners never do. Logs carry the file names and the length, never a text.
+// time and sent on the `run` line as `model`, with the live price `agents.<profile>.cost` as `cost`
+// when it has finite input and output: the runners cannot read the private config, so without
+// them a run would fall back to the tracked config. A composed text over MAX_PREAMBLE_CHARS sends
+// the files that fit, whole and in order, with a warning naming the rest. The core reads the
+// private layer, the runners never do. Logs carry the model id, the file names and the length,
+// never a text or the cost.
 
 import net from 'node:net';
 import { log as defaultLog } from '../log.js';
@@ -263,12 +266,25 @@ export function createErrandClient({
     }
   }
 
+  /** The role model of `agent`, read now from the live config, or null. */
+  function runModelOf(agent) {
+    const model = roleModel(hot?.config, profileOf(agent)?.modelRole);
+    return typeof model === 'string' && model ? model : null;
+  }
+
+  /** The live price of `agent` (`agents.<agent>.cost`) when both fields are usable, else null. */
+  function costOf(agent) {
+    const cost = hot?.config?.agents?.[agent]?.cost;
+    const usable = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+    if (!cost || typeof cost !== 'object' || !usable(cost.input) || !usable(cost.output)) return null;
+    return { input: cost.input, output: cost.output };
+  }
+
   /**
-   * The preamble of a run of `agent` on the agent's role model (read now): `{ text, files, chars }`.
+   * The preamble of a run of `agent` on `runModel`: `{ text, files, chars }`.
    * Over MAX_PREAMBLE_CHARS, a warning names the files sent and left out.
    */
-  function preambleOf(agent) {
-    const runModel = roleModel(hot?.config, profileOf(agent)?.modelRole) ?? null;
+  function preambleOf(agent, runModel) {
     const composed = composePreamble({ prompts: hot?.prompts, agent, model: runModel, maxChars: MAX_PREAMBLE_CHARS });
     if (composed.dropped.length > 0) {
       log.warn('errands: preamble over the cap', { agent, model: runModel, files: composed.files, dropped: composed.dropped, chars: composed.chars, maxChars: MAX_PREAMBLE_CHARS });
@@ -298,7 +314,11 @@ export function createErrandClient({
       const request = { op: 'run', id, goal, context };
       if (limits && Object.keys(limits).length > 0) request.limits = limits;
       if (secrets) request.secrets = secrets;
-      const preamble = preambleOf(agent);
+      const model = runModelOf(agent);
+      if (model) request.model = model;
+      const cost = costOf(agent);
+      if (cost) request.cost = cost;
+      const preamble = preambleOf(agent, model);
       if (preamble.text) request.preamble = preamble.text;
       if (!send(agent, request)) {
         pending.delete(id);
@@ -306,7 +326,7 @@ export function createErrandClient({
         resolve(failed('disconnected'));
         return;
       }
-      log.info('errands: sent', { agent, id, preambleFiles: preamble.files, preambleChars: preamble.chars });
+      log.info('errands: sent', { agent, id, model, preambleFiles: preamble.files, preambleChars: preamble.chars });
     });
   }
 
