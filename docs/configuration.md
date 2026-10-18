@@ -250,6 +250,7 @@ Message text with author names is sent to the embedding provider (OpenAI through
 | `caps.gifs` | `900` | Token cap: GIF library |
 | `caps.pulled` | `4000` | Token cap: pulled channel block (`<channel_view>`) |
 | `caps.participation` | `6000` | Token cap: the persona's exchanges on other channels (`<participation>`); whole episodes are dropped, the picked ones last |
+| `caps.earlier` | `2500` | Token cap: this channel's saved lines older than the chat (`<earlier>`); the oldest episodes are dropped first |
 | `channelActivity.liveMessagesPerDay` | `20` | Daily messages = "active" channel |
 | `channelActivity.deadAfterDays` | `7` | Days without messages = "dead" channel |
 | `vision.maxImages` | `4` | Max images per request |
@@ -355,6 +356,8 @@ The persona's own exchanges on other channels (`features.participation`). Every 
 | `episodeChars` | `1800` | Characters of text shown per episode; a longer one keeps the persona's lines, the lines they answer, the lines that share a word with the new message and the ends, and marks the cut lines |
 | `contextMessages` | `6` | Recent channel lines rendered for the pick classifier alongside the new message |
 | `maxOutputTokens` | `60` | Max output tokens for the pick classifier |
+| `earlierHours` | `3` | The same saved episodes also cover the current channel: the lines of it that are older than the oldest line of `<chat>` and younger than this many hours come in an `<earlier>` block, so a conversation the count-based history (`context.channelMessages`) has already let go of is not lost. `0` turns the block off (h) |
+| `earlierShown` | `3` | Episodes of the current channel shown in `<earlier>`, the newest ones; each is cut to `episodeChars` |
 
 ## `split`
 

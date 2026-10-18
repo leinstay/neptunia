@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   PARTICIPATION_DEFAULTS,
   cutEpisode,
+  earlierEpisodes,
   emptyParticipation,
   episodeHeadlines,
   expireEpisodes,
@@ -352,4 +353,70 @@ test('participation: eviction returns the dropped items with their itemId', () =
   const later = recordFollowing(next, { channelId: 'c3', message: msg('m9', 3 * 60 + 1) }, S, T0 + 3 * HOUR + 2 * MIN);
   assert.equal(later.episodes.find((ep) => ep.channelId === 'c3').itemId, 'pt-p4', 'a recorded message keeps the episode itemId');
   assert.equal('itemId' in normalizeParticipation(emptyParticipation()), false);
+});
+
+// --- earlierEpisodes -------------------------------------------------------------
+
+/** Three episodes of c1 and one of c2: p1 at minutes 0-2, p2 at 20-24, p3 at 40-44 (c1), p4 at 21 (c2). */
+function earlierState() {
+  return deepFreeze({
+    nextId: 5,
+    episodes: [
+      { id: 'p1', channelId: 'c1', continues: null, messages: [msg('a0', 0), own('a1', 1), msg('a2', 2)] },
+      { id: 'p2', channelId: 'c1', continues: null, messages: [msg('b0', 20), own('b1', 21), msg('b2', 22), own('b3', 24)] },
+      { id: 'p3', channelId: 'c1', continues: 'p2', messages: [msg('c0', 40), own('c1', 41), msg('c2', 44)] },
+      { id: 'p4', channelId: 'c2', continues: null, messages: [own('d1', 21)] },
+    ],
+  });
+}
+
+const earlierView = (episodes) => episodes.map((ep) => [ep.id, ids(ep)]);
+
+test('earlierEpisodes: only the channel, only lines older than the window start, oldest first', () => {
+  const state = earlierState();
+  const now = T0 + 60 * MIN;
+  const s = { ...S, earlierHours: 3, earlierShown: 3 };
+  // The window starts at minute 22: p3 is whole in the window, p2 is cut at b2, p1 is gone whole.
+  assert.deepEqual(earlierView(earlierEpisodes(state, { channelId: 'c1', before: T0 + 22 * MIN, now }, s)), [
+    ['p1', ['a0', 'a1', 'a2']],
+    ['p2', ['b0', 'b1']],
+  ]);
+  // A window that starts before every line cuts nothing.
+  assert.deepEqual(earlierEpisodes(state, { channelId: 'c1', before: T0 - MIN, now }, s), []);
+  // Another channel's episodes never come.
+  assert.deepEqual(earlierView(earlierEpisodes(state, { channelId: 'c2', before: T0 + 60 * MIN, now }, s)), [['p4', ['d1']]]);
+});
+
+test('earlierEpisodes: the age bound drops older lines, the count keeps the newest episodes', () => {
+  const state = earlierState();
+  const before = T0 + 50 * MIN;
+  // One hour later, a 1-hour bound keeps lines from minute 30 on (now = minute 90).
+  assert.deepEqual(earlierView(earlierEpisodes(state, { channelId: 'c1', before, now: T0 + 90 * MIN }, { ...S, earlierHours: 1, earlierShown: 3 })), [
+    ['p3', ['c0', 'c1', 'c2']],
+  ]);
+  // A bound that cuts inside an episode keeps its younger lines (now = minute 81, bound from minute 21).
+  assert.deepEqual(earlierView(earlierEpisodes(state, { channelId: 'c1', before, now: T0 + 81 * MIN }, { ...S, earlierHours: 1, earlierShown: 3 })), [
+    ['p2', ['b1', 'b2', 'b3']],
+    ['p3', ['c0', 'c1', 'c2']],
+  ]);
+  assert.deepEqual(earlierView(earlierEpisodes(state, { channelId: 'c1', before, now: T0 + 60 * MIN }, { ...S, earlierHours: 3, earlierShown: 2 })), [
+    ['p2', ['b0', 'b1', 'b2', 'b3']],
+    ['p3', ['c0', 'c1', 'c2']],
+  ]);
+});
+
+test('earlierEpisodes: off with earlierHours 0, earlierShown 0, no channel or no window start', () => {
+  const state = earlierState();
+  const view = { channelId: 'c1', before: T0 + 60 * MIN, now: T0 + 60 * MIN };
+  assert.deepEqual(earlierEpisodes(state, view, { ...S, earlierHours: 0, earlierShown: 3 }), []);
+  assert.deepEqual(earlierEpisodes(state, view, { ...S, earlierHours: 3, earlierShown: 0 }), []);
+  assert.deepEqual(earlierEpisodes(state, { ...view, channelId: null }, { ...S, earlierHours: 3, earlierShown: 3 }), []);
+  assert.deepEqual(earlierEpisodes(state, { ...view, before: undefined }, { ...S, earlierHours: 3, earlierShown: 3 }), []);
+});
+
+test('earlierEpisodes: the same store and window start give the same episodes as the clock moves', () => {
+  const state = earlierState();
+  const s = { ...S, earlierHours: 3, earlierShown: 3 };
+  const at = (minute) => earlierEpisodes(state, { channelId: 'c1', before: T0 + 22 * MIN, now: T0 + minute * MIN }, s);
+  assert.deepEqual(at(60), at(90));
 });

@@ -397,7 +397,9 @@
     "channel": "#{channel} ({purpose}):",
     "channelNoPurpose": "#{channel}:",
     "episode": "{when} ago:",
-    "skipped": "[{count} messages skipped]"
+    "skipped": "[{count} messages skipped]",
+    "earlierHeader": "Earlier in this channel, before the chat below (last {hours} hours):",
+    "earlierGap": "[...]"
   },
   "attitudes": {
     "header": "People you feel most strongly about, warm and cool. This is background; draw on it when someone comes up or when people are the topic, but never read it out as a list or name the labels.",

@@ -14,6 +14,10 @@
 //       first); on a routed turn -- a call from a channel the persona cannot
 //       write in, answered here -- it goes right BEFORE the chat instead,
 //       since the call itself lives in it
+//   5b2. the current channel's own saved stretch older than the chat (`<earlier>`):
+//       its participation episodes cut to the lines before the chat's first one,
+//       younger than `participation.earlierHours`, capped by `context.caps.earlier`;
+//       rendered in the tail right after `<participation>`; never in a private chat
 //   5c. the last `memory.recentHours` (`<recent>`): the recent lines this
 //       channel's audience may read, then members' moments of those hours that
 //       `<people>` does not show, capped by `context.caps.recent`, ranked by who
@@ -80,6 +84,7 @@ import {
   sortEpisodesForDisplay,
   topEpisodes,
   cutEpisode,
+  earlierEpisodes,
   participationSettings,
   selectEpisodes,
   matchLore,
@@ -1251,6 +1256,8 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('recent', (kept.recent ?? []).join('\n')),
     // The persona's own exchanges on other channels: one item, the header and the episodes kept.
     block('participation', (kept.participation ?? []).join('\n')),
+    // This channel's lines older than `<chat>`: one item, moving only when a stored line leaves the chat.
+    block('earlier', (kept.earlier ?? []).join('\n')),
     // The members the persona feels most strongly about that `<people>` does not describe.
     block('attitudes', (kept.attitudes ?? []).join('\n')),
     block('other_channels', kept.neighbors.join('\n\n')),
@@ -2101,6 +2108,26 @@ function matchWords(text) {
 }
 
 /**
+ * How a stored participation message renders (`<participation>` and `<earlier>`): the
+ * transcript's form without a `#n` index or a reply quote -- the clock time, as
+ * `transcript.timeAged` once the line is `ageMinutes` old, the author (`labels.self` for the
+ * persona), the text, and a stored caption as `transcript.imageDescribed`.
+ * @returns {(message: object) => string}
+ */
+function storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinutes }) {
+  const selfLabel = fill(labels.self, { name: selfName });
+  const agedTemplate = labels.transcript?.timeAged;
+  return (message) => {
+    const clock = formatClock(message.ts, timezone, labels.locale);
+    const age = now - message.ts;
+    const time = agedTemplate && age >= ageMinutes * MINUTE_MS ? fill(agedTemplate, { clock, age: formatDuration(age, labels.units) }) : `[${clock}]`;
+    const caption = message.caption && labels.transcript?.imageDescribed ? fill(labels.transcript.imageDescribed, { text: message.caption }) : '';
+    const body = [resolveChatText(message.text, nameOf), caption].filter(Boolean).join(' ');
+    return `${time} ${message.self ? selfLabel : message.name}: ${body}`.trimEnd();
+  };
+}
+
+/**
  * The `<participation>` block's pieces before the budget: the slices of other
  * channels around the persona's own lines (src/memory/participation.js), or
  * null when there is no block to build -- a private chat, `features.participation`
@@ -2145,16 +2172,7 @@ function participationView(participation, { config, labels, privateChat, current
   const stored = new Map((Array.isArray(channels) ? channels : []).filter((channel) => channel?.id).map((channel) => [channel.id, channel]));
   const liveName = typeof participation.channelName === 'function' ? participation.channelName : () => null;
   const words = matchWords(candidateText);
-  const selfLabel = fill(labels.self, { name: selfName });
-  const agedTemplate = labels.transcript?.timeAged;
-  const renderLine = (message) => {
-    const clock = formatClock(message.ts, timezone, labels.locale);
-    const age = now - message.ts;
-    const time = agedTemplate && age >= ageMinutes * MINUTE_MS ? fill(agedTemplate, { clock, age: formatDuration(age, labels.units) }) : `[${clock}]`;
-    const caption = message.caption && labels.transcript?.imageDescribed ? fill(labels.transcript.imageDescribed, { text: message.caption }) : '';
-    const body = [resolveChatText(message.text, nameOf), caption].filter(Boolean).join(' ');
-    return `${time} ${message.self ? selfLabel : message.name}: ${body}`.trimEnd();
-  };
+  const renderLine = storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinutes });
   const episodes = [];
   let offered = 0;
   let deduped = 0;
@@ -2212,6 +2230,60 @@ function participationText(view, keptEpisodes) {
     lines.push(episode.text);
   }
   return lines.join('\n');
+}
+
+/**
+ * The `<earlier>` block's pieces before the budget: the current channel's lines
+ * the chat window no longer holds (src/memory/participation.js#earlierEpisodes:
+ * the stored episodes of `currentChannelId` cut to their lines older than the
+ * window's first line, `history`'s oldest, and younger than
+ * `participation.earlierHours`; the newest `participation.earlierShown`). Null
+ * when there is no block to build -- a private chat, `features.participation`
+ * off, no `labels.participation.earlierHeader`, no `participation.state` or an
+ * empty history. Each episode is cut to `participation.episodeChars`
+ * (cutEpisode, a run of cut lines as `labels.participation.skipped`) and its
+ * lines render as in `<participation>` (storedLineRenderer) but always with the
+ * bare clock, never `transcript.timeAged`: no text here moves with the clock
+ * alone, so the block changes only when a stored line crosses the chat's first
+ * line or the age bound. `episodes` come
+ * newest first (the budget's priority), each with `text` and `startAt`.
+ * @returns {{ header: string, episodes: { id: string, text: string, startAt: number }[] }|null}
+ */
+function earlierView(participation, { config, labels, privateChat, currentChannelId, history, now, timezone, selfName, nameOf }) {
+  const p = labels.participation;
+  if (privateChat || config.features?.participation === false) return null;
+  if (!p?.earlierHeader) return null;
+  if (!participation || typeof participation !== 'object' || !participation.state) return null;
+  const starts = history.map((message) => message?.ts).filter(Number.isFinite);
+  if (starts.length === 0) return null;
+  const settings = participationSettings(config);
+  const renderLine = storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinutes: Infinity });
+  const episodes = earlierEpisodes(participation.state, { channelId: currentChannelId, before: Math.min(...starts), now }, settings)
+    .map((episode) => ({
+      id: episode.id,
+      startAt: episode.startAt,
+      text: cutEpisode(episode, { maxChars: settings.episodeChars })
+        .map((item) => ('skipped' in item ? (p.skipped ? fill(p.skipped, { count: item.skipped }) : '') : renderLine(item.message)))
+        .filter(Boolean)
+        .join('\n'),
+    }))
+    .reverse();
+  return { header: fill(p.earlierHeader, { hours: settings.earlierHours }), episodes };
+}
+
+/**
+ * The `<earlier>` block's text from the budget's kept items (the header, then a
+ * subsequence of `view.episodes` in their order): the header, then the kept
+ * episodes oldest first, `labels.participation.earlierGap` between two of them
+ * when the label is there. '' when the header or every episode was cut.
+ */
+function earlierText(view, keptItems, labels) {
+  if (keptItems.length < 2 || keptItems[0] !== view.header) return '';
+  const kept = new Set(keptItems.slice(1));
+  const shown = view.episodes.filter((episode) => kept.has(episode.text)).sort((a, b) => a.startAt - b.startAt);
+  if (shown.length === 0) return '';
+  const gap = labels.participation?.earlierGap;
+  return [view.header, shown.map((episode) => episode.text).join(gap ? `\n${gap}\n` : '\n')].join('\n');
 }
 
 /** A stored `YYYY-MM-DD` in the transcript's date form (`formatDate`), read as that calendar day:
@@ -2759,6 +2831,9 @@ function seenOf({ history, keptChat, pictures }) {
  *   right after `recent`; one item per episode, the header first. Never in a private chat;
  *   none with `features.participation` false or without `labels.participation.header` and
  *   `labels.participation.episode`. While it is shown, `<senses>` carries `senses.participation`.
+ *   The same `state` also gives `<earlier>` (see `earlierView`): the current channel's
+ *   episodes cut to their lines older than `history`'s oldest, budget section `earlier`
+ *   right after the pulled block, capped by `context.caps.earlier` (2500 when unset).
  * @param {string|null} [input.diaryChannel]  The bare name of the diary channel (the persona's
  *   own, src/behavior/diary.js) when one is set: `<senses>` gains `senses.diary` with
  *   `{channel}`. Omitted or null -> no line.
@@ -3044,6 +3119,18 @@ export function buildRequest(input) {
     ageMinutes: config.context.ageAfterMinutes ?? 60,
   });
   const participationOffered = Boolean(participationBuilt && participationBuilt.episodes.length > 0);
+  // `<earlier>`: this channel's lines the chat window let go of (never in a private chat).
+  const earlierBuilt = earlierView(input.participation, {
+    config,
+    labels,
+    privateChat,
+    currentChannelId,
+    history,
+    now,
+    timezone,
+    selfName,
+    nameOf,
+  });
 
   // On a routed turn the call is not in this chat: its silence is measured to now, and its
   // last line being the persona's own is no sign that nobody answered the persona.
@@ -3456,7 +3543,13 @@ export function buildRequest(input) {
   // pass and the room of the asked-about members' episodes (below) are measured on. The
   // pulled block right after the chat; ahead of it on a routed turn, whose call lives there;
   // then the last hours, then the persona's exchanges elsewhere.
-  const aheadOfRecent = [...head, ...(routed ? [pulledSection, chatSection] : [chatSection, pulledSection])];
+  // `<earlier>`: the header, then one item per episode, the newest first; right after the chat
+  // and the pulled block it continues back in time.
+  const earlierSection =
+    earlierBuilt && earlierBuilt.episodes.length > 0
+      ? { name: 'earlier', cap: caps.earlier ?? 2500, keep: 'first', items: [earlierBuilt.header, ...earlierBuilt.episodes.map((episode) => episode.text)] }
+      : null;
+  const aheadOfRecent = [...head, ...(routed ? [pulledSection, chatSection] : [chatSection, pulledSection]), ...(earlierSection ? [earlierSection] : [])];
   const aheadOfPeopleWith = (recentSec) => [...aheadOfRecent, ...(recentSec ? [recentSec] : []), ...(participationSection ? [participationSection] : [])];
   let aheadOfPeople = aheadOfPeopleWith(recentSection);
   // Episodes only fill what `<people>` has left once every member asked about is placed
@@ -3769,6 +3862,11 @@ export function buildRequest(input) {
       cut: participationBuilt.offered - shown.length,
       deduped: participationBuilt.deduped,
     };
+  }
+  // `<earlier>` as one piece: the header and the episodes kept, oldest first.
+  if (earlierSection) {
+    const text = earlierText(earlierBuilt, kept.earlier ?? [], labels);
+    kept.earlier = text ? [text] : [];
   }
   // The senses line names `<participation>` only when the block is there. The request only gets
   // shorter, so the fit holds.
