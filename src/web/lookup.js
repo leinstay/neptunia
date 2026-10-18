@@ -90,8 +90,15 @@ function openrouterFailure(err) {
   return llmFailure(err);
 }
 
-/** The `url_citation` annotations of an answer as `{ title, url }`, http(s) urls only, each url once. */
-function citationsOf(annotations) {
+/**
+ * The `url_citation` annotations of an answer (OpenRouter's web plugin) as `{ title, url, snippet }`,
+ * http(s) urls only, each url once, in order; `title` and `snippet` (the annotation's `content`)
+ * collapsed to one line, '' when absent. Shared with the web agent's search command
+ * (src/web/web-search.js).
+ * @param {unknown} annotations
+ * @returns {{ title: string, url: string, snippet: string }[]}
+ */
+export function urlCitations(annotations) {
   const seen = new Set();
   const out = [];
   for (const entry of Array.isArray(annotations) ? annotations : []) {
@@ -99,9 +106,15 @@ function citationsOf(annotations) {
     const url = typeof entry.url_citation?.url === 'string' ? entry.url_citation.url.trim() : '';
     if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
     seen.add(url);
-    out.push({ title: oneLine(String(entry.url_citation.title ?? '')), url });
+    const content = entry.url_citation.content;
+    out.push({ title: oneLine(String(entry.url_citation.title ?? '')), url, snippet: typeof content === 'string' ? oneLine(content) : '' });
   }
   return out;
+}
+
+/** The `url_citation` annotations of an answer as `{ title, url }` (urlCitations without the snippet). */
+function citationsOf(annotations) {
+  return urlCitations(annotations).map(({ title, url }) => ({ title, url }));
 }
 
 /**
@@ -175,10 +188,22 @@ export function cleanQuery(query) {
   return out.trim();
 }
 
-/** `web.search.results` as the web plugin's `max_results`: an integer in 1..10, 5 when not a number (as the search clients clamp it). */
-function clampResults(value) {
+/** `web.search.results` as the web plugin's `max_results`: an integer in 1..10, `fallback` (5) when not a number (as the search clients clamp it). */
+function clampResults(value, fallback = 5) {
   const n = Math.floor(Number(value));
-  return Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : 5;
+  return Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : fallback;
+}
+
+/**
+ * The `plugins` of a request that searches through OpenRouter's web plugin on Exa: the lookup's
+ * `openrouter` engine and the web agent's search command (src/web/web-search.js). `results`
+ * becomes `max_results`, an integer in 1..10, `fallback` when not a number.
+ * @param {unknown} results
+ * @param {number} [fallback]
+ * @returns {{ id: 'web', engine: 'exa', max_results: number }[]}
+ */
+export function webSearchPlugins(results, fallback = 5) {
+  return [{ id: 'web', engine: 'exa', max_results: clampResults(results, fallback) }];
 }
 
 /** The cache key of one search. */
@@ -186,8 +211,14 @@ function searchKey(query) {
   return hashedKey('search', normalizeQuery(query));
 }
 
-/** The numbered result list the search-summary prompt reads (data, not wording). */
-function renderResults(results) {
+/**
+ * Numbered search results as plain lines (data, not wording): the search-summary prompt reads
+ * them, and the web agent's search command prints them. Per result `<n>. <title>`, the url, the
+ * snippet and the age, each on its own line when present; a blank line between results.
+ * @param {{ title?: string, url?: string, snippet?: string, age?: string }[]} results
+ * @returns {string}
+ */
+export function renderResults(results) {
   return results
     .map((result, index) =>
       [`${index + 1}. ${result.title ?? ''}`, result.url ?? '', result.snippet ?? '', result.age ?? '']
@@ -557,7 +588,7 @@ export function createLookup({ hot, store, llm, state = memoryState(), pageFetch
           ...options,
           // No hedge: a second attempt would run (and bill) the web search twice.
           helper: false,
-          plugins: [{ id: 'web', engine: 'exa', max_results: clampResults(searchCfg.results) }],
+          plugins: webSearchPlugins(searchCfg.results),
         });
       } catch (err) {
         return { failure: { reason: openrouterFailure(err), ...(err?.statusCode !== undefined ? { status: err.statusCode } : {}) } };

@@ -11,7 +11,10 @@
 // persona's) comes from the core with each task (`secrets.openrouterKey`; the
 // runner cannot read the bot's .env), else from the runner's environment, and
 // is passed as OPENROUTER_API_KEY; the web agent's proxy (HTTPS_PROXY /
-// HTTP_PROXY, http form) and search key likewise. A task with no key from
+// HTTP_PROXY, http form) and search key likewise. A profile's own commands
+// (the web agent's `web-search`, src/web/web-search.js) come first on the
+// child's PATH, node's folder after them; the web child also gets the search
+// model of the config read at the task (NEPTUNIA_WEB_SEARCH_MODEL). A task with no key from
 // either fails `no-key` (one warning per runner). No secret is ever logged.
 // A task may bring the deployment's shared preamble (`preamble`, read by the
 // core from its private prompt layer, which this process never reads): the
@@ -48,6 +51,7 @@ import { isPlainObject } from '../config.js';
 import { roleModel } from '../llm/roles.js';
 import { containsSecret, isFiltered, redactorFor, scopeOf, withheldInToolUse } from './policy.js';
 import { httpProxyForm } from './protocol.js';
+import { WEB_SEARCH_MODEL_ENV, webSearchModel } from '../web/web-search.js';
 
 /** The OpenCode binary by default. */
 export const DEFAULT_OPENCODE_PATH = '/opt/opencode/bin/opencode';
@@ -244,16 +248,19 @@ export function createOpencodeRunner({
   if (!profile) throw new Error('agent-runner: no profile');
   let warnedNoKey = false;
 
-  /** The model of the profile's role in the config read now; undefined when the config cannot be read. */
-  function modelOfRole() {
-    let config;
+  /** The config read now; undefined (warned) when it cannot be read. */
+  function configNow() {
     try {
-      config = getConfig();
+      return getConfig();
     } catch (err) {
       log.warn('agent-runner: config unreadable', { profile: profile.name, reason: err?.code ?? err?.name ?? 'read' });
       return undefined;
     }
-    return profile.modelRole ? roleModel(config, profile.modelRole) : undefined;
+  }
+
+  /** The model of the profile's role in `config`; undefined without a config. */
+  function modelOfRole(config) {
+    return config && profile.modelRole ? roleModel(config, profile.modelRole) : undefined;
   }
 
   /**
@@ -293,7 +300,10 @@ export function createOpencodeRunner({
     const shared = typeof preamble === 'string' ? preamble.trim() : '';
     if (shared) systemPrompt = `${shared}\n\n${systemPrompt}`;
 
-    const providerModel = typeof model === 'string' && model ? model : (modelOfRole() ?? profile.defaultModel);
+    const taskModel = typeof model === 'string' && model ? model : '';
+    // Read only when needed: the model of a task without one, the web agent's search model.
+    const config = !taskModel || profile.name === 'web' ? configNow() : undefined;
+    const providerModel = taskModel || (modelOfRole(config) ?? profile.defaultModel);
     const configContent = JSON.stringify(profile.buildConfig({ systemPrompt, providerModel, steps, scope, cost, toolResultChars: limits.toolResultChars }));
     const childEnv = {
       ...env,
@@ -304,6 +314,11 @@ export function createOpencodeRunner({
       OPENCODE_DB: path.join(dir, 'opencode.db'),
       HOME: dir,
       PWD: dir,
+      // The profile's own commands (the web agent's `web-search`), then node's folder, which they
+      // run on, ahead of the inherited PATH.
+      ...(Array.isArray(profile.pathDirs) && profile.pathDirs.length
+        ? { PATH: [...profile.pathDirs, path.dirname(process.execPath), env.PATH].filter(Boolean).join(path.delimiter) }
+        : {}),
       XDG_DATA_HOME: path.join(dir, '.local', 'share'),
       XDG_CONFIG_HOME: path.join(dir, '.config'),
       XDG_CACHE_HOME: path.join(dir, '.cache'),
@@ -328,6 +343,8 @@ export function createOpencodeRunner({
       childEnv.OPENCODE_WEBSEARCH_PROVIDER = provider;
       const searchKey = pick(given.searchKey, searchKeyEnv);
       if (searchKey) childEnv[provider === 'parallel' ? 'PARALLEL_API_KEY' : 'EXA_API_KEY'] = searchKey;
+      // The model of the agent's `web-search` command (src/web/web-search.js), from the config read now.
+      childEnv[WEB_SEARCH_MODEL_ENV] = webSearchModel(config ?? {});
       // The proxy in its http form, under the names curl and OpenCode read (curl reads only the
       // lowercase http_proxy); without one the environment's own proxy variables stay.
       const proxy = httpProxyForm(pick(given.proxy, proxyEnv));
