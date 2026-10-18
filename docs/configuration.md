@@ -920,6 +920,18 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | `limits` | `{ "steps": 20, "usd": 0.2, "seconds": 120 }` | Per-task caps: model calls, estimated spend, wall-clock seconds |
 | `daily` | `{ "tasks": 40, "usd": 3 }` | Per-day caps (UTC day), applied core-side, as for `web` |
 
+### `agents.thinker`, `agents.dev`, `agents.writer`
+
+The development agents: they run outside this engine (the ledger's attempt runner and orchestrator read these keys; their models are `models.agents.thinker`, `dev`, `writer`), so the bot only shows their spend, which it reads from the ledger (`agents.ledger.socket`) on the owner's `/nep status` card (`costs.agents`).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `cost` | thinker `{ "input": 5, "output": 25 }`, dev `{ "input": 3, "output": 15 }`, writer `{ "input": 5, "output": 25 }` | Model price (USD per million tokens) for OpenCode's cost estimate; the price of the agent's model in `models.agents` |
+| `limits` | thinker `{ "usd": 10, "steps": 400, "minutes": 60 }`, dev `{ "usd": 10, "steps": 300, "minutes": 60 }`, writer `{ "usd": 5, "steps": 150, "minutes": 45 }` | Caps of one run (a thinker turn, a dev or writer attempt): estimated USD, model calls, wall-clock minutes |
+| `daily` | thinker `{ "usd": 60 }`, dev `{ "usd": 40 }`, writer `{ "usd": 20 }` | Estimated USD per UTC day, counted from the ledger's figures (the same ones as `costs.agents`) |
+| `contextLimit` | `350000` | Thinker only: the context size (tokens) its model is given in OpenCode, which compacts its session before reaching it |
+| `contextHard` | `400000` | Thinker only: a turn that ends above this context (tokens) without a compaction is followed by a handover and a fresh session |
+
 ## `appendStore`
 
 The journal, record and archive are written through a shared append-only file writer. These settings control how it flushes and recovers.

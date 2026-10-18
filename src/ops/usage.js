@@ -1,7 +1,8 @@
 // The costs fields of the owner's `/nep status` card: `keys.base`, what each OpenRouter key of the
 // core allows and has spent; `costs.base`, today's requests per model role from the bot's own
-// accounting; `costs.agents`, the agents' runs and estimated spend (src/errands/costs.js, rendered
-// here by agentCostsLines). The
+// accounting; `costs.agents`, the agents' runs and estimated spend (web and server from the errand
+// records, src/errands/costs.js; thinker, dev and writer from the ledger, src/errands/ledger.js#costs;
+// rendered here by agentCostsLines). The
 // accumulator is fed by the `llm: usage` log lines (src/log.js#onLog, subscribed in src/index.js
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
@@ -492,26 +493,40 @@ const AGENT_WINDOWS = Object.freeze(['today', 'last7', 'last30']);
  * gives []): one line per agent in the given order, `agentLine` ({agent} {parts}) with one
  * `agentWindow` part ({window} {runs} {in} {out} {usd}; tokens compact, the window named through
  * `agentWindows.today | last7 | last30`) per window joined by `partSeparator`, or `agentNoRuns`
- * ({agent}) when the agent has no run in the last 30 days or no record at all; then
- * `agentEstimate`, the note that the dollars are OpenCode's estimate. Pure.
+ * ({agent}) when the agent has no run in the last 30 days or no record at all; an agent whose
+ * totals carry a `last_wave` with a context figure (the thinker's, from the ledger) is followed by
+ * `agentContext` ({agent} {wave} {turns} {mean} {peak} {usd}; the context in compact tokens, `-`
+ * for a missing one); then `agentEstimate`, the note that the dollars are OpenCode's estimate. Pure.
  * @param {{ agents: string[], totals: object|null, labels: object }} params  `totals` as
- *   src/errands/costs.js#agentCosts returns (an agent it lacks has no run).
+ *   src/errands/costs.js#agentCosts returns, the ledger's agents merged in
+ *   (src/errands/ledger.js#agentCostsOf); an agent it lacks has no run.
  * @returns {string[]}
  */
 export function agentCostsLines({ agents, totals, labels }) {
   const L = labels?.status?.costs;
   if (!isPlainObject(L)) return [];
   const names = isPlainObject(L.agentWindows) ? L.agentWindows : {};
-  const lines = (Array.isArray(agents) ? agents : []).map((agent) => {
+  const lines = (Array.isArray(agents) ? agents : []).flatMap((agent) => {
     const row = isPlainObject(totals) && isPlainObject(totals[agent]) ? totals[agent] : null;
+    const context = contextLine(L, agent, row?.last_wave);
     const counted = row && AGENT_WINDOWS.some((window) => amountOr0(row[window]?.runs) > 0 || amountOr0(row[window]?.usd) > 0);
-    if (!counted) return line(L.agentNoRuns, { agent });
+    if (!counted) return [line(L.agentNoRuns, { agent }), context];
     const parts = AGENT_WINDOWS.map((window) => {
       const sums = isPlainObject(row[window]) ? row[window] : {};
       const name = typeof names[window] === 'string' && names[window] ? names[window] : window;
       return line(L.agentWindow, { window: name, runs: amountOr0(sums.runs), in: compactTokens(sums.input), out: compactTokens(sums.output), usd: usd(sums.usd) });
     }).filter(Boolean);
-    return parts.length > 0 ? line(L.agentLine, { agent, parts: parts.join(L.partSeparator ?? '') }) : null;
+    return [parts.length > 0 ? line(L.agentLine, { agent, parts: parts.join(L.partSeparator ?? '') }) : null, context];
   });
   return [...lines, line(L.agentEstimate, {})].filter(Boolean);
+}
+
+/** An agent's `agentContext` line from its `last_wave`, or null when the wave has no context figure. */
+function contextLine(L, agent, wave) {
+  if (!isPlainObject(wave)) return null;
+  const figure = (value) => (typeof value === 'number' && Number.isFinite(value) ? compactTokens(value) : '-');
+  const mean = wave.context_mean;
+  const peak = wave.context_peak;
+  if (!(typeof mean === 'number' && Number.isFinite(mean)) && !(typeof peak === 'number' && Number.isFinite(peak))) return null;
+  return line(L.agentContext, { agent, wave: wave.wave ?? '-', turns: amountOr0(wave.turns), mean: figure(mean), peak: figure(peak), usd: usd(wave.usd) });
 }

@@ -312,6 +312,7 @@ export const labels = {
       agentWindow: '{window} {runs} runs, in {in}, out {out}, {usd} USD',
       agentWindows: { today: 'day', last7: '7d', last30: '30d' },
       agentNoRuns: '{agent}: no runs',
+      agentContext: '{agent} wave {wave}: {turns} turns, ctx {mean}/{peak}, {usd} USD',
       agentEstimate: 'USD estimated',
     },
   },
