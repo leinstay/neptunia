@@ -3573,7 +3573,7 @@ export function createTurnRunner({
           today: zonedDay(clock(), config.bot?.timezone),
           skills: discovery.index,
           skillNames: discovery.names,
-          offer: { channels: offer.channel?.lines, episodes: offer.episodes?.lines, media: offer.media?.lines, lookup: offer.lookup },
+          offer: { channels: offer.channel?.lines, episodes: offer.episodes?.lines, episodeAges: offer.episodes?.ages, media: offer.media?.lines, lookup: offer.lookup },
           transcriptBlock,
           candidateBlock,
           channelId,

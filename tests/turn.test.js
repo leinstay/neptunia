@@ -7844,12 +7844,12 @@ test('runTurn: the pick classifier runs beside the turn and its pick reaches the
   const store = participationStore({ episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')], nextId: 3 });
   const hot = fakeHot({ typingSimulation: false }, {}, { participation: { shown: 1 } });
   hot.prompts['participation-pick'] = 'Pick for {{name}}.';
-  const { llm, logs, result } = await runParticipationTurn({ hot, store, answers: ['2', '<msg>ναι</msg>'] });
+  const { llm, logs, result } = await runParticipationTurn({ hot, store, answers: ['1', '<msg>ναι</msg>'] });
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.calls.length, 2);
   assert.equal(llm.calls[0][0].content, 'Pick for Bot.');
   assert.ok(
-    textOf(llm.calls[0][1].content).includes('<episodes>\n1 | #jardin | 30 min | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n2 | #journal | 2 h | Ana: μια ερώτηση | Bot: στο ράφι είναι\n</episodes>'),
+    textOf(llm.calls[0][1].content).includes('<episodes>\n1 | #journal | Ana: μια ερώτηση | Bot: στο ράφι είναι\n2 | #jardin | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n</episodes>\n<episode_ages>\n1 | 2 h\n2 | 30 min\n</episode_ages>'),
     textOf(llm.calls[0][1].content),
   );
   const user = textOf(llm.calls[1][1].content);

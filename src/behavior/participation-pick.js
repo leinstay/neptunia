@@ -69,52 +69,57 @@ export function participationPickAllowed({ mode = 'reply', triggerKind = null, p
 const noPipes = (text) => String(text ?? '').replaceAll('|', '/');
 
 /**
- * The `<episodes>` lines: one per headline (src/memory/participation.js#episodeHeadlines,
- * newest first), numbered from 1 -- `n | #channel | when | member: line |
- * persona: line`. `when` is the episode's age (formatDuration with `units`);
- * the member part is the first other member's name (from the episode in
- * `state`) and all the members' lines (`memberLines`), empty when the episode
- * has none; the persona part is `selfName` and all her lines (`selfLines`).
- * A `|` inside a text becomes `/` so the columns stay readable. A headline whose channel has no name
+ * The `<episodes>` lines: one per headline (src/memory/participation.js#episodeHeadlines
+ * gives them newest first; listed here oldest first, so a new episode appends a line and the
+ * cached list keeps its prefix), numbered from 1 -- `n | #channel | member: line | persona:
+ * line`. The member part is the first other member's name (from the episode in `state`) and
+ * all the members' lines (`memberLines`), empty when the episode has none; the persona part is
+ * `selfName` and all her lines (`selfLines`). No age in them: the list is the cached part of
+ * the request, so the ages are `ages`, one `n | when` line per episode (`when`: its age through
+ * formatDuration with `units`) for the per-turn `<episode_ages>` block. A `|` inside a text
+ * becomes `/` so the columns stay readable. A headline whose channel has no name
  * (`channelNameOf`) is left out. Structural fields only: no words of ours.
  * `ids[n - 1]` is the episode of line `n`.
  * @param {object[]} headlines
  * @param {{ state: { episodes?: object[] }, channelNameOf: (channelId: string) => (string|null),
  *   units: object, selfName: string }} options
- * @returns {{ lines: string[], ids: string[] }}
+ * @returns {{ lines: string[], ages: string[], ids: string[] }}
  */
 export function participationEpisodeList(headlines, { state, channelNameOf, units, selfName }) {
   const episodes = new Map((Array.isArray(state?.episodes) ? state.episodes : []).map((ep) => [ep.id, ep]));
   const lines = [];
+  const ages = [];
   const ids = [];
-  for (const headline of Array.isArray(headlines) ? headlines : []) {
+  for (const headline of (Array.isArray(headlines) ? headlines : []).toReversed()) {
     const name = oneLine(channelNameOf(headline.channelId) ?? '');
     if (!name) continue;
     const member = episodes.get(headline.id)?.messages?.find((m) => !m.self) ?? null;
     const memberPart = headline.memberLines && member ? `${oneLine(member.name)}: ${noPipes(headline.memberLines)}` : '';
-    const when = formatDuration(headline.ageMs, units);
-    lines.push(`${ids.length + 1} | #${name} | ${when} | ${memberPart} | ${selfName}: ${noPipes(headline.selfLines)}`);
+    const n = ids.length + 1;
+    lines.push(`${n} | #${name} | ${memberPart} | ${selfName}: ${noPipes(headline.selfLines)}`);
+    ages.push(`${n} | ${formatDuration(headline.ageMs, units)}`);
     ids.push(headline.id);
   }
-  return { lines, ids };
+  return { lines, ages, ids };
 }
 
 /**
  * The pick classifier's request: the system message is `prompt` with
  * `{{name}}` filled with the persona's display name; the user message is two
- * text parts: the `<episodes>` block (the lines, one per line; they change
- * only when an episode is added or expires, so this part is tagged
- * `cacheSegment: 'stable'`), then the `transcriptBlock` (may be '') and the
- * `candidateBlock`. Null when
- * the prompt is blank or there is no line.
+ * text parts: the `<episodes>` block (the lines, one per line, oldest first;
+ * they change only when an episode is added or expires, so this part is tagged
+ * `cacheSegment: 'stable'`), then the `<episode_ages>` block (`ages`, the
+ * episodes' ages: per call, omitted when empty), the `transcriptBlock` (may be
+ * '') and the `candidateBlock`. Null when the prompt is blank or there is no line.
  * @param {{ prompt: string|null|undefined, selfName: string, transcriptBlock?: string,
- *   candidateBlock?: string, lines: string[] }} params
+ *   candidateBlock?: string, lines: string[], ages?: string[] }} params
  * @returns {{ role: string, content: string|object[] }[]|null}
  */
-export function buildParticipationPickRequest({ prompt, selfName, transcriptBlock = '', candidateBlock = '', lines }) {
+export function buildParticipationPickRequest({ prompt, selfName, transcriptBlock = '', candidateBlock = '', lines, ages = [] }) {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   if (!Array.isArray(lines) || lines.length === 0) return null;
-  const user = stableThenTail(block('episodes', lines.join('\n')), [transcriptBlock, candidateBlock], '\n');
+  const agesBlock = Array.isArray(ages) ? block('episode_ages', ages.join('\n')) : '';
+  const user = stableThenTail(block('episodes', lines.join('\n')), [agesBlock, transcriptBlock, candidateBlock], '\n');
   return [
     { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '' }) },
     { role: 'user', content: user },
@@ -168,22 +173,23 @@ export function parseParticipationPick(raw, count) {
  * (src/memory/participation.js#episodeHeadlines with the live
  * `participation` settings), rendered by participationEpisodeList with each
  * channel's stored note name, else the live channel's. `headlines` counts
- * the headlines before a nameless channel's are left out. No request, no log.
+ * the headlines before a nameless channel's are left out; `ages` are the
+ * per-turn `<episode_ages>` lines. No request, no log.
  * @param {{ store: object, guildId: string, channel: object, audience: (channelId: string) => boolean,
  *   config: object, units: object, selfName: string, now: number }} params
- * @returns {{ headlines: number, lines: string[], ids: string[] }}
+ * @returns {{ headlines: number, lines: string[], ages: string[], ids: string[] }}
  */
 export function participationEpisodeOffer({ store, guildId, channel, audience, config, units, selfName, now }) {
   const state = store.getParticipation(guildId);
   const headlines = episodeHeadlines(state, { excludeChannelId: channel?.id ?? null, audience, now }, participationSettings(config));
-  if (headlines.length === 0) return { headlines: 0, lines: [], ids: [] };
+  if (headlines.length === 0) return { headlines: 0, lines: [], ages: [], ids: [] };
   const stored = typeof store.listChannels === 'function' ? store.listChannels(guildId) : [];
   const channelNameOf = (id) =>
     oneLine((Array.isArray(stored) ? stored.find((entry) => entry?.id === id)?.name : '') ?? '') ||
     oneLine(channel?.guild?.channels?.cache?.get?.(id)?.name ?? '') ||
     null;
-  const { lines, ids } = participationEpisodeList(headlines, { state, channelNameOf, units, selfName });
-  return { headlines: headlines.length, lines, ids };
+  const { lines, ages, ids } = participationEpisodeList(headlines, { state, channelNameOf, units, selfName });
+  return { headlines: headlines.length, lines, ages, ids };
 }
 
 /**
@@ -199,9 +205,9 @@ export function participationEpisodeOffer({ store, guildId, channel, audience, c
  * `participation-pick`, its answer capped at `participation.maxOutputTokens`,
  * the helper timeout and the client's hedge): the last
  * `participation.contextMessages` lines before the candidate as
- * `<transcript>` (src/behavior/route.js#routeContext), the candidate, and the
+ * `<transcript>` (src/behavior/route.js#routeContext), the candidate, the
  * numbered `<episodes>` (participationEpisodeList: a channel's stored note
- * name, else the live channel's). Logged `participation: classified`
+ * name, else the live channel's; oldest first) and their `<episode_ages>`. Logged `participation: classified`
  * (`channel`, `kind`, `offered` = the list length, `picked` = the episodes
  * picked, `parse`, `ms`). Resolves the picked episode ids in the answer's
  * order; never rejects: a failure logs `participation: failed` (`reason`: the
@@ -223,7 +229,7 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now }) {
       if (typeof store?.getParticipation !== 'function') return [];
       const at = now();
       const labels = hot.prompts?.labels;
-      const { headlines, lines, ids } = participationEpisodeOffer({ store, guildId, channel, audience, config, units: labels?.units, selfName, now: at });
+      const { headlines, lines, ages, ids } = participationEpisodeOffer({ store, guildId, channel, audience, config, units: labels?.units, selfName, now: at });
       if (headlines === 0) return [];
       const prompt = hot.prompts?.['participation-pick'];
       if (typeof prompt !== 'string' || !prompt.trim()) {
@@ -244,7 +250,7 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now }) {
         labels,
         selfName,
       });
-      const messages = buildParticipationPickRequest({ prompt, selfName, transcriptBlock, candidateBlock, lines });
+      const messages = buildParticipationPickRequest({ prompt, selfName, transcriptBlock, candidateBlock, lines, ages });
       if (!messages) return [];
 
       let completion;
