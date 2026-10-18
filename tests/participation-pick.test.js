@@ -81,8 +81,16 @@ test('participationPickSettings: a missing group falls back, a missing switch co
   assert.deepEqual(participationPickSettings({ participation: { contextMessages: 3.8, maxOutputTokens: 0 } }), {
     contextMessages: 3,
     maxOutputTokens: PARTICIPATION_PICK_DEFAULTS.maxOutputTokens,
+    pickTimeoutMs: PARTICIPATION_PICK_DEFAULTS.pickTimeoutMs,
   });
   assert.equal(participationPickSettings({ features: { participation: false } }), null);
+});
+
+test('participationPickSettings: pickTimeoutMs is read from the group, floored; null lifts it; unusable takes the fallback', () => {
+  assert.equal(SHIPPED_CONFIG.participation.pickTimeoutMs, PARTICIPATION_PICK_DEFAULTS.pickTimeoutMs);
+  assert.equal(participationPickSettings({ participation: { pickTimeoutMs: 900.6 } }).pickTimeoutMs, 900);
+  assert.equal(participationPickSettings({ participation: { pickTimeoutMs: null } }).pickTimeoutMs, null);
+  for (const bad of [0, -1, 'x']) assert.equal(participationPickSettings({ participation: { pickTimeoutMs: bad } }).pickTimeoutMs, PARTICIPATION_PICK_DEFAULTS.pickTimeoutMs, String(bad));
 });
 
 test('participationPickAllowed: server reply and spontaneous turns ask; a private chat, a diary post and a drawFailed turn do not', () => {
@@ -161,9 +169,8 @@ function fakeLlm(answer) {
   };
 }
 
-function pickerScene({ answer = '2', features = {}, prompt = 'You are {{name}}.', state = participationState(), audience = () => true } = {}) {
-  const hot = { config: config({ features, llm: { helperTimeoutMs: 4321 } }), prompts: { 'participation-pick': prompt, labels } };
-  const llm = fakeLlm(answer);
+function pickerScene({ answer = '2', features = {}, prompt = 'You are {{name}}.', state = participationState(), audience = () => true, llm = fakeLlm(answer), schedule, pickTimeoutMs = 1500 } = {}) {
+  const hot = { config: config({ features, llm: { helperTimeoutMs: 4321 }, participation: { pickTimeoutMs } }), prompts: { 'participation-pick': prompt, labels } };
   const store = {
     getParticipation: () => structuredClone(state),
     listChannels: () => [{ id: 'c2', name: 'journal' }],
@@ -171,7 +178,7 @@ function pickerScene({ answer = '2', features = {}, prompt = 'You are {{name}}.'
   const guild = { id: GUILD, channels: { cache: new Map([['c3', { id: 'c3', name: 'jardin' }]]) } };
   const channel = { id: 'c1', name: 'general', guild };
   let t = NOW;
-  const picker = createParticipationPicker({ hot, store, llm, now: () => (t += 5) });
+  const picker = createParticipationPicker({ hot, store, llm, now: () => (t += 5), ...(schedule ? { schedule } : {}) });
   const history = [line('m1', { content: 'πρώτο' }), line('m2', { self: true, authorId: 'self', authorName: 'Zoë', content: 'δεύτερο' }), line('m3', { authorName: 'Nikos', content: 'θυμάσαι το βιβλίο;' })];
   const args = { guildId: GUILD, channel, history, trigger: history[2], triggerKind: 'mention', mode: 'reply', selfName: 'Zoë', audience };
   return { picker, llm, hot, args };
@@ -208,6 +215,88 @@ test('createParticipationPicker: the request options carry the classifier model,
   assert.equal(options.purpose, 'participation-pick');
   assert.equal(options.maxOutputTokens, 60);
   assert.equal(options.timeoutMs, 4321);
+});
+
+/** A fake `schedule`: every timer kept with its delay, fired by hand; `cancelled` counts the cancels. */
+function handTimers() {
+  const timers = [];
+  const out = {
+    timers,
+    cancelled: 0,
+    schedule: (fn, ms) => {
+      const timer = { fn, ms, live: true };
+      timers.push(timer);
+      return () => {
+        if (timer.live) out.cancelled += 1;
+        timer.live = false;
+      };
+    },
+    fire: () => {
+      for (const timer of timers.filter((entry) => entry.live)) {
+        timer.live = false;
+        timer.fn();
+      }
+    },
+  };
+  return out;
+}
+
+/** An LLM whose answer waits until `release()`, or rejects when the request's signal aborts. */
+function heldLlm(answer) {
+  const calls = [];
+  let release = () => {};
+  return {
+    calls,
+    release: () => release(),
+    complete: (messages, options) => {
+      calls.push({ messages, options });
+      return new Promise((resolve, reject) => {
+        release = () => resolve({ text: answer });
+        options.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      });
+    },
+  };
+}
+
+test('createParticipationPicker: past participation.pickTimeoutMs the request is aborted and nothing is picked, logged and told to the limits', async () => {
+  const timers = handTimers();
+  const llm = heldLlm('1');
+  const { picker, args } = pickerScene({ llm, schedule: timers.schedule, pickTimeoutMs: 1200 });
+  const added = [];
+  const { result, logs } = await withCapturedLogs(async () => {
+    const picking = picker({ ...args, limits: { add: (entry) => added.push(entry) } });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(timers.timers.map((timer) => timer.ms), [1200], 'one timer at the limit');
+    timers.fire();
+    return picking;
+  });
+  assert.deepEqual(result, [], 'the turn goes on with the newest');
+  assert.equal(llm.calls[0].options.signal.aborted, true, 'the request is aborted');
+  const late = logs.find((l) => l.msg === 'participation: late');
+  assert.deepEqual([late?.channel, late?.offered, late?.timeoutMs], ['c1', 2, 1200]);
+  assert.equal(logs.some((l) => l.msg === 'participation: failed' || l.msg === 'participation: classified'), false, 'late, not failed');
+  assert.deepEqual(added, [{ kind: 'helper-timeout', where: 'participation-pick' }]);
+});
+
+test('createParticipationPicker: an answer inside the limit is taken and the timer cleared; a null limit sets none', async () => {
+  const timers = handTimers();
+  const llm = heldLlm('1');
+  const { picker, args } = pickerScene({ llm, schedule: timers.schedule, pickTimeoutMs: 1200 });
+  const { result } = await withCapturedLogs(async () => {
+    const picking = picker(args);
+    await new Promise((resolve) => setImmediate(resolve));
+    llm.release();
+    return picking;
+  });
+  assert.deepEqual(result, ['p1']);
+  assert.equal(timers.cancelled, 1, 'the timer is cleared');
+
+  const none = handTimers();
+  const open = pickerScene({ answer: '2', schedule: none.schedule, pickTimeoutMs: null });
+  const { result: picked } = await withCapturedLogs(() => open.picker(open.args));
+  assert.deepEqual(picked, ['p2']);
+  assert.equal(none.timers.length, 0, 'no limit, no timer');
+  assert.equal(open.llm.calls[0].options.signal, undefined, 'no abort signal');
 });
 
 test('createParticipationPicker: the transcript holds the last contextMessages lines before the candidate', async () => {

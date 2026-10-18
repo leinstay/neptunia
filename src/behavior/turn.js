@@ -13,7 +13,7 @@
 // plain, with a jump link to it.
 
 import { randomUUID } from 'node:crypto';
-import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, continuesTurn, fillPromptTemplate, gifFieldChars, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
+import { block, buildDiaryPlanRequest, buildDrawPrompt, buildRequest, classifierTranscript, continuesTurn, fillPromptTemplate, freezePerBucket, gifFieldChars, ownGifLines, skillResultBlock, stableThenTail, usesFollowUpTask, withSkillResult } from './prompt.js';
 import {
   DIARY_DAILY,
   DIARY_PICTURES_DAILY,
@@ -41,7 +41,7 @@ import { captionedEntries, gifPickSettings, parseGifPick, pickCandidates, pickCo
 import { turnRequestInput } from './turn-input.js';
 import { DEFAULT_RESULT_MAX_CHARS, tasksBlockText, taskResultText } from '../errands/blocks.js';
 import { parseJsonObject, parseOutput } from '../llm/parse.js';
-import { DailyCapError, REPLY_REQUEST, TokenLimitError, RETRY_STATUS, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
+import { DailyCapError, REPLY_REQUEST, TokenLimitError, RETRY_STATUS, cacheTtlMs, hedgeSettings, helperRequestOptions, railReason, sleep } from '../llm/openrouter.js';
 import { ImageCapError, ImageGenError } from '../llm/images.js';
 import { limitOf, mirrorChannelLabel, mirrorDryRun, postLimitNotice } from './limits.js';
 import { between, typingMs } from './random.js';
@@ -2084,7 +2084,7 @@ export function createTurnRunner({
   let followUpPromptMissing = false;
   // The participation pick classifier (src/behavior/participation-pick.js): which stored
   // exchanges of other channels a turn's `<participation>` block shows first.
-  const pickParticipation = createParticipationPicker({ hot, store, llm, now: clock });
+  const pickParticipation = createParticipationPicker({ hot, store, llm, now: clock, schedule });
   // The last view of each pulled channel shown in each channel, in process only: a channel
   // shown again says what of it is new since (createPullViews; `seenBefore` on the entry).
   const pullViews = createPullViews();
@@ -2836,9 +2836,14 @@ export function createTurnRunner({
    * captioned entry), ONE helper request on the classifier model
    * (role `analyzer`, purpose `gif-pick`, its answer capped at
    * `gifs.pick.maxOutputTokens`): system = the prompt with `{{name}}`, user =
-   * `<gifs>` (renderGifLibrary over the WHOLE library in rank order, own-marked entries last,
-   * `gifs.reactionChars`, `gifs.actionChars` and `gifs.ownMarkHours` read now: the stable bulk first,
-   * for the provider's prompt cache), `<context>` (pickContext: the last `gifs.pick.contextMessages` lines of
+   * `<gifs>` (renderGifLibrary over the WHOLE captioned library in rank order, with no own-post
+   * mark, `gifs.reactionChars` and `gifs.actionChars` read now: the stable bulk first, the part
+   * tagged for the provider's prompt cache; with `features.promptCache` exactly true it is held
+   * per cache bucket in the guild's stable freeze, like the reply's `<gifs>`, see
+   * src/behavior/prompt.js#freezePerBucket, so a GIF post or a use that reranks the library
+   * rewrites the cached prefix at most once per `llm.cache.ttl`), then the per-call tail:
+   * `<gifs_recent>` (ownGifLines: the listed GIFs the persona posted within `gifs.ownMarkHours`,
+   * with how long ago, from the live library), `<context>` (pickContext: the last `gifs.pick.contextMessages` lines of
    * `history`, preceded by the line the first message answers when that one is
    * older -- its `reply` target, else the trigger --, as classifierTranscript
    * renders them; no block for 0), `<reply>` (the first message, preceded by
@@ -2864,10 +2869,16 @@ export function createTurnRunner({
     const first = messages[0];
     const gifsCfg = config.gifs ?? {};
     const chars = gifFieldChars(gifsCfg);
-    const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
-    const listed = captionedEntries(rankGifs(store.getGifs(guildId), gifsCfg.halfLifeDays ?? 30), mediaCache, chars.actionChars);
     const labels = hot.prompts?.labels;
-    const library = renderGifLibrary(listed, mediaCache, labels, { now: clock(), ownMarkHours: gifsCfg.ownMarkHours ?? 24, ...chars });
+    const at = clock();
+    // The library as the first pick of this cache bucket rendered it (no clock in it); the
+    // signature lets an edit of its labels or settings show at once.
+    const freeze = config.features?.promptCache === true ? stableFreezeOf(guildId) : null;
+    const { library, handles } = freezePerBucket(freeze, 'gif-pick', { now: at, bucketMs: cacheTtlMs(config), signature: JSON.stringify([labels?.gifs ?? null, gifsCfg]) }, () => {
+      const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
+      const listed = captionedEntries(rankGifs(store.getGifs(guildId), gifsCfg.halfLifeDays ?? 30), mediaCache, chars.actionChars);
+      return { library: renderGifLibrary(listed, mediaCache, labels, { now: 0, ownMarkHours: 0, ...chars }), handles: listed.map((entry) => entry.id) };
+    });
     if (!pickCandidates({ text: first.text, postsGif: Boolean(gif), captioned: library.length }, settings)) return null;
     const posts = gifsToday();
     if (posts.used >= posts.cap) return null;
@@ -2882,12 +2893,14 @@ export function createTurnRunner({
         ? replyMarker(context.messages[context.answeredIndex - 1], context.answeredIndex, { labels, selfName, replyQuoteChars: config.context?.replyQuoteChars })
         : '';
     const replyBody = answersMark ? `${answersMark} ${first.text}` : first.text;
+    // Which of the listed GIFs the persona posted lately, with how long ago: per call, in the tail.
+    const recent = labels ? ownGifLines(store.getGifs(guildId), handles, labels, { ownMarkHours: gifsCfg.ownMarkHours ?? 24, now: at }) : [];
     let completion;
     try {
       completion = await llm.complete(
         [
           { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '' }) },
-          { role: 'user', content: stableThenTail(block('gifs', library.join('\n')), [block('context', contextBody), block('reply', replyBody)], '\n\n') },
+          { role: 'user', content: stableThenTail(block('gifs', library.join('\n')), [block('gifs_recent', recent.join('\n')), block('context', contextBody), block('reply', replyBody)], '\n\n') },
         ],
         {
           model: roleModel(config, 'analyzer', 'gif-pick'),
@@ -2898,10 +2911,35 @@ export function createTurnRunner({
       log.warn('gifs: pick failed', { channel: channelId, reason: railReason(err), status: err?.statusCode ?? null });
       return null;
     }
-    const handle = parseGifPick(completion?.text, listed.map((entry) => entry.id));
+    const handle = parseGifPick(completion?.text, handles);
     log.info('gifs: picked', { channel: channelId, handle: handle !== null, library: library.length });
     if (handle === null) return null;
     return resolveGif(guildId, { id: handle, replyTo: first.replyTo ?? null }, channelId);
+  }
+
+  /**
+   * What `picking` (pickGifSafely's promise) answers within `gifs.pick.graceMs` (gifPickSettings,
+   * read now; on `schedule`) from now, else null: the picker is left behind for this turn, logged
+   * `gifs: pick late` (`channel`, `graceMs`) and journaled as a `helper-timeout` limit on
+   * `gif-pick`. An answer already there wins over a grace of 0. `graceMs` null -> `picking` itself.
+   * @param {Promise<object|null>} picking
+   * @param {{ channelId: string, draft: object|null }} where
+   * @returns {Promise<object|null>}
+   */
+  async function pickedInTime(picking, { channelId, draft }) {
+    const { graceMs } = gifPickSettings(hot.config);
+    if (graceMs === null) return picking;
+    const LATE = Symbol('late');
+    let cancel = null;
+    const timer = new Promise((resolve) => {
+      cancel = schedule(() => resolve(LATE), graceMs);
+    });
+    const answer = await Promise.race([picking.then((value) => ({ value })), timer]);
+    cancel?.();
+    if (answer !== LATE) return answer.value;
+    log.info('gifs: pick late', { channel: channelId, graceMs });
+    draft?.limits?.add({ kind: 'helper-timeout', where: 'gif-pick' });
+    return null;
   }
 
   /** pickGif that never rejects: an unexpected failure (`gifs: pick failed`) posts the messages as written. */
@@ -2943,7 +2981,13 @@ export function createTurnRunner({
    * without a notification: only allowedMentions changes, never the text.
    * After the reactions, the GIF picker (pickGif) runs alongside the first
    * message's typing imitation: both start together, the first message waits
-   * for both; a GIF it picks is posted in place of the first message (that
+   * for both, the picker at most `gifs.pick.graceMs` (read now; 0 by default,
+   * `null` = as long as it takes) past the end of that typing: a picker still
+   * out then is left behind for this turn (its answer is ignored; `gifs: pick
+   * late` with `graceMs`, a `helper-timeout` limit on `gif-pick` in the turn's
+   * journal) and the first message goes as written. Without that typing (the
+   * imitation off, or the first message refused) it waits for the answer as
+   * before. A GIF it picks is posted in place of the first message (that
    * text is not sent), replying where it would have,
    * and the other messages follow in order, each waited for and typed; a
    * picked GIF that fails to send (`turn: gif failed`) leaves every message to
@@ -3041,21 +3085,33 @@ export function createTurnRunner({
     const postedGifs = [];
     let sendFailed = false;
     // The GIF picker starts first (its request is sent at once), then the first message's typing.
-    const picking = gifPick
-      ? pickGifSafely({ channelId: channel.id, guildId, messages: parsed.messages, gif: parsed.gif, history, selfName, idByIndex, trigger })
-      : Promise.resolve(null);
+    // `pickDone` once it answered (null included): an answer already there needs no grace timer.
+    let pickDone = false;
+    const picking = (
+      gifPick
+        ? pickGifSafely({ channelId: channel.id, guildId, messages: parsed.messages, gif: parsed.gif, history, selfName, idByIndex, trigger })
+        : Promise.resolve(null)
+    ).then((value) => {
+      pickDone = true;
+      return value;
+    });
     // The first message's typing waits for its check, made on its text before any jump link
     // (linkFor is asked once, when it is sent; no cut is told to the limits here). A refusal is
     // not checked again below: that message ends the posting.
     let firstRefused = false;
+    let firstTyped = false;
     if (typingOn && parsed.messages.length > 0) {
       const head = parsed.messages[0];
       const { replyId } = replyTarget(head.replyTo, { plain, idByIndex, pulledIds });
       const { spoken: first, text: firstText } = renderPost(head.text, { channel, guildId, privateChat, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, quiet: true });
       firstRefused = !checkEffect('message.create', sendArgs({ text: firstText, replyId }), effect).ok;
-      if (!firstRefused) await typeFor(first);
+      if (!firstRefused) {
+        await typeFor(first);
+        firstTyped = true;
+      }
     }
-    const picked = await picking;
+    // Once that typing is over, a picker still out gets `gifs.pick.graceMs` more at most (pickedInTime).
+    const picked = gifPick && firstTyped && !pickDone ? await pickedInTime(picking, { channelId: channel.id, draft }) : await picking;
     // One GIF post (the turn's own or the picked one), recorded like a message.
     const sendGif = async (gif) => {
       const { replyId, pulledId } = replyTarget(gif.replyTo, { plain, idByIndex, pulledIds });
@@ -5572,7 +5628,7 @@ export function createTurnRunner({
                     const ids = plan.offer.episodes?.ids ?? [];
                     return answer.state === 'ok' ? answer.indices.map((n) => ids[n - 1]).filter(Boolean) : [];
                   })
-                : pickParticipation({ guildId, channel, history: rawHistory, trigger: candidate, triggerKind, mode: finalMode, selfName, audience: participationAudienceOf }),
+                : pickParticipation({ guildId, channel, history: rawHistory, trigger: candidate, triggerKind, mode: finalMode, selfName, audience: participationAudienceOf, limits: draft.limits }),
             )
           : null;
 

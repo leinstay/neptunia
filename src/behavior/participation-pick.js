@@ -26,6 +26,7 @@ import { routeCandidate, routeContext } from './route.js';
 export const PARTICIPATION_PICK_DEFAULTS = Object.freeze({
   contextMessages: PARTICIPATION_DEFAULTS.contextMessages,
   maxOutputTokens: PARTICIPATION_DEFAULTS.maxOutputTokens,
+  pickTimeoutMs: PARTICIPATION_DEFAULTS.pickTimeoutMs,
 });
 
 /** An integer from a finite `value` of at least `min` (floored), else `fallback`. */
@@ -36,10 +37,12 @@ function intAtLeast(value, fallback, min) {
 /**
  * The pick classifier's settings read from the live config, or null when
  * `features.participation` is false (a missing key counts as on).
- * `contextMessages` (0 sends no transcript) and `maxOutputTokens` (at least 1)
+ * `contextMessages` (0 sends no transcript), `maxOutputTokens` (at least 1) and
+ * `pickTimeoutMs` (how long the turn waits for the pick before it goes on
+ * without one, at least 1; `null` = no limit but the turn's own deadline)
  * fall back to PARTICIPATION_PICK_DEFAULTS when missing or unusable; floored.
  * @param {object} config  The live config.
- * @returns {{ contextMessages: number, maxOutputTokens: number }|null}
+ * @returns {{ contextMessages: number, maxOutputTokens: number, pickTimeoutMs: number|null }|null}
  */
 export function participationPickSettings(config) {
   if (config?.features?.participation === false) return null;
@@ -48,6 +51,7 @@ export function participationPickSettings(config) {
   return {
     contextMessages: intAtLeast(p.contextMessages, d.contextMessages, 0),
     maxOutputTokens: intAtLeast(p.maxOutputTokens, d.maxOutputTokens, 1),
+    pickTimeoutMs: p.pickTimeoutMs === null ? null : intAtLeast(p.pickTimeoutMs, d.pickTimeoutMs, 1),
   };
 }
 
@@ -67,6 +71,19 @@ export function participationPickAllowed({ mode = 'reply', triggerKind = null, p
 }
 
 const noPipes = (text) => String(text ?? '').replaceAll('|', '/');
+
+/** The real timer behind createParticipationPicker's `schedule`: `fn` once after `ms`; resolves a cancel function. */
+function scheduleTimer(fn, ms) {
+  const timer = setTimeout(fn, ms);
+  return () => clearTimeout(timer);
+}
+
+/** A pick past `participation.pickTimeoutMs`: logged, told to the turn's limits, nothing picked. */
+function pickLate({ channelId, offered, timeoutMs, limits }) {
+  log.info('participation: late', { channel: channelId, offered, timeoutMs });
+  limits?.add?.({ kind: 'helper-timeout', where: 'participation-pick' });
+  return [];
+}
 
 /**
  * The `<episodes>` lines: one per headline (src/memory/participation.js#episodeHeadlines
@@ -211,15 +228,21 @@ export function participationEpisodeOffer({ store, guildId, channel, audience, c
  * (`channel`, `kind`, `offered` = the list length, `picked` = the episodes
  * picked, `parse`, `ms`). Resolves the picked episode ids in the answer's
  * order; never rejects: a failure logs `participation: failed` (`reason`: the
- * rail code, `error` for anything else). Counts and codes only.
+ * rail code, `error` for anything else). Counts and codes only. The request
+ * gets `participation.pickTimeoutMs` (read now, on `schedule`; null = no limit
+ * but the turn's own deadline): past it the request is aborted and nothing is
+ * picked -- the turn shows the newest --, logged `participation: late`
+ * (`channel`, `offered`, `timeoutMs`) and told to `limits` (the turn's
+ * collector, if given) as a `helper-timeout` on `participation-pick`.
  * @param {{ hot: { config: object, prompts: object }, store: object, llm: { complete: Function },
- *   now?: () => number }} deps
+ *   now?: () => number, schedule?: (fn: () => void, ms: number) => () => void }} deps
+ *   `schedule`: runs `fn` once after `ms`, resolving a cancel function (default: setTimeout).
  * @returns {(args: { guildId: string, channel: object, history: object[], trigger: object|null,
  *   triggerKind?: string|null, mode?: string, selfName: string,
- *   audience: (channelId: string) => boolean }) => Promise<string[]>}
+ *   audience: (channelId: string) => boolean, limits?: { add: Function }|null }) => Promise<string[]>}
  */
-export function createParticipationPicker({ hot, store, llm, now = Date.now }) {
-  return async function pickParticipation({ guildId, channel, history, trigger = null, triggerKind = null, mode = 'reply', selfName, audience }) {
+export function createParticipationPicker({ hot, store, llm, now = Date.now, schedule = scheduleTimer }) {
+  return async function pickParticipation({ guildId, channel, history, trigger = null, triggerKind = null, mode = 'reply', selfName, audience, limits = null }) {
     const channelId = channel?.id ?? null;
     try {
       const config = hot.config;
@@ -254,15 +277,30 @@ export function createParticipationPicker({ hot, store, llm, now = Date.now }) {
       if (!messages) return [];
 
       let completion;
+      // The time limit: past it the request is aborted and the turn goes on without a pick.
+      const timeoutMs = settings.pickTimeoutMs;
+      const abort = timeoutMs === null ? null : new AbortController();
+      let late = false;
+      const cancel = abort
+        ? schedule(() => {
+            late = true;
+            abort.abort();
+          }, timeoutMs)
+        : null;
       try {
         completion = await llm.complete(messages, {
           model: roleModel(config, 'analyzer', 'participation-pick'),
-          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: settings.maxOutputTokens, purpose: 'participation-pick' }),
+          ...helperRequestOptions(config, { role: 'analyzer', maxOutputTokens: settings.maxOutputTokens, purpose: 'participation-pick', signal: abort?.signal }),
         });
       } catch (err) {
+        if (late) return pickLate({ channelId, offered: ids.length, timeoutMs, limits });
         log.warn('participation: failed', { channel: channelId, reason: railReason(err), status: err?.statusCode ?? null, name: err?.name ?? null });
         return [];
+      } finally {
+        cancel?.();
       }
+      // An answer that came with the abort is not taken either: the turn was told there is none.
+      if (late) return pickLate({ channelId, offered: ids.length, timeoutMs, limits });
       const { indices, reason } = parseParticipationPick(completion?.text, ids.length);
       const picked = indices.map((n) => ids[n - 1]);
       log.info('participation: classified', { channel: channelId, kind: triggerKind ?? null, offered: ids.length, picked: picked.length, parse: reason, ms: now() - at });

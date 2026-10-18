@@ -339,7 +339,7 @@ Settings for the channel route classifier (`features.channelRoute`). When the co
 
 ## `participation`
 
-The persona's own exchanges on other channels (`features.participation`). Every message the persona sends in a server channel (not a private chat, not the diary channel, not a dry run) is saved with a few lines before it, the message it answered, and the lines that follow it, in `data/guilds/<id>/participation.json`. On a server turn the persona sees up to `shown` of these episodes from other channels in a `<participation>` block: the ones a classifier (`prompts/participation-pick.md` on the `analyzer` role) picks as the ones the message refers to, then the newest. Only channels everyone in the current channel can also read are offered (the `context.pull.sameAudience` rule). Logged as `participation: recorded`, `participation: classified`, `participation: skipped` or `participation: failed`.
+The persona's own exchanges on other channels (`features.participation`). Every message the persona sends in a server channel (not a private chat, not the diary channel, not a dry run) is saved with a few lines before it, the message it answered, and the lines that follow it, in `data/guilds/<id>/participation.json`. On a server turn the persona sees up to `shown` of these episodes from other channels in a `<participation>` block: the ones a classifier (`prompts/participation-pick.md` on the `analyzer` role) picks as the ones the message refers to, then the newest. Only channels everyone in the current channel can also read are offered (the `context.pull.sameAudience` rule). Logged as `participation: recorded`, `participation: classified`, `participation: skipped`, `participation: late` or `participation: failed`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -357,6 +357,7 @@ The persona's own exchanges on other channels (`features.participation`). Every 
 | `episodeChars` | `1800` | Characters of text shown per episode; a longer one keeps the persona's lines, the lines they answer, the lines that share a word with the new message and the ends, and marks the cut lines |
 | `contextMessages` | `6` | Recent channel lines rendered for the pick classifier alongside the new message |
 | `maxOutputTokens` | `60` | Max output tokens for the pick classifier |
+| `pickTimeoutMs` | `1500` | How long the turn waits for the pick classifier (ms). Past it the request is aborted and the newest episodes are shown, logged `participation: late` and journaled as a `helper-timeout` limit on `participation-pick`. `null` leaves only the turn's own preparation deadline |
 | `earlierHours` | `3` | With `features.anchoredWindow` on, the same saved episodes also cover the current channel: the lines of it that are older than the oldest line of `<chat>` and younger than this many hours come in the `<earlier>` block, so a conversation the count-based history (`context.channelMessages`) has already let go of is not lost. `0` leaves them out (h) |
 | `earlierShown` | `3` | Episodes of the current channel shown in `<earlier>`, the newest ones; each is cut to `episodeChars` |
 
@@ -425,17 +426,18 @@ Settings for the GIF library (`features.gifs`). Uses are counted as each message
 | `backfillMessages` | `500` | Messages read per channel from history at startup to seed the library. Runs once when `features.gifs` is on and no backfill has run yet for this server. `0` disables |
 | `backfillDescribe` | `20` | Top GIFs by rank that are sent to the describer for a caption right after the backfill; the rest get captions as the chat meets them |
 | `recachePerRun` | `50` | Library GIFs re-described per `/nep media gifs recache` run. One-frame captions outside the library are dropped at once; watched entries in the old format (no `reaction` field) are queued alongside unfinished ones, oldest first. Up to this many are watched per run, capped by `media.gif.maxPerDay` |
-| `ownMarkHours` | `24` | Hours after the persona posts a GIF during which the reply's tail names it in `<gifs_recent>` (with how long ago) and the GIF picker's list marks it. `0` turns both off |
+| `ownMarkHours` | `24` | Hours after the persona posts a GIF during which the reply's tail and the GIF picker's tail name it in `<gifs_recent>` (with how long ago). `0` turns both off |
 
 ### `gifs.pick`
 
-Settings for the GIF picker (`features.gifPicker`). When the persona's first outgoing message is short (at most `gifs.pick.maxChars` characters) and she chose no GIF herself, a classifier (`analyzer` role, prompt `prompts/gif-pick.md`) receives the last few chat lines with the answered message named, that first message, and the whole captioned library (every entry with its caption, each carrying the own-mark when applicable), and answers one handle or `none`. On a handle the GIF replaces the first message; the remaining messages follow in order. The classifier runs during the first message's typing simulation; the daily GIF rail `gifs.maxPerDay` applies.
+Settings for the GIF picker (`features.gifPicker`). When the persona's first outgoing message is short (at most `gifs.pick.maxChars` characters) and she chose no GIF herself, a classifier (`analyzer` role, prompt `prompts/gif-pick.md`) receives the last few chat lines with the answered message named, that first message, and the whole captioned library (every entry with its caption; with `features.promptCache` on held per cache bucket like the reply's `<gifs>`; the GIFs the persona posted lately follow in `<gifs_recent>`), and answers one handle or `none`. On a handle the GIF replaces the first message; the remaining messages follow in order. The classifier runs during the first message's typing simulation and gets at most `gifs.pick.graceMs` past its end; the daily GIF rail `gifs.maxPerDay` applies.
 
 | Key | Default | Meaning |
 |---|---|---|
 | `maxChars` | `160` | First message ceiling: the picker runs only when the persona's first outgoing message is at most this many characters |
 | `contextMessages` | `4` | Recent chat lines sent to the classifier alongside the reply and the library |
 | `maxOutputTokens` | `60` | Max output tokens for the picker classifier |
+| `graceMs` | `1000` | How long the first message, once its typing simulation is over, still waits for the picker. A picker still out then is left behind for this turn: the text goes as written, logged `gifs: pick late` and journaled as a `helper-timeout` limit on `gif-pick`. `null` waits for the answer however long it takes. Without the typing simulation the first message waits for the answer |
 
 ## `avatars`
 

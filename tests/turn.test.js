@@ -19,7 +19,7 @@ import {
 } from '../src/behavior/turn.js';
 import { between, typingMs } from '../src/behavior/random.js';
 import { fillPromptTemplate, userText as textOf } from '../src/behavior/prompt.js';
-import { fill, formatClock, formatDate } from '../src/format.js';
+import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { handleOf } from '../src/behavior/handles.js';
@@ -7414,7 +7414,7 @@ function pickHot({ features = {}, prompts = {}, pickSettings = PICK_SETTINGS, ma
   return hot;
 }
 
-async function runPickTurn({ reply = '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick = 'none', store = pickStore(), typing = null, raws = pickHistory(), triggerRaw = raws.at(-1), failGif = false, ...hotOptions } = {}) {
+async function runPickTurn({ reply = '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick = 'none', store = pickStore(), typing = null, raws = pickHistory(), triggerRaw = raws.at(-1), failGif = false, journaled = false, ...hotOptions } = {}) {
   const channel = fakeTurnChannel({ historyMessages: raws });
   const sendTimes = [];
   const send = channel.send;
@@ -7424,11 +7424,17 @@ async function runPickTurn({ reply = '<msg reply="#2">ναι, φυσικά, έλ
     return send(payload);
   };
   const llm = pickLlm({ reply, pick });
-  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: pickHot({ ...hotOptions, typing }), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW });
+  const hot = pickHot({ ...hotOptions, typing });
+  // With `journaled`, a journal in memory: `limits` are the turn record's.
+  const recorded = journaled ? journalOverMemory() : null;
+  if (recorded) hot.config.features.journal = true;
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => NOW, ...(recorded ? { journal: recorded.journal } : {}) });
+  const startedAt = Date.now();
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(triggerRaw), triggerKind: 'mention' }));
   const picks = llm.calls.filter((call) => call.options?.purpose === 'gif-pick');
   const sent = () => channel.sent.map((payload) => payload.content);
-  return { result, logs, channel, picks, store, sent, sendTimes };
+  const limits = recorded?.lines.find(({ record }) => record.kind === 'turn')?.record.limits ?? null;
+  return { result, logs, channel, picks, store, sent, sendTimes, startedAt, limits };
 }
 
 test('runTurn: a short reply is shown with the whole captioned library; a picked handle posts that GIF and no text', async () => {
@@ -7596,11 +7602,83 @@ test('runTurn: the picker runs alongside the first message\'s typing time', asyn
     askedAt = Date.now();
     return new Promise((resolve) => setTimeout(() => resolve('none'), 150));
   };
-  const { sendTimes, sent } = await runPickTurn({ reply: '<msg>ναι</msg>', pick, typing: { msPerChar: [0, 0], minMs: 150, maxMs: 150 } });
+  const { sendTimes, sent } = await runPickTurn({ reply: '<msg>ναι</msg>', pick, typing: { msPerChar: [0, 0], minMs: 150, maxMs: 150 }, pickSettings: { ...PICK_SETTINGS, graceMs: null } });
   assert.deepEqual(sent(), ['ναι']);
   assert.ok(askedAt !== null && askedAt <= sendTimes[0], 'the picker is asked before the send');
   const together = sendTimes[0] - askedAt;
   assert.ok(together >= 140 && together < 270, `the picker and the typing ran together (${together} ms)`);
+});
+
+test('runTurn: a picker still out when the first message\'s typing ends is left behind: the text goes, logged and journaled', async () => {
+  const typing = { msPerChar: [0, 0], minMs: 60, maxMs: 60 };
+  const slow = () => new Promise((resolve) => setTimeout(() => resolve('g50'), 400));
+  const late = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, typing, pickSettings: { ...PICK_SETTINGS, graceMs: 0 }, journaled: true });
+  assert.deepEqual(late.sent(), ['ναι'], 'the text as written, no GIF');
+  assert.ok(late.sendTimes[0] - late.startedAt < 300, `not held for the picker (${late.sendTimes[0] - late.startedAt} ms)`);
+  const entry = late.logs.find((log) => log.msg === 'gifs: pick late');
+  assert.deepEqual([entry?.channel, entry?.graceMs], ['c1', 0]);
+  assert.deepEqual(late.store.ownGifs, [], 'nothing posted or stamped');
+  assert.ok(late.limits.some((limit) => limit.kind === 'helper-timeout' && limit.where === 'gif-pick'), 'the turn record names the picker');
+
+  const graced = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, typing, pickSettings: { ...PICK_SETTINGS, graceMs: 1000 } });
+  assert.deepEqual(graced.sent(), ['https://tenor.com/view/gif-50'], 'an answer inside the grace still replaces the text');
+  assert.equal(graced.logs.some((log) => log.msg === 'gifs: pick late'), false);
+
+  const waits = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, typing, pickSettings: { ...PICK_SETTINGS, graceMs: null } });
+  assert.deepEqual(waits.sent(), ['https://tenor.com/view/gif-50'], 'null waits for the answer');
+
+  const untyped = await runPickTurn({ reply: '<msg>ναι</msg>', pick: slow, pickSettings: { ...PICK_SETTINGS, graceMs: 0 } });
+  assert.deepEqual(untyped.sent(), ['https://tenor.com/view/gif-50'], 'without the typing imitation the answer is waited for, as before');
+});
+
+test('runTurn: a picker that answered during the typing is used with a grace of 0', async () => {
+  const quick = await runPickTurn({ reply: '<msg>ναι</msg>', pick: 'g50', typing: { msPerChar: [0, 0], minMs: 60, maxMs: 60 }, pickSettings: { ...PICK_SETTINGS, graceMs: 0 } });
+  assert.deepEqual(quick.sent(), ['https://tenor.com/view/gif-50']);
+  assert.equal(quick.logs.some((log) => log.msg === 'gifs: pick late'), false);
+});
+
+/**
+ * Two picker turns on ONE runner at `times` (ms), the library changed between them by `between`
+ * (a GIF post of the persona, a use that reranks); the picks' user parts.
+ */
+async function twoPickTurns({ times, between, promptCache = true }) {
+  const library = pickLibrary();
+  const store = pickStore({ library });
+  const llm = pickLlm({ reply: '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick: 'none' });
+  let t = times[0];
+  const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot: pickHot({ features: { promptCache } }), store, llm, calibrator: identityCalibrator(), client: fakeClient(), now: () => t });
+  const turn = () => withCapturedLogs(() => turns.runTurn({ channel: fakeTurnChannel({ historyMessages: pickHistory() }), mode: 'reply', trigger: normalizedTrigger(pickHistory().at(-1)), triggerKind: 'mention' }));
+  await turn();
+  between(library.gifs);
+  t = times[1];
+  await turn();
+  return llm.calls.filter((call) => call.options?.purpose === 'gif-pick').map((call) => call.messages[1].content);
+}
+
+/** The persona posted g40 at `at`, and it was used enough to lead the ranking. */
+const postG40 = (at) => (gifs) => Object.assign(gifs.entries.k40, { ownLast: at, ownUses: 1, count: 500, last: at });
+
+test('runTurn: with the prompt cache on, the picker\'s cached library is byte-identical within one cache bucket; her post and its age go to the tail', async () => {
+  const first = NOW + 60_000;
+  const second = NOW + 7 * 60_000;
+  const [a, b] = await twoPickTurns({ times: [first, second], between: postG40(first + 1000) });
+  assert.equal(a[0].cacheSegment, 'stable');
+  assert.equal(b[0].text, a[0].text, 'the stable part of the second pick is byte for byte the first one\'s');
+  assert.equal(b[0].text.includes('(you'), false, 'no own-post mark in the cached library');
+  const gifLines = b[0].text.replace(/^<gifs>\n/, '').replace(/\n<\/gifs>\n\n$/, '').split('\n');
+  assert.equal(gifLines[0], 'g1 -- λεζάντα 1', 'the order the bucket started with');
+  assert.equal(a[1].text.includes('<gifs_recent>'), false, 'no recent post before it');
+  const recent = fill(labels.gifs.ownMark, { ago: formatDuration(second - (first + 1000), labels.units) });
+  assert.ok(b[1].text.startsWith(`<gifs_recent>\ng40 ${recent}\n</gifs_recent>\n\n<context>\n`), 'the post and its age open the per-call tail');
+});
+
+test('runTurn: the picker\'s library follows the library at the next cache bucket, or at once with the prompt cache off', async () => {
+  const first = NOW + 60_000;
+  const [, nextBucket] = await twoPickTurns({ times: [first, NOW + 61 * 60_000], between: postG40(first + 1000) });
+  assert.ok(nextBucket[0].text.startsWith('<gifs>\ng40 -- λεζάντα 40\n'), 'reranked at the bucket edge');
+  const [, off] = await twoPickTurns({ times: [first, NOW + 2 * 60_000], between: postG40(first + 1000), promptCache: false });
+  assert.ok(off[0].text.startsWith('<gifs>\ng40 -- λεζάντα 40\n'), 'rendered live without the cache');
+  assert.equal(off[0].text.includes('(you'), false, 'never marked in the library');
 });
 
 // ---------------------------------------------------------------------------

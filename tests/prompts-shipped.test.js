@@ -1303,10 +1303,10 @@ test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: history.at(-1), triggerKind: 'mention' }));
 
   const [pick] = llm.calls.filter((call) => call.options.purpose === 'gif-pick');
-  const text = assertFilled(pick?.messages, { files: LOADS.gifPick, blocks: ['context', 'reply', 'gifs'] }, 'gif-pick');
+  const text = assertFilled(pick?.messages, { files: LOADS.gifPick, blocks: ['context', 'reply', 'gifs', 'gifs_recent'] }, 'gif-pick');
   assert.ok(text.includes(SELF_NAME), 'gif-pick: {{name}} is the persona');
   assert.ok(text.includes(fill(LABELS.gifs.entry, { id: 'g1', text: 'un chat qui danse' })), 'gif-pick: an entry through labels.gifs.entry');
-  assert.ok(text.includes(fill(LABELS.gifs.ownMark, { ago: `1 ${LABELS.units.hour}` })), 'gif-pick: the own mark through labels.gifs.ownMark');
+  assert.ok(text.includes(`g2 ${fill(LABELS.gifs.ownMark, { ago: `1 ${LABELS.units.hour}` })}`), 'gif-pick: the own post in <gifs_recent> through labels.gifs.ownMark');
 });
 
 test('createMissed: the missed-answer check fills missed.md', async () => {
