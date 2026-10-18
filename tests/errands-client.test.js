@@ -6,7 +6,8 @@
 // outcome of the connect loop reaches the `onLink` listeners. The deployment's preamble goes out
 // on a run's line only when non-empty, read at each run: the files of prompts.local/preambles/ are
 // picked by agent and by the agent's role model and capped by whole files; prompts.local/agents.md
-// (`hot.prompts.agents`) is never read as one.
+// (`hot.prompts.agents`) is never read as one. A run carries the live role model and the live
+// `agents.<profile>.cost` (when usable), since the runners cannot read the private config.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
@@ -16,6 +17,7 @@ import path from 'node:path';
 import { createErrandClient } from '../src/errands/client.js';
 import { encodeLine, MAX_PREAMBLE_CHARS } from '../src/agent-runner/protocol.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 
 function socketPath() {
   return path.join(os.tmpdir(), `errand-sock-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
@@ -99,7 +101,7 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
     await withCapturedLogs(async () => {
       const running = client.run({ agent: 'web', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, usd: 0.1, seconds: 30 } });
       const request = await runner.next((r) => r.op === 'run');
-      assert.deepEqual(request, { op: 'run', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, usd: 0.1, seconds: 30 } });
+      assert.deepEqual(request, { op: 'run', id: 'task-1', goal: 'find a meme', context: { scope: 'group' }, limits: { steps: 3, usd: 0.1, seconds: 30 }, model: ROLE_DEFAULTS['agent.web'] });
       runner.reply({ id: 'task-1', event: 'progress', step: 1, tool: 'search', note: 'looking' });
       runner.reply({ id: 'task-1', event: 'end', status: 'done', result: { text: 'found', sources: ['https://example.org/a'], files: [{ path: '/out/task-1/a.png', name: 'a.png', contentType: 'image/png', bytes: 10 }] }, usage: { steps: 2, usd: 0.01 } });
       const outcome = await running;
@@ -196,21 +198,51 @@ test('errands client: the preamble is composed from prompts.local/preambles/ by 
     const { logs } = await withCapturedLogs(async () => {
       const onRole = await runOnce('task-role');
       assert.equal(onRole.preamble, 'ALL-TEXT\n\nWEB-TEXT\n\nKIMI-TEXT', 'the role model picks the model file');
-      assert.equal(Object.hasOwn(onRole, 'model'), false, 'the role model is not sent: the runner takes it');
+      assert.equal(onRole.model, 'openrouter/moonshotai/kimi-k3', 'the live role model is sent: the runner cannot read the private config');
+      assert.equal(Object.hasOwn(onRole, 'cost'), false, 'no cost is sent when the live config has none');
 
       hot.config.roles = { 'agent.web': 'openrouter/openai/gpt-6-sol' };
+      hot.config.agents.web.cost = { input: 2, output: 6 };
       hot.prompts = { ...hot.prompts, preambles: { ...hot.prompts.preambles, all: '' } };
       const live = await runOnce('task-live');
       assert.equal(live.preamble, 'WEB-TEXT\n\nWEB-SOL-TEXT', 'role and files read at each run; an emptied all.md sends nothing');
-      assert.equal(Object.hasOwn(live, 'model'), false);
+      assert.equal(live.model, 'openrouter/openai/gpt-6-sol', 'the role model is read at each run');
+      assert.deepEqual(live.cost, { input: 2, output: 6 }, 'the live price is sent');
+
+      hot.config.agents.web.cost = { input: 2, output: Number.NaN };
+      const unusable = await runOnce('task-bad-cost');
+      assert.equal(Object.hasOwn(unusable, 'cost'), false, 'a price without finite input and output is not sent');
+      assert.equal(unusable.model, 'openrouter/openai/gpt-6-sol');
     });
     const sent = logs.filter((entry) => entry.msg === 'errands: sent');
     assert.deepEqual(sent.map((entry) => entry.preambleFiles), [
       ['preambles/all.md', 'preambles/web.md', 'preambles/@moonshotai-kimi-k3.md'],
       ['preambles/web.md', 'preambles/web@openrouter-openai-gpt-6-sol.md'],
+      ['preambles/web.md', 'preambles/web@openrouter-openai-gpt-6-sol.md'],
     ]);
+    assert.deepEqual(sent.map((entry) => entry.model), ['openrouter/moonshotai/kimi-k3', 'openrouter/openai/gpt-6-sol', 'openrouter/openai/gpt-6-sol'], 'the model id is logged');
+    assert.ok(sent.every((entry) => !Object.hasOwn(entry, 'cost')), 'the cost is not logged');
     assert.equal(sent[0].preambleChars, 'ALL-TEXT\n\nWEB-TEXT\n\nKIMI-TEXT'.length);
     assert.ok(!/-TEXT/.test(JSON.stringify(logs)), 'no preamble text in a log line');
+  } finally {
+    client.close();
+    await runner.close();
+  }
+});
+
+test('errands client: without a role in the live config the run carries the engine default model and no cost', async () => {
+  const sock = socketPath();
+  const runner = await fakeRunner(sock);
+  const client = createErrandClient({ hot: hotFor(sock) });
+  try {
+    await withCapturedLogs(async () => {
+      const running = client.run({ agent: 'web', id: 'task-bare', goal: 'look' });
+      const request = await runner.next((r) => r.op === 'run' && r.id === 'task-bare');
+      assert.equal(request.model, ROLE_DEFAULTS['agent.web'], 'the role resolves to its engine default');
+      assert.equal(Object.hasOwn(request, 'cost'), false, 'no cost without agents.web.cost');
+      runner.reply({ id: 'task-bare', event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
+      await running;
+    });
   } finally {
     client.close();
     await runner.close();
