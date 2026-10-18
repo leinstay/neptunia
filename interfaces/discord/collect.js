@@ -956,9 +956,14 @@ export function channelDirectoryOf(guild, botConfig) {
   }));
 }
 
+/** When the message (or any object) with snowflake `id` was created, in ms since the epoch: no API call. */
+export function snowflakeTime(id) {
+  return SnowflakeUtil.timestampFrom(id);
+}
+
 /** Timestamp of the newest message in a channel, from its snowflake — no API call. */
 export function lastActivity(channel) {
-  return channel.lastMessageId ? SnowflakeUtil.timestampFrom(channel.lastMessageId) : 0;
+  return channel.lastMessageId ? snowflakeTime(channel.lastMessageId) : 0;
 }
 
 /**

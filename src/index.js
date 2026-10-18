@@ -6,7 +6,6 @@
 // src/interface/discord.js).
 
 import fs from 'node:fs';
-import { Client, Events, GatewayIntentBits, Partials, SnowflakeUtil } from 'discord.js';
 
 import { ROOT_DIR, env, loadDotEnv, need } from './config.js';
 import { resolvePaths } from './paths.js';
@@ -51,8 +50,10 @@ import {
   applyReactionEvent,
   createAroundStore,
   createAudienceWarmer,
+  createDiscordClient,
   createDiscordInterface,
   createEmojiIndex,
+  Events,
   createInteractionHandler,
   createReactorStore,
   normalizeOptions,
@@ -264,20 +265,7 @@ const images = createImageGen({ apiKey: () => roleApiKey(hot.config, env, 'drawi
 const intentSettings = hot.config.discord?.intents ?? {};
 const presencesIntent = intentSettings.presences === true;
 const membersIntent = intentSettings.members === true;
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildExpressions,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMessageReactions,
-    ...(presencesIntent ? [GatewayIntentBits.GuildPresences] : []),
-    ...(membersIntent ? [GatewayIntentBits.GuildMembers] : []),
-  ],
-  partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
-});
+const client = createDiscordClient({ presences: presencesIntent, members: membersIntent });
 
 // This instance serves exactly one Discord server. `instance.guildId` is set
 // once, right after ClientReady resolves it (see below), and every component
@@ -478,7 +466,7 @@ const offlineCatchUp = createOfflineCatchUp({
   channelInfo: (channelId) => {
     const channel = client.channels.cache.get(channelId);
     if (!channel || channel.guild?.id !== instance.guildId || typeof channel.messages?.fetch !== 'function') return { available: false, latestAt: null };
-    return { available: true, latestAt: channel.lastMessageId ? SnowflakeUtil.timestampFrom(channel.lastMessageId) : null };
+    return { available: true, latestAt: channel.lastMessageId ? discord.snowflakeTime(channel.lastMessageId) : null };
   },
   fetchRecent: async (channelId, limit) => {
     const channel = client.channels.cache.get(channelId) ?? (await client.channels.fetch(channelId));
