@@ -454,7 +454,7 @@ export const labels = {
     },
     tools: {
       lead: 'your tools; web.search and memory.search come back this turn, task.run later:',
-      web: { source: 'from web.search, query {query}; snippets, pages not opened', goal: 'to establish: {goal}', sources: 'sites: {list}', none: 'nothing found' },
+      web: { source: 'from web.search, query {query}; snippets, pages not opened', goal: 'to establish: {goal}', sources: 'sources:', none: 'nothing found' },
       memory: { source: 'from memory.search; quoted messages with time and author', window: '{date} in #{channel}:', none: 'no messages found' },
     },
     refusals: {
