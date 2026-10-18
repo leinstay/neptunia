@@ -93,6 +93,16 @@ Every action gets a result; an adapter never throws.
 
 An adapter edits and deletes only the persona's own messages (returning `forbidden` otherwise) and refuses a reference of another interface as `foreign-reference`.
 
+## Neutral event model (draft)
+
+Needs review (placeholder list, wording to be written by the writer role). `src/interface/events.js` holds a pure, not yet used model for the next stage of the seam:
+
+- event types: `message.created`, `message.edited`, `message.deleted`, `reaction.added`, `reaction.removed`, `member.joined`, `member.left`, `voice.state`;
+- the origin record: `iface`, `chatType` (`dm`, `group`, `channel`, `thread`, `none`), `place`, `parent`, `thread`, `community`, `replyToAuthor`, `replyExpected`, `meta`;
+- the envelope `{ v, id, type, replyTo, body }` with the types `hello`, `event`, `ack`, `action`, `action_result`, `ping`;
+- idempotent ids (`eventId`) and a bounded dedupe for at-least-once delivery;
+- how it relates to the `packages/protocol` events above (which stay the live contract until the Discord package translates into this model).
+
 ## Not yet
 
 The Discord adapter is a package of its own (`interfaces/discord/`) but still runs inside the engine's process, and moves out of it in a later stage. Until then the message pipeline reads the normalised message rebuilt from the event, owner commands are answered by a direct reply rather than a `command.result` action, and the core's `scheduler.tick` and `task.completed` are direct calls rather than events through one dispatcher.
