@@ -69,7 +69,7 @@ test('parseLookupAnswer: a skills line is read apart; the other lines read exact
   const lines = 'web: Αθήνα σήμερα\nserver: κουνέλι, κουνελιού\nwhen: 2026-10-01 .. 2026-10-03';
   const without = parseLookupAnswer(lines, { now: NOW });
   const withSkills = parseLookupAnswer(`${lines}\nskills: draw.create, message.edit`, { now: NOW, skillNames: NAMES });
-  assert.deepEqual({ web: withSkills.web, agent: withSkills.agent, server: withSkills.server, reason: withSkills.reason }, without);
+  assert.deepEqual({ web: withSkills.web, server: withSkills.server, reason: withSkills.reason }, without);
   assert.deepEqual(withSkills.skills, { state: 'named', inventory: false, names: ['draw.create', 'message.edit'] });
 
   // The old single-line shape keeps working beside it.

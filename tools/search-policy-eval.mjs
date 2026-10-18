@@ -23,8 +23,9 @@
 // helper options (helperRequestOptions: its temperature, timeout and hedge), the answer capped at
 // `web.search.classifierMaxOutputTokens`. The answer is read by
 // src/behavior/recall.js#parseLookupAnswer and mapped to a decision
-// (tools/lib/search-policy-eval.mjs#decisionOf): `agent:` -> agent, `web:` -> fast, a server part
-// without `web:` -> memory, nothing -> none; a call that threw or answered nothing -> failed.
+// (tools/lib/search-policy-eval.mjs#decisionOf): `web:` -> fast, a server part without `web:` ->
+// memory, nothing -> none (never agent: the classifier asks for no errand); a call that threw or
+// answered nothing -> failed.
 // Not reproduced: the turn planner, pictures, videos and read links in the transcript, the failed
 // classifier's fallback.
 //

@@ -115,13 +115,13 @@ export function rowChat(row, { now, selfName }) {
 
 /**
  * The classifier's decision from its parsed answer (src/behavior/recall.js#parseLookupAnswer):
- * an `agent:` task -> `agent`; a `web:` query -> `fast`; a
- * server part (`server:`, `who:` or a range) without `web:` -> `memory`; nothing -> `none`.
- * @param {{ web?: string|null, server?: object|null, agent?: unknown }|null} parsed
- * @returns {'none'|'fast'|'memory'|'agent'}
+ * a `web:` query -> `fast`; a server part (`server:`, `who:` or a range) without `web:` ->
+ * `memory`; nothing -> `none`. The classifier never decides `agent` (it asks for no errand):
+ * a row labelled `agent` counts as a miss.
+ * @param {{ web?: string|null, server?: object|null }|null} parsed
+ * @returns {'none'|'fast'|'memory'}
  */
 export function decisionOf(parsed) {
-  if (parsed?.agent) return 'agent';
   if (parsed?.web) return 'fast';
   if (parsed?.server) return 'memory';
   return 'none';

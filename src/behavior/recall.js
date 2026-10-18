@@ -3,8 +3,7 @@
 // labelled lines -- `web:` a web query, `server:` word forms to look for in
 // the server's messages, `who:` forms of a person's name, `when:` a date
 // range in the bot's time zone, `recent:` whether the question is a vague
-// "recently", `agent:` an errand for the web agent (src/behavior/turn.js
-// queues it) -- and the old single unlabelled line still
+// "recently" -- and the old single unlabelled line still
 // reads as a web query. Discord's message search does not stem and matches
 // one form per query, so the server part becomes an ordered list of queries
 // (content forms round-robin, then authors, or a date range sampled when
@@ -114,8 +113,6 @@ const FORM_KEY = 'form:';
 const MAX_WINDOW_MESSAGES = 100;
 /** A web query is cut to this many characters (as the old single-line answer was). */
 const WEB_QUERY_CHARS = 200;
-/** An `agent:` task is cut to this many characters, like a web query. */
-const AGENT_TASK_CHARS = 200;
 /** A search form: 2..40 characters and at most 3 words. */
 const FORM_MIN_CHARS = 2;
 const FORM_MAX_CHARS = 40;
@@ -363,11 +360,6 @@ function webQuery(value) {
   return boundedLine(value, WEB_QUERY_CHARS);
 }
 
-/** An errand's task from one `agent:` value: stripped, `none` -> null, cut to AGENT_TASK_CHARS. */
-function agentTask(value) {
-  return boundedLine(value, AGENT_TASK_CHARS);
-}
-
 /** The forms of one `server:` / `who:` value, cleaned (see parseLookupAnswer), appended to `into` up to `cap`. */
 function addForms(into, value, cap) {
   for (const part of String(value ?? '').split(FORM_SPLIT_RE)) {
@@ -452,9 +444,9 @@ function parseRange(value, timezone, now) {
  * quotes stripped) or a web query.
  * - `web`: the first one; quotes and trailing punctuation stripped, a value
  *   starting with `none` is no query, cut to 200 characters.
- * - `agent`: an errand for the web agent (src/behavior/turn.js queues it),
- *   read like `web`: the first one, one line, stripped, `none` is no task,
- *   cut to 200 characters. Absent: no errand.
+ * - `agent`: ignored. An old prompt's errand line is read as a label only so
+ *   it is never taken for the unlabelled web query; the classifier never
+ *   asks for an errand (only the persona's own `task.run` call does).
  * - `server` / `who`: comma-separated forms, each trimmed, wrapping quotes
  *   and trailing punctuation stripped, whitespace collapsed, lower-cased,
  *   kept when 2..40 characters and at most 3 words, de-duplicated in order,
@@ -475,10 +467,10 @@ function parseRange(value, timezone, now) {
  *   cannot exclude the answer; a range with neither is always a scope (the
  *   time is the question). The line alone asks nothing.
  * `server` is an object when there is a form, a name form or a range, else
- * null; `agent` the task or null. `reason`: `empty` (no text), `none` (an
+ * null. `reason`: `empty` (no text), `none` (an
  * explicit none, or labelled lines that all say none or nothing), `unparsed`
- * (labelled lines with content none of which is usable), `ok` (a web query,
- * a server part or an agent task).
+ * (labelled lines with content none of which is usable), `ok` (a web query
+ * or a server part). An `agent:` line is ignored (counted as nothing).
  * A `skills:` line (skills discovery, src/skills/discovery.js) is taken out
  * before the rest is read, so the other lines read exactly as without it;
  * with one, the result has `skills` (parseSkillsLines over `skillNames`:
@@ -486,7 +478,7 @@ function parseRange(value, timezone, now) {
  * nothing else is `none`. Without one there is no `skills` key (none).
  * @param {unknown} raw
  * @param {{ timezone?: string, now?: number, maxForms?: number, skillNames?: string[] }} [options]
- * @returns {{ web: string|null, agent: string|null, server: { forms: string[], who: string[], from: number|null, to: number|null, recent?: true,
+ * @returns {{ web: string|null, server: { forms: string[], who: string[], from: number|null, to: number|null, recent?: true,
  *   locator?: true }|null,
  *   reason: 'empty'|'none'|'unparsed'|'ok', skills?: { state: string, inventory: boolean, names: string[] } }}
  */
@@ -504,18 +496,17 @@ function parseSearchLines(raw, { timezone, now, maxForms }) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  if (lines.length === 0) return { web: null, agent: null, server: null, reason: 'empty' };
+  if (lines.length === 0) return { web: null, server: null, reason: 'empty' };
   const labelled = lines.map((line) => LABEL_RE.exec(line)).filter(Boolean);
   if (labelled.length === 0) {
     const stripped = stripLine(lines[0]);
-    if (NONE_RE.test(stripped)) return { web: null, agent: null, server: null, reason: 'none' };
+    if (NONE_RE.test(stripped)) return { web: null, server: null, reason: 'none' };
     const web = webQuery(lines[0]);
-    return web ? { web, agent: null, server: null, reason: 'ok' } : { web: null, agent: null, server: null, reason: 'empty' };
+    return web ? { web, server: null, reason: 'ok' } : { web: null, server: null, reason: 'empty' };
   }
 
   const cap = intAtLeast(maxForms, RECALL_DEFAULTS.maxForms, 1);
   let web = null;
-  let agent = null;
   const forms = [];
   const who = [];
   let range = null;
@@ -535,13 +526,12 @@ function parseSearchLines(raw, { timezone, now, maxForms }) {
       role ??= SCOPE_RE.test(bare) ? 'scope' : LOCATOR_RE.test(bare) ? 'locator' : null;
       continue;
     }
+    // `agent:` (an old prompt's errand line) is read as a label and ignored: the classifier never asks for an errand.
+    if (label.toLowerCase() === 'agent') continue;
     if (stripped && !NONE_RE.test(stripped)) content = true;
     switch (label.toLowerCase()) {
       case 'web':
         web ??= webQuery(value);
-        break;
-      case 'agent':
-        agent ??= agentTask(value);
         break;
       case 'server':
         addForms(forms, value, cap);
@@ -559,8 +549,8 @@ function parseSearchLines(raw, { timezone, now, maxForms }) {
   const server = asked
     ? { forms, who, from: range?.from ?? null, to: range?.to ?? null, ...(recent ? { recent: true } : {}), ...(locator ? { locator: true } : {}) }
     : null;
-  if (web || server || agent) return { web, agent, server, reason: 'ok' };
-  return { web: null, agent: null, server: null, reason: content ? 'unparsed' : 'none' };
+  if (web || server) return { web, server, reason: 'ok' };
+  return { web: null, server: null, reason: content ? 'unparsed' : 'none' };
 }
 
 /**

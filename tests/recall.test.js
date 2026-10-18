@@ -75,22 +75,22 @@ test('recallSettings: a missing switch counts as on, false turns it off, unusabl
 // ---- the lookup answer -----------------------------------------------------------------------
 
 test('parseLookupAnswer: the old single-line answer is still a web query, none is none', () => {
-  assert.deepEqual(parseLookupAnswer('"Café Müller opening hours".'), { web: 'Café Müller opening hours', agent: null, server: null, reason: 'ok' });
-  assert.deepEqual(parseLookupAnswer('None needed.'), { web: null, agent: null, server: null, reason: 'none' });
-  assert.deepEqual(parseLookupAnswer('`none`'), { web: null, agent: null, server: null, reason: 'none' });
-  assert.deepEqual(parseLookupAnswer('  \n '), { web: null, agent: null, server: null, reason: 'empty' });
-  assert.deepEqual(parseLookupAnswer(null), { web: null, agent: null, server: null, reason: 'empty' });
+  assert.deepEqual(parseLookupAnswer('"Café Müller opening hours".'), { web: 'Café Müller opening hours', server: null, reason: 'ok' });
+  assert.deepEqual(parseLookupAnswer('None needed.'), { web: null, server: null, reason: 'none' });
+  assert.deepEqual(parseLookupAnswer('`none`'), { web: null, server: null, reason: 'none' });
+  assert.deepEqual(parseLookupAnswer('  \n '), { web: null, server: null, reason: 'empty' });
+  assert.deepEqual(parseLookupAnswer(null), { web: null, server: null, reason: 'empty' });
   assert.equal(parseLookupAnswer('first line\nsecond line').web, 'first line', 'only the first line of the old shape');
   assert.equal([...parseLookupAnswer('x'.repeat(300)).web].length, 200);
 });
 
 test('parseLookupAnswer: the old shape -- none only as a whole first word in any wrapping; a line of punctuation alone is empty', () => {
   for (const raw of ['"none"', "'None.'", 'none!', 'NONE -- nothing to look up', '“none”', '``none``', '  NONE.\nextra']) {
-    assert.deepEqual(parseLookupAnswer(raw), { web: null, agent: null, server: null, reason: 'none' }, raw);
+    assert.deepEqual(parseLookupAnswer(raw), { web: null, server: null, reason: 'none' }, raw);
   }
   assert.equal(parseLookupAnswer('nonexistent planets list').web, 'nonexistent planets list');
   assert.equal(parseLookupAnswer('nonetheless the score').web, 'nonetheless the score');
-  assert.deepEqual(parseLookupAnswer('"..."'), { web: null, agent: null, server: null, reason: 'empty' });
+  assert.deepEqual(parseLookupAnswer('"..."'), { web: null, server: null, reason: 'empty' });
 });
 
 test('parseLookupAnswer: labelled lines in any order and case; unlabelled lines are ignored', () => {
@@ -108,41 +108,18 @@ test('parseLookupAnswer: forms are cleaned, bounded in length and words, capped 
 });
 
 test('parseLookupAnswer: labelled lines that all say none are none; unusable ones are unparsed', () => {
-  assert.deepEqual(parseLookupAnswer('web: none\nserver: none'), { web: null, agent: null, server: null, reason: 'none' });
-  assert.deepEqual(parseLookupAnswer('when: last tuesday', { now: NOW }), { web: null, agent: null, server: null, reason: 'unparsed' });
-  assert.deepEqual(parseLookupAnswer('server: x', { now: NOW }), { web: null, agent: null, server: null, reason: 'unparsed' });
+  assert.deepEqual(parseLookupAnswer('web: none\nserver: none'), { web: null, server: null, reason: 'none' });
+  assert.deepEqual(parseLookupAnswer('when: last tuesday', { now: NOW }), { web: null, server: null, reason: 'unparsed' });
+  assert.deepEqual(parseLookupAnswer('server: x', { now: NOW }), { web: null, server: null, reason: 'unparsed' });
 });
 
-test('parseLookupAnswer: an agent: line is the errand task, one line, trimmed; alone it is ok, not none', () => {
-  const alone = parseLookupAnswer('agent:   find a calm piano track for studying, under five minutes  ');
-  assert.deepEqual(alone, { web: null, agent: 'find a calm piano track for studying, under five minutes', server: null, reason: 'ok' });
-  assert.equal(parseLookupAnswer('Agent: "compare three reviews of the café"').agent, 'compare three reviews of the café', 'any case, quotes stripped');
-  assert.equal(parseLookupAnswer('agent: first task\nagent: second task').agent, 'first task', 'the first one counts');
-  assert.equal(parseLookupAnswer('agent: find the poster\nnot a label').agent, 'find the poster', 'one line: the next line is not part of it');
-});
-
-test('parseLookupAnswer: no agent: line, or agent: none, is no errand', () => {
-  assert.equal(parseLookupAnswer('web: champions final').agent, null);
-  assert.equal(parseLookupAnswer('server: κουνέλι').agent, null);
-  assert.equal(parseLookupAnswer('none').agent, null);
-  assert.deepEqual(parseLookupAnswer('agent: none'), { web: null, agent: null, server: null, reason: 'none' });
-  assert.deepEqual(parseLookupAnswer('agent: none\nweb: none'), { web: null, agent: null, server: null, reason: 'none' });
-});
-
-test('parseLookupAnswer: an agent: task longer than 200 characters is cut at 200', () => {
-  const long = `find ${'é'.repeat(300)}`;
-  const parsed = parseLookupAnswer(`agent: ${long}`);
-  assert.equal([...parsed.agent].length, 200);
-  assert.equal(parsed.agent, [...long].slice(0, 200).join(''));
-});
-
-test('parseLookupAnswer: agent: beside web: keeps both; beside server: keeps the server part too', () => {
-  const both = parseLookupAnswer('web: café opening hours\nagent: find a photo of the café terrace');
-  assert.deepEqual([both.web, both.agent, both.server, both.reason], ['café opening hours', 'find a photo of the café terrace', null, 'ok']);
+test('parseLookupAnswer: an agent: line is ignored: alone it is none, never a web query; beside other lines they read as without it', () => {
+  assert.deepEqual(parseLookupAnswer('agent:   find a calm piano track for studying, under five minutes  '), { web: null, server: null, reason: 'none' });
+  assert.deepEqual(parseLookupAnswer('Agent: "compare three reviews of the café"'), { web: null, server: null, reason: 'none' }, 'any case');
+  assert.deepEqual(parseLookupAnswer('web: café opening hours\nagent: find a photo of the café terrace'), parseLookupAnswer('web: café opening hours'));
   const withServer = parseLookupAnswer('agent: find the trailer\nserver: κουνέλι');
-  assert.equal(withServer.agent, 'find the trailer');
-  assert.deepEqual(withServer.server.forms, ['κουνέλι']);
-  assert.equal(withServer.web, null);
+  assert.deepEqual(withServer, parseLookupAnswer('server: κουνέλι'));
+  assert.equal('agent' in withServer, false, 'no agent field');
 });
 
 test('parseLookupAnswer: a range alone makes a server search; one date is that whole local day', () => {
@@ -932,7 +909,7 @@ test('recall: archive hits render as archived <kind> with the date and dedupe ag
 test('recall: a vague recently ranks recency first and her own exchanges first', () => {
   assert.equal(parseLookupAnswer('server: κουνέλι\nrecent: yes', { now: NOW }).server.recent, true);
   assert.equal('recent' in parseLookupAnswer('server: κουνέλι\nrecent: no', { now: NOW }).server, false);
-  assert.deepEqual(parseLookupAnswer('recent: yes', { now: NOW }), { web: null, agent: null, server: null, reason: 'none' }, 'recent alone asks nothing');
+  assert.deepEqual(parseLookupAnswer('recent: yes', { now: NOW }), { web: null, server: null, reason: 'none' }, 'recent alone asks nothing');
   const DAY = 24 * HOUR;
   assert.equal(isRecentCue({ forms: ['κουνέλι'], who: [], from: null, to: null, recent: true }, { now: NOW, recordDays: 3 }), true);
   assert.equal(isRecentCue({ forms: ['κουνέλι'], who: [], from: null, to: null }, { now: NOW, recordDays: 3 }), false);
@@ -1360,7 +1337,7 @@ test('parseLookupAnswer: a question only about a time is always scope; the role 
   }
   const dateless = parseLookupAnswer('server: censure\nwhen-role: locator', { timezone: 'UTC', now: LATER });
   assert.deepEqual(dateless.server, { forms: ['censure'], who: [], from: null, to: null }, 'no range: nothing to locate');
-  assert.deepEqual(parseLookupAnswer('when-role: locator', { now: LATER }), { web: null, agent: null, server: null, reason: 'none' });
+  assert.deepEqual(parseLookupAnswer('when-role: locator', { now: LATER }), { web: null, server: null, reason: 'none' });
 });
 
 test('recallSettings: the locator numbers are read as set, unusable ones fall back', () => {

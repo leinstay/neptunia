@@ -1030,9 +1030,6 @@ function postedOf(result) {
 /** The persona as the principal of her skill calls (src/skills/gateway.js). */
 const PERSONA = Object.freeze({ kind: 'persona' });
 
-/** The refusal codes of a spent errand cap: the store's (src/errands/store.js#budget) and the gateway's default. */
-const ERRAND_CAP_CODES = Object.freeze(new Set(['cap-open', 'cap-tasks', 'cap-usd', 'daily-cap']));
-
 /**
  * The requester of a skill call: `trigger`'s author (`{ id, roleIds }`, the role ids from the
  * guild's member cache of `channel`, none when the member is not cached), or null when nobody
@@ -1967,16 +1964,15 @@ export function createTurnRunner({
    * on her last line of the turn here, or a line of its own) -- at the clock's time, with
    * `labels.task.continue` as its task (buildRequest's `continuation`). An `ok` call's data (a
    * read's answer) comes apart from the transcript in a `<result>` block right before `<task>`
-   * (skillResultBlock, cut to `skills.resultMaxChars`, read now; withSkillResult), after the
-   * turn's own errand block (`continuation.errandBlock`: the search classifier's errand, as the
-   * first request carried it); a call that did not work has none: its mark says how it went. A
+   * (skillResultBlock, cut to `skills.resultMaxChars`, read now; withSkillResult); a call that
+   * did not work has none: its mark says how it went. A
    * failed fetch logs `skills: continuation fetch failed` and goes on with the turn's history and
    * her posts. Resolves the messages and
    * what act needs to act on the answer over the new transcript (`idByIndex`, `history`,
    * `lines` with the pulled lines shown, `pulledIds`, the mention `handles` of the rebuilt request).
    */
   async function continuationRequest({ called, channel, guildId, acted, continuation }) {
-    const { input, history, shownLines = [], pictures, errandBlock = '' } = continuation;
+    const { input, history, shownLines = [], pictures } = continuation;
     let fetched = [];
     try {
       fetched = await fetchHistory(channel, historyOptions(hot.config));
@@ -1989,7 +1985,7 @@ export function createTurnRunner({
     const resultBlock = called.status === 'ok' && called.data ? skillResultBlock(called, labels, { maxChars: hot.config.skills?.resultMaxChars ?? 4500 }) : '';
     const content = await continuationContent(request, pictures);
     return {
-      messages: withSkillResult(withSkillResult([request.messages[0], { ...request.messages[1], content }], errandBlock), resultBlock),
+      messages: withSkillResult([request.messages[0], { ...request.messages[1], content }], resultBlock),
       routing: { idByIndex: request.idByIndex, history: lines, lines: [...shownLines, ...lines], pulledIds: request.pulledIds ?? new Map(), handles: request.handles ?? null, channelHandles: request.channelHandles ?? null },
     };
   }
@@ -3590,70 +3586,6 @@ export function createTurnRunner({
   }
 
   /**
-   * The fallback code of an errand the search classifier asked for (queueLookupErrand) from its
-   * call's result: null when it was queued (`ok`); `cap` when a cap of the errands refused it
-   * (the gateway's budget or the store's, ERRAND_CAP_CODES); `failed` when the errands were
-   * unavailable to the gateway (`no-budget`); `denied` for any other rule that said no; else
-   * `failed`.
-   */
-  function errandFallback(result) {
-    if (result?.status === 'ok') return null;
-    if (ERRAND_CAP_CODES.has(result?.code)) return 'cap';
-    if (result?.code === 'no-budget') return 'failed';
-    return result?.status === 'denied' ? 'denied' : 'failed';
-  }
-
-  /**
-   * The search classifier's `agent:` task (src/behavior/recall.js#parseLookupAnswer's `agent`)
-   * as one errand on the web agent, queued exactly as the persona's own `task.run` call is:
-   * planCall (its journal operation, resolveCall, the gateway's checkCall: her grant, the
-   * requester's right, the errand budget), then runCall (the gateway again, then
-   * src/skills/executors.js#executeCall through `runCommand` into src/ops/task.js: the owner-only
-   * rule, the caps, the origin -- the turn's channel and the trigger message -- and the store's
-   * journal line; her call mark), with `agent: web`, `task` as the goal and `envelope`
-   * (callEnvelope: the asker and their roles as the turn knows them, the trigger). First the
-   * lane: `agents.web.enabled` not exactly true, or a dry run (nothing is done for real), is
-   * `off` and asks nothing. Then the pending check: an open errand (queued or running) the asker
-   * asked for in this channel (the errand store's open tasks, src/errands/store.js#open) queues
-   * nothing; that task's `task.status` answer (the operation run for the asker through
-   * executeCall, without a grant of hers: it changes nothing) is the result. Resolves
-   * `{ called, fallback, pending }`: `called` the call's result with its `skill` (null when
-   * nothing was asked), `fallback` errandFallback's code (null when queued or pending),
-   * `pending` true when an open errand stood in. Never throws: a failure is `failed`.
-   * @returns {Promise<{ called: object|null, fallback: string|null, pending: boolean }>}
-   */
-  async function queueLookupErrand({ task, channel, guildId, trigger, envelope, draft, privateChat, memoryOn }) {
-    const config = hot.config;
-    if (config.agents?.web?.enabled !== true || config.features?.dryRun === true) return { called: null, fallback: 'off', pending: false };
-    try {
-      const view = callView({ channel, guildId, idByIndex: null, lines: [], pulledIds: null, memoryOn });
-      const askerId = trigger?.authorId ? String(trigger.authorId) : null;
-      const open = askerId && typeof errands?.store === 'function' ? (errands.store(guildId)?.open?.() ?? []) : [];
-      const pending = open.find((item) => item?.requester?.userId === askerId && item?.origin?.channelId === String(channel.id)) ?? null;
-      if (pending) {
-        const resolved = resolveCall({ skill: 'task.status', args: { id: pending.id } }, view);
-        const result = resolved.ok
-          ? await executeCall(resolved, {
-              envelope,
-              runCommand,
-              runOwnCommand,
-              opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
-              timeoutMs: config.skills?.callTimeoutMs ?? 120000,
-            })
-          : { status: refusalStatus(resolved.code), code: resolved.code };
-        log.info('lookup: errand pending', { channel: channel.id, id: pending.id, status: result.status });
-        return { called: { skill: 'task.status', ...result }, fallback: null, pending: true };
-      }
-      const plan = await planCall({ call: { skill: 'task.run', args: { agent: 'web', goal: task }, body: null }, channel, envelope, draft, view });
-      const called = await runCall(plan, { channel, trigger, guildId, draft, privateChat });
-      return { called, fallback: errandFallback(called), pending: false };
-    } catch (err) {
-      log.warn('lookup: errand failed', { channel: channel.id, error: err });
-      return { called: null, fallback: 'failed', pending: false };
-    }
-  }
-
-  /**
    * Which side of a lookup can run now (maybeLookup's gates, shared with the
    * turn planner's offer): the web side under `webOn` unless
    * `web.search.maxPerTurn` is below 1 (`no-slot`), the search has no key
@@ -3725,17 +3657,12 @@ export function createTurnRunner({
    * is filled with the registry's lines, and a `skills:` line of its answer
    * (parseLookupAnswer's `skills`) is handed to `onSkills` before any search
    * runs; with the planner the turn reads the planner's own `skills:` line.
-   * The search policy's errand (the answer's `agent:` task, on a direct call: DIRECT_CALLS --
-   * never on the turn an errand's end opens, which would ask again): `errand(task)` (the
-   * caller's queueLookupErrand) queues one errand on the web agent before any search runs, or
-   * finds the asker's pending one; its result reaches the request through the caller. When the
-   * lane cannot run (its `fallback` code, or no `errand` at all: `failed`) and the answer has no
-   * `web:` line of its own, the task is the web query instead. A `web:` search that fails never
-   * queues anything. `lookup: classified` carries `route` -- what runs: `fast` (a web search),
-   * `agent` (an errand queued or pending), `memory` (a server search), `+`-joined in that order,
-   * else `none` -- and `agentFallback` (the code) when the lane fell back.
+   * An `agent:` line of the answer (a classifier prompt that still has one) is ignored: the
+   * classifier never creates or suggests an errand, only the persona's own `task.run` call does.
+   * `lookup: classified` carries `route` -- what runs: `fast` (a web search), `memory` (a server
+   * search), `+`-joined in that order, else `none`.
    */
-  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, onSkills = null, journalStep = null, triggerKind = null, limits = null, planned = null, errand = null }) {
+  async function maybeLookup({ config, guildId, channel, guild = channel.guild, partner = null, selfId, selfName, history, chatHistory, trigger, descriptions, videos, reads, webOn, serverOn, onSearch, onSkills = null, journalStep = null, triggerKind = null, limits = null, planned = null }) {
     const channelId = channel.id;
     const prompt = hot.prompts?.lookup;
     const searchCfg = config.web?.search ?? {};
@@ -3784,18 +3711,12 @@ export function createTurnRunner({
     const parsed = parseLookupAnswer(completion.text, { timezone: config.bot?.timezone, now: clock(), maxForms: recallSettings(config)?.maxForms, skillNames: discovery.names });
     // The `skills:` line goes to the turn, whatever the searches do (src/skills/discovery.js).
     if (parsed.skills) onSkills?.(parsed.skills);
-    const server = parsed.server;
-    // The errand first (one per turn, on a direct call only); a lane that cannot run hands its
-    // task to the fast search unless the answer has a `web:` line of its own.
-    const agentTask = parsed.agent && DIRECT_CALLS.has(triggerKind) ? parsed.agent : null;
-    const lane = agentTask ? (typeof errand === 'function' ? await errand(agentTask) : { called: null, fallback: 'failed', pending: false }) : null;
-    const agentFallback = lane?.fallback ?? null;
-    const web = parsed.web ?? (agentFallback ? agentTask : null);
-    const route = [webCan && web ? 'fast' : null, lane && !agentFallback ? 'agent' : null, serverOn && server ? 'memory' : null].filter(Boolean).join('+') || 'none';
-    // Codes and counts only, never the query, a task, a form or a name.
+    const { web, server } = parsed;
+    const route = [webCan && web ? 'fast' : null, serverOn && server ? 'memory' : null].filter(Boolean).join('+') || 'none';
+    // Codes and counts only, never the query, a form or a name.
     log.info('lookup: classified', {
       channel: channelId,
-      picked: Boolean(parsed.web || server || parsed.agent),
+      picked: Boolean(web || server),
       parse: parsed.reason,
       web: Boolean(parsed.web),
       server: Boolean(server),
@@ -3803,7 +3724,6 @@ export function createTurnRunner({
       who: server?.who.length ?? 0,
       ranged: Boolean(server && (server.from !== null || server.to !== null)),
       route,
-      ...(agentFallback ? { agentFallback } : {}),
     });
     return runSearches({ web, server });
 
@@ -5496,9 +5416,6 @@ export function createTurnRunner({
       // reads once done). A routed call is read in its source (routedPull), with its captions.
       let lookupStage = null;
       let lookupChain = null;
-      // The errand the search classifier's `agent:` task queued (or the asker's pending one):
-      // its call result, rendered as the skill-result block of the request (queueLookupErrand).
-      let lookupErrand = null;
       // `serverOn` (above): the lookup stage runs the server search and `<senses>` says it exists.
       if (asked && !answersDrawFailure) {
         const webOn = webSearchOn;
@@ -5537,21 +5454,6 @@ export function createTurnRunner({
                     limits: draft.limits ?? null,
                     // With the planner its lookup block stands in for the search classifier.
                     planned: planner ? await planner.result : null,
-                    // An `agent:` task: one errand, queued as her own `task.run` call would be.
-                    errand: async (task) => {
-                      const lane = await queueLookupErrand({
-                        task,
-                        channel,
-                        guildId,
-                        trigger,
-                        envelope: callEnvelope({ trigger, channel, added, missed, requester: requesterParam }),
-                        draft,
-                        privateChat: isPrivate,
-                        memoryOn,
-                      });
-                      lookupErrand = lane.called;
-                      return lane;
-                    },
                   });
                 } catch (err) {
                   log.warn('lookup: failed', { channel: channel.id, error: err });
@@ -5872,13 +5774,6 @@ export function createTurnRunner({
         continuation: null,
       });
       const request = buildRequest(requestInput);
-      // The errand the search classifier queued, or the asker's pending one: the `<result>` block
-      // her own call would have brought (skillResultBlock, cut to skills.resultMaxChars, read
-      // now), right before `<task>` (withSkillResult); none under the full stop (needsFollowUp).
-      const errandBlock =
-        lookupErrand && lookupErrand.code !== 'skills-off'
-          ? skillResultBlock(lookupErrand, prompts?.labels ?? {}, { maxChars: config.skills?.resultMaxChars ?? 4500 })
-          : '';
       // What `<recent>` showed, held back or cut: counts only.
       if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
       // The journal: what of the window went in, whose lines they were, what the budget dropped.
@@ -5931,7 +5826,6 @@ export function createTurnRunner({
         messages = [messages[0], { ...userMessage, content: allDownloaded ? resolvedContent : request.textFallback }];
         if (!allDownloaded && draft.seen) draft.seen = { ...draft.seen, parts: { ...draft.seen.parts, images: [] } };
       }
-      messages = withSkillResult(messages, errandBlock);
 
       let completion;
       // What the client was last given, for the journal's request dump.
@@ -5955,7 +5849,7 @@ export function createTurnRunner({
         // attention waits, so it propagates like any error without pictures.
         const aboutThePictures = err.statusCode >= 400 && err.statusCode < 500 && !RETRY_STATUS.has(err.statusCode);
         if (Array.isArray(request.textFallback) && aboutThePictures) {
-          const textOnly = withSkillResult(request.messages.map((m) => (Array.isArray(m.content) ? { ...m, content: request.textFallback } : m)), errandBlock);
+          const textOnly = request.messages.map((m) => (Array.isArray(m.content) ? { ...m, content: request.textFallback } : m));
           if (draft.seen) draft.seen = { ...draft.seen, parts: { ...draft.seen.parts, images: [] } };
           sentPictures.off = true;
           sentMessages = textOnly;
@@ -6237,7 +6131,7 @@ export function createTurnRunner({
             shapeOutput,
             acted,
             act: (parsedAgain, again = null) => act({ ...actArgs, parsed: parsedAgain, set: null, ...(again ?? {}) }),
-            continuation: { input: requestInput, history, shownLines, pictures: sentPictures, errandBlock },
+            continuation: { input: requestInput, history, shownLines, pictures: sentPictures },
           });
         }
       }
