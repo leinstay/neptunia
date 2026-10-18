@@ -88,7 +88,7 @@ function tickingClock(step = 10) {
  * One scenario run of the owner's message with her tool loop, against fakes: `answers` her
  * answers in order; `tool(skill, args)` what an in-turn tool answers (`{ result, usage }`).
  */
-async function loopRun(answers, { tool, config = toolConfig(), clock = tickingClock(), followUpContinuation = true } = {}) {
+async function loopRun(answers, { tool, config = toolConfig(), clock = tickingClock(), followUpContinuation = true, prefetch = null } = {}) {
   const cfg = followUpContinuation ? config : { ...config, features: { ...config.features, followUpContinuation: false } };
   const hot = { config: cfg, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
   const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
@@ -118,7 +118,7 @@ async function loopRun(answers, { tool, config = toolConfig(), clock = tickingCl
     now: clock,
   });
   const llm = scriptedLlm(answers);
-  const coreTools = { rows: coreToolRows({ config: cfg, selfId: SELF, registry }), recallAvailable: true };
+  const coreTools = { rows: coreToolRows({ config: cfg, selfId: SELF, registry }), recallAvailable: true, ...(prefetch ? { prefetch } : {}) };
   const answered = await answerSkillScenario({
     view, situation, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at: NOW, skillsGranted: TOOLS, searchAvailable: true,
     onCall, coreTools, loop: { settings: loopSettings(cfg), now: clock },
@@ -391,4 +391,43 @@ test('the switch-off side: <lookup> and the recall senses line reach her request
   const { llm: onLlm } = await loopRun(['<msg>ok</msg>'], { tool: () => okTool('x') });
   const on = requestBlocks(userOf(onLlm.calls[0]), labels);
   assert.deepEqual([on.lookup, on.skillsTools, on.recallToolLine, on.recallLine], [false, true, true, false]);
+});
+
+// The automatic memory prefetch in arm B: what a live turn with features.coreTools gets for the
+// trigger, computed as of the moment and standing in every request of the loop.
+
+test('createReplayTools.prefetch: the live lanes of the trigger, run as of the moment; none with features.coreTools off or a trivial trigger', async () => {
+  const { prefetchLanes, prefetchOn } = await import('../src/behavior/prefetch.js');
+  const runs = [];
+  const createRecall = () => ({ available: () => true, run: async () => ({}), prefetch: async (input) => (runs.push(input), { status: 'none', basis: input.lanes.map((lane) => lane.kind), excerpts: [] }) });
+  const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getGuild: () => ({}) };
+  const make = (config) =>
+    createReplayTools({ hot: { config, prompts: { labels } }, store, guild: { id: GUILD }, guildId: GUILD, channel: fakeChannel(), selfId: SELF, selfName: 'Persona', llm: scriptedLlm([]), createLookup: () => ({}), createRecall, runWebSearch, runMemorySearch, discord: {}, prefetchLanes, prefetchOn, recallSettings });
+  const here = { id: HERE, name: 'γενικά' };
+  const trigger = scenarioTrigger({ text: 'θυμάσαι τη ζωγραφιά με το δάσος;', authorId: OWNER, authorName: 'Élodie', channel: here, selfId: SELF, at: NOW });
+  const on = make(toolConfig({ features: { coreTools: true, recall: true } }));
+  const found = await on.prefetch({ trigger, triggerKind: 'mention', mode: 'reply', history: [trigger], at: NOW - 5 });
+  assert.equal(found.status, 'none');
+  assert.equal(runs.length, 1);
+  assert.deepEqual(runs[0].lanes.map((lane) => [lane.kind, lane.text]), [['message', 'θυμάσαι τη ζωγραφιά με το δάσος;']]);
+  assert.equal(runs[0].at, NOW - 5, 'as of the moment');
+  assert.deepEqual(runs[0].history, [trigger]);
+  assert.equal(await on.prefetch({ trigger: { ...trigger, content: 'ok' }, history: [trigger], at: NOW }), null, 'a trivial trigger');
+  const off = make(toolConfig({ features: { coreTools: false, recall: true } }));
+  assert.equal(await off.prefetch({ trigger, history: [trigger], at: NOW }), null);
+  assert.equal(runs.length, 1);
+});
+
+test('the tool loop with a prefetch: <retrieved> stands in every request of arm B, as live', async () => {
+  const prefetch = { status: 'ok', basis: ['message'], excerpts: [{ source: 'history', channelId: 'c2', channelName: 'κήπος', startTs: NOW - 86_400_000, id: 'r1', ids: ['r1'], hitIds: ['r1'], lines: '>> [09:00] Élodie: plus ultra' }] };
+  const { llm } = await loopRun(['<call skill="web.search">τελικός</call>', '<msg>ok</msg>'], { tool: () => okTool('κάτι'), prefetch });
+  assert.equal(llm.calls.length, 2);
+  for (const call of llm.calls) {
+    const user = userOf(call);
+    assert.ok(user.includes(`<retrieved>\n${labels.prefetch.header}`), user);
+    assert.ok(user.includes('>> [09:00] Élodie: plus ultra'));
+    assert.ok(user.indexOf('<retrieved>') < user.indexOf('<chat>'));
+  }
+  const { llm: bare } = await loopRun(['<msg>ok</msg>'], { tool: () => okTool('κάτι') });
+  assert.ok(!userOf(bare.calls[0]).includes('<retrieved>'), 'none handed in: no block');
 });

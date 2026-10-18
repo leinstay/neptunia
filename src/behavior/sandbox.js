@@ -128,6 +128,7 @@ export const SANDBOX_OMITS = Object.freeze({
   privateProfile: 'never a private chat: the private layer is out of bounds',
   reads: 'no web lookup: no link is read',
   lookup: 'no web lookup: no search is run',
+  prefetch: 'no automatic memory prefetch: no <retrieved> block (a scenario run with her tool loop hands in the one a live turn would get: `coreTools.prefetch`)',
   imageAnswers: 'no second look at a picture is run: no imageAnswered line',
   recallAvailable: 'no server search is run: <senses> does not offer it',
   drawQuota: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
@@ -649,9 +650,9 @@ function sandboxChannels(given, view, channel) {
  * opens, as src/errands/turns.js runs it: trigger kind `task` whatever the mode, and `errands`
  * carrying its `<task_result>` body (src/errands/blocks.js#taskResultText, cut to
  * `agents.resultMaxChars` read now) with no `<tasks>` list -- a replay knows no other errand of
- * hers. `coreTools` (`{ rows, recallAvailable }`, a skill scenario run with her tool loop,
- * features.coreTools) hands in `<skills_tools>` (`rows`) and whether the server search could run
- * (`recallAvailable`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
+ * hers. `coreTools` (`{ rows, recallAvailable, prefetch? }`, a skill scenario run with her tool loop,
+ * features.coreTools) hands in `<skills_tools>` (`rows`), whether the server search could run
+ * (`recallAvailable`) and the automatic memory prefetch of the trigger (`prefetch`, `<retrieved>`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
  * read now and nothing is written. `preTurn` (`{ lookup, recallAvailable }`, the switch-off
  * side of tools/replay.mjs --pair-core-tools) hands in what a live turn's search classifier
  * and searches found before her reply (`<lookup>`) and whether the server search could run.
@@ -742,6 +743,9 @@ export function sandboxRequestInput({
     // Absent (SANDBOX_OMITS) but on the switch-off side of tools/replay.mjs --pair-core-tools
     // (`preTurn`): what the search classifier and its searches found before her turn, as live.
     lookup: preTurn?.lookup ?? null,
+    // Absent (SANDBOX_OMITS) but in a scenario run with her tool loop (`coreTools.prefetch`): the
+    // automatic memory prefetch a live turn with features.coreTools would show for this trigger.
+    prefetch: coreTools?.prefetch ?? null,
     // Absent (SANDBOX_OMITS) but in a skill scenario run with her tool loop (`coreTools`) or with
     // the pre-turn searches (`preTurn`): whether the replay's server search runner could run now.
     recallAvailable: coreTools ? coreTools.recallAvailable === true : preTurn ? preTurn.recallAvailable === true : null,

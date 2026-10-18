@@ -2638,9 +2638,13 @@ export function loopCall({ simulate, runTool = null, inTurn, needsFollowUp, now 
  * archive and the vector index of the data read, iterated only -- and `embed`), each by its
  * src/skills/tools.js runner. `run(skill, args, { history, at })` resolves `{ result, usage }`
  * (`usage`: the requests the call itself sent, their tokens and cost); `recallAvailable()` whether
- * the server search could run now (its senses line). Nothing reaches the store or data/.
+ * the server search could run now (its senses line). `prefetch({ trigger, triggerKind, mode,
+ * history, at })` the automatic memory prefetch a live turn with features.coreTools runs for that
+ * trigger (src/behavior/prefetch.js#prefetchLanes and the recall runner's `prefetch`, as of `at`:
+ * nothing after it is read), null when none would run or the engine has none (`prefetchLanes`,
+ * `prefetchOn`, `recallSettings` its pure parts). Nothing reaches the store or data/.
  */
-export function createReplayTools({ hot, store, guild, guildId, channel, selfId, selfName, llm, createLookup, createRecall, runWebSearch, runMemorySearch, discord, describer = null, searches = {}, keys = {}, sources = {}, embed = null, mediaCache = null }) {
+export function createReplayTools({ hot, store, guild, guildId, channel, selfId, selfName, llm, createLookup, createRecall, runWebSearch, runMemorySearch, discord, describer = null, searches = {}, keys = {}, sources = {}, embed = null, mediaCache = null, prefetchLanes = null, prefetchOn = null, recallSettings = null }) {
   const data = store.state?.data ?? {};
   const media = structuredClone(mediaCache ?? {});
   const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
@@ -2683,6 +2687,18 @@ export function createReplayTools({ hot, store, guild, guildId, channel, selfId,
       } catch {
         return false;
       }
+    },
+    async prefetch({ trigger, triggerKind = null, mode = null, history = [], at = Date.now() } = {}) {
+      if (typeof prefetchLanes !== 'function' || typeof prefetchOn !== 'function' || typeof recallSettings !== 'function' || !prefetchOn(hot.config)) return null;
+      const settings = recallSettings(hot.config)?.prefetch;
+      if (!settings) return null;
+      const names = new Map((store.listUserProfiles?.(guildId) ?? []).filter((p) => p?.id).map((p) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null]));
+      const nameOf = hot.config.features?.memory !== false ? (id) => names.get(String(id)) ?? null : null;
+      const { lanes, skip } = prefetchLanes({ trigger, triggerKind, mode, history, settings, selfId, selfName, selfNames: hot.config.bot?.nameTriggers ?? [], nameOf });
+      if (skip) return null;
+      const recall = recallOf(llm);
+      if (typeof recall.prefetch !== 'function') return null;
+      return recall.prefetch({ guild, guildId, channel, partner: null, selfId, selfName, history, lanes, at });
     },
     async run(skill, args, { history = [], at = Date.now() } = {}) {
       const { usage, client } = metered();
@@ -3502,7 +3518,12 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
       // what every request of the loop carries as live: <skills_tools> and the server search's line.
       const tools = loopOn ? loopDeps.toolsFor({ hot: hotLike, channel, llm: capped }) : null;
       const coreTools = loopOn
-        ? { rows: loopDeps.coreToolRows({ config: scenarioConfig, selfId: self.id, registry, texts: sideHot.prompts?.skills }), recallAvailable: tools.recallAvailable() }
+        ? {
+            rows: loopDeps.coreToolRows({ config: scenarioConfig, selfId: self.id, registry, texts: sideHot.prompts?.skills }),
+            recallAvailable: tools.recallAvailable(),
+            // The automatic memory prefetch a live turn runs for the scenario's trigger, as of its first decision.
+            prefetch: await tools.prefetch({ trigger, triggerKind: task ? 'task' : null, mode: situation.mode ?? null, history: situation.history, at: task ? at : newestTs(situation.history, trigger?.ts) }),
+          }
         : null;
       const loop = loopOn ? { settings: loopDeps.loopSettings(scenarioConfig) } : null;
       const loopInput = loopOn ? { coreTools, loop } : {};
@@ -3852,9 +3873,11 @@ async function runPairCoreTools({ args, root, liveData, pairTriggers, rng, hot, 
         offInput = { preTurn: { lookup: found.lookup, recallAvailable: found.recallAvailable }, ...(inventory ? { skillsInventory: inventory } : {}) };
         preTurn = { ...found.trace, skills: found.skills ?? null, usage: searchers.usage, ms: Date.now() - preStarted };
       }
+      // The switch on: the automatic memory prefetch a live turn runs for this trigger, as of its moment.
+      const prefetched = on ? await tools.prefetch({ trigger: triggerLine, triggerKind: situationHistory(situation).triggerKind, mode, history, at }) : null;
       const loopInput = on
         ? {
-            coreTools: { rows: loopDeps.coreToolRows({ config, selfId: self.id, registry, texts: hot.prompts?.skills }), recallAvailable: tools.recallAvailable() },
+            coreTools: { rows: loopDeps.coreToolRows({ config, selfId: self.id, registry, texts: hot.prompts?.skills }), recallAvailable: tools.recallAvailable(), prefetch: prefetched },
             loop: { settings: loopDeps.loopSettings(config) },
           }
         : {};
@@ -3882,6 +3905,7 @@ async function runPairCoreTools({ args, root, liveData, pairTriggers, rng, hot, 
           calls: answers[side].calls,
           blocks: requestBlocks(answered.request.user, hot.prompts?.labels),
           ...(preTurn ? { preTurn } : {}),
+          ...(prefetched ? { prefetch: prefetchSummary(prefetched) } : {}),
           record,
         };
       } catch (err) {
@@ -3906,6 +3930,17 @@ async function runPairCoreTools({ args, root, liveData, pairTriggers, rng, hot, 
   return {
     code: failed.length > 0 || stoppedBy !== null ? 1 : 0,
     result: { sheet: path.join(outDir, 'sheet.html'), key: path.join(outDir, 'key.json'), pairs: sheet.length, failed, stoppedBy, spentUsd: Math.round(spent * 10000) / 10000 },
+  };
+}
+
+/** The prefetch of a side as its key records it: the status, the lanes, the excerpts' sources and ids, the time. */
+function prefetchSummary(found) {
+  return {
+    status: found.status,
+    basis: found.basis ?? [],
+    excerpts: (found.excerpts ?? []).map((e) => ({ source: e.source, id: e.id ?? null, channelId: e.channelId ?? null })),
+    ms: found.ms ?? null,
+    ...(found.partial ? { partial: true } : {}),
   };
 }
 
@@ -3934,6 +3969,8 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
   const { runWebSearch, runMemorySearch, IN_TURN_TOOLS } = await load('skills/tools.js');
   const { needsFollowUp } = await load('skills/executors.js');
   const { coreToolRows, skillsIndex, discoveryOn } = await load('skills/discovery.js');
+  // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
+  const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.js').catch(() => ({}));
   // The switch-off side of --pair-core-tools: the search classifier's path before her reply (preTurnLookup).
   const { fillPromptTemplate } = await load('behavior/prompt.js');
   const { parseLookupAnswer, recallSettings } = await load('behavior/recall.js');
@@ -3990,7 +4027,7 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
     toolsFor: ({ hot: sideHot, channel, llm }) =>
       createReplayTools({
         hot: sideHot, store, guild, guildId, channel, selfId: self.id, selfName: self.name, llm, createLookup, createRecall, runWebSearch, runMemorySearch,
-        discord, describer, searches, keys, sources, embed, mediaCache,
+        discord, describer, searches, keys, sources, embed, mediaCache, prefetchLanes, prefetchOn, recallSettings,
       }),
   };
 }
