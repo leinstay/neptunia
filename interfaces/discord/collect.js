@@ -937,11 +937,10 @@ export function readableChannels(guild, botConfig, exceptId = null) {
 /**
  * The channel directory's input (src/behavior/prompt.js#buildRequest `channelDirectory`): every
  * channel of `guild` the persona may read (isReadableChannel), never a thread, as `{ id, name, category }`, the
- * category its parent's name or null, plus `nsfw: true` for an age-restricted channel (discord.js
- * `channel.nsfw`; no key otherwise). [] without a guild (a private chat).
+ * category its parent's name or null. [] without a guild (a private chat).
  * @param {object|null|undefined} guild  A discord.js Guild.
  * @param {object} botConfig  The live `config.bot`.
- * @returns {{ id: string, name: string, category: string|null, nsfw?: true }[]}
+ * @returns {{ id: string, name: string, category: string|null }[]}
  */
 export function channelDirectoryOf(guild, botConfig) {
   const cache = guild?.channels?.cache;
@@ -954,8 +953,6 @@ export function channelDirectoryOf(guild, botConfig) {
     id: String(channel.id),
     name: channel.name,
     category: typeof channel.parent?.name === 'string' ? channel.parent.name : null,
-    // Discord's age-restricted flag, only when set.
-    ...(channel.nsfw === true ? { nsfw: true } : {}),
   }));
 }
 

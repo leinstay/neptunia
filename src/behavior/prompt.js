@@ -729,11 +729,9 @@ function currentChannelFallback(currentChannelId, history) {
  * the same way: the caller puts its id ahead of the neighbours'. An entry
  * whose id is in `readOnlyIds` (a channel the bot can read but not write in)
  * carries `labels.server.readOnly` (src/memory/channels.js#renderChannel,
- * never on the current channel); one whose id is in `ageRestrictedIds` (an
- * age-restricted channel, the `nsfw` flag of the channel directory) carries
- * `labels.channels.ageRestricted` on its heading, the current channel too.
+ * never on the current channel).
  */
-function serverItems(channels, currentChannelId, neighborChannelIds, history, now, activityCfg, labels, nameOf, readOnlyIds = new Set(), diaryChannelId = null, ageRestrictedIds = new Set()) {
+function serverItems(channels, currentChannelId, neighborChannelIds, history, now, activityCfg, labels, nameOf, readOnlyIds = new Set(), diaryChannelId = null) {
   const byId = new Map(channels.map((channel) => [channel.id, channel]));
   const current = byId.get(currentChannelId) ?? currentChannelFallback(currentChannelId, history);
   const neighborEntries = [...new Set(neighborChannelIds)]
@@ -756,7 +754,6 @@ function serverItems(channels, currentChannelId, neighborChannelIds, history, no
         now,
         nameOf,
         readOnly: readOnlyIds.has(channel.id),
-        ageRestricted: ageRestrictedIds.has(channel.id),
         // The persona's own diary (diary.channelId): marked so it is found by name like any channel.
         diary: diaryChannelId !== null && channel.id === diaryChannelId,
       },
@@ -2598,15 +2595,13 @@ function seenOf({ history, keptChat, pictures }) {
  *   display text -- see docs/prompt-contract.md, "Members are referred to by
  *   id, never by nickname". Omitted -> tokens render exactly as stored.
  * @param {object[]} [input.channels]      The server's channel map (store.listChannels), [] when memory is off.
- * @param {{ id: string, name: string, category?: string|null, nsfw?: boolean }[]} [input.channelDirectory]  The text
+ * @param {{ id: string, name: string, category?: string|null }[]} [input.channelDirectory]  The text
  *   channels the persona can read (interfaces/discord/collect.js#channelDirectoryOf), [] or omitted for
  *   none. With features.mentionHandles on each gets a handle (src/behavior/handles.js#assignChannelHandles),
  *   listed in `<channel_directory>` (`labels.channelDirectory`, renderChannelDirectory, sorted by id:
  *   the stable part, before `<directory>`, never cut) and shown beside each channel a line mentions
  *   (`labels.transcript.channel`, src/format.js#formatTranscript); the request's
- *   `channelHandles` maps each handle back to its channel id. A channel with `nsfw: true`
- *   (age-restricted) carries `labels.channels.ageRestricted` on its directory line and on its
- *   `<server>` heading, with or without handles.
+ *   `channelHandles` maps each handle back to its channel id.
  * @param {object[]} [input.loreEntries]   The guild's stored lorebook (store.getLore), [] when memory is off.
  * @param {string|null} [input.currentChannelId]  Id of the channel this turn happens in.
  * @param {Map<string, string>} [input.descriptions]  Item id -> describer caption, for pictures
@@ -3140,12 +3135,6 @@ export function buildRequest(input) {
     ...(privateChat ? [] : givenReadOnly),
     ...pulledChannels.filter((channel) => channel.entry.readOnly === true).map((channel) => channel.channelId),
   ]);
-  // Age-restricted channels (the channel directory's `nsfw` flag), marked in `<server>`.
-  const ageRestrictedIds = new Set(
-    (Array.isArray(input.channelDirectory) ? input.channelDirectory : [])
-      .filter((channel) => channel?.nsfw === true && channel.id !== undefined && channel.id !== null)
-      .map((channel) => String(channel.id)),
-  );
 
   // `<tasks>` and `<task_result>`: rendered by the turn (src/errands/blocks.js), never cut.
   const errandsText = { tasks: typeof input.errands?.tasks === 'string' ? input.errands.tasks : '', result: typeof input.errands?.result === 'string' ? input.errands.result : '' };
@@ -3269,7 +3258,6 @@ export function buildRequest(input) {
             nameOf,
             readOnlyIds,
             config.diary?.channelId || null,
-            ageRestrictedIds,
           ),
     },
   ];
