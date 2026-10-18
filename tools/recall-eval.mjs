@@ -8,6 +8,9 @@
 //        [--dry] [--discord] [--web] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]
 //   cd /opt/neptunia/app && node tools/recall-eval.mjs sample [--n 80] [--days 30]
 //        [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]
+//   cd /opt/neptunia/app && node tools/recall-eval.mjs [<questions.json>] --prefetch [--no-deadline] [the flags above]
+//   cd /opt/neptunia/app && node tools/recall-eval.mjs traces [<recall-trace.jsonl>] [--limit N] [--dry] [--no-deadline]
+//        [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]
 //
 // The questions file (default data/recall-eval/questions.json): `[{ id, channelId, askerId,
 // question, expected: [messageId...], kind: 'exact'|'fuzzy'|'none', note? }]`, checked by
@@ -68,6 +71,28 @@
 // stretches: memory about real people, it stays on the server), a markdown summary on stdout.
 // Logs carry ids and counts only.
 //
+// `--prefetch`: every question is also asked the way a turn of her tool loop asks it
+// (features.coreTools): the automatic memory prefetch (src/behavior/prefetch.js#prefetchLanes over
+// the question as the trigger and the channel's lines, then the recall runner's `prefetch`: the
+// record, the stored memory and the archive by words, the vector index by meaning -- one embedding
+// per question unless `--dry` -- no classifier, no summary, no Discord request), whatever
+// features.coreTools says in the config. Both paths are scored the same way (the prefetch's history
+// excerpts as the windows, their relevant lines as the matched ids) and reported side by side per
+// question, with the not-in-memory questions the prefetch still showed an excerpt for. The final
+// answer is not judged: this tool has no judge of answers, so (c) of the comparison (her reply with
+// the prefetch block and her tool loop) is measured by tools/replay.mjs --pair-core-tools instead.
+// `--no-deadline`: the prefetch runs without its `recall.prefetch.deadlineMs` (retrieval quality
+// apart from latency); without it the live deadline applies and a cut search shows in the status.
+//
+// `traces`: no classifier, no summary. Reads the live recall runs (data/guilds/<id>/recall-trace.jsonl,
+// or the file given; read only) and, for each run with a trigger, rebuilds the trigger and the
+// channel's lines before it from the record and runs the prefetch as of the trigger's moment (no
+// line, row or item after it), then reports per run whether the prefetch found what the classifier's
+// run kept (tools/lib/recall-eval.mjs#traceAgreement: the same lines or an overlapping window,
+// partial: the same channel within a day), what it found where that run found nothing, and its top
+// line. Stored memory and the archive are read as they stand now (they keep no history). Written to
+// data/recall-eval/runs/<time>-traces.json, the table on stdout.
+//
 // `sample`: no request. Writes data/recall-eval/candidates.json: `--n` record messages
 // (tools/lib/recall-eval.mjs#sampleCandidates: at least 40 characters of text, not the
 // persona's own, from the last `--days` days but not the last two, spread across channels and
@@ -90,10 +115,17 @@ import {
   scoreQuestion,
   summarize,
   costOf,
+  comparePrefetch,
+  prefetchWindows,
+  renderPrefetchCompare,
+  renderTraceCompare,
+  topExcerptLine,
+  traceAgreement,
 } from './lib/recall-eval.mjs';
 
 const USAGE =
-  'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--web] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
+  'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--web] [--prefetch] [--no-deadline] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
+  '       node tools/recall-eval.mjs traces [<recall-trace.jsonl>] [--limit N] [--dry] [--no-deadline] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
   '       node tools/recall-eval.mjs sample [--n 80] [--days 30] [--guild <id>] [--data <dir>] [--self-id <id>] [--seed <n>]';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'recall-eval';
@@ -256,6 +288,116 @@ async function sample(flags, { dataDir, guildId, now }) {
   return `recall-eval: ${candidates.length} candidate(s) from ${lines.length} record message(s), ${channels} channel(s), ${dayCount} day(s), seed ${seed}\n${file}\n`;
 }
 
+/** `config` with the prefetch's deadline lifted (`--no-deadline`): a copy, the live config untouched. */
+function withoutDeadline(config, lifted) {
+  if (!lifted) return config;
+  return { ...config, recall: { ...(config.recall ?? {}), prefetch: { ...(config.recall?.prefetch ?? {}), deadlineMs: 600000 } } };
+}
+
+/** The lines of a recall-trace.jsonl file that parse as objects, in order. */
+function traceLines(file) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    throw new CliError(`recall-eval: cannot read the trace file ${file} (${err?.code ?? err?.name ?? 'Error'})`);
+  }
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const value = JSON.parse(line);
+      if (value && typeof value === 'object') out.push(value);
+    } catch {
+      // A torn line is skipped.
+    }
+  }
+  return out;
+}
+
+/** The `traces` subcommand (see the header). */
+async function traces(flags, { dataDir, guildId, now, cwd }) {
+  const dry = flags['--dry'] === true;
+  const noDeadline = flags['--no-deadline'] === true;
+  const file = flags._[1] ? path.resolve(cwd, flags._[1]) : path.join(dataDir, 'guilds', guildId, 'recall-trace.jsonl');
+  const all = traceLines(file).filter((t) => typeof t.triggerId === 'string' && t.triggerId && typeof t.channelId === 'string');
+  const limit = numberFlag(flags['--limit'], all.length, { min: 1, integer: true });
+  const runs = all.slice(-limit);
+  const { createHot } = await import('../src/hot.js');
+  const { loadDotEnv } = await import('../src/config.js');
+  const { createRecall } = await import('../src/behavior/recall-run.js');
+  const { createDiscordInterface } = await import('../src/interface/discord.js');
+  const { recallSettings } = await import('../src/behavior/recall.js');
+  const { prefetchLanes } = await import('../src/behavior/prefetch.js');
+  const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
+  try {
+    const evalHot = {
+      get config() {
+        return withoutDeadline(hot.config, noDeadline);
+      },
+      get prompts() {
+        return hot.prompts;
+      },
+    };
+    const config = hot.config;
+    const settings = recallSettings(config);
+    if (!settings) throw new CliError('recall-eval: features.recall is off: there is no recall to measure');
+    const meaningOn = !dry && config.features?.meaningSearch === true;
+    process.stderr.write(`recall-eval: ${runs.length} live recall run(s)${meaningOn ? `, up to ${runs.length} embedding(s) on the simulator key` : ', no request'}\n`);
+    let embed = null;
+    if (meaningOn) {
+      loadDotEnv(privateDirOf(ROOT));
+      const { createEmbedder } = await import('../src/llm/embed.js');
+      const embedder = createEmbedder({ apiKey: simKey(ORIGIN), env: {}, state: { data: {}, markDirty() {} } });
+      embed = (texts, options = {}) => embedder.embed(texts, { ...options, origin: ORIGIN, countAgainstDailyCap: false });
+    }
+    const { record, archive, vectors, store } = await openSources(dataDir);
+    const names = namesOf(store, guildId);
+    const nameOf = (id) => names.get(String(id)) ?? null;
+    const channelNames = new Map((store.listChannels?.(guildId) ?? []).filter((c) => c?.id).map((c) => [String(c.id), c.name || null]));
+    const self = { id: flags['--self-id'] ?? null, name: flags['--self-name'] ?? null };
+    const guild = localGuild({ guildId, selfId: self.id, channelNameOf: (id) => channelNames.get(id) ?? null });
+    const selfName = self.name ?? config.bot?.nameTriggers?.[0] ?? 'bot';
+    const historyCount = Math.max(1, Math.floor(config.context?.channelMessages ?? 100));
+    const llm = { capLeft: () => Infinity, complete: async () => { throw new Error('recall-eval: no model request in traces'); } };
+    const rows = [];
+    for (const t of runs) {
+      const base = { at: t.at ?? null, triggerId: t.triggerId, channelId: t.channelId, forms: [...(t.forms ?? []), ...(t.who ?? [])], answer: t.summary?.answer ?? null, skipped: t.skipped ?? null };
+      const atMs = Date.parse(t.at);
+      try {
+        if (!Number.isFinite(atMs)) throw Object.assign(new Error('no time'), { name: 'no-time' });
+        const lines = [];
+        const query = { from: new Date(atMs - HISTORY_DAYS * DAY_MS).toISOString(), to: new Date(atMs + 60 * 60 * 1000).toISOString(), channelIds: [t.channelId] };
+        for await (const line of record.iterate(guildId, query)) lines.push(line);
+        const messages = latestLines(lines).map((line) => recordMessage(line, { nameOf, selfName }));
+        const at = messages.findIndex((m) => m.id === t.triggerId);
+        if (at === -1) throw Object.assign(new Error('no trigger'), { name: 'no-trigger-in-record' });
+        const trigger = messages[at];
+        const history = messages.slice(Math.max(0, at + 1 - historyCount), at + 1);
+        const channel = guild.channels.cache.get(t.channelId);
+        const { lanes, skip } = prefetchLanes({ trigger, history, settings: settings.prefetch, selfId: self.id, selfName, selfNames: config.bot?.nameTriggers ?? [], nameOf });
+        if (skip) {
+          rows.push({ ...base, trigger: trigger.content, status: `skipped:${skip}`, excerpts: 0, agreement: traceAgreement(t, []), top: '' });
+          continue;
+        }
+        const recall = createRecall({ hot: evalHot, store: { state: { data: {}, markDirty() {} }, listUserProfiles: (id) => store.listUserProfiles(id), getLore: (id) => store.getLore(id), getGuild: (id) => store.getGuild(id), getRecent: (id) => store.getRecent(id) }, llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, now });
+        const found = await recall.prefetch({ guild, guildId, channel, selfId: self.id, selfName, history, lanes, at: trigger.ts });
+        const row = { ...base, trigger: trigger.content, status: found?.status ?? 'none-ran', partial: found?.partial === true, basis: found?.basis ?? [], excerpts: found?.excerpts?.length ?? 0, agreement: traceAgreement(t, found?.excerpts ?? []), top: topExcerptLine(found), found: found?.excerpts ?? [], ms: found?.ms ?? null };
+        rows.push(row);
+        process.stderr.write(`recall-eval: ${t.triggerId} classifier ${base.answer ?? '-'} prefetch ${row.status} (${row.excerpts}) ${row.agreement} ${row.ms} ms\n`);
+      } catch (err) {
+        rows.push({ ...base, error: err?.name ?? 'Error' });
+      }
+    }
+    const reportPath = evalPath(dataDir, 'runs', `${fileTime(now())}-traces.json`);
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, `${JSON.stringify({ at: new Date(now()).toISOString(), guildId, traceFile: file, mode: { dry, noDeadline }, settings: settings.prefetch, rows }, null, 2)}\n`);
+    return renderTraceCompare(rows, { reportPath });
+  } finally {
+    hot.close?.();
+  }
+}
+
 /**
  * The whole tool: the markdown summary on stdout (or the `sample` line).
  * @param {string[]} argv
@@ -265,14 +407,15 @@ async function sample(flags, { dataDir, guildId, now }) {
 export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const flags = parseFlags(argv, {
     values: ['--limit', '--max-usd', '--guild', '--data', '--self-id', '--self-name', '--n', '--days', '--seed'],
-    switches: ['--dry', '--discord', '--web'],
+    switches: ['--dry', '--discord', '--web', '--prefetch', '--no-deadline'],
     usage: USAGE,
   });
-  if (flags._.length > 1) throw new CliError(USAGE);
   const dataDir = flags['--data'] ? path.resolve(cwd, flags['--data']) : defaultDataDir(ROOT);
   if (!fs.existsSync(path.join(dataDir, 'guilds'))) throw new CliError(`recall-eval: no guilds/ under ${dataDir}`);
   const guildId = resolveGuildId(dataDir, flags['--guild']);
   if (flags._[0] === 'sample') return sample(flags, { dataDir, guildId, now });
+  if (flags._.length > 2 || (flags._.length === 2 && flags._[0] !== 'traces')) throw new CliError(USAGE);
+  if (flags._[0] === 'traces') return traces(flags, { dataDir, guildId, now, cwd });
 
   const questionsFile = flags._[0] ? path.resolve(cwd, flags._[0]) : evalPath(dataDir, 'questions.json');
   let raw;
@@ -288,6 +431,8 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const dry = flags['--dry'] === true;
   const useDiscord = flags['--discord'] === true;
   const useWeb = flags['--web'] === true;
+  const usePrefetch = flags['--prefetch'] === true;
+  const noDeadline = flags['--no-deadline'] === true;
   if (useWeb && dry) throw new CliError(`recall-eval: --web needs the classifier, which --dry leaves out\n${USAGE}`);
 
   const { createHot } = await import('../src/hot.js');
@@ -296,6 +441,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const { createDiscordInterface } = await import('../src/interface/discord.js');
   const { recallSettings, parseLookupAnswer } = await import('../src/behavior/recall.js');
   const { fallbackLookupPlan } = await import('../src/behavior/turn.js');
+  const { prefetchLanes } = await import('../src/behavior/prefetch.js');
   const { classifierTranscript, fillPromptTemplate } = await import('../src/behavior/prompt.js');
   const { createLlm, helperRequestOptions, railReason } = await import('../src/llm/openrouter.js');
   const { createEmbedder } = await import('../src/llm/embed.js');
@@ -308,7 +454,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const evalHot = {
     get config() {
       const live = hot.config;
-      return { ...live, features: { ...(live.features ?? {}), recallTrace: true, ...(useWeb ? { webLookup: true } : {}) } };
+      return withoutDeadline({ ...live, features: { ...(live.features ?? {}), recallTrace: true, ...(useWeb ? { webLookup: true } : {}) } }, noDeadline);
     },
     get prompts() {
       return hot.prompts;
@@ -475,8 +621,76 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     return { server: parsed.server ?? null, web: parsed.web ?? null, how: 'classifier', reason: parsed.reason ?? null, raw: completion.text };
   }
 
-  /** One question asked and scored. */
+  /** The trigger a question is asked as: a new message of `askerId` in its channel, now. */
+  const triggerOf = (q, index) => ({
+    id: `recall-eval-${index + 1}`,
+    channelId: q.channelId,
+    authorId: q.askerId,
+    authorName: nameOf(q.askerId) ?? '-',
+    content: q.question,
+    ts: now(),
+    self: false,
+    bot: false,
+    replyToId: null,
+    mentionedUserIds: [],
+    attachments: [],
+    links: [],
+    stickers: [],
+    emojis: [],
+    forwarded: [],
+    reactions: [],
+  });
+
+  /** The question asked the way a turn of her tool loop asks it: the automatic memory prefetch, scored. */
+  async function askPrefetch(q, index) {
+    const started = now();
+    try {
+      const channel = guild.channels.cache.get(q.channelId);
+      if (!channel) return { status: 'error', error: 'no-channel', excerpts: 0, score: null, ms: 0 };
+      const trigger = triggerOf(q, index);
+      const chat = await channelHistory(q.channelId);
+      const history = [...chat, trigger];
+      const { lanes, skip } = prefetchLanes({ trigger, history, settings: settings.prefetch, selfId: self.id, selfName, selfNames: config.bot?.nameTriggers ?? [], nameOf });
+      if (skip) return { status: `skipped:${skip}`, excerpts: 0, score: scoreQuestion(q, { chatIds: chat.map((m) => m.id) }), ms: now() - started };
+      const recall = createRecall({ hot: evalHot, store: readStore(), llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, now });
+      const found = await recall.prefetch({ guild, guildId, channel, selfId: self.id, selfName, history, lanes });
+      const { windows, matched } = prefetchWindows(found);
+      return {
+        status: found?.status ?? 'none-ran',
+        partial: found?.partial === true,
+        basis: found?.basis ?? [],
+        excerpts: found?.excerpts?.length ?? 0,
+        score: scoreQuestion(q, { windows, matched, confident: false, chatIds: chat.map((m) => m.id) }),
+        found: found?.excerpts ?? [],
+        stats: found?.stats ?? null,
+        ms: now() - started,
+      };
+    } catch (err) {
+      return { status: 'error', error: err?.name ?? 'Error', excerpts: 0, score: null, ms: now() - started };
+    }
+  }
+
+  /** One question asked and scored; with `--prefetch` also through the automatic prefetch. */
   async function ask(q, index) {
+    const result = await askClassifier(q, index);
+    if (!usePrefetch) return result;
+    return { ...result, prefetch: await askPrefetch(q, index) };
+  }
+
+  /** The store's read methods for one run: a fresh daily recall counter, no trace written. */
+  function readStore(onTrace = null) {
+    return {
+      state: { data: {}, markDirty() {} },
+      listUserProfiles: (id) => store.listUserProfiles(id),
+      getLore: (id) => store.getLore(id),
+      getGuild: (id) => store.getGuild(id),
+      getRecent: (id) => store.getRecent(id),
+      appendRecallTrace: (id, line) => onTrace?.(line),
+    };
+  }
+
+  /** One question asked through the classifier path and scored. */
+  async function askClassifier(q, index) {
     const started = now();
     usage = { requests: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, embeddings: 0 };
     discordHits.clear();
@@ -489,24 +703,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     try {
       const channel = guild.channels.cache.get(q.channelId);
       if (!channel) return finish({ error: 'no-channel', score: null });
-      const trigger = {
-        id: `recall-eval-${index + 1}`,
-        channelId: q.channelId,
-        authorId: q.askerId,
-        authorName: nameOf(q.askerId) ?? '-',
-        content: q.question,
-        ts: now(),
-        self: false,
-        bot: false,
-        replyToId: null,
-        mentionedUserIds: [],
-        attachments: [],
-        links: [],
-        stickers: [],
-        emojis: [],
-        forwarded: [],
-        reactions: [],
-      };
+      const trigger = triggerOf(q, index);
       const chat = await channelHistory(q.channelId);
       // The asking channel's visible chat: an expected line in it is answered by the chat.
       const chatIds = chat.map((m) => m.id);
@@ -526,16 +723,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       }
       // A fresh store view per question: the daily recall counter starts at zero, the trace is caught here.
       let trace = null;
-      const recallStore = {
-        state: { data: {}, markDirty() {} },
-        listUserProfiles: (id) => store.listUserProfiles(id),
-        getLore: (id) => store.getLore(id),
-        getGuild: (id) => store.getGuild(id),
-        getRecent: (id) => store.getRecent(id),
-        appendRecallTrace: (id, line) => {
-          trace = line;
-        },
-      };
+      const recallStore = readStore((line) => {
+        trace = line;
+      });
       const recall = createRecall({ hot: evalHot, store: recallStore, llm, discord: createDiscordInterface().capabilities, archive, record, vectors, embed, now });
       const windows = [];
       const found = await recall.run({
@@ -585,7 +775,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       ask: (q) => ask(q, index++),
       onResult: (r) =>
         process.stderr.write(
-          `recall-eval: ${r.id} ${r.error ? `error ${r.error}` : `${r.score?.outcome ?? r.kind} rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}${r.web ? ` web ${r.web.found}` : ''}`} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`,
+          `recall-eval: ${r.id} ${r.error ? `error ${r.error}` : `${r.score?.outcome ?? r.kind} rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}${r.web ? ` web ${r.web.found}` : ''}`}${r.prefetch ? ` prefetch ${r.prefetch.status} rank ${r.prefetch.score?.rank ?? '-'}` : ''} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`,
         ),
     });
   } finally {
@@ -600,16 +790,18 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     at: new Date(now()).toISOString(),
     guildId,
     questionsFile,
-    mode: { dry, discord: useDiscord, web: useWeb },
+    mode: { dry, discord: useDiscord, web: useWeb, prefetch: usePrefetch, noDeadline },
     stages,
     settings: { recall: settings, meaningSearch: config.features?.meaningSearch === true, channelMessages: historyCount },
     stopped: outcome.stopped,
     skipped: outcome.skipped,
     summary,
+    ...(usePrefetch ? { prefetch: comparePrefetch(outcome.results) } : {}),
     results: outcome.results,
   };
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-  return renderSummary(summary, { reportPath, stages, stopped: outcome.stopped, skipped: outcome.skipped });
+  const text = renderSummary(summary, { reportPath, stages, stopped: outcome.stopped, skipped: outcome.skipped });
+  return usePrefetch ? `${text}\n${renderPrefetchCompare(report.prefetch, outcome.results, { reportPath })}` : text;
 }
 
 runCli(import.meta.url, main);

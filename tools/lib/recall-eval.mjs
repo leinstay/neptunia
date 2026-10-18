@@ -450,3 +450,154 @@ export function renderSummary(summary, { reportPath, stages, stopped = null, ski
   }
   return `${out.join('\n')}\n`;
 }
+
+/**
+ * A prefetch result (src/behavior/recall-run.js `prefetch`) as recall-eval scores it: its history
+ * excerpts' message ids as the windows, their relevant hits first in excerpt order as the matched
+ * ids (scoreQuestion's inputs). A missing result gives none.
+ * @param {{ excerpts?: object[] }|null} found
+ * @returns {{ windows: object[][], matched: string[] }}
+ */
+export function prefetchWindows(found) {
+  const history = (found?.excerpts ?? []).filter((e) => e?.source === 'history' && Array.isArray(e.ids));
+  return {
+    windows: history.map((e) => e.ids.map((id) => ({ id }))),
+    matched: history.flatMap((e) => (Array.isArray(e.hitIds) ? e.hitIds : [])),
+  };
+}
+
+/**
+ * The comparison of the classifier path (`score`) and the prefetch (`prefetch.score`) per question
+ * (`--prefetch`): both summed up with summarize, the questions where only one of them hit within
+ * HIT_AT, and the `none` questions the prefetch still showed an excerpt for (`noneShown`).
+ * @param {object[]} results  recall-eval's per-question results, each with `prefetch: { status, excerpts, score }`.
+ */
+export function comparePrefetch(results) {
+  const classifier = summarize(results);
+  const prefetch = summarize(results.map((r) => ({ ...r, score: r.prefetch?.score ?? null, web: null, latencyMs: r.prefetch?.ms ?? null, costUsd: 0, answer: null })));
+  const hit = (score) => score?.hit5 === true || score?.inChat === true;
+  const answerable = results.filter((r) => r.kind !== 'none');
+  return {
+    classifier,
+    prefetch,
+    onlyClassifier: answerable.filter((r) => hit(r.score) && !hit(r.prefetch?.score)).map((r) => r.id),
+    onlyPrefetch: answerable.filter((r) => !hit(r.score) && hit(r.prefetch?.score)).map((r) => r.id),
+    noneShown: results.filter((r) => r.kind === 'none' && (r.prefetch?.excerpts ?? 0) > 0).map((r) => r.id),
+    statuses: results.reduce((acc, r) => {
+      const status = r.prefetch?.status ?? 'none-ran';
+      acc[status] = (acc[status] ?? 0) + 1;
+      return acc;
+    }, {}),
+  };
+}
+
+/** The markdown table of comparePrefetch for stdout: totals, then one row per question. */
+export function renderPrefetchCompare(compare, results, { reportPath }) {
+  const a = compare.classifier;
+  const b = compare.prefetch;
+  const out = [
+    '# Recall evaluation: classifier forms (A) vs automatic prefetch (B)',
+    '',
+    `Report: ${reportPath}`,
+    `Questions: ${a.questions} (answerable ${a.answerable}, not in memory ${a.noneQuestions})`,
+    '',
+    '| measure | A classifier | B prefetch |',
+    '| --- | --- | --- |',
+    `| hit@1 | ${share(a.hit1, a.answerable)} | ${share(b.hit1, b.answerable)} |`,
+    `| hit@${HIT_AT} | ${share(a.hit5, a.answerable)} | ${share(b.hit5, b.answerable)} |`,
+    `| hit@${HIT_AT} or answered by the chat | ${share(a.hit5OrChat, a.answerable)} | ${share(b.hit5OrChat, b.answerable)} |`,
+    `| expected line anywhere shown | ${share(a.seen, a.answerable)} | ${share(b.seen, b.answerable)} |`,
+    `| latency median / p90 | ${a.latencyMs.median ?? 'N/A'} / ${a.latencyMs.p90 ?? 'N/A'} ms | ${b.latencyMs.median ?? 'N/A'} / ${b.latencyMs.p90 ?? 'N/A'} ms |`,
+    `| not-in-memory questions with an excerpt shown (B) | | ${share(compare.noneShown.length, a.noneQuestions)} |`,
+    '',
+    `Only A hit: ${compare.onlyClassifier.join(' ') || '-'}`,
+    `Only B hit: ${compare.onlyPrefetch.join(' ') || '-'}`,
+    `B statuses: ${Object.entries(compare.statuses).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}`,
+    '',
+    '| id | kind | A rank | B rank | B status | B excerpts | question |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+  ];
+  for (const r of results) {
+    out.push(`| ${cell(r.id, 40)} | ${r.kind} | ${r.score?.rank ?? (r.score?.inChat ? 'chat' : '-')} | ${r.prefetch?.score?.rank ?? (r.prefetch?.score?.inChat ? 'chat' : '-')} | ${r.prefetch?.status ?? '-'} | ${r.prefetch?.excerpts ?? 0} | ${cell(r.question, 80)} |`);
+  }
+  return `${out.join('\n')}\n`;
+}
+
+/**
+ * Whether a prefetch found what a live recall run found (`trace`, a recall-trace.jsonl line):
+ * `same` when an excerpt holds a message the run kept as a hit (its kept record windows' hits, its
+ * kept meaning rows) or overlaps in time a window it kept (a kept Discord cluster or record window,
+ * same channel); `partial` when an excerpt sits in the channel of a kept window within `nearMs` of
+ * it; `none` when no excerpt does; `n/a` when the run kept nothing. Pure.
+ * @param {object} trace
+ * @param {{ source: string, channelId?: string, ids?: string[], startTs?: number, endTs?: number }[]} excerpts
+ * @param {{ nearMs?: number }} [options]
+ * @returns {'same'|'partial'|'none'|'n/a'}
+ */
+export function traceAgreement(trace, excerpts, { nearMs = DAY_MS } = {}) {
+  const spans = [
+    ...(trace?.clusters ?? []).filter((c) => c?.kept),
+    ...(trace?.record ?? []).filter((w) => w?.kept),
+  ]
+    .map((w) => ({ channelId: w.channelId, from: Date.parse(w.from), to: Date.parse(w.to) }))
+    .filter((w) => w.channelId && Number.isFinite(w.from) && Number.isFinite(w.to));
+  const hitIds = new Set([
+    ...(trace?.record ?? []).filter((w) => w?.kept).flatMap((w) => w.hitIds ?? []),
+    ...(trace?.meaning?.kept ?? []).filter((row) => row?.kind === 'record').map((row) => row.id),
+  ]);
+  if (spans.length === 0 && hitIds.size === 0) return 'n/a';
+  const history = (excerpts ?? []).filter((e) => e?.source === 'history');
+  const overlaps = (e, margin) => spans.some((w) => w.channelId === e.channelId && Number.isFinite(e.startTs) && e.startTs <= w.to + margin && (Number.isFinite(e.endTs) ? e.endTs : e.startTs) >= w.from - margin);
+  if (history.some((e) => (e.ids ?? []).some((id) => hitIds.has(id)) || overlaps(e, 0))) return 'same';
+  if (history.some((e) => overlaps(e, nearMs))) return 'partial';
+  return 'none';
+}
+
+/** The first relevant line of a prefetch's top excerpt, flattened and cut to `max` characters ('' for none). */
+export function topExcerptLine(found, max = 90) {
+  const first = (found?.excerpts ?? [])[0];
+  if (!first) return '';
+  const lines = String(first.lines ?? '').split('\n');
+  const marked = lines.find((line) => line.startsWith('>> ')) ?? lines[0] ?? '';
+  return cell(marked, max);
+}
+
+/**
+ * The markdown table of the live-trace comparison (`traces`): totals, then one row per trace --
+ * its date, the trigger cut short, the classifier's forms, whether the classifier's run found
+ * something (`text` answer), whether the prefetch found the same, and the prefetch's top line.
+ * @param {object[]} rows  `{ at, trigger, forms, answer, agreement, status, excerpts, top, error? }`
+ */
+export function renderTraceCompare(rows, { reportPath }) {
+  const ran = rows.filter((r) => !r.error);
+  const found = ran.filter((r) => r.answer === 'text');
+  const nothing = ran.filter((r) => r.answer !== 'text');
+  const day = (at) => cell(String(at ?? '').slice(0, 16).replace('T', ' '), 20);
+  const count = (list, pick) => list.filter(pick).length;
+  const out = [
+    '# Recall evaluation: live recall traces vs automatic prefetch',
+    '',
+    `Report: ${reportPath}`,
+    `Traces: ${rows.length} (classifier answered ${found.length}, nothing or no summary ${nothing.length}, not replayed ${rows.length - ran.length})`,
+    '',
+    '| measure | value |',
+    '| --- | --- |',
+    `| classifier answered: prefetch found the same | ${share(count(found, (r) => r.agreement === 'same'), found.length)} |`,
+    `| classifier answered: prefetch partial (same channel, near) | ${share(count(found, (r) => r.agreement === 'partial'), found.length)} |`,
+    `| classifier answered: prefetch found none of it | ${share(count(found, (r) => r.agreement === 'none' || r.agreement === 'n/a'), found.length)} |`,
+    `| classifier answered: prefetch showed anything | ${share(count(found, (r) => r.excerpts > 0), found.length)} |`,
+    `| classifier found nothing: prefetch showed anything | ${share(count(nothing, (r) => r.excerpts > 0), nothing.length)} |`,
+    '',
+    '| date | trigger | classifier forms | classifier found | prefetch same | prefetch status | prefetch top hit |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+  ];
+  for (const r of rows) {
+    if (r.error) {
+      out.push(`| ${day(r.at)} | - | ${cell((r.forms ?? []).join(', '), 60)} | ${r.answer ?? '-'} | - | error: ${cell(r.error, 40)} | - |`);
+      continue;
+    }
+    const same = r.agreement === 'same' ? 'Y' : r.agreement === 'partial' ? 'partial' : r.agreement === 'n/a' ? '-' : 'N';
+    out.push(`| ${day(r.at)} | ${cell(r.trigger, 60)} | ${cell((r.forms ?? []).join(', '), 60)} | ${r.answer === 'text' ? 'Y' : 'N'} | ${same} | ${r.status} (${r.excerpts}) | ${cell(r.top || '-', 90)} |`);
+  }
+  return `${out.join('\n')}\n`;
+}
