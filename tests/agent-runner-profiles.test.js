@@ -9,7 +9,9 @@
 // (the override under the private directory, the tracked prompt in
 // agents/<id>/), and the agents/ folder the profiles are built from: the
 // real one, and temporary trees with a valid worker, an unknown tool, an
-// unknown shell class, a missing key and a consultation the runner skips.
+// unknown shell class, a missing key and a consultation the runner skips;
+// the tools every agent is denied (skill, todowrite, ...) and the web
+// agent's `web-search` command with its wrapper.
 // Pure but for reading config.json, agents/ and a temporary directory.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,7 +20,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.js';
 import { onLog } from '../src/log.js';
-import { WEB, SERVER, PROFILES, AgentProfileError, SHELL_CLASSES, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, WEB_SHELL_ALLOW, YT_DLP_DENIES, withheldShellDenies } from '../src/agent-runner/profiles.js';
+import { WEB, SERVER, PROFILES, ALWAYS_DENIED, AgentProfileError, SHELL_CLASSES, WEB_TOOLS_DIR, listAgents, loadProfiles, profileOf, promptFilesOf, SERVER_SHELL_ALLOW, SEGMENT_NAMES, SHELL_CONTENT_COMMANDS, SHELL_DENY_AFTER, WEB_SHELL_ALLOW, YT_DLP_DENIES, withheldShellDenies } from '../src/agent-runner/profiles.js';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldGlobsOf, withheldRootsOf } from '../src/agent-runner/policy.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { resolvePaths } from '../src/paths.js';
@@ -67,6 +69,34 @@ test('web permission: web tools allowed, edit/write/task/question denied, bash a
   assert.equal(keys[keys.length - 1], 'gawk *');
   assert.equal(p.bash['find * -exec*'], 'deny');
   assert.equal(p.bash['awk */inet/*'], 'deny');
+});
+
+test('every agent: skill, todowrite and the other tools no profile asks for are denied, in every scope', () => {
+  for (const tool of ['skill', 'todowrite', 'lsp', 'plan_exit', 'execute', 'edit', 'write', 'patch', 'task', 'question']) assert.ok(ALWAYS_DENIED.includes(tool), tool);
+  for (const profile of [WEB, SERVER]) {
+    for (const scope of ['core', 'dm', 'group']) {
+      const p = profile.buildConfig({ systemPrompt: 'x', scope }).agent[profile.agentId].permission;
+      for (const tool of ALWAYS_DENIED) assert.equal(p[tool], 'deny', `${profile.name} ${scope} ${tool}`);
+      assert.equal(p.skill, 'deny');
+      assert.equal(p.todowrite, 'deny');
+    }
+  }
+});
+
+test('web shell: the web-search command runs, through the wrapper on the child\'s PATH; node itself never does', () => {
+  const p = WEB.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-web'].permission;
+  assert.equal(p.bash['web-search *'], 'allow');
+  for (const command of ['node *', 'node', 'web-search']) assert.equal(p.bash[command], undefined, command);
+  assert.equal(actionOf(p.bash, 'web-search olé meme --count 4'), 'allow');
+  assert.equal(actionOf(p.bash, 'node bin/agent-runner.mjs --profile web'), 'deny');
+  assert.equal(actionOf(p.bash, 'NODE_OPTIONS=--import=./x.mjs web-search q'), 'deny', 'OpenCode matches the whole command text, assignments included');
+  assert.deepEqual([...WEB.pathDirs], [WEB_TOOLS_DIR]);
+  assert.equal(WEB_TOOLS_DIR, path.join(ROOT, 'agents', 'web', 'bin'));
+  const wrapper = path.join(WEB_TOOLS_DIR, 'web-search');
+  assert.ok(fs.statSync(wrapper).mode & 0o111, 'the wrapper is executable');
+  assert.match(fs.readFileSync(wrapper, 'utf8'), /^#!\/bin\/sh\n[\s\S]*exec node "\$\{0%\/\*\}\/\.\.\/\.\.\/\.\.\/bin\/web-search\.mjs" "\$@"\n$/);
+  assert.ok(fs.existsSync(path.join(ROOT, 'bin', 'web-search.mjs')));
+  assert.deepEqual([...SERVER.pathDirs], [], 'the server agent gets no command of its own');
 });
 
 test('web shell: yt-dlp runs only with --ignore-config; no option that runs another program passes, abbreviated or in = form', () => {

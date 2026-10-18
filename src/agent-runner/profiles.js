@@ -35,8 +35,12 @@
 // { pattern: action } map; a config typo falls back to `ask`, which a
 // headless run rejects). Tool/permission keys are OpenCode's own: `bash`
 // (the shell), `read`, `grep`, `glob`, `list`, `webfetch`, `websearch`,
-// `edit`, `write`, `patch`, `task` (subagents), `question`,
-// `external_directory`. The permission runtime takes the LAST matching rule,
+// `edit`, `write`, `patch`, `task` (subagents), `question`, `skill`,
+// `todowrite`, `lsp`, `plan_exit`, `execute`, `external_directory`; every
+// tool no class asks for is denied (ALWAYS_DENIED). v1.19.3 shows `websearch`
+// only with Exa or Parallel switched on directly, which this engine never
+// does (Exa only through OpenRouter): the web agent searches with the
+// `web-search` command of its shell instead (src/web/web-search.js). The permission runtime takes the LAST matching rule,
 // so for `bash` a catch-all `*: deny` comes first and the allowed commands
 // after, and for a path tool (and the server class's `external_directory`)
 // `*: allow` comes first and the withheld-path denies after. The web search provider is chosen by an environment variable
@@ -108,7 +112,13 @@ export const SERVER_SHELL_ALLOW = Object.freeze([
  * program, or name a config file again, are denied in YT_DLP_DENIES. */
 export const WEB_SHELL_ALLOW = Object.freeze([
   'curl *', 'wget *', 'yt-dlp --ignore-config *', 'ffmpeg *', 'ffprobe *', 'file *', 'ls', 'ls *', 'mkdir *', 'cat *', 'head *', 'stat *',
+  // The web search (src/web/web-search.js): the wrapper in WEB_TOOLS_DIR, found on the child's
+  // PATH; never `node` itself, so no other script runs.
+  'web-search *',
 ]);
+
+/** The folder of the web agent's own commands (`web-search`), put first on its child's PATH. */
+export const WEB_TOOLS_DIR = path.join(ROOT_DIR, AGENTS_DIRNAME, 'web', 'bin');
 
 /**
  * The yt-dlp options that run another program or load options that could (still needed with
@@ -220,8 +230,13 @@ export const SERVER_CHILD_ENV = Object.freeze({
   GIT_PAGER: 'cat',
 });
 
-/** The tools denied to every agent whatever its profile asks: no profile can grant one. */
-const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'question']);
+/**
+ * The tools denied to every agent whatever its profile asks: no profile can grant one. Beside the
+ * writing and delegating ones, every other tool v1.19.3 can expose that no shell class asks for:
+ * `skill` and `todowrite` (always on), `lsp`, `plan_exit` and `execute` (behind experimental
+ * flags). A tool whose permission is a plain deny is left out of the model's tool list.
+ */
+export const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'question', 'skill', 'todowrite', 'lsp', 'plan_exit', 'execute']);
 
 /**
  * The shell classes a worker profile names in `shell`, the permission ceiling of this runner.
@@ -231,8 +246,9 @@ const ALWAYS_DENIED = Object.freeze(['edit', 'write', 'patch', 'task', 'question
  * the most it can get; and `order`, the tools its permission map names before ALWAYS_DENIED, in
  * that order (a tool of `order` the profile does not ask for, or outside `tools`, is denied);
  * `externalDirectory`, whether `external_directory` (paths outside the agent's working
- * directory) takes the path tools' value (pathPermission) instead of deny; and `env`, the
- * variables its OpenCode child runs with over the runner's environment. A profile picks a class
+ * directory) takes the path tools' value (pathPermission) instead of deny; `env`, the
+ * variables its OpenCode child runs with over the runner's environment; and `path`, the folders
+ * of its own commands put first on the child's PATH. A profile picks a class
  * by name and never carries a pattern itself.
  */
 export const SHELL_CLASSES = Object.freeze({
@@ -243,6 +259,7 @@ export const SHELL_CLASSES = Object.freeze({
     tools: Object.freeze(['read', 'grep', 'glob', 'list', 'bash']),
     order: Object.freeze(['read', 'grep', 'glob', 'list', 'bash', 'webfetch', 'websearch']),
     env: SERVER_CHILD_ENV,
+    path: Object.freeze([]),
   }),
   'web-download': Object.freeze({
     allow: WEB_SHELL_ALLOW,
@@ -251,6 +268,7 @@ export const SHELL_CLASSES = Object.freeze({
     tools: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'bash']),
     order: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'grep', 'bash']),
     env: Object.freeze({}),
+    path: Object.freeze([WEB_TOOLS_DIR]),
   }),
 });
 
@@ -469,6 +487,8 @@ function makeProfile(definition, { rootDir, env }) {
     shell: definition.shell,
     // The variables its OpenCode child runs with over the runner's environment (its shell class's `env`).
     childEnv: SHELL_CLASSES[definition.shell].env,
+    // The folders of its own commands, first on its child's PATH (its shell class's `path`).
+    pathDirs: SHELL_CLASSES[definition.shell].path,
     defaultLimits: definition.limits,
     defaultDaily: definition.daily,
     defaultSearchProvider: definition.searchProvider,

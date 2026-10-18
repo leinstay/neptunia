@@ -4,8 +4,10 @@ The engine can hand a task to a separate errand agent: a standalone process that
 
 | Profile | What it does | What it can reach | Tools |
 |---|---|---|---|
-| `web` | internet errands (search, read pages, look at images, download a file) | the public internet through a proxy; its own output folder | OpenCode `websearch`, `webfetch`, `read`, and a `bash` limited to `curl`/`wget`/`yt-dlp`/`ffmpeg`/`ffprobe`/`file`/`ls`/`mkdir` for downloads (yt-dlp only as `yt-dlp --ignore-config ...`, so a `yt-dlp.conf` written into its folder is never loaded; no yt-dlp option that runs another program or names a config file: `--exec`, `--netrc-cmd`, `--config-locations`, `--plugin-dirs`) |
+| `web` | internet errands (search, read pages, look at images, download a file) | the public internet through a proxy; its own output folder | OpenCode `webfetch`, `read`, and a `bash` limited to `web-search` for searches, `curl`/`wget`/`yt-dlp`/`ffmpeg`/`ffprobe`/`file`/`ls`/`mkdir` for downloads (yt-dlp only as `yt-dlp --ignore-config ...`, so a `yt-dlp.conf` written into its folder is never loaded; no yt-dlp option that runs another program or names a config file: `--exec`, `--netrc-cmd`, `--config-locations`, `--plugin-dirs`) |
 | `server` | read-only questions about this machine | the local filesystem (read-only); network only to the model API | OpenCode `read`, `grep`, `glob`, `list`, and a `bash` limited to read-only commands (`ls`, `cat`, `head`, `tail`, `grep`, `find`, `ps`, `systemctl status`, `journalctl`, `df`, `du`, `stat`, `git log`, ...) |
+
+The web agent searches with `web-search <query> [--count N]` (`bin/web-search.mjs`, through `agents/web/bin/web-search` on its PATH): one OpenRouter request with the web plugin on Exa, on the task's key and the lookup's model (`reasoner` for `search-summary`), printing each result's title, URL and snippet; OpenCode's own `websearch` stays hidden, since v1.19.3 shows it only with Exa or Parallel called directly.
 
 Both run one task at a time; further requests queue. Each task has per-task caps (`agents.<profile>.limits`: model steps, estimated USD, wall-clock seconds) and the engine enforces per-day caps (`agents.<profile>.daily`). The USD cap is a soft cap on OpenCode's own cost estimate; the hard spending limit is the credit limit on the runner's OpenRouter key.
 
@@ -42,7 +44,7 @@ A profile with a missing key, an unknown key, a tool its shell class does not al
 Permissions and security stay in the code (`src/agent-runner/profiles.js`, `src/agent-runner/policy.js`), and no profile key can change them:
 
 - the permission ceiling: which tools a shell class may grant and which shell commands it allows;
-- the shell deny patterns, and the tools denied to every agent (`edit`, `write`, `patch`, `task`, `question`); `external_directory` (paths outside the agent's own folder) is denied too, except to the server agent, which gets it under the same withheld-path rules as its path tools;
+- the shell deny patterns, and the tools denied to every agent (`edit`, `write`, `patch`, `task`, `question`, `skill`, `todowrite`, `lsp`, `plan_exit`, `execute`); `external_directory` (paths outside the agent's own folder) is denied too, except to the server agent, which gets it under the same withheld-path rules as its path tools;
 - the scope filters, the withheld paths and the redaction of results;
 - any command to run, and any path outside the folder (`socket` and `out` are only defaults the config overrides).
 
