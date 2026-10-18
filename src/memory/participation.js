@@ -30,9 +30,10 @@ import { clampText, oneLine } from './clamp.js';
 
 /**
  * config.json's own values for the `participation` section, the code fallbacks
- * when a deployment's config lacks a key. `contextMessages` and
- * `maxOutputTokens` belong to the pick classifier (src/behavior/participation-pick.js),
- * `earlierHours` and `earlierShown` to the current channel's `<earlier>` block (`earlierEpisodes`).
+ * when a deployment's config lacks a key. `contextMessages`, `maxOutputTokens` and
+ * `pickTimeoutMs` belong to the pick classifier (src/behavior/participation-pick.js, which
+ * applies the time limit), `earlierHours` and `earlierShown` to the current channel's
+ * `<earlier>` block (`earlierEpisodes`).
  */
 export const PARTICIPATION_DEFAULTS = Object.freeze({
   hours: 72,
@@ -49,6 +50,7 @@ export const PARTICIPATION_DEFAULTS = Object.freeze({
   episodeChars: 1800,
   contextMessages: 6,
   maxOutputTokens: 60,
+  pickTimeoutMs: 1500,
   earlierHours: 3,
   earlierShown: 3,
 });
@@ -72,7 +74,7 @@ const CUT_EDGE = 2;
  * @returns {{ hours: number, linesBefore: number, linesAfter: number, followMinutes: number,
  *   mergeGapMinutes: number, contextMinutes: number, maxMessages: number, maxStored: number, maxTextChars: number,
  *   shown: number, perChannel: number, episodeChars: number, contextMessages: number, maxOutputTokens: number,
- *   earlierHours: number, earlierShown: number }}
+ *   pickTimeoutMs: number, earlierHours: number, earlierShown: number }}
  */
 export function participationSettings(config) {
   const section = isPlainObject(config?.participation) ? config.participation : {};

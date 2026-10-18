@@ -339,7 +339,7 @@ Settings for the channel route classifier (`features.channelRoute`). When the co
 
 ## `participation`
 
-The persona's own exchanges on other channels (`features.participation`). Every message the persona sends in a server channel (not a private chat, not the diary channel, not a dry run) is saved with a few lines before it, the message it answered, and the lines that follow it, in `data/guilds/<id>/participation.json`. On a server turn the persona sees up to `shown` of these episodes from other channels in a `<participation>` block: the ones a classifier (`prompts/participation-pick.md` on the `analyzer` role) picks as the ones the message refers to, then the newest. Only channels everyone in the current channel can also read are offered (the `context.pull.sameAudience` rule). Logged as `participation: recorded`, `participation: classified`, `participation: skipped` or `participation: failed`.
+The persona's own exchanges on other channels (`features.participation`). Every message the persona sends in a server channel (not a private chat, not the diary channel, not a dry run) is saved with a few lines before it, the message it answered, and the lines that follow it, in `data/guilds/<id>/participation.json`. On a server turn the persona sees up to `shown` of these episodes from other channels in a `<participation>` block: the ones a classifier (`prompts/participation-pick.md` on the `analyzer` role) picks as the ones the message refers to, then the newest. Only channels everyone in the current channel can also read are offered (the `context.pull.sameAudience` rule). Logged as `participation: recorded`, `participation: classified`, `participation: skipped`, `participation: late` or `participation: failed`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -357,6 +357,7 @@ The persona's own exchanges on other channels (`features.participation`). Every 
 | `episodeChars` | `1800` | Characters of text shown per episode; a longer one keeps the persona's lines, the lines they answer, the lines that share a word with the new message and the ends, and marks the cut lines |
 | `contextMessages` | `6` | Recent channel lines rendered for the pick classifier alongside the new message |
 | `maxOutputTokens` | `60` | Max output tokens for the pick classifier |
+| `pickTimeoutMs` | `1500` | How long the turn waits for the pick classifier (ms). Past it the request is aborted and the newest episodes are shown, logged `participation: late` and journaled as a `helper-timeout` limit on `participation-pick`. `null` leaves only the turn's own preparation deadline |
 | `earlierHours` | `3` | With `features.anchoredWindow` on, the same saved episodes also cover the current channel: the lines of it that are older than the oldest line of `<chat>` and younger than this many hours come in the `<earlier>` block, so a conversation the count-based history (`context.channelMessages`) has already let go of is not lost. `0` leaves them out (h) |
 | `earlierShown` | `3` | Episodes of the current channel shown in `<earlier>`, the newest ones; each is cut to `episodeChars` |
 

@@ -2084,7 +2084,7 @@ export function createTurnRunner({
   let followUpPromptMissing = false;
   // The participation pick classifier (src/behavior/participation-pick.js): which stored
   // exchanges of other channels a turn's `<participation>` block shows first.
-  const pickParticipation = createParticipationPicker({ hot, store, llm, now: clock });
+  const pickParticipation = createParticipationPicker({ hot, store, llm, now: clock, schedule });
   // The last view of each pulled channel shown in each channel, in process only: a channel
   // shown again says what of it is new since (createPullViews; `seenBefore` on the entry).
   const pullViews = createPullViews();
@@ -5628,7 +5628,7 @@ export function createTurnRunner({
                     const ids = plan.offer.episodes?.ids ?? [];
                     return answer.state === 'ok' ? answer.indices.map((n) => ids[n - 1]).filter(Boolean) : [];
                   })
-                : pickParticipation({ guildId, channel, history: rawHistory, trigger: candidate, triggerKind, mode: finalMode, selfName, audience: participationAudienceOf }),
+                : pickParticipation({ guildId, channel, history: rawHistory, trigger: candidate, triggerKind, mode: finalMode, selfName, audience: participationAudienceOf, limits: draft.limits }),
             )
           : null;
 
