@@ -503,17 +503,21 @@ export function toEvent(message, selfId, options = {}) {
     return { ...base, at: now(), id: `${DISCORD_IFACE}:delete:${message?.id}`, conversation, message: { id: message?.id }, deleted: true, raw: message };
   }
   const edit = options.edit === true;
-  const editAt = edit ? (Number.isFinite(message?.editedTimestamp) ? message.editedTimestamp : now()) : null;
+  const receivedAt = now();
+  const editAt = edit ? (Number.isFinite(message?.editedTimestamp) ? message.editedTimestamp : receivedAt) : null;
+  // An edit's id carries when it arrived as well: Discord sends a second update with the same edit
+  // stamp when it attaches an embed to an edited message, and the event door must not drop it.
+  const editId = (id) => `${DISCORD_IFACE}:edit:${id}:${editAt}:${receivedAt}`;
   const editPart = edit ? { edit: true } : {};
   const editRaw = edit ? { rawPrevious: options.previous ?? null } : {};
   if (edit && message?.partial) {
-    return { ...base, at: editAt, id: `${DISCORD_IFACE}:edit:${message.id}:${editAt}`, conversation, message: { id: message.id }, ...editPart, partial: true, raw: message, ...editRaw };
+    return { ...base, at: editAt, id: editId(message.id), conversation, message: { id: message.id }, ...editPart, partial: true, raw: message, ...editRaw };
   }
   const normalized = normalizeMessage(message, selfId, options);
   return {
     ...base,
     at: edit ? editAt : normalized.ts,
-    id: edit ? `${DISCORD_IFACE}:edit:${normalized.id}:${editAt}` : `${DISCORD_IFACE}:message:${normalized.id}`,
+    id: edit ? editId(normalized.id) : `${DISCORD_IFACE}:message:${normalized.id}`,
     conversation,
     message: {
       id: normalized.id,
