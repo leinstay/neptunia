@@ -50,6 +50,7 @@
 
 import { createHash } from 'node:crypto';
 import { fitSections, requestTokenLimit, sectionCost } from '../llm/budget.js';
+import { cacheTtlMs } from '../llm/openrouter.js';
 import {
   computeTempo,
   fill,
@@ -957,6 +958,38 @@ function seenEmoji(messageSets) {
     }
   }
   return [...out.values()];
+}
+
+/**
+ * `compute()`, held in `freeze` under `key` for the time bucket of `now`
+ * (`Math.floor(now / bucketMs)`, buckets aligned to the epoch): within one
+ * bucket, and while `signature` stays the same, every call returns what the
+ * first call of the bucket computed; the first call of the next bucket (or
+ * one with another signature) computes again and holds that. The reply's
+ * stable part renders what memory changes through this (`<self_facts>`,
+ * `<gifs>`), with `bucketMs` the cache TTL (src/llm/openrouter.js#cacheTtlMs):
+ * a memory batch or a GIF post then rewrites the cached prefix at most once
+ * per TTL, and the persona sees the change at the next bucket edge. `signature`
+ * names the settings the value is rendered with (labels, config), so an
+ * operator's edit shows at once. No Map, or `now`/`bucketMs` unusable ->
+ * `compute()` every time. An array value is returned as a copy, so a caller
+ * never changes what is held. Mutates `freeze` only.
+ * @template T
+ * @param {Map<string, { bucket: number, signature: string, value: T }>|null|undefined} freeze
+ * @param {string} key
+ * @param {{ now: number, bucketMs: number, signature?: string }} options
+ * @param {() => T} compute
+ * @returns {T}
+ */
+export function freezePerBucket(freeze, key, { now, bucketMs, signature = '' }, compute) {
+  if (!(freeze instanceof Map) || !Number.isFinite(now) || !Number.isFinite(bucketMs) || bucketMs <= 0) return compute();
+  const bucket = Math.floor(now / bucketMs);
+  let held = freeze.get(key);
+  if (!held || held.bucket !== bucket || held.signature !== signature) {
+    held = { bucket, signature, value: compute() };
+    freeze.set(key, held);
+  }
+  return Array.isArray(held.value) ? [...held.value] : held.value;
 }
 
 /**
@@ -2790,6 +2823,13 @@ function seenOf({ history, keptChat, pictures }) {
  *   mode prompt, no `task.*`, private, forced, routed or room text. Every other block is built as
  *   for the turn, so the stable and profile parts stay the same. Omitted or null (or the label
  *   missing or blank) -> the task as usual.
+ * @param {Map<string, object>|null} [input.stableFreeze]  The caller's long-lived holder of what
+ *   the stable part shows from memory (src/behavior/turn.js keeps one per guild): with
+ *   `features.promptCache` exactly true, `<self_facts>` (and `<gifs>`) render as they were at the
+ *   first request of the current time bucket, one bucket being the cache TTL
+ *   (src/llm/openrouter.js#cacheTtlMs: an hour for `llm.cache.ttl` `'1h'`), see freezePerBucket;
+ *   a memory batch's change shows at the next bucket edge. Omitted, null or the cache off ->
+ *   rendered from the input every time.
  * @returns {{ messages: object[], stats: object, segments: { segment: 'stable'|'profiles'|'tail', chars: number, hash: string }[],
  *   idByIndex: Map<number, string>, tempo: object, handles: Map<string, string>|null, channelHandles: Map<string, string>|null,
  *   pictures: object[], textFallback: object[]|null, pulledIds: Map<string, string>,
@@ -2846,6 +2886,11 @@ export function buildRequest(input) {
   const interlocutor = privateChat ? mergeProfiles(input.interlocutor, input.privateProfile) : input.interlocutor;
   const nameOf = typeof input.nameOf === 'function' ? input.nameOf : () => null;
   const { timezone } = config.bot;
+  // What memory changes inside the stable part (`<self_facts>`, `<gifs>`) is held for one cache
+  // TTL bucket while the prompt cache is on (freezePerBucket): a memory batch or the persona's
+  // GIF post rewrites the cached prefix at most once per bucket.
+  const stableFreeze = config.features?.promptCache === true && input.stableFreeze instanceof Map ? input.stableFreeze : null;
+  const frozen = (key, signature, compute) => freezePerBucket(stableFreeze, key, { now, bucketMs: cacheTtlMs(config), signature }, compute);
   // Mention handles (features.mentionHandles, a missing key counts as on): every member with a
   // stored profile gets one in `<directory>` (the stable part), the authors in view on their lines.
   const handlesOn = config.features?.mentionHandles !== false;
@@ -3233,7 +3278,8 @@ export function buildRequest(input) {
     {
       name: 'self',
       cap: caps.aboutChat,
-      items: (input.guildMemory?.self ?? []).map((fact) => `- ${resolveChatText(fact, nameOf)}`),
+      // As they were at the start of this cache bucket (frozen): a batch's new fact shows at the next edge.
+      items: frozen('self', '', () => (input.guildMemory?.self ?? []).map((fact) => `- ${resolveChatText(fact, nameOf)}`)),
     },
     {
       name: 'lore',

@@ -1638,6 +1638,14 @@ export function createTurnRunner({
 }) {
   const { audienceAllows, audienceOf, canAttach, canSend, captionPulled, channelDirectoryOf, checkPull, createPullViews, fetchHistory, fetchNeighbors, fetchPull, withTextPreviews } = discord;
   const busy = new Set();
+  // Per guild: what the stable part of the reply showed from memory in the current cache bucket
+  // (src/behavior/prompt.js#freezePerBucket), in process only; a restart starts afresh.
+  const stableFreezes = new Map();
+  const stableFreezeOf = (guildId) => {
+    const key = String(guildId ?? '');
+    if (!stableFreezes.has(key)) stableFreezes.set(key, new Map());
+    return stableFreezes.get(key);
+  };
   // The channels the default adapter may resolve by id without the client (the turn's own and a
   // pulled line's), in process, the oldest dropped past HELD_CHANNELS_MAX.
   const heldChannels = new Map();
@@ -5776,6 +5784,8 @@ export function createTurnRunner({
         errands: finalMode === 'diary' ? null : errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now, draft }),
         // The turn itself; its continuation after a skill call sets it (continuationRequest).
         continuation: null,
+        // `<self_facts>` and `<gifs>` held per cache bucket, so a memory batch rewrites the cache once at most.
+        stableFreeze: stableFreezeOf(guildId),
       });
       const request = buildRequest(requestInput);
       // What `<recent>` showed, held back or cut: counts only.

@@ -66,6 +66,7 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'around',
   'errands',
   'continuation',
+  'stableFreeze',
 ]);
 
 const KNOWN = new Set(TURN_INPUT_KEYS);
