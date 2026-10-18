@@ -8,13 +8,20 @@ import {
   CAPABILITIES,
   COMMAND_RESULT,
   CONVERSATION_KINDS,
+  CHAT_TYPES,
   CORE_KINDS,
+  ENVELOPE_TYPES,
   EVENT_KINDS,
+  MEMBERSHIP_CHANGES,
   STATUSES,
+  ackOf,
+  envelope,
   notOk,
   ok,
+  originOf,
   portAction,
   validateAction,
+  validateEnvelope,
   validateEvent,
 } from '../src/protocol.js';
 import * as port from '../src/interface/port.js';
@@ -60,6 +67,14 @@ const EVENTS = {
   },
   'scheduler.tick': { kind: 'scheduler.tick', at: 1000 },
   'task.completed': { kind: 'task.completed', at: 1000, taskId: 't1', status: 'done', result: { text: 'έτοιμο' } },
+  'membership.changed': {
+    kind: 'membership.changed', iface: 'discord', at: 1000, id: 'discord:member:g1:u1:joined:1000', guildId: 'g1', userId: 'u1',
+    change: 'joined', member: { id: 'u1', name: 'Ελένη', bot: false },
+  },
+  'voice.changed': {
+    kind: 'voice.changed', iface: 'discord', at: 1000, id: 'discord:voice:g1:u1:1000', guildId: 'g1', userId: 'u1',
+    conversationId: 'v1', previousId: null, muted: false, streaming: true,
+  },
 };
 
 const ref = { iface: 'fake', conversationId: 'c1' };
@@ -76,7 +91,7 @@ const ACTION_SAMPLES = {
 };
 
 test('protocol: the kinds, conversation kinds and actions are the contract', () => {
-  assert.deepEqual([...EVENT_KINDS], ['message.received', 'reaction.changed', 'command.requested', 'scheduler.tick', 'task.completed']);
+  assert.deepEqual([...EVENT_KINDS], ['message.received', 'reaction.changed', 'command.requested', 'scheduler.tick', 'task.completed', 'membership.changed', 'voice.changed']);
   assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'task.completed']);
   assert.deepEqual([...CONVERSATION_KINDS], ['channel', 'dm', 'thread']);
   assert.deepEqual([...ACTIONS], [...Object.values(CAPABILITIES), COMMAND_RESULT]);
@@ -202,4 +217,77 @@ test('portAction: a port call as its action object', () => {
   assert.deepEqual(portAction('typing', [ref]), { action: 'conversation.typing', conversation: ref });
   assert.equal(validateAction(portAction('shout', [ref])).ok, false);
   assert.equal(validateAction(portAction('send', null)).ok, false);
+});
+
+test('validateEvent: membership and voice events need their community, member and change', () => {
+  const member = EVENTS['membership.changed'];
+  const voice = EVENTS['voice.changed'];
+  assert.deepEqual([...MEMBERSHIP_CHANGES], ['joined', 'left', 'updated']);
+  const { member: _m, ...left } = { ...member, change: 'left' };
+  assert.deepEqual(validateEvent(left), { ok: true });
+  assert.deepEqual(validateEvent({ ...member, change: 'banned' }), { ok: false, reason: 'change:unknown' });
+  assert.deepEqual(validateEvent({ ...member, guildId: undefined }), { ok: false, reason: 'guildId:required' });
+  assert.deepEqual(validateEvent({ ...member, member: { id: 'u1', name: null } }), { ok: false, reason: 'member.bot:required' });
+  assert.deepEqual(validateEvent({ ...voice, conversationId: null, previousId: 'v1' }), { ok: true });
+  assert.deepEqual(validateEvent({ ...voice, conversationId: undefined }), { ok: false, reason: 'conversationId:required' });
+  assert.deepEqual(validateEvent({ ...voice, muted: 'yes' }), { ok: false, reason: 'muted:type' });
+  assert.deepEqual(validateEvent({ ...voice, userId: '' }), { ok: false, reason: 'userId:type' });
+});
+
+test('validateEvent: an origin record is optional, and checked when present', () => {
+  const origin = { chatType: 'thread', place: 't1', parent: 'c1', thread: 't1', replyToAuthorId: 'u2', replyExpected: false };
+  assert.deepEqual([...CHAT_TYPES], ['dm', 'group', 'channel', 'thread']);
+  assert.deepEqual(validateEvent(messageEvent({ origin })), { ok: true });
+  assert.deepEqual(validateEvent(messageEvent({ origin: { ...origin, replyExpected: null, parent: null } })), { ok: true });
+  assert.deepEqual(validateEvent(messageEvent({ origin: { ...origin, chatType: 'forum' } })), { ok: false, reason: 'origin.chatType:unknown' });
+  assert.deepEqual(validateEvent(messageEvent({ origin: { ...origin, replyExpected: undefined } })), { ok: false, reason: 'origin.replyExpected:required' });
+  assert.deepEqual(validateEvent(messageEvent({ origin: 'x' })), { ok: false, reason: 'origin:type' });
+  assert.deepEqual(validateEvent(messageEvent({ conversation: { ...conversation, kind: 'thread', parentId: 'c0' } })), { ok: true });
+  assert.deepEqual(validateEvent(messageEvent({ conversation: { ...conversation, parentId: 7 } })), { ok: false, reason: 'conversation.parentId:type' });
+});
+
+test('originOf: the origin an adapter sent wins; else it is read off the conversation and the addressing', () => {
+  const plain = originOf(messageEvent({ addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] } }));
+  assert.deepEqual(plain, { chatType: 'channel', place: 'c1', parent: null, thread: null, replyToAuthorId: null, replyExpected: null });
+  assert.equal(originOf(messageEvent()).replyExpected, true, 'a mention expects an answer');
+  assert.equal(originOf(messageEvent({ conversation: { id: 'd1', kind: 'dm' }, addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] } })).chatType, 'dm');
+  assert.equal(originOf(messageEvent({ conversation: { id: 'd1', kind: 'dm' } })).replyExpected, true, 'a direct chat expects an answer');
+  const thread = originOf(messageEvent({ conversation: { ...conversation, id: 't1', kind: 'thread', parentId: 'c1' } }));
+  assert.deepEqual([thread.chatType, thread.place, thread.parent, thread.thread], ['thread', 't1', 'c1', 't1']);
+  const sent = { chatType: 'group', place: 'g9', parent: null, thread: null, replyToAuthorId: 'u2', replyExpected: false };
+  assert.deepEqual(originOf(messageEvent({ origin: sent })), sent);
+  assert.doesNotThrow(() => originOf(null));
+});
+
+test('envelope: every type validates in its documented body, and a bad one is refused with a reason', () => {
+  assert.deepEqual([...ENVELOPE_TYPES], ['hello', 'event', 'ack', 'action', 'action_result', 'ping']);
+  const event = EVENTS['reaction.changed'];
+  const valid = [
+    envelope('hello', { iface: 'discord', capabilities: ['message.send'], resume: null }, { id: 'h1' }),
+    envelope('event', event, { id: event.id }),
+    envelope('ack', { status: 'duplicate' }, { id: 'a1', replyTo: event.id }),
+    envelope('action', ACTION_SAMPLES['message.send'], { id: 'x1' }),
+    envelope('action_result', { status: 'ok' }, { id: 'r1', replyTo: 'x1' }),
+    envelope('ping', { at: 5 }, { id: 'p1' }),
+    ackOf('p1', 'ok'),
+  ];
+  for (const value of valid) assert.deepEqual(validateEnvelope(value), { ok: true }, value.type);
+  assert.deepEqual(valid[0].v, 1);
+  assert.deepEqual(valid[6], { v: 1, id: 'ack:p1', type: 'ack', replyTo: 'p1', body: { status: 'ok' } });
+  const cases = [
+    [null, 'envelope:type'],
+    [{ ...valid[0], v: 2 }, 'v:unsupported'],
+    [{ ...valid[0], id: '' }, 'id:type'],
+    [{ ...valid[0], type: 'event2' }, 'type:unknown'],
+    [{ ...valid[0], replyTo: 3 }, 'replyTo:type'],
+    [{ ...valid[2], replyTo: null }, 'replyTo:required'],
+    [{ ...valid[0], body: null }, 'body:type'],
+    [{ ...valid[0], body: { iface: '' } }, 'body.iface:type'],
+    [{ ...valid[1], body: { ...event, userId: '' } }, 'body.userId:type'],
+    [{ ...valid[2], body: { status: 'maybe' } }, 'body.status:unknown'],
+    [{ ...valid[3], body: { action: 'message.nuke' } }, 'body.action:unknown'],
+    [{ ...valid[4], body: {} }, 'body.status:type'],
+    [{ ...valid[5], body: { at: 'now' } }, 'body.at:type'],
+  ];
+  for (const [value, reason] of cases) assert.deepEqual(validateEnvelope(value), { ok: false, reason }, reason);
 });
