@@ -5,10 +5,12 @@ The engine has two sides: the core (the persona, its memory, its decisions about
 | File | What it holds |
 |---|---|
 | `packages/protocol/events.js` | the inbound event kinds and their shapes |
+| `packages/protocol/origin.js` | the origin record of a message event (`originOf`): where it came from and whether it expects an answer |
+| `packages/protocol/envelope.js` | the wire envelope (`{ v, id, type, replyTo, body }`) for when the interface is a separate process |
 | `packages/protocol/actions.js` | the action names, the result shape, and the port helpers (`ok`, `notOk`, `mentionsOf`, the refusals, `declaredHooks`) |
 | `packages/protocol/validate.js` | `validateEvent(event)` and `validateAction(action)` |
 
-The engine imports the package through `src/protocol.js` (one place to switch to the bare `@neptunia/protocol` specifier once the package is an npm workspace); `src/interface/port.js` re-exports the outbound half. The Discord adapter is the package `interfaces/discord/` (`@neptunia/interface-discord`, reached through `src/interface/discord.js`): `port.js` (actions) with the event builders in `collect.js` (`toEvent`, `reactionEvent`); the in-memory adapter for tests is `src/interface/fake.js`.
+The engine imports the package through `src/protocol.js` (one place to switch to the bare `@neptunia/protocol` specifier once the package is an npm workspace); `src/interface/port.js` re-exports the outbound half. `src/interface/door.js` is the event door: the one entry through which every inbound event reaches the core. `src/interface/typing.js` holds the typing lease. The Discord adapter is the package `interfaces/discord/` (`@neptunia/interface-discord`, reached through `src/interface/discord.js`): `port.js` (actions) with the event builders in `collect.js` (`toEvent`, `reactionEvent`); the in-memory adapter for tests is `src/interface/fake.js`.
 
 The core reaches Discord only through what the composition root gives it. Besides the port, `createDiscordInterface({ client })` returns a frozen capabilities object: the functions the core still asks Discord with, by name (whether the persona may read, send, attach or react in a channel, a channel's history, another channel to show, a search of the server's messages and members, a message as a protocol event and back). `src/index.js` builds it once and passes it as `discord` to every module that needs it: to a factory through its options, to an operation through its environment (`env.discord`), to a pure helper as a parameter. No other file under `src/` imports the Discord interface, so a test or a tool hands in the same functions or fakes of them.
 
@@ -31,14 +33,17 @@ Every event has `kind`, `iface` (the adapter's namespace), `at` (milliseconds si
 | `kind` | `channel`, `dm` or `thread` |
 | `guildId` | the community it belongs to; null or absent for a direct chat |
 | `name`, `topic`, `category` | what the people in it see; null or absent when unknown |
+| `parentId` | the conversation a thread belongs to; absent or null for any other kind |
 
-There are five event kinds:
+There are seven event kinds:
 
 | Kind | Sent by | Payload |
 |---|---|---|
 | `message.received` | the adapter | `message`, `addressing`; `edit: true` for an edit (the same message id), `deleted: true` for a deletion (only `message.id`), `edit: true, partial: true` for an edit the adapter could not read whole (only `message.id`; the core asks the adapter for the rest) |
 | `reaction.changed` | the adapter | `messageId`, `emoji` (`{ name, id? }`: `name` is a unicode emoji itself or a custom emoji's name, `id` a custom emoji's id; one of them is required), `userId`, `added` (true when put on, false when taken off) |
 | `command.requested` | the adapter | `name` (`group.sub` or `sub`), `args` (an object), `requester` (`{ id, name, roles, owner }`: `name` may be null, `roles` are role ids, `owner` whether the configured owners name them, for information: the core checks the rights itself), `replyRef` (an opaque token; the answer comes back as a `command.result` action carrying it) |
+| `membership.changed` | the adapter | `guildId`, `userId`, `change` (`joined`, `left` or `updated`), optional `member` (`{ id, name, bot }`: absent when the member left and the adapter no longer knows who they are). No adapter sends this kind yet: member updates still go straight to their stores |
+| `voice.changed` | the adapter | `guildId`, `userId`, `conversationId` (the voice conversation the member is in now, null when none), `previousId` (the one they were in, null when none), optional flags `muted`, `deafened`, `streaming`. No adapter sends this kind yet: voice updates still go straight to their stores |
 | `scheduler.tick` | the core | `at` only: the core's own clock. An adapter never sends this kind; `iface`, `id` and `conversation` are not required |
 | `task.completed` | the core | `taskId`, `status`, `result` (as `src/errands` defines them); `iface`, `id` and `conversation` are not required |
 
@@ -64,6 +69,40 @@ There are five event kinds:
 | `mentionedUserIds` | every member the message mentions |
 | `mentionedConversationIds` | every conversation the message mentions |
 
+A `message.received` event may carry an optional `origin` record. The adapter can send it with the event; when it does not, `originOf` (origin.js) derives one from the event's own fields.
+
+| Field | What it holds |
+|---|---|
+| `chatType` | the kind of chat: `dm`, `group`, `channel` or `thread` |
+| `place` | the conversation id |
+| `parent` | the conversation a thread sits in, or null |
+| `thread` | the thread's id when the message is in one, or null |
+| `replyToAuthorId` | the author of the message it replies to, or null |
+| `replyExpected` | true when the message was meant for the persona, false when it was meant for someone else, null when the adapter cannot tell. Derived from addressing and conversation kind when the adapter sends none |
+
+## The event door
+
+Every inbound event enters the core through one door (`src/interface/door.js`). The door validates the event at the boundary (`validateEvent`), checks its id against the ids it has already handled, and hands the event to the handler registered for its kind. An id the door has seen is answered `duplicate` and its handler does not run again. An id whose handler threw is not remembered (the answer is `failed`), so a redelivery from the sender gets another try. The seen ids are kept in memory (the newest 10,000 by default); a restart forgets them, and the interface resumes from what it last acknowledged.
+
+The core's own events carry no id. The door derives one from the fields that make the event that event: an errand's end (`task.completed`) is identified by its task id and status, so a second delivery of the same end is the same event; a scheduler tick is identified by its time.
+
+What enters through the door today: a new message, an edit and a deletion (`message.received`), a reaction put on (`reaction.changed`, `added: true`), and an errand's end (`task.completed`). An edit's event id includes the time the adapter received it, because Discord re-sends an edited message with the same edit stamp when it attaches an embed, and the door must treat that as a new event.
+
+The wire envelope wraps these events for when the interface runs as a separate process (not yet the case). Its shape is `{ v, id, type, replyTo, body }`: `v` is the envelope version (1), `id` an opaque string unique to the sender (an event's envelope carries the event's own id, so a redelivery is the same envelope), `type` one of six values, `replyTo` the id of the envelope this one answers (null for an unsolicited message), and `body` the payload for the type.
+
+| Type | Body | Direction |
+|---|---|---|
+| `hello` | `{ iface, capabilities?, resume? }`: who is speaking, what it offers | interface to core |
+| `event` | an inbound event (events.js) | interface to core |
+| `ack` | `{ status, reason? }`: whether the event was taken. Statuses: `ok`, `duplicate`, `invalid`, `unhandled`, `failed` | core to interface |
+| `action` | an outbound action (actions.js) | core to interface |
+| `action_result` | a port result | interface to core |
+| `ping` | `{ at? }`: liveness check, answered by an ack | either direction |
+
+`ack` and `action_result` must name what they answer in `replyTo`. No live path uses the envelope yet: while the adapter runs in the same process, the same event objects pass the door directly.
+
+The fake adapter's `replayFixture(fixture, door)` replays a recorded list of inbound events through the door in order, the way a live interface would deliver them, so tests can drive the persona's inbound path with a fixture file.
+
 ## Actions
 
 Every action is a plain object with an `action` name. The first six are the port's capabilities, the names an adapter lists in `capabilities().operations`:
@@ -77,6 +116,8 @@ Every action is a plain object with an `action` name. The first six are the port
 | `message.react.remove` | `message`, `emoji` |
 | `conversation.typing` | `conversation` |
 | `command.result` | `replyRef` (from `command.requested`), `text`, optional `files`, optional `ephemeral` (only the requester sees it) |
+
+The preparing indicator (`conversation.typing`) is held as a lease (`src/interface/typing.js`): the core starts it before a turn, the lease refreshes the indicator on its own until the turn stops it, and it lapses by itself after 5 minutes (`TYPING_LEASE_MS`) so a turn that hangs or a path that forgets cannot leave the persona "typing" forever.
 
 `content` is `{ text?, attachments?, replyTo?, mentions? }`: `attachments` are `{ name, data?, url?, contentType? }`, `replyTo` a message reference of the same interface, and `mentions` `{ users, repliedUser }`, the members the message may notify. When mentions are absent, nobody is notified. A null part counts as absent.
 
@@ -95,4 +136,6 @@ An adapter edits and deletes only the persona's own messages (returning `forbidd
 
 ## Not yet
 
-The Discord adapter is a package of its own (`interfaces/discord/`) but still runs inside the engine's process, and moves out of it in a later stage. Until then the message pipeline reads the normalised message rebuilt from the event, owner commands are answered by a direct reply rather than a `command.result` action, and the core's `scheduler.tick` and `task.completed` are direct calls rather than events through one dispatcher.
+The Discord adapter is a package of its own (`interfaces/discord/`) but still runs inside the engine's process, and moves out of it in a later stage. Until then the message pipeline reads the discord.js message (`raw`) for history and sends, and owner commands are answered by a direct reply rather than a `command.result` action. `scheduler.tick` is still a direct call, not an event through the door (the TODO at `src/index.js:714`).
+
+Several gateway events still bypass the door: reaction removals (one, all, one emoji), voice state updates, presence updates and member updates go straight to their stores.
