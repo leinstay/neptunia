@@ -461,6 +461,10 @@ export async function executeCall(resolved, deps) {
       roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
       actor: 'persona',
       ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
+      // Her turn and the call's place in it: an errand records the turn, and a retry of the same
+      // call cannot queue a second one (src/errands/store.js#add).
+      ...(envelope.turnId ? { turnId: envelope.turnId } : {}),
+      ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
       // The message her turn answers: where an errand she starts brings its result back (src/ops/task.js).
       ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0 ? { sourceMessageId: String(envelope.sourceMessageIds[0]) } : {}),
       ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),

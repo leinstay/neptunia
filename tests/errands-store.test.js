@@ -350,3 +350,26 @@ test('task store: costs and the daily caps read the same spend records, rebuilt 
     assert.deepEqual(again.costs(), {});
   });
 });
+
+test('task store: the persona\'s call keeps its turn and its brief as written; the same idempotency key again is that task, never a second, before any cap', async () => {
+  await withCapturedLogs(() => {
+    const { store } = makeStore({ agents: { maxOpen: 1 } });
+    const brief = '  Βρες το πιο δημοφιλές έργο με την ετικέτα serial_experiments_lain και φέρε το αρχείο.  ';
+    const hers = { ...asked, goal: brief, requester: { userId: 'u1', kind: 'member' }, origin: { channelId: 'c1', messageId: 'm1', turnId: 'turn-7' }, idempotencyKey: 'turn-7.1:0' };
+    const first = store.add(hers);
+    assert.equal(first.ok, true);
+    assert.equal(first.task.goal, brief.trim(), 'the brief as she wrote it');
+    assert.deepEqual(first.task.origin, { channelId: 'c1', messageId: 'm1', turnId: 'turn-7' });
+    assert.equal(first.task.idempotencyKey, 'turn-7.1:0');
+    const again = store.add({ ...hers, goal: 'κάτι άλλο' });
+    assert.deepEqual([again.ok, again.duplicate, again.task.id, again.task.goal], [true, true, first.task.id, brief.trim()], 'the same call: the same task, even past the open cap');
+    assert.equal(store.recent(10).length, 1);
+    // Another call of the same turn is another errand (here refused by the cap of one open task).
+    assert.deepEqual([store.add({ ...hers, idempotencyKey: 'turn-7.1:1' }).ok, store.recent(10).length], [false, 1]);
+    // A command brings neither: no turn, no key.
+    const { store: other } = makeStore();
+    const plain = other.add(asked).task;
+    assert.deepEqual(plain.origin, { channelId: 'c1', messageId: 'm1' });
+    assert.equal('idempotencyKey' in plain, false);
+  });
+});

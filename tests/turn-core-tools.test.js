@@ -12,6 +12,9 @@ import { fill } from '../src/format.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
 import { createJournal } from '../src/memory/journal.js';
+import { createTaskStores } from '../src/errands/store.js';
+import { createErrandService } from '../src/errands/service.js';
+import { tempDir } from './fixtures/tmp.js';
 import '../src/ops/index.js';
 import { skillRegistry } from '../src/skills/registry.js';
 import { createAdmin } from '../src/admin.js';
@@ -160,7 +163,7 @@ async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read']
   const turns = createTurnRunner({ discord: DISCORD, hot, store, llm, calibrator, client, now: () => NOW, port, skills: skillRegistry(), journal, runCommand, runOwnCommand: admin.runOwnCommand, ...runner });
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' }));
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
-  return { result, logs, llm, sends, hot };
+  return { result, logs, llm, sends, hot, admin };
 }
 
 /** The user text of the turn's request `i`. */
@@ -384,4 +387,65 @@ test('core tools on: no search classifier before her reply, <skills_tools> in th
   const off = await coreTurn({ coreTools: false, answers: ['<msg>ok</msg>'], allowed: ['web.search'], features: { webLookup: true, recall: true }, config: WEB_CONFIG, runner: { lookup: fakeLookup(), recall: fakeRecall() } });
   assert.equal(off.llm.classifierCalls.length, 1);
   assert.ok(!requestText(off.llm, 0).includes('<skills_tools>'));
+});
+
+// Dispatch: an errand only from her own accepted task.run call, recorded with the turn and the
+// brief she wrote, once per call whatever retries.
+
+/** A real errand service over a temp task store and a runner client that records each run (never ending here). */
+function errandService(hot) {
+  const runs = [];
+  const client = { configured: () => true, run: (task) => (runs.push(task), new Promise(() => {})), cancel: () => true };
+  const stores = createTaskStores({ dataDir: tempDir('nep-core-tools-'), config: () => hot.config });
+  const service = createErrandService({ client, stores, hot, getGuildId: () => 'g1', defer: (fn) => fn() });
+  return { service, runs };
+}
+
+const AGENTS = { agents: { maxOpen: 3, resultMaxChars: 400, web: { enabled: true, daily: { tasks: 10, usd: 5 } } } };
+
+test('task.run in the loop: after a search she hands off the errand, it is queued once with her turn and her brief as written; the same call again queues nothing', async () => {
+  const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });
+  const { service, runs } = errandService(hot);
+  const brief = 'Βρες στο pixiv το πιο δημοφιλές έργο με την ετικέτα serial_experiments_lain και φέρε το αρχείο.';
+  const { journal } = journalOverMemory();
+  const run = await coreTurn({
+    answers: ['<call skill="web.search">pixiv serial_experiments_lain</call>', `<msg>το στέλνω να ψάξει</msg><call skill="task.run" agent="web">${brief}</call>`, '<msg>ποτέ</msg>'],
+    allowed: ['web.search', 'task.run'],
+    features: { webLookup: true },
+    config: { ...WEB_CONFIG, ...AGENTS },
+    runner: { lookup: fakeLookup(), errands: service },
+    adminExtra: { errands: service },
+    journal,
+  });
+  assert.equal(run.result.outcome, 'spoke');
+  const tasks = service.store('g1').recent(10);
+  assert.equal(tasks.length, 1, 'one errand');
+  const [task] = tasks;
+  assert.equal(task.goal, brief, 'the brief as she wrote it');
+  assert.equal(task.requester.kind, 'owner');
+  assert.match(task.origin.turnId, /^t-u\d+$/, 'the journal turn of her call');
+  assert.equal(task.idempotencyKey, `${task.origin.turnId}.1:1`, 'her second call of the turn');
+  assert.equal(runs.length, 1);
+  assert.equal(run.llm.calls.length, 2, 'an accepted errand needs no follow-up');
+  assert.deepEqual(run.sends.map((send) => send.text), ['το στέλνω να ψάξει']);
+  // The same call made again (a retry): the same errand, nothing new queued or run.
+  const again = await run.admin.runCommand('task.run', { agent: 'web', goal: brief }, { guildId: 'g1', channelId: 'c1', userId: 'u1', roleIds: [], actor: 'persona', turnId: task.origin.turnId, idempotencyKey: task.idempotencyKey });
+  assert.equal(again.status, 'ok');
+  assert.equal(again.data.task.id, task.id);
+  assert.deepEqual([service.store('g1').recent(10).length, runs.length], [1, 1]);
+});
+
+test('task.run not granted: refused before it runs, no errand; nothing but her accepted call ever queues one', async () => {
+  const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });
+  const { service, runs } = errandService(hot);
+  const run = await coreTurn({
+    answers: ['<call skill="task.run" agent="web">βρες κάτι</call>', '<msg>δεν μπορώ</msg>'],
+    allowed: [],
+    config: { ...WEB_CONFIG, ...AGENTS },
+    runner: { errands: service },
+    adminExtra: { errands: service },
+  });
+  assert.deepEqual([service.store('g1').recent(10).length, runs.length], [0, 0]);
+  assert.ok(run.logs.some((entry) => entry.msg === 'skill: refused' && entry.skill === 'task.run' && entry.code === 'not-allowed'));
+  assert.deepEqual(run.sends.map((send) => send.text), ['δεν μπορώ']);
 });

@@ -1183,9 +1183,12 @@ export function continuationHistory({ history, fetched = [], own = [], selfName 
  * the lines folded into it), the origin channel, and a fresh invocation id the call's journal
  * lines and its operation carry. The follow-up pass inherits it; a tool's output never adds a
  * requester.
- * @returns {Readonly<{ actor: 'persona', requester: object|null, mixed: boolean, sourceMessageIds: string[], originChannelId: string, invocationId: string }>}
+ * `turnId` (the journal's turn, else one id per attempt) and `idempotencyKey` (that turn, its
+ * attempt and the call's index in it) go with every call: an errand records the turn, and the
+ * same call made twice queues one errand (src/errands/store.js#add).
+ * @returns {Readonly<{ actor: 'persona', requester: object|null, mixed: boolean, sourceMessageIds: string[], originChannelId: string, invocationId: string, turnId?: string, idempotencyKey?: string }>}
  */
-function callEnvelope({ trigger, channel, added = null, missed = null, requester: asked = null }) {
+function callEnvelope({ trigger, channel, added = null, missed = null, requester: asked = null, turnId = null, idempotencyKey = null }) {
   const requester = asked?.id ? { id: String(asked.id), roleIds: Array.isArray(asked.roleIds) ? asked.roleIds.map(String) : [] } : requesterOf(trigger, channel);
   const authors = new Set((Array.isArray(missed) ? missed : []).map((line) => line?.author).filter((author) => typeof author === 'string' && author));
   const sources = [trigger?.id, ...(Array.isArray(added) ? added.map((line) => line?.id) : [])].filter(Boolean).map(String);
@@ -1196,6 +1199,9 @@ function callEnvelope({ trigger, channel, added = null, missed = null, requester
     sourceMessageIds: Object.freeze(sources),
     originChannelId: String(channel.id),
     invocationId: randomUUID(),
+    // The turn whose call this is and the call's index in it: one errand per call, whatever retries.
+    ...(turnId ? { turnId: String(turnId) } : {}),
+    ...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
   });
 }
 
@@ -6384,7 +6390,14 @@ export function createTurnRunner({
       // reply is done, and made after it (runCall). With the tool loop (features.coreTools, not a
       // diary post) every call of the answer is, each with its own envelope (planCalls).
       const looping = loopOn && !diaryPrep;
-      const envelopeOf = () => callEnvelope({ trigger, channel, added, missed, requester: requesterParam });
+      // Every call of the attempt: its turn (the journal's turn and attempt, else one id per attempt)
+      // and its index, counted over every step of the attempt.
+      draft.turnKey ??= draft.started ? { turnId: draft.started.turnId, attempt: draft.started.attemptId ?? 1 } : { turnId: randomUUID(), attempt: 1 };
+      const envelopeOf = () => {
+        const index = draft.callCount ?? 0;
+        draft.callCount = index + 1;
+        return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}` });
+      };
       const callPlan = parsed.call && !looping
         ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, trigger }) })
         : null;
