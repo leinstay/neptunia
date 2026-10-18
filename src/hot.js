@@ -20,6 +20,14 @@
 // is the checkout unless set. When the two differ a second directory watcher covers the private
 // one, so an edit there reloads exactly as an edit in the checkout does.
 //
+// prompts.local/preambles/ (a subfolder of the private layer only; no tracked default) holds the
+// errand agents' preambles, picked by agent and model (src/errands/preambles.js): every `*.md`
+// directly in it is loaded under its base name into `hot.prompts.preambles` (`{}` without the
+// folder). Unlike the top-level files, a preamble file that reads empty (or whitespace only) loads
+// as '' at once, with no keep-the-previous-text guard: emptying a file is how the owner switches
+// a preamble off, and a deleted file is simply gone. The folder gets a watcher of its own while it
+// exists.
+//
 // `hot.hashes` names what is live: a short sha256 of the loaded prompts and of the loaded
 // config, computed at every load that took, so a journal record can say which wording and
 // which settings produced it.
@@ -35,6 +43,8 @@ const DEBOUNCE_MS = 250;
 const BASE_CONFIG_FILE = 'config.json';
 const LOCAL_CONFIG_FILE = 'config.local.json';
 const LOCAL_PROMPTS_DIRNAME = 'prompts.local';
+/** The subfolder of prompts.local/ holding the errand agents' preambles, loaded as `hot.prompts.preambles`. */
+const PREAMBLES_DIRNAME = 'preambles';
 /** The JSON files of the prompt layers, by name: `<name>.json`, deep-merged local over base. */
 const JSON_LAYERS = Object.freeze(['labels', 'skills']);
 
@@ -139,8 +149,23 @@ function computeJsonLayer(name, promptsDir, localPromptsDir) {
   return { value: base ?? {}, source: 'base' };
 }
 
+/**
+ * The `*.md` files directly under `dir` (prompts.local/preambles/) as `{ <base name>: text }`,
+ * `{}` when the folder is absent. An empty or whitespace-only file loads as '' right away (no
+ * keep-the-previous-text guard, unlike computePromptFiles): an emptied preamble means none.
+ */
+function computePreambles(dir) {
+  const out = {};
+  for (const file of listMdFiles(dir)) {
+    out[path.basename(file, '.md')] = readMdFile(dir, file) ?? '';
+  }
+  return out;
+}
+
 function loadPromptLayers(promptsDir, localPromptsDir, prevPrompts, prevSources) {
   const { prompts, sources, keptPrevious } = computePromptFiles(promptsDir, localPromptsDir, prevPrompts, prevSources);
+  prompts.preambles = computePreambles(path.join(localPromptsDir, PREAMBLES_DIRNAME));
+  sources.preambles = 'local';
   for (const name of JSON_LAYERS) {
     const { value, source } = computeJsonLayer(name, promptsDir, localPromptsDir);
     prompts[name] = value;
@@ -164,12 +189,14 @@ function loadPromptLayers(promptsDir, localPromptsDir, prevPrompts, prevSources)
 export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch }) {
   const promptsDir = path.join(rootDir, 'prompts');
   const localPromptsDir = path.join(privateDir, LOCAL_PROMPTS_DIRNAME);
+  const preamblesDir = path.join(localPromptsDir, PREAMBLES_DIRNAME);
   // Whether the private layer sits in a directory of its own, which then needs its own watcher.
   const privateApart = path.resolve(privateDir) !== path.resolve(rootDir);
   const hot = new EventEmitter();
   const watchers = [];
   const timers = new Map();
   let localWatcher = null;
+  let preamblesWatcher = null;
 
   let loaded = loadConfig(rootDir, { privateDir });
   hot.config = loaded.config;
@@ -264,10 +291,12 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
         }
       }
 
-      hot.prompts = { ...mdPrompts, ...json };
-      hot.promptSources = { ...mdSources, ...jsonSources };
+      const preambles = computePreambles(preamblesDir);
+
+      hot.prompts = { ...mdPrompts, preambles, ...json };
+      hot.promptSources = { ...mdSources, preambles: 'local', ...jsonSources };
       hot.hashes = { ...hot.hashes, promptsHash: shortHash(hot.prompts) };
-      log.info('hot: prompts reloaded', { prompts: Object.keys(mdPrompts), keptPrevious });
+      log.info('hot: prompts reloaded', { prompts: Object.keys(mdPrompts), preambles: Object.keys(preambles), keptPrevious });
       hot.emit('change', { what: 'prompts' });
       return true;
     } catch (err) {
@@ -294,11 +323,8 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     });
   }
 
-  /** Close and forget the prompts.local/ watcher, so a directory created again gets a new one. */
-  function stopLocalWatch() {
-    const watcher = localWatcher;
-    if (!watcher) return;
-    localWatcher = null;
+  /** Close `watcher` and drop it from `watchers`. */
+  function dropWatcher(watcher) {
     const index = watchers.indexOf(watcher);
     if (index !== -1) watchers.splice(index, 1);
     try {
@@ -308,11 +334,53 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     }
   }
 
+  /** Close and forget the prompts.local/preambles/ watcher, so a folder created again gets a new one. */
+  function stopPreamblesWatch() {
+    const watcher = preamblesWatcher;
+    if (!watcher) return;
+    preamblesWatcher = null;
+    dropWatcher(watcher);
+  }
+
+  function startPreamblesWatch() {
+    if (preamblesWatcher) return;
+    try {
+      const watcher = watchImpl(preamblesDir, (event, file) => {
+        if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);
+      });
+      preamblesWatcher = watcher;
+      watchers.push(watcher);
+      attachErrorHandler(watcher, () => {
+        if (preamblesWatcher === watcher) stopPreamblesWatch();
+      });
+    } catch (err) {
+      log.warn('hot: failed to watch prompts.local/preambles', { error: err });
+    }
+  }
+
+  /** prompts.local/preambles/ appeared or went away: start or drop its watcher, then reload. */
+  function onPreamblesEntry() {
+    if (!fs.existsSync(preamblesDir)) stopPreamblesWatch();
+    else startPreamblesWatch();
+    schedule('prompts', hot.reloadPrompts);
+  }
+
+  /** Close and forget the prompts.local/ watcher (and its preambles/ one), so a directory created again gets new ones. */
+  function stopLocalWatch() {
+    stopPreamblesWatch();
+    const watcher = localWatcher;
+    if (!watcher) return;
+    localWatcher = null;
+    dropWatcher(watcher);
+  }
+
   function startLocalWatch() {
     if (localWatcher) return;
     try {
       const watcher = watchImpl(localPromptsDir, (event, file) => {
-        if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);
+        // No name (some platforms) may be the folder too: sync its watcher, then reload.
+        if (!file || String(file) === PREAMBLES_DIRNAME) onPreamblesEntry();
+        else if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);
       });
       localWatcher = watcher;
       watchers.push(watcher);
@@ -320,6 +388,7 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
       attachErrorHandler(watcher, () => {
         if (localWatcher === watcher) stopLocalWatch();
       });
+      if (fs.existsSync(preamblesDir)) startPreamblesWatch();
     } catch (err) {
       log.warn('hot: failed to watch prompts.local', { error: err });
     }
@@ -374,6 +443,7 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
     watchers.length = 0;
     timers.clear();
     localWatcher = null;
+    preamblesWatcher = null;
   };
 
   return hot;
