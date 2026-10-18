@@ -252,16 +252,18 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
    * `{ ok: true, task }` (the task as queued) or `{ ok: false, code }` (the store's refusal, or
    * `not-configured` when the agent's runner is not set up, `runner-down` while its runner is
    * known unreachable, `no-guild` without a guild).
-   * @param {{ guildId?: string, agent: string, goal: string, requester: object, origin: object, scope: 'dm'|'group' }} input
+   * A task the store already holds under the call's `idempotencyKey` is answered as it is
+   * (`duplicate: true`), never run again.
+   * @param {{ guildId?: string, agent: string, goal: string, requester: object, origin: object, scope: 'dm'|'group', idempotencyKey?: string|null }} input
    */
-  function submit({ guildId = null, agent, goal, requester, origin, scope }) {
+  function submit({ guildId = null, agent, goal, requester, origin, scope, idempotencyKey = null }) {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: 'no-guild' };
     if (!profileOf(agent)) return { ok: false, code: 'unknown-agent' };
     if (typeof client?.configured === 'function' && !client.configured(agent)) return { ok: false, code: 'not-configured' };
     if (runnerDown(agent)) return { ok: false, code: 'runner-down' };
-    const added = store.add({ agent, goal, requester, origin, scope });
-    if (!added.ok) return added;
+    const added = store.add({ agent, goal, requester, origin, scope, idempotencyKey });
+    if (!added.ok || added.duplicate) return added;
     const id = added.task.id;
     mirrored(id, () => mirror.add(added.task, { guildId: store.guildId, limits: limitsOf(agent), onLedgerId: keepLedgerId(store, id) }));
     // The channel as it was when the task was asked for, not when it is sent.

@@ -35,7 +35,7 @@ import { audienceCovers, markSeen, messageLink, resolveDestination, stampPings }
 import { isTaggedCall } from './mention.js';
 import { resolveHandles } from './handles.js';
 import { roleModel } from '../llm/roles.js';
-import { parseLookupAnswer, recallSettings } from './recall.js';
+import { fallbackLookupPlan, parseLookupAnswer, recallSettings } from './recall.js';
 import { parseSplitAnswer, splitCandidate, splitSettings } from './split.js';
 import { captionedEntries, gifPickSettings, parseGifPick, pickCandidates, pickContext, renderGifLibrary } from './gif-pick.js';
 import { turnRequestInput } from './turn-input.js';
@@ -61,7 +61,7 @@ import { fill, formatNow, replyMarker, withCalls, withTriggers } from '../format
 import { log } from '../log.js';
 import { clampAtBoundary, clampChars, countDashes, oneLine, stripDashes } from '../memory/clamp.js';
 import { gifPostsToday, rankGifs, participationSettings, recordOwnLine, isVideoVisionOn, toRecordLine, createOffPeriodsReader } from '../memory/index.js';
-import { isWordChar, linkChannels, linkMessageNumbers, occursAsWholeWord, outsideUrls } from '../memory/mentions.js';
+import { linkChannels, linkMessageNumbers, outsideUrls } from '../memory/mentions.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { createParticipationPicker, participationEpisodeOffer } from './participation-pick.js';
 import { askPlanner, parsePlannerAnswer, parseRewatchPickDetailed, plannerOn } from './planner.js';
@@ -72,10 +72,12 @@ import { isPlainObject } from '../config.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
 import { checkReplyEffect, checkSkill, listSkills } from '../skills/gateway.js';
-import { discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
+import { coreToolRows, discoveryOn, grantedSkillNames, proposalVerdicts, proposedRows, skillsIndex } from '../skills/discovery.js';
 import { skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
+import { IN_TURN_TOOLS, runMemorySearch, runWebSearch } from '../skills/tools.js';
+import { prefetchLanes, prefetchOn } from './prefetch.js';
 
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
@@ -167,6 +169,43 @@ export function paceSettings(config) {
     unpromptedWaits: pace.unpromptedWaits !== false,
     settleMs: limit(pace.settleMs, PACE_FALLBACK.settleMs) ?? 0,
     settleMaxMs: limit(pace.settleMaxMs, PACE_FALLBACK.settleMaxMs),
+  };
+}
+
+/** skills.loop's values when a key is missing (config.json's). */
+const LOOP_FALLBACK = Object.freeze({ maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 });
+/** The least time one call of the tool loop gets, whatever is left of its budget. */
+const LOOP_MIN_CALL_MS = 2000;
+
+/**
+ * Whether the persona's own tools drive her turn (features.coreTools exactly true; tracked
+ * default false): the bounded tool loop (createTurnRunner's toolLoop), her in-turn tools
+ * (`web.search`, `memory.search`) and no search classifier before her reply. Read at the
+ * moment of use. Pure.
+ * @param {object} config
+ * @returns {boolean}
+ */
+export function coreToolsOn(config) {
+  return config?.features?.coreTools === true;
+}
+
+/**
+ * The tool loop's bounds under `config` (`skills.loop`, read by the caller now): `maxSteps`, the
+ * most follow-up requests after her calls in one turn (a whole number of at least 1);
+ * `timeBudgetMs`, how long the loop may run from its first call before the next request is
+ * her last (a positive number); `maxCallsPerStep`, the most calls of one answer that run (a
+ * whole number of at least 1; the rest are dropped and logged). A missing or unusable value
+ * takes config.json's. Pure.
+ * @param {object} config
+ * @returns {{ maxSteps: number, timeBudgetMs: number, maxCallsPerStep: number }}
+ */
+export function loopSettings(config) {
+  const loop = isPlainObject(config?.skills?.loop) ? config.skills.loop : {};
+  const whole = (value, fallback) => (Number.isInteger(value) && value >= 1 ? value : fallback);
+  return {
+    maxSteps: whole(loop.maxSteps, LOOP_FALLBACK.maxSteps),
+    timeBudgetMs: typeof loop.timeBudgetMs === 'number' && Number.isFinite(loop.timeBudgetMs) && loop.timeBudgetMs > 0 ? loop.timeBudgetMs : LOOP_FALLBACK.timeBudgetMs,
+    maxCallsPerStep: whole(loop.maxCallsPerStep, LOOP_FALLBACK.maxCallsPerStep),
   };
 }
 
@@ -373,72 +412,8 @@ export function lookupClassifierInput({ config, labels, selfName, history, trigg
   return { triggerText, transcriptBlock, user: `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>` };
 }
 
-/** A word of the question this long or longer (in characters) is a fallback search form. */
-const FALLBACK_FORM_MIN_CHARS = 5;
-/** A longer word is no search form (a pasted token, a link's tail): recall's own cap on a form. */
-const FALLBACK_FORM_MAX_CHARS = 40;
-
-/** The words of `text`: maximal runs of word characters (isWordChar). */
-function wordsIn(text) {
-  const words = [];
-  let current = '';
-  for (const ch of String(text ?? '')) {
-    if (isWordChar(ch)) current += ch;
-    else if (current) {
-      words.push(current);
-      current = '';
-    }
-  }
-  if (current) words.push(current);
-  return words;
-}
-
-/**
- * The server search a direct question gets when the search classifier failed
- * (recall.fallbackOnClassifierFailure): built from the question's own words.
- * `who`: for each stored member (`profiles`, the persona's own `selfId` left
- * out) the first of their names or alias names that occurs in `text` as a
- * whole word (both folded, src/memory/recent.js#foldText), lowercased, each
- * once. `forms`: the words of `text` (runs of isWordChar) of 5 to 40
- * characters with at least one letter, lowercased, deduplicated (folded),
- * without the words of a name found or of the persona's `selfName`, longest
- * first (ties in text order). Each list holds at most `maxForms` (0 or not an
- * integer: none). No date range. Null when both lists are empty. Pure.
- * @param {{ text: string, profiles?: object[], selfId?: string|null, selfName?: string, maxForms?: number }} params
- * @returns {{ forms: string[], who: string[], from: null, to: null }|null}
- */
-export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfName = '', maxForms = 0 } = {}) {
-  const cap = Number.isInteger(maxForms) && maxForms > 0 ? maxForms : 0;
-  const folded = foldText(text);
-  const skipWords = new Set(wordsIn(foldText(selfName)));
-  const who = [];
-  for (const profile of Array.isArray(profiles) ? profiles : []) {
-    if (who.length >= cap) break;
-    if (!profile || typeof profile !== 'object' || (selfId !== null && String(profile.id) === String(selfId))) continue;
-    const names = [...(Array.isArray(profile.names) ? profile.names : []), ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name)];
-    const hit = names.find((name) => typeof name === 'string' && [...foldText(name)].length >= 2 && occursAsWholeWord(folded, foldText(name)));
-    if (!hit) continue;
-    const form = oneLine(hit).toLowerCase();
-    if (!who.includes(form)) who.push(form);
-    for (const word of wordsIn(foldText(hit))) skipWords.add(word);
-  }
-  const seen = new Set();
-  const candidates = [];
-  for (const word of wordsIn(String(text ?? '').toLowerCase())) {
-    const chars = [...word].length;
-    if (chars < FALLBACK_FORM_MIN_CHARS || chars > FALLBACK_FORM_MAX_CHARS || !/\p{L}/u.test(word)) continue;
-    const key = foldText(word);
-    if (seen.has(key) || skipWords.has(key)) continue;
-    seen.add(key);
-    candidates.push({ word, chars, at: candidates.length });
-  }
-  const forms = candidates
-    .sort((a, b) => b.chars - a.chars || a.at - b.at)
-    .slice(0, cap)
-    .map((item) => item.word);
-  if (forms.length === 0 && who.length === 0) return null;
-  return { forms, who, from: null, to: null };
-}
+// The server search on a question's own words lives with the recall planning (src/behavior/recall.js).
+export { fallbackLookupPlan };
 
 /**
  * The name matching of features.mentionHandles off (kept for rollback; with it on, renderPost
@@ -1148,6 +1123,26 @@ export function firstPass(acted, labels) {
 const EMPTY_LINE_LISTS = Object.freeze(['mentionedUserIds', 'mentionedChannelIds', 'attachments', 'links', 'forwarded', 'stickers', 'emojis', 'reactions']);
 
 /**
+ * The answers act gave to the steps of a tool loop (createTurnRunner's toolLoop) as one, the way
+ * a turn reads its one follow-up's: `delivered` when any reached the chat, the lines `answered`,
+ * the `posts` and `reacted` of every step in order. None: `{ cutOff: true }` when a step was cut
+ * off with nothing complete, else null. Pure.
+ * @param {object[]} answers
+ * @param {boolean} cutOff
+ * @returns {object|null}
+ */
+export function mergedAnswers(answers, cutOff = false) {
+  const list = (Array.isArray(answers) ? answers : []).filter(Boolean);
+  if (list.length === 0) return cutOff ? { cutOff: true } : null;
+  return {
+    delivered: list.some((answer) => answer.delivered === true),
+    answered: new Set(list.flatMap((answer) => [...(answer.answered ?? [])])),
+    posts: list.flatMap((answer) => answer.posts ?? []),
+    reacted: list.flatMap((answer) => answer.reacted ?? []),
+  };
+}
+
+/**
  * The turn's channel as it stands when the turn continues after the persona's skill call
  * (followUp): the turn's `history` as it was (its lines, previews and order untouched), then the
  * lines it did not hold yet, oldest first -- those of a fresh fetch (`fetched`: her own posts of
@@ -1189,9 +1184,12 @@ export function continuationHistory({ history, fetched = [], own = [], selfName 
  * the lines folded into it), the origin channel, and a fresh invocation id the call's journal
  * lines and its operation carry. The follow-up pass inherits it; a tool's output never adds a
  * requester.
- * @returns {Readonly<{ actor: 'persona', requester: object|null, mixed: boolean, sourceMessageIds: string[], originChannelId: string, invocationId: string }>}
+ * `turnId` (the journal's turn, else one id per attempt) and `idempotencyKey` (that turn, its
+ * attempt and the call's index in it) go with every call: an errand records the turn, and the
+ * same call made twice queues one errand (src/errands/store.js#add).
+ * @returns {Readonly<{ actor: 'persona', requester: object|null, mixed: boolean, sourceMessageIds: string[], originChannelId: string, invocationId: string, turnId?: string, idempotencyKey?: string }>}
  */
-function callEnvelope({ trigger, channel, added = null, missed = null, requester: asked = null }) {
+function callEnvelope({ trigger, channel, added = null, missed = null, requester: asked = null, turnId = null, idempotencyKey = null }) {
   const requester = asked?.id ? { id: String(asked.id), roleIds: Array.isArray(asked.roleIds) ? asked.roleIds.map(String) : [] } : requesterOf(trigger, channel);
   const authors = new Set((Array.isArray(missed) ? missed : []).map((line) => line?.author).filter((author) => typeof author === 'string' && author));
   const sources = [trigger?.id, ...(Array.isArray(added) ? added.map((line) => line?.id) : [])].filter(Boolean).map(String);
@@ -1202,6 +1200,9 @@ function callEnvelope({ trigger, channel, added = null, missed = null, requester
     sourceMessageIds: Object.freeze(sources),
     originChannelId: String(channel.id),
     invocationId: randomUUID(),
+    // The turn whose call this is and the call's index in it: one errand per call, whatever retries.
+    ...(turnId ? { turnId: String(turnId) } : {}),
+    ...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
   });
 }
 
@@ -1694,7 +1695,8 @@ export function createTurnRunner({
    */
   function discoveryPrompt(config) {
     if (!discoveryOn(config)) return { index: '', names: [] };
-    const registry = skills ?? defaultSkills();
+    // Her in-turn tools are hers to call (features.coreTools, where no classifier runs): never offered to one.
+    const registry = new Map([...(skills ?? defaultSkills())].filter(([name]) => !IN_TURN_TOOLS.includes(name)));
     const names = [...registry.keys()];
     return { index: skillsIndex(registry, hot.prompts?.skills), names };
   }
@@ -1852,7 +1854,7 @@ export function createTurnRunner({
    * `followUp` (src/skills/executors.js#needsFollowUp). Never throws.
    * @returns {Promise<{ skill: string, status: string, code?: string, data?: object, followUp: boolean }>}
    */
-  async function runCall(plan, { channel, trigger, guildId, draft, privateChat = false, idByIndex = null, pulledIds = null, lines = [], knownNames = [], directory = null, handles = null, channelHandles = null }) {
+  async function runCall(plan, { channel, trigger, guildId, draft, privateChat = false, idByIndex = null, pulledIds = null, lines = [], knownNames = [], directory = null, handles = null, channelHandles = null, timeoutMs = null, inTurn = null }) {
     const { call, op, envelope } = plan;
     const skill = call.skill;
     // Her written text (message.create / message.edit) rendered as a `<msg>` of this turn is.
@@ -1877,7 +1879,9 @@ export function createTurnRunner({
           runCommand,
           runOwnCommand,
           opContext: { guildId, channelId: String(channel.id), ...(privateChat ? { privateChat: true } : {}) },
-          timeoutMs: hot.config.skills?.callTimeoutMs ?? 120000,
+          timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : (hot.config.skills?.callTimeoutMs ?? 120000),
+          // Her in-turn tools (features.coreTools): run here, in the turn, over its context.
+          ...(inTurn ? { inTurn } : {}),
         });
       }
     }
@@ -1986,7 +1990,7 @@ export function createTurnRunner({
    * what act needs to act on the answer over the new transcript (`idByIndex`, `history`,
    * `lines` with the pulled lines shown, `pulledIds`, the mention `handles` of the rebuilt request).
    */
-  async function continuationRequest({ called, channel, guildId, acted, continuation }) {
+  async function continuationRequest({ called, channel, guildId, acted, continuation, results = null, label = null, own = null }) {
     const { input, history, shownLines = [], pictures } = continuation;
     let fetched = [];
     try {
@@ -1994,10 +1998,20 @@ export function createTurnRunner({
     } catch (err) {
       log.warn('skills: continuation fetch failed', { channel: channel.id, error: err });
     }
-    const lines = linkCalls(linkTriggers(continuationHistory({ history, fetched, own: acted?.lines ?? [], selfName: input.selfName })), { channel, guildId });
-    const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: called.skill } });
+    // The tool loop (toolLoop) hands every result of the turn so far, her posts of every step
+    // and its own task label; the one follow-up after a call hands the call alone.
+    const outcomes = results ?? [called];
+    const skillNames = [...new Set(outcomes.map((outcome) => outcome.skill))].join(', ');
+    const lines = linkCalls(linkTriggers(continuationHistory({ history, fetched, own: own ?? acted?.lines ?? [], selfName: input.selfName })), { channel, guildId });
+    const request = buildRequest({ ...input, history: lines, now: clock(), continuation: { skill: skillNames, ...(label ? { label } : {}) } });
     const labels = input.prompts?.labels ?? {};
-    const resultBlock = called.status === 'ok' && called.data ? skillResultBlock(called, labels, { maxChars: hot.config.skills?.resultMaxChars ?? 4500 }) : '';
+    const resultMaxChars = hot.config.skills?.resultMaxChars ?? 4500;
+    // Each read's data in its own block, in the order the calls were made: a later step only appends.
+    const resultBlock = outcomes
+      .filter((outcome) => outcome.status === 'ok' && outcome.data)
+      .map((outcome) => skillResultBlock(outcome, labels, { maxChars: resultMaxChars }))
+      .filter(Boolean)
+      .join('\n\n');
     const content = await continuationContent(request, pictures);
     return {
       messages: withSkillResult([request.messages[0], { ...request.messages[1], content }], resultBlock),
@@ -2062,6 +2076,265 @@ export function createTurnRunner({
     if (cutOff && !cutOff.kept) return { cutOff: true };
     if (empty) return null;
     return actOn(parsed, routing);
+  }
+
+  /**
+   * Her in-turn tools for one turn (features.coreTools, read now; src/skills/tools.js): skill name
+   * -> `(args) => result`, run by src/skills/executors.js#executeCall in place of the operation's
+   * command, over the turn's own context -- `web.search` through the turn's `lookup`,
+   * `memory.search` through its `recall` over the served guild (`guild`; a private chat on its
+   * `partner`'s behalf), the turn's `history` left out of the hits and her call marks on the
+   * quoted lines (linkCalls). Null with the switch off.
+   */
+  function inTurnTools({ channel, guild, guildId, partner = null, selfId, selfName, history }) {
+    if (!coreToolsOn(hot.config)) return null;
+    return {
+      'web.search': (args) => runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
+      'memory.search': (args) =>
+        runMemorySearch({
+          recall,
+          store,
+          config: hot.config,
+          labels: hot.prompts?.labels ?? {},
+          guild,
+          guildId,
+          channel,
+          partner,
+          selfId,
+          selfName,
+          history,
+          decorate: (lines) => linkCalls(lines, { channel, guildId }),
+          args,
+          now: clock(),
+        }),
+    };
+  }
+
+  // Trigger key -> the prefetch already started for it (startPrefetch): a later attempt of the
+  // same turn, or the same part of a split message, reuses it instead of searching again.
+  const prefetchMemo = new Map();
+  /** The most triggers whose prefetch is remembered (the oldest forgotten first). */
+  const PREFETCH_MEMO = 16;
+
+  /**
+   * The automatic memory prefetch of a turn (src/behavior/prefetch.js, read now): with prefetchOn
+   * and the recall runner's `prefetch`, the lanes of this turn's trigger (prefetchLanes: none for
+   * a turn no person's new message opened, nor for a trivial one -- logged `recall: prefetch
+   * skipped` with its `reason`), searched once per trigger and text (`prefetchMemo`) over the
+   * served guild (a private chat on its `partner`'s behalf), the persona's lines marked with her
+   * calls (linkCalls). A journal step `memory-prefetch` of the stage `prefetch` (`input.lanes`;
+   * `status`, `excerpts`, `ms`) when it starts. Resolves never rejecting. Null when nothing runs,
+   * else `{ lanes, pending }`.
+   */
+  function startPrefetch({ config, channel, guildId, guild, partner, trigger, candidate, triggerKind, mode, history, selfId, selfName, nameOf, journalStep }) {
+    if (!prefetchOn(config) || typeof recall?.prefetch !== 'function' || !guild) return null;
+    const settings = recallSettings(config)?.prefetch;
+    if (!settings) return null;
+    const { lanes, skip } = prefetchLanes({ trigger, candidate, triggerKind, mode, history, settings, selfId, selfName, selfNames: config.bot?.nameTriggers ?? [], nameOf });
+    if (skip) {
+      if (skip !== 'no-trigger') log.info('recall: prefetch skipped', { channel: channel.id, reason: skip });
+      return null;
+    }
+    const key = `${channel.id}:${trigger.id}:${candidate?.content ?? ''}`;
+    if (prefetchMemo.has(key)) return { lanes, pending: prefetchMemo.get(key) };
+    const basis = lanes.map((lane) => lane.kind);
+    const op = journalStep?.('prefetch', 'memory-prefetch', { input: { lanes: basis } }, (result) => result.excerpts > 0) ?? null;
+    const pending = (async () => {
+      await op?.started();
+      try {
+        const found = await recall.prefetch({ guild, guildId, channel, partner, selfId, selfName, history, lanes, decorate: (lines) => linkCalls(lines, { channel, guildId }) });
+        op?.succeeded({ status: found?.status ?? null, excerpts: found?.excerpts?.length ?? 0, ms: found?.ms ?? null });
+        return found;
+      } catch (err) {
+        log.warn('recall: prefetch failed', { channel: channel.id, stage: 'turn', name: err?.name ?? null });
+        op?.failed('error');
+        return { status: 'unavailable', basis, excerpts: [] };
+      }
+    })();
+    prefetchMemo.set(key, pending);
+    while (prefetchMemo.size > PREFETCH_MEMO) prefetchMemo.delete(prefetchMemo.keys().next().value);
+    return { lanes, pending };
+  }
+
+  /**
+   * Whether a planned call (planCall's) of a tool-loop answer runs alongside the others: one
+   * that passed its plan and whose skill is a read (src/skills/registry.js `kind`). A write, or a
+   * refusal, runs after them in the order she wrote it.
+   */
+  function runsTogether(plan) {
+    return Boolean(plan.resolved) && (skills ?? defaultSkills()).get(plan.call.skill)?.kind === 'read';
+  }
+
+  /**
+   * The planned calls of one answer of the tool loop made (runCall over `context`): the reads
+   * together, then the rest one after another in her order. Resolves the results in the order
+   * of `plans`.
+   */
+  async function runCalls(plans, context) {
+    const results = new Array(plans.length);
+    await Promise.all(
+      plans.map(async (plan, i) => {
+        if (runsTogether(plan)) results[i] = await runCall(plan, context);
+      }),
+    );
+    for (let i = 0; i < plans.length; i += 1) if (results[i] === undefined) results[i] = await runCall(plans[i], context);
+    return results;
+  }
+
+  /**
+   * The calls of one answer of the tool loop planned (planCall each, in order, before anything
+   * of that answer is done): at most `skills.loop.maxCallsPerStep` (loopSettings, read now); the
+   * rest are dropped and logged `skills: extra-call` (`count`, `loop: true`). Every call gets its
+   * own envelope (`envelopeOf(index)`: callEnvelope's) and is resolved over `view`.
+   */
+  async function planCalls({ calls, channel, draft, view, envelopeOf }) {
+    const { maxCallsPerStep } = loopSettings(hot.config);
+    const kept = calls.slice(0, maxCallsPerStep);
+    if (calls.length > kept.length) log.info('skills: extra-call', { channel: channel.id, count: calls.length - kept.length, loop: true });
+    const plans = [];
+    for (const [index, call] of kept.entries()) plans.push(await planCall({ call, channel, envelope: envelopeOf(index), draft, view }));
+    return plans;
+  }
+
+  /**
+   * One step of the tool loop (toolLoop): the request that continues the turn with every result
+   * she still has to see (`results`, in the order the calls were made; continuationRequest with
+   * her posts of every step so far, `own`), its task `labels.task.continueTools`, or on her last
+   * step (`last`: the steps or the time budget spent) `labels.task.continueToolsLast`, which
+   * says no call will run. Without the continuation (features.followUpContinuation or the call
+   * marks off) the reply request once more with the result blocks (the one follow-up's framing),
+   * always her last step. Her answer is parsed and shaped like the reply; its calls are planned
+   * over the rebuilt transcript (`planNext`) before the rest is acted on, unless it is her last
+   * step: then they are dropped, logged `skills: loop cap` (`reason` `steps`, `time` or
+   * `no-continuation`, `dropped`) and noted as a `loop-cap` limit of the turn. A failed request
+   * logs `skills: follow-up failed` and ends the loop. Resolves `{ acted, next, cutOff }` (`next`:
+   * planNext's `{ plans, context }` for the next calls, or null) or null.
+   */
+  async function loopStep({ results, step, last, reason, own, channel, guildId, draft, sentMessages, shapeOutput, acted, actOn, continuation, planNext }) {
+    const continued = continuation !== null && continuesTurn(hot.config, continuation.input?.prompts?.labels);
+    const final = last || !continued;
+    let messages = null;
+    let routing = null;
+    let completion;
+    try {
+      if (continued) {
+        ({ messages, routing } = await continuationRequest({ called: results[0], results, channel, guildId, acted, continuation, own, label: final ? 'continueToolsLast' : 'continueTools' }));
+      } else {
+        const labels = hot.prompts?.labels ?? {};
+        const maxChars = hot.config.skills?.resultMaxChars ?? 4500;
+        const blocks = results.map((result, i) => skillResultBlock(result, labels, { maxChars, ...(i === 0 ? { posted: firstPass(acted, labels) } : {}) }));
+        messages = withSkillResult(sentMessages, blocks.filter(Boolean).join('\n\n'));
+      }
+      completion = await llm.complete(messages, { ...REPLY_REQUEST, ...(draft?.started ? { limits: draft.limits } : {}) });
+    } catch (err) {
+      log.warn('skills: follow-up failed', { channel: channel.id, skill: results[0]?.skill ?? null, step, error: err });
+      return null;
+    }
+    const parsed = shapeOutput(parseOutput(completion.text, { maxDrawChars: hot.config.image?.maxPromptChars, limits: draft?.limits ?? null }));
+    const calls = Array.isArray(parsed.calls) ? parsed.calls : [];
+    if (parsed.callError) log.info('skills: bad-call', { channel: channel.id, reason: parsed.callError, loop: true });
+    parsed.call = null;
+    parsed.calls = [];
+    let next = null;
+    if (calls.length > 0) {
+      if (final) {
+        const capReason = continued ? reason : 'no-continuation';
+        log.info('skills: loop cap', { channel: channel.id, reason: capReason, step, dropped: calls.length });
+        draft?.limits?.add({ kind: 'loop-cap', where: 'skills.loop', lost: calls.length, detail: capReason });
+      } else {
+        next = await planNext(calls, routing);
+      }
+    }
+    parsed.gif = resolveGif(guildId, parsed.gif, channel.id, draft?.limits ?? null);
+    log.info('skills: follow-up answered', {
+      channel: channel.id,
+      skill: results.map((result) => result.skill).join(','),
+      status: results.map((result) => result.status).join(','),
+      continuation: continued,
+      step,
+      calls: next?.plans.length ?? 0,
+      usage: completion.usage,
+      messages: parsed.messages.length,
+      reactions: parsed.reactions.length,
+      draw: Boolean(parsed.draw),
+      gif: Boolean(parsed.gif),
+    });
+    const empty = parsed.skip || (parsed.messages.length === 0 && parsed.reactions.length === 0 && !parsed.draw && !parsed.gif);
+    const more = (next?.plans.length ?? 0) > 0;
+    const cutOff = cutOffOf(completion, parsed, { channelId: channel.id, empty: empty && !more, followUp: true });
+    if (cutOff && !cutOff.kept && !more) return { acted: null, next: null, cutOff: true };
+    const answered = empty ? null : await actOn(parsed, routing);
+    return { acted: answered, next, cutOff: false };
+  }
+
+  /**
+   * The tool loop of a turn (features.coreTools on; never a diary post): her planned calls
+   * (`plans`, the reply's, over `context`, runCall's) made after the reply's own effects -- the
+   * reads together (runCalls) --, then, while a result needs her to see it (needsFollowUp), one
+   * more request that continues the turn with every such result so far (loopStep), whose own
+   * calls run the same way, up to `skills.loop.maxSteps` follow-up requests and
+   * `skills.loop.timeBudgetMs` from the first call (loopSettings, read when the loop starts):
+   * once either is spent the next request is her last and says so. Each call runs at most for
+   * what is left of the time budget (2 s at least) or `skills.callTimeoutMs`, the smaller. The
+   * request stays append-only: its cached parts are the reply's, and a later step only adds
+   * results after the earlier ones. Logs `skills: loop` (`steps`, `calls`, `ms`). Resolves the
+   * answers act gave (`answers`), whether a step was cut off with nothing complete (`cutOff`)
+   * and whether a call was its own answer (`delivered`: a message or a picture that went out,
+   * an errand accepted).
+   */
+  async function toolLoop({ plans, context, channel, guildId, draft, sentMessages, shapeOutput, acted, actOn, continuation, planNext }) {
+    const settings = loopSettings(hot.config);
+    const startedAt = clock();
+    const outcomes = [];
+    const answers = [];
+    const own = [...(acted?.lines ?? [])];
+    let pending = { plans, context };
+    let delivered = false;
+    let cutOff = false;
+    let steps = 0;
+    let made = 0;
+    while (pending && pending.plans.length > 0) {
+      const leftMs = settings.timeBudgetMs - (clock() - startedAt);
+      const callTimeoutMs = Math.min(hot.config.skills?.callTimeoutMs ?? 120000, Math.max(LOOP_MIN_CALL_MS, leftMs));
+      const results = await runCalls(pending.plans, { ...pending.context, timeoutMs: callTimeoutMs });
+      made += results.length;
+      pending = null;
+      if (results.some((result) => result.status === 'ok' && !result.followUp)) delivered = true;
+      const seen = results.filter((result) => result.followUp);
+      if (seen.length === 0) break;
+      outcomes.push(...seen);
+      steps += 1;
+      const stepsSpent = steps >= settings.maxSteps;
+      const timeSpent = clock() - startedAt >= settings.timeBudgetMs;
+      const answer = await loopStep({
+        results: outcomes,
+        step: steps,
+        last: stepsSpent || timeSpent,
+        reason: stepsSpent ? 'steps' : 'time',
+        own,
+        channel,
+        guildId,
+        draft,
+        sentMessages,
+        shapeOutput,
+        acted,
+        actOn,
+        continuation,
+        planNext,
+      });
+      if (!answer) break;
+      if (answer.cutOff) {
+        cutOff = true;
+        break;
+      }
+      if (answer.acted) {
+        answers.push(answer.acted);
+        own.push(...(answer.acted.lines ?? []));
+      }
+      if ((answer.next?.plans.length ?? 0) > 0) pending = answer.next;
+    }
+    log.info('skills: loop', { channel: channel.id, steps, calls: made, ms: clock() - startedAt });
+    return { answers, cutOff, delivered };
   }
 
   // channelId -> the chain of parts running there (runChain): its author, its parts, the part
@@ -5054,6 +5327,9 @@ export function createTurnRunner({
       // (the classifier, the planner's lookup block) is not run on the original request, so no
       // <lookup> block stands beside the result. Her own recall call still runs.
       const answersTask = triggerKind === 'task';
+      // features.coreTools (read now): she calls her own tools in the turn, so no search classifier
+      // (nor the planner's lookup or skills block) runs before her reply; `<skills_tools>` shows them.
+      const coreTools = coreToolsOn(config);
       // Skills discovery: the `skills:` line of the search classifier or the planner (parseSkillsLines).
       let skillsAnswer = null;
       // A direct call sees the persona typing while the turn prepares.
@@ -5090,6 +5366,24 @@ export function createTurnRunner({
       const candidate = part && trigger ? { ...trigger, content: part.parts[part.index - 1] ?? trigger.content } : trigger;
       // The history the request is built from: with its file previews once they are ready (below).
       let history = rawHistory;
+      // The automatic memory prefetch (features.coreTools with features.memoryPrefetch): started now,
+      // alongside the preparation, bounded by its own deadline (startPrefetch).
+      const prefetching = startPrefetch({
+        config,
+        channel,
+        guildId,
+        guild: servedGuild,
+        partner: isPrivate ? partner : null,
+        trigger,
+        candidate,
+        triggerKind,
+        mode,
+        history: rawHistory,
+        selfId,
+        selfName,
+        nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
+        journalStep: prepStep,
+      });
       // A diary post plans itself first (prepareDiary), alongside the preparation below; settled
       // into a value or an error so a refusal waits for its turn to be thrown.
       const diaryPending =
@@ -5117,7 +5411,7 @@ export function createTurnRunner({
         : null;
       // The planner's `skills:` line, once it answered (skills discovery, read when the request is built).
       planner?.result.then((plan) => {
-        skillsAnswer ??= plan?.blocks?.skills ?? null;
+        if (!coreTools) skillsAnswer ??= plan?.blocks?.skills ?? null;
       });
       // What the planner is sent: the search classifier's transcript of `lines` (with the captions,
       // video states and page reads given) and candidate, the participation pick's episodes, the
@@ -5145,7 +5439,7 @@ export function createTurnRunner({
             log.warn('participation: failed', { channel: channel.id, reason: 'error', status: null, name: err?.name ?? null });
           }
         }
-        const lookupWanted = asked && !answersTask && (webSearchOn || serverOn) && lookupGate({ config, webOn: webSearchOn, serverOn }).skip === null;
+        const lookupWanted = asked && !answersTask && !coreTools && (webSearchOn || serverOn) && lookupGate({ config, webOn: webSearchOn, serverOn }).skip === null;
         planner.start({
           transcriptBlock: context?.transcriptBlock ?? '',
           candidateBlock: judged ? block('candidate', `${judged.authorName}: ${context.triggerText}`) : null,
@@ -5245,6 +5539,8 @@ export function createTurnRunner({
       };
       // A chain that starts a stage once another settled: never rejects, never fails the turn.
       const chainFailed = (name) => (err) => log.warn('turn: stage failed', { channel: channel.id, stage: name, error: err });
+
+      const prefetchStage = prefetching ? track('prefetch', () => prefetching.pending) : null;
 
       // Lazy, request-time only (see fetchTextPreview's header comment):
       // never fetched during plain normalization or while just buffered. Read by the
@@ -5492,7 +5788,8 @@ export function createTurnRunner({
       let lookupStage = null;
       let lookupChain = null;
       // `serverOn` (above): the lookup stage runs the server search and `<senses>` says it exists.
-      if (asked && !answersDrawFailure && !answersTask) {
+      if (asked && !answersDrawFailure && !answersTask && coreTools && (webSearchOn || serverOn)) log.info('lookup: skipped', { channel: channel.id, reason: 'core-tools' });
+      if (asked && !answersDrawFailure && !answersTask && !coreTools) {
         const webOn = webSearchOn;
         if (webOn || serverOn) {
           lookupChain = previews.settled
@@ -5647,6 +5944,7 @@ export function createTurnRunner({
             pulledStage?.settled,
             participationStage?.settled,
             splitStage?.settled,
+            prefetchStage?.settled,
           ]),
           deadline.reached,
           ...(partsReady ? [partsReady] : []),
@@ -5691,6 +5989,13 @@ export function createTurnRunner({
       const imageAnswers = rewatchStage?.done && rewatchStage.value?.imageAnswers?.size > 0 ? rewatchStage.value.imageAnswers : null;
       const reads = linksStage?.done ? linksStage.value : undefined;
       const lookupResult = lookupStage?.done ? (lookupStage.value ?? null) : null;
+      // A prefetch still out at the deadline: the request says so (`timeout`) instead of waiting.
+      const prefetchResult = prefetching
+        ? prefetchStage?.done
+          ? (prefetchStage.value ?? null)
+          : { status: 'timeout', basis: prefetching.lanes.map((lane) => lane.kind), excerpts: [] }
+        : null;
+      prep.take('prefetch', prefetchResult !== null);
       // The journal: which preparation steps reached the request (the rest close as not delivered).
       prep.take('captions', Boolean(captions?.done));
       prep.take('videos', Boolean(videoStage?.done));
@@ -5793,6 +6098,8 @@ export function createTurnRunner({
         imageAnswers,
         reads: reads ?? null,
         lookup: lookupResult ?? null,
+        // `<retrieved>`: the automatic memory prefetch of this trigger (null: none ran).
+        prefetch: prefetchResult,
         searchAvailable: features.webLookup === true && typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
         // The search of the server's own history: the value the lookup stage used.
         recallAvailable: serverOn,
@@ -5841,6 +6148,8 @@ export function createTurnRunner({
         // `<skills_granted>`: the names of the skills granted to her, on every turn -- her grants
         // (the config read now) and the registry only, never this requester or channel.
         skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
+        // `<skills_tools>` (features.coreTools): her own tools in full, by her grants only.
+        skillsTools: coreTools ? coreToolRows({ config, selfId, registry: skills ?? defaultSkills(), texts: prompts?.skills }) : null,
         // `<people_now>`'s live part: the voice and status snapshot (null: none).
         around: aroundInputFor({ channel, config, mode: finalMode, isPrivate }),
         // `<tasks>` and `<task_result>`: her errands (none on a diary post).
@@ -5972,6 +6281,8 @@ export function createTurnRunner({
 
       // The model's output as it is acted on: the feature switches drop parts of it first. The
       // same for the one follow-up request after a skill call (runCall).
+      // The tool loop (features.coreTools, read now): her calls of the reply and of each step after it.
+      const loopOn = coreToolsOn(hot.config);
       const shapeOutput = (parsed) => {
         if (features.reactions === false) parsed.reactions = [];
         // A custom emoji reaction resolves through the index; an unknown one (or the switch off) is dropped.
@@ -5991,14 +6302,16 @@ export function createTurnRunner({
         }
         // No image client, drawing off, no Attach Files, or already answering a failed picture: the <draw> is dropped.
         if (!drawOn) parsed.draw = null;
-        // Every `<call>` past the first, and a malformed first one, is ignored (src/llm/parse.js).
-        if (parsed.extraCalls > 0) log.info('skills: extra-call', { channel: channel.id, count: parsed.extraCalls });
+        // Every `<call>` past the first, and a malformed first one, is ignored (src/llm/parse.js);
+        // the tool loop (features.coreTools, never a diary post) runs several (planCalls).
+        if (parsed.extraCalls > 0 && !(loopOn && !diaryPrep)) log.info('skills: extra-call', { channel: channel.id, count: parsed.extraCalls });
         if (parsed.callError) log.info('skills: bad-call', { channel: channel.id, reason: parsed.callError });
         if (diaryPrep) {
           // A diary post: no reaction, no GIF, nothing posted as a reply, no link, no skill call, at most diary.maxMessages.
           parsed.reactions = [];
           parsed.gif = null;
           parsed.call = null;
+          parsed.calls = [];
           parsed.messages = parsed.messages
             .map((message) => ({ ...message, replyTo: null, text: stripUrls(message.text) }))
             .filter((message) => message.text !== '')
@@ -6151,10 +6464,23 @@ export function createTurnRunner({
         return { outcome: 'spoke', mode: finalMode, dryRun: true, ...rehearsed };
       }
       // A skill call is planned (journaled `proposed`, resolved, checked) before anything of the
-      // reply is done, and made after it (runCall).
-      const callPlan = parsed.call
-        ? await planCall({ call: parsed.call, channel, envelope: callEnvelope({ trigger, channel, added, missed, requester: requesterParam }), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, trigger }) })
+      // reply is done, and made after it (runCall). With the tool loop (features.coreTools, not a
+      // diary post) every call of the answer is, each with its own envelope (planCalls).
+      const looping = loopOn && !diaryPrep;
+      // Every call of the attempt: its turn (the journal's turn and attempt, else one id per attempt)
+      // and its index, counted over every step of the attempt.
+      draft.turnKey ??= draft.started ? { turnId: draft.started.turnId, attempt: draft.started.attemptId ?? 1 } : { turnId: randomUUID(), attempt: 1 };
+      const envelopeOf = () => {
+        const index = draft.callCount ?? 0;
+        draft.callCount = index + 1;
+        return callEnvelope({ trigger, channel, added, missed, requester: requesterParam, turnId: draft.turnKey.turnId, idempotencyKey: `${draft.turnKey.turnId}.${draft.turnKey.attempt}:${index}` });
+      };
+      const callPlan = parsed.call && !looping
+        ? await planCall({ call: parsed.call, channel, envelope: envelopeOf(), draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, trigger }) })
         : null;
+      const loopPlans = looping && parsed.calls.length > 0
+        ? await planCalls({ calls: parsed.calls, channel, draft, view: callView({ channel, guildId, idByIndex, lines, pulledIds, memoryOn, channelHandles, trigger }), envelopeOf })
+        : [];
       // A set's pictures are generated before anything of the post is sent, and counted
       // against the day's diary pictures as they were paid for, posted or not.
       let set = null;
@@ -6196,7 +6522,32 @@ export function createTurnRunner({
       // that transcript's numbers when it continued -- with no further call.
       let followed = null;
       let called = null;
-      if (callPlan) {
+      let loopDelivered = false;
+      // The calls of the reply and of every later step, run in the turn's context (runCall's).
+      const callContext = { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles, inTurn: inTurnTools({ channel, guild: servedGuild, guildId, partner: isPrivate ? partner : null, selfId, selfName, history }) };
+      if (loopPlans.length > 0) {
+        // The next step's calls, planned over the transcript its request showed (`again`, continuationRequest's routing).
+        const planNext = async (calls, again) => {
+          const routed = again ?? { idByIndex, lines, pulledIds, handles, channelHandles };
+          const plans = await planCalls({ calls, channel, draft, view: callView({ channel, guildId, idByIndex: routed.idByIndex, lines: routed.lines, pulledIds: routed.pulledIds, memoryOn, channelHandles: routed.channelHandles, trigger }), envelopeOf });
+          return { plans, context: { ...callContext, idByIndex: routed.idByIndex, lines: routed.lines, pulledIds: routed.pulledIds, handles: routed.handles ?? null, channelHandles: routed.channelHandles ?? null } };
+        };
+        const looped = await toolLoop({
+          plans: loopPlans,
+          context: callContext,
+          channel,
+          guildId,
+          draft,
+          sentMessages,
+          shapeOutput,
+          acted,
+          actOn: (parsedAgain, again = null) => act({ ...actArgs, parsed: parsedAgain, set: null, ...(again ?? {}) }),
+          continuation: { input: requestInput, history, shownLines, pictures: sentPictures },
+          planNext,
+        });
+        loopDelivered = looped.delivered;
+        followed = mergedAnswers(looped.answers, looped.cutOff);
+      } else if (callPlan) {
         called = await runCall(callPlan, { channel, trigger, guildId, draft, privateChat: isPrivate, idByIndex, pulledIds, lines, knownNames, directory, handles, channelHandles });
         if (called.followUp) {
           followed = await followUp({
@@ -6231,7 +6582,7 @@ export function createTurnRunner({
         diaryPrep && acted.delivered === true
           ? { diary: recordDiaryPost({ config: hot.config, guildId, now, plan: diaryPrep.plan, parsed, acted, set: Boolean(set) }) }
           : {};
-      const callDelivered = called?.status === 'ok' && !called.followUp;
+      const callDelivered = loopDelivered || (called?.status === 'ok' && !called.followUp);
       const spoke = { outcome: 'spoke', mode: finalMode, delivered: acted.delivered === true || followed?.delivered === true || callDelivered, ...recorded };
       if (!acted.drawFailed) return spoke;
       // The same predicate as runTurn's hand-off: an unasked turn notifies right here.

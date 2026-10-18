@@ -92,8 +92,15 @@ const handlers = perEnv((env) => {
     // Only an owner may have this machine read, through the persona or not.
     if (agent === 'server' && requester.kind !== 'owner') throw denied('only an owner may ask for the server agent', 'owner-only');
     const scope = inPrivate(context) ? 'dm' : 'group';
-    const origin = { channelId: context?.channelId ? String(context.channelId) : null, messageId: context?.sourceMessageId ? String(context.sourceMessageId) : null };
-    const submitted = errands().submit({ guildId: resolvedGuildId(context), agent, goal, requester, origin, scope });
+    // Her own call carries its turn and its idempotency key (src/skills/executors.js); a command neither.
+    const persona = context?.actor === 'persona';
+    const origin = {
+      channelId: context?.channelId ? String(context.channelId) : null,
+      messageId: context?.sourceMessageId ? String(context.sourceMessageId) : null,
+      ...(persona && context?.turnId ? { turnId: String(context.turnId) } : {}),
+    };
+    const idempotencyKey = persona && typeof context?.idempotencyKey === 'string' ? context.idempotencyKey : null;
+    const submitted = errands().submit({ guildId: resolvedGuildId(context), agent, goal, requester, origin, scope, idempotencyKey });
     if (!submitted.ok) return refusal(submitted.code);
     const { task } = submitted;
     return { status: 'ok', code: 'ok', summary: `task ${task.id}: queued (${agent})`, data: { text: `task ${task.id}: queued (${agent})`, task: { id: task.id, agent, state: task.state } } };

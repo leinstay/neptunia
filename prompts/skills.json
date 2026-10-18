@@ -281,7 +281,7 @@
   },
   "task.run": {
     "title": "Hand off an errand",
-    "whenToUse": "Give an agent a job that takes a while: web searches the internet, reads pages, looks at pictures and downloads files; server reads this machine. You get the result later in a turn of your own; costs money. You can hand off another while earlier ones are still open; each agent runs them one at a time. When the request asks for your taste, preference, memory or judgement, decide first. The agent sees only the goal text, nothing of the chat or earlier errands; name the specific thing, site or criteria and what counts as a good result. Leave out where you will post it or who it is for.",
+    "whenToUse": "Give an agent a job that takes a while: web searches the internet, reads pages, looks at pictures and downloads files; server reads this machine. You get the result later in a turn of your own; costs money. Files the agent downloads come back with the result and you can post them in the channel. You can hand off another while earlier ones are still open; each agent runs them one at a time. When the request asks for your taste, preference, memory or judgement, decide first. The agent sees only the goal text, nothing of the chat or earlier errands; name the specific thing, site or criteria and what counts as a good result. Leave out where you will post it or who it is for.",
     "whenNotToUse": "Not for what you can answer now; server only when an owner asks; daily and open-task limits apply."
   },
   "task.status": {
@@ -298,5 +298,15 @@
     "title": "List errands",
     "whenToUse": "Read the latest ten errands with their states.",
     "whenNotToUse": "Does not show their results."
+  },
+  "web.search": {
+    "title": "Search the web",
+    "whenToUse": "A fact you need for this answer. Write the query (body or query=), optionally what it should establish (goal=). The result comes back in this same turn as search snippets condensed by a helper; the pages are not opened.",
+    "whenNotToUse": "Not for finding or downloading files, comparing options in depth, or deep research: use task.run with the web agent."
+  },
+  "memory.search": {
+    "title": "Search this server's messages",
+    "whenToUse": "Find what was said here before, whether someone brings up a past conversation or a fact you do not see in the chat. Give the question (body or question=), optionally people, channel, when (YYYY-MM-DD or A..B), terms (exact words to match). Quoted messages come back in this same turn.",
+    "whenNotToUse": "Not for what the chat already shows you."
   }
 }

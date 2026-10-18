@@ -19,6 +19,12 @@ import {
   sampleCandidates,
   scoreQuestion,
   summarize,
+  comparePrefetch,
+  prefetchWindows,
+  renderPrefetchCompare,
+  renderTraceCompare,
+  topExcerptLine,
+  traceAgreement,
 } from '../tools/lib/recall-eval.mjs';
 import { createRecall } from '../src/behavior/recall-run.js';
 import { toRecordLine } from '../src/memory/record.js';
@@ -325,4 +331,66 @@ test('recall-eval: --web readiness follows web.search.engine through the lookup,
   assert.equal(ready('brave', { BRAVE_SEARCH_API_KEY: '   ' }), false, 'a blank key is no key');
   assert.equal(ready('brave', { BRAVE_SEARCH_API_KEY: 'k' }), true);
   assert.deepEqual(webSearchKeys({ BRAVE_SEARCH_API_KEY: ' k ', EXA_API_KEY: '' }), { brave: 'k', exa: null });
+});
+
+// ---- the prefetch comparison (--prefetch) and the live traces (traces) ------------------------
+
+const PREFETCHED = {
+  status: 'ok',
+  excerpts: [
+    { source: 'history', channelId: 'c2', ids: ['111', '222', '333'], hitIds: ['222'], startTs: Date.UTC(2026, 9, 1, 9), endTs: Date.UTC(2026, 9, 1, 10), lines: '[09:00] Ana: πριν\n>> [09:05] Ana: το δάσος και ο σκύλος' },
+    { source: 'memory', id: 'ep1', lines: 'a note' },
+  ],
+};
+
+test('prefetchWindows: the history excerpts as windows, their relevant lines first as the matched ids', () => {
+  assert.deepEqual(prefetchWindows(PREFETCHED), { windows: [[{ id: '111' }, { id: '222' }, { id: '333' }]], matched: ['222'] });
+  assert.deepEqual(prefetchWindows(null), { windows: [], matched: [] });
+  const q = { kind: 'exact', expected: ['222'] };
+  assert.equal(scoreQuestion(q, prefetchWindows(PREFETCHED)).rank, 1);
+});
+
+test('comparePrefetch: both paths summed up; which questions only one of them hit; not-in-memory questions the prefetch still showed something for', () => {
+  const results = [
+    { id: 'q1', kind: 'exact', question: 'α', score: { hit5: true, rank: 1 }, prefetch: { status: 'ok', excerpts: 1, score: { hit5: false, rank: null }, ms: 300 } },
+    { id: 'q2', kind: 'fuzzy', question: 'β', score: { hit5: false, rank: null }, prefetch: { status: 'ok', excerpts: 2, score: { hit5: true, rank: 2 }, ms: 500 } },
+    { id: 'q3', kind: 'none', question: 'γ', score: { falseConfident: false }, prefetch: { status: 'ok', excerpts: 1, score: null, ms: 100 } },
+    { id: 'q4', kind: 'none', question: 'δ', score: { falseConfident: false }, prefetch: { status: 'none', excerpts: 0, score: null, ms: 100 } },
+  ];
+  const compare = comparePrefetch(results);
+  assert.deepEqual([compare.classifier.hit5, compare.prefetch.hit5], [1, 1]);
+  assert.deepEqual(compare.onlyClassifier, ['q1']);
+  assert.deepEqual(compare.onlyPrefetch, ['q2']);
+  assert.deepEqual(compare.noneShown, ['q3']);
+  assert.deepEqual(compare.statuses, { ok: 3, none: 1 });
+  const text = renderPrefetchCompare(compare, results, { reportPath: 'r.json' });
+  assert.ok(text.includes('| hit@5 | 1/2 (50 %) | 1/2 (50 %) |'), text);
+  assert.ok(text.includes('| q2 | fuzzy | - | 2 | ok | 2 | β |'), text);
+});
+
+test('traceAgreement: the same lines or an overlapping kept window is the same; the same channel near it partial; a run that kept nothing n/a', () => {
+  const trace = {
+    clusters: [{ channelId: 'c2', from: '2026-10-01T08:50:00.000Z', to: '2026-10-01T09:30:00.000Z', kept: true }, { channelId: 'c3', from: '2026-09-01T00:00:00.000Z', to: '2026-09-01T01:00:00.000Z', kept: false }],
+    record: [{ channelId: 'c5', from: '2026-08-01T00:00:00.000Z', to: '2026-08-01T00:10:00.000Z', hitIds: ['999'], kept: true }],
+    meaning: { kept: [{ id: '777', kind: 'record' }] },
+  };
+  assert.equal(traceAgreement(trace, PREFETCHED.excerpts), 'same', 'overlaps the kept cluster in time');
+  assert.equal(traceAgreement(trace, [{ source: 'history', channelId: 'c9', ids: ['999'], startTs: 0 }]), 'same', 'holds a kept record hit');
+  assert.equal(traceAgreement(trace, [{ source: 'history', channelId: 'c2', ids: ['1'], startTs: Date.UTC(2026, 9, 1, 20), endTs: Date.UTC(2026, 9, 1, 21) }]), 'partial');
+  assert.equal(traceAgreement(trace, [{ source: 'history', channelId: 'c3', ids: ['1'], startTs: Date.UTC(2026, 8, 1) }]), 'none', 'a window the run did not keep');
+  assert.equal(traceAgreement({ clusters: [], record: [] }, PREFETCHED.excerpts), 'n/a');
+});
+
+test('renderTraceCompare: totals for the runs the classifier answered and those it did not, one row per run with the top hit', () => {
+  assert.equal(topExcerptLine(PREFETCHED), '>> [09:05] Ana: το δάσος και ο σκύλος');
+  const rows = [
+    { at: '2026-10-14T10:00:00.000Z', trigger: 'θυμάσαι το δάσος;', forms: ['δάσος'], answer: 'text', agreement: 'same', status: 'ok', excerpts: 1, top: '>> το δάσος' },
+    { at: '2026-10-15T10:00:00.000Z', trigger: 'plus ultra', forms: ['ultra'], answer: 'nothing', agreement: 'n/a', status: 'ok', excerpts: 2, top: '>> plus ultra' },
+    { at: '2026-10-16T10:00:00.000Z', forms: [], answer: 'text', error: 'no-trigger-in-record' },
+  ];
+  const text = renderTraceCompare(rows, { reportPath: 'r.json' });
+  assert.ok(text.includes('| classifier answered: prefetch found the same | 1/1 (100 %) |'), text);
+  assert.ok(text.includes('| classifier found nothing: prefetch showed anything | 1/1 (100 %) |'), text);
+  assert.ok(text.includes('| 2026-10-14 10:00 | θυμάσαι το δάσος; | δάσος | Y | Y | ok (1) | >> το δάσος |'), text);
+  assert.ok(text.includes('error: no-trigger-in-record'));
 });

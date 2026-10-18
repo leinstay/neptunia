@@ -713,3 +713,24 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   const long = outcomeDetail({ status: 'failed', code: 'error', data: { text: 'λέξη '.repeat(40) } }, { textChars: 30 }).text;
   assert.ok(Array.from(long).length <= 30 && long.endsWith('…') && !long.includes('\n'), long);
 });
+
+test('executeCall: an in-turn tool runs in place of the command, on the operation\'s arguments her call maps to; its result as it is', async () => {
+  const { admin, port } = makeAdmin();
+  const seen = [];
+  const inTurn = { 'memory.search': async (args) => (seen.push(args), { status: 'ok', data: { text: 'βρέθηκαν' } }) };
+  const resolved = resolve('memory.search', { channel: '#νέα', terms: 'λαγός' }, 'τι είπε η Ana');
+  assert.equal(resolved.ok, true);
+  const result = await executeCall(resolved, deps(admin, port, { inTurn, runCommand: () => assert.fail('the command never runs') }));
+  assert.deepEqual(result, { status: 'ok', data: { text: 'βρέθηκαν' } });
+  assert.deepEqual(seen, [{ question: 'τι είπε η Ana', people: undefined, channelId: NEWS, when: undefined, terms: 'λαγός' }]);
+  // A result without a known status is a failure; one not back in time is unknown, never retried.
+  const odd = await executeCall(resolved, deps(admin, port, { inTurn: { 'memory.search': async () => ({ status: 'great' }) } }));
+  assert.deepEqual(odd, { status: 'failed', code: 'error' });
+  const slow = await executeCall(resolved, deps(admin, port, { timeoutMs: 5, inTurn: { 'memory.search': () => new Promise((done) => setTimeout(() => done({ status: 'ok', data: { text: '' } }), 50)) } }));
+  assert.deepEqual([slow.status, slow.code], ['unknown', 'timeout']);
+  // A skill the turn holds no tool for goes through its command as before.
+  const keys = [];
+  const other = await executeCall(resolve('lore.list'), deps(admin, port, { inTurn, runCommand: async (key) => (keys.push(key), { status: 'ok', code: 'ok', summary: 'κενό', data: { text: 'κενό' } }) }));
+  assert.deepEqual([other.status, keys], ['ok', ['lore.list']]);
+  assert.deepEqual(seen.length, 1);
+});

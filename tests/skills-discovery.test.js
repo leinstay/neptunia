@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_ARG_VALUES, MAX_PROPOSED, alwaysListedOn, byFamily, discoveryOn, grantedSkillNames, parseSkillsLines, proposalVerdicts, skillArgs, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
+import { CORE_TOOL_SKILLS, MAX_ARG_VALUES, MAX_PROPOSED, alwaysListedOn, byFamily, coreToolRows, discoveryOn, grantedSkillNames, parseSkillsLines, proposalVerdicts, skillArgs, skillsIndex, takeSkillsLines } from '../src/skills/discovery.js';
 import '../src/ops/index.js';
 import { loadSkills, skillNames, skillRegistry } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
@@ -241,4 +241,19 @@ test('grantedSkillNames: a grant to everyone or a role, another user, no id, saf
   const wipe = loadSkills([{ name: 'memory.wipe', op: null, argsSchema: { type: 'object' }, effects: 'destructive', costClass: 'free', targets: null }]);
   assert.deepEqual(grantedSkillNames({ config: granting(['memory.wipe'], { features: {} }), selfId: 'self-1', registry: wipe }), []);
   assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry: null }), []);
+});
+
+test('coreToolRows: her granted tools among web.search, memory.search and task.run, in that order, with their texts and arguments; her grants only', () => {
+  const registry = skillRegistry();
+  const self = 'self-id';
+  const grant = { everyone: false, roles: [], users: [self] };
+  const config = { features: { skills: true }, bot: { access: { 'task.run': grant, 'memory.search': grant, 'lore.list': grant, 'web.search': { everyone: true, roles: [], users: [] } } } };
+  const texts = { 'memory.search': { title: 'Ψάξε', whenToUse: 'όταν', whenNotToUse: '' } };
+  const rows = coreToolRows({ config, selfId: self, registry, texts });
+  assert.deepEqual(rows.map((row) => row.name), ['memory.search', 'task.run'], 'a grant to everyone is people\'s, not hers; lore.list is no tool');
+  assert.deepEqual([rows[0].title, rows[0].whenToUse], ['Ψάξε', 'όταν']);
+  assert.deepEqual(rows[0].args.map((arg) => arg.name), ['question', 'people', 'channel', 'when', 'terms']);
+  assert.equal(rows[0].args[0].body, true, 'the question is the body');
+  assert.deepEqual(coreToolRows({ config: { ...config, skills: { safeMode: true } }, selfId: self, registry, texts }), [], 'safe mode lists none');
+  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'memory.search', 'task.run']);
 });

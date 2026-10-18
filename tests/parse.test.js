@@ -311,6 +311,11 @@ test('parseOutput: two calls keep the first one and count the others', () => {
   const result = parseOutput('<call skill="memory.read" member="Zoë"/><call skill="status.show"/>\n<call skill="skills.list"></call>');
   assert.deepEqual(result.call, { skill: 'memory.read', args: { member: 'Zoë' }, body: '' });
   assert.equal(result.extraCalls, 2);
+  // `calls`: every well-formed one in order, the first first (the tool loop of features.coreTools).
+  assert.deepEqual(result.calls.map((call) => call.skill), ['memory.read', 'status.show', 'skills.list']);
+  assert.deepEqual(parseOutput('<call skill="a.b"/><call skill=bad/><call skill="c.d"/>').calls.map((call) => call.skill), ['a.b', 'c.d'], 'a malformed later one is left out');
+  assert.deepEqual(parseOutput('<call skill=bad/><call skill="c.d"/>').calls, [], 'a malformed first one: none, as `call`');
+  assert.deepEqual(parseOutput('<msg>ναι</msg>').calls, []);
 });
 
 test('parseOutput: a message inside a call body is the call\'s text, never posted here', () => {

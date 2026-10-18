@@ -20,6 +20,7 @@ import {
   matchMemory,
   matchRecord,
   meaningQuery,
+  memorySearchPlan,
   mergeWindows,
   parseLookupAnswer,
   parseRecallAnswer,
@@ -1200,6 +1201,8 @@ test('fuseRanks: reciprocal rank fusion with k = 60; an item of both lists leads
   assert.deepEqual(fuseRanks([['a'], ['b']]).map((f) => f.id), ['a', 'b'], 'equal ranks: the earlier list first');
   assert.deepEqual(fuseRanks([[], ['x', 'y']]).map((f) => f.id), ['x', 'y'], 'one list alone keeps its order');
   assert.deepEqual(fuseRanks([['a', 'a', 'b']]).map((f) => [f.id, f.ranks[0]]), [['a', 1], ['b', 3]], 'a repeat keeps its first rank');
+  const weighted = fuseRanks([['half'], ['full']], { weights: [0.5] });
+  assert.deepEqual(weighted.map((f) => [f.id, f.score]), [['full', 1 / 61], ['half', 0.5 / 61]], 'a list weighs its weight; a missing weight is 1');
 });
 
 test('meaningQuery: the question as written with its tokens resolved; with the reply option the replied line first', () => {
@@ -1479,4 +1482,32 @@ test('buildRecallRequest: a time cue goes in <time_cue> right before <question> 
   assert.ok(!plain.includes('<time_cue>'), 'no cue, no block');
   const unlabelled = buildRecallRequest({ ...base, timeCue: OCT_7, labels: { ...labels, lookup: { ...labels.lookup, timeEstimate: ' ' } } })[1].content;
   assert.ok(!unlabelled.includes('<time_cue>'), 'a blank label adds nothing');
+});
+
+// memory.search (the persona's own call, src/skills/tools.js): her arguments, read without a helper.
+
+test('memorySearchPlan: her terms and people first, then the question\'s long words and a stored name it holds; a time range bounds; a channel is kept', () => {
+  const now = Date.UTC(2026, 9, 17, 12);
+  const profiles = [{ id: 'u7', names: ['lefteris_k'], aliases: [{ name: 'Λευτέρης' }] }, { id: 'self', names: ['Zoë'], aliases: [] }];
+  const plan = memorySearchPlan({
+    question: 'Τι είπε ο Λευτέρης για το παιχνίδι;',
+    people: 'Ἀλέξανδρος, Éloïse',
+    terms: 'κόκκινο φεγγάρι; λαγός',
+    when: '2026-09-01..2026-09-30',
+    channelId: 'c2',
+    profiles,
+    selfId: 'self',
+    selfName: 'Zoë',
+    maxForms: 3,
+    timezone: 'UTC',
+    now,
+  });
+  assert.deepEqual(plan.forms, ['κόκκινο φεγγάρι', 'λαγός', 'παιχνίδι']);
+  assert.deepEqual(plan.who, ['ἀλέξανδρος', 'éloïse', 'λευτέρης']);
+  assert.deepEqual([plan.from, plan.to], [Date.UTC(2026, 8, 1), Date.UTC(2026, 9, 1) - 1]);
+  assert.equal(plan.channelId, 'c2');
+  assert.equal(plan.locator, undefined, 'her range bounds the search');
+  // Nothing to search: null. A range alone is a question.
+  assert.equal(memorySearchPlan({ question: 'τι;', now }), null);
+  assert.deepEqual(memorySearchPlan({ question: 'τι;', when: '2026-10-01', now, timezone: 'UTC' }), { forms: [], who: [], from: Date.UTC(2026, 9, 1), to: Date.UTC(2026, 9, 2) - 1 });
 });

@@ -48,6 +48,8 @@ export const BODY_ARGS = Object.freeze({
   'draw.create': 'text',
   'learning.add': 'text',
   'lore.add': 'text',
+  'web.search': 'query',
+  'memory.search': 'question',
 });
 
 /** Every leaf of `table` as `{ key, leaf }`: `<group>.<name>` or a bare `<name>`, in order. */

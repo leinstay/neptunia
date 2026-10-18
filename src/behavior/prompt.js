@@ -103,7 +103,7 @@ import { ID_DIGITS, fromTokens, isWordChar, occursAsWholeWord } from '../memory/
 import { mergeProfiles } from './private.js';
 import { assignChannelHandles, assignHandles, channelDirectoryEntries, directoryEntries, renderChannelDirectory, renderDirectory } from './handles.js';
 import { renderDiaryBlock, renderKindsBlock } from './diary.js';
-import { alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
+import { IN_TURN_TOOLS, alwaysListedOn, byFamily, discoveryOn } from '../skills/discovery.js';
 import { isPlainObject } from '../config.js';
 import { fieldLine, liveFields, liveNotices, personRow, voiceOccupants } from './around.js';
 
@@ -1228,13 +1228,15 @@ function nowBlock(now, timezone, labels, periods) {
  * the chat (see `textFallback`).
  * @returns {{ type: 'text', text: string, cacheSegment?: 'stable'|'profiles' }[]}
  */
-function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null }) {
+function assembleUser({ nowText, timezone, labels, senses, protocol = '', granted = '', tools = '', channelDirectory = '', directory = '', kept, tempoText, task, chatItems, diary = null, errands = null }) {
   const stable = [
     block('senses', senses.stable),
     // How the persona's skills reach her: static text, so a grant never changes this part.
     block('skills_protocol', protocol),
     // The names of the skills granted to her: changes only when a grant does.
     block('skills_granted', granted),
+    // Her own tools with what they do (features.coreTools): changes only when a grant does.
+    block('skills_tools', tools),
     block('self_facts', kept.self.join('\n')),
     block('about_chat', kept.aboutChat.join('\n')),
     // Held per cache bucket; which of them the persona posted lately is in the tail (`<gifs_recent>`).
@@ -1274,6 +1276,8 @@ function assembleUser({ nowText, timezone, labels, senses, protocol = '', grante
     block('found', (kept.found ?? []).join('\n')),
     // Right before the chat it answers a question from.
     block('lookup', (kept.lookup ?? []).join('\n')),
+    // What the automatic memory prefetch found for this trigger (features.coreTools): per turn, next to the chat.
+    block('retrieved', (kept.prefetch ?? []).join('\n')),
     // The persona's skills with her access here, when she was asked what she can do.
     block('skills', (kept.skills ?? []).join('\n')),
     // Her errands under way or newly finished, then the one whose end opened this turn: per turn (ages move).
@@ -1549,6 +1553,46 @@ function renderServerLookup(server, labels, timezone) {
 }
 
 /**
+ * The `<retrieved>` block body (the automatic memory prefetch, features.coreTools): `labels.prefetch.header`,
+ * `labels.prefetch.basis` with `{basis}` (the lanes searched, `labels.prefetch.lanes.<kind>`
+ * joined), then with excerpts `labels.prefetch.caution` and each excerpt as an `<excerpt>`: a
+ * history stretch under `labels.prefetch.excerpt` (`{n}`, `{source}` =
+ * `labels.prefetch.sources.history`, `{date}` its first line's day in `timezone`, `{channel}`,
+ * `{id}` its best hit's message id) and its lines (time and speaker on each, relevant ones marked),
+ * a stored item under `labels.prefetch.memoryExcerpt` (`{n}`, `{source}` =
+ * `labels.prefetch.sources.memory`, `{date}`, `{who}`, `{id}`) and its text; without excerpts the
+ * status line `labels.prefetch.status.<status>` (`none`, `timeout`, `unavailable`). '' without
+ * `labels.prefetch.header`. Pure.
+ * @param {{ status: string, basis?: string[], excerpts?: object[] }} prefetch
+ * @param {object} labels
+ * @param {string} timezone
+ * @returns {string}
+ */
+function prefetchText(prefetch, labels, timezone) {
+  const l = labels.prefetch;
+  if (!prefetch || !isPlainObject(l) || typeof l.header !== 'string' || !l.header.trim()) return '';
+  const lanes = (Array.isArray(prefetch.basis) ? prefetch.basis : []).map((kind) => l.lanes?.[kind]).filter((text) => typeof text === 'string' && text);
+  const lines = [l.header];
+  if (lanes.length > 0 && typeof l.basis === 'string' && l.basis) lines.push(fill(l.basis, { basis: lanes.join(', ') }));
+  const excerpts = Array.isArray(prefetch.excerpts) ? prefetch.excerpts.filter((e) => typeof e?.lines === 'string' && e.lines.trim()) : [];
+  if (excerpts.length === 0) {
+    const status = l.status?.[prefetch.status === 'ok' ? 'none' : prefetch.status];
+    if (typeof status === 'string' && status) lines.push(status);
+    return lines.join('\n');
+  }
+  if (typeof l.caution === 'string' && l.caution) lines.push(l.caution);
+  excerpts.forEach((excerpt, i) => {
+    const memory = excerpt.source === 'memory';
+    const head = memory ? (l.memoryExcerpt ?? l.excerpt) : l.excerpt;
+    const fields = memory
+      ? { n: i + 1, source: l.sources?.memory ?? '', date: excerpt.date ?? '', who: excerpt.who ?? '', id: excerpt.id ?? '' }
+      : { n: i + 1, source: l.sources?.history ?? '', date: Number.isFinite(excerpt.startTs) ? zonedDay(excerpt.startTs, timezone) : '', channel: String(excerpt.channelName ?? ''), id: excerpt.id ?? '' };
+    lines.push(block('excerpt', [typeof head === 'string' && head ? fill(head, fields) : '', excerpt.lines].filter(Boolean).join('\n')));
+  });
+  return lines.join('\n');
+}
+
+/**
  * The `<lookup>` block body as candidates in order of preference, for the
  * budget to take the first that fits (all of them one piece, never split).
  * `lookup` is the turn's `lookup` input: the web search's result
@@ -1592,6 +1636,9 @@ function lookupCandidates(lookup, labels, timezone) {
  * `privateChat` adds `senses.privateChat`; outside a private chat,
  * `features.privateMessages === true` adds `senses.privateAware` instead.
  * `recallAvailable` (outside a private chat) adds `senses.recall` right after the search line.
+ * With `features.coreTools` exactly true no search runs before her reply: the search line is
+ * `senses.searchTool` and the recall line `senses.recallTool`, each only when `toolsGranted`
+ * (her granted in-turn tools) holds `web.search` / `memory.search`; else neither.
  * `customEmoji` (the `<emoji>` block is possible) adds `senses.customEmoji`;
  * `gifs` (features.gifs on and a non-empty library) adds `senses.gifs` right after it.
  * `gifWatching` (GIFs are watched now, src/memory/gif-watch.js#gifWatchBlocker)
@@ -1621,9 +1668,13 @@ function renderSenses(
     elsewhereDestination = null,
     diaryChannel = null,
     participation = false,
+    toolsGranted = [],
   } = {},
 ) {
   const senses = labels.senses;
+  // features.coreTools: no search runs before her reply; she calls her own tools (granted to her by name).
+  const coreTools = config.features?.coreTools === true;
+  const granted = (name) => Array.isArray(toolsGranted) && toolsGranted.includes(name);
   if (!senses) return { stable: '', turn: '' };
   const visionOn = config.features?.vision !== false;
   const describedOn = config.features?.mediaDescriptions === true;
@@ -1671,12 +1722,16 @@ function renderSenses(
   const searchOn = webOn && config.web?.search?.enabled !== false && searchAvailable === true;
   lines.push(senses.voice, videoOn ? (senses.linksWatch ?? senses.links) : senses.links);
   if (readOn && senses.linksRead) lines.push(senses.linksRead);
-  if (searchOn && senses.search) lines.push(senses.search);
+  if (searchOn && coreTools) {
+    if (granted('web.search') && senses.searchTool) lines.push(senses.searchTool);
+  } else if (searchOn && senses.search) lines.push(senses.search);
   // The search of the server's own message history (`recallAvailable`: a server
   // turn where the runner is available; its own switch, not the web one); an
   // older labels.json without the line shows nothing.
   // Per turn: the runner's daily caps can close it within a day.
-  if (recallAvailable === true && senses.recall) turnLines.push(senses.recall);
+  if (recallAvailable === true && coreTools) {
+    if (granted('memory.search') && senses.recallTool) turnLines.push(senses.recallTool);
+  } else if (recallAvailable === true && senses.recall) turnLines.push(senses.recall);
   // Drawing (features.imageGeneration, a missing key counts as on) needs the
   // image client (`drawQuota` present): one line, the spent forms first. An
   // older labels.json without senses.draw shows nothing. Per turn: the quotas
@@ -1754,6 +1809,22 @@ function skillsGrantedText(names, labels) {
   });
   const lead = typeof l.lead === 'string' ? l.lead.trim() : '';
   return [lead, ...lines].filter(Boolean).join('\n');
+}
+
+/**
+ * The `<skills_tools>` body (features.coreTools): `labels.skills.tools.lead` (when set), then the
+ * rows of her own tools as `<skills>` shows rows (skillsInventoryText: title, when to use,
+ * arguments). '' without a row or without `labels.skills.line`. Depends on her grants and the
+ * skill texts only, so the stable part it sits in stays the same between turns.
+ * @param {object[]|null|undefined} rows
+ * @param {object} labels
+ * @returns {string}
+ */
+function skillsToolsText(rows, labels) {
+  const body = skillsInventoryText(Array.isArray(rows) ? rows.map((row) => ({ ...row, allowed: true, reason: 'allowed' })) : [], labels);
+  if (!body) return '';
+  const lead = typeof labels.skills?.tools?.lead === 'string' ? labels.skills.tools.lead.trim() : '';
+  return [lead, body].filter(Boolean).join('\n');
 }
 
 // Notation of an argument's allowed values in `<skills>`: separator, and the mark of a cut list.
@@ -2824,6 +2895,14 @@ function seenOf({ history, keptChat, pictures, anchoredIds = [] }) {
  *   history found (src/behavior/recall-run.js; src/behavior/turn.js adds the key only when it found
  *   something). A web result without `server` renders exactly as before the server part existed;
  *   the server part needs `labels.lookup.serverHeader`, its stretch `labels.lookup.stretch`.
+ * @param {{ status: 'ok'|'none'|'timeout'|'unavailable', basis: string[], excerpts: object[] }|null} [input.prefetch]
+ *   The automatic memory prefetch of this turn (features.coreTools with features.memoryPrefetch:
+ *   src/behavior/recall-run.js `prefetch`), rendered as `<retrieved>` in the tail right after
+ *   `<lookup>` (prefetchText): `labels.prefetch.header`, the query basis, the caution and one
+ *   `<excerpt>` per excerpt, or the status line when nothing qualified, the deadline passed or
+ *   the search was unavailable. One piece, ahead of the chat, already bounded by
+ *   `recall.prefetch.maxTokens`. Omitted or null (no prefetch ran: the switch off, a trivial or
+ *   non-external trigger) -> no block and no budget section.
  * @param {boolean} [input.searchAvailable]  Whether a web search key is configured
  *   (lookup.hasSearch()); `senses.search` renders only when it is true.
  * @param {boolean} [input.recallAvailable]  Whether the search of the server's own history could
@@ -2968,6 +3047,12 @@ function seenOf({ history, keptChat, pictures, anchoredIds = [] }) {
  *   `<skills_protocol>`, one `labels.skills.granted.line` per family after
  *   `labels.skills.granted.lead` (skillsGrantedText), fixed, never cut. Omitted, null or empty
  *   -> no block.
+ * @param {{ name: string, title: string, whenToUse: string, args?: object[] }[]|null} [input.skillsTools]
+ *   Her own tools in full, granted to her (src/skills/discovery.js#coreToolRows: the in-turn tools
+ *   and `task.run`, her grants and the registry only): with `features.coreTools` exactly true and
+ *   discovery on, `<skills_tools>` in the stable part right after `<skills_granted>` --
+ *   `labels.skills.tools.lead`, then one `labels.skills.line` per row (skillsInventoryText),
+ *   fixed, never cut. Omitted, null or empty -> no block.
  * @param {{ snapshot: object, channelNameOf?: (channelId: string) => string|null }|null} [input.around]
  *   The live glance at the server's sidebar (interfaces/discord/around.js): `snapshot` is the
  *   store's snapshot, `channelNameOf` the name of a voice channel the audience may see (else
@@ -2989,10 +3074,11 @@ function seenOf({ history, keptChat, pictures, anchoredIds = [] }) {
  *   errands and the finished ones she has not seen), and `result`, the `<task_result>` block's
  *   body on the turn an errand's end opened. Both sit in the tail right before `<people_now>`,
  *   paid for with the fixed part and never cut; '' or a missing key leaves its block out.
- * @param {{ skill: string }|null} [input.continuation]  The same turn continued after the
+ * @param {{ skill: string, label?: string }|null} [input.continuation]  The same turn continued after the
  *   persona's skill call (src/behavior/turn.js#followUp under continuesTurn): the request is the
  *   turn's own, rebuilt over the turn's history as it stands now (her lines of the turn with the
- *   call's mark), and its task text is `labels.task.continue` with `{skill}` filled, alone -- no
+ *   call's mark), and its task text is `labels.task.continue` (or `labels.task[<label>]`, the tool
+ *   loop's, when it is set) with `{skill}` filled, alone -- no
  *   mode prompt, no `task.*`, private, forced, routed or room text. Every other block is built as
  *   for the turn, so the stable and profile parts stay the same. Omitted or null (or the label
  *   missing or blank) -> the task as usual.
@@ -3292,7 +3378,10 @@ export function buildRequest(input) {
   // their later messages about this call.
   const tasksText = renderTasks(input.tasks, labels);
   // The same turn continued after the persona's skill call: its own task text, alone.
-  const continueLabel = labels.task?.continue;
+  // The tool loop (features.coreTools) names its own task label (`labels.task[<label>]`); a
+  // label missing or blank falls back to `labels.task.continue`.
+  const loopLabel = typeof input.continuation?.label === 'string' ? labels.task?.[input.continuation.label] : undefined;
+  const continueLabel = typeof loopLabel === 'string' && loopLabel.trim() ? loopLabel : labels.task?.continue;
   const continueTask =
     input.continuation && typeof continueLabel === 'string' && continueLabel.trim() ? fill(continueLabel, { skill: input.continuation.skill ?? '' }) : '';
   // The task text. `callShown`: whether the pulled trigger's line made it into
@@ -3330,6 +3419,8 @@ export function buildRequest(input) {
   const sensesOptions = {
     searchAvailable: input.searchAvailable === true,
     recallAvailable: input.recallAvailable === true,
+    // Her own in-turn tools granted to her (features.coreTools): the search lines say she calls them.
+    toolsGranted: Array.isArray(input.skillsGranted) ? input.skillsGranted.filter((name) => IN_TURN_TOOLS.includes(name)) : [],
     drawQuota: input.drawQuota,
     privateChat,
     customEmoji: customEmoji.length > 0,
@@ -3350,6 +3441,8 @@ export function buildRequest(input) {
   // The names of the skills granted to her, on every turn (features.skillsAlwaysListed): in the
   // stable part, so they hang on her grants only.
   const grantedText = alwaysListedOn(config) ? skillsGrantedText(input.skillsGranted, labels) : '';
+  // Her own tools in full (features.coreTools, no classifier to name them): in the stable part too.
+  const toolsText = skillsShown && config.features?.coreTools === true ? skillsToolsText(input.skillsTools, labels) : '';
   const inventoryText = skillsShown ? skillsInventoryText(input.skillsInventory, labels) : '';
 
   // A diary post (mode `diary`): the persona's world (under `diary.world`), its past posts, the
@@ -3440,7 +3533,7 @@ export function buildRequest(input) {
     required: true,
     // The skills granted to her, the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro, the
     // interlocutor's `<people_now>` entry and her errands' blocks are never cut.
-    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed, errandsText.tasks, errandsText.result].filter(Boolean)],
+    items: [system, fittedTask, nowText, sensesWhole(senses), tempoText, ...[protocolText, grantedText, toolsText, channelDirectoryText, directoryText, planText, seedsText, diaryIntro, peopleNowFixed, errandsText.tasks, errandsText.result].filter(Boolean)],
   };
   const interlocutorSection = { name: 'interlocutor', cap: caps.interlocutor, items: [interlocutorShown.text].filter(Boolean) };
   // `<lookup>`: one piece. With both a web and a server part, the first candidate that fits the
@@ -3461,6 +3554,8 @@ export function buildRequest(input) {
     // recall.answerChars / recall.stretchChars, and ahead of the chat so a
     // tight budget trims old messages first.
     { name: 'lookup', items: [lookupItem].filter(Boolean) },
+    // The automatic memory prefetch (features.coreTools): one piece, bounded by recall.prefetch.maxTokens.
+    ...(input.prefetch ? [{ name: 'prefetch', items: [prefetchText(input.prefetch, labels, timezone)].filter(Boolean) }] : []),
     // A diary post's search result: one piece, bounded by web.search.summaryChars.
     { name: 'found', items: [foundText].filter(Boolean) },
     // The skills catalogue, asked for: one piece, ahead of the chat like what was looked up.
@@ -4028,7 +4123,7 @@ export function buildRequest(input) {
 
   const keptChat = chatItems.slice(chatItems.length - kept.chat.length);
   const seen = seenOf({ history, keptChat, pictures, anchoredIds: earlierShown?.parentIds ?? [] });
-  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText });
+  const user = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept, tempoText, task, chatItems: keptChat, diary: diaryParts, errands: errandsText });
 
   // A provider that rejects the images (see src/behavior/turn.js's 4xx
   // retry) must never resend a <chat> claiming a picture is attached with
@@ -4047,7 +4142,7 @@ export function buildRequest(input) {
     const keptChatBlind = chatItemsBlind.slice(chatItemsBlind.length - kept.chat.length);
     // The anchors of `<earlier>` were cut with their picture marks; the same anchors without them.
     const keptBlind = earlierShown?.blind ? { ...kept, earlier: [earlierShown.blind] } : kept;
-    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, channelDirectory: channelDirectoryText, directory: directoryText, kept: keptBlind, tempoText, task, chatItems: keptChatBlind, diary: diaryParts, errands: errandsText });
+    textFallback = assembleUser({ nowText, timezone, labels, senses, protocol: protocolText, granted: grantedText, tools: toolsText, channelDirectory: channelDirectoryText, directory: directoryText, kept: keptBlind, tempoText, task, chatItems: keptChatBlind, diary: diaryParts, errands: errandsText });
   }
 
   // A sticker's URL is already fully sized (see src/media/classify.js

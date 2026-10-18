@@ -420,12 +420,24 @@ function fromPort(result) {
  * read -- with its code when it is not `ok`, and `ref` when a message went out. Files it answers
  * with (`/nep draw` without a channel) are posted to the current conversation through
  * `deps.port` (`deps.refOf`), as the owner's command shows them to the owner: the call is then
- * that post's result, never generated again.
+ * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn
+ * tools, features.coreTools: name -> `(args) => result`) runs there instead, on the operation's
+ * arguments her call maps to (`command.toCall`, as above), under the same timeout; its result is the call's as it is (a result without a
+ * known status is `failed`).
  * @returns {Promise<{ status: string, code?: string, data?: { text: string }, ref?: object|null }>}
  */
 export async function executeCall(resolved, deps) {
   try {
     const args = { ...resolved.args };
+    const tool = deps.inTurn && Object.hasOwn(deps.inTurn, resolved.skill) ? deps.inTurn[resolved.skill] : null;
+    if (typeof tool === 'function') {
+      // The operation's own arguments, mapped by its command as for the owner's command.
+      const mapped = resolved.command ? resolved.command.toCall(args) : { op: resolved.skill, args };
+      if (!mapped.args || mapped.op !== resolved.skill) return { status: 'invalid', code: 'invalid-args', reason: 'command' };
+      const answered = await withTimeout(Promise.resolve(tool(mapped.args)), deps.timeoutMs ?? CALL_TIMEOUT_MS);
+      if (answered?.timedOut === true) return { status: 'unknown', code: 'timeout', data: { text: '' } };
+      return RESULT_STATUSES.includes(answered?.status) ? answered : { status: 'failed', code: 'error' };
+    }
     // Her own writing as a `<msg>` of hers is posted: the members its mentions resolved to ride along.
     let mentionUserIds = [];
     if (WRITTEN.includes(resolved.skill) && typeof args.text === 'string' && typeof deps.renderText === 'function') {
@@ -449,6 +461,10 @@ export async function executeCall(resolved, deps) {
       roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
       actor: 'persona',
       ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
+      // Her turn and the call's place in it: an errand records the turn, and a retry of the same
+      // call cannot queue a second one (src/errands/store.js#add).
+      ...(envelope.turnId ? { turnId: envelope.turnId } : {}),
+      ...(envelope.idempotencyKey ? { idempotencyKey: envelope.idempotencyKey } : {}),
       // The message her turn answers: where an errand she starts brings its result back (src/ops/task.js).
       ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0 ? { sourceMessageId: String(envelope.sourceMessageIds[0]) } : {}),
       ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),

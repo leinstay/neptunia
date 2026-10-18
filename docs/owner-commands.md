@@ -69,6 +69,7 @@ The table is generated from the command table (`src/ops/catalog.js#COMMAND_TABLE
 | `/nep memory restore <id>` | `memory.restore` | ephemeral, deferred | Restore an archived item; `id` autocompletes |
 | `/nep memory snapshot` | `memory.snapshot` | ephemeral, deferred | Snapshot data/ for the tools |
 | `/nep memory private <action:show\|forget\|purge> <user>` | `memory.private.read`, `memory.private.forget`, `memory.private.purge` | ephemeral, deferred for `memory.private.forget`, `memory.private.purge` | A member's private memory: what they said in DMs |
+| `/nep memory search <question> [people] [channel] [when] [terms]` | `memory.search` | ephemeral, deferred | Search this server's message history the way the persona's own `memory.search` does: the question's long words, the stored names it holds, `people` and `terms` (comma-separated) and `when` (`YYYY-MM-DD` or `A..B`, either side open) go to the recall runner with no helper model, and the messages come back quoted with their time and author, no summary. Open to every member (see [Member commands](#member-commands)) |
 
 ## Granting skills to the persona
 
@@ -79,6 +80,8 @@ A group name or `*` stores the read operations under it, one entry each, the sam
 **Carried over (current conversation only):** the persona's normal reply tags (`<msg>`, `<react>`, `<draw>`) count as `message.create`, `message.react.add` and `draw.create` in the current conversation without a grant. This is how the persona keeps talking: its reply is a batch of skill calls that pass the gateway because they are aimed at the conversation the turn belongs to. A grant opens the skill for other conversations too.
 
 **Not grantable to the persona:** `memory.wipe`, `memory.private.purge`, `memory.forget`, `memory.private.forget`, `memory.restore`, `config.set`, `config.unset`, `model.set`, `route.set`, `route.remove`, `access.grant`, `access.revoke`, `bot.pause`, `bot.resume`. These are the irreversible and administrative operations. A grant that names one of them (or a group or `*` that covers one) silently skips it. The persona also never changes rights that reach her: a grant or revoke she makes whose target is herself, everyone, or a role she holds is refused.
+
+**In-turn tools:** `web.search` and `memory.search` are reads; with `features.coreTools` on, the persona's call of either runs inside her turn and its result comes back in the same turn (see [the tool loop](prompt-contract.md#the-tool-loop-featurescoretools)). Neither is open to her until granted by name (`/nep access grant web.search user:@bot`, `/nep access grant memory.search user:@bot`); a `*` or `memory` grant stored before they existed does not cover them.
 
 **Self-owned operations:** `message.create`, `message.edit`, `message.delete`, `message.react.add`, `message.react.remove`, `draw.create`, `diary.post` and `diary.show` need only her own grant, not the requester's right (messages and drawings are hers). The bundled-author rule and the no-requester restriction still apply: no write when a turn answers several people, only a read when nobody asked.
 
@@ -96,7 +99,7 @@ A group name or `*` stores the read operations under it, one entry each, the sam
 
 ## Member commands
 
-`/nep pings` and the `/nep task` group are the commands every server member may run without a `bot.access` grant. `features.memberCommands: false` restricts them to owners.
+`/nep pings`, the `/nep task` group and `/nep memory search` are the commands every server member may run without a `bot.access` grant. `features.memberCommands: false` restricts them to owners.
 
 | Command | What it does |
 |---|---|
@@ -105,3 +108,4 @@ A group name or `*` stores the read operations under it, one entry each, the sam
 | `/nep task status [id]` | One task (state, age, goal, the size of its result, its usage), or every open one. A task asked in a private chat is shown only to its requester and owners. Operation `task.status` |
 | `/nep task cancel <id>` | Cancel an open task; only its requester or an owner (`not-requester` otherwise). Operation `task.cancel` |
 | `/nep task list` | The latest ten tasks, newest first. Operation `task.list` |
+| `/nep task search <query> [goal]` | One quick web search through the bot's search client (`features.webLookup`, its cache and the daily `web.maxPerDay`), the same the persona's own `web.search` runs: the condensed snippets with their sites; the pages are not opened. Operation `web.search` (read) |

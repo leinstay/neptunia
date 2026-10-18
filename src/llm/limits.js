@@ -4,7 +4,8 @@
 // past the per-turn cap joined into the last one kept, a text
 // attachment cut at its preview size, a helper stage left behind by the deadline, a helper that
 // failed and was replaced by a fallback (the search classifier's recall on the question's words), a daily
-// counter that refused, a memory field refused over its limit or cut on its first write. The
+// counter that refused, a memory field refused over its limit or cut on its first write, the
+// tool loop's calls dropped once its steps or its time were spent (`loop-cap`). The
 // journal's turn and memory records carry the list, so nothing is cut silently. Pure.
 
 /** Every kind a limit entry may have, in the order the design names them. */
@@ -20,6 +21,7 @@ export const LIMIT_KINDS = Object.freeze([
   'daily-cap',
   'over-limit',
   'clamp',
+  'loop-cap',
 ]);
 
 const KNOWN = new Set(LIMIT_KINDS);

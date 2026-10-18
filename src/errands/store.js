@@ -381,14 +381,25 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
 
   /**
    * A new task, `queued`, or the cap it hits: `{ ok: true, task }` | `{ ok: false, code }`
-   * (`unknown-agent`, `bad-goal`, `cap-open`, `cap-tasks`, `cap-usd`).
+   * (`unknown-agent`, `bad-goal`, `cap-open`, `cap-tasks`, `cap-usd`). The persona's own call
+   * brings its `idempotencyKey` (her turn and the call's index in it, src/behavior/turn.js) and
+   * its turn (`origin.turnId`): a task the store still holds under the same key is answered as it
+   * is, `{ ok: true, task, duplicate: true }`, before any cap -- a retried call never queues a
+   * second errand. The goal is kept as she wrote it (trimmed).
    * @param {{ agent: string, goal: string, requester: { userId: string|null, kind: string },
-   *   origin: { channelId: string|null, messageId: string|null }, scope: 'dm'|'group' }} input
+   *   origin: { channelId: string|null, messageId: string|null, turnId?: string|null }, scope: 'dm'|'group',
+   *   idempotencyKey?: string|null }} input
    */
-  function add({ agent, goal, requester, origin, scope } = {}) {
+  function add({ agent, goal, requester, origin, scope, idempotencyKey = null } = {}) {
     if (!profileOf(agent)) return { ok: false, code: 'unknown-agent' };
     const text = String(goal ?? '').trim();
     if (!text) return { ok: false, code: 'bad-goal' };
+    const key = typeof idempotencyKey === 'string' && idempotencyKey ? idempotencyKey : null;
+    const same = key ? state.tasks.find((task) => task.idempotencyKey === key) : null;
+    if (same) {
+      log.info('errands: duplicate', { guildId: String(guildId), id: same.id, agent: same.agent });
+      return { ok: true, task: copy(same), duplicate: true };
+    }
     const cap = capHit(agent);
     if (cap) return { ok: false, code: cap };
     const at = now();
@@ -397,7 +408,13 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
       agent,
       goal: text,
       requester: { userId: requester?.userId ? String(requester.userId) : null, kind: REQUESTER_KINDS.includes(requester?.kind) ? requester.kind : 'member' },
-      origin: { channelId: origin?.channelId ? String(origin.channelId) : null, messageId: origin?.messageId ? String(origin.messageId) : null },
+      origin: {
+        channelId: origin?.channelId ? String(origin.channelId) : null,
+        messageId: origin?.messageId ? String(origin.messageId) : null,
+        // The persona's turn whose accepted call this is (none for a command).
+        ...(origin?.turnId ? { turnId: String(origin.turnId) } : {}),
+      },
+      ...(key ? { idempotencyKey: key } : {}),
       scope: scope === 'dm' ? 'dm' : 'group',
       state: 'queued',
       createdAt: at,

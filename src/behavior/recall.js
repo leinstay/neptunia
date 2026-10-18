@@ -48,10 +48,36 @@ import { block, fillPromptTemplate } from './prompt.js';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { episodeDate } from '../memory/index.js';
-import { TEACHER_TOKEN_RE, fromTokens, occursAsWordStem, tokenIds } from '../memory/mentions.js';
+import { TEACHER_TOKEN_RE, fromTokens, isWordChar, occursAsWholeWord, occursAsWordStem, tokenIds } from '../memory/mentions.js';
 import { foldText, memberIdOf } from '../memory/recent.js';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 import { parseSkillsLines, takeSkillsLines } from '../skills/discovery.js';
+
+/**
+ * Defaults of `recall.prefetch` (config.json carries the same values): the automatic retrieval
+ * before a turn of the persona's tool loop (src/behavior/prefetch.js, recall-run.js `prefetch`).
+ * `trivial` and `deictic` are matching data (folded phrases and words), never wording she reads.
+ */
+export const PREFETCH_DEFAULTS = Object.freeze({
+  deadlineMs: 1000,
+  candidates: 20,
+  maxExcerpts: 5,
+  maxTokens: 1500,
+  excerptChars: 1200,
+  contextLines: 3,
+  contextTokens: 500,
+  shortWords: 4,
+  minFormsMatched: 2,
+  minMeaningScore: 0.35,
+  strongMeaningScore: 0.55,
+  singleTermScore: 0.45,
+  maxTermShare: 0.002,
+  maxPhraseDf: 20,
+  minPhraseShare: 0.2,
+  rareTermDf: 30,
+  trivial: Object.freeze(['hi', 'hello', 'hey', 'yo', 'ok', 'okay', 'k', 'thanks', 'thank you', 'thx', 'ty', 'yes', 'no', 'yep', 'nope', 'lol', 'haha', 'good night', 'good morning', 'bye']),
+  deictic: Object.freeze(['that', 'this', 'it', 'he', 'she', 'they', 'him', 'her', 'them', 'there', 'those', 'these']),
+});
 
 /** Defaults of the `recall` config group (config.json carries the same values). */
 export const RECALL_DEFAULTS = Object.freeze({
@@ -86,6 +112,7 @@ export const RECALL_DEFAULTS = Object.freeze({
   locatorBonus: 2,
   locatorDecayDays: 7,
   locatorBroadShare: 0.5,
+  prefetch: PREFETCH_DEFAULTS,
 });
 
 /** The `k` of reciprocal rank fusion (fuseRanks): an item at rank r of a list adds 1 / (k + r). */
@@ -169,7 +196,8 @@ function numberAtLeast(value, fallback, min) {
  * replied-to line joins the meaning query, meaningQuery) is on only when it
  * is exactly `true`. The locator numbers (a `when:` that only locates, see
  * proximityBonus and locatorKeep): `locatorBonus` and `locatorDecayDays`
- * numbers of at least 0, `locatorBroadShare` a number from 0 to 1.
+ * numbers of at least 0, `locatorBroadShare` a number from 0 to 1. `prefetch`: `recall.prefetch`
+ * read by prefetchSettingsOf (the automatic memory prefetch, src/behavior/prefetch.js).
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
  *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, followMessages: number,
@@ -215,6 +243,48 @@ export function recallSettings(config) {
     locatorBonus: numberAtLeast(r.locatorBonus, d.locatorBonus, 0),
     locatorDecayDays: numberAtLeast(r.locatorDecayDays, d.locatorDecayDays, 0),
     locatorBroadShare: shareOf(r.locatorBroadShare, d.locatorBroadShare),
+    prefetch: prefetchSettingsOf(r.prefetch),
+  };
+}
+
+/** A list of non-empty strings folded (foldText) and deduplicated, else `fallback`'s folded. */
+function phraseList(value, fallback) {
+  const list = Array.isArray(value) ? value : fallback;
+  return [...new Set(list.filter((item) => typeof item === 'string').map(foldText).filter(Boolean))];
+}
+
+/**
+ * `recall.prefetch` read from its config value (PREFETCH_DEFAULTS for a missing or unusable
+ * key): `deadlineMs`, `candidates`, `maxExcerpts`, `maxTokens`, `excerptChars` and `shortWords`
+ * whole numbers of at least 1; `contextLines`, `contextTokens` and `minFormsMatched` of at least
+ * 0 (`contextLines` 0: no recent-lines lane); `minMeaningScore`, `strongMeaningScore`,
+ * `singleTermScore`, `maxTermShare` and `minPhraseShare` numbers from 0 to 1; `maxPhraseDf` a whole
+ * number of at least 1, `rareTermDf` of at least 0; `trivial` and `deictic` lists of strings,
+ * folded. Pure.
+ * @param {unknown} value
+ */
+function prefetchSettingsOf(value) {
+  const p = isPlainObject(value) ? value : {};
+  const d = PREFETCH_DEFAULTS;
+  return {
+    deadlineMs: intAtLeast(p.deadlineMs, d.deadlineMs, 1),
+    candidates: intAtLeast(p.candidates, d.candidates, 1),
+    maxExcerpts: intAtLeast(p.maxExcerpts, d.maxExcerpts, 1),
+    maxTokens: intAtLeast(p.maxTokens, d.maxTokens, 1),
+    excerptChars: intAtLeast(p.excerptChars, d.excerptChars, 1),
+    contextLines: intAtLeast(p.contextLines, d.contextLines, 0),
+    contextTokens: intAtLeast(p.contextTokens, d.contextTokens, 0),
+    shortWords: intAtLeast(p.shortWords, d.shortWords, 1),
+    minFormsMatched: intAtLeast(p.minFormsMatched, d.minFormsMatched, 0),
+    minMeaningScore: shareOf(p.minMeaningScore, d.minMeaningScore),
+    strongMeaningScore: shareOf(p.strongMeaningScore, d.strongMeaningScore),
+    singleTermScore: shareOf(p.singleTermScore, d.singleTermScore),
+    maxTermShare: shareOf(p.maxTermShare, d.maxTermShare),
+    maxPhraseDf: intAtLeast(p.maxPhraseDf, d.maxPhraseDf, 1),
+    minPhraseShare: shareOf(p.minPhraseShare, d.minPhraseShare),
+    rareTermDf: intAtLeast(p.rareTermDf, d.rareTermDf, 0),
+    trivial: phraseList(p.trivial, d.trivial),
+    deictic: phraseList(p.deictic, d.deictic),
   };
 }
 
@@ -280,25 +350,26 @@ function usableLocator(locator) {
 
 /**
  * Reciprocal rank fusion of ranked lists: each item scores the sum over the
- * lists holding it of 1 / (`k` + its 1-based rank there; a repeat keeps its
- * first rank). Returned best first; on an equal score the item found by more
- * lists first, then by its rank in the earlier list (an item it lacks after
- * one it holds), and so on. Items are compared as Map keys (ids or objects).
- * Pure.
+ * lists holding it of the list's weight (`weights[i]`, 1 when missing) over
+ * (`k` + its 1-based rank there; a repeat keeps its first rank). Returned best
+ * first; on an equal score the item found by more lists first, then by its
+ * rank in the earlier list (an item it lacks after one it holds), and so on.
+ * Items are compared as Map keys (ids or objects). Pure.
  * @param {Array<Array<unknown>>} lists
- * @param {{ k?: number }} [options]
+ * @param {{ k?: number, weights?: number[]|null }} [options]
  * @returns {{ id: unknown, score: number, ranks: (number|null)[] }[]}
  */
-export function fuseRanks(lists, { k = RRF_K } = {}) {
+export function fuseRanks(lists, { k = RRF_K, weights = null } = {}) {
   const all = Array.isArray(lists) ? lists : [];
   const fused = new Map();
   all.forEach((list, at) => {
+    const weight = Array.isArray(weights) && Number.isFinite(weights[at]) ? weights[at] : 1;
     (Array.isArray(list) ? list : []).forEach((id, i) => {
       if (!fused.has(id)) fused.set(id, { id, score: 0, ranks: all.map(() => null) });
       const entry = fused.get(id);
       if (entry.ranks[at] !== null) return;
       entry.ranks[at] = i + 1;
-      entry.score += 1 / (k + i + 1);
+      entry.score += weight / (k + i + 1);
     });
   });
   const found = (entry) => entry.ranks.filter((rank) => rank !== null).length;
@@ -1045,6 +1116,22 @@ function foldedForms(list) {
 function formsMatched(texts, forms) {
   const folded = texts.filter((text) => typeof text === 'string' && text).map(foldText);
   return forms.filter((form) => folded.some((text) => occursAsWordStem(text, form))).length;
+}
+
+/**
+ * How many of `forms` occur in `texts` by recall's own matching (folded, word endings allowed:
+ * formsMatched over foldedForms). The prefetch's relevance check (src/behavior/prefetch.js). Pure.
+ * @param {unknown[]} texts
+ * @param {string[]} forms
+ * @returns {number}
+ */
+export function countFormsIn(texts, forms) {
+  return formsMatched(Array.isArray(texts) ? texts : [], foldedForms(forms));
+}
+
+/** The searchable texts of a chat message as the record reader matches them (its text, its links' titles and descriptions). */
+export function searchableTexts(message) {
+  return recordTexts({ content: typeof message?.content === 'string' ? message.content : '', links: Array.isArray(message?.links) ? message.links : [] });
 }
 
 /** A time from an ISO string, or -Infinity. */
@@ -1992,4 +2079,105 @@ export async function matchRecord(guildId, { record, range = {}, participants = 
     .sort((a, b) => b.endTs - a.endTs)
     .map(({ score, self, endTs, ...window }) => window);
   return { windows: kept, scanned, hits: hits.length, meaningHits: meant.length };
+}
+
+/** A word of the question this long or longer (in characters) is a fallback search form. */
+const FALLBACK_FORM_MIN_CHARS = 5;
+/** A longer word is no search form (a pasted token, a link's tail): recall's own cap on a form. */
+const FALLBACK_FORM_MAX_CHARS = 40;
+
+/** The words of `text`: maximal runs of word characters (isWordChar). */
+function wordsIn(text) {
+  const words = [];
+  let current = '';
+  for (const ch of String(text ?? '')) {
+    if (isWordChar(ch)) current += ch;
+    else if (current) {
+      words.push(current);
+      current = '';
+    }
+  }
+  if (current) words.push(current);
+  return words;
+}
+
+/**
+ * The server search a direct question gets when the search classifier failed
+ * (recall.fallbackOnClassifierFailure), and the words of a question the persona's
+ * memory.search names (memorySearchPlan): built from the question's own words.
+ * `who`: for each stored member (`profiles`, the persona's own `selfId` left
+ * out) the first of their names or alias names that occurs in `text` as a
+ * whole word (both folded, src/memory/recent.js#foldText), lowercased, each
+ * once. `forms`: the words of `text` (runs of isWordChar) of 5 to 40
+ * characters with at least one letter, lowercased, deduplicated (folded),
+ * without the words of a name found or of the persona's `selfName`, longest
+ * first (ties in text order). Each list holds at most `maxForms` (0 or not an
+ * integer: none). No date range. Null when both lists are empty. Pure.
+ * @param {{ text: string, profiles?: object[], selfId?: string|null, selfName?: string, maxForms?: number }} params
+ * @returns {{ forms: string[], who: string[], from: null, to: null }|null}
+ */
+export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfName = '', maxForms = 0 } = {}) {
+  const cap = Number.isInteger(maxForms) && maxForms > 0 ? maxForms : 0;
+  const folded = foldText(text);
+  const skipWords = new Set(wordsIn(foldText(selfName)));
+  const who = [];
+  for (const profile of Array.isArray(profiles) ? profiles : []) {
+    if (who.length >= cap) break;
+    if (!profile || typeof profile !== 'object' || (selfId !== null && String(profile.id) === String(selfId))) continue;
+    const names = [...(Array.isArray(profile.names) ? profile.names : []), ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name)];
+    const hit = names.find((name) => typeof name === 'string' && [...foldText(name)].length >= 2 && occursAsWholeWord(folded, foldText(name)));
+    if (!hit) continue;
+    const form = oneLine(hit).toLowerCase();
+    if (!who.includes(form)) who.push(form);
+    for (const word of wordsIn(foldText(hit))) skipWords.add(word);
+  }
+  const seen = new Set();
+  const candidates = [];
+  for (const word of wordsIn(String(text ?? '').toLowerCase())) {
+    const chars = [...word].length;
+    if (chars < FALLBACK_FORM_MIN_CHARS || chars > FALLBACK_FORM_MAX_CHARS || !/\p{L}/u.test(word)) continue;
+    const key = foldText(word);
+    if (seen.has(key) || skipWords.has(key)) continue;
+    seen.add(key);
+    candidates.push({ word, chars, at: candidates.length });
+  }
+  const forms = candidates
+    .sort((a, b) => b.chars - a.chars || a.at - b.at)
+    .slice(0, cap)
+    .map((item) => item.word);
+  if (forms.length === 0 && who.length === 0) return null;
+  return { forms, who, from: null, to: null };
+}
+
+/** The separator of the list arguments of memory.search (`people`, `terms`). */
+const TOOL_LIST_SPLIT_RE = /[,;\n]/;
+
+/**
+ * The server search the persona's own `memory.search` call asks for (features.coreTools,
+ * src/skills/tools.js): no helper model, only the deterministic expansion -- her `terms` (exact
+ * words or phrases, comma-separated) and `people` (names, comma-separated) cleaned as the
+ * classifier's `server:` and `who:` values are (2 to 40 characters, at most three words each,
+ * lowercased, each once), then what fallbackLookupPlan finds in her `question` (its long words,
+ * a stored member's name or alias), her own first, at most `maxForms` each. `when` is read as
+ * a `when:` value (`YYYY-MM-DD`, `YYYY-MM-DD HH:MM`, `A..B` with either side open, in
+ * `timezone`; a future side cut to `now`): it bounds the search (never a mere locator). Her
+ * `channel` (an id, resolved by the caller) is kept as `channelId`: the stretches of other
+ * channels are left out (src/behavior/recall-run.js `quotes`). Null when nothing is left to
+ * search (no form, no name, no range). Pure.
+ * @param {{ question?: string, people?: string, terms?: string, when?: string, channelId?: string|null,
+ *   profiles?: object[], selfId?: string|null, selfName?: string, maxForms?: number, timezone?: string, now?: number }} input
+ * @returns {{ forms: string[], who: string[], from: number|null, to: number|null, channelId?: string }|null}
+ */
+export function memorySearchPlan({ question = '', people = '', terms = '', when = '', channelId = null, profiles = [], selfId = null, selfName = '', maxForms = RECALL_DEFAULTS.maxForms, timezone = 'UTC', now } = {}) {
+  const cap = intAtLeast(maxForms, RECALL_DEFAULTS.maxForms, 1);
+  const forms = [];
+  const who = [];
+  for (const part of String(terms ?? '').split(TOOL_LIST_SPLIT_RE)) addForms(forms, part, cap);
+  for (const part of String(people ?? '').split(TOOL_LIST_SPLIT_RE)) addForms(who, part, cap);
+  const fromQuestion = fallbackLookupPlan({ text: question, profiles, selfId, selfName, maxForms: cap });
+  for (const form of fromQuestion?.forms ?? []) if (forms.length < cap && !forms.includes(form)) forms.push(form);
+  for (const form of fromQuestion?.who ?? []) if (who.length < cap && !who.includes(form)) who.push(form);
+  const range = typeof when === 'string' && when.trim() ? parseRange(when, timezone, now) : null;
+  if (forms.length === 0 && who.length === 0 && !range) return null;
+  return { forms, who, from: range?.from ?? null, to: range?.to ?? null, ...(typeof channelId === 'string' && channelId ? { channelId } : {}) };
 }

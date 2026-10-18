@@ -1,0 +1,170 @@
+{
+ "plain": [
+  [
+   {
+    "role": "system",
+    "content": "Decide whether Bot needs to look something up.\nstatus.show\nconfig.set\nconfig.unset\nbot.pause\nbot.resume\ndraw.create\npings.get\npings.set\nmedia.status\nmedia.rescan\nmedia.recache\nmodel.show\nmodel.set\nroute.list\nroute.set\nroute.remove\nrule.add\nrule.list\nrule.remove\naccess.grant\naccess.revoke\naccess.list\ndiary.set\ndiary.show\ndiary.off\ndiary.post\nalias.add\nalias.remove\nlearning.add\nlearning.remove\nlore.add\nlore.list\nlore.show\nlore.remove\nmemory.profile.read\nmemory.channel.read\nmemory.server.read\nmemory.recent.read\nmemory.refresh.user\nmemory.refresh.channel\nmemory.refresh.server\nmemory.forget\nmemory.affinity.read\nmemory.wipe\nmemory.journal.read\nmemory.archive.read\nmemory.restore\nmemory.snapshot\nmemory.private.read\nmemory.private.forget\nmemory.private.purge\nmessage.create\nmessage.edit\nmessage.delete\nmessage.react.add\nmessage.react.remove\ntask.run\ntask.status\ntask.cancel\ntask.list"
+   },
+   {
+    "role": "user",
+    "content": "<transcript>\n=== Sat, October 17 ===\n#1 [11:59] Zoë: καλημέρα\n</transcript>\n<candidate>\nAlice: γεια σου\n</candidate>"
+   }
+  ],
+  [
+   {
+    "role": "system",
+    "content": "You are a regular member of this chat, not an assistant.\n\nYou are friendly and terse.\n\nUse <msg> and <react> tags."
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "<senses>\npictures not attached to you are just [image] tags, you cannot see them\ngifs you do not see yourself are just [gif] tags\nyou cannot see or hear videos, only their [video] tag\nstickers you do not see yourself are just a name\nan animated built-in sticker only ever shows its name\nyou cannot hear voice messages, only their length\nlinks show their site, title, snippet and address; you cannot open the page\nlinks show their site, title, snippet and address; a link may come with an excerpt of the page, read first-hand\na question you cannot answer may come with a <lookup> block of what was found online\nfiles show only their name, or a short preview for plain text ones\nTimes and ages test line.\nyou see only the channels shown here\n</senses>\n\n<skills_protocol>\nskills: listed in <skills> when relevant or asked for; rights checked by the engine\n</skills_protocol>\n\n",
+      "cacheSegment": "stable"
+     },
+     {
+      "type": "text",
+      "text": "<chat>\n=== Sat, October 17 ===\n#1 [11:59] Zoë: καλημέρα\n#2 [11:59] Alice: γεια σου\n</chat>\n\n<now>\nSaturday, October 17, 2026, 12:00 (UTC)\n</now>\n\n<senses>\na question about this server's own past may come with a server part in the <lookup> block\n</senses>\n\n<tempo>\nmessages in the last 10 min: 1, last hour: 1, last day: 1\ndistinct people in the last hour: 1\nbefore the message that called you, the channel was silent for: less than a minute\nverdict: a slow conversation, people write rarely\n</tempo>\n\n<task>\nSomeone called you: Alice.\n</task>"
+     }
+    ]
+   }
+  ]
+ ],
+ "lookup": [
+  [
+   {
+    "role": "system",
+    "content": "Decide whether Bot needs to look something up.\nstatus.show\nconfig.set\nconfig.unset\nbot.pause\nbot.resume\ndraw.create\npings.get\npings.set\nmedia.status\nmedia.rescan\nmedia.recache\nmodel.show\nmodel.set\nroute.list\nroute.set\nroute.remove\nrule.add\nrule.list\nrule.remove\naccess.grant\naccess.revoke\naccess.list\ndiary.set\ndiary.show\ndiary.off\ndiary.post\nalias.add\nalias.remove\nlearning.add\nlearning.remove\nlore.add\nlore.list\nlore.show\nlore.remove\nmemory.profile.read\nmemory.channel.read\nmemory.server.read\nmemory.recent.read\nmemory.refresh.user\nmemory.refresh.channel\nmemory.refresh.server\nmemory.forget\nmemory.affinity.read\nmemory.wipe\nmemory.journal.read\nmemory.archive.read\nmemory.restore\nmemory.snapshot\nmemory.private.read\nmemory.private.forget\nmemory.private.purge\nmessage.create\nmessage.edit\nmessage.delete\nmessage.react.add\nmessage.react.remove\ntask.run\ntask.status\ntask.cancel\ntask.list"
+   },
+   {
+    "role": "user",
+    "content": "<transcript>\n=== Sat, October 17 ===\n#1 [11:59] Zoë: καλημέρα\n</transcript>\n<candidate>\nAlice: ποιος κέρδισε τον τελικό;\n</candidate>"
+   }
+  ],
+  [
+   {
+    "role": "system",
+    "content": "You are a regular member of this chat, not an assistant.\n\nYou are friendly and terse.\n\nUse <msg> and <react> tags."
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "<senses>\npictures not attached to you are just [image] tags, you cannot see them\ngifs you do not see yourself are just [gif] tags\nyou cannot see or hear videos, only their [video] tag\nstickers you do not see yourself are just a name\nan animated built-in sticker only ever shows its name\nyou cannot hear voice messages, only their length\nlinks show their site, title, snippet and address; you cannot open the page\nlinks show their site, title, snippet and address; a link may come with an excerpt of the page, read first-hand\na question you cannot answer may come with a <lookup> block of what was found online\nfiles show only their name, or a short preview for plain text ones\nTimes and ages test line.\nyou see only the channels shown here\n</senses>\n\n<skills_protocol>\nskills: listed in <skills> when relevant or asked for; rights checked by the engine\n</skills_protocol>\n\n",
+      "cacheSegment": "stable"
+     },
+     {
+      "type": "text",
+      "text": "<lookup>\n[both searches ran]\n[web part]\nsearched for: τελικός\nευρήματα\nfrom: example.com\n[server part]\nAna a tiré sur le lapin.\n</lookup>\n\n<chat>\n=== Sat, October 17 ===\n#1 [11:59] Zoë: καλημέρα\n#2 [11:59] Alice: ποιος κέρδισε τον τελικό;\n</chat>\n\n<now>\nSaturday, October 17, 2026, 12:00 (UTC)\n</now>\n\n<senses>\na question about this server's own past may come with a server part in the <lookup> block\n</senses>\n\n<tempo>\nmessages in the last 10 min: 1, last hour: 1, last day: 1\ndistinct people in the last hour: 1\nbefore the message that called you, the channel was silent for: less than a minute\nverdict: a slow conversation, people write rarely\n</tempo>\n\n<task>\nSomeone called you: Alice.\n</task>"
+     }
+    ]
+   }
+  ]
+ ],
+ "readCall": [
+  [
+   {
+    "role": "system",
+    "content": "Decide whether Bot needs to look something up.\nstatus.show\nconfig.set\nconfig.unset\nbot.pause\nbot.resume\ndraw.create\npings.get\npings.set\nmedia.status\nmedia.rescan\nmedia.recache\nmodel.show\nmodel.set\nroute.list\nroute.set\nroute.remove\nrule.add\nrule.list\nrule.remove\naccess.grant\naccess.revoke\naccess.list\ndiary.set\ndiary.show\ndiary.off\ndiary.post\nalias.add\nalias.remove\nlearning.add\nlearning.remove\nlore.add\nlore.list\nlore.show\nlore.remove\nmemory.profile.read\nmemory.channel.read\nmemory.server.read\nmemory.recent.read\nmemory.refresh.user\nmemory.refresh.channel\nmemory.refresh.server\nmemory.forget\nmemory.affinity.read\nmemory.wipe\nmemory.journal.read\nmemory.archive.read\nmemory.restore\nmemory.snapshot\nmemory.private.read\nmemory.private.forget\nmemory.private.purge\nmessage.create\nmessage.edit\nmessage.delete\nmessage.react.add\nmessage.react.remove\ntask.run\ntask.status\ntask.cancel\ntask.list"
+   },
+   {
+    "role": "user",
+    "content": "<transcript>\n=== Sat, October 17 ===\n#1 [11:59] Zoë: καλημέρα\n</transcript>\n<candidate>\nAlice: τι γράφει το lore;\n</candidate>"
+   }
+  ],
+  [
+   {
+    "role": "system",
+    "content": "You are a regular member of this chat, not an assistant.\n\nYou are friendly and terse.\n\nUse <msg> and <react> tags."
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "<senses>\npictures not attached to you are just [image] tags, you cannot see them\ngifs you do not see yourself are just [gif] tags\nyou cannot see or hear videos, only their [video] tag\nstickers you do not see yourself are just a name\nan animated built-in sticker only ever shows its name\nyou cannot hear voice messages, only their length\nlinks show their site, title, snippet and address; you cannot open the page\nlinks show their site, title, snippet and address; a link may come with an excerpt of the page, read first-hand\na question you cannot answer may come with a <lookup> block of what was found online\nfiles show only their name, or a short preview for plain text ones\nTimes and ages test line.\nyou see only the channels shown here\n</senses>\n\n<skills_protocol>\nskills: listed in <skills> when relevant or asked for; rights checked by the engine\n</skills_protocol>\n\n<skills_granted>\nskills granted to you, by family:\nlore: list\n</skills_granted>\n\n",
+      "cacheSegment": "stable"
+     },
+     {
+      "type": "text",
+      "text": "<chat>\n=== Sat, October 17 ===\n#1 [11:59] Zoë: καλημέρα\n#2 [11:59] Alice: τι γράφει το lore;\n</chat>\n\n<now>\nSaturday, October 17, 2026, 12:00 (UTC)\n</now>\n\n<senses>\na question about this server's own past may come with a server part in the <lookup> block\n</senses>\n\n<tempo>\nmessages in the last 10 min: 1, last hour: 1, last day: 1\ndistinct people in the last hour: 1\nbefore the message that called you, the channel was silent for: less than a minute\nverdict: a slow conversation, people write rarely\n</tempo>\n\n<task>\nSomeone called you: Alice.\n</task>"
+     }
+    ]
+   }
+  ],
+  [
+   {
+    "role": "system",
+    "content": "You are a regular member of this chat, not an assistant.\n\nYou are friendly and terse.\n\nUse <msg> and <react> tags."
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "<senses>\npictures not attached to you are just [image] tags, you cannot see them\ngifs you do not see yourself are just [gif] tags\nyou cannot see or hear videos, only their [video] tag\nstickers you do not see yourself are just a name\nan animated built-in sticker only ever shows its name\nyou cannot hear voice messages, only their length\nlinks show their site, title, snippet and address; you cannot open the page\nlinks show their site, title, snippet and address; a link may come with an excerpt of the page, read first-hand\na question you cannot answer may come with a <lookup> block of what was found online\nfiles show only their name, or a short preview for plain text ones\nTimes and ages test line.\nyou see only the channels shown here\n</senses>\n\n<skills_protocol>\nskills: listed in <skills> when relevant or asked for; rights checked by the engine\n</skills_protocol>\n\n<skills_granted>\nskills granted to you, by family:\nlore: list\n</skills_granted>\n\n",
+      "cacheSegment": "stable"
+     },
+     {
+      "type": "text",
+      "text": "<chat>\n=== Sat, October 17 ===\n#1 [11:59] Zoë: καλημέρα\n#2 [11:59] Alice: τι γράφει το lore;\n#3 [12:00] Bot (you) (turn triggered by #2): κοιτάζω [called lore.list: done]\n</chat>\n\n<now>\nSaturday, October 17, 2026, 12:00 (UTC)\n</now>\n\n<senses>\na question about this server's own past may come with a server part in the <lookup> block\n</senses>\n\n<tempo>\nmessages in the last 10 min: 1, last hour: 1, last day: 1\ndistinct people in the last hour: 1\nbefore the message that called you, the channel was silent for: less than a minute\nyou last wrote here: less than a minute ago\nverdict: a slow conversation, people write rarely\n</tempo>\n\n<result skill=\"lore.list\" status=\"ok\">\nskill ok, data:\n(none)\n</result>\n\n<task>\ncontinue this turn after your lore.list call; no new call; skip unless the outcome changes something\n</task>"
+     }
+    ]
+   }
+  ]
+ ],
+ "twoCalls": [
+  [
+   {
+    "role": "system",
+    "content": "Decide whether Bot needs to look something up.\nstatus.show\nconfig.set\nconfig.unset\nbot.pause\nbot.resume\ndraw.create\npings.get\npings.set\nmedia.status\nmedia.rescan\nmedia.recache\nmodel.show\nmodel.set\nroute.list\nroute.set\nroute.remove\nrule.add\nrule.list\nrule.remove\naccess.grant\naccess.revoke\naccess.list\ndiary.set\ndiary.show\ndiary.off\ndiary.post\nalias.add\nalias.remove\nlearning.add\nlearning.remove\nlore.add\nlore.list\nlore.show\nlore.remove\nmemory.profile.read\nmemory.channel.read\nmemory.server.read\nmemory.recent.read\nmemory.refresh.user\nmemory.refresh.channel\nmemory.refresh.server\nmemory.forget\nmemory.affinity.read\nmemory.wipe\nmemory.journal.read\nmemory.archive.read\nmemory.restore\nmemory.snapshot\nmemory.private.read\nmemory.private.forget\nmemory.private.purge\nmessage.create\nmessage.edit\nmessage.delete\nmessage.react.add\nmessage.react.remove\ntask.run\ntask.status\ntask.cancel\ntask.list"
+   },
+   {
+    "role": "user",
+    "content": "<transcript>\n=== Sat, October 17 ===\n#1 [11:59] Zoë: καλημέρα\n</transcript>\n<candidate>\nAlice: δύο πράγματα\n</candidate>"
+   }
+  ],
+  [
+   {
+    "role": "system",
+    "content": "You are a regular member of this chat, not an assistant.\n\nYou are friendly and terse.\n\nUse <msg> and <react> tags."
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "<senses>\npictures not attached to you are just [image] tags, you cannot see them\ngifs you do not see yourself are just [gif] tags\nyou cannot see or hear videos, only their [video] tag\nstickers you do not see yourself are just a name\nan animated built-in sticker only ever shows its name\nyou cannot hear voice messages, only their length\nlinks show their site, title, snippet and address; you cannot open the page\nlinks show their site, title, snippet and address; a link may come with an excerpt of the page, read first-hand\na question you cannot answer may come with a <lookup> block of what was found online\nfiles show only their name, or a short preview for plain text ones\nTimes and ages test line.\nyou see only the channels shown here\n</senses>\n\n<skills_protocol>\nskills: listed in <skills> when relevant or asked for; rights checked by the engine\n</skills_protocol>\n\n<skills_granted>\nskills granted to you, by family:\nlore: list\nmemory: server.read\n</skills_granted>\n\n",
+      "cacheSegment": "stable"
+     },
+     {
+      "type": "text",
+      "text": "<chat>\n=== Sat, October 17 ===\n#1 [11:59] Zoë: καλημέρα\n#2 [11:59] Alice: δύο πράγματα\n</chat>\n\n<now>\nSaturday, October 17, 2026, 12:00 (UTC)\n</now>\n\n<senses>\na question about this server's own past may come with a server part in the <lookup> block\n</senses>\n\n<tempo>\nmessages in the last 10 min: 1, last hour: 1, last day: 1\ndistinct people in the last hour: 1\nbefore the message that called you, the channel was silent for: less than a minute\nverdict: a slow conversation, people write rarely\n</tempo>\n\n<task>\nSomeone called you: Alice.\n</task>"
+     }
+    ]
+   }
+  ],
+  [
+   {
+    "role": "system",
+    "content": "You are a regular member of this chat, not an assistant.\n\nYou are friendly and terse.\n\nUse <msg> and <react> tags."
+   },
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "<senses>\npictures not attached to you are just [image] tags, you cannot see them\ngifs you do not see yourself are just [gif] tags\nyou cannot see or hear videos, only their [video] tag\nstickers you do not see yourself are just a name\nan animated built-in sticker only ever shows its name\nyou cannot hear voice messages, only their length\nlinks show their site, title, snippet and address; you cannot open the page\nlinks show their site, title, snippet and address; a link may come with an excerpt of the page, read first-hand\na question you cannot answer may come with a <lookup> block of what was found online\nfiles show only their name, or a short preview for plain text ones\nTimes and ages test line.\nyou see only the channels shown here\n</senses>\n\n<skills_protocol>\nskills: listed in <skills> when relevant or asked for; rights checked by the engine\n</skills_protocol>\n\n<skills_granted>\nskills granted to you, by family:\nlore: list\nmemory: server.read\n</skills_granted>\n\n",
+      "cacheSegment": "stable"
+     },
+     {
+      "type": "text",
+      "text": "<chat>\n=== Sat, October 17 ===\n#1 [11:59] Zoë: καλημέρα\n#2 [11:59] Alice: δύο πράγματα\n[12:00] Bot (you): [called lore.list: done]\n</chat>\n\n<now>\nSaturday, October 17, 2026, 12:00 (UTC)\n</now>\n\n<senses>\na question about this server's own past may come with a server part in the <lookup> block\n</senses>\n\n<tempo>\nmessages in the last 10 min: 1, last hour: 1, last day: 1\ndistinct people in the last hour: 1\nbefore the message that called you, the channel was silent for: less than a minute\nverdict: a slow conversation, people write rarely\n</tempo>\n\n<result skill=\"lore.list\" status=\"ok\">\nskill ok, data:\n(none)\n</result>\n\n<task>\ncontinue this turn after your lore.list call; no new call; skip unless the outcome changes something\n</task>"
+     }
+    ]
+   }
+  ]
+ ]
+}
