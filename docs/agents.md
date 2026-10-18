@@ -9,6 +9,10 @@ The engine can hand a task to a separate errand agent: a standalone process that
 
 Neither shell runs an interpreter or a command runner (`python`, `node`, `perl`, `sh -c`, `bash -c`, `eval`, `xargs`, `env`).
 
+- The server shell runs `sed` only as `sed -n --sandbox` (sed then refuses its `e`, `r` and `w` commands), like the web shell.
+- The server shell has no `awk` (and `gawk` stays denied); `cut`, `sort`, `grep` and `jq` do the same jobs.
+- Neither shell can read its own environment, where the agent's API key lives: `echo` with any `$` is refused (plain text only), and so is `jq` naming `env` or `$ENV`.
+
 The web agent searches with `web-search <query> [--count N]` (`bin/web-search.mjs`, through `agents/web/bin/web-search` on its PATH): one OpenRouter request with the web plugin on Exa, on the task's key and the lookup's model (`reasoner` for `search-summary`), printing each result's title, URL and snippet; OpenCode's own `websearch` stays hidden, since v1.19.3 shows it only with Exa or Parallel called directly.
 
 Both run one task at a time; further requests queue. Each task has per-task caps (`agents.<profile>.limits`: model steps, estimated USD, wall-clock seconds) and the engine enforces per-day caps (`agents.<profile>.daily`). The USD cap is a soft cap on OpenCode's own cost estimate; the hard spending limit is the credit limit on the runner's OpenRouter key.
@@ -93,7 +97,7 @@ A runner that has restarted answers `end` with `status: "failed", error: "restar
 
 A `run` carries `context.scope`, one of `core`, `dm`, `group` (`src/agent-runner/policy.js`). In `core` nothing is withheld. In `dm` and `group`:
 
-- the `server` agent's file tools deny the content of sensitive paths (`/var/www`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`, the persona's own `data/` and any `.agents/scratch`), and its `bash` denies content commands (`cat`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `sed`, `awk`, `cut`, `sort`, `uniq`, `wc`, `file`, `git`, `cp`, `rg`, `tree`, `jq`, `diff`, `sha256sum`, `md5sum`, `zcat`, `zgrep`, `xxd`, `strings`, `column`, `nl`, `tar`) on any argument naming one of those paths. Listing names (`ls`, `find`, `stat`, `du`, `readlink`, `realpath`) is still allowed. The refusal happens per step: OpenCode refuses that one tool call, the agent sees the refusal and continues, and the result's `withheld` lists the paths it was refused;
+- the `server` agent's file tools deny the content of sensitive paths (`/var/www`, any `.git`/`.local.git`, `.secrets`, `.env`, `.ssh`, `/etc/shadow`, nginx htpasswd, Let's Encrypt, `/etc/neptunia`, `/srv/neptunia-backups`, `config.local.json`, the persona's own `data/` and any `.agents/scratch`), and its `bash` denies content commands (`cat`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `sed`, `cut`, `sort`, `uniq`, `wc`, `file`, `git`, `cp`, `rg`, `tree`, `jq`, `diff`, `sha256sum`, `md5sum`, `zcat`, `zgrep`, `xxd`, `strings`, `column`, `nl`, `tar`) on any argument naming one of those paths. Listing names (`ls`, `find`, `stat`, `du`, `readlink`, `realpath`) is still allowed. The refusal happens per step: OpenCode refuses that one tool call, the agent sees the refusal and continues, and the result's `withheld` lists the paths it was refused;
 - every result the runner returns passes a redaction pass that replaces key-, token- and password-looking strings, private-key blocks, SSH key material and URL credentials with `[redacted]`.
 
 A command that reaches a withheld path despite these rules (a `bash -c`, a pipe into a reader) is caught after the fact: the runner does not keep that output (its progress event says `withheld` and the path), the path joins the result's `withheld`, and the task continues. The agent has seen the output, so the final redaction pass is what keeps a secret out of the answer.
