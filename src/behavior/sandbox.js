@@ -652,9 +652,11 @@ function sandboxChannels(given, view, channel) {
  * hers. `coreTools` (`{ rows, recallAvailable }`, a skill scenario run with her tool loop,
  * features.coreTools) hands in `<skills_tools>` (`rows`) and whether the server search could run
  * (`recallAvailable`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
- * read now and nothing is written.
+ * read now and nothing is written. `preTurn` (`{ lookup, recallAvailable }`, the switch-off
+ * side of tools/replay.mjs --pair-core-tools) hands in what a live turn's search classifier
+ * and searches found before her reply (`<lookup>`) and whether the server search could run.
  * @param {object} input  The inputs of `answerReply` that shape the request (see there), and
- *   `skillsInventory`, `skillsGranted`, `continuation`, `queued`, `taskResult` and `coreTools`
+ *   `skillsInventory`, `skillsGranted`, `continuation`, `queued`, `taskResult`, `coreTools`, `preTurn`
  *   (`answerSkillScenario`'s).
  * @returns {object}
  */
@@ -679,6 +681,7 @@ export function sandboxRequestInput({
   channelDirectory = null,
   taskResult = null,
   coreTools = null,
+  preTurn = null,
 }) {
   const config = view.config;
   const memory = view.memory;
@@ -736,10 +739,12 @@ export function sandboxRequestInput({
     privateChat: null,
     privateProfile: null,
     reads: null,
-    lookup: null,
-    // Absent (SANDBOX_OMITS) but in a skill scenario run with her tool loop (`coreTools`):
-    // whether the replay's server search runner could run now, as a live turn reads it.
-    recallAvailable: coreTools ? coreTools.recallAvailable === true : null,
+    // Absent (SANDBOX_OMITS) but on the switch-off side of tools/replay.mjs --pair-core-tools
+    // (`preTurn`): what the search classifier and its searches found before her turn, as live.
+    lookup: preTurn?.lookup ?? null,
+    // Absent (SANDBOX_OMITS) but in a skill scenario run with her tool loop (`coreTools`) or with
+    // the pre-turn searches (`preTurn`): whether the replay's server search runner could run now.
+    recallAvailable: coreTools ? coreTools.recallAvailable === true : preTurn ? preTurn.recallAvailable === true : null,
     drawQuota: null,
     drawReason: null,
     focus: null,
@@ -1224,6 +1229,7 @@ export async function answerSkillScenario({
   taskResult = null,
   coreTools = null,
   loop = null,
+  preTurn = null,
 }) {
   // The earlier steps' calls on her lines, as a live turn's history carries them (linkCalls).
   const earlier = Array.isArray(callMarks) && view.config.features?.callMarkers !== false ? callMarks : [];
@@ -1231,6 +1237,7 @@ export async function answerSkillScenario({
   const requestArgs = {
     view, situation: moment, selfId, selfName, channel, at, descriptions, videos, customEmoji, gifs, mediaCache, elsewhereDestination, searchAvailable, skillsInventory, skillsGranted, queued, channelDirectory, taskResult,
     ...(coreTools ? { coreTools } : {}),
+    ...(preTurn ? { preTurn } : {}),
   };
   const built = sandboxMessages(requestArgs, runs);
   const { request, messages, systemMessage, userMessage, userText } = built;

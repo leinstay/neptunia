@@ -171,20 +171,27 @@
 // tool's own usage, the calls dropped and why, her answer, the request's size, latency,
 // tokens and cost; then the turn's calls, errands, messages, final messages, latency and
 // cost (loopRecord); report.md shows per run the calls in order, the final messages, the
-// total latency and cost, then each step. The estimate per decision is loopRequestEstimate.
+// total latency and cost, then each step. The estimate per decision is loopRequestEstimate (an
+// expected count, not a bound: the run stops once the reported cost reaches --spend).
 // `--dry` adds whether `<skills_tools>` is in the first request and the loop's bounds.
 //
 // `--pair-core-tools`: the same triggers (`--triggers <file>`, as `--pair` reads it, or one as
 // positionals) answered twice over the same fetched chat, memory (`--snapshot`,
 // `--as-of-moment`) and clock (the trigger's moment), once with features.coreTools off (A)
 // and once on (B), under the live grants, each as a skill-scenario turn of the sandbox
-// (runPairCoreTools): A's calls answered canned with the one follow-up, B's through the tool
-// loop above; no errand is dispatched in either. Written to `--out` (default
+// (runPairCoreTools). A is what a live switch-off turn builds today: the search classifier
+// asked before her reply (preTurnLookup: its web search on the simulator key, its server search
+// read only, its `skills:` line naming her `<skills>`), the `<lookup>` it found in her request,
+// her calls answered canned with the one follow-up. B goes through the tool loop above. No
+// errand is dispatched in either. Written to `--out` (default
 // ./replay-pair-core-tools-<time>/, refused when it exists and is not empty) as `--pair`
 // writes it: `sheet.html` (every message of each side's turn, blind and in a random order) and
 // `key.json` (`a`/`b` name the sides; per pair `first`, the trigger, both answers with the
 // calls, and `runs`: per side the first request's estimated tokens, the reported tokens and
-// cost, the latency, the calls and the whole run record), which tools/replay-score.mjs tallies.
+// cost -- A's pre-turn requests included --, the latency, the calls, `blocks` (which of
+// `<lookup>`, `<skills>`, `<skills_tools>`, `<skills_granted>` and the search and recall senses
+// lines its request held), A's `preTurn` (what the classifier asked for, which search ran and
+// found) and the whole run record), which tools/replay-score.mjs tallies.
 //
 // `--prompts <dir>`: every scenario answered with `<dir>` laid over a copy of
 // the live prompts.local/ (a file of the same name replaces the private one,
@@ -2406,17 +2413,25 @@ export function skillRequestEstimate(scenarios, { perDecision = SKILL_REQUESTS_P
   return scenarios.reduce((total, scenario) => total + perDecision * scenario.runs * decisions(scenario), 0);
 }
 
+/** What a decision with her tool loop is expected to send beyond her reply: one follow-up step, one call before it. */
+const EXPECTED_LOOP_STEPS = 1;
+const EXPECTED_CALLS_PER_STEP = 1;
+/** What the switch-off side of --pair-core-tools is expected to send: the search classifier, one search's summary, her reply. */
+const PRE_TURN_REQUESTS = 2;
+
 /**
- * The model requests one decision may send at most with her tool loop (features.coreTools), under
- * `settings` (src/behavior/turn.js#loopSettings's): her reply and `maxSteps` follow-ups, and one
- * request per call of every answer that may still call (`maxSteps` answers of up to
- * `maxCallsPerStep` calls: a web search's summary; a memory search sends none). The `perDecision`
- * of skillRequestEstimate under `--core-tools`. Pure.
+ * The model requests one decision with her tool loop (features.coreTools) is expected to send --
+ * a realistic estimate, not a bound: the run stops on what the provider reports spent (`--spend`
+ * is a hard cap), so `--spend` can be about the real cost with a margin. Her reply, the expected
+ * follow-up steps (EXPECTED_LOOP_STEPS, at most `settings.maxSteps`) and a request per expected
+ * call before each (a web search's summary; a memory search sends none). The `perDecision` of
+ * skillRequestEstimate under the loop. Pure.
  * @param {{ maxSteps: number, maxCallsPerStep: number }} settings
  * @returns {number}
  */
 export function loopRequestEstimate(settings) {
-  return 1 + settings.maxSteps + settings.maxSteps * settings.maxCallsPerStep;
+  const steps = Math.min(EXPECTED_LOOP_STEPS, settings.maxSteps);
+  return 1 + steps + steps * Math.min(EXPECTED_CALLS_PER_STEP, settings.maxCallsPerStep);
 }
 
 /**
@@ -2656,6 +2671,12 @@ export function createReplayTools({ hot, store, guild, guildId, channel, selfId,
     return { usage, client };
   };
   return {
+    // The lookup and the recall runner over the same private copies, on one metered client: the
+    // searches a live switch-off turn runs before her reply (preTurnLookup).
+    searchers() {
+      const { usage, client } = metered();
+      return { lookup: createLookup({ hot, store: webStore, llm: client, state: webState, searches, keys }), recall: recallOf(client), client, usage };
+    },
     recallAvailable: () => {
       try {
         return recallOf(llm).available() === true;
@@ -3608,6 +3629,105 @@ async function runSkills({ args, scenarios, root, liveData, dataDir, mods, hot, 
   };
 }
 
+/** The trigger kinds a failed search classifier falls back on (src/behavior/turn.js#DIRECT_CALLS). */
+const DIRECT_CALL_KINDS = Object.freeze(['mention', 'reply', 'name', 'followUp', 'private']);
+
+/**
+ * What a live turn with features.coreTools off runs before her reply (src/behavior/turn.js#maybeLookup,
+ * the classifier path; the turn planner's is not reproduced): the search classifier -- prompts.lookup
+ * with `{{name}}`, `{{today}}` (`at`'s day in `bot.timezone`) and `{{skills}}` (`discovery.index`), the
+ * user part lookupClassifierInput builds, on the `reasoner` (roleModel, helperRequestOptions, purpose
+ * `lookup`) -- asked when its prompt is there and a side can run: the web side under
+ * features.webLookup, web.search.enabled, `web.search.maxPerTurn` >= 1, the lookup's search and its
+ * daily slots; the server side when the recall runner is available. Its answer (parseLookupAnswer) runs
+ * a `web` query through `lookup.search` and a `server` part through `recall.run` (the chat as
+ * history, the trigger as candidate), in parallel, a failing part counting as nothing; a failed or
+ * empty answer on a direct call falls back to the server search on the question's own words
+ * (fallbackLookupPlan, recall.fallbackOnClassifierFailure). Resolves `{ lookup, skills, recallAvailable,
+ * trace }`: `lookup` the request's input as the live turn hands it to buildRequest (the web result,
+ * `server` when the server search found text or a stretch; null when nothing), `skills` the answer's
+ * `skills:` line (null for none), `trace` what happened (asked, error, the web query and the server
+ * part asked for, which ran and found). Never throws for a failed part.
+ */
+export async function preTurnLookup({ config, prompts, llm, lookup, recall, discovery, guild, guildId, channel, selfId, selfName, history, trigger, triggerKind, descriptions, videos, at, store, deps }) {
+  const { lookupClassifierInput, fillPromptTemplate, zonedDay, roleModel, helperRequestOptions, parseLookupAnswer, recallSettings, fallbackLookupPlan } = deps;
+  const searchCfg = config.web?.search ?? {};
+  const webOn = config.features?.webLookup === true && searchCfg.enabled !== false && typeof lookup?.search === 'function';
+  const webCan = webOn && (searchCfg.maxPerTurn ?? 1) >= 1 && (typeof lookup.hasSearch !== 'function' || lookup.hasSearch()) && (typeof lookup.webCapLeft !== 'function' || lookup.webCapLeft() > 0);
+  let serverOn = false;
+  try {
+    serverOn = typeof recall?.available === 'function' ? recall.available() === true : Boolean(recall);
+  } catch {
+    serverOn = false;
+  }
+  const trace = { asked: false, error: null, web: null, server: null, webRan: false, webFound: false, serverRan: false, serverFound: false, fallback: false };
+  const done = (found, skills = null) => ({ lookup: found, skills, recallAvailable: serverOn, trace });
+  const prompt = prompts?.lookup;
+  if (!prompt || (!webCan && !serverOn)) return done(null);
+  const { triggerText, user } = lookupClassifierInput({ config, labels: prompts.labels, selfName, history, trigger, descriptions, videos, reads: undefined });
+  const timezone = config.bot?.timezone;
+  trace.asked = true;
+  let parsed = null;
+  try {
+    const completion = await llm.complete(
+      [
+        { role: 'system', content: fillPromptTemplate(prompt, { today: zonedDay(at, timezone), name: selfName ?? '', skills: discovery.index }) },
+        { role: 'user', content: user },
+      ],
+      { model: roleModel(config, 'reasoner', 'lookup'), ...helperRequestOptions(config, { role: 'reasoner', maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000, purpose: 'lookup' }) },
+    );
+    if (String(completion?.text ?? '').trim()) parsed = parseLookupAnswer(completion.text, { timezone, now: at, maxForms: recallSettings(config)?.maxForms, skillNames: discovery.names });
+    else trace.error = 'empty';
+  } catch (err) {
+    trace.error = err?.name ?? 'classifier-failed';
+  }
+  let web = parsed?.web ?? null;
+  let server = parsed?.server ?? null;
+  if (!parsed) {
+    // The failed classifier's fallback: on a direct call, the server search on the question's own words.
+    const settings = recallSettings(config);
+    const plan = serverOn && DIRECT_CALL_KINDS.includes(triggerKind) && settings?.fallbackOnClassifierFailure
+      ? fallbackLookupPlan({ text: triggerText, profiles: store.listUserProfiles?.(guildId) ?? [], selfId, selfName, maxForms: settings.maxForms })
+      : null;
+    if (!plan) return done(null);
+    trace.fallback = true;
+    web = null;
+    server = plan;
+  }
+  trace.web = web;
+  trace.server = server;
+  const runWeb = webCan && Boolean(web);
+  const runServer = serverOn && Boolean(server);
+  trace.webRan = runWeb;
+  trace.serverRan = runServer;
+  const settle = (work) => Promise.resolve().then(work).catch(() => null);
+  const [webResult, found] = await Promise.all([
+    runWeb ? settle(() => lookup.search(guildId, web)) : null,
+    runServer ? settle(() => recall.run({ guild, guildId, channel, selfId, selfName, history, context: history, contextDescriptions: descriptions, candidate: trigger, server })) : null,
+  ]);
+  trace.webFound = Boolean(webResult?.text);
+  const serverPart = found && (found.text || found.stretch) ? { text: found.text ?? null, stretch: found.stretch ?? null, people: Array.isArray(found.people) ? found.people : [] } : null;
+  trace.serverFound = Boolean(serverPart);
+  const result = serverPart ? { ...(webResult ?? {}), server: serverPart } : (webResult ?? null);
+  return done(result, parsed?.skills ?? null);
+}
+
+/** Which of the turn-shaping blocks and lines a request's user text holds (the key of --pair-core-tools). */
+export function requestBlocks(user, labels) {
+  const has = (tag) => blockOf(user, tag) !== null;
+  const line = (text) => typeof text === 'string' && text !== '' && String(user ?? '').includes(text);
+  return {
+    lookup: has('lookup'),
+    skills: has('skills'),
+    skillsTools: has('skills_tools'),
+    skillsGranted: has('skills_granted'),
+    searchLine: line(labels?.senses?.search),
+    searchToolLine: line(labels?.senses?.searchTool),
+    recallLine: line(labels?.senses?.recall),
+    recallToolLine: line(labels?.senses?.recallTool),
+  };
+}
+
 /** The two sides of `--pair-core-tools`: features.coreTools off (A) and on (B). */
 const CORE_TOOLS_SIDES = Object.freeze({ A: false, B: true });
 
@@ -3653,7 +3773,7 @@ export function pairAnswerOf(record) {
  * (what the provider reports spent, else USD_PER_ANSWER per request). Returns `{ code, result }`.
  */
 async function runPairCoreTools({ args, root, liveData, pairTriggers, rng, hot, store, guild, guildId, client, self, llm, calibrator, mediaCache, gifs, customEmoji, searchAvailable, channelDirectory, signal, budget, mods, loopDeps, viewMods, momentOf, journalOf, channelOf, dataDir, log }) {
-  const { answerSkillScenario, simulateCall, callViewOf, requesterOf, skillRegistry, grantedSkillNames, createImageGen, createTaskStore, replayMedia, momentMode, momentKind, isSpontaneous } = mods;
+  const { answerSkillScenario, simulateCall, callViewOf, requesterOf, skillRegistry, grantedSkillNames, createImageGen, createTaskStore, replayMedia, momentMode, momentKind, isSpontaneous, scenarioInventory, situationHistory } = mods;
   const registry = skillRegistry();
   const outDir = path.resolve(root, args.outDir ?? `replay-pair-core-tools-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   if (outDir === liveData || outDir.startsWith(`${liveData}${path.sep}`)) throw new CliError('replay-cli: --out may not be under data/');
@@ -3714,7 +3834,24 @@ async function runPairCoreTools({ args, root, liveData, pairTriggers, rng, hot, 
           view: callViewOf({ channel, guildId, idByIndex, lines, pulledIds: new Map(), memoryOn: config.features?.memory !== false, store, selfId: self.id, skills: registry, channelHandles }),
           config, selfId: self.id, requester, conversationId: channel.id, now: at, images, tasks, resultText: '',
         });
-      const tools = on ? loopDeps.toolsFor({ hot: hotLike, channel, llm: capped }) : null;
+      const tools = loopDeps.toolsFor({ hot: hotLike, channel, llm: capped });
+      // The switch off: what the live turn runs before her reply -- the search classifier, its web
+      // search and server search (preTurnLookup over private copies), its `skills:` line -- handed in.
+      let offInput = {};
+      let preTurn = null;
+      const preStarted = Date.now();
+      if (!on) {
+        const searchers = tools.searchers();
+        const found = await preTurnLookup({
+          config, prompts: hot.prompts, llm: searchers.client, lookup: searchers.lookup, recall: searchers.recall,
+          discovery: loopDeps.discoveryOf(config, registry, hot.prompts?.skills), guild, guildId, channel, selfId: self.id, selfName: self.name,
+          history, trigger: triggerLine, triggerKind: situationHistory(situation).triggerKind, descriptions: media.descriptions, videos: media.videos, at, store, deps: loopDeps.preTurnDeps,
+        });
+        const discovery = found.skills ? (found.skills.inventory === true ? 'inventory' : Array.isArray(found.skills.names) && found.skills.names.length > 0 ? found.skills.names : 'none') : 'none';
+        const inventory = scenarioInventory({ config, selfId: self.id, texts: hot.prompts?.skills, requester, conversationId: channel.id, registry, discovery });
+        offInput = { preTurn: { lookup: found.lookup, recallAvailable: found.recallAvailable }, ...(inventory ? { skillsInventory: inventory } : {}) };
+        preTurn = { ...found.trace, skills: found.skills ?? null, usage: searchers.usage, ms: Date.now() - preStarted };
+      }
       const loopInput = on
         ? {
             coreTools: { rows: loopDeps.coreToolRows({ config, selfId: self.id, registry, texts: hot.prompts?.skills }), recallAvailable: tools.recallAvailable() },
@@ -3729,13 +3866,24 @@ async function runPairCoreTools({ args, root, liveData, pairTriggers, rng, hot, 
         const answered = await answerSkillScenario({
           view, situation, selfId: self.id, selfName: self.name, channel: channelOf(channel), llm: capped, runs: 1, at, signal: stop.signal,
           descriptions: media.descriptions, videos: media.videos, customEmoji, gifs, mediaCache, searchAvailable, channelDirectory,
-          skillsGranted: grantedSkillNames({ config, selfId: self.id, registry }), onCall, ...loopInput,
+          skillsGranted: grantedSkillNames({ config, selfId: self.id, registry }), onCall, ...loopInput, ...offInput,
         });
         const run = answered.runs[0] ?? null;
         if (!run) throw new Error(answered.stopped ? 'stopped' : 'no answer');
         const record = runRecord(id, 0, run);
         answers[side] = pairAnswerOf(record);
-        runs[side] = { requestTokens: answered.request.tokens, tokens: record.tokens, cost: record.cost, ms: record.loop?.ms ?? Date.now() - started, calls: answers[side].calls, record };
+        // The pre-turn searches' own requests count for the switch-off side's tokens and cost.
+        const pre = preTurn?.usage ?? null;
+        runs[side] = {
+          requestTokens: answered.request.tokens,
+          tokens: pre ? { prompt: record.tokens.prompt + pre.tokens.prompt, completion: record.tokens.completion + pre.tokens.completion } : record.tokens,
+          cost: pre ? addCost(record.cost, pre.cost) : record.cost,
+          ms: on ? (record.loop?.ms ?? Date.now() - started) : Date.now() - preStarted,
+          calls: answers[side].calls,
+          blocks: requestBlocks(answered.request.user, hot.prompts?.labels),
+          ...(preTurn ? { preTurn } : {}),
+          record,
+        };
       } catch (err) {
         answers[side] = null;
         failed.push({ id, side, error: err instanceof CliError ? err.message : `${err?.name ?? 'Error'}` });
@@ -3785,12 +3933,24 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
   const { createDiscordInterface } = await load('interface/discord.js');
   const { runWebSearch, runMemorySearch, IN_TURN_TOOLS } = await load('skills/tools.js');
   const { needsFollowUp } = await load('skills/executors.js');
-  const { coreToolRows } = await load('skills/discovery.js');
+  const { coreToolRows, skillsIndex, discoveryOn } = await load('skills/discovery.js');
+  // The switch-off side of --pair-core-tools: the search classifier's path before her reply (preTurnLookup).
+  const { fillPromptTemplate } = await load('behavior/prompt.js');
+  const { parseLookupAnswer, recallSettings } = await load('behavior/recall.js');
+  const { zonedDay } = await load('time.js');
+  const { roleModel } = await load('llm/roles.js');
+  const { helperRequestOptions } = await load('llm/openrouter.js');
+  const preTurnDeps = {
+    lookupClassifierInput: turnMod.lookupClassifierInput, fallbackLookupPlan: turnMod.fallbackLookupPlan, fillPromptTemplate, zonedDay, roleModel, helperRequestOptions, parseLookupAnswer, recallSettings,
+  };
   const { createAppendStore } = await load('memory/append-store.js');
   const { createRecord } = await load('memory/record.js');
   const { createArchive } = await load('memory/archive.js');
   const { createVectors } = await load('memory/vectors.js');
-  const fns = { createLookup, createBraveSearch, createExaSearch, createRecall, createDescriber, createDiscordInterface, runWebSearch, runMemorySearch, needsFollowUp, coreToolRows, createAppendStore, createRecord, createArchive, createVectors };
+  const fns = {
+    createLookup, createBraveSearch, createExaSearch, createRecall, createDescriber, createDiscordInterface, runWebSearch, runMemorySearch, needsFollowUp, coreToolRows, createAppendStore, createRecord, createArchive, createVectors,
+    skillsIndex, discoveryOn, ...preTurnDeps,
+  };
   for (const [name, fn] of Object.entries(fns)) if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (the tool loop needs it)`);
   if (!Array.isArray(IN_TURN_TOOLS)) throw new CliError('replay-cli: the engine has no IN_TURN_TOOLS (the tool loop needs it)');
   // Iteration only: the append stores never get an append, so they never open a file for writing.
@@ -3819,6 +3979,14 @@ async function loopDepsOf({ load, hot, store, guild, guildId, self, dataDir, med
     needsFollowUp,
     coreToolRows,
     loopSettings: turnMod.loopSettings,
+    preTurnDeps,
+    // The search classifier's `{{skills}}` and the names its `skills:` line may give (src/behavior/turn.js#discoveryPrompt):
+    // the registry without her in-turn tools, never offered to a classifier.
+    discoveryOf: (config, registry, texts) => {
+      if (!discoveryOn(config)) return { index: '', names: [] };
+      const offered = new Map([...registry].filter(([name]) => !IN_TURN_TOOLS.includes(name)));
+      return { index: skillsIndex(offered, texts), names: [...offered.keys()] };
+    },
     toolsFor: ({ hot: sideHot, channel, llm }) =>
       createReplayTools({
         hot: sideHot, store, guild, guildId, channel, selfId: self.id, selfName: self.name, llm, createLookup, createRecall, runWebSearch, runMemorySearch,
@@ -3889,7 +4057,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       : args.diary
         ? DIARY_REQUESTS_PER_BRIEF * args.count
         : args.pairCoreTools
-          ? (SKILL_REQUESTS_PER_RUN + perDecision) * pairTriggers.length
+          ? (PRE_TURN_REQUESTS + 1 + perDecision) * pairTriggers.length
           : args.pair
             ? 2 * pairTriggers.length
             : args.recall
@@ -3897,9 +4065,9 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
               : scenarios
                 ? skillRequestEstimate(scenarios, { perDecision }) * (args.pairPrompts ? PAIR_SIDES.length : 1)
                 : args.samples;
-    const loopDetail = loopBounds ? `with her tool loop up to ${perDecision} (her reply, ${loopBounds.maxSteps} follow-ups, a web search's summary per call)` : `up to ${SKILL_REQUESTS_PER_RUN}`;
+    const loopDetail = loopBounds ? `with her tool loop ~${perDecision} expected (her reply, a follow-up, a web search's summary; the run stops at --spend on reported cost)` : `up to ${SKILL_REQUESTS_PER_RUN}`;
     const skillDetail = `, ${loopDetail} per decision (a run, or each turn of each step of a run)${loopBounds ? '' : ': her answer and the follow-up after a call'}${args.pairPrompts ? ', under both prompt layers' : ''}`;
-    const pairDetail = `, per trigger ${SKILL_REQUESTS_PER_RUN} with features.coreTools off and ${loopDetail} with it on`;
+    const pairDetail = `, per trigger ~${PRE_TURN_REQUESTS + 1} with features.coreTools off (the search classifier, a search's summary, her reply) and ${loopDetail} with it on`;
     const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? skillDetail : ''}${args.pairCoreTools ? pairDetail : ''}`;
     const gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail });
     if (!gate.ok) {
@@ -4018,7 +4186,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
       // Only a scenario that seeds a line of hers needs it.
       ...(scenarios?.some((scenario) => scenario.steps?.some((step) => step.messages.some((message) => message.self === true))) ? { seededSelfLine } : {}),
       // --pair-core-tools reads the recorded turn's mode and kind as --pair does.
-      ...(args.pairCoreTools ? { momentMode, momentKind, isSpontaneous } : {}),
+      ...(args.pairCoreTools ? { momentMode, momentKind, isSpontaneous, situationHistory } : {}),
     };
     for (const [name, fn] of Object.entries(skillMods)) {
       if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--skills needs it)`);

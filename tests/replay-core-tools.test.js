@@ -12,11 +12,16 @@ import { skillRegistry } from '../src/skills/registry.js';
 import { coreToolRows } from '../src/skills/discovery.js';
 import { IN_TURN_TOOLS, runMemorySearch, runWebSearch } from '../src/skills/tools.js';
 import { needsFollowUp } from '../src/skills/executors.js';
-import { callViewOf, loopSettings, requesterOf } from '../src/behavior/turn.js';
+import { callViewOf, fallbackLookupPlan, loopSettings, lookupClassifierInput, requesterOf } from '../src/behavior/turn.js';
 import { fill } from '../src/format.js';
+import { fillPromptTemplate } from '../src/behavior/prompt.js';
+import { parseLookupAnswer, recallSettings } from '../src/behavior/recall.js';
+import { zonedDay } from '../src/time.js';
+import { roleModel } from '../src/llm/roles.js';
+import { helperRequestOptions } from '../src/llm/openrouter.js';
 import { afterScenarioTurn, answerSkillScenario, liveView, personaGrantsConfig, simulateCall } from '../src/behavior/sandbox.js';
 import {
-  createReplayTools, loopCall, loopRecord, loopRequestEstimate, pairAnswerOf, parseArgs, parseScenarios, renderSkillsReport, runRecord, scenarioSummary,
+  createReplayTools, loopCall, loopRecord, loopRequestEstimate, pairAnswerOf, parseArgs, parseScenarios, preTurnLookup, renderSkillsReport, requestBlocks, runRecord, scenarioSummary,
   scenarioTrigger, skillRequestEstimate, withCoreTools,
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
@@ -30,7 +35,7 @@ const TOOLS = ['web.search', 'memory.search', 'task.run'];
 
 /** The config of a scenario with her tools granted and the switch on; `loop` its bounds. */
 function toolConfig({ loop = { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 }, features = {} } = {}) {
-  return personaGrantsConfig(withCoreTools({
+  const base = withCoreTools({
     bot: { owners: [OWNER], timezone: 'UTC', access: {} },
     context: {
       channelMessages: 100, maxMessageChars: 800, gapMarkerMinutes: 20, otherProfiles: 6,
@@ -40,8 +45,10 @@ function toolConfig({ loop = { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep
     models: { base: { voice: 'x/chat' } },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     skills: { safeMode: false, loop },
-    features: { skills: true, followUpContinuation: true, webLookup: true, ...features },
-  }), SELF, TOOLS);
+    features: { skills: true, followUpContinuation: true, webLookup: true },
+  });
+  // A test's own switches last: `coreTools: false` turns the switch off again.
+  return personaGrantsConfig({ ...base, features: { ...base.features, ...features } }, SELF, TOOLS);
 }
 
 /** A discord.js-like channel γενικά in a guild, nobody's roles cached. */
@@ -137,8 +144,9 @@ test('replay --core-tools: the flag goes with --skills only; --pair-core-tools t
   assert.throws(() => parseArgs(['--pair-core-tools', '--triggers', 't.txt', '--split']), /usage/);
 });
 
-test('loopRequestEstimate: her reply, every follow-up and a request per call that may run; the per-decision count of skillRequestEstimate', () => {
-  assert.equal(loopRequestEstimate({ maxSteps: 3, maxCallsPerStep: 4 }), 1 + 3 + 12);
+test('loopRequestEstimate: the expected requests -- her reply, one follow-up, one search before it --, not the bound; the per-decision count of skillRequestEstimate', () => {
+  assert.equal(loopRequestEstimate({ maxSteps: 3, maxCallsPerStep: 4 }), 3);
+  assert.equal(loopRequestEstimate({ maxSteps: 1, maxCallsPerStep: 1 }), 3);
   const scenarios = parseScenarios(JSON.stringify([{ id: 'a', channelId: HERE, author: OWNER, text: 'Γεια', grants: [], runs: 2 }]));
   assert.equal(skillRequestEstimate(scenarios), 4);
   assert.equal(skillRequestEstimate(scenarios, { perDecision: 16 }), 32);
@@ -307,4 +315,80 @@ test('pairAnswerOf: the sheet shows every message of a side\'s turn; the key kee
   const silent = runRecord('p2', 0, { answer: { messages: [], reactions: [], gif: null, draw: null, skip: true, think: '' }, call: null, callError: null, extraCalls: 0, usage: null, outcome: null, followUp: null });
   assert.equal(pairAnswerOf(silent).skip, true);
   assert.equal(pairAnswerOf(null), null);
+});
+
+// ---- the switch-off side of --pair-core-tools: the search classifier before her reply ----
+
+const PRE_DEPS = { lookupClassifierInput, fallbackLookupPlan, fillPromptTemplate, zonedDay, roleModel, helperRequestOptions, parseLookupAnswer, recallSettings };
+
+/** One pre-turn path over fakes: the classifier answers `answer` (or throws), the searches answer as given. */
+async function preTurn({ answer, web = { query: 'τελικός', text: 'Η Ana κέρδισε.', sources: [] }, found = { text: 'Είπε ναι.', stretch: null, people: [] }, kind = 'mention', recallOn = true, features = {} } = {}) {
+  const config = toolConfig({ features: { coreTools: false, recall: true, ...features } });
+  const here = { id: HERE, name: 'γενικά' };
+  const trigger = scenarioTrigger({ text: 'Ποιος κέρδισε τον τελικό;', authorId: OWNER, authorName: 'Élodie', channel: here, selfId: SELF, at: NOW });
+  const requests = [];
+  const ran = { web: [], server: [] };
+  const llm = {
+    complete: async (messages, options) => {
+      requests.push({ messages, options });
+      if (answer instanceof Error) throw answer;
+      return { text: answer, usage: { prompt_tokens: 30, completion_tokens: 3 } };
+    },
+  };
+  const lookup = { hasSearch: () => true, webCapLeft: () => 3, search: async (guildId, query) => { ran.web.push(query); return web; } };
+  const recall = { available: () => recallOn, run: async (input) => { ran.server.push(input.server); return found; } };
+  const out = await preTurnLookup({
+    config, prompts: { lookup: 'LOOKUP {{name}} {{today}} {{skills}}', labels }, llm, lookup, recall, discovery: { index: 'SKILLS-INDEX', names: ['rule.add'] },
+    guild: {}, guildId: GUILD, channel: fakeChannel(), selfId: SELF, selfName: 'Persona', history: [trigger], trigger, triggerKind: kind, at: NOW,
+    store: { listUserProfiles: () => [] }, deps: PRE_DEPS,
+  });
+  return { out, requests, ran };
+}
+
+test('preTurnLookup: the live classifier request; its web and server parts run and come back as the request\'s <lookup>; its skills: line is handed on', async () => {
+  const { out, requests, ran } = await preTurn({ answer: 'web: τελικός 2026\nserver: τελικός\nskills: inventory' });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.purpose, 'lookup');
+  assert.ok(requests[0].messages[0].content.includes('SKILLS-INDEX') && requests[0].messages[0].content.includes('Persona'));
+  assert.ok(requests[0].messages[1].content.includes('<candidate>\nÉlodie: Ποιος κέρδισε τον τελικό;'));
+  assert.deepEqual(ran.web, ['τελικός 2026']);
+  assert.equal(ran.server.length, 1);
+  assert.deepEqual([out.lookup.text, out.lookup.server.text], ['Η Ana κέρδισε.', 'Είπε ναι.']);
+  assert.equal(out.skills.inventory, true);
+  assert.equal(out.recallAvailable, true);
+  assert.deepEqual([out.trace.asked, out.trace.webRan, out.trace.webFound, out.trace.serverRan, out.trace.serverFound], [true, true, true, true, true]);
+});
+
+test('preTurnLookup: none runs nothing; a failed classifier on a direct call falls back to the server search only; with no side able to run it is not asked', async () => {
+  const none = await preTurn({ answer: 'none' });
+  assert.equal(none.out.lookup, null);
+  assert.deepEqual([none.ran.web.length, none.ran.server.length], [0, 0]);
+  const failed = await preTurn({ answer: new Error('boom'), features: {} });
+  const fallbackOn = recallSettings(toolConfig({ features: { recall: true } }))?.fallbackOnClassifierFailure === true;
+  assert.equal(failed.out.trace.fallback, fallbackOn);
+  assert.equal(failed.ran.web.length, 0, 'never the web side');
+  const closed = await preTurn({ answer: 'web: x', recallOn: false, features: { webLookup: false } });
+  assert.deepEqual([closed.requests.length, closed.out.trace.asked, closed.out.lookup], [0, false, null]);
+});
+
+test('the switch-off side: <lookup> and the recall senses line reach her request; requestBlocks names what each side held', async () => {
+  const config = toolConfig({ features: { coreTools: false, recall: true } });
+  const hot = { config, prompts: { 'system-prompt': 'SYSTEM', 'character-card': 'CARD', format: 'FORMAT', reply: 'REPLY {{author}}', labels } };
+  const store = { getGuild: () => ({}), getUser: () => null, listChannels: () => [], listUserProfiles: () => [], getLore: () => [], state: { data: {} } };
+  const view = liveView({ hot, store, guildId: 'g1' });
+  const here = { id: HERE, name: 'γενικά' };
+  const trigger = scenarioTrigger({ text: 'Ποιος κέρδισε;', authorId: OWNER, authorName: 'Élodie', channel: here, selfId: SELF, at: NOW });
+  const situation = { history: [trigger], triggerId: trigger.id, kind: 'mention', mode: 'reply' };
+  const llm = scriptedLlm(['<msg>η Ana</msg>']);
+  const answered = await answerSkillScenario({
+    view, situation, selfId: SELF, selfName: 'Persona', channel: here, llm, runs: 1, at: NOW, skillsGranted: TOOLS, searchAvailable: true,
+    preTurn: { lookup: { query: 'τελικός', text: 'Η Ana κέρδισε.', sources: [] }, recallAvailable: true },
+  });
+  const off = requestBlocks(answered.request.user, labels);
+  assert.equal(off.lookup, true);
+  assert.ok(answered.request.user.includes('Η Ana κέρδισε.'));
+  assert.deepEqual([off.recallLine, off.skillsTools, off.recallToolLine], [true, false, false]);
+  const { llm: onLlm } = await loopRun(['<msg>ok</msg>'], { tool: () => okTool('x') });
+  const on = requestBlocks(userOf(onLlm.calls[0]), labels);
+  assert.deepEqual([on.lookup, on.skillsTools, on.recallToolLine, on.recallLine], [false, true, true, false]);
 });
