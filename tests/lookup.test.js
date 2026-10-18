@@ -36,7 +36,7 @@ function fakeHot({ features = {}, web = {}, config = {}, prompts = {} } = {}) {
     config: {
       features: { webLookup: true, ...features },
       llm: { timeoutMs: 300_000 },
-      roles: { analyzer: 'x/text', reasoner: 'x/reason', vision: 'x/media' },
+      models: { base: { analyzer: 'x/text', reasoner: 'x/reason', vision: 'x/media' } },
       media: { cacheEntries: 100, video: { sites: ['youtube.com', 'youtu.be'] } },
       web: {
         maxPerDay: 60,

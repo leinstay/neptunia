@@ -24,7 +24,7 @@ const ENV = { BRAVE_SEARCH_API_KEY: 'brave-test-key' };
 function hotFixture() {
   return {
     config: {
-      roles: { reasoner: 'test/reasoner' },
+      models: { base: { reasoner: 'test/reasoner' } },
       llm: { helperTimeoutMs: 9000 },
       web: { maxPerDay: 0, search: { engine: 'brave', fallback: ['exa'], results: 5, summaryChars: 900, maxOutputTokens: 400, timeoutMs: 7000, cacheHours: 24 } },
     },

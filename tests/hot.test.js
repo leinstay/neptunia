@@ -474,7 +474,7 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
 });
 
 test('createHot: a config.local.json under the old model keys is read under the new ones, with one warning naming the keys, never the values', async () => {
-  const dir = makeRoot({ config: { roles: { analyzer: 'x/default' } } });
+  const dir = makeRoot({ config: { models: { base: { analyzer: 'x/default' } } } });
   const localFile = path.join(dir, 'config.local.json');
   fs.writeFileSync(localFile, JSON.stringify({ classifier: { text: 'x/old-text' }, llm: { cache: { roles: ['voice', 'classifier.text'] } } }));
   const warned = (logs) => logs.filter((entry) => entry.msg === 'config: old model keys read under their new names');
@@ -483,46 +483,47 @@ test('createHot: a config.local.json under the old model keys is read under the 
     const started = await withCapturedLogs(() => {
       hot = createHot({ rootDir: dir });
     });
-    assert.equal(hot.config.roles.analyzer, 'x/old-text');
+    assert.equal(hot.config.models.base.analyzer, 'x/old-text');
     assert.deepEqual(hot.config.llm.cache.roles, ['voice', 'analyzer']);
     assert.equal(hot.config.classifier, undefined);
     assert.equal(warned(started.logs).length, 1);
     assert.equal(warned(started.logs)[0].level, 'warn');
     assert.deepEqual(warned(started.logs)[0].keys, [
-      { key: 'classifier.text', use: 'roles.analyzer' },
+      { key: 'classifier.text', use: 'models.base.analyzer' },
       { key: 'llm.cache.roles: classifier.text', use: 'analyzer' },
     ]);
     assert.ok(!JSON.stringify(started.logs).includes('x/old-text'), 'the key, never its value');
 
     const reloads = await withCapturedLogs(() => {
       hot.reloadConfig(); // the same keys: no second warning
-      fs.writeFileSync(localFile, JSON.stringify({ roles: { analyzer: 'x/new-text' } }));
+      fs.writeFileSync(localFile, JSON.stringify({ models: { base: { analyzer: 'x/new-text' } } }));
       hot.reloadConfig(); // none left: quiet
     });
     assert.equal(warned(reloads.logs).length, 0);
-    assert.equal(hot.config.roles.analyzer, 'x/new-text');
+    assert.equal(hot.config.models.base.analyzer, 'x/new-text');
   } finally {
     hot?.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('createHot: an agent role under its old name is read under the dotted one, with one `config: role renamed` line', async () => {
-  const dir = makeRoot({ config: { roles: { 'agent.web': 'openrouter/x/default' } } });
-  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ roles: { agentWeb: 'openrouter/x/old-name' } }));
+test('createHot: a config.local.json still holding the flat roles map fails the start; on a reload the previous config stays live', async () => {
+  const dir = makeRoot({ config: { models: { agents: { web: 'openrouter/x/default' } } } });
+  const localFile = path.join(dir, 'config.local.json');
+  fs.writeFileSync(localFile, JSON.stringify({ roles: { 'agent.web': 'openrouter/x/old-shape' } }));
   let hot;
   try {
-    const started = await withCapturedLogs(() => {
-      hot = createHot({ rootDir: dir });
-    });
-    assert.equal(hot.config.roles['agent.web'], 'openrouter/x/old-name');
-    assert.equal(Object.hasOwn(hot.config.roles, 'agentWeb'), false);
-    const lines = started.logs.filter((entry) => entry.msg === 'config: role renamed');
-    assert.equal(lines.length, 1);
-    assert.equal(lines[0].level, 'warn');
-    assert.deepEqual(lines[0].keys, [{ key: 'roles.agentWeb', use: 'roles.agent.web' }]);
-    assert.equal(started.logs.filter((entry) => entry.msg === 'config: old model keys read under their new names').length, 0);
-    assert.ok(!JSON.stringify(started.logs).includes('old-name'), 'the key, never its value');
+    assert.throws(() => createHot({ rootDir: dir }), (err) => err.name === 'ConfigShapeError' && err.message.includes('"roles.agent.web" -> "models.agents.web"'));
+    fs.writeFileSync(localFile, JSON.stringify({ models: { agents: { web: 'openrouter/x/new-shape' } } }));
+    hot = createHot({ rootDir: dir });
+    assert.equal(hot.config.models.agents.web, 'openrouter/x/new-shape');
+    fs.writeFileSync(localFile, JSON.stringify({ roles: { agentWeb: 'openrouter/x/older' } }));
+    const reload = await withCapturedLogs(() => hot.reloadConfig());
+    assert.equal(reload.result, false, 'the reload is refused');
+    assert.equal(hot.config.models.agents.web, 'openrouter/x/new-shape', 'the previous config stays live');
+    assert.equal(Object.hasOwn(hot.config, 'roles'), false);
+    assert.equal(reload.logs.filter((entry) => entry.msg === 'hot: config not reloaded, keeping the previous one').length, 1);
+    assert.ok(!JSON.stringify(reload.logs).includes('openrouter/x/older'), 'the key, never its value');
   } finally {
     hot?.close();
     fs.rmSync(dir, { recursive: true, force: true });

@@ -65,8 +65,8 @@ test('buildSearchRequest: the query as the only message, the Exa web plugin with
 
 test('webSearchModel: the lookup\'s model (reasoner for search-summary), a byPurpose entry included', () => {
   assert.equal(webSearchModel({}), ROLE_DEFAULTS.reasoner);
-  assert.equal(webSearchModel({ roles: { reasoner: 'x/cheap' } }), 'x/cheap');
-  assert.equal(webSearchModel({ roles: { reasoner: 'x/cheap', byPurpose: { 'search-summary': 'x/other' } } }), 'x/other');
+  assert.equal(webSearchModel({ models: { base: { reasoner: 'x/cheap' } } }), 'x/cheap');
+  assert.equal(webSearchModel({ models: { base: { reasoner: 'x/cheap', byPurpose: { 'search-summary': 'x/other' } } } }), 'x/other');
 });
 
 test('searchResults: the url_citation annotations, http(s) only, each url once, snippet one line and clamped', () => {

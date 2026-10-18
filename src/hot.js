@@ -50,10 +50,10 @@ const JSON_LAYERS = Object.freeze(['labels', 'skills']);
 
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
- * instead: `memory.voiceModel` (the memory wording runs on `roles.voice`, the one voice model).
+ * instead: `memory.voiceModel` (the memory wording runs on `models.base.voice`, the one voice model).
  */
 const RETIRED_CONFIG_KEYS = Object.freeze([
-  { key: 'memory.voiceModel', use: 'roles.voice', read: (config) => config?.memory?.voiceModel },
+  { key: 'memory.voiceModel', use: 'models.base.voice', read: (config) => config?.memory?.voiceModel },
 ]);
 
 /** How many hex characters of the sha256 `hot.hashes` keeps. */
@@ -202,16 +202,15 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
   hot.config = loaded.config;
   // The old model keys and role names config.local.json still carries (src/config.js#adaptLegacyModelKeys,
   // read under their new names): one warning listing them, key names only, at startup and again
-  // at a reload that changes the list; the renamed agent roles on a line of their own.
+  // at a reload that changes the list. A layer still holding the flat `roles` map throws instead
+  // (src/config.js#assertModelsShape): at startup the bot does not start, on a reload the
+  // previous config stays live.
   let reportedLegacy = '';
   const reportLegacyKeys = (renamed) => {
     const listed = JSON.stringify(renamed);
     if (listed === reportedLegacy) return;
     reportedLegacy = listed;
-    const roles = renamed.filter((entry) => entry.role === true).map(({ key, use }) => ({ key, use }));
-    const keys = renamed.filter((entry) => entry.role !== true);
-    if (roles.length > 0) log.warn('config: role renamed', { keys: roles });
-    if (keys.length > 0) log.warn('config: old model keys read under their new names', { keys });
+    if (renamed.length > 0) log.warn('config: old model keys read under their new names', { keys: renamed });
   };
   reportLegacyKeys(loaded.renamed);
   // The retired keys reported for the config now live: one warning when a key appears (at

@@ -38,20 +38,20 @@
 // they are started by src/memory/notes-refresh.js's scheduler.
 //
 // Two-stage mode (`features.memoryTwoStage`, DECISIONS-R4): no text in the
-// persona's voice is asked of `roles.extractor` (`warmupRoute`). The portrait
+// persona's voice is asked of `models.base.extractor` (`warmupRoute`). The portrait
 // refresh splits like the stream analyzer: stage A (`prompts/portrait.md` on
-// `roles.extractor`) returns the merged `style`, stored at once, and lists about
+// `models.base.extractor`) returns the merged `style`, stored at once, and lists about
 // the character that become one voice item for the voice run
 // (src/memory/voice.js, src/memory/update.js#runVoice), which words it on
-// `roles.voice` (the role `voice`) and only then stamps the portrait. While that item waits,
+// `models.base.voice` (the role `voice`) and only then stamps the portrait. While that item waits,
 // only the owner's forced refresh asks stage A for the member again (any other
 // refresh stands down, `voice-pending`, and src/memory/portrait.js's scheduler
 // does not pick the member); a newer portrait decision stored here meanwhile
 // (that forced refresh, a single-mode refresh after the switch was turned off,
 // a warmup person run) takes the item out of the queue unworded. The warmup's
 // person and server requests, which word a portrait, episode feelings and the server's
-// notes, go out on `roles.voice` whole; its channel requests (neutral
-// notes) stay on `roles.extractor`. A missing `prompts.profile` /
+// notes, go out on `models.base.voice` whole; its channel requests (neutral
+// notes) stay on `models.base.extractor`. A missing `prompts.profile` /
 // `prompts.channel` / `prompts.server` is reported (reason `no-prompt`), never
 // thrown; a missing or broken labels.json fails loudly (a throw), exactly as it
 // does for the stream analyzer. An in-memory-only `activity` snapshot (`{ phase,
@@ -290,14 +290,14 @@ export function profileTemplateValues(config, selfName) {
 /**
  * The model, role and calibration flag of one request of the warmup's family (its channel, person
  * and server requests and the portrait refresh), read from the live config at the moment of use.
- * With `features.memoryTwoStage` off (read `=== true`): `roles.extractor` as
+ * With `features.memoryTwoStage` off (read `=== true`): `models.base.extractor` as
  * role `extractor`, as always. With it on, no text in the persona's voice is asked of
- * `roles.extractor` (DECISIONS-R4): a request whose answer holds one (`voice: true`: a portrait's
+ * `models.base.extractor` (DECISIONS-R4): a request whose answer holds one (`voice: true`: a portrait's
  * `character`, an episode's `feeling`, the server's `patterns` and `starters`) goes out on
- * `roles.voice` as a memory-wording request (src/llm/openrouter.js#MEMORY_VOICE_REQUEST: role
+ * `models.base.voice` as a memory-wording request (src/llm/openrouter.js#MEMORY_VOICE_REQUEST: role
  * `voice`, the role whose provider route the owner pins; purpose `memory-voice`; no cache
  * marker), as the stream analyzer's are (src/memory/update.js); a neutral one (channel notes,
- * the portrait refresh's stage A) stays on `roles.extractor` as role `extractor` with the settings of
+ * the portrait refresh's stage A) stays on `models.base.extractor` as role `extractor` with the settings of
  * the stream analyzer's stage A: `memory.reasoning` when that is a plain object, and
  * `memory.maxOutputTokens` as its output budget (a reasoning model spends that budget on its
  * reasoning too); both skip calibration off the voice model (src/memory/update.js#feedsCalibration).
@@ -2422,14 +2422,14 @@ export function createWarmup({ hot, store, client, discord, llm, calibrator, get
    * (`force`).
    *
    * Two-stage mode (`portraitMode`: `features.memoryTwoStage` on, prompts/portrait.md and
-   * prompts/memory-voice.md present): the same blocks go to prompts/portrait.md on `roles.extractor`
+   * prompts/memory-voice.md present): the same blocks go to prompts/portrait.md on `models.base.extractor`
    * (stage A, `warmupRoute`'s neutral route), whose answer (`clampPortraitDecision`) is the merged
    * `style`, stored at once, and four lists about the character. When the lists change anything,
    * they become ONE `character` voice item (the brief; its `old` is the stored portrait, read when
    * the voice run words it) queued in one synchronous step (`store.updateVoiceQueue`, replacing a
    * queued character item of the member; nothing the queue held is pushed out, see
    * queueCharacter), dated when the history was read; the voice run (src/memory/update.js#runVoice,
-   * on `roles.voice`) words it, writes `character` and only then the portrait stamps, so the
+   * on `models.base.voice`) words it, writes `character` and only then the portrait stamps, so the
    * member keeps its attempt stamp meanwhile, and no refresh but a forced one asks stage A again
    * while the item waits (`voice-pending`). When they
    * change nothing, nothing is queued and the member is stamped as checked (the portrait stamps,

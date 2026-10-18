@@ -34,10 +34,10 @@ import {
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createLimits } from '../src/llm/limits.js';
 
-/** `model` is the voice model (`roles.voice`), the one a request without a model goes out on. */
+/** `model` is the voice model (`models.base.voice`), the one a request without a model goes out on. */
 function baseConfig({ model = 'test-model', ...overrides } = {}) {
   return {
-    roles: { voice: model },
+    models: { base: { voice: model } },
     llm: {
       baseUrl: 'https://openrouter.ai/api/v1',
       temperature: 1,
@@ -1907,7 +1907,7 @@ test("complete: with promptCache off or the role not listed the body is byte-ide
   for (const config of configs) {
     const { llm, sent } = cachingLlm(() => config);
     for (const role of ['voice', 'extractor', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });
-    for (const body of sent) assert.equal(body, today(config.roles.voice));
+    for (const body of sent) assert.equal(body, today(config.models.base.voice));
   }
   const { llm, sent } = cachingLlm(() => cachingConfig());
   for (const role of ['extractor', 'analyzer', 'vision', 'video', undefined]) await llm.complete(messages, { role });

@@ -3,7 +3,7 @@
 // (`agents/<id>/prompt.md`). A profile file only describes a request: its
 // kind (`worker`, run under this runner on a socket, or `consultation`, a
 // model role tools call directly, which the runner skips), its model role
-// (`agent.web`, `agent.server`), its prompt and the deployment's override
+// (`web`, `server`: the key of its model under `models.agents`), its prompt and the deployment's override
 // name under `prompts.local/`, the OpenCode tools it asks for, the name of
 // its shell class, its default limits, daily caps, socket and out dir, and
 // the environment variable names its run may fall back on (the core sends
@@ -597,7 +597,7 @@ function makeProfile(definition, { rootDir, env }) {
     agentId,
     promptFiles: promptFilesOf(name, { rootDir, env, override: definition.override, prompt: definition.prompt }),
     envNames: definition.env,
-    // The model role (src/llm/roles.js) whose model the agent runs on: `roles.<modelRole>`,
+    // The model role (src/llm/roles.js) whose model the agent runs on: `models.agents.<modelRole>`,
     // else its default, which is `defaultModel`.
     modelRole,
     defaultModel,

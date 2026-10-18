@@ -243,10 +243,10 @@ export function roomPreFilter(normalized) {
 // deprecatedModelKeys lets startup warn about them.
 
 const DEPRECATED_MODEL_KEYS = [
-  { key: 'llm.classifierModel', use: 'roles.analyzer', read: (c) => c?.llm?.classifierModel },
-  { key: 'mention.followUpModel', use: 'roles.analyzer', read: (c) => c?.mention?.followUpModel },
-  { key: 'media.model', use: 'roles.vision', read: (c) => c?.media?.model },
-  { key: 'media.video.model', use: 'roles.video', read: (c) => c?.media?.video?.model },
+  { key: 'llm.classifierModel', use: 'models.base.analyzer', read: (c) => c?.llm?.classifierModel },
+  { key: 'mention.followUpModel', use: 'models.base.analyzer', read: (c) => c?.mention?.followUpModel },
+  { key: 'media.model', use: 'models.base.vision', read: (c) => c?.media?.model },
+  { key: 'media.video.model', use: 'models.base.video', read: (c) => c?.media?.video?.model },
 ];
 
 /**

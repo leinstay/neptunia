@@ -34,7 +34,7 @@ const handlers = perEnv((env) => {
     const dottedPath = String(args?.path ?? '').trim();
     const rawValue = String(args?.value ?? '').trim();
     if (!dottedPath) throw invalid('a config path is required');
-    // Read against the live config, so a key holding a dot (a model role such as `agent.web`) is one key.
+    // Read against the live config, so a key holding a dot (a route key such as `openai/gpt-6.1`) is one key.
     const parts = splitPath(dottedPath, hot.config);
     const key = parts.join('.');
     assertMayChangeConfig(parts, context);

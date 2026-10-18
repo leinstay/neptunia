@@ -9,14 +9,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLlm, keyHashOf, roleApiKey, roleKeyGroups } from '../src/llm/openrouter.js';
 import { createEmbedder } from '../src/llm/embed.js';
-import { AGENT_ROLES } from '../src/llm/roles.js';
+import { OPENCODE_ROLES } from '../src/llm/roles.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function config(keyByRole) {
   return {
-    roles: { voice: 'x/voice', embedding: 'x/embed' },
+    models: { base: { voice: 'x/voice', embedding: 'x/embed' } },
     llm: {
       baseUrl: 'https://openrouter.ai/api/v1',
       temperature: 1,
@@ -110,36 +110,33 @@ test('createLlm: roleKeys names the extra keys by role without their values; key
   assert.deepEqual(sent.map((call) => call.auth), ['Bearer vision-key', 'Bearer main-key', 'Bearer main-key']);
 });
 
-test('config.json: the errand agents share OPENROUTER_AGENT_KEY, the coding worker has OPENROUTER_DEV_KEY: two key lines; an unset one logs once and shows none', async () => {
+test('config.json: the errand agents share OPENROUTER_AGENT_KEY, the development agents share OPENROUTER_DEV_KEY: two key lines; an unset one logs once and shows none', async () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
-  assert.deepEqual(shipped.llm.keyByRole, { 'agent.web': 'OPENROUTER_AGENT_KEY', 'agent.server': 'OPENROUTER_AGENT_KEY', 'agent.dev': 'OPENROUTER_DEV_KEY', 'agent.advice': 'OPENROUTER_SIM_KEY' });
-  assert.deepEqual(Object.keys(shipped.llm.keyByRole), [...AGENT_ROLES]);
-  const cfg = config(Object.fromEntries(Object.entries(shipped.llm.keyByRole).filter(([role]) => role !== 'agent.advice')));
+  assert.deepEqual(shipped.llm.keyByRole, { web: 'OPENROUTER_AGENT_KEY', server: 'OPENROUTER_AGENT_KEY', thinker: 'OPENROUTER_DEV_KEY', dev: 'OPENROUTER_DEV_KEY', writer: 'OPENROUTER_DEV_KEY' });
+  assert.deepEqual(Object.keys(shipped.llm.keyByRole), [...OPENCODE_ROLES]);
+  const cfg = config(shipped.llm.keyByRole);
   const { llm, sent } = makeLlm(cfg, { OPENROUTER_AGENT_KEY: 'agent-key', OPENROUTER_DEV_KEY: 'dev-key' });
-  assert.deepEqual(llm.roleKeys(), [{ roles: ['agent.server', 'agent.web'] }, { roles: ['agent.dev'] }], 'the agents key, then the development key');
-  await llm.keyInfo({ timeoutMs: 100, role: 'agent.server' });
-  await llm.keyInfo({ timeoutMs: 100, role: 'agent.dev' });
+  assert.deepEqual(llm.roleKeys(), [{ roles: ['server', 'web'] }, { roles: ['dev', 'thinker', 'writer'] }], 'the agents key, then the development key');
+  await llm.keyInfo({ timeoutMs: 100, role: 'server' });
+  await llm.keyInfo({ timeoutMs: 100, role: 'dev' });
   await llm.complete(ask, { role: 'voice' });
   assert.deepEqual(sent.map((call) => call.auth), ['Bearer agent-key', 'Bearer dev-key', 'Bearer main-key'], 'each dedicated key is read, the bot\'s requests stay on the main key');
-  assert.equal(llm.keyHash({ role: 'agent.web' }), keyHashOf('agent-key'));
-  assert.equal(llm.keyHash({ role: 'agent.dev' }), keyHashOf('dev-key'));
+  assert.equal(llm.keyHash({ role: 'web' }), keyHashOf('agent-key'));
+  assert.equal(llm.keyHash({ role: 'dev' }), keyHashOf('dev-key'));
   const { result: devOnly } = await withCapturedLogs(() => makeLlm(cfg, { OPENROUTER_DEV_KEY: 'dev-key' }).llm.roleKeys());
-  assert.deepEqual(devOnly, [{ roles: ['agent.dev'] }], 'an unset OPENROUTER_AGENT_KEY: no agents line');
+  assert.deepEqual(devOnly, [{ roles: ['dev', 'thinker', 'writer'] }], 'an unset OPENROUTER_AGENT_KEY: no agents line');
   const { result: unset } = await withCapturedLogs(() => makeLlm(cfg, {}).llm.roleKeys());
   assert.deepEqual(unset, [], 'neither set: no line, the main key is never shown as theirs');
 });
 
-test('config.json: the advice role is on the simulator key OPENROUTER_SIM_KEY; the bot\'s requests stay on the main key', async () => {
+test('config.json: no role is on the simulator key OPENROUTER_SIM_KEY (the advice role is gone); the bot\'s requests stay on the main key', async () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+  assert.ok(!Object.values(shipped.llm.keyByRole).includes('OPENROUTER_SIM_KEY'));
   const cfg = config(shipped.llm.keyByRole);
   const { llm, sent } = makeLlm(cfg, { OPENROUTER_AGENT_KEY: 'agent-key', OPENROUTER_DEV_KEY: 'dev-key', OPENROUTER_SIM_KEY: 'sim-key' });
-  assert.deepEqual(llm.roleKeys(), [{ roles: ['agent.server', 'agent.web'] }, { roles: ['agent.dev'] }, { roles: ['agent.advice'] }]);
-  assert.equal(llm.keyHash({ role: 'agent.advice' }), keyHashOf('sim-key'), 'the same key as the simulator\'s, by hash');
-  await llm.keyInfo({ timeoutMs: 100, role: 'agent.advice' });
+  assert.deepEqual(llm.roleKeys(), [{ roles: ['server', 'web'] }, { roles: ['dev', 'thinker', 'writer'] }], 'a set OPENROUTER_SIM_KEY adds no role line');
   await llm.complete(ask, { role: 'voice' });
-  assert.deepEqual(sent.map((call) => call.auth), ['Bearer sim-key', 'Bearer main-key']);
-  const { result: unset } = await withCapturedLogs(() => makeLlm(cfg, { OPENROUTER_AGENT_KEY: 'agent-key', OPENROUTER_DEV_KEY: 'dev-key' }).llm.roleKeys());
-  assert.deepEqual(unset, [{ roles: ['agent.server', 'agent.web'] }, { roles: ['agent.dev'] }], 'an unset OPENROUTER_SIM_KEY: no advice line, the main key is never shown as its');
+  assert.deepEqual(sent.map((call) => call.auth), ['Bearer main-key']);
 });
 
 test('createEmbedder: an embedding request honours the role map', async () => {

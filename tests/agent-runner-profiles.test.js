@@ -196,13 +196,13 @@ test('defaults: limits, daily, model, env names', () => {
 });
 
 test('model: each profile runs on its model role, whose default is its default model; config.json carries no agents.<profile>.model', () => {
-  assert.equal(WEB.modelRole, 'agent.web');
-  assert.equal(SERVER.modelRole, 'agent.server');
-  assert.equal(WEB.defaultModel, ROLE_DEFAULTS['agent.web']);
-  assert.equal(SERVER.defaultModel, ROLE_DEFAULTS['agent.server']);
+  assert.equal(WEB.modelRole, 'web');
+  assert.equal(SERVER.modelRole, 'server');
+  assert.equal(WEB.defaultModel, ROLE_DEFAULTS.web);
+  assert.equal(SERVER.defaultModel, ROLE_DEFAULTS.server);
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).agents;
   for (const name of ['web', 'server']) {
-    assert.equal(Object.hasOwn(shipped[name], 'model'), false, `${name}: the model is roles.${profileOf(name).modelRole}`);
+    assert.equal(Object.hasOwn(shipped[name], 'model'), false, `${name}: the model is models.agents.${profileOf(name).modelRole}`);
     assert.deepEqual(shipped[name].cost, { input: 2, output: 6 }, `${name}: the cost stays (OpenCode's price table is off)`);
   }
 });
@@ -615,7 +615,7 @@ function workerProfile(id, changes = {}) {
   const base = {
     id,
     kind: 'worker',
-    role: 'agent.server',
+    role: 'server',
     prompt: 'prompt.md',
     override: `agent-${id}.md`,
     tools: ['read', 'list'],
@@ -670,8 +670,8 @@ test('loadProfiles: a valid worker from a temporary agents/ tree becomes a profi
     const probe = profiles.probe;
     assert.equal(probe.name, 'probe');
     assert.equal(probe.agentId, 'errand-probe');
-    assert.equal(probe.modelRole, 'agent.server');
-    assert.equal(probe.defaultModel, ROLE_DEFAULTS['agent.server']);
+    assert.equal(probe.modelRole, 'server');
+    assert.equal(probe.defaultModel, ROLE_DEFAULTS.server);
     assert.deepEqual(probe.promptFiles, [path.join('/private', 'prompts.local', 'agent-probe.md'), path.join(rootDir, 'agents', 'probe', 'prompt.md')]);
     assert.deepEqual(probe.defaultLimits, { steps: 5, usd: 0.1, seconds: 60 });
     assert.deepEqual(probe.defaultDaily, { tasks: 3, usd: 1 });
@@ -709,10 +709,13 @@ test('loadProfiles: a missing key or an unknown one is refused, nested keys too'
   withAgentsTree({ probe: workerProfile('probe', { id: 'other' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'id'));
   withAgentsTree({ probe: workerProfile('probe', { prompt: '../prompt.md' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'prompt'));
   withAgentsTree({ probe: workerProfile('probe', { role: 'voice' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'role'));
+  for (const role of ['agent.server', 'agent.web', 'drawing']) {
+    withAgentsTree({ probe: workerProfile('probe', { role }) }, (rootDir) => assertRefused(rootDir, 'probe', 'role'));
+  }
 });
 
 test('a consultation is skipped by loadProfiles and listed by listAgents with the workers', () => {
-  const consult = { id: 'consult', kind: 'consultation', role: 'agent.advice', prompt: null, override: null, description: 'A test consultation.' };
+  const consult = { id: 'consult', kind: 'consultation', role: 'dev', prompt: null, override: null, description: 'A test consultation.' };
   withAgentsTree({ consult, probe: workerProfile('probe') }, (rootDir) => {
     assert.deepEqual(Object.keys(loadProfiles({ rootDir, env: {} })), ['probe']);
     const all = listAgents({ rootDir });
@@ -721,16 +724,14 @@ test('a consultation is skipped by loadProfiles and listed by listAgents with th
     assert.ok(Object.isFrozen(all[0]));
   });
   withAgentsTree({ consult: { ...consult, shell: 'server-read-only' } }, (rootDir) => assertRefused(rootDir, 'consult', 'shell'));
+  withAgentsTree({ consult: { ...consult, role: 'agent.advice' } }, (rootDir) => assertRefused(rootDir, 'consult', 'role'));
 });
 
-test('the real agents/ folder: web and server workers, the advice consultation, each prompt tracked beside its profile', () => {
+test('the real agents/ folder: web and server workers, no advice consultation, each prompt tracked beside its profile', () => {
   const agents = listAgents();
-  assert.deepEqual(agents.map((agent) => [agent.id, agent.kind]), [['advice', 'consultation'], ['server', 'worker'], ['web', 'worker']]);
+  assert.deepEqual(agents.map((agent) => [agent.id, agent.kind, agent.role]), [['server', 'worker', 'server'], ['web', 'worker', 'web']]);
   assert.deepEqual(Object.keys(PROFILES).sort(), ['server', 'web']);
-  const advice = agents.find((agent) => agent.id === 'advice');
-  assert.equal(advice.role, 'agent.advice');
-  assert.equal(advice.prompt, 'prompt.md');
-  assert.ok(fs.existsSync(path.join(ROOT, 'agents', 'advice', 'prompt.md')), 'the advice prompt is tracked beside its profile');
+  assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'advice')), false, 'the advice profile is gone');
   for (const profile of [WEB, SERVER]) {
     assert.ok(fs.existsSync(path.join(ROOT, 'agents', profile.name, 'prompt.md')), profile.name);
     assert.equal(path.basename(profile.promptFiles[0]), `agent-${profile.name}.md`, 'the override keeps its name');

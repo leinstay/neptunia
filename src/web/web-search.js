@@ -39,7 +39,7 @@ const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2 });
 
 /**
  * The model the web agent searches with in `config` (the live engine config): the lookup's,
- * `roles.reasoner` for the `search-summary` purpose (src/llm/roles.js#roleModel).
+ * `models.base.reasoner` for the `search-summary` purpose (src/llm/roles.js#roleModel).
  * @param {object} config
  * @returns {string}
  */

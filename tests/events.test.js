@@ -1953,7 +1953,7 @@ test('follow-up: the classifier request is address.md as system and a <candidate
   assert.ok(messages[1].content.includes('is this for you'));
   assert.ok(messages[1].content.includes('earlier message'), 'the channel context is included');
   assert.equal(options.maxOutputTokens, config.mention.followUpMaxOutputTokens, 'mention.followUpMaxOutputTokens');
-  assert.equal(options.model, config.roles.analyzer, 'roles.analyzer');
+  assert.equal(options.model, config.models.base.analyzer, 'models.base.analyzer');
   assert.equal(options.role, 'analyzer', 'routed as the analyzer');
   assert.equal(options.countAgainstDailyCap, true);
   assert.equal(options.skipCalibration, true);
@@ -1992,16 +1992,16 @@ test('follow-up: the address classifier timeout is llm.helperTimeoutMs, read at 
   assert.deepEqual(llm.calls.map((call) => call.options.purpose), ['address', 'address', 'address']);
 });
 
-test('follow-up: the address classifier model is roles.analyzer over the deprecated keys, its own default when it is null', async () => {
+test('follow-up: the address classifier model is models.base.analyzer over the deprecated keys, its own default when it is null', async () => {
   const cases = [
     {
-      label: 'roles.analyzer wins over the deprecated llm.classifierModel and mention.followUpModel',
-      overrides: { roles: { analyzer: 'x/classifier' }, llm: { classifierModel: 'x/old' }, mention: { followUpModel: 'x/older' } },
+      label: 'models.base.analyzer wins over the deprecated llm.classifierModel and mention.followUpModel',
+      overrides: { models: { base: { analyzer: 'x/classifier' } }, llm: { classifierModel: 'x/old' }, mention: { followUpModel: 'x/older' } },
       expected: () => 'x/classifier',
     },
     {
-      label: 'roles.analyzer null is the analyzer default, never the vision model',
-      overrides: { roles: { analyzer: null, vision: 'x/vision' } },
+      label: 'models.base.analyzer null is the analyzer default, never the vision model',
+      overrides: { models: { base: { analyzer: null, vision: 'x/vision' } } },
       expected: () => ROLE_DEFAULTS.analyzer,
     },
   ];
@@ -2030,7 +2030,7 @@ test('follow-up: an empty or blank classifier answer is logged as a failure with
     const llm = fakeFollowUpLlm();
     const turns = recordingTurns();
     const spontaneous = fakeSpontaneous();
-    const config = baseConfig({ roles: { analyzer: 'x/text' } });
+    const config = baseConfig({ models: { base: { analyzer: 'x/text' } } });
     const handler = makeHandler({ config, turns, spontaneous, llm, prompts: fakeAddressPrompts() });
     const guild = fakeGuild();
     const channel = fakeChannelWithHistory('c1', guild, []);
@@ -6527,7 +6527,7 @@ test('events: a failed eavesdrop roll may roll roomQuestionChance and ask the ro
   assert.deepEqual(
     { ...options },
     {
-      model: config.roles.analyzer,
+      model: config.models.base.analyzer,
       role: 'analyzer',
       maxOutputTokens: config.mention.followUpMaxOutputTokens,
       countAgainstDailyCap: true,

@@ -47,7 +47,7 @@ Set them in the process environment (for example with `Environment=` in the syst
 | `videoRewatch` | `true` | When addressed, re-watch a video to answer a question about it; needs `videoDescriptions` on |
 | `imageRelook` | `true` | When addressed, look at a picture again to answer a question or check a claimed detail about it; needs `vision` on. Shares the daily `media.video.rewatch.maxPerDay` counter with video re-watches. A missing key counts as on |
 | `webLookup` | `false` | Read links posted in chat and search the web when asked a factual question. Unlike other features, a missing key counts as OFF. Needs `BRAVE_SEARCH_API_KEY` in `.env` for search; without it only link reading works. See [Media: Links and search](media.md#links) |
-| `imageGeneration` | `false` | Let the persona draw pictures through a drawing sub-process. A missing key counts as on. Turn on in `config.local.json`; needs an image-capable model in `roles.drawing`. See [Media: Drawing](media.md#drawing) |
+| `imageGeneration` | `false` | Let the persona draw pictures through a drawing sub-process. A missing key counts as on. Turn on in `config.local.json`; needs an image-capable model in `models.agents.drawing`. See [Media: Drawing](media.md#drawing) |
 | `privateMessages` | `false` | Answer direct messages from guild members. Needs a stored public profile and `affinity.score >= private.minAffinity`. See [Messages and memory: Private layer](messages-and-memory.md#private-layer) |
 | `privateLikeServer` | `true` | A private chat works like a server channel: the route classifier, channel pull, server search (recall) and asked-about episodes all run in a DM. A pulled channel enters a DM only when the partner has View Channel permission on it. A missing key counts as on. `false` restores the old DM behaviour (no pull, no route, no recall, no asked-about episodes) |
 | `channelPull` | `true` | Pull another channel into a turn's request when the recent messages or the trigger contain a real channel mention. A missing key counts as on. See `context.pull.*` |
@@ -60,7 +60,7 @@ Set them in the process environment (for example with `Environment=` in the syst
 | `promptCache` | `true` | Mark the system message, and on the reply the stable user prefix and the profiles (each separately), for the provider's prompt cache. A cached read costs a fraction of normal input; some providers do not count cached reads against token quotas. Must be exactly `true` to enable; a missing key counts as off. See `llm.cache.*` |
 | `recall` | `true` | Search the server's own message history beside the web search when a question calls for it. A missing key counts as on. See [Media: Search](media.md#search) and `recall.*` |
 | `recallTrace` | `false` | Write one JSON line per recall run to `data/guilds/<id>/recall-trace.jsonl`: the forms, the clusters with their scores and flags, the summary's text and the stretch the persona got. For diagnosing a recall that went wrong; the file quotes members' messages, so it stays under `data/`. Capped at `recall.traceMaxLines`; `/nep memory wipe` deletes it. Must be exactly `true` to enable; a missing key counts as off |
-| `meaningSearch` | `false` | On each recall run, embed the asker's message and search the vector index by meaning. Record rows that match by meaning join the word-hit windows; archive rows join the memory items. Combined with word hits through reciprocal rank fusion. Must be exactly `true` to enable; a missing key counts as off. Needs `features.recall` on and the embedding model (`roles.embedding`) reachable. See `recall.meaningCandidates` |
+| `meaningSearch` | `false` | On each recall run, embed the asker's message and search the vector index by meaning. Record rows that match by meaning join the word-hit windows; archive rows join the memory items. Combined with word hits through reciprocal rank fusion. Must be exactly `true` to enable; a missing key counts as off. Needs `features.recall` on and the embedding model (`models.base.embedding`) reachable. See `recall.meaningCandidates` |
 | `embedIndex` | `false` | Keep the vector index current while the bot runs: every message the record takes is queued, and a batch is embedded every `embed.flushSeconds` seconds or once `embed.batch` lines wait. Must be exactly `true` to enable; a missing key counts as off. Needs `features.meaningSearch` on. Without this switch, the index is built only by `tools/embed-index.mjs` |
 | `journal` | `true` | Keep the persona's journal: for every turn, one line when it starts and one when it ends (what of the chat went into the request, its hidden reasoning, what it posted and reacted to, token usage, the limits that cut something), in `data/guilds/<id>/journal/<YYYY-MM-DD>.jsonl` by UTC day; a private chat's turns go to `data/guilds/<id>/private/<userId>/journal/` instead. While on, the live log carries only the length of the hidden reasoning (`thinkChars`). Must be exactly `true` to enable; a missing key counts as off. See [`journal`](#journal) |
 | `offPeriods` | `true` | `<now>` lists the periods of the last `journal.offWindowHours` hours when the persona was paused by the owner or the service was off, newest first, at most 3, from the journal's system records. Nothing is posted to any channel. A missing key counts as on. Needs `features.journal` |
@@ -119,9 +119,11 @@ The voice-state intent (the voice channels in `<people_now>`) is not privileged 
 | `dryRunChannelId` | `""` | Channel for the dry-run mirror. See [Dry run](../README.md#dry-run) |
 | `access` | `{}` | Who besides owners may run which commands (managed by `/nep access`) |
 
-## `roles`
+## `models`
 
-Twelve model roles: eight the bot's own requests go out on, three agent roles (`agent.web`, `agent.server`, `agent.dev`) whose models an [OpenCode](https://opencode.ai) worker runs, and the agent role `agent.advice`, used by consultation tools outside the bot. Each is set independently under `roles.<name>` with its own default (an agent role's name is one key, its dot included: `roles["agent.web"]`; `/nep set roles.agent.web` reads it so), so no role ever takes another role's model. `roles.byPurpose` pins a single purpose to a model of its own whatever its role. The three OpenCode roles take OpenCode model ids (`openrouter/<vendor>/<model>`: the provider first), unlike the other roles' bare OpenRouter ids (`<vendor>/<model>`); `agent.advice` takes a bare OpenRouter id, since its tools call OpenRouter directly. No request of the bot goes out on the four agent roles, so `/nep status` does not probe them and `/nep route` cannot route them.
+The model roles, in two sections: `models.base`, the core's own roles (thinking, seeing, speech), and `models.agents`, the agents' roles. Each role is set independently under `models.base.<name>` or `models.agents.<name>` with its own default, so no role ever takes another role's model. `models.base.byPurpose` pins a single purpose to a model of its own whatever its role.
+
+### `models.base`
 
 | Key | Default | What it does |
 |---|---|---|
@@ -132,14 +134,24 @@ Twelve model roles: eight the bot's own requests go out on, three agent roles (`
 | `vision` | `"google/gemini-3.8-flash"` | Describes a picture (describe, relook, avatar) |
 | `video` | `"google/gemini-3.8-flash"` | Watches a video and looks at it again |
 | `embedding` | `"openai/text-embedding-3-large"` | Turns text into vectors for search by meaning. `embed.dimensions` (default 1024) sets the width. Probed by `/nep status` with a one-input embedding request; without an embedding client the line says it was not checked |
-| `drawing` | `"openai/gpt-image-2.5-flare"` | Generates the persona's pictures through OpenRouter's Images API. Only `openai/*` and `google/*` families are supported |
-| `agent.web` | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the `web` errand agent. See [Errand agents](agents.md) |
-| `agent.server` | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the `server` errand agent |
-| `agent.dev` | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the coding worker, which runs outside this engine and reads it from here |
-| `agent.advice` | `"openai/gpt-6-astra"` | The strongest model for advice: consultations the lead or the persona ask for outside a chat turn. A bare OpenRouter id, read from here by the consultation tools outside the bot, which call OpenRouter directly |
 | `byPurpose` | `{}` | Per-purpose model override: an object whose keys are purpose strings (e.g. `lookup`, `recall-summary`, `diary-plan`, `planner`) and whose values are model ids. A match on purpose wins over the role's model. Not probed by `/nep status` |
 
-**Migration from old keys.** One release reads the deprecated keys `llm.model`, `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`, `classifier.embed`, `classifier.byPurpose`, `memory.model` and `image.model`. When any of them is present, the bot logs a startup warning naming the key and the `roles.*` entry it maps to. An old `classifier.text` maps to `roles.analyzer`; an old `classifier.reason` to `roles.reasoner`; `classifier.media` to `roles.vision`; `classifier.video` to `roles.video`; `classifier.embed` to `roles.embedding`; `classifier.byPurpose` to `roles.byPurpose`; `memory.model` to `roles.extractor`; `image.model` to `roles.drawing`; `llm.model` to `roles.voice`. An old `classifier.reason` entry that was `null` (the old "use classifier.text" fallback) maps to the `roles.reasoner` default instead. Move the values by hand and remove the old keys. The agent roles' first names, `agentWeb`, `agentServer` and `agentDev` (as keys of `roles` and `llm.keyByRole`), are read as `agent.web`, `agent.server` and `agent.dev`, with one `config: role renamed` warning; the new key wins when both are set.
+### `models.agents`
+
+| Key | Default | What it does |
+|---|---|---|
+| `web` | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the `web` errand agent. See [Errand agents](agents.md) |
+| `server` | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the `server` errand agent |
+| `thinker` | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the development agent that picks up and steers the coding tasks; it runs outside this engine and reads its model from here |
+| `dev` | `"openrouter/anthropic/claude-sonnet-5.5"` | OpenCode model id of the coding worker, which runs outside this engine and reads it from here |
+| `writer` | `"openrouter/anthropic/claude-opus-4.6"` | OpenCode model id of the development agent that writes the texts (prompts, documents); it runs outside this engine and reads its model from here |
+| `drawing` | `"openai/gpt-image-2.5-flare"` | Generates the persona's pictures through OpenRouter's Images API (for now through the bot's own client, so a bare OpenRouter image model id). Only `openai/*` and `google/*` families are supported |
+
+`web`, `server`, `thinker`, `dev` and `writer` run on [OpenCode](https://opencode.ai), not through the bot's own OpenRouter client: they take OpenCode model ids (`openrouter/<vendor>/<model>`: the provider first), unlike the other roles' bare OpenRouter ids (`<vendor>/<model>`). No request of the bot goes out on them, so `/nep status` does not probe them and `/nep route` cannot route them.
+
+**Migration from `roles`.** The models used to sit in one flat `roles` map, the agents under dotted names (`roles["agent.web"]`, earlier `roles.agentWeb`), with a fourth agent role `agent.advice`. A config file (`config.json` or `config.local.json`) that still holds `roles`, or an old agent role name (`agent.web`, `agentWeb`, `agent.advice`, ...) as a key of `llm.keyByRole`, is refused at load: the bot does not start (on a live reload the previous config stays in use), and the error lists every move. The moves: `roles.voice`, `analyzer`, `reasoner`, `extractor`, `vision`, `video`, `embedding` and `byPurpose` to the same key under `models.base`; `roles.drawing` to `models.agents.drawing`; `roles["agent.web"]`, `roles["agent.server"]`, `roles["agent.dev"]` to `models.agents.web`, `server`, `dev`; `roles["agent.advice"]` is dropped; in `llm.keyByRole`, `agent.web`, `agent.server`, `agent.dev` become `web`, `server`, `dev` and `agent.advice` is dropped. `node tools/migrate-models-config.mjs <config.local.json>` prints the moves; with `--write` it makes them.
+
+**Migration from older keys.** One release reads the deprecated keys `llm.model`, `classifier.text`, `classifier.reason`, `classifier.media`, `classifier.video`, `classifier.embed`, `classifier.byPurpose`, `memory.model` and `image.model`. When any of them is present, the bot logs a startup warning naming the key and the entry it maps to. An old `classifier.text` maps to `models.base.analyzer`; an old `classifier.reason` to `models.base.reasoner`; `classifier.media` to `models.base.vision`; `classifier.video` to `models.base.video`; `classifier.embed` to `models.base.embedding`; `classifier.byPurpose` to `models.base.byPurpose`; `memory.model` to `models.base.extractor`; `image.model` to `models.agents.drawing`; `llm.model` to `models.base.voice`. An old `classifier.reason` entry that was `null` (the old "use classifier.text" fallback) maps to the `models.base.reasoner` default instead. Move the values by hand and remove the old keys.
 
 ## `llm`
 
@@ -157,7 +169,7 @@ Twelve model roles: eight the bot's own requests go out on, three agent roles (`
 | `maxRequestsPerDay` | `5000` | Daily request cap |
 | `provider` | `null` | OpenRouter `provider` routing object, passed verbatim; `null` sends nothing |
 | `providerByModel` | `{}` | Per-model provider routing; see below. A route may carry `"byok": true` (never sent to OpenRouter): an answer to a request on that route that OpenRouter served from its own capacity instead of your provider account (`usage.is_byok` is `false`) is logged as `llm: not byok` and fails without a retry |
-| `keyByRole` | `{ "agent.web": "OPENROUTER_AGENT_KEY", "agent.server": "OPENROUTER_AGENT_KEY", "agent.dev": "OPENROUTER_DEV_KEY", "agent.advice": "OPENROUTER_SIM_KEY" }` | A separate OpenRouter key per model role: maps a role name (`voice`, `analyzer`, `reasoner`, `extractor`, `vision`, `video`, `embedding`, or an agent role) to the NAME of a `.env` variable holding that key, e.g. `{ "voice": "OPENROUTER_VOICE_KEY" }`. Read at every request. Only names matching `OPENROUTER_[A-Z0-9_]+` are accepted; a role not in the map, a bad name or an unset variable uses `OPENROUTER_API_KEY` (a bad or unset one logs `llm: role key missing` once). The owner's `/nep status` card shows each extra key's limit and rolling spend. The agent roles have dedicated keys: `agent.web` and `agent.server` on `OPENROUTER_AGENT_KEY` (the errand agents' key, shown on the card as the `agents` key), `agent.dev` on `OPENROUTER_DEV_KEY` (the coding worker's, shown as the `development` key), `agent.advice` on `OPENROUTER_SIM_KEY` (the tools key, shared with the simulator: shown on the simulator key's line, with no line of its own). The bot sends no request of its own on them; with a variable unset in the bot's `.env` the card shows no line for it (the main key is never shown as theirs) |
+| `keyByRole` | `{ "web": "OPENROUTER_AGENT_KEY", "server": "OPENROUTER_AGENT_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "writer": "OPENROUTER_DEV_KEY" }` | A separate OpenRouter key per model role: maps a role name (`voice`, `analyzer`, `reasoner`, `extractor`, `vision`, `video`, `embedding`, or an agent role `web`, `server`, `thinker`, `dev`, `writer`) to the NAME of a `.env` variable holding that key, e.g. `{ "voice": "OPENROUTER_VOICE_KEY" }`. Read at every request. Only names matching `OPENROUTER_[A-Z0-9_]+` are accepted; a role not in the map, a bad name or an unset variable uses `OPENROUTER_API_KEY` (a bad or unset one logs `llm: role key missing` once). The owner's `/nep status` card shows each extra key's limit and rolling spend. The agent roles have dedicated keys: `web` and `server` on `OPENROUTER_AGENT_KEY` (the errand agents' key, shown on the card as the `agents` key), `thinker`, `dev` and `writer` on `OPENROUTER_DEV_KEY` (the development agents', shown as the `development` key). A role mapped to `OPENROUTER_SIM_KEY` is shown on the simulator key's line, with no line of its own. The old agent role names (`agent.web`, ...) are refused at load (see [Migration from `roles`](#models)). The bot sends no request of its own on them; with a variable unset in the bot's `.env` the card shows no line for it (the main key is never shown as theirs) |
 | `cache.ttl` | `"1h"` | Cache TTL of the markers on the system message and on the reply's stable user prefix (the stable `<senses>` lines, `<self_facts>`, `<about_chat>`, `<gifs>`): `"1h"` or `"5m"` |
 | `cache.profilesTtl` | `"1h"` | Cache TTL of the separate marker on the reply's profiles (`<people>`): `"1h"` or `"5m"`; `null` or `false` = no marker there. Never longer than `cache.ttl` (a `"5m"` `cache.ttl` makes it `"5m"`) |
 | `cache.roles` | `["voice"]` | Request roles whose system message (and, for the reply, the stable user prefix and the profiles) gets the cache marker. Memory-voice requests opt out, so only the reply is cached. Add `analyzer` and `reasoner` to cache the helpers' stable parts too |
@@ -432,7 +444,7 @@ Settings for the avatar descriptions (`features.avatars`). The queue scans every
 
 ## `media`
 
-Settings for the media describer (`features.mediaDescriptions`). The describer model is `roles.vision`.
+Settings for the media describer (`features.mediaDescriptions`). The describer model is `models.base.vision`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -459,7 +471,7 @@ Settings for watching GIFs as short clips (`media.gif.watch`). When enabled, a G
 
 ### `media.video`
 
-Settings for the video describer (`features.videoDescriptions`). Video vision needs BOTH `features.mediaDescriptions` and `features.videoDescriptions` on. The video model is `roles.video`. A separate video-capable model watches short clips: Discord video attachments and links to the sites in `media.video.sites`. Results are cached in the media cache alongside picture descriptions; a repost costs nothing.
+Settings for the video describer (`features.videoDescriptions`). Video vision needs BOTH `features.mediaDescriptions` and `features.videoDescriptions` on. The video model is `models.base.video`. A separate video-capable model watches short clips: Discord video attachments and links to the sites in `media.video.sites`. Results are cached in the media cache alongside picture descriptions; a repost costs nothing.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -668,7 +680,7 @@ Settings for missed-answer recovery (`features.missedAnswers`). When a message m
 
 The analyzer prompt reads these limits as placeholders, so raising a value takes effect on the next batch. Bigger profiles cost context tokens (`context.caps.people`, `context.caps.interlocutor`) and analyzer output (`memory.maxOutputTokens`).
 
-**Migration.** `memory.voiceModel` is no longer read; a config that still sets it logs one warning and the value is ignored. Replies and memory wording both use `roles.voice`.
+**Migration.** `memory.voiceModel` is no longer read; a config that still sets it logs one warning and the value is ignored. Replies and memory wording both use `models.base.voice`.
 
 ### `memory.voice`
 
@@ -758,7 +770,7 @@ Settings for the web lookup (`features.webLookup`). Both link reading and search
 
 ## `image`
 
-Settings for the drawing sub-process (`features.imageGeneration`). The persona emits a `<draw>` tag; code generates one picture through OpenRouter's Images API and posts it as a separate message. Generation and daily counts are stored in `data/state.json` (`imageDay`, `imageCount`, `imageUsers`). All pictures go through `roles.drawing`.
+Settings for the drawing sub-process (`features.imageGeneration`). The persona emits a `<draw>` tag; code generates one picture through OpenRouter's Images API and posts it as a separate message. Generation and daily counts are stored in `data/state.json` (`imageDay`, `imageCount`, `imageUsers`). All pictures go through `models.agents.drawing`.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -870,7 +882,7 @@ With `features.relationships` off, public scores stay at 0, so with the default 
 
 ## `agents`
 
-The persona's errand agents: two separate processes (`web` and `server`), each an OpenCode worker behind a Unix socket, that run tasks the persona hands off (`src/agent-runner/`); the core side (`src/errands/`) queues the tasks, sends them to the runner of an enabled profile and brings the results back to her. A profile with `enabled` off answers every task `not-configured`. The agents run on their own OpenRouter key (`OPENROUTER_AGENT_KEY`), never the persona's; like every key it lives in the bot's `.env`, and the core sends it with each task, with, for `web`, the proxy `MEDIA_VIDEO_PROXY` (the residential proxy of the video fetches, sent in its http form) and `OPENCODE_WEBSEARCH_KEY` (optional); a runner's own environment is used only for what a task does not bring. Their models are the model roles `agent.web` and `agent.server` (set with `/nep model set`; a runner reads the config again at each task, so a change reaches its next task without a restart). See [Errand agents](agents.md).
+The persona's errand agents: two separate processes (`web` and `server`), each an OpenCode worker behind a Unix socket, that run tasks the persona hands off (`src/agent-runner/`); the core side (`src/errands/`) queues the tasks, sends them to the runner of an enabled profile and brings the results back to her. A profile with `enabled` off answers every task `not-configured`. The agents run on their own OpenRouter key (`OPENROUTER_AGENT_KEY`), never the persona's; like every key it lives in the bot's `.env`, and the core sends it with each task, with, for `web`, the proxy `MEDIA_VIDEO_PROXY` (the residential proxy of the video fetches, sent in its http form) and `OPENCODE_WEBSEARCH_KEY` (optional); a runner's own environment is used only for what a task does not bring. Their models are `models.agents.web` and `models.agents.server` (set with `/nep model set`; a runner reads the config again at each task, so a change reaches its next task without a restart). See [Errand agents](agents.md).
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -890,7 +902,7 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | `false` | Run the web errand agent |
-| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode so its cost estimate is right (OpenCode's price catalog fetch is disabled in the sandbox). Set it to the price of the model in the `agent.web` role |
+| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode so its cost estimate is right (OpenCode's price catalog fetch is disabled in the sandbox). Set it to the price of the model in `models.agents.web` |
 | `socket` | `"/run/neptunia-agent-web/sock"` | Unix socket the runner listens on and the core connects to |
 | `out` | `"/var/lib/neptunia-agent-web/out"` | Directory for per-task working dirs and output files; the core reads a task's files from `<out>/<task id>/` |
 | `limits` | `{ "steps": 25, "usd": 0.5, "seconds": 300 }` | Per-task caps: model calls, estimated spend (soft cap; the hard cap is the key's OpenRouter credit limit), wall-clock seconds |
@@ -902,7 +914,7 @@ The persona's errand agents: two separate processes (`web` and `server`), each a
 | Key | Default | Meaning |
 |---|---|---|
 | `enabled` | `false` | Run the server-read errand agent |
-| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode for its cost estimate; the price of the model in the `agent.server` role |
+| `cost` | `{ "input": 2, "output": 6 }` | Model price (USD per million tokens) passed to OpenCode for its cost estimate; the price of the model in `models.agents.server` |
 | `socket` | `"/run/neptunia-agent-server/sock"` | Unix socket the runner listens on and the core connects to |
 | `out` | `"/var/lib/neptunia-agent-server/out"` | Directory for per-task working dirs and output files; the core reads a task's files from `<out>/<task id>/` |
 | `limits` | `{ "steps": 20, "usd": 0.2, "seconds": 120 }` | Per-task caps: model calls, estimated spend, wall-clock seconds |
@@ -948,7 +960,7 @@ Before anything leaves hot memory (an episode, interest, detail, alias, real nam
 
 ## Models
 
-The engine uses eight model roles for its own requests (`roles.*`), plus the three agent roles its OpenCode workers run on and `agent.advice`, the consultation tools' (see [`roles`](#roles)). Each is set independently, so the voice can use a premium model while the helpers stay cheap. No role takes another role's model: an unset role keeps its own default.
+The engine's own requests go out on the roles of `models.base` and on `models.agents.drawing`; the other agent roles (`web`, `server`, `thinker`, `dev`, `writer`) are run by OpenCode workers (see [`models`](#models)). Each is set independently, so the voice can use a premium model while the helpers stay cheap. No role takes another role's model: an unset role keeps its own default.
 
 ### Voice
 

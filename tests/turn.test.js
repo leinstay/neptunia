@@ -1689,7 +1689,7 @@ function rewatchHot(features = {}, video = {}, config = {}) {
     { mediaDescriptions: true, videoDescriptions: true, vision: false, ...features },
     {},
     {
-      roles: { analyzer: 'x/analyzer', vision: 'x/haiku' },
+      models: { base: { analyzer: 'x/analyzer', vision: 'x/haiku' } },
       media: {
         maxPerTurn: 6,
         filePreviewChars: 500,
@@ -1752,14 +1752,14 @@ test('createTurnRunner: rewatch -- the classifier gets the watched videos and th
   assert.ok(userMessage.includes(`${watched} ${answered}`), 'the answer follows the watched tag');
 });
 
-test('createTurnRunner: rewatch -- the classifier model is roles.analyzer, else its own default; the deprecated keys and a stale rewatch.model are ignored', async () => {
-  const withText = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { roles: { analyzer: 'x/text', vision: 'x/haiku' }, mention: { followUpModel: 'x/older' } });
+test('createTurnRunner: rewatch -- the classifier model is models.base.analyzer, else its own default; the deprecated keys and a stale rewatch.model are ignored', async () => {
+  const withText = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { base: { analyzer: 'x/text', vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
   withText.config.llm.classifierModel = 'x/old';
   assert.equal((await runRewatch({ hot: withText })).llm.classifierCalls[0].options.model, 'x/text');
-  const withOld = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { roles: { vision: 'x/haiku' }, mention: { followUpModel: 'x/older' } });
+  const withOld = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: { base: { vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } });
   withOld.config.llm.classifierModel = 'x/old';
   assert.equal((await runRewatch({ hot: withOld })).llm.classifierCalls[0].options.model, ROLE_DEFAULTS.analyzer, 'its own default: never the vision model or a deprecated key');
-  const staleMedia = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { roles: {} });
+  const staleMedia = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: {} });
   staleMedia.config.media.model = 'x/old-media';
   const withNone = await runRewatch({ hot: staleMedia });
   assert.equal(withNone.llm.classifierCalls[0].options.model, ROLE_DEFAULTS.analyzer, 'the deprecated media.model is no fallback');
@@ -2355,7 +2355,7 @@ function lookupHot(features = {}, web = {}, config = {}) {
     { webLookup: true, vision: false, ...features },
     {},
     {
-      roles: { analyzer: 'x/text', reasoner: 'x/reason' },
+      models: { base: { analyzer: 'x/text', reasoner: 'x/reason' } },
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
       web: {
         maxPerDay: 60,
@@ -3962,7 +3962,7 @@ test('createTurnRunner: the persona turn is requested as role voice, purpose rep
   const turns = createTurnRunner({ discord: DISCORD, createPort: createDiscordAdapter, hot, store: fakeStore(), llm, calibrator: identityCalibrator(), client: fakeClient() });
   await turns.runTurn({ channel, mode: 'interject' });
   assert.equal(llm.optionCalls.length, 1);
-  assert.deepEqual(llm.optionCalls[0], { role: 'voice', purpose: 'reply' }, 'only the role and the purpose: roles.voice and every other setting stay the defaults');
+  assert.deepEqual(llm.optionCalls[0], { role: 'voice', purpose: 'reply' }, 'only the role and the purpose: models.base.voice and every other setting stay the defaults');
   assert.equal('cache' in llm.optionCalls[0], false, 'the cache policy decides: the reply is the request it marks');
 });
 
@@ -7524,7 +7524,7 @@ function pickHot({ features = {}, prompts = {}, pickSettings = PICK_SETTINGS, ma
     {},
     {
       gifs: { maxPerDay, reactionChars: 40, actionChars: 70, ownMarkHours: 24, halfLifeDays: 30, pick: pickSettings },
-      roles: { analyzer: 'cheap/classifier' },
+      models: { base: { analyzer: 'cheap/classifier' } },
       ...(typing ? { typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], ...typing } } : {}),
     },
   );
@@ -8477,7 +8477,7 @@ async function runPlannerTurn({ turnPlanner = true, llm = plannerLlm(), journal 
     {
       web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50, classifierMaxOutputTokens: 333 } },
       participation: { shown: 1 },
-      roles: { vision: 'x/haiku', reasoner: 'x/reason' },
+      models: { base: { vision: 'x/haiku', reasoner: 'x/reason' } },
     },
   );
   Object.assign(hot.prompts, { planner: PLANNER_SYSTEM, lookup: LOOKUP_SYSTEM, 'route-channel': ROUTE_SYSTEM, 'participation-pick': PICK_SYSTEM });

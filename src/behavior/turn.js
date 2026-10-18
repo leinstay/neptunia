@@ -3226,7 +3226,7 @@ export function createTurnRunner({
    * messages (at most `media.video.rewatch.maxCandidates` of them, the videos
    * first, then the watched GIFs, then the pictures, each newest first), one cheap classifier call
    * (prompts.rewatch, on the analyzer model: roleModel for `analyzer` --
-   * `roles.byPurpose.rewatch`, else `roles.analyzer`, else its default; its answer capped at
+   * `models.base.byPurpose.rewatch`, else `models.base.analyzer`, else its default; its answer capped at
    * `media.video.rewatch.classifierMaxOutputTokens`) picks the item and
    * the question. For a video the describer looks at it again
    * (describer.rewatchVideo) and the answer joins that video's state as

@@ -96,7 +96,7 @@ Voice messages show only duration. Audio files show a name and duration. The per
 
 ## Cost
 
-Each turn is one LLM request; a memory update adds a second. Video descriptions add one request per watched clip to the `video` role (`media.video.maxPerDay` caps the daily count); `yt-dlp` and `ffmpeg` run locally and cost nothing beyond bandwidth. Link reads, web searches and server searches add requests to the `analyzer` and `reasoner` roles, capped by `web.maxPerDay` (shared, web side), `recall.maxPerDay` (server side) and `llm.maxRequestsPerDay` (global). Web search additionally needs a Brave Search key; the free tier handles a low-traffic server. Server search uses Discord's built-in search API and costs no money, only LLM requests for the classifier and the summary. Image generation bills per output token through `roles.drawing`; `image.maxPerDay` caps the daily count separately from chat requests.
+Each turn is one LLM request; a memory update adds a second. Video descriptions add one request per watched clip to the `video` role (`media.video.maxPerDay` caps the daily count); `yt-dlp` and `ffmpeg` run locally and cost nothing beyond bandwidth. Link reads, web searches and server searches add requests to the `analyzer` and `reasoner` roles, capped by `web.maxPerDay` (shared, web side), `recall.maxPerDay` (server side) and `llm.maxRequestsPerDay` (global). Web search additionally needs a Brave Search key; the free tier handles a low-traffic server. Server search uses Discord's built-in search API and costs no money, only LLM requests for the classifier and the summary. Image generation bills per output token through `models.agents.drawing`; `image.maxPerDay` caps the daily count separately from chat requests.
 
 ## Privacy
 

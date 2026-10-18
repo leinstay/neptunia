@@ -69,7 +69,7 @@ function baseConfig(overrides = {}) {
     context: { gapMarkerMinutes: 30, maxMessageChars: 2000, replyQuoteChars: 80 },
     mention: { oneAtATime: true },
     missed: { ...(overrides.missed ?? {}) },
-    roles: {},
+    models: {},
     llm: {},
   };
 }

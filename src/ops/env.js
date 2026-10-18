@@ -199,7 +199,7 @@ export function createOpsEnv({
     return profile;
   }
 
-  /** The drawing model (`roles.drawing`) for status and model show, `-` when unset, flagged when src/llm/images.js
+  /** The drawing model (`models.agents.drawing`) for status and model show, `-` when unset, flagged when src/llm/images.js
    * has no request mapping for its family (every generation would be refused). */
   function imageModelLabel(cfg) {
     const model = roleModel(cfg, 'drawing');

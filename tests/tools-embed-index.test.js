@@ -46,7 +46,7 @@ async function fixture() {
     config: {
       features: {},
       bot: { nameTriggers: ['persona'] },
-      roles: { embedding: 'test/embed-model' },
+      models: { base: { embedding: 'test/embed-model' } },
       embed: { dimensions: 4, batch: 2 },
       llm: { maxRequestTokens: 50000 },
     },

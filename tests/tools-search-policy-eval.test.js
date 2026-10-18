@@ -29,7 +29,7 @@ function hotFixture(overrides = {}) {
     config: {
       bot: { timezone: 'UTC', nameTriggers: ['Persona'] },
       features: { skills: false },
-      roles: { reasoner: 'test/reasoner' },
+      models: { base: { reasoner: 'test/reasoner' } },
       context: { maxMessageChars: 2000 },
       web: { search: { contextMessages: 50, classifierMaxOutputTokens: 300 } },
       llm: { helperTimeoutMs: 9000 },
