@@ -21,19 +21,31 @@ Both run one task at a time; further requests queue. Each task has per-task caps
 
 Each agent lives in its own folder under `agents/` at the engine root: `agents/web/` and `agents/server/` are the two workers. A folder holds the agent's tracked prompt (`prompt.md`) and its description (`profile.json`). The runner builds its profiles from this folder when it starts (`src/agent-runner/profiles.js#loadProfiles`); the bot reads the same folder for the defaults it needs (socket, output dir, limits, daily caps). `listAgents` returns every agent, workers and consultations alike.
 
-There are two kinds. A worker runs as its own process (`bin/agent-runner.mjs --profile <id>`) and takes tasks on a Unix socket. A consultation has no process: tools call its model role directly. The runner skips consultations. No consultation ships today (the engine's former `advice` consultation was removed with the `agent.advice` role).
+There are three kinds. A worker runs as its own process (`bin/agent-runner.mjs --profile <id>`) and takes tasks on a Unix socket. A consultation has no process: tools call its model role directly. A development agent works on the code: it has no process of its own in the engine, which only describes it. The runner skips consultations and development agents. No consultation ships today (the engine's former `advice` consultation was removed with the `agent.advice` role).
+
+## Development agents
+
+Three development agents ship with the engine, each in its own folder with a `profile.json` and a generic `prompt.md`:
+
+| Agent | What it does |
+|---|---|
+| `thinker` | picks up development tasks from the task ledger, writes the brief for each, hands it to `dev` or `writer`, reviews what comes back, runs the tests and merges accepted work; it never deploys and never hands work to a helper model of its own |
+| `dev` | writes code within one development task |
+| `writer` | writes prompt and documentation text within one development task |
+
+The engine never starts them. A dispatcher (for `dev` and `writer`, one OpenCode run per attempt at a task) and an orchestrator (for `thinker`, one long-lived OpenCode session woken by ledger events) outside the engine read these folders through `listAgents`, build the OpenCode config from the profile, the model of its role (`models.agents.thinker`, `.dev`, `.writer`) and its price, and add the deployment's own rules to the prompt. Their rights (what a shell may run, what is refused) are set by that dispatcher and the system it runs on, not by the profile. `loadProfiles`, the agent runner's reader, skips them.
 
 ## Profile keys
 
-`profile.json` describes what an agent asks for; it never authorizes anything. Every key is required:
+`profile.json` describes what an agent asks for; it never authorizes anything. Every key of its kind is required, and a key of another kind is refused:
 
 | Key | What it holds |
 |---|---|
 | `id` | the folder name (`web`) |
-| `kind` | `worker` (runs under the agent runner on a socket) or `consultation` (a model role that tools call directly; no process, skipped by the runner) |
-| `role` | the model role in `src/llm/roles.js` whose model is in `models.agents` (`web`, `server`; a worker takes one of `web`, `server`, `thinker`, `dev`, `writer`) |
+| `kind` | `worker` (runs under the agent runner on a socket), `consultation` (a model role that tools call directly; no process, skipped by the runner) or `development` (run by a dispatcher outside the engine; skipped by the runner) |
+| `role` | the model role in `src/llm/roles.js` whose model is in `models.agents` (a worker takes one of `web`, `server`, `thinker`, `dev`, `writer`; a development agent one of `thinker`, `dev`, `writer`) |
 | `prompt` | the prompt file inside the folder (`prompt.md`); `null` for a consultation without one |
-| `override` | the name a deployment may put under `prompts.local/` to replace the prompt (`agent-web.md`); `null` when there is no prompt |
+| `override` | the name a deployment may put under `prompts.local/` to replace the prompt (`agent-web.md`); `null` when there is no prompt, and for the development agents, whose deployment rules are added by their dispatcher |
 | `description` | one sentence saying what the agent does |
 | `tools` | worker only: the OpenCode tools it asks for, at most the ones its shell class allows |
 | `shell` | worker only: the name of a shell class the runner defines in code (`server-read-only`, `web-download`) |
@@ -42,6 +54,9 @@ There are two kinds. A worker runs as its own process (`bin/agent-runner.mjs --p
 | `searchProvider` | worker only: the default web search provider (`exa`), or `null` |
 | `socket`, `out` | worker only: the default socket path and output folder, overridden by `agents.<id>.socket` / `.out` |
 | `env` | worker only: the environment variable names the runner falls back on when a task brings no key |
+| `tools` | development only: the OpenCode tools it asks for, from a fixed list in `src/agent-runner/profiles.js` (`DEVELOPMENT_TOOLS`: `bash`, `read`, `grep`, `glob`, `list`, `edit`, `write`, `patch`, `webfetch`, `websearch`, `todowrite`, `skill`, `external_directory`; never `task` or `question`) |
+| `effort` | development only: the reasoning effort, OpenCode's `--variant` (`low`, `medium`, `high`, `max`) |
+| `limits` | development only: default per-run caps `{ usd, steps, minutes }`, overridden by `agents.<id>.limits` in config |
 
 A profile with a missing key, an unknown key, a tool its shell class does not allow, or a shell class the runner does not know stops the runner (and the bot, which reads the same folder) at start, with one error line naming the agent and the key.
 
@@ -146,7 +161,7 @@ The core's store remains the system of record: the `<tasks>` block, the result t
 
 ## Adding an agent
 
-1. Create `agents/<id>/` with a `profile.json` (copy one of the existing ones) and, for a worker, a `prompt.md`.
+1. Create `agents/<id>/` with a `profile.json` (copy one of the existing ones) and, for a worker or a development agent, a `prompt.md`.
 2. If it needs a model role that does not exist yet, add it to `src/llm/roles.js` (`AGENT_ROLES`, with its default in `ROLE_DEFAULTS`) and to `models.agents` in `config.json`.
 3. For a worker: add an `agents.<id>` block to `config.json`, a systemd unit like `deploy/neptunia-agent-web.service`, and, for the persona to reach it, its name in `TASK_AGENTS` (`src/ops/catalog.js`) and who may ask for it in `src/ops/task.js`.
 4. If no existing shell class fits, that is a code change in `src/agent-runner/profiles.js`, not a profile key.

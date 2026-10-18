@@ -1,9 +1,11 @@
 // The agent profiles, built from the `agents/` folder at the engine root: one
 // `agents/<id>/profile.json` per agent, beside its tracked prompt
 // (`agents/<id>/prompt.md`). A profile file only describes a request: its
-// kind (`worker`, run under this runner on a socket, or `consultation`, a
-// model role tools call directly, which the runner skips), its model role
-// (`web`, `server`: the key of its model under `models.agents`), its prompt and the deployment's override
+// kind (`worker`, run under this runner on a socket; `consultation`, a
+// model role tools call directly; or `development`, an agent of the
+// workspace's development side that a dispatcher outside this engine runs
+// on OpenCode: the runner skips the last two), its model role
+// (`web`, `server`, `thinker`, `dev`, `writer`: the key of its model under `models.agents`), its prompt and the deployment's override
 // name under `prompts.local/`, the OpenCode tools it asks for, the name of
 // its shell class, its default limits, daily caps, socket and out dir, and
 // the environment variable names its run may fall back on (the core sends
@@ -428,11 +430,37 @@ const COMMON_KEYS = Object.freeze(['id', 'kind', 'role', 'prompt', 'override', '
 /** The keys only a worker carries (a consultation naming one is refused as an unknown key). */
 const WORKER_KEYS = Object.freeze(['tools', 'shell', 'limits', 'daily', 'searchProvider', 'socket', 'out', 'env']);
 
+/**
+ * The keys only a development profile carries: the OpenCode tools it asks for (DEVELOPMENT_TOOLS),
+ * its reasoning effort (DEVELOPMENT_EFFORTS, OpenCode's `--variant`) and its default per-run caps
+ * `{ usd, steps, minutes }`.
+ */
+const DEVELOPMENT_KEYS = Object.freeze(['tools', 'effort', 'limits']);
+
 /** The keys of each kind, all required. */
 const KEYS_BY_KIND = Object.freeze({
   worker: Object.freeze([...COMMON_KEYS, ...WORKER_KEYS]),
   consultation: COMMON_KEYS,
+  development: Object.freeze([...COMMON_KEYS, ...DEVELOPMENT_KEYS]),
 });
+
+/**
+ * The model roles a development profile may name: the development agents of src/llm/roles.js
+ * (OPENCODE_ROLES), whose models sit under `models.agents` and run on the development key.
+ */
+export const DEVELOPMENT_ROLES = Object.freeze(OPENCODE_ROLES.filter((role) => ['thinker', 'dev', 'writer'].includes(role)));
+
+/**
+ * The OpenCode (v1.19.3) tool and permission keys a development profile may ask for. A
+ * development agent runs outside this runner, under the dispatcher that builds its config from
+ * the profile; this list only bounds what a profile can name. `task` (subagents) and `question`
+ * (a headless run cannot answer it) are never on it, nor the experimental `lsp`, `plan_exit`
+ * and `execute`.
+ */
+export const DEVELOPMENT_TOOLS = Object.freeze(['bash', 'read', 'grep', 'glob', 'list', 'edit', 'write', 'patch', 'webfetch', 'websearch', 'todowrite', 'skill', 'external_directory']);
+
+/** The reasoning efforts a development profile may name (OpenCode's `--variant`). */
+export const DEVELOPMENT_EFFORTS = Object.freeze(['low', 'medium', 'high', 'max']);
 
 /** An agent id, the name of its folder: lowercase letters, digits and dashes. */
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -494,6 +522,15 @@ function checkFileName(agent, key, value, nullable) {
   }
 }
 
+/** Checks `tools`: a non-empty list of distinct names, each one of `allowed` (`where` names the bound in the error). */
+function checkTools(agent, tools, allowed, where) {
+  if (!Array.isArray(tools) || tools.length === 0) throw new AgentProfileError(agent, 'tools', 'must be a non-empty list');
+  for (const tool of tools) {
+    if (!allowed.includes(tool)) throw new AgentProfileError(agent, 'tools', `unknown tool ${JSON.stringify(tool)} ${where} (allowed: ${allowed.join(', ')})`);
+  }
+  if (new Set(tools).size !== tools.length) throw new AgentProfileError(agent, 'tools', 'names a tool twice');
+}
+
 /** Checks an absolute path default (`socket`, `out`). */
 function checkAbsolute(agent, key, value) {
   if (typeof value !== 'string' || !path.isAbsolute(value) || value.includes('\0')) throw new AgentProfileError(agent, key, 'must be an absolute path');
@@ -512,9 +549,10 @@ function validateProfile(agent, raw) {
   if (!Object.hasOwn(raw, 'kind')) throw new AgentProfileError(agent, 'kind', 'missing');
   if (!Object.hasOwn(KEYS_BY_KIND, raw.kind)) throw new AgentProfileError(agent, 'kind', `must be one of ${Object.keys(KEYS_BY_KIND).join(', ')}`);
   const worker = raw.kind === 'worker';
+  const development = raw.kind === 'development';
   const keys = KEYS_BY_KIND[raw.kind];
   for (const key of Object.keys(raw)) {
-    if (!keys.includes(key)) throw new AgentProfileError(agent, key, worker || !WORKER_KEYS.includes(key) ? 'unknown key' : 'unknown key (a consultation has no runner)');
+    if (!keys.includes(key)) throw new AgentProfileError(agent, key, worker || !WORKER_KEYS.includes(key) ? 'unknown key' : `unknown key (a ${raw.kind} profile has no runner)`);
   }
   for (const key of keys) {
     if (!Object.hasOwn(raw, key)) throw new AgentProfileError(agent, key, 'missing');
@@ -522,20 +560,21 @@ function validateProfile(agent, raw) {
 
   if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
   if (!ID_PATTERN.test(agent)) throw new AgentProfileError(agent, 'id', 'must be lowercase letters, digits and dashes');
-  const roles = worker ? OPENCODE_ROLES : AGENT_ROLES;
+  const roles = worker ? OPENCODE_ROLES : development ? DEVELOPMENT_ROLES : AGENT_ROLES;
   if (!roles.includes(raw.role)) throw new AgentProfileError(agent, 'role', `must be one of ${roles.join(', ')}`);
-  checkFileName(agent, 'prompt', raw.prompt, !worker);
+  checkFileName(agent, 'prompt', raw.prompt, !worker && !development);
   checkFileName(agent, 'override', raw.override, !worker);
   if (typeof raw.description !== 'string' || !raw.description.trim()) throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
+  if (development) {
+    checkTools(agent, raw.tools, DEVELOPMENT_TOOLS, 'for a development profile');
+    if (!DEVELOPMENT_EFFORTS.includes(raw.effort)) throw new AgentProfileError(agent, 'effort', `must be one of ${DEVELOPMENT_EFFORTS.join(', ')}`);
+    checkNumbers(agent, 'limits', raw.limits, { usd: false, steps: true, minutes: false });
+    return;
+  }
   if (!worker) return;
 
   if (!Object.hasOwn(SHELL_CLASSES, raw.shell)) throw new AgentProfileError(agent, 'shell', `unknown shell class ${JSON.stringify(raw.shell)} (known: ${Object.keys(SHELL_CLASSES).join(', ')})`);
-  const allowed = SHELL_CLASSES[raw.shell].tools;
-  if (!Array.isArray(raw.tools) || raw.tools.length === 0) throw new AgentProfileError(agent, 'tools', 'must be a non-empty list');
-  for (const tool of raw.tools) {
-    if (!allowed.includes(tool)) throw new AgentProfileError(agent, 'tools', `unknown tool ${JSON.stringify(tool)} for shell class ${raw.shell} (allowed: ${allowed.join(', ')})`);
-  }
-  if (new Set(raw.tools).size !== raw.tools.length) throw new AgentProfileError(agent, 'tools', 'names a tool twice');
+  checkTools(agent, raw.tools, SHELL_CLASSES[raw.shell].tools, `for shell class ${raw.shell}`);
   checkNumbers(agent, 'limits', raw.limits, { steps: true, usd: false, seconds: false });
   checkNumbers(agent, 'daily', raw.daily, { tasks: true, usd: false });
   if (raw.searchProvider !== null && (typeof raw.searchProvider !== 'string' || !PROVIDER_PATTERN.test(raw.searchProvider))) {
@@ -556,7 +595,7 @@ function frozenCopy(value) {
 }
 
 /**
- * Every agent described under `<rootDir>/agents/`, workers and consultations alike, as their
+ * Every agent described under `<rootDir>/agents/`, of every kind, as their
  * validated `profile.json` (deep-frozen), sorted by id: the reader for the docs, the tools and
  * later the persona's list of her agents. A file directly under `agents/` (its README) is not an
  * agent; a folder without a readable, valid `profile.json` fails with AgentProfileError.
@@ -652,7 +691,7 @@ function makeProfile(definition, { rootDir, env }) {
 
 /**
  * The worker profiles under `<rootDir>/agents/`, by id: every agent of kind `worker` (a
- * consultation has no runner and is skipped), each validated (listAgents) and built into the
+ * consultation or a development profile has no runner here and is skipped), each validated (listAgents) and built into the
  * profile object the runner and the core use. Throws AgentProfileError on the first profile that
  * cannot be used, so a bad file stops the process at start.
  * @param {{ rootDir?: string, env?: Record<string, string | undefined> }} [options]
