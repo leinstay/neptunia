@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { createHot } from '../src/hot.js';
+import { composePreamble } from '../src/errands/preambles.js';
 import { createOpsEnv } from '../src/ops/env.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../src/interface/discord.js';
@@ -658,6 +659,167 @@ test('createHot: without a privateDir it is the root, and no second root watcher
     assert.equal(watch.of(dir).length, 1);
   } finally {
     hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// prompts.local/preambles/: the errand agents' preambles, a subfolder of the
+// private layer only, loaded by base name into `hot.prompts.preambles`, live.
+// ---------------------------------------------------------------------------
+
+function writePreamble(dir, name, text) {
+  const folder = path.join(dir, 'prompts.local', 'preambles');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, `${name}.md`), text);
+}
+
+test('createHot: prompts.local/preambles/*.md load by base name into hot.prompts.preambles and reload live', () => {
+  const dir = makeRoot({ prompts: { rules: 'base text' } });
+  const plainDir = makeRoot();
+  const plain = createHot({ rootDir: plainDir });
+  try {
+    assert.deepEqual(plain.prompts.preambles, {}, 'no folder: an empty set');
+  } finally {
+    plain.close();
+    fs.rmSync(plainDir, { recursive: true, force: true });
+  }
+  // A tracked prompts/preambles/ is never read: the files are deployment-only.
+  fs.mkdirSync(path.join(dir, 'prompts', 'preambles'));
+  fs.writeFileSync(path.join(dir, 'prompts', 'preambles', 'all.md'), 'tracked');
+  writePreamble(dir, 'all', '\uFEFFΚοινό.\r\n');
+  writePreamble(dir, '@moonshotai-kimi-k3', 'Για το μοντέλο.');
+  writePreamble(dir, 'web', '');
+  fs.writeFileSync(path.join(dir, 'prompts.local', 'preambles', 'notes.txt'), 'not a prompt');
+  const hot = createHot({ rootDir: dir });
+  try {
+    assert.deepEqual(hot.prompts.preambles, { all: 'Κοινό.', '@moonshotai-kimi-k3': 'Για το μοντέλο.', web: '' });
+    assert.equal(hot.prompts.rules, 'base text');
+    const before = hot.hashes.promptsHash;
+
+    writePreamble(dir, 'web', 'Ιστός.');
+    fs.rmSync(path.join(dir, 'prompts.local', 'preambles', '@moonshotai-kimi-k3.md'));
+    writePreamble(dir, 'all', ''); // emptied: '' at once, no keep-the-previous guard
+    assert.equal(hot.reloadPrompts(), true);
+    assert.deepEqual(hot.prompts.preambles, { all: '', web: 'Ιστός.' });
+    assert.notEqual(hot.hashes.promptsHash, before, 'the preambles count in the prompts hash');
+
+    fs.rmSync(path.join(dir, 'prompts.local', 'preambles'), { recursive: true, force: true });
+    hot.reloadPrompts();
+    assert.deepEqual(hot.prompts.preambles, {}, 'the folder removed: none left');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watch: prompts.local/preambles/ gets a watcher of its own; created, edited and removed, it reloads', async () => {
+  const dir = makeRoot();
+  writeLocalPrompt(dir, 'rules', 'local text');
+  const localDir = path.join(dir, 'prompts.local');
+  const preamblesDir = path.join(localDir, 'preambles');
+  const watch = fakeWatch();
+  const hot = createHot({ rootDir: dir, watchImpl: watch }).watch();
+  try {
+    assert.equal(watch.of(preamblesDir).length, 0, 'no folder: no watcher');
+    const [local] = watch.of(localDir);
+
+    writePreamble(dir, 'all', 'first');
+    local.listener('rename', 'preambles');
+    assert.equal(watch.of(preamblesDir).length, 1, 'the new folder is watched');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(hot.prompts.preambles.all, 'first');
+
+    writePreamble(dir, 'all', 'second');
+    watch.of(preamblesDir)[0].listener('change', 'all.md');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(hot.prompts.preambles.all, 'second', 'an edit inside the folder reloads');
+
+    fs.rmSync(preamblesDir, { recursive: true, force: true });
+    local.listener('rename', 'preambles');
+    assert.equal(watch.of(preamblesDir)[0].closed, true, 'the removed folder\'s watcher is closed');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.deepEqual(hot.prompts.preambles, {});
+
+    writePreamble(dir, 'web', 'again');
+    local.listener('rename', 'preambles');
+    assert.equal(watch.of(preamblesDir).length, 2);
+    hot.close();
+    assert.equal(watch.of(preamblesDir)[1].closed, true, 'close() closes it too');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watch: a preambles/ folder present at start is watched; an error frees its watcher', async () => {
+  const dir = makeRoot();
+  writePreamble(dir, 'all', 'text');
+  const preamblesDir = path.join(dir, 'prompts.local', 'preambles');
+  const watch = fakeWatch();
+  const hot = createHot({ rootDir: dir, watchImpl: watch }).watch();
+  try {
+    const [first] = watch.of(preamblesDir);
+    assert.ok(first);
+    await withCapturedLogs(() => first.emit('error', new Error('EPERM')));
+    assert.equal(first.closed, true);
+    watch.of(path.join(dir, 'prompts.local'))[0].listener('rename', 'preambles');
+    assert.equal(watch.of(preamblesDir).length, 2, 'the next event on prompts.local/ starts a new one');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: an emptied preamble file composes to nothing at once, while an emptied top-level prompt keeps its text', () => {
+  const dir = makeRoot();
+  writeLocalPrompt(dir, 'rules', 'local rules');
+  writePreamble(dir, 'web', 'Ιστός.');
+  const hot = createHot({ rootDir: dir });
+  const webPreamble = () => composePreamble({ prompts: hot.prompts, agent: 'web', model: null }).text;
+  try {
+    assert.equal(webPreamble(), 'Ιστός.');
+    writePreamble(dir, 'web', 'Ιστός, δεύτερο.');
+    assert.equal(hot.reloadPrompts(), true);
+    assert.equal(webPreamble(), 'Ιστός, δεύτερο.');
+
+    writePreamble(dir, 'web', '');
+    writeLocalPrompt(dir, 'rules', ''); // half-written top-level file: the guard stays
+    assert.equal(hot.reloadPrompts(), true);
+    assert.equal(webPreamble(), '', 'an empty preamble file is nothing');
+    assert.equal(hot.prompts.rules, 'local rules');
+
+    writePreamble(dir, 'web', 'Ιστός.');
+    hot.reloadPrompts();
+    writePreamble(dir, 'web', '  \n\t\n');
+    hot.reloadPrompts();
+    assert.equal(webPreamble(), '', 'whitespace only is nothing');
+
+    writePreamble(dir, 'web', 'Ιστός.');
+    hot.reloadPrompts();
+    fs.rmSync(path.join(dir, 'prompts.local', 'preambles', 'web.md'));
+    hot.reloadPrompts();
+    assert.equal(webPreamble(), '', 'a deleted file is nothing');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: prompts.local/agents.md is not a preamble and draws no warning', async () => {
+  const dir = makeRoot();
+  writeLocalPrompt(dir, 'agents', 'OLD-PREAMBLE-TEXT');
+  let hot;
+  try {
+    const { logs } = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+      hot.reloadPrompts();
+    });
+    assert.deepEqual(hot.prompts.preambles, {});
+    assert.equal(composePreamble({ prompts: hot.prompts, agent: 'web', model: null }).text, '');
+    assert.ok(!logs.some((entry) => entry.level === 'warn'), 'no warning about it');
+  } finally {
+    hot?.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

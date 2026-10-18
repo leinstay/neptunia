@@ -3,8 +3,10 @@
 // what the test tells it to. A run resolves on its `end`, progress reaches the listeners, cancel
 // and ping go out as lines, a dropped connection fails its tasks with `disconnected` and is
 // reopened, a profile that is not set up answers `not-configured` without connecting, and each
-// outcome of the connect loop reaches the `onLink` listeners. The deployment's shared preamble
-// (`hot.prompts.agents`) goes out on a run's line only when non-empty, read at each run.
+// outcome of the connect loop reaches the `onLink` listeners. The deployment's preamble goes out
+// on a run's line only when non-empty, read at each run: the files of prompts.local/preambles/ are
+// picked by agent and by the agent's role model and capped by whole files; prompts.local/agents.md
+// (`hot.prompts.agents`) is never read as one.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
@@ -12,7 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createErrandClient } from '../src/errands/client.js';
-import { encodeLine } from '../src/agent-runner/protocol.js';
+import { encodeLine, MAX_PREAMBLE_CHARS } from '../src/agent-runner/protocol.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 function socketPath() {
@@ -136,7 +138,7 @@ test('errands client: a run\'s secrets go out on its line and into no log line',
   }
 });
 
-test('errands client: the shared preamble goes out on a run\'s line only when non-empty, read at each run, and into no log line', async () => {
+test('errands client: the preamble goes out on a run\'s line only when non-empty, read at each run, and into no log line', async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
   const hot = hotFor(sock);
@@ -151,16 +153,93 @@ test('errands client: the shared preamble goes out on a run\'s line only when no
   try {
     const { logs } = await withCapturedLogs(async () => {
       assert.equal(Object.hasOwn(await runOnce('task-none'), 'preamble'), false, 'no prompts at all: none sent');
-      hot.prompts = { agents: '' };
+      hot.prompts = { preambles: { all: '' } };
       assert.equal(Object.hasOwn(await runOnce('task-empty'), 'preamble'), false, 'an empty file: none sent');
-      hot.prompts = { agents: '  SHARED-PREAMBLE for every agent.\n' };
+      hot.prompts = { preambles: { all: '  SHARED-PREAMBLE for every agent.\n' } };
       assert.equal((await runOnce('task-with')).preamble, 'SHARED-PREAMBLE for every agent.');
+      hot.prompts = { agents: 'SHARED-PREAMBLE in the old agents.md' };
+      assert.equal(Object.hasOwn(await runOnce('task-agents-md'), 'preamble'), false, 'prompts.local/agents.md is not a preamble');
       hot.prompts = {};
       assert.equal(Object.hasOwn(await runOnce('task-gone'), 'preamble'), false, 'the file removed: none sent from the next run');
     });
     const sent = logs.filter((entry) => entry.msg === 'errands: sent');
-    assert.equal(sent.length, 4);
+    assert.equal(sent.length, 5);
     assert.ok(!JSON.stringify(logs).includes('SHARED-PREAMBLE'), 'no preamble in a log line');
+  } finally {
+    client.close();
+    await runner.close();
+  }
+});
+
+test('errands client: the preamble is composed from prompts.local/preambles/ by agent and the role model, logged by file names only', async () => {
+  const sock = socketPath();
+  const runner = await fakeRunner(sock);
+  const hot = hotFor(sock);
+  hot.config.roles = { 'agent.web': 'openrouter/moonshotai/kimi-k3' };
+  hot.prompts = {
+    preambles: {
+      all: 'ALL-TEXT',
+      web: 'WEB-TEXT',
+      '@moonshotai-kimi-k3': 'KIMI-TEXT',
+      'web@openrouter-openai-gpt-6-sol': 'WEB-SOL-TEXT',
+    },
+  };
+  const client = createErrandClient({ hot });
+  const runOnce = async (id, extra = {}) => {
+    const running = client.run({ agent: 'web', id, goal: 'look', ...extra });
+    const request = await runner.next((r) => r.op === 'run' && r.id === id);
+    runner.reply({ id, event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
+    await running;
+    return request;
+  };
+  try {
+    const { logs } = await withCapturedLogs(async () => {
+      const onRole = await runOnce('task-role');
+      assert.equal(onRole.preamble, 'ALL-TEXT\n\nWEB-TEXT\n\nKIMI-TEXT', 'the role model picks the model file');
+      assert.equal(Object.hasOwn(onRole, 'model'), false, 'the role model is not sent: the runner takes it');
+
+      hot.config.roles = { 'agent.web': 'openrouter/openai/gpt-6-sol' };
+      hot.prompts = { ...hot.prompts, preambles: { ...hot.prompts.preambles, all: '' } };
+      const live = await runOnce('task-live');
+      assert.equal(live.preamble, 'WEB-TEXT\n\nWEB-SOL-TEXT', 'role and files read at each run; an emptied all.md sends nothing');
+      assert.equal(Object.hasOwn(live, 'model'), false);
+    });
+    const sent = logs.filter((entry) => entry.msg === 'errands: sent');
+    assert.deepEqual(sent.map((entry) => entry.preambleFiles), [
+      ['preambles/all.md', 'preambles/web.md', 'preambles/@moonshotai-kimi-k3.md'],
+      ['preambles/web.md', 'preambles/web@openrouter-openai-gpt-6-sol.md'],
+    ]);
+    assert.equal(sent[0].preambleChars, 'ALL-TEXT\n\nWEB-TEXT\n\nKIMI-TEXT'.length);
+    assert.ok(!/-TEXT/.test(JSON.stringify(logs)), 'no preamble text in a log line');
+  } finally {
+    client.close();
+    await runner.close();
+  }
+});
+
+test('errands client: a composed preamble over MAX_PREAMBLE_CHARS sends the whole files that fit and warns with their names', async () => {
+  const sock = socketPath();
+  const runner = await fakeRunner(sock);
+  const hot = hotFor(sock);
+  hot.config.roles = { 'agent.web': 'openrouter/vendor/model' };
+  const big = 'b'.repeat(MAX_PREAMBLE_CHARS - 10);
+  hot.prompts = { preambles: { all: big, web: 'w'.repeat(20), '@vendor-model': 'MODEL' } };
+  const client = createErrandClient({ hot });
+  try {
+    const { logs } = await withCapturedLogs(async () => {
+      const running = client.run({ agent: 'web', id: 'task-cap', goal: 'look' });
+      const request = await runner.next((r) => r.op === 'run' && r.id === 'task-cap');
+      assert.equal(request.preamble, `${big}\n\nMODEL`);
+      assert.ok(request.preamble.length <= MAX_PREAMBLE_CHARS, 'the runner would not refuse it');
+      runner.reply({ id: 'task-cap', event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
+      assert.equal((await running).status, 'done');
+    });
+    const warned = logs.filter((entry) => entry.msg === 'errands: preamble over the cap');
+    assert.equal(warned.length, 1);
+    assert.equal(warned[0].level, 'warn');
+    assert.deepEqual(warned[0].files, ['preambles/all.md', 'preambles/@vendor-model.md']);
+    assert.deepEqual(warned[0].dropped, ['preambles/web.md']);
+    assert.ok(!JSON.stringify(logs).includes('bbbbbbbbbb'), 'no preamble text in a log line');
   } finally {
     client.close();
     await runner.close();

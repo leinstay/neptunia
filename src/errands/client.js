@@ -11,14 +11,20 @@
 // that is not set up (`agents.<profile>.enabled` not true, or no socket) answers `failed`,
 // `not-configured`, without connecting. Settings are read from `hot.config.agents` at the moment
 // of use. Logs carry the profile, ids and codes, never a goal, a result or a task's `secrets`
-// (sent on the `run` line and nowhere else). A `run` also carries the deployment's shared preamble
-// when `hot.prompts.agents` (prompts.local/agents.md, read live; no tracked default) is non-empty:
-// the core reads the private layer, the runners never do. Logs carry its length, never its text.
+// (sent on the `run` line and nowhere else). A `run` also carries the deployment's preamble when
+// one matches: the files of prompts.local/preambles/ picked by agent and by the agent's model
+// (src/errands/preambles.js; `hot.prompts.preambles`, read live; no tracked default). The model
+// is the agent's role model (`roles["agent.web"]`, `roles["agent.server"]`), resolved here at send
+// time, so the runner is never asked. A composed text over MAX_PREAMBLE_CHARS sends the files that
+// fit, whole and in order, with a warning naming the rest. The core reads the private layer, the
+// runners never do. Logs carry the file names and the length, never a text.
 
 import net from 'node:net';
 import { log as defaultLog } from '../log.js';
-import { encodeLine, normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
+import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from '../agent-runner/protocol.js';
 import { profileOf } from '../agent-runner/profiles.js';
+import { roleModel } from '../llm/roles.js';
+import { composePreamble } from './preambles.js';
 
 /** The first reconnect delay and its ceiling (ms); the delay doubles after each failed attempt. */
 export const RECONNECT_MIN_MS = 1000;
@@ -38,7 +44,7 @@ function failed(error) {
 /**
  * @param {object} options
  * @param {{ config: object, prompts?: object }} options.hot  The live config (`agents.<profile>.enabled`,
- *   `.socket`) and prompts (`agents`: the shared preamble, read at each run).
+ *   `.socket`, the agent roles' models) and prompts (`preambles`: read at each run).
  * @param {{ info: Function, warn: Function }} [options.log]
  * @param {(path: string) => import('node:net').Socket} [options.connect]  Opens a socket (tests inject one).
  * @param {(fn: Function, ms: number) => unknown} [options.setTimer]
@@ -257,6 +263,19 @@ export function createErrandClient({
     }
   }
 
+  /**
+   * The preamble of a run of `agent` on the agent's role model (read now): `{ text, files, chars }`.
+   * Over MAX_PREAMBLE_CHARS, a warning names the files sent and left out.
+   */
+  function preambleOf(agent) {
+    const runModel = roleModel(hot?.config, profileOf(agent)?.modelRole) ?? null;
+    const composed = composePreamble({ prompts: hot?.prompts, agent, model: runModel, maxChars: MAX_PREAMBLE_CHARS });
+    if (composed.dropped.length > 0) {
+      log.warn('errands: preamble over the cap', { agent, model: runModel, files: composed.files, dropped: composed.dropped, chars: composed.chars, maxChars: MAX_PREAMBLE_CHARS });
+    }
+    return composed;
+  }
+
   async function run({ agent, id, goal, context = {}, limits = {}, secrets = null } = {}) {
     if (closed || !socketOf(agent)) return failed('not-configured');
     if (pending.has(id)) return failed('duplicate-id');
@@ -279,15 +298,15 @@ export function createErrandClient({
       const request = { op: 'run', id, goal, context };
       if (limits && Object.keys(limits).length > 0) request.limits = limits;
       if (secrets) request.secrets = secrets;
-      const preamble = typeof hot?.prompts?.agents === 'string' ? hot.prompts.agents.trim() : '';
-      if (preamble) request.preamble = preamble;
+      const preamble = preambleOf(agent);
+      if (preamble.text) request.preamble = preamble.text;
       if (!send(agent, request)) {
         pending.delete(id);
         clearTimer(timer);
         resolve(failed('disconnected'));
         return;
       }
-      log.info('errands: sent', { agent, id, preambleChars: preamble.length });
+      log.info('errands: sent', { agent, id, preambleFiles: preamble.files, preambleChars: preamble.chars });
     });
   }
 
