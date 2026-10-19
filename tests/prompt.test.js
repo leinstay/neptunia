@@ -329,6 +329,24 @@ test('buildRequest: triggerKind "overheard" without prompts.overheard (missing o
   }
 });
 
+// The turn a finished errand opens with no origin message (asked in an inner turn of hers).
+const ERRAND_TASK = 'ERRAND_TASK: you are {{name}}, your errand ended.';
+
+test('buildRequest: a task trigger kind without a trigger takes prompts.errand-result as its task; missing, the mode prompt; with a trigger, the reply task', () => {
+  const m1 = makeMessage(1, NOW - 2 * MIN);
+  const own = (overrides = {}) => contentText(buildRequest(baseInput({ mode: 'interject', history: [m1], trigger: null, triggerKind: 'task', ...overrides })).messages[1].content);
+  const withFile = own({ prompts: fakePrompts({ 'errand-result': ERRAND_TASK }) });
+  assert.ok(withFile.includes('ERRAND_TASK: you are Nept, your errand ended.'), withFile.slice(-300));
+  assert.ok(!withFile.includes('INTERJECT'), 'interject.md is not the task of her own errand\'s end');
+  for (const missing of [undefined, '', '  ']) {
+    const user = own({ prompts: fakePrompts({ 'errand-result': missing }) });
+    assert.ok(user.includes('INTERJECT'), `without the file the mode prompt applies (${JSON.stringify(missing)})`);
+  }
+  const trigger = makeMessage(2, NOW - MIN, { authorName: 'Élodie' });
+  const answered = contentText(buildRequest(baseInput({ prompts: fakePrompts({ 'errand-result': ERRAND_TASK }), history: [m1, trigger], trigger, triggerKind: 'task' })).messages[1].content);
+  assert.ok(!answered.includes('ERRAND_TASK'), 'with the origin message the reply task text frames the result');
+});
+
 test('buildRequest: the overheard trigger label falls back to labels.triggers.followUp, then labels.triggers.reply', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Élodie' });
   const run = (triggers) =>

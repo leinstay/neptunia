@@ -131,6 +131,7 @@ const LOADS = {
   reply: [...SYSTEM, 'reply'],
   followUp: [...SYSTEM, 'follow-up'],
   overheard: [...SYSTEM, 'overheard'],
+  errandResult: [...SYSTEM, 'errand-result'],
   interject: [...SYSTEM, 'interject'],
   forcedInitiate: [...SYSTEM, 'initiate', 'forced'],
   private: [...SYSTEM, 'reply', 'private'],
@@ -630,6 +631,13 @@ test('buildRequest: an overheard line fills overheard.md in place of the reply t
   const request = buildRequest(await turnInput({ triggerKind: 'overheard' }));
   const text = assertFilled(request.messages, { files: LOADS.overheard, blocks: TURN_BLOCKS }, 'overheard');
   assert.ok(!carries(text, 'reply'), 'the reply task is not sent as well');
+});
+
+test('buildRequest: the turn a finished errand opens without an origin message fills errand-result.md in place of interject.md', async () => {
+  const history = await generalHistory();
+  const request = buildRequest(await turnInput({ mode: 'interject', trigger: null, triggerKind: 'task', interlocutor: null, focus: history.at(-2) }));
+  const text = assertFilled(request.messages, { files: LOADS.errandResult, blocks: ['senses', 'chat', 'tempo', 'task'] }, 'errand-result');
+  assert.ok(!carries(text, 'interject'), 'interject.md is not sent as well');
 });
 
 test('buildRequest: interject and a forced initiate fill their task, forced.md after it, and the room line', async () => {
