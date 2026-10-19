@@ -71,7 +71,7 @@ import { routeAllowed, routeCandidate, routeSettings } from './route.js';
 import { routeChannelOffer } from './route-channel.js';
 import { deletedLinesMax, deletedLinesOf, withDeletedLines } from './deleted-lines.js';
 import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
-import { bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
+import { DAY_MS, bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
 import { budgetDrops } from '../llm/budget.js';
 import { createLimits } from '../llm/limits.js';
@@ -1428,6 +1428,9 @@ function journalTurnRecord(draft, result) {
   };
 }
 
+/** How long a failed addressed turn is kept for her next request in the channel. */
+export const FAILED_TURN_KEEP_MS = DAY_MS;
+
 /**
  * The `tasks` input of a turn's request (src/behavior/prompt.js#buildRequest)
  * and the calls it names as left to their own turns. `part`: the part of a
@@ -1441,12 +1444,14 @@ function journalTurnRecord(draft, result) {
  * `labels.task.queuedOthers`. A call the labels cannot name is not deferred:
  * the seen-in-history rule holds for it, as before. `missed`: a recovery
  * turn's earlier messages left unanswered (src/behavior/missed.js), `{ author,
- * text }` each, named under `labels.task.missed`. `input` is null when there
- * is nothing to say.
+ * text }` each, named under `labels.task.missed`. `failedEarlier`: the
+ * addressed turns of this channel that failed with nothing posted
+ * (`{ author, messageId, link, at, code }`), one `labels.task.failedEarlier`
+ * line each. `input` is null when there is nothing to say.
  * @returns {{ input: { part: object|null, queued: string[], queuedOthers: { author: string, text: string }[],
- *   added: string[], missed: { author: string, text: string }[] }|null, deferred: Set<string> }}
+ *   added: string[], missed: { author: string, text: string }[], failedEarlier: object[] }|null, deferred: Set<string> }}
  */
-export function taskInput({ part, queued, added, missed = null, labels, channelId }) {
+export function taskInput({ part, queued, added, missed = null, failedEarlier = null, labels, channelId }) {
   let waiting = [];
   if (typeof queued === 'function') {
     try {
@@ -1465,7 +1470,8 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
   const missedItems = Array.isArray(missed)
     ? missed.filter((item) => item && typeof item.text === 'string' && item.text).map((item) => ({ author: typeof item.author === 'string' ? item.author : '', text: item.text }))
     : [];
-  if (!part && waiting.length === 0 && addedTexts.length === 0 && missedItems.length === 0) return { input: null, deferred };
+  const failedItems = Array.isArray(failedEarlier) && labels?.task?.failedEarlier ? failedEarlier.filter((entry) => entry?.messageId) : [];
+  if (!part && waiting.length === 0 && addedTexts.length === 0 && missedItems.length === 0 && failedItems.length === 0) return { input: null, deferred };
   return {
     input: {
       part: part ?? null,
@@ -1473,6 +1479,7 @@ export function taskInput({ part, queued, added, missed = null, labels, channelI
       queuedOthers: others.map((call) => ({ author: call.author, text: call.text })),
       added: addedTexts,
       missed: missedItems,
+      failedEarlier: failedItems,
     },
     deferred,
   };
@@ -2646,6 +2653,33 @@ export function createTurnRunner({
   // channelId -> the chain of parts running there (runChain): its author, its parts, the part
   // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
   const chains = new Map();
+  // channelId -> the addressed turns that ended `error` with nothing posted, oldest first
+  // (`{ messageId, authorId, at, code }`), kept `FAILED_TURN_KEEP_MS` and at most
+  // `context.failedTurnsKept`; her next request there tells her (`labels.task.failedEarlier`).
+  // In process only: a restart forgets them (a restart is not the failure being reported).
+  const failedTurns = new Map();
+  const failedKept = () => {
+    const kept = hot.config.context?.failedTurnsKept;
+    return Number.isInteger(kept) && kept >= 0 ? kept : 3;
+  };
+  /** The entries of `channelId` still in their window (the stored list pruned). */
+  function failedFor(channelId, at) {
+    const live = (failedTurns.get(String(channelId)) ?? []).filter((entry) => at - entry.at < FAILED_TURN_KEEP_MS);
+    if (live.length > 0) failedTurns.set(String(channelId), live);
+    else failedTurns.delete(String(channelId));
+    return live;
+  }
+  function keepFailed(channelId, entry) {
+    const at = entry.at;
+    const list = [...failedFor(channelId, at).filter((kept) => kept.messageId !== entry.messageId), entry].slice(-failedKept());
+    if (list.length > 0 && failedKept() > 0) failedTurns.set(String(channelId), list);
+  }
+  function clearFailed(channelId, messageIds) {
+    const gone = new Set(messageIds);
+    const left = (failedTurns.get(String(channelId)) ?? []).filter((entry) => !gone.has(entry.messageId));
+    if (left.length > 0) failedTurns.set(String(channelId), left);
+    else failedTurns.delete(String(channelId));
+  }
   const lastPostAt = new Map(); // channelId -> ts of the persona's last message
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
   // from that channel (skills.destructiveCooldownMinutes, src/skills/gateway.js); in process.
@@ -5296,16 +5330,43 @@ export function createTurnRunner({
     // Every attempt that started in the journal (runTurnOnce), closed here, at the one exit.
     const attempts = [];
     // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
-    const ends = { replyTargets: [], reasons: [] };
+    const ends = { replyTargets: [], reasons: [], failedShown: null };
     const tracked = { ...params, journalAttempts: attempts, turnEnds: ends };
     let result;
+    let thrown = null;
     try {
       const first = await runTurnOnce({ ...tracked, maySplit: true });
       result = first.outcome === 'split' ? await runChain(tracked, first) : await answerDrawFailure(tracked, first);
       return result;
+    } catch (err) {
+      thrown = err;
+      throw err;
     } finally {
+      noteFailedTurn(params, result, ends, thrown);
       if (attempts.length > 0) await writeTurnRecords(attempts);
       noteTurnEnd(params, result, ends);
+    }
+  }
+
+  /**
+   * Keep an addressed reply turn that ended `error` with nothing posted for her next request in
+   * the channel (`failedFor`); a turn that spoke or chose silence forgets the entries its request
+   * showed and the entry of the very message it answered. Never throws.
+   */
+  function noteFailedTurn(params, result, ends, thrown) {
+    try {
+      const { channel, trigger = null, triggerKind = null, mode = null } = params ?? {};
+      if (!channel || mode !== 'reply' || !askedFor(trigger, triggerKind) || !trigger?.id) return;
+      const outcome = result?.outcome ?? 'error';
+      if (outcome === 'spoke' || outcome === 'skip') {
+        clearFailed(channel.id, [...(ends.failedShown ?? []), trigger.id]);
+        return;
+      }
+      if (outcome !== 'error') return;
+      const code = typeof result?.reason === 'string' ? result.reason : thrown ? errorCodeOf(thrown) : ends.reasons.includes('too-slow') ? 'too-slow' : 'error';
+      keepFailed(channel.id, { messageId: String(trigger.id), authorId: trigger.authorId ?? null, at: clock(), code });
+    } catch (err) {
+      log.warn('turn: failed turn not kept', { error: err });
     }
   }
 
@@ -5539,6 +5600,7 @@ export function createTurnRunner({
       if (args.turnEnds) {
         args.turnEnds.replyTargets.push(...(draft.replyTargets ?? []));
         if (typeof draft.reason === 'string') args.turnEnds.reasons.push(draft.reason);
+        if (draft.failedShown) args.turnEnds.failedShown = draft.failedShown;
       }
     }
     // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
@@ -6473,7 +6535,21 @@ export function createTurnRunner({
       // The prompts this request is built from, read once: the task labels below decide what it names.
       const prompts = hot.prompts;
       // A part of a split message, the author's other calls still queued, the messages folded into this one.
-      const tasks = taskInput({ part, queued, added, missed, labels: prompts?.labels, channelId: channel.id });
+      // Addressed turns of this channel that failed earlier, told once (first part only); cleared at the turn's end unless it fails too.
+      const failedEarlier =
+        mode === 'reply' && askedFor(trigger, triggerKind) && (!part || part.index === 1)
+          ? failedFor(channel.id, now)
+              .filter((entry) => entry.messageId !== trigger.id)
+              .map((entry) => ({
+                author: history.find((m) => m.authorId === entry.authorId)?.authorName ?? store.getUser?.(guildId, entry.authorId)?.names?.[0] ?? '',
+                messageId: entry.messageId,
+                link: messageLink(isPrivate ? '@me' : guildId, channel.id, entry.messageId),
+                at: entry.at,
+                code: entry.code,
+              }))
+          : [];
+      if (failedEarlier.length > 0) draft.failedShown = failedEarlier.map((entry) => entry.messageId);
+      const tasks = taskInput({ part, queued, added, missed, failedEarlier, labels: prompts?.labels, channelId: channel.id });
       // What this turn had in view yet does not answer (spokeAfterSeeing): the queued calls it
       // named, and on a part of a split message every line after the message -- a call that came
       // while the chain ran waits for its own turn after the chain.

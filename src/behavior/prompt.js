@@ -1445,14 +1445,17 @@ function numberedItems(texts, first) {
  * blank line: `labels.task.missed` (a recovery turn's messages, `{missed}`:
  * `<n>. <author>: <text>` joined by `; `), then `labels.task.part` (or,
  * without a usable part, `labels.task.queued`), then
- * `labels.task.queuedOthers`, then `labels.task.added`. '' when nothing applies.
+ * `labels.task.queuedOthers`, then `labels.task.added`, then one `labels.task.failedEarlier` line
+ * per `failedEarlier` entry (`{ author, messageId, link, at, code }`: `{author}`, `{n}` the
+ * message's `#n` in the transcript else its `link`, `{ago}` through `labels.units`, `{code}`).
+ * '' when nothing applies.
  * @param {{ part?: { index: number, total?: number, parts: string[] }|null, queued?: string[],
  *   queuedOthers?: { author: string, text: string }[], added?: string[],
  *   missed?: { author: string, text: string }[] }|null|undefined} tasks
  * @param {object} labels
  * @returns {string}
  */
-function renderTasks(tasks, labels) {
+function renderTasks(tasks, labels, { chatItems = [], now = 0 } = {}) {
   if (!tasks) return '';
   const queued = Array.isArray(tasks.queued) ? tasks.queued : [];
   const added = Array.isArray(tasks.added) ? tasks.added : [];
@@ -1479,6 +1482,20 @@ function renderTasks(tasks, labels) {
     texts.push(fill(labels.task.queuedOthers, { others: items.join(TASK_ITEM_JOIN) }));
   }
   if (added.length > 0 && labels.task?.added) texts.push(fill(labels.task.added, { added: added.join(TASK_ITEM_JOIN) }));
+  // Earlier requests in this channel that the engine failed to answer: one line each, last.
+  const failed = Array.isArray(tasks.failedEarlier) ? tasks.failedEarlier.filter((entry) => entry && entry.messageId) : [];
+  if (failed.length > 0 && labels.task?.failedEarlier && labels.units) {
+    const lines = failed.map((entry) => {
+      const shown = chatItems.find((item) => item.id === entry.messageId);
+      return fill(labels.task.failedEarlier, {
+        author: entry.author ?? '',
+        n: shown ? `#${shown.index}` : (entry.link ?? ''),
+        ago: formatDuration(Math.max(0, now - (entry.at ?? now)), labels.units),
+        code: entry.code ?? '',
+      });
+    });
+    texts.push(lines.join('\n'));
+  }
   return texts.join('\n\n');
 }
 
@@ -2988,7 +3005,7 @@ export function withoutSentenceOf(text, placeholder) {
  *   question): `labels.room.focus` (`{author}` `{target}`) follows the task text when it is in
  *   the chat.
  * @param {{ part: { index: number, total: number, parts: string[] }|null, queued: string[],
- *   queuedOthers?: { author: string, text: string }[], added: string[] }|null} [input.tasks]  What else the trigger's author is waiting for, after
+ *   queuedOthers?: { author: string, text: string }[], added: string[], failedEarlier?: { author: string, messageId: string, link?: string, at: number, code: string }[] }|null} [input.tasks]  What else the trigger's author is waiting for, after
  *   the task text (src/behavior/turn.js). `part`: this turn answers one part of a message that
  *   holds several requests (src/behavior/split.js) -- `labels.task.part` with `{index}` (1-based),
  *   `{total}`, `{part}` (the part answered now) and `{others}` (every other part, then each of
@@ -3412,7 +3429,7 @@ export function buildRequest(input) {
   const focusText = focusItem && labels.room?.focus ? fill(labels.room.focus, { author: focus.authorName ?? '', target: `#${focusItem.index}` }) : '';
   // What else the author waits for: the part answered now and the rest, their queued calls, and
   // their later messages about this call.
-  const tasksText = renderTasks(input.tasks, labels);
+  const tasksText = renderTasks(input.tasks, labels, { chatItems, now });
   // The same turn continued after the persona's skill call: its own task text, alone.
   // The tool loop (features.coreTools) names its own task label (`labels.task[<label>]`); a
   // label missing or blank falls back to `labels.task.continue`.

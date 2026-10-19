@@ -147,6 +147,7 @@
     "reactions": { "maxMessages": 500, "maxNames": 5, "fetchUsers": 10, "fetchTimeoutMs": 2000 },
     "replyQuoteChars": 80,
     "otherProfiles": 6,
+    "failedTurnsKept": 3,
     "askedAboutProfiles": 3,
     "askedAboutEpisodes": 3,
     "attitudes": 6,
