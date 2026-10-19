@@ -10,8 +10,10 @@
 // The fixture (tools/fixtures/inner-week/*.json, `parseFixture`) scripts the week: the people's
 // messages (with times and channels; one addressed to her holds the one attention for
 // `turnSeconds`), floods of them, her own lines, intentions she sets, errands that end, analyzer
-// candidates, planted text, a restart, the kill switch. The scheduler reads no presence, so a
-// fixture has no "member online" event.
+// candidates, planted text, a restart, the kill switch. An intention may recur (`every`, as her
+// own argument: `day`, `week`, `12h`, `3d`); its occurrences are advanced by the production
+// service and scheduler, and the report counts their codes (`recurred`, `missed`,
+// `done-occurrence`). The scheduler reads no presence, so a fixture has no "member online" event.
 //
 // The inner turns run on a voice: the stub (`createStubVoice`, deterministic: canned actions per
 // wake kind, per intention, cycled by how often the same thing woke her) for the cheap runs, or
@@ -40,7 +42,7 @@ import { createInnerLife, createCostMeter, deadlineWakes, innerSettings, wakeOfD
 import { createEventDoor } from '../../src/interface/door.js';
 import { createIntentionStores } from '../../src/intentions/store.js';
 import { createIntentionService } from '../../src/intentions/service.js';
-import { dueList, parseWhen, isOpen } from '../../src/intentions/model.js';
+import { dueList, parseEvery, parseWhen, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.js';
 import { lineSourcesOf } from '../../src/intentions/sources.js';
 import { INNER_MEMORY_DEFAULTS } from '../../src/memory/inner-episode.js';
 import { agentProfileOf } from '../../src/agent-runner/profiles.js';
@@ -250,7 +252,15 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
       // made it (its id and text become the record's provenance, as her memory of the week has them).
       at: item.at === undefined || item.at === null ? null : time(item.at, `${where}.at`),
       span: typeof item.span === 'string' && item.span ? item.span : null,
+      // A recurrence, as her own `every=` argument (src/intentions/model.js#parseEvery).
+      every: null,
     };
+    if (item.every !== undefined && item.every !== null) {
+      const parsed = parseEvery(item.every);
+      need(parsed.ok && parsed.every !== null, id, `${where}.every: day, week, <n>h or <n>d`);
+      need(out.dueAt !== null, id, `${where}.every needs a due time`);
+      out.every = parsed.every;
+    }
     need(out.at === null || (out.at >= startMs && out.at < endMs), id, `${where}.at: outside the week`);
     if (item.wait !== undefined) {
       need(isObject(item.wait) && typeof item.wait.task === 'string', id, `${where}.wait needs a task`);
@@ -360,6 +370,8 @@ export function parseFixture(raw, { name = 'fixture' } = {}) {
       kept: Number.isInteger(expect.kept) ? expect.kept : null,
       planted: Number.isInteger(expect.planted) ? expect.planted : null,
       accepted: Number.isInteger(expect.accepted) ? expect.accepted : null,
+      // Occurrence codes of recurring intentions, each an exact count over the week (src/intentions/model.js#OCCURRENCE_CODES).
+      occurrences: isObject(expect.occurrences) ? Object.fromEntries(Object.entries(expect.occurrences).filter(([code, n]) => OCCURRENCE_CODES.includes(code) && Number.isInteger(n))) : null,
     },
   };
 }
@@ -611,7 +623,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     const live = voice && voice.kind === 'live' && liveDays.includes(day);
     const wake = params.inner?.wake ?? {};
     const items = wake.items ?? [];
-    const entry = { at, day: dayOf(at), dayNumber: day, voice: live ? 'live' : 'stub', kind: wake.kind, chainId: wake.chainId ?? null, channelId: String(params.channel?.id ?? ''), items, stopped: world.stopped, shadow: params.inner?.shadow === true };
+    const entry = { at, day: dayOf(at), dayNumber: day, voice: live ? 'live' : 'stub', kind: wake.kind, chainId: wake.chainId ?? null, channelId: String(params.channel?.id ?? ''), items, notes: wake.notes ?? null, stopped: world.stopped, shadow: params.inner?.shadow === true };
     if (live) {
       // The live voice answers null once its spend is used up: the stub takes the rest of the week.
       const result = await voice.runTurn(params, { world, fixture, at });
@@ -663,9 +675,11 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       world.episodes.get(entry.channelId).push({ id: `inner:${turnId}:${n}`, channelId: entry.channelId, authorId: 'persona', authorName: 'persona', self: true, content: text, ts: at + n, inner: { kind: 'inner', turnId, shadow: entry.shadow, sources: [] } });
     });
     const acted = actions.some((a) => a.status !== 'refused');
+    // The intentions her intent.* calls named, however they went (src/behavior/turn.js's `inner.intentIds`).
+    const intentIds = [...new Set(planned.filter((call) => ['intent.update', 'intent.cancel'].includes(call.skill) && typeof call.args?.id === 'string' && call.args.id).map((call) => call.args.id))];
     const result = acted
-      ? { outcome: 'spoke', reason: null, inner: { actions, stray: null, turnId } }
-      : { outcome: 'skip', reason: 'nothing-to-do', inner: { actions, stray: null, turnId } };
+      ? { outcome: 'spoke', reason: null, inner: { actions, intentIds, stray: null, turnId } }
+      : { outcome: 'skip', reason: 'nothing-to-do', inner: { actions, intentIds, stray: null, turnId } };
     entry.result = result;
     turns.push(entry);
     return result;
@@ -674,10 +688,13 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
   /** One executed stub call acting on the week's world. */
   function act(call, { turnId, channelId, at, chainId = null, seen = [], key = null }) {
     const args = call.args ?? {};
+    const when = (text) => parseWhen(text, at, { timezone: fixture.timezone });
+    const everyOf = (text) => (text === undefined ? undefined : parseEvery(text).ok ? parseEvery(text).every : undefined);
     if (call.skill === 'intent.set') {
       const created = intentions.set(guildId, {
         purpose: String(args.purpose ?? ''),
-        dueAt: args.due ? parseWhen(args.due, at) : null,
+        dueAt: args.due ? when(args.due) : null,
+        every: everyOf(args.every) ?? null,
         chainId: typeof args.chain === 'string' ? args.chain : null,
         destination: typeof args.channel === 'string' ? args.channel : null,
         channelId,
@@ -695,9 +712,10 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
       // An inner turn's call: her own initiative, in its chain (which candidates it may accept).
       const patch = { by: 'persona', turnId, initiative: true, callerChain: chainId };
       if (args.state) patch.state = args.state;
-      if (args.due) patch.dueAt = parseWhen(args.due, at);
+      if (args.due) patch.dueAt = when(args.due);
+      if (everyOf(args.every) !== undefined) patch.every = everyOf(args.every);
       if (args.task) patch.taskId = args.task;
-      if (args.deadline) patch.deadline = parseWhen(args.deadline, at);
+      if (args.deadline) patch.deadline = when(args.deadline);
       const moved = intentions.update(guildId, String(args.id ?? ''), patch);
       return moved.ok ? { ok: true } : { ok: false, code: moved.code };
     }
@@ -772,6 +790,7 @@ export async function runWeek({ fixture, dataDir, skills, voice = null, liveDays
     const created = intentions.set(guildId, {
       purpose: item.purpose,
       dueAt: item.dueAt,
+      every: item.every,
       expiresAt: item.expiresAt,
       destination: item.channel,
       channelId: item.channel,
@@ -1089,6 +1108,13 @@ export function acceptedCandidates(run) {
   return run.intentions.filter((r) => r.provenance?.kind === 'candidate' && (r.history ?? []).some((h) => h.from === 'proposed' && h.to === 'pending'));
 }
 
+/** The occurrence codes of the week's recurring intentions, counted over their histories (OCCURRENCE_CODES). */
+export function occurrences(run) {
+  const counts = Object.fromEntries(OCCURRENCE_CODES.map((code) => [code, 0]));
+  for (const record of run.intentions) for (const entry of record.history ?? []) if (OCCURRENCE_CODES.includes(entry.code)) counts[entry.code] += 1;
+  return counts;
+}
+
 /** Intentions due in the week that ended `done`, and those that did not. */
 function commitments(run) {
   const due = new Set(run.dueSeen.filter((item) => item.intentionId).map((item) => item.intentionId));
@@ -1144,6 +1170,10 @@ export function computeGates(run, fixture, effectsOf) {
   if (fixture.expect.planted !== null && run.planted.length !== fixture.expect.planted) problems.push(`planted ${run.planted.length} != ${fixture.expect.planted}`);
   const accepted = acceptedCandidates(run).length;
   if (fixture.expect.accepted !== null && accepted !== fixture.expect.accepted) problems.push(`accepted candidates ${accepted} != ${fixture.expect.accepted}`);
+  if (fixture.expect.occurrences) {
+    const seen = occurrences(run);
+    for (const [code, n] of Object.entries(fixture.expect.occurrences)) if (seen[code] !== n) problems.push(`${code} ${seen[code]} != ${n}`);
+  }
   const detail = problems.length === 0 ? 'exercised as expected' : problems.join('; ');
   const live = run.turns.some((turn) => turn.voice === 'live');
   if (live) {
@@ -1236,6 +1266,7 @@ export function reportOf(run, fixture, gates, effectsOf) {
         channel: turn.channelId,
         coalesced: turn.items.length,
         items: turn.items.map((item) => `${item.kind}${item.intentionIds?.length ? `:${item.intentionIds.join('+')}` : ''}`),
+        ...(turn.notes && Object.keys(turn.notes).length > 0 ? { notes: turn.notes } : {}),
         outcome: turn.result?.outcome ?? null,
         reason: turn.result?.reason ?? null,
         ...(turn.result?.inner?.strayFollowUp === true ? { strayFollowUp: true } : {}),
@@ -1256,8 +1287,10 @@ export function reportOf(run, fixture, gates, effectsOf) {
       ...(record.provenance?.origin ? { origin: record.provenance.origin, ...(record.provenance.originReason ? { originReason: record.provenance.originReason } : {}) } : {}),
       status: record.status,
       due: iso(record.dueAt),
+      ...(record.every ? { every: record.every.period, occurrences: occurrences({ intentions: [record] }) } : {}),
       history: (record.history ?? []).map((h) => `${iso(h.at)} ${h.from ?? '-'}->${h.to}${h.code ? ` (${h.code})` : ''} by ${h.by}`),
     })),
+    occurrences: occurrences(run),
     unauthorized: unauthorizedActions(run, effectsOf),
     planted: { markers: run.planted.map((p) => p.marker), activations: plantedActivations(run), candidates: plantedCandidates(run) },
   };
@@ -1273,12 +1306,15 @@ export function renderReport(report) {
   for (const [day, d] of Object.entries(report.perDay)) lines.push(`| ${day} | ${d.turns} | ${d.requests} | ${d.usd} | ${d.posts} | ${d.proposed} | ${d.capped} |`);
   const c = report.commitments;
   lines.push('', `Commitments due: ${c.due}; kept ${c.kept}, still open ${c.open}, expired ${c.expired}, cancelled ${c.cancelled}.`);
+  const o = report.occurrences ?? {};
+  if (Object.values(o).some((n) => n > 0)) lines.push(`Occurrences of recurring intentions: ${Object.entries(o).map(([code, n]) => `${code} ${n}`).join(', ')}.`);
   lines.push('', '## Wakes', '', '| Queued | Wake | Due |', '|---|---|---|');
   for (const wake of report.wakes) lines.push(`| ${wake.at} | ${cell(wake.id)} | ${wake.due} |`);
   lines.push('', '## Inner turns', '', '| At | Voice | Kind | Coalesced | Outcome | Actions | USD |', '|---|---|---|---|---|---|---|');
   for (const turn of report.turns) {
     const actions = turn.actions.map((a) => `${a.skill} ${a.status}${a.code ? ` (${a.code})` : ''}`).join('; ') || '-';
-    lines.push(`| ${turn.at} | ${turn.voice} | ${turn.kind} | ${turn.coalesced} (${cell(turn.items.join(', '))}) | ${turn.outcome}${turn.reason ? ` (${turn.reason})` : ''}${turn.strayFollowUp ? ' +stray-follow-up' : ''}${turn.openFollowUp ? ' +open-follow-up' : ''} | ${cell(actions)} | ${turn.cost.usd} |`);
+    const noted = turn.notes ? ` [${Object.entries(turn.notes).map(([id, code]) => `${id}: ${code}`).join(', ')}]` : '';
+    lines.push(`| ${turn.at} | ${turn.voice} | ${turn.kind} | ${turn.coalesced} (${cell(turn.items.join(', '))})${cell(noted)} | ${turn.outcome}${turn.reason ? ` (${turn.reason})` : ''}${turn.strayFollowUp ? ' +stray-follow-up' : ''}${turn.openFollowUp ? ' +open-follow-up' : ''} | ${cell(actions)} | ${turn.cost.usd} |`);
   }
   const liveTurns = report.turns.filter((turn) => turn.steps);
   if (liveTurns.length > 0) {
@@ -1301,7 +1337,8 @@ export function renderReport(report) {
   for (const item of report.dispositions) lines.push(`| ${cell(item.id)} | ${item.due} | ${item.disposition} |`);
   lines.push('', '## Intentions', '');
   for (const record of report.intentions) {
-    lines.push(`- \`${record.id}\`${record.key ? ` (${record.key})` : ''} ${record.kind}${record.origin ? ` (${record.origin}${record.originReason ? `: ${record.originReason}` : ''})` : ''}, ${record.status}${record.due ? `, due ${record.due}` : ''}`);
+    const recurring = record.every ? `, every ${record.every} (${Object.entries(record.occurrences).map(([code, n]) => `${code} ${n}`).join(', ')})` : '';
+    lines.push(`- \`${record.id}\`${record.key ? ` (${record.key})` : ''} ${record.kind}${record.origin ? ` (${record.origin}${record.originReason ? `: ${record.originReason}` : ''})` : ''}, ${record.status}${record.due ? `, due ${record.due}` : ''}${recurring}`);
     for (const h of record.history) lines.push(`  - ${h}`);
   }
   if (report.events.length > 0) {

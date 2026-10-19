@@ -306,6 +306,10 @@ test('wakeBlockText: the wake, the moment and the budgets as facts; none without
   assert.ok(lines.includes('day 23/24 until 10/20/2026 12:00 AM') || lines.some((line) => line.startsWith('day 23/24 until ')), text);
   assert.ok(lines.includes('chain 3/3'));
   assert.equal(wakeBlockText(WAKE, { ...labels, wake: undefined }), '');
+  // A recurring intention's last occurrence before its expiry: the note joins its line.
+  const noted = wakeBlockText({ ...WAKE, notes: { i1: 'last-occurrence' } }, { ...labels, intentions: { notes: { 'last-occurrence': 'LAST' } } }).split('\n');
+  assert.ok(noted.some((line) => line.startsWith('due: i1 πες καλημέρα') && line.endsWith(' · LAST')), noted.join('|'));
+  assert.equal(wakeBlockText({ ...WAKE, notes: { i1: 'last-occurrence' } }, labels).split('\n')[1], lines[1], 'without the note label the line stays as it is');
 });
 
 test('wakeLanes: the purposes of the intentions as one wake lane; none for a review alone', () => {
@@ -464,6 +468,8 @@ test('inner turn, stray: no new request once the steps are spent; the open line 
   // intent.update naming i1 (in shadow: only proposed) takes it off the open line, which is then left out whole.
   const touched = await innerTurn({ answers: ['<msg>έτοιμο</msg><call skill="intent.update" id="i1" state="done"/>', '<skip/>'], allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
   assert.deepEqual(touched.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['intent.update:proposed']);
+  assert.deepEqual(touched.result.inner.intentIds, ['i1'], 'the result names the intentions her calls touched (the scheduler advances a recurring one as recurred)');
+  assert.deepEqual(spent.result.inner.intentIds, []);
   assert.equal(touched.llm.calls.length, 2);
   assert.equal(taskOf(touched, 1), STRAY_LEAD, 'no open line, no empty placeholder');
   // The id alone in the body counts the same.

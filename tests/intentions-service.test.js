@@ -366,3 +366,104 @@ test('candidates: external ones need her accept in a later ordinary turn; an inn
     assert.equal((await runOp('intent.update', { id: byMessage.m5.id, state: 'pending' }, inner('T22', 'review:2026-10-18'))).data.intention.status, 'pending', 'another chain may');
   });
 });
+
+// ---- recurring intentions (`every`) ------------------------------------------------
+
+const DAY = 24 * HOUR;
+
+test('intent.set / intent.update: every= makes a recurring intention with the wall-clock due pinned in bot.timezone; every=none makes it one-off again; views print it', async () => {
+  const { env, hot, intentions } = makeEnv();
+  hot.config.bot.timezone = 'Europe/Athens';
+  await withCapturedLogs(async () => {
+    // T0 is 13:00 in Athens: 21:00 is later today (18:00Z).
+    const set = await runOp('intent.set', { text: 'ψάξε για memes', due: '21:00', every: 'day' }, hers(env, 'T1'));
+    assert.equal(set.status, 'ok', set.summary);
+    const record = onlyIntention(intentions);
+    assert.deepEqual(record.every, { period: 'day', at: '21:00' });
+    assert.equal(record.dueAt, Date.parse('2026-10-18T18:00:00Z'));
+    assert.equal(record.expiresAt, T0 + 30 * DAY, 'intentions.recurringExpiresDays');
+    assert.match(set.summary, /every day/);
+    assert.match((await runOp('intent.list', {}, owner(env))).summary, /every day/);
+    assert.equal((await runOp('intent.set', { text: 'x', due: '1h', every: 'hourly' }, hers(env, 'T1'))).code, 'bad-every');
+    assert.equal((await runOp('intent.set', { text: 'x', every: 'day' }, hers(env, 'T1'))).code, 'every-without-due');
+    assert.equal((await runOp('intent.set', { text: 'x', due: 'mon 9' }, hers(env, 'T1'))).code, 'bad-time');
+    // A weekly one from a weekday form; every=none clears it.
+    const weekly = await runOp('intent.set', { text: 'κοίτα το νήμα', due: 'mon 20:00', every: 'week' }, hers(env, 'T1'));
+    assert.equal(weekly.status, 'ok', weekly.summary);
+    const weeklyRecord = intentions.store('g1').get(weekly.data.intention.id);
+    assert.deepEqual(weeklyRecord.every, { period: 'week', at: '20:00' });
+    assert.equal(weeklyRecord.dueAt, Date.parse('2026-10-19T17:00:00Z'));
+    const cleared = await runOp('intent.update', { id: weeklyRecord.id, every: 'none' }, hers(env, 'T2'));
+    assert.equal(cleared.status, 'ok', cleared.summary);
+    assert.equal(intentions.store('g1').get(weeklyRecord.id).every, null);
+    assert.doesNotMatch(cleared.summary, /every/);
+    // An interval on an existing one-off; a new due re-pins a daily one.
+    const twelve = await runOp('intent.update', { id: weeklyRecord.id, every: '12h' }, hers(env, 'T2'));
+    assert.deepEqual(intentions.store('g1').get(weeklyRecord.id).every, { period: '12h', at: null });
+    assert.match(twelve.summary, /every 12h/);
+    await runOp('intent.update', { id: record.id, due: '22:30' }, hers(env, 'T2'));
+    assert.deepEqual(intentions.store('g1').get(record.id).every, { period: 'day', at: '22:30' });
+    const noDue = (await runOp('intent.set', { text: 'y' }, hers(env, 'T3'))).data.intention.id;
+    assert.equal((await runOp('intent.update', { id: noDue, every: 'day' }, hers(env, 'T3'))).code, 'every-without-due');
+  });
+});
+
+test('intentions: state=done on a recurring one closes the occurrence only; advance writes recurred or missed and never lists the same occurrence twice', async () => {
+  const { env, intentions, clock } = makeEnv();
+  await withCapturedLogs(async () => {
+    const id = (await runOp('intent.set', { text: 'ψάξε για memes', due: '1h', every: 'day' }, hers(env, 'T1'))).data.intention.id;
+    clock.t = T0 + HOUR + 5 * 60_000;
+    assert.deepEqual(intentions.due('g1').map((d) => d.intention.id), [id]);
+    const done = await runOp('intent.update', { id, state: 'done' }, hers(env, 'T2'));
+    assert.equal(done.status, 'ok', done.summary);
+    let record = intentions.store('g1').get(id);
+    assert.equal(record.status, 'pending', 'never done');
+    assert.equal(record.dueAt, T0 + HOUR + DAY);
+    assert.equal(record.history.at(-1).code, 'done-occurrence');
+    assert.deepEqual(intentions.due('g1'), [], 'the next occurrence is not due yet');
+    // The disposition's advance on an already advanced record changes nothing.
+    assert.equal(intentions.advance('g1', id, { named: true }).changed, false);
+    // The next occurrence, left alone: missed; touched by a call of hers: recurred.
+    clock.t = T0 + HOUR + DAY + 60_000;
+    assert.equal(intentions.due('g1').length, 1);
+    assert.equal(intentions.advance('g1', id, { named: false }).changed, true);
+    record = intentions.store('g1').get(id);
+    assert.equal(record.history.at(-1).code, 'missed');
+    assert.equal(record.history.at(-1).by, 'engine');
+    assert.equal(record.dueAt, T0 + HOUR + 2 * DAY);
+    assert.deepEqual(intentions.due('g1'), []);
+    clock.t = T0 + HOUR + 2 * DAY + 60_000;
+    assert.equal(intentions.advance('g1', id, { named: true }).intention.history.at(-1).code, 'recurred');
+    // A one-off is not advanced; a cancel ends a recurring one for good.
+    const once = (await runOp('intent.set', { text: 'μία φορά', due: '1m' }, hers(env, 'T3'))).data.intention.id;
+    clock.t += 2 * 60_000;
+    assert.equal(intentions.advance('g1', once, { named: false }).changed, false);
+    assert.equal((await runOp('intent.cancel', { id }, hers(env, 'T4'))).data.intention.status, 'cancelled');
+    assert.equal(intentions.advance('g1', id, { named: false }).changed, false);
+  });
+});
+
+test('intentions: a recurring wait ends per occurrence -- the errand\'s end returns it to pending and advances it with the outcome kept', async () => {
+  const { env, intentions, client, errands, clock } = makeEnv();
+  await withCapturedLogs(async () => {
+    const id = (await runOp('intent.set', { text: 'ψάξε τα νέα', due: '1m', every: 'day' }, hers(env, 'T1'))).data.intention.id;
+    const launched = await runOp('task.run', { agent: 'web', goal: 'find the news' }, hers(env, 'T1'));
+    const taskId = launched.data.task.id;
+    const waited = await runOp('intent.update', { id, task: taskId, deadline: '2h' }, hers(env, 'T1'));
+    assert.equal(waited.status, 'ok', waited.summary);
+    assert.equal(intentions.store('g1').get(id).status, 'waiting');
+    // The occurrence stays open while the wait runs: the disposition's advance leaves a waiting one alone.
+    assert.equal(intentions.advance('g1', id, { named: true }).changed, false);
+    await new Promise((r) => setImmediate(r));
+    // The errand ends once the occurrence is due: the wait's end closes it and the outcome stays on the record.
+    clock.t = T0 + 5 * 60_000;
+    client.end(taskId);
+    await errands.idle();
+    const record = intentions.store('g1').get(id);
+    assert.equal(record.status, 'pending');
+    assert.equal(record.dueAt, T0 + 60_000 + DAY, 'the next occurrence');
+    assert.deepEqual(record.outcome, { taskId, state: 'done', at: clock.t });
+    assert.equal(record.history.at(-1).code, 'recurred');
+    assert.equal(record.history.at(-2).code, 'task-done');
+  });
+});

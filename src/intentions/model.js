@@ -12,9 +12,18 @@
 // `waiting` one has both `awaitingTaskId` and `waitDeadline` -- there is no wait without a real
 // errand and a deadline. Expiry comes from the clock (expireAt); `dueList` lists what is due for
 // the scheduler of step 2 (listing, not choosing). Codes are kebab-case; no wording here.
+//
+// A recurring intention carries `every` (`{ period: 'day'|'week'|'<n>h'|'<n>d', at: 'HH:MM'|null }`,
+// parseEvery; `at` pins the wall-clock time of `day` and `week` in the bot's timezone, pinEvery)
+// and always a `dueAt` (the current occurrence). An occurrence ends and the intention goes on:
+// advanceOccurrence moves `dueAt` to the next occurrence after now (nextOccurrence, DST-safe
+// through src/time.js, skipping occurrences already past) with the occurrence's code in the
+// history (`recurred`, `missed`, `done-occurrence`); such a record is never `done` (invariant
+// `recurring-done`): `cancelled` and `expired` end it, and expiry stays binding (the next
+// occurrence may lie past `expiresAt`; the clock expires the record first).
 
 import { randomUUID } from 'node:crypto';
-import { DAY_MS, HOUR_MS, MINUTE_MS } from '../time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isWordChar, occursAsWholeWord } from '../memory/mentions.js';
 import { foldText as foldName } from '../memory/recent.js';
@@ -40,7 +49,11 @@ const MOVES = Object.freeze({
 });
 
 /** The defaults of the `intentions` config section (config.json carries the same). */
-export const DEFAULTS = Object.freeze({ expiresDays: 14, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2 });
+export const DEFAULTS = Object.freeze({ expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2 });
+/** The periods `every` names by a word; `<n>h` and `<n>d` are the interval forms. */
+export const EVERY_PERIODS = Object.freeze(['day', 'week']);
+/** The occurrence codes advanceOccurrence writes to the history. */
+export const OCCURRENCE_CODES = Object.freeze(['recurred', 'missed', 'done-occurrence']);
 /** A purpose's length (characters). */
 export const PURPOSE_CHARS = 300;
 /** A quoted span's length (characters). */
@@ -60,7 +73,7 @@ const MIN_FORGET_NAME = 3;
 export function intentionSettings(config) {
   const set = config?.intentions ?? {};
   const pick = (key) => (Number.isFinite(set[key]) && set[key] >= 0 ? set[key] : DEFAULTS[key]);
-  return { expiresDays: pick('expiresDays'), maxOpen: pick('maxOpen'), maxCandidates: pick('maxCandidates'), candidateExpiresHours: pick('candidateExpiresHours'), waitHours: pick('waitHours') };
+  return { expiresDays: pick('expiresDays'), recurringExpiresDays: pick('recurringExpiresDays'), maxOpen: pick('maxOpen'), maxCandidates: pick('maxCandidates'), candidateExpiresHours: pick('candidateExpiresHours'), waitHours: pick('waitHours') };
 }
 
 /** Whether `features.intentions` is exactly true (a missing key counts as off). */
@@ -97,15 +110,64 @@ export function isIntentionId(value) {
 }
 
 const RELATIVE_RE = /^(\d{1,5})\s*(m|min|h|d)$/i;
+const CLOCK_RE = /^(?:(mon|tue|wed|thu|fri|sat|sun)\s+)?(\d{1,2}):(\d{2})$/i;
+/** The weekdays as `<weekday> HH:MM` names them, Sunday first (Date#getUTCDay's order). */
+const WEEKDAYS = Object.freeze(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']);
+
+/** The calendar date `days` after `dateKey` (`YYYY-MM-DD`). */
+function addDays(dateKey, days) {
+  return new Date(Date.parse(`${dateKey}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** The weekday (0 Sunday .. 6 Saturday) of the calendar date `dateKey`. */
+function weekdayOf(dateKey) {
+  return new Date(Date.parse(`${dateKey}T00:00:00Z`)).getUTCDay();
+}
+
+/** `HH:MM` of the instant `ms` on the wall clock of `timezone`. */
+function wallTime(ms, timezone) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).formatToParts(ms);
+  const get = (type) => parts.find((part) => part.type === type)?.value ?? '00';
+  return `${String(Number(get('hour')) % 24).padStart(2, '0')}:${get('minute')}`;
+}
+
+/** `{ hour, minute }` of an `HH:MM` text, or null when it is not a time of day. */
+function clockOf(text) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(text ?? ''));
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  return hour <= 23 && minute <= 59 ? { hour, minute } : null;
+}
 
 /**
- * A moment given as text, as epoch ms: a relative `<n>m`, `<n>h` or `<n>d` from `now`, or an
- * ISO 8601 date or date-time. Null for anything else (and for an empty text).
+ * The first instant at or after `from` (strictly after when `after`) whose wall clock in
+ * `timezone` reads `hour`:`minute` on a day `stepDays` apart from `fromDay` (a calendar date;
+ * every day with 1, the same weekday with 7). NaN for an unknown zone.
+ */
+function nextWallClock({ fromDay, hour, minute, stepDays, timezone, after }) {
+  let day = fromDay;
+  for (let i = 0; i < 400; i += 1) {
+    const at = zonedEpoch(day, hour, minute, timezone);
+    if (!Number.isFinite(at)) return NaN;
+    if (at > after) return at;
+    day = addDays(day, stepDays);
+  }
+  return NaN;
+}
+
+/**
+ * A moment given as text, as epoch ms: a relative `<n>m`, `<n>h` or `<n>d` from `now`, an
+ * ISO 8601 date or date-time, a wall-clock time `HH:MM` (the next such time after `now` in
+ * `timezone`, UTC by default: today's when still ahead, else tomorrow's) or `<weekday> HH:MM`
+ * (`mon`..`sun`: the next such weekday at that time, today's when still ahead). Null for anything
+ * else (and for an empty text).
  * @param {unknown} text
  * @param {number} now
+ * @param {{ timezone?: string }} [options]
  * @returns {number|null}
  */
-export function parseWhen(text, now) {
+export function parseWhen(text, now, { timezone = 'UTC' } = {}) {
   const value = String(text ?? '').trim();
   if (!value) return null;
   const relative = RELATIVE_RE.exec(value);
@@ -114,9 +176,105 @@ export function parseWhen(text, now) {
     const unit = relative[2].toLowerCase();
     return now + n * (unit === 'd' ? DAY_MS : unit === 'h' ? HOUR_MS : MINUTE_MS);
   }
+  const clock = CLOCK_RE.exec(value);
+  if (clock) {
+    const time = clockOf(`${clock[2]}:${clock[3]}`);
+    if (!time) return null;
+    let day;
+    try {
+      day = zonedDay(now, timezone || 'UTC');
+    } catch {
+      return null;
+    }
+    const weekday = clock[1] ? WEEKDAYS.indexOf(clock[1].toLowerCase()) : -1;
+    if (weekday >= 0) day = addDays(day, (weekday - weekdayOf(day) + 7) % 7);
+    const at = nextWallClock({ fromDay: day, ...time, stepDays: weekday >= 0 ? 7 : 1, timezone: timezone || 'UTC', after: now });
+    return Number.isFinite(at) ? at : null;
+  }
   if (!/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
   const at = Date.parse(value);
   return Number.isFinite(at) ? at : null;
+}
+
+const INTERVAL_RE = /^(\d{1,4})(h|d)$/i;
+
+/**
+ * Her `every=` argument as the record's `every`: `{ ok: true, every }` for `day`, `week`, `<n>h`,
+ * `<n>d` (n >= 1; `at` null until pinEvery) and `{ ok: true, every: null }` for `none` (one-off
+ * again); `{ ok: false, code: 'bad-every' }` for anything else.
+ * @param {unknown} text
+ * @returns {{ ok: true, every: { period: string, at: null }|null }|{ ok: false, code: 'bad-every' }}
+ */
+export function parseEvery(text) {
+  const value = String(typeof text === 'string' ? text : '').trim().toLowerCase();
+  if (value === 'none') return { ok: true, every: null };
+  if (EVERY_PERIODS.includes(value)) return { ok: true, every: { period: value, at: null } };
+  const interval = INTERVAL_RE.exec(value);
+  if (interval && Number(interval[1]) >= 1) return { ok: true, every: { period: `${Number(interval[1])}${interval[2].toLowerCase()}`, at: null } };
+  return { ok: false, code: 'bad-every' };
+}
+
+/** Whether `every` is a well-formed recurrence (null counts as a one-off, which is fine). */
+export function validEvery(every) {
+  if (every === null || every === undefined) return true;
+  if (!every || typeof every !== 'object' || Array.isArray(every)) return false;
+  const period = typeof every.period === 'string' ? parseEvery(every.period) : null;
+  if (!period?.ok || period.every === null) return false;
+  return every.at === null || every.at === undefined || clockOf(every.at) !== null;
+}
+
+/** The step of an interval period (`<n>h`, `<n>d`) in ms, or null for `day` and `week`. */
+function intervalMs(period) {
+  const match = INTERVAL_RE.exec(String(period ?? ''));
+  return match ? Number(match[1]) * (match[2].toLowerCase() === 'd' ? DAY_MS : HOUR_MS) : null;
+}
+
+/**
+ * `every` with its wall-clock time pinned from the first occurrence `dueAt` in `timezone` (for
+ * `day` and `week`, when it has none yet), so a daily 21:00 stays 21:00 across a DST change.
+ * An interval period and a one-off (null) come back as they are.
+ * @param {{ period: string, at: string|null }|null} every
+ * @param {number|null} dueAt
+ * @param {string} timezone
+ */
+export function pinEvery(every, dueAt, timezone) {
+  if (!every || !EVERY_PERIODS.includes(every.period) || every.at || !Number.isFinite(dueAt)) return every ?? null;
+  try {
+    return { period: every.period, at: wallTime(dueAt, timezone || 'UTC') };
+  } catch {
+    return every;
+  }
+}
+
+/**
+ * The next occurrence of recurring `record` strictly after `now` (epoch ms), or null for a one-off:
+ * `day` and `week` at the pinned wall-clock time (`every.at`, else the first due's) in `timezone`,
+ * each calendar day or every seventh day from the current due's date (so the occurrences already
+ * past are skipped and the weekday holds); `<n>h` and `<n>d` in fixed steps from the current due
+ * instant. NaN-free: null when it cannot be told (an unknown zone, a record with no due).
+ * @param {{ every: object|null, dueAt: number|null }} record
+ * @param {number} now
+ * @param {string} timezone
+ * @returns {number|null}
+ */
+export function nextOccurrence(record, now, timezone = 'UTC') {
+  const every = record?.every;
+  if (!validEvery(every) || !every || !Number.isFinite(record?.dueAt)) return null;
+  const after = Math.max(now, record.dueAt);
+  const step = intervalMs(every.period);
+  if (step) {
+    const steps = Math.floor((after - record.dueAt) / step) + 1;
+    return record.dueAt + steps * step;
+  }
+  try {
+    const zone = timezone || 'UTC';
+    const time = clockOf(every.at ?? wallTime(record.dueAt, zone));
+    if (!time) return null;
+    const at = nextWallClock({ fromDay: zonedDay(record.dueAt, zone), ...time, stepDays: every.period === 'week' ? 7 : 1, timezone: zone, after });
+    return Number.isFinite(at) ? at : null;
+  } catch {
+    return null;
+  }
 }
 
 /** One line of text cut to `max` characters; '' for nothing. */
@@ -136,7 +294,8 @@ function participantIds(list) {
 
 /**
  * The invariant `record` breaks, as a code, or null: `bad-status`, `no-purpose`, `no-expiry`,
- * `wait-without-task`, `wait-without-deadline`.
+ * `wait-without-task`, `wait-without-deadline`, `bad-every`, `every-without-due` (a recurring one
+ * always has its current occurrence), `recurring-done` (a recurring one is never done).
  * @param {object} record
  * @returns {string|null}
  */
@@ -144,6 +303,11 @@ export function checkInvariants(record) {
   if (!record || !STATUSES.includes(record.status)) return 'bad-status';
   if (typeof record.purpose !== 'string' || !record.purpose) return 'no-purpose';
   if (!Number.isFinite(record.expiresAt)) return 'no-expiry';
+  if (!validEvery(record.every)) return 'bad-every';
+  if (record.every) {
+    if (!Number.isFinite(record.dueAt)) return 'every-without-due';
+    if (record.status === 'done') return 'recurring-done';
+  }
   if (record.status === 'waiting') {
     if (typeof record.awaitingTaskId !== 'string' || !record.awaitingTaskId) return 'wait-without-task';
     if (!Number.isFinite(record.waitDeadline)) return 'wait-without-deadline';
@@ -159,23 +323,27 @@ function withHistory(record, entry) {
 
 /**
  * A new intention: `{ ok: true, intention }` or `{ ok: false, code }` (`no-purpose`,
- * `bad-provenance`, `bad-due`, `bad-expiry`, `due-after-expiry`). Her own (`provenance.kind`
- * `self`) is `pending`; a candidate is `proposed` and expires after `candidateExpiresHours`
- * unless `expiresAt` says otherwise; her own after `expiresDays`.
+ * `bad-provenance`, `bad-due`, `bad-every`, `every-without-due`, `bad-expiry`, `due-after-expiry`).
+ * Her own (`provenance.kind` `self`) is `pending`; a candidate is `proposed` and expires after
+ * `candidateExpiresHours` unless `expiresAt` says otherwise; her own after `expiresDays`, or
+ * after `recurringExpiresDays` with `every` set (parseEvery's shape, pinned by the caller).
  * `provenance.participants` (member ids) names the members of the conversation it came from: who
  * asked, who was answered or mentioned, the other authors of a candidate's channel; a forget of
  * one of them takes the intention out (concernsMember).
  * @param {{ purpose: string, provenance: { kind: string, turnId?: string|null, messageId?: string|null, channelId?: string|null, span?: string|null, scope?: 'dm'|'group', participants?: string[] },
- *   dueAt?: number|null, expiresAt?: number|null, destination?: string|null, completionCondition?: string|null, chainId?: string|null,
- *   now: number, settings?: object, id?: string, by?: string }} input
+ *   dueAt?: number|null, every?: { period: string, at: string|null }|null, expiresAt?: number|null, destination?: string|null,
+ *   completionCondition?: string|null, chainId?: string|null, now: number, settings?: object, id?: string, by?: string }} input
  */
-export function createIntention({ purpose, provenance, dueAt = null, expiresAt = null, destination = null, completionCondition = null, chainId = null, now, settings = DEFAULTS, id = newIntentionId(), by = 'persona' }) {
+export function createIntention({ purpose, provenance, dueAt = null, every = null, expiresAt = null, destination = null, completionCondition = null, chainId = null, now, settings = DEFAULTS, id = newIntentionId(), by = 'persona' }) {
   const text = line(purpose, PURPOSE_CHARS);
   if (!text) return { ok: false, code: 'no-purpose' };
   if (!PROVENANCE_KINDS.includes(provenance?.kind)) return { ok: false, code: 'bad-provenance' };
   const candidate = provenance.kind === 'candidate';
   if (dueAt !== null && !Number.isFinite(dueAt)) return { ok: false, code: 'bad-due' };
-  const defaultExpiry = candidate ? now + settings.candidateExpiresHours * HOUR_MS : now + settings.expiresDays * DAY_MS;
+  if (!validEvery(every)) return { ok: false, code: 'bad-every' };
+  if (every && dueAt === null) return { ok: false, code: 'every-without-due' };
+  const ownDays = every ? (settings.recurringExpiresDays ?? DEFAULTS.recurringExpiresDays) : settings.expiresDays;
+  const defaultExpiry = candidate ? now + settings.candidateExpiresHours * HOUR_MS : now + ownDays * DAY_MS;
   const expires = expiresAt === null || expiresAt === undefined ? defaultExpiry : expiresAt;
   if (!Number.isFinite(expires) || expires <= now) return { ok: false, code: 'bad-expiry' };
   if (dueAt !== null && dueAt > expires) return { ok: false, code: 'due-after-expiry' };
@@ -203,6 +371,7 @@ export function createIntention({ purpose, provenance, dueAt = null, expiresAt =
     createdAt: now,
     updatedAt: now,
     dueAt: dueAt ?? null,
+    every: every ? { period: every.period, at: every.at ?? null } : null,
     expiresAt: expires,
     awaitingTaskId: null,
     waitDeadline: null,
@@ -295,6 +464,42 @@ export function arrive(record, task, { now }) {
 export function expireAt(record, now) {
   if (!isOpen(record?.status) || !(now >= record.expiresAt)) return { ok: true, intention: record, changed: false };
   return transition(record, 'expired', { now, by: 'engine', code: 'expired' });
+}
+
+/**
+ * Recurring `record`'s current occurrence closed and the next one set: `pending` (a wait closed on
+ * the way, its errand kept as `lastTaskId`), `dueAt` the next occurrence after `now`
+ * (nextOccurrence: the ones already past are skipped; it may lie past `expiresAt`, which then
+ * wins), the past occurrence's `note` and `outcome` cleared unless `keepWaitEnd` (the wait's end
+ * is what moved it), and the history entry `{ from, to: 'pending', by, code }` with `code` one
+ * of OCCURRENCE_CODES: `done-occurrence` (her `state=done`), `recurred` (she touched it),
+ * `missed` (nothing of hers named it). `{ ok: false, code }`: `not-recurring`, `terminal`,
+ * `bad-move` (a candidate), `no-next` (the next occurrence cannot be told).
+ * @param {object} record
+ * @param {{ now: number, timezone?: string, code: string, by?: string, keepWaitEnd?: boolean }} options
+ */
+export function advanceOccurrence(record, { now, timezone = 'UTC', code, by = 'persona', keepWaitEnd = false }) {
+  if (!record?.every) return { ok: false, code: 'not-recurring' };
+  if (isTerminal(record.status)) return { ok: false, code: 'terminal' };
+  if (record.status !== 'pending' && record.status !== 'waiting') return { ok: false, code: 'bad-move' };
+  const dueAt = nextOccurrence(record, now, timezone);
+  if (!Number.isFinite(dueAt)) return { ok: false, code: 'no-next' };
+  const leavingWait = record.status === 'waiting';
+  let next = {
+    ...record,
+    status: 'pending',
+    dueAt,
+    updatedAt: now,
+    awaitingTaskId: null,
+    waitDeadline: null,
+    waitRequested: null,
+    ...(leavingWait ? { lastTaskId: record.awaitingTaskId ?? null } : {}),
+    ...(keepWaitEnd ? {} : { note: null, outcome: null }),
+  };
+  const broken = checkInvariants(next);
+  if (broken) return { ok: false, code: broken };
+  next = withHistory(next, { at: now, from: record.status, to: 'pending', by, ...(code ? { code } : {}) });
+  return { ok: true, intention: next, changed: true };
 }
 
 /**

@@ -5542,7 +5542,7 @@ export function createTurnRunner({
     }
     // An inner turn reports what it did and proposed, and its turn id (the errands it handed off name it).
     const innerTurnId = draft.started?.turnId ?? draft.turnKey?.turnId ?? null;
-    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], stray: draft.innerStray ?? null, ...(draft.innerStrayFollowUp === true ? { strayFollowUp: true } : {}), ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
+    const innerPart = args.inner ? { inner: { actions: draft.innerActions ?? [], intentIds: [...(draft.innerIntentIds ?? [])], stray: draft.innerStray ?? null, ...(draft.innerStrayFollowUp === true ? { strayFollowUp: true } : {}), ...(draft.innerOpenFollowUp === true ? { openFollowUp: true } : {}), turnId: innerTurnId, episode: innerEpisodeOf(args, draft, innerTurnId) }, ...(args.inner.shadow ? { shadow: true } : {}) } : {};
     return draft.started ? { ...result, ...innerPart, turnId: draft.started.turnId, attemptId: draft.started.attemptId } : { ...result, ...innerPart };
   }
 

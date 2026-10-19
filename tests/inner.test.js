@@ -24,6 +24,8 @@ import {
   wakeOfDue,
 } from '../src/behavior/inner.js';
 import { createEventDoor } from '../src/interface/door.js';
+import { createIntentionStores } from '../src/intentions/store.js';
+import { createIntentionService } from '../src/intentions/service.js';
 import { localHour } from '../src/format.js';
 import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -94,9 +96,9 @@ function hotWith({ features = {}, innerLife = {}, timezone = 'UTC' } = {}) {
 }
 
 /** One inner life over a temp data dir with a real door; `records` its intentions. */
-function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null, errandLimitUsd = null } = {}) {
+function setup({ records = [], hot = hotWith(), turns = fakeTurns(), dataDir = tempDir('nep-inner-'), record = null, meterUsd = 0.1, meter = null, rng = seeded(7), client = fakeClient(), peopleWaiting = () => false, onEpisode = null, errandLimitUsd = null, service = null } = {}) {
   const journal = [];
-  const intentions = fakeIntentions(records);
+  const intentions = service ?? fakeIntentions(records);
   let inner;
   const door = createEventDoor({ handlers: { 'inner.wake': (event) => inner.onWake(event) }, log: SILENT });
   inner = createInnerLife({
@@ -664,4 +666,104 @@ test('inner status: chains, spend, open intentions, the next wake and the last t
   assert.equal(after.heldUsd, 0);
   assert.deepEqual(after.lastTurn, { at: NOW, outcome: 'skip' });
   assert.deepEqual(after.next, { at: NOW + HOUR_MS, kind: 'intention' }, 'the next intention to come due, the handled one behind');
+});
+
+// ---- recurring intentions ------------------------------------------------------------
+
+/** The production intention service over the inner life's temp data directory. */
+function realIntentions(hot, dataDir) {
+  hot.config.intentions = { expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, maxCandidates: 5, candidateExpiresHours: 48, waitHours: 2 };
+  return createIntentionService({ stores: createIntentionStores({ dataDir, now: () => clock.t, log: SILENT }), hot, getGuildId: () => GUILD, now: () => clock.t, log: SILENT });
+}
+
+test('inner: a recurring intention advances when its wake is disposed of -- recurred when her turn named it, missed when not; one wake per occurrence; each occurrence is its own chain', async () => {
+  const dataDir = tempDir('nep-inner-');
+  const hot = hotWith();
+  const service = realIntentions(hot, dataDir);
+  let named = ['x'];
+  const turns = fakeTurns({ answer: () => ({ outcome: 'spoke', inner: { actions: [], intentIds: named, stray: null, turnId: 't-r' } }) });
+  const run = setup({ service, hot, turns, dataDir });
+  const first = NOW - MINUTE_MS;
+  const set = service.set(GUILD, { purpose: 'look for memes', dueAt: first, every: { period: 'day', at: null }, channelId: 'c1', scope: 'group' });
+  assert.equal(set.ok, true, set.code);
+  const id = set.intention.id;
+  named = [id];
+  await run.inner.tick();
+  await settle();
+  assert.equal(run.turns.calls.length, 1);
+  assert.equal(run.turns.calls[0].inner.wake.chainId, `intention:${id}:${first}`, 'this occurrence\'s own chain');
+  assert.equal(run.turns.calls[0].inner.wake.notes, undefined, 'not the last occurrence');
+  let record = service.store(GUILD).get(id);
+  assert.equal(record.status, 'pending');
+  assert.equal(record.dueAt, first + DAY_MS, 'the next occurrence, after the turn');
+  assert.equal(record.history.at(-1).code, 'recurred');
+  assert.deepEqual(run.journal.filter((r) => r.event === 'recurred').map((r) => [r.intentionId, r.code, r.outcome]), [[id, 'recurred', 'spoke']]);
+  // The same occurrence never wakes her twice: the next tick lists nothing new.
+  const again = await run.inner.tick();
+  assert.equal(again.submitted, 0);
+  assert.equal(run.turns.calls.length, 1);
+  assert.deepEqual(run.inner.status(GUILD).next, { at: first + DAY_MS, kind: 'intention' });
+  // The next day, a turn that names nothing: the occurrence is missed, the intention goes on.
+  named = [];
+  clock.t = first + DAY_MS + MINUTE_MS;
+  await run.inner.tick();
+  await settle();
+  assert.equal(run.turns.calls.length, 2);
+  assert.equal(run.turns.calls[1].inner.wake.chainId, `intention:${id}:${first + DAY_MS}`);
+  record = service.store(GUILD).get(id);
+  assert.equal(record.history.at(-1).code, 'missed');
+  assert.equal(record.dueAt, first + 2 * DAY_MS);
+  // Two occurrences, two chains: the per-chain cap bounds one occurrence, not the intention's life.
+  assert.equal(run.inner.status(GUILD).chains, 1, 'one chain today');
+  const state = run.inner.state(GUILD);
+  assert.equal(Object.keys(state.chains).length, 2);
+});
+
+test('inner: a dropped wake of a recurring intention (no channel, overflow, stale) still advances it; the last occurrence before expiry carries its note', async () => {
+  const dataDir = tempDir('nep-inner-');
+  const hot = hotWith({ innerLife: { queueMax: 1 } });
+  const service = realIntentions(hot, dataDir);
+  const turns = fakeTurns();
+  const run = setup({ service, hot, turns, dataDir });
+  const first = NOW - MINUTE_MS;
+  // No usable conversation: dropped, missed, advanced.
+  const nowhere = service.set(GUILD, { purpose: 'nowhere', dueAt: first, every: { period: '12h', at: null }, channelId: 'c-gone', scope: 'group' }).intention;
+  await run.inner.tick();
+  await settle();
+  assert.equal(run.turns.calls.length, 0);
+  assert.ok(run.journal.some((r) => r.event === 'no-channel'));
+  let record = service.store(GUILD).get(nowhere.id);
+  assert.equal(record.history.at(-1).code, 'missed');
+  assert.equal(record.dueAt, first + 12 * HOUR_MS);
+  // The queue full: the overflowing wake is handled, its intention advanced.
+  run.turns.busy = true;
+  const held = service.set(GUILD, { purpose: 'held', dueAt: first, channelId: 'c1', scope: 'group' }).intention;
+  await run.inner.tick();
+  assert.equal(run.inner.state(GUILD).queue.map((w) => w.intentionIds[0]).join(), held.id);
+  const over = service.set(GUILD, { purpose: 'over', dueAt: first, every: { period: 'day', at: null }, channelId: 'c1', scope: 'group' }).intention;
+  await run.inner.tick();
+  await settle();
+  assert.ok(run.journal.some((r) => r.event === 'overflow'));
+  assert.equal(service.store(GUILD).get(over.id).history.at(-1).code, 'missed');
+  assert.ok(service.store(GUILD).get(over.id).dueAt > clock.t);
+  // Stale: the intention closed meanwhile is cancelled, nothing to advance; the others are untouched.
+  service.cancel(GUILD, held.id);
+  run.turns.busy = false;
+  await run.inner.tick();
+  await settle();
+  assert.ok(run.journal.some((r) => r.event === 'stale'));
+  assert.equal(run.turns.calls.length, 0);
+  // The last occurrence before the expiry: the wake carries the note; after it the expiry wins.
+  const last = service.set(GUILD, { purpose: 'last one', dueAt: first, every: { period: 'day', at: null }, expiresAt: NOW + 12 * HOUR_MS, channelId: 'c2', scope: 'group' }).intention;
+  await run.inner.tick();
+  await settle();
+  assert.equal(run.turns.calls.length, 1);
+  assert.deepEqual(run.turns.calls[0].inner.wake.notes, { [last.id]: 'last-occurrence' });
+  record = service.store(GUILD).get(last.id);
+  assert.ok(record.dueAt > record.expiresAt, 'the next occurrence lies past the expiry');
+  clock.t = NOW + 12 * HOUR_MS;
+  await run.inner.tick();
+  await settle();
+  assert.equal(service.store(GUILD).get(last.id).status, 'expired');
+  assert.equal(run.turns.calls.length, 1, 'no wake past the expiry');
 });

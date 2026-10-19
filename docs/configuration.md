@@ -1016,6 +1016,7 @@ Settings for the persona's intentions (`features.intentions`; [Intentions](inten
 | Key | Default | Meaning |
 |---|---|---|
 | `expiresDays` | `14` | An intention of hers (and an accepted candidate, from its acceptance) expires this many days after it was set, unless it names its own `expires` |
+| `recurringExpiresDays` | `30` | A recurring intention of hers (`every=` set) expires this many days after it was set, unless it names its own `expires`; the expiry stays binding, the last occurrence before it carries the note `last-occurrence` on its `<wake>` line |
 | `maxOpen` | `20` | At most this many of her intentions open (pending or waiting) at once: a new one, or accepting a candidate, is refused `cap-open` past it |
 | `maxCandidates` | `5` | At most this many candidates from her lines per analyzer batch, and open at once (`{{maxCandidates}}` of `prompts/memory-intentions.md`) |
 | `candidateExpiresHours` | `48` | A candidate she neither accepts nor rejects expires after this many hours |

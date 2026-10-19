@@ -8,7 +8,9 @@ past its deadline) wakes her for an inner turn.
 ## Where they come from
 
 - **Her own call.** `intent.set` with the purpose as the body creates an intention of hers, `pending`. Options:
-  `due`, `expires`, `channel` (where it is meant to land), `chain`, `condition` (when it counts as done), and `task`
+  `due` (a delay, a date, a clock time or a weekday and time in `bot.timezone`), `every` (day, week, a number of hours
+  or days; the intention wakes her once per occurrence and expires after `intentions.recurringExpiresDays` days),
+  `expires`, `channel` (where it is meant to land), `chain`, `condition` (when it counts as done), and `task`
   plus `deadline` to wait for an errand.
 - **The analyzer.** With the switch on, a guild batch of the memory analyzer also returns candidates from her own
   lines (a promise, a thing to come back to, a question for someone later), in the same request. Code keeps one only

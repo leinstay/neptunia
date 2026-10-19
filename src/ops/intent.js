@@ -12,11 +12,13 @@
 // cancel without `id=` whose body is one bare intention id takes that as the id (isIntentionId);
 // any other body stays the update's purpose (or is ignored by the cancel). Off unless
 // `features.intentions` is exactly true (read now): every action answers `feature-off`. Times are
-// `<n>m`, `<n>h`, `<n>d` from now or an ISO date-time (src/intentions/model.js#parseWhen).
-// Answers are operator lines (ids, states, times), the purpose cut to one short line.
+// `<n>m`, `<n>h`, `<n>d` from now, an ISO date-time, or a wall clock in `bot.timezone` --
+// `HH:MM`, `<weekday> HH:MM` (src/intentions/model.js#parseWhen); `every=` (`day`, `week`, `<n>h`,
+// `<n>d`; `none` on an update) makes an intention recurring (model.js#parseEvery).
+// Answers are operator lines (ids, states, times, the recurrence), the purpose cut to one short line.
 
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
-import { intentionsOn, isIntentionId, parseWhen } from '../intentions/model.js';
+import { intentionsOn, isIntentionId, parseEvery, parseWhen } from '../intentions/model.js';
 import { isOwnerId } from './grants.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
@@ -24,7 +26,7 @@ import { defineOp, perEnv, invalid } from './registry.js';
 const PURPOSE_LINE_CHARS = 80;
 
 /** The service's refusal codes that mean bad arguments rather than a failure. */
-const INVALID = new Set(['no-purpose', 'bad-due', 'bad-expiry', 'due-after-expiry', 'bad-deadline', 'wait-without-task', 'no-task', 'task-ended', 'bad-move', 'terminal', 'not-found']);
+const INVALID = new Set(['no-purpose', 'bad-due', 'bad-every', 'every-without-due', 'bad-expiry', 'due-after-expiry', 'bad-deadline', 'wait-without-task', 'no-task', 'task-ended', 'bad-move', 'terminal', 'not-found']);
 
 const handlers = perEnv((env) => {
   const { hot, client, resolvedGuildId, now = Date.now } = env;
@@ -47,13 +49,22 @@ const handlers = perEnv((env) => {
     return Boolean(channel) && !channel.guild;
   }
 
-  /** `args[key]` as a moment (parseWhen), undefined when not given; an `invalid` error when it does not parse. */
+  /** `args[key]` as a moment (parseWhen, the wall-clock forms in `bot.timezone`), undefined when not given; an `invalid` error when it does not parse. */
   function moment(args, key) {
     const text = args?.[key];
     if (text === undefined || text === null || text === '') return undefined;
-    const at = parseWhen(text, now());
-    if (at === null) throw invalid(`${key}: a time like 30m, 6h, 2d or an ISO date-time`, 'bad-time');
+    const at = parseWhen(text, now(), { timezone: hot.config?.bot?.timezone ?? 'UTC' });
+    if (at === null) throw invalid(`${key}: a time like 30m, 6h, 2d, 21:00, mon 20:00 or an ISO date-time`, 'bad-time');
     return at;
+  }
+
+  /** `args.every` as the record's recurrence (parseEvery), undefined when not given; an `invalid` error when it does not parse. */
+  function every(args) {
+    const text = args?.every;
+    if (text === undefined || text === null || text === '') return undefined;
+    const parsed = parseEvery(text);
+    if (!parsed.ok) throw invalid('every: day, week, <n>h, <n>d or none', 'bad-every');
+    return parsed.every;
   }
 
   /** A text argument trimmed, undefined when not given. */
@@ -85,6 +96,7 @@ const handlers = perEnv((env) => {
   function lineOf(record) {
     const parts = [`${record.id} ${record.status}`];
     if (Number.isFinite(record.dueAt)) parts.push(`due ${stamp(record.dueAt)}`);
+    if (record.every?.period) parts.push(`every ${record.every.period}`);
     if (record.status === 'waiting') parts.push(`awaiting ${record.awaitingTaskId} until ${stamp(record.waitDeadline)}`);
     else if (record.outcome?.taskId) parts.push(`errand ${record.outcome.taskId} ${record.outcome.state}`);
     else if (record.note) parts.push(record.note);
@@ -141,6 +153,7 @@ const handlers = perEnv((env) => {
     const result = intentions().set(resolvedGuildId(context), {
       purpose,
       dueAt: moment(args, 'due') ?? null,
+      every: every(args) ?? null,
       expiresAt: moment(args, 'expires') ?? null,
       destination: text(args, 'channelId') ?? null,
       completionCondition: text(args, 'condition') ?? null,
@@ -162,9 +175,11 @@ const handlers = perEnv((env) => {
     if (state !== undefined && state !== 'pending' && state !== 'done') throw invalid('state must be pending or done');
     const from = origin(context);
     const due = moment(args, 'due');
+    const recurrence = every(args);
     const result = intentions().update(resolvedGuildId(context), id, {
       ...(text(args, 'text') ? { purpose: text(args, 'text') } : {}),
       ...(due !== undefined ? { dueAt: due } : {}),
+      ...(recurrence !== undefined ? { every: recurrence } : {}),
       ...(moment(args, 'expires') !== undefined ? { expiresAt: moment(args, 'expires') } : {}),
       ...(text(args, 'channelId') ? { destination: text(args, 'channelId') } : {}),
       ...(text(args, 'condition') ? { completionCondition: text(args, 'condition') } : {}),

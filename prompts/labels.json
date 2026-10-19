@@ -486,11 +486,13 @@
     "line": "{id} · {state} · {purpose}",
     "states": { "pending": "open", "waiting": "waiting" },
     "due": "due {when}",
+    "every": "every {period}",
     "waiting": "waiting for errand {task} until {deadline}",
     "outcome": "errand {task} ended: {state}",
     "notes": {
       "wait-deadline": "the wait for errand {task} ran out",
-      "task-missing": "errand {task} is gone"
+      "task-missing": "errand {task} is gone",
+      "last-occurrence": "last occurrence before it expires"
     },
     "destination": "for #{channel}",
     "candidates": "Proposed from your own lines (accept with intent.update state=pending, reject with intent.cancel):",

@@ -1,7 +1,8 @@
 // The `<wake>` block of an inner turn (src/behavior/inner.js, docs/inner-life.md): why she is
 // awake with nobody's message in front of her -- each wake of the turn (an intention whose time
-// came, a wait past its deadline, the day's review) with the intention it concerns -- then the
-// present moment and her timezone, the channels she was recently active in (a review), and what
+// came, a wait past its deadline, the day's review) with the intention it concerns (and the note
+// of a recurring intention's last occurrence before its expiry, `labels.intentions.notes`) -- then
+// the present moment and her timezone, the channels she was recently active in (a review), and what
 // is left of her budgets with when each resets: facts she reads, never a rule. Pure: every word
 // comes from `labels.wake` (prompts/labels.json); without its header the block is left out ('').
 // Ids, counts and times are data, not wording.
@@ -21,9 +22,10 @@ function part(l, key, values) {
 }
 
 /**
- * The `<wake>` body for `wake` (src/behavior/inner.js's turn record: `items`, `intentions`, `now`,
- * `timezone`, `channels`, `budgets`), '' when `labels.wake.header` is missing.
- * @param {{ items: { kind: string, intentionIds?: string[], taskId?: string|null }[], intentions?: object[], now: number,
+ * The `<wake>` body for `wake` (src/behavior/inner.js's turn record: `items`, `intentions`, `notes`
+ * -- an intention id to a `labels.intentions.notes` code, `last-occurrence`, joined to its line by
+ * ` · ` -- `now`, `timezone`, `channels`, `budgets`), '' when `labels.wake.header` is missing.
+ * @param {{ items: { kind: string, intentionIds?: string[], taskId?: string|null }[], intentions?: object[], notes?: Record<string, string>, now: number,
  *   timezone: string, channels?: string[], budgets?: object }} wake
  * @param {object} labels
  * @param {{ locale?: string }} [options]
@@ -43,14 +45,15 @@ export function wakeBlockText(wake, labels, { locale = 'en-US' } = {}) {
     for (const id of ids) {
       const record = id ? byId.get(id) : null;
       if (id && !record) continue;
-      lines.push(
-        fill(template, {
-          id: id ?? '',
-          purpose: record ? clampWithEllipsis(oneLine(record.purpose ?? ''), WAKE_PURPOSE_CHARS) : '',
-          task: item.taskId ?? '',
-          due: when(record?.dueAt),
-        }),
-      );
+      const line = fill(template, {
+        id: id ?? '',
+        purpose: record ? clampWithEllipsis(oneLine(record.purpose ?? ''), WAKE_PURPOSE_CHARS) : '',
+        task: item.taskId ?? '',
+        due: when(record?.dueAt),
+      });
+      const code = id ? wake.notes?.[id] : null;
+      const note = code && typeof labels?.intentions?.notes?.[code] === 'string' ? fill(labels.intentions.notes[code], { task: '' }) : '';
+      lines.push(note ? `${line} · ${note}` : line);
     }
   }
   const nowLine = part(l, 'now', { now: formatNow(wake.now, timezone, locale), timezone });
