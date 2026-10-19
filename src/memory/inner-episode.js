@@ -9,9 +9,14 @@
 // claim, and never a chat line (the record, the address counts and an errand's context skip it).
 //
 // Shadow turns count too: their reads really ran, so what they found is a fact of her day; what
-// she only proposed there (and what was refused) is listed as not done, never as done. Pure.
+// she only proposed there (and what was refused) is listed as not done, never as done. What did
+// not go through in the turn (`episode.feedback`, the scheduler's feedback facts,
+// src/behavior/inner.js#feedbackFacts) joins the first line as `labels.memory.innerFeedback`, each
+// fact worded as in `<wake>` (src/behavior/wake.js#feedbackFactText): a fact of her day, not a
+// lesson. Pure.
 
 import { fill } from '../format.js';
+import { feedbackFactText } from '../behavior/wake.js';
 import { clampWithEllipsis, oneLine } from './clamp.js';
 
 /** The defaults of `innerLife.memory` (config.json carries the same). */
@@ -83,6 +88,20 @@ export function tailChars(text, limit) {
   return `…${fromWord}`;
 }
 
+/** The separator between the feedback facts of one episode line (data joined, not wording). */
+const FACTS_JOIN = '; ';
+
+/**
+ * The feedback facts of `episode` (`feedback`, src/behavior/inner.js#feedbackFacts) as one text,
+ * each worded by `labels.wake.feedback.<kind>` (feedbackFactText), joined by `; `; '' without
+ * facts or their labels. Pure.
+ * @param {object} episode
+ * @param {object} labels
+ */
+export function feedbackText(episode, labels) {
+  return (Array.isArray(episode?.feedback) ? episode.feedback : []).map((fact) => feedbackFactText(fact, labels?.wake)).filter(Boolean).join(FACTS_JOIN);
+}
+
 /** What her call asked, for a finding's line: the query, the url or the question. */
 function askedOf(args) {
   for (const key of ['query', 'url', 'question', 'id']) {
@@ -95,9 +114,10 @@ function askedOf(args) {
 /**
  * The buffer lines of one inner turn's episode (`episode`: turn.js#innerEpisodeOf's), or [] when
  * memory from inner turns is off, the labels lack `memory.inner.found`, or none of its findings
- * is of a skill `settings.skills` keeps. Line one: her thinks (the tail, `thinkChars`), her calls
- * done and not done; then one line per finding (at most `maxFindings`, each result cut to
- * `resultChars`), with the links it holds. Every line is hers (`self`), in the episode's
+ * is of a skill `settings.skills` keeps and it carries no feedback fact with a label. Line one:
+ * her thinks (the tail, `thinkChars`), her calls done and not done, and what did not go through
+ * (`memory.innerFeedback` with `{facts}`, feedbackText's); then one line per finding (at most
+ * `maxFindings`, each result cut to `resultChars`), with the links it holds. Every line is hers (`self`), in the episode's
  * conversation, at the episode's moment (one millisecond apart, in order), cut to `maxChars` (the
  * analyzer's per-line limit), and carries `inner` (`kind`, `turnId`, `shadow`, `sources`). Pure.
  * @param {object} episode
@@ -110,7 +130,8 @@ export function innerEpisodeLines(episode, { labels, settings, maxChars = 0 }) {
   const findings = (Array.isArray(episode.findings) ? episode.findings : [])
     .filter((finding) => settings.skills.includes(finding?.skill) && typeof finding.text === 'string' && finding.text.trim())
     .slice(0, settings.maxFindings);
-  if (findings.length === 0 || typeof episode.channelId !== 'string' || !episode.channelId) return [];
+  const feedback = typeof labels?.memory?.innerFeedback === 'string' && labels.memory.innerFeedback ? feedbackText(episode, labels) : '';
+  if ((findings.length === 0 && !feedback) || typeof episode.channelId !== 'string' || !episode.channelId) return [];
   const at = Number.isFinite(episode.at) ? episode.at : 0;
   const turnId = typeof episode.turnId === 'string' ? episode.turnId : null;
   const shadow = episode.shadow === true;
@@ -143,6 +164,7 @@ export function innerEpisodeLines(episode, { labels, settings, maxChars = 0 }) {
     thinks.length > 0 && words.think ? fill(words.think, { text: tailChars(thinks.join('\n\n'), settings.thinkChars) }) : '',
     done.length > 0 && words.done ? fill(words.done, { skills: done.join(', ') }) : '',
     notDone.length > 0 && words.notDone ? fill(words.notDone, { skills: notDone.join(', ') }) : '',
+    feedback ? fill(labels.memory.innerFeedback, { facts: feedback }) : '',
   ].filter(Boolean);
   if (head.length > 0) lines.push(line(head.join('\n'), [], lines.length));
 

@@ -9,7 +9,8 @@ import assert from 'node:assert/strict';
 import { createStore } from '../src/memory/store.js';
 import { createMemoryUpdater } from '../src/memory/update.js';
 import { createCalibrator } from '../src/llm/tokens.js';
-import { innerEpisodeLines, innerMemorySettings, linksOf, tailChars } from '../src/memory/inner-episode.js';
+import { feedbackText, innerEpisodeLines, innerMemorySettings, linksOf, tailChars } from '../src/memory/inner-episode.js';
+import { feedbackFactText } from '../src/behavior/wake.js';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -159,4 +160,32 @@ test('memory batch: the analyzer reads her episode as her own lines; the record 
   assert.ok(user.includes(fill(labels.self, { name: 'Bot' })), 'as a line of hers');
   assert.deepEqual(appended.map((line) => line.messageId), ['m1'], 'only the chat line is recorded');
   assert.deepEqual(store.getBuffer('g1'), [], 'the batch consumed her episode');
+});
+
+test('innerEpisodeLines: the feedback facts of the turn join the first line in her voice; with no finding they are the one line; nothing without their label', () => {
+  const feedback = [
+    { kind: 'dropped', messages: 1, reactions: 0, gif: 0, draw: 0, lines: ['here is the cat meme'] },
+    { kind: 'doneWithoutDelivery', intentionId: 'i1', purpose: 'send a cat meme' },
+  ];
+  const expected = fill(labels.memory.innerFeedback, { facts: feedback.map((fact) => feedbackFactText(fact, labels.wake)).join('; ') });
+  assert.equal(feedbackText({ feedback }, labels), feedback.map((fact) => feedbackFactText(fact, labels.wake)).join('; '));
+  assert.equal(feedbackText({ feedback: [] }, labels), '');
+  const lines = innerEpisodeLines(episode({ feedback }), { labels, settings: SETTINGS, maxChars: 2000 });
+  assert.equal(lines.length, 2, 'the head line and the finding');
+  const head = lines[0].content.split('\n');
+  assert.equal(head.at(-1), expected, 'the facts close the head line, after her thinks and calls');
+  assert.ok(head[0].startsWith(labels.memory.inner.think.split('{')[0]));
+  assert.ok(lines[0].self && lines[0].inner.kind === 'inner');
+  // A turn that found nothing and lost its output: the facts alone are the episode, one line of hers.
+  const alone = innerEpisodeLines(episode({ thinks: [], findings: [], actions: [{ skill: 'intent.update', status: 'executed' }], feedback }), { labels, settings: SETTINGS });
+  assert.equal(alone.length, 1);
+  assert.equal(alone[0].content, `${fill(labels.memory.inner.done, { skills: 'intent.update' })}\n${expected}`);
+  assert.equal(alone[0].id, 'inner:t-1:0');
+  // Without the memory label the facts are not written; without a finding that leaves nothing.
+  const without = { ...labels, memory: { ...labels.memory, innerFeedback: undefined } };
+  assert.deepEqual(innerEpisodeLines(episode({ findings: [], feedback }), { labels: without, settings: SETTINGS }), []);
+  assert.equal(innerEpisodeLines(episode({ feedback }), { labels: without, settings: SETTINGS })[0].content.includes('cat meme'), false);
+  // An unknown fact kind is skipped; facts of known kinds without their wake label too.
+  assert.equal(feedbackText({ feedback: [{ kind: 'other' }] }, labels), '');
+  assert.deepEqual(innerEpisodeLines(episode({ findings: [], feedback }), { labels: { ...labels, wake: { ...labels.wake, feedback: {} } }, settings: SETTINGS }), []);
 });

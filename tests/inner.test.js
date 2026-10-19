@@ -19,11 +19,14 @@ import {
   drawReviewAt,
   emptyState,
   errandRefusal,
+  feedbackFacts,
   hourWeights,
   innerSettings,
   reviewWake,
   turnReserve,
   wakeOfDue,
+  DELIVERY_SKILLS,
+  WAKE_KINDS,
 } from '../src/behavior/inner.js';
 import { createEventDoor } from '../src/interface/door.js';
 import { createIntentionStores } from '../src/intentions/store.js';
@@ -768,7 +771,8 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   await run.inner.tick();
   await settle();
   assert.equal(service.store(GUILD).get(last.id).status, 'expired');
-  assert.equal(run.turns.calls.length, 1, 'no wake past the expiry');
+  assert.equal(run.turns.calls.filter((call) => call.inner.wake.kind !== 'feedback').length, 1, 'no wake past the expiry (the one more turn is the feedback on the no-channel drop)');
+  assert.equal(run.turns.calls.length, 2);
 });
 
 test('inner: a review tells her once which intentions of hers expired untouched -- the newest first, capped with the rest counted, never a candidate; a held review lists them again; the rest come next time', async () => {
@@ -1038,4 +1042,155 @@ test('inner: a cancelled attention wakes her no more and its queued wake is stal
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 0, 'nothing reseeds a cancelled attention');
   assert.deepEqual(run.inner.status(GUILD).attention, { open: 0, listed: 1, run: 0, spoken: 0, skipped: 0, waiting: 0 });
+});
+
+// ---- feedback on her own turn ----------------------------------------------------------
+
+/** A turn result of the real case: two messages and two GIFs written as text, a search timed out, the intention closed as done. */
+function lostTurn(turnId = 't-1') {
+  return {
+    outcome: 'spoke',
+    inner: {
+      actions: [
+        { skill: 'intent.update', status: 'executed', result: 'ok', target: {}, intentionId: 'i1', state: 'done' },
+        { skill: 'web.search', status: 'executed', result: 'unknown', code: 'timeout', target: {} },
+      ],
+      intentIds: ['i1'],
+      stray: { messages: 2, reactions: 0, gif: 2, draw: 0, lines: ['here is the cat meme', 'and another one'] },
+      loop: { steps: 2, cut: 'steps', droppedCalls: 1 },
+      turnId,
+    },
+  };
+}
+
+test('feedbackFacts: dropped output, a call that ended unknown or refused, an intention closed with nothing delivered, the loop cut, a wake dropped or held; nothing when all went through', () => {
+  assert.ok(WAKE_KINDS.includes('feedback'));
+  assert.deepEqual(DELIVERY_SKILLS, ['message.create', 'draw.create', 'task.run', 'diary.post']);
+  const facts = feedbackFacts(lostTurn(), { named: ['i1'], intentions: [intention('i1', { purpose: 'send a cat meme' })], wakes: [{ id: 'inner.wake:intention_due:i7:1', kind: 'intention_due', code: 'no-channel', intentionIds: ['i7'] }] });
+  assert.deepEqual(facts, [
+    { kind: 'dropped', messages: 2, reactions: 0, gif: 2, draw: 0, lines: ['here is the cat meme', 'and another one'] },
+    { kind: 'callFailed', skill: 'web.search', status: 'timeout', code: 'timeout' },
+    { kind: 'doneWithoutDelivery', intentionId: 'i1', purpose: 'send a cat meme' },
+    { kind: 'loopCut', cut: 'steps', droppedCalls: 1, steps: 2 },
+    { kind: 'wakeDropped', id: 'inner.wake:intention_due:i7:1', wake: 'intention_due', code: 'no-channel', intentionId: 'i7', purpose: '' },
+  ]);
+  // A refused call carries its code; an executed delivery makes the done intention no fact; a loop that ended on its own is none.
+  const delivered = feedbackFacts({ inner: { actions: [{ skill: 'message.create', status: 'executed', result: 'ok' }, { skill: 'intent.update', status: 'executed', result: 'ok', intentionId: 'i1', state: 'done' }, { skill: 'draw.create', status: 'refused', result: 'refused', code: 'inner-post-cap' }], intentIds: ['i1'], stray: { messages: 0, reactions: 0, gif: 0, draw: 0, lines: [] }, loop: { steps: 3, cut: null, droppedCalls: 0 } } });
+  assert.deepEqual(delivered, [{ kind: 'callFailed', skill: 'draw.create', status: 'refused', code: 'inner-post-cap' }]);
+  // A done set in shadow (proposed) closed nothing: no fact; without an id on the action the one named id counts.
+  assert.deepEqual(feedbackFacts({ inner: { actions: [{ skill: 'intent.update', status: 'proposed', result: 'ok', intentionId: 'i1', state: 'done' }], intentIds: ['i1'] } }), []);
+  assert.deepEqual(feedbackFacts({ inner: { actions: [{ skill: 'intent.update', status: 'executed', result: 'ok', state: 'done' }], intentIds: ['i2'] } }), [{ kind: 'doneWithoutDelivery', intentionId: 'i2', purpose: '' }]);
+  // A wake held on a cap: its code.
+  assert.deepEqual(feedbackFacts({ inner: {} }, { wakes: [{ id: 'w', kind: 'attend', code: 'per-hour', intentionIds: ['i3'] }], intentions: [intention('i3', { purpose: 'listen' })] }), [{ kind: 'wakeDropped', id: 'w', wake: 'attend', code: 'per-hour', intentionId: 'i3', purpose: 'listen' }]);
+  assert.deepEqual(feedbackFacts({ outcome: 'skip', inner: { actions: [], intentIds: [], stray: null, loop: { steps: 0, cut: null, droppedCalls: 0 } } }), []);
+  assert.deepEqual(feedbackFacts(null), []);
+});
+
+test('inner: a turn that lost something queues one feedback wake in its chain and conversation, due at the next tick, with the facts; the feedback turn gets none of its own (journalled only)', async () => {
+  const handed = [];
+  const episode = { turnId: 't-1', shadow: false, channelId: 'c1', findings: [], actions: [] };
+  const turns = fakeTurns({ answer: () => ({ ...lostTurn(), inner: { ...lostTurn().inner, episode } }) });
+  const run = setup({ records: [intention('i1', { purpose: 'send a cat meme' })], turns, hot: hotWith({ innerLife: { mode: 'live' } }), onEpisode: (guildId, given) => handed.push(given) });
+  const first = await run.inner.tick();
+  assert.equal(first.drained.feedback, 'inner.wake:feedback:t-1');
+  assert.equal(run.turns.calls.length, 1);
+  const queued = run.inner.state(GUILD).queue;
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].kind, 'feedback');
+  assert.equal(queued[0].chainId, 'intention:i1');
+  assert.equal(queued[0].channelId, 'c1');
+  assert.equal(queued[0].dueAt, NOW);
+  assert.deepEqual(queued[0].facts.map((fact) => fact.kind), ['dropped', 'callFailed', 'doneWithoutDelivery', 'loopCut']);
+  // The same facts rode the turn's episode to her memory.
+  assert.deepEqual(handed[0].feedback.map((fact) => fact.kind), ['dropped', 'callFailed', 'doneWithoutDelivery', 'loopCut']);
+  // The next tick runs the feedback turn: the same chain and channel, the facts on its wake item.
+  clock.t = NOW + MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 2);
+  const params = run.turns.calls[1];
+  assert.equal(params.channel.id, 'c1');
+  assert.equal(params.inner.wake.kind, 'feedback');
+  assert.equal(params.inner.wake.chainId, 'intention:i1');
+  assert.deepEqual(params.inner.wake.items[0].facts[0], { kind: 'dropped', messages: 2, reactions: 0, gif: 2, draw: 0, lines: ['here is the cat meme', 'and another one'] });
+  assert.equal(params.inner.wake.items[0].facts[2].purpose, 'send a cat meme');
+  assert.equal(params.inner.wake.budgets.chain.used, 1, 'the feedback turn counts against the chain like any turn');
+  // The feedback turn lost the same things again: journalled, never a second wake.
+  clock.t = NOW + 2 * MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 2, 'no feedback on a feedback turn');
+  assert.deepEqual(run.inner.state(GUILD).queue, []);
+  await settle();
+  const notes = run.journal.filter((entry) => entry.event === 'turn');
+  assert.equal(notes.length, 2);
+  assert.equal(notes[0].feedback.wake, 'inner.wake:feedback:t-1');
+  assert.deepEqual(notes[0].loop, { steps: 2, cut: 'steps', droppedCalls: 1 });
+  assert.equal(notes[1].feedback.wake, null);
+  assert.deepEqual(notes[1].feedback.facts.map((fact) => fact.kind), ['dropped', 'callFailed', 'doneWithoutDelivery', 'loopCut']);
+  const wakeNote = run.journal.find((entry) => entry.event === 'wake' && entry.wake.kind === 'feedback');
+  assert.equal(wakeNote.wake.turnId, 't-1');
+  assert.equal(wakeNote.wake.facts.length, 4);
+  // A turn that lost nothing queues nothing.
+  const quiet = setup({ records: [intention('i2')] });
+  const result = await quiet.inner.tick();
+  assert.equal(result.drained.feedback, undefined);
+  assert.deepEqual(quiet.inner.state(GUILD).queue, []);
+  await settle();
+  assert.deepEqual(quiet.journal.find((entry) => entry.event === 'turn').feedback, { facts: [], wake: null });
+});
+
+test('inner: a wake of hers dropped as no-channel, or held on a cap with its due time over an hour past, is told once at her next turn', async () => {
+  // i9 lands in a channel the client cannot fetch: dropped no-channel at the first drain; i1 runs at the next.
+  const run = setup({ records: [intention('i9', { dueAt: NOW - 2 * MINUTE_MS, channelId: 'c9', purpose: 'announce the game night' }), intention('i1', { dueAt: NOW - MINUTE_MS })], hot: hotWith({ innerLife: { mode: 'live' } }) });
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 0);
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 1);
+  assert.equal(run.turns.calls[0].inner.wake.intentions[0].id, 'i1');
+  const queue = run.inner.state(GUILD).queue;
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0].kind, 'feedback');
+  assert.deepEqual(queue[0].facts, [{ kind: 'wakeDropped', id: `inner.wake:intention_due:i9:${NOW - 2 * MINUTE_MS}`, wake: 'intention_due', code: 'no-channel', intentionId: 'i9', purpose: 'announce the game night' }]);
+  assert.equal(run.inner.state(GUILD).handled[`inner.wake:intention_due:i9:${NOW - 2 * MINUTE_MS}`].told, true);
+  // The feedback turn, then another due intention: the drop is told once.
+  clock.t = NOW + MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls[1].inner.wake.kind, 'feedback');
+  run.intentions.records.push(intention('i2', { dueAt: NOW + 2 * MINUTE_MS, channelId: 'c2' }));
+  clock.t = NOW + 3 * MINUTE_MS;
+  await run.inner.tick();
+  assert.equal(run.turns.calls.length, 3);
+  assert.deepEqual(run.inner.state(GUILD).queue, [], 'nothing left to tell: no feedback wake');
+
+  // An attend wake held on the attention's own per-day bound (the one cap other wakes pass): told once its due time is an hour past.
+  const lines = [seen('m1', { by: 'u1', at: NOW - 5 * MINUTE_MS })];
+  const held = attentionSetup({ lines, perDay: 1, innerLife: { mode: 'live' } });
+  await held.inner.tick();
+  assert.equal(held.turns.calls.length, 1, 'the first burst of the day');
+  held.record.lines.push(seen('m2', { by: 'u2', at: NOW + 10 * MINUTE_MS }));
+  clock.t = NOW + 12 * MINUTE_MS;
+  assert.deepEqual((await held.inner.tick()).drained, { refused: 'attend-per-day' });
+  // A due intention half an hour later: the held wake is not an hour past yet, no fact.
+  held.service.set(GUILD, { purpose: 'say hi', dueAt: NOW + 30 * MINUTE_MS, channelId: 'c1', scope: 'group' });
+  clock.t = NOW + 31 * MINUTE_MS;
+  await held.inner.tick();
+  assert.equal(held.turns.calls.length, 2);
+  assert.deepEqual(held.inner.state(GUILD).queue.map((wake) => wake.kind), ['attend'], 'no feedback wake yet');
+  // Over an hour past its due time, the next turn names it; the one after does not.
+  held.service.set(GUILD, { purpose: 'say bye', dueAt: NOW + 80 * MINUTE_MS, channelId: 'c1', scope: 'group' });
+  clock.t = NOW + 81 * MINUTE_MS;
+  await held.inner.tick();
+  assert.equal(held.turns.calls.length, 3);
+  const feedback = held.inner.state(GUILD).queue.find((wake) => wake.kind === 'feedback');
+  assert.ok(feedback, 'the held attend wake is a fact of this turn');
+  assert.deepEqual(feedback.facts.map((fact) => `${fact.kind}:${fact.wake}:${fact.intentionId}:${fact.code}:${fact.purpose}`), [`wakeDropped:attend:${held.id}:attend-per-day:listen there`]);
+  assert.equal(feedback.channelId, 'c1');
+  assert.equal(held.inner.state(GUILD).queue.find((wake) => wake.kind === 'attend').told, true);
+  clock.t = NOW + 82 * MINUTE_MS;
+  await held.inner.tick();
+  assert.equal(held.turns.calls[3].inner.wake.kind, 'feedback');
+  held.service.set(GUILD, { purpose: 'say more', dueAt: NOW + 83 * MINUTE_MS, channelId: 'c1', scope: 'group' });
+  clock.t = NOW + 84 * MINUTE_MS;
+  await held.inner.tick();
+  assert.equal(held.turns.calls.length, 5);
+  assert.deepEqual(held.inner.state(GUILD).queue.map((wake) => wake.kind), ['attend'], 'told once');
 });
