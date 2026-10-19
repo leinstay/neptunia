@@ -1803,28 +1803,29 @@ export function createTurnRunner({
     return proposedRows(proposals, rows);
   }
 
-  /**
-   * The request's `errands` input (buildRequest): the `<tasks>` body -- her open errands and the
-   * finished ones she has not seen (`errands.view`: a private chat's only in that chat), the one
-   * `taskResult` brings left out -- and, on the turn an errand's end opened (`taskResult`, trigger
-   * kind `task`), the `<task_result>` body cut to `agents.resultMaxChars` (read now). The
-   * finished ones listed are noted in the draft (`tasksShown`) to be marked seen once the turn
-   * ran. Null when there is nothing to show.
-   */
-  function errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels, now, draft }) {
+  /** The tasks `<tasks>` lists: her open errands and unread results (`errands.view`), the one `taskResult` brings left out. */
+  function listedTasks({ guildId, channel, isPrivate, taskResult }) {
     let shown = [];
     try {
       shown = typeof errands?.view === 'function' ? errands.view({ guildId, privateChannelId: isPrivate ? String(channel.id) : null }) : [];
     } catch (err) {
       log.warn('turn: tasks view failed', { channel: channel.id, error: err });
     }
-    const listed = (Array.isArray(shown) ? shown : []).filter((task) => task?.id !== taskResult?.id);
-    const tasks = tasksBlockText(listed, labels, { now });
+    return (Array.isArray(shown) ? shown : []).filter((task) => task?.id !== taskResult?.id);
+  }
+
+  /**
+   * The request's `errands` input (buildRequest): the `<tasks>` body -- her open errands and the
+   * finished ones she has not read (`errands.view`: a private chat's only in that chat; at most
+   * `agents.unreadShown` of them), the one `taskResult` brings left out -- and, on the turn an
+   * errand's end opened (`taskResult`, trigger kind `task`), the `<task_result>` body cut to
+   * `agents.resultMaxChars` (read now). Showing a task marks nothing: it is read by the result
+   * turn that completed (src/errands/turns.js) or by `task.read`. Null when there is nothing to show.
+   */
+  function errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels, now }) {
+    const listed = listedTasks({ guildId, channel, isPrivate, taskResult });
+    const tasks = tasksBlockText(listed, labels, { now, unreadShown: config.agents?.unreadShown });
     const result = taskResult ? taskResultText(taskResult, labels, { maxChars: config.agents?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS }) : '';
-    if (tasks && draft) {
-      draft.tasksShown = listed.filter((task) => task.state !== 'queued' && task.state !== 'running').map((task) => task.id);
-      draft.tasksGuildId = guildId;
-    }
     return tasks || result ? { tasks, result } : null;
   }
 
@@ -5592,11 +5593,6 @@ export function createTurnRunner({
     let result;
     try {
       result = await runTurnAttempt(args, draft);
-      // The finished errands her request showed are seen once a turn of hers ran with them
-      // (spoke or chose silence), never on a rehearsal.
-      if (draft.tasksShown?.length > 0 && (result?.outcome === 'spoke' || result?.outcome === 'skip') && result?.dryRun !== true && args.inner?.shadow !== true) {
-        errands?.markSeen?.({ guildId: draft.tasksGuildId, ids: draft.tasksShown });
-      }
     } finally {
       // An attempt whose turn.start was written closes with its turn record at runTurn's exit,
       // whatever it returned (a throw counts as `error`).
@@ -6672,11 +6668,11 @@ export function createTurnRunner({
         // (the config read now) and the registry only, never this requester or channel.
         skillsGranted: grantedSkillNames({ config, selfId, registry: skills ?? defaultSkills() }),
         // `<skills_tools>` (features.coreTools): her own tools in full, by her grants only; an inner turn's also lists the posting skills its tags stand for.
-        skillsTools: coreTools ? coreToolRows({ config, selfId, registry: skills ?? defaultSkills(), texts: prompts?.skills, inner: Boolean(draft.inner) }) : null,
+        skillsTools: coreTools ? coreToolRows({ config, selfId, registry: skills ?? defaultSkills(), texts: prompts?.skills, inner: Boolean(draft.inner), unreadTasks: listedTasks({ guildId, channel, isPrivate, taskResult }).some((task) => task.state !== 'queued' && task.state !== 'running') }) : null,
         // `<people_now>`'s live part: the voice and status snapshot (null: none).
         around: aroundInputFor({ channel, config, mode: finalMode, isPrivate }),
         // `<tasks>` and `<task_result>`: her errands (none on a diary post).
-        errands: finalMode === 'diary' ? null : errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now, draft }),
+        errands: finalMode === 'diary' ? null : errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now }),
         // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
         intentions: finalMode === 'diary' ? '' : intentionsInputFor({ guildId, channel, isPrivate, config, labels: prompts?.labels, now }),
         // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.js); none on any other turn.

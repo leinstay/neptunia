@@ -209,3 +209,93 @@ test('task.status: a task mirrored into the ledger shows its ledger id; task.can
     await errands.idle();
   });
 });
+
+/** Ends a fresh web task of MEMBER with `result` and returns its id. */
+async function finishedTask(fixture, goal, result, extra = {}) {
+  const { env, client, errands } = fixture;
+  const before = client.runs.length;
+  const id = (await runOp('task.run', { agent: 'web', goal }, ctx(env, MEMBER, extra))).data.task.id;
+  while (client.runs.length === before) await new Promise((resolve) => setImmediate(resolve));
+  client.end(id, { status: 'done', result, usage: { usd: 0.01 } });
+  await errands.idle();
+  return id;
+}
+
+test('task.status without an id lists the open tasks and the finished ones not read yet; task.read marks one read', async () => {
+  const fixture = makeEnv();
+  const { env, stores } = fixture;
+  await withCapturedLogs(async () => {
+    const done = await finishedTask(fixture, 'first', { text: 'the answer' });
+    const listed = await runOp('task.status', {}, ctx(env, MEMBER));
+    assert.ok(listed.summary.includes(`${done} web done`) && listed.summary.includes('(unread)'), listed.summary);
+    const read = await runOp('task.read', { id: done }, ctx(env, MEMBER));
+    assert.equal(read.status, 'ok');
+    assert.ok(read.summary.includes('the answer'));
+    assert.equal(stores.get('g1').get(done).readAt > 0, true);
+    assert.equal((await runOp('task.status', {}, ctx(env, MEMBER))).summary, 'no open tasks', 'read, so no longer listed');
+  });
+});
+
+test('task.read: pages of agents.resultMaxChars, the last page marks it read; sources, the error and the file manifest come with the first page', async () => {
+  const out = tempDir('nep-ops-task-out-');
+  const fixture = makeEnv({ agents: { resultMaxChars: 10, web: { enabled: true, out, daily: { tasks: 10 } } } });
+  const { env, stores } = fixture;
+  await withCapturedLogs(async () => {
+    const id = await finishedTask(fixture, 'long one', { text: 'abcdefghijklmnopqrstuvwxy', sources: ['https://example.org/a'], files: [{ path: '/x/a.png', name: 'a.png', contentType: 'image/png', bytes: 12 }] });
+    fs.mkdirSync(path.join(out, id), { recursive: true });
+    const first = (await runOp('task.read', { id }, ctx(env, MEMBER))).summary.split('\n');
+    assert.ok(first.includes('source 1: https://example.org/a'));
+    assert.ok(first.includes(`file: file:${id}/a.png (image/png, 12 bytes)`));
+    assert.ok(first.includes('result: characters 0-10 of 25'));
+    assert.ok(first.includes('abcdefghij') && first.includes('next: from=10'));
+    assert.equal(stores.get('g1').get(id).readAt, null, 'not read until the last page');
+    const second = (await runOp('task.read', { id, from: 10 }, ctx(env, MEMBER))).summary.split('\n');
+    assert.ok(second.includes('klmnopqrst') && second.includes('next: from=20'));
+    assert.ok(!second.some((line) => line.startsWith('source') || line.startsWith('file:')), 'only the first page carries them');
+    const last = (await runOp('task.read', { id, from: 20 }, ctx(env, MEMBER))).summary.split('\n');
+    assert.ok(last.includes('uvwxy') && !last.some((line) => line.startsWith('next:')));
+    assert.equal(stores.get('g1').get(id).readAt > 0, true);
+    assert.equal((await runOp('task.read', { id, from: 99 }, ctx(env, MEMBER))).status, 'invalid');
+  });
+});
+
+test('task.read: an expired file is marked and has no handle; a failed task shows its error; an open or unknown task, and a private chat\'s task for another member, are refused', async () => {
+  const out = tempDir('nep-ops-task-out-');
+  const fixture = makeEnv({ agents: { web: { enabled: true, out, daily: { tasks: 10 } } } });
+  const { env, client, errands } = fixture;
+  await withCapturedLogs(async () => {
+    const id = await finishedTask(fixture, 'a meme', { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png', contentType: 'image/png', bytes: 5 }] });
+    const lines = (await runOp('task.read', { id }, ctx(env, MEMBER))).summary.split('\n');
+    assert.ok(lines.includes('file: a.png (image/png, 5 bytes) expired, no handle'), lines.join('\n'));
+    assert.ok(!lines.some((line) => line.includes(`file:${id}`)));
+    const failed = (await runOp('task.run', { agent: 'web', goal: 'will fail' }, ctx(env, MEMBER))).data.task.id;
+    const open = await runOp('task.read', { id: failed }, ctx(env, MEMBER));
+    assert.equal(open.status, 'invalid');
+    while (client.runs.length < 2) await new Promise((resolve) => setImmediate(resolve));
+    client.end(failed, { status: 'failed', error: 'timeout' });
+    await errands.idle();
+    const reason = (await runOp('task.read', { id: failed }, ctx(env, MEMBER))).summary.split('\n');
+    assert.ok(reason.includes('error: timeout') && reason.includes('result: empty'));
+    assert.equal((await runOp('task.read', { id: 'tnope' }, ctx(env, MEMBER))).code, 'not-found');
+    const dm = await finishedTask(fixture, 'private', { text: 'secret' }, { privateChat: true, channelId: 'dm1' });
+    assert.equal((await runOp('task.read', { id: dm }, ctx(env, OTHER))).code, 'not-found');
+    assert.equal((await runOp('task.read', { id: dm }, ctx(env, MEMBER, { channelId: 'dm1', privateChat: true }))).status, 'ok');
+  });
+});
+
+test('task.resolve: closes a finished task of her view so the list drops it; an open one is refused; resolving twice is fine', async () => {
+  const fixture = makeEnv();
+  const { env, stores } = fixture;
+  await withCapturedLogs(async () => {
+    const id = await finishedTask(fixture, 'done one', { text: 'x' });
+    const answer = await runOp('task.resolve', { id }, ctx(env, MEMBER));
+    assert.equal(answer.status, 'ok');
+    assert.equal(answer.summary, `task ${id}: resolved`);
+    assert.equal(stores.get('g1').get(id).resolvedAt > 0, true);
+    assert.equal((await runOp('task.status', {}, ctx(env, MEMBER))).summary, 'no open tasks');
+    assert.equal((await runOp('task.resolve', { id }, ctx(env, MEMBER))).status, 'ok');
+    const open = (await runOp('task.run', { agent: 'web', goal: 'still going' }, ctx(env, MEMBER))).data.task.id;
+    assert.equal((await runOp('task.resolve', { id: open }, ctx(env, MEMBER))).status, 'invalid');
+    assert.equal((await runOp('task.resolve', { id: 'tnope' }, ctx(env, OTHER))).code, 'not-found');
+  });
+});

@@ -545,6 +545,9 @@ test('resolveCall and executeCall: a file handle of one of her errands attaches 
   assert.deepEqual([unknown.ok, unknown.code, unknown.reason], [false, 'unknown-file', 'file']);
   assert.equal(refusalStatus('unknown-file'), 'invalid', 'a call that was not right');
   assert.equal(resolve('message.create', { file: known }, 'βρήκα').code, 'unknown-file', 'no errands in view, no file');
+  const expired = resolve('message.create', { file: 'file:tab1/old.png' }, 'βρήκα', { fileOf: (handle) => (handle === 'file:tab1/old.png' ? { expired: true, task: { id: 'tab1' } } : null) });
+  assert.deepEqual([expired.ok, expired.code, expired.reason], [false, 'file-expired', 'file'], 'an expired file has its own code');
+  assert.equal(refusalStatus('file-expired'), 'invalid');
   // The operation reads the file from the errand's out directory and sends it through the port.
   const dir = tempDir('errand-file-');
   const filePath = path.join(dir, 'meme.png');

@@ -62,6 +62,7 @@ const handlers = perEnv((env) => {
     const handle = String(args?.file ?? '').trim();
     if (!handle) return null;
     const file = typeof errands?.fileOf === 'function' ? errands.fileOf({ guildId: resolvedGuildId(context), handle, privateChannelId: channelId }) : null;
+    if (file?.expired) throw invalid(`files of ${handle} have expired`, 'file-expired');
     if (!file) throw invalid(`no file ${handle}`, 'unknown-file');
     const limit = p.capabilities?.()?.limits?.maxAttachmentBytes;
     const stat = await fsp.stat(file.path).catch(() => null);

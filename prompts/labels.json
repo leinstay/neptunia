@@ -468,14 +468,18 @@
   },
   "tasks": {
     "header": "Your errands (open, or finished and not yet seen by you):",
-    "line": "{id} · {agent} · {state} · asked {age} min ago · {goal}",
+    "line": "{id} · {agent} · {state} {error} · asked {age} min ago · {goal}",
     "states": {
       "queued": "waiting",
       "running": "in progress",
       "done": "done",
       "failed": "failed",
-      "cancelled": "cancelled"
+      "cancelled": "cancelled",
+      "expired": "done, files expired"
     },
+    "unread": "(result not read yet)",
+    "unreadMore": "{count} more finished errands with results you have not read; task.status lists them.",
+    "resultTurnFailed": "(the turn for this result did not run)",
     "result": {
       "header": "Your errand {id} for the {agent} agent has ended: {state}. It was: {goal}",
       "text": "What it brought back:",
@@ -614,6 +618,7 @@
         "not-requester": "only the person who asked for it or an owner can do that",
         "not-open": "that errand has already ended",
         "unknown-file": "no errand of yours brought back that file for this chat",
+        "file-expired": "that file has expired and is gone",
         "unknown-gif": "no GIF by that handle in your library",
         "gif-cap": "the limit of GIFs for today is used up",
         "attachment-too-large": "the file is too large for this chat",

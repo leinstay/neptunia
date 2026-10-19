@@ -122,6 +122,9 @@ export const PINGS_MODES = Object.freeze(['on', 'off']);
 /** `/nep task run`'s `agent` choices: the errand agents (src/agent-runner/profiles.js; src/ops/task.js reads the same list). */
 export const TASK_AGENTS = Object.freeze(['web', 'server']);
 
+/** `task status`'s persona-only `action` choices (src/ops/index.js#COMMAND_TO_OP picks the operation by it). */
+const RESULT_ACTIONS = Object.freeze(['read', 'resolve']);
+
 /** `/nep task intent`'s `action` choices (src/ops/index.js#COMMAND_TO_OP picks the operation by it). */
 export const INTENT_ACTIONS = Object.freeze(['add', 'update', 'cancel', 'list']);
 
@@ -413,7 +416,14 @@ export const COMMAND_TABLE = Object.freeze([
         name: 'status',
         description: 'One task, or the open ones.',
         options: [{ type: STRING, name: 'id', description: 'Task id (omit for the open ones).', required: false }],
-        args: (options) => ({ id: options.getString('id') ?? undefined }),
+        // Her own call also reads a finished task's result in pages (`action: read`, from the
+        // character `from`) or closes it (`action: resolve`): arguments only she has (src/skills/derive.js),
+        // never shown to Discord, whose command tree is near its size limit.
+        personaOptions: [
+          { type: STRING, name: 'action', description: 'read or resolve a finished task.', required: false, choices: choicesOf(RESULT_ACTIONS) },
+          { type: INTEGER, name: 'from', description: 'Start character of a page.', required: false, min_value: 0, max_value: 10000000 },
+        ],
+        args: (options) => ({ id: options.getString('id') ?? undefined, action: options.getString('action') ?? undefined, from: options.getInteger('from') ?? undefined }),
       },
       {
         name: 'cancel',

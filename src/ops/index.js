@@ -124,7 +124,8 @@ export const COMMAND_TO_OP = Object.freeze({
   'message.delete': 'message.delete',
   'message.react': byAction({ add: 'message.react.add', remove: 'message.react.remove' }),
   'task.run': 'task.run',
-  'task.status': 'task.status',
+  // Her own call adds `action`: read or resolve a finished task (src/ops/catalog.js, the leaf's persona-only options).
+  'task.status': (args) => (args?.action === undefined ? { op: 'task.status', args } : byAction({ read: 'task.read', resolve: 'task.resolve' })(args)),
   'task.cancel': 'task.cancel',
   'task.list': 'task.list',
   'task.search': 'web.search',

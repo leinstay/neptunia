@@ -393,6 +393,9 @@ export const labels = {
     header: 'your errands:',
     line: '{id} | {agent} | {state} | {age} min | {goal}',
     states: { queued: 'waiting', running: 'running', done: 'done', failed: 'failed', cancelled: 'cancelled' },
+    unread: '[unread]',
+    unreadMore: '[{count} more unread]',
+    resultTurnFailed: '[result turn failed]',
     result: {
       header: 'errand {id} ({agent}) ended {state}: {goal}',
       text: 'result:',

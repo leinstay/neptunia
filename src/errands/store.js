@@ -33,6 +33,11 @@
 // against `agents.maxOpen`, the list keeps only KEEP_FINISHED_TOOL of its finished ones (tasks.jsonl
 // keeps every transition, so the spend is whole), and it writes no journal line (its operation is
 // the persona's own, journaled by the turn). Its daily caps are the profile's, read like a worker's.
+// A finished errand's result stays until she has read it: the record carries `readAt` (null until a
+// turn that showed its `<task_result>` completed, or `task.read` returned it, src/ops/task.js) and
+// `resolvedAt` (she closed it: `task.resolve`, or an intention that waited on it moved to done).
+// `unread` lists the finished ones with neither, oldest first; `seen` only says the result turn
+// ran, and hides nothing. A record from before `readAt` existed counts as read when it was `seen`.
 // Logs carry ids and codes, never text.
 
 import fs from 'node:fs';
@@ -111,6 +116,11 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
       if (err?.code !== 'ENOENT') log.warn('errands: tasks file unreadable, starting empty', { guildId: String(guildId), code: err?.code ?? 'parse' });
     }
     const tasks = Array.isArray(raw?.tasks) ? raw.tasks.filter((task) => task && typeof task.id === 'string' && TASK_STATES.includes(task.state)) : [];
+    for (const task of tasks) {
+      // Records from before readAt: a seen one was read, an unseen one is still unread.
+      if (task.readAt === undefined) task.readAt = task.seen === true ? (task.endedAt ?? task.createdAt ?? 0) : null;
+      if (task.resolvedAt === undefined) task.resolvedAt = null;
+    }
     return { tasks };
   }
 
@@ -158,7 +168,12 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     for (const [id, kept] of spend) if (stale(kept, at)) spend.delete(id);
   }
 
-  /** The list kept: every open task, then the finished ones, the unseen first, at most KEEP_FINISHED. */
+  /** Whether `task` is a finished errand whose result she has not read nor closed. */
+  function isUnread(task) {
+    return !isOpenState(task.state) && !isToolTask(task) && !task.readAt && !task.resolvedAt;
+  }
+
+  /** The list kept: every open task, then the finished ones, the unread first, at most KEEP_FINISHED. */
   function pruned(tasks) {
     // The tool agents' finished ones have a list of their own, so a day of pictures never pushes an errand out.
     const finishedTools = tasks.filter((task) => !isOpenState(task.state) && isToolTask(task));
@@ -168,9 +183,9 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     const listed = dropTools ? tasks.filter((task) => !dropTools.has(task)) : tasks;
     const finished = listed.filter((task) => !isOpenState(task.state) && !isToolTask(task));
     if (finished.length <= KEEP_FINISHED) return listed;
-    // The unseen first, then the latest to end.
+    // The unread first, then the latest to end.
     const keep = new Set([...finished]
-      .sort((a, b) => Number(a.seen === true) - Number(b.seen === true) || (b.endedAt ?? 0) - (a.endedAt ?? 0))
+      .sort((a, b) => Number(isUnread(a) === false) - Number(isUnread(b) === false) || (b.endedAt ?? 0) - (a.endedAt ?? 0))
       .slice(0, KEEP_FINISHED));
     return listed.filter((task) => isOpenState(task.state) || isToolTask(task) || keep.has(task));
   }
@@ -444,6 +459,8 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
       error: null,
       // A tool agent's task is no errand of hers to be told about: born seen.
       seen: isToolTask(agent),
+      readAt: null,
+      resolvedAt: null,
       opId: `op-${uuid()}`,
     };
     state.tasks.push(task);
@@ -507,6 +524,39 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return copy(task);
   }
 
+  /** Task `id` marked as read by the persona (its result was shown to her or returned to her); null when there is none. */
+  function markRead(id) {
+    const task = find(id);
+    if (!task) return null;
+    if (!task.readAt) {
+      task.readAt = now();
+      persist(null);
+    }
+    return copy(task);
+  }
+
+  /** Task `id` noted as one whose result turn never completed (it stays unread); null when there is none. */
+  function markResultFailed(id) {
+    const task = find(id);
+    if (!task) return null;
+    if (task.resultTurnFailed !== true) {
+      task.resultTurnFailed = true;
+      persist(null);
+    }
+    return copy(task);
+  }
+
+  /** Task `id` closed by the persona (read too); null when there is none or it is still open. */
+  function resolve(id) {
+    const task = find(id);
+    if (!task || isOpenState(task.state)) return null;
+    if (!task.resolvedAt) {
+      task.resolvedAt = now();
+      persist(null);
+    }
+    return copy(task);
+  }
+
   /**
    * Task `id` given the ledger's id of its mirror (src/errands/ledger.js), tasks.json written when
    * it changes; null when there is no such task (forgotten or wiped meanwhile) or no id.
@@ -539,6 +589,12 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
   function unseen() {
     expireFiles();
     return state.tasks.filter((task) => !isOpenState(task.state) && task.seen !== true && !isToolTask(task)).map(copy);
+  }
+
+  /** The finished errands whose result she has not read nor closed, oldest first (to end). */
+  function unread() {
+    expireFiles();
+    return state.tasks.filter(isUnread).sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0)).map(copy);
   }
 
   /** Task `id`, or null. */
@@ -583,6 +639,15 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return { path: full, name: parsed.name, contentType: file.contentType ?? '', bytes: file.bytes ?? 0, task: copy(task) };
   }
 
+  /** Whether the handle names a file of a task whose files have expired (`file-expired`); false otherwise. */
+  function fileExpired(handle) {
+    const parsed = parseFileHandle(handle);
+    if (!parsed) return false;
+    expireFiles();
+    const task = find(parsed.id);
+    return task?.filesExpired === true && Boolean(task.result?.files?.some((entry) => entry?.name === parsed.name));
+  }
+
   /**
    * Every open task failed with `code` (a restart of the core: no runner's end can reach this
    * process for them any more). Their failures stay unseen, for the `<tasks>` block. Returns how many.
@@ -593,7 +658,7 @@ export function createTaskStore({ dataDir, guildId, now = Date.now, config = () 
     return ids.length;
   }
 
-  return { add, start, finish, cancel, markSeen, setLedgerId, open, recent, unseen, get, budget, today, costs, fileOf, failOpen, expireFiles, forgetUser, wipe, guildId: String(guildId) };
+  return { add, start, finish, cancel, markSeen, markRead, markResultFailed, resolve, setLedgerId, open, recent, unseen, unread, get, budget, today, costs, fileOf, fileExpired, failOpen, expireFiles, forgetUser, wipe, guildId: String(guildId) };
 }
 
 /**

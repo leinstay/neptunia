@@ -95,7 +95,7 @@ export const RESULT_STATUSES = Object.freeze(['ok', 'denied', 'not_configured', 
 const NOT_CONFIGURED_CODES = Object.freeze(['not-configured', 'unsupported', 'no-guild']);
 
 /** The refusal codes of a call that was not right, as opposed to a rule that said no. */
-const INVALID_CODES = Object.freeze(['invalid-args', 'agent-required', 'unknown-skill', 'unknown-member', 'unknown-message', 'unknown-file', 'target-ambiguous', 'unknown-op', 'not-found']);
+const INVALID_CODES = Object.freeze(['invalid-args', 'agent-required', 'unknown-skill', 'unknown-member', 'unknown-message', 'unknown-file', 'file-expired', 'target-ambiguous', 'unknown-op', 'not-found']);
 
 /** Milliseconds a call may run before its outcome is `unknown` (`skills.callTimeoutMs`; config.json's value). */
 const CALL_TIMEOUT_MS = 120_000;
@@ -317,7 +317,7 @@ export function bodyTokens(body, names) {
  * name, or several), `unknown-message` (a `#N` not in this turn's transcript, a message the record holds as deleted -- reason `message-deleted` -- or in another
  * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
  * is not hers), `unknown-file` (a `file` handle that names no file of an errand of hers this
- * conversation may see, `view.fileOf`), `file-elsewhere` (an errand's file bound for a channel
+ * conversation may see, `view.fileOf`), `file-expired` (the handle of a task whose files the runner has deleted), `file-elsewhere` (an errand's file bound for a channel
  * other than the one the errand was asked in that neither its goal nor the turn's trigger message,
  * `view.triggerText`, names: fileMayGo; a call without a channel posts here as ever). A `#N` of a `message` or `reply` option becomes the line's message id and, when
  * the command has a `channel` option the call left out, its channel; a reply records the replied
@@ -490,6 +490,7 @@ export function resolveCall(call, view) {
         // A file handle must name a file of one of her errands this conversation may see.
         if (FILE_OPTIONS.includes(option)) {
           const file = typeof view?.fileOf === 'function' ? view.fileOf(text) : null;
+          if (file?.expired) return refused('file-expired', option);
           if (!file) return refused('unknown-file', option);
           if (file.task) errandFiles.push(file.task);
           args[option] = text;
