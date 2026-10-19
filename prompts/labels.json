@@ -454,8 +454,10 @@
     "continue": "This is the same turn, continued after your {skill} call. Your messages above were delivered, and how the call went is marked on your line. Do not answer the message that started this turn again, and make no more calls this turn. Messages that came in after it are context, not new requests. Write only if the outcome changes what people need to know: a correction of what you said, an answer they asked for, or a clarification. Otherwise <skip/>.",
     "continueTools": "This is the same turn, continued after your {skill} call. What the calls returned is in the <result> blocks above; your messages above were delivered. Answer from the results, or make another call if you still need something.",
     "continueToolsLast": "This is the same turn, continued after your {skill} call. What the calls returned is in the <result> blocks above; your messages above were delivered. This is your last step: answer from what you have now. A call here will not run.",
-    "continueInner": "This is the same inner turn, continued after your {skill} call. What the calls returned is in the <result> blocks above. Make another call if you still need something, or end with <skip/>.",
-    "continueInnerLast": "This is the same inner turn, continued after your {skill} call. What the calls returned is in the <result> blocks above. This is your last step: a call here will not run. End with <skip/>."
+    "continueInner": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. Make another call if you still need something, or end with <skip/>.\n{open}",
+    "continueInnerStray": "This is the same inner turn. What you wrote outside a call reached nobody: in an inner turn only a call does anything, and a post is a message.create call with the channel. Make that call if you still mean to post, make another call you need, or end with <skip/>.\n{open}",
+    "continueInnerOpen": "Intentions you woke for that you have not changed yet: {list}.",
+    "continueInnerLast": "This is the same inner turn, continued after your {skill} call; what the calls returned is in the <result> blocks above. This is your last step: only a post (message.create) or an intention change (intent.set, intent.update, intent.cancel) still runs here, one call, and nothing follows it. Otherwise end with <skip/>."
   },
   "tasks": {
     "header": "Your errands (open, or finished and not yet seen by you):",
@@ -506,11 +508,11 @@
     "channels": "You were active lately in: {channels}",
     "budgets": "What you have left:",
     "budget": {
-      "day": "inner turns today: {left} of {cap} (resets {reset})",
-      "hour": "inner turns this hour: {left} of {cap}",
-      "chain": "turns left for this thread: {left} of {cap}",
-      "usd": "dollars today: {left} of {cap} (resets {reset})",
-      "posts": "public posts today: {left} of {cap} (resets {reset})"
+      "day": "inner turns today: {left} remaining of {cap} (resets {reset})",
+      "hour": "inner turns this hour: {left} remaining of {cap}",
+      "chain": "turns for this thread: {left} remaining of {cap}",
+      "usd": "dollars today: {left} remaining of {cap} (resets {reset})",
+      "posts": "public posts today: {left} remaining of {cap} (resets {reset})"
     }
   },
   "journal": {

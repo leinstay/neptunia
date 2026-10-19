@@ -83,6 +83,19 @@ export function newIntentionId(uuid = randomUUID) {
   return `i${uuid().replace(/-/g, '').slice(0, 8)}`;
 }
 
+/** One token shaped like an intention id (newIntentionId's `i` + hex digits), nothing around it. */
+const INTENTION_ID_RE = /^i[0-9a-f]{1,32}$/i;
+
+/**
+ * Whether `value` is one bare token that looks like an intention id (`i` + hex digits, as
+ * newIntentionId makes them): what a call's body is when she wrote the id there and nothing else.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isIntentionId(value) {
+  return typeof value === 'string' && INTENTION_ID_RE.test(value.trim());
+}
+
 const RELATIVE_RE = /^(\d{1,5})\s*(m|min|h|d)$/i;
 
 /**

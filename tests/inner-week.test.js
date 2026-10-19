@@ -460,12 +460,15 @@ test('inner-week: the report of a live run shows her steps and the informational
   const fx = readFixture('ordinary-talk', { dir: FIXTURES });
   const { run } = await week(fx);
   assert.ok(run.turns.length > 0);
-  run.turns[0] = { ...run.turns[0], voice: 'live', result: { ...run.turns[0].result, answers: ['<think>she asked twice</think><call skill="intent.update" id="x" reason="kept">ok</call>'] } };
+  run.turns[0] = { ...run.turns[0], voice: 'live', result: { ...run.turns[0].result, inner: { ...run.turns[0].result.inner, strayFollowUp: true }, answers: ['<think>she asked twice</think><call skill="intent.update" id="x" reason="kept">ok</call>'] } };
   const gates = computeGates(run, fx, effectsOf);
   const report = reportOf(run, fx, gates, effectsOf);
   assert.equal(report.turns[0].steps.length, 1);
+  assert.equal(report.turns[0].strayFollowUp, true, 'the stray follow-up step of a turn is reported');
   assert.equal(report.turns[1]?.steps, undefined);
+  assert.equal(report.turns[1]?.strayFollowUp, undefined);
   const md = renderReport(report);
+  assert.match(md, /\| live \| [^|]+\| [^|]+\| [^|]+\+stray-follow-up \|/, 'the inner turns table shows it');
   assert.match(md, /\| fixture \(stub expectations\) \| info \|/);
   assert.match(md, /## Live turns: her reasoning/);
   assert.match(md, /- think: she asked twice/);

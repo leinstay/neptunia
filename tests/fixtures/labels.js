@@ -378,8 +378,10 @@ export const labels = {
     continue: 'continue this turn after your {skill} call; no new call; skip unless the outcome changes something',
     continueTools: 'continue this turn after your {skill} call; results above; another call may run',
     continueToolsLast: 'continue this turn after your {skill} call; results above; last step, no call runs',
-    continueInner: 'continue this inner turn after your {skill} call; results above; another call may run',
-    continueInnerLast: 'continue this inner turn after your {skill} call; results above; last step, no call runs',
+    continueInner: 'continue this inner turn after your {skill} call; results above; another call may run\n{open}',
+    continueInnerStray: 'continue this inner turn; what you wrote outside a call reached nobody; a post is a message.create call with the channel; or end with <skip/>\n{open}',
+    continueInnerOpen: 'intentions you woke for with no change yet: {list}',
+    continueInnerLast: 'continue this inner turn after your {skill} call; results above; last step, only a post or an intention change still runs',
   },
   tasks: {
     header: 'your errands:',

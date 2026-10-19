@@ -4,7 +4,10 @@
 // the gateway on her own grants, the kill switch is asked right before an action, the public post
 // cap refuses, text outside a call reaches nobody, and an ordinary turn's request is unchanged by
 // the switch; a refusal in shadow reaches her within the turn; what her reads found comes back as
-// the turn's episode for her memory. Over a real admin and the fake interface adapter; no network, no data/.
+// the turn's episode for her memory. The loop's inner rules: text outside a call and no post gets
+// one stray follow-up step (task.continueInnerStray, once per turn, never past the steps), the
+// open-intentions line lists what she woke for and has not touched, and her last step still runs
+// one post or intention change. Over a real admin and the fake interface adapter; no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner } from '../src/behavior/turn.js';
@@ -153,9 +156,10 @@ const WAKE = {
  * One inner turn in #general (c1) answered with `answers`; `shadow` its mode; `gate` overrides of
  * the inner parameter (mayAct, postAllowed, onPosted).
  */
-async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null, withErrands = false, errandConfigured = true }) {
+async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null, withErrands = false, errandConfigured = true, loop = null }) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }), rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }), rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' })];
   const hot = hotWith({ features: { journal: Boolean(journal), ...features }, access: personaGrants(allowed) });
+  if (loop) hot.config.skills.loop = { ...hot.config.skills.loop, ...loop };
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   for (const m of history) port.seed('c1', { authorId: m.author.id, messageId: m.id, text: m.cleanContent });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
@@ -191,11 +195,15 @@ test('inner turn: no message is fabricated; the request carries <wake>, the inne
 });
 
 test('inner turn: what she writes outside a call reaches nobody and is counted; the turn is silence', async () => {
-  const run = await innerTurn({ answers: ['<msg>γεια σας</msg><react to="#2">👍</react>'] });
+  // Her stray text gets the one follow-up step (below); she ends it: the turn is silence.
+  const run = await innerTurn({ answers: ['<msg>γεια σας</msg><react to="#2">👍</react>', '<skip/>'] });
   assert.deepEqual(run.sends, []);
+  assert.equal(run.llm.calls.length, 2);
   assert.equal(run.result.outcome, 'skip');
   assert.equal(run.result.reason, 'nothing-to-do');
   assert.equal(run.result.inner.stray.messages, 1);
+  assert.equal(run.result.inner.stray.reactions, 1);
+  assert.equal(run.result.inner.strayFollowUp, true);
 });
 
 test('inner turn, shadow: a read runs, a post is only proposed and journalled as shadow, with no call mark', async () => {
@@ -376,4 +384,77 @@ test('inner turn, live: the line she posts is noted with its turn and chain, and
   await innerTurn({ answers: ['<call skill="lore.list"/>', '<call skill="message.create">καλημέρα σε όλους</call>', '<skip/>'], shadow: false, gate: { wake }, intentions });
   assert.equal(notes.length, 1);
   assert.equal(notes[0].read, true);
+});
+
+/** The task text of the request `n` (0-based) of `run`. */
+function taskOf(run, n) {
+  const text = userText(run.llm.calls[n][1].content);
+  const match = /<task>\n([\s\S]*?)\n<\/task>/.exec(text);
+  assert.ok(match, `request ${n} has a task`);
+  return match[1];
+}
+
+const STRAY_LEAD = labels.task.continueInnerStray.split('\n')[0];
+const OPEN_LINE = fill(labels.task.continueInnerOpen, { list: 'i1: πες καλημέρα στο κανάλι' });
+
+test('inner turn, stray: a <msg> with no call gets one follow-up step under continueInnerStray with the open intentions; her post then goes out', async () => {
+  const run = await innerTurn({ answers: ['<msg>γεια σας</msg>', '<call skill="message.create">γεια σας</call>'], shadow: false });
+  assert.equal(run.llm.calls.length, 2, 'the stray follow-up step');
+  assert.equal(taskOf(run, 1), `${STRAY_LEAD}\n${OPEN_LINE}`);
+  assert.equal(run.sends.length, 1);
+  assert.equal(run.sends[0].text, 'γεια σας');
+  assert.equal(run.result.outcome, 'spoke');
+  assert.equal(run.result.inner.strayFollowUp, true);
+  assert.equal(run.result.inner.stray.messages, 1, 'the stray counter is as before');
+});
+
+test('inner turn, stray: the follow-up is made once per turn; a second stray answer ends the turn as silence', async () => {
+  const run = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>', '<msg>τρία</msg>'] });
+  assert.equal(run.llm.calls.length, 2);
+  assert.equal(run.result.outcome, 'skip');
+  assert.equal(run.result.reason, 'nothing-to-do');
+  assert.equal(run.result.inner.stray.messages, 2);
+  assert.equal(run.result.inner.strayFollowUp, true);
+});
+
+test('inner turn, stray: beside a read the next step takes the stray label in place of continueInner; a message.create call beside it does not', async () => {
+  const run = await innerTurn({ answers: ['<msg>γεια</msg><call skill="lore.list"/>', '<skip/>'] });
+  assert.equal(run.llm.calls.length, 2);
+  assert.ok(taskOf(run, 1).startsWith(STRAY_LEAD), taskOf(run, 1));
+  assert.equal(run.result.inner.strayFollowUp, true);
+  const posted = await innerTurn({ answers: ['<msg>γεια</msg><call skill="lore.list"/><call skill="message.create">γεια</call>', '<skip/>'] });
+  assert.equal(posted.llm.calls.length, 2);
+  assert.ok(posted.result.inner.strayFollowUp === undefined, 'she posted: no stray follow-up');
+  assert.equal(taskOf(posted, 1), `${fill(labels.task.continueInner.split('\n')[0], { skill: 'lore.list' })}\n${OPEN_LINE}`, 'after a proposed post the open intentions are listed');
+});
+
+test('inner turn, stray: no new request once the steps are spent; the open line names only intentions no intent call touched', async () => {
+  const spent = await innerTurn({ answers: ['<call skill="lore.list"/>', '<msg>γεια</msg>', '<msg>πάλι</msg>'], loop: { maxSteps: 1 } });
+  assert.equal(spent.llm.calls.length, 2, 'the last step was spent on the read; her stray answer there gets no step');
+  assert.equal(spent.result.inner.strayFollowUp, undefined);
+  // intent.update naming i1 (in shadow: only proposed) takes it off the open line, which is then left out whole.
+  const touched = await innerTurn({ answers: ['<msg>έτοιμο</msg><call skill="intent.update" id="i1" state="done"/>', '<skip/>'], allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
+  assert.deepEqual(touched.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['intent.update:proposed']);
+  assert.equal(touched.llm.calls.length, 2);
+  assert.equal(taskOf(touched, 1), STRAY_LEAD, 'no open line, no empty placeholder');
+  // The id alone in the body counts the same.
+  const bare = await innerTurn({ answers: ['<msg>έτοιμο</msg><call skill="intent.update" state="done">i1</call>', '<skip/>'], allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
+  assert.deepEqual(bare.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['intent.update:proposed']);
+  assert.equal(taskOf(bare, 1), STRAY_LEAD);
+});
+
+test('inner turn, last step: one post or intention change still runs, nothing follows it; a read there is dropped', async () => {
+  const run = await innerTurn({ answers: ['<call skill="lore.list"/>', '<call skill="lore.list"/><call skill="message.create">καλημέρα</call><call skill="intent.update" id="i1" state="done"/>', '<skip/>'], shadow: false, loop: { maxSteps: 1 }, allowed: ['lore.list', 'intent.update'], features: { intentions: true } });
+  assert.equal(run.llm.calls.length, 2, 'the last step, and no request after its action');
+  assert.ok(taskOf(run, 1).startsWith(fill(labels.task.continueInnerLast, { skill: 'lore.list' }).split('\n')[0]));
+  assert.equal(run.sends.length, 1, 'the post went out');
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['lore.list:executed', 'message.create:executed'], 'the first terminal call alone');
+  const cap = run.logs.find((l) => l.msg === 'skills: loop cap');
+  assert.equal(cap?.dropped, 2);
+  assert.equal(run.result.outcome, 'spoke');
+  assert.equal(run.result.delivered, true);
+  // A read alone on the last step is dropped as on every turn.
+  const read = await innerTurn({ answers: ['<call skill="lore.list"/>', '<call skill="lore.list"/>'], shadow: false, loop: { maxSteps: 1 } });
+  assert.equal(read.llm.calls.length, 2);
+  assert.deepEqual(read.result.inner.actions.map((a) => a.skill), ['lore.list']);
 });

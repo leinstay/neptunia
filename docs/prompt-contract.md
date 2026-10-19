@@ -284,8 +284,17 @@ the next request is the last and its task is `task.continueToolsLast`; a call in
 `skills: loop cap` (`reason`: `steps`, `time` or `no-continuation`) and kept in the turn record as a `loop-cap` limit.
 Without the continuation (`features.followUpContinuation` or the call marks off) the one follow-up of the earlier
 framing carries every result and is always the last. An inner turn (mode `inner`) continues under `task.continueInner`
-and, on its last step, `task.continueInnerLast` instead (no message started it and nothing of hers went out). Each step logs `skills: follow-up answered` with its `step`; the
-loop logs `skills: loop` (`steps`, `calls`, `ms`).
+and, on its last step, `task.continueInnerLast` instead (no message started it and nothing of hers went out). When an
+answer of an inner turn wrote outside a call (a `<msg>`, a reaction, a GIF, a picture: it reached nobody) and made no
+`message.create` call, and steps remain, one more step is made under `task.continueInnerStray` in place of
+`task.continueInner` (once per turn, with or without a result to show). The turn's `inner` result carries
+`strayFollowUp: true`. Both `task.continueInner` and `task.continueInnerStray` take `{open}`: the open-intentions line
+(`task.continueInnerOpen`, `{list}`: the intentions the turn woke for that no `intent.*` call of the turn has named yet,
+as `<id>: <purpose>` items joined by `; `), filled on the stray follow-up and on a step after one whose `message.create`
+went through or was proposed. When there is none the placeholder and its line break are dropped. On an inner turn's last
+step one terminal action call in her answer still runs: the first `message.create`, `intent.set`, `intent.update` or
+`intent.cancel`. Nothing follows it; her other calls are dropped as above. Each step logs `skills: follow-up answered`
+with its `step`; the loop logs `skills: loop` (`steps`, `calls`, `ms`).
 
 With the switch on no search classifier (nor the turn planner's lookup or skills block) runs before her reply: nothing
 is searched for her, there is no `<lookup>` block and no `<skills>` from a classifier's `skills:` line (logged
@@ -657,7 +666,9 @@ task.missed                              {missed}: on a recovery turn (trigger k
 task.continue                            {skill}: the whole task of the follow-up that continues a turn after a skill call (`features.followUpContinuation`): the same turn goes on; her messages were delivered; the trigger is not answered again; no more calls; later messages are context; speak only if the outcome changes what people need to know, else `<skip/>`. Without it the earlier follow-up framing is used
 task.continueTools                       {skill}: the whole task of a step of the tool loop (`features.coreTools`) that may still call: the same turn goes on; what the calls gave back is in the `<result>` blocks; answer from it or call again. Without it `task.continue` is used
 task.continueToolsLast                   {skill}: the whole task of the last step of the tool loop (its steps or its time spent): as `task.continueTools`, but no call will run. Without it `task.continue` is used
-task.continueInner | continueInnerLast   {skill}: the same two tasks for an inner turn's tool loop (mode `inner`): nothing of hers went out, no message started it. Without one `task.continue` is used
+task.continueInner | continueInnerLast   {skill} {open}: the two tasks for an inner turn's tool loop (mode `inner`). No message started the turn, nothing of hers went out. `continueInnerLast` says only a post or an intention change still runs (one call, nothing after it). Without one `task.continue` is used
+task.continueInnerStray                  {open}: an inner turn's stray follow-up step (once per turn): what she wrote outside a call reached nobody, a post is a `message.create` call with the channel, she may end with `<skip/>`. Without it `task.continue` is used
+task.continueInnerOpen                   {list}: the open-intentions line of `task.continueInner` and `task.continueInnerStray` (fills their `{open}`): the intentions the turn woke for that no `intent.*` call of the turn has named yet, as `<id>: <purpose>` joined by `; `. Without it the line is left out
 journal.offLead                          lead line before the persona's recent downtime periods in `<now>`
 journal.offPaused                        {from} {to} {length}: one period when the owner paused the persona
 journal.offStopped                       {from} {to} {length}: one period when the service was off

@@ -1238,6 +1238,7 @@ export function reportOf(run, fixture, gates, effectsOf) {
         items: turn.items.map((item) => `${item.kind}${item.intentionIds?.length ? `:${item.intentionIds.join('+')}` : ''}`),
         outcome: turn.result?.outcome ?? null,
         reason: turn.result?.reason ?? null,
+        ...(turn.result?.inner?.strayFollowUp === true ? { strayFollowUp: true } : {}),
         actions: actionsOf(turn).map((a) => ({ skill: a.skill, status: a.status, ...(a.code ? { code: a.code } : {}), ...(a.args ? { args: a.args } : {}), ...(a.target ? { target: a.target } : {}) })),
         ...(turn.voice === 'live' ? { steps: stepsOf(turn.result?.answers) } : {}),
         cost: { usd: cost.usd ?? 0, voice: cost.voice ?? 0, requests: cost.requests ?? 0 },
@@ -1276,7 +1277,7 @@ export function renderReport(report) {
   lines.push('', '## Inner turns', '', '| At | Voice | Kind | Coalesced | Outcome | Actions | USD |', '|---|---|---|---|---|---|---|');
   for (const turn of report.turns) {
     const actions = turn.actions.map((a) => `${a.skill} ${a.status}${a.code ? ` (${a.code})` : ''}`).join('; ') || '-';
-    lines.push(`| ${turn.at} | ${turn.voice} | ${turn.kind} | ${turn.coalesced} (${cell(turn.items.join(', '))}) | ${turn.outcome}${turn.reason ? ` (${turn.reason})` : ''} | ${cell(actions)} | ${turn.cost.usd} |`);
+    lines.push(`| ${turn.at} | ${turn.voice} | ${turn.kind} | ${turn.coalesced} (${cell(turn.items.join(', '))}) | ${turn.outcome}${turn.reason ? ` (${turn.reason})` : ''}${turn.strayFollowUp ? ' +stray-follow-up' : ''} | ${cell(actions)} | ${turn.cost.usd} |`);
   }
   const liveTurns = report.turns.filter((turn) => turn.steps);
   if (liveTurns.length > 0) {
