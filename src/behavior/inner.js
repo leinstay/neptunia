@@ -103,6 +103,8 @@ export const PLACE_SORTS = Object.freeze(['recent', 'name', 'lines']);
 /** The wake id prefix of an attend wake (its intention and newest line follow). */
 const ATTEND_PREFIX = 'inner.wake:attend:';
 /** The outcomes of a wake the engine dropped, told to her once at her next turn (`wakeDropped`'s code is the outcome). */
+/** The error codes of a failed turn whose wakes are retried; any other error is handled as an ended turn. */
+const RETRY_CODES = new Set(['provider-limit', 'provider-error', 'timeout']);
 const DROP_TOLD = new Set(['no-channel', 'provider']);
 /** How far behind the last scan the record is read again (a line appended late is still seen; ids de-duplicate). */
 const SCAN_LAG_MS = 5 * MINUTE_MS;
@@ -1442,7 +1444,7 @@ export function createInnerLife({
     if (!errorCode) after.chains[chainId] = { turns: (after.chains[chainId]?.turns ?? 0) + 1, lastAt: ended };
     const turnId = result.inner?.turnId ?? result.turnId ?? null;
     if (turnId) after.turnIds.push(String(turnId));
-    const retry = errorCode && !after.stopped ? planRetry(group, ended, settings, errorCode) : null;
+    const retry = errorCode && RETRY_CODES.has(errorCode) && !after.stopped ? planRetry(group, ended, settings, errorCode) : null;
     if (retry?.action === 'requeue') {
       const ids = new Set(group.map((wake) => wake.id));
       for (const wake of after.queue.filter((queued) => ids.has(queued.id))) Object.assign(wake, { retry: retry.n, firstFailedAt: retry.firstFailedAt, notBefore: retry.notBefore, lastCode: errorCode });

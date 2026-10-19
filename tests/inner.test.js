@@ -1377,3 +1377,13 @@ test('inner retry: coalesceGroup keeps a retry group apart from fresh wakes', ()
   const mate = { ...base, id: 'w3', dueAt: 3, retry: 1, firstFailedAt: 5 };
   assert.deepEqual(coalesceGroup([mate, retried, fresh]).map((wake) => wake.id), ['w1', 'w3']);
 });
+
+test('inner retry: an error that is not a provider failure (cut-off) is journalled with its code but its wakes are handled, not retried', async () => {
+  const run = setup({ records: [intention('i1')], turns: failingTurns(99, 'cut-off') });
+  await run.inner.tick();
+  const state = run.inner.state(GUILD);
+  assert.equal(state.queue.length, 0);
+  assert.equal(Object.values(state.handled)[0].outcome, 'error');
+  assert.deepEqual(run.journal.find((r) => r.event === 'turn').error, { code: 'cut-off' });
+  assert.equal(run.journal.some((r) => r.event === 'retry'), false);
+});
