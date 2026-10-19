@@ -40,6 +40,7 @@ import { createLookup } from '../src/web/lookup.js';
 import { buildExtractRequest, rosterOf, windowsOf } from '../tools/lib/backfill.mjs';
 import { loadSkills } from '../src/skills/registry.js';
 import { listSkills } from '../src/skills/gateway.js';
+import { wakeBlockText } from '../src/behavior/wake.js';
 import { labels as contractLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -137,6 +138,7 @@ const LOADS = {
   noticed: [...SYSTEM, 'elsewhere'],
   draw: ['draw', 'appearance'],
   diary: [...SYSTEM, 'diary', 'world'],
+  inner: [...SYSTEM, 'inner'],
   diaryPlan: ['diary-plan', 'world'],
   memory: ['memory', ...CHARACTER],
   memoryDecide: ['memory-decide', ...CHARACTER],
@@ -759,6 +761,36 @@ const DIARY_POSTS = [
   { at: NOW - 2 * DAY_MS, kind: 'status', gist: 'pluie toute la journée', picture: null, messageIds: [], search: null },
   { at: NOW - DAY_MS, kind: 'selfPicture', gist: 'sur le toit', picture: 'a rooftop at dusk', messageIds: [], search: null },
 ];
+
+test('buildRequest: an inner turn fills system-prompt, character-card, rules, format, inner.md and every labels.wake line', async () => {
+  const resetAt = NOW + 12 * HOUR_MS;
+  const wake = {
+    kind: 'intention_due',
+    items: [
+      { kind: 'intention_due', intentionIds: ['i1'] },
+      { kind: 'errand_deadline', intentionIds: ['i2'], taskId: 'T1' },
+      { kind: 'review', intentionIds: [] },
+    ],
+    intentions: [
+      { id: 'i1', purpose: 'ask Ana how the tomatoes are doing', dueAt: NOW - HOUR_MS },
+      { id: 'i2', purpose: 'share what the errand found', dueAt: null },
+    ],
+    now: NOW,
+    timezone: 'UTC',
+    channels: ['général'],
+    budgets: {
+      day: { left: 20, cap: 24, resetAt },
+      hour: { left: 3, cap: 4, resetAt: NOW + HOUR_MS },
+      chain: { left: 2, cap: 3 },
+      usd: { left: 3.5, cap: 4, resetAt },
+      posts: { left: 2, cap: 2, resetAt },
+    },
+  };
+  const request = buildRequest(await turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: wakeBlockText(wake, LABELS, { locale: LABELS.locale }) }));
+  const text = assertFilled(request.messages, { files: LOADS.inner, blocks: ['wake', 'chat', 'task'] }, 'inner turn');
+  assert.ok(text.includes(LABELS.wake.header));
+  assert.ok(text.includes('ask Ana how the tomatoes are doing'));
+});
 
 test('buildRequest: a diary post fills system-prompt, character-card, rules, format, diary.md and world.md', async () => {
   const input = await turnInput({ mode: 'diary', trigger: null, triggerKind: null, interlocutor: null, currentChannelId: DIARY });

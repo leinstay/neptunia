@@ -135,6 +135,8 @@ const ARCHIVE_CHOICES = 25;
  *   run|status|cancel|list` submit to and read. Absent -> those report they are not available.
  * `intentions` — from createIntentionService() (src/intentions/service.js), optional: what `/nep
  *   task intent` and her `intent.*` calls change and read. Absent -> those report they are not available.
+ * `inner` — from createInnerLife() (src/behavior/inner.js), optional: what `/nep task inner`
+ *   stops, starts and reports. Absent -> those report it is not running.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
  * `dataDir` — the data directory `/nep memory snapshot` copies: src/index.js passes the one it
  *   resolved (src/paths.js, `NEPTUNIA_DATA_DIR`); default `<hot.rootDir>/data`.
@@ -230,6 +232,19 @@ export function createAdmin(deps) {
     return runOpPrechecked(target.op, target.args, { ...context, env });
   }
 
+  /**
+   * Any operation run for the persona on her own initiative (an inner turn, src/behavior/inner.js:
+   * nobody asked) through its command, WITHOUT a requester's rights check: her grant, checked by
+   * the skill gateway as her own initiative, alone decides (src/skills/executors.js). Never throws.
+   * @returns {Promise<{ status: string, code: string, summary: string, data: unknown }>}
+   */
+  async function runInitiativeCommand(commandKey, args = {}, context = {}) {
+    const target = resolveCommand(commandKey, args);
+    if (!target) return { status: 'invalid', code: 'unknown-command', summary: `unknown command: ${commandKey}`, data: null };
+    if (target.invalid) return { status: 'invalid', code: 'invalid-args', summary: target.invalid, data: null };
+    return runOpPrechecked(target.op, target.args, { ...context, env });
+  }
+
   /** Once per guild at start: the stored grants re-expanded under the operation names
    * (src/ops/access.js#migrateStoredGrants). */
   function migrateAccess(guildId) {
@@ -266,5 +281,5 @@ export function createAdmin(deps) {
     return choices;
   }
 
-  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, runOwnCommand, migrateAccess };
+  return { isAllowed, operationFor, accessKeys, archiveChoices, run, runCommand, runOwnCommand, runInitiativeCommand, migrateAccess };
 }

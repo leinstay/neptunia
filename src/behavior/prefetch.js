@@ -204,6 +204,20 @@ export function prefetchLanes({ trigger, candidate = trigger, triggerKind = null
 }
 
 /**
+ * The prefetch lane of an inner turn (src/behavior/inner.js: no message opened it): the purposes
+ * of the intentions its wakes concern, one per line, as one `wake` lane. None (`skip`
+ * `no-trigger`) when no intention is concerned (a review alone). Pure.
+ * @param {string[]} purposes
+ * @returns {{ lanes: { kind: string, text: string, words: string }[], skip: string|null }}
+ */
+export function wakeLanes(purposes) {
+  const texts = (Array.isArray(purposes) ? purposes : []).map((purpose) => oneLine(String(purpose ?? ''))).filter(Boolean);
+  if (texts.length === 0) return { lanes: [], skip: 'no-trigger' };
+  const text = texts.join('\n');
+  return { lanes: [{ kind: 'wake', text, words: text }], skip: null };
+}
+
+/**
  * The stored-memory search of one lane when the record index gives no terms (indexedPlan replaces
  * its forms when it does): fallbackLookupPlan over its `words` (the stored members' names and
  * aliases it holds as `who`, its words of 5+ letters as forms, the persona's name left out, at

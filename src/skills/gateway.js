@@ -31,9 +31,10 @@ function targetConversation(args, audience) {
 }
 
 /**
- * The one rule for a call nobody asked for (a spontaneous turn, the diary, her own initiative):
- * only a read, for now (the owner's decision, 2026-10-14) -- lifting it for her own initiative
- * later is this one place. Null when `skill` may run, else the refusal.
+ * The one rule for a call nobody asked for (a spontaneous turn, the diary): only a read (the
+ * owner's decision, 2026-10-14). Her own initiative -- an inner turn, `context.ownInitiative` --
+ * is lifted in requesterRefusal: there her grants alone decide (the owner's decision, 2026-10-18).
+ * Null when `skill` may run, else the refusal.
  */
 function noRequesterRefusal(skill) {
   return skill.kind === 'read' ? null : refused('requester-denied', 'no-requester');
@@ -56,6 +57,9 @@ function requesterRefusal(skill, requester, context) {
   if (context?.mixedRequesters === true && skill.kind !== 'read') return refused('requester-denied', 'mixed-requesters');
   const owners = skill.derived === true || skill.ownerOnly === true;
   if (!owners && (!skill.sharedState || !requester)) return null;
+  // Her own initiative (an inner turn, src/behavior/inner.js: nobody asked, the owner let her act
+  // unasked): her grants, checked before this, alone decide.
+  if (!requester && context?.ownInitiative === true) return null;
   const unasked = owners && !requester ? noRequesterRefusal(skill) : null;
   if (unasked) return unasked;
   if (SELF_OWNED_OPS.includes(skill.op)) return null;
@@ -114,7 +118,7 @@ function budgetRefusal(skill, requester, context, args) {
  * the operation's own rule (src/ops/message.js), checked when it runs. Never throws.
  * @param {{ skill: string, args: object, principal: { kind: string }, requester: { id: string, roleIds?: string[] } | null,
  *   audience: { conversationId: string, memberIds?: string[] }, context: { config: object, selfId?: string,
- *   images?: object, tasks?: { budget(agent: string): object|null }, registry?: Map<string, object>, getOp?: Function, mixedRequesters?: boolean,
+ *   images?: object, tasks?: { budget(agent: string): object|null }, registry?: Map<string, object>, getOp?: Function, mixedRequesters?: boolean, ownInitiative?: boolean,
  *   lastRunAt?: number|null, now?: number } }} call
  * @returns {{ ok: true } | { ok: false, code: string, reason: string }}
  */
