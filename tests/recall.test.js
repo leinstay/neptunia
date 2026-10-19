@@ -1511,3 +1511,10 @@ test('memorySearchPlan: her terms and people first, then the question\'s long wo
   assert.equal(memorySearchPlan({ question: 'τι;', now }), null);
   assert.deepEqual(memorySearchPlan({ question: 'τι;', when: '2026-10-01', now, timezone: 'UTC' }), { forms: [], who: [], from: Date.UTC(2026, 9, 1), to: Date.UTC(2026, 9, 2) - 1 });
 });
+
+test('recallSettings: the memory.search quote bounds read their own values and fall back to the defaults', () => {
+  assert.equal(recallSettings({ recall: { quoteWindowChars: 700, quoteMaxChars: 5000 } }).quoteWindowChars, 700);
+  assert.equal(recallSettings({ recall: { quoteWindowChars: 700, quoteMaxChars: 5000 } }).quoteMaxChars, 5000);
+  assert.equal(recallSettings({ recall: { quoteWindowChars: 0, quoteMaxChars: 'x' } }).quoteWindowChars, RECALL_DEFAULTS.quoteWindowChars);
+  assert.equal(recallSettings({}).quoteMaxChars, RECALL_DEFAULTS.quoteMaxChars);
+});

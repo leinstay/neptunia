@@ -105,6 +105,26 @@ test('memorySearchText: the source, then each stretch under its day and channel 
   assert.equal(memorySearchText([], { labels }), [l.source, l.none].join('\n'));
 });
 
+test('memorySearchText: each stretch is cut on its own, the whole by stretches that fit, and a closing line names the ones left out', () => {
+  const l = labels.skills.tools.memory;
+  const row = (n) => `[09:${String(n).padStart(2, '0')}] Ana: ${'α'.repeat(93)}`; // 105 characters with the newline
+  const longWindow = Array.from({ length: 19 }, (_, i) => row(i)).join('\n'); // about 2000 characters
+  const quotes = Array.from({ length: 10 }, (_, i) => ({ channelName: `kanali${i}`, startTs: Date.UTC(2026, 9, 1 + i, 9), lines: longWindow }));
+  const out = memorySearchText(quotes, { labels, timezone: 'UTC', windowChars: 1500, maxChars: 10000 });
+  const lines = out.split('\n');
+  const windows = lines.filter((line) => line.startsWith('2026-10-'));
+  assert.equal(windows.length, 6);
+  const cutLines = lines.filter((line) => line === fill(l.windowCut, { dropped: '5' }));
+  assert.equal(cutLines.length, 6, 'every shown stretch is cut to 14 lines, 5 dropped');
+  assert.ok(out.length <= 10000);
+  assert.equal(lines.at(-1), fill(l.windowsLeft, { count: '4', where: 'kanali6 2026-10-07, kanali7 2026-10-08, kanali8 2026-10-09, kanali9 2026-10-10' }));
+  const whole = memorySearchText(quotes.slice(0, 2), { labels, timezone: 'UTC', windowChars: 1500, maxChars: 9000 });
+  assert.ok(!whole.includes(fill(l.windowsLeft, { count: '0', where: '' })));
+  assert.equal(whole.split('\n').filter((line) => line.startsWith('2026-10-')).length, 2);
+  const short = memorySearchText([{ channelName: 'a', startTs: Date.UTC(2026, 9, 1), lines: 'one\ntwo' }], { labels, timezone: 'UTC' });
+  assert.equal(short, [l.source, fill(l.window, { date: '2026-10-01', channel: 'a' }), 'one\ntwo'].join('\n'), 'nothing cut, nothing left: no extra line');
+});
+
 test('runWebSearch: her query goes to the raw search as written, the results are cut by the config; the statuses of a search that cannot run', async () => {
   const lookup = fakeLookup();
   const ok = await runWebSearch({ lookup, config: { ...WEB_ON, web: { search: { enabled: true, snippetChars: 5 } } }, labels, guildId: 'g1', args: { query: '  τελικός 2026 ', goal: 'ποιος' } });

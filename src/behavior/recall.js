@@ -93,6 +93,8 @@ export const RECALL_DEFAULTS = Object.freeze({
   followGapMinutes: 5,
   answerChars: 1200,
   stretchChars: 1500,
+  quoteWindowChars: 1500,
+  quoteMaxChars: 9000,
   maxPerDay: 100,
   timeoutMs: 15000,
   minSummaryMs: 2500,
@@ -184,6 +186,7 @@ function numberAtLeast(value, fallback, min) {
  * form counted rare); so may `selfBonus` (a number, not floored: no bonus
  * for the persona's own stretches), `selfExtra` (no window beyond
  * `maxClusters`) and `contextMessages` (no `<context>` block);
+ * `quoteWindowChars` and `quoteMaxChars` (a memory.search result's per-window and whole bounds) are at least 1;
  * `traceMaxLines` is at least 1; `windowMessages` is at most 100;
  * `followMessages` is at most 100 (one Discord page) and may be 0 (a window
  * is not followed past its end); `followGapMinutes` is a number of at least 0;
@@ -201,7 +204,7 @@ function numberAtLeast(value, fallback, min) {
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
  *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, followMessages: number,
- *   followGapMinutes: number, answerChars: number, stretchChars: number, maxPerDay: number,
+ *   followGapMinutes: number, answerChars: number, stretchChars: number, quoteWindowChars: number, quoteMaxChars: number, maxPerDay: number,
  *   timeoutMs: number, minSummaryMs: number, maxOutputTokens: number, memoryItems: number, selfBonus: number, selfExtra: number,
  *   contextMessages: number, traceMaxLines: number, memoryTokens: number, recordDays: number, recordContext: number,
  *   archiveMonths: number, fallbackOnClassifierFailure: boolean, meaningCandidates: number, meaningWithReply: boolean,
@@ -224,6 +227,8 @@ export function recallSettings(config) {
     followGapMinutes: numberAtLeast(r.followGapMinutes, d.followGapMinutes, 0),
     answerChars: intAtLeast(r.answerChars, d.answerChars, 1),
     stretchChars: intAtLeast(r.stretchChars, d.stretchChars, 0),
+    quoteWindowChars: intAtLeast(r.quoteWindowChars, d.quoteWindowChars, 1),
+    quoteMaxChars: intAtLeast(r.quoteMaxChars, d.quoteMaxChars, 1),
     maxPerDay: intAtLeast(r.maxPerDay, d.maxPerDay, 0),
     timeoutMs: intAtLeast(r.timeoutMs, d.timeoutMs, 1),
     minSummaryMs: intAtLeast(r.minSummaryMs, d.minSummaryMs, 0),

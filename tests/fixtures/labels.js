@@ -482,7 +482,7 @@ export const labels = {
       lead: 'your tools; web.search, web.read and memory.search come back this turn, task.run later:',
       web: { source: 'from web.search, query {query}; raw results, pages not opened', goal: 'to establish: {goal}', none: 'nothing found' },
       read: { source: 'from web.read, {url}; page text, cut at {maxChars}', title: 'title: {title}', cut: 'cut at {maxChars}', none: 'no readable text' },
-      memory: { source: 'from memory.search; quoted messages with time and author', window: '{date} in #{channel}:', none: 'no messages found' },
+      memory: { source: 'from memory.search; quoted messages with time and author', window: '{date} in #{channel}:', windowCut: '(cut, {dropped} lines left out)', windowsLeft: '{count} stretches left out: {where}', none: 'no messages found' },
       look: { image: 'from media.look; the image model on {name}, asked {question}:', video: 'from media.look; the video model on {name}, asked {question}:' },
     },
     refusals: {
