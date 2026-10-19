@@ -29,6 +29,9 @@ const FILE_OPTIONS = Object.freeze(['file']);
 /** A whole errand file handle, as src/errands/store.js reads one. */
 const FILE_HANDLE_RE = /^file:[A-Za-z0-9_-]{1,64}\/[^/\\]{1,200}$/;
 
+/** The body arguments that take the attribute's text and a different body joined, a line break between: a question or a goal with a note beside it. */
+const JOINED_BODY_ARGS = Object.freeze(['question', 'query', 'goal']);
+
 /** The skill whose `agent` she must name: refused `agent-required` (with the agents) when left out. */
 const AGENT_SKILL = 'task.run';
 /** The skills whose `people` option is a list of members (ids, names, `@handle`s, comma or space separated), resolved one by one. */
@@ -306,9 +309,12 @@ export function resolveCall(call, view) {
   const bodyText = Boolean(body) && Boolean(command.body) && !fromTokens;
   let fileFromBody = false;
   if (bodyText) {
-    // The argument on the tag too: refused unless it is the same text (then one value, the body's).
-    if (Object.hasOwn(given, command.body) && String(given[command.body] ?? '').trim() !== body) return refused('invalid-args', `args.${command.body}:twice`);
-    given[command.body] = body;
+    // The argument on the tag too: the same text is one value (the body's); a different one is her
+    // question or goal with a note beside it, joined (JOINED_BODY_ARGS), and a post given twice is refused.
+    const attribute = Object.hasOwn(given, command.body) ? String(given[command.body] ?? '').trim() : null;
+    const joined = JOINED_BODY_ARGS.includes(command.body);
+    if (attribute !== null && attribute !== body && !joined) return refused('invalid-args', `args.${command.body}:twice`);
+    given[command.body] = joined && attribute && attribute !== body ? `${attribute}\n${body}` : body;
     // An errand's file handle on a line of its own there, the call giving no file: the attachment,
     // out of the text (an empty text left is a file-only post); several: refused as an unknown file.
     if (byName.has('file') && !Object.hasOwn(given, 'file')) {

@@ -24,6 +24,7 @@ import { skillRegistry } from '../src/skills/registry.js';
 import { checkSkill } from '../src/skills/gateway.js';
 import { createAdmin } from '../src/admin.js';
 import { placesBlockText, wakeBlockText } from '../src/behavior/wake.js';
+import { feedbackFacts } from '../src/behavior/inner.js';
 import { wakeLanes } from '../src/behavior/prefetch.js';
 import { labels } from './fixtures/labels.js';
 import { fill, formatClock, formatDate } from '../src/format.js';
@@ -169,7 +170,7 @@ const WAKE = {
  * inner turn's bounds), `skillsLoop` of `skills.loop` (an ordinary turn's); `clock` the turn's
  * clock (NOW when none); `slowMs` delays every operation of hers by that many real milliseconds.
  */
-async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null, withErrands = false, errandConfigured = true, loop = null, skillsLoop = null, listed = true, clock = () => NOW, slowMs = 0 }) {
+async function innerTurn({ answers, shadow = true, gate = {}, journal = null, allowed = ['lore.list'], onCall = null, features = {}, intentions = null, withErrands = false, errandConfigured = true, loop = null, skillsLoop = null, listed = true, clock = () => NOW, slowMs = 0, gifs = null }) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }), rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }), rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' })];
   const hot = hotWith({ features: { journal: Boolean(journal), ...features }, access: personaGrants(allowed) });
   if (loop) hot.config.innerLife.loop = { ...loop };
@@ -178,6 +179,7 @@ async function innerTurn({ answers, shadow = true, gate = {}, journal = null, al
   for (const m of history) port.seed('c1', { authorId: m.author.id, messageId: m.id, text: m.cleanContent });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const store = fakeStore();
+  if (gifs) Object.assign(store, { findGif: (guildId, handle) => gifs[handle] ?? null, recordOwnGif: () => {} });
   // A real errand service over a temp task store, its runner a fake whose runs never end.
   let errands = null;
   if (withErrands) {
@@ -194,7 +196,7 @@ async function innerTurn({ answers, shadow = true, gate = {}, journal = null, al
   const inner = { wake: WAKE, shadow, mayAct: () => true, postAllowed: () => true, onPosted: () => posted.push(NOW), ...gate };
   const { result, logs } = await withCapturedLogs(() => turns.runTurn({ channel: fakeChannel(history, { listed }), guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner }));
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
-  return { result, logs, llm, sends, posted, tasks: errands ? errands.store('g1').recent(10) : [] };
+  return { result, logs, llm, sends, posted, store, tasks: errands ? errands.store('g1').recent(10) : [] };
 }
 
 test('inner turn: no message is fabricated; the request carries <wake>, the inner task and the bounded slice of the channel', async () => {
@@ -464,6 +466,22 @@ test('inner turn, stray: a <msg> with no call gets one follow-up step under cont
   assert.equal(run.result.outcome, 'spoke');
   assert.equal(run.result.inner.strayFollowUp, true);
   assert.equal(run.result.inner.stray.messages, 1, 'the stray counter is as before');
+});
+
+test('inner turn, live: message.create with gif= posts the text then the GIF, and counts as one public post', async () => {
+  const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
+  const run = await innerTurn({ answers: ['<call skill="message.create" gif="g1">νιάου</call>', '<skip/>'], shadow: false, gifs });
+  assert.deepEqual(run.sends.map((send) => send.text), ['νιάου', 'https://tenor.example/cat']);
+  assert.equal(run.posted.length, 1, 'text and GIF are one public post');
+  assert.equal(run.store.state.data.gifCount, 1);
+  assert.deepEqual(run.result.inner.actions.map((a) => `${a.skill}:${a.status}`), ['message.create:executed']);
+});
+
+test('inner turn, stray: the stray output is placed among the actions, so a later message.create takes its messages out of the feedback facts', async () => {
+  const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
+  const run = await innerTurn({ answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<call skill="message.create">γεια σας</call>', '<skip/>'], shadow: false, gifs });
+  assert.equal(run.result.inner.stray.beforeAction, 0);
+  assert.deepEqual(feedbackFacts(run.result).filter((fact) => fact.kind === 'dropped'), [{ kind: 'dropped', messages: 0, reactions: 0, gif: 1, draw: 0, lines: [] }]);
 });
 
 test('inner turn, stray: a channel the directory does not list gets no handle, and the channel sentence is left out whole', async () => {

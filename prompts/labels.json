@@ -50,7 +50,9 @@
       "not-own-message": "that {arg} is not yours",
       "member-ambiguous": "more than one member by that name",
       "channel-no-permission": "no permission in #{channel}",
-      "file-elsewhere": "that file goes to the errand's channel, not #{channel}"
+      "file-elsewhere": "that file goes to the errand's channel, not #{channel}",
+      "unknown-gif": "no GIF by that handle in your library",
+      "gif-cap": "the limit of GIFs for today is used up"
     },
     "postedFrom": "(posted from #{channel})",
     "image": "[image]",
@@ -607,6 +609,8 @@
         "not-requester": "only the person who asked for it or an owner can do that",
         "not-open": "that errand has already ended",
         "unknown-file": "no errand of yours brought back that file for this chat",
+        "unknown-gif": "no GIF by that handle in your library",
+        "gif-cap": "the limit of GIFs for today is used up",
         "attachment-too-large": "the file is too large for this chat",
         "file-unreadable": "the file could not be read",
         "candidate-external": "that candidate came from outside material; only an ordinary turn can accept it",

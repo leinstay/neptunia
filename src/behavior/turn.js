@@ -69,6 +69,7 @@ import { createParticipationPicker, participationEpisodeOffer } from './particip
 import { askPlanner, parsePlannerAnswer, parseRewatchPickDetailed, plannerOn } from './planner.js';
 import { routeAllowed, routeCandidate, routeSettings } from './route.js';
 import { routeChannelOffer } from './route-channel.js';
+import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
 import { bumpDaily, countToday, utcDay, zonedDay } from '../time.js';
 import { isPlainObject } from '../config.js';
 import { budgetDrops } from '../llm/budget.js';
@@ -2033,7 +2034,7 @@ export function createTurnRunner({
       if (ran && result.status === 'ok' && typeof result.data?.text === 'string' && result.data.text && (skills ?? defaultSkills()).get(skill)?.effects === 'read') {
         (draft.innerFindings ??= []).push({ skill, args: { ...(plan.resolved?.args ?? {}) }, text: result.data.text });
       }
-      if (!innerGate?.proposed && result.status === 'ok' && innerGate?.public) inner.onPosted?.();
+      if (!innerGate?.proposed && (result.status === 'ok' || (skill === 'message.create' && result.code === 'gif-cap' && result.ref)) && innerGate?.public) inner.onPosted?.();
       // The errand's hold: bound to the errand it became, kept on an unknown answer (it may have
       // been queued; it lapses on its own), released when nothing was handed off.
       if (innerGate?.hold) {
@@ -2052,7 +2053,9 @@ export function createTurnRunner({
       else await op.failed(result.code ?? 'error', { status: result.status, ...(typeof result.reason === 'string' && result.reason ? { reason: result.reason } : {}) });
     }
     const args = plan.resolved?.args ?? {};
-    const posted = result.status === 'ok' && (skill === 'message.create' || skill === 'draw.create') && result.ref ? postedOf(result) : null;
+    // A post whose GIF alone was refused (`gif-cap`) still sent its text: that message counts.
+    const wentOut = result.status === 'ok' || (skill === 'message.create' && result.code === 'gif-cap');
+    const posted = wentOut && (skill === 'message.create' || skill === 'draw.create') && result.ref ? postedOf(result) : null;
     // Every message the turn posted, its follow-up's included (act adds them as they go out).
     const turnPosts = draft ? (draft.ownPosts ??= []) : [];
     const where = posted ? String(result.ref.conversationId ?? args.channel ?? channel.id) : null;
@@ -3351,7 +3354,7 @@ export function createTurnRunner({
 
   /** Count one posted GIF against `gifs.maxPerDay` (the counter restarts on a new UTC day). */
   function countGif() {
-    bumpDaily(store.state.data, { dayKey: 'gifDay', countKey: 'gifCount' }, clock());
+    countGifPost(store.state.data, clock());
     store.state.markDirty();
   }
 
@@ -3386,21 +3389,7 @@ export function createTurnRunner({
    * message itself or in a forwarded snapshot. Null when anything fails.
    */
   async function freshAttachmentUrl(channel, entry) {
-    if (!entry.messageId) return null;
-    try {
-      const source = entry.channelId && entry.channelId !== channel.id ? await client.channels.fetch(entry.channelId) : channel;
-      const message = await source?.messages?.fetch(entry.messageId);
-      const own = message?.attachments?.get?.(entry.itemId);
-      if (own?.url) return own.url;
-      for (const snapshot of message?.messageSnapshots?.values?.() ?? []) {
-        const forwarded = snapshot?.attachments?.get?.(entry.itemId);
-        if (forwarded?.url) return forwarded.url;
-      }
-      return null;
-    } catch (err) {
-      log.warn('turn: gif refetch failed', { channel: channel.id, gif: entry.id, error: err });
-      return null;
-    }
+    return sharedFreshAttachmentUrl({ client, channel, entry, onError: (err) => log.warn('turn: gif refetch failed', { channel: channel.id, gif: entry.id, error: err }) });
   }
 
   /**
@@ -3426,7 +3415,7 @@ export function createTurnRunner({
     let op = NO_OP;
     try {
       const fresh = entry.kind === 'attachment' ? await freshAttachmentUrl(channel, entry) : null;
-      const text = withLink(fresh ?? entry.url, link, hot.prompts?.labels);
+      const text = withLink(gifPostUrl(entry, fresh), link, hot.prompts?.labels);
       if (!checkEffect('message.create', sendArgs({ text, replyId }), { channel, trigger }).ok) return null;
       op = openOp();
       if (op.opId) await op.started();
@@ -6693,6 +6682,9 @@ export function createTurnRunner({
           stray.reactions += parsed.reactions.length;
           stray.gif += parsed.gif ? 1 : 0;
           stray.draw += parsed.draw || parsed.draws?.length ? 1 : 0;
+          // Where this stray output sits among the turn's actions (the calls recorded so far came
+          // before it): the feedback facts drop its messages when a later `message.create` went out.
+          if (parsed.messages.length + parsed.reactions.length > 0 || parsed.gif || parsed.draw || (parsed.draws?.length ?? 0) > 0) stray.beforeAction = (draft.innerActions ?? []).length;
           draft.innerStray = stray;
           // This answer's stray output, for the one stray follow-up step (toolLoop).
           parsed.innerStray = parsed.messages.length + parsed.reactions.length > 0 || Boolean(parsed.gif) || Boolean(parsed.draw) || (parsed.draws?.length ?? 0) > 0;
