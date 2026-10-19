@@ -79,7 +79,7 @@ import { coreToolRows, discoveryOn, grantedSkillNames, proposalVerdicts, propose
 import { skillFeatureOn, skillsOn } from '../skills/access.js';
 import { skillRegistry } from '../skills/registry.js';
 import { executeCall, needsFollowUp, outcomeDetail, refusalStatus, resolveCall } from '../skills/executors.js';
-import { IN_TURN_TOOLS, firstLinkIn, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
+import { IN_TURN_TOOLS, firstLinkIn, lookPerTurn, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../skills/tools.js';
 import { prefetchLanes, prefetchOn, wakeLanes } from './prefetch.js';
 import { POSTING_SKILLS, innerSettings } from './inner.js';
 import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.js';
@@ -194,8 +194,8 @@ const LOOP_MIN_CALL_MS = 2000;
 /**
  * Whether the persona's own tools drive her turn (features.coreTools exactly true; tracked
  * default false): the bounded tool loop (createTurnRunner's toolLoop), her in-turn tools
- * (`web.search`, `memory.search`) and no search classifier before her reply. Read at the
- * moment of use. Pure.
+ * (`web.search`, `web.read`, `media.look`, `memory.search`), no search classifier before her
+ * reply and no re-watch classifier (her own `media.look` instead). Read at the moment of use. Pure.
  * @param {object} config
  * @returns {boolean}
  */
@@ -2208,13 +2208,16 @@ export function createTurnRunner({
    * -> `(args) => result`, run by src/skills/executors.js#executeCall in place of the operation's
    * command, over the turn's own context -- `web.search` through the turn's `lookup`, `web.read`
    * too (a `#N` message she names read as its first link in `history`: an embedded one, else one
-   * written in its text),
+   * written in its text), `media.look` through the turn's `describer` (a `#N` message she names
+   * found in `history`; at most `media.look.maxPerTurn` second looks in the turn, read at each call),
    * `memory.search` through its `recall` over the served guild (`guild`; a private chat on its
    * `partner`'s behalf), the turn's `history` left out of the hits and her call marks on the
    * quoted lines (linkCalls). Null with the switch off.
    */
   function inTurnTools({ channel, guild, guildId, partner = null, selfId, selfName, history }) {
     if (!coreToolsOn(hot.config)) return null;
+    // The second looks this turn took (media.look): every step of the loop shares the count.
+    let looks = 0;
     return {
       'web.search': (args) => runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
       'web.read': (args) =>
@@ -2227,6 +2230,20 @@ export function createTurnRunner({
           linkOf: (messageId) => {
             const message = (history ?? []).find((item) => String(item?.id) === String(messageId));
             return message ? (collectReadableLinks(message)[0]?.url ?? firstLinkIn(message.content)) : null;
+          },
+        }),
+      'media.look': (args) =>
+        runMediaLook({
+          describer: describer ?? null,
+          config: hot.config,
+          labels: hot.prompts?.labels ?? {},
+          guildId,
+          args,
+          mediaOf: (messageId) => (history ?? []).find((item) => String(item?.id) === String(messageId)) ?? null,
+          takeTurnSlot: () => {
+            if (looks >= lookPerTurn(hot.config)) return false;
+            looks += 1;
+            return true;
           },
         }),
       'memory.search': (args) =>
@@ -5924,11 +5941,14 @@ export function createTurnRunner({
       const gifRewatchOn =
         isVideoVisionOn(config) && features.videoRewatch !== false && typeof describer?.rewatchGif === 'function' && typeof describer.watchedGifs === 'function';
       // The items a second look may be offered for (the re-watch, or the planner's `<media>`).
-      const mediaWanted = asked && !answersDrawFailure && (videoRewatchOn || imageRelookOn || gifRewatchOn) && !routedPull;
+      // With features.coreTools no classifier picks a second look for her: she calls media.look.
+      const mediaWanted = asked && !answersDrawFailure && (videoRewatchOn || imageRelookOn || gifRewatchOn) && !routedPull && !coreTools;
       const pictures = mediaWanted && imageRelookOn ? relookCandidates(rawHistory) : [];
       const gifItems = mediaWanted && gifRewatchOn ? gifRewatchItems(rawHistory) : [];
       if (asked && !answersDrawFailure && (videoRewatchOn || imageRelookOn || gifRewatchOn)) {
-        if (routedPull) {
+        if (coreTools) {
+          log.info('rewatch: skipped', { channel: channel.id, reason: 'core-tools' });
+        } else if (routedPull) {
           log.info('rewatch: skipped', { channel: channel.id, reason: 'routed' });
         } else if (planner) {
           // The planner's re-watch block picks the item and the question (its `<media>` built by

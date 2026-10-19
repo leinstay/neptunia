@@ -73,6 +73,7 @@ export const OP_EFFECTS = Object.freeze({
   'task.list': 'read',
   'web.search': 'read',
   'web.read': 'read',
+  'media.look': 'read',
   'memory.search': 'read',
   'intent.set': 'write',
   'intent.update': 'write',

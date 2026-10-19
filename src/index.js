@@ -576,6 +576,8 @@ const admin = createAdmin({
   // /nep status: the web search engine on the limits field.
   lookup,
   recall,
+  // /nep task look: the describer's second look at a picture or a video.
+  describer,
   // /nep status: the costs field's per-role lines.
   usage,
   // /nep status: the simulator key's limit line (one GET, nothing else).

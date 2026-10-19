@@ -121,6 +121,9 @@ const ARCHIVE_CHOICES = 25;
  *   field, and the turns of the last hour its storage line weighs. Absent -> no speed figures.
  * `lookup` — from src/web/lookup.js#createLookup, optional: `searchEngine` and `hasSearch`, the
  *   `search:` line of the limits field. Absent -> no search line.
+ * `describer` — from src/memory/describe.js#createDescriber, optional: its second look
+ *   (`relookImage`, `rewatchVideo`, `rewatchGif`, `videoCapsLeft`) behind `/nep task look`.
+ *   Absent -> that command reports it is not available.
  * `usage` — from src/ops/usage.js#createUsage, optional: `byRole`, today's requests per role on
  *   the owner card's costs field. Absent -> no role lines.
  * `simKey` — the optional simulator key (OPENROUTER_SIM_KEY), a string: used for one read-only GET of

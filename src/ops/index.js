@@ -128,6 +128,7 @@ export const COMMAND_TO_OP = Object.freeze({
   'task.list': 'task.list',
   'task.search': 'web.search',
   'task.read': 'web.read',
+  'task.look': 'media.look',
   'task.intent': byAction({ add: 'intent.set', update: 'intent.update', cancel: 'intent.cancel', list: 'intent.list' }),
   'task.inner': byAction({ stop: 'inner.stop', start: 'inner.start', status: 'inner.status' }),
   'memory.search': 'memory.search',

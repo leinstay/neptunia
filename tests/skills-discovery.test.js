@@ -243,7 +243,7 @@ test('grantedSkillNames: a grant to everyone or a role, another user, no id, saf
   assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry: null }), []);
 });
 
-test('coreToolRows: her granted tools among web.search, web.read, memory.search and task.run, in that order, with their texts and arguments; her grants only', () => {
+test('coreToolRows: her granted tools among web.search, web.read, media.look, memory.search and task.run, in that order, with their texts and arguments; her grants only', () => {
   const registry = skillRegistry();
   const self = 'self-id';
   const grant = { everyone: false, roles: [], users: [self] };
@@ -255,7 +255,19 @@ test('coreToolRows: her granted tools among web.search, web.read, memory.search 
   assert.deepEqual(rows[0].args.map((arg) => arg.name), ['question', 'people', 'channel', 'when', 'terms']);
   assert.equal(rows[0].args[0].body, true, 'the question is the body');
   assert.deepEqual(coreToolRows({ config: { ...config, skills: { safeMode: true } }, selfId: self, registry, texts }), [], 'safe mode lists none');
-  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'web.read', 'memory.search', 'task.run', 'intent.set', 'intent.update', 'intent.cancel']);
+  assert.deepEqual([...CORE_TOOL_SKILLS], ['web.search', 'web.read', 'media.look', 'memory.search', 'task.run', 'intent.set', 'intent.update', 'intent.cancel']);
+});
+
+test('coreToolRows: media.look, granted, stands after web.read with its arguments while the tool loop is on; with it off the skill does not exist for her', () => {
+  const registry = skillRegistry();
+  const self = 'self-id';
+  const grant = { everyone: false, roles: [], users: [self] };
+  const access = { 'web.read': grant, 'media.look': grant, 'memory.search': grant };
+  const rows = coreToolRows({ config: { features: { skills: true, coreTools: true }, bot: { access } }, selfId: self, registry });
+  assert.deepEqual(rows.map((row) => row.name), ['web.read', 'media.look', 'memory.search']);
+  assert.deepEqual(rows[1].args.map((arg) => [arg.name, arg.required, arg.body === true]), [['message', true, false], ['question', true, true], ['item', false, false]]);
+  const off = coreToolRows({ config: { features: { skills: true }, bot: { access } }, selfId: self, registry });
+  assert.deepEqual(off.map((row) => row.name), ['web.read', 'memory.search']);
 });
 
 test('coreToolRows: the intent rows follow task.run when intentions are on and granted, and are absent with features.intentions off', () => {

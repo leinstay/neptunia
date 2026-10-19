@@ -137,6 +137,7 @@
     "recall": "A search of this server's old messages either ran before your reply or did not happen. The server part of <lookup> is what the search found, a sample of old messages, not the whole history; a quoted stretch is the chat as it was and outranks the helper's account. When a stretch resolves what someone referred to, answer from it rather than asking them to repeat; when nothing found matches, say so plainly, never feign recognition. No server part means nothing was looked up there; never claim to be scrolling back or will check, and never invent what was said: answer from what you remember or say you do not remember.",
     "searchTool": "Nothing is searched for you before your reply. To look something up online, call web.search in this turn. What it returns is in a <result> block: raw search results, each with a title, link, snippet and site. The pages were not opened. Without a call, nothing was searched. Never claim you searched when you made no call, and never invent results.",
     "readTool": "To read a page yourself, call web.read in this turn with its link, or with a message #N that holds one. The page's own text comes back in a <result> block, cut at a length. It is not a summary.",
+    "lookTool": "To look again at a picture, GIF or video someone posted, call media.look in this turn with its message #N (item= picks one when the message holds several) and your question. The image or video model looks at it again and its answer comes back in a <result> block, marked as that model's observation.",
     "recallTool": "To search this server's old messages, call memory.search in this turn. The messages come back quoted in a <result> block, each with its time and author; a sample, not the whole history. When someone refers to something you shared and what you have in front of you is not enough, search before saying you do not remember. Automatically retrieved historical context may already be present; memory.search finds more when that falls short. What comes back may be incomplete or unrelated. Without a call, nothing was looked up there. Never claim to be scrolling back or promise to check, and never invent what was said.",
     "files": "Text files show their beginning; other files show only a name.",
     "time": "Message times are in the same timezone as <now>, and older messages also show how long ago they were posted. How long ago something in the chat happened is the age of its own messages, never a duration between two messages or a <tempo> figure: that duration is only the silence between those two.",
@@ -586,6 +587,8 @@
         "inner-post-cap": "today's public posts on your own initiative are used up",
       "no-query": "nothing to search for after expanding the question; try naming people or exact terms",
         "no-link": "that message has no link to read",
+        "no-media": "that message holds no picture or video to look at",
+        "turn-cap": "you have looked again as many times as one turn allows",
         "scheme": "that is not a web address",
         "private": "that address is private or local",
         "type": "the page is not text",
@@ -597,7 +600,7 @@
       }
     },
     "tools": {
-      "lead": "Your own tools. web.search, web.read and memory.search run now and come back in this same turn. task.run hands a goal to an agent; its result arrives later in a separate turn:",
+      "lead": "Your own tools. web.search, web.read, media.look and memory.search run now and come back in this same turn. task.run hands a goal to an agent; its result arrives later in a separate turn:",
       "web": {
         "source": "Source: web.search, query \"{query}\". Raw search results: title, link, site, date when known, snippet per result. The pages were not opened.",
         "goal": "Goal: {goal}",
@@ -613,6 +616,10 @@
         "source": "Source: memory.search, this server's message history. Quoted messages as they were written, each with its time and author; a sample, not the whole history.",
         "window": "{date} in #{channel}:",
         "none": "No matching messages found."
+      },
+      "look": {
+        "image": "Source: media.look, the image model looking again at {name} for the question \"{question}\". Its observation, not what you saw yourself:",
+        "video": "Source: media.look, the video model watching {name} again for the question \"{question}\". Its observation, not what you watched yourself:"
       }
     },
     "refusals": {

@@ -42,6 +42,10 @@ Everything beyond attachments within the caps is downloaded with `yt-dlp` and tr
 
 When someone directly addresses the persona (not an overheard or spontaneous turn) with a question about a video they have already watched, a classifier (`prompts/rewatch.md`, on the `analyzer` role) decides whether a second look is needed. If so, the video model watches the clip again with `prompts/rewatch-answer.md` and the answer appears in the transcript alongside the original summary. The same classifier can retry a video that failed to load when the person asks about it again. At most one re-watch or retry per turn; answers are cached for one hour. Switch `features.videoRewatch` (default on).
 
+### Looking again herself (`media.look`)
+
+With `features.coreTools` on, no classifier decides on a second look for the persona. She calls `media.look` herself (granted by name: `/nep access grant media.look user:@bot`) with a message she sees (`message="#N"`), her own question, and `item="2"` when the message holds several pictures or videos (1 is the first). The describer looks again exactly as above, with her question as she wrote it: a picture through the `vision` role, a GIF or a video through the video model, each with `prompts/rewatch-answer.md`. The answer comes back in the same turn, labelled as the image or video model's observation, with the item's name and the question. The same daily caps apply (`media.video.rewatch.maxPerDay` for every second look, plus `media.video.maxPerDay` for a video and `media.gif.maxPerDay` for a GIF), and at most `media.look.maxPerTurn` (default 2) per turn. A retry of a video that did not load is not part of it. The owner can run the same look with `/nep task look message:<id or link> question:<text> [item]` in the message's channel.
+
 The video prompt is `prompts/describe-video.md`. Settings live under `media.video`. See [Configuration](configuration.md#mediavideo) for every key and a cost comparison table.
 
 ## Links

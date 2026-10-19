@@ -37,7 +37,7 @@ const AGREED = new Set([
   'memory.snapshot', 'memory.private.read', 'memory.private.forget', 'memory.private.purge',
   'message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove',
   'task.run', 'task.status', 'task.cancel', 'task.list',
-  'web.search', 'web.read', 'memory.search',
+  'web.search', 'web.read', 'media.look', 'memory.search',
   'intent.set', 'intent.update', 'intent.cancel', 'intent.list',
   'inner.stop', 'inner.start', 'inner.status',
 ]);

@@ -368,7 +368,8 @@
       "prefill": true,
       "prefillPerMessage": 5,
       "rewatch": { "maxPerDay": 20, "maxOutputTokens": 600, "classifierMaxOutputTokens": 2000, "answerChars": 1200, "recentMessages": 60, "maxCandidates": 6, "contextMessages": 50 }
-    }
+    },
+    "look": { "maxPerTurn": 2 }
   },
   "web": {
     "maxPerDay": 60,

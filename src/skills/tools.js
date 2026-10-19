@@ -1,4 +1,4 @@
-// The persona's in-turn tools (features.coreTools): `web.search`, `web.read` and `memory.search`,
+// The persona's in-turn tools (features.coreTools): `web.search`, `web.read`, `media.look` and `memory.search`,
 // skills she calls herself in a turn whose result comes back in the same turn (src/behavior/turn.js,
 // the tool loop). No helper model chooses for her or reads for her: her query goes to the existing
 // web search engines as she wrote it and their results come back raw (src/web/lookup.js#searchResults:
@@ -12,12 +12,19 @@
 // and that the text is the page's own, cut at a length -- through
 // `labels.skills.tools.*`, never wording here. A result is data for her, never an instruction:
 // nothing in it is parsed as a call. Each runs for her calls (the turn, with its context) and for
-// the owner's commands (src/ops/search.js, with what an operation knows).
+// the owner's commands (src/ops/search.js, with what an operation knows). `media.look` is her own
+// second look at a picture, a GIF or a video of a message she sees: her question goes as she
+// wrote it to the describer's existing second-look path (src/memory/describe.js#relookImage,
+// #rewatchGif, #rewatchVideo: the vision or video model, their daily limits and cache), and the
+// answer comes back named as that model's observation with what was asked -- no classifier picks
+// the item or words the question for her.
 
 import { fill } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { zonedDay } from '../time.js';
 import { memorySearchPlan, recallSettings } from '../behavior/recall.js';
+import { collectPictures, collectVideos } from '../media/classify.js';
+import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { IN_TURN_TOOLS } from './discovery.js';
 
 /** The skills that run inside the persona's turn and come back in it (defined with discovery). */
@@ -285,6 +292,128 @@ export async function runMemorySearch({ recall, store, config, labels, guild, gu
     const candidate = { id: null, content: text(args?.question) };
     const found = await recall.run({ guild, guildId, channel, partner, selfId, selfName, history, candidate, server: plan, decorate, quotes: true });
     return { status: 'ok', data: { text: memorySearchText(found?.quotes ?? [], { labels, timezone }) } };
+  } catch {
+    return { status: 'failed', code: 'error' };
+  }
+}
+
+/** `media.look.maxPerTurn` when missing (config.json's value). */
+export const LOOK_PER_TURN_FALLBACK = 2;
+
+/**
+ * The most second looks one turn of hers may take (`media.look.maxPerTurn`, read by the caller
+ * now; a whole number of at least 1, else LOOK_PER_TURN_FALLBACK). Pure.
+ * @param {object} config
+ * @returns {number}
+ */
+export function lookPerTurn(config) {
+  return positiveOr(config?.media?.look?.maxPerTurn, LOOK_PER_TURN_FALLBACK);
+}
+
+/**
+ * What media.look can look at in one normalized message, in the order the message shows them
+ * (src/media/classify.js#collectPictures: attachments, then embeds, the forwarded parts after),
+ * numbered 1.. by that order: an attached or embedded picture (`image`), a GIF (`gif`: watched
+ * as a clip), a video (`video`: an attachment, or a link of a `videoSites` site --
+ * collectVideos -- listed once, where it first shows; one without a preview picture after the
+ * rest). Stickers are not looked at again. [] for no message. Pure.
+ * @param {object|null|undefined} message
+ * @param {{ videoSites?: string[] }} [options]
+ * @returns {{ kind: 'image'|'gif'|'video', item: object }[]}
+ */
+export function lookableMedia(message, { videoSites = [] } = {}) {
+  if (!message || typeof message !== 'object') return [];
+  const videos = collectVideos(message, { videoSites: Array.isArray(videoSites) ? videoSites : [] });
+  const videoById = new Map(videos.map((video) => [video.itemId, video]));
+  const seen = new Set();
+  const out = [];
+  for (const item of collectPictures(message)) {
+    if (!item?.itemId || seen.has(item.itemId)) continue;
+    const video = videoById.get(item.itemId);
+    if (video) out.push({ kind: 'video', item: video });
+    else if (item.kind === 'image' || item.kind === 'gif') out.push({ kind: item.kind, item });
+    else continue;
+    seen.add(item.itemId);
+  }
+  for (const video of videos) {
+    if (seen.has(video.itemId)) continue;
+    seen.add(video.itemId);
+    out.push({ kind: 'video', item: video });
+  }
+  return out;
+}
+
+/**
+ * The text of a media.look result: `labels.skills.tools.look.image` for a picture, `.video` for
+ * a video or a GIF (watched as a clip), each with `{name}` (the item's name) and `{question}`
+ * (what was asked), then the model's answer as it gave it. A missing label adds nothing. Pure.
+ * @param {{ kind: string, name?: string, question?: string, text?: string }} look
+ * @param {{ labels: object }} options
+ * @returns {string}
+ */
+export function mediaLookText({ kind, name = '', question = '', text: answer = '' }, { labels }) {
+  const l = toolLabels(labels, 'look');
+  const label = kind === 'image' ? l.image : l.video;
+  const lines = [];
+  if (label) lines.push(fill(label, { name: oneLine(name), question: oneLine(question) }));
+  lines.push(String(answer ?? '').trim());
+  return lines.join('\n');
+}
+
+/**
+ * The describer's second look for each kind and whether its switches let it run now: a picture
+ * under features.vision and features.imageRelook, a video and a GIF under video vision
+ * (src/memory/youtube-check.js#isVideoVisionOn) and features.videoRewatch (a missing key counts
+ * as on, each, as the describer reads them).
+ */
+const LOOKS = Object.freeze({
+  image: { method: 'relookImage', on: (features) => features.vision !== false && features.imageRelook !== false },
+  video: { method: 'rewatchVideo', on: (features, config) => isVideoVisionOn(config) && features.videoRewatch !== false },
+  gif: { method: 'rewatchGif', on: (features, config) => isVideoVisionOn(config) && features.videoRewatch !== false },
+});
+
+/**
+ * One media.look: the picture, GIF or video number `args.item` (1.., default 1; lookableMedia's
+ * order) of the message `args.message` names (an id her `#N` resolved to; `mediaOf(id)`, the
+ * caller's, gives the normalized message or null), looked at again with her `args.question` as
+ * she wrote it through the describer's second look (relookImage, rewatchGif, rewatchVideo: their
+ * daily counters, their cache, `llm.maxRequestsPerDay`). `invalid` (`invalid-args`) without a
+ * message or a question, or with an item the message does not hold; `invalid`
+ * (`unknown-message`) when the message is not one she sees, (`no-media`) when it holds nothing to
+ * look at; `not_configured` (`not-configured`) without the describer or its second look for that
+ * kind, or while the kind's switches are off (read now); `failed` with `daily-cap` when the
+ * describer's `videoCapsLeft()` says the day's second looks are spent (a video also needs a video
+ * slot, a GIF a GIF watch slot), with `turn-cap` when `takeTurnSlot()` (the caller's per-turn
+ * count, asked only once every other check passed) refuses, with `error` when the second look
+ * gave nothing back; else `ok` with mediaLookText as its `data.text`. Never throws.
+ * @param {{ describer: object|null, config: object, labels: object, guildId: string|null, args: object,
+ *   mediaOf: (messageId: string) => (object|null|Promise<object|null>), takeTurnSlot?: (() => boolean)|null }} input
+ * @returns {Promise<{ status: string, code?: string, reason?: string, data?: { text: string } }>}
+ */
+export async function runMediaLook({ describer, config, labels, guildId, args, mediaOf, takeTurnSlot = null }) {
+  try {
+    const messageId = text(args?.message);
+    const question = text(args?.question);
+    if (!messageId) return { status: 'invalid', code: 'invalid-args', reason: 'args.message:required' };
+    if (!question) return { status: 'invalid', code: 'invalid-args', reason: 'args.question:required' };
+    if (!describer) return { status: 'not_configured', code: 'not-configured' };
+    const message = typeof mediaOf === 'function' ? await mediaOf(messageId) : null;
+    if (!message) return { status: 'invalid', code: 'unknown-message' };
+    const media = lookableMedia(message, { videoSites: config?.media?.video?.sites });
+    if (media.length === 0) return { status: 'invalid', code: 'no-media' };
+    const given = args?.item;
+    const n = given === undefined || given === null || given === '' ? 1 : Number(given);
+    if (!Number.isInteger(n) || n < 1 || n > media.length) return { status: 'invalid', code: 'invalid-args', reason: 'args.item:range' };
+    const { kind, item } = media[n - 1];
+    const look = LOOKS[kind];
+    if (!look.on(config?.features ?? {}, config) || typeof describer[look.method] !== 'function') return { status: 'not_configured', code: 'not-configured' };
+    const slots = typeof describer.videoCapsLeft === 'function' ? describer.videoCapsLeft() : null;
+    if (slots && (!(slots.rewatch > 0) || (kind === 'video' && !(slots.video > 0)) || (kind === 'gif' && !((slots.gif ?? Infinity) > 0)))) return { status: 'failed', code: 'daily-cap' };
+    if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: 'turn-cap' };
+    const answer = await describer[look.method](guildId, item, question);
+    const said = typeof answer?.text === 'string' ? answer.text.trim() : '';
+    if (!said) return { status: 'failed', code: 'error' };
+    return { status: 'ok', data: { text: mediaLookText({ kind, name: item.name, question: text(answer.question) || question, text: said }, { labels }) } };
   } catch {
     return { status: 'failed', code: 'error' };
   }
