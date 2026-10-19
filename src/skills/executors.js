@@ -29,6 +29,9 @@ const FILE_OPTIONS = Object.freeze(['file']);
 /** A whole errand file handle, as src/errands/store.js reads one. */
 const FILE_HANDLE_RE = /^file:[A-Za-z0-9_-]{1,64}\/[^/\\]{1,200}$/;
 
+/** The skills whose body is posted or stored as written: no option lines are read out of it. */
+const VERBATIM_BODY_SKILLS = Object.freeze(new Set(['message.create', 'message.edit', 'draw.create', 'rule.add', 'learning.add', 'lore.add']));
+
 /** The body arguments that take the attribute's text and a different body joined, a line break between: a question or a goal with a note beside it. */
 const JOINED_BODY_ARGS = Object.freeze(['question', 'query', 'goal']);
 
@@ -192,7 +195,9 @@ export function bodyOptionLines(body, names, bodyArg) {
   for (const line of String(body ?? '').replace(BODY_BREAK_RE, '\n').split('\n')) {
     const match = BODY_LINE_RE.exec(line.trim());
     const value = match ? match[2].trim() : '';
-    if (!match || !known.has(match[1]) || !value) {
+    // The `=` form takes one bare token or a quoted value, as bodyTokens does: `state=done and a note` is prose.
+    const prose = Boolean(match) && line.trim().charAt(match[1].length + (match[0].length - match[1].length - match[2].length - 1)) === '=' && /\s/.test(value) && !/^"[^"]*"$/.test(value);
+    if (!match || !known.has(match[1]) || !value || prose) {
       kept.push(line);
       continue;
     }
@@ -287,7 +292,7 @@ export function bodyTokens(body, names) {
  * for such a command that is only `name=value` tokens (bodyTokens: names among the command's
  * options, none of them given as an attribute) is those arguments and no text at all; the result
  * counts them (`bodyArgs`) for the caller to log; a body with one of its names on the tag already,
- * or any other body, stays the text. For a command whose body argument is not `text` (a question,
+ * or any other body, stays the text. For a command whose body is not posted or stored verbatim (VERBATIM_BODY_SKILLS; a question,
  * a query, a goal, a url), lines of the body that stand alone as `name: value` / `name=value` of the
  * command's other options are those options (bodyOptionLines; counted in `bodyArgs`; an attribute wins, a
  * name on two lines is `args.<name>:twice`) and the rest is the body; a `text` body stays as written. When the command
@@ -340,11 +345,13 @@ export function resolveCall(call, view) {
     given[key] = value;
     bodyArgs += 1;
   }
-  // A body for a command whose body argument is not a post (a question, a query, a goal, a url): its
-  // options on lines of their own (`people: ...`) are those options, the other lines the body.
+  // A body that is not posted or stored verbatim (a question, a query, a goal, a url, an intention's
+  // purpose): its options on lines of their own (`people: ...`, `due=1m`) are those options, the other
+  // lines the body. A post or a stored text (VERBATIM_BODY_SKILLS) stays as written.
   let text = body;
-  if (body && command.body && command.body !== 'text' && !fromTokens) {
-    const lined = bodyOptionLines(body, byName.keys(), command.body);
+  if (body && command.body && !VERBATIM_BODY_SKILLS.has(name) && !fromTokens) {
+    // An option already on the tag keeps its line in the body (the attribute wins, the text stays as written).
+    const lined = bodyOptionLines(body, [...byName.keys()].filter((key) => !Object.hasOwn(given, key)), command.body);
     if (lined.twice) return refused('invalid-args', `args.${lined.twice}:twice`);
     for (const [key, value] of Object.entries(lined.options)) {
       if (Object.hasOwn(given, key)) continue;

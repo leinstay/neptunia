@@ -129,6 +129,8 @@ const handlers = perEnv((env) => {
   function lineOf(record) {
     const parts = [`${record.id} ${record.status}`];
     if (Number.isFinite(record.dueAt)) parts.push(`due ${stamp(record.dueAt)}`);
+    // A pending intention nothing wakes her for: said at once, so a due left in the purpose text is caught in the turn.
+    else if (record.status === 'pending' && !record.every?.period && !record.attend?.place) parts.push('no due');
     if (record.every?.period) parts.push(`every ${record.every.period}`);
     if (record.attend?.place) {
       parts.push(`attend ${record.attend.place}`);
