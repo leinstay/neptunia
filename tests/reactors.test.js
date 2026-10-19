@@ -9,12 +9,17 @@ import {
   createReactorStore,
   reactionEventOf,
   reactionKey,
+  reactionStoreEventOf,
+  reactionEvent,
+  reactionClearAllEvent,
+  reactionClearEmojiEvent,
   reactorIdsOf,
   runBackfill,
   withReactors,
   fetchHistory,
   fetchMessage,
 } from '../src/interface/discord.js';
+import { validateEvent } from '../src/protocol.js';
 import { formatTranscript } from '../src/format.js';
 import { buildRequest } from '../src/behavior/prompt.js';
 import { labels as fixtureLabels } from './fixtures/labels.js';
@@ -419,4 +424,51 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
 
   const off = textOf(buildRequest(input(history, { reactionNames: false })));
   assert.ok(off.includes('[reactions: 😂 x2]'), off);
+});
+
+// --- the store's event from a protocol event ------------------------------------
+
+test('reactionStoreEventOf: add, remove, clear-all and clear-emoji equal reactionEventOf and leave the store alike', () => {
+  const guild = { id: GUILD };
+  const emojis = [{ id: null, name: '\u{1F525}' }, { id: '55', name: 'kek' }];
+  const messages = [
+    rawMsg('m1', SELF, { channelId: 'c1', guild }),
+    rawMsg('m2', '7', { channelId: 'c1', guild }),
+    { id: 'm1', guildId: GUILD, partial: true, channelId: 'c1', guild },
+  ];
+  const now = () => 5000;
+  for (const emoji of emojis) {
+    for (const message of messages) {
+      const reaction = rawReaction(message, emoji);
+      const user = { id: '2' };
+      const cases = [
+        ['add', { reaction, user }, reactionEvent(reaction, user, true, { now })],
+        ['remove', { reaction, user }, reactionEvent(reaction, user, false, { now })],
+        ['removeAll', { message }, reactionClearAllEvent(message, { now })],
+        ['removeEmoji', { reaction }, reactionClearEmojiEvent(reaction, { now })],
+      ];
+      for (const [kind, parts, event] of cases) {
+        assert.deepEqual(validateEvent(event), { ok: true }, kind);
+        assert.deepEqual(reactionStoreEventOf(event), reactionEventOf(kind, parts), kind);
+        const left = createReactorStore();
+        const right = createReactorStore();
+        for (const store of [left, right]) {
+          store.markOwn('m1');
+          store.add('m1', reactionKey(emoji), '2');
+          store.add('m1', reactionKey(emoji), '3');
+          store.add('m1', 'other', '4');
+        }
+        const a = applyReactionEvent(left, reactionEventOf(kind, parts), served);
+        const b = applyReactionEvent(right, reactionStoreEventOf(event), served);
+        assert.equal(b, a, kind);
+        for (const key of [reactionKey(emoji), 'other']) assert.deepEqual(right.reactors('m1', key), left.reactors('m1', key), kind);
+        assert.deepEqual(right.counts(), left.counts(), kind);
+      }
+    }
+  }
+});
+
+test('reactionStoreEventOf: never throws on a bare event', () => {
+  assert.deepEqual(reactionStoreEventOf({}), { kind: 'remove', guildId: null, messageId: null, authorId: null, emoji: null, userId: null });
+  assert.doesNotThrow(() => reactionStoreEventOf(null));
 });

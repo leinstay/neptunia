@@ -139,6 +139,40 @@ test('validateEvent: a custom emoji is known by its id even without a name', () 
   assert.deepEqual(validateEvent({ ...base, emoji: { name: null } }), { ok: false, reason: 'emoji:required' });
 });
 
+test('validateEvent: reaction.changed takes authorId and the cleared forms', () => {
+  const base = EVENTS['reaction.changed'];
+  assert.deepEqual(validateEvent({ ...base, authorId: 'u9' }), { ok: true });
+  assert.deepEqual(validateEvent({ ...base, authorId: null }), { ok: true });
+  const clearEmoji = { ...base, added: false, cleared: 'emoji' };
+  assert.deepEqual(validateEvent(clearEmoji), { ok: true });
+  assert.deepEqual(validateEvent({ ...clearEmoji, userId: null }), { ok: true });
+  const { userId: _u, ...noUser } = clearEmoji;
+  assert.deepEqual(validateEvent(noUser), { ok: true });
+  const clearAll = { ...noUser, cleared: 'all' };
+  assert.deepEqual(validateEvent({ ...clearAll, emoji: null }), { ok: true });
+  assert.deepEqual(validateEvent({ ...clearAll, emoji: undefined }), { ok: true });
+  assert.deepEqual(validateEvent({ ...clearAll, emoji: { name: 'x' } }), { ok: true });
+});
+
+test('validateEvent: reaction.changed refuses the bad cleared and authorId shapes', () => {
+  const base = EVENTS['reaction.changed'];
+  const clearEmoji = { ...base, added: false, cleared: 'emoji', userId: null };
+  const cases = [
+    [{ ...base, authorId: 7 }, 'authorId:type'],
+    [{ ...base, authorId: '' }, 'authorId:type'],
+    [{ ...base, cleared: 'some' }, 'cleared:unknown'],
+    [{ ...base, cleared: 'all', added: true }, 'added:cleared'],
+    [{ ...clearEmoji, added: true }, 'added:cleared'],
+    [{ ...clearEmoji, emoji: null }, 'emoji:type'],
+    [{ ...clearEmoji, emoji: undefined }, 'emoji:required'],
+    [{ ...clearEmoji, userId: 5 }, 'userId:type'],
+    [{ ...clearEmoji, cleared: 'all', emoji: { name: null } }, 'emoji:required'],
+    [{ ...base, userId: null }, 'userId:type'],
+    [{ ...base, emoji: null }, 'emoji:type'],
+  ];
+  for (const [event, reason] of cases) assert.deepEqual(validateEvent(event), { ok: false, reason }, reason);
+});
+
 test('validateEvent: the core kinds need no iface, id or conversation; an interface kind does', () => {
   assert.deepEqual(validateEvent({ kind: 'scheduler.tick', at: 5 }), { ok: true });
   const { iface: _iface, ...noIface } = EVENTS['reaction.changed'];

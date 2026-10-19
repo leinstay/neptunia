@@ -58,7 +58,9 @@ import {
   createReactorStore,
   normalizeOptions,
   reactionEvent,
-  reactionEventOf,
+  reactionClearAllEvent,
+  reactionClearEmojiEvent,
+  reactionStoreEventOf,
   registerCommands,
   resolveGuild,
   toEvent,
@@ -906,7 +908,7 @@ const door = createEventDoor({
       if (event.deleted) return onMessage.onMessageDelete(event);
       return event.edit ? onMessage.onMessageUpdate(event) : onMessage(event);
     },
-    'reaction.changed': (event) => feedReactors('add', event.raw),
+    'reaction.changed': (event) => feedReactors(event),
     'task.completed': (event) => {
       // An errand an inner turn handed off counts its cost against the inner life's dollars.
       inner.onTaskFinished(event?.raw?.task ?? errands.store?.(event?.guildId ?? null)?.get?.(event?.taskId) ?? null, event?.guildId ?? instance.guildId);
@@ -978,19 +980,25 @@ client.on('messageCreate', (message) => {
 });
 // The reactor store follows the reactions on the persona's messages in the served guild, whatever
 // features.reactionNames says (a cheap map update; a switch turned on later finds it current).
-const feedReactors = (kind, parts) => {
+const feedReactors = (event) => {
   try {
-    applyReactionEvent(reactors, reactionEventOf(kind, parts), { guildId: instance.guildId, selfId: client.user?.id ?? null });
+    applyReactionEvent(reactors, reactionStoreEventOf(event), { guildId: instance.guildId, selfId: client.user?.id ?? null });
   } catch (err) {
-    log.warn('reactors: event failed', { kind, code: err?.code ?? null });
+    log.warn('reactors: event failed', { kind: event?.kind ?? null, code: err?.code ?? null });
   }
 };
 client.on(Events.MessageReactionAdd, (reaction, user) => {
   inbound('reaction.changed', () => reactionEvent(reaction, user, true));
 });
-client.on(Events.MessageReactionRemove, (reaction, user) => feedReactors('remove', { reaction, user }));
-client.on(Events.MessageReactionRemoveAll, (message) => feedReactors('removeAll', { message }));
-client.on(Events.MessageReactionRemoveEmoji, (reaction) => feedReactors('removeEmoji', { reaction }));
+client.on(Events.MessageReactionRemove, (reaction, user) => {
+  inbound('reaction.changed', () => reactionEvent(reaction, user, false));
+});
+client.on(Events.MessageReactionRemoveAll, (message) => {
+  inbound('reaction.changed', () => reactionClearAllEvent(message));
+});
+client.on(Events.MessageReactionRemoveEmoji, (reaction) => {
+  inbound('reaction.changed', () => reactionClearEmojiEvent(reaction));
+});
 client.on(Events.ShardDisconnect, () => around.markStale());
 client.on(Events.ShardReconnecting, () => around.markStale());
 client.on(Events.ShardResume, () => around.markFresh());

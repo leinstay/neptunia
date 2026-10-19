@@ -586,7 +586,8 @@ export function normalizedOf(event) {
  * The `reaction.changed` event of a gateway reaction (`MessageReactionAdd` with `added` true,
  * `MessageReactionRemove` with false): the message's conversation and id, the emoji (`name`: a
  * unicode emoji itself or a custom emoji's name; `id`: a custom emoji's), who reacted, and `raw`
- * `{ reaction, user }` for the reactor store. Never throws: an emoji that cannot be read
+ * `{ reaction, user }`, and `authorId`, the message's author when the message is whole (a partial
+ * one gives null). Never throws: an emoji that cannot be read
  * (emojiOf) leaves `name` null, which validateEvent refuses.
  * @param {object} reaction  A discord.js MessageReaction (possibly partial).
  * @param {object} user  A discord.js User (possibly partial).
@@ -609,10 +610,72 @@ export function reactionEvent(reaction, user, added, { now = Date.now } = {}) {
     id: `${DISCORD_IFACE}:reaction:${messageId}:${userId}:${emojiId ?? name}:${added ? 'add' : 'remove'}:${at}`,
     conversation: conversationOf(message),
     messageId,
+    authorId: authorIdOf(message),
     emoji: { name, ...(emojiId ? { id: emojiId } : {}) },
     userId,
     added: added === true,
     raw: { reaction, user },
+  };
+}
+
+/** The author of a whole (not partial) message, or null: a partial one does not know it. */
+function authorIdOf(message) {
+  return message && !message.partial ? idString(message.author?.id) : null;
+}
+
+/**
+ * The `reaction.changed` event of `MessageReactionRemoveAll`: every reaction of `message` taken
+ * off (`cleared: 'all'`, no emoji, no user). The id carries the arrival time, so a second clear
+ * of the same message is never dropped as a duplicate. Never throws.
+ * @param {object} message  A discord.js Message (possibly partial).
+ * @param {{ now?: () => number }} [options]
+ * @returns {import('../../src/protocol.js').ReactionChanged}
+ */
+export function reactionClearAllEvent(message, { now = Date.now } = {}) {
+  const at = now();
+  const messageId = idString(message?.id);
+  return {
+    kind: REACTION_CHANGED,
+    iface: DISCORD_IFACE,
+    at,
+    id: `${DISCORD_IFACE}:reaction:${messageId}:clear:all:${at}`,
+    conversation: conversationOf(message),
+    messageId,
+    authorId: authorIdOf(message),
+    emoji: null,
+    userId: null,
+    added: false,
+    cleared: 'all',
+  };
+}
+
+/**
+ * The `reaction.changed` event of `MessageReactionRemoveEmoji`: every reaction of one emoji taken
+ * off its message (`cleared: 'emoji'`, no user). The id carries the arrival time. Never throws: an
+ * emoji that cannot be read leaves `name` null, which validateEvent refuses.
+ * @param {object} reaction  A discord.js MessageReaction (possibly partial).
+ * @param {{ now?: () => number }} [options]
+ * @returns {import('../../src/protocol.js').ReactionChanged}
+ */
+export function reactionClearEmojiEvent(reaction, { now = Date.now } = {}) {
+  const message = reaction?.message ?? null;
+  const emoji = emojiOf(reaction);
+  const emojiId = idString(emoji?.id);
+  const name = typeof emoji?.name === 'string' ? emoji.name : null;
+  const at = now();
+  const messageId = idString(message?.id);
+  return {
+    kind: REACTION_CHANGED,
+    iface: DISCORD_IFACE,
+    at,
+    id: `${DISCORD_IFACE}:reaction:${messageId}:clear:${emojiId ?? name}:${at}`,
+    conversation: conversationOf(message),
+    messageId,
+    authorId: authorIdOf(message),
+    emoji: { name, ...(emojiId ? { id: emojiId } : {}) },
+    userId: null,
+    added: false,
+    cleared: 'emoji',
   };
 }
 
