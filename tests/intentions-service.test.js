@@ -107,6 +107,18 @@ test('intent: with features.intentions off every action answers feature-off', as
   }
 });
 
+test('intent.set: the answer line says the due time in bot.timezone as the intentions block writes it, never as a bare UTC figure', async () => {
+  const { env, hot } = makeEnv();
+  hot.config.bot.timezone = 'Europe/Moscow';
+  await withCapturedLogs(async () => {
+    // T0 is 10:00 UTC, 13:00 in Moscow; one minute on is 13:01 there.
+    const result = await runOp('intent.set', { text: 'βρες ένα meme', due: '1m' }, hers(env, 'T1'));
+    assert.equal(result.status, 'ok', result.summary);
+    assert.match(result.data.text, /due Sun, October 18 13:01,/, result.data.text);
+    assert.doesNotMatch(result.data.text, /10:01/, 'no UTC clock in the line');
+  });
+});
+
 test('intent.set: her own intention is pending with its provenance, written to intentions.json', async () => {
   const { env, intentions, dataDir } = makeEnv();
   await withCapturedLogs(async () => {
