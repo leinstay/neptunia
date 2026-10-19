@@ -1518,8 +1518,9 @@ export function createDescriber({
   }
 
   /**
-   * The second look at a picture on a question (features.imageRelook and
-   * features.vision, a missing key counts as on): download `item` the way a
+   * The second look at a picture on a question (features.imageRelook, a missing
+   * key counts as on; never features.vision, which gates only the pictures sent
+   * in the persona's own request): download `item` the way a
    * caption does (pictureImageUrl, `context.vision.maxBytes`) and ask the
    * media model (`vision`, a helper request, `purpose: 'relook'`,
    * output capped at `media.video.rewatch.maxOutputTokens`) `question`: the
@@ -1541,7 +1542,7 @@ export function createDescriber({
    */
   async function relookImage(guildId, item, question) {
     const features = hot.config.features ?? {};
-    if (features.imageRelook === false || features.vision === false) return null;
+    if (features.imageRelook === false) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     if (!promptText || item?.kind !== 'image' || !item.itemId || !item.url || !asked) return null;

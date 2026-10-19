@@ -2118,17 +2118,20 @@ test('createTurnRunner: relook -- with the second-look counter spent no picture 
   assert.ok(capped.logs.some((entry) => entry.msg === 'rewatch: skipped' && entry.reason === 'cap'));
 });
 
-test('createTurnRunner: relook -- imageRelook or vision off removes the pictures; the videos keep their second look', async () => {
+test('createTurnRunner: relook -- imageRelook off removes the pictures (features.vision off does not); the videos keep their second look', async () => {
   const video = videoAttachmentRaw('m1', NOW - 9000, 'va', 'clip.mp4');
   const picture = pictureRaw('m2', NOW - 5000, 'pa', 'singes.png');
   const states = { va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } };
   const run = (hot) =>
     runRelook({ hot, scene: relookScene([video, picture]), llm: rewatchLlm('1 | τι χρώμα;'), describer: fakeRelookDescriber(states, { pa: 'deux singes' }) });
 
-  const on = await run(rewatchHot({ vision: true, imageRelook: true }));
-  assert.deepEqual(mediaLines(on.llm), ['1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά', '2 | picture | singes.png | described | deux singes']);
+  // features.vision only gates pictures in the persona's own request: the second look runs through the describer.
+  for (const hot of [rewatchHot({ vision: true, imageRelook: true }), rewatchHot({ vision: false, imageRelook: true })]) {
+    const on = await run(hot);
+    assert.deepEqual(mediaLines(on.llm), ['1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά', '2 | picture | singes.png | described | deux singes']);
+  }
 
-  for (const hot of [rewatchHot({ vision: true, imageRelook: false }), rewatchHot({ vision: false, imageRelook: true })]) {
+  for (const hot of [rewatchHot({ vision: true, imageRelook: false }), rewatchHot({ vision: false, imageRelook: false })]) {
     const { describer, llm } = await run(hot);
     assert.deepEqual(mediaLines(llm), ['1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά']);
     assert.equal(describer.rewatchCalls.length, 1);

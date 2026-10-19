@@ -2207,10 +2207,17 @@ test('relookImage: a spent llm.maxRequestsPerDay takes no slot; a failed downloa
   assert.deepEqual(Object.keys(failed.store.getMediaCache('g1')), []);
 });
 
-test('relookImage: imageRelook off, vision off, no rewatch-answer prompt, a non-picture or an empty question -> null, no download', async () => {
+test('relookImage: features.vision off (pictures stay out of the persona\'s own request) still looks through the vision model', async () => {
+  const { describer, llm, imageFetcher } = relookDescriber({ hot: relookHot({ features: { vision: false } }) });
+  const answer = await describer.relookImage('g1', pictureItem('a1'), 'q?');
+  assert.equal(typeof answer?.text, 'string');
+  assert.equal(imageFetcher.calls.length, 1);
+  assert.equal(llm.calls.length, 1);
+});
+
+test('relookImage: imageRelook off, no rewatch-answer prompt, a non-picture or an empty question -> null, no download', async () => {
   const cases = [
     { hot: relookHot({ features: { imageRelook: false } }), item: pictureItem('a1'), question: 'q?' },
-    { hot: relookHot({ features: { vision: false } }), item: pictureItem('a1'), question: 'q?' },
     { hot: relookHot({ prompts: { 'rewatch-answer': undefined } }), item: pictureItem('a1'), question: 'q?' },
     { hot: relookHot(), item: pictureItem('a1', { kind: 'gif' }), question: 'q?' },
     { hot: relookHot(), item: videoAttachment(), question: 'q?' },

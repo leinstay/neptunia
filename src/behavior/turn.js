@@ -6116,14 +6116,15 @@ export function createTurnRunner({
       // direct address only (never a spontaneous or an overheard turn, never the drawFailed
       // turn). Videos under features.videoRewatch (with the video stage), watched GIFs under
       // features.videoRewatch and video vision, pictures under
-      // features.imageRelook and features.vision (a missing key counts as on, each), the
-      // persona's own posted drawings included.
+      // features.imageRelook alone (a missing key counts as on, each; features.vision gates only
+      // the pictures sent in the persona's own request, the look runs through the vision model),
+      // the persona's own posted drawings included.
       // A routed call asks about its source, whose media no turn looks at: the media
       // here belong to another conversation, so nothing is offered or retried.
       // It needs the videos' states and its transcript the file previews; it works on a
       // copy of the states, so a late re-watch never touches what the request was built from.
       const videoRewatchOn = Boolean(videoStage) && features.videoRewatch !== false && typeof describer.rewatchVideo === 'function';
-      const imageRelookOn = features.imageRelook !== false && features.vision !== false && typeof describer?.relookImage === 'function';
+      const imageRelookOn = features.imageRelook !== false && typeof describer?.relookImage === 'function';
       // Watched GIFs under features.videoRewatch and video vision (they are watched as clips);
       // the describer's watchedGifs offers none while GIFs are not watched (media.gif.watch).
       const gifRewatchOn =

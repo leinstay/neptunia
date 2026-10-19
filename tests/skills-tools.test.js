@@ -270,7 +270,8 @@ test('runMediaLook: the statuses -- arguments, message, media, switches, the tur
   assert.deepEqual(await run({ message: { id: 'm7', content: 'κείμενο', attachments: [], links: [], stickers: [] } }), ['invalid', 'no-media']);
   assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;', item: 9 } }), ['invalid', 'invalid-args']);
   assert.deepEqual(await run({ describer: null }), ['not_configured', 'not-configured']);
-  assert.deepEqual(await run({ config: { ...LOOK_ON, features: { ...LOOK_ON.features, vision: false } } }), ['not_configured', 'not-configured'], 'a picture without vision');
+  // features.vision gates pictures in the persona's own request only; her second look runs through the describer.
+  assert.deepEqual(await run({ config: { ...LOOK_ON, features: { ...LOOK_ON.features, vision: false } } }), ['ok', undefined], 'a picture with features.vision off still runs');
   assert.deepEqual(await run({ config: { ...LOOK_ON, features: { ...LOOK_ON.features, imageRelook: false } } }), ['not_configured', 'not-configured']);
   assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;', item: 2 }, config: { ...LOOK_ON, features: { ...LOOK_ON.features, videoRewatch: false } } }), ['not_configured', 'not-configured']);
   assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;', item: 2 }, config: { ...LOOK_ON, features: { ...LOOK_ON.features, mediaDescriptions: false } } }), ['not_configured', 'not-configured'], 'a video without video vision');

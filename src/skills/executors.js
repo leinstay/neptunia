@@ -248,7 +248,8 @@ export function bodyTokens(body, names) {
  * any other value -- a raw message id -- is passed on as written. A non-empty body fills the
  * skill's body argument (`command.body`, src/skills/derive.js#BODY_ARGS: an errand's `goal`, her
  * `text`) when the call left it out -- `invalid-args` (`args.<arg>:twice`) when it gave it as an
- * attribute too -- and the result names it (`bodyArg`) for the caller to log. Before that, a body
+ * attribute too with a different text; the same text both ways, after trimming, is one value and
+ * no refusal -- and the result names it (`bodyArg`) for the caller to log. Before that, a body
  * for such a command that is only `name=value` tokens (bodyTokens: names among the command's
  * options, none of them given as an attribute) is those arguments and no text at all; the result
  * counts them (`bodyArgs`) for the caller to log; a body with one of its names on the tag already,
@@ -305,7 +306,8 @@ export function resolveCall(call, view) {
   const bodyText = Boolean(body) && Boolean(command.body) && !fromTokens;
   let fileFromBody = false;
   if (bodyText) {
-    if (Object.hasOwn(given, command.body)) return refused('invalid-args', `args.${command.body}:twice`);
+    // The argument on the tag too: refused unless it is the same text (then one value, the body's).
+    if (Object.hasOwn(given, command.body) && String(given[command.body] ?? '').trim() !== body) return refused('invalid-args', `args.${command.body}:twice`);
     given[command.body] = body;
     // An errand's file handle on a line of its own there, the call giving no file: the attachment,
     // out of the text (an empty text left is a file-only post); several: refused as an unknown file.

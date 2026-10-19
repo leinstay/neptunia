@@ -1647,7 +1647,8 @@ function lookupCandidates(lookup, labels, timezone) {
  * (her granted in-turn tools) holds `web.search` / `memory.search`; else neither. With the switch
  * on, features.webLookup on and `web.read` granted, `senses.readTool` follows the links lines.
  * With the switch on `senses.videoRewatch` is not shown (no classifier gives her a second look);
- * `senses.lookTool` stands in its place when `media.look` is granted and vision or video vision is on.
+ * `senses.lookTool` stands in its place when `media.look` is granted and the image second look
+ * (features.imageRelook) or video vision is on.
  * `customEmoji` (the `<emoji>` block is possible) adds `senses.customEmoji`;
  * `gifs` (features.gifs on and a non-empty library) adds `senses.gifs` right after it.
  * `gifWatching` (GIFs are watched now, src/memory/gif-watch.js#gifWatchBlocker)
@@ -1703,9 +1704,11 @@ function renderSenses(
   // The second look on a question (features.videoRewatch, a missing key
   // counts as on); an older labels.json without the line shows nothing.
   // With features.coreTools no classifier gives her one: she looks again herself with media.look,
-  // granted to her by name, at a picture (vision) or a video (video vision).
+  // granted to her by name, at a picture (features.imageRelook, through the vision model; never
+  // features.vision, which gates only the pictures in her own request) or a video (video vision).
   if (coreTools) {
-    if (granted('media.look') && (visionOn || videoOn) && senses.lookTool) lines.push(senses.lookTool);
+    const imageRelookOn = config.features?.imageRelook !== false;
+    if (granted('media.look') && (imageRelookOn || videoOn) && senses.lookTool) lines.push(senses.lookTool);
   } else if (videoOn && config.features?.videoRewatch !== false && senses.videoRewatch) lines.push(senses.videoRewatch);
 
   // Stickers get their own lines (a picture-format one behaves like an

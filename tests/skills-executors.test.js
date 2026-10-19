@@ -118,6 +118,10 @@ test('resolveCall: only a registry skill; its attributes are its command\'s opti
   assert.deepEqual([said.ok, said.skill, said.args], [true, 'message.create', { channel: NEWS, text: 'καλημέρα' }]);
   assert.deepEqual(resolve('message.create', { channel: '#νέα', who: 'x' }, 'γεια').reason, 'args.who:unknown');
   assert.deepEqual(resolve('message.create', { text: 'δύο' }, 'φορές').reason, 'args.text:twice');
+  // The same text on the tag and in the body (after trimming) is one value, not twice.
+  const same = resolve('message.create', { text: 'γεια σου' }, '  γεια σου\n');
+  assert.deepEqual([same.ok, same.args, same.bodyArg], [true, { text: 'γεια σου' }, 'text']);
+  assert.deepEqual(resolve('message.create', { text: ' γεια σου ' }, 'γεια σου').args, { text: 'γεια σου' }, 'the attribute trimmed too');
   // A body where the command takes no text is her comment: left out, the call goes on with its attributes.
   const commented = resolve('message.delete', { message: '#2' }, 'σβήνω το δοκιμαστικό');
   assert.deepEqual([commented.ok, commented.bodyIgnored, commented.args], [true, true, { message: '1002', channel: HERE }]);
@@ -157,6 +161,7 @@ test('resolveCall: the body is the skill\'s main argument -- an errand\'s goal, 
   assert.equal(resolve('task.run', { goal }).code, 'agent-required', 'with the goal on the tag too');
   // The goal given both ways is refused as any argument given twice; on the tag alone, as before.
   assert.equal(resolve('task.run', { agent: 'web', goal: 'one' }, 'two').reason, 'args.goal:twice');
+  assert.deepEqual(resolve('task.run', { agent: 'web', goal }, goal).args, { agent: 'web', goal }, 'the same goal both ways is one value');
   const tagged = resolve('task.run', { agent: 'web', goal });
   assert.deepEqual([tagged.ok, tagged.args, 'bodyArg' in tagged], [true, { agent: 'web', goal }, false]);
   // message.create keeps its body as its text, as before; now named for the log.
