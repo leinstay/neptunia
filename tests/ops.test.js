@@ -36,7 +36,7 @@ const AGREED = new Set([
   'memory.affinity.read', 'memory.wipe', 'memory.journal.read', 'memory.archive.read', 'memory.restore',
   'memory.snapshot', 'memory.private.read', 'memory.private.forget', 'memory.private.purge',
   'message.create', 'message.edit', 'message.delete', 'message.react.add', 'message.react.remove',
-  'task.run', 'task.status', 'task.cancel', 'task.list',
+  'task.run', 'task.status', 'task.cancel', 'task.list', 'task.read', 'task.resolve',
   'web.search', 'web.read', 'media.look', 'memory.search',
   'intent.set', 'intent.update', 'intent.cancel', 'intent.list',
   'places.list',

@@ -289,6 +289,16 @@
     "whenToUse": "Read the state of one errand by its id, or of the open ones.",
     "whenNotToUse": "Open and newly finished errands are already in your tasks block."
   },
+  "task.read": {
+    "title": "Read an errand's result",
+    "whenToUse": "Read the full result of a finished errand by its id, in pages.",
+    "whenNotToUse": "Not for open errands."
+  },
+  "task.resolve": {
+    "title": "Close an errand",
+    "whenToUse": "Mark a finished errand as dealt with by its id.",
+    "whenNotToUse": "Not for open errands."
+  },
   "task.cancel": {
     "title": "Cancel an errand",
     "whenToUse": "Stop an open errand by its id.",

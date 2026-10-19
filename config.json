@@ -461,6 +461,7 @@
     "recentLines": 6,
     "maxOpen": 3,
     "resultMaxChars": 3000,
+    "unreadShown": 5,
     "resultRetrySeconds": 30,
     "resultCooldownSeconds": 60,
     "ledger": {

@@ -71,6 +71,8 @@ export const OP_EFFECTS = Object.freeze({
   'task.status': 'read',
   'task.cancel': 'write',
   'task.list': 'read',
+  'task.read': 'read',
+  'task.resolve': 'write',
   'web.search': 'read',
   'web.read': 'read',
   'media.look': 'read',

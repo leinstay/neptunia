@@ -113,11 +113,17 @@ function fakeLlm(responseText) {
 /** The errand service as the turn sees it: `view` lists `tasks`, `markSeen` is recorded. */
 function fakeErrands(tasks = []) {
   const seen = [];
+  const read = [];
+  const failed = [];
   return {
     tasks,
     seen,
+    read,
+    failed,
     view: () => tasks,
     markSeen: ({ guildId, ids }) => seen.push({ guildId, ids }),
+    markRead: ({ guildId, ids }) => read.push({ guildId, ids }),
+    markResultFailed: ({ guildId, ids }) => failed.push({ guildId, ids }),
     budget: () => ({ spent: false }),
     fileOf: () => null,
   };
@@ -232,15 +238,16 @@ test('<tasks>: an open errand is in the request tail; with none, the block is go
   });
 });
 
-test('<tasks>: a finished errand she has not seen is marked seen once a turn of hers showed it', async () => {
+test('<tasks>: a finished errand she has not read is listed with its marker and nothing is marked by showing it', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeChannel({ historyMessages: [raw] });
   const errands = fakeErrands([runningTask, doneTask]);
   const llm = fakeLlm('<skip/>');
   const turns = createTurnRunner({ discord: DISCORD, hot: fakeHot(), store: fakeStore(), llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, client: { user: { id: 'self-id', username: 'Bot' } }, port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }), errands, now: () => NOW });
   await withCapturedLogs(() => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' }));
-  assert.ok(userText(llm.calls[0][1].content).includes('tab02 | web | done | 3 min | find a meme'));
-  assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }]);
+  assert.ok(userText(llm.calls[0][1].content).includes('tab02 | web | done | 3 min | find a meme [unread]'));
+  assert.deepEqual(errands.seen, [], 'appearing in <tasks> marks nothing');
+  assert.deepEqual(errands.read, []);
 });
 
 test('task turns: a finished errand opens her turn where it was asked, with <task_result>, through the interface', async () => {
@@ -330,4 +337,82 @@ test('task turns: an event without the task in hand asks the guild\'s task store
   });
   assert.equal(runs.length, 1);
   assert.equal(runs[0].taskResult.id, 'tab02');
+});
+
+/** Let the promises a fired timer started run. */
+async function flush() {
+  for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+test('tasksBlockText: unread results carry the marker, the error code and the failed-turn note; the cap counts the rest', () => {
+  const withError = { ...labels, tasks: { ...labels.tasks, line: '{id} | {state} {error} | {goal}' } };
+  const failed = { ...doneTask, id: 'tab03', state: 'failed', error: 'timeout', resultTurnFailed: true, result: null };
+  const lines = tasksBlockText([runningTask, failed], withError, { now: NOW }).split('\n');
+  assert.ok(lines[1].startsWith('tab01 | running  | find the release notes'));
+  assert.ok(!lines[1].includes('[unread]'));
+  assert.equal(lines[2], 'tab03 | failed timeout | find a meme [unread] [result turn failed]');
+  const many = ['a1', 'a2', 'a3', 'a4'].map((id, i) => ({ ...doneTask, id, createdAt: NOW - (10 - i) * MINUTE }));
+  const capped = tasksBlockText([runningTask, ...many], labels, { now: NOW, unreadShown: 2 }).split('\n');
+  assert.deepEqual(capped.map((line) => line.split(' | ')[0]).slice(1), ['tab01', 'a1', 'a2', '[2 more unread]']);
+  const noMore = tasksBlockText(many, { ...labels, tasks: { ...labels.tasks, unreadMore: undefined } }, { now: NOW, unreadShown: 1 }).split('\n');
+  assert.equal(noMore.length, 2, 'without the label, no count line');
+  assert.equal(tasksBlockText(many, labels, { now: NOW }).split('\n').length, 5, 'the default shows five or fewer');
+  assert.equal(tasksBlockText(Array.from({ length: 7 }, (_, i) => ({ ...doneTask, id: `b${i}` })), labels, { now: NOW }).split('\n').at(-1), '[2 more unread]');
+});
+
+test('task turns: a result turn that spoke or chose silence marks the task seen and read', async () => {
+  for (const outcome of ['spoke', 'skip']) {
+    const errands = fakeErrands();
+    const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome }) };
+    const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
+    const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+    const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: () => null });
+    await withCapturedLogs(() => taskTurns.onFinished(doneTask, 'g1'));
+    assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }], outcome);
+    assert.deepEqual(errands.read, [{ guildId: 'g1', ids: ['tab02'] }], outcome);
+  }
+});
+
+test('task turns: a result turn that ended error or refused marks nothing and is tried again; a rehearsal marks nothing and is not retried', async () => {
+  const outcomes = [{ outcome: 'error' }, { outcome: 'refused' }, { outcome: 'spoke' }];
+  const runs = [];
+  const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async (params) => { runs.push(params); return outcomes[runs.length - 1]; } };
+  const timers = [];
+  const errands = fakeErrands();
+  const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
+  const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
+  await withCapturedLogs(async () => {
+    await taskTurns.onFinished(doneTask, 'g1');
+    assert.deepEqual([errands.seen.length, errands.read.length, timers.length], [0, 0, 1], 'error: nothing marked, a retry waits');
+    timers.shift().fn();
+    await flush();
+    assert.deepEqual([errands.seen.length, errands.read.length, timers.length], [0, 0, 1], 'refused: the same');
+    timers.shift().fn();
+    await flush();
+  });
+  assert.equal(runs.length, 3);
+  assert.deepEqual(errands.read, [{ guildId: 'g1', ids: ['tab02'] }], 'the third try spoke: read');
+  const dry = fakeErrands();
+  const dryTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns: { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome: 'spoke', dryRun: true }) }, errands: dry, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
+  await withCapturedLogs(() => dryTurns.onFinished(doneTask, 'g1'));
+  assert.deepEqual([dry.seen, dry.read, timers.length], [[], [], 0]);
+});
+
+test('task turns: after the attempts a result that never got its turn stays unread and is noted as failed', async () => {
+  const turns = { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome: 'error' }) };
+  const timers = [];
+  const errands = fakeErrands();
+  const channel = fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
+  const client = { user: { id: 'self-id' }, channels: { fetch: async () => channel } };
+  const taskTurns = createTaskTurns({ discord: DISCORD, hot: fakeHot(), client, turns, errands, now: () => NOW, setTimer: (fn, ms) => timers.push({ fn, ms }) });
+  await withCapturedLogs(async () => {
+    await taskTurns.onFinished(doneTask, 'g1');
+    for (let i = 0; i < 40 && timers.length > 0; i += 1) {
+      timers.shift().fn();
+      await flush();
+    }
+  });
+  assert.deepEqual([errands.seen, errands.read], [[], []]);
+  assert.deepEqual(errands.failed, [{ guildId: 'g1', ids: ['tab02'] }]);
 });

@@ -7,8 +7,11 @@
 // else -- a slash command, or a message gone since -- an interjection; its kind is `task`, its
 // requester the person who asked, and its request carries the `<task_result>` block
 // (src/errands/blocks.js). A turn held back is retried every `agents.resultRetrySeconds`, at
-// most RESULT_ATTEMPTS times, then left for her `<tasks>` block; once a turn ran (spoke, chose
-// silence, or failed on its own) the task is marked seen. Settings are read at the moment of
+// most RESULT_ATTEMPTS times, then left for her `<tasks>` block (marked `resultTurnFailed`, so
+// the line says the turn never ran); a turn that failed on its own (`error`, `refused`, or any
+// outcome but spoke and skip) is retried the same way. Only a turn that spoke or chose silence
+// marks the task seen and read (`readAt`: its `<task_result>` was in front of her); a task not
+// read stays in her `<tasks>` block until `task.read` or `task.resolve`. Settings are read at the moment of
 // use; logs carry ids and outcomes, never a goal or a result. An errand's end reaches this module
 // as a `task.completed` event through the core's event door (src/interface/door.js): the service
 // calls `taskCompletedEvent(task, guildId)` and submits it, the door's handler is `onEvent`; the
@@ -39,6 +42,8 @@ export function taskCompletedEvent(task, guildId = null, now = Date.now) {
 
 /** The outcomes that mean the turn never ran: try again later. */
 const HELD = new Set(['busy', 'paused']);
+/** The outcomes that mean her turn ran and she saw the result. */
+const DONE = new Set(['spoke', 'skip']);
 
 /**
  * @param {object} options
@@ -46,7 +51,7 @@ const HELD = new Set(['busy', 'paused']);
  * @param {object} options.client  discord.js-shaped: `channels.fetch(id)`, `user.id`.
  * @param {object} options.discord  The Discord interface's capabilities object (src/index.js injects it): `normalizeMessage` of the message a result answers.
  * @param {{ runTurn: Function, isBusy?: Function, isAnyBusy?: Function }} options.turns
- * @param {{ markSeen: Function }} options.errands
+ * @param {{ markSeen: Function, markRead?: Function, markResultFailed?: Function }} options.errands
  * @param {{ onTaskFinished: Function }|null} [options.intentions]  The intention service: an errand's
  *   end moves the intentions waiting on it first (idempotent; never throws).
  * @param {() => string|null} [options.getGuildId]
@@ -76,6 +81,11 @@ export function createTaskTurns({ hot, client, discord, turns, errands, intentio
   function later(task, guildId, attempt, ms) {
     if (attempt + 1 >= RESULT_ATTEMPTS) {
       log.info('errands: result left to the tasks block', { id: task.id, attempts: attempt + 1 });
+      try {
+        errands?.markResultFailed?.({ guildId, ids: [task.id] });
+      } catch (err) {
+        log.warn('errands: result failure not noted', { id: task.id, error: err });
+      }
       return;
     }
     const timer = setTimer(() => {
@@ -138,12 +148,19 @@ export function createTaskTurns({ hot, client, discord, turns, errands, intentio
       result = { outcome: 'error' };
     }
     const outcome = result?.outcome ?? 'error';
-    if (HELD.has(outcome)) {
-      lastAt.delete(channelId);
-      later(task, guildId, attempt, retryMs);
+    if (result?.dryRun === true) {
+      log.info('errands: result turn', { id: task.id, channelId, outcome, dryRun: true });
       return result;
     }
-    if (result?.dryRun !== true) errands?.markSeen?.({ guildId, ids: [task.id] });
+    if (!DONE.has(outcome)) {
+      // Held back, or failed on its own: the result is still unread, so the turn is tried again.
+      lastAt.delete(channelId);
+      later(task, guildId, attempt, retryMs);
+      if (!HELD.has(outcome)) log.warn('errands: result turn not completed', { id: task.id, channelId, outcome });
+      return result;
+    }
+    errands?.markSeen?.({ guildId, ids: [task.id] });
+    errands?.markRead?.({ guildId, ids: [task.id] });
     log.info('errands: result turn', { id: task.id, channelId, outcome, ...(trigger ? {} : { interject: true }) });
     return result;
   }

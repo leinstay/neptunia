@@ -484,3 +484,111 @@ test('errands service: the connect loop\'s outcomes set the flag; start pings th
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+/** A store with one finished task of `agent` (done), asked in `scope`. */
+function finishedTask(store, { scope = 'group', channelId = 'c1', result = { text: 'found it' } } = {}) {
+  const id = store.add({ ...ask('web'), scope, origin: { channelId, messageId: 'm1' } }).task.id;
+  store.start(id);
+  store.finish(id, { status: 'done', result, usage: { usd: 0.01 } });
+  return id;
+}
+
+test('errands service: view lists the open tasks, then the unread finished ones; reading or resolving takes one out; a seen result stays until it is read', () => {
+  const rootDir = tempDir('nep-errands-service-');
+  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10 } } } } };
+  try {
+    const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log: fakeLog() });
+    const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn() });
+    const store = stores.get('g1');
+    const a = finishedTask(store);
+    const b = finishedTask(store);
+    const open = store.add(ask('web')).task.id;
+    assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [open, a, b]);
+    errands.markSeen({ guildId: 'g1', ids: [a, b] });
+    assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [open, a, b], 'the result turn having run hides nothing');
+    assert.equal(errands.markRead({ guildId: 'g1', ids: [a] }), 1);
+    assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [open, b]);
+    store.resolve(b);
+    assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [open]);
+    assert.equal(store.get(b).resolvedAt > 0, true);
+    assert.equal(store.resolve(open), null, 'an open task cannot be resolved');
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('errands service: a private chat\'s unread result is in the view only in that chat; the unread list survives a restart of the store', () => {
+  const rootDir = tempDir('nep-errands-service-');
+  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10 } } } } };
+  const dataDir = path.join(rootDir, 'data');
+  try {
+    const stores = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() });
+    const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn() });
+    const dm = finishedTask(stores.get('g1'), { scope: 'dm', channelId: 'dm1' });
+    const group = finishedTask(stores.get('g1'));
+    assert.deepEqual(errands.view({ guildId: 'g1' }).map((task) => task.id), [group]);
+    assert.deepEqual(errands.view({ guildId: 'g1', privateChannelId: 'dm1' }).map((task) => task.id), [dm, group]);
+    assert.deepEqual(errands.view({ guildId: 'g1', privateChannelId: 'dm2' }).map((task) => task.id), [group]);
+    const again = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() }).get('g1');
+    assert.deepEqual(again.unread().map((task) => task.id), [dm, group]);
+    // A record from before readAt: seen counts as read, unseen as unread.
+    const file = path.join(dataDir, 'guilds', 'g1', 'tasks.json');
+    const list = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const task of list.tasks) {
+      delete task.readAt;
+      delete task.resolvedAt;
+    }
+    list.tasks[0].seen = true;
+    fs.writeFileSync(file, JSON.stringify(list));
+    const legacy = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() }).get('g1');
+    assert.deepEqual(legacy.unread().map((task) => task.id), [group]);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('errands service: at start the finished errands whose result turn never ran get it again; the seen ones do not', async () => {
+  const rootDir = tempDir('nep-errands-service-');
+  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, daily: { tasks: 10 } } } } };
+  const dataDir = path.join(rootDir, 'data');
+  try {
+    const before = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() }).get('g1');
+    const unseen = finishedTask(before);
+    const seen = finishedTask(before);
+    before.markSeen(seen);
+    const running = before.add(ask('web')).task.id;
+    before.start(running);
+    const reopened = [];
+    const stores = createTaskStores({ dataDir, config: () => hot.config, log: fakeLog() });
+    const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn(), onFinished: (task, guildId) => reopened.push([task.id, guildId]) });
+    assert.equal(errands.start('g1'), 1);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(reopened.map(([id]) => id).sort(), [running, unseen].sort(), 'the restart-failed task and the unseen one');
+    assert.equal(reopened.every(([, guildId]) => guildId === 'g1'), true);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('errands service: the file of an expired task is a marker, not a path; a private chat\'s only in that chat', () => {
+  const rootDir = tempDir('nep-errands-service-');
+  const out = path.join(rootDir, 'out');
+  fs.mkdirSync(out, { recursive: true });
+  const hot = { config: { agents: { maxOpen: 5, web: { enabled: true, out, daily: { tasks: 10 } } } } };
+  try {
+    const stores = createTaskStores({ dataDir: path.join(rootDir, 'data'), config: () => hot.config, log: fakeLog() });
+    const errands = createErrandService({ client: fakeClient(), stores, hot, getGuildId: () => 'g1', log: fakeLog(), defer: (fn) => fn() });
+    const store = stores.get('g1');
+    const group = finishedTask(store, { result: { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png' }] } });
+    const dm = finishedTask(store, { scope: 'dm', channelId: 'dm1', result: { text: 'ok', files: [{ path: '/x/b.png', name: 'b.png' }] } });
+    const handle = `file:${group}/a.png`;
+    const found = errands.fileOf({ guildId: 'g1', handle });
+    assert.equal(found?.expired, true);
+    assert.equal(found.path, undefined);
+    assert.equal(errands.fileOf({ guildId: 'g1', handle: `file:${group}/other.png` }), null, 'a name the result does not list');
+    assert.equal(errands.fileOf({ guildId: 'g1', handle: `file:${dm}/b.png` }), null, 'a private chat\'s file elsewhere');
+    assert.equal(errands.fileOf({ guildId: 'g1', handle: `file:${dm}/b.png`, privateChannelId: 'dm1' })?.expired, true);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});

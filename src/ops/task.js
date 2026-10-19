@@ -1,4 +1,4 @@
-// Operations: `/nep task run|status|cancel|list`: the persona's errands handed to her agents
+// Operations: `/nep task run|status|cancel|list|result|resolve`: the persona's errands handed to her agents
 // (src/errands/, src/agent-runner/). Every member may use them while `features.memberCommands`
 // is on (rights.member); the rest is ruled here, for every caller alike -- the owner's command,
 // a member's, and the persona's own call (her skills: the requester of her turn is the caller).
@@ -8,7 +8,11 @@
 // with the id and `queued`: the errand runs in the background (src/errands/service.js) and its
 // end opens her own turn where it was asked. `task.cancel` is for the requester of the task or an
 // owner; `task.status` and `task.list` show a private chat's tasks only to their requester or an
-// owner. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
+// owner. A finished task's result stays until she has read it: `task.status` without an id lists the
+// open tasks and the finished ones not read yet; `task.read id [from]` returns the whole result in
+// pages of `agents.resultMaxChars` (the error, the sources and the files with their handles and
+// whether they expired come with the first page) and marks the task read when its last page is
+// returned; `task.resolve id` closes a finished task (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line;
 // `task.status` of one task adds `ledger: <id>` when the task is mirrored into the ledger. A
 // `task.run` of her turn links the intentions of that turn waiting for its errand (src/intentions/).
 
@@ -16,7 +20,8 @@ import { isOwnerId } from './grants.js';
 import { TASK_AGENTS } from './catalog.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
-import { isToolTask } from '../errands/store.js';
+import { fileHandle, isOpenState, isToolTask } from '../errands/store.js';
+import { DEFAULT_RESULT_MAX_CHARS } from '../errands/blocks.js';
 import { defineOp, perEnv, invalid, denied } from './registry.js';
 
 /** How many tasks `task.list` shows. */
@@ -127,8 +132,58 @@ const handlers = perEnv((env) => {
       if (task.ledgerId) lines.push(`ledger: ${task.ledgerId}`);
       return lines.join('\n');
     }
-    const open = store.open().filter((task) => mayView(task, context));
-    return open.length > 0 ? open.map(taskLine).join('\n') : 'no open tasks';
+    // The open tasks, then the finished ones she has not read (their result is still waiting).
+    const listed = [...store.open(), ...store.unread()].filter((task) => mayView(task, context));
+    return listed.length > 0 ? listed.map((task) => (isOpenState(task.state) ? taskLine(task) : `${taskLine(task)} (unread)`)).join('\n') : 'no open tasks';
+  }
+
+  /** A finished task of the caller's view, or an `invalid` error: not found, a tool agent's, not viewable, still open. */
+  function finishedTask(args, context) {
+    const store = errands().store(resolvedGuildId(context));
+    if (!store) throw Object.assign(new Error('no guild'), { code: 'no-guild' });
+    const id = String(args?.id ?? '').trim();
+    if (!id) throw invalid('an id is required');
+    const task = store.get(id);
+    if (!task || isToolTask(task) || !mayView(task, context)) throw invalid(`no task ${id}`, 'not-found');
+    if (isOpenState(task.state)) throw invalid(`task ${id} is still ${task.state}`);
+    return { store, task };
+  }
+
+  /** `task.read id [from]`: a finished task's result in a page of `agents.resultMaxChars` characters. */
+  function cmdRead(args, context) {
+    const { store, task } = finishedTask(args, context);
+    const configured = hot.config?.agents?.resultMaxChars;
+    const page = Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_RESULT_MAX_CHARS;
+    const text = typeof task.result?.text === 'string' ? task.result.text : '';
+    const from = args?.from === undefined || args?.from === null || args?.from === '' ? 0 : Number(args.from);
+    if (!Number.isInteger(from) || from < 0 || (from > 0 && from >= text.length)) throw invalid(`from must be between 0 and ${Math.max(0, text.length - 1)}`);
+    const to = Math.min(text.length, from + page);
+    const lines = [taskLine(task)];
+    if (from === 0) {
+      if (task.error && task.state !== 'done') lines.push(`error: ${task.error}`);
+      const sources = Array.isArray(task.result?.sources) ? task.result.sources.filter((url) => typeof url === 'string' && url) : [];
+      for (const [i, url] of sources.entries()) lines.push(`source ${i + 1}: ${url}`);
+      for (const file of Array.isArray(task.result?.files) ? task.result.files : []) {
+        if (!file || typeof file.name !== 'string') continue;
+        const meta = `${file.contentType || '-'}, ${Number(file.bytes) || 0} bytes`;
+        lines.push(task.filesExpired === true ? `file: ${file.name} (${meta}) expired, no handle` : `file: ${fileHandle(task.id, file.name)} (${meta})`);
+      }
+    }
+    lines.push(text ? `result: characters ${from}-${to} of ${text.length}` : 'result: empty');
+    if (text) lines.push(text.slice(from, to));
+    const more = to < text.length;
+    if (more) lines.push(`next: from=${to}`);
+    // Read when the last page is in her hands.
+    else store.markRead(task.id);
+    return lines.join('\n');
+  }
+
+  /** `task.resolve id`: a finished task closed, its result dealt with. */
+  function cmdResolve(args, context) {
+    const { store, task } = finishedTask(args, context);
+    store.resolve(task.id);
+    store.markRead(task.id);
+    return `task ${task.id}: resolved`;
   }
 
   /** `/nep task cancel id`: for the requester of the task or an owner. */
@@ -157,7 +212,7 @@ const handlers = perEnv((env) => {
     return tasks.length > 0 ? tasks.map(taskLine).join('\n') : 'no tasks yet';
   }
 
-  return { cmdRun, cmdStatus, cmdCancel, cmdList };
+  return { cmdRun, cmdStatus, cmdCancel, cmdList, cmdRead, cmdResolve };
 });
 
 defineOp({
@@ -179,4 +234,14 @@ defineOp({
   name: 'task.list',
   rights: { kind: 'read', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdList(args, ctx),
+});
+defineOp({
+  name: 'task.read',
+  rights: { kind: 'read', member: true },
+  run: (args, ctx) => handlers(ctx.env).cmdRead(args, ctx),
+});
+defineOp({
+  name: 'task.resolve',
+  rights: { kind: 'write', member: true },
+  run: (args, ctx) => handlers(ctx.env).cmdResolve(args, ctx),
 });

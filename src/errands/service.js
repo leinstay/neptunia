@@ -377,14 +377,22 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
 
   /**
    * The tasks the persona sees in a turn's `<tasks>` block: the open ones, then the finished ones
-   * she has not seen, oldest first. In a server channel only the `group` ones; in a private
+   * she has not read nor closed (`readAt`, `resolvedAt`; whether a result turn ran does not hide
+   * one), oldest first. In a server channel only the `group` ones; in a private
    * chat (`privateChannelId`) also the `dm` ones asked in that chat.
    */
   function view({ guildId = null, privateChannelId = null } = {}) {
     const store = storeOf(guildId);
     if (!store) return [];
     const visible = (task) => task.scope !== 'dm' || (privateChannelId !== null && task.origin?.channelId === String(privateChannelId));
-    return [...store.open(), ...store.unseen()].filter(visible);
+    return [...store.open(), ...store.unread()].filter(visible);
+  }
+
+  /** `{ expired: true, task }` for the expired file `handle` of a task this conversation may see, else null. */
+  function expiredFile(store, handle, privateChannelId) {
+    const task = store.get(String(handle).replace(/^file:/, '').split('/')[0]);
+    if (!task || (task.scope === 'dm' && (privateChannelId === null || task.origin?.channelId !== String(privateChannelId)))) return null;
+    return { expired: true, task };
   }
 
   /**
@@ -395,7 +403,8 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
   function fileOf({ guildId = null, handle, privateChannelId = null } = {}) {
     const store = storeOf(guildId);
     const file = store ? store.fileOf(handle) : null;
-    if (!file) return null;
+    // Files the runner has deleted: a marker the callers refuse as `file-expired`, never a path.
+    if (!file) return store?.fileExpired?.(handle) === true ? expiredFile(store, handle, privateChannelId) : null;
     if (file.task.scope === 'dm' && (privateChannelId === null || file.task.origin?.channelId !== String(privateChannelId))) return null;
     return file;
   }
@@ -406,6 +415,24 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     if (!store) return 0;
     let marked = 0;
     for (const id of ids) if (store.markSeen(id)) marked += 1;
+    return marked;
+  }
+
+  /** The tasks `ids` marked as read by the persona (their result turn completed, or `task.read` returned them). */
+  function markRead({ guildId = null, ids = [] } = {}) {
+    const store = storeOf(guildId);
+    if (!store) return 0;
+    let marked = 0;
+    for (const id of ids) if (store.markRead(id)) marked += 1;
+    return marked;
+  }
+
+  /** The tasks `ids` noted as ones whose result turn never completed (kept unread; the `<tasks>` line says so). */
+  function markResultFailed({ guildId = null, ids = [] } = {}) {
+    const store = storeOf(guildId);
+    if (!store) return 0;
+    let marked = 0;
+    for (const id of ids) if (store.markResultFailed(id)) marked += 1;
     return marked;
   }
 
@@ -427,6 +454,13 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
       if (ended && !isOpenState(ended.state)) mirrored(ended.id, () => mirror.finish(ended, { maxChars: resultMaxChars() }));
     }
     if (failed > 0) log.info('errands: open tasks failed at start', { guildId: store.guildId, count: failed });
+    // Finished errands whose result turn never ran (a restart cut it short, or it kept failing):
+    // their turn is opened again, one after another through the turn runner's own cooldown.
+    if (typeof onFinished === 'function') {
+      const waiting = store.unseen().filter((task) => task.origin?.channelId);
+      if (waiting.length > 0) log.info('errands: result turns reopened at start', { guildId: store.guildId, count: waiting.length });
+      for (const task of waiting) defer(() => Promise.resolve(onFinished(task, store.guildId)).catch((err) => log.warn('errands: onFinished failed', { id: task.id, error: err })));
+    }
     return failed;
   }
 
@@ -465,5 +499,5 @@ export function createErrandService({ client, stores, hot, env = {}, memory = nu
     while (running.size > 0) await Promise.allSettled([...running.values()]);
   }
 
-  return { submit, runInline, cancel, budget, view, fileOf, markSeen, start, forgetUser, wipe, idle, check, runnerUp: (agent) => health.get(agent)?.up ?? null, store: storeOf, limitsOf, ledger: mirror };
+  return { submit, runInline, cancel, budget, view, fileOf, markSeen, markRead, markResultFailed, start, forgetUser, wipe, idle, check, runnerUp: (agent) => health.get(agent)?.up ?? null, store: storeOf, limitsOf, ledger: mirror };
 }

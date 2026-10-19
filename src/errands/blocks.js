@@ -7,10 +7,12 @@
 import { fill } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { MINUTE_MS } from '../time.js';
-import { fileHandle } from './store.js';
+import { fileHandle, isOpenState } from './store.js';
 
 /** The goal's length on a `<tasks>` line (characters). */
 export const TASK_GOAL_CHARS = 120;
+/** `agents.unreadShown` when it is missing (config.json carries the same). */
+export const DEFAULT_UNREAD_SHOWN = 5;
 /** `agents.resultMaxChars` when it is missing (config.json carries the same). */
 export const DEFAULT_RESULT_MAX_CHARS = 3000;
 
@@ -33,24 +35,41 @@ function taskStateWord(task, labels) {
 /**
  * The `<tasks>` block's body: `labels.tasks.header`, then one `labels.tasks.line` per task
  * (`{id}`, `{agent}`, `{goal}` on one line cut to TASK_GOAL_CHARS, `{state}` through
- * `labels.tasks.states`, `states.expired` for a task whose files have expired, `{age}` whole
- * minutes since it was asked). '' with no task or without the header or line label.
+ * `labels.tasks.states`, `states.expired` for a task whose files have expired, `{error}` the
+ * code of a task that did not end `done` ('' otherwise), `{age}` whole minutes since it was
+ * asked). The open ones come first; a finished one is an unread result and its line ends with
+ * `labels.tasks.unread` (and `labels.tasks.resultTurnFailed` when its result turn never
+ * completed). At most `unreadShown` finished ones are listed, oldest first; `labels.tasks.unreadMore`
+ * (`{count}`) counts the rest. '' with no task or without the header or line label.
  * @param {object[]} tasks
  * @param {object} labels
- * @param {{ now: number, goalChars?: number }} options
+ * @param {{ now: number, goalChars?: number, unreadShown?: number }} options
  * @returns {string}
  */
-export function tasksBlockText(tasks, labels, { now, goalChars = TASK_GOAL_CHARS }) {
+export function tasksBlockText(tasks, labels, { now, goalChars = TASK_GOAL_CHARS, unreadShown = DEFAULT_UNREAD_SHOWN }) {
   const l = labels?.tasks;
   const list = Array.isArray(tasks) ? tasks.filter((task) => task && typeof task.id === 'string') : [];
   if (list.length === 0 || typeof l?.header !== 'string' || typeof l?.line !== 'string') return '';
-  const lines = list.map((task) => fill(l.line, {
-    id: task.id,
-    agent: task.agent,
-    goal: clampWithEllipsis(oneLine(task.goal), goalChars),
-    state: taskStateWord(task, labels),
-    age: Math.max(0, Math.floor((now - (Number(task.createdAt) || now)) / MINUTE_MS)),
-  }));
+  const open = list.filter((task) => isOpenState(task.state));
+  const finished = list.filter((task) => !isOpenState(task.state));
+  const cap = Number.isInteger(unreadShown) && unreadShown >= 0 ? unreadShown : DEFAULT_UNREAD_SHOWN;
+  const shown = [...open, ...finished.slice(0, cap)];
+  const lineOf = (task) => {
+    const line = fill(l.line, {
+      id: task.id,
+      agent: task.agent,
+      goal: clampWithEllipsis(oneLine(task.goal), goalChars),
+      state: taskStateWord(task, labels),
+      error: task.state !== 'done' && task.error ? task.error : '',
+      age: Math.max(0, Math.floor((now - (Number(task.createdAt) || now)) / MINUTE_MS)),
+    });
+    if (isOpenState(task.state)) return line;
+    const notes = [typeof l.unread === 'string' ? l.unread : '', task.resultTurnFailed === true && typeof l.resultTurnFailed === 'string' ? l.resultTurnFailed : ''].filter(Boolean);
+    return notes.length > 0 ? `${line} ${notes.join(' ')}` : line;
+  };
+  const lines = shown.map(lineOf);
+  const more = finished.length - (shown.length - open.length);
+  if (more > 0 && typeof l.unreadMore === 'string') lines.push(fill(l.unreadMore, { count: more }));
   return [l.header, ...lines].join('\n');
 }
 
