@@ -19,7 +19,10 @@ export function deletedLinesMax(context) {
  * reply parent) that the history does not hold: `{ placeholders, deletedIds, ms }`. A placeholder
  * is a message shaped like a normalized one with `deleted: true`, empty `content` and no media,
  * its author named by the history, else `nameOf(id)`, else the id; its time is the original
- * message's (the `seen` line of the same scan), else the deletion's. `deletedIds` holds every
+ * message's (the `seen` line of the same scan), else the `deleted` line's own `occurredAt`, which
+ * is the message's time for a line written by pipeline.js#onMessageDelete (an older line, dated by
+ * the deletion, gives that time). The scan starts at the window's oldest line, so a message older
+ * than the window deleted today is not read at all. `deletedIds` holds every
  * such message id (the cap cuts only the placeholders, the newest `max` stay). Reads only; a
  * failed read is `{ placeholders: [], deletedIds: empty, ms, failed: true }`.
  * @param {{ record: { iterate: Function }, guildId: string, channelId: string, history: object[],

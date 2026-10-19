@@ -2734,7 +2734,9 @@ export function createMessageHandler({
 
   /**
    * A message of the served guild deleted on Discord (`messageDelete`) as a `deleted` line of
-   * the record, dated now; the message's recorded text stays (a deletion is not a forget
+   * the record, dated by the message's own creation time (`createdTimestamp`, which a partial
+   * message has too; now when missing) so a window can place it; the envelope's `recordedAt`
+   * keeps the deletion time. The message's recorded text stays (a deletion is not a forget
    * request). Only what `recordable` lets in. Never throws: a refused append is logged as
    * `events: record failed` (counts only).
    * @param {import('../protocol.js').MessageReceived & { raw: object }} event  The deletion
@@ -2750,7 +2752,7 @@ export function createMessageHandler({
       if (!id || !recordable(message, config)) return;
       const guildId = message.guild?.id ?? message.guildId;
       const line = toRecordLine(
-        { id: String(id), channelId: message.channel.id, authorId: message.author?.id ?? null, ts: now() },
+        { id: String(id), channelId: message.channel.id, authorId: message.author?.id ?? null, ts: Number.isFinite(message.createdTimestamp) && message.createdTimestamp > 0 ? message.createdTimestamp : now() },
         { kind: 'deleted', now },
       );
       await record.append(guildId, [line]);

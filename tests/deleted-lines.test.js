@@ -30,7 +30,7 @@ test('deletedLinesOf: a deleted message the history lacks becomes a placeholder 
   assert.deepEqual(found.placeholders.map((p) => [p.id, p.ts, p.authorName, p.deleted, p.content]), [['m2', T0 + 1000, 'Zoë', true, '']], 'the time of the seen line, not the deletion; a message still in the history is no placeholder');
   assert.deepEqual([...found.deletedIds], ['m2']);
   assert.equal(typeof found.ms, 'number');
-  // Without a seen line the deletion time is used; the persona's own deleted line reads as hers.
+  // Without a seen line the deleted line's own time is used (the message's, as the door writes it); the persona's own deleted line reads as hers.
   const own = await deletedLinesOf({ record: fakeRecord([deleted('m9', T0 + 2000, 'self')]), guildId: 'g1', channelId: 'c1', history, selfId: 'self', selfName: 'Nept' });
   assert.deepEqual(own.placeholders.map((p) => [p.ts, p.self, p.authorName]), [[T0 + 2000, true, 'Nept']]);
 });
