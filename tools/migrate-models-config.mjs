@@ -1,11 +1,16 @@
 #!/usr/bin/env node
-// One-off operations tool: moves a config file from the flat `roles` map to `models.base` /
-// `models.agents` (2026-10), the moves src/config.js#migrateModelsKeys makes and the loader
-// asks for when it refuses a file still holding `roles` (src/config.js#assertModelsShape):
-// `roles.voice` .. `roles.embedding` and `roles.byPurpose` -> `models.base.*`, `roles.drawing` ->
-// `models.agents.drawing`, `roles["agent.web"|"agent.server"|"agent.dev"]` -> `models.agents.web|
-// server|dev`, `roles["agent.advice"]` dropped; the old agent role keys of `llm.keyByRole` renamed
-// the same way (`agent.advice` dropped).
+// One-off operations tool: moves a config file to today's model keys, the moves
+// src/config.js#migrateModelsKeys makes and the loader asks for when it refuses a file still
+// holding the flat `roles` map (src/config.js#assertModelsShape): `roles.voice` -> `models.core`,
+// `roles.analyzer` .. `roles.embedding` -> `models.helpers.*`, `roles.byPurpose` ->
+// `models.byPurpose`, `roles.drawing` -> `models.agents.drawing`,
+// `roles["agent.web"|"agent.server"|"agent.dev"]` -> `models.agents.web|server|dev`,
+// `roles["agent.advice"]` dropped; the old agent role keys of `llm.keyByRole` renamed the same way
+// (`agent.advice` dropped). And the moves the loader reads as aliases (2026-10, the role `voice`
+// renamed `core`): `models.base.voice` -> `models.core`, `models.base.<helper>` ->
+// `models.helpers.<helper>`, `models.base.byPurpose` -> `models.byPurpose`, `llm.keyByRole.voice`
+// -> `llm.keyByRole.core`, and `voice` -> `core` in `llm.cache.roles`, `llm.hedge.roles` and the
+// role suffix of an `llm.providerByModel` key.
 //
 //   node tools/migrate-models-config.mjs <config.local.json> [--write]
 //

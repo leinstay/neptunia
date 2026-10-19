@@ -731,7 +731,7 @@ test('loadProfiles: a missing key or an unknown one is refused, nested keys too'
   withAgentsTree({ probe: workerProfile('probe', { limits: { steps: 5, usd: 0.1 } }) }, (rootDir) => assertRefused(rootDir, 'probe', 'limits.seconds'));
   withAgentsTree({ probe: workerProfile('probe', { id: 'other' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'id'));
   withAgentsTree({ probe: workerProfile('probe', { prompt: '../prompt.md' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'prompt'));
-  withAgentsTree({ probe: workerProfile('probe', { role: 'voice' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'role'));
+  withAgentsTree({ probe: workerProfile('probe', { role: 'core' }) }, (rootDir) => assertRefused(rootDir, 'probe', 'role'));
   for (const role of ['agent.server', 'agent.web', 'drawing']) {
     withAgentsTree({ probe: workerProfile('probe', { role }) }, (rootDir) => assertRefused(rootDir, 'probe', 'role'));
   }

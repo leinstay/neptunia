@@ -34,10 +34,10 @@ import {
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createLimits } from '../src/llm/limits.js';
 
-/** `model` is the voice model (`models.base.voice`), the one a request without a model goes out on. */
+/** `model` is the voice model (`models.core`), the one a request without a model goes out on. */
 function baseConfig({ model = 'test-model', ...overrides } = {}) {
   return {
-    models: { base: { voice: model } },
+    models: { core: model },
     llm: {
       baseUrl: 'https://openrouter.ai/api/v1',
       temperature: 1,
@@ -1022,7 +1022,7 @@ test('complete: a daily provider quota 429 is thrown after one attempt and logs 
     fetchImpl: async () => { calls += 1; return errorResponse(429, body); },
   });
   const { logs } = await withCapturedLogs(() =>
-    assert.rejects(llm.complete([{ role: 'user', content: 'hi' }], { role: 'voice' }), (err) => {
+    assert.rejects(llm.complete([{ role: 'user', content: 'hi' }], { role: 'core' }), (err) => {
       assert.equal(err.statusCode, 429, 'the turn runner still sees a 429');
       assert.equal(err.body, body, 'the untrimmed body stays on the error');
       assert.ok(err.message.startsWith('OpenRouter HTTP 429: '));
@@ -1039,7 +1039,7 @@ test('complete: a daily provider quota 429 is thrown after one attempt and logs 
   assert.equal(typeof time, 'string');
   assert.equal(msg, 'llm: provider limit');
   assert.deepEqual(fields, {
-    role: 'voice',
+    role: 'core',
     model: 'test-model',
     status: 429,
     limitSource: 'upstream_provider_account',
@@ -1069,7 +1069,7 @@ test('complete: a rate 429, an unknown upstream 429 and an OpenRouter 429 are st
     Promise.all(
       Object.keys(bodies).map((name) =>
         assert.rejects(
-          llmFor(name).complete([{ role: 'user', content: 'hi' }], { role: 'voice' }),
+          llmFor(name).complete([{ role: 'user', content: 'hi' }], { role: 'core' }),
           (err) => err.statusCode === 429 && err.body === bodies[name],
         ),
       ),
@@ -1101,7 +1101,7 @@ test('complete: llm: retry carries kind when the body names one, never the raw t
   });
   const { logs } = await withCapturedLogs(() =>
     assert.rejects(
-      llm.complete([{ role: 'user', content: 'hi' }], { role: 'voice' }),
+      llm.complete([{ role: 'user', content: 'hi' }], { role: 'core' }),
       (err) => err.statusCode === 429 && err.body === bodies[1],
     ),
   );
@@ -1261,20 +1261,20 @@ test('complete: llm: usage carries the request\'s duration, its purpose and its 
   const ask = (options) => llm.complete([{ role: 'user', content: 'the prompt itself' }], options);
   const { logs } = await withCapturedLogs(async () => {
     await ask({ role: 'analyzer', purpose: 'rewatch' });
-    await ask({ role: 'voice', origin: 'replay', countAgainstDailyCap: false });
-    await ask({ role: 'voice' });
+    await ask({ role: 'core', origin: 'replay', countAgainstDailyCap: false });
+    await ask({ role: 'core' });
     await ask({ purpose: 7, origin: { text: 'not a code' } });
     answerMs = -5000; // the clock is stepped back while the request is out: never a negative duration
-    await ask({ role: 'voice', purpose: 'lookup' });
+    await ask({ role: 'core', purpose: 'lookup' });
   });
   assert.deepEqual(
     usageLines(logs).map(({ role, purpose, origin, ms }) => ({ role, purpose, origin, ms })),
     [
       { role: 'analyzer', purpose: 'rewatch', origin: null, ms: 1234 },
-      { role: 'voice', purpose: null, origin: 'replay', ms: 1234 },
-      { role: 'voice', purpose: null, origin: null, ms: 1234 },
+      { role: 'core', purpose: null, origin: 'replay', ms: 1234 },
+      { role: 'core', purpose: null, origin: null, ms: 1234 },
       { role: null, purpose: null, origin: null, ms: 1234 },
-      { role: 'voice', purpose: 'lookup', origin: null, ms: 0 },
+      { role: 'core', purpose: 'lookup', origin: null, ms: 0 },
     ],
   );
   assert.equal(bodies.length, 5);
@@ -1417,14 +1417,14 @@ const STUDIO = { only: ['google-ai-studio'], allow_fallbacks: false };
 test('resolveProvider: a role key beats a role-less key, even when the role-less prefix is longer', () => {
   const byModel = { 'google/gemini-3.8-flash': VERTEX, 'google/@video': STUDIO };
   assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'video' }), STUDIO);
-  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'voice' }), VERTEX);
+  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'core' }), VERTEX);
 });
 
 test('resolveProvider: a key for another role never applies; the fallback does', () => {
   const fallback = { ignore: ['some-provider'] };
   const byModel = { 'google/@video': STUDIO };
-  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'voice', fallback }), fallback);
-  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'voice' }), undefined);
+  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'core', fallback }), fallback);
+  assert.equal(resolveProvider('google/gemini-3.8-flash', { byModel, role: 'core' }), undefined);
 });
 
 test('resolveProvider: an empty prefix with a role matches every model for that role', () => {
@@ -1438,10 +1438,10 @@ test('matchRoute: names the matching key and its role, or null', () => {
   assert.deepEqual(matchRoute('google/gemini-3.8-flash', byModel, 'video'), {
     key: 'google/@video', prefix: 'google/', role: 'video', value: STUDIO,
   });
-  assert.deepEqual(matchRoute('google/gemini-3.8-flash', byModel, 'voice'), { key: 'google/', prefix: 'google/', role: null, value: VERTEX });
-  assert.equal(matchRoute('openai/gpt-x', byModel, 'voice'), null);
+  assert.deepEqual(matchRoute('google/gemini-3.8-flash', byModel, 'core'), { key: 'google/', prefix: 'google/', role: null, value: VERTEX });
+  assert.equal(matchRoute('openai/gpt-x', byModel, 'core'), null);
   // A key splits at its last @: the role is what follows it, the prefix may hold an @ of its own.
-  assert.deepEqual(matchRoute('a@b/model-x', { 'a@b@voice': STUDIO }, 'voice'), { key: 'a@b@voice', prefix: 'a@b', role: 'voice', value: STUDIO });
+  assert.deepEqual(matchRoute('a@b/model-x', { 'a@b@voice': STUDIO }, 'core'), { key: 'a@b@voice', prefix: 'a@b', role: 'core', value: STUDIO });
 });
 
 test('matchRoute: a role never takes another role\'s key: the extractor skips an analyzer key for a role-less one', () => {
@@ -1478,10 +1478,10 @@ test('complete: options.role selects the role key; a call without a role uses th
   }));
   const msgs = [{ role: 'user', content: 'hi' }];
   await llm.complete(msgs, { role: 'video' });
-  await llm.complete(msgs, { role: 'voice' });
+  await llm.complete(msgs, { role: 'core' });
   await llm.complete(msgs);
   await llm.complete(msgs, { role: 'video', provider: { order: ['x'] } });
-  await llm.complete(msgs, { role: 'voice', model: 'openai/gpt-x' });
+  await llm.complete(msgs, { role: 'core', model: 'openai/gpt-x' });
   assert.deepEqual(bodies[0].provider, STUDIO);
   assert.deepEqual(bodies[1].provider, VERTEX);
   assert.deepEqual(bodies[2].provider, VERTEX);
@@ -1493,7 +1493,7 @@ test('complete: options.role selects the role key; a call without a role uses th
 // --- prompt caching: the marker on the system message, the full prompt count, the usage code ---
 
 /** config.json's `llm.cache` (no `models`: the code's fallback, `['anthropic/']`, applies). */
-const CACHE = { ttl: '1h', roles: ['voice'], promptIncludesCached: true };
+const CACHE = { ttl: '1h', roles: ['core'], promptIncludesCached: true };
 
 /** A model id of the family `llm.cache.models` admits by default. */
 const LISTED_MODEL = 'anthropic/claude-test-4';
@@ -1547,24 +1547,24 @@ function cachingLlm(getConfig, { usage = { prompt_tokens: 42 }, calibrator = fak
 }
 
 test('cacheTtlFor: no marker unless features.promptCache is exactly true', () => {
-  assert.equal(cacheTtlFor(cachingConfig(), 'voice', LISTED_MODEL), '1h');
+  assert.equal(cacheTtlFor(cachingConfig(), 'core', LISTED_MODEL), '1h');
   for (const promptCache of [false, undefined, null, 'true', 1, {}]) {
-    assert.equal(cacheTtlFor({ ...cachingConfig(), features: { promptCache } }, 'voice', LISTED_MODEL), null, String(promptCache));
+    assert.equal(cacheTtlFor({ ...cachingConfig(), features: { promptCache } }, 'core', LISTED_MODEL), null, String(promptCache));
   }
   for (const config of [undefined, null, {}, { features: {} }, baseConfig({ cache: CACHE })]) {
-    assert.equal(cacheTtlFor(config, 'voice', LISTED_MODEL), null, JSON.stringify(config));
+    assert.equal(cacheTtlFor(config, 'core', LISTED_MODEL), null, JSON.stringify(config));
   }
 });
 
-test('cacheTtlFor: a role outside llm.cache.roles gets none; a non-array roles reads as voice only', () => {
+test('cacheTtlFor: a role outside llm.cache.roles gets none; a non-array roles reads as core only', () => {
   for (const role of ['extractor', 'analyzer', 'video', undefined, null, 7]) {
     assert.equal(cacheTtlFor(cachingConfig(), role, LISTED_MODEL), null, String(role));
   }
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: ['voice', 'extractor'] } }), 'extractor', LISTED_MODEL), '1h');
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: [] } }), 'voice', LISTED_MODEL), null, 'an empty list marks nothing');
+  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: ['core', 'extractor'] } }), 'extractor', LISTED_MODEL), '1h');
+  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, roles: [] } }), 'core', LISTED_MODEL), null, 'an empty list marks nothing');
   for (const roles of [undefined, null, 'extractor', { analyzer: true }]) {
     const config = cachingConfig({ cache: { ...CACHE, roles } });
-    assert.equal(cacheTtlFor(config, 'voice', LISTED_MODEL), '1h', JSON.stringify(roles));
+    assert.equal(cacheTtlFor(config, 'core', LISTED_MODEL), '1h', JSON.stringify(roles));
     assert.equal(cacheTtlFor(config, 'extractor', LISTED_MODEL), null, JSON.stringify(roles));
   }
 });
@@ -1572,40 +1572,40 @@ test('cacheTtlFor: a role outside llm.cache.roles gets none; a non-array roles r
 test('cacheTtlFor: a model outside llm.cache.models gets no marker; a non-array models reads as anthropic/ only', () => {
   // the fallback: Anthropic's ids only, whatever the switch and the role say
   for (const model of [UNLISTED_MODEL, 'google/gemini-test', 'Anthropic/claude-test-4', 'claude-test-4', '', undefined, null, 7]) {
-    assert.equal(cacheTtlFor(cachingConfig(), 'voice', model), null, String(model));
+    assert.equal(cacheTtlFor(cachingConfig(), 'core', model), null, String(model));
   }
   for (const models of [undefined, null, 'openai/', { 'openai/': true }]) {
     const config = cachingConfig({ cache: { ...CACHE, models } });
-    assert.equal(cacheTtlFor(config, 'voice', LISTED_MODEL), '1h', JSON.stringify(models));
-    assert.equal(cacheTtlFor(config, 'voice', UNLISTED_MODEL), null, JSON.stringify(models));
+    assert.equal(cacheTtlFor(config, 'core', LISTED_MODEL), '1h', JSON.stringify(models));
+    assert.equal(cacheTtlFor(config, 'core', UNLISTED_MODEL), null, JSON.stringify(models));
   }
   // a listed prefix admits its family; an empty list marks nothing; a non-string entry matches nothing
   const both = cachingConfig({ cache: { ...CACHE, models: ['anthropic/', 'openai/'] } });
-  assert.equal(cacheTtlFor(both, 'voice', UNLISTED_MODEL), '1h');
-  assert.equal(cacheTtlFor(both, 'voice', 'google/gemini-test'), null);
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [] } }), 'voice', LISTED_MODEL), null);
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [null, 7, { a: 1 }] } }), 'voice', LISTED_MODEL), null);
+  assert.equal(cacheTtlFor(both, 'core', UNLISTED_MODEL), '1h');
+  assert.equal(cacheTtlFor(both, 'core', 'google/gemini-test'), null);
+  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [] } }), 'core', LISTED_MODEL), null);
+  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [null, 7, { a: 1 }] } }), 'core', LISTED_MODEL), null);
   // the role gate still applies to a listed model
   assert.equal(cacheTtlFor(cachingConfig(), 'extractor', LISTED_MODEL), null);
 });
 
 test('cacheTtlFor: an unknown ttl reads as 1h; force true and false override the policy', () => {
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, ttl: '5m' } }), 'voice', LISTED_MODEL), '5m');
+  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, ttl: '5m' } }), 'core', LISTED_MODEL), '5m');
   for (const ttl of [undefined, null, '1h', '10m', '5M', 300]) {
-    assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, ttl } }), 'voice', LISTED_MODEL), '1h', String(ttl));
+    assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, ttl } }), 'core', LISTED_MODEL), '1h', String(ttl));
   }
   // true marks whatever the switch, the role list and the model list say (the cache probe sends it with the switch off)
   assert.equal(cacheTtlFor(baseConfig(), 'video', 'test-model', true), '1h');
   assert.equal(cacheTtlFor({ llm: { cache: { ttl: '5m' } } }, undefined, undefined, true), '5m');
-  assert.equal(cacheTtlFor(cachingConfig({ promptCache: false }), 'voice', LISTED_MODEL, true), '1h');
-  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [] } }), 'voice', UNLISTED_MODEL, true), '1h');
+  assert.equal(cacheTtlFor(cachingConfig({ promptCache: false }), 'core', LISTED_MODEL, true), '1h');
+  assert.equal(cacheTtlFor(cachingConfig({ cache: { ...CACHE, models: [] } }), 'core', UNLISTED_MODEL, true), '1h');
   // false forbids it on a listed role and model with the switch on
-  assert.equal(cacheTtlFor(cachingConfig(), 'voice', LISTED_MODEL, false), null);
+  assert.equal(cacheTtlFor(cachingConfig(), 'core', LISTED_MODEL, false), null);
   // anything else leaves the policy in charge
   for (const force of [undefined, null, 'true', 1]) {
-    assert.equal(cacheTtlFor(cachingConfig(), 'voice', LISTED_MODEL, force), '1h', String(force));
+    assert.equal(cacheTtlFor(cachingConfig(), 'core', LISTED_MODEL, force), '1h', String(force));
     assert.equal(cacheTtlFor(cachingConfig(), 'extractor', LISTED_MODEL, force), null, String(force));
-    assert.equal(cacheTtlFor(cachingConfig(), 'voice', UNLISTED_MODEL, force), null, String(force));
+    assert.equal(cacheTtlFor(cachingConfig(), 'core', UNLISTED_MODEL, force), null, String(force));
   }
 });
 
@@ -1834,16 +1834,16 @@ test('withCacheMarker: system, stable and profiles are three of the four markers
 test('complete: a segmented reply is sent with the system, stable and profiles markers, never the tag; off or unlisted, with neither', async () => {
   let config = cachingConfig({ cache: { ...CACHE, profilesTtl: '5m' } });
   const { llm, sent, bodies } = cachingLlm(() => config);
-  await llm.complete(segmentedMessages(), { role: 'voice' });
+  await llm.complete(segmentedMessages(), { role: 'core' });
   config = cachingConfig({ cache: { ...CACHE, profilesTtl: null } });
-  await llm.complete(segmentedMessages(), { role: 'voice' });
+  await llm.complete(segmentedMessages(), { role: 'core' });
   config = cachingConfig({ promptCache: false });
-  await llm.complete(segmentedMessages(), { role: 'voice' });
+  await llm.complete(segmentedMessages(), { role: 'core' });
   config = cachingConfig({ model: UNLISTED_MODEL });
-  await llm.complete(segmentedMessages(), { role: 'voice' });
+  await llm.complete(segmentedMessages(), { role: 'core' });
   config = cachingConfig();
   await llm.complete(segmentedMessages(), { role: 'extractor' });
-  await llm.complete(segmentedMessages(), { role: 'voice' });
+  await llm.complete(segmentedMessages(), { role: 'core' });
   const [on, noProfiles, off, unlisted, otherRole, defaulted] = bodies();
   assert.deepEqual(markedParts(on.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H, MARK_5M]);
   assert.deepEqual(markedParts(noProfiles.messages).map((p) => p.cache_control), [MARK_1H, MARK_1H]);
@@ -1866,19 +1866,19 @@ test('complete: the estimate and the token cap count every text part of the user
     },
   ];
   const { llm } = cachingLlm(() => cachingConfig({ maxRequestTokens: 1000 }));
-  await assert.rejects(llm.complete(messages, { role: 'voice' }), (err) => err instanceof TokenLimitError && err.used > 1000);
+  await assert.rejects(llm.complete(messages, { role: 'core' }), (err) => err instanceof TokenLimitError && err.used > 1000);
   const { llm: roomy } = cachingLlm(() => cachingConfig({ maxRequestTokens: 5000 }));
-  const answered = await roomy.complete(messages, { role: 'voice' });
-  const joined = await roomy.complete([messages[0], { role: 'user', content: part.repeat(3) }], { role: 'voice' });
+  const answered = await roomy.complete(messages, { role: 'core' });
+  const joined = await roomy.complete([messages[0], { role: 'user', content: part.repeat(3) }], { role: 'core' });
   assert.equal(answered.estimated, joined.estimated);
 });
 
 test('complete: with promptCache on, a reply request carries the marker on the system part and the user message is sent unchanged', async () => {
   let config = cachingConfig();
   const { llm, bodies } = cachingLlm(() => config);
-  await llm.complete(replyMessages(), { role: 'voice' });
+  await llm.complete(replyMessages(), { role: 'core' });
   config = cachingConfig({ cache: { ...CACHE, ttl: '5m' } });
-  await llm.complete(replyMessages(), { role: 'voice' });
+  await llm.complete(replyMessages(), { role: 'core' });
   const [hour, minutes] = bodies();
   assert.deepEqual(hour.messages, [
     { role: 'system', content: [{ type: 'text', text: SYSTEM_TEXT, cache_control: MARK_1H }] },
@@ -1906,8 +1906,8 @@ test("complete: with promptCache off or the role not listed the body is byte-ide
   ];
   for (const config of configs) {
     const { llm, sent } = cachingLlm(() => config);
-    for (const role of ['voice', 'extractor', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });
-    for (const body of sent) assert.equal(body, today(config.models.base.voice));
+    for (const role of ['core', 'extractor', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });
+    for (const body of sent) assert.equal(body, today(config.models.core));
   }
   const { llm, sent } = cachingLlm(() => cachingConfig());
   for (const role of ['extractor', 'analyzer', 'vision', 'video', undefined]) await llm.complete(messages, { role });
@@ -1920,27 +1920,27 @@ test('complete: a reply request on a non-listed model is byte-identical with pro
   // the configured voice model hot-switched to another family, or another model passed for one call
   let config = cachingConfig({ model: UNLISTED_MODEL });
   const { llm, sent } = cachingLlm(() => config);
-  await llm.complete(messages, { role: 'voice' });
+  await llm.complete(messages, { role: 'core' });
   config = cachingConfig();
-  await llm.complete(messages, { role: 'voice', model: UNLISTED_MODEL });
+  await llm.complete(messages, { role: 'core', model: UNLISTED_MODEL });
   config = cachingConfig({ model: UNLISTED_MODEL, cache: { ...CACHE, models: ['anthropic/'] } });
-  await llm.complete(messages, { role: 'voice' });
+  await llm.complete(messages, { role: 'core' });
   assert.deepEqual(sent, [today(UNLISTED_MODEL), today(UNLISTED_MODEL), today(UNLISTED_MODEL)]);
   // a listed family marks the same request, and a list naming the other family marks it too
-  await llm.complete(messages, { role: 'voice', model: LISTED_MODEL });
+  await llm.complete(messages, { role: 'core', model: LISTED_MODEL });
   config = cachingConfig({ model: UNLISTED_MODEL, cache: { ...CACHE, models: ['openai/'] } });
-  await llm.complete(messages, { role: 'voice' });
+  await llm.complete(messages, { role: 'core' });
   assert.deepEqual(sent.slice(3).map((body) => markedParts(JSON.parse(body).messages).length), [1, 1]);
 });
 
 test('complete: options.cache false forbids the marker and true forces it', async () => {
   let config = cachingConfig();
   const { llm, bodies } = cachingLlm(() => config);
-  await llm.complete(replyMessages(), { role: 'voice', cache: false });
+  await llm.complete(replyMessages(), { role: 'core', cache: false });
   // no features.promptCache at all, and a model outside llm.cache.models: the force wins over both
   config = baseConfig({ maxRequestTokens: 50000, cache: { ...CACHE, ttl: '5m' } });
   await llm.complete(replyMessages(), { role: 'analyzer', cache: true });
-  await llm.complete(replyMessages(), { role: 'voice' });
+  await llm.complete(replyMessages(), { role: 'core' });
   const [forbidden, forced, policy] = bodies();
   assert.deepEqual(forbidden.messages, replyMessages());
   assert.deepEqual(forced.messages[0].content, [{ type: 'text', text: SYSTEM_TEXT, cache_control: MARK_5M }]);
@@ -1950,11 +1950,11 @@ test('complete: options.cache false forbids the marker and true forces it', asyn
 test('complete: the cache policy is read from the live config on every call', async () => {
   let config = cachingConfig({ promptCache: false });
   const { llm, bodies } = cachingLlm(() => config);
-  await llm.complete(replyMessages(), { role: 'voice' });
+  await llm.complete(replyMessages(), { role: 'core' });
   config = cachingConfig();
-  await llm.complete(replyMessages(), { role: 'voice' });
+  await llm.complete(replyMessages(), { role: 'core' });
   config = cachingConfig({ cache: { ...CACHE, roles: ['extractor'] } });
-  await llm.complete(replyMessages(), { role: 'voice' });
+  await llm.complete(replyMessages(), { role: 'core' });
   assert.deepEqual(bodies().map((b) => markedParts(b.messages).length), [0, 1, 0]);
 });
 
@@ -1963,18 +1963,18 @@ test('complete: the estimate and the token cap check are the same with and witho
   const calibrator = { ...fakeCalibrator(), apply: (n) => { applied.push(n); return n; } };
   let config = cachingConfig({ promptCache: false });
   const { llm, sent } = cachingLlm(() => config, { calibrator });
-  const plain = await llm.complete(replyMessages(), { role: 'voice' });
+  const plain = await llm.complete(replyMessages(), { role: 'core' });
   config = cachingConfig();
-  const marked = await llm.complete(replyMessages(), { role: 'voice' });
+  const marked = await llm.complete(replyMessages(), { role: 'core' });
   assert.equal(markedParts(JSON.parse(sent[1]).messages).length, 1, 'the second request did carry the marker');
   assert.equal(marked.estimated, plain.estimated);
   assert.deepEqual(applied, [plain.estimated, plain.estimated], 'the estimator saw the same raw count');
   // the cap at exactly the estimate lets both through; one below refuses both before any fetch
   for (const promptCache of [false, true]) {
     config = cachingConfig({ promptCache, maxRequestTokens: plain.estimated });
-    await llm.complete(replyMessages(), { role: 'voice' });
+    await llm.complete(replyMessages(), { role: 'core' });
     config = cachingConfig({ promptCache, maxRequestTokens: plain.estimated - 1 });
-    await assert.rejects(llm.complete(replyMessages(), { role: 'voice' }), (err) => {
+    await assert.rejects(llm.complete(replyMessages(), { role: 'core' }), (err) => {
       assert.ok(err instanceof TokenLimitError);
       assert.equal(err.used, plain.estimated);
       return true;
@@ -1995,11 +1995,11 @@ test('complete: llm: usage carries cache read, write, none or off from the usage
   let config = cachingConfig();
   const { llm } = cachingLlm(() => config, { usage: (call) => usages[order[call]] ?? usages.read });
   const { logs } = await withCapturedLogs(async () => {
-    for (let i = 0; i < order.length; i += 1) await llm.complete(replyMessages(), { role: 'voice' });
+    for (let i = 0; i < order.length; i += 1) await llm.complete(replyMessages(), { role: 'core' });
     await llm.complete(replyMessages(), { role: 'analyzer' }); // a read reported, no marker sent
-    await llm.complete([{ role: 'user', content: 'Γεια σου' }], { role: 'voice' }); // nothing to mark
+    await llm.complete([{ role: 'user', content: 'Γεια σου' }], { role: 'core' }); // nothing to mark
     config = cachingConfig({ promptCache: false });
-    await llm.complete(replyMessages(), { role: 'voice' });
+    await llm.complete(replyMessages(), { role: 'core' });
   });
   const lines = usageFields(logs);
   assert.deepEqual(lines.map((l) => l.cache), ['read', 'write', 'read', 'none', 'none', 'off', 'off', 'off']);
@@ -2015,25 +2015,25 @@ test('complete: the calibrator observes the full prompt count when the usage rep
   const usage = { prompt_tokens: 600, prompt_tokens_details: { cached_tokens: 8500, cache_write_tokens: 200 } };
   const cases = [
     [CACHE, 600],
-    [{ ttl: '1h', roles: ['voice'] }, 600],
+    [{ ttl: '1h', roles: ['core'] }, 600],
     [{ ...CACHE, promptIncludesCached: false }, 9300],
   ];
   for (const [cache, counted] of cases) {
     const calibrator = fakeCalibrator();
     const { llm } = cachingLlm(() => cachingConfig({ cache }), { usage, calibrator });
-    const result = await llm.complete(replyMessages(), { role: 'voice' });
+    const result = await llm.complete(replyMessages(), { role: 'core' });
     assert.deepEqual(calibrator.observed, [[result.estimated, counted]], JSON.stringify(cache));
     assert.equal(result.promptTokens, counted, 'the caller gets the same full count');
   }
   // skipCalibration still feeds nothing, and still returns the full count
   const calibrator = fakeCalibrator();
   const { llm } = cachingLlm(() => cachingConfig({ cache: { ...CACHE, promptIncludesCached: false } }), { usage, calibrator });
-  const skipped = await llm.complete(replyMessages(), { role: 'voice', skipCalibration: true });
+  const skipped = await llm.complete(replyMessages(), { role: 'core', skipCalibration: true });
   assert.deepEqual(calibrator.observed, []);
   assert.equal(skipped.promptTokens, 9300);
   // no usage count: null
   const { llm: bare } = cachingLlm(() => cachingConfig(), { usage: {} });
-  assert.equal((await bare.complete(replyMessages(), { role: 'voice' })).promptTokens, null);
+  assert.equal((await bare.complete(replyMessages(), { role: 'core' })).promptTokens, null);
 });
 
 test('complete: an unmarked request reporting cached tokens feeds prompt_tokens unchanged under promptIncludesCached false', async () => {
@@ -2042,9 +2042,9 @@ test('complete: an unmarked request reporting cached tokens feeds prompt_tokens 
   const net = { ...CACHE, promptIncludesCached: false };
   const cases = [
     [cachingConfig({ cache: net }), { role: 'extractor' }],
-    [cachingConfig({ cache: net, model: UNLISTED_MODEL }), { role: 'voice' }],
-    [cachingConfig({ cache: net }), { role: 'voice', cache: false }],
-    [cachingConfig({ cache: net, promptCache: false }), { role: 'voice' }],
+    [cachingConfig({ cache: net, model: UNLISTED_MODEL }), { role: 'core' }],
+    [cachingConfig({ cache: net }), { role: 'core', cache: false }],
+    [cachingConfig({ cache: net, promptCache: false }), { role: 'core' }],
   ];
   for (const [config, options] of cases) {
     const calibrator = fakeCalibrator();
@@ -2057,7 +2057,7 @@ test('complete: an unmarked request reporting cached tokens feeds prompt_tokens 
   // the same answer to a marked request is read as net of the cache
   const calibrator = fakeCalibrator();
   const { llm } = cachingLlm(() => cachingConfig({ cache: net }), { usage, calibrator });
-  const marked = await llm.complete(replyMessages(), { role: 'voice' });
+  const marked = await llm.complete(replyMessages(), { role: 'core' });
   assert.deepEqual(calibrator.observed, [[marked.estimated, 25000]]);
 });
 
@@ -2065,7 +2065,7 @@ test('complete: the token-cap warning uses the same full prompt count', async ()
   const usage = { prompt_tokens: 800, prompt_tokens_details: { cached_tokens: 600, cache_write_tokens: 0 } };
   const warned = async (promptIncludesCached) => {
     const { llm } = cachingLlm(() => cachingConfig({ maxRequestTokens: 1000, cache: { ...CACHE, promptIncludesCached } }), { usage });
-    const { logs } = await withCapturedLogs(() => llm.complete(replyMessages(), { role: 'voice' }));
+    const { logs } = await withCapturedLogs(() => llm.complete(replyMessages(), { role: 'core' }));
     return logs.filter((l) => l.msg === 'llm: provider counted more prompt tokens than the cap').length;
   };
   assert.equal(await warned(true), 0, '800 as reported is under the cap of 1000');
@@ -2208,7 +2208,7 @@ test('complete: a byok route with is_byok false throws NotByokError after the us
   const { llm, sent } = byokLlm(BYOK_ROUTE, { prompt_tokens: 10, cost: 0.01, is_byok: false });
   const { logs } = await withCapturedLogs(() =>
     assert.rejects(
-      llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'voice', model: 'vendor/model-x' }),
+      llm.complete([{ role: 'user', content: 'the prompt itself' }], { role: 'core', model: 'vendor/model-x' }),
       (err) => err instanceof NotByokError && err.message === 'not byok: vendor/model-x via Some Provider',
     ),
   );
@@ -2710,7 +2710,7 @@ test('hedge: an explicit options.hedge hedges a non-helper request at its afterM
   assert.equal(markedParts(JSON.parse(calls[0].body).messages).length, 1, 'the cache marker is on both attempts');
   assert.deepEqual(Object.keys(JSON.parse(calls[0].body)).sort(), ['max_tokens', 'messages', 'model', 'temperature']);
   assert.equal(state.data.llmCount, 2, 'both attempts counted');
-  assert.deepEqual(linesOf(logs, 'llm: hedge'), [{ role: 'voice', purpose: 'reply', model: LISTED_MODEL, afterMs: REPLY_HEDGE.afterMs }]);
+  assert.deepEqual(linesOf(logs, 'llm: hedge'), [{ role: 'core', purpose: 'reply', model: LISTED_MODEL, afterMs: REPLY_HEDGE.afterMs }]);
   const [usage] = linesOf(logs, 'llm: usage');
   assert.deepEqual([usage.hedged, usage.attempt, usage.ms], [true, 2, REPLY_HEDGE.afterMs + 200]);
   assert.equal(clock.pending(), 0);
@@ -2725,7 +2725,7 @@ test('hedge: a non-helper request without a valid explicit hedge is sent once, e
     { name: 'not an object', extra: { hedge: REPLY_HEDGE.afterMs } },
   ];
   for (const { name, extra } of cases) {
-    const { ask, clock, calls } = replyLlm({ llm: { hedge: { ...HEDGE, roles: ['voice'], afterMs: 100 } } });
+    const { ask, clock, calls } = replyLlm({ llm: { hedge: { ...HEDGE, roles: ['core'], afterMs: 100 } } });
     const { result, logs } = await withCapturedLogs(async () => {
       const pending = ask(extra);
       await clock.advance(REPLY_HEDGE.timeoutMs - 1);
@@ -2766,17 +2766,17 @@ test('hedge: an explicit hedge keeps the rails -- the token cap before any attem
   assert.equal(stalled.clock.pending(), 0);
 });
 
-// --- one speaking model: the reply and the memory wording share the role `voice` ---
+// --- one speaking model: the reply and the memory wording share the role `core` ---
 
-test('REPLY_REQUEST and MEMORY_VOICE_REQUEST: both go out as role voice, told apart by purpose on the usage line only', async () => {
+test('REPLY_REQUEST and MEMORY_VOICE_REQUEST: both go out as role core, told apart by purpose on the usage line only', async () => {
   const { llm, sent } = cachingLlm(() => cachingConfig({ promptCache: false }));
   const { logs } = await withCapturedLogs(async () => {
     await llm.complete(replyMessages(), { ...REPLY_REQUEST });
     await llm.complete(replyMessages(), { ...MEMORY_VOICE_REQUEST });
   });
   assert.deepEqual(usageLines(logs).map(({ role, purpose }) => ({ role, purpose })), [
-    { role: 'voice', purpose: 'reply' },
-    { role: 'voice', purpose: 'memory-voice' },
+    { role: 'core', purpose: 'reply' },
+    { role: 'core', purpose: 'memory-voice' },
   ]);
   for (const body of sent) {
     for (const word of ['purpose', 'memory-voice', '"reply"']) assert.ok(!body.includes(word), `${word} is never sent`);
@@ -2784,7 +2784,7 @@ test('REPLY_REQUEST and MEMORY_VOICE_REQUEST: both go out as role voice, told ap
 });
 
 test('complete: with the cache on, the reply is marked and the memory wording on the same role and model is not', async () => {
-  for (const roles of [['voice'], ['talk']]) {
+  for (const roles of [['core'], ['voice'], ['talk']]) {
     const { llm, bodies } = cachingLlm(() => cachingConfig({ cache: { ...CACHE, roles } }));
     await withCapturedLogs(async () => {
       await llm.complete(replyMessages(), { ...REPLY_REQUEST });
@@ -2797,10 +2797,14 @@ test('complete: with the cache on, the reply is marked and the memory wording on
   }
 });
 
-test('cacheTtlFor: llm.cache.roles listing the old name talk still marks the voice role, and only it', () => {
+test('cacheTtlFor: llm.cache.roles listing an old name (voice, talk) still marks the core role, and only it', () => {
+  for (const old of ['voice', 'talk']) {
+    const config = cachingConfig({ cache: { ...CACHE, roles: [old] } });
+    assert.equal(cacheTtlFor(config, 'core', LISTED_MODEL), '1h', old);
+    assert.equal(cacheTtlFor(config, old, LISTED_MODEL), null, 'a request never carries the old name');
+    assert.equal(cacheTtlFor(config, 'extractor', LISTED_MODEL), null);
+  }
   const config = cachingConfig({ cache: { ...CACHE, roles: ['talk'] } });
-  assert.equal(cacheTtlFor(config, 'voice', LISTED_MODEL), '1h');
-  assert.equal(cacheTtlFor(config, 'talk', LISTED_MODEL), null, 'a request never carries the old name');
   assert.equal(cacheTtlFor(config, 'extractor', LISTED_MODEL), null);
 });
 
@@ -2817,33 +2821,36 @@ test('complete: a "<prefix>@talk" route key still routes the reply; no request r
     await llm.complete(msgs, { role: 'talk' });
   });
   assert.deepEqual(bodies.map((b) => b.provider), [BEDROCK, BEDROCK, { only: ['anthropic'] }, { only: ['anthropic'] }]);
-  const route = await withCapturedLogs(() => matchRoute('anthropic/claude-test-4', { 'anthropic/@talk': BEDROCK }, 'voice'));
-  assert.deepEqual(route.result, { key: 'anthropic/@talk', prefix: 'anthropic/', role: 'voice', value: BEDROCK });
+  const route = await withCapturedLogs(() => matchRoute('anthropic/claude-test-4', { 'anthropic/@talk': BEDROCK }, 'core'));
+  assert.deepEqual(route.result, { key: 'anthropic/@talk', prefix: 'anthropic/', role: 'core', value: BEDROCK });
 });
 
-test('hedgeSettings: llm.hedge.roles listing talk reads as voice', async () => {
-  const { result } = await withCapturedLogs(() => hedgeSettings({ llm: { hedge: { roles: ['talk', 'analyzer'] } } }));
-  assert.deepEqual(result.roles, ['voice', 'analyzer']);
+test('hedgeSettings: llm.hedge.roles listing talk or voice reads as core', async () => {
+  const { result } = await withCapturedLogs(() => hedgeSettings({ llm: { hedge: { roles: ['talk', 'analyzer', 'voice'] } } }));
+  assert.deepEqual(result.roles, ['core', 'analyzer', 'core']);
 });
 
-test('currentRoleName: talk reads as voice, reasoner as analyzer, each said once per process; any other value passes through', async () => {
+test('currentRoleName: talk and voice read as core, reasoner as analyzer, each said once per process; any other value passes through', async () => {
   // A fresh instance of the module: its report-once flag is not touched by the tests above.
   const fresh = await import(`../src/llm/openrouter.js?retired-role=${Date.now()}`);
   const { result, logs } = await withCapturedLogs(() => [
     fresh.currentRoleName('talk'),
     fresh.currentRoleName('talk'),
     fresh.currentRoleName('voice'),
+    fresh.currentRoleName('voice'),
+    fresh.currentRoleName('core'),
     fresh.currentRoleName('extractor'),
     fresh.currentRoleName(undefined),
     fresh.currentRoleName(7),
-    fresh.matchRoute('x/model', { 'x/@talk': BEDROCK }, 'voice')?.role,
-    fresh.cacheTtlFor({ features: { promptCache: true }, llm: { cache: { roles: ['talk'] } } }, 'voice', 'anthropic/m'),
+    fresh.matchRoute('x/model', { 'x/@talk': BEDROCK }, 'core')?.role,
+    fresh.cacheTtlFor({ features: { promptCache: true }, llm: { cache: { roles: ['talk'] } } }, 'core', 'anthropic/m'),
     fresh.currentRoleName('reasoner'),
     fresh.matchRoute('x/model', { 'x/@reasoner': BEDROCK }, 'analyzer')?.role,
     fresh.hedgeSettings({ llm: { hedge: { roles: ['analyzer', 'reasoner'] } } }).roles,
   ]);
-  assert.deepEqual(result, ['voice', 'voice', 'voice', 'extractor', undefined, 7, 'voice', '1h', 'analyzer', 'analyzer', ['analyzer', 'analyzer']]);
-  assert.equal(logs.filter((line) => line.msg === 'config: role talk is now voice').length, 1);
+  assert.deepEqual(result, ['core', 'core', 'core', 'core', 'core', 'extractor', undefined, 7, 'core', '1h', 'analyzer', 'analyzer', ['analyzer', 'analyzer']]);
+  assert.equal(logs.filter((line) => line.msg === 'config: role talk is now core').length, 1);
+  assert.equal(logs.filter((line) => line.msg === 'config: role voice is now core').length, 1);
   assert.equal(logs.filter((line) => line.msg === 'config: role reasoner is now analyzer').length, 1);
   assert.equal(currentRoleName('video'), 'video');
 });

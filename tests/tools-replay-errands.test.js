@@ -60,7 +60,7 @@ function scenarioConfig(grants, { agents = {} } = {}) {
       caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
       vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
     },
-    models: { base: { voice: 'x/chat' } },
+    models: { core: 'x/chat' },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     skills: { safeMode: false },
     agents: { maxOpen: 3, web: { daily: { tasks: 2, usd: 8 } }, server: { daily: { tasks: 1, usd: 3 } }, ...agents },

@@ -474,7 +474,7 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
 });
 
 test('createHot: a config.local.json under the old model keys is read under the new ones, with one warning naming the keys, never the values', async () => {
-  const dir = makeRoot({ config: { models: { base: { analyzer: 'x/default' } } } });
+  const dir = makeRoot({ config: { models: { helpers: { analyzer: 'x/default' } } } });
   const localFile = path.join(dir, 'config.local.json');
   fs.writeFileSync(localFile, JSON.stringify({ classifier: { text: 'x/old-text' }, llm: { cache: { roles: ['voice', 'classifier.text'] } } }));
   const warned = (logs) => logs.filter((entry) => entry.msg === 'config: old model keys read under their new names');
@@ -483,24 +483,25 @@ test('createHot: a config.local.json under the old model keys is read under the 
     const started = await withCapturedLogs(() => {
       hot = createHot({ rootDir: dir });
     });
-    assert.equal(hot.config.models.base.analyzer, 'x/old-text');
-    assert.deepEqual(hot.config.llm.cache.roles, ['voice', 'analyzer']);
+    assert.equal(hot.config.models.helpers.analyzer, 'x/old-text');
+    assert.deepEqual(hot.config.llm.cache.roles, ['core', 'analyzer'], 'voice is read as core, classifier.text as analyzer');
     assert.equal(hot.config.classifier, undefined);
     assert.equal(warned(started.logs).length, 1);
     assert.equal(warned(started.logs)[0].level, 'warn');
     assert.deepEqual(warned(started.logs)[0].keys, [
-      { key: 'classifier.text', use: 'models.base.analyzer' },
+      { key: 'classifier.text', use: 'models.helpers.analyzer' },
+      { key: 'llm.cache.roles: voice', use: 'core' },
       { key: 'llm.cache.roles: classifier.text', use: 'analyzer' },
     ]);
     assert.ok(!JSON.stringify(started.logs).includes('x/old-text'), 'the key, never its value');
 
     const reloads = await withCapturedLogs(() => {
       hot.reloadConfig(); // the same keys: no second warning
-      fs.writeFileSync(localFile, JSON.stringify({ models: { base: { analyzer: 'x/new-text' } } }));
+      fs.writeFileSync(localFile, JSON.stringify({ models: { helpers: { analyzer: 'x/new-text' } } }));
       hot.reloadConfig(); // none left: quiet
     });
     assert.equal(warned(reloads.logs).length, 0);
-    assert.equal(hot.config.models.base.analyzer, 'x/new-text');
+    assert.equal(hot.config.models.helpers.analyzer, 'x/new-text');
   } finally {
     hot?.close();
     fs.rmSync(dir, { recursive: true, force: true });

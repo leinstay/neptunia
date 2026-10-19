@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Operations tool: describe the same media with two or more vision/video models through the
 // persona's own describer and put the answers side by side. Exists so a candidate for
-// `models.base.vision` / `models.base.video` is judged on the server's real pictures, GIFs and videos, by
+// `models.helpers.vision` / `models.helpers.video` is judged on the server's real pictures, GIFs and videos, by
 // the very code path the bot uses, before the owner switches the role.
 //
 //   cd /opt/neptunia/app && node tools/vision-compare.mjs <modelA> <modelB> [more models...]
@@ -21,7 +21,7 @@
 // Each item with each model: tools/lib/vision-compare.mjs#describeOne -- the live describer
 // (src/memory/describe.js: `describe` for a picture, an emoji, a sticker and a GIF, which is
 // watched first and falls back to one frame as live; `describeVideo` with `force` for a video)
-// over a tool-local hot view whose `models.base.vision` and `models.base.video` are the model (the live
+// over a tool-local hot view whose `models.helpers.vision` and `models.helpers.video` are the model (the live
 // config is never changed), provider routing as configured (`llm.providerByModel`), an empty
 // in-memory media cache and throwaway daily counters. Requests spend OPENROUTER_SIM_KEY
 // (tools/lib/cli.mjs#simKey), are marked `origin: vision-compare` and never count against

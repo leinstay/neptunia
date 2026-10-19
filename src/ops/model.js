@@ -2,9 +2,9 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { MODEL_ROLES, MODEL_SET_PATHS, MODEL_SET_ROLES } from './catalog.js';
+import { MODEL_SET_PATHS, MODEL_SET_ROLES } from './catalog.js';
 import { IMAGE_ROLE } from '../llm/images.js';
-import { OPENCODE_ROLES, roleConfigKeys, roleModel } from '../llm/roles.js';
+import { CORE_ROLE, HELPER_ROLES, OPENCODE_ROLES, roleConfigKeys, roleModel } from '../llm/roles.js';
 import { onOff, reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.js';
 import { defineOp, perEnv, invalid } from './registry.js';
 
@@ -14,11 +14,16 @@ const MEDIA_ROLES = new Set(['vision', 'video']);
 const handlers = perEnv((env) => {
   const { hot, writeLocalPath, editLocalConfig, imageModelLabel, now } = env;
 
+  /** One `<role>: <model>` line per role: the core first, then the helpers and the agents each under a group line (`helpers:`, `agents:`). */
   function cmdModelShow() {
     const cfg = hot.config;
+    const lineOf = (role) => `${role}: ${modelForRole(role, cfg) ?? '-'}`;
     const lines = [
-      ...MODEL_ROLES.map((role) => `${role}: ${modelForRole(role, cfg) ?? '-'}`),
-      ...OPENCODE_ROLES.map((role) => `${role}: ${modelForRole(role, cfg) ?? '-'}`),
+      lineOf(CORE_ROLE),
+      'helpers:',
+      ...HELPER_ROLES.map(lineOf),
+      'agents:',
+      ...OPENCODE_ROLES.map(lineOf),
       `${IMAGE_ROLE}: ${imageModelLabel(cfg)}`,
       `mediaDescriptions: ${onOff(cfg?.features?.mediaDescriptions === true)}`,
     ];
@@ -29,7 +34,7 @@ const handlers = perEnv((env) => {
     const role = String(args?.role ?? '');
     const dottedPath = Object.hasOwn(MODEL_SET_PATHS, role) ? MODEL_SET_PATHS[role] : null;
     if (!dottedPath) throw invalid(`unknown role: ${role} (${MODEL_SET_ROLES.join(', ')})`);
-    // `models.base.<role>` or `models.agents.<role>`.
+    // `models.core`, `models.helpers.<role>` or `models.agents.<role>`.
     const keys = roleConfigKeys(role);
 
     const id = String(args?.id ?? '').trim();

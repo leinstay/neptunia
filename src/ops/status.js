@@ -3,15 +3,15 @@
 // most important field first, for a phone; `field` keeps only that field and computes nothing
 // for the others. A member (anyone not in `bot.owners`) gets the card without the storage line,
 // the keys, costs, memory and speed fields. Every field lists one item per line; the state field ends
-// with the gateway and the uptime. The core comes first (`models.base`, `keys.base`, `costs.base`),
+// with the gateway and the uptime. The core's side comes first (`models.base`, `keys.base`, `costs.base`: the field names keep `base` for the core and its helpers together),
 // then the agents (`models.agents`, `costs.agents`). The models sit in two fields, one line per role, `<role> · <model> ...`:
-// `models.base` (voice, analyzer, extractor, vision, video, embedding) and `models.agents` (web, server,
+// `models.base` (core, then the helpers analyzer, extractor, vision, video, embedding) and `models.agents` (web, server,
 // thinker, dev, writer, which an OpenCode worker runs, so they are never probed; then drawing). The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
 // request for the embedding role, and one free GET of the drawing model's provider listing; a
 // member's card only names the models. Each role shows its own model (never another role's), and
-// each base role's line is followed by the `models.base.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
+// each base role's line is followed by the `models.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
 // memory) is computed at most once a minute: directory listings and the record's month indexes,
 // never its day files. The speed field reads src/ops/metrics.js (the last 24 h), then today's
 // missed-answer figures from the journal (src/behavior/missed.js). The `keys.base`
@@ -36,7 +36,7 @@ import { WEB_DAILY } from '../web/lookup.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOwnerId } from './grants.js';
 import { MODEL_ROLES, STATUS_FIELDS } from './catalog.js';
-import { AGENT_ROLES, OPENCODE_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
+import { AGENT_ROLES, CORE_ROLE, OPENCODE_ROLES, PURPOSE_ROLES, roleModel } from '../llm/roles.js';
 import { EMBED_ROLE } from '../llm/embed.js';
 import { plannerOn } from '../behavior/planner.js';
 import { missedCounts, missedStatusLine } from '../behavior/missed.js';
@@ -66,11 +66,11 @@ const TOOL_ROLES = new Set(Object.values(TOOL_PROFILES).map((profile) => profile
 
 /**
  * The `models.base` field's groups, in order: one line per role, then the
- * `models.base.byPurpose` overrides of the purposes that go out on those roles
+ * `models.byPurpose` overrides of the purposes that go out on those roles
  * (src/llm/roles.js#PURPOSE_ROLES; a purpose it does not list follows the analyzer).
  */
 const MODEL_GROUPS = Object.freeze([
-  { name: 'voice', roles: ['voice'] },
+  { name: 'core', roles: [CORE_ROLE] },
   { name: 'analyzer', roles: ['analyzer'], unlistedPurposes: true },
   { name: 'extractor', roles: ['extractor'] },
   { name: 'vision', roles: ['vision'] },
@@ -117,11 +117,11 @@ function agentLine(role, cfg) {
   return roleHead(role, roleModel(cfg, role) ?? 'no model configured');
 }
 
-/** The `models.base.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
+/** The `models.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
  * (with `unlisted`, also those of a purpose PURPOSE_ROLES does not list), one
  * `byPurpose <purpose> · <model>` line each. */
 function byPurposeLines(cfg, roles, unlisted) {
-  const byPurpose = cfg?.models?.base?.byPurpose;
+  const byPurpose = cfg?.models?.byPurpose;
   if (!isPlainObject(byPurpose)) return [];
   return Object.entries(byPurpose)
     .filter(([, model]) => typeof model === 'string' && model)

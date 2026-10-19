@@ -38,7 +38,7 @@ A slot missed by more than `diary.slotGraceMinutes` (30) while the bot was down 
 Each diary post is two model requests:
 
 1. A plan request on the `analyzer` role: picks the kind, a one-line brief, whether to search, and whether to draw.
-2. A compose request on the `voice` role with the character card and the full set of memory blocks.
+2. A compose request on the `core` role (the persona's model) with the character card and the full set of memory blocks.
 
 When the plan asks for a web search (only for `diary.searchKinds`, by default `news` and `facts`), a Brave search runs first and adds a third request (the condenser on the `analyzer` role). The search counts against `web.maxPerDay`.
 

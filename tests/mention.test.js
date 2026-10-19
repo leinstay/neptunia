@@ -481,24 +481,24 @@ const OLD_KEYS = {
 test('roleModel: the deprecated llm.classifierModel, mention.followUpModel, media.model and media.video.model are ignored', () => {
   for (const role of ['analyzer', 'vision', 'video']) {
     assert.equal(roleModel(OLD_KEYS, role), ROLE_DEFAULTS[role], role);
-    assert.equal(roleModel({ ...OLD_KEYS, models: { base: { [role]: 'x/new' } } }, role), 'x/new', role);
+    assert.equal(roleModel({ ...OLD_KEYS, models: { helpers: { [role]: 'x/new' } } }, role), 'x/new', role);
   }
 });
 
 test('deprecatedModelKeys: each old model key that is set, with its replacement, in a fixed order', () => {
   assert.deepEqual(deprecatedModelKeys(OLD_KEYS), [
-    { key: 'llm.classifierModel', use: 'models.base.analyzer' },
-    { key: 'mention.followUpModel', use: 'models.base.analyzer' },
-    { key: 'media.model', use: 'models.base.vision' },
-    { key: 'media.video.model', use: 'models.base.video' },
+    { key: 'llm.classifierModel', use: 'models.helpers.analyzer' },
+    { key: 'mention.followUpModel', use: 'models.helpers.analyzer' },
+    { key: 'media.model', use: 'models.helpers.vision' },
+    { key: 'media.video.model', use: 'models.helpers.video' },
   ]);
-  assert.deepEqual(deprecatedModelKeys({ media: { video: { model: 'x/v' } }, models: { base: { voice: 'x/talk' } } }), [
-    { key: 'media.video.model', use: 'models.base.video' },
+  assert.deepEqual(deprecatedModelKeys({ media: { video: { model: 'x/v' } }, models: { core: 'x/talk' } }), [
+    { key: 'media.video.model', use: 'models.helpers.video' },
   ]);
 });
 
 test('deprecatedModelKeys: none for a current config, a null old key or no config', () => {
-  assert.deepEqual(deprecatedModelKeys({ models: { base: { analyzer: 'a', vision: 'b', video: 'c', voice: 'x' } }, media: { maxPerTurn: 6 } }), []);
+  assert.deepEqual(deprecatedModelKeys({ models: { core: 'x', helpers: { analyzer: 'a', vision: 'b', video: 'c' } }, media: { maxPerTurn: 6 } }), []);
   assert.deepEqual(deprecatedModelKeys({ llm: { classifierModel: null }, mention: {} }), []);
   assert.deepEqual(deprecatedModelKeys(undefined), []);
 });

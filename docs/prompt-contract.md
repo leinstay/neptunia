@@ -1025,9 +1025,9 @@ of what is already stored, so facts are not degraded by being rewritten batch af
 
 When `features.memoryTwoStage` is exactly `true` and both `prompts/memory-decide.md` and `prompts/memory-voice.md`
 are present, guild batches are split into two stages. A switch on with a prompt missing falls back to single-stage
-mode. Private batches always use single-stage mode (`memory.md` on `models.base.voice`).
+mode. Private batches always use single-stage mode (`memory.md` on `models.core`).
 
-**Stage A** runs `memory-decide.md` on `models.base.extractor` (role `extractor`). It returns the same JSON structure with
+**Stage A** runs `memory-decide.md` on `models.helpers.extractor` (role `extractor`). It returns the same JSON structure with
 neutral decisions: interests, details, aliases, in-jokes, channel notes, lore, `style` and the episode line and
 quote are stored at once. Voice fields (relationship, affinity reason, episode feeling, lessons, self-facts, server
 patterns, starters, character) are returned as neutral briefs and queued for stage B. The attitude delta is applied
@@ -1044,7 +1044,7 @@ The stage A answer shape for voice fields:
 - `self`: an object `{ "add": [...], "remove": [...] }` (a bare list is ignored).
 - `guild.patterns` and `guild.starters`: briefs, only when the note must change.
 
-**Stage B** runs `memory-voice.md` on `models.base.voice` (role `voice`). It takes the
+**Stage B** runs `memory-voice.md` on `models.core` (role `core`, the persona's model; purpose `memory-voice`). It takes the
 queued items and returns `{ "items": { "<id>": "<text>" } }`. Each item carries its kind, the stored old text (when
 applicable), the neutral brief from stage A, and a character limit. Applied items leave the queue; items left out of
 the answer are retried with increasing back-off. Items that expire (older than `memory.voice.queueHours`, or left
@@ -1085,7 +1085,7 @@ Each record logs `store: version recorded` with `kind`, `field`, `by`, `chars`, 
 
 `tools/backfill.mjs extract` (an operations tool, run by hand; see `tools/README.md`) sends one request per window
 of connected old lines (reply chains, gaps of at most `recall.clusterGapMinutes`, at most 120 lines) on the analyzer
-model (`models.base.extractor`; role `extractor`, purpose `backfill`, no cache marker). A thin window is
+model (`models.helpers.extractor`; role `extractor`, purpose `backfill`, no cache marker). A thin window is
 not sent unless `--include-thin` is given: fewer than 4 content lines (media, or at least 3 words once URLs, emoji
 and mentions are taken out), no line by the persona and no line with a `?` or a mention.
 
@@ -1186,7 +1186,7 @@ compatible with the sample stays (condensed to make room), points the sample con
 habits are added, and a point the sample merely does not show is NOT dropped. Interests, details, episodes and
 aliases of the refresh answer are IGNORED; they keep flowing through the stream ops.
 
-In two-stage mode (`features.memoryTwoStage`), the portrait refresh uses `prompts/portrait.md` on `models.base.extractor`
+In two-stage mode (`features.memoryTwoStage`), the portrait refresh uses `prompts/portrait.md` on `models.helpers.extractor`
 (stage A), which returns a merged `style` text stored at once and structured `character` edits queued as a voice
 item. The next voice run (stage B) words the character text. Details of this flow are in a later documentation pass.
 

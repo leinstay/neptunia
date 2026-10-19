@@ -12,7 +12,7 @@
 // DEFERRED_OPS entry when its operation may outlast the reply window.
 
 import { isPlainObject } from '../config.js';
-import { AGENT_ROLES, OPENCODE_ROLES } from '../llm/roles.js';
+import { AGENT_ROLES, CORE_ROLES, OPENCODE_ROLES, roleConfigKeys } from '../llm/roles.js';
 
 // Raw Discord API option-type numbers (application-command-option-type):
 // https://discord.com/developers/docs/interactions/application-commands
@@ -53,27 +53,21 @@ export const DEFERRED_OPS = Object.freeze(new Set([
 ]));
 
 /**
- * The core's model roles (src/llm/roles.js#BASE_ROLES), each with the config path of its model
- * (src/ops/model.js): the roles the status card probes; with the agents' roles they make
- * `MODEL_SET_PATHS`; every role choice list is derived from this one. `voice` is the one model that speaks as the persona: its replies and
- * every memory text worded in its voice (src/memory/update.js#runVoice). `embedding` serves the
- * embeddings (src/llm/embed.js), which take no chat completion.
+ * The core's model roles (src/llm/roles.js#CORE_ROLES: the core, then the helpers), each with the
+ * config path of its model (src/ops/model.js): the roles the status card probes; with the agents'
+ * roles they make `MODEL_SET_PATHS`; every role choice list is derived from this one. `core` is
+ * the one model that speaks as the persona: its replies and every memory text worded in its voice
+ * (src/memory/update.js#runVoice). `embedding` serves the embeddings (src/llm/embed.js), which
+ * take no chat completion.
  */
-export const MODEL_ROLE_PATHS = Object.freeze({
-  voice: 'models.base.voice',
-  analyzer: 'models.base.analyzer',
-  extractor: 'models.base.extractor',
-  vision: 'models.base.vision',
-  video: 'models.base.video',
-  embedding: 'models.base.embedding',
-});
+export const MODEL_ROLE_PATHS = Object.freeze(Object.fromEntries(CORE_ROLES.map((role) => [role, roleConfigKeys(role).join('.')])));
 
 /** The roles of `MODEL_ROLE_PATHS`, in order. */
 export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
 
 /**
  * The roles whose model `/nep model show|set` lists and changes, each with the config path
- * `set` writes: the chat and embedding roles (`models.base`), then the agents' roles
+ * `set` writes: the core and the helper roles (`models.core`, `models.helpers`), then the agents' roles
  * (`models.agents`, src/llm/roles.js#AGENT_ROLES): `web`, `server`, `thinker`, `dev` and `writer`, which take no
  * request of the bot (OpenCode workers run them), then the drawing model (`drawing`,
  * src/llm/images.js#IMAGE_ROLE), which takes no chat completion.

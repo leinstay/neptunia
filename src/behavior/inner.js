@@ -356,7 +356,7 @@ export function errandRefusal(usdBudget, share, usd) {
 
 /**
  * The cost of whatever runs inside `run(fn)`: every `llm: usage` line (its `upstreamCost`, else
- * `cost`; a `voice` role counted apart) and `images: generated` line logged in its async context
+ * `cost`; the `core` role counted apart, as `voice`, the journal field's name since the role was called so) and `images: generated` line logged in its async context
  * (AsyncLocalStorage over the log listeners, src/log.js#onLog), helpers it starts included;
  * `running()`, asked inside it, says what it has cost so far and its costliest single request.
  * @param {{ subscribe?: (listener: Function) => Function }} [options]
@@ -373,7 +373,7 @@ export function createCostMeter({ subscribe = onLog } = {}) {
       box.usd += usd;
       box.peak = Math.max(box.peak, usd);
       box.requests += 1;
-      if (entry.role === 'voice') box.voice += 1;
+      if (entry.role === 'core') box.voice += 1;
     } else if (entry.msg === 'images: generated') {
       const usd = amount(entry.cost);
       box.usd += usd;

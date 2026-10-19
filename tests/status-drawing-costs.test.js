@@ -50,7 +50,7 @@ function setup() {
   // The accumulator the status card reads: a voice request and a picture's `images: generated` line.
   const usage = createUsage({ dataDir: tempDir('nep-status-drawing-usage-'), now: () => NOW });
   const tap = usageTap(usage);
-  tap({ msg: 'llm: usage', role: 'voice', promptTokens: 100, completionTokens: 10, cost: 0.4 });
+  tap({ msg: 'llm: usage', role: 'core', promptTokens: 100, completionTokens: 10, cost: 0.4 });
   tap({ msg: 'images: generated', cost: 0.03 });
   const reads = [];
   const llm = {
@@ -73,7 +73,7 @@ test('status: costs.agents lists the drawing agent with its runs and dollars; co
   const drawing = result.agents.find((line) => line.startsWith('drawing:'));
   assert.equal(drawing, 'drawing: D 2r 80/2.0k 0.05 | W 2r 80/2.0k 0.05 | M 2r 80/2.0k 0.05');
   assert.equal(result.agents.at(-1), 'est.');
-  assert.deepEqual(result.base, ['voice: 1 req 0.40'], 'no drawing row: nothing counts twice');
+  assert.deepEqual(result.base, ['core: 1 req 0.40'], 'no drawing row: nothing counts twice');
 });
 
 test('status: keys.base leaves the agents\' key out when the drawing role is on it, and never reads it', async () => {

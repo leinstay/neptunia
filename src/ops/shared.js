@@ -543,8 +543,8 @@ export const ROUTE_ROLES = [...MODEL_ROLES, IMAGE_ROLE];
 export const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
 
 /** The model id one role resolves to right now (`/nep model show`, `/nep route`, the status
- * card): `models.base.<role>` or `models.agents.<role>`, else the role's own default
- * (src/llm/roles.js#roleModel; no purpose, so no `models.base.byPurpose` entry). */
+ * card): `models.core`, `models.helpers.<role>` or `models.agents.<role>`, else the role's own default
+ * (src/llm/roles.js#roleModel; no purpose, so no `models.byPurpose` entry). */
 export function modelForRole(role, cfg) {
   return roleModel(cfg, role);
 }

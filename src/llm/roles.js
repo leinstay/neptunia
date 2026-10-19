@@ -1,12 +1,16 @@
 // The model roles: every LLM request names the role it goes out on, and each role has its own
-// model with a built-in default (the same value config.json ships). The models sit in two
-// sections: `models.base.<role>` for the core's own roles (thinking, seeing, speech) and
+// model with a built-in default (the same value config.json ships). The models sit in three
+// places: `models.core` for the core (the one model that speaks and decides as the persona),
+// `models.helpers.<role>` for the helper roles (thinking for it, seeing, extracting, embedding) and
 // `models.agents.<role>` for the agents. A role never takes another role's model: an unset role
-// is its own default, so changing one role can never move another. `models.base.byPurpose` pins
+// is its own default, so changing one role can never move another. `models.byPurpose` pins
 // a single purpose (one helper, one kind of request) to a model of its own whatever its role.
 // The role names are what the request does:
-// models.base
-// - `voice`      speaks as the persona: the reply and the memory texts worded in its voice;
+// models.core
+// - `core`       speaks as the persona: the reply and the memory texts worded in its voice
+//                (formerly the role `core`, 2026-10: the old key and role name are read as
+//                aliases by src/config.js#adaptLegacyModelKeys and src/llm/openrouter.js#currentRoleName);
+// models.helpers
 // - `analyzer`   the core's helper model: picks one of a few given options (address, room,
 //                merge, route-channel, participation-pick, rewatch, split, gif-pick, missed),
 //                plans a search and turns sources into notes (lookup, planner, recall-summary,
@@ -29,13 +33,20 @@
 // OpenCode, not through the bot's OpenRouter client, and their models are OpenCode model ids
 // (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter ids of the other roles.
 // A config that still carries the old flat `roles` map, or a model for the merged `reasoner`
-// role, is refused at load (src/config.js).
+// role, is refused at load (src/config.js); one that still carries `models.base.*` is read
+// under the new keys with one warning.
 // Pure; every reader passes the live config read at the moment of use.
 
 import { isPlainObject } from '../config.js';
 
-/** The core's roles, in display order: their models under `models.base`. */
-export const BASE_ROLES = Object.freeze(['voice', 'analyzer', 'extractor', 'vision', 'video', 'embedding']);
+/** The core: the one role that speaks and decides as the persona, its model under `models.core`. */
+export const CORE_ROLE = 'core';
+
+/** The helper roles, in display order: their models under `models.helpers`. */
+export const HELPER_ROLES = Object.freeze(['analyzer', 'extractor', 'vision', 'video', 'embedding']);
+
+/** The core's own roles (the core, then the helpers), in display order: the roles the bot's own requests go out on besides drawing. */
+export const CORE_ROLES = Object.freeze([CORE_ROLE, ...HELPER_ROLES]);
 
 /** The roles whose model an OpenCode worker runs on, never the bot's own client. */
 export const OPENCODE_ROLES = Object.freeze(['web', 'server', 'thinker', 'dev', 'writer']);
@@ -44,11 +55,11 @@ export const OPENCODE_ROLES = Object.freeze(['web', 'server', 'thinker', 'dev', 
 export const AGENT_ROLES = Object.freeze([...OPENCODE_ROLES, 'drawing']);
 
 /** The roles, in display order (`/nep model`, the status card). */
-export const ROLES = Object.freeze([...BASE_ROLES, ...AGENT_ROLES]);
+export const ROLES = Object.freeze([...CORE_ROLES, ...AGENT_ROLES]);
 
 /** Each role's model while its key is unset: config.json's values. */
 export const ROLE_DEFAULTS = Object.freeze({
-  voice: 'anthropic/claude-opus-4.6',
+  core: 'anthropic/claude-opus-4.6',
   analyzer: 'openai/gpt-6.1-sol',
   extractor: 'openai/gpt-6.1-sol',
   vision: 'google/gemini-3.8-flash',
@@ -63,37 +74,39 @@ export const ROLE_DEFAULTS = Object.freeze({
 });
 
 /**
- * The section of `models` a role's model sits in: `base` or `agents`, undefined for a name that
- * is not a role.
+ * The section of `models` a role's model sits in: `core` (the core's model is `models.core`
+ * itself), `helpers` or `agents`, undefined for a name that is not a role.
  * @param {unknown} role
- * @returns {'base'|'agents'|undefined}
+ * @returns {'core'|'helpers'|'agents'|undefined}
  */
 export function roleSection(role) {
-  if (BASE_ROLES.includes(role)) return 'base';
+  if (role === CORE_ROLE) return 'core';
+  if (HELPER_ROLES.includes(role)) return 'helpers';
   if (AGENT_ROLES.includes(role)) return 'agents';
   return undefined;
 }
 
 /**
- * The config keys of a role's model (`['models', 'base', 'voice']`), undefined for a name that is
- * not a role.
+ * The config keys of a role's model (`['models', 'core']`, `['models', 'helpers', 'vision']`,
+ * `['models', 'agents', 'web']`), undefined for a name that is not a role.
  * @param {unknown} role
  * @returns {string[]|undefined}
  */
 export function roleConfigKeys(role) {
   const section = roleSection(role);
-  return section ? ['models', section, role] : undefined;
+  if (!section) return undefined;
+  return section === 'core' ? ['models', 'core'] : ['models', section, role];
 }
 
 /**
  * The role each named purpose goes out on (the `purpose` of a request, logged on its
- * `llm: usage` line and the key of a `models.base.byPurpose` entry). Requests with no purpose of their
+ * `llm: usage` line and the key of a `models.byPurpose` entry). Requests with no purpose of their
  * own (the memory analyzer's batches, the warmup family, a video, an index embedding, a drawing)
  * are not listed: they are named by their role alone.
  */
 export const PURPOSE_ROLES = Object.freeze({
-  reply: 'voice',
-  'memory-voice': 'voice',
+  reply: 'core',
+  'memory-voice': 'core',
   address: 'analyzer',
   room: 'analyzer',
   merge: 'analyzer',
@@ -129,10 +142,12 @@ export function isRole(role) {
 
 /**
  * The model of one request, the one resolver every caller goes through: the
- * `models.base.byPurpose` entry for `purpose` when it is a non-empty string (an own key of a
- * plain object), else the role's own key (`models.base.<role>` or `models.agents.<role>`) when it
- * is a non-empty string, else the role's own default (ROLE_DEFAULTS). Never another role's
- * model. `undefined` only for a `role` that is not one of ROLES and no `byPurpose` entry.
+ * `models.byPurpose` entry for `purpose` when it is a non-empty string (an own key of a
+ * plain object), else the role's own key (`models.core`, `models.helpers.<role>` or
+ * `models.agents.<role>`) when it is a non-empty string, else the role's own default
+ * (ROLE_DEFAULTS). Never another role's model. `undefined` only for a `role` that is not one of
+ * ROLES and no `byPurpose` entry. The old keys (`models.base.*`) are not read here: a
+ * config.local.json still holding them is moved at load (src/config.js#adaptLegacyModelKeys).
  * @param {object|undefined} config  The whole live config, read at the moment of use.
  * @param {string} role
  * @param {string} [purpose]
@@ -140,15 +155,19 @@ export function isRole(role) {
  */
 export function roleModel(config, role, purpose) {
   const models = isPlainObject(config?.models) ? config.models : undefined;
-  const base = isPlainObject(models?.base) ? models.base : undefined;
-  const byPurpose = base?.byPurpose;
+  const byPurpose = models?.byPurpose;
   if (typeof purpose === 'string' && isPlainObject(byPurpose) && Object.hasOwn(byPurpose, purpose)) {
     const pinned = byPurpose[purpose];
     if (typeof pinned === 'string' && pinned) return pinned;
   }
   const section = roleSection(role);
   if (!section) return undefined;
-  const map = isPlainObject(models) && Object.hasOwn(models, section) && isPlainObject(models[section]) ? models[section] : undefined;
-  const own = map && Object.hasOwn(map, role) ? map[role] : undefined;
+  let own;
+  if (section === 'core') {
+    own = models && Object.hasOwn(models, CORE_ROLE) ? models[CORE_ROLE] : undefined;
+  } else {
+    const map = models && Object.hasOwn(models, section) && isPlainObject(models[section]) ? models[section] : undefined;
+    own = map && Object.hasOwn(map, role) ? map[role] : undefined;
+  }
   return typeof own === 'string' && own ? own : ROLE_DEFAULTS[role];
 }

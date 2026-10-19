@@ -31,7 +31,7 @@
 //            Windows of connected lines (tools/lib/backfill.mjs#windowsOf: reply chains and
 //            `recall.clusterGapMinutes` gaps, at most `--window-max` lines), each sent with the
 //            roster of its members (stored names and aliases only) and prompts/backfill.md to the
-//            extractor model (`models.base.extractor`). The answers' items go to
+//            extractor model (`models.helpers.extractor`). The answers' items go to
 //            data/guilds/<id>/backfill/candidates.jsonl (quotes checked against their message,
 //            items citing a line outside the window dropped; tools/lib/backfill.mjs
 //            #readExtractAnswer). The estimate is printed first; the run is refused (exit 2) when

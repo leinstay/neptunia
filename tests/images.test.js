@@ -430,7 +430,7 @@ test('images: a generation routes as the drawing role; an @drawing key beats a l
   config.llm.providerByModel = {
     'google/test-image': { only: ['google-vertex'] },
     'google/@drawing': { only: ['google-ai-studio'], allow_fallbacks: false },
-    'google/test-image@voice': { only: ['other'] },
+    'google/test-image@core': { only: ['other'] },
   };
   const { gen, fetchImpl } = makeGen({ config });
   await gen.generate({ prompt: 'a small boat' });
@@ -438,7 +438,7 @@ test('images: a generation routes as the drawing role; an @drawing key beats a l
   delete config.llm.providerByModel['google/@drawing'];
   await gen.generate({ prompt: 'a small boat' });
   assert.deepEqual(fetchImpl.calls[1].body.provider, { only: ['google-vertex'] });
-  config.llm.providerByModel = { 'google/@voice': { only: ['other'] } };
+  config.llm.providerByModel = { 'google/@core': { only: ['other'] } };
   await gen.generate({ prompt: 'a small boat' });
   assert.deepEqual(fetchImpl.calls[2].body.provider, { ignore: ['some-provider'] });
 });

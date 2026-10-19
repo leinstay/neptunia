@@ -3911,7 +3911,7 @@ export function createTurnRunner({
    * messages (at most `media.video.rewatch.maxCandidates` of them, the videos
    * first, then the watched GIFs, then the pictures, each newest first), one cheap classifier call
    * (prompts.rewatch, on the analyzer model: roleModel for `analyzer` --
-   * `models.base.byPurpose.rewatch`, else `models.base.analyzer`, else its default; its answer capped at
+   * `models.byPurpose.rewatch`, else `models.helpers.analyzer`, else its default; its answer capped at
    * `media.video.rewatch.classifierMaxOutputTokens`) picks the item and
    * the question. For a video the describer looks at it again
    * (describer.rewatchVideo) and the answer joins that video's state as
@@ -5716,7 +5716,7 @@ export function createTurnRunner({
                 throw TOO_SLOW;
               }),
             ]);
-      // The reply request's options (role `voice`, purpose `reply`): with a bar, each attempt's
+      // The reply request's options (role `core`, purpose `reply`): with a bar, each attempt's
       // timeout is the smaller of llm.timeoutMs (read now) and the time left, and the bar's
       // signal aborts it; nothing is asked once no time is left. With a bar the request is also
       // hedged (pace.replyHedgeMs, read now): no answer by then, a second identical request is

@@ -204,7 +204,7 @@ function makeHot(rootDir) {
   return {
     config: {
       bot: { owners: ['42'] },
-      models: { base: { voice: 'anthropic/claude-opus-4.6' } },
+      models: { core: 'anthropic/claude-opus-4.6' },
       llm: { maxRequestsPerDay: 300 },
     },
     prompts: { persona: 'who she is', labels: { locale: 'en-US' } },
@@ -470,19 +470,19 @@ test('run: set writes an override to config.local.json and reloads config', asyn
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
 
-  const result = await admin.run('set', { path: 'models.base.voice', value: '"openrouter/test-model"' }, {});
+  const result = await admin.run('set', { path: 'models.core', value: '"openrouter/test-model"' }, {});
 
-  assert.deepEqual(readLocal(rootDir), { models: { base: { voice: 'openrouter/test-model' } } });
+  assert.deepEqual(readLocal(rootDir), { models: { core: 'openrouter/test-model' } });
   assert.equal(hot.reloadConfigCalls, 1);
-  assert.ok(result.includes('Set models.base.voice'));
+  assert.ok(result.includes('Set models.core'));
 });
 
 test('run: set falls back to the raw string when the value is not valid JSON', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
 
-  await admin.run('set', { path: 'models.base.voice', value: 'plain-text-model' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { base: { voice: 'plain-text-model' } } });
+  await admin.run('set', { path: 'models.core', value: 'plain-text-model' }, {});
+  assert.deepEqual(readLocal(rootDir), { models: { core: 'plain-text-model' } });
 });
 
 test('run: set rejects an unknown config path and writes nothing', async () => {
@@ -500,8 +500,8 @@ test('run: unset removes a previously set override', async () => {
   const rootDir = makeRoot();
   const { admin, hot } = makeAdmin(rootDir);
 
-  await admin.run('set', { path: 'models.base.voice', value: '"temp-model"' }, {});
-  await admin.run('unset', { path: 'models.base.voice' }, {});
+  await admin.run('set', { path: 'models.core', value: '"temp-model"' }, {});
+  await admin.run('unset', { path: 'models.core' }, {});
 
   assert.deepEqual(readLocal(rootDir), {});
   assert.equal(hot.reloadConfigCalls, 2);
@@ -548,7 +548,7 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
 test('set: accepts only an own leaf path of the live config and a value of the same JSON type', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
-  hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, extractor: null } };
+  hot.config.models = { ...hot.config.models, helpers: { ...hot.config.models.helpers, extractor: null } };
   hot.config.features = { dryRun: false };
   const { admin } = makeAdmin(rootDir, { hot });
   const owner = { userId: '42' };
@@ -563,11 +563,11 @@ test('set: accepts only an own leaf path of the live config and a value of the s
 
   await admin.run('set', { path: 'llm.maxRequestsPerDay', value: '250' }, owner);
   await admin.run('set', { path: 'features.dryRun', value: 'true' }, owner);
-  await admin.run('set', { path: 'models.base.extractor', value: '"x/y"' }, owner); // the current value is null: any type
-  await admin.run('set', { path: 'models.base.voice', value: '123' }, owner); // a string setting keeps the text as typed
+  await admin.run('set', { path: 'models.helpers.extractor', value: '"x/y"' }, owner); // the current value is null: any type
+  await admin.run('set', { path: 'models.core', value: '123' }, owner); // a string setting keeps the text as typed
   assert.deepEqual(readLocal(rootDir), {
     llm: { maxRequestsPerDay: 250 },
-    models: { base: { extractor: 'x/y', voice: '123' } },
+    models: { core: '123', helpers: { extractor: 'x/y' } },
     features: { dryRun: true },
   });
 });
@@ -580,7 +580,7 @@ function makeHotWithMedia(rootDir) {
   const hot = makeHot(rootDir);
   hot.config.memory = {};
   hot.config.media = {};
-  hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, vision: 'anthropic/claude-haiku-4.5' } };
+  hot.config.models = { ...hot.config.models, helpers: { ...hot.config.models.helpers, vision: 'anthropic/claude-haiku-4.5' } };
   hot.config.features = { mediaDescriptions: false };
   return hot;
 }
@@ -594,8 +594,10 @@ test('run: model.show lists each role with its own model; an unset role shows it
   assert.ok(lines.includes('vision: anthropic/claude-haiku-4.5'));
   assert.ok(lines.includes(`analyzer: ${ROLE_DEFAULTS.analyzer}`), 'the analyzer is not the vision model');
   assert.ok(!lines.some((line) => line.startsWith('reasoner')), 'the reasoner is merged into the analyzer');
-  assert.deepEqual(lines.slice(0, 6).map((line) => line.split(':')[0]), ['voice', 'analyzer', 'extractor', 'vision', 'video', 'embedding']);
-  assert.deepEqual(lines.slice(6, 12), [
+  assert.deepEqual(lines.slice(0, 8).map((line) => line.split(':')[0]), ['core', 'helpers', 'analyzer', 'extractor', 'vision', 'video', 'embedding', 'agents'], 'the core first, then the helpers and the agents each under their group line');
+  assert.equal(lines[1], 'helpers:');
+  assert.equal(lines[7], 'agents:');
+  assert.deepEqual(lines.slice(8, 14), [
     `web: ${ROLE_DEFAULTS.web}`,
     `server: ${ROLE_DEFAULTS.server}`,
     `thinker: ${ROLE_DEFAULTS.thinker}`,
@@ -608,7 +610,7 @@ test('run: model.show lists each role with its own model; an unset role shows it
 test('run: model.show ignores the deprecated keys of an old config.local.json', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
-  hot.config.models = { base: { voice: 'anthropic/claude-opus-4.6' } };
+  hot.config.models = { core: 'anthropic/claude-opus-4.6' };
   hot.config.llm.classifierModel = 'openrouter/old-classifier';
   hot.config.mention = { followUpModel: 'openrouter/older-classifier' };
   hot.config.media = { model: 'openrouter/old-media', video: { model: 'openrouter/old-video' } };
@@ -628,8 +630,8 @@ test('run: model.set writes the models.base or models.agents path of each role',
   const changedAt = Date.UTC(2026, 9, 15, 9, 30);
   const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
 
-  await admin.run('model.set', { role: 'voice', id: 'anthropic/claude-opus-4.6' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { base: { voice: 'anthropic/claude-opus-4.6' } } });
+  await admin.run('model.set', { role: 'core', id: 'anthropic/claude-opus-4.6' }, {});
+  assert.deepEqual(readLocal(rootDir), { models: { core: 'anthropic/claude-opus-4.6' } });
 
   await admin.run('model.set', { role: 'analyzer', id: 'openrouter/text-model' }, {});
   await admin.run('model.set', { role: 'extractor', id: 'openrouter/cheap-model' }, {});
@@ -642,8 +644,8 @@ test('run: model.set writes the models.base or models.agents path of each role',
   await admin.run('model.set', { role: 'dev', id: 'openrouter/anthropic/dev-model' }, {});
   assert.deepEqual(readLocal(rootDir), {
     models: {
-      base: {
-        voice: 'anthropic/claude-opus-4.6',
+      core: 'anthropic/claude-opus-4.6',
+      helpers: {
         analyzer: 'openrouter/text-model',
         extractor: 'openrouter/cheap-model',
         vision: 'anthropic/claude-haiku-4.5',
@@ -671,12 +673,12 @@ test('run: model.set vision or video sets media.recacheBefore to the moment of t
     const hot = makeHotWithMedia(rootDir);
     const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
     const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
-    assert.deepEqual(readLocal(rootDir), { models: { base: { [role]: 'google/a-new-model' } }, media: { recacheBefore: iso } }, role);
+    assert.deepEqual(readLocal(rootDir), { models: { helpers: { [role]: 'google/a-new-model' } }, media: { recacheBefore: iso } }, role);
     assert.equal(hot.reloadConfigCalls, 1, `${role}: one write, one reload`);
     assert.match(reply, /^Set (vision|video) model to google\/a-new-model \(reload ok\)\n/);
     assert.ok(reply.includes(`media.recacheBefore set to ${iso}`), role);
   }
-  for (const role of ['voice', 'analyzer', 'extractor', 'embedding', 'web', 'server', 'thinker', 'dev', 'writer', 'drawing']) {
+  for (const role of ['core', 'analyzer', 'extractor', 'embedding', 'web', 'server', 'thinker', 'dev', 'writer', 'drawing']) {
     const rootDir = makeRoot();
     const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => changedAt });
     const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
@@ -689,7 +691,7 @@ test('run: model.set vision to the model it already has leaves media.recacheBefo
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
   await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { base: { vision: 'anthropic/claude-haiku-4.5' } } });
+  assert.deepEqual(readLocal(rootDir), { models: { helpers: { vision: 'anthropic/claude-haiku-4.5' } } });
 });
 
 test('run: model.set rejects an unknown role and the old role names, and writes nothing', async () => {
@@ -699,7 +701,7 @@ test('run: model.set rejects an unknown role and the old role names, and writes 
   for (const role of ['bogus', 'followup', 'media', 'classifier', 'classifier.text', 'classifier.media', 'image', 'talk', 'reasoner', 'agentWeb', 'agentDev', 'agent.web', 'agent.advice', 'advice', 'byPurpose']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
-      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(voice, analyzer, extractor, vision, video, embedding, web, server, thinker, dev, writer, drawing\\)`),
+      new RegExp(`unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, extractor, vision, video, embedding, web, server, thinker, dev, writer, drawing\\)`),
       role,
     );
   }
@@ -710,7 +712,7 @@ test('run: model.set rejects an id that does not look like a model id', async ()
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
 
-  await assert.rejects(() => admin.run('model.set', { role: 'voice', id: 'x' }, {}), /model id/);
+  await assert.rejects(() => admin.run('model.set', { role: 'core', id: 'x' }, {}), /model id/);
   await assert.rejects(() => admin.run('model.set', { role: 'drawing', id: 'has spaces here' }, {}), /model id/);
   assert.equal(fs.existsSync(path.join(rootDir, 'config.local.json')), false);
 });
@@ -720,20 +722,20 @@ test('run: model.set accepts a loosely-valid id (letters, digits, dot, colon, sl
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => 0 });
 
   await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5:beta' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { base: { vision: 'anthropic/claude-haiku-4.5:beta' } }, media: { recacheBefore: new Date(0).toISOString() } });
+  assert.deepEqual(readLocal(rootDir), { models: { helpers: { vision: 'anthropic/claude-haiku-4.5:beta' } }, media: { recacheBefore: new Date(0).toISOString() } });
 });
 
-test('model show: the voice role is models.base.voice, never the extractor or a stale memory.voiceModel; no talk line', async () => {
+test('model show: the core role is models.core, never the extractor or a stale memory.voiceModel; no voice or talk line', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
-  hot.config.models.base.extractor = 'openai/extractor-model';
+  hot.config.models.helpers.extractor = 'openai/extractor-model';
   hot.config.memory.voiceModel = 'openrouter/stale-voice-model';
   const { admin } = makeAdmin(rootDir, { hot });
 
   const lines = (await admin.run('model.show', {}, {})).split('\n');
-  assert.ok(lines.includes('voice: anthropic/claude-opus-4.6'));
+  assert.ok(lines.includes('core: anthropic/claude-opus-4.6'));
   assert.ok(lines.includes('extractor: openai/extractor-model'));
-  assert.ok(!lines.some((l) => l.startsWith('talk:')), 'no talk role');
+  assert.ok(!lines.some((l) => l.startsWith('talk:') || l.startsWith('voice:')), 'no talk or voice role');
   assert.ok(!lines.some((l) => l.includes('stale-voice-model')), 'memory.voiceModel is not read');
 });
 
@@ -1953,7 +1955,7 @@ test('status: the card carries the fields in order and the member variant drops 
   const archive = { stats: () => ({ pending: 3 }) };
   const client = { ws: { ping: 41.6 }, guilds: { cache: new Map() } };
   const { admin, hot, store } = makeAdmin(rootDir, { journal, archive, client, isWarmingUp: () => true });
-  hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, extractor: 'x/extractor' } };
+  hot.config.models = { ...hot.config.models, helpers: { ...hot.config.models.helpers, extractor: 'x/extractor' } };
   hot.config.media = { video: { maxPerDay: 40 } };
   hot.config.recall = { maxPerDay: 100 };
   hot.config.web = { maxPerDay: 60 };
@@ -1981,7 +1983,7 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(
     value('models.base'),
     [
-      'voice · anthropic/claude-opus-4.6',
+      'core · anthropic/claude-opus-4.6',
       `analyzer · ${ROLE_DEFAULTS.analyzer}`,
       'extractor · x/extractor',
       `vision · ${ROLE_DEFAULTS.vision}`,
@@ -2039,7 +2041,7 @@ test('status: the owner card shows the limit of each key with its usage under it
       return { ok: true, status: 200, json: { data: {} } };
     },
   };
-  let rows = [{ role: 'voice', requests: 38, promptTokens: 974_000, cachedTokens: 342_000, completionTokens: 9_300, cost: 4.03 }];
+  let rows = [{ role: 'core', requests: 38, promptTokens: 974_000, cachedTokens: 342_000, completionTokens: 9_300, cost: 4.03 }];
   const usage = { byRole: () => rows };
   const { admin, hot } = makeAdmin(rootDir, { llm, usage });
   hot.prompts.labels = labels;
@@ -2052,7 +2054,7 @@ test('status: the owner card shows the limit of each key with its usage under it
     'sim: not set',
   ]);
   assert.deepEqual((await fieldOf('costs.base')).split('\n'), [
-    'voice: 38 req, in 974k (cached 342k), out 9.3k, 4.03 USD',
+    'core: 38 req, in 974k (cached 342k), out 9.3k, 4.03 USD',
   ], 'no header, no total');
   assert.deepEqual(reads, [['key', 1234], ['key', 1234]], 'the key read with the probe timeout, once per card; never the credits');
 
@@ -2082,7 +2084,7 @@ test('status: the field option renders that field alone and runs only its work',
     return { ok: true, status: 200, json: { data: [] } };
   };
   llm.keyHash = () => 'h';
-  const usage = { byRole: () => [{ role: 'voice', requests: 1, promptTokens: 1, cachedTokens: 0, completionTokens: 1, cost: 0.5 }] };
+  const usage = { byRole: () => [{ role: 'core', requests: 1, promptTokens: 1, cachedTokens: 0, completionTokens: 1, cost: 0.5 }] };
   const { admin, hot } = makeAdmin(rootDir, { llm, usage, images: fakeImages({ quota: { used: 0, cap: 5 } }), managementKey: 'mgmt-test' });
   probeConfig(hot);
   hot.prompts.labels.status.costs = labels.status.costs;
@@ -2316,8 +2318,8 @@ function fakeProbeLlm(answer, listing = { ok: true, status: 200, json: { data: {
 /** The probe tests' config: a model per role (the drawing model included), the probe timeout and label. */
 function probeConfig(hot) {
   hot.config.models = {
-    base: {
-      voice: 'anthropic/claude-opus-4.6',
+    core: 'anthropic/claude-opus-4.6',
+    helpers: {
       analyzer: 'x/text',
       extractor: 'x/extractor',
       vision: 'x/media',
@@ -2367,7 +2369,7 @@ test('status: the card lists one item per line in every field, the models one li
     assert.ok(!lines(name).some((line) => line.startsWith(' ')), `${name}: no detail line under a role`);
   }
   assert.deepEqual(lines('models.base').map(head), [
-    'voice · anthropic/claude-opus-4.6',
+    'core · anthropic/claude-opus-4.6',
     'analyzer · x/text',
     'extractor · x/extractor',
     'vision · x/media',
@@ -2418,7 +2420,7 @@ test('status: the owner card probes every role\'s model and shows its provider a
   });
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 2, cap: 5 } }), llm });
   probeConfig(hot);
-  const modelOf = { voice: 'anthropic/claude-opus-4.6', analyzer: 'x/text', extractor: 'x/extractor', vision: 'x/media', video: 'x/video' };
+  const modelOf = { core: 'anthropic/claude-opus-4.6', analyzer: 'x/text', extractor: 'x/extractor', vision: 'x/media', video: 'x/video' };
 
   const { result, logs } = await withCapturedLogs(() => admin.run('status', {}, { userId: '42' }));
   const lines = roleLinesOf(result.embeds[0].fields.find((f) => f.name === 'models.base').value);
@@ -2435,7 +2437,7 @@ test('status: the owner card probes every role\'s model and shows its provider a
   }
   assert.deepEqual(llm.listings, [{ model: 'openai/gpt-image-1', options: { timeoutMs: 1234 } }]);
 
-  assert.match(lines[0], /^voice · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
+  assert.match(lines[0], /^core · anthropic\/claude-opus-4\.6 · Prov · ok \d+ ms$/);
   assert.match(lines[1], /^analyzer · x\/text · Prov · ok \d+ ms$/);
   assert.ok(lines.includes('vision · x/media · failed: HTTP 503: upstream down (funnel: provider -> 0 endpoints)'), 'the failing role shows its reason and the routing funnel');
   assert.deepEqual(agents.slice(0, 5), [
@@ -2467,7 +2469,7 @@ test('status: the member card shows the models one line per role without probing
   assert.equal(
     valueOf('models.base'),
     [
-      'voice · anthropic/claude-opus-4.6',
+      'core · anthropic/claude-opus-4.6',
       'analyzer · x/text',
       'extractor · x/extractor',
       'vision · x/media',
@@ -2502,8 +2504,9 @@ test('status: identical probes are sent once, each role shows its own model, the
   };
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 0, cap: 5 } }), llm, embedder });
   probeConfig(hot);
-  // The extractor on the voice's model: one probe for the pair.
-  Object.assign(hot.config.models.base, { extractor: 'anthropic/claude-opus-4.6', video: 'x/media', byPurpose: { lookup: 'x/pinned', describe: 'x/seen' } });
+  // The extractor on the core's model: one probe for the pair.
+  Object.assign(hot.config.models.helpers, { extractor: 'anthropic/claude-opus-4.6', video: 'x/media' });
+  hot.config.models.byPurpose = { lookup: 'x/pinned', describe: 'x/seen' };
   // A role-specific route keeps the video role's probe apart although its model is the vision one.
   hot.config.llm.providerByModel = { 'x/@video': { only: ['video-host'] } };
 
@@ -2512,10 +2515,10 @@ test('status: identical probes are sent once, each role shows its own model, the
 
   assert.deepEqual(llm.calls.map((call) => [call.options.role, call.options.model]).sort(), [
     ['analyzer', 'x/text'],
+    ['core', 'anthropic/claude-opus-4.6'],
     ['video', 'x/media'],
     ['vision', 'x/media'],
-    ['voice', 'anthropic/claude-opus-4.6'],
-  ], 'one chat probe per (model, route); the extractor shares the voice one');
+  ], 'one chat probe per (model, route); the extractor shares the core one');
   assert.deepEqual(embedCalls.map((call) => call.texts), [['Answer with one word: Ωmega']], 'one embedding request of one input');
   assert.equal(embedCalls[0].options.countAgainstDailyCap, false);
   assert.equal(embedCalls[0].options.origin, 'status');
@@ -2812,7 +2815,7 @@ test('run: pause waits for a portrait refresh in flight and nothing is written a
       config: {
         bot: { timezone: 'UTC' },
         context: { gapMarkerMinutes: 20, maxMessageChars: 800 },
-        models: { base: { voice: 'x/y', extractor: 'x/y' } },
+        models: { core: 'x/y', helpers: { extractor: 'x/y' } },
         llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
         memory: { fieldChars: 400, mainChannelIds: [] },
         warmup: { minMessages: 2, contextBefore: 1, maxChannelShare: 1 },
@@ -2888,7 +2891,7 @@ test('run: pause waits for a voice run in flight and nothing is written after it
       },
     };
     const hot = minimalMemoryHot();
-    hot.config.models = { base: { voice: 'x/y' } };
+    hot.config.models = { core: 'x/y' };
     hot.config.features.memoryTwoStage = true;
     hot.config.memory.voice = { maxPerDay: 100 };
     hot.prompts['memory-voice'] = 'VOICE {{name}}';
@@ -3060,9 +3063,9 @@ test('run: read-only and config commands keep working while paused', async () =>
   await assert.doesNotReject(() => admin.run('lore.list', {}, { guildId: 'g1' }));
   await assert.doesNotReject(() => admin.run('model.show', {}, {}));
   await assert.doesNotReject(() => admin.run('rule.list', {}, {}));
-  await assert.doesNotReject(() => admin.run('set', { path: 'models.base.voice', value: '"x/y"' }, {}));
-  await assert.doesNotReject(() => admin.run('unset', { path: 'models.base.voice' }, {}));
-  await assert.doesNotReject(() => admin.run('model.set', { role: 'voice', id: 'x/y' }, {}));
+  await assert.doesNotReject(() => admin.run('set', { path: 'models.core', value: '"x/y"' }, {}));
+  await assert.doesNotReject(() => admin.run('unset', { path: 'models.core' }, {}));
+  await assert.doesNotReject(() => admin.run('model.set', { role: 'core', id: 'x/y' }, {}));
 });
 
 test('run: memory.show/lore.list/lore.show drop caches first while paused, so a hand-edit is always seen', async () => {
@@ -3617,12 +3620,12 @@ test('run: route.set with a role writes "<prefix>@<role>"; a dotted model id sta
 
   await admin.run('route.set', { model: 'google/', providers: 'google-vertex' }, {});
   await admin.run('route.set', { model: 'google/', providers: ' google-ai-studio , google-vertex ,', role: 'video' }, {});
-  await admin.run('route.set', { model: 'anthropic/claude-sonnet-4.6', providers: 'amazon-bedrock', role: 'voice', fallbacks: true }, {});
+  await admin.run('route.set', { model: 'anthropic/claude-sonnet-4.6', providers: 'amazon-bedrock', role: 'core', fallbacks: true }, {});
 
   assert.deepEqual(readLocal(rootDir).llm.providerByModel, {
     'google/': { only: ['google-vertex'], allow_fallbacks: false },
     'google/@video': { only: ['google-ai-studio', 'google-vertex'], allow_fallbacks: false },
-    'anthropic/claude-sonnet-4.6@voice': { only: ['amazon-bedrock'], allow_fallbacks: true },
+    'anthropic/claude-sonnet-4.6@core': { only: ['amazon-bedrock'], allow_fallbacks: true },
   });
 });
 
@@ -3692,7 +3695,7 @@ test('run: route.remove deletes only the named key; an unknown route is an error
   assert.equal(hot.reloadConfigCalls, 3);
 
   const before = fs.readFileSync(path.join(rootDir, 'config.local.json'), 'utf8');
-  await assert.rejects(() => admin.run('route.remove', { model: 'google/', role: 'voice' }, {}), /no route google\/@voice/);
+  await assert.rejects(() => admin.run('route.remove', { model: 'google/', role: 'core' }, {}), /no route google\/@core/);
   await assert.rejects(() => admin.run('route.remove', { model: 'google/', role: 'bogus' }, {}), /unknown role/);
   assert.equal(fs.readFileSync(path.join(rootDir, 'config.local.json'), 'utf8'), before);
   assert.equal(hot.reloadConfigCalls, 3);
@@ -3721,8 +3724,8 @@ function hotForRoutes(rootDir) {
   const hot = makeHotWithMedia(rootDir);
   hot.config.llm.provider = null;
   hot.config.models = {
-    base: {
-      voice: 'anthropic/claude-opus-4.6',
+    core: 'anthropic/claude-opus-4.6',
+    helpers: {
       analyzer: 'google/gemini-3.8-flash',
       extractor: 'anthropic/claude-opus-4.6',
       vision: 'google/gemini-3.8-flash',
@@ -3753,7 +3756,7 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     '  google/ | any | only google-vertex | fallbacks: off | byok: off',
     '  google/ | video | only google-ai-studio | fallbacks: off | byok: off',
     'by role:',
-    '  voice: anthropic/claude-opus-4.6 -> llm.provider (ignore some-provider, fallbacks: on)',
+    '  core: anthropic/claude-opus-4.6 -> llm.provider (ignore some-provider, fallbacks: on)',
     '  analyzer: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  extractor: anthropic/claude-opus-4.6 -> anthropic/@extractor (only amazon-bedrock, anthropic, fallbacks: on, byok)',
     '  vision: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
@@ -3768,15 +3771,17 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
   ]);
 });
 
-test('run: route.list shows a route key still written with the old role name talk as the route of the voice role', async () => {
+test('run: route.list shows a route key still written with an old role name (talk, voice) as the route of the core role', async () => {
   const rootDir = makeRoot();
   const hot = hotForRoutes(rootDir);
   hot.config.llm.providerByModel = { 'anthropic/@talk': { only: ['amazon-bedrock'], allow_fallbacks: false } };
   const { admin } = makeAdmin(rootDir, { hot });
 
   const lines = (await admin.run('route.list', {}, {})).split('\n');
-  assert.ok(lines.includes('  voice: anthropic/claude-opus-4.6 -> anthropic/@talk (only amazon-bedrock, fallbacks: off)'));
-  assert.ok(lines.includes('  extractor: anthropic/claude-opus-4.6 -> none'), 'the old name is the voice role only');
+  assert.ok(lines.includes('  core: anthropic/claude-opus-4.6 -> anthropic/@talk (only amazon-bedrock, fallbacks: off)'));
+  assert.ok(lines.includes('  extractor: anthropic/claude-opus-4.6 -> none'), 'the old name is the core role only');
+  hot.config.llm.providerByModel = { 'anthropic/@voice': { only: ['amazon-bedrock'], allow_fallbacks: false } };
+  assert.ok((await admin.run('route.list', {}, {})).split('\n').includes('  core: anthropic/claude-opus-4.6 -> anthropic/@voice (only amazon-bedrock, fallbacks: off)'));
 });
 
 test('access: route.list is read-only, route.set and route.remove open a write; none is open to a non-owner by default', async () => {

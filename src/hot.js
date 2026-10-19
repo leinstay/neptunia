@@ -50,10 +50,10 @@ const JSON_LAYERS = Object.freeze(['labels', 'skills']);
 
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
- * instead: `memory.voiceModel` (the memory wording runs on `models.base.voice`, the one voice model).
+ * instead: `memory.voiceModel` (the memory wording runs on `models.core`, the persona's one model).
  */
 const RETIRED_CONFIG_KEYS = Object.freeze([
-  { key: 'memory.voiceModel', use: 'models.base.voice', read: (config) => config?.memory?.voiceModel },
+  { key: 'memory.voiceModel', use: 'models.core', read: (config) => config?.memory?.voiceModel },
 ]);
 
 /** How many hex characters of the sha256 `hot.hashes` keeps. */

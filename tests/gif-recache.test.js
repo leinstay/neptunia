@@ -485,7 +485,7 @@ function fakeMediaDescriber(clock, { outcome, costMs = 0, blocker = null } = {})
 }
 
 function mediaHot(media = {}) {
-  return { config: { media: { embedTextChars: 200, recacheIntervalMs: 3000, ...media }, gifs: { recachePerRun: 50 }, models: { base: { vision: MODELS.vision, video: MODELS.video } } } };
+  return { config: { media: { embedTextChars: 200, recacheIntervalMs: 3000, ...media }, gifs: { recachePerRun: 50 }, models: { helpers: { vision: MODELS.vision, video: MODELS.video } } } };
 }
 
 /** A clock and a sleep that moves it, recording every wait. */
